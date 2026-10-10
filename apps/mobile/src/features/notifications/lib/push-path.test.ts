@@ -31,6 +31,17 @@ describe("push path routing", () => {
     expect(pathToNativeRoute("/notifications")).toBe("/notifications");
   });
 
+  test("sends a den link to the list rather than to a route that does not exist", () => {
+    // There is no den surface in this app. The push for one carries the web
+    // thread's own address, which would map to nothing here, so it lands on the
+    // notifications list - where the den notification that produced it is, and
+    // where tapping it says where the den actually is.
+    expect(pathToNativeRoute("/messages?c=den-1")).toBe("/notifications");
+    expect(pathToNativeRoute("/messages?c=den%2Fwith-slash")).toBe(
+      "/notifications"
+    );
+  });
+
   test("opens gust links in the native reel", () => {
     expect(pathToNativeRoute("/gusts?id=abc-123")).toBe("/gusts?id=abc-123");
     expect(pathToNativeRoute("/gusts?tab=latest&id=abc")).toBe("/gusts?id=abc");

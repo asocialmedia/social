@@ -278,7 +278,7 @@ function InlineTwoFactorForm({
                 <ChevronDown className="size-3.5" />
               </button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="min-w-44 rounded-xl">
+            <DropdownMenuContent align="end" className="min-w-44 rounded-2xl!">
               {availableMethods.map((availableMethod) => {
                 const MethodIcon = methodIcons[availableMethod];
                 return (

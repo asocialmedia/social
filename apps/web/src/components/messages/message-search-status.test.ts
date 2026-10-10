@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  isMessageSearchQueryTooLong,
+  MESSAGE_SEARCH_QUERY_TOO_LONG_MESSAGE,
   searchChatStatus,
   searchCoverageLabel,
   searchListEmptyState,
@@ -11,6 +13,13 @@ import {
 const COVERED = { fullyCovered: true, indexingOlder: false, queryReady: true };
 const PARTIAL = { fullyCovered: false, indexingOlder: false, queryReady: true };
 const WALKING = { fullyCovered: false, indexingOlder: true, queryReady: true };
+
+describe("isMessageSearchQueryTooLong", () => {
+  test("measures the normalized query in Unicode code points", () => {
+    expect(isMessageSearchQueryTooLong("😀".repeat(256))).toBe(false);
+    expect(isMessageSearchQueryTooLong("😀".repeat(257))).toBe(true);
+  });
+});
 
 describe("searchChatStatus", () => {
   test("says nothing until the query is worth searching", () => {
@@ -207,71 +216,67 @@ describe("searchListStatus", () => {
 });
 
 describe("searchStorageStatus", () => {
-  // The point of surfacing this: a full disk used to be indistinguishable from a
-  // conversation with no matches, so results were silently narrower than the user
-  // believed.
-  test("says storage is full when a write was refused", () => {
-    expect(searchStorageStatus({ evictedCount: 0, storageFull: true })).toBe(
-      "Storage full"
+  test("uses an ordinary failure message when a local write is refused", () => {
+    expect(searchStorageStatus({ storageFull: true })).toBe(
+      "Search couldn't finish"
     );
   });
 
-  test("reports conversations dropped to stay inside the budget", () => {
-    expect(searchStorageStatus({ evictedCount: 3, storageFull: false })).toBe(
-      "Older indexes removed (3)"
-    );
-  });
-
-  test("says nothing when there is no pressure", () => {
-    expect(searchStorageStatus({ evictedCount: 0, storageFull: false })).toBe(
-      ""
-    );
-  });
-
-  test("a full disk outranks an eviction notice", () => {
-    expect(searchStorageStatus({ evictedCount: 2, storageFull: true })).toBe(
-      "Storage full"
-    );
+  test("says nothing when local storage is available", () => {
+    expect(searchStorageStatus({ storageFull: false })).toBe("");
   });
 });
 
 describe("searchCoverageLabel", () => {
-  test("offers the walk plainly when nothing is indexed yet", () => {
-    expect(searchCoverageLabel({ indexedCount: 0, indexingOlder: false })).toBe(
-      "Index older messages"
-    );
-  });
-
-  test("reports how much is already covered", () => {
-    expect(
-      searchCoverageLabel({ indexedCount: 12_480, indexingOlder: false })
-    ).toBe("Index older messages (12,480 indexed)");
-  });
-
-  test("reports progress while the walk runs", () => {
-    expect(
-      searchCoverageLabel({ indexedCount: 12_480, indexingOlder: true })
-    ).toBe("Indexing older messages (12,480 indexed)");
-  });
-
-  test("a fresh walk with nothing covered yet has no count to show", () => {
-    expect(searchCoverageLabel({ indexedCount: 0, indexingOlder: true })).toBe(
-      "Indexing older messages"
-    );
-  });
-
-  test("a failed run asks for a retry instead of looking done", () => {
+  test("describes automatic progress without exposing index counters", () => {
     expect(
       searchCoverageLabel({
-        indexFailed: true,
-        indexedCount: 12_480,
+        fullyCovered: false,
+        indexingOlder: true,
+      })
+    ).toBe("Searching older messages…");
+  });
+
+  test("declares incomplete history while the background walk is between pages", () => {
+    expect(
+      searchCoverageLabel({
+        fullyCovered: false,
         indexingOlder: false,
       })
-    ).toBe("Retry indexing older messages");
+    ).toBe("Searching older messages…");
+  });
+
+  test("uses ordinary retry copy after an incomplete search", () => {
+    expect(
+      searchCoverageLabel({
+        fullyCovered: false,
+        indexFailed: true,
+        indexingOlder: false,
+      })
+    ).toBe("Search couldn't finish");
+  });
+
+  test("does not show an index state when no work or failure exists", () => {
+    expect(
+      searchCoverageLabel({
+        fullyCovered: true,
+        indexingOlder: false,
+      })
+    ).toBe("");
   });
 });
 
 describe("searchListEmptyState", () => {
+  test("reports an oversized query instead of an empty search result", () => {
+    expect(
+      searchListEmptyState({
+        ...BASE,
+        queryTooLong: true,
+        totalMatches: 0,
+      })
+    ).toBe(MESSAGE_SEARCH_QUERY_TOO_LONG_MESSAGE);
+  });
+
   const BASE = {
     indexing: false,
     indexingOlder: false,
@@ -347,5 +352,14 @@ describe("searchListEmptyState", () => {
     // While the transcript is still filling, emptiness is provisional.
     expect(searchListEmptyState({ ...BASE, indexing: true })).toBeNull();
     expect(searchListEmptyState({ ...BASE, indexingOlder: true })).toBeNull();
+  });
+
+  test("qualifies empty saved and unreadable-history scopes", () => {
+    expect(searchListEmptyState({ ...BASE, savedScope: true })).toBe(
+      "No matching saved messages."
+    );
+    expect(searchListEmptyState({ ...BASE, coverageUnavailable: true })).toBe(
+      "No matches in searchable history. Some older messages couldn't be searched."
+    );
   });
 });

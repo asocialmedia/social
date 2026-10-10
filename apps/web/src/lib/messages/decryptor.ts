@@ -1,5 +1,6 @@
 import { decryptMessageWithBaseKey } from "./crypto";
 import type { MessagePayload } from "./crypto";
+import { offlineSearchWorkerClient } from "./offline-search-worker-client";
 
 // Batched, priority-ordered message decrypt scheduler shared by every message
 // thread in the session.
@@ -47,6 +48,7 @@ export type DecryptImpl = (
 ) => Promise<MessagePayload>;
 
 export interface DecryptorOptions {
+  cacheBytesCap?: number;
   cacheCap?: number;
   concurrency?: number;
   decrypt?: DecryptImpl;
@@ -54,7 +56,10 @@ export interface DecryptorOptions {
 }
 
 const DEFAULT_CONCURRENCY = 6;
-const DEFAULT_CACHE_CAP = 2000;
+const DEFAULT_CACHE_CAP = 512;
+const DEFAULT_CACHE_BYTES_CAP = 8 * 1024 * 1024;
+export const MESSAGE_DECRYPTOR_QUEUE_CAP = 128;
+export const MESSAGE_DECRYPTOR_URGENT_QUEUE_CAP = 128;
 
 // How many decrypted payloads the cache holds before evicting. Exported because
 // it is also the ceiling on what any consumer can usefully ask to decrypt: a
@@ -62,18 +67,65 @@ const DEFAULT_CACHE_CAP = 2000;
 // so a caller that wants "everything" must page instead (see the details panel's
 // bulk request in message-thread.tsx).
 export const MESSAGE_DECRYPTOR_CACHE_CAP = DEFAULT_CACHE_CAP;
+export const MESSAGE_DECRYPTOR_CACHE_BYTES_CAP = DEFAULT_CACHE_BYTES_CAP;
 
 // Shared empty set returned for conversations with no failures, so the common
 // case allocates nothing.
 const EMPTY_ID_SET: ReadonlySet<string> = new Set<string>();
 
-const defaultDecrypt: DecryptImpl = (item, baseKey) =>
-  decryptMessageWithBaseKey(
+function payloadByteLength(payload: MessagePayload): number {
+  let characters = 0;
+  let objectOverhead = 128;
+  if ("content" in payload && typeof payload.content === "string") {
+    characters += payload.content.length;
+  }
+  if ("replyToId" in payload && payload.replyToId) {
+    characters += payload.replyToId.length;
+    objectOverhead += 32;
+  }
+  if ("replyToSenderId" in payload && payload.replyToSenderId) {
+    characters += payload.replyToSenderId.length;
+    objectOverhead += 32;
+  }
+  if (payload.type === "post") {
+    characters += payload.postId.length;
+  }
+  if (payload.type === "media") {
+    if ("images" in payload) {
+      characters += payload.images.reduce(
+        (sum, image) => sum + image.url.length,
+        0
+      );
+      objectOverhead += payload.images.length * 64;
+    } else {
+      characters += payload.url.length;
+      objectOverhead += 64;
+    }
+  }
+  return objectOverhead + characters * 2;
+}
+
+const defaultDecrypt: DecryptImpl = async (item, baseKey) => {
+  const workerResult = await offlineSearchWorkerClient.decrypt(
+    {
+      conversationId: item.conversationId,
+      message: item.message,
+    },
+    baseKey
+  );
+  if (workerResult.status === "decrypted") {
+    return workerResult.payload;
+  }
+  if (workerResult.status === "failed") {
+    throw new Error("Message decryption failed");
+  }
+  return await decryptMessageWithBaseKey(
     baseKey,
     item.message.senderId,
     item.conversationId,
     item.message
   );
+};
 
 // Whether a terminal entry is a decrypted media payload. Media entries are the
 // expensive-to-reproduce class (they back the fullscreen viewer's index), so
@@ -104,7 +156,10 @@ export interface MessageDecryptor {
   // retry(), an in-flight run is left alone — a second concurrent decrypt of
   // the same id would only race the first's write.
   invalidate: (id: string) => void;
-  request: (items: DecryptItem[], keys: DecryptorKeySource) => void;
+  // Returns items refused by the bounded background queue. They remain
+  // unrequested, so a caller can apply backpressure and retry them safely.
+  request: (items: DecryptItem[], keys: DecryptorKeySource) => DecryptItem[];
+  getBackgroundQueueLength: () => number;
   // Same as `request`, but the batch is served before everything already queued.
   //
   // The queue is otherwise strictly first-in-first-out, and the biggest producer
@@ -127,6 +182,7 @@ export function createDecryptor(
 ): MessageDecryptor {
   const concurrency = options.concurrency ?? DEFAULT_CONCURRENCY;
   const cacheCap = options.cacheCap ?? DEFAULT_CACHE_CAP;
+  const cacheBytesCap = options.cacheBytesCap ?? DEFAULT_CACHE_BYTES_CAP;
   const decrypt = options.decrypt ?? defaultDecrypt;
   const scheduleFlush =
     options.scheduleFlush ??
@@ -137,6 +193,8 @@ export function createDecryptor(
   let scopeKey: string | null = null;
   let generation = 0;
   const entries = new Map<string, DecryptEntry>();
+  const entryByteLengths = new Map<string, number>();
+  let cachedPayloadBytes = 0;
   // Ids currently mapped to "error", bucketed by conversation so a thread can
   // ask "did anything fail in THIS conversation" without seeing another
   // thread's failures (the cache is a session-wide singleton). Maintained
@@ -166,6 +224,24 @@ export function createDecryptor(
   let flushScheduled = false;
   let lastKeys: DecryptorKeySource | null = null;
   const listeners = new Set<() => void>();
+
+  function removeEntry(id: string): boolean {
+    const removed = entries.delete(id);
+    const byteLength = entryByteLengths.get(id) ?? 0;
+    cachedPayloadBytes = Math.max(0, cachedPayloadBytes - byteLength);
+    entryByteLengths.delete(id);
+    return removed;
+  }
+
+  function storeEntry(id: string, entry: DecryptEntry): void {
+    removeEntry(id);
+    entries.set(id, entry);
+    if (typeof entry === "object") {
+      const byteLength = payloadByteLength(entry);
+      entryByteLengths.set(id, byteLength);
+      cachedPayloadBytes += byteLength;
+    }
+  }
 
   function notify(): void {
     version += 1;
@@ -231,7 +307,7 @@ export function createDecryptor(
   const EVICT_HARD_OVERSHOOT = 256;
 
   function evictIfNeeded(): void {
-    while (entries.size > cacheCap) {
+    while (entries.size > cacheCap || cachedPayloadBytes > cacheBytesCap) {
       let victim: string | undefined;
       for (const [id, entry] of entries) {
         if (entry !== "pending" && !inFlight.has(id) && !isMediaEntry(entry)) {
@@ -243,7 +319,11 @@ export function createDecryptor(
         const workPending =
           queued.size > 0 || urgentQueue.length > 0 || inFlight.size > 0;
 
-        if (workPending && entries.size <= cacheCap + EVICT_HARD_OVERSHOOT) {
+        if (
+          workPending &&
+          entries.size <= cacheCap + EVICT_HARD_OVERSHOOT &&
+          cachedPayloadBytes <= cacheBytesCap
+        ) {
           break;
         }
         for (const [id, entry] of entries) {
@@ -257,7 +337,7 @@ export function createDecryptor(
       if (victim === undefined) {
         break;
       }
-      entries.delete(victim);
+      removeEntry(victim);
       clearErrored(victim);
     }
   }
@@ -290,11 +370,24 @@ export function createDecryptor(
   // Claims a batch as pending and enqueues it in the background lane. Returns
   // whether anything was newly claimed, so a caller knows whether a notification
   // is owed.
-  function enqueue(items: DecryptItem[]): boolean {
+  function enqueue(items: DecryptItem[]): {
+    changed: boolean;
+    rejected: DecryptItem[];
+  } {
     let marked = false;
+    const rejected: DecryptItem[] = [];
+    const seen = new Set<string>();
     for (const item of items) {
       const { id } = item.message;
+      if (seen.has(id)) {
+        continue;
+      }
+      seen.add(id);
       if (entries.has(id) || queued.has(id) || inFlight.has(id)) {
+        continue;
+      }
+      if (queue.length >= MESSAGE_DECRYPTOR_QUEUE_CAP) {
+        rejected.push(item);
         continue;
       }
       entries.set(id, "pending");
@@ -302,7 +395,7 @@ export function createDecryptor(
       queue.push(item);
       marked = true;
     }
-    return marked;
+    return { changed: marked, rejected };
   }
 
   async function run(item: DecryptItem, runGeneration: number): Promise<void> {
@@ -326,7 +419,7 @@ export function createDecryptor(
     // slot is freed and the pump keeps going.
     if (staleInFlight.delete(id)) {
       inFlight.delete(id);
-      entries.delete(id);
+      removeEntry(id);
       clearErrored(id);
       active -= 1;
       evictIfNeeded();
@@ -334,7 +427,7 @@ export function createDecryptor(
       pump();
       return;
     }
-    entries.set(id, payload ?? "error");
+    storeEntry(id, payload ?? "error");
     if (payload) {
       clearErrored(id);
     } else {
@@ -411,7 +504,7 @@ export function createDecryptor(
       let cleared = false;
       for (const [id, entry] of entries) {
         if (entry === "error") {
-          entries.delete(id);
+          removeEntry(id);
           clearErrored(id);
           cleared = true;
         }
@@ -432,6 +525,8 @@ export function createDecryptor(
       scopeKey = key;
       generation += 1;
       entries.clear();
+      entryByteLengths.clear();
+      cachedPayloadBytes = 0;
       erroredByConversation.clear();
       conversationById.clear();
       queued.clear();
@@ -452,6 +547,10 @@ export function createDecryptor(
       return entries.get(id);
     },
 
+    getBackgroundQueueLength(): number {
+      return queue.length;
+    },
+
     getErroredIds(conversationId: string): ReadonlySet<string> {
       return erroredByConversation.get(conversationId) ?? EMPTY_ID_SET;
     },
@@ -469,7 +568,7 @@ export function createDecryptor(
         staleInFlight.add(id);
         return;
       }
-      const existed = entries.delete(id);
+      const existed = removeEntry(id);
       clearErrored(id);
       queued.delete(id);
       if (existed) {
@@ -477,12 +576,14 @@ export function createDecryptor(
       }
     },
 
-    request(items: DecryptItem[], keys: DecryptorKeySource): void {
+    request(items: DecryptItem[], keys: DecryptorKeySource): DecryptItem[] {
       lastKeys = keys;
-      if (enqueue(items)) {
+      const result = enqueue(items);
+      if (result.changed) {
         notify();
       }
       pump();
+      return result.rejected;
     },
 
     requestUrgent(items: DecryptItem[], keys: DecryptorKeySource): void {
@@ -491,6 +592,9 @@ export function createDecryptor(
       // urgent request keeps the order it was asked in.
       const promoted: DecryptItem[] = [];
       for (const item of items) {
+        if (promoted.length >= MESSAGE_DECRYPTOR_URGENT_QUEUE_CAP) {
+          break;
+        }
         const { id } = item.message;
         // Already decrypting: nothing to move, and a second run would race the
         // first's write.
@@ -498,11 +602,8 @@ export function createDecryptor(
           continue;
         }
         if (queued.has(id)) {
-          // Waiting in the background lane. The splice is linear and runs once
-          // per row a user is actually waiting on, against a queue bounded by a
-          // backfill page rather than by the conversation. The alternative -- a
-          // lazily-compacted queue -- would make every pump iteration scan it,
-          // which is quadratic in the decrypts.
+          // Waiting in the background lane. The splice is linear over a bounded
+          // queue; a lazy tombstone would make every pump iteration scan it.
           const at = queue.findIndex((waiting) => waiting.message.id === id);
           if (at === -1) {
             // Defensive: `queued` and the array disagreeing would otherwise drop
@@ -520,19 +621,30 @@ export function createDecryptor(
           // re-decrypt it, and must not resurrect a failure as "pending".
           continue;
         }
-        entries.set(id, "pending");
+        storeEntry(id, "pending");
         queued.add(id);
         promoted.push(item);
       }
       if (promoted.length > 0) {
         urgentQueue.unshift(...promoted);
+        while (urgentQueue.length > MESSAGE_DECRYPTOR_URGENT_QUEUE_CAP) {
+          const dropped = urgentQueue.pop();
+          if (!dropped) {
+            break;
+          }
+          const droppedId = dropped.message.id;
+          queued.delete(droppedId);
+          if (entries.get(droppedId) === "pending") {
+            removeEntry(droppedId);
+          }
+        }
         notify();
       }
       pump();
     },
 
     retry(id: string): void {
-      const existed = entries.delete(id);
+      const existed = removeEntry(id);
       clearErrored(id);
       queued.delete(id);
       // Notify so subscribers see the entry drop back to "unrequested"; the

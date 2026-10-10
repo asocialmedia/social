@@ -7,7 +7,13 @@ import {
   importRatchetBaseKey,
 } from "./crypto";
 import type { DecryptItem } from "./decryptor";
-import { createDecryptor } from "./decryptor";
+import {
+  createDecryptor,
+  MESSAGE_DECRYPTOR_CACHE_BYTES_CAP,
+  MESSAGE_DECRYPTOR_CACHE_CAP,
+  MESSAGE_DECRYPTOR_QUEUE_CAP,
+  MESSAGE_DECRYPTOR_URGENT_QUEUE_CAP,
+} from "./decryptor";
 
 const CONVO_ID = "convo-1";
 
@@ -317,6 +323,25 @@ describe("message decryptor", () => {
     expect(decryptor.get("d")).toEqual(TEXT);
   });
 
+  test("bounds payload memory by both message count and estimated bytes", async () => {
+    const decryptor = createDecryptor({
+      cacheBytesCap: 200,
+      cacheCap: 10,
+      decrypt: () => Promise.resolve({ content: "x".repeat(10), type: "text" }),
+    });
+    const keys = { getBaseKeys: () => Promise.resolve([{} as CryptoKey]) };
+    decryptor.request([item("a"), item("b")], keys);
+    await settle();
+
+    expect(decryptor.get("a")).toBeUndefined();
+    expect(decryptor.get("b")).toEqual({
+      content: "x".repeat(10),
+      type: "text",
+    });
+    expect(MESSAGE_DECRYPTOR_CACHE_CAP).toBe(512);
+    expect(MESSAGE_DECRYPTOR_CACHE_BYTES_CAP).toBe(8 * 1024 * 1024);
+  });
+
   const MEDIA: MessagePayload = {
     images: [{ height: 10, url: "/api/media/x", width: 10 }],
     kind: "image",
@@ -390,6 +415,18 @@ describe("message decryptor", () => {
     await settle();
     expect(calls).toBe(2);
     expect(decryptor.get("a")).toEqual(TEXT);
+  });
+
+  test("a recovery-generation change drops previously decrypted history", async () => {
+    const decryptor = createDecryptor({ decrypt: () => Promise.resolve(TEXT) });
+    const keys = { getBaseKeys: () => Promise.resolve([{} as CryptoKey]) };
+    decryptor.configureScope("account-a:recovery-1");
+    decryptor.request([item("old-history")], keys);
+    await settle();
+    expect(decryptor.get("old-history")).toEqual(TEXT);
+
+    decryptor.configureScope("account-a:recovery-2");
+    expect(decryptor.get("old-history")).toBeUndefined();
   });
 
   test("clearKeys re-resolves base keys on the next request", async () => {
@@ -735,5 +772,97 @@ describe("decryptor urgent lane", () => {
     decryptor.configureScope("other-user");
     expect(decryptor.get("bg")).toBeUndefined();
     expect(decryptor.get("wanted")).toBeUndefined();
+  });
+});
+
+describe("bounded decrypt queues", () => {
+  test("caps background work and leaves overflow retryable", async () => {
+    const started: string[] = [];
+    const gates = new Map<
+      string,
+      ReturnType<typeof deferred<MessagePayload>>
+    >();
+    const decryptor = createDecryptor({
+      concurrency: 1,
+      decrypt: (decryptItem) => {
+        const { id } = decryptItem.message;
+        started.push(id);
+        const gate = deferred<MessagePayload>();
+        gates.set(id, gate);
+        return gate.promise;
+      },
+    });
+    const keys = { getBaseKeys: () => Promise.resolve([{} as CryptoKey]) };
+    const background = Array.from(
+      { length: MESSAGE_DECRYPTOR_QUEUE_CAP + 2 },
+      (_, index) => item(`background-${index}`)
+    );
+
+    const rejected = decryptor.request(background, keys);
+    expect(rejected.map((row) => row.message.id)).toEqual([
+      `background-${MESSAGE_DECRYPTOR_QUEUE_CAP}`,
+      `background-${MESSAGE_DECRYPTOR_QUEUE_CAP + 1}`,
+    ]);
+    await waitFor(() => started.length === 1);
+    expect(decryptor.get("background-0")).toBe("pending");
+    expect(decryptor.get(`background-${MESSAGE_DECRYPTOR_QUEUE_CAP - 1}`)).toBe(
+      "pending"
+    );
+    expect(decryptor.get(`background-${MESSAGE_DECRYPTOR_QUEUE_CAP}`)).toBe(
+      undefined
+    );
+    expect(
+      decryptor.get(`background-${MESSAGE_DECRYPTOR_QUEUE_CAP + 1}`)
+    ).toBeUndefined();
+
+    decryptor.requestUrgent([item("jump")], keys);
+    gates.get("background-0")?.resolve(TEXT);
+    await waitFor(() => started.includes("jump"));
+    gates.get("jump")?.resolve(TEXT);
+    await waitFor(() => started.includes("background-1"));
+
+    const overflow = `background-${MESSAGE_DECRYPTOR_QUEUE_CAP}`;
+    decryptor.request([item(overflow)], keys);
+    expect(decryptor.get(overflow)).toBe("pending");
+    expect(started).toEqual(["background-0", "jump", "background-1"]);
+  });
+
+  test("bounds urgent work and lets a new visible target evict stale prefetch", async () => {
+    const started: string[] = [];
+    const gates = new Map<
+      string,
+      ReturnType<typeof deferred<MessagePayload>>
+    >();
+    const decryptor = createDecryptor({
+      concurrency: 1,
+      decrypt: (decryptItem) => {
+        const { id } = decryptItem.message;
+        started.push(id);
+        const gate = deferred<MessagePayload>();
+        gates.set(id, gate);
+        return gate.promise;
+      },
+    });
+    const keys = { getBaseKeys: () => Promise.resolve([{} as CryptoKey]) };
+    decryptor.request([item("blocker")], keys);
+    await waitFor(() => started.includes("blocker"));
+    decryptor.requestUrgent(
+      Array.from({ length: MESSAGE_DECRYPTOR_URGENT_QUEUE_CAP }, (_, index) =>
+        item(`prefetch-${index}`)
+      ),
+      keys
+    );
+    expect(
+      decryptor.get(`prefetch-${MESSAGE_DECRYPTOR_URGENT_QUEUE_CAP - 1}`)
+    ).toBe("pending");
+
+    decryptor.requestUrgent([item("visible-target")], keys);
+    expect(decryptor.get("visible-target")).toBe("pending");
+    expect(
+      decryptor.get(`prefetch-${MESSAGE_DECRYPTOR_URGENT_QUEUE_CAP - 1}`)
+    ).toBeUndefined();
+    gates.get("blocker")?.resolve(TEXT);
+    await waitFor(() => started.includes("visible-target"));
+    expect(started).toEqual(["blocker", "visible-target"]);
   });
 });

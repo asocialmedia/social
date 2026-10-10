@@ -33,6 +33,7 @@ import {
 } from "../lib/settings-view-model";
 import type { LinkedAccountInfo } from "../lib/settings-view-model";
 import { AccountTab } from "./account-tab";
+import { PrivacyTab } from "./privacy-tab";
 import { ProfileTab } from "./profile-tab";
 import { SecurityTab } from "./security-tab";
 import { SettingsSearch } from "./settings-search";
@@ -60,6 +61,7 @@ export function SettingsScreen() {
   const scrollRefs = useMemo(
     () => ({
       account: { current: null as ScrollViewType | null },
+      privacy: { current: null as ScrollViewType | null },
       profile: { current: null as ScrollViewType | null },
       security: { current: null as ScrollViewType | null },
     }),
@@ -183,6 +185,7 @@ export function SettingsScreen() {
           onChanged={onChanged}
           scrollRef={scrollRefs.account}
         />
+        <PrivacyTab onChanged={onChanged} scrollRef={scrollRefs.privacy} />
         {securityReady ? (
           <SecurityTab
             email={facts.email}

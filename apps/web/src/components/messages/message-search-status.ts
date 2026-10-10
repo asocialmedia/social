@@ -8,6 +8,9 @@
 // partial the wording says so, and only a fully indexed conversation gets a
 // plain "No results".
 
+import { normalizeMessageSearchQuery } from "@asm/messages/normalization";
+import { MESSAGE_SEARCH_MAXIMUM_QUERY_CODE_POINTS } from "@asm/messages/search-contracts";
+
 export interface SearchStatusInput {
   // A backfill walk is paging through older history right now.
   indexingOlder: boolean;
@@ -15,6 +18,13 @@ export interface SearchStatusInput {
   fullyCovered: boolean;
   queryReady: boolean;
 }
+
+export function isMessageSearchQueryTooLong(query: string): boolean {
+  const normalized = normalizeMessageSearchQuery(query).normalizedQuery;
+  return [...normalized].length > MESSAGE_SEARCH_MAXIMUM_QUERY_CODE_POINTS;
+}
+
+export const MESSAGE_SEARCH_QUERY_TOO_LONG_MESSAGE = `Search queries must be ${MESSAGE_SEARCH_MAXIMUM_QUERY_CODE_POINTS} characters or fewer`;
 
 export interface SearchChatStatusInput extends SearchStatusInput {
   activePosition: number;
@@ -105,11 +115,14 @@ export interface SearchListEmptyInput {
   // correct advice.
   listPageStale: boolean;
   queryReady: boolean;
+  queryTooLong?: boolean;
   // Rows actually on screen, which can be fewer than the matches: the list
   // pages one window at a time, so an empty page with a nonzero total is "not
   // here", never "does not exist".
   resultCount: number;
   totalMatches: number;
+  savedScope?: boolean;
+  coverageUnavailable?: boolean;
 }
 
 // The list body's empty state. Kept here with the other wording so the rule is
@@ -128,10 +141,19 @@ export function searchListEmptyState(
     listPageLoading,
     listPageStale,
     queryReady,
+    queryTooLong = false,
     resultCount,
     totalMatches,
+    savedScope = false,
+    coverageUnavailable = false,
   } = input;
-  if (!queryReady || resultCount > 0) {
+  if (queryTooLong) {
+    return MESSAGE_SEARCH_QUERY_TOO_LONG_MESSAGE;
+  }
+  if (resultCount > 0) {
+    return null;
+  }
+  if (!queryReady) {
     return null;
   }
   if (listPageError) {
@@ -156,50 +178,28 @@ export function searchListEmptyState(
   if (indexing || indexingOlder) {
     return null;
   }
+  if (savedScope) {
+    return "No matching saved messages.";
+  }
+  if (coverageUnavailable) {
+    return "No matches in searchable history. Some older messages couldn't be searched.";
+  }
   return "No messages match this search.";
 }
 
-// Label for the coverage control. The count is what the user has actually
-// covered, which is the only number available and the only one that would let
-// them decide whether the walk is worth starting.
-// What the bar says when the device is out of index storage, or had to drop a
-// conversation to stay inside its budget. Said in the status line rather than a
-// toast because it is a standing condition, not an event: the user needs to know
-// their results are narrower than they think.
-export function searchStorageStatus(input: {
-  evictedCount: number;
-  storageFull: boolean;
-}): string {
-  const { evictedCount, storageFull } = input;
-  if (storageFull) {
-    return "Storage full";
-  }
-  if (evictedCount > 0) {
-    return `Older indexes removed (${evictedCount})`;
-  }
-  return "";
-}
-
 export function searchCoverageLabel(input: {
-  indexedCount: number;
+  fullyCovered: boolean;
   indexingOlder: boolean;
-  // A run ended in failure (throttled past its retries, storage refused, a
-  // request failed). The button must say so: an idle-looking bar after a
-  // failure reads as "done" and nobody retries, stranding coverage silently.
   indexFailed?: boolean;
 }): string {
-  const { indexedCount, indexingOlder, indexFailed = false } = input;
-  if (indexingOlder) {
-    // While the walk runs, the label carries the live count: hovering the
-    // spinner reads how much of the conversation is indexed so far.
-    return indexedCount > 0
-      ? `Indexing older messages (${indexedCount.toLocaleString()} indexed)`
-      : "Indexing older messages";
+  if (input.indexFailed) {
+    return "Search couldn't finish";
   }
-  if (indexFailed) {
-    return "Retry indexing older messages";
-  }
-  return indexedCount > 0
-    ? `Index older messages (${indexedCount.toLocaleString()} indexed)`
-    : "Index older messages";
+  return input.indexingOlder || !input.fullyCovered
+    ? "Searching older messages…"
+    : "";
+}
+
+export function searchStorageStatus(input: { storageFull: boolean }): string {
+  return input.storageFull ? "Search couldn't finish" : "";
 }

@@ -11,6 +11,8 @@ export const NOTIFICATION_TYPES = [
   "AMPLIFY",
   "COMMENT",
   "COMMUNITY_POST",
+  "DEN_MEMBERSHIP_ENDED",
+  "DEN_MESSAGE",
   "FOLLOW",
   "MENTION",
   "MODERATION",
@@ -56,11 +58,27 @@ export interface NotificationComment {
   parentId: string | null;
 }
 
+// The conversation a DEN_MESSAGE names, and the conversation a
+// DEN_MEMBERSHIP_ENDED row can still point at. The id so a tap can open the den,
+// the name so the copy can say which conversation it belongs to. Deliberately
+// nothing else. The server only ever holds message ciphertext, so there is no
+// message id here to follow and no content that a push could quote.
+export interface NotificationConversation {
+  id: string;
+  name: string | null;
+}
+
 export interface NotificationRecord {
   comment: NotificationComment | null;
   commentId: string | null;
   community: NotificationCommunity | null;
   communityId: string | null;
+  // Set on DEN_MESSAGE always, and on DEN_MEMBERSHIP_ENDED only for a removal
+  // (a dissolve has no den left to point at). Optional because every other
+  // type's row carries a null column, and absent on a row that predates the
+  // column.
+  conversation?: NotificationConversation | null;
+  conversationId?: string | null;
   count: number;
   createdAt: Date | string;
   id: string;

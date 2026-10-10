@@ -1,10 +1,15 @@
 "use client";
 
+import type { ConversationType } from "@asm/db/messages/dens";
 import {
-  useInfiniteQuery,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query";
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@asm/ui/shadui/dialog";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { InfiniteData } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
@@ -38,10 +43,12 @@ import {
   ConversationDetailsRail,
   DetailsRailToggleIcon,
 } from "@/components/messages/conversation-details-rail";
+import { DenAvatarCollage } from "@/components/messages/den-avatar-collage";
 import {
   detailsPlacement,
   showsDetailsRailToggle,
 } from "@/components/messages/details-placement";
+import { MessageAccessEndedDialog } from "@/components/messages/message-access-ended-dialog";
 import { MessageBubble } from "@/components/messages/message-bubble";
 import { MessageComposer } from "@/components/messages/message-composer";
 import {
@@ -58,15 +65,34 @@ import { MessageOptionsMenu } from "@/components/messages/message-options-menu";
 import { MessageSearchBar } from "@/components/messages/message-search-bar";
 import type { SearchView } from "@/components/messages/message-search-bar";
 import { MessageSearchResults } from "@/components/messages/message-search-results";
+import {
+  DEN_UNKNOWN_SENDER_NAME,
+  shouldShowSenderName,
+} from "@/components/messages/message-sender-name";
 import { MessageThreadSkeleton } from "@/components/messages/messages-skeleton";
 import { toast } from "@/lib/gooey-toast";
-import { reconcileAnchoredWindow } from "@/lib/messages/anchored-window";
+import {
+  ACCESS_ENDED_DISMISS_LABEL,
+  ACCESS_ENDED_MESSAGE,
+  accessEndedOnArrival,
+  consumeSelfLeave,
+  SELF_LEAVE_DESCRIPTION,
+} from "@/lib/messages/access-ended";
+import {
+  buildAnchoredMessageWindow,
+  messageWindowIncludesLatest,
+  reconcileAnchoredWindow,
+  shouldFoldLiveMessage,
+} from "@/lib/messages/anchored-window";
 import {
   ackMessageDelivered,
-  appendMessageToLastPage,
+  applyMessageDeletionToPages,
+  foldMessageIntoBoundedData,
+  toCachedMessage,
   deleteMessage,
   editMessage,
   fetchConversationDetail,
+  fetchDenMembershipEvents,
   fetchMessages,
   hideMessages,
   linkMessageMedia,
@@ -82,6 +108,10 @@ import type {
 } from "@/lib/messages/client";
 import { resolveConversationTheme } from "@/lib/messages/conversation-theme";
 import {
+  resolveConversationWallpaper,
+  wallpaperDimOverlay,
+} from "@/lib/messages/conversation-wallpaper";
+import {
   editMessagePayload,
   exportPublicKeyJwk,
   generateFingerprint,
@@ -94,8 +124,24 @@ import type { MessagePayload } from "@/lib/messages/crypto";
 import type { DecryptEntry, DecryptItem } from "@/lib/messages/decryptor";
 import {
   MESSAGE_DECRYPTOR_CACHE_CAP,
+  MESSAGE_DECRYPTOR_QUEUE_CAP,
   messageDecryptor,
 } from "@/lib/messages/decryptor";
+import {
+  denEventIsAboutMe,
+  denEventLine,
+} from "@/lib/messages/den-event-label";
+import {
+  conversationDisplayName,
+  denDisplayName,
+  denMemberCountLabel,
+} from "@/lib/messages/den-label";
+import {
+  applyChangesBeforeCursorCommit,
+  readMessageChangeCursor,
+  replayDurableMessageChanges,
+} from "@/lib/messages/durable-change-replay";
+import type { DurableMessageChangeStorage } from "@/lib/messages/durable-change-replay";
 import { isWithinEditWindow } from "@/lib/messages/edit-window";
 import { createHistoryReadCoordinator } from "@/lib/messages/history-read-coordinator";
 import type { HistoryReadToken } from "@/lib/messages/history-read-coordinator";
@@ -103,11 +149,15 @@ import {
   isHistoryThrottled,
   isHistoryUnauthorized,
 } from "@/lib/messages/history-throttle";
+import { hasDeparted, ownMembership } from "@/lib/messages/membership";
+import { applyMembershipSeq } from "@/lib/messages/membership-seq";
+import { createMessageChangeBroadcast } from "@/lib/messages/message-change-broadcast";
 import {
   chunkMessageIds,
   messageDeleteCopy,
 } from "@/lib/messages/message-delete";
 import type { MessageDeleteScope } from "@/lib/messages/message-delete";
+import { findMessageGestureRow } from "@/lib/messages/message-gesture-target";
 import {
   applySelectionRange,
   dragSelectionMode,
@@ -115,9 +165,6 @@ import {
   selectionRange,
 } from "@/lib/messages/message-gestures";
 import type { PaneRect } from "@/lib/messages/message-gestures";
-import { createMessageIndexBackfill } from "@/lib/messages/message-index-backfill";
-import type { BackfillProgress } from "@/lib/messages/message-index-backfill";
-import { createMessageIndexWriter } from "@/lib/messages/message-index-writer";
 import type { PeerWatermarks } from "@/lib/messages/message-receipts";
 import {
   advanceWatermark,
@@ -125,10 +172,18 @@ import {
   getMessageReceipt,
   peerWatermarks,
 } from "@/lib/messages/message-receipts";
+import { shouldReconcileMessageEvent } from "@/lib/messages/message-revision";
 import {
   paginateSearchResults,
   SEARCH_PAGE_SIZE,
 } from "@/lib/messages/message-search";
+import { messagesTrustNote } from "@/lib/messages/messages-trust";
+import {
+  planOfflineSearchChangeEffects,
+  shouldRefreshServerSharedReferences,
+  shouldRefreshServerSearchSnapshot,
+} from "@/lib/messages/offline-search-change-policy";
+import { offlineSearchWorkerClient } from "@/lib/messages/offline-search-worker-client";
 import {
   formatArrivalCount,
   isNearBottom,
@@ -136,15 +191,19 @@ import {
   nextArrivalCount,
   PINNED_THRESHOLD_PX,
 } from "@/lib/messages/scroll-state";
-import { shouldAutoStartWalk } from "@/lib/messages/search-auto-walk";
-import { resolveSearchIndexStore } from "@/lib/messages/search-index-backend";
-import { planSearchIndexEviction } from "@/lib/messages/search-index-eviction";
-import { emptySearchIndexMeta } from "@/lib/messages/search-index-format";
-import type { MessageData, MessagePage } from "@/lib/messages/types";
+import { startMessageScrollFrameTelemetry } from "@/lib/messages/search-client-telemetry";
+import { retireLegacySearchIndex } from "@/lib/messages/search-index-backend";
+import { resolveServerSharedRefsPage } from "@/lib/messages/server-shared-refs";
+import type {
+  DenMembershipEvent,
+  MessageData,
+  MessagePage,
+} from "@/lib/messages/types";
 import {
   firstUnreadMessageId,
   UNREAD_DIVIDER_LABEL,
 } from "@/lib/messages/unread-marker";
+import { useConversationReconciliation } from "@/lib/messages/use-conversation-reconciliation";
 import { useConversationSearch } from "@/lib/messages/use-conversation-search";
 import { useDecryptEntry } from "@/lib/messages/use-decrypt-entry";
 import {
@@ -154,13 +213,14 @@ import {
   useRootKeyStore,
 } from "@/lib/messages/use-decryption";
 import {
+  catchUpKeys,
   useMessagesRealtime,
-  shouldCatchUp,
 } from "@/lib/messages/use-messages-realtime";
 import { usePresence } from "@/lib/messages/use-presence";
 import { createViewerScanCache } from "@/lib/messages/viewer-scan-cache";
 import {
   isDecryptSettled,
+  requestDecryptsWithBackpressure as drainDecryptRequests,
   waitForDecrypts,
 } from "@/lib/messages/wait-for-decrypts";
 import { cn } from "@/lib/utils";
@@ -169,8 +229,8 @@ import { getMessageMediaId } from "@/lib/utils/image-url";
 import { bubblePosition, bubbleRoundingClasses } from "./message-bubble-shape";
 import { getMessageGroupMeta, formatTimeDivider } from "./message-grouping";
 import type { MessageGroupMeta } from "./message-grouping";
+import { useConversationHistory } from "./use-conversation-history";
 import {
-  pagesToDropForTranscriptHistory,
   pagesToDropForViewerHistory,
   trimOldestPages,
 } from "./viewer-history-window";
@@ -204,6 +264,19 @@ const VIEWER_DECRYPT_RADIUS = 40;
 // of hundreds; small enough that one page stays a few tens of kilobytes of
 // ciphertext. Decrypt and render stay windowed regardless of page size.
 const HISTORY_PAGE_SIZE = 100;
+const SERVER_MESSAGE_SEARCH_ENABLED =
+  process.env.NEXT_PUBLIC_MESSAGE_SEARCH_SERVER === "1";
+
+function getMessageChangeStorage(): DurableMessageChangeStorage | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+  try {
+    return window.localStorage;
+  } catch {
+    return null;
+  }
+}
 
 // Which way a transcript page was fetched. The transcript is an infinite query
 // in both directions: it normally loads older history going down, and once a
@@ -216,22 +289,6 @@ const NEWEST_PAGE: MessagesPageParam = { kind: "older" };
 
 type MessagesInfiniteData = InfiniteData<MessagePage, MessagesPageParam>;
 
-// Backfill walk tuning. The page is the largest the API allows for a declared
-// walk, so covering a conversation costs as few round trips as possible. Because
-// the walk paces per REQUEST, a larger page is less server load for the same
-// politeness, not more: measured at 200k messages, 500 rows/page cuts cover time
-// from 11.1 minutes to 2.3.
-const BACKFILL_PAGE_SIZE = 500;
-const BACKFILL_PAGE_DELAY_MS = 250;
-// Newest messages inspected when a persisted "fully covered" verdict is
-// verified instead of trusted. Five is enough to catch a poisoned flag --
-// uncovered history at the top means the verdict is stale -- while staying a
-// negligible peek next to a 500-row walk page.
-const TOP_COVERAGE_PEEK_SIZE = 5;
-// How long to coalesce index writes during a walk before re-reading the row
-// table. Without this, every committed page would trigger a full row-table read
-// and a 25-page walk would cost 25 of them.
-const COVERAGE_REFRESH_DEBOUNCE_MS = 1500;
 // How long the transcript's automatic fill stands down after a failed page
 // before trying again. Failures settle with fetching false and unchanged
 // cursors -- the exact shape that refires the auto-loaders -- so the pause is
@@ -405,10 +462,11 @@ export function jumpTargetSource(input: {
 // race their cache writes with whichever arrived second -- which is how a
 // "go to latest" ends up not at the latest.
 export function needsTailReturn(input: {
+  hasLatestPage: boolean;
   hasNextPage: boolean;
   inFlight: boolean;
 }): boolean {
-  return input.hasNextPage && !input.inFlight;
+  return (input.hasNextPage || !input.hasLatestPage) && !input.inFlight;
 }
 
 // The transcript's loading prompt. Two strings, not one per mechanism: every
@@ -426,13 +484,47 @@ export function transcriptLoadingCopy(input: {
   return "Loading older messages";
 }
 
+// One row of the transcript. Messages and membership log lines share the
+// virtualizer so a "Bob left" line sits at the exact point in time it happened,
+// between the messages either side of it. They are kept as a discriminated union
+// rather than flattened into pseudo-messages because a log line has no sender, no
+// ciphertext, and nothing for the receipts, search index or ratchet to read - all
+// of which key off `allMessages`, which stays messages-only.
+type TranscriptItem =
+  | { id: string; kind: "event"; event: DenMembershipEvent }
+  | { id: string; kind: "message"; message: MessageData };
+
+// Whether the transcript has nothing to read at all.
+//
+// Takes the MERGED rows, not the message list, and that is the whole point. A
+// den's first act is a membership line - "Alice created this den" - and it lands
+// before there is a single message, so an empty state keyed off `allMessages`
+// covered the one line that says what the room is. It rendered "Say hi in X" over
+// the top of a den that already had a history.
+//
+// This is a function rather than an inline `length === 0` so the rule has one
+// home and the merge cannot drift away from it again.
+export function transcriptIsEmpty(
+  transcript: readonly TranscriptItem[]
+): boolean {
+  return transcript.length === 0;
+}
+
 export function MessageThread({
   conversationId,
   onBack,
   onToggleRail,
 }: MessageThreadProps) {
   const { user } = useSession();
-  const { privateKey } = useMessagesIdentity();
+  const { privateKey, recoveryGeneration, refreshRecoveryGeneration } =
+    useMessagesIdentity();
+  const offlineSearchScope = useMemo(
+    () =>
+      user && recoveryGeneration !== null
+        ? { recoveryGeneration, userId: user.id }
+        : null,
+    [recoveryGeneration, user]
+  );
   const queryClient = useQueryClient();
   const rootKeyStore = useRootKeyStore();
   const onlineUsers = usePresence(true);
@@ -454,6 +546,28 @@ export function MessageThread({
     payloadType: MessagePayload["type"];
   } | null>(null);
   const [peerTyping, setPeerTyping] = useState(false);
+  // `accessEnded` is set when the server closed this thread's stream because
+  // this member is no longer inside. Not fatal and not a reason to tear anything
+  // down: the transcript is still theirs to read (a key row hangs off the
+  // conversation, not the membership, which is the whole point of the removal
+  // path degrading rather than bricking), so the thread stays exactly where it is
+  // and only the composer goes quiet.
+  //
+  // Reset on a conversation switch - same as the removal, and for the same reason, so
+  // a rejoin through a fresh invite code can post again.
+  const [accessEndedNotice, setAccessEndedNotice] = useState(
+    accessEndedOnArrival()
+  );
+  // The two dialogs, and the two endings they describe. One or the other, never
+  // both: the stream handler below consumes the self-leave marker and routes to
+  // exactly one.
+  const [selfLeftNotice, setSelfLeftNotice] = useState(false);
+  const [removedNotice, setRemovedNotice] = useState(false);
+  useEffect(() => {
+    setAccessEndedNotice(accessEndedOnArrival());
+    setSelfLeftNotice(false);
+    setRemovedNotice(false);
+  }, [conversationId]);
   // flatKey (`messageId:imageIndex`) of the image the conversation-wide viewer
   // is anchored on, or null when closed. Stored as a key, not an index, so
   // older pages prepending never shifts the current image.
@@ -490,47 +604,21 @@ export function MessageThread({
   const [searchView, setSearchView] = useState<SearchView>("chat");
   const [searchPage, setSearchPage] = useState(0);
   const [searchListIndex, setSearchListIndex] = useState(0);
-  // The local search index backend, resolved once per conversation. Null until
-  // it resolves, and permanently null when IndexedDB is unavailable, in which
-  // case search falls back to the rows loaded in this session.
-  const [searchIndex, setSearchIndex] = useState<{
-    refreshToken: number;
-    store: Awaited<ReturnType<typeof resolveSearchIndexStore>>["store"];
-  } | null>(null);
-  // Bumped every time a walk settles so the auto-start effect re-evaluates
-  // after the run cleared: the final progress report lands while the run
-  // object still exists, which would otherwise look like "already running"
-  // forever and the chain would never continue.
-  const [walkEpoch, setWalkEpoch] = useState(0);
-  // Whether a previous walk persisted that it reached the oldest message.
-  // Null until the stored verdict is read; the auto-start waits for it so a
-  // covered conversation costs nothing on reopen.
-  const [persistedCovered, setPersistedCovered] = useState<boolean | null>(
-    null
-  );
-  // Whether that verdict vouches for its own cursor chain (every page verified
-  // on the way down). A covered flag without it is a legacy row: the next run
-  // descends from the top once to earn it, then resumes cheaply forever after.
-  const [persistedChainVerified, setPersistedChainVerified] = useState<
-    boolean | null
+  const pendingSearchNavigationRef = useRef<1 | -1 | 0>(0);
+  const [serverSearchRefreshToken, setServerSearchRefreshToken] = useState(0);
+  const [serverRefsRefreshToken, setServerRefsRefreshToken] = useState(0);
+  const [offlineCacheDisabledFor, setOfflineCacheDisabledFor] = useState<
+    string | null
   >(null);
-  // Whether that verdict also covered the shared-refs index, which the details
-  // pane's tabs read. A verdict written before refs existed is text-only, and
-  // trusting it as a reason to skip the walk is what left the pane reporting "no
-  // media" for conversations full of it. Absent reads as false, so the next open
-  // repairs the conversation by itself.
-  const [persistedRefsCovered, setPersistedRefsCovered] = useState<
-    boolean | null
-  >(null);
-  // Whether the index writer instance exists. Auto-start must wait for it: a
-  // start attempt before it does silently no-ops and never retries.
-  const [writerReady, setWriterReady] = useState(false);
+  const activeOfflineSearchScope =
+    offlineCacheDisabledFor === conversationId ? null : offlineSearchScope;
   // Owned here (not inside the bar) so the Ctrl+F shortcut can pull focus back
   // into the field while the results list holds it.
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   // The current match: persistent for as long as the query is, so the bar's
   // "n of N" counter and the stepper keep pointing at it after the flash ends.
   const [searchActiveId, setSearchActiveId] = useState<string | null>(null);
+  const [searchActiveOrdinal, setSearchActiveOrdinal] = useState(0);
   // The shimmer target: transient (cleared by its own timer) and deliberately
   // separate from the current match, so the single sweep can expire without the
   // counter losing its position. The timer outlasts the 800ms animation by just
@@ -599,6 +687,7 @@ export function MessageThread({
   const jumpAbortRef = useRef<AbortController | null>(null);
   const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => startMessageScrollFrameTelemetry(scrollRef.current), []);
   const readDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Mirrors `pinnedToBottom` for reads inside event callbacks without stale
   // closures. Kept in sync in one place (the scroll listener) so the two can
@@ -618,6 +707,10 @@ export function MessageThread({
   // would race the cursor. Deliberately a ref (not query state) so the awaited
   // jump loop never sees a stale `isFetching` closure and bails after one page.
   const loadingOlderRef = useRef(false);
+  // The media viewer can move toward newer messages when it is opened around an
+  // older image. Keep that cursor independent from older paging so concurrent
+  // direction changes cannot issue duplicate next-page requests.
+  const loadingNewerMediaRef = useRef(false);
   // Who owns the conversation's history endpoint. The search backfill reads the
   // same one, 500 rows every 250ms, from the first keystroke on a fresh device --
   // so a jump's single anchored read used to land inside a stream that was
@@ -655,6 +748,11 @@ export function MessageThread({
   // is showing, so its three indexes cost nothing when the user is just reading
   // the thread.
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const detailsDecryptAbortRef = useRef<AbortController | null>(null);
+  const [detailsTabState, setDetailsTabState] = useState<{
+    conversationId: string;
+    tab: string;
+  } | null>(null);
   // Whether this viewport pins the details pane beside the transcript, replacing
   // the online friends rail. Resolved from the media query rather than left to a
   // CSS class, because the rule is about what is MOUNTED: a display-none copy of
@@ -762,7 +860,6 @@ export function MessageThread({
   // answered. It used to be derived separately, and the two drifted: a folded pane
   // still counted as a rail, so the walk kept fetching a conversation's whole history
   // for a pane the user had just put away.
-  const detailsVisible = placement !== "none";
 
   // The stored preference, read once the viewport is known to be a desktop one --
   // reading it below `lg` would apply a window preference to the sheet, which has
@@ -800,39 +897,20 @@ export function MessageThread({
     // invalidates this explicitly after it posts new wrapped keys.
     staleTime: 5 * 60 * 1000,
   });
+  const selectedDetailsTab =
+    detail && detailsTabState?.conversationId === detail.conversation.id
+      ? detailsTabState.tab
+      : undefined;
 
-  const messagesQuery = useInfiniteQuery<
-    MessagePage,
-    Error,
-    MessagesInfiniteData,
-    readonly [string, string],
-    MessagesPageParam
-  >({
-    // Newer messages normally arrive over the SSE stream, so the newest read has
-    // no next page. After an anchored jump the window sits mid-history and
-    // carries a nextCursor, and growing upward is what keeps the transcript
-    // coherent when the user scrolls toward the present.
-    getNextPageParam: (firstPage) =>
-      firstPage.nextCursor
-        ? { cursor: firstPage.nextCursor, kind: "newer" }
-        : undefined,
-    getPreviousPageParam: (firstPage) =>
-      firstPage.previousCursor
-        ? { cursor: firstPage.previousCursor, kind: "older" }
-        : undefined,
-    initialPageParam: NEWEST_PAGE,
-    queryFn: ({ pageParam }) =>
-      fetchMessages(conversationId, pageParam, HISTORY_PAGE_SIZE),
-    queryKey: ["messages", conversationId] as const,
-    // Live updates come from the SSE stream, which folds creates/deletes
-    // straight into this cache. Mount/focus/reconnect refetches therefore add
-    // nothing but races: overlapping responses can land out of order and
-    // replace freshly folded pages with a stale snapshot, which is exactly
-    // what made the transcript differ on every open. Keep a short freshness
-    // window so genuine remounts reuse the cache, and let the guarded
-    // reconnect catch-up handle real gaps.
-    refetchOnMount: true,
-    refetchOnReconnect: true,
+  const messagesQuery = useConversationHistory(conversationId);
+
+  // The den's durable membership log, rendered as lines between messages. A DM
+  // answers with an empty list, so this fetch is harmless there; it is enabled
+  // with the thread rather than gated on the type because the type arrives with
+  // the detail, and the first render would otherwise be a second round trip.
+  const denEventsQuery = useQuery({
+    queryFn: () => fetchDenMembershipEvents(conversationId),
+    queryKey: ["den-events", conversationId] as const,
     refetchOnWindowFocus: false,
     staleTime: 30 * 1000,
   });
@@ -870,14 +948,106 @@ export function MessageThread({
     return map;
   }, [allMessages]);
 
-  const peer = detail?.conversation.members.find(
+  // Messages and membership lines, merged in time order. Both inputs are already
+  // ascending, so this is a linear merge rather than a sort. A line and a message
+  // in the same millisecond put the line first: the roster moves that cause a
+  // "joined"/"left" line precede the send that follows them, and a line after the
+  // message it introduced would read as a correction.
+  const transcriptItems = useMemo<TranscriptItem[]>(() => {
+    const events = denEventsQuery.data ?? [];
+    const merged: TranscriptItem[] = [];
+    let messageIndex = 0;
+    let eventIndex = 0;
+    while (messageIndex < allMessages.length || eventIndex < events.length) {
+      const message = allMessages[messageIndex];
+      const event = events[eventIndex];
+      if (
+        event &&
+        (!message || event.createdAt.getTime() <= message.createdAt.getTime())
+      ) {
+        merged.push({ event, id: `event-${event.id}`, kind: "event" });
+        eventIndex += 1;
+        continue;
+      }
+      if (message) {
+        merged.push({ id: message.id, kind: "message", message });
+        messageIndex += 1;
+      }
+    }
+    return merged;
+  }, [allMessages, denEventsQuery.data]);
+
+  // Scroll targets need the index in the TRANSCRIPT, not in `allMessages`: the
+  // virtualizer's index space is the merged one. Kept separate from
+  // `messageIndexById` (which is the allMessages index the decrypt window and the
+  // grouping read) because the two are different numbers the moment a log line is
+  // interleaved, and silently swapping one for the other is a scroll to the wrong
+  // row.
+  const transcriptIndexOfMessageId = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const [index, item] of transcriptItems.entries()) {
+      if (item.kind === "message") {
+        map.set(item.message.id, index);
+      }
+    }
+    return map;
+  }, [transcriptItems]);
+
+  // A den has no single peer. Handing one to the details pane and the header
+  // would address an arbitrary member as though they were the conversation, so a
+  // den resolves to undefined and both surfaces take their den branch instead.
+  // `firstOtherMember` survives for the one place a stand-in name IS right: the
+  // quote byline for a parent whose own sender did not resolve.
+  const firstOtherMember = detail?.conversation.members.find(
     (member) => member.userId !== user?.id
-  )?.user;
+  );
+  const peer =
+    detail?.conversation.type === "DEN" ? undefined : firstOtherMember?.user;
+  const conversationType = detail?.conversation.type ?? "DM";
+  // The den's own name for the empty-transcript copy, resolved through the same
+  // helper as the row and the header so a nameless den reads identically in all
+  // three. Null for a DM, which never uses it.
+  const denHeadingName =
+    conversationType === "DEN" && detail
+      ? denDisplayName(
+          {
+            members: detail.conversation.members.map((member) => ({
+              avatarUrl: member.user.avatarUrl,
+              displayName: member.user.displayName,
+              id: member.userId,
+              username: member.user.username,
+            })),
+            name: detail.conversation.name,
+            type: "DEN",
+          },
+          user?.id ?? ""
+        )
+      : null;
   const peerPresence = peer
     ? (onlineUsers.find((u) => u.id === peer.id)?.status ?? null)
     : null;
 
   const userId = user?.id;
+  useEffect(
+    () => () => {
+      detailsDecryptAbortRef.current?.abort();
+      detailsDecryptAbortRef.current = null;
+    },
+    [conversationId, userId]
+  );
+
+  // Whether this viewer has lost the ability to act here. Declared as early as its
+  // inputs allow, because three separate places need it: the delivery ack, the
+  // read scheduler, and the notice below.
+  //
+  // The predicate is shared rather than written inline. `leftAt` is null for a
+  // current member and ABSENT on a DM row and on a payload that has not resolved,
+  // and comparing it to null inline makes that absent case read as "left" - which
+  // rendered every freshly opened den as read-only, permanently, because the
+  // notice effect only ever sets its flag. See `hasDeparted`.
+  const leftDen = hasDeparted(
+    ownMembership(detail?.conversation.members ?? [], userId ?? "")
+  );
 
   // Freeze the read watermark on the first render the conversation detail exists
   // for. Set during render rather than in an effect so the boundary is known in the
@@ -947,6 +1117,14 @@ export function MessageThread({
   // its own bubble to Delivered. Debounced so a burst folds into one request,
   // and deduped per id so a re-render or catch-up refetch does not re-POST.
   useEffect(() => {
+    // Not for somebody who has left, for the same reason the read receipt is
+    // not: the server refuses the ack, so the only thing the attempt produced was
+    // a 403 in the console of every former member who reopened an old den. What
+    // it would have reported - that a message arrived - cannot be true of a
+    // viewer who is not in the room to receive it.
+    if (leftDen) {
+      return;
+    }
     if (!lastPeerMessageId || lastPeerMessageId === lastAckedIdRef.current) {
       return;
     }
@@ -964,7 +1142,7 @@ export function MessageThread({
       void ack();
     }, 1500);
     return () => clearTimeout(timer);
-  }, [conversationId, lastPeerMessageId]);
+  }, [conversationId, leftDen, lastPeerMessageId]);
 
   const handleReply = useCallback(
     (message: MessageData) => {
@@ -1062,16 +1240,17 @@ export function MessageThread({
     [userId]
   );
 
-  // Resolves the transcript row under an event target. Every row wrapper carries
-  // `data-message-id`, so this is one closest() walk — no per-row listeners.
+  // Resolve delegated gestures without per-row listeners. Mobile taps must
+  // originate inside a bubble; desktop drag selection keeps its wider row target.
   const resolveMessageFromEvent = useCallback(
     (
-      target: EventTarget | null
+      target: EventTarget | null,
+      bubbleOnly = false
     ): { message: MessageData; row: HTMLElement } | null => {
       if (!(target instanceof Element)) {
         return null;
       }
-      const row = target.closest<HTMLElement>("[data-message-id]");
+      const row = findMessageGestureRow(target, bubbleOnly);
       const id = row?.dataset.messageId;
       if (!row || !id) {
         return null;
@@ -1136,7 +1315,6 @@ export function MessageThread({
       // A hidden message is gone from this device's transcript, so it must also
       // leave the local search index: otherwise the index would still surface
       // text the user can no longer see.
-      searchWriterRef.current?.remove(messageIds);
       // Only drop the hidden rows from the selection once the hide succeeded,
       // so a failed batch keeps the user's selection for a retry (ending select
       // mode when the last ticked row goes).
@@ -1260,13 +1438,16 @@ export function MessageThread({
         suppressClickRef.current = false;
         return;
       }
-      const hit = resolveMessageFromEvent(event.target);
-      if (!hit) {
-        return;
-      }
       const onOptionsTrigger =
         event.target instanceof Element &&
         event.target.closest("[data-open-options]") !== null;
+      const hit = resolveMessageFromEvent(
+        event.target,
+        !finePointerRef.current && !onOptionsTrigger
+      );
+      if (!hit) {
+        return;
+      }
       if (onOptionsTrigger) {
         openOptionsFor(hit.message, hit.row);
         return;
@@ -1328,7 +1509,10 @@ export function MessageThread({
       if (event.button !== 0) {
         return;
       }
-      const hit = resolveMessageFromEvent(event.target);
+      const hit = resolveMessageFromEvent(
+        event.target,
+        event.pointerType === "touch" || !finePointerRef.current
+      );
       if (!hit || isInteractiveTarget(event.target)) {
         return;
       }
@@ -1451,9 +1635,14 @@ export function MessageThread({
         return false;
       }
       try {
-        const wrappedKeys = findMyWrappedKeys(detail.keys, user.id);
-        const peerPublicKey = findPeerPublicKey(detail.conversation, user.id);
-        if (!rootKeyStore || wrappedKeys.length === 0 || !peerPublicKey) {
+        const wrappedKeys = findMyWrappedKeys(
+          detail.keys,
+          detail.conversation,
+          user.id
+        );
+        const peerPublicKey =
+          findPeerPublicKey(detail.conversation, user.id) ?? "";
+        if (!rootKeyStore || wrappedKeys.length === 0) {
           toast({
             description: "Message keys aren't ready yet",
             title: "Can't edit",
@@ -1533,10 +1722,14 @@ export function MessageThread({
   );
 
   // The decryptor cache is scoped to this identity so a logout/login never
-  // serves another account's plaintext.
+  // serves another account's plaintext. A recovery reset changes which epochs
+  // this account can read, so cached payloads must leave scope with the old wraps.
+  const decryptorScope = userId
+    ? `${userId}\u0000${recoveryGeneration ?? "identity-pending"}`
+    : "anonymous";
   useEffect(() => {
-    messageDecryptor.configureScope(userId ?? "anonymous");
-  }, [userId]);
+    messageDecryptor.configureScope(decryptorScope);
+  }, [decryptorScope]);
 
   // Turns one wire message into a decrypt request item. Stable helper so the
   // request effect and row-level parent fetches share the exact shape.
@@ -1568,11 +1761,20 @@ export function MessageThread({
       ) {
         return [];
       }
-      const wrappedKeys = findMyWrappedKeys(detail.keys, userId);
-      const peerPublicKey = findPeerPublicKey(detail.conversation, userId);
-      if (wrappedKeys.length === 0 || !peerPublicKey) {
+      const wrappedKeys = findMyWrappedKeys(
+        detail.keys,
+        detail.conversation,
+        userId
+      );
+      if (wrappedKeys.length === 0) {
         return [];
       }
+      // The peer argument is only load-bearing for a DM: a den wrap pairs with
+      // the key of whichever member wrapped it, so a den with one unidentified
+      // member still decrypts. A DM with an unidentified peer has nothing this
+      // device could read anyway.
+      const peerPublicKey =
+        findPeerPublicKey(detail.conversation, userId) ?? "";
       try {
         const rootKeys = await rootKeyStore.getRootKeys(
           conversationId,
@@ -1590,16 +1792,19 @@ export function MessageThread({
   // oxlint-disable-next-line react/incompatible-library -- useVirtualizer returns unmemoizable measuring/scroll handles by design (upstream chat recipe); rows stay memoized on their own props
   const rowVirtualizer = useVirtualizer({
     anchorTo: "end",
-    count: allMessages.length,
+    count: transcriptItems.length,
     estimateSize: () => ESTIMATED_ROW_SIZE,
     followOnAppend: true,
-    // Must track `allMessages`, not a ref. The virtualizer calls setOptions
+    // Must track `transcriptItems`, not a ref. The virtualizer calls setOptions
     // during render (before layout effects sync a ref), so a stale getItemKey
     // would resolve the wrong key for every index on a prepend and break the
-    // end-anchor math — the viewport teleports instead of holding position.
+    // end-anchor math — the viewport teleports instead of holding position. It
+    // is the transcript rather than `allMessages` because a log line is a real
+    // row: keying messages alone would let a line's arrival renumber every row
+    // below it out from under the measured offsets.
     getItemKey: useCallback(
-      (index: number) => allMessages[index]?.id ?? `index-${index}`,
-      [allMessages]
+      (index: number) => transcriptItems[index]?.id ?? `index-${index}`,
+      [transcriptItems]
     ),
     getScrollElement: () => scrollRef.current,
     overscan: ROW_OVERSCAN,
@@ -1672,9 +1877,9 @@ export function MessageThread({
     for (let index = last + 1; index <= end; index += 1) {
       push(allMessages[index]);
     }
-    messageDecryptor.request(items, { getBaseKeys });
-    // virtualRangeKey re-runs this on scroll; request() itself is a cheap skip
-    // for cached, queued, and in-flight ids.
+    messageDecryptor.requestUrgent(items, { getBaseKeys });
+    // The viewport owns the urgent lane; superseded prefetch rows can be
+    // evicted from that bounded lane as the reader scrolls.
   }, [
     allMessages,
     conversationId,
@@ -1701,49 +1906,7 @@ export function MessageThread({
       if (!message || !detail || !rootKeyStore || !userId) {
         return;
       }
-      messageDecryptor.request([toDecryptItem(message)], { getBaseKeys });
-    },
-    [detail, getBaseKeys, rootKeyStore, toDecryptItem, userId]
-  );
-
-  // Bulk request behind the details panel. Its three tabs are built from
-  // decrypted payloads, and the decryptor's LRU drops rows the transcript
-  // scrolled past, so a panel opened after a long scroll would list only what
-  // happened to still be cached and its counts would shrink as the reader
-  // scrolled. Asking for the loaded window up front makes the panel a view of the
-  // loaded transcript rather than of the LRU's luck.
-  //
-  // Bounded, and bounded deliberately. The request asks for no more than the
-  // decryptor's cache holds, newest first: a 200k-message conversation with
-  // thousands of pages loaded would otherwise spend real CPU decrypting rows the
-  // cache evicts before the next read, and the panel could never show them. What
-  // the user gets is the newest N shared items, which is also what they are
-  // looking at; older history is reachable by scrolling the thread, which loads
-  // and decrypts it a page at a time. request() skips anything cached, queued, in
-  // flight, or permanently failed, so a repeat call tops the window up for free.
-  const requestLoadedDecrypts = useCallback(
-    (messages: readonly MessageData[]) => {
-      if (!detail || !rootKeyStore || !userId) {
-        return;
-      }
-      const items: DecryptItem[] = [];
-      // Walk newest to oldest and stop at the cap, so a mostly-decrypted window
-      // spends its budget on rows that are actually missing.
-      for (let index = messages.length - 1; index >= 0; index -= 1) {
-        if (items.length >= MESSAGE_DECRYPTOR_CACHE_CAP) {
-          break;
-        }
-        const message = messages[index];
-        if (!message || message.deletedAt) {
-          continue;
-        }
-        if (messageDecryptor.get(message.id) === undefined) {
-          items.push(toDecryptItem(message));
-        }
-      }
-      if (items.length > 0) {
-        messageDecryptor.request(items, { getBaseKeys });
-      }
+      messageDecryptor.requestUrgent([toDecryptItem(message)], { getBaseKeys });
     },
     [detail, getBaseKeys, rootKeyStore, toDecryptItem, userId]
   );
@@ -1777,7 +1940,7 @@ export function MessageThread({
         }
       }
       if (items.length > 0) {
-        messageDecryptor.request(items, { getBaseKeys });
+        messageDecryptor.requestUrgent(items, { getBaseKeys });
       }
     },
     [
@@ -1852,18 +2015,22 @@ export function MessageThread({
   );
 
   // A signature of everything decryption depends on: my wraps for this
-  // conversation (ciphertext per epoch) and the peer's public key. When it
-  // changes, the cached roots are invalid and every failed payload is worth
-  // retrying. Used both to clear the decryptor's caches and to gate the
-  // stale-snapshot refetch below so a failure cannot loop forever.
+  // conversation (epoch, ciphertext and pairing key per wrap) and the members'
+  // public keys. When it changes, the cached roots are invalid and every failed
+  // payload is worth retrying. Used both to clear the decryptor's caches and to
+  // gate the stale-snapshot refetch below so a failure cannot loop forever.
+  //
+  // The pairing key is per wrap, not one peer: in a den each wrap was made by
+  // whichever member rotated that epoch, so a change to any of them (or to the
+  // wrapper a row names) invalidates what decryption depends on.
   const keySignature = useMemo(() => {
     if (!detail || !userId) {
       return "";
     }
-    const wraps = findMyWrappedKeys(detail.keys, userId)
+    const wraps = findMyWrappedKeys(detail.keys, detail.conversation, userId)
       .map(
         (key) =>
-          `${key.version}:${key.encryptedKey.ciphertext}:${key.encryptedKey.iv}`
+          `${key.version}:${key.encryptedKey.ciphertext}:${key.encryptedKey.iv}:${key.wrapperPublicKeyBase64 ?? ""}`
       )
       .join("|");
     return `${wraps}#${findPeerPublicKey(detail.conversation, userId) ?? ""}`;
@@ -1937,10 +2104,13 @@ export function MessageThread({
       }
       for (const id of pendingScanRef.current) {
         const entry = messageDecryptor.get(id);
-        if (entry === undefined || entry === "pending") {
+        if (entry === "pending") {
           continue;
         }
         pendingScanRef.current.delete(id);
+        if (entry === undefined) {
+          continue;
+        }
         if (entry !== "error" && entry.type !== "media") {
           viewerScanCache.mark(id);
         }
@@ -1983,7 +2153,7 @@ export function MessageThread({
     }
     const unreadIndex =
       showUnreadDivider && unreadAnchorId
-        ? allMessages.findIndex((message) => message.id === unreadAnchorId)
+        ? (transcriptIndexOfMessageId.get(unreadAnchorId) ?? -1)
         : -1;
     if (unreadIndex !== -1) {
       if (unreadLandedRef.current) {
@@ -2014,18 +2184,33 @@ export function MessageThread({
       rowVirtualizer.scrollToEnd();
     });
     return () => cancelAnimationFrame(frame);
-  }, [allMessages, detail, rowVirtualizer, showUnreadDivider, unreadAnchorId]);
+  }, [
+    allMessages,
+    detail,
+    rowVirtualizer,
+    showUnreadDivider,
+    transcriptIndexOfMessageId,
+    unreadAnchorId,
+  ]);
 
-  // Track the pinned state from actual scroll position. Passive listener with
-  // change-gated state writes, so scrolling never triggers a render storm.
-  // Becoming pinned clears the arrival badge (the user has caught up).
+  // Track whether the viewport is at the conversation's latest page, not just
+  // the end of an anchored history window. Passive and change-gated, so scrolling
+  // never triggers a render storm. Reaching the actual latest tail clears badges.
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) {
       return;
     }
     const measure = () => {
-      const pinned = isNearBottom(el);
+      const data = queryClient.getQueryData<MessagesInfiniteData>([
+        "messages",
+        conversationId,
+      ]);
+      const pinned = Boolean(
+        isNearBottom(el) &&
+        data &&
+        messageWindowIncludesLatest(data.pages, data.pageParams)
+      );
       if (pinned === pinnedRef.current) {
         return;
       }
@@ -2038,7 +2223,7 @@ export function MessageThread({
     measure();
     el.addEventListener("scroll", measure, { passive: true });
     return () => el.removeEventListener("scroll", measure);
-  }, [detail]);
+  }, [conversationId, detail, messagesQuery.data, queryClient]);
 
   // When the peer starts typing, reveal the in-flow typing row if the viewport
   // is pinned to the bottom. The row lives after the virtualized list (not as
@@ -2255,7 +2440,7 @@ export function MessageThread({
   const requestDecryptBatch = useCallback(
     (messages: MessageData[], options?: { urgent?: boolean }) => {
       if (!detail || !rootKeyStore || !userId) {
-        return;
+        return null;
       }
       const items = messages.flatMap((message) =>
         message.deletedAt ? [] : [toDecryptItem(message)]
@@ -2263,12 +2448,127 @@ export function MessageThread({
       if (items.length > 0) {
         if (options?.urgent) {
           messageDecryptor.requestUrgent(items, { getBaseKeys });
-          return;
+          return [] as string[];
         }
-        messageDecryptor.request(items, { getBaseKeys });
+        return messageDecryptor
+          .request(items, { getBaseKeys })
+          .map((item) => item.message.id);
       }
+      return [] as string[];
     },
     [detail, getBaseKeys, rootKeyStore, toDecryptItem, userId]
+  );
+
+  const drainDecryptBatch = useCallback(
+    (messages: MessageData[], signal?: AbortSignal) =>
+      drainDecryptRequests(
+        messages.filter((message) => !message.deletedAt),
+        {
+          getId: (message) => message.id,
+          hasSpace: () =>
+            messageDecryptor.getBackgroundQueueLength() <
+            MESSAGE_DECRYPTOR_QUEUE_CAP,
+          lookup: (id) => messageDecryptor.get(id),
+          request: (batch) => {
+            const rejectedIds = requestDecryptBatch(batch);
+            if (rejectedIds === null) {
+              return null;
+            }
+            const rejected = new Set(rejectedIds);
+            return batch.filter((message) => rejected.has(message.id));
+          },
+          signal,
+          subscribe: messageDecryptor.subscribe,
+        }
+      ),
+    [requestDecryptBatch]
+  );
+
+  // The details tabs can ask for the whole bounded transcript window. Drain it
+  // through backpressure so a full queue does not silently omit older items.
+  const requestLoadedDecrypts = useCallback(
+    (messages: readonly MessageData[]) => {
+      if (!detail || !rootKeyStore || !userId) {
+        return;
+      }
+      const selected: MessageData[] = [];
+      for (let index = messages.length - 1; index >= 0; index -= 1) {
+        if (selected.length >= MESSAGE_DECRYPTOR_CACHE_CAP) {
+          break;
+        }
+        const message = messages[index];
+        if (
+          message &&
+          !message.deletedAt &&
+          messageDecryptor.get(message.id) === undefined
+        ) {
+          selected.push(message);
+        }
+      }
+      if (selected.length > 0) {
+        detailsDecryptAbortRef.current?.abort();
+        const controller = new AbortController();
+        detailsDecryptAbortRef.current = controller;
+        const run = async () => {
+          try {
+            await drainDecryptBatch(selected, controller.signal);
+          } finally {
+            if (detailsDecryptAbortRef.current === controller) {
+              detailsDecryptAbortRef.current = null;
+            }
+          }
+        };
+        void run();
+      }
+    },
+    [detail, drainDecryptBatch, rootKeyStore, userId]
+  );
+
+  const serverReadRefsPage = useCallback(
+    (input: {
+      after?: string;
+      around?: {
+        createdAt: number;
+        messageId: string;
+        ordinal: number;
+      };
+      cursor?: string;
+      kind: "link" | "media" | "post";
+      limit?: number;
+      signal: AbortSignal;
+    }) =>
+      resolveServerSharedRefsPage({
+        around: input.around,
+        conversationId,
+        cursor: input.cursor ?? input.after,
+        decrypt: async (messages, signal) => {
+          if (signal?.aborted) {
+            return new Map();
+          }
+          const messageRows = [...messages];
+          messageDecryptor.requestUrgent(messageRows.map(toDecryptItem), {
+            getBaseKeys,
+          });
+          await waitForDecrypts(messageRows, {
+            lookup: (id) => messageDecryptor.get(id),
+            signal,
+            subscribe: messageDecryptor.subscribe,
+            timeoutMs: 10_000,
+          });
+          const payloads = new Map<string, MessagePayload>();
+          for (const message of messageRows) {
+            const entry = messageDecryptor.get(message.id);
+            if (typeof entry === "object" && entry !== null) {
+              payloads.set(message.id, entry);
+            }
+          }
+          return payloads;
+        },
+        kind: input.kind,
+        limit: input.limit,
+        signal: input.signal,
+      }),
+    [conversationId, getBaseKeys, toDecryptItem]
   );
 
   // Serialized older-page loader shared by in-conversation search (which walks
@@ -2290,7 +2590,11 @@ export function MessageThread({
     // check keeps an awaited walk going between fetches: query state flips
     // asynchronously, so a render-scoped closure would report "busy" as "no
     // more history" and stop after a single page.
-    if (loadingOlderRef.current || !hasPreviousPage) {
+    if (
+      loadingOlderRef.current ||
+      loadingNewerMediaRef.current ||
+      !hasPreviousPage
+    ) {
       return { added: [], error: null };
     }
     loadingOlderRef.current = true;
@@ -2606,12 +2910,14 @@ export function MessageThread({
       }
       if (index === -1) {
         try {
+          const issuedIds = new Set(readFlat().map((row) => row.id));
           const window = await fetchMessages(
             conversationId,
             { kind: "around", messageId },
             HISTORY_PAGE_SIZE,
             { signal: controller.signal }
           );
+          controller.signal.throwIfAborted();
           if (window.messages.length > 0) {
             // The window becomes the loaded transcript BEFORE the text wait, so
             // the wait has a row to look at: it used to run first, against a
@@ -2636,23 +2942,18 @@ export function MessageThread({
             // already had. The blind write this replaces discarded both, and a
             // peer message folded in during the read simply vanished from the
             // screen while the badge said it had arrived.
-            const issuedIds = new Set(loadedNow);
             queryClient.setQueryData<MessagesInfiniteData>(
               ["messages", conversationId],
               (old) => {
                 if (!old) {
                   return old;
                 }
-                return {
-                  pageParams: [NEWEST_PAGE],
-                  pages: [
-                    reconcileAnchoredWindow({
-                      currentPages: old.pages,
-                      fetched: window,
-                      issuedIds,
-                    }),
-                  ],
-                };
+                return buildAnchoredMessageWindow({
+                  currentPages: old.pages,
+                  fetched: window,
+                  issuedIds,
+                  messageId,
+                });
               }
             );
             // The window's own decrypts are urgent: this jump is about to wait on
@@ -2744,10 +3045,13 @@ export function MessageThread({
       jumpTimerRef.current = setTimeout(() => {
         setJumpTargetId(null);
       }, 850);
-      rowVirtualizer.scrollToIndex(index, {
-        align: "center",
-        behavior: "auto",
-      });
+      rowVirtualizer.scrollToIndex(
+        transcriptIndexOfMessageId.get(messageId) ?? index,
+        {
+          align: "center",
+          behavior: "auto",
+        }
+      );
       // Re-anchor on the next frame: the target row may still be at its
       // estimated height (pending decrypt), and the first landing uses that
       // estimate. Same pattern as the viewer's close-and-land. Gated on the
@@ -2757,10 +3061,13 @@ export function MessageThread({
         if (epoch !== jumpEpochRef.current) {
           return;
         }
-        rowVirtualizer.scrollToIndex(index, {
-          align: "center",
-          behavior: "auto",
-        });
+        rowVirtualizer.scrollToIndex(
+          transcriptIndexOfMessageId.get(messageId) ?? index,
+          {
+            align: "center",
+            behavior: "auto",
+          }
+        );
       });
       settle();
     },
@@ -2774,560 +3081,52 @@ export function MessageThread({
       claimJumpActivity,
       historyReads,
       releaseJumpActivity,
+      transcriptIndexOfMessageId,
     ]
   );
 
-  // Resolve the index backend once per conversation. A failure here is not
-  // fatal: `resolveSearchIndexStore` already falls back to an in-memory store,
-  // and the caller treats null as "no index, loaded rows only".
   useEffect(() => {
-    let cancelled = false;
-    setPersistedCovered(null);
-    setPersistedChainVerified(null);
-    setPersistedRefsCovered(null);
-    const resolve = async () => {
-      try {
-        const resolved = await resolveSearchIndexStore();
-        if (cancelled) {
-          return;
-        }
-        setSearchIndex({ refreshToken: 0, store: resolved.store });
-        // Whether a previous walk already reached the start, so reopening
-        // search on a covered conversation starts nothing -- not even the
-        // one-request probe walk that would rediscover it. A persisted "done"
-        // is verified against the newest page rather than trusted blindly: a
-        // cursor that pointed below uncovered history poisons the flag with it,
-        // and trusting it would strand everything above forever.
-        try {
-          const meta = await resolved.store.readMeta(conversationId);
-          let covered = meta?.reachedStart === true;
-          let chainVerified = meta?.cursorVerified === true;
-          if (covered && !cancelled) {
-            try {
-              const peek = await fetchMessages(
-                conversationId,
-                { kind: "older" },
-                TOP_COVERAGE_PEEK_SIZE
-              );
-              const topIds = peek.messages.map((row) => row.id);
-              if (topIds.length > 0) {
-                const indexedTop = await resolved.store.hasIndexedMessages(
-                  conversationId,
-                  topIds
-                );
-                let queued: string[] = [];
-                try {
-                  queued = await resolved.store.readPending(conversationId);
-                } catch {
-                  // Unreadable queue: covered means indexed, below.
-                }
-                const queuedSet = new Set(queued);
-                covered = topIds.every(
-                  (id) => indexedTop.has(id) || queuedSet.has(id)
-                );
-              }
-            } catch {
-              // Peek failed: keep the persisted verdict rather than forcing a
-              // heal walk on a network blip.
-            }
-            if (!covered) {
-              chainVerified = false;
-              try {
-                const current =
-                  (await resolved.store.readMeta(conversationId)) ??
-                  emptySearchIndexMeta(conversationId);
-                await resolved.store.writeMeta({
-                  ...current,
-                  cursorVerified: false,
-                  reachedStart: false,
-                  // Cleared with the verdict it belonged to. Leaving a refs
-                  // marker on a conversation whose coverage was just disproved
-                  // would let a later run skip the repair this write is for.
-                  refsReachedStart: false,
-                  updatedAt: Date.now(),
-                });
-              } catch {
-                // Best effort: the walk re-verifies from the top regardless.
-              }
-            }
-          }
-          if (!cancelled) {
-            setPersistedCovered(covered);
-            setPersistedChainVerified(chainVerified);
-            // Read as false when absent, so an older verdict that predates refs
-            // heals rather than persisting.
-            setPersistedRefsCovered(meta?.refsReachedStart === true && covered);
-          }
-        } catch {
-          if (!cancelled) {
-            setPersistedCovered(false);
-            setPersistedChainVerified(false);
-            setPersistedRefsCovered(false);
-          }
-        }
-      } catch {
-        // Both backends unavailable. Search still works over loaded rows.
-        if (!cancelled) {
-          setSearchIndex(null);
-          setPersistedCovered(false);
-          setPersistedChainVerified(false);
-          setPersistedRefsCovered(false);
-        }
-      }
-    };
-    void resolve();
-    return () => {
-      cancelled = true;
-    };
+    void retireLegacySearchIndex();
   }, [conversationId]);
-
-  // The index writer for this conversation. Created once the store resolves and
-  // torn down on conversation change so one thread never writes another
-  // conversation's entries.
-  // Destructured out of the state object so effect dependencies reference the
-  // values themselves, which is what makes them valid dependencies.
-  const searchIndexStore = searchIndex?.store ?? null;
-  const searchIndexToken = searchIndex?.refreshToken ?? 0;
-  const searchWriterRef = useRef<ReturnType<
-    typeof createMessageIndexWriter
-  > | null>(null);
-
-  // Bumping the token re-reads the posting lists and the row table, so newly
-  // indexed history is findable without waiting for the next search session.
-  // During a backfill that read is expensive, so writes are coalesced instead.
-  const backfillRunningRef = useRef(false);
-  const coverageTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const bumpSearchIndex = useCallback(() => {
-    setSearchIndex((current) =>
-      current ? { ...current, refreshToken: current.refreshToken + 1 } : current
-    );
-  }, []);
-  const scheduleCoverageRefresh = useCallback(() => {
-    if (coverageTimerRef.current) {
-      return;
-    }
-    coverageTimerRef.current = setTimeout(() => {
-      coverageTimerRef.current = null;
-      bumpSearchIndex();
-    }, COVERAGE_REFRESH_DEBOUNCE_MS);
-  }, [bumpSearchIndex]);
-
-  // Keep the index inside its budget. Runs once per conversation open, which is
-  // cheap: the policy reads one small meta record per conversation and the row
-  // allocator, never the posting lists.
-  const enforceIndexBudget = useCallback(async () => {
-    if (!searchIndexStore) {
-      return 0;
-    }
-    try {
-      const summaries = await searchIndexStore.listConversations();
-      const plan = planSearchIndexEviction({
-        activeConversationId: conversationId,
-        summaries,
-      });
-      // oxlint-disable no-await-in-loop -- one clear per victim, deliberately serial
-      for (const victim of plan.evict) {
-        await searchIndexStore.clearConversation(victim);
-      }
-      return plan.evict.length;
-    } catch {
-      // Enumeration failed: storage is in a state this device cannot reason
-      // about. Search still works over whatever survived.
-      return 0;
-    }
-  }, [conversationId, searchIndexStore]);
-  // Enforce the budget as soon as a store exists, so a device that accumulated
-  // indexes over months trims on the next conversation rather than the next
-  // quota error.
-  useEffect(() => {
-    if (!searchIndexStore) {
-      return;
-    }
-    let cancelled = false;
-    const run = async () => {
-      const evicted = await enforceIndexBudget();
-      if (!cancelled && evicted > 0) {
-        setStoragePressure((current) => ({
-          evictedCount: current.evictedCount + evicted,
-          storageFull: current.storageFull,
-        }));
-      }
-    };
-    void run();
-    return () => {
-      cancelled = true;
-    };
-  }, [enforceIndexBudget, searchIndexStore]);
-
-  useEffect(() => {
-    if (!searchIndexStore) {
-      searchWriterRef.current = null;
-      setWriterReady(false);
-      return;
-    }
-    const writer = createMessageIndexWriter({
-      conversationId,
-      getPayload: (id) => messageDecryptor.get(id),
-      onCoverage: () => {
-        if (backfillRunningRef.current) {
-          scheduleCoverageRefresh();
-          return;
-        }
-        bumpSearchIndex();
-      },
-      onStorageFull: () => {
-        // A write was refused for lack of space. Evict first, then report: the
-        // walk can continue once something else has made room.
-        setStoragePressure((current) => ({ ...current, storageFull: true }));
-        void (async () => {
-          const evicted = await enforceIndexBudget();
-          if (evicted > 0) {
-            setStoragePressure((current) => ({
-              evictedCount: current.evictedCount + evicted,
-              storageFull: false,
-            }));
-            bumpSearchIndex();
-          }
-        })();
-      },
-      store: searchIndexStore,
-      // Retries pending rows the moment their payload lands, rather than waiting
-      // for unrelated transcript activity. A conversation that had gone quiet
-      // would otherwise never catch up on rows it had already fetched.
-      subscribeToPayloads: messageDecryptor.subscribe,
-    });
-    searchWriterRef.current = writer;
-    setWriterReady(true);
-    return () => {
-      searchWriterRef.current = null;
-      setWriterReady(false);
-    };
-  }, [
-    bumpSearchIndex,
-    conversationId,
-    enforceIndexBudget,
-    scheduleCoverageRefresh,
-    searchIndexStore,
-  ]);
-
-  // Coverage of this device's index, and the walk that extends it. Opening
-  // search starts the walk on its own and each yielded run chains the next
-  // while search stays open; the bar shows progress throughout, and closing
-  // search (or hiding the tab) ends it. There is no manual stop: indexing is
-  // automatic and stops itself.
-  const [coverage, setCoverage] = useState<BackfillProgress | null>(null);
-  // Set when a write was refused for lack of storage, or when eviction had to drop
-  // a conversation to stay inside the budget. Surfaced rather than swallowed: a
-  // full disk used to look exactly like a conversation with no matches, with no
-  // way for the user to tell the difference or act on it.
-  const [storagePressure, setStoragePressure] = useState<{
-    evictedCount: number;
-    storageFull: boolean;
-  }>({ evictedCount: 0, storageFull: false });
-
-  const backfillRef = useRef<ReturnType<
-    typeof createMessageIndexBackfill
-  > | null>(null);
-  const backfillAbortRef = useRef<AbortController | null>(null);
-
-  const awaitBackfillDecrypts = useCallback(
-    async (messages: MessageData[]) => {
-      requestDecryptBatch(messages);
-      // The writer can only index a row whose payload it can read, so the walk
-      // waits for the decrypts rather than queueing rows it cannot use.
-      await waitForDecrypts(messages, {
-        lookup: (id) => messageDecryptor.get(id),
-        subscribe: messageDecryptor.subscribe,
-      });
-    },
-    [requestDecryptBatch]
-  );
-
-  const startIndexingOlder = useCallback(() => {
-    const writer = searchWriterRef.current;
-    if (!writer || !searchIndexStore || backfillRef.current) {
-      return;
-    }
-
-    const controller = new AbortController();
-    backfillAbortRef.current = controller;
-    backfillRunningRef.current = true;
-    // The walk is about to commit once per page, and every commit takes the
-    // IndexedDB write lock. Holding the writer's own coalesced writes for the
-    // duration keeps the transcript's decryptor completions from adding a
-    // parallel stream of commits that contend for the same lock and starve
-    // search reads. The walk's per-page flush writes everything queued, so
-    // nothing is deferred past the walk.
-    writer.setDeferring(true);
-    const backfill = createMessageIndexBackfill({
-      awaitDecrypts: awaitBackfillDecrypts,
-      // The walk stands aside for a user-initiated read. It shares this
-      // conversation's history endpoint, and on a fresh device it owns the
-      // rate-limit budget from the first keystroke: 500-row pages, 250ms apart,
-      // for as long as search stays open. Without this the user's single anchored
-      // read arrives into that stream, is throttled, and falls back to a bounded
-      // walk that then spends thirty more requests against the same limiter --
-      // which is the "loading messages" that eventually gives up on its own.
-      beforePage: () => historyReads.whenIdle(controller.signal),
-      conversationId,
-      // Fetched directly rather than through the transcript's infinite query:
-      // the point of a backfill is to index history *without* holding it in
-      // memory, and growing the transcript would defeat that.
-      fetchPage: async (cursor) => {
-        const page = await fetchMessages(
-          conversationId,
-          { cursor, kind: "older", walk: true },
-          BACKFILL_PAGE_SIZE,
-          // The run's signal reaches the in-flight request, not just the walk's
-          // between-page waits: closing search or hiding the tab ends the fetch
-          // that is hanging, instead of waiting out a 30s page that nobody
-          // will read.
-          { signal: controller.signal }
-        );
-        return {
-          messages: page.messages,
-          previousCursor: page.previousCursor,
-        };
-      },
-      onProgress: (next) => {
-        setCoverage(next);
-        if (next.reachedStart) {
-          // Reached bottom through this run's verified descent, so the flag
-          // and the chain verdict go together from here on.
-          setPersistedCovered(true);
-          setPersistedChainVerified(true);
-          // And the refs half, for the same reason: this run wrote each message's
-          // media, posts and links in the same pass it wrote the text, so it
-          // covered both indexes and the pane can stop offering to index older.
-          setPersistedRefsCovered(true);
-        }
-      },
-      pageDelayMs: BACKFILL_PAGE_DELAY_MS,
-      signal: controller.signal,
-      store: searchIndexStore,
-      writer,
-    });
-    backfillRef.current = backfill;
-    // Not awaited: the walk is user-initiated background work, and the bar shows
-    // its progress. The teardown below is what the UI depends on.
-    const settle = async () => {
-      try {
-        await backfill.run();
-      } catch {
-        // The walker reports its own failures through progress; this only guards
-        // against a rejection escaping the run itself.
-      } finally {
-        backfillRef.current = null;
-        backfillAbortRef.current = null;
-        backfillRunningRef.current = false;
-        // Released in the walk's own settle, so an abort or a page-budget yield
-        // both give the writer back rather than leaving it holding writes for a
-        // walk that is no longer running.
-        writer.setDeferring(false);
-        if (coverageTimerRef.current) {
-          clearTimeout(coverageTimerRef.current);
-          coverageTimerRef.current = null;
-        }
-        // One last read so the final page's rows are searchable immediately.
-        bumpSearchIndex();
-        // Retrigger the auto-start effect: the run's final report landed while
-        // the run object still existed, so without this the chain would see
-        // "already running" forever and never continue.
-        setWalkEpoch((epoch) => epoch + 1);
-      }
-    };
-    void settle();
-  }, [
-    awaitBackfillDecrypts,
-    bumpSearchIndex,
-    conversationId,
-    historyReads,
-    searchIndexStore,
-  ]);
-
-  // Leaving the conversation, or closing EVERY consumer, must not leave a walk
-  // running: it would keep fetching and decrypting for a thread nobody is reading.
-  // The report is cleared too: it belongs to the ended session, and a stale
-  // `stopped` would veto the next session's auto-start.
-  //
-  // "Every" rather than "search", because the details surface reads the same
-  // index: closing search while the details are showing must not stop a walk whose
-  // output the user is still looking at. `detailsVisible` rather than `placement`
-  // because the pinned pane is a consumer without the user ever asking for it, and
-  // because a pane the user has folded is not a consumer at all.
-  const walkWanted = searchOpen || detailsVisible;
-  useEffect(() => {
-    if (walkWanted) {
-      return;
-    }
-    backfillRef.current?.stop();
-    backfillAbortRef.current?.abort();
-    setCoverage(null);
-  }, [walkWanted]);
-
-  // A hidden tab does no walks: decrypting hundreds of pages for a screen
-  // nobody is looking at is battery and bandwidth spent for nothing. Becoming
-  // visible restarts the current run's successor through the auto-start below
-  // (a stopped run never chains on its own, so without this the walk would
-  // wait for search to reopen).
-  useEffect(() => {
-    if (!walkWanted) {
-      return;
-    }
-    const onVisibilityChange = () => {
-      if (document.hidden) {
-        backfillRef.current?.stop();
-        backfillAbortRef.current?.abort();
-        return;
-      }
-      if (
-        shouldAutoStartWalk({
-          autoIndex: true,
-          coverage,
-          persistedChainVerified,
-          persistedCovered,
-          persistedRefsCovered,
-          running: backfillRef.current !== null,
-          storeReady: searchIndexStore !== null,
-          // The tab is visible and a consumer is open, which is exactly the
-          // condition the policy asks about.
-          wantsIndexing: true,
-          writerReady,
-        })
-      ) {
-        startIndexingOlder();
-      }
-    };
-    document.addEventListener("visibilitychange", onVisibilityChange);
-    return () => {
-      document.removeEventListener("visibilitychange", onVisibilityChange);
-    };
-  }, [
-    coverage,
-    persistedChainVerified,
-    persistedCovered,
-    persistedRefsCovered,
-    searchIndexStore,
-    startIndexingOlder,
-    walkWanted,
-    writerReady,
-  ]);
-
-  // Automatic catch-up. Opening search OR the details panel on partially covered
-  // history starts the walk, and each run that yields on its page budget chains
-  // the next while a consumer stays open -- the 25-page bound paces the work,
-  // chaining only removes the clicks. Failed runs never chain (the Retry button
-  // owns them); there is no manual stop by design, so the flag below is always
-  // true and stopping only ever comes from close, hide, or teardown.
-  //
-  // The details surface counts as a consumer because its tabs read this same
-  // index. Without it, showing the details on a device that has never walked the
-  // conversation would show only the decrypted slice and report "no media" for a
-  // chat full of it -- the exact false answer the walk exists to prevent. On a
-  // desktop this is now the default view, so this walk starts on entering a
-  // conversation rather than on opening a panel -- and folding the pane withdraws
-  // the consumer, which stops the walk again.
-  const wantsIndexing = searchOpen || detailsVisible;
-  useEffect(() => {
-    if (
-      shouldAutoStartWalk({
-        autoIndex: true,
-        coverage,
-        persistedChainVerified,
-        persistedCovered,
-        persistedRefsCovered,
-        running: backfillRef.current !== null,
-        storeReady: searchIndexStore !== null,
-        wantsIndexing,
-        writerReady,
-      })
-    ) {
-      startIndexingOlder();
-    }
-  }, [
-    coverage,
-    persistedChainVerified,
-    persistedCovered,
-    persistedRefsCovered,
-    searchIndexStore,
-    startIndexingOlder,
-    walkEpoch,
-    wantsIndexing,
-    writerReady,
-  ]);
 
   useEffect(
     () => () => {
-      backfillRef.current?.stop();
-      backfillAbortRef.current?.abort();
       jumpAbortRef.current?.abort();
-      // Every holder is gone with the component, and their teardowns will never
-      // run. A token left behind would hold the backfill off for the rest of the
-      // session -- and this instance outlives nothing, so nothing would clear it.
       historyReads.reset();
-      if (coverageTimerRef.current) {
-        clearTimeout(coverageTimerRef.current);
-      }
     },
     [historyReads]
   );
 
-  // Feed every row the transcript holds to the writer. Coalesced inside the
-  // writer onto a microtask, so a page of 100 arriving rows is one write.
-  useEffect(() => {
-    const writer = searchWriterRef.current;
-    if (!writer || allMessages.length === 0) {
-      return;
-    }
-    writer.consider(allMessages);
-  }, [allMessages, searchIndexToken]);
-
-  // Rows persisted as unsearchable by an earlier session are retried as soon as
-  // the transcript holds them again, rather than waiting for the user to scroll
-  // back to them. Rows outside the loaded window are recovered by the backfill
-  // walk instead, which re-fetches from its cursor: fetching each pending id
-  // individually would turn a 5,000-row queue into 5,000 requests.
-  useEffect(() => {
-    const writer = searchWriterRef.current;
-    if (!writer || allMessages.length === 0) {
-      return;
-    }
-    let cancelled = false;
-    const recover = async () => {
-      let queued: string[];
-      try {
-        queued = await writer.durablePending();
-      } catch {
-        return;
-      }
-      if (cancelled || queued.length === 0) {
-        return;
-      }
-      const queuedSet = new Set(queued);
-      const retryable = allMessages.filter((row) => queuedSet.has(row.id));
-      if (retryable.length > 0) {
-        writer.consider(retryable);
-      }
-    };
-    void recover();
-    return () => {
-      cancelled = true;
-    };
-  }, [allMessages, searchIndexToken]);
-
-  // One search session backs both surfaces. `enabled` tracks the whole session
-  // (bar or list), so the list view inherits the bar's corpus, query, and
-  // paging walk instead of standing up a second one.
+  const sharedRefsRefreshToken = serverRefsRefreshToken;
   const search = useConversationSearch({
     allMessages,
     conversationId,
     enabled: searchOpen,
-    hasPreviousPage: hasPreviousPage ?? false,
-    indexRefreshToken: searchIndexToken,
-    indexStore: searchIndexStore,
-    listPage: searchView === "list" ? searchPage : 0,
+    listPage: searchPage,
+    offlineCacheRefreshToken: serverSearchRefreshToken,
+    offlineSearchScope: activeOfflineSearchScope,
     requestDecryptBatch,
+    serverRefreshToken: serverSearchRefreshToken,
+    serverSearchEnabled: SERVER_MESSAGE_SEARCH_ENABLED,
   });
+  const {
+    offlineSearch: searchOffline,
+    retry: retrySearch,
+    savedHistorySearch: searchSavedHistory,
+  } = search;
+  const handleRetrySearch = useCallback(() => {
+    if (searchSavedHistory && !searchOffline) {
+      setSearchPage(0);
+      setSearchListIndex(0);
+    }
+    pendingSearchNavigationRef.current = 0;
+    retrySearch();
+  }, [retrySearch, searchOffline, searchSavedHistory]);
+  const handleRetryJump = useCallback(() => {
+    if (searchActiveId) {
+      void jumpToMessage(searchActiveId);
+    }
+  }, [jumpToMessage, searchActiveId]);
   const { matchIds } = search;
 
   // A jump outlives the session that asked for it unless the session ends here.
@@ -3363,28 +3162,11 @@ export function MessageThread({
     historyReads.reset();
   }, [conversationId, historyReads, search.debouncedQuery, searchOpen]);
 
-  // How much of this conversation the index can actually see, which is what the
-  // bar's counter has to be honest about. Three signals agree on coverage: a
-  // backfill that reached the start this session, a vouched persisted verdict
-  // from an earlier session (covered flag plus verified cursor chain -- either
-  // half missing means the walk must re-prove it), or a transcript that paged
-  // to the start (the API returning no older page means there is no older page).
-  // All three verdict halves, for the same reason the walk needs all three: a
-  // conversation whose TEXT is covered but whose refs are not is not covered as
-  // far as anything on screen can tell, and reporting it as covered is what put
-  // "no media" on a chat full of it.
   const fullyCovered =
-    (coverage?.reachedStart === true && coverage.refsReachedStart === true) ||
-    (persistedCovered === true &&
-      persistedChainVerified === true &&
-      persistedRefsCovered === true) ||
-    (hasPreviousPage === false && allMessages.length > 0);
-  const indexingOlder = coverage?.state === "running";
-  // Offered only when there is genuinely older history this device has not
-  // indexed, and only with a store to index it into.
-  const canIndexOlder =
-    Boolean(searchIndexStore) && (hasPreviousPage ?? false) && !fullyCovered;
-
+    search.serverCoverageIncomplete === false &&
+    search.serverCoverageUnavailable === false &&
+    search.debouncedQuery.trim().length > 0;
+  const indexingOlder = search.serverCoverageIncomplete && !search.searching;
   // The list's page and its active row.
   //
   // The pager is sized by the TOTAL, not by the rows on hand. That is the whole
@@ -3401,14 +3183,22 @@ export function MessageThread({
         search.results,
         searchPage,
         SEARCH_PAGE_SIZE,
-        search.totalMatches
+        search.totalMatches,
+        search.totalMatchesExact
       ),
-    [search.results, search.totalMatches, searchPage]
+    [search.results, search.totalMatches, search.totalMatchesExact, searchPage]
   );
   const searchListIndexClamped = Math.min(
     searchListIndex,
-    searchPageSlice.pageResults.length - 1
+    search.pageHitIds.length - 1
   );
+  const searchPageResultCount = Math.max(
+    search.pageHitIds.length,
+    searchPageSlice.pageResults.length
+  );
+  const searchRangeEnd = searchPageResultCount
+    ? searchPageSlice.rangeStart + searchPageResultCount - 1
+    : searchPageSlice.rangeEnd;
 
   // Auto-jump on commit: each newly debounced query lands on its newest match,
   // Telegram-style. Three guards keep it honest:
@@ -3429,20 +3219,22 @@ export function MessageThread({
     }
     if (committedQueryRef.current !== search.debouncedQuery) {
       committedQueryRef.current = search.debouncedQuery;
-      pendingAutoJumpRef.current = true;
-      setSearchActiveId(null);
+      pendingAutoJumpRef.current = searchView === "chat";
+      if (searchView === "chat") {
+        setSearchActiveId(null);
+        setSearchActiveOrdinal(0);
+      }
+    }
+    if (searchView !== "chat") {
+      return;
     }
     // Nothing to land on yet: stay armed so the first match that resolves wins.
     if (matchIds.length === 0) {
       return;
     }
-    const activeIndex = searchActiveId ? matchIds.indexOf(searchActiveId) : -1;
     if (pendingAutoJumpRef.current) {
       pendingAutoJumpRef.current = false;
-      void jumpToMessage(matchIds[0]);
-    } else if (activeIndex === -1) {
-      // The landed match is no longer a match for this query (hidden or
-      // deleted); re-anchor on the newest one so the counter stays truthful.
+      setSearchActiveOrdinal(search.windowStartPage * SEARCH_PAGE_SIZE + 1);
       void jumpToMessage(matchIds[0]);
     }
   }, [
@@ -3450,7 +3242,8 @@ export function MessageThread({
     matchIds,
     search.debouncedQuery,
     search.query,
-    searchActiveId,
+    searchView,
+    search.windowStartPage,
     searchOpen,
   ]);
 
@@ -3473,49 +3266,120 @@ export function MessageThread({
         return;
       }
       const current = searchActiveId ? matchIds.indexOf(searchActiveId) : -1;
+      if (current === -1) {
+        const target = direction > 0 ? matchIds[0] : matchIds.at(-1);
+        if (target) {
+          const targetIndex = matchIds.indexOf(target);
+          setSearchActiveOrdinal(
+            search.windowStartPage * SEARCH_PAGE_SIZE + targetIndex + 1
+          );
+          void jumpToMessage(target);
+        }
+        return;
+      }
       const from = current === -1 ? 0 : current;
+      if (
+        direction === 1 &&
+        from === matchIds.length - 1 &&
+        search.canNextPage
+      ) {
+        pendingSearchNavigationRef.current = 1;
+        setSearchPage(search.windowEndPage + 1);
+        return;
+      }
+      if (direction === -1 && from === 0 && search.canPreviousPage) {
+        pendingSearchNavigationRef.current = -1;
+        setSearchPage(search.windowStartPage - 1);
+        return;
+      }
       const next = (from + direction + matchIds.length) % matchIds.length;
       const id = matchIds[next];
       if (id) {
+        setSearchActiveOrdinal(
+          search.windowStartPage * SEARCH_PAGE_SIZE + next + 1
+        );
         void jumpToMessage(id);
       }
     },
     [
       jumpToMessage,
       matchIds,
+      search.canNextPage,
+      search.canPreviousPage,
       search.debouncedQuery,
       search.query,
       searchActiveId,
+      search.windowEndPage,
+      search.windowStartPage,
     ]
   );
+
+  useEffect(() => {
+    const direction = pendingSearchNavigationRef.current;
+    if (direction === 0) {
+      return;
+    }
+    if (search.listPageError) {
+      pendingSearchNavigationRef.current = 0;
+      return;
+    }
+    if (
+      search.listPageLoading ||
+      searchPage < search.windowStartPage ||
+      searchPage > search.windowEndPage
+    ) {
+      return;
+    }
+    const pageOffset = (searchPage - search.windowStartPage) * SEARCH_PAGE_SIZE;
+    const target =
+      direction > 0
+        ? search.matchIds[pageOffset]
+        : search.matchIds[
+            Math.min(
+              pageOffset + SEARCH_PAGE_SIZE - 1,
+              search.matchIds.length - 1
+            )
+          ];
+    if (target) {
+      pendingSearchNavigationRef.current = 0;
+      const targetIndex = search.matchIds.indexOf(target);
+      setSearchActiveOrdinal(
+        search.windowStartPage * SEARCH_PAGE_SIZE + targetIndex + 1
+      );
+      void jumpToMessage(target);
+    }
+  }, [
+    jumpToMessage,
+    search.listPageError,
+    search.listPageLoading,
+    search.matchIds,
+    search.windowEndPage,
+    search.windowStartPage,
+    searchPage,
+  ]);
 
   const moveListCursor = useCallback(
     (direction: 1 | -1) => {
       setSearchListIndex((index) => {
-        const last = searchPageSlice.pageResults.length - 1;
+        const last = search.pageHitIds.length - 1;
         return Math.min(Math.max(index + direction, 0), Math.max(last, 0));
       });
     },
-    [searchPageSlice.pageResults.length]
+    [search.pageHitIds.length]
   );
 
   const changeSearchPage = useCallback(
     (delta: 1 | -1) => {
-      setSearchPage((page) => {
-        // Clamped against the TOTAL, so the pager spans the whole result set
-        // rather than the page currently in hand. Without this the last page
-        // would read as page 0 of 1 for any query whose rows the hook has not
-        // loaded yet.
-        const size = Math.max(1, SEARCH_PAGE_SIZE);
-        const reachablePages = Math.max(
-          1,
-          Math.ceil(search.totalMatches / size)
-        );
-        return Math.min(Math.max(page + delta, 0), reachablePages - 1);
-      });
+      if (
+        (delta > 0 && !search.canNextPage) ||
+        (delta < 0 && !search.canPreviousPage)
+      ) {
+        return;
+      }
+      setSearchPage((page) => Math.max(page + delta, 0));
       setSearchListIndex(0);
     },
-    [search.totalMatches]
+    [search.canNextPage, search.canPreviousPage]
   );
 
   const searchNext = useCallback(() => {
@@ -3542,15 +3406,21 @@ export function MessageThread({
       stepThroughMatches(1);
       return;
     }
-    const result = searchPageSlice.pageResults[searchListIndexClamped];
-    if (result) {
+    const resultId = search.pageHitIds[searchListIndexClamped];
+    if (resultId) {
+      pendingAutoJumpRef.current = false;
+      setSearchActiveId(resultId);
+      setSearchActiveOrdinal(
+        searchPage * SEARCH_PAGE_SIZE + searchListIndexClamped + 1
+      );
       setSearchView("chat");
-      void jumpToMessage(result.id);
+      void jumpToMessage(resultId);
     }
   }, [
     jumpToMessage,
+    search.pageHitIds,
     searchListIndexClamped,
-    searchPageSlice.pageResults,
+    searchPage,
     searchView,
     stepThroughMatches,
   ]);
@@ -3561,6 +3431,7 @@ export function MessageThread({
     setSearchPage(0);
     setSearchListIndex(0);
     setSearchActiveId(null);
+    setSearchActiveOrdinal(0);
     if (jumpTimerRef.current) {
       clearTimeout(jumpTimerRef.current);
       setJumpTargetId(null);
@@ -3568,6 +3439,7 @@ export function MessageThread({
     // A closed session keeps nothing: the next open starts from an empty field
     // and a re-armed auto-jump, so it never re-lands on a stale query.
     pendingAutoJumpRef.current = false;
+    pendingSearchNavigationRef.current = 0;
     committedQueryRef.current = null;
     setJumpError(null);
     search.setQuery("");
@@ -3585,7 +3457,6 @@ export function MessageThread({
 
   const toggleSearchView = useCallback(() => {
     setSearchView((view) => (view === "list" ? "chat" : "list"));
-    setSearchListIndex(0);
   }, []);
 
   // Opening resets the same refs, which matters when the previous session was
@@ -3597,6 +3468,7 @@ export function MessageThread({
     setSearchPage(0);
     setSearchListIndex(0);
     setSearchActiveId(null);
+    setSearchActiveOrdinal(0);
     setJumpError(null);
     setSearchOpen(true);
   }, []);
@@ -3608,6 +3480,8 @@ export function MessageThread({
       search.setQuery(query);
       setSearchPage(0);
       setSearchListIndex(0);
+      pendingSearchNavigationRef.current = 0;
+      setSearchActiveOrdinal(0);
       setJumpError(null);
     },
     [search]
@@ -3616,10 +3490,19 @@ export function MessageThread({
   // Landing on a result reveals it, so the list view hands back to the chat.
   const jumpFromList = useCallback(
     (messageId: string) => {
+      const selectedIndex = search.pageHitIds.indexOf(messageId);
+      if (selectedIndex !== -1) {
+        setSearchListIndex(selectedIndex);
+        setSearchActiveOrdinal(
+          searchPage * SEARCH_PAGE_SIZE + selectedIndex + 1
+        );
+      }
+      pendingAutoJumpRef.current = false;
+      setSearchActiveId(messageId);
       setSearchView("chat");
       void jumpToMessage(messageId);
     },
-    [jumpToMessage]
+    [jumpToMessage, search.pageHitIds, searchPage]
   );
 
   // Load one older page on demand for the viewer's "Load older images"
@@ -3642,6 +3525,43 @@ export function MessageThread({
     }
     return false;
   }, [hasPreviousPage, loadOlderMessages, requestDecryptMessages]);
+
+  const loadNewerMedia = useCallback(async (): Promise<boolean> => {
+    if (
+      loadingNewerMediaRef.current ||
+      loadingOlderRef.current ||
+      !hasNextPage
+    ) {
+      return false;
+    }
+    loadingNewerMediaRef.current = true;
+    olderWalkRef.current = false;
+    const known = new Set(readFlat().map((message) => message.id));
+    const readToken = historyReads.acquire();
+    let result: Awaited<ReturnType<typeof fetchNextPage>> | null = null;
+    try {
+      result = await fetchNextPage();
+    } catch {
+      return false;
+    } finally {
+      loadingNewerMediaRef.current = false;
+      historyReads.release(readToken);
+    }
+    const added = (result?.data?.pages ?? [])
+      .flatMap((page) => page.messages)
+      .filter((message) => !known.has(message.id));
+    if (added.length > 0) {
+      requestDecryptMessages(added, { urgent: true });
+      return true;
+    }
+    return false;
+  }, [
+    fetchNextPage,
+    hasNextPage,
+    historyReads,
+    readFlat,
+    requestDecryptMessages,
+  ]);
 
   const handleViewerPosition = useCallback((index: number, total: number) => {
     setViewerPosition((current) =>
@@ -3698,63 +3618,6 @@ export function MessageThread({
     messagesQuery,
   ]);
 
-  // Bound the transcript's own loaded history. The infinite query has no page
-  // cap, so scrolling up a long conversation retains every page ever fetched
-  // (measured ~102MB for a loaded 200k-message DM). Once the reader has moved
-  // well clear of the oldest loaded rows, those pages are dead weight and are
-  // dropped.
-  //
-  // Gated on the same conditions as the viewer's trim, for the same reason: a
-  // page dropped while the near-top auto-loader is mid-flight, or during an
-  // older walk, would be re-requested immediately and spin in a load/trim loop.
-  // Dropping pages above the viewport is absorbed by the virtualizer's scroll
-  // compensation, which is the mechanism the viewer's trim already relies on.
-  useEffect(() => {
-    if (mediaViewerKey || isFetchingPreviousPage || olderWalkRef.current) {
-      return;
-    }
-    const { data } = messagesQuery;
-    const [firstItem] = virtualItems;
-    if (!data || !firstItem) {
-      return;
-    }
-    const anchorMessageId = allMessages[firstItem.index]?.id ?? null;
-    const drop = pagesToDropForTranscriptHistory({
-      anchorMessageId,
-      findPageIndex: (id) =>
-        data.pages.findIndex((page) =>
-          page.messages.some((message) => message.id === id)
-        ),
-      firstVisibleIndex: firstItem.index,
-      pageCount: data.pages.length,
-    });
-    if (drop <= 0) {
-      return;
-    }
-    queryClient.setQueryData<MessagesInfiniteData>(
-      ["messages", conversationId] as const,
-      (old) => {
-        if (!old) {
-          return old;
-        }
-        const { pages, pageParams } = trimOldestPages(
-          old.pages,
-          old.pageParams,
-          drop
-        );
-        return { ...old, pageParams, pages };
-      }
-    );
-  }, [
-    allMessages,
-    conversationId,
-    isFetchingPreviousPage,
-    mediaViewerKey,
-    messagesQuery,
-    queryClient,
-    virtualItems,
-  ]);
-
   // Close the viewer and land the transcript on the image the user was viewing.
   // Trimming while open can shift message indices, so re-anchor explicitly
   // instead of trusting the old scroll offset.
@@ -3767,14 +3630,14 @@ export function MessageThread({
     if (!anchorId) {
       return;
     }
-    const index = messageIndexById.get(anchorId);
+    const index = transcriptIndexOfMessageId.get(anchorId);
     if (index === undefined) {
       return;
     }
     requestAnimationFrame(() => {
       rowVirtualizer.scrollToIndex(index, { align: "center" });
     });
-  }, [mediaViewerKey, messageIndexById, rowVirtualizer]);
+  }, [mediaViewerKey, transcriptIndexOfMessageId, rowVirtualizer]);
 
   // Scroll to the end of whatever is currently loaded, and claim the viewport is
   // pinned so followOnAppend resumes tracking.
@@ -3812,7 +3675,20 @@ export function MessageThread({
   // Put the transcript back on the newest messages when a jump left it anchored
   // mid-history. Resolves false when the read failed.
   const returnToTail = useCallback(async (): Promise<boolean> => {
-    if (!needsTailReturn({ hasNextPage, inFlight: tailReturnRef.current })) {
+    const current = queryClient.getQueryData<MessagesInfiniteData>([
+      "messages",
+      conversationId,
+    ]);
+    const hasLatestPage = current
+      ? messageWindowIncludesLatest(current.pages, current.pageParams)
+      : false;
+    if (
+      !needsTailReturn({
+        hasLatestPage,
+        hasNextPage,
+        inFlight: tailReturnRef.current,
+      })
+    ) {
       return true;
     }
     tailReturnRef.current = true;
@@ -3897,8 +3773,17 @@ export function MessageThread({
 
   // Mark the conversation read when it opens and when the peer sends while
   // the thread is open (debounced so burst sends only fire one request).
+  //
+  // Not for somebody who has left. Opening a den you were removed from used to
+  // fire a read receipt and a delivered receipt into a conversation the server
+  // refuses both of, so every former member who reopened an old den filled the
+  // console with two 403s for an acknowledgement nobody can receive. The viewer
+  // already cannot post here, which is the whole of what those receipts report.
   const myUserId = user?.id;
   const scheduleRead = useCallback(() => {
+    if (leftDen) {
+      return;
+    }
     if (readDebounceRef.current) {
       clearTimeout(readDebounceRef.current);
     }
@@ -3917,7 +3802,7 @@ export function MessageThread({
         // rejection.
       }
     }, 800);
-  }, [conversationId, myUserId, queryClient]);
+  }, [conversationId, myUserId, queryClient, leftDen]);
 
   useEffect(() => {
     scheduleRead();
@@ -3940,8 +3825,12 @@ export function MessageThread({
         | "conversation.read"
         | "conversation.delivered"
         | "typing.started"
-        | "keys.rotated";
+        | "conversation.appearance.changed"
+        | "keys.rotated"
+        | "den.membership.changed";
       deliveredAt?: string;
+      membershipAction?: string;
+      membershipSeq?: number;
       message?: MessageData;
       readAt?: string;
       userId?: string;
@@ -3991,6 +3880,94 @@ export function MessageThread({
       }
 
       const { message } = event;
+      if (event.kind === "den.membership.changed") {
+        // A den's roster moved under us. The detail is the only place a roster
+        // and a wrap row live, so re-read it and let everything downstream fall
+        // out of the new snapshot: the key signature changes when my wraps or a
+        // member's identity key change (clearing the decryptor's cached roots
+        // and re-queueing payloads), and the composer's send path re-runs
+        // `ensureConversationKeys`, which is what refuses an epoch a departed
+        // member still holds.
+        //
+        // Deliberately ONLY the detail. Not the transcript and not the mount:
+        // the messages in this conversation did not change, the roster around
+        // them did. Invalidation here would drop scroll position and destroy an
+        // in-flight draft, which is the exact cost the event was supposed to
+        // avoid paying.
+        //
+        // The actor's own tab reaches here too, and pays one refetch. Gating on
+        // `event.userId !== myUserId` would save it, but the actor's client has
+        // already refetched by a different path (the mutation's own
+        // invalidation), so the second read is redundant rather than wrong, and
+        // the alternative is a rule that silently stops working when somebody
+        // mutates the roster from a second device.
+        //
+        // The counter decides whether the refetch is owed at all. A duplicate
+        // delivery (or an announcement that overtook a newer one on the wire) is
+        // dropped here for free, and a value that could not be read is applied
+        // exactly as this always applied an announcement - which is the point:
+        // the refetch is the fallback, not the mechanism. The counter also tells
+        // the two apart that used to be indistinguishable, a fresh change and a
+        // lost one: a gap means this tab missed at least one change and the
+        // single refetch it triggers is the whole remedy, because a client cannot
+        // ask "which change did I miss", only "give me the roster again".
+        const plan = applyMembershipSeq(
+          event.conversationId,
+          event.membershipSeq
+        );
+        if (!plan.refetchDetail) {
+          return;
+        }
+        if (plan.kind === "gap") {
+          // Logged rather than surfaced: from the user's side this is a background
+          // refetch of data that is already on its way, and a toast for a
+          // self-healed gap would train people to ignore the one that is not.
+          console.warn(
+            `Den roster gap on ${event.conversationId}: at ${plan.appliedSeq}, so at least one announcement was lost`
+          );
+        }
+        void queryClient.invalidateQueries({
+          queryKey: ["message-conversation", conversationId],
+        });
+        // The membership log as well as the roster. Every action this frame can
+        // report - a join, a leave, a removal, a promotion, a demotion, a hand-over
+        // - writes exactly one line into the transcript, so the line and the roster
+        // move together or the transcript contradicts itself. Without this the log
+        // only caught up on a reload, which made it read as history rather than as
+        // something that had just happened.
+        //
+        // Cheap, and unlike the transcript invalidation it costs no scroll
+        // position: the log is folded into the transcript by a merge, so re-reading
+        // it re-runs that merge rather than rebuilding the page list.
+        void queryClient.invalidateQueries({
+          queryKey: ["den-events", conversationId],
+        });
+        // And the details panel's own reads: the roster, the den's own detail and the
+        // banned list, all keyed under this prefix (`DEN_QUERY_PREFIX` in
+        // `den-panel.tsx`).
+        //
+        // Without this the panel only ever moved for the tab that made the change,
+        // because its `refresh()` runs from its own mutation handlers and nothing else
+        // subscribed it to the roster. So somebody else joining, leaving, being removed
+        // or promoted left the members list on screen stale until a manual reload - the
+        // panel was the one place in the den that was not live, while the transcript
+        // beside it was.
+        //
+        // Inline rather than imported from the panel, matching how the two keys above
+        // are written. Same reason both are invalidated from here: this handler is the
+        // single place that already knows a membership frame arrived, and a second
+        // subscriber would be a second stream connection to the same endpoint.
+        void queryClient.invalidateQueries({
+          queryKey: ["message-den", conversationId],
+        });
+        return;
+      }
+      if (event.kind === "conversation.appearance.changed") {
+        void queryClient.invalidateQueries({
+          queryKey: ["message-conversation", conversationId],
+        });
+        return;
+      }
       if (event.kind === "keys.rotated") {
         // A member rotated the conversation keys (first send, heal, or an
         // identity reset). Our cached detail holds the old wraps and possibly a
@@ -4005,19 +3982,41 @@ export function MessageThread({
       if (!message) {
         return;
       }
+      if (SERVER_MESSAGE_SEARCH_ENABLED) {
+        setServerRefsRefreshToken((token) => token + 1);
+      }
       if (event.kind === "message.created") {
-        queryClient.setQueryData<MessagesInfiniteData>(
-          ["messages", conversationId] as const,
-          (old) => {
-            if (!old) {
-              return old;
-            }
-            // Dedupe against the sender's own optimistic fold of the same
-            // message (the SSE stream echoes every write, including ours).
-            const nextPages = appendMessageToLastPage(old.pages, message);
-            return nextPages ? { ...old, pages: nextPages } : old;
-          }
+        const messageQueryKey = ["messages", conversationId] as const;
+        const currentWindow =
+          queryClient.getQueryData<MessagesInfiniteData>(messageQueryKey);
+        const followingNewest = Boolean(
+          currentWindow &&
+          shouldFoldLiveMessage({
+            pageParams: currentWindow.pageParams,
+            pages: currentWindow.pages,
+            pinned: pinnedRef.current,
+          })
         );
+        if (followingNewest) {
+          queryClient.setQueryData<MessagesInfiniteData>(
+            messageQueryKey,
+            (old) => {
+              if (
+                !old ||
+                !shouldFoldLiveMessage({
+                  pageParams: old.pageParams,
+                  pages: old.pages,
+                  pinned: pinnedRef.current,
+                })
+              ) {
+                return old;
+              }
+              // Dedupe the sender's optimistic fold, and cap retained history
+              // even during a sustained live stream.
+              return foldMessageIntoBoundedData(old, message) ?? old;
+            }
+          );
+        }
         // A message from the peer while we're looking at the thread counts as
         // read immediately and means they stopped typing.
         if (message.senderId !== user?.id) {
@@ -4025,28 +4024,26 @@ export function MessageThread({
           scheduleRead();
           // Scrolled away from the bottom: surface how many arrived instead
           // of yanking the viewport (Telegram behavior).
-          setArrivalCount((current) =>
-            nextArrivalCount(current, {
+          setArrivalCount((arrivalTotal) =>
+            nextArrivalCount(arrivalTotal, {
               isOwn: false,
-              pinned: pinnedRef.current,
+              pinned: followingNewest,
             })
           );
         }
       } else if (event.kind === "message.deleted") {
-        searchWriterRef.current?.remove([message.id]);
         queryClient.setQueryData<MessagesInfiniteData>(
           ["messages", conversationId] as const,
           (old) => {
             if (!old) {
               return old;
             }
-            const pages = old.pages.map((page) => ({
-              ...page,
-              messages: page.messages.map((m) =>
-                m.id === message.id ? { ...m, deletedAt: new Date() } : m
-              ),
-            }));
-            return { ...old, pages };
+            const pages = applyMessageDeletionToPages(
+              old.pages,
+              message,
+              new Date()
+            );
+            return pages ? { ...old, pages } : old;
           }
         );
       } else if (event.kind === "message.edited") {
@@ -4061,7 +4058,10 @@ export function MessageThread({
             if (!old) {
               return old;
             }
-            const nextPages = updateMessageInPages(old.pages, message);
+            const nextPages = updateMessageInPages(
+              old.pages,
+              toCachedMessage(message)
+            );
             if (!nextPages) {
               return old;
             }
@@ -4084,10 +4084,352 @@ export function MessageThread({
     [conversationId, queryClient, scheduleRead, user?.id]
   );
 
+  // Whether the loaded roster says this reader has left this den.
+  //
+  // This is the reload half of the removal story. The live `membership-ended`
+  // frame only reaches a tab that was already open when the removal happened, and
+  // a fresh page load gets a 403 on stream connect instead - no frame, no toast,
+  // and without this a composer that offers to send messages the server will
+  // refuse. Read off the detail the transcript already fetched, so there is no
+  // second request to keep in step with it.
+  //
+  // `conversationId` is a dependency as well as `leftDen`: the reset effect above
+  // clears the notice when the reader switches conversations, and without the id
+  useEffect(() => {
+    if (leftDen) {
+      setAccessEndedNotice((state) => ({ ...state, accessEnded: true }));
+      // The popup too, so a tab reloaded after a removal says the same thing a tab
+      // that was open when it happened does. The live path routes here through
+      // `consumeSelfLeave`; this one has no marker to consult, because a reload is
+      // not a leave anybody pressed a button for - which is exactly the case this
+      // dialog is for.
+      setRemovedNotice(true);
+    }
+  }, [conversationId, leftDen]);
+
+  const messageChangeBroadcastRef = useRef<ReturnType<
+    typeof createMessageChangeBroadcast
+  > | null>(null);
+  const durableChangeCursorRef = useRef<{
+    cursor: string;
+    scope: string;
+  } | null>(null);
+  const reconcileConversationChanges = useCallback(
+    async (signal: AbortSignal): Promise<boolean> => {
+      if (!user?.id) {
+        return false;
+      }
+      const storage = getMessageChangeStorage();
+      const scope = `${user.id}\u0000${conversationId}`;
+      const previousCursor =
+        (storage
+          ? readMessageChangeCursor(storage, user.id, conversationId)
+          : undefined) ??
+        (durableChangeCursorRef.current?.scope === scope
+          ? durableChangeCursorRef.current.cursor
+          : undefined);
+      try {
+        const replay = await replayDurableMessageChanges({
+          cursor: previousCursor,
+          fetchPage: async (cursor, requestSignal) => {
+            const suffix = cursor
+              ? `?cursor=${encodeURIComponent(cursor)}`
+              : "";
+            const response = await fetch(
+              `/api/messages/conversations/${encodeURIComponent(conversationId)}/changes${suffix}`,
+              { credentials: "same-origin", signal: requestSignal }
+            );
+            if (!response.ok) {
+              throw new Error("Conversation changes could not be loaded");
+            }
+            const payload: unknown = await response.json();
+            return payload;
+          },
+          signal,
+        });
+        signal.throwIfAborted();
+        const offlineChangePlan = planOfflineSearchChangeEffects(
+          replay.changes
+        );
+        const accessChanged = replay.changes.some(
+          (change) => change.messageId === null
+        );
+        const resetConversation = replay.resetRequired || accessChanged;
+        const refreshServerSearchSnapshot = shouldRefreshServerSearchSnapshot(
+          replay.changes,
+          resetConversation
+        );
+        const refreshServerSharedReferences =
+          shouldRefreshServerSharedReferences(
+            replay.changes,
+            resetConversation
+          );
+        let cacheSynchronized = true;
+        const committed = await applyChangesBeforeCursorCommit({
+          apply: async () => {
+            const refreshBoundedWindow =
+              replay.changes.length > 0 || resetConversation;
+            if (!refreshBoundedWindow) {
+              return true;
+            }
+            if (resetConversation) {
+              if (offlineSearchScope) {
+                const cleared =
+                  await offlineSearchWorkerClient.clearConversation(
+                    offlineSearchScope,
+                    conversationId
+                  );
+                signal.throwIfAborted();
+                if (cleared) {
+                  setOfflineCacheDisabledFor((current) =>
+                    current === conversationId ? null : current
+                  );
+                } else {
+                  cacheSynchronized = false;
+                  setOfflineCacheDisabledFor(conversationId);
+                }
+              }
+              await refreshRecoveryGeneration();
+              signal.throwIfAborted();
+            } else {
+              for (const messageId of offlineChangePlan.messageIds) {
+                messageDecryptor.invalidate(messageId);
+              }
+              if (
+                offlineSearchScope &&
+                offlineChangePlan.messageIds.length > 0
+              ) {
+                const removed = await offlineSearchWorkerClient.remove(
+                  offlineSearchScope,
+                  conversationId,
+                  offlineChangePlan.messageIds,
+                  offlineChangePlan.removals
+                );
+                signal.throwIfAborted();
+                if (removed) {
+                  setOfflineCacheDisabledFor((current) =>
+                    current === conversationId ? null : current
+                  );
+                } else {
+                  const cleared =
+                    await offlineSearchWorkerClient.clearConversation(
+                      offlineSearchScope,
+                      conversationId
+                    );
+                  signal.throwIfAborted();
+                  setOfflineCacheDisabledFor(cleared ? null : conversationId);
+                  cacheSynchronized &&= cleared;
+                }
+              }
+            }
+
+            await queryClient.invalidateQueries({
+              exact: true,
+              queryKey: ["messages", conversationId],
+              refetchType: "active",
+            });
+            signal.throwIfAborted();
+            if (resetConversation) {
+              await Promise.all([
+                queryClient.invalidateQueries({
+                  exact: true,
+                  queryKey: ["message-conversation", conversationId],
+                  refetchType: "active",
+                }),
+                queryClient.invalidateQueries({
+                  exact: true,
+                  queryKey: ["den-events", conversationId],
+                  refetchType: "active",
+                }),
+              ]);
+            }
+            signal.throwIfAborted();
+            if (refreshServerSearchSnapshot) {
+              setServerSearchRefreshToken((token) => token + 1);
+            }
+            if (
+              SERVER_MESSAGE_SEARCH_ENABLED &&
+              refreshServerSharedReferences
+            ) {
+              setServerRefsRefreshToken((token) => token + 1);
+            }
+            return cacheSynchronized;
+          },
+          conversationId,
+          cursor: replay.cursor,
+          signal,
+          storage,
+          userId: user.id,
+        });
+        if (!committed.applied) {
+          return false;
+        }
+        durableChangeCursorRef.current = { cursor: replay.cursor, scope };
+        if (refreshServerSearchSnapshot) {
+          messageChangeBroadcastRef.current?.publish({
+            accessChanged,
+            conversationId,
+            messageIds: offlineChangePlan.messageIds,
+            resetRequired: resetConversation,
+            unavailableMessageIds: offlineChangePlan.unavailableIds,
+          });
+        }
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    [
+      conversationId,
+      offlineSearchScope,
+      queryClient,
+      refreshRecoveryGeneration,
+      user?.id,
+    ]
+  );
+
+  useEffect(() => {
+    if (!user?.id) {
+      return;
+    }
+    const broadcast = createMessageChangeBroadcast({
+      onNotice: (notice) => {
+        if (notice.conversationId !== conversationId) {
+          return;
+        }
+        const pages =
+          queryClient.getQueryData<MessagesInfiniteData>([
+            "messages",
+            conversationId,
+          ])?.pages ?? [];
+        if (notice.accessChanged || notice.resetRequired) {
+          const currentIds = pages.flatMap((page) =>
+            page.messages.map((message) => message.id)
+          );
+          for (const messageId of currentIds) {
+            messageDecryptor.invalidate(messageId);
+          }
+          queryClient.removeQueries({
+            exact: true,
+            queryKey: ["messages", conversationId],
+          });
+          setOfflineCacheDisabledFor(conversationId);
+          void (async () => {
+            try {
+              let derivedCacheCleared = true;
+              if (offlineSearchScope) {
+                const cleared =
+                  await offlineSearchWorkerClient.clearConversation(
+                    offlineSearchScope,
+                    conversationId
+                  );
+                derivedCacheCleared &&= cleared;
+              }
+              if (derivedCacheCleared) {
+                setOfflineCacheDisabledFor((current) =>
+                  current === conversationId ? null : current
+                );
+              }
+              await refreshRecoveryGeneration();
+              await Promise.all([
+                queryClient.invalidateQueries({
+                  exact: true,
+                  queryKey: ["message-conversation", conversationId],
+                  refetchType: "active",
+                }),
+                queryClient.invalidateQueries({
+                  exact: true,
+                  queryKey: ["den-events", conversationId],
+                  refetchType: "active",
+                }),
+                queryClient.invalidateQueries({
+                  exact: true,
+                  queryKey: ["messages", conversationId],
+                  refetchType: "active",
+                }),
+              ]);
+            } catch {
+              setOfflineCacheDisabledFor(conversationId);
+              await queryClient.invalidateQueries({
+                exact: true,
+                queryKey: ["messages", conversationId],
+                refetchType: "active",
+              });
+            }
+          })();
+        } else {
+          for (const messageId of notice.messageIds) {
+            messageDecryptor.invalidate(messageId);
+          }
+          if (notice.unavailableMessageIds.length > 0) {
+            const unavailable = new Set(notice.unavailableMessageIds);
+            queryClient.setQueryData<MessagesInfiniteData>(
+              ["messages", conversationId],
+              (current) =>
+                current
+                  ? {
+                      ...current,
+                      pages: current.pages.map((page) => ({
+                        ...page,
+                        messages: page.messages.filter(
+                          (message) => !unavailable.has(message.id)
+                        ),
+                      })),
+                    }
+                  : current
+            );
+          }
+          void queryClient.invalidateQueries({
+            exact: true,
+            queryKey: ["messages", conversationId],
+            refetchType: "active",
+          });
+        }
+        setServerSearchRefreshToken((token) => token + 1);
+        setServerRefsRefreshToken((token) => token + 1);
+      },
+      userId: user.id,
+    });
+    messageChangeBroadcastRef.current = broadcast;
+    return () => {
+      broadcast.close();
+      if (messageChangeBroadcastRef.current === broadcast) {
+        messageChangeBroadcastRef.current = null;
+      }
+    };
+  }, [
+    conversationId,
+    offlineSearchScope,
+    queryClient,
+    refreshRecoveryGeneration,
+    user?.id,
+  ]);
+
+  const replayConversationChanges = useConversationReconciliation({
+    conversationId,
+    enabled: Boolean(user) && !leftDen,
+    reconcile: reconcileConversationChanges,
+    userId: user?.id,
+  });
+
+  const handleReconciledEvent = useCallback(
+    (event: Parameters<typeof handleEvent>[0]) => {
+      handleEvent(event);
+      if (shouldReconcileMessageEvent(event.kind)) {
+        void replayConversationChanges();
+      }
+    },
+    [handleEvent, replayConversationChanges]
+  );
+
   useMessagesRealtime(
     conversationId,
-    handleEvent,
-    Boolean(user),
+    handleReconciledEvent,
+    // A den somebody left is read-only, and there is nothing for a stream to
+    // deliver: the server refuses the connect with a 403, and every message in the
+    // channel is encrypted under an epoch they hold no wrap for. Opening one anyway
+    // would be a reconnect ladder aimed at a door that does not open.
+    Boolean(user) && !leftDen,
     // Catch up on messages published while the stream was down (mobile
     // network drops). The in-flight guard stops a reconnect from stacking a
     // refetch on top of one already running (overlapping responses can land
@@ -4095,24 +4437,59 @@ export function MessageThread({
     // reconciles regardless of cache age: the stream has no replay cursor, so
     // a gap may exist even if data was written moments ago; only the initial
     // connect leans on the mount fetch and skips on recently written data.
+    //
+    // A reconnect re-reads the conversation DETAIL too, which the transcript
+    // rules above say nothing about. This is the path that has to cover a
+    // membership change missed while the socket was down: without it a client
+    // that reconnected mid-removal keeps a roster naming somebody who is out,
+    // and the send path has only the watermark to notice.
     useCallback(
-      (isReconnect: boolean) => {
-        const state = queryClient.getQueryState(["messages", conversationId]);
-        if (
-          !shouldCatchUp({
-            dataUpdatedAt: state?.dataUpdatedAt ?? 0,
-            isFetching: state?.fetchStatus === "fetching",
-            isReconnect,
-            now: Date.now(),
-          })
-        ) {
+      async (isReconnect: boolean) => {
+        const replayed = await replayConversationChanges();
+        if (!isReconnect) {
           return;
         }
         void queryClient.invalidateQueries({
-          queryKey: ["messages", conversationId],
+          queryKey: ["message-conversation", conversationId],
         });
+        if (replayed) {
+          return;
+        }
+        const state = queryClient.getQueryState(["messages", conversationId]);
+        for (const queryKey of catchUpKeys({
+          conversationId,
+          dataUpdatedAt: state?.dataUpdatedAt ?? 0,
+          isFetching: state?.fetchStatus === "fetching",
+          isReconnect: true,
+          now: Date.now(),
+        })) {
+          void queryClient.invalidateQueries({ queryKey });
+        }
       },
-      [conversationId, queryClient]
+      [conversationId, queryClient, replayConversationChanges]
+    ),
+    // The server found this member is no longer inside and closed the stream.
+    // Reported once per conversation: a remount re-arms it, which is correct,
+    // because access can come back (a rejoin through a fresh invite code).
+    useCallback(
+      (endedConversationId: string) => {
+        if (endedConversationId !== conversationId) {
+          return;
+        }
+        setAccessEndedNotice((state) => ({ ...state, accessEnded: true }));
+        // Both endings get a centered dialog and nothing else. A removal used to
+        // fire a destructive toast while the composer carried a persistent line, so
+        // the same sentence appeared twice at once and the reader still had to work
+        // out why the input was dead. `consumeSelfLeave` is single-use, so a genuine
+        // removal can never be mistaken for the reader's own exit - the two share a
+        // title and differ only in what they say survived.
+        if (consumeSelfLeave(conversationId)) {
+          setSelfLeftNotice(true);
+          return;
+        }
+        setRemovedNotice(true);
+      },
+      [conversationId]
     )
   );
 
@@ -4202,8 +4579,29 @@ export function MessageThread({
 
   // 1-based counter position of the landed match, or 0 when the landed message
   // is no longer one of the current matches (query changed, or it was hidden).
-  const activeIndex = searchActiveId ? matchIds.indexOf(searchActiveId) : -1;
-  const searchActivePosition = activeIndex + 1;
+  const activeSearchIndex = searchActiveId
+    ? matchIds.indexOf(searchActiveId)
+    : -1;
+  const searchActivePosition =
+    activeSearchIndex >= 0
+      ? search.windowStartPage * SEARCH_PAGE_SIZE + activeSearchIndex + 1
+      : searchActiveOrdinal;
+
+  // The member's own wallpaper and dim. Resolved here rather than inside the
+  // style prop so the same two values could feed the details panel's swatch, and
+  // so a null or unknown stored value lands on "no wallpaper" in one place.
+  // `wallpaper` is null for a cleared key, which is the default and the plain app
+  // background, and the overlay is null both when there is no wallpaper and at a
+  // dim of 0. Both layers are therefore conditional: painting a transparent wash
+  // over an empty background would cost a full-transcript compositing layer for
+  // nothing.
+  const wallpaper = resolveConversationWallpaper(
+    detail.prefs.wallpaperKey,
+    detail.prefs.wallpaperMediaId
+  );
+  const wallpaperDimOverlayValue = wallpaper
+    ? wallpaperDimOverlay(detail.prefs.wallpaperDim)
+    : null;
 
   return (
     <ConversationMediaViewerProvider value={openConversationMedia}>
@@ -4238,21 +4636,28 @@ export function MessageThread({
           {searchOpen ? (
             <MessageSearchBar
               activePosition={searchActivePosition}
+              serverManaged
+              offlineSearch={search.offlineSearch}
+              savedHistorySearch={search.savedHistorySearch}
+              coverageUnavailable={search.serverCoverageUnavailable}
+              searching={search.searching}
+              searchError={search.searchError}
+              searchHasMore={search.serverHasMore}
+              onRetrySearch={handleRetrySearch}
+              onRetryJump={handleRetryJump}
               // Jump in flight counts as work: the anchored read and the walk
               // behind it are the slowest requests this bar can be waiting on.
               indexing={transcriptFetching || jumpLoading}
-              canIndexOlder={canIndexOlder}
               fullyCovered={fullyCovered}
-              indexedCount={search.indexedTotal}
-              indexFailed={coverage?.state === "failed"}
+              indexFailed={false}
               indexingOlder={indexingOlder}
               inputRef={searchInputRef}
               jumpError={jumpError}
               listPageError={search.listPageError}
+              listPageLoading={search.listPageLoading}
               listPageStale={search.listPageStale}
               matchCount={search.totalMatches}
               onClose={dismissSearch}
-              onIndexOlder={startIndexingOlder}
               onNext={searchNext}
               onPage={changeSearchPage}
               onPrevious={searchPrevious}
@@ -4261,18 +4666,53 @@ export function MessageThread({
               onToggleView={toggleSearchView}
               page={searchPageSlice.page}
               pageCount={searchPageSlice.pageCount}
+              canNextPage={search.canNextPage}
+              canPreviousPage={search.canPreviousPage}
               query={search.query}
-              storageEvictedCount={storagePressure.evictedCount}
-              storageFull={storagePressure.storageFull}
-              rangeEnd={searchPageSlice.rangeEnd}
+              storageFull={false}
+              rangeEnd={searchRangeEnd}
               rangeStart={searchPageSlice.rangeStart}
-              resultCount={searchPageSlice.pageResults.length}
+              resultCount={searchPageResultCount}
               totalResults={search.totalMatches}
+              totalMatchesExact={search.totalMatchesExact}
+              countState={search.countState}
+              hasSelectedResult={searchActiveId !== null}
               view={searchView}
             />
           ) : null}
 
-          <div className="relative min-h-0 flex-1">
+          {/* `isolate` is load-bearing. It makes this box a stacking context, so
+              the layers' negative z-index stops at this box's edge instead of
+              escaping behind the ancestors' page background. Without it they
+              would render underneath the whole app and vanish. */}
+          <div className="relative isolate min-h-0 flex-1">
+            {/* The member's wallpaper and its dim, painted behind the
+                transcript. They are siblings of the scroller rather than a
+                background on it: a background would be clipped and repainted by
+                the scroller's own box, and the two layers have to change
+                independently (a wallpaper swap must not reset the dim).
+                `-z-10` puts them behind EVERY child, not just the virtualized
+                rows: the empty state and the typing indicator are ordinary
+                in-flow content, and a positioned sibling at z-index auto would
+                paint over both of them. The dim shares the index with the
+                wallpaper and comes later in tree order, so it still lands on top
+                of the art. Both are aria-hidden and pointer-inert: pure paint. */}
+            {wallpaper ? (
+              <div
+                aria-hidden
+                className="pointer-events-none absolute inset-0 -z-10 bg-cover bg-center"
+                style={{
+                  backgroundImage: `url(${wallpaper.src})`,
+                }}
+              />
+            ) : null}
+            {wallpaperDimOverlayValue ? (
+              <div
+                aria-hidden
+                className="pointer-events-none absolute inset-0 -z-10"
+                style={{ backgroundColor: wallpaperDimOverlayValue }}
+              />
+            ) : null}
             {/* oxlint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- the transcript is a pointer gesture surface (click/double-click/right-click/slide); every real control lives in the per-row options menu, which is keyboard reachable */}
             <div
               // `overflow-anchor: none` disables the browser's own scroll
@@ -4300,15 +4740,30 @@ export function MessageThread({
               onPointerUp={handlePointerEnd}
               ref={scrollRef}
             >
-              {allMessages.length === 0 ? (
+              {transcriptIsEmpty(transcriptItems) ? (
                 <div className="flex min-h-full flex-col">
                   <div className="flex flex-1 flex-col items-center justify-center text-center">
                     <div className="px-6 py-5">
                       <p className="text-muted-foreground text-sm">
-                        Say hi to {peer?.displayName ?? "them"}
+                        {/* A den has no single person to say hi to, and "Say hi to
+                            them" in a room of twenty reads as a bug. Naming the
+                            room is the same promise the row and the header make. */}
+                        {conversationType === "DEN"
+                          ? `Say hi in ${denHeadingName ?? "this den"}`
+                          : `Say hi to ${peer?.displayName ?? "them"}`}
                       </p>
                       <p className="text-muted-foreground/70 mt-1 text-xs">
-                        Messages here are encrypted.
+                        {/* The trust sentence, from one module. The old copy here
+                            was "Messages here are encrypted", which is true and
+                            reads as end-to-end to almost everyone - and this
+                            scheme is server-recoverable, not end-to-end. The empty
+                            transcript is exactly where somebody decides whether
+                            to trust what they are about to type, so it is the
+                            wrong place to leave the ambiguity in. */}
+                        {messagesTrustNote({
+                          memberCount: detail?.conversation.members.length,
+                          type: conversationType,
+                        })}
                       </p>
                     </div>
                   </div>
@@ -4326,13 +4781,47 @@ export function MessageThread({
                     }}
                   >
                     {virtualItems.map((virtualItem) => {
-                      const message = allMessages[virtualItem.index];
-                      if (!message) {
+                      const item = transcriptItems[virtualItem.index];
+                      if (!item) {
+                        return null;
+                      }
+                      if (item.kind === "event") {
+                        return (
+                          <div
+                            data-event-id={item.event.id}
+                            data-index={virtualItem.index}
+                            key={virtualItem.key}
+                            ref={rowVirtualizer.measureElement}
+                            style={{
+                              left: 0,
+                              position: "absolute",
+                              top: 0,
+                              transform: `translateY(${virtualItem.start}px)`,
+                              width: "100%",
+                            }}
+                          >
+                            <DenEventRow
+                              event={item.event}
+                              myUserId={userId ?? ""}
+                            />
+                          </div>
+                        );
+                      }
+                      const { message } = item;
+                      // Grouping is a property of the message list, not of the
+                      // transcript: a log line between two messages does not stop
+                      // them continuing each other's group. So this reads the
+                      // message's own index in `allMessages`. The lookup cannot
+                      // miss - a message item only exists because it came from
+                      // `allMessages` - so a miss is skipped rather than given a
+                      // fabricated group.
+                      const messageIndex = messageIndexById.get(message.id);
+                      if (messageIndex === undefined) {
                         return null;
                       }
                       const groupMeta = getMessageGroupMeta(
                         allMessages,
-                        virtualItem.index
+                        messageIndex
                       );
                       return (
                         <div
@@ -4350,6 +4839,7 @@ export function MessageThread({
                         >
                           <VirtualRow
                             conversationId={conversationId}
+                            conversationType={conversationType}
                             groupMeta={groupMeta}
                             highlighted={jumpTargetId === message.id}
                             historyVersion={historyVersion}
@@ -4469,25 +4959,69 @@ export function MessageThread({
               body. Layering over the transcript (rather than replacing it)
               keeps the virtualizer's measured rows and scroll anchor, so
               jumping from a result and returning lands where it should. */}
-            {searchView === "list" ? (
-              <div className="absolute inset-0 z-20 flex min-h-0 flex-col bg-[hsl(var(--background))]">
-                <MessageSearchResults
-                  activeIndex={Math.max(searchListIndexClamped, 0)}
-                  allMessages={allMessages}
-                  indexing={transcriptFetching}
-                  indexingOlder={indexingOlder}
-                  listPageError={search.listPageError}
-                  listPageLoading={search.listPageLoading}
-                  listPageStale={search.listPageStale}
-                  myUserId={userId ?? ""}
-                  onJump={jumpFromList}
-                  query={search.query}
-                  results={searchPageSlice.pageResults}
-                  totalMatches={search.totalMatches}
-                  truncated={search.truncated}
-                />
-              </div>
-            ) : null}
+            {/* The removal popup. Sits next to the self-leave dialog rather than
+              above the composer, which is where it used to be drawn: a line
+              above the input was the quietest place to put news that had already
+              happened to somebody, and it left a dead input with no stated
+              reason. The composer now carries the reason in its placeholder, so
+              this only has to announce. */}
+            <MessageAccessEndedDialog
+              onDismiss={() => {
+                setRemovedNotice(false);
+              }}
+              open={removedNotice}
+            />
+            <Dialog
+              onOpenChange={(open) => !open && setSelfLeftNotice(false)}
+              open={selfLeftNotice}
+            >
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>{ACCESS_ENDED_MESSAGE}</DialogTitle>
+                  <DialogDescription>
+                    {SELF_LEAVE_DESCRIPTION}
+                  </DialogDescription>
+                </DialogHeader>
+                <DialogFooter>
+                  <button
+                    className="btn-3d inline-flex items-center justify-center rounded-lg px-3.5 py-2 text-sm font-medium"
+                    onClick={() => setSelfLeftNotice(false)}
+                    type="button"
+                  >
+                    {ACCESS_ENDED_DISMISS_LABEL}
+                  </button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+
+            <div
+              aria-hidden={!searchOpen || searchView !== "list"}
+              className="absolute inset-0 z-20 flex min-h-0 flex-col bg-[hsl(var(--background))]"
+              hidden={!searchOpen || searchView !== "list"}
+            >
+              <MessageSearchResults
+                activeIndex={Math.max(searchListIndexClamped, 0)}
+                allMessages={search.resultMessages}
+                pageHitIds={search.pageHitIds}
+                indexingOlder={indexingOlder}
+                savedScope={search.savedHistorySearch}
+                coverageUnavailable={search.serverCoverageUnavailable}
+                listPageError={search.listPageError}
+                listPageLoading={search.listPageLoading}
+                listPageStale={search.listPageStale}
+                myUserId={userId ?? ""}
+                members={detail.conversation.members.map((member) => ({
+                  avatarUrl: member.user.avatarUrl,
+                  displayName: member.user.displayName,
+                  userId: member.userId,
+                }))}
+                onJump={jumpFromList}
+                query={search.query}
+                results={searchPageSlice.pageResults}
+                totalMatches={search.totalMatches}
+                truncated={search.truncated}
+              />
+            </div>
           </div>
 
           {selectionActive ? (
@@ -4521,6 +5055,7 @@ export function MessageThread({
           ) : null}
 
           <MessageComposer
+            accessEnded={accessEndedNotice.accessEnded}
             conversation={detail}
             editTarget={editTarget}
             replyTarget={replyTarget}
@@ -4541,13 +5076,20 @@ export function MessageThread({
 
           {mediaViewerKey ? (
             <ConversationMediaViewer
+              key={mediaViewerKey}
               anchorKey={mediaViewerKey}
               hasOlder={hasPreviousPage}
+              hasNewer={hasNextPage ?? false}
               isFetchingOlder={isFetchingPreviousPage}
+              isFetchingNewer={isFetchingNextPage}
               messages={allMessages}
               onActive={handleViewerActive}
               onClose={closeViewer}
               onLoadOlder={loadOlderMedia}
+              onLoadNewer={loadNewerMedia}
+              onReadServerPage={
+                SERVER_MESSAGE_SEARCH_ENABLED ? serverReadRefsPage : undefined
+              }
               onPosition={handleViewerPosition}
             />
           ) : null}
@@ -4560,9 +5102,15 @@ export function MessageThread({
             <ConversationDetailsPanel
               key={detail.conversation.id}
               detail={detail}
+              onSelectedTabChange={(tab) => {
+                setDetailsTabState({
+                  conversationId: detail.conversation.id,
+                  tab,
+                });
+              }}
               // A walk in flight, so the tabs can say "indexing" rather than imply
               // the list is the whole conversation.
-              indexingRefs={coverage?.state === "running"}
+              indexingRefs={false}
               messages={allMessages}
               onClose={() => setDetailsOpen(false)}
               // The same jump the search results use, so a tile for a message this
@@ -4575,8 +5123,12 @@ export function MessageThread({
               // The index the tabs read, and the token that says it changed. The
               // same store and the same signal search uses, rather than a second
               // subscription that would re-read on a different schedule.
-              refsRefreshToken={searchIndex?.refreshToken ?? 0}
-              searchIndexStore={searchIndexStore}
+              refsRefreshToken={sharedRefsRefreshToken}
+              searchIndexStore={null}
+              serverReadRefsPage={
+                SERVER_MESSAGE_SEARCH_ENABLED ? serverReadRefsPage : undefined
+              }
+              selectedTab={selectedDetailsTab}
             />
           ) : null}
         </div>
@@ -4591,14 +5143,24 @@ export function MessageThread({
           <ConversationDetailsRail
             key={detail.conversation.id}
             detail={detail}
-            indexingRefs={coverage?.state === "running"}
+            onSelectedTabChange={(tab) => {
+              setDetailsTabState({
+                conversationId: detail.conversation.id,
+                tab,
+              });
+            }}
+            indexingRefs={false}
             messages={allMessages}
             onJumpToMessage={jumpToMessage}
             onRequestDecrypts={requestLoadedDecrypts}
             peer={peer}
             presence={peerPresence}
-            refsRefreshToken={searchIndex?.refreshToken ?? 0}
-            searchIndexStore={searchIndexStore}
+            refsRefreshToken={sharedRefsRefreshToken}
+            searchIndexStore={null}
+            serverReadRefsPage={
+              SERVER_MESSAGE_SEARCH_ENABLED ? serverReadRefsPage : undefined
+            }
+            selectedTab={selectedDetailsTab}
           />
         ) : null}
       </div>
@@ -4638,6 +5200,10 @@ interface VirtualRowProps {
   onRequest: (message: MessageData | undefined) => void;
   onRetry: (message: MessageData) => void;
   peerName: string;
+  // DM or DEN. A bubble's byline is a function of this and of the row's position
+  // in its sender-run (see shouldShowSenderName), so the row decides and hands
+  // the bubble a plain boolean rather than re-deriving the rule.
+  conversationType: ConversationType;
   scrolling: boolean;
   selected: boolean;
   selectionActive: boolean;
@@ -4714,6 +5280,7 @@ function MessageRowFrame({
 // the rows whose payloads landed, never the whole visible window.
 function VirtualRowInner({
   conversationId,
+  conversationType,
   groupMeta,
   highlighted,
   message,
@@ -4832,6 +5399,15 @@ function VirtualRowInner({
     groupMeta.isLastInGroup
   );
   const rounding = bubbleRoundingClasses(position, mine);
+  // The byline. Decided once, here, from the conversation type and the row's
+  // place in its run, and passed down as a plain boolean so the bubble never has
+  // to know the rule (and so the deleted/decrypting/error variants can be held to
+  // exactly the same decision).
+  const showSenderName = shouldShowSenderName({
+    conversationType,
+    isFirstInGroup: groupMeta.isFirstInGroup,
+    mine,
+  });
   // The peer avatar marks the end of a run (solo or bottom); earlier rows show a
   // same-width spacer so the column stays aligned. A single ternary here is
   // fine; nesting one in JSX is what the repo bans.
@@ -4862,6 +5438,7 @@ function VirtualRowInner({
         >
           {peerAvatar}
           <div
+            data-message-bubble=""
             className={cn(
               "text-muted-foreground/60 border-border/40 my-0.5 max-w-[85%] min-w-0 border border-dashed px-3.5 py-2 text-xs italic sm:max-w-[75%]",
               rounding
@@ -4909,6 +5486,7 @@ function VirtualRowInner({
         >
           {peerAvatarSkeleton}
           <div
+            data-message-bubble=""
             className={cn(
               "h-9 w-48",
               mine ? "bg-current opacity-10" : "bg-muted/40",
@@ -4936,6 +5514,7 @@ function VirtualRowInner({
           )}
         >
           <div
+            data-message-bubble=""
             className={cn(
               "bubble-received flex max-w-[85%] items-center gap-2 px-3.5 py-2 text-xs sm:max-w-[75%]",
               rounding
@@ -4976,6 +5555,8 @@ function VirtualRowInner({
         quote={quote}
         quotePending={quotePending}
         selectionActive={selectionActive}
+        showSenderName={showSenderName}
+        unknownSenderName={DEN_UNKNOWN_SENDER_NAME}
       />
     </MessageRowFrame>
   );
@@ -5001,6 +5582,7 @@ const VirtualRow = memo(
     prev.groupMeta.isFirstInGroup === next.groupMeta.isFirstInGroup &&
     prev.groupMeta.isLastInGroup === next.groupMeta.isLastInGroup &&
     prev.groupMeta.showTimeDivider === next.groupMeta.showTimeDivider &&
+    prev.conversationType === next.conversationType &&
     prev.historyVersion === next.historyVersion &&
     prev.myUserId === next.myUserId &&
     prev.peerName === next.peerName &&
@@ -5058,6 +5640,45 @@ function ThreadHeader({
   const [verified, setVerified] = useState(false);
   const [keyChanged, setKeyChanged] = useState(false);
   const myWrapped = findMyWrappedKey(conversation.keys, user?.id ?? "");
+
+  // The den half of the heading. Null for a DM, which is the overwhelmingly
+  // common case, so the extra object is only built when the conversation is one.
+  const denIdentity =
+    conversation.conversation.type === "DEN"
+      ? {
+          avatarMediaId: conversation.conversation.avatarMediaId ?? null,
+          // The header states the size of the den, so it counts everybody in it -
+          // the viewer included, and nobody who has left. This used to count
+          // `others` and then label the number "member", which made a two-person
+          // den read "1 member" in the header while the details panel said "2".
+          memberCount: conversation.conversation.members.filter(
+            (member) => !hasDeparted(member)
+          ).length,
+          members: conversation.conversation.members
+            .filter((member) => !hasDeparted(member))
+            .map((member) => ({
+              avatarUrl: member.user.avatarUrl,
+              displayName: member.user.displayName,
+              id: member.userId,
+              role: member.role ?? null,
+              username: member.user.username,
+            })),
+          myUserId: user?.id ?? "",
+        }
+      : null;
+  const headerName = conversationDisplayName(
+    {
+      members: conversation.conversation.members.map((member) => ({
+        avatarUrl: member.user.avatarUrl,
+        displayName: member.user.displayName,
+        id: member.userId,
+        username: member.user.username,
+      })),
+      name: conversation.conversation.name,
+      type: conversation.conversation.type,
+    },
+    user?.id ?? ""
+  );
   const peerPublicKey = findPeerPublicKey(
     conversation.conversation,
     user?.id ?? ""
@@ -5146,15 +5767,31 @@ function ThreadHeader({
           name and an explicit `cursor-pointer` -- buttons do not get one from
           Tailwind v4's preflight, so a control that only looks clickable would not
           say so. */}
+      {/* A den's heading names the room and says how many are in it; a DM's names
+          the person and says whether they are around. Both come out of the same
+          helpers the list row uses, so the header and the row cannot disagree
+          about what a den with no name is called. `peer` is undefined for a den by
+          construction (see the resolver above), so this branch is the den's, not a
+          fallback for a DM whose peer failed to resolve. */}
       <button
         aria-expanded={showDetailsRail ? !detailsRailCollapsed : undefined}
         className="group -ml-1 flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-xl py-1 pr-2 pl-1 text-left"
         onClick={onToggleDetails}
-        title={`${peer?.displayName ?? "Conversation"} — conversation details`}
+        title={`${headerName} — conversation details`}
         type="button"
       >
-        <span className="relative shrink-0">
-          <UserAvatar avatarUrl={peer?.avatarUrl ?? null} size={32} />
+        <span className="relative flex shrink-0 items-center justify-center">
+          {denIdentity ? (
+            <DenAvatarCollage
+              avatarMediaId={denIdentity.avatarMediaId}
+              members={denIdentity.members}
+              myUserId={denIdentity.myUserId}
+              size={32}
+            />
+          ) : (
+            <UserAvatar avatarUrl={peer?.avatarUrl ?? null} size={32} />
+          )}
+          {/* Presence is a property of a person. A room is not online. */}
           {peerPresence ? (
             <span
               className={cn(
@@ -5167,13 +5804,15 @@ function ThreadHeader({
         <span className="min-w-0 flex-1">
           <span className="flex min-w-0 items-center gap-1.5 text-sm font-semibold">
             <span className="min-w-0 truncate group-hover:underline">
-              {peer?.displayName ?? "Conversation"}
+              {headerName}
             </span>
-            <UserBadge
-              badge={peer?.badge}
-              badges={peer?.badges}
-              communityRoles={peer?.communityMemberships}
-            />
+            {peer ? (
+              <UserBadge
+                badge={peer.badge}
+                badges={peer.badges}
+                communityRoles={peer.communityMemberships}
+              />
+            ) : null}
           </span>
           {peerTyping ? (
             <span className="text-primary block truncate text-xs font-medium">
@@ -5181,7 +5820,9 @@ function ThreadHeader({
             </span>
           ) : (
             <span className="text-muted-foreground block truncate text-xs">
-              {presenceLabel(peerPresence, peer?.username)}
+              {denIdentity
+                ? denMemberCountLabel(denIdentity.memberCount)
+                : presenceLabel(peerPresence, peer?.username)}
             </span>
           )}
         </span>
@@ -5232,7 +5873,7 @@ function ThreadHeader({
 
       <button
         aria-label="Online friends"
-        className="icon-btn-3d flex h-8 w-8 shrink-0 items-center justify-center rounded-full lg:hidden"
+        className="icon-btn-3d hidden h-8 w-8 shrink-0 items-center justify-center rounded-full md:flex lg:hidden"
         onClick={onToggleRail}
         title="Online friends"
         type="button"
@@ -5245,7 +5886,7 @@ function ThreadHeader({
           reads as the way out of THAT pane, which is the one thing it does not do. */}
       <button
         aria-label="Close chat"
-        className="icon-btn-3d flex h-8 w-8 shrink-0 items-center justify-center rounded-full lg:hidden"
+        className="icon-btn-3d hidden h-8 w-8 shrink-0 items-center justify-center rounded-full md:flex lg:hidden"
         onClick={onBack}
         title="Close chat"
         type="button"
@@ -5291,6 +5932,38 @@ function TimeDivider({ at }: { at: Date | string }) {
     <div className="flex justify-center pt-0.5 pb-2">
       <span className="bg-muted/70 text-muted-foreground rounded-full px-2.5 py-0.5 text-[11px] font-medium tabular-nums">
         {label}
+      </span>
+    </div>
+  );
+}
+
+// A membership log line: "Ada joined the den", "Bob was removed", "Ada made
+// Cara an Elder". Centered and muted like the time divider, because it is the
+// same kind of thing - a fact about the room's timeline rather than something
+// somebody said in it. Drawing it as a bubble would put words in a member's
+// mouth, and drawing it left-aligned would make it read as a message.
+//
+// `myUserId` is handed in so the line can say "You" and the row can tint when the
+// reader is on either end of it. Both decisions are `denEventLine` and
+// `denEventIsAboutMe`, which are pure and tested on their own.
+function DenEventRow({
+  event,
+  myUserId,
+}: {
+  event: DenMembershipEvent;
+  myUserId: string;
+}) {
+  const mine = denEventIsAboutMe(event, myUserId);
+  return (
+    <div className="flex justify-center px-4 pt-1 pb-2">
+      <span
+        className={
+          mine
+            ? "bg-primary/10 text-foreground/80 rounded-full px-2.5 py-0.5 text-center text-[11px] font-medium"
+            : "text-muted-foreground px-2.5 py-0.5 text-center text-[11px]"
+        }
+      >
+        {denEventLine(event, myUserId)}
       </span>
     </div>
   );

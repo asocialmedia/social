@@ -572,7 +572,16 @@ export interface MessageStreamEvent {
     // the conversation detail, because the wraps and/or the peer's identity
     // public key may have changed and a stale copy silently fails every
     // decrypt. Carries no key material, so it is safe to broadcast.
-    | "keys.rotated";
+    | "conversation.appearance.changed"
+    | "keys.rotated"
+    // A den's roster moved: created, somebody joined or left, somebody was
+    // added or removed, a role changed, ownership transferred, or the den was
+    // dissolved. Same reasoning as `keys.rotated` and for a stronger reason --
+    // the roster is an input to "may this epoch still be written into", so a
+    // stale snapshot does not merely fail to decrypt, it hands a message to the
+    // member who was just removed. Carries ids and a coarse discriminator only,
+    // never a body, a key, a ciphertext or an invite code.
+    | "den.membership.changed";
   conversationId: string;
   message?: unknown;
   conversation?: unknown;
@@ -584,6 +593,83 @@ export interface MessageStreamEvent {
   // `conversation.read`, so the sender patches its read watermark in place
   // instead of refetching the conversation detail.
   readAt?: string;
+  // Which way a den's roster moved. Present only on `den.membership.changed`.
+  // Deliberately coarse: it is a discriminator, not a description. No target id
+  // rides along, so a connection cannot learn anything about the roster from the
+  // payload and has to ask the database (or refetch the detail) to learn whether
+  // it still belongs.
+  membershipAction?: DenMembershipAction;
+  // The den's post-increment `membershipSeq`, on `den.membership.changed` only.
+  // Present so a receiver can ignore a duplicate delivery and notice one it never
+  // got; a client that sees a value two ahead of the last one it applied knows at
+  // least one announcement was dropped, which the closed set of channels and a
+  // timestamp cannot tell it.
+  //
+  // Optional by design. Absent on every event a pre-sequence server publishes and
+  // on a dissolve, where the row the counter lived on is gone. A receiver treats
+  // an absent value as the behaviour it had before this field existed, never as
+  // "assume fresh" and never as a reason to drop the event.
+  membershipSeq?: number;
+}
+
+// What moved in a den. One value per code path that can change a roster, so the
+// "publishes exactly once, with the right discriminator" property is testable,
+// and so a receiver has one thing to switch on rather than a set of overlapping
+// flags. The discriminator carries no identity beyond `userId` (the actor): who
+// was added, removed or promoted is deliberately not on the wire.
+export const DEN_MEMBERSHIP_ACTIONS = [
+  "created",
+  "dissolved",
+  "joined",
+  "left",
+  "member_added",
+  "member_removed",
+  "owner_transferred",
+  "role_changed",
+] as const;
+
+export type DenMembershipAction = (typeof DEN_MEMBERSHIP_ACTIONS)[number];
+
+// What publishDenMembershipChanged needs: which den, what moved, who did it, and
+// whose conversation LIST has to be told. `memberIds` is the roster after the
+// mutation and is allowed to be empty (a den that was just dissolved).
+export interface DenMembershipEvent {
+  action: DenMembershipAction;
+  actorId: string;
+  conversationId: string;
+  memberIds: string[];
+  // The post-increment roster counter, when there is one to report. A dissolve
+  // has none: the row is gone by the time this publishes.
+  membershipSeq?: number;
+}
+
+// A roster counter as it arrives on the wire. Narrowed rather than asserted,
+// because the value came from JSON and a hostile or broken publisher can put
+// anything there. Anything that is not a non-negative whole number is reported as
+// absent, which is the same as an event from a server that predates the field -
+// and is the safe direction, since the receiver's fallback is today's behaviour
+// and never "assume fresh".
+//
+// Written out rather than shared with the browser's copy of this rule for the same
+// reason `parseMessageEvent` is written out twice: the browser bundle must not
+// import the server-only DB package, so the two are kept in step by these tests
+// rather than by a shared module.
+function readMembershipSeq(value: unknown): number | undefined {
+  return typeof value === "number" &&
+    Number.isInteger(value) &&
+    value >= 0 &&
+    // A counter is a count of one mutation at a time; a value that could not be
+    // reached in a lifetime is a corrupt payload, not a real one.
+    value <= Number.MAX_SAFE_INTEGER
+    ? value
+    : undefined;
+}
+
+function isDenMembershipAction(value: unknown): value is DenMembershipAction {
+  return (
+    typeof value === "string" &&
+    DEN_MEMBERSHIP_ACTIONS.some((action) => action === value)
+  );
 }
 
 export function serializeMessageEvent(event: MessageStreamEvent): string {
@@ -601,7 +687,9 @@ export function parseMessageEvent(raw: string): MessageStreamEvent | null {
       parsed.kind !== "conversation.read" &&
       parsed.kind !== "conversation.delivered" &&
       parsed.kind !== "typing.started" &&
-      parsed.kind !== "keys.rotated"
+      parsed.kind !== "conversation.appearance.changed" &&
+      parsed.kind !== "keys.rotated" &&
+      parsed.kind !== "den.membership.changed"
     ) {
       return null;
     }
@@ -638,11 +726,28 @@ export function parseMessageEvent(raw: string): MessageStreamEvent | null {
     ) {
       return null;
     }
+    // A membership announcement without an actor or with an action outside the
+    // closed set is refused rather than forwarded. A receiver acts on the action
+    // (a dissolve is terminal, a role change is not) and on the actor, so an
+    // unrecognised value would have to be guessed at.
+    if (
+      parsed.kind === "den.membership.changed" &&
+      (typeof parsed.userId !== "string" ||
+        !isDenMembershipAction(parsed.membershipAction))
+    ) {
+      return null;
+    }
     return {
       conversation: parsed.conversation,
       conversationId: parsed.conversationId,
       deliveredAt: parsed.deliveredAt,
       kind: parsed.kind,
+      // Narrowed above: an event that reached this line either is not a
+      // membership announcement (so this is undefined) or carried a valid one.
+      membershipAction: isDenMembershipAction(parsed.membershipAction)
+        ? parsed.membershipAction
+        : undefined,
+      membershipSeq: readMembershipSeq(parsed.membershipSeq),
       message: parsed.message,
       readAt: parsed.readAt,
       userId: parsed.userId,
@@ -757,6 +862,63 @@ export async function publishMessageKeysRotated(
   });
 }
 
+// A den's roster moved. Two audiences, one call:
+//
+//   - `messages:<conversationId>`, for whoever has the thread open. Every
+//     connection on it re-checks its own membership row, which is how a removed
+//     member's already-open stream is told to stop before it can deliver
+//     anything else.
+//   - `message-activity:<userId>` for each id in `memberIds`, because the
+//     conversation LIST is about the threads nobody has open. That is what makes
+//     a den somebody just joined appear in their rail, and what drops a
+//     dissolved or left den out of theirs.
+//
+// `memberIds` is the roster as it stands AFTER the mutation, which deliberately
+// includes whoever left or was removed: they are no longer members, and their
+// list still shows the den until they refetch it. A dissolved den can arrive
+// with nobody left at all, so an empty list is a normal input and publishes only
+// the conversation channel.
+//
+// `membershipSeq` rides only on the conversation channel, and that is a decision
+// rather than an oversight. The per-member activity channel's only consumer is
+// the conversation LIST, which refetches on ANY activity frame without reading
+// the payload (`useMessageActivity` takes a `() => void`), so a counter there
+// would widen every idle tab's frame for a reader that does not exist. The
+// per-conversation stream is the place where a client compares sequences, and
+// that is where it goes.
+//
+// The counter is not sensitive: it is a small integer, and the only thing a
+// holder can learn from it is how many roster changes they may have missed. It
+// names nobody and carries no key, body, ciphertext or code.
+//
+// Best-effort throughout, so a pub/sub outage cannot fail the membership write
+// that already committed: every failure here is logged and swallowed, and the
+// clients' own polling and the stream's heartbeat re-check are the fallback.
+export async function publishDenMembershipChanged(
+  event: DenMembershipEvent
+): Promise<void> {
+  const { action, actorId, conversationId, memberIds, membershipSeq } = event;
+  await publishMessageEvent({
+    conversationId,
+    kind: "den.membership.changed",
+    membershipAction: action,
+    membershipSeq,
+    userId: actorId,
+  });
+  try {
+    await Promise.all(
+      memberIds.map((userId) =>
+        publishMessageActivity(userId, {
+          conversationId,
+          kind: "den.membership.changed",
+        })
+      )
+    );
+  } catch (error) {
+    console.error("Error publishing den membership activity:", error);
+  }
+}
+
 // A per-user channel for "something happened in one of your conversations".
 //
 // The per-conversation channel above only reaches clients with that conversation
@@ -776,7 +938,10 @@ export const messageActivityChannel = (userId: string): string =>
 
 export interface MessageActivityEvent {
   conversationId: string;
-  kind: "message.created";
+  // `message.created` is the ordinary case. `den.membership.changed` is the same
+  // signal for a roster move: the list has to re-read itself either way, because
+  // the server owns the ordering, the preview and the member count.
+  kind: "den.membership.changed" | "message.created";
 }
 
 export function serializeMessageActivityEvent(
@@ -790,7 +955,10 @@ export function parseMessageActivityEvent(
 ): MessageActivityEvent | null {
   try {
     const parsed = JSON.parse(raw) as Partial<MessageActivityEvent>;
-    if (parsed.kind !== "message.created") {
+    if (
+      parsed.kind !== "message.created" &&
+      parsed.kind !== "den.membership.changed"
+    ) {
       return null;
     }
     if (

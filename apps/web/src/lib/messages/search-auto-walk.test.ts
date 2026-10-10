@@ -109,9 +109,9 @@ describe("shouldAutoStartWalk", () => {
     expect(shouldAutoStartWalk(withoutTheField)).toBe(false);
   });
 
-  test("a run this session is trusted only as far as it went", () => {
-    // Reached the start, but under a build that predates refs: text is covered and
-    // the pane is not, so the policy still has work to do.
+  test("does not immediately restart at the end when refs remain incomplete", () => {
+    // Reached the start, but refs did not settle. The incomplete verdict remains
+    // visible for retry; repeatedly fetching the empty terminal page would spin.
     expect(
       shouldAutoStartWalk(
         input({
@@ -125,7 +125,7 @@ describe("shouldAutoStartWalk", () => {
           persistedRefsCovered: true,
         })
       )
-    ).toBe(true);
+    ).toBe(false);
   });
 
   test("waits for the refs verdict before the first start", () => {

@@ -323,7 +323,7 @@ const UserBadge: React.FC<{
       </HoverCardTrigger>
       <HoverCardContent
         align="start"
-        className="panel-3d text-popover-foreground border-border/70 w-64 gap-0 rounded-xl border p-2.5 shadow-none"
+        className="panel-3d text-popover-foreground w-64 gap-0 rounded-2xl! p-2"
         side="bottom"
         sideOffset={6}
       >

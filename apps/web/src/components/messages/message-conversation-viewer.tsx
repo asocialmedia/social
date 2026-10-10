@@ -16,9 +16,10 @@ import {
   X,
 } from "lucide-react";
 import Image from "next/image";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { toast } from "@/lib/gooey-toast";
+import type { SharedRefsPage } from "@/lib/messages/shared-refs-format";
 import { cn } from "@/lib/utils";
 import {
   getMessageMediaVariantUrl,
@@ -26,10 +27,17 @@ import {
 } from "@/lib/utils/image-url";
 
 import type {
+  ConversationMediaPageDirection,
   ConversationMediaItem,
   ConversationMediaMessage,
 } from "./message-conversation-media";
-import { useConversationMediaIndex } from "./use-conversation-media";
+import {
+  CONVERSATION_MEDIA_VIEWER_WINDOW_LIMIT,
+  mediaItemsFromSharedRefs,
+  mergeConversationMediaPage,
+  messageIdFromFlatKey,
+} from "./message-conversation-media";
+import { useConversationMediaWindow } from "./use-conversation-media";
 
 type LoadStatus = "error" | "loaded" | "loading";
 
@@ -49,6 +57,41 @@ const PRELOAD_CACHE_CAP = 128;
 // imageless tail from silently streaming in the whole conversation while still
 // walking past a few empty pages.
 const MAX_BOUNDARY_MISSES = 3;
+const SERVER_MEDIA_PAGE_SIZE = 20;
+
+interface ServerMediaWindowState {
+  coverageComplete: boolean;
+  hasNewer: boolean;
+  hasOlder: boolean;
+  items: ConversationMediaItem[];
+  newerCursor: string | null;
+  olderCursor: string | null;
+}
+
+interface ServerMediaAnchor {
+  createdAt: number;
+  messageId: string;
+  ordinal: number;
+}
+
+async function tryLoadBoundaryPage(
+  loadPage: () => Promise<boolean> | boolean
+): Promise<boolean> {
+  try {
+    return await loadPage();
+  } catch {
+    return false;
+  }
+}
+
+function imageLabel(
+  item: ConversationMediaItem,
+  position: number,
+  total: number | null
+): string {
+  const kind = item.kind === "gif" ? "GIF" : "Image";
+  return total === null ? kind : `${kind} ${position} of ${total}`;
+}
 
 // Streams a media row back as a forced download. Module scope because React
 // Compiler cannot lower a `throw` inside a component-level try block (see
@@ -81,7 +124,7 @@ function StageImage({
 }: {
   item: ConversationMediaItem;
   position: number;
-  total: number;
+  total: number | null;
 }) {
   const [status, setStatus] = useState<LoadStatus>("loading");
   const [attempt, setAttempt] = useState(0);
@@ -111,7 +154,7 @@ function StageImage({
         </span>
       ) : (
         <Image
-          alt={`${item.kind === "gif" ? "GIF" : "Image"} ${position} of ${total}`}
+          alt={imageLabel(item, position, total)}
           className={cn(
             "object-contain transition-opacity duration-200",
             status === "loaded" ? "opacity-100" : "opacity-0"
@@ -145,7 +188,7 @@ function Thumb({
   onClick: () => void;
   position: number;
   style: React.CSSProperties;
-  total: number;
+  total: number | null;
 }) {
   const src =
     item.kind === "gif"
@@ -154,7 +197,9 @@ function Thumb({
   return (
     <button
       aria-current={active}
-      aria-label={`Open image ${position} of ${total}`}
+      aria-label={
+        total === null ? "Open image" : `Open image ${position} of ${total}`
+      }
       className={cn(
         "bg-muted absolute top-0 overflow-hidden rounded-md transition-[opacity,box-shadow] duration-200",
         active
@@ -191,10 +236,14 @@ function Filmstrip({
   activeIndex,
   items,
   onSelect,
+  startIndex,
+  total,
 }: {
   activeIndex: number;
   items: ConversationMediaItem[];
   onSelect: (flatKey: string) => void;
+  startIndex: number;
+  total: number | null;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [width, setWidth] = useState(0);
@@ -271,11 +320,11 @@ function Filmstrip({
             item={item}
             key={item.flatKey}
             onClick={() => onSelect(item.flatKey)}
-            position={index + 1}
+            position={startIndex + index + 1}
             style={{
               transform: `translate3d(${index * THUMB_STRIDE}px, 0, 0)`,
             }}
-            total={count}
+            total={total}
           />
         ))}
       </div>
@@ -286,13 +335,23 @@ function Filmstrip({
 interface ConversationMediaViewerProps {
   anchorKey: string;
   hasOlder: boolean;
+  hasNewer: boolean;
   isFetchingOlder: boolean;
+  isFetchingNewer: boolean;
   messages: readonly ConversationMediaMessage[];
   onActive: (flatKey: string, direction: MediaNavDirection) => void;
   onClose: () => void;
-  // Loads one older page. Resolves true when the loaded transcript actually
-  // grew, so the boundary loader knows whether it made progress.
+  // Loads one older or newer page. Resolves true when the loaded transcript
+  // actually grew, so the boundary loader knows whether it made progress.
   onLoadOlder: () => Promise<boolean> | boolean;
+  onLoadNewer: () => Promise<boolean> | boolean;
+  onReadServerPage?: (input: {
+    around?: ServerMediaAnchor;
+    cursor?: string;
+    kind: "media";
+    limit: number;
+    signal: AbortSignal;
+  }) => Promise<SharedRefsPage>;
   onPosition: (activeIndex: number, total: number) => void;
 }
 
@@ -305,16 +364,209 @@ interface ConversationMediaViewerProps {
 export function ConversationMediaViewer({
   anchorKey,
   hasOlder,
+  hasNewer,
   isFetchingOlder,
+  isFetchingNewer,
   messages,
   onActive,
   onClose,
   onLoadOlder,
+  onLoadNewer,
+  onReadServerPage,
   onPosition,
 }: ConversationMediaViewerProps) {
-  const index = useConversationMediaIndex(messages);
-  const { indexByKey, items } = index;
   const [activeKey, setActiveKey] = useState(anchorKey);
+  const localIndex = useConversationMediaWindow(messages, activeKey);
+  const [serverWindow, setServerWindow] =
+    useState<ServerMediaWindowState | null>(null);
+  const serverWindowRef = useRef<ServerMediaWindowState | null>(null);
+  const [serverFailed, setServerFailed] = useState(false);
+  const [serverFetching, setServerFetching] = useState({
+    initial: false,
+    newer: false,
+    older: false,
+  });
+  const serverBusyRef = useRef({ initial: false, newer: false, older: false });
+  const serverControllersRef = useRef(new Set<AbortController>());
+  const initialServerRequestRef = useRef(false);
+  const publishServerWindow = useCallback((next: ServerMediaWindowState) => {
+    serverWindowRef.current = next;
+    setServerWindow(next);
+  }, []);
+  const loadServerPage = useCallback(
+    async (
+      direction: ConversationMediaPageDirection,
+      cursor?: string,
+      around?: ServerMediaAnchor
+    ): Promise<boolean> => {
+      if (!onReadServerPage || serverBusyRef.current[direction]) {
+        return false;
+      }
+      if (direction !== "initial" && !cursor) {
+        return false;
+      }
+      serverBusyRef.current[direction] = true;
+      setServerFetching((current) => ({ ...current, [direction]: true }));
+      const controller = new AbortController();
+      serverControllersRef.current.add(controller);
+      let loaded = false;
+      try {
+        const page = await onReadServerPage({
+          ...(around ? { around } : {}),
+          ...(cursor ? { cursor } : {}),
+          kind: "media",
+          limit:
+            direction === "initial"
+              ? CONVERSATION_MEDIA_VIEWER_WINDOW_LIMIT
+              : SERVER_MEDIA_PAGE_SIZE,
+          signal: controller.signal,
+        });
+        if (!controller.signal.aborted) {
+          const incoming = mediaItemsFromSharedRefs(page.items);
+          loaded = incoming.length > 0;
+          if (direction === "initial") {
+            const items = mergeConversationMediaPage({
+              anchorKey,
+              current: localIndex.items,
+              direction: "initial",
+              incoming,
+            });
+            publishServerWindow({
+              coverageComplete: page.coverageComplete === true,
+              hasNewer: page.window?.hasNewer ?? false,
+              hasOlder: page.window?.hasOlder ?? false,
+              items,
+              newerCursor: page.window?.newerCursor ?? null,
+              olderCursor: page.window?.olderCursor ?? null,
+            });
+            setServerFailed(false);
+          } else {
+            const { current } = serverWindowRef;
+            if (current) {
+              const nextItems = mergeConversationMediaPage({
+                current: current.items,
+                direction,
+                incoming,
+              });
+              const cursorContinues = page.hasMore && Boolean(page.after);
+              let nextHasOlder = current.hasOlder;
+              let nextHasNewer = current.hasNewer;
+              let nextOlderCursor = current.olderCursor;
+              let nextNewerCursor = current.newerCursor;
+              if (direction === "older") {
+                nextHasOlder = cursorContinues;
+                nextOlderCursor = cursorContinues ? (page.after ?? null) : null;
+              } else {
+                nextHasNewer = cursorContinues;
+                nextNewerCursor = cursorContinues ? (page.after ?? null) : null;
+              }
+              publishServerWindow({
+                coverageComplete:
+                  page.coverageComplete ?? current.coverageComplete,
+                hasNewer: nextHasNewer,
+                hasOlder: nextHasOlder,
+                items: nextItems,
+                newerCursor: nextNewerCursor,
+                olderCursor: nextOlderCursor,
+              });
+            }
+          }
+        }
+      } catch {
+        if (!controller.signal.aborted && direction === "initial") {
+          setServerFailed(true);
+        }
+      }
+      serverBusyRef.current[direction] = false;
+      serverControllersRef.current.delete(controller);
+      if (!controller.signal.aborted) {
+        setServerFetching((current) => ({
+          ...current,
+          [direction]: false,
+        }));
+      }
+      return loaded;
+    },
+    [anchorKey, localIndex.items, onReadServerPage, publishServerWindow]
+  );
+  const loadServerDirection = useCallback(
+    (direction: Exclude<ConversationMediaPageDirection, "initial">) => {
+      const { current } = serverWindowRef;
+      const cursor =
+        direction === "older" ? current?.olderCursor : current?.newerCursor;
+      return cursor ? loadServerPage(direction, cursor) : false;
+    },
+    [loadServerPage]
+  );
+  const items = useMemo(
+    () =>
+      serverWindow
+        ? mergeConversationMediaPage({
+            anchorKey: activeKey,
+            current: serverWindow.items,
+            direction: "initial",
+            incoming: localIndex.items,
+          })
+        : localIndex.items,
+    [activeKey, localIndex.items, serverWindow]
+  );
+  const indexByKey = useMemo(
+    () =>
+      serverWindow
+        ? new Map(items.map((item, itemIndex) => [item.flatKey, itemIndex]))
+        : localIndex.indexByKey,
+    [items, localIndex.indexByKey, serverWindow]
+  );
+  const activeIndex = serverWindow
+    ? (indexByKey.get(activeKey) ?? -1)
+    : localIndex.activeIndex;
+  const absoluteIndex = serverWindow ? -1 : localIndex.absoluteIndex;
+  const startIndex = serverWindow ? 0 : localIndex.startIndex;
+  const totalItems = serverWindow ? items.length : localIndex.totalItems;
+  const totalLabel = serverWindow ? null : totalItems;
+  const useServerHistory = Boolean(onReadServerPage && !serverFailed);
+  const viewerHasOlder = serverWindow
+    ? serverWindow.hasOlder
+    : !useServerHistory && hasOlder;
+  const viewerHasNewer = serverWindow
+    ? serverWindow.hasNewer
+    : !useServerHistory && hasNewer;
+  const viewerFetchingOlder = serverWindow
+    ? serverFetching.older
+    : useServerHistory || isFetchingOlder;
+  const viewerFetchingNewer = serverWindow
+    ? serverFetching.newer
+    : useServerHistory || isFetchingNewer;
+  const requestOlderPage = useCallback(() => {
+    if (serverWindow) {
+      return loadServerDirection("older");
+    }
+    if (onReadServerPage && !serverFailed) {
+      return false;
+    }
+    return onLoadOlder();
+  }, [
+    loadServerDirection,
+    onLoadOlder,
+    onReadServerPage,
+    serverFailed,
+    serverWindow,
+  ]);
+  const requestNewerPage = useCallback(() => {
+    if (serverWindow) {
+      return loadServerDirection("newer");
+    }
+    if (onReadServerPage && !serverFailed) {
+      return false;
+    }
+    return onLoadNewer();
+  }, [
+    loadServerDirection,
+    onLoadNewer,
+    onReadServerPage,
+    serverFailed,
+    serverWindow,
+  ]);
   const [downloading, setDownloading] = useState(false);
   // Direction of an in-flight boundary extension, tagged with the media count
   // at request time. Deriving `extending` from the current count means the
@@ -336,10 +588,70 @@ export function ConversationMediaViewer({
   // Insertion-ordered set of preloaded URLs (Map so the oldest can be evicted
   // first when the cap is reached).
   const preloadedRef = useRef(new Map<string, true>());
-  // Consecutive older pages pulled while parked on the oldest known image that
-  // turned out to hold no media. Reset whenever the media list grows and when
-  // the user leaves the boundary.
-  const boundaryMissesRef = useRef(0);
+  // Consecutive pages pulled while parked at either media boundary that turned
+  // out to hold no media. A few empty pages are tolerated, then automatic
+  // paging stops so an imageless tail cannot stream the whole conversation.
+  const boundaryMissesRef = useRef({ newer: 0, older: 0 });
+  useEffect(
+    () => () => {
+      for (const controller of serverControllersRef.current) {
+        controller.abort();
+      }
+      serverControllersRef.current.clear();
+    },
+    []
+  );
+
+  useEffect(() => {
+    if (
+      !onReadServerPage ||
+      serverWindow ||
+      serverFailed ||
+      initialServerRequestRef.current
+    ) {
+      return;
+    }
+    const localAnchor = localIndex.items.find(
+      (item) => item.flatKey === anchorKey
+    );
+    const messageId = messageIdFromFlatKey(anchorKey);
+    const anchorMessage = messages.find((message) => message.id === messageId);
+    const ordinal = Number(anchorKey.slice(anchorKey.lastIndexOf(":") + 1));
+    const createdAt =
+      localAnchor?.createdAt ??
+      (anchorMessage
+        ? new Date(anchorMessage.createdAt).getTime()
+        : Number.NaN);
+    if (
+      !Number.isFinite(createdAt) ||
+      !Number.isInteger(ordinal) ||
+      ordinal < 0
+    ) {
+      return;
+    }
+    initialServerRequestRef.current = true;
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (!cancelled) {
+        void loadServerPage("initial", undefined, {
+          createdAt,
+          messageId,
+          ordinal: localAnchor?.imageIndex ?? ordinal,
+        });
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    anchorKey,
+    loadServerPage,
+    localIndex.items,
+    messages,
+    onReadServerPage,
+    serverFailed,
+    serverWindow,
+  ]);
 
   // Fail-safe: if a boundary extension discovers no further media, clear the
   // spinner after a beat so an arrow can never spin forever.
@@ -356,14 +668,16 @@ export function ConversationMediaViewer({
   // Re-resolve the numeric position from the key every render: discovering
   // older media prepends items, and keying by flatKey keeps the current image
   // put instead of shifting out from under the user.
-  const activeIndex = indexByKey.get(activeKey) ?? -1;
   const item = activeIndex >= 0 ? items[activeIndex] : undefined;
 
   // Report the current position to the thread so it can bound loaded history
   // without the viewer needing to know about React Query pages.
   useEffect(() => {
-    onPosition(activeIndex, items.length);
-  }, [activeIndex, items.length, onPosition]);
+    onPosition(
+      serverWindow ? -1 : absoluteIndex,
+      serverWindow ? 0 : totalItems
+    );
+  }, [absoluteIndex, onPosition, serverWindow, totalItems]);
 
   const selectKey = useCallback(
     (flatKey: string) => {
@@ -400,35 +714,78 @@ export function ConversationMediaViewer({
       // Ran out of known media in this direction: ask for more transcript to be
       // decrypted, and show a spinner until the list changes.
       const direction: MediaNavDirection = delta > 0 ? "newer" : "older";
-      setExtension({ count: items.length, direction });
+      const canLoad = direction === "older" ? viewerHasOlder : viewerHasNewer;
+      const isFetching =
+        direction === "older" ? viewerFetchingOlder : viewerFetchingNewer;
+      if (!canLoad || isFetching) {
+        return;
+      }
+      setExtension({ count: totalItems, direction });
       if (direction === "older") {
-        void onLoadOlder();
+        void tryLoadBoundaryPage(requestOlderPage);
+      } else {
+        void tryLoadBoundaryPage(requestNewerPage);
       }
       onActive(activeKey, direction);
     },
-    [activeIndex, activeKey, items, onActive, onLoadOlder, selectKey]
+    [
+      activeIndex,
+      activeKey,
+      items,
+      onActive,
+      requestNewerPage,
+      requestOlderPage,
+      selectKey,
+      totalItems,
+      viewerFetchingNewer,
+      viewerFetchingOlder,
+      viewerHasNewer,
+      viewerHasOlder,
+    ]
   );
 
-  // Reaching the oldest known image pulls one more page of history so the strip
-  // keeps extending as the user walks back through the conversation. Bounded:
+  // Reaching a loaded media boundary pulls one page in that direction. Bounded:
   // after a few consecutive pages with no media the walk stops, so an imageless
-  // tail cannot silently stream in the entire thread. Any new media (a change
-  // in the media count) resets the budget, and leaving the boundary resets it.
+  // stretch cannot silently stream in the entire conversation.
   useEffect(() => {
-    if (activeIndex !== 0) {
-      boundaryMissesRef.current = 0;
-      return;
+    const atOlderBoundary = !serverWindow && absoluteIndex === 0;
+    const atNewerBoundary =
+      !serverWindow && absoluteIndex >= 0 && absoluteIndex === totalItems - 1;
+    if (!atOlderBoundary) {
+      boundaryMissesRef.current.older = 0;
+    }
+    if (!atNewerBoundary) {
+      boundaryMissesRef.current.newer = 0;
     }
     if (
-      !hasOlder ||
-      isFetchingOlder ||
-      boundaryMissesRef.current >= MAX_BOUNDARY_MISSES
+      atOlderBoundary &&
+      viewerHasOlder &&
+      !viewerFetchingOlder &&
+      boundaryMissesRef.current.older < MAX_BOUNDARY_MISSES
     ) {
-      return;
+      boundaryMissesRef.current.older += 1;
+      void tryLoadBoundaryPage(requestOlderPage);
     }
-    boundaryMissesRef.current += 1;
-    void onLoadOlder();
-  }, [activeIndex, hasOlder, isFetchingOlder, onLoadOlder]);
+    if (
+      atNewerBoundary &&
+      viewerHasNewer &&
+      !viewerFetchingNewer &&
+      boundaryMissesRef.current.newer < MAX_BOUNDARY_MISSES
+    ) {
+      boundaryMissesRef.current.newer += 1;
+      void tryLoadBoundaryPage(requestNewerPage);
+    }
+  }, [
+    absoluteIndex,
+    requestNewerPage,
+    requestOlderPage,
+    serverWindow,
+    totalItems,
+    viewerFetchingNewer,
+    viewerFetchingOlder,
+    viewerHasNewer,
+    viewerHasOlder,
+  ]);
 
   // Keep the decrypt window centered on wherever the viewer currently is. The
   // effect re-runs on navigation AND whenever the thread's callback identity
@@ -522,19 +879,27 @@ export function ConversationMediaViewer({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [items, selectKey, step]);
 
-  const hasNeighbors = items.length > 1;
+  const hasNeighbors = items.length > 1 || viewerHasOlder || viewerHasNewer;
+  const position = serverWindow ? activeIndex + 1 : absoluteIndex + 1;
+  const waitingForServerAnchor =
+    Boolean(onReadServerPage) && !serverWindow && !serverFailed;
+  const retryServerHistory = () => {
+    initialServerRequestRef.current = false;
+    setServerFailed(false);
+  };
 
   return (
     <Dialog onOpenChange={onClose} open>
       <DialogContent
-        className="bg-background text-foreground flex h-[100dvh] max-h-none w-screen max-w-none flex-col gap-0 overflow-hidden rounded-none border-0 p-0 [&>button:last-child]:hidden"
+        className="bg-background text-foreground flex h-[100dvh] max-h-none w-screen max-w-none flex-col gap-0 overflow-hidden rounded-none! border-0 p-0 [&>button:last-child]:hidden"
         onClick={(event) => event.stopPropagation()}
       >
         <VisuallyHidden>
           <DialogTitle>Conversation media</DialogTitle>
           <DialogDescription>
-            {item?.kind === "gif" ? "GIF" : "Image"} {activeIndex + 1} of{" "}
-            {items.length}
+            {item
+              ? imageLabel(item, position, totalLabel)
+              : "Conversation media"}
           </DialogDescription>
         </VisuallyHidden>
 
@@ -546,14 +911,21 @@ export function ConversationMediaViewer({
             <StageImage
               item={item}
               key={item.flatKey}
-              position={activeIndex + 1}
-              total={items.length}
+              position={position}
+              total={totalLabel}
             />
-          ) : (
+          ) : null}
+          {!item && (waitingForServerAnchor || serverFetching.initial) ? (
+            <span className="text-muted-foreground flex items-center gap-2 text-sm">
+              <Loader2 aria-hidden className="size-4 animate-spin" />
+              Loading media…
+            </span>
+          ) : null}
+          {!item && !waitingForServerAnchor && !serverFetching.initial ? (
             <span className="text-muted-foreground text-sm">
               This image is no longer available.
             </span>
-          )}
+          ) : null}
         </div>
 
         <button
@@ -582,10 +954,11 @@ export function ConversationMediaViewer({
             <button
               aria-label="Previous image"
               className="border-border/60 bg-background/70 text-foreground hover:bg-background/90 absolute top-1/2 left-3 z-50 flex -translate-y-1/2 items-center justify-center rounded-full border p-2.5 backdrop-blur-md transition-transform duration-150 hover:scale-105 active:scale-90"
+              disabled={activeIndex <= 0 && !viewerHasOlder}
               onClick={() => step(-1)}
               type="button"
             >
-              {extending === "older" ? (
+              {extending === "older" || viewerFetchingOlder ? (
                 <Loader2 className="h-6 w-6 animate-spin" />
               ) : (
                 <ChevronLeft className="h-6 w-6" />
@@ -594,10 +967,11 @@ export function ConversationMediaViewer({
             <button
               aria-label="Next image"
               className="border-border/60 bg-background/70 text-foreground hover:bg-background/90 absolute top-1/2 right-3 z-50 flex -translate-y-1/2 items-center justify-center rounded-full border p-2.5 backdrop-blur-md transition-transform duration-150 hover:scale-105 active:scale-90"
+              disabled={activeIndex >= items.length - 1 && !viewerHasNewer}
               onClick={() => step(1)}
               type="button"
             >
-              {extending === "newer" ? (
+              {extending === "newer" || viewerFetchingNewer ? (
                 <Loader2 className="h-6 w-6 animate-spin" />
               ) : (
                 <ChevronRight className="h-6 w-6" />
@@ -609,9 +983,7 @@ export function ConversationMediaViewer({
         {/* Single polite announcement for screen readers, kept separate from
             the visible counter so it does not fire on every unrelated update. */}
         <span aria-live="polite" className="sr-only">
-          {item
-            ? `${item.kind === "gif" ? "GIF" : "Image"} ${activeIndex + 1} of ${items.length}`
-            : ""}
+          {item ? imageLabel(item, position, totalLabel) : ""}
         </span>
 
         <div className="border-border/60 bg-background/90 pointer-events-auto z-40 flex items-center gap-2 border-t px-3 py-[max(0.5rem,env(safe-area-inset-bottom))] backdrop-blur-md">
@@ -620,7 +992,21 @@ export function ConversationMediaViewer({
               activeIndex={activeIndex}
               items={items}
               onSelect={selectKey}
+              startIndex={serverWindow ? 0 : startIndex}
+              total={totalLabel}
             />
+          ) : null}
+          {onReadServerPage && serverFailed ? (
+            <div className="text-muted-foreground flex shrink-0 items-center gap-2 text-xs">
+              <span>Couldn&apos;t load media history.</span>
+              <button
+                className="btn-3d-gray rounded-md px-2 py-1 text-xs"
+                onClick={retryServerHistory}
+                type="button"
+              >
+                Retry
+              </button>
+            </div>
           ) : null}
         </div>
       </DialogContent>

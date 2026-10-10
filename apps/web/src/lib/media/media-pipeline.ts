@@ -7,7 +7,7 @@ import {
   toPrismaDateTime,
 } from "@asm/db";
 import {
-  maxBytesForType,
+  maxBytesForPurpose,
   quarantineKey,
   resolveMediaLimits,
   sanitizeExtension,
@@ -23,6 +23,8 @@ import {
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { NodeHttpHandler } from "@smithy/node-http-handler";
+
+import { checkWallpaperUpload } from "@/lib/messages/conversation-wallpaper-upload";
 
 import { env } from "../../../env";
 import {
@@ -154,7 +156,9 @@ export async function createInitiatedUpload(input: {
   } = input;
 
   const mediaType = mediaTypeFromMime(declaredMime);
-  const maxBytes = maxBytesForType(MEDIA_LIMITS, mediaType);
+  // Purpose-aware: a wallpaper inherits the image cap unless a tighter
+  // purpose-specific ceiling applies (see maxBytesForPurpose).
+  const maxBytes = maxBytesForPurpose(MEDIA_LIMITS, purpose, mediaType);
   if (fileSize <= 0) {
     throw new UploadPolicyError("File is empty", 400);
   }
@@ -163,6 +167,26 @@ export async function createInitiatedUpload(input: {
       `File exceeds the ${Math.floor(maxBytes / (1024 * 1024))}MB limit for ${mediaType.toLowerCase()} uploads`,
       413
     );
+  }
+
+  // A wallpaper must be a still image the paint layer can actually use. Checked
+  // here, before any bytes move, from the dimensions the client declared - which
+  // are advisory, so the link route re-checks the decoder's real measurements.
+  // This ordering (after the size check) keeps a huge file rejected on bytes
+  // rather than on a dimension it may not even have.
+  if (purpose === "wallpaper") {
+    if (mediaType !== "IMAGE") {
+      throw new UploadPolicyError("Wallpapers have to be images", 415);
+    }
+    const wallpaperCheck = checkWallpaperUpload({
+      height,
+      mimeType: declaredMime,
+      sizeBytes: fileSize,
+      width,
+    });
+    if (!wallpaperCheck.ok) {
+      throw new UploadPolicyError(wallpaperCheck.rejection.message, 422);
+    }
   }
 
   // Audio overlay (gust sound) validation: only VIDEO uploads can carry an overlay,
@@ -278,10 +302,18 @@ export async function createInitiatedUpload(input: {
       .include("usersUsers", (user) => user.select("id"))
       .include("communities", (community) => community.select("id"))
       .include("communitiesCommunities", (community) => community.select("id"))
+      .include("wallpaperConversations", (conversation) =>
+        conversation.select("id")
+      )
+      .include("messageConversationMembers", (member) =>
+        member.select("userId")
+      )
       .orderBy((media) => media.createdAt.desc())
       .first();
 
     if (existing) {
+      // Every owner projection, or dedup would hand a row that is somebody's
+      // live wallpaper/avatar to a second surface and the first would break.
       const isUnattached =
         !existing.postId &&
         !existing.commentId &&
@@ -289,7 +321,9 @@ export async function createInitiatedUpload(input: {
         existing.users.length === 0 &&
         existing.usersUsers.length === 0 &&
         existing.communities.length === 0 &&
-        existing.communitiesCommunities.length === 0;
+        existing.communitiesCommunities.length === 0 &&
+        existing.wallpaperConversations.length === 0 &&
+        existing.messageConversationMembers.length === 0;
       // A different audio overlay means the row's stored (or in-flight) bytes
       // were baked with another track; reusing them would serve the wrong
       // audio. Computed once here and required by EVERY reuse path below - the

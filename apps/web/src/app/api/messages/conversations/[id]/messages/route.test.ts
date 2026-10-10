@@ -1,5 +1,13 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { DEN_LIMITS } from "@asm/db/messages/dens";
+
+import {
+  DEN_MESSAGE_SEND_HOUR_RATE_LIMIT,
+  DEN_MESSAGE_SEND_RATE_LIMIT,
+} from "@/lib/messages/den-rate-limit";
+import { messageRouteLimiter } from "@/lib/messages/test-support/route-limiter-probe";
+
 import { GET, POST } from "./route";
 
 const mockGetSession = mock(() => ({ user: { id: "user1" } }));
@@ -8,12 +16,14 @@ const mockNextRatchetIndex = mock(() => 0);
 
 const mockMessages: Record<string, unknown>[] = [];
 const mockCreate = mock((args: Record<string, unknown>) => {
+  limiter.service("insert-message");
   const data =
     "data" in args && typeof args.data === "object" && args.data !== null
       ? (args.data as Record<string, unknown>)
       : args;
   const message = {
     id: "msg-1",
+    revision: 1,
     sender: { id: "user1" },
     ...data,
   };
@@ -23,10 +33,104 @@ const mockCreate = mock((args: Record<string, unknown>) => {
 const mockFindMany = mock(() => []);
 const mockMessageFirst = mock(() => mockMessages.at(-1) ?? null);
 const mockIncrement = mock(() => 1);
+// The send path's single badge write. A list rather than a count because the
+// question under test is WHICH members move, and a count cannot answer it.
+const mockIncrementMany = mock((_userIds: readonly string[]) =>
+  Promise.resolve()
+);
+
+// Everyone the send actually credited with an unread badge, across every call.
+// Flattened rather than asserted per call so a test states the outcome ("these
+// members accrue a badge") instead of the shape of the call that produces it -
+// which is what lets the route move from one INCRBY per member to one pipelined
+// write without touching a single assertion here.
+function unreadRecipients(): string[] {
+  return mockIncrementMany.mock.calls.flatMap((call) => [...call[0]]);
+}
 const mockPublishCreated = mock(() => Promise.resolve());
-const mockKeyFirst = mock(() => ({ ratchetCounter: 0 }));
+const mockPublishActivity = mock(() => Promise.resolve());
+// The newest epoch's row, version included: the CAS pins the version it read, so
+// the read has to carry one.
+const mockKeyFirst = mock(() => ({ ratchetCounter: 0, version: 3 }));
+// The row a cursor names. The client holds only an id, and the route's composite
+// sort needs the timestamp too, so this read is what turns an id into a keyset
+// anchor. Overridable per test so a test can make the anchor vanish.
+const mockAnchorFirst = mock(() => ({
+  createdAt: new Date("2026-01-01T00:00:00.000Z"),
+  id: "m-020",
+}));
 const mockKeyUpdateAndCount = mock(() => 1);
-const mockConversationUpdate = mock(() => ({}));
+// The columns the ratchet CAS matched on, recorded so a MISSING one is visible.
+// Asserting the counter value cannot see a column that was never matched on.
+let casWhere: Record<string, unknown> = {};
+const mockConversationUpdate = mock(() => ({
+  changeSeq: 0,
+  membershipSeq: 0,
+}));
+const mockMemberUpdate = mock((args: Record<string, unknown>) => args);
+const mockListUnreadMembers = mock(() => [] as Record<string, unknown>[]);
+let activeConversationId = "convo-1";
+let memberUnreadCounts = new Map<string, number | null>();
+const mockMessageUpdate = mock(() => ({}));
+const mockCreateSearchOutbox = mock((args: Record<string, unknown>) => ({
+  id: "search-outbox-1",
+  ...args,
+}));
+const mockCreateConversationChange = mock((args: Record<string, unknown>) => ({
+  id: "conversation-change-1",
+  ...args,
+}));
+const mockEnqueueMessageSearchOutbox = mock(() => Promise.resolve());
+// The queue. Every created notification is enqueued by its own id, so the
+// calls are the fan-out's report to the worker.
+const mockEnqueueNotificationCreated = mock(() => Promise.resolve());
+// Failure injection, as flags rather than queued implementations: a queued
+// implementation survives a mockClear, so one test's failure would leak into the
+// next one's send.
+let enqueueFailure: Error | null = null;
+let transactionFailure: Error | null = null;
+let denFanOutFailure: Error | null = null;
+// The den fan-out's own reads, its mute filter and its fold are covered against
+// a live database in packages/db/src/messages/den-notifications.integration.test.ts.
+// Here it stands in for the layer that decides the audience, so these tests can
+// pin the route's half: that the route enqueues exactly what the fan-out
+// reported, and that a member the fan-out skipped is skipped by the enqueue too.
+const mockCreateDenMessageNotifications = mock(() =>
+  Promise.resolve([] as { id: string; recipientId: string }[])
+);
+// Den members, with the mute a test can set. The fan-out mock honours the same
+// rule the real one does: not the sender, and nobody muted.
+let denMembers: { mutedAt: Date | null; userId: string }[] = [];
+// When user1's membership row says they joined. Undefined by default, which the
+// window answers as "no floor" so every pre-existing paging test is unaffected.
+let viewerJoinAt: Date | undefined;
+// And when they left, for the cap that predates the floor.
+let viewerLeftAt: Date | undefined;
+// The den's membership log lines as `listDenMembershipEvents` returns them. A
+// rejoiner's stint boundaries come from here: the row alone cannot say which
+// stretch they missed. Empty by default, which is the no-log answer every
+// membership that never broke gets.
+let membershipEvents: {
+  action: string;
+  actorId: string | null;
+  createdAt: Date;
+  targetUserId: string | null;
+}[] = [];
+mockCreateDenMessageNotifications.mockImplementation(
+  (_tx: unknown, input: { conversationId: string; senderId: string }) => {
+    if (denFanOutFailure) {
+      throw denFanOutFailure;
+    }
+    return denMembers
+      .filter(
+        (member) => member.userId !== input.senderId && member.mutedAt === null
+      )
+      .map((member, index) => ({
+        id: `notif-${index + 1}`,
+        recipientId: member.userId,
+      }));
+  }
+);
 // Defaults to allowed so existing paging tests are unaffected; the budget tests
 // below drive it directly.
 const mockConsumeRateLimit = mock(() =>
@@ -45,6 +149,10 @@ let peerMutedAt: Date | null = null;
 // What the composed Prisma 8 read resolved to, so assertions can inspect the
 // where/orderBy/limit the route actually built instead of Prisma 7 call args.
 interface RecordedQuery {
+  // The keyset anchor the route sought from, when it used one. Recorded because
+  // a composite sort has to be sought on BOTH of its columns, and a cursor
+  // carrying only the id is the defect rather than the fix.
+  cursorAnchor?: Record<string, unknown>;
   limit?: number;
   orderBy?: Record<string, string>;
   where: Record<string, unknown>;
@@ -60,6 +168,43 @@ const record = (column: string, op: string) => (value?: unknown) => ({
 
 // A minimal accessor that records which column each comparison ran against, in
 // the Prisma 8 predicate shape (message.id.gt(cursor) etc).
+// One level of nesting is all the combinators produce, but recursing is cheaper
+// than being wrong about it later.
+function flatten(conditions: unknown[]): object[] {
+  return conditions
+    .filter(Boolean)
+    .flatMap((condition) =>
+      Array.isArray(condition) ? flatten(condition) : [condition as object]
+    );
+}
+
+// Deep per-key merge for the `and` mock: two predicates on the SAME column keep
+// both ops (`{ createdAt: { gte, lte } }`) instead of the second overwriting the
+// first. Non-object values replace, which is what a repeated plain key means.
+function mergePredicates(
+  target: Record<string, unknown>,
+  condition: Record<string, unknown>
+): void {
+  for (const [key, value] of Object.entries(condition)) {
+    const existing = target[key];
+    if (
+      existing !== null &&
+      value !== null &&
+      typeof existing === "object" &&
+      typeof value === "object" &&
+      !Array.isArray(existing) &&
+      !Array.isArray(value)
+    ) {
+      mergePredicates(
+        existing as Record<string, unknown>,
+        value as Record<string, unknown>
+      );
+    } else {
+      target[key] = value;
+    }
+  }
+}
+
 function recordingAccessor() {
   return new Proxy(
     {},
@@ -103,22 +248,34 @@ function buildMessageQuery() {
       recorded = state;
       return mockFindMany();
     },
-    cursor: () => query,
+    cursor: (anchor: Record<string, unknown>) => {
+      state.cursorAnchor = anchor;
+      return query;
+    },
     first: () => mockMessageFirst(),
     limit: (n: number) => {
       state.limit = n;
       return query;
     },
-    orderBy: (predicate: (accessor: unknown) => unknown) => {
-      const built = predicate(recordingAccessor());
-      if (typeof built === "string") {
-        const [column, direction] = built.split(":");
-        state.orderBy = { [column ?? ""]: direction ?? "asc" };
-      } else if (Array.isArray(built)) {
-        state.orderBy = Object.fromEntries(
-          built.filter((entry) => typeof entry === "string")
-        );
-      }
+    // Both shapes the real API accepts: one predicate, or an array of them for a
+    // composite sort. The transcript needs the array form - a chronological sort
+    // with the id breaking ties is two columns - so a single-predicate mock would
+    // make the fix untestable rather than merely awkward.
+    orderBy: (
+      predicate:
+        | ((accessor: unknown) => unknown)
+        | ((accessor: unknown) => unknown)[]
+    ) => {
+      const built = Array.isArray(predicate)
+        ? predicate.map((entry) => entry(recordingAccessor()))
+        : predicate(recordingAccessor());
+      const entries = (Array.isArray(built) ? built : [built]).flatMap(
+        (entry) =>
+          typeof entry === "string" ? [entry.split(":")] : ([] as string[][])
+      );
+      state.orderBy = Object.fromEntries(
+        entries.map(([column, direction]) => [column ?? "", direction ?? "asc"])
+      );
       return query;
     },
     where: applyWhere,
@@ -132,6 +289,7 @@ const txClient = {
   messageConversationKey: { updateMany: mockKeyUpdateAndCount },
   orm: {
     public: {
+      MessageConversationChanges: { create: mockCreateConversationChange },
       MessageConversationKeys: {
         // The CAS ratchet reads the newest epoch's counter, so the read chain
         // carries an orderBy on version before it resolves.
@@ -142,12 +300,33 @@ const txClient = {
           };
           return { where: () => keyQuery };
         },
-        where: () => ({ updateAndCount: mockKeyUpdateAndCount }),
+        // The ratchet CAS, inside the transaction. Its predicate is recorded
+        // because the defect was a MISSING column rather than a wrong value, and
+        // asserting the new value cannot see a column that was never matched on.
+        where: (filter: ((accessor: unknown) => unknown) | object) => {
+          casWhere =
+            typeof filter === "function"
+              ? (filter(recordingAccessor()) as Record<string, unknown>)
+              : (filter as Record<string, unknown>);
+          return { updateAndCount: mockKeyUpdateAndCount };
+        },
+      },
+      MessageConversationMembers: {
+        select: () => ({
+          where: () => ({
+            orderBy: () => ({ all: mockListUnreadMembers }),
+          }),
+        }),
+        where: () => ({ update: mockMemberUpdate }),
       },
       MessageConversations: {
         where: () => ({ update: mockConversationUpdate }),
       },
-      Messages: { create: mockCreate },
+      MessageSearchOutbox: { create: mockCreateSearchOutbox },
+      Messages: {
+        create: mockCreate,
+        where: () => ({ update: mockMessageUpdate }),
+      },
     },
   },
 };
@@ -158,48 +337,103 @@ mock.module("@/lib/auth/session", () => ({
 
 mock.module("@/lib/messages/server", () => ({
   areBlocked: mockAreBlocked,
-  getConversationForUser: (conversationId: string, userId: string) =>
-    conversationId === "convo-1" && userId === "user1"
+  getConversationForUser: (conversationId: string, userId: string) => {
+    if (userId !== "user1") {
+      return null;
+    }
+    if (conversationId === "den-1") {
+      activeConversationId = conversationId;
+      return {
+        id: "den-1",
+        members: [
+          // `viewerJoinAt` is how a test makes user1 a newcomer: a membership row
+          // whose `createdAt` is later than the messages being paged.
+          {
+            createdAt: viewerJoinAt,
+            leftAt: viewerLeftAt,
+            mutedAt: null,
+            userId: "user1",
+          },
+          ...denMembers,
+        ],
+        type: "DEN",
+      };
+    }
+    activeConversationId = conversationId;
+    return conversationId === "convo-1"
       ? {
           id: "convo-1",
           members: [
             { userId: "user1" },
             { mutedAt: peerMutedAt, userId: "user2" },
           ],
+          type: "DM",
         }
-      : null,
+      : null;
+  },
   messageSenderSelect: () => ({ sender: true }),
   nextRatchetIndex: mockNextRatchetIndex,
 }));
 
+// The send limiter this route charges. Mocked explicitly because bun's
+// `mock.module("@asm/db")` does not reach the rules module's own binding on it,
+// and an unmocked limiter spends real Redis budget from the test suite.
+const limiter = messageRouteLimiter();
+mock.module("@/lib/messages/den-rate-limit", () => limiter.module);
+
 mock.module("@asm/db", () => ({
-  // The real `and` composes predicates into one expression; merging the
-  // recorded column predicates into a flat object is what makes the composed
-  // query inspectable.
-  and: (...conditions: unknown[]) =>
-    Object.assign({}, ...(conditions.filter(Boolean) as object[])),
+  // The real `and` composes predicates into one expression; merging the recorded
+  // column predicates into one object is what makes the composed query
+  // inspectable. The merge is DEEP per column: a closed stint range is an `and`
+  // of `gte` and `lte` on the same `createdAt`, and a shallow merge would keep
+  // only the second op, hiding the floor the test exists to assert.
+  and: (...conditions: unknown[]) => {
+    const merged: Record<string, unknown> = {};
+    for (const condition of flatten(conditions)) {
+      mergePredicates(merged, condition as Record<string, unknown>);
+    }
+    return merged;
+  },
   consumeRateLimit: mockConsumeRateLimit,
+  createDenMessageNotifications: mockCreateDenMessageNotifications,
+  enqueueMessageSearchOutbox: mockEnqueueMessageSearchOutbox,
+  enqueueNotificationCreated: mockEnqueueNotificationCreated,
+  enqueueNotificationDeleted: mock(() => Promise.resolve()),
   fromPrismaDateTime: (value: Date) => value,
   getMessageDataQuery: buildMessageQuery,
-  or: (...conditions: unknown[]) => conditions,
+  // The membership log the route reads to split a rejoiner's transcript into
+  // stints. Tests set `membershipEvents`; the empty default is the no-log answer
+  // every pre-stint membership gets.
+  listDenMembershipEvents: () => Promise.resolve(membershipEvents),
+  // Tagged rather than flattened: a rejoiner's windows are an `or` of one range
+  // per stint, and flattening the branches into the surrounding `and` made every
+  // branch but the last overwrite each other on the `createdAt` key.
+  or: (...conditions: unknown[]) => ({ OR: flatten(conditions) }),
   prisma: {
     orm: {
       public: {
+        MessageConversationChanges: { create: mockCreateConversationChange },
         MessageConversationKeys: {
           select: () => ({ where: () => ({ first: mockKeyFirst }) }),
           where: () => ({ updateAndCount: mockKeyUpdateAndCount }),
         },
-        MessageConversations: {
-          where: () => ({ update: mockConversationUpdate }),
+        MessageSearchOutbox: { create: mockCreateSearchOutbox },
+        Messages: {
+          create: mockCreate,
+          select: () => ({ where: () => ({ first: mockAnchorFirst }) }),
+          where: () => ({ update: mockMessageUpdate }),
         },
-        Messages: { create: mockCreate },
       },
     },
     transaction: mockTransaction,
   },
+  publishMessageActivity: mockPublishActivity,
   publishMessageCreated: mockPublishCreated,
   toPrismaDateTime: (value: Date) => value,
-  unreadMessageCache: { increment: mockIncrement },
+  unreadMessageCache: {
+    increment: mockIncrement,
+    incrementMany: mockIncrementMany,
+  },
   visibleToUser:
     (userId: string) =>
     (message: {
@@ -219,8 +453,12 @@ function convoUrl(path: string) {
   return `http://localhost:3000/api/messages/conversations/convo-1/${path}`;
 }
 
-function validPostRequest() {
-  return new Request(convoUrl("messages"), {
+function denUrl() {
+  return "http://localhost:3000/api/messages/conversations/den-1/messages";
+}
+
+function validPostRequest(url = convoUrl("messages")) {
+  return new Request(url, {
     body: JSON.stringify({ ciphertext: "abc", iv: "def", ratchetIndex: 0 }),
     headers: { "Content-Type": "application/json" },
     method: "POST",
@@ -235,12 +473,56 @@ describe("POST /api/messages/conversations/:id/messages", () => {
     recordedQueries = [];
     recorded = { where: {} };
     mockIncrement.mockClear();
+    mockIncrementMany.mockClear();
+    mockIncrementMany.mockImplementation(() => Promise.resolve());
     mockPublishCreated.mockClear();
-    mockNextRatchetIndex.mockClear();
+    mockPublishActivity.mockClear();
+    mockEnqueueNotificationCreated.mockClear();
+    mockCreateDenMessageNotifications.mockClear();
+    // mockReset, not mockClear: a queued one-shot survives a clear, and a test
+    // that returns before reaching its queued value would leak it forward.
+    mockNextRatchetIndex.mockReset();
     mockKeyUpdateAndCount.mockClear();
     peerMutedAt = null;
+    denMembers = [
+      { mutedAt: null, userId: "user2" },
+      { mutedAt: null, userId: "user3" },
+    ];
     mockConversationUpdate.mockClear();
-    mockTransaction.mockClear();
+    mockMemberUpdate.mockClear();
+    mockListUnreadMembers.mockClear();
+    mockListUnreadMembers.mockImplementation(() => {
+      if (activeConversationId === "den-1") {
+        return [
+          { leftAt: null, mutedAt: null, unreadCount: null, userId: "user1" },
+          ...denMembers.map((member) => ({
+            leftAt: null,
+            mutedAt: member.mutedAt,
+            unreadCount: memberUnreadCounts.get(member.userId) ?? null,
+            userId: member.userId,
+          })),
+        ];
+      }
+      return [
+        { leftAt: null, mutedAt: null, unreadCount: null, userId: "user1" },
+        {
+          leftAt: null,
+          mutedAt: peerMutedAt,
+          unreadCount: memberUnreadCounts.get("user2") ?? null,
+          userId: "user2",
+        },
+      ];
+    });
+    memberUnreadCounts = new Map();
+    mockConversationUpdate.mockImplementation(() => ({
+      changeSeq: 0,
+      membershipSeq: 0,
+    }));
+    mockMessageUpdate.mockClear();
+    mockCreateSearchOutbox.mockClear();
+    mockCreateConversationChange.mockClear();
+    mockEnqueueMessageSearchOutbox.mockClear();
+    mockTransaction.mockReset();
     mockGetSession.mockClear();
     mockConsumeRateLimit.mockClear();
     mockConsumeRateLimit.mockImplementation(() =>
@@ -252,9 +534,11 @@ describe("POST /api/messages/conversations/:id/messages", () => {
       })
     );
     mockNextRatchetIndex.mockReturnValue(0);
+    mockEnqueueNotificationCreated.mockImplementation(() => Promise.resolve());
     mockTransaction.mockImplementation((fn: (tx: unknown) => unknown) =>
       fn(txClient)
     );
+    limiter.reset();
   });
 
   test("requires auth", async () => {
@@ -274,7 +558,7 @@ describe("POST /api/messages/conversations/:id/messages", () => {
       params: Promise.resolve({ id: "convo-1" }),
     });
     expect(res.status).toBe(201);
-    expect(mockIncrement).not.toHaveBeenCalled();
+    expect(unreadRecipients()).toEqual([]);
   });
 
   test("still accrues unread for a peer who has not muted", async () => {
@@ -282,7 +566,21 @@ describe("POST /api/messages/conversations/:id/messages", () => {
       params: Promise.resolve({ id: "convo-1" }),
     });
     expect(res.status).toBe(201);
-    expect(mockIncrement).toHaveBeenCalledWith("user2");
+    // The peer, and not the sender: a member reads their own messages, and the
+    // read route's decrement counts only peer-authored rows, so the two halves
+    // have to agree about who that is.
+    expect(unreadRecipients()).toEqual(["user2"]);
+  });
+
+  test("increments an initialized member counter inside the send transaction", async () => {
+    memberUnreadCounts.set("user2", 4);
+    const res = await POST(validPostRequest(), {
+      params: Promise.resolve({ id: "convo-1" }),
+    });
+
+    expect(res.status).toBe(201);
+    expect(mockMemberUpdate).toHaveBeenCalledWith({ unreadCount: 5 });
+    expect(unreadRecipients()).toEqual(["user2"]);
   });
 
   test("rejects invalid ciphertext payloads", async () => {
@@ -335,6 +633,33 @@ describe("POST /api/messages/conversations/:id/messages", () => {
     expect(res.status).toBe(403);
   });
 
+  test("the ratchet CAS pins the epoch it read, not just the counter", async () => {
+    // A member holds one wrap per root-key epoch, so a rotated key leaves several
+    // rows for the same conversation - and freshly rotated ones share a counter,
+    // because rotation copies it rather than advancing it. Matching on the counter
+    // alone therefore updated EVERY epoch at that value, `updateAndCount` returned
+    // something other than 1, and the retry re-read the same untouched state and
+    // failed identically until it gave up. The send then 500ed with "Could not
+    // update message ratchet" in any conversation whose keys had been rotated.
+    //
+    // `(conversationId, ownerUserId, version)` is a unique key, so pinning version
+    // makes the write hit exactly one row and `updated === 1` a real
+    // compare-and-swap again.
+    await POST(
+      new Request(convoUrl("messages"), {
+        body: JSON.stringify({ ciphertext: "abc", iv: "def", ratchetIndex: 0 }),
+        headers: { "content-type": "application/json" },
+        method: "POST",
+      }),
+      { params: Promise.resolve({ id: "convo-1" }) }
+    );
+    expect(casWhere.version).toEqual({ eq: 3 });
+    // The counter is still part of the CAS, so a lost race is still detected.
+    expect(casWhere.ratchetCounter).toEqual({ eq: 0 });
+    // And it wrote the NEXT value, once.
+    expect(mockKeyUpdateAndCount).toHaveBeenCalledWith({ ratchetCounter: 1 });
+  });
+
   test("stores the server-authoritative ratchet index and notifies the peer", async () => {
     const res = await POST(validPostRequest(), {
       params: Promise.resolve({ id: "convo-1" }),
@@ -353,16 +678,83 @@ describe("POST /api/messages/conversations/:id/messages", () => {
     expect(mockKeyUpdateAndCount).toHaveBeenCalledWith({
       ratchetCounter: 1,
     });
+    // The conversation bump writes the timestamp and NOTHING ELSE. A send is not
+    // a roster change, so the roster counter must not move here: if it did, every
+    // message in every den would read to a client as a membership event and cost
+    // every member a conversation-detail refetch.
     expect(mockConversationUpdate).toHaveBeenCalledWith({
       updatedAt: expect.any(Date),
     });
+    expect(mockConversationUpdate).toHaveBeenCalledWith({ changeSeq: 1 });
+    expect(mockMessageUpdate).toHaveBeenCalledWith({
+      creationSequence: 1,
+      keyEpoch: 3,
+    });
+    expect(mockCreateSearchOutbox).toHaveBeenCalledWith({
+      audienceUserIds: ["user1", "user2"],
+      changeSequence: 1,
+      conversationId: "convo-1",
+      kind: "upsert",
+      messageId: "msg-1",
+      revision: 1,
+    });
+    expect(mockCreateConversationChange).toHaveBeenCalledWith({
+      audienceUserIds: ["user1", "user2"],
+      conversationId: "convo-1",
+      kind: "message.created",
+      messageId: "msg-1",
+      revision: 1,
+      sequence: 1,
+    });
+    expect(mockEnqueueMessageSearchOutbox).toHaveBeenCalledWith(
+      "search-outbox-1"
+    );
     // The peer accrues unread; the sender does not.
-    expect(mockIncrement).toHaveBeenCalledWith("user2");
+    expect(unreadRecipients()).toEqual(["user2"]);
     expect(mockPublishCreated).toHaveBeenCalledTimes(1);
   });
 
+  test("echoes the conversation's roster counter alongside the message", async () => {
+    // The one response a member whose `den.membership.changed` was lost will ever
+    // see: pub/sub is best-effort, so the send is how they discover their cached
+    // roster is behind. The value comes out of the UPDATE's own RETURNING, inside
+    // the transaction that bumped the row, so it cannot be stale by the time the
+    // response is written.
+    mockConversationUpdate.mockImplementationOnce(() => ({
+      changeSeq: 0,
+      membershipSeq: 7,
+    }));
+    const res = await POST(validPostRequest(), {
+      params: Promise.resolve({ id: "convo-1" }),
+    });
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as {
+      membershipSeq: number | null;
+      message: { id: string };
+    };
+    expect(body.membershipSeq).toBe(7);
+    // A sibling of `message`, not a field on it: the counter describes the
+    // conversation, so `mapMessage` stays a mapper of a message row.
+    expect(body.message.id).toBe(mockMessages.at(-1)?.id);
+    expect(body.message).not.toHaveProperty("membershipSeq");
+  });
+
+  test("reports no counter when the bump returned no row", async () => {
+    // The graceful half. A server that has not shipped the column, or a
+    // transaction that somehow updated nothing, answers null, and the client reads
+    // that as "cannot tell" and behaves exactly as it did before this field
+    // existed. Never a crash, and never an invented number.
+    mockConversationUpdate.mockImplementationOnce(() => {});
+    const res = await POST(validPostRequest(), {
+      params: Promise.resolve({ id: "convo-1" }),
+    });
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { membershipSeq: number | null };
+    expect(body.membershipSeq).toBeNull();
+  });
+
   test("keeps a committed send successful when redis side effects fail", async () => {
-    mockIncrement.mockImplementationOnce(() => {
+    mockIncrementMany.mockImplementationOnce(() => {
       throw new Error("redis down");
     });
     mockPublishCreated.mockImplementationOnce(() =>
@@ -389,11 +781,322 @@ describe("POST /api/messages/conversations/:id/messages", () => {
   });
 });
 
+describe("POST to a den fans a notification out to the members", () => {
+  beforeEach(() => {
+    mockMessages.length = 0;
+    mockCreate.mockClear();
+    mockIncrement.mockClear();
+    mockIncrementMany.mockClear();
+    mockIncrementMany.mockImplementation(() => Promise.resolve());
+    mockPublishCreated.mockClear();
+    mockPublishActivity.mockClear();
+    mockEnqueueNotificationCreated.mockClear();
+    mockCreateDenMessageNotifications.mockClear();
+    mockNextRatchetIndex.mockReset();
+    mockKeyUpdateAndCount.mockClear();
+    casWhere = {};
+    mockConversationUpdate.mockClear();
+    mockTransaction.mockReset();
+    mockGetSession.mockClear();
+    peerMutedAt = null;
+    denMembers = [
+      { mutedAt: null, userId: "user2" },
+      { mutedAt: null, userId: "user3" },
+    ];
+    enqueueFailure = null;
+    transactionFailure = null;
+    denFanOutFailure = null;
+    mockEnqueueNotificationCreated.mockImplementation(() =>
+      enqueueFailure ? Promise.reject(enqueueFailure) : Promise.resolve()
+    );
+    mockNextRatchetIndex.mockReturnValue(0);
+    mockTransaction.mockImplementation((fn: (tx: unknown) => unknown) =>
+      transactionFailure ? Promise.reject(transactionFailure) : fn(txClient)
+    );
+  });
+
+  test("enqueues one notification per member, never the sender", async () => {
+    const res = await POST(validPostRequest(denUrl()), {
+      params: Promise.resolve({ id: "den-1" }),
+    });
+    expect(res.status).toBe(201);
+    // The audience is the fan-out's report, so the sender is not in it.
+    expect(mockCreateDenMessageNotifications).toHaveBeenCalledTimes(1);
+    expect(mockEnqueueNotificationCreated.mock.calls).toEqual([
+      ["user2", "notif-1"],
+      ["user3", "notif-2"],
+    ]);
+    expect(
+      mockEnqueueNotificationCreated.mock.calls.some(
+        (call) => call[0] === "user1"
+      )
+    ).toBe(false);
+  });
+
+  test("enqueues nothing for a member the fan-out skipped, and still delivers the message to everyone", async () => {
+    // A mute is why the fan-out skips a member; the mute itself is pinned
+    // against a live database in den-notifications.integration.test.ts. What is
+    // pinned here is that a skipped member cannot slip past the enqueue, and
+    // that skipping them costs them nothing in the thread.
+    denMembers = [
+      { mutedAt: null, userId: "user2" },
+      { mutedAt: new Date("2026-01-01T00:00:00.000Z"), userId: "user3" },
+    ];
+    const res = await POST(validPostRequest(denUrl()), {
+      params: Promise.resolve({ id: "den-1" }),
+    });
+    expect(res.status).toBe(201);
+    expect(mockEnqueueNotificationCreated.mock.calls).toEqual([
+      ["user2", "notif-1"],
+    ]);
+    // The message is stored, published to the thread, and every member's
+    // conversation list is told about it - the muted member included.
+    expect(mockCreate).toHaveBeenCalledTimes(1);
+    expect(mockPublishCreated).toHaveBeenCalledTimes(1);
+    expect(
+      mockPublishActivity.mock.calls.map((call) => call[0]).toSorted()
+    ).toEqual(["user1", "user2", "user3"]);
+  });
+
+  test("a DM send fans nothing out", async () => {
+    const res = await POST(validPostRequest(), {
+      params: Promise.resolve({ id: "convo-1" }),
+    });
+    expect(res.status).toBe(201);
+    // A DM has no notification for a new message, so the den fan-out is not
+    // even asked for one. A den behaving differently here would be a surprise
+    // rather than a feature.
+    expect(mockCreateDenMessageNotifications).not.toHaveBeenCalled();
+    expect(mockEnqueueNotificationCreated).not.toHaveBeenCalled();
+  });
+
+  test("a rolled back send enqueues nothing", async () => {
+    transactionFailure = new Error("the send failed");
+    await expect(
+      POST(validPostRequest(denUrl()), {
+        params: Promise.resolve({ id: "den-1" }),
+      })
+    ).rejects.toThrow("the send failed");
+    // Nothing committed, so nothing is announced. The rows the fan-out wrote
+    // rolled back with the message inside the same transaction, and the enqueue
+    // that follows the commit never ran.
+    expect(mockEnqueueNotificationCreated).not.toHaveBeenCalled();
+  });
+
+  test("a queue failure does not fail the send", async () => {
+    enqueueFailure = new Error("redis down");
+    const res = await POST(validPostRequest(denUrl()), {
+      params: Promise.resolve({ id: "den-1" }),
+    });
+    // The message is stored and committed by the time the fan-out is
+    // announced, so a queue outage costs a badge and a push, never the send.
+    expect(res.status).toBe(201);
+    expect(mockCreate).toHaveBeenCalledTimes(1);
+    // The enqueue is attempted, and retried, rather than skipped.
+    await Bun.sleep(400);
+    expect(mockEnqueueNotificationCreated.mock.calls.length).toBeGreaterThan(1);
+  });
+
+  test("a fan-out failure inside the transaction fails the send", async () => {
+    // The other side of the rule above, and the reason the rows are written
+    // inside the message's own transaction: a fan-out that cannot record its
+    // rows rolls the message back rather than committing a message that nobody
+    // will be told about.
+    denFanOutFailure = new Error("fan-out down");
+    await expect(
+      POST(validPostRequest(denUrl()), {
+        params: Promise.resolve({ id: "den-1" }),
+      })
+    ).rejects.toThrow("fan-out down");
+    expect(mockEnqueueNotificationCreated).not.toHaveBeenCalled();
+  });
+});
+
+describe("a send accrues unread for every member it reaches", () => {
+  // The badge is one Redis counter per user across every conversation they are
+  // in, incremented on send and decremented on read by the number of rows the
+  // read's own filter counts. So the only shape that nets to zero is "one
+  // increment per member, per message, for exactly the members the read counts
+  // for that member".
+  //
+  // The bug this pins: the send path incremented ONE member - the first
+  // membership row that was not the sender's - which is correct for a DM and
+  // catastrophic for a den. Ninety-eight of ninety-nine members got no badge,
+  // and which one did was whatever order the roster came back in. There is no
+  // test below that a two-member DM would have caught, because in a DM the one
+  // member IS the peer.
+
+  beforeEach(() => {
+    mockMessages.length = 0;
+    mockCreate.mockClear();
+    mockIncrement.mockClear();
+    mockIncrementMany.mockClear();
+    mockIncrementMany.mockImplementation(() => Promise.resolve());
+    mockPublishCreated.mockClear();
+    mockPublishActivity.mockClear();
+    mockEnqueueNotificationCreated.mockClear();
+    mockCreateDenMessageNotifications.mockClear();
+    mockNextRatchetIndex.mockReset();
+    mockNextRatchetIndex.mockReturnValue(0);
+    mockKeyUpdateAndCount.mockClear();
+    mockConversationUpdate.mockClear();
+    mockGetSession.mockClear();
+    mockTransaction.mockReset();
+    mockTransaction.mockImplementation((fn: (tx: unknown) => unknown) =>
+      fn(txClient)
+    );
+    enqueueFailure = null;
+    transactionFailure = null;
+    denFanOutFailure = null;
+    mockEnqueueNotificationCreated.mockImplementation(() => Promise.resolve());
+    denMembers = [
+      { mutedAt: null, userId: "user2" },
+      { mutedAt: null, userId: "user3" },
+    ];
+  });
+
+  test("a three-member den badges both of the other members", async () => {
+    const res = await POST(validPostRequest(denUrl()), {
+      params: Promise.resolve({ id: "den-1" }),
+    });
+    expect(res.status).toBe(201);
+    // The roster is user1 (sender), user2, user3. Both readers, neither the
+    // sender, and the order they are named in is the roster's, not a pick.
+    expect(unreadRecipients()).toEqual(["user2", "user3"]);
+  });
+
+  test("a muted member is skipped and the rest still move", async () => {
+    // A mute is why the unread seed excludes the membership entirely, so a
+    // muted member's read decrements nothing and their send must increment
+    // nothing. One increment here with no matching decrement is a badge that
+    // climbs until the next reseed, so this is the asymmetry that matters.
+    denMembers = [
+      { mutedAt: null, userId: "user2" },
+      { mutedAt: new Date("2026-01-01T00:00:00.000Z"), userId: "user3" },
+    ];
+    const res = await POST(validPostRequest(denUrl()), {
+      params: Promise.resolve({ id: "den-1" }),
+    });
+    expect(res.status).toBe(201);
+    expect(unreadRecipients()).toEqual(["user2"]);
+  });
+
+  test("a den at the member ceiling badges every reader in one write", async () => {
+    // The large case, and the reason the write is a pipeline rather than a
+    // loop. Ninety-nine awaited Redis round trips on the send path is the
+    // difference between a message and a stall, so the contract is: one call,
+    // every reader named.
+    const readers = Array.from(
+      { length: DEN_LIMITS.membersMax - 1 },
+      (_unused, index) => `bulk-${index}`
+    );
+    denMembers = readers.map((userId) => ({ mutedAt: null, userId }));
+    const res = await POST(validPostRequest(denUrl()), {
+      params: Promise.resolve({ id: "den-1" }),
+    });
+    expect(res.status).toBe(201);
+    expect(unreadRecipients()).toEqual(readers);
+    // One call, not ninety-nine.
+    expect(mockIncrementMany).toHaveBeenCalledTimes(1);
+  });
+
+  test("a den full of muted members badges nobody", async () => {
+    denMembers = [
+      { mutedAt: new Date("2026-01-01T00:00:00.000Z"), userId: "user2" },
+      { mutedAt: new Date("2026-01-01T00:00:00.000Z"), userId: "user3" },
+    ];
+    const res = await POST(validPostRequest(denUrl()), {
+      params: Promise.resolve({ id: "den-1" }),
+    });
+    expect(res.status).toBe(201);
+    expect(unreadRecipients()).toEqual([]);
+  });
+
+  test("the same roster produces one badge per message, not one per member", async () => {
+    // Two sends, two badges. The counter is a running total, so a send that
+    // credited the roster once per send is what makes a member's badge track
+    // the number of unread messages their read will then decrement.
+    await POST(validPostRequest(denUrl()), {
+      params: Promise.resolve({ id: "den-1" }),
+    });
+    await POST(validPostRequest(denUrl()), {
+      params: Promise.resolve({ id: "den-1" }),
+    });
+    expect(unreadRecipients()).toEqual(["user2", "user3", "user2", "user3"]);
+  });
+});
+
+describe("a block has no force inside a den", () => {
+  // A block is a pair-level rule. The den has no pair, so the send path resolves
+  // no peer to test, exactly as the conversation detail gate, the conversation
+  // list and the unread seed do not.
+  //
+  // The bug this pins: the send path used to take `members.find(m => m.userId !==
+  // sender)`, which in a den is one arbitrary member out of up to ninety-nine.
+  // So whether a send was allowed depended on row order: a room where the
+  // blocked person happened to sort first went silent for everybody, and a room
+  // where they sorted last did not. Non-deterministic enforcement is worse than
+  // none, and inconsistent with every other surface that reads the same roster.
+
+  beforeEach(() => {
+    mockMessages.length = 0;
+    mockCreate.mockClear();
+    mockIncrementMany.mockClear();
+    mockIncrementMany.mockImplementation(() => Promise.resolve());
+    mockPublishCreated.mockClear();
+    mockPublishActivity.mockClear();
+    mockCreateDenMessageNotifications.mockClear();
+    mockAreBlocked.mockClear();
+    mockAreBlocked.mockReturnValue(false);
+    mockNextRatchetIndex.mockReset();
+    mockNextRatchetIndex.mockReturnValue(0);
+    mockKeyUpdateAndCount.mockClear();
+    mockConversationUpdate.mockClear();
+    mockGetSession.mockClear();
+    mockTransaction.mockReset();
+    mockTransaction.mockImplementation((fn: (tx: unknown) => unknown) =>
+      fn(txClient)
+    );
+    peerMutedAt = null;
+    denMembers = [
+      { mutedAt: null, userId: "user2" },
+      { mutedAt: null, userId: "user3" },
+    ];
+  });
+
+  test("a blocked third party does not silence a den", async () => {
+    // Every member is "blocked" as far as the mock is concerned, which is the
+    // strongest possible version of the bug.
+    mockAreBlocked.mockReturnValue(true);
+    const res = await POST(validPostRequest(denUrl()), {
+      params: Promise.resolve({ id: "den-1" }),
+    });
+    expect(res.status).toBe(201);
+    // The block probe is never even asked, so no query is spent on a rule that
+    // does not apply.
+    expect(mockAreBlocked).not.toHaveBeenCalled();
+  });
+
+  test("a DM send is still refused when the pair is blocked", async () => {
+    // The other half. A block still stops a two-person conversation, and it
+    // stops it without the sender learning anything they did not already know.
+    mockAreBlocked.mockReturnValue(true);
+    const res = await POST(validPostRequest(), {
+      params: Promise.resolve({ id: "convo-1" }),
+    });
+    expect(res.status).toBe(403);
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+});
+
 describe("GET /api/messages/conversations/:id/messages", () => {
   beforeEach(() => {
     mockFindMany.mockClear();
     recordedQueries = [];
     recorded = { where: {} };
+    viewerJoinAt = undefined;
+    viewerLeftAt = undefined;
+    membershipEvents = [];
     mockGetSession.mockClear();
     mockGetSession.mockImplementation(() => ({ user: { id: "user1" } }));
     mockConsumeRateLimit.mockClear();
@@ -407,17 +1110,137 @@ describe("GET /api/messages/conversations/:id/messages", () => {
     );
   });
 
+  // The fix. A newcomer holds no wrap for any epoch minted before they arrived, so
+  // paging in pre-join ciphertext produced rows this device could never decrypt - a
+  // wall of unreadable bubbles for somebody who had just been invited.
+  test("floors a newcomer at their join so pre-join rows are never paged", async () => {
+    const joinedAt = new Date("2026-03-01T12:00:00.000Z");
+    viewerJoinAt = joinedAt;
+    mockFindMany.mockReturnValueOnce([]);
+    await GET(new Request(denUrl()), {
+      params: Promise.resolve({ id: "den-1" }),
+    });
+    expect(recorded.where.OR).toEqual([{ createdAt: { gte: joinedAt } }]);
+  });
+
+  // The bound that already existed, restated next to its new sibling so the two
+  // cannot be mistaken for the same rule.
+  test("caps a departed reader at the moment they left", async () => {
+    const leftAt = new Date("2026-03-02T12:00:00.000Z");
+    viewerLeftAt = leftAt;
+    mockFindMany.mockReturnValueOnce([]);
+    await GET(new Request(denUrl()), {
+      params: Promise.resolve({ id: "den-1" }),
+    });
+    expect(recorded.where.OR).toEqual([{ createdAt: { lte: leftAt } }]);
+  });
+
+  // The rejoin case. A member who left and came back holds one window per stint:
+  // the row alone cannot express it (a rejoin clears `leftAt` on the original row
+  // and keeps the first join as `createdAt`), so the gap between the stints is
+  // excluded by OR-ing the two bounded ranges the membership log provides.
+  test("hides the gap for a member who left and rejoined", async () => {
+    const joinedAt = new Date("2026-03-01T12:00:00.000Z");
+    const leftAt = new Date("2026-03-02T12:00:00.000Z");
+    const rejoinedAt = new Date("2026-03-04T12:00:00.000Z");
+    viewerJoinAt = joinedAt;
+    membershipEvents = [
+      {
+        action: "JOINED",
+        actorId: "user1",
+        createdAt: joinedAt,
+        targetUserId: null,
+      },
+      {
+        action: "LEFT",
+        actorId: "user1",
+        createdAt: leftAt,
+        targetUserId: null,
+      },
+      {
+        action: "JOINED",
+        actorId: "user1",
+        createdAt: rejoinedAt,
+        targetUserId: null,
+      },
+    ];
+    mockFindMany.mockReturnValueOnce([]);
+    await GET(new Request(denUrl()), {
+      params: Promise.resolve({ id: "den-1" }),
+    });
+    expect(recorded.where.OR).toEqual([
+      { createdAt: { gte: joinedAt, lte: leftAt } },
+      { createdAt: { gte: rejoinedAt } },
+    ]);
+  });
+
+  // The same gap, closed on both ends: removed by a manager (the subject rides in
+  // `targetUserId`), re-added later, and out again now.
+  test("hides every gap for a member removed and re-added", async () => {
+    const joinedAt = new Date("2026-03-01T12:00:00.000Z");
+    const removedAt = new Date("2026-03-02T12:00:00.000Z");
+    const readdedAt = new Date("2026-03-04T12:00:00.000Z");
+    const leftAt = new Date("2026-03-05T12:00:00.000Z");
+    viewerJoinAt = joinedAt;
+    viewerLeftAt = leftAt;
+    membershipEvents = [
+      {
+        action: "JOINED",
+        actorId: "user1",
+        createdAt: joinedAt,
+        targetUserId: null,
+      },
+      {
+        action: "REMOVED",
+        actorId: "owner1",
+        createdAt: removedAt,
+        targetUserId: "user1",
+      },
+      {
+        action: "JOINED",
+        actorId: "owner1",
+        createdAt: readdedAt,
+        targetUserId: "user1",
+      },
+      {
+        action: "LEFT",
+        actorId: "user1",
+        createdAt: leftAt,
+        targetUserId: null,
+      },
+    ];
+    mockFindMany.mockReturnValueOnce([]);
+    await GET(new Request(denUrl()), {
+      params: Promise.resolve({ id: "den-1" }),
+    });
+    expect(recorded.where.OR).toEqual([
+      { createdAt: { gte: joinedAt, lte: removedAt } },
+      { createdAt: { gte: readdedAt, lte: leftAt } },
+    ]);
+  });
+
+  // A DM has two participants who were both there from the start, so flooring one at
+  // its membership row's createdAt would blank a conversation whose first message
+  // predates the row.
+  test("never floors a DM", async () => {
+    mockFindMany.mockReturnValueOnce([]);
+    await GET(new Request(convoUrl("messages")), {
+      params: Promise.resolve({ id: "convo-1" }),
+    });
+    expect(recorded.where.createdAt).toBeUndefined();
+  });
+
   test("returns the page and a cursor for older messages", async () => {
     mockFindMany.mockReturnValueOnce([
       { id: "newer" },
-      { id: "older" },
+      { id: "older", keyEpoch: 4, revision: 7 },
       { id: "oldest" },
     ]);
     const res = await GET(new Request(convoUrl("messages")), {
       params: Promise.resolve({ id: "convo-1" }),
     });
     const body = (await res.json()) as {
-      messages: { id: string }[];
+      messages: { id: string; keyEpoch?: number | null; revision?: number }[];
       previousCursor: string | null;
     };
     // Newest-first on the wire, oldest-first in the payload.
@@ -426,6 +1249,7 @@ describe("GET /api/messages/conversations/:id/messages", () => {
       "older",
       "newer",
     ]);
+    expect(body.messages[1]).toMatchObject({ keyEpoch: 4, revision: 7 });
     expect(body.previousCursor).toBeNull();
   });
 
@@ -449,13 +1273,45 @@ describe("GET /api/messages/conversations/:id/messages", () => {
     expect(mockFindMany).toHaveBeenCalledTimes(1);
   });
 
-  test("passes the cursor through as an id.lt filter", async () => {
-    mockFindMany.mockReturnValueOnce([{ id: "m-010" }]);
+  test("caps history responses at one MiB and keeps the truncated cursor valid", async () => {
+    const rows = Array.from({ length: 31 }, (_, index) => ({
+      ciphertext: "x".repeat(100_000),
+      id: `m-${String(30 - index).padStart(3, "0")}`,
+    }));
+    mockFindMany.mockReturnValueOnce(rows);
+    const res = await GET(new Request(convoUrl("messages")), {
+      params: Promise.resolve({ id: "convo-1" }),
+    });
+    const body = await res.text();
+    const page = JSON.parse(body) as {
+      messages: { id: string }[];
+      previousCursor: string | null;
+    };
+
+    expect(new TextEncoder().encode(body).byteLength).toBeLessThanOrEqual(
+      1_048_576
+    );
+    expect(page.messages.length).toBeLessThan(30);
+    expect(page.previousCursor).toBe(page.messages[0]?.id);
+  });
+
+  test("orders chronologically, so a random id cannot shuffle the transcript", async () => {
+    // The regression this file exists for. `messages.id` is a random UUID, so an
+    // id-ordered page returns messages in an order unrelated to when they were
+    // sent - measured on a 100-message thread, 53 of 99 adjacent pairs came back
+    // inverted, and a freshly sent message landed anywhere in the window.
+    mockFindMany.mockReturnValueOnce([{ id: "m-001" }]);
     const req = new Request(convoUrl("messages?cursor=m-020"), {
       method: "GET",
     });
     await GET(req, { params: Promise.resolve({ id: "convo-1" }) });
-    expect(mockFindMany).toHaveBeenCalledTimes(1);
+    expect(recorded.orderBy).toEqual({ createdAt: "desc", id: "desc" });
+    // And the cursor is a keyset seek over that same pair, not an id range.
+    expect(recorded.where.id?.lt).toBeUndefined();
+    expect(recorded.cursorAnchor).toEqual({
+      createdAt: new Date("2026-01-01T00:00:00.000Z"),
+      id: "m-020",
+    });
   });
 
   test("honors a valid limit for faster history walks", async () => {
@@ -471,6 +1327,16 @@ describe("GET /api/messages/conversations/:id/messages", () => {
     const req = new Request(convoUrl("messages?limit=10000"), {
       method: "GET",
     });
+    await GET(req, { params: Promise.resolve({ id: "convo-1" }) });
+    expect(recorded.limit).toBe(101);
+  });
+
+  test("caps declared history-walk pages at 100 messages", async () => {
+    mockFindMany.mockReturnValueOnce([{ id: "m-001" }]);
+    const req = new Request(
+      convoUrl("messages?limit=500&cursor=m-002&walk=1"),
+      { method: "GET" }
+    );
     await GET(req, { params: Promise.resolve({ id: "convo-1" }) });
     expect(recorded.limit).toBe(101);
   });
@@ -555,10 +1421,23 @@ describe("GET /api/messages/conversations/:id/messages", () => {
     // Odd page: 4 older + 3 newer, each with one probe row.
     expect(olderQuery?.limit).toBe(5);
     expect(newerQuery?.limit).toBe(4);
-    expect(olderQuery?.orderBy?.id).toBe("desc");
-    expect(newerQuery?.orderBy?.id).toBe("asc");
-    expect(olderQuery?.where.id).toEqual({ lte: "m-1" });
-    expect(newerQuery?.where.id).toEqual({ gt: "m-1" });
+    // Chronological, with the id breaking ties. `id: desc` alone is the defect:
+    // message ids are random UUIDs, so that sort is a shuffle.
+    expect(olderQuery?.orderBy).toEqual({ createdAt: "desc", id: "desc" });
+    expect(newerQuery?.orderBy).toEqual({ createdAt: "asc", id: "asc" });
+    // The older half is INCLUSIVE of the anchor, so `anchorIndex` can point at
+    // it, and the bound has to be a row-wise `<=` over the same pair rather than
+    // an id comparison - an id bound compares a random value.
+    const anchorTime = new Date("2026-01-01T00:00:00.000Z");
+    expect(olderQuery?.where.OR).toEqual([
+      { createdAt: { lt: anchorTime } },
+      { createdAt: { eq: anchorTime }, id: { lte: "m-020" } },
+    ]);
+    // And the newer half must be STRICT, or the anchor returns on both sides.
+    expect(newerQuery?.where.OR).toEqual([
+      { createdAt: { gt: anchorTime } },
+      { createdAt: { eq: anchorTime }, id: { gt: "m-020" } },
+    ]);
   });
 
   test("anchored read excludes messages hidden for the caller", async () => {
@@ -596,8 +1475,14 @@ describe("GET /api/messages/conversations/:id/messages", () => {
     // Growth older from the window's edge is always offered, so the transcript
     // auto-loader can keep paging down.
     expect(body.previousCursor).toBe("m-31");
-    expect(recorded.orderBy?.id).toBe("asc");
-    expect(recorded.where.id).toEqual({ gt: "m-30" });
+    expect(recorded.orderBy).toEqual({ createdAt: "asc", id: "asc" });
+    // Seeking, not an id filter. The client holds only the id, so the route
+    // resolved the anchor's timestamp and seeks on BOTH columns of the sort; a
+    // seek on the id alone pages a range that has nothing to do with time.
+    expect(recorded.cursorAnchor).toEqual({
+      createdAt: new Date("2026-01-01T00:00:00.000Z"),
+      id: "m-30",
+    });
   });
 
   test("newer paging reports no next cursor on the last page", async () => {
@@ -731,5 +1616,173 @@ describe("history request budgets", () => {
     });
     expect(res.status).toBe(401);
     expect(mockConsumeRateLimit).not.toHaveBeenCalled();
+  });
+});
+
+describe("the send budget", () => {
+  beforeEach(() => {
+    mockMessages.length = 0;
+    // Explicit, because the block and ratchet doubles are shared with the
+    // describes above and a sibling's return value would otherwise leak in and
+    // answer 403 to a test that only cares about the budget.
+    mockGetSession.mockImplementation(() => ({ user: { id: "user1" } }));
+    mockAreBlocked.mockImplementation(() => false);
+    mockCreate.mockClear();
+    mockFindMany.mockClear();
+    recordedQueries = [];
+    recorded = { where: {} };
+    mockIncrement.mockClear();
+    mockIncrementMany.mockClear();
+    mockIncrementMany.mockImplementation(() => Promise.resolve());
+    mockPublishCreated.mockClear();
+    mockPublishActivity.mockClear();
+    mockEnqueueNotificationCreated.mockClear();
+    mockCreateDenMessageNotifications.mockClear();
+    mockNextRatchetIndex.mockReset();
+    mockKeyUpdateAndCount.mockClear();
+    peerMutedAt = null;
+    denMembers = [
+      { mutedAt: null, userId: "user2" },
+      { mutedAt: null, userId: "user3" },
+    ];
+    mockConversationUpdate.mockClear();
+    mockTransaction.mockReset();
+    mockGetSession.mockClear();
+    mockConsumeRateLimit.mockClear();
+    mockConsumeRateLimit.mockImplementation(() =>
+      Promise.resolve({
+        allowed: true,
+        remaining: 100,
+        resetAt: Date.now() + 60_000,
+        retryAfterSeconds: 60,
+      })
+    );
+    mockNextRatchetIndex.mockReturnValue(0);
+    mockEnqueueNotificationCreated.mockImplementation(() => Promise.resolve());
+    mockTransaction.mockImplementation((fn: (tx: unknown) => unknown) =>
+      fn(txClient)
+    );
+    limiter.reset();
+  });
+
+  function send() {
+    return POST(validPostRequest(), {
+      params: Promise.resolve({ id: "convo-1" }),
+    });
+  }
+
+  test("a send spends the burst budget and the sustained budget", async () => {
+    // Two buckets on one operation, on purpose. The ten-second one stops a
+    // burst; the hourly one stops the caller who stays just under it, which is
+    // 6,840 messages an hour and invisible to a ten-second window. Same shape as
+    // Slack's posting limit - per-channel rate plus a workspace-wide ceiling.
+    const res = await send();
+    expect(res.status).toBe(201);
+    expect(limiter.chargedBuckets).toEqual([
+      DEN_MESSAGE_SEND_RATE_LIMIT.bucket,
+      DEN_MESSAGE_SEND_HOUR_RATE_LIMIT.bucket,
+    ]);
+    expect(limiter.chargedIdentifiers).toEqual(["user1", "user1"]);
+  });
+
+  test("429s with a retry-after and inserts nothing when the burst budget is gone", async () => {
+    // The whole point. One accepted send is a roster read, a ratchet CAS, an
+    // insert, a locked conversation bump, a notification fold for every unmuted
+    // member, a counter increment, and one activity publish PER MEMBER. If the
+    // limiter ran after the transaction, every one of those had already happened.
+    limiter.setDenied(true);
+    const res = await send();
+    expect(res.status).toBe(429);
+    expect(res.headers.get("retry-after")).toBe("42");
+    expect(mockCreate).not.toHaveBeenCalled();
+    expect(mockTransaction).not.toHaveBeenCalled();
+    expect(mockIncrementMany).not.toHaveBeenCalled();
+    expect(mockPublishCreated).not.toHaveBeenCalled();
+    expect(mockPublishActivity).not.toHaveBeenCalled();
+  });
+
+  test("429s on the sustained budget without touching the transaction either", async () => {
+    // Only the hourly budget is exhausted. This is the attacker the ten-second
+    // one cannot see: under the burst limit on every single window, and 6,840
+    // messages an hour.
+    limiter.setDeniedBucket(DEN_MESSAGE_SEND_HOUR_RATE_LIMIT.bucket);
+    const res = await send();
+    expect(res.status).toBe(429);
+    expect(res.headers.get("retry-after")).toBe("42");
+    expect(limiter.chargedBuckets).toEqual([
+      DEN_MESSAGE_SEND_RATE_LIMIT.bucket,
+      DEN_MESSAGE_SEND_HOUR_RATE_LIMIT.bucket,
+    ]);
+    expect(mockCreate).not.toHaveBeenCalled();
+    expect(mockTransaction).not.toHaveBeenCalled();
+  });
+
+  test("an exhausted burst budget short-circuits the sustained one", async () => {
+    // Worth pinning: it means a flooder cannot make the hourly counter record
+    // hits it was already refused, so the hourly budget measures sends that were
+    // actually admitted rather than requests that arrived.
+    limiter.setDenied(true);
+    await send();
+    expect(limiter.chargedBuckets).toEqual([
+      DEN_MESSAGE_SEND_RATE_LIMIT.bucket,
+    ]);
+  });
+
+  test("charges both budgets before it reads the roster", async () => {
+    const res = await send();
+    expect(res.status).toBe(201);
+    expect(limiter.order).toEqual([
+      `consume:${DEN_MESSAGE_SEND_RATE_LIMIT.bucket}`,
+      `consume:${DEN_MESSAGE_SEND_HOUR_RATE_LIMIT.bucket}`,
+      "service:insert-message",
+    ]);
+  });
+
+  test("the burst budget sits above every published human-facing figure", () => {
+    // Slack publishes 1 message per second per channel and tolerates short
+    // bursts; Telegram publishes ~1 per second in a chat; Discord's gateway
+    // allowlist is 120 events per 60s for everything, so three a second for one
+    // event type would already exceed it. Two a second is above all three, which
+    // is the point: a limiter tighter than what the platforms permit throttles
+    // honest users to protect the database from a script.
+    const perSecond =
+      DEN_MESSAGE_SEND_RATE_LIMIT.limit /
+      DEN_MESSAGE_SEND_RATE_LIMIT.windowSeconds;
+    expect(perSecond).toBeGreaterThan(1);
+    expect(perSecond).toBeLessThanOrEqual(3);
+  });
+
+  test("both send budgets slide, so there is no window boundary to aim at", () => {
+    // A fixed window would let a caller spend twenty sends at 9.9s and twenty
+    // more at 10.1s: 40 in 200ms against a stated budget of 20.
+    expect(DEN_MESSAGE_SEND_RATE_LIMIT.window).toBe("sliding");
+    expect(DEN_MESSAGE_SEND_HOUR_RATE_LIMIT.window).toBe("sliding");
+  });
+
+  test("two accounts do not share one send budget", async () => {
+    await send();
+    mockGetSession.mockImplementation(() => ({ user: { id: "user2" } }));
+    await send();
+    expect(limiter.chargedIdentifiers).toEqual([
+      "user1",
+      "user1",
+      "user2",
+      "user2",
+    ]);
+  });
+
+  test("the sustained budget is ten a minute, not ten an hour", () => {
+    // Pinned because the number is the difference between bounding a script and
+    // bounding a person: 600 an hour is a script, 60 an hour would start
+    // refusing somebody pasting a long conversation into a DM.
+    expect(DEN_MESSAGE_SEND_HOUR_RATE_LIMIT.windowSeconds).toBe(3600);
+    expect(DEN_MESSAGE_SEND_HOUR_RATE_LIMIT.limit).toBe(600);
+  });
+
+  test("an unauthenticated caller is refused before any budget is spent", async () => {
+    mockGetSession.mockReturnValueOnce(null);
+    const res = await send();
+    expect(res.status).toBe(401);
+    expect(limiter.chargedBuckets).toEqual([]);
   });
 });

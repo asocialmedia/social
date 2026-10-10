@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
+import { DEN_LIMITS } from "@asm/db";
 import { MAX_MESSAGE_ATTACHMENTS } from "@asm/media";
 
 import {
@@ -24,9 +25,12 @@ import {
   importRatchetBaseKey,
   publicKeyBase64ToJwk,
   publicKeyJwkToBase64,
+  selfPublicKeyBase64,
   unwrapRootKey,
   wrapRootKey,
+  wrapRootKeyForMembers,
 } from "./crypto";
+import type { WrapRecipient } from "./crypto";
 
 const CONVO_ID = "convo-123";
 const SENDER_ID = "user-alice";
@@ -181,6 +185,187 @@ describe("conversation key wrapping", () => {
     await expect(
       unwrapRootKey(eve.privateKey, alice.publicKey, CONVO_ID, wrappedForBob)
     ).rejects.toThrow();
+  });
+});
+
+// A den is one root key fanned out to every member. These tests pin the two
+// properties the whole group design rests on: each member's wrap is paired with
+// that member alone, and every one of them resolves to the SAME root, so the
+// members never hold per-member message keys.
+describe("multi-member wrap fan-out", () => {
+  async function makeMembers(count: number) {
+    const pairs = await Promise.all(
+      Array.from({ length: count }, () => identityPair())
+    );
+    const publicKeys = await Promise.all(
+      pairs.map((pair) => exportPublicKeyJwk(pair.publicKey))
+    );
+    return pairs.map((pair, index) => ({
+      pair,
+      recipient: {
+        publicKeyBase64: publicKeyJwkToBase64(publicKeys[index] ?? {}),
+        userId: `member-${index}`,
+      } satisfies WrapRecipient,
+    }));
+  }
+
+  test("every member unwraps its own wrap to the same root key", async () => {
+    const rotator = await identityPair();
+    const members = await makeMembers(4);
+    const rootKey = generateRootKey();
+
+    const { skipped, wrapped } = await wrapRootKeyForMembers(
+      rotator.privateKey,
+      members.map((member) => member.recipient),
+      CONVO_ID,
+      rootKey
+    );
+    expect(skipped).toEqual([]);
+    expect(wrapped).toHaveLength(4);
+
+    // Every member's own wrap resolves to the shared root: that is what makes one
+    // set of message keys readable by the whole den.
+    const unwrapped = await Promise.all(
+      members.map(
+        async (member) =>
+          await unwrapRootKey(
+            member.pair.privateKey,
+            rotator.publicKey,
+            CONVO_ID,
+            wrapped.find((row) => row.userId === member.recipient.userId)
+              ?.encryptedKey ?? { ciphertext: "", iv: "" }
+          )
+      )
+    );
+    expect(wrapped.map((row) => row.userId)).toEqual(
+      members.map((member) => member.recipient.userId)
+    );
+    for (const root of unwrapped) {
+      expect(Buffer.from(root).equals(Buffer.from(rootKey))).toBe(true);
+    }
+  });
+
+  test("each wrap is independently paired, so no member reads another's", async () => {
+    const rotator = await identityPair();
+    const members = await makeMembers(3);
+    const rootKey = generateRootKey();
+    const { wrapped } = await wrapRootKeyForMembers(
+      rotator.privateKey,
+      members.map((member) => member.recipient),
+      CONVO_ID,
+      rootKey
+    );
+    const [first, second, third] = wrapped;
+    // Separate rows, not one blob copied N times: distinct IVs over distinct
+    // pairings.
+    expect(
+      new Set(wrapped.map((wrap) => wrap.encryptedKey.ciphertext)).size
+    ).toBe(3);
+    // The key property of the fan-out. Member 1 cannot read member 0's wrap even
+    // though both hold the same root key material by other means, because the
+    // pairing is (rotator, that member).
+    const [, outsider] = members;
+    await expect(
+      unwrapRootKey(
+        outsider?.pair.privateKey ?? rotator.privateKey,
+        rotator.publicKey,
+        CONVO_ID,
+        first?.encryptedKey ?? { ciphertext: "", iv: "" }
+      )
+    ).rejects.toThrow();
+    expect(second?.userId).toBe(members[1]?.recipient.userId);
+    expect(third?.userId).toBe(members[2]?.recipient.userId);
+    expect(members[1]?.recipient.userId).toBe("member-1");
+  });
+
+  test("a member who cannot be wrapped for is skipped, not fatal", async () => {
+    const rotator = await identityPair();
+    const members = await makeMembers(2);
+    const rootKey = generateRootKey();
+
+    // One member with no identity at all and one whose stored key is corrupt.
+    // Neither can be paired, so neither can be wrapped.
+    const { skipped, wrapped } = await wrapRootKeyForMembers(
+      rotator.privateKey,
+      [
+        members[0]?.recipient ?? { publicKeyBase64: "", userId: "missing" },
+        { publicKeyBase64: "", userId: "no-identity" },
+        { publicKeyBase64: "not-a-jwk", userId: "corrupt-key" },
+        members[1]?.recipient ?? { publicKeyBase64: "", userId: "unknown" },
+      ],
+      CONVO_ID,
+      rootKey
+    );
+
+    // Reported by name, so the caller can decide what a skip means rather than
+    // discovering a silently smaller epoch later.
+    expect(skipped.toSorted()).toEqual(["corrupt-key", "no-identity"]);
+    expect(wrapped.map((wrap) => wrap.userId)).toEqual([
+      "member-0",
+      "member-1",
+    ]);
+    // The members that could be wrapped still got a complete, readable epoch.
+    const [reader] = members;
+    const unwrapped = await unwrapRootKey(
+      reader?.pair.privateKey ?? rotator.privateKey,
+      rotator.publicKey,
+      CONVO_ID,
+      wrapped[0]?.encryptedKey ?? { ciphertext: "", iv: "" }
+    );
+    expect(Buffer.from(unwrapped).equals(Buffer.from(rootKey))).toBe(true);
+  });
+
+  test("the rotator's own public key is derivable from the key they hold", async () => {
+    // The rotator is always included in a fan-out, and their identity row is not
+    // always in the snapshot being rotated from. Deriving the public half from the
+    // private key they are holding is what guarantees their own wrap is never the
+    // one that gets skipped.
+    const rotator = await identityPair();
+    expect(await selfPublicKeyBase64(rotator.privateKey)).toBe(
+      publicKeyJwkToBase64(await exportPublicKeyJwk(rotator.publicKey))
+    );
+  });
+
+  test("a 100-member den wraps in one fan-out, every wrap distinct", async () => {
+    // The den ceiling. One fan-out is 100 independent ECDH pairings; this pins
+    // that the whole roster is wrapped, that no two wraps collide, and that a
+    // sample of members can each read the shared root back out.
+    const rotator = await identityPair();
+    const members = await makeMembers(DEN_LIMITS.membersMax);
+    const rootKey = generateRootKey();
+
+    const { skipped, wrapped } = await wrapRootKeyForMembers(
+      rotator.privateKey,
+      members.map((member) => member.recipient),
+      CONVO_ID,
+      rootKey
+    );
+    expect(skipped).toEqual([]);
+    expect(wrapped).toHaveLength(DEN_LIMITS.membersMax);
+    expect(
+      new Set(wrapped.map((wrap) => wrap.encryptedKey.ciphertext)).size
+    ).toBe(DEN_LIMITS.membersMax);
+
+    // A sample rather than all 100: enough to prove every pairing resolves without
+    // spending the whole roster's decrypt budget on one assertion.
+    const sampled = await Promise.all(
+      [0, 1, 42, DEN_LIMITS.membersMax - 1].map(async (index) => {
+        const member = members[index];
+        const blob = wrapped[index]?.encryptedKey;
+        if (!member || !blob) {
+          throw new Error(`missing member ${index}`);
+        }
+        return await unwrapRootKey(
+          member.pair.privateKey,
+          rotator.publicKey,
+          CONVO_ID,
+          blob
+        );
+      })
+    );
+    for (const root of sampled) {
+      expect(Buffer.from(root).equals(Buffer.from(rootKey))).toBe(true);
+    }
   });
 });
 

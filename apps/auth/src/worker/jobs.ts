@@ -172,6 +172,13 @@ async function deliverNotificationPush(
     .include("community", (community) =>
       community.select("accentColor", "id", "name", "slug")
     )
+    // The den a den row names, and nothing else about it: the push body says
+    // which room a message landed in, and never quotes the message (this server
+    // only holds ciphertext) or lists who is in the room. A membership that ended
+    // carries none for a dissolve, because the den row is gone.
+    .include("conversation", (conversation) =>
+      conversation.select("_type", "id", "name")
+    )
     .first();
   if (!selectedNotification) {
     // Deleted (or already cleaned up) between creation and delivery.

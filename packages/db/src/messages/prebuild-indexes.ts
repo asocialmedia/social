@@ -43,10 +43,33 @@ const INDEXES = [
     sql: 'CREATE INDEX CONCURRENTLY IF NOT EXISTS "messages_conversationId_id_idx" ON "messages" ("conversationId", "id")',
   },
   {
+    // The term dictionary can hold millions of normalized terms; this partial
+    // index keeps global-deletion cleanup limited to terms with no documents.
+    name: "message_search_terms_orphaned_f61e9e26",
+    sql: 'CREATE INDEX CONCURRENTLY IF NOT EXISTS "message_search_terms_orphaned_f61e9e26" ON "message_search_terms" ("conversationId") WHERE (("documentFrequency" = 0))',
+  },
+  {
+    // Snapshot checks probe later revisions by message ID. This avoids a
+    // sequential outbox scan for every candidate in large conversations.
+    name: "message_search_outbox_message_sequence_idx",
+    sql: 'CREATE INDEX CONCURRENTLY IF NOT EXISTS "message_search_outbox_message_sequence_idx" ON "message_search_outbox" ("messageId", "changeSequence")',
+  },
+  {
     // Two rows per 1:1 conversation, so the build is instant either way. Listed
     // for completeness so the whole pre-migration set is covered by one command.
     name: "message_conversation_keys_conversationId_ownerUserId_idx",
     sql: 'CREATE INDEX CONCURRENTLY IF NOT EXISTS "message_conversation_keys_conversationId_ownerUserId_idx" ON "message_conversation_keys" ("conversationId", "ownerUserId")',
+  },
+  {
+    // The short-code join door's live lookup. `message_conversations` is the
+    // hottest table in the den feature - every send bumps its `updatedAt` under
+    // a lock - so a SHARE lock held for the whole build would stall every
+    // conversation read for the duration. Nullable column, so a fresh build on
+    // a table with millions of DM rows is still only an index over the dens,
+    // but the lock alone is the reason this is here and not left to the
+    // migration transaction.
+    name: "message_conversations_inviteShortCode_key",
+    sql: 'CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS "message_conversations_inviteShortCode_key" ON "message_conversations" ("inviteShortCode")',
   },
 ] as const;
 
@@ -75,7 +98,7 @@ export async function prebuildDmIndexes(
   const onLog =
     options.onLog ??
     (() => {
-      /* empty */
+      // No operation.
     });
   // One connection, and deliberately no BEGIN: CONCURRENTLY is illegal inside a
   // transaction block, so this has to run in autocommit.

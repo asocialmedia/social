@@ -1,6 +1,10 @@
 import { getMediaImages } from "@/lib/messages/crypto";
 import type { DecryptEntry } from "@/lib/messages/decryptor";
-import type { SharedMediaItem } from "@/lib/messages/shared-refs-format";
+import { sharedRefToMediaItem } from "@/lib/messages/shared-refs-format";
+import type {
+  SharedMediaItem,
+  SharedRefRecord,
+} from "@/lib/messages/shared-refs-format";
 import { getMessageMediaId } from "@/lib/utils/image-url";
 
 // Flattens every decrypted media attachment across a conversation into one
@@ -50,6 +54,76 @@ export interface ConversationMediaIndex {
   // The decryptor revision this index was built from. Carried so callers can
   // treat the index as a memo key without a second external-store read.
   revision: number;
+}
+
+export interface ConversationMediaWindow extends ConversationMediaIndex {
+  activeIndex: number;
+  absoluteIndex: number;
+  startIndex: number;
+  totalItems: number;
+}
+
+export const CONVERSATION_MEDIA_VIEWER_WINDOW_LIMIT = 100;
+
+export type ConversationMediaPageDirection = "initial" | "newer" | "older";
+
+function compareConversationMediaItems(
+  left: ConversationMediaItem,
+  right: ConversationMediaItem
+): number {
+  return (
+    left.createdAt - right.createdAt ||
+    left.messageId.localeCompare(right.messageId) ||
+    left.imageIndex - right.imageIndex
+  );
+}
+
+export function mediaItemsFromSharedRefs(
+  records: readonly SharedRefRecord[]
+): ConversationMediaItem[] {
+  return records.flatMap((record) => {
+    if (!record.url) {
+      return [];
+    }
+    return [sharedRefToMediaItem(record)];
+  });
+}
+
+export function mergeConversationMediaPage(input: {
+  anchorKey?: string;
+  current: readonly ConversationMediaItem[];
+  direction: ConversationMediaPageDirection;
+  incoming: readonly ConversationMediaItem[];
+  limit?: number;
+}): ConversationMediaItem[] {
+  const limit = Math.min(
+    CONVERSATION_MEDIA_VIEWER_WINDOW_LIMIT,
+    Math.max(
+      1,
+      Math.trunc(input.limit ?? CONVERSATION_MEDIA_VIEWER_WINDOW_LIMIT)
+    )
+  );
+  const byKey = new Map<string, ConversationMediaItem>();
+  for (const item of [...input.incoming, ...input.current]) {
+    byKey.set(item.flatKey, item);
+  }
+  const sorted = [...byKey.values()].toSorted(compareConversationMediaItems);
+  if (sorted.length <= limit) {
+    return sorted;
+  }
+  if (input.direction === "older") {
+    return sorted.slice(0, limit);
+  }
+  if (input.direction === "newer") {
+    return sorted.slice(-limit);
+  }
+  const anchor = sorted.find((item) => item.flatKey === input.anchorKey);
+  const centeredIndex = anchor ? sorted.indexOf(anchor) : sorted.length - 1;
+  const startIndex = Math.max(
+    0,
+    Math.min(centeredIndex - Math.floor(limit / 2), sorted.length - limit)
+  );
+  return sorted.slice(startIndex, startIndex + limit);
 }
 
 export function mediaFlatKey(messageId: string, imageIndex: number): string {
@@ -134,6 +208,91 @@ export function buildConversationMediaIndex(
   }
 
   return { indexByKey, items, revision };
+}
+
+export function buildConversationMediaWindow(
+  messages: readonly ConversationMediaMessage[],
+  getPayload: (id: string) => DecryptEntry | undefined,
+  anchorKey: string,
+  revision = 0,
+  limit = CONVERSATION_MEDIA_VIEWER_WINDOW_LIMIT
+): ConversationMediaWindow {
+  const boundedLimit = Math.min(
+    CONVERSATION_MEDIA_VIEWER_WINDOW_LIMIT,
+    Math.max(1, Math.trunc(limit))
+  );
+  let totalItems = 0;
+  let absoluteIndex = -1;
+
+  for (const message of messages) {
+    if (message.deletedAt) {
+      continue;
+    }
+    const payload = getPayload(message.id);
+    if (!payload || payload === "error" || payload === "pending") {
+      continue;
+    }
+    if (payload.type !== "media") {
+      continue;
+    }
+    const derived =
+      derivations.get(payload) ?? deriveMediaItems(message, payload);
+    if (!derivations.has(payload)) {
+      derivations.set(payload, derived);
+    }
+    for (const item of derived) {
+      if (item.flatKey === anchorKey) {
+        absoluteIndex = totalItems;
+      }
+      totalItems += 1;
+    }
+  }
+
+  const centeredIndex = absoluteIndex >= 0 ? absoluteIndex : totalItems - 1;
+  const midpoint = Math.floor(boundedLimit / 2);
+  const startIndex = Math.max(
+    0,
+    Math.min(centeredIndex - midpoint, totalItems - boundedLimit)
+  );
+  const endIndex = Math.min(totalItems, startIndex + boundedLimit);
+  const items: ConversationMediaItem[] = [];
+  const indexByKey = new Map<string, number>();
+  let itemIndex = 0;
+
+  for (const message of messages) {
+    if (message.deletedAt) {
+      continue;
+    }
+    const payload = getPayload(message.id);
+    if (!payload || payload === "error" || payload === "pending") {
+      continue;
+    }
+    if (payload.type !== "media") {
+      continue;
+    }
+    const derived =
+      derivations.get(payload) ?? deriveMediaItems(message, payload);
+    if (!derivations.has(payload)) {
+      derivations.set(payload, derived);
+    }
+    for (const item of derived) {
+      if (itemIndex >= startIndex && itemIndex < endIndex) {
+        indexByKey.set(item.flatKey, items.length);
+        items.push(item);
+      }
+      itemIndex += 1;
+    }
+  }
+
+  return {
+    absoluteIndex,
+    activeIndex: absoluteIndex < 0 ? -1 : absoluteIndex - startIndex,
+    indexByKey,
+    items,
+    revision,
+    startIndex,
+    totalItems,
+  };
 }
 
 // Test-only: whether a payload's attachments are already derived, so a test can

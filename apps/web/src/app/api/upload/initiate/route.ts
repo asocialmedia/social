@@ -22,7 +22,13 @@ const initiateSchema = z.object({
   // reserve the bubble box before the bytes arrive (no scroll jump).
   height: z.number().int().positive().max(16_384).nullish(),
   name: z.string().min(1).max(255),
-  purpose: z.enum(["avatar", "banner", "comment", "message", "post"]).nullish(),
+  // Which surface the upload is for. Selects the byte cap (a wallpaper is far
+  // tighter than a post image) and whether abandoned-upload cleanup is
+  // scheduled. It is deliberately NOT stored on the Media row: ownership comes
+  // from the link that follows, never from what the client asked for.
+  purpose: z
+    .enum(["avatar", "banner", "comment", "message", "post", "wallpaper"])
+    .nullish(),
   // Uppercase hex is accepted but normalized to lowercase so dedup matching
   // (an exact string comparison against stored digests) cannot miss.
   sha256: z
@@ -78,12 +84,20 @@ export async function POST(request: Request) {
         { status: 400 }
       );
     }
+    // `leftAt IS NULL`, not merely "has a membership row". A member who left or
+    // was removed keeps their row - that is what lets them read the history they
+    // were already part of - so a row check alone waves them through here, and a
+    // removed member could keep pushing new bytes at a den that no longer admits
+    // them. Nothing downstream can catch it: the upload is owner-readable from the
+    // start, and a finalize would bind it to a conversation this account has
+    // already lost the right to write to.
     const membership =
       await prisma.orm.public.MessageConversationMembers.select("userId")
         .where((member) =>
           and(
             member.conversationId.eq(conversationId),
-            member.userId.eq(user.id)
+            member.userId.eq(user.id),
+            member.leftAt.isNull()
           )
         )
         .first();

@@ -39,7 +39,7 @@ const FloatingPostComposer: React.FC = () => {
         onClick={handleOverlayClick}
       />
 
-      <div className="apple-panel relative w-full max-w-2xl overflow-hidden rounded-2xl shadow-none">
+      <div className="panel-3d relative w-full max-w-2xl overflow-hidden rounded-2xl!">
         <div className="max-h-[85vh] overflow-y-auto">
           <PostEditor variant="modal" />
         </div>

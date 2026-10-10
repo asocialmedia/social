@@ -33,6 +33,7 @@ export {
   DEFAULT_LIMITS,
   MAX_MESSAGE_ATTACHMENTS,
   MAX_POST_ATTACHMENTS,
+  maxBytesForPurpose,
   maxBytesForType,
   resolveMediaLimits,
 } from "./limits";

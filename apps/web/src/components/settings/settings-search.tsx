@@ -8,7 +8,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { cn } from "@/lib/utils";
 
-export type SettingsTab = "profile" | "account" | "security";
+export type SettingsTab = "profile" | "account" | "privacy" | "security";
 
 interface SettingsEntry {
   description: string;
@@ -89,6 +89,24 @@ const SETTINGS_CATALOG: SettingsEntry[] = [
     tab: "account",
   },
   {
+    description: "Choose who can add you to a group without asking",
+    id: "group-adds",
+    keywords: [
+      "privacy",
+      "group",
+      "groups",
+      "den",
+      "den",
+      "add me",
+      "who can add",
+      "followers",
+      "invite",
+    ],
+    label: "Who can add me to a group",
+    sectionId: "settings-group-adds",
+    tab: "privacy",
+  },
+  {
     description: "Reset your password via email",
     id: "password",
     keywords: [
@@ -155,6 +173,7 @@ const SETTINGS_CATALOG: SettingsEntry[] = [
 
 const TAB_LABELS: Record<SettingsTab, string> = {
   account: "Account",
+  privacy: "Privacy",
   profile: "Profile",
   security: "Security",
 };

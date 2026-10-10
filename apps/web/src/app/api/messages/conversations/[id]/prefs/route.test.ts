@@ -1,5 +1,10 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import {
+  DEN_DETAILS_RATE_LIMIT,
+  DEN_PREFS_RATE_LIMIT,
+} from "@/lib/messages/den-rate-limit";
+import { messageRouteLimiter } from "@/lib/messages/test-support/route-limiter-probe";
 import { asmDbMockBase } from "@/posts/test-support/asm-db-mock";
 
 import { PATCH } from "./route";
@@ -7,6 +12,7 @@ import { PATCH } from "./route";
 type Session = { user: { id: string } } | null;
 const mockGetSession = mock((): Session => ({ user: { id: "user1" } }));
 const mockReset = mock(() => Promise.resolve());
+let conversationType = "DM";
 let updateValue: Record<string, unknown> = {};
 let selectColumns: string[] = [];
 
@@ -16,12 +22,26 @@ mock.module("@/lib/auth/session", () => ({
   getSessionFromApi: mockGetSession,
 }));
 
+// The limiter this route charges. Mocked explicitly because bun's
+// `mock.module("@asm/db")` does not reach the rules module's own binding on it,
+// and an unmocked limiter spends real Redis budget from the test suite.
+const limiter = messageRouteLimiter();
+mock.module("@/lib/messages/den-rate-limit", () => limiter.module);
+
 mock.module("@/lib/messages/server", () => ({
   getConversationForUser: (conversationId: string, userId: string) =>
     conversationId === "convo-1" && userId === "user1"
       ? {
           id: "convo-1",
-          members: [{ lastReadAt: null, mutedAt: null, userId: "user1" }],
+          members: [
+            {
+              lastReadAt: null,
+              mutedAt: null,
+              role: "MEMBER",
+              userId: "user1",
+            },
+          ],
+          type: conversationType,
         }
       : null,
   parseJsonBody: async (request: Request) => {
@@ -84,8 +104,10 @@ describe("PATCH /api/messages/conversations/:id/prefs", () => {
     mockGetSession.mockImplementation(() => ({ user: { id: "user1" } }));
     mockReset.mockReset();
     mockReset.mockImplementation(() => Promise.resolve());
+    conversationType = "DM";
     updateValue = {};
     selectColumns = [];
+    limiter.reset();
   });
 
   test("requires auth", async () => {
@@ -103,11 +125,18 @@ describe("PATCH /api/messages/conversations/:id/prefs", () => {
   test("mutes and stores a real timestamp", async () => {
     const res = await PATCH(prefsRequest({ muted: true }), params);
     expect(res.status).toBe(200);
-    // The update only ever sets mutedAt, never the theme, so one cannot clobber
-    // the other when the panel sends them separately.
-    expect(selectColumns).toEqual(["mutedAt", "themeKey"]);
-    expect(Object.keys(updateValue)).toEqual(["mutedAt"]);
+    // The update only ever sets mutedAt, never the other preferences, so one
+    // cannot clobber another when the panel sends them separately.
+    expect(selectColumns).toEqual([
+      "mutedAt",
+      "themeKey",
+      "wallpaperDim",
+      "wallpaperKey",
+      "wallpaperMediaId",
+    ]);
+    expect(Object.keys(updateValue)).toEqual(["mutedAt", "unreadCount"]);
     expect(updateValue.mutedAt).toBeInstanceOf(Date);
+    expect(updateValue.unreadCount).toBeNull();
   });
 
   test("unmutes by clearing the timestamp", async () => {
@@ -168,4 +197,57 @@ describe("PATCH /api/messages/conversations/:id/prefs", () => {
     const res = await PATCH(prefsRequest({ muted: "yes" }), params);
     expect(res.status).toBe(400);
   });
+});
+
+describe("PATCH /api/messages/conversations/:id/prefs rate limit", () => {
+  beforeEach(() => {
+    mockGetSession.mockReset();
+    mockGetSession.mockImplementation(() => ({ user: { id: "user1" } }));
+    mockReset.mockReset();
+    mockReset.mockImplementation(() => Promise.resolve());
+    updateValue = {};
+    selectColumns = [];
+    limiter.reset();
+  });
+
+  test("spends the prefs budget, per account", async () => {
+    const res = await PATCH(prefsRequest({ muted: true }), params);
+    expect(res.status).toBe(200);
+    expect(limiter.chargedBuckets).toEqual([DEN_PREFS_RATE_LIMIT.bucket]);
+    expect(limiter.chargedIdentifiers).toEqual(["user1"]);
+  });
+
+  test("429s with a retry-after and writes nothing when over budget", async () => {
+    limiter.setDenied(true);
+    const res = await PATCH(prefsRequest({ muted: true }), params);
+    expect(res.status).toBe(429);
+    expect(res.headers.get("retry-after")).toBe("42");
+    expect(updateValue).toEqual({});
+    expect(mockReset).not.toHaveBeenCalled();
+  });
+
+  test("is looser than the den-details budget it reasons alongside", () => {
+    // Prefs are four columns on the caller's own row and nothing is broadcast,
+    // so it cannot cost more than a den rename. Pinned because the two budgets
+    // are the same class of thing - single-row writes a UI can loop - and a
+    // future edit that tightens prefs below den details would be tightening the
+    // cheaper write, which is backwards.
+    expect(DEN_PREFS_RATE_LIMIT.limit).toBeGreaterThanOrEqual(
+      DEN_DETAILS_RATE_LIMIT.limit
+    );
+  });
+});
+
+test("ordinary den members cannot change the shared wallpaper or dim", async () => {
+  conversationType = "DEN";
+  mock.module("@/lib/messages/server", () => ({
+    getConversationForUser: () => ({
+      id: "convo-1",
+      members: [{ role: "MEMBER", userId: "user1" }],
+      type: "DEN",
+    }),
+  }));
+  const response = await PATCH(prefsRequest({ wallpaperDim: 50 }), params);
+  expect(response.status).toBe(403);
+  expect(updateValue).toEqual({});
 });

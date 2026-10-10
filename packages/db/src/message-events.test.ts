@@ -136,3 +136,18 @@ describe("message event (de)serialization", () => {
     ).toBeNull();
   });
 });
+
+test("shared appearance events survive server serialization", () => {
+  expect(
+    parseMessageEvent(
+      serializeMessageEvent({
+        conversationId: "den",
+        kind: "conversation.appearance.changed",
+        userId: "elder",
+      })
+    )
+  ).toMatchObject({
+    conversationId: "den",
+    kind: "conversation.appearance.changed",
+  });
+});

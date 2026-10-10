@@ -14,6 +14,7 @@ import {
 import { useSession } from "@/app/(main)/session-provider";
 import {
   fetchIdentity,
+  refreshIdentityBackup,
   resetMessageIdentity,
   saveIdentity,
 } from "@/lib/messages/client";
@@ -21,7 +22,6 @@ import type { MessageIdentityPayload } from "@/lib/messages/client";
 import {
   KDF_ITERATIONS,
   clearStoredPrivateKey,
-  decryptWithMasterKey,
   deriveMasterKey,
   encryptWithMasterKey,
   exportPrivateKeyJwk,
@@ -35,6 +35,26 @@ import {
   publicKeyJwkToBase64,
   setStoredPrivateKey,
 } from "@/lib/messages/crypto";
+import {
+  refreshLegacyIdentityBackup,
+  unlockAndMigrateIdentityBackup,
+} from "@/lib/messages/identity-backup";
+import { createIdentityScopeBroadcast } from "@/lib/messages/identity-scope-broadcast";
+import type { IdentityScopeBroadcast } from "@/lib/messages/identity-scope-broadcast";
+import type { OfflineSearchCacheScope } from "@/lib/messages/indexeddb-offline-search-cache";
+import { offlineSearchWorkerClient } from "@/lib/messages/offline-search-worker-client";
+
+async function clearLegacySearchIndexScopeForIdentity(
+  scope: OfflineSearchCacheScope
+): Promise<boolean> {
+  try {
+    const searchIndexBackend =
+      await import("@/lib/messages/search-index-backend");
+    return await searchIndexBackend.clearLegacySearchIndexScope(scope);
+  } catch {
+    return false;
+  }
+}
 
 export type IdentityStatus = "loading" | "ready" | "error" | "locked";
 
@@ -47,10 +67,48 @@ export class MessageIdentityLockedError extends Error {
   override name = "MessageIdentityLockedError";
 }
 
+const SEARCH_RECOVERY_GENERATION_PREFIX = "asm_msg_search_recovery_gen_";
+
+function getStoredRecoveryGeneration(userId: string): number | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+  try {
+    const raw = window.localStorage.getItem(
+      `${SEARCH_RECOVERY_GENERATION_PREFIX}${userId}`
+    );
+    if (raw === null) {
+      return null;
+    }
+    const value = Number(raw);
+    return Number.isSafeInteger(value) && value >= 0 ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+function storeRecoveryGeneration(userId: string, generation: number): void {
+  try {
+    window.localStorage.setItem(
+      `${SEARCH_RECOVERY_GENERATION_PREFIX}${userId}`,
+      String(generation)
+    );
+  } catch {
+    // Offline search remains unavailable for this session if storage is blocked.
+  }
+}
+
+interface SearchRecoveryScope {
+  recoveryGeneration: number;
+  userId: string;
+}
+
 interface MessageIdentityContextValue {
   error: string | null;
   identity: MessageIdentityPayload | null;
   privateKey: CryptoKey | null;
+  recoveryGeneration: number | null;
+  refreshRecoveryGeneration: () => Promise<number | null>;
   status: IdentityStatus;
   // Destroys this account's server identity + own key wraps and provisions a
   // fresh one. The recovery path when a row cannot be read here. The caller
@@ -71,25 +129,102 @@ export function MessageIdentityProvider({
   const [status, setStatus] = useState<IdentityStatus>("loading");
   const [identity, setIdentity] = useState<MessageIdentityPayload | null>(null);
   const [privateKey, setPrivateKey] = useState<CryptoKey | null>(null);
+  const [recoveryScope, setRecoveryScope] =
+    useState<SearchRecoveryScope | null>(() => {
+      if (!user) {
+        return null;
+      }
+      const recoveryGeneration = getStoredRecoveryGeneration(user.id);
+      return recoveryGeneration === null
+        ? null
+        : { recoveryGeneration, userId: user.id };
+    });
   const [identityError, setIdentityError] = useState<string | null>(null);
   // Serializes bootstrap: `bootstrap` is recreated when the session user
   // changes, and a re-render can otherwise start a second pass that races the
   // first (two concurrent provisions mint different keypairs, and the loser
   // then cannot unlock the winner's row). One pass at a time.
   const bootstrappingRef = useRef(false);
+  const activeUserIdRef = useRef<string | null>(user?.id ?? null);
+  const activeSearchScopeRef = useRef<OfflineSearchCacheScope | null>(null);
+  const activeRecoveryGenerationRef = useRef<number | null>(
+    user && recoveryScope?.userId === user.id
+      ? recoveryScope.recoveryGeneration
+      : null
+  );
+  const identityScopeBroadcastRef = useRef<IdentityScopeBroadcast | null>(null);
+  const identitySyncInFlightRef = useRef(false);
+  const activeUserId = user?.id ?? null;
 
-  // Decrypts the backup with `masterKey`, imports the private key, and caches
-  // it on this device. Shared by both unlock derivations.
+  const updateRecoveryScope = useCallback(
+    (nextScope: SearchRecoveryScope | null) => {
+      activeRecoveryGenerationRef.current =
+        nextScope?.recoveryGeneration ?? null;
+      setRecoveryScope(nextScope);
+    },
+    []
+  );
+
+  const acceptRecoveryGeneration = useCallback(
+    (nextGeneration: number) => {
+      if (!user || activeUserIdRef.current !== user.id) {
+        return;
+      }
+      const previousGeneration = activeRecoveryGenerationRef.current;
+      updateRecoveryScope({
+        recoveryGeneration: nextGeneration,
+        userId: user.id,
+      });
+      storeRecoveryGeneration(user.id, nextGeneration);
+      if (previousGeneration === nextGeneration) {
+        return;
+      }
+      identityScopeBroadcastRef.current?.publish({
+        phase: "generation-changed",
+        recoveryGeneration: nextGeneration,
+      });
+      identityScopeBroadcastRef.current?.publish({
+        phase: "identity-ready",
+        recoveryGeneration: nextGeneration,
+      });
+    },
+    [updateRecoveryScope, user]
+  );
+
+  useEffect(() => {
+    activeUserIdRef.current = activeUserId;
+  }, [activeUserId]);
+
+  useEffect(() => {
+    const nextScope =
+      activeUserId && recoveryScope?.userId === activeUserId
+        ? {
+            recoveryGeneration: recoveryScope.recoveryGeneration,
+            userId: recoveryScope.userId,
+          }
+        : null;
+    const previousScope = activeSearchScopeRef.current;
+    const scopeChanged =
+      previousScope !== null &&
+      (nextScope === null ||
+        previousScope.userId !== nextScope.userId ||
+        previousScope.recoveryGeneration !== nextScope.recoveryGeneration);
+    activeSearchScopeRef.current = nextScope;
+    if (scopeChanged && previousScope) {
+      void offlineSearchWorkerClient.clearScope(previousScope);
+      void clearLegacySearchIndexScopeForIdentity(previousScope);
+    }
+  }, [activeUserId, recoveryScope]);
+
+  // Caches a verified identity private key on this device.
   const persistUnlockedKey = useCallback(
     async (
       userId: string,
-      masterKey: CryptoKey,
-      blob: { ciphertext: string; iv: string }
-    ): Promise<void> => {
-      const decrypted = await decryptWithMasterKey(masterKey, blob);
-      const key = await importPrivateKeyJwk(JSON.parse(decrypted));
-      await setStoredPrivateKey(userId, await exportPrivateKeyJwk(key));
-      setPrivateKey(key);
+      unlockedKey: CryptoKey,
+      privateKeyJwk: JsonWebKey
+    ) => {
+      await setStoredPrivateKey(userId, privateKeyJwk);
+      setPrivateKey(unlockedKey);
     },
     []
   );
@@ -131,6 +266,13 @@ export function MessageIdentityProvider({
     await setStoredPrivateKey(user.id, privateKeyJwk);
     setPrivateKey(pair.privateKey);
     setStatus("ready");
+    const recoveryGeneration = activeRecoveryGenerationRef.current;
+    if (recoveryGeneration !== null) {
+      identityScopeBroadcastRef.current?.publish({
+        phase: "identity-ready",
+        recoveryGeneration,
+      });
+    }
   }, [user]);
 
   // Decrypts the backed-up private key and remembers it on this device.
@@ -145,59 +287,34 @@ export function MessageIdentityProvider({
       if (!user) {
         return;
       }
-      const saltBytes = Uint8Array.from(
-        atob(identityToUnlock.salt),
-        (char) => char.codePointAt(0) ?? 0
-      );
-      // The backup is stored as `iv.ciphertext` (see enableIdentity()).
-      const [iv, ciphertext] = identityToUnlock.encryptedPrivateKey.split(".");
-      if (!iv || !ciphertext) {
-        throw new MessageIdentityLockedError(
-          "This device can't read its messages key"
-        );
-      }
-
-      // Legacy verifier row: the backup key came from the raw secret, so try
-      // the copy this device still holds (if any) before the row derivation.
-      const deviceSecret = getStoredAccountSecret(user.id);
-      if (deviceSecret) {
-        try {
-          const verifier = await hashAccountSecret(deviceSecret);
-          if (
-            verifier.toLowerCase() ===
-            identityToUnlock.masterKeyHash.toLowerCase()
-          ) {
-            const secretKey = await deriveMasterKey(
-              deviceSecret,
-              saltBytes,
-              identityToUnlock.kdfIterations
-            );
-            await persistUnlockedKey(user.id, secretKey, { ciphertext, iv });
-            setStatus("ready");
-            return;
-          }
-        } catch {
-          // Fall through to the stored-hash derivation below.
-        }
-      }
-
-      // Current (and original) rows: the stored hash IS the KDF input, so the
-      // row alone is enough.
+      let unlocked: Awaited<ReturnType<typeof unlockAndMigrateIdentityBackup>>;
       try {
-        const masterKey = await deriveMasterKey(
-          identityToUnlock.masterKeyHash,
-          saltBytes,
-          identityToUnlock.kdfIterations
+        unlocked = await unlockAndMigrateIdentityBackup(
+          identityToUnlock,
+          getStoredAccountSecret(user.id),
+          {
+            persist: (key, privateKeyJwk) =>
+              persistUnlockedKey(user.id, key, privateKeyJwk),
+            refresh: refreshIdentityBackup,
+          }
         );
-        await persistUnlockedKey(user.id, masterKey, { ciphertext, iv });
-        setStatus("ready");
       } catch {
         throw new MessageIdentityLockedError(
           "This device can't read its messages key"
         );
       }
+      setStatus("ready");
+      if (unlocked.refreshedIdentity && activeUserIdRef.current === user.id) {
+        acceptRecoveryGeneration(unlocked.refreshedIdentity.recoveryGeneration);
+        setIdentity((current) =>
+          current?.publicKey === identityToUnlock.publicKey &&
+          current.updatedAt === identityToUnlock.updatedAt
+            ? unlocked.refreshedIdentity
+            : current
+        );
+      }
     },
-    [persistUnlockedKey, user]
+    [acceptRecoveryGeneration, persistUnlockedKey, user]
   );
 
   // The bootstrap body, split out so the caller can reset its in-flight guard
@@ -209,6 +326,13 @@ export function MessageIdentityProvider({
       setStatus("ready");
       return;
     }
+    const storedGeneration = getStoredRecoveryGeneration(user.id);
+    if (storedGeneration !== null) {
+      updateRecoveryScope({
+        recoveryGeneration: storedGeneration,
+        userId: user.id,
+      });
+    }
     // A device that already unlocked keeps the private key in storage so the
     // browser does not have to re-decrypt the backup every session.
     const stored = await getStoredPrivateKey(user.id);
@@ -216,10 +340,44 @@ export function MessageIdentityProvider({
       const key = await importPrivateKeyJwk(stored);
       setPrivateKey(key);
       setStatus("ready");
+      const refreshRecoveryGeneration = async () => {
+        try {
+          const data = await fetchIdentity();
+          if (activeUserIdRef.current !== user.id) {
+            return;
+          }
+          updateRecoveryScope({
+            recoveryGeneration: data.recoveryGeneration,
+            userId: user.id,
+          });
+          storeRecoveryGeneration(user.id, data.recoveryGeneration);
+          if (data.identity) {
+            const refreshedIdentity = await refreshLegacyIdentityBackup(
+              data.identity,
+              getStoredAccountSecret(user.id),
+              stored,
+              refreshIdentityBackup
+            );
+            if (refreshedIdentity) {
+              acceptRecoveryGeneration(refreshedIdentity.recoveryGeneration);
+            }
+          }
+        } catch {
+          // Keep the last locally verified recovery generation for offline use.
+        }
+      };
+      void refreshRecoveryGeneration();
       return;
     }
 
     const data = await fetchIdentity();
+    if (activeUserIdRef.current === user.id) {
+      updateRecoveryScope({
+        recoveryGeneration: data.recoveryGeneration,
+        userId: user.id,
+      });
+      storeRecoveryGeneration(user.id, data.recoveryGeneration);
+    }
     if (!data.identity) {
       // No usable identity: provision one automatically.
       await enableIdentity();
@@ -227,7 +385,13 @@ export function MessageIdentityProvider({
     }
     setIdentity(data.identity);
     await unlockIdentity(data.identity);
-  }, [enableIdentity, unlockIdentity, user]);
+  }, [
+    acceptRecoveryGeneration,
+    enableIdentity,
+    unlockIdentity,
+    updateRecoveryScope,
+    user,
+  ]);
 
   const bootstrap = useCallback(async () => {
     if (typeof window === "undefined" || bootstrappingRef.current) {
@@ -271,27 +435,161 @@ export function MessageIdentityProvider({
     if (!user) {
       return;
     }
-    await resetMessageIdentity();
+    const { recoveryGeneration } = await resetMessageIdentity();
+    updateRecoveryScope({ recoveryGeneration, userId: user.id });
+    storeRecoveryGeneration(user.id, recoveryGeneration);
+    identityScopeBroadcastRef.current?.publish({
+      phase: "generation-changed",
+      recoveryGeneration,
+    });
     // Clear the cached private key and any leftover verifier-scheme secret so
     // the fresh identity starts from nothing.
     await clearStoredPrivateKey(user.id);
     setPrivateKey(null);
     setIdentity(null);
+    updateRecoveryScope(null);
     setIdentityError(null);
     // Provision the replacement. bootstrap sees no local key and no server
     // identity, so it mints a fresh keypair.
     await bootstrap();
-  }, [bootstrap, user]);
+  }, [bootstrap, updateRecoveryScope, user]);
+
+  const refreshRecoveryGeneration = useCallback(async (): Promise<
+    number | null
+  > => {
+    if (!user) {
+      return null;
+    }
+    try {
+      const data = await fetchIdentity();
+      if (activeUserIdRef.current !== user.id) {
+        return null;
+      }
+      updateRecoveryScope({
+        recoveryGeneration: data.recoveryGeneration,
+        userId: user.id,
+      });
+      storeRecoveryGeneration(user.id, data.recoveryGeneration);
+      return data.recoveryGeneration;
+    } catch {
+      return null;
+    }
+  }, [updateRecoveryScope, user]);
+
+  useEffect(() => {
+    if (!user) {
+      return;
+    }
+    const syncedUserId = user.id;
+    const broadcast = createIdentityScopeBroadcast({
+      onNotice: (notice) => {
+        if (activeUserIdRef.current !== syncedUserId) {
+          return;
+        }
+        const storedGeneration = getStoredRecoveryGeneration(syncedUserId);
+        if (
+          storedGeneration !== null &&
+          notice.recoveryGeneration < storedGeneration
+        ) {
+          return;
+        }
+        if (notice.phase === "generation-changed") {
+          if (
+            activeRecoveryGenerationRef.current === notice.recoveryGeneration
+          ) {
+            return;
+          }
+          updateRecoveryScope({
+            recoveryGeneration: notice.recoveryGeneration,
+            userId: syncedUserId,
+          });
+          storeRecoveryGeneration(syncedUserId, notice.recoveryGeneration);
+          setPrivateKey(null);
+          setIdentity(null);
+          setIdentityError(null);
+          setStatus("loading");
+          return;
+        }
+        if (identitySyncInFlightRef.current) {
+          return;
+        }
+        identitySyncInFlightRef.current = true;
+        void (async () => {
+          try {
+            const data = await fetchIdentity();
+            const canUnlock =
+              activeUserIdRef.current === syncedUserId &&
+              data.recoveryGeneration === notice.recoveryGeneration &&
+              activeRecoveryGenerationRef.current ===
+                notice.recoveryGeneration &&
+              data.identity !== null;
+            if (canUnlock && data.identity) {
+              setIdentity(data.identity);
+              await unlockIdentity(data.identity);
+              if (
+                activeUserIdRef.current === syncedUserId &&
+                activeRecoveryGenerationRef.current ===
+                  notice.recoveryGeneration
+              ) {
+                setIdentityError(null);
+                storeRecoveryGeneration(
+                  syncedUserId,
+                  notice.recoveryGeneration
+                );
+              } else if (activeUserIdRef.current === syncedUserId) {
+                setPrivateKey(null);
+                setIdentity(null);
+              }
+            }
+          } catch (error) {
+            if (activeUserIdRef.current === syncedUserId) {
+              setIdentityError(
+                error instanceof Error
+                  ? error.message
+                  : "Failed to refresh message identity"
+              );
+              setStatus(
+                error instanceof MessageIdentityLockedError ? "locked" : "error"
+              );
+            }
+          }
+          identitySyncInFlightRef.current = false;
+        })();
+      },
+      userId: syncedUserId,
+    });
+    identityScopeBroadcastRef.current = broadcast;
+    return () => {
+      broadcast.close();
+      if (identityScopeBroadcastRef.current === broadcast) {
+        identityScopeBroadcastRef.current = null;
+      }
+    };
+  }, [unlockIdentity, updateRecoveryScope, user]);
 
   const value = useMemo(
     () => ({
       error: identityError,
       identity,
       privateKey,
+      recoveryGeneration:
+        user && recoveryScope?.userId === user.id
+          ? recoveryScope.recoveryGeneration
+          : null,
+      refreshRecoveryGeneration,
       reset,
       status,
     }),
-    [identity, identityError, privateKey, reset, status]
+    [
+      identity,
+      identityError,
+      privateKey,
+      recoveryScope,
+      refreshRecoveryGeneration,
+      reset,
+      status,
+      user,
+    ]
   );
 
   return (

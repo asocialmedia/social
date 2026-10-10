@@ -1,7 +1,15 @@
+import type {
+  DenInviteDurationDays,
+  DenRole,
+  GroupAddRefusal,
+} from "@asm/db/messages/dens";
+
 import { uploadMediaFile } from "@/lib/media/media-upload-client";
 import type { UploadStage } from "@/lib/media/media-upload-client";
 import type {
+  DenMembershipEvent,
   MessageConversationData,
+  MessageConversationKey,
   MessageData,
   MessagePage,
 } from "@/lib/messages/types";
@@ -11,11 +19,23 @@ import {
   encryptMessage,
   generateRootKey,
   publicKeyBase64ToJwk,
+  selfPublicKeyBase64,
   unwrapRootKey,
-  wrapRootKey,
+  wrapRootKeyForMembers,
 } from "./crypto";
-import type { EncryptedBlob, EncryptedMessage, MessagePayload } from "./crypto";
+import type {
+  EncryptedBlob,
+  EncryptedMessage,
+  MessagePayload,
+  WrapRecipient,
+} from "./crypto";
 import { HistoryThrottledError } from "./history-throttle";
+import {
+  applyMembershipSeq,
+  lastAppliedMembershipSeq,
+  readMembershipSeq,
+} from "./membership-seq";
+import { shouldReplaceMessageRevision } from "./message-revision";
 
 // Thin typed wrappers around the messages API plus the client-side crypto
 // orchestration (unwrap a conversation key, encrypt a message). All network
@@ -38,6 +58,25 @@ export interface WrappedKeyPayload {
   // Root-key epoch this wrap belongs to. Omitted on legacy payloads, which are
   // epoch 1.
   version?: number;
+  // The member who performed this wrap and the public key they used, as stored on
+  // the row. Null on every DM row written before these columns existed, where
+  // the wrapper is unambiguously the single peer, and on any den row written by a
+  // client too old to name itself.
+  wrapperPublicKey?: string | null;
+  wrapperUserId?: string | null;
+}
+
+// One of my wraps, paired with the public key it was actually made against.
+//
+// `wrapperPublicKeyBase64` is null when the row names no wrapper (a DM, where
+// the caller supplies the peer key instead) and when a den row names a wrapper
+// who cannot be paired at all — they left the den before their key was
+// snapshotted, so there is nothing left to pair with. Such a wrap is dropped
+// rather than paired with a guess.
+export interface ConversationWrap {
+  encryptedKey: EncryptedBlob;
+  version: number;
+  wrapperPublicKeyBase64: string | null;
 }
 
 export interface ConversationPrefs {
@@ -46,6 +85,18 @@ export interface ConversationPrefs {
   mutedAt: string | null;
   // Chat theme key, or null for the app default.
   themeKey: string | null;
+  // How dark the wallpaper is painted, 0-100, or null for the app default.
+  // A plain percentage rather than an index into a table of named stops, so the
+  // member can pick any level and the thumb, the level label and the overlay the
+  // thread paints are all just this one number.
+  wallpaperDim: number | null;
+  // Chat wallpaper key, or null for the app default. Mutually exclusive with
+  // `wallpaperMediaId`: setting one clears the other, so "which wallpaper" is
+  // answered by whichever is non-null.
+  wallpaperKey: string | null;
+  // The member's own uploaded wallpaper, or null. Wins over `wallpaperKey` if
+  // both are somehow set.
+  wallpaperMediaId: string | null;
 }
 
 export interface ConversationDetailResponse {
@@ -80,6 +131,10 @@ export interface ConversationListResponse {
 }
 
 export interface SearchUserResult {
+  // Why this person cannot be put in a group outright, or null when they can.
+  // Only ever set by the den search context: the share sheet asks a different
+  // question and has no use for a group-add refusal.
+  addRefusal: GroupAddRefusal | null;
   avatarUrl: string | null;
   badge: string | null;
   badges: string[];
@@ -93,37 +148,71 @@ export interface PresenceUser {
   avatarUrl: string | null;
   displayName: string;
   id: string;
+  isFollowing: boolean;
   status: "idle" | "online";
   username: string;
 }
 
 export class MessagesApiError extends Error {
+  // A den route's domain outcome, forwarded verbatim. The status cannot always
+  // carry it: several codes share a status - 400 is INVALID_INPUT, INVALID_ROLE
+  // and MEMBERS_REQUIRED, and 409 is ALREADY_MEMBER, LIMIT_REACHED, NOT_A_DEN and
+  // SELF_ACTION - so a client that wants copy specific to one of them has nothing
+  // to branch on without the code. (It is not carried by the STATUS any more than
+  // it used to be: BLOCKED and FORBIDDEN shared a 403 once, but there is no
+  // BLOCKED code any more, because a block is a DM-only rule and a den admits
+  // regardless of it. 400 and 409 still carry the argument.) Optional because the
+  // DM routes never write one and a caller must not have to check.
+  readonly code: string | undefined;
   readonly expectedIndex: number | undefined;
   readonly status: number;
 
-  constructor(message: string, status: number, expectedIndex?: number) {
+  constructor(
+    message: string,
+    status: number,
+    expectedIndex?: number,
+    code?: string
+  ) {
     super(message);
     this.name = "MessagesApiError";
     this.status = status;
     this.expectedIndex = expectedIndex;
+    this.code = code;
   }
 }
 
-async function parseError(response: Response): Promise<MessagesApiError> {
+// The error fields every route writes, read once so the two parsers below cannot
+// drift on which body fields they honour.
+interface ApiErrorBody {
+  code?: string;
+  error?: string;
+  expectedIndex?: number;
+  retryAfterSeconds?: number;
+}
+
+interface ParsedErrorBody {
+  code: string | undefined;
+  expectedIndex: number | undefined;
+  message: string;
+  retryAfterSeconds: number | undefined;
+}
+
+async function readErrorBody(response: Response): Promise<ParsedErrorBody> {
+  let code: string | undefined;
   let message = `Request failed (${response.status})`;
   let expectedIndex: number | undefined;
   let retryAfterSeconds: number | undefined;
   try {
-    const body = (await response.json()) as {
-      error?: string;
-      expectedIndex?: number;
-      retryAfterSeconds?: number;
-    };
+    const body = (await response.json()) as ApiErrorBody;
     const {
+      code: bodyCode,
       error: bodyError,
       expectedIndex: bodyExpectedIndex,
       retryAfterSeconds: bodyRetryAfter,
     } = body;
+    if (typeof bodyCode === "string") {
+      code = bodyCode;
+    }
     if (typeof bodyError === "string") {
       message = bodyError;
     }
@@ -134,20 +223,57 @@ async function parseError(response: Response): Promise<MessagesApiError> {
   } catch {
     // fall through with the generic message
   }
+  return { code, expectedIndex, message, retryAfterSeconds };
+}
+
+// Seconds to wait after a 429: the route's own field when it sent one, then the
+// header, then one second.
+function retryAfterWait(body: number | undefined, response: Response): number {
+  const headerRetry = Number(response.headers.get("retry-after"));
+  return body ?? (Number.isFinite(headerRetry) ? headerRetry : 1);
+}
+
+async function parseError(response: Response): Promise<MessagesApiError> {
+  const body = await readErrorBody(response);
   // A throttled history read is not a failure the caller should treat as fatal:
   // the backfill waits and retries the same page. Anything else stays a plain
   // MessagesApiError.
   if (response.status === 429) {
-    const headerRetry = Number(response.headers.get("retry-after"));
-    const wait =
-      retryAfterSeconds ?? (Number.isFinite(headerRetry) ? headerRetry : 1);
-    throw new HistoryThrottledError(wait);
+    throw new HistoryThrottledError(
+      retryAfterWait(body.retryAfterSeconds, response)
+    );
   }
-  return new MessagesApiError(message, response.status, expectedIndex);
+  return new MessagesApiError(
+    body.message,
+    response.status,
+    body.expectedIndex
+  );
+}
+
+// A den route's 429 is a refusal the caller has to handle, not a backfill pause:
+// a throttled add-members or invite rotation has to surface as something the
+// member reads. Same body and status as the history read, different consequence,
+// so it stays a MessagesApiError instead of becoming the backfill's retry signal.
+// The server already writes these refusals for a human, and the dialogs show the
+// message verbatim.
+//
+// The `code` comes along for the same reason the message does, and because
+// several refusals share a status - 400 and 409 each cover four or five codes -
+// so a caller that wants copy specific to one of them has to read which one this
+// was. See the comment on the field above.
+async function parseDenError(response: Response): Promise<MessagesApiError> {
+  const body = await readErrorBody(response);
+  return new MessagesApiError(
+    body.message,
+    response.status,
+    body.expectedIndex,
+    body.code
+  );
 }
 
 export async function fetchIdentity(): Promise<{
   identity: MessageIdentityPayload | null;
+  recoveryGeneration: number;
 }> {
   const response = await fetch("/api/messages/identity", {
     credentials: "same-origin",
@@ -155,8 +281,18 @@ export async function fetchIdentity(): Promise<{
   if (!response.ok) {
     throw await parseError(response);
   }
-  return (await response.json()) as {
+  const body = (await response.json()) as {
     identity: MessageIdentityPayload | null;
+    recoveryGeneration?: unknown;
+  };
+  return {
+    identity: body.identity,
+    recoveryGeneration:
+      typeof body.recoveryGeneration === "number" &&
+      Number.isSafeInteger(body.recoveryGeneration) &&
+      body.recoveryGeneration >= 0
+        ? body.recoveryGeneration
+        : 0,
   };
 }
 
@@ -178,13 +314,58 @@ export async function saveIdentity(payload: {
   }
 }
 
+export async function refreshIdentityBackup(payload: {
+  encryptedPrivateKey: string;
+  expectedUpdatedAt: string;
+  kdfIterations: number;
+  masterKeyHash: string;
+  publicKey: string;
+  salt: string;
+}): Promise<{ recoveryGeneration: number; updatedAt: string }> {
+  const response = await fetch("/api/messages/identity", {
+    body: JSON.stringify(payload),
+    credentials: "same-origin",
+    headers: { "Content-Type": "application/json" },
+    method: "PATCH",
+  });
+  if (!response.ok) {
+    throw await parseError(response);
+  }
+  const body: unknown = await response.json();
+  if (
+    typeof body !== "object" ||
+    body === null ||
+    !("updatedAt" in body) ||
+    typeof body.updatedAt !== "string" ||
+    !("recoveryGeneration" in body) ||
+    typeof body.recoveryGeneration !== "number" ||
+    !Number.isSafeInteger(body.recoveryGeneration) ||
+    body.recoveryGeneration < 0
+  ) {
+    throw new Error("Identity backup could not be refreshed");
+  }
+  const updatedAt = new Date(body.updatedAt);
+  if (
+    !Number.isFinite(updatedAt.getTime()) ||
+    updatedAt.toISOString() !== body.updatedAt
+  ) {
+    throw new Error("Identity backup could not be refreshed");
+  }
+  return {
+    recoveryGeneration: body.recoveryGeneration,
+    updatedAt: body.updatedAt,
+  };
+}
+
 // Drops this account's server-side identity and its own conversation-key wraps
 // so the next bootstrap provisions a fresh keypair. The recovery path when the
 // stored identity row can no longer be read on any device. Messages are
 // untouched: the caller's pre-reset history becomes unreadable to them, while
 // the peer's own wraps remain, so the peer keeps the full history. Callers must
 // confirm with the user before invoking this.
-export async function resetMessageIdentity(): Promise<void> {
+export async function resetMessageIdentity(): Promise<{
+  recoveryGeneration: number;
+}> {
   const response = await fetch("/api/messages/identity", {
     credentials: "same-origin",
     method: "DELETE",
@@ -192,6 +373,15 @@ export async function resetMessageIdentity(): Promise<void> {
   if (!response.ok) {
     throw await parseError(response);
   }
+  const body = (await response.json()) as { recoveryGeneration?: unknown };
+  if (
+    typeof body.recoveryGeneration !== "number" ||
+    !Number.isSafeInteger(body.recoveryGeneration) ||
+    body.recoveryGeneration < 0
+  ) {
+    throw new Error("Identity reset did not return a recovery generation");
+  }
+  return { recoveryGeneration: body.recoveryGeneration };
 }
 
 export async function createConversation(
@@ -206,16 +396,546 @@ export async function createConversation(
   if (!response.ok) {
     throw await parseError(response);
   }
-  return (await response.json()) as {
+  const body = (await response.json()) as {
     conversation: MessageConversationData;
     isNew: boolean;
   };
+  noteConversationUpdatedAt(body.conversation);
+  noteConversationMembershipSeq(body.conversation);
+  return body;
 }
 
+// A den (group conversation). The same route as a DM, discriminated by `type`, so
+// the response lands on the same conversation cache entry the thread already
+// reads and the client lands on the same `?c=<id>` deep link.
+//
+// `inviteCode` and `inviteShortCode` are the two doors, and they come back
+// exactly once: at creation. The details route withholds both from anybody who
+// is not a manager, so the creator is the only one who ever sees these values
+// from this call.
+export async function createDen(input: {
+  avatarMediaId?: string | null;
+  description?: string | null;
+  memberIds: string[];
+  name: string;
+}): Promise<{
+  conversation: MessageConversationData;
+  inviteCode: string;
+  inviteShortCode: string;
+  isNew: boolean;
+}> {
+  const response = await fetch("/api/messages/conversations", {
+    body: JSON.stringify({
+      // The explicit discriminator, so a malformed DM body can never be read as a
+      // request for a group.
+      type: "DEN",
+      ...(input.avatarMediaId === undefined
+        ? {}
+        : { avatarMediaId: input.avatarMediaId }),
+      ...(input.description === undefined
+        ? {}
+        : { description: input.description }),
+      memberIds: input.memberIds,
+      name: input.name,
+    }),
+    credentials: "same-origin",
+    headers: { "Content-Type": "application/json" },
+    method: "POST",
+  });
+  if (!response.ok) {
+    throw await parseDenError(response);
+  }
+  const body = (await response.json()) as {
+    conversation: MessageConversationData;
+    inviteCode: string;
+    inviteShortCode: string;
+    isNew: boolean;
+  };
+  // Recorded like a DM read, because a create is a membership mutation too: the
+  // stale-snapshot guard in ensureConversationKeys has to know the server has
+  // already moved this conversation row forward.
+  noteConversationUpdatedAt(body.conversation);
+  noteConversationMembershipSeq(body.conversation);
+  return body;
+}
+
+// One member of a den roster, as the members route reports it. Deliberately not
+// MessageSender: the roster carries display fields only, because the details
+// panel draws names and roles and never needs a member's message identity (the
+// root-key fan-out reads those off the conversation payload the thread holds).
+export interface DenMember {
+  avatarUrl: string | null;
+  badge: string | null;
+  badges: string[];
+  displayName: string;
+  id: string;
+  // Absent for the creator and for anybody who arrived through an invite link.
+  invitedById: string | null;
+  role: DenRole;
+  username: string;
+}
+
+// The den's own shape for the details panel: who may manage it, what it is
+// called, and the caller's role so the panel can decide which affordances to
+// render without a second call.
+//
+// `inviteCode` is null for anybody who is not a manager. That is the server's
+// decision and it is the right one, so the client renders the invite controls
+// only when both the code and `canManage` are present.
+export interface DenDetailResponse {
+  canManage: boolean;
+  den: {
+    avatarMediaId: string | null;
+    description: string | null;
+    inviteCode: string | null;
+    // The expiry facts ride with the code, under the same manager gate: they
+    // describe the door, and a member who cannot hold the door does not need
+    // its state. `inviteExpiresAt` is null for a link that never expires, and
+    // `inviteDurationDays` is the last preset a manager picked - the next
+    // picker's default - which is null for the same reason and for every den
+    // whose link predates expiry.
+    inviteDurationDays: number | null;
+    inviteExpiresAt: string | null;
+    inviteShortCode: string | null;
+    inviteShortCodeDurationDays: number | null;
+    inviteShortCodeExpiresAt: string | null;
+    memberCount: number;
+    name: string | null;
+    ownerId: string | null;
+  };
+  membership: { role: DenRole };
+}
+
+export async function fetchDen(
+  conversationId: string
+): Promise<DenDetailResponse> {
+  const response = await fetch(`/api/messages/dens/${conversationId}`, {
+    credentials: "same-origin",
+  });
+  if (!response.ok) {
+    throw await parseDenError(response);
+  }
+  return (await response.json()) as DenDetailResponse;
+}
+
+// Renames a den, changes its description, or swaps its avatar. The fields are
+// independent, matching the route: an absent key is left alone, and an explicit
+// null clears. So a rename must send only `name`, never the description it did
+// not mean to change.
+export async function updateDenDetails(
+  conversationId: string,
+  input: {
+    avatarMediaId?: string | null;
+    description?: string | null;
+    name?: string;
+  }
+): Promise<void> {
+  const response = await fetch(`/api/messages/dens/${conversationId}`, {
+    body: JSON.stringify(input),
+    credentials: "same-origin",
+    headers: { "Content-Type": "application/json" },
+    method: "PATCH",
+  });
+  if (!response.ok) {
+    throw await parseDenError(response);
+  }
+}
+
+// The roster, owner first. `limit` is the route's own page size; it defaults
+// server-side to 50 and is capped at DEN_LIMITS.membersMax, so a den can never
+// page more than it holds.
+export async function fetchDenMembers(
+  conversationId: string,
+  limit?: number
+): Promise<DenMember[]> {
+  const query =
+    limit === undefined ? "" : `?limit=${encodeURIComponent(String(limit))}`;
+  const response = await fetch(
+    `/api/messages/dens/${conversationId}/members${query}`,
+    { credentials: "same-origin" }
+  );
+  if (!response.ok) {
+    throw await parseDenError(response);
+  }
+  const body = (await response.json()) as { members: DenMember[] };
+  return body.members;
+}
+
+// Adds members. Returns the ids actually added rather than the ids requested:
+// the root key has to be rotated for exactly those, and a client that asked for
+// five and got three needs to know which three.
+export async function addDenMembers(
+  conversationId: string,
+  memberIds: string[]
+): Promise<string[]> {
+  const response = await fetch(`/api/messages/dens/${conversationId}/members`, {
+    body: JSON.stringify({ memberIds }),
+    credentials: "same-origin",
+    headers: { "Content-Type": "application/json" },
+    method: "POST",
+  });
+  if (!response.ok) {
+    throw await parseDenError(response);
+  }
+  const body = (await response.json()) as { added?: string[] };
+  return body.added ?? [];
+}
+
+// One banned member, as the manager-facing list reports it.
+//
+// Deliberately not `DenBan` from the server package: that type carries a `Date`, and
+// every den client type on the wire carries the ISO string the route serialises. The
+// reason is optional, because it is optional on the way in as well.
+export interface DenBannedMember {
+  avatarUrl: string | null;
+  bannedById: string | null;
+  bannedByName: string | null;
+  createdAt: string;
+  displayName: string | null;
+  id: string;
+  reason: string | null;
+  username: string | null;
+}
+
+// This den's bans, newest first. Manager only; the route refuses anybody else, so a
+// plain member's panel simply never calls this.
+export async function fetchDenBans(
+  conversationId: string
+): Promise<DenBannedMember[]> {
+  const response = await fetch(`/api/messages/dens/${conversationId}/bans`, {
+    credentials: "same-origin",
+  });
+  if (!response.ok) {
+    throw await parseDenError(response);
+  }
+  const body = (await response.json()) as { bans?: DenBannedMember[] };
+  return body.bans ?? [];
+}
+
+// Keeps somebody out of a den. Removes them first if they were still inside, in the
+// same transaction - see the service for why the two cannot be separate writes.
+export async function banDenMember(
+  conversationId: string,
+  userId: string,
+  reason?: string | null
+): Promise<void> {
+  const response = await fetch(`/api/messages/dens/${conversationId}/bans`, {
+    body: JSON.stringify({
+      reason: reason ?? null,
+      userId,
+    }),
+    credentials: "same-origin",
+    headers: { "Content-Type": "application/json" },
+    method: "POST",
+  });
+  if (!response.ok) {
+    throw await parseDenError(response);
+  }
+}
+
+// Restores eligibility only. It does not add the person back - that is the add
+// control, deliberately a separate visible act.
+export async function unbanDenMember(
+  conversationId: string,
+  userId: string
+): Promise<void> {
+  const response = await fetch(
+    `/api/messages/dens/${conversationId}/bans/${encodeURIComponent(userId)}`,
+    { credentials: "same-origin", method: "DELETE" }
+  );
+  if (!response.ok) {
+    throw await parseDenError(response);
+  }
+}
+
+export async function removeDenMember(
+  conversationId: string,
+  userId: string
+): Promise<void> {
+  const response = await fetch(
+    `/api/messages/dens/${conversationId}/members/${encodeURIComponent(userId)}`,
+    { credentials: "same-origin", method: "DELETE" }
+  );
+  if (!response.ok) {
+    throw await parseDenError(response);
+  }
+}
+
+// Only ADMIN and MEMBER are assignable here. Ownership is not a role this route
+// can hand out: it also has to move the den's ownerId, so it goes through the
+// transfer call below, and the UI offers no promote-to-owner.
+export async function setDenMemberRole(
+  conversationId: string,
+  userId: string,
+  role: "ADMIN" | "MEMBER"
+): Promise<void> {
+  const response = await fetch(`/api/messages/dens/${conversationId}/role`, {
+    body: JSON.stringify({ role, userId }),
+    credentials: "same-origin",
+    headers: { "Content-Type": "application/json" },
+    method: "POST",
+  });
+  if (!response.ok) {
+    throw await parseDenError(response);
+  }
+}
+
+// Hands the den to somebody already in it. The caller stays in as an Elder, so
+// nothing here is about leaving: the den and its history do not move, only who is
+// in charge of them. That is why it is a separate call rather than an option on
+// `setDenMemberRole` - the route moves two rows and cannot be refused with the
+// same "That role cannot be assigned" a bad body gets.
+export async function transferDenOwnership(
+  conversationId: string,
+  userId: string
+): Promise<void> {
+  const response = await fetch(
+    `/api/messages/dens/${conversationId}/transfer`,
+    {
+      body: JSON.stringify({ userId }),
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+    }
+  );
+  if (!response.ok) {
+    throw await parseDenError(response);
+  }
+}
+
+// Leaves. The den survives the last member walking out, so the only thing the
+// response carries is who the caller handed it to, if they were the owner. There
+// is no `dissolved` to branch on any more: deleting a den is the owner's own
+// control and goes through `dissolveDen`.
+export async function leaveDen(
+  conversationId: string
+): Promise<{ newOwnerId: string | null }> {
+  const response = await fetch(`/api/messages/dens/${conversationId}/leave`, {
+    credentials: "same-origin",
+    method: "POST",
+  });
+  if (!response.ok) {
+    throw await parseDenError(response);
+  }
+  const body = (await response.json()) as {
+    newOwnerId?: string | null;
+  };
+  return { newOwnerId: body.newOwnerId ?? null };
+}
+
+// Dissolves the den outright. Owner only, and the one operation here that is
+// not undoable, which is why its confirmation is its own dialog.
+export async function dissolveDen(conversationId: string): Promise<void> {
+  const response = await fetch(`/api/messages/dens/${conversationId}/leave`, {
+    credentials: "same-origin",
+    method: "DELETE",
+  });
+  if (!response.ok) {
+    throw await parseDenError(response);
+  }
+}
+
+// Mints a fresh invite link, retiring the current one. The old code stops
+// resolving the moment this returns - the revocation step for a code that
+// leaked, and the "it expired, give me another" step in one. `durationDays` is
+// one of the presets the server whitelists, or null for a link that never
+// expires; the server computes the expiry from its own clock, and the response
+// carries it back so the panel can show the countdown without a refetch.
+export async function createDenInvite(
+  conversationId: string,
+  durationDays: DenInviteDurationDays | null
+): Promise<{ inviteCode: string; inviteExpiresAt: Date | null }> {
+  const response = await fetch(`/api/messages/dens/${conversationId}/invite`, {
+    body: JSON.stringify({ durationDays }),
+    credentials: "same-origin",
+    headers: { "content-type": "application/json" },
+    method: "POST",
+  });
+  if (!response.ok) {
+    throw await parseDenError(response);
+  }
+  const body = (await response.json()) as {
+    inviteCode?: string;
+    inviteExpiresAt?: string | null;
+  };
+  if (!body.inviteCode) {
+    throw new Error("The new join link did not come back");
+  }
+  return {
+    inviteCode: body.inviteCode,
+    inviteExpiresAt: body.inviteExpiresAt
+      ? new Date(body.inviteExpiresAt)
+      : null,
+  };
+}
+
+// Mints a fresh 6-character invite code, retiring the current one.
+export async function createDenShortCode(
+  conversationId: string,
+  durationDays: DenInviteDurationDays | null
+): Promise<{ inviteShortCode: string; inviteShortCodeExpiresAt: Date | null }> {
+  const response = await fetch(
+    `/api/messages/dens/${conversationId}/invite-code`,
+    {
+      body: JSON.stringify({ durationDays }),
+      credentials: "same-origin",
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    }
+  );
+  if (!response.ok) {
+    throw await parseDenError(response);
+  }
+  const body = (await response.json()) as {
+    inviteShortCode?: string;
+    inviteShortCodeExpiresAt?: string | null;
+  };
+  if (!body.inviteShortCode) {
+    throw new Error("The new join code did not come back");
+  }
+  return {
+    inviteShortCode: body.inviteShortCode,
+    inviteShortCodeExpiresAt: body.inviteShortCodeExpiresAt
+      ? new Date(body.inviteShortCodeExpiresAt)
+      : null,
+  };
+}
+
+// What a join link shows before anybody commits to it: the den's name, how many
+// people are in it, whether the viewer is already one of them, and - on a live
+// code - the den's own image. Nothing else, because possession of a code is not a
+// reason to enumerate a roster.
+//
+// The retired case is a second shape rather than two more fields on this one, so
+// the live payload stays additive: a reader holding a working code is told the same
+// things they were before plus the picture they need to recognise the room. A code a
+// rotation has retired still resolves - to the den it used to open, and to that
+// den's owner, because the only way to hold such a code is to have been given it -
+// and carries NO image, which is the whole reason the two shapes are separate.
+// `expired` is absent (not `false`) on the live shape, which is what makes
+// `preview.expired` a usable discriminant; a server that sends `expired: false` also
+// narrows correctly.
+export type DenInvitePreviewResponse =
+  | {
+      den: {
+        // The den's own image, on the live shape only. A retired code deliberately
+        // has none: the picture is disclosed to somebody holding a link that still
+        // works, not to somebody holding one the den has withdrawn.
+        avatarMediaId: string | null;
+        id: string;
+        memberCount: number;
+        name: string | null;
+      };
+      expired?: undefined;
+      // Whether the ACCOUNT ASKING is banned from this den. Not a property of the den
+      // and never anybody else's, which is why it sits beside `isMember` rather than
+      // inside `den`: the preview answers two questions about the caller and nothing
+      // about the room's moderation state.
+      //
+      // Absent (rather than false) on the retired shape, and the join screen narrows
+      // on `expired` first anyway - a dead link's screen exists to send somebody to the
+      // owner who can mint a replacement, and telling a banned person "never mind" on
+      // a link that no longer works tells them nothing and costs the screen its point.
+      isBanned?: boolean;
+      // Whether the account asking is CURRENTLY INSIDE this den. Not "has a
+      // membership row": leaving and removal set `leftAt` and keep the row, so the
+      // row-exists reading said `true` for every kicked or departed member and the
+      // join screen told them they were already in. The route answers it with
+      // `isCurrentDenMember`, and the join screen's "already in" / Join offer both
+      // key off this one flag.
+      isMember: boolean;
+    }
+  | {
+      den: {
+        id: string;
+        memberCount: number;
+        name: string | null;
+        // Who to ask for a new invite. Null when the den's owner account is gone,
+        // which the join screen answers by degrading rather than by offering a
+        // button that opens nothing.
+        ownerId: string | null;
+      };
+      expired: true;
+      // Same meaning as the live shape: currently inside, not merely a row holder.
+      isMember: boolean;
+    };
+
+export async function fetchDenInvitePreview(
+  code: string
+): Promise<DenInvitePreviewResponse> {
+  const response = await fetch(
+    `/api/messages/dens/join/${encodeURIComponent(code)}`,
+    { credentials: "same-origin" }
+  );
+  if (!response.ok) {
+    throw await parseDenError(response);
+  }
+  return (await response.json()) as DenInvitePreviewResponse;
+}
+
+// A short-lived URL for the den's picture, for the join screen to draw.
+//
+// Separate from the preview on purpose. The preview names the media so the screen
+// knows whether there IS an image, and this mints a presigned URL for it because
+// `/api/media/{id}` admits conversation members and refuses everybody else - a
+// reader who has not joined yet is nobody, so the ordinary route would answer 404
+// and the screen would show its placeholder even for a den that has a perfectly
+// good picture.
+//
+// Null is the ordinary answer for a den with no image and for a code this endpoint
+// will not serve - a retired one, or a full den the reader is not inside of - and
+// the screen draws the same placeholder for all three. So this never rejects for a
+// picture that is merely absent: only a 401 or a 429 propagate, because those are
+// about this device rather than about the image.
+export async function fetchDenInviteAvatar(
+  code: string
+): Promise<string | null> {
+  const response = await fetch(
+    `/api/messages/dens/join/${encodeURIComponent(code)}/avatar`,
+    { credentials: "same-origin" }
+  );
+  if (response.status === 404) {
+    return null;
+  }
+  if (!response.ok) {
+    throw await parseDenError(response);
+  }
+  const body = (await response.json()) as { avatarUrl?: unknown };
+  return typeof body.avatarUrl === "string" ? body.avatarUrl : null;
+}
+
+// Joins through an invite code. `alreadyMember` is a success, not a failure: a
+// re-opened link navigates without an error toast.
+export async function joinDen(
+  code: string
+): Promise<{ alreadyMember: boolean; conversationId: string }> {
+  const response = await fetch(
+    `/api/messages/dens/join/${encodeURIComponent(code)}`,
+    { credentials: "same-origin", method: "POST" }
+  );
+  if (!response.ok) {
+    throw await parseDenError(response);
+  }
+  const body = (await response.json()) as {
+    alreadyMember?: boolean;
+    conversationId?: string;
+  };
+  if (!body.conversationId) {
+    throw new Error("The den joined but no conversation came back");
+  }
+  return {
+    alreadyMember: body.alreadyMember === true,
+    conversationId: body.conversationId,
+  };
+}
+
+// Posts wrapped root keys for a conversation. The result says how many of the rows
+// this call actually stored, which is how a caller learns that a rotation lost the
+// race for its epoch (see rotateConversationEpoch).
 export async function postConversationKeys(
   conversationId: string,
   keys: WrappedKeyPayload[]
-): Promise<void> {
+): Promise<{ applied: number }> {
   const response = await fetch(
     `/api/messages/conversations/${conversationId}/keys`,
     {
@@ -228,6 +948,122 @@ export async function postConversationKeys(
   if (!response.ok) {
     throw await parseError(response);
   }
+  const body = (await response.json()) as { applied?: number };
+  // A server that does not report it predates the field; assume the write landed,
+  // which is what the client did before the field existed.
+  return {
+    applied: typeof body.applied === "number" ? body.applied : keys.length,
+  };
+}
+
+// The newest `updatedAt` the server has reported for a conversation, from every
+// detail and list read this tab has made.
+//
+// A den's roster moves without this client hearing about it: a membership
+// mutation bumps the conversation row, and until the client refetches, its cached
+// detail still lists the removed member, still shows no departed holder and no
+// newcomer, and still reads its newest epoch perfectly. Nothing in that snapshot
+// says the epoch is contaminated, so a send under it hands a message to exactly
+// the member who was just removed. The composer refetches after every send, which
+// bounds that window rather than closing it, so the send path compares its snapshot
+// against what the server has already told us instead of trusting it.
+//
+// A message send moves the same row, so the watermark advances for ordinary
+// activity too and the guard can fire without a membership change behind it. That
+// costs one refetch on the send path — which already carries one — and never a
+// wrong epoch. The alternative is a narrower signal nobody has today: separating
+// roster movement from transcript movement needs its own column.
+//
+// It has one now. `membershipSeq` moves only for the roster, so the check below is
+// now two axes rather than one, and this comment is what keeps the older axis from
+// being deleted as redundant: it is the second, independent line of defence, and
+// it still fires for a server that never reports a counter. What it must never
+// become is the only one again, which is why `touchDen` no longer relies on it.
+const serverReportedConversationUpdatedAt = new Map<string, number>();
+
+// Records the newest report for a conversation. Later reads only ever move it
+// forward, so an out-of-order response cannot walk the watermark back.
+function noteConversationUpdatedAt(conversation: {
+  id: string;
+  updatedAt: Date | string | number | null | undefined;
+}): void {
+  const reported = toMillis(conversation.updatedAt);
+  if (reported === null) {
+    return;
+  }
+  const seen = serverReportedConversationUpdatedAt.get(conversation.id);
+  if (seen === undefined || reported > seen) {
+    serverReportedConversationUpdatedAt.set(conversation.id, reported);
+  }
+}
+
+// The sibling of the above, for the roster-only counter. Kept in its own module
+// (`./membership-seq`) rather than folded into the `updatedAt` map, because the two
+// answer different questions: one says "this row moved at some point", the other
+// says "the roster moved N times". Merging them would make a message send look
+// like a membership change, which is the cost this column exists to remove.
+//
+// Records whatever the response carried and asks nothing of the caller here: a
+// detail, list or create response IS the fresh data, so the caller has nothing to
+// refetch. The send path is the one response that is not, and it uses the returned
+// plan - see `sendEncryptedMessage`.
+function noteConversationMembershipSeq(conversation: {
+  id: string;
+  membershipSeq?: number | null;
+}): void {
+  applyMembershipSeq(conversation.id, conversation.membershipSeq);
+}
+
+// Whether this snapshot has already been overtaken by something the server told
+// this tab about it. Unknown conversations (nothing reported yet) are never stale,
+// so the check costs nothing on a conversation read for the first time.
+//
+// Two axes, OR-ed, each independent:
+//
+//   - `updatedAt`: the second line of defence, kept rather than removed. Coarse
+//     (millisecond resolution, and it moves on every send) and it can fire without
+//     any membership change behind it, but it needs nothing from a newer server.
+//   - `membershipSeq`: the sound one. It moves only for the roster, so a value
+//     ahead of this snapshot's is proof that the roster moved and this tab never
+//     heard it - which is exactly the case the timestamp cannot distinguish from
+//     ordinary activity.
+//
+// Either way the answer is the same for the caller, which is why they are one
+// predicate: `ensureConversationKeys` refetches before sending, or refuses the
+// send when it cannot.
+export function isConversationSnapshotStale(
+  conversation: MessageConversationData
+): boolean {
+  return (
+    isUpdatedAtSnapshotBehind(conversation) ||
+    isMembershipSeqSnapshotBehind(conversation)
+  );
+}
+
+function isUpdatedAtSnapshotBehind(
+  conversation: MessageConversationData
+): boolean {
+  const reported = serverReportedConversationUpdatedAt.get(conversation.id);
+  if (reported === undefined) {
+    return false;
+  }
+  const snapshot = toMillis(conversation.updatedAt);
+  return snapshot !== null && snapshot < reported;
+}
+
+// A snapshot that carries no counter cannot be behind on that axis, and neither
+// can one from a tab that has never been told a value for it. Both are the common
+// case - a DM, a payload cached before the column existed - and both must resolve
+// to "not stale", or every send on the hottest path in the app would pay a refetch.
+function isMembershipSeqSnapshotBehind(
+  conversation: MessageConversationData
+): boolean {
+  const snapshot = readMembershipSeq(conversation.membershipSeq);
+  const reported = lastAppliedMembershipSeq(conversation.id);
+  if (snapshot === null || reported === null) {
+    return false;
+  }
+  return snapshot < reported;
 }
 
 export async function fetchConversationList(
@@ -240,7 +1076,12 @@ export async function fetchConversationList(
   if (!response.ok) {
     throw await parseError(response);
   }
-  return (await response.json()) as ConversationListResponse;
+  const body = (await response.json()) as ConversationListResponse;
+  for (const item of body.conversations) {
+    noteConversationUpdatedAt(item);
+    noteConversationMembershipSeq(item);
+  }
+  return body;
 }
 
 export async function fetchConversationDetail(
@@ -255,7 +1096,35 @@ export async function fetchConversationDetail(
   if (!response.ok) {
     throw await parseError(response);
   }
-  return (await response.json()) as ConversationDetailResponse;
+  const body = (await response.json()) as ConversationDetailResponse;
+  noteConversationUpdatedAt(body.conversation);
+  noteConversationMembershipSeq(body.conversation);
+  return body;
+}
+
+// The den's durable membership log, oldest first. A DM answers with an empty
+// list rather than a 404: the thread asks for the log of every conversation it
+// opens, and a DM is a conversation with nothing to log rather than an error.
+//
+// The dates come back as ISO strings and are revived here, so the transcript can
+// sort the lines against messages without re-parsing at the comparison.
+export async function fetchDenMembershipEvents(
+  conversationId: string
+): Promise<DenMembershipEvent[]> {
+  const response = await fetch(
+    `/api/messages/conversations/${conversationId}/events`,
+    { credentials: "same-origin" }
+  );
+  if (!response.ok) {
+    throw await parseError(response);
+  }
+  const body = (await response.json()) as {
+    events: (Omit<DenMembershipEvent, "createdAt"> & { createdAt: string })[];
+  };
+  return body.events.map((event) => ({
+    ...event,
+    createdAt: new Date(event.createdAt),
+  }));
 }
 
 // Writes the caller's own DM preferences. Only the keys present in `prefs` are
@@ -265,7 +1134,12 @@ export async function fetchConversationDetail(
 // re-muting keeps the original one).
 export async function updateConversationPrefs(
   conversationId: string,
-  prefs: { muted?: boolean; themeKey?: string | null }
+  prefs: {
+    muted?: boolean;
+    themeKey?: string | null;
+    wallpaperDim?: number | null;
+    wallpaperKey?: string | null;
+  }
 ): Promise<ConversationPrefs> {
   const response = await fetch(
     `/api/messages/conversations/${conversationId}/prefs`,
@@ -274,6 +1148,50 @@ export async function updateConversationPrefs(
       credentials: "same-origin",
       headers: { "Content-Type": "application/json" },
       method: "PATCH",
+    }
+  );
+  if (!response.ok) {
+    throw await parseError(response);
+  }
+  const body = (await response.json()) as { prefs: ConversationPrefs };
+  return body.prefs;
+}
+
+// Links the caller's own uploaded image as this conversation's custom wallpaper.
+// The image must already be a finished (`READY`) pipeline upload; the route
+// re-checks ownership, type and dimensions against what the decoder measured.
+// Returns the server's refreshed prefs so the caller can paint from the truth
+// rather than from its own optimism.
+export async function setConversationWallpaperUpload(
+  conversationId: string,
+  mediaId: string
+): Promise<ConversationPrefs> {
+  const response = await fetch(
+    `/api/messages/conversations/${conversationId}/wallpaper`,
+    {
+      body: JSON.stringify({ mediaId }),
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+    }
+  );
+  if (!response.ok) {
+    throw await parseError(response);
+  }
+  const body = (await response.json()) as { prefs: ConversationPrefs };
+  return body.prefs;
+}
+
+// Unlinks the custom upload, returning the chat to the app default (or whatever
+// preset was last chosen). The route schedules the freed image for cleanup.
+export async function clearConversationWallpaperUpload(
+  conversationId: string
+): Promise<ConversationPrefs> {
+  const response = await fetch(
+    `/api/messages/conversations/${conversationId}/wallpaper`,
+    {
+      credentials: "same-origin",
+      method: "DELETE",
     }
   );
   if (!response.ok) {
@@ -366,7 +1284,15 @@ export async function fetchMessages(
   if (!response.ok) {
     throw await parseError(response);
   }
-  return (await response.json()) as MessagePage;
+  const body = (await response.json()) as MessagePage;
+  // The wire carries ISO strings and `MessageData` declares `Date`. Every message
+  // that enters the cache goes through here or through a realtime fold, so this is
+  // the two places the mismatch has to die; without it a consumer that compares
+  // two timestamps finds a string where it was promised a Date.
+  return {
+    ...body,
+    messages: body.messages.map((message) => toCachedMessage(message)),
+  };
 }
 
 export interface MessageMediaUpload {
@@ -475,7 +1401,10 @@ export async function linkMessageMedia(
 // Natural image dimensions from the file's first frame, so the sender can
 // encrypt them into the payload and receivers avoid layout shift. Null when
 // the browser cannot decode the file; bubbles fall back to a fixed ratio.
-async function readImageDimensions(
+//
+// Exported because the wallpaper uploader needs the same pre-flight read to
+// reject an image that is too small before spending an upload on it.
+export async function readImageDimensions(
   file: File
 ): Promise<{ height: number; width: number } | null> {
   try {
@@ -533,6 +1462,24 @@ export async function reencryptMessageForEdit(params: {
   return null;
 }
 
+// A send is the one response a member whose `den.membership.changed` was lost will
+// ever see: the realtime channel is best-effort, so nothing else is guaranteed to
+// reach them. The route echoes the conversation's current roster counter alongside
+// the message, and this records it.
+//
+// If it comes back AHEAD of the last counter this tab applied, then a roster
+// changed and the announcement never arrived, and this tab's cached conversation
+// is holding a roster that no longer exists. The send itself has already committed
+// - the message is written either way, and refusing it here would only lose the
+// user's text - so what this does is mark the cached snapshot as known-behind.
+// `ensureConversationKeys` reads that on the NEXT send and refetches the detail
+// before it may write into an epoch, or refuses the send when it cannot refetch.
+// Same mechanism as the `updatedAt` watermark, on a signal that cannot fire for
+// ordinary traffic.
+//
+// A response with no counter (an older server, a transaction that returned no
+// row) records nothing and changes no behaviour: `applyMembershipSeq` reports it
+// as unsequenced and this tab carries on exactly as it did before.
 export async function sendEncryptedMessage(
   conversationId: string,
   rootKey: Uint8Array,
@@ -563,7 +1510,11 @@ export async function sendEncryptedMessage(
   if (!response.ok) {
     throw await parseError(response);
   }
-  const json = (await response.json()) as { message: MessageData };
+  const json = (await response.json()) as {
+    membershipSeq?: number | null;
+    message: MessageData;
+  };
+  applyMembershipSeq(conversationId, json.membershipSeq);
   return json.message;
 }
 
@@ -672,11 +1623,45 @@ export async function editMessage(
   return json.message;
 }
 
+// Whether each account may be put in a group outright.
+//
+// Separate from the search because the picker's recents come from the
+// conversation list, which has no policy in it and should not grow one, and
+// because the answer is needed about people the client already holds rather than
+// about people it is searching for.
+export async function fetchGroupAddEligibility(
+  userIds: readonly string[]
+): Promise<Record<string, GroupAddRefusal | null>> {
+  if (userIds.length === 0) {
+    return {};
+  }
+  const response = await fetch(
+    `/api/messages/dens/add-eligibility?ids=${encodeURIComponent(
+      userIds.join(",")
+    )}`,
+    { credentials: "same-origin" }
+  );
+  if (!response.ok) {
+    throw await parseError(response);
+  }
+  const body = (await response.json()) as {
+    eligibility: { id: string; refusal: GroupAddRefusal | null }[];
+  };
+  return Object.fromEntries(
+    body.eligibility.map((row) => [row.id, row.refusal])
+  );
+}
+
+// `context` narrows or widens who comes back. "den" widens the net past the
+// viewer's own follows and reports each candidate's group-add eligibility, because
+// the question there is "who exists and may I add them" rather than "who do I
+// message". Anything else stays follow-only.
 export async function searchMessageUsers(
-  query: string
+  query: string,
+  context: "den" | "message" = "message"
 ): Promise<SearchUserResult[]> {
   const response = await fetch(
-    `/api/messages/search?q=${encodeURIComponent(query)}`,
+    `/api/messages/search?q=${encodeURIComponent(query)}&context=${context}`,
     { credentials: "same-origin" }
   );
   if (!response.ok) {
@@ -730,7 +1715,10 @@ export function appendMessageToLastPage<
 >(pages: P[], message: T): P[] | null {
   const pagesCopy = [...pages];
   const lastPage = pagesCopy.at(-1);
-  if (!lastPage || lastPage.messages.some((m) => m.id === message.id)) {
+  if (
+    !lastPage ||
+    pages.some((page) => page.messages.some((m) => m.id === message.id))
+  ) {
     return null;
   }
   pagesCopy[pagesCopy.length - 1] = {
@@ -740,24 +1728,174 @@ export function appendMessageToLastPage<
   return pagesCopy;
 }
 
+// Folds a message that just arrived over the wire into the transcript cache.
+//
+// Normalization lives HERE rather than at each call site because both callers had
+// a reason to forget it and one of them did: the composer folded the raw POST
+// response while the realtime handler folded `toCachedMessage(message)`. A row
+// whose `createdAt` is still an ISO string cannot be compared against the rows
+// around it, and the transcript's merge does exactly that - so the send landed in
+// a position nothing could correct until the next fetch replaced it.
+//
+// Dedupe by id is preserved, because the SSE stream echoes the sender's own write.
+export function foldMessageIntoPages<P extends { messages: MessageData[] }>(
+  pages: P[],
+  message: MessageData
+): P[] | null {
+  return appendMessageToLastPage(pages, toCachedMessage(message));
+}
+
+const TRANSCRIPT_MAX_MESSAGES = 800;
+const TRANSCRIPT_MAX_CIPHERTEXT_BYTES = 8 * 1024 * 1024;
+
+const ciphertextEncoder = new TextEncoder();
+const ciphertextByteLengths = new WeakMap<
+  MessageData,
+  { bytes: number; ciphertext: string }
+>();
+const NON_ASCII_CIPHERTEXT = /[\u0080-\uFFFF]/;
+
+function ciphertextByteLength(message: MessageData): number {
+  const cached = ciphertextByteLengths.get(message);
+  if (cached?.ciphertext === message.ciphertext) {
+    return cached.bytes;
+  }
+  // Encrypted payloads use ASCII base64. Count other accepted strings exactly.
+  const bytes = NON_ASCII_CIPHERTEXT.test(message.ciphertext)
+    ? ciphertextEncoder.encode(message.ciphertext).byteLength
+    : message.ciphertext.length;
+  ciphertextByteLengths.set(message, {
+    bytes,
+    ciphertext: message.ciphertext,
+  });
+  return bytes;
+}
+
+function boundTranscriptPages(pages: MessagePage[]): {
+  droppedPages: number;
+  pages: MessagePage[];
+} {
+  const retained: MessagePage[] = [];
+  let messageCount = 0;
+  let ciphertextBytes = 0;
+  let exhausted = false;
+
+  for (let pageIndex = pages.length - 1; pageIndex >= 0; pageIndex -= 1) {
+    const page = pages[pageIndex];
+    if (!page) {
+      continue;
+    }
+    let firstRetainedIndex = page.messages.length;
+    while (!exhausted && firstRetainedIndex > 0) {
+      const candidate = page.messages[firstRetainedIndex - 1];
+      if (!candidate) {
+        firstRetainedIndex -= 1;
+        continue;
+      }
+      const candidateBytes = ciphertextByteLength(candidate);
+      if (
+        messageCount >= TRANSCRIPT_MAX_MESSAGES ||
+        ciphertextBytes + candidateBytes > TRANSCRIPT_MAX_CIPHERTEXT_BYTES
+      ) {
+        exhausted = true;
+        break;
+      }
+      messageCount += 1;
+      ciphertextBytes += candidateBytes;
+      firstRetainedIndex -= 1;
+    }
+
+    if (firstRetainedIndex < page.messages.length) {
+      const messages = page.messages.slice(firstRetainedIndex);
+      if (firstRetainedIndex === 0) {
+        retained.unshift({ ...page, messages });
+      } else {
+        const { anchorIndex: _anchorIndex, ...pageWithoutAnchor } = page;
+        const [oldestRetained] = messages;
+        retained.unshift({
+          ...pageWithoutAnchor,
+          messages,
+          previousCursor: oldestRetained?.id ?? page.previousCursor,
+        });
+      }
+    } else if (page.messages.length === 0 && !exhausted) {
+      retained.unshift(page);
+    }
+
+    if (exhausted) {
+      break;
+    }
+  }
+
+  const droppedPages = pages.length - retained.length;
+  return { droppedPages, pages: retained };
+}
+
+// Folds into the latest transcript window while keeping the rows and ciphertext
+// retained by the cache within fixed limits. Any whole pages trimmed from the
+// front are removed from pageParams in lockstep so the cursor chain stays valid.
+export function foldMessageIntoBoundedData<TPageParam>(
+  data: { pageParams: TPageParam[]; pages: MessagePage[] },
+  message: MessageData
+): { pageParams: TPageParam[]; pages: MessagePage[] } | null {
+  const folded = foldMessageIntoPages(data.pages, message);
+  if (!folded) {
+    return null;
+  }
+  const bounded = boundTranscriptPages(folded);
+  return {
+    pageParams: data.pageParams.slice(bounded.droppedPages),
+    pages: bounded.pages,
+  };
+}
+
 // Replaces an existing message row in place across an infinite-query page list,
 // matching by id. Returns null when no page holds the id (an edit for a message
 // this session has not loaded), so callers can skip a needless cache write.
 // The edit never changes the row's position: the same id stays in the same
 // slot, so virtualizer keys, order, and scroll anchoring are unaffected.
 export function updateMessageInPages<
-  T extends { id: string },
+  T extends { deletedAt?: Date | string | null; id: string; revision?: number },
   P extends { messages: T[] },
 >(pages: P[], message: T): P[] | null {
   let changed = false;
   const nextPages = pages.map((page) => {
-    if (!page.messages.some((m) => m.id === message.id)) {
+    const previous = page.messages.find((row) => row.id === message.id);
+    if (!previous || !shouldReplaceMessageRevision(previous, message)) {
       return page;
     }
     changed = true;
     return {
       ...page,
       messages: page.messages.map((m) => (m.id === message.id ? message : m)),
+    };
+  });
+  return changed ? nextPages : null;
+}
+
+export function applyMessageDeletionToPages<
+  T extends { deletedAt: Date | string | null; id: string; revision?: number },
+  P extends { messages: T[] },
+>(
+  pages: P[],
+  deletion: { id: string; revision?: number },
+  deletedAt: Date
+): P[] | null {
+  let changed = false;
+  const incoming = { ...deletion, deletedAt };
+  const nextPages = pages.map((page) => {
+    const previous = page.messages.find((row) => row.id === deletion.id);
+    if (!previous || !shouldReplaceMessageRevision(previous, incoming)) {
+      return page;
+    }
+    changed = true;
+    return {
+      ...page,
+      messages: page.messages.map((message) =>
+        message.id === deletion.id
+          ? { ...message, deletedAt, revision: deletion.revision }
+          : message
+      ),
     };
   });
   return changed ? nextPages : null;
@@ -783,6 +1921,32 @@ export function removeMessagesFromPages<
   return changed ? nextPages : null;
 }
 
+// A message row as it leaves the realtime wire and as it enters the cache.
+//
+// The SSE frames carry ISO strings; `MessageData` declares `Date`. Nothing
+// noticed for a long time because the transcript drew whatever it was handed and
+// never compared two timestamps. The transcript's membership-log merge does, and
+// that turned the mismatch into a crash on the first message a peer sent - the
+// whole thread failing to render, not one bubble.
+//
+// Coerced once, here, where the wire meets the cache, so the rest of the app can
+// trust the declared type. `new Date` accepts a Date unchanged, so an
+// already-normalised row round-trips.
+export function toCachedMessage(message: MessageData): MessageData {
+  return {
+    ...message,
+    createdAt: new Date(message.createdAt),
+    deletedAt:
+      message.deletedAt === null || message.deletedAt === undefined
+        ? null
+        : new Date(message.deletedAt),
+    editedAt:
+      message.editedAt === null || message.editedAt === undefined
+        ? null
+        : new Date(message.editedAt),
+  };
+}
+
 // Marks rows as globally deleted in place (the "delete for everyone" optimistic
 // fold), keeping the same slot so virtualizer keys and scroll anchoring hold.
 export function markMessagesDeletedInPages<
@@ -806,8 +1970,8 @@ export function markMessagesDeletedInPages<
 }
 
 // Unwraps the root key of a conversation using the current user's private key
-// and the other member's public key. Memoized per conversation so the
-// expensive ECDH+HKDF only runs once per session.
+// and the public key each wrap was made against. Memoized per conversation so
+// the expensive ECDH+HKDF only runs once per session.
 export function createRootKeyStore(privateKey: CryptoKey) {
   // Keyed by conversation, holding the signature of the inputs that produced it.
   //
@@ -829,17 +1993,27 @@ export function createRootKeyStore(privateKey: CryptoKey) {
   // wrap created for a superseded identity fails to unwrap (its ECDH pairing no
   // longer holds) and is dropped from the candidate list rather than failing the
   // whole set; only a conversation where nothing unwraps rejects.
+  //
+  // The pairing is per WRAP, not per conversation: a den has many wrappers, and
+  // each of my rows was made by whichever member rotated that epoch. A wrap that
+  // names no wrapper (a DM row) pairs with `peerPublicKeyBase64`, the single
+  // peer — unchanged, and still the whole story for a DM.
   function getRootKeys(
     conversationId: string,
-    myWrappedKeys: { encryptedKey: EncryptedBlob; version: number }[],
+    myWrappedKeys: {
+      encryptedKey: EncryptedBlob;
+      version: number;
+      wrapperPublicKeyBase64?: string | null;
+    }[],
     peerPublicKeyBase64: string
   ): Promise<Uint8Array[]> {
-    // The peer key is part of the signature because a new peer key produces
-    // different ECDH results from the same wraps.
+    // The pairing keys are part of the signature because a wrap re-pointed at a
+    // different wrapper's public key produces different ECDH results from the
+    // same ciphertext, exactly as a new peer key did for a DM.
     const signature = `${myWrappedKeys
       .map(
         (wrapped) =>
-          `${wrapped.version}:${wrapped.encryptedKey.ciphertext}:${wrapped.encryptedKey.iv}`
+          `${wrapped.version}:${wrapped.encryptedKey.ciphertext}:${wrapped.encryptedKey.iv}:${wrapped.wrapperPublicKeyBase64 ?? ""}`
       )
       .join("|")}#${peerPublicKeyBase64}`;
     const cached = cache.get(conversationId);
@@ -847,8 +2021,19 @@ export function createRootKeyStore(privateKey: CryptoKey) {
       return cached.promise;
     }
     const promise = (async () => {
-      const peerPublicKey = await publicKeyBase64ToJwk(peerPublicKeyBase64);
-      const peerKey = await importPublicKey(peerPublicKey);
+      // One import per distinct pairing key, shared by every wrap made against
+      // it. A den normally has a handful of wrappers across all of its epochs,
+      // so this is a few imports rather than one per row.
+      const imported = new Map<string, Promise<CryptoKey>>();
+      const importPairingKey = (publicKeyBase64: string) => {
+        const existing = imported.get(publicKeyBase64);
+        if (existing) {
+          return existing;
+        }
+        const key = importPublicKeyBase64(publicKeyBase64);
+        imported.set(publicKeyBase64, key);
+        return key;
+      };
       const ordered = [...myWrappedKeys].toSorted(
         (left, right) => right.version - left.version
       );
@@ -856,10 +2041,17 @@ export function createRootKeyStore(privateKey: CryptoKey) {
       // that succeed, dropping wraps left over from a superseded identity.
       const unwrapped = await Promise.all(
         ordered.map(async (wrapped) => {
+          // Falling back to the peer only when the row names no wrapper, which is
+          // the DM case and the pairing the DM path has always used.
+          const pairingKey =
+            wrapped.wrapperPublicKeyBase64 ?? peerPublicKeyBase64;
+          if (!pairingKey) {
+            return null;
+          }
           try {
             return await unwrapRootKey(
               privateKey,
-              peerKey,
+              await importPairingKey(pairingKey),
               conversationId,
               wrapped.encryptedKey
             );
@@ -899,16 +2091,732 @@ export function createRootKeyStore(privateKey: CryptoKey) {
   return { getRootKeys };
 }
 
-// Wraps the root key for a peer during conversation creation.
-export async function wrapRootKeyForPeer(
-  myPrivateKey: CryptoKey,
-  peerPublicKeyBase64: string,
-  conversationId: string,
-  rootKey: Uint8Array
-): Promise<EncryptedBlob> {
-  const peerPublicKey = await publicKeyBase64ToJwk(peerPublicKeyBase64);
-  const peerKey = await importPublicKey(peerPublicKey);
-  return wrapRootKey(myPrivateKey, peerKey, conversationId, rootKey);
+// The public key a wrap row was paired with, resolved through the WRAPPER.
+//
+// The row's own `wrapperPublicKey` snapshot wins when it is there. That snapshot
+// was written in the same request as the blob, from the private key that
+// performed the wrap, so it IS the pairing the reader has to reconstruct — the
+// row is self-describing and immutable, and re-pairing it against anything else
+// can only fail. The wrapper's live identity key is the fallback for a row that
+// names no snapshot (one written by a client older than the column), and it is
+// what keeps such an epoch readable while the wrapper is still around.
+//
+// The ordering matters after an identity reset. A reset deletes the identity
+// row and a re-provision writes a NEW one, so a wrapper who is still on the
+// roster can be holding a live key that is not the one their old wraps were made
+// against. Resolving through that key drops the wrap, and because the dropped
+// wrap is the pairing for EVERYBODY'S copy of that epoch, the wrapper strands
+// their own history for the whole den. The snapshot exists precisely so that
+// cannot happen, and it outlives the wrapper: a member who left the den is still
+// the wrapper for epochs the remaining members must keep reading.
+//
+// A DM row names no wrapper (the column is null on every row written before it
+// existed) and null here means "use the peer", which is the DM pairing this path
+// has always used. Null overall means the wrapper cannot be paired at all, and
+// the caller must drop the wrap rather than guess.
+function wrapperPublicKeyFor(
+  wrap: { wrapperPublicKey?: string | null; wrapperUserId?: string | null },
+  conversation: MessageConversationData
+): string | null {
+  if (!wrap.wrapperUserId) {
+    return null;
+  }
+  const snapshot = wrap.wrapperPublicKey;
+  if (typeof snapshot === "string" && snapshot.length > 0) {
+    return snapshot;
+  }
+  const live = conversation.members.find(
+    (member) => member.userId === wrap.wrapperUserId
+  )?.user.messageIdentity?.publicKey;
+  return typeof live === "string" && live.length > 0 ? live : null;
+}
+
+// Adapts the server's key ROWS to the wrapped-key payload shape. The two differ
+// only in how the blob is carried — `encryptedKey` and `iv` as sibling strings on
+// a row, nested as one object in a payload — and both shapes reach the client,
+// because the conversation payload carries rows and the conversation detail
+// carries payloads. Adapting in one place is what stops the wrapper columns from
+// being dropped by one of the two callers.
+export function toWrappedKeyPayloads(
+  keys: readonly MessageConversationKey[]
+): WrappedKeyPayload[] {
+  return keys.map((key) => ({
+    encryptedKey: { ciphertext: key.encryptedKey, iv: key.iv },
+    ownerUserId: key.ownerUserId,
+    version: key.version,
+    wrapperPublicKey: key.wrapperPublicKey,
+    wrapperUserId: key.wrapperUserId,
+  }));
+}
+
+// My wraps for a conversation, newest epoch first, each paired with the key it
+// was wrapped against. Shared by the decrypt path (one root per epoch to try) and
+// the send path (the newest epoch is the only one a new message may be written
+// under), which must agree on exactly which epoch that is.
+//
+// The `?? 1` here belongs to the WIRE shape, where an omitted version is how a
+// client older than epochs still says "epoch 1". A stored key row has a
+// non-optional version (see MessageConversationKey), so everywhere a row is read
+// back there is no fallback to write.
+export function resolveMyConversationWraps(
+  keys: readonly WrappedKeyPayload[],
+  conversation: MessageConversationData,
+  myUserId: string
+): ConversationWrap[] {
+  return keys
+    .filter((key) => key.ownerUserId === myUserId)
+    .map((key) => ({
+      encryptedKey: key.encryptedKey,
+      version: key.version ?? 1,
+      wrapperPublicKeyBase64: wrapperPublicKeyFor(key, conversation),
+    }))
+    .toSorted((left, right) => right.version - left.version);
+}
+
+// Signature of the material a key decision depends on: my wraps for the
+// conversation (epoch, ciphertext and wrapper per row) plus every member's
+// identity public key. Used to tell a genuinely stale snapshot from an unchanged
+// refetch, so a rotate cannot mint an epoch wrapped for a key that has since been
+// superseded. A den can be rotated by any member, so every roster key counts.
+function conversationKeySignature(
+  conversation: MessageConversationData,
+  myUserId: string
+): string {
+  const wraps = conversation.keys
+    .filter((key) => key.ownerUserId === myUserId)
+    .map(
+      (key) =>
+        `${key.version}:${key.encryptedKey}:${key.iv}:${key.wrapperUserId ?? ""}:${key.wrapperPublicKey ?? ""}`
+    )
+    .toSorted()
+    .join("|");
+  // Sorted so roster order alone cannot move the signature.
+  const members = conversation.members
+    .map(
+      (member) =>
+        `${member.userId}:${member.user.messageIdentity?.publicKey ?? ""}`
+    )
+    .toSorted()
+    .join("|");
+  return `${wraps}#${members}`;
+}
+
+// The newest root-key epoch in the conversation, or 0 when it has no wraps at
+// all. Epochs are conversation-wide: every member's wrap for a version denotes
+// the same root, so the ceiling is the highest version on any row.
+//
+// `version` is non-optional on a key row, so there is no `?? 1` here. That
+// fallback belongs to the wire payload, where an omitted version is how a client
+// older than epochs still writes "epoch 1" (see WrappedKeyPayload).
+function newestEpoch(conversation: MessageConversationData): number {
+  let highest = 0;
+  for (const key of conversation.keys) {
+    highest = Math.max(highest, key.version);
+  }
+  return highest;
+}
+
+// The peer key to fall back on for a wrap that names no wrapper. A DM has one
+// peer and that peer is unambiguously the wrapper, so the fallback is the whole
+// story there. A den has no single peer: pairing a wrapper-less row against an
+// arbitrary member would mint a wrap nobody can read, so there is no fallback and
+// the row is left for the rotation below to supersede.
+function peerFallbackPublicKey(
+  conversation: MessageConversationData,
+  myUserId: string
+): string | null {
+  if (conversation.type !== "DM") {
+    return null;
+  }
+  return (
+    conversation.members.find((member) => member.userId !== myUserId)?.user
+      .messageIdentity?.publicKey ?? null
+  );
+}
+
+// Unwraps the newest epoch of mine that this identity can actually read, and
+// reports which epoch it was. Null means every one of my wraps belongs to a
+// superseded identity, which is the caller's signal to rotate.
+//
+// Newest first on purpose: the epoch a new message may be written under is the
+// newest readable one and only that one. A wrap left over from a superseded
+// identity simply fails to unwrap and falls through. Sequential because each
+// iteration's await depends on the previous failure and the first success ends
+// the loop.
+async function unwrapNewestReadableEpoch(
+  conversation: MessageConversationData,
+  privateKey: CryptoKey,
+  myUserId: string,
+  peerPublicKeyBase64: string | null
+): Promise<{ rootKey: Uint8Array; version: number } | null> {
+  const wraps = resolveMyConversationWraps(
+    toWrappedKeyPayloads(conversation.keys),
+    conversation,
+    myUserId
+  );
+  // oxlint-disable no-await-in-loop -- ordered epoch probe with early exit
+  for (const wrap of wraps) {
+    const pairingKey = wrap.wrapperPublicKeyBase64 ?? peerPublicKeyBase64;
+    if (!pairingKey) {
+      continue;
+    }
+    let rootKey: Uint8Array;
+    try {
+      rootKey = await unwrapRootKey(
+        privateKey,
+        await importPublicKeyBase64(pairingKey),
+        conversation.id,
+        wrap.encryptedKey
+      );
+    } catch {
+      continue;
+    }
+    return { rootKey, version: wrap.version };
+  }
+  // oxlint-enable no-await-in-loop
+  return null;
+}
+
+// The members who are still in the room.
+//
+// A departed member keeps a roster row so their name stays resolvable in the
+// history and so the den stays in their own list, which means the roster array is
+// no longer the same thing as the membership that can act. This is the difference,
+// named once: a departed member is never a wrap recipient, never a heal
+// candidate, and their old wrap is what makes an epoch contaminated.
+function currentMembers(conversation: MessageConversationData) {
+  return conversation.members.filter((member) => !member.leftAt);
+}
+
+// Members of the conversation holding no wrap for `version`. Departed members are
+// not members here: healing one would hand the newest root key to somebody the
+// current roster deliberately stopped encrypting for.
+function membersMissingEpoch(
+  conversation: MessageConversationData,
+  version: number
+): string[] {
+  const holders = new Set(
+    conversation.keys
+      .filter((key) => key.version === version)
+      .map((key) => key.ownerUserId)
+  );
+  return currentMembers(conversation)
+    .map((member) => member.userId)
+    .filter((userId) => !holders.has(userId));
+}
+
+// Users who still hold a wrap for `version` but are no longer in the
+// conversation. A key row hangs off the conversation, not off the membership, so
+// removing somebody from a den leaves their wraps readable. That is deliberate
+// (it is their history, and Phase 1's reset path depends on the same shape), and
+// it doubles as the signal that this epoch is now contaminated — see
+// ensureConversationKeys.
+function departedEpochHolders(
+  conversation: MessageConversationData,
+  version: number
+): string[] {
+  const members = new Set(
+    currentMembers(conversation).map((member) => member.userId)
+  );
+  return [
+    ...new Set(
+      conversation.keys
+        .filter((key) => key.version === version)
+        .map((key) => key.ownerUserId)
+    ),
+  ].filter((userId) => !members.has(userId));
+}
+
+// Milliseconds for a value that may arrive as a Date (an in-process payload) or
+// as an ISO string (the same payload over JSON). Null when there is nothing to
+// read, and every caller treats null as "cannot tell".
+function toMillis(value: Date | string | number | null | undefined) {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  const millis = new Date(value).getTime();
+  return Number.isNaN(millis) ? null : millis;
+}
+
+// When the newest epoch started being written, from the earliest wrap row at that
+// version. Null when any row at the version carries no usable timestamp — an
+// absent or unparseable one, which is the only shape a deleted timestamp takes
+// over the wire. Every caller reads null as "cannot tell", and "cannot tell"
+// resolves in favour of a ROTATION (see cannotHealIntoEpoch): a heal on a guess
+// hands a newcomer the whole history, while a rotation costs one fresh epoch.
+function epochStartedAt(
+  conversation: MessageConversationData,
+  version: number
+): number | null {
+  let earliest: number | null = null;
+  for (const key of conversation.keys) {
+    if (key.version !== version) {
+      continue;
+    }
+    const writtenAt = toMillis(key.createdAt);
+    if (writtenAt === null) {
+      return null;
+    }
+    earliest = earliest === null ? writtenAt : Math.min(earliest, writtenAt);
+  }
+  return earliest;
+}
+
+// Whether `userId` must NOT be handed the current epoch's root by a heal, so the
+// caller rotates instead.
+//
+// The heal is the one path in the protocol that can hand an existing root to a
+// member who does not hold it, so it is also the one place a pre-join leak could
+// be written. It is permitted only when the member is PROVABLY in the room, and
+// every signal below fails closed:
+//
+//   - A DM has nothing to prove. Both membership rows are written in the same
+//     transaction as the conversation, so no message under any DM epoch predates
+//     the peer, and a legacy partial wrap is the only gap there can be. The whole
+//     epoch discipline is for a roster that changes, and a DM roster does not.
+//
+//   - A member holding no wrap for ANY epoch was never in the room when any root
+//     was fanned out, which makes them a true newcomer: the interrupted fan-out
+//     this path exists to repair always leaves the member holding an OLDER
+//     epoch's wrap. This is the structural signal the millisecond-truncated clock
+//     cannot provide — it is a fact about the wrap set, so a join landing in the
+//     same millisecond as the mint, or at any other boundary at all, is classified
+//     the same way every time.
+//
+//   - An unknown epoch start proves nothing about anybody, so it blocks every
+//     heal. One row at this version with an unreadable timestamp used to read as
+//     "no newcomers" and unlock a full-history fan-out; it now costs an epoch.
+//
+//   - A member who holds an older wrap but not this one is either an interrupted
+//     fan-out or somebody who left and came back: their old wrap survives the
+//     round trip because a key row hangs off the conversation rather than the
+//     membership, so the wrap set cannot tell the two apart. The member's
+//     PRESENCE WINDOWS can. A rejoin clears `leftAt` on the original membership
+//     row rather than writing a new one, so the row's `createdAt` is always the
+//     first join and says nothing about the gap; the windows are the server's
+//     reading of the membership log, one bounded range per stint, and an epoch
+//     minted while the member was away falls outside every one of them. The
+//     interrupted fan-out's epoch falls inside the current stint and heals; the
+//     rejoiner's gap epoch costs a rotation instead of leaking its history.
+//
+// The window test is STRICT on both ends, for the case where even a window is
+// ambiguous: a join or a leave whose log line lands in the same millisecond the
+// epoch was written in. Two events the database put in one millisecond cannot be
+// ordered against each other, so equality has to read as "not present" - the
+// epoch may already encrypt a message from the wrong side of the boundary. It
+// cannot loop: the rotation this refusal forces writes the new epoch's wrap for
+// that member, and a member who already holds the newest epoch is never a heal
+// candidate again, so two joins and a rotation inside one millisecond cost
+// exactly one extra epoch.
+function cannotHealIntoEpoch(
+  conversation: MessageConversationData,
+  userId: string,
+  epochStart: number | null
+): boolean {
+  if (conversation.type !== "DEN") {
+    return false;
+  }
+  const holdsAnOlderEpoch = conversation.keys.some(
+    (key) => key.ownerUserId === userId
+  );
+  if (!holdsAnOlderEpoch) {
+    return true;
+  }
+  if (epochStart === null) {
+    return true;
+  }
+  const windows = conversation.members.find(
+    (member) => member.userId === userId
+  )?.membershipWindows;
+  // No windows proves nothing about anybody - a payload cached before the field
+  // existed, a list response, a trimmed snapshot - and "cannot tell" resolves in
+  // favour of a rotation, which is the same answer an unreadable epoch start
+  // above gets.
+  if (!windows || windows.length === 0) {
+    return true;
+  }
+  return !windows.some((window) => {
+    const after = toMillis(window.after);
+    // An unreadable floor proves nothing either: the stint's start is the one
+    // fact the heal is decided on.
+    if (after === null || epochStart <= after) {
+      return false;
+    }
+    const before = toMillis(window.before);
+    return before === null || epochStart < before;
+  });
+}
+
+// Wrap recipients among `userIds`: the rotator from their own private key, every
+// other member from the roster.
+//
+// The rotator is derived rather than read because their identity row is not
+// always in the snapshot being rotated from, while their public key always is —
+// they are holding it. Every other member comes from the roster, and one with no
+// identity there is left out and reported by the fan-out rather than dropped
+// silently.
+function wrapRecipients(
+  conversation: MessageConversationData,
+  myPublicKeyBase64: string,
+  myUserId: string,
+  userIds: readonly string[]
+): WrapRecipient[] {
+  return userIds.map((userId) =>
+    userId === myUserId
+      ? { publicKeyBase64: myPublicKeyBase64, userId }
+      : {
+          publicKeyBase64:
+            conversation.members.find((member) => member.userId === userId)
+              ?.user.messageIdentity?.publicKey ?? "",
+          userId,
+        }
+  );
+}
+
+// Wraps `rootKey` once per member in `userIds` and posts every wrap at the SAME
+// epoch, in one write. They all denote the same root, so a member who unwraps any
+// one of them decrypts the same messages.
+//
+// One write is what keeps an epoch from being half-written: the route applies the
+// batch atomically, so an epoch is either fanned out to everybody it names or it
+// does not exist. Posting member by member would leave it half-covered for as
+// long as the loop took, which is a window in which a message encrypted under it
+// is unreadable for somebody.
+async function postEpochWraps(params: {
+  conversation: MessageConversationData;
+  myUserId: string;
+  privateKey: CryptoKey;
+  rootKey: Uint8Array;
+  userIds: readonly string[];
+  version: number;
+}): Promise<{ applied: number; skipped: string[]; wrapped: number }> {
+  const { conversation, myUserId, privateKey, rootKey, userIds, version } =
+    params;
+  const myPublicKeyBase64 = await selfPublicKeyBase64(privateKey);
+  const fanOut = await wrapRootKeyForMembers(
+    privateKey,
+    wrapRecipients(conversation, myPublicKeyBase64, myUserId, userIds),
+    conversation.id,
+    rootKey
+  );
+  if (fanOut.wrapped.length === 0) {
+    // Nothing to write. Posting an empty batch would be refused, and each caller
+    // decides what a batch of nothing means: a heal has simply nothing left to
+    // report, while a rotation cannot mint an epoch this device is not in.
+    return { applied: 0, skipped: fanOut.skipped, wrapped: 0 };
+  }
+  let applied: number;
+  try {
+    ({ applied } = await postConversationKeys(
+      conversation.id,
+      fanOut.wrapped.map((wrap) => ({
+        encryptedKey: wrap.encryptedKey,
+        ownerUserId: wrap.userId,
+        version,
+        wrapperPublicKey: myPublicKeyBase64,
+        wrapperUserId: myUserId,
+      }))
+    ));
+  } catch (error) {
+    // A 409 from the keys route is a lost race for the epoch, not a failure: the
+    // route refuses any batch that would complete, contradict, or race an epoch
+    // another member already owns. Reporting it as "stored nothing" is exactly
+    // what both callers below already handle — a rotation refreshes and sends
+    // under the winner's root, a heal simply has nothing left to write — so a
+    // refusal never reaches the user as "Message not sent".
+    if (error instanceof MessagesApiError && error.status === 409) {
+      return {
+        applied: 0,
+        skipped: fanOut.skipped,
+        wrapped: fanOut.wrapped.length,
+      };
+    }
+    throw error;
+  }
+  return { applied, skipped: fanOut.skipped, wrapped: fanOut.wrapped.length };
+}
+
+// Heals a membership gap: wraps the CURRENT epoch's root for the members holding
+// no wrap for it and posts only those.
+//
+// The member list is the caller's, not this function's: `userIds` has already been
+// reduced to the members a heal is allowed to touch (see cannotHealIntoEpoch), and
+// recomputing it here would silently reintroduce the newcomers this path exists to
+// keep out. A newcomer must never be healed into an epoch minted before they
+// arrived. What is left is an interrupted fan-out — the member holds an older
+// epoch's wrap and predates this one — and it is a no-op when everybody already
+// holds the epoch, which is the common case: this runs on the send path, so the
+// happy path must not fan out at all.
+async function healMissingMemberWraps(params: {
+  conversation: MessageConversationData;
+  myUserId: string;
+  onUnwrappableMembers?: (userIds: string[]) => void;
+  privateKey: CryptoKey;
+  rootKey: Uint8Array;
+  userIds: readonly string[];
+  version: number;
+}): Promise<void> {
+  const { conversation, myUserId, privateKey, rootKey, userIds, version } =
+    params;
+  if (userIds.length === 0) {
+    return;
+  }
+  const result = await postEpochWraps({
+    conversation,
+    myUserId,
+    privateKey,
+    rootKey,
+    userIds,
+    version,
+  });
+  params.onUnwrappableMembers?.(result.skipped);
+}
+
+// Rotates to a fresh epoch: a brand new root key wrapped for every member at
+// max+1, with this device as the wrapper on every row.
+//
+// Every older epoch is left exactly as it is. A member removed since an older
+// epoch therefore keeps reading everything written up to the rotation and
+// receives nothing after it, which is the forward-secrecy property the den needs
+// and the reason a wrap is never overwritten or deleted.
+//
+// Null means another member minted this epoch first. Two members can pick the same
+// next version from the same snapshot, and the server will not let the second one
+// write a second root key under a version the first already owns — so the root key
+// minted here is not the den's root key, and a message encrypted under it would be
+// unreadable for everyone, the sender included. The winner's root is resolved
+// instead, and null is only returned when there is no fresh snapshot to resolve it
+// from, which leaves the caller to report that the keys are not ready rather than
+// send something undecryptable.
+async function rotateConversationEpoch(
+  conversation: MessageConversationData,
+  privateKey: CryptoKey,
+  myUserId: string,
+  options?: {
+    onUnwrappableMembers?: (userIds: string[]) => void;
+    refreshConversation?: () => Promise<MessageConversationData | null>;
+  }
+): Promise<Uint8Array | null> {
+  const rootKey = generateRootKey();
+  const result = await postEpochWraps({
+    conversation,
+    myUserId,
+    privateKey,
+    rootKey,
+    // Only the people still in the room. A departed member holding this epoch is
+    // exactly what the rotation exists to escape, and wrapping the new epoch for
+    // them would re-admit them to everything written under it.
+    userIds: currentMembers(conversation).map((member) => member.userId),
+    version: newestEpoch(conversation) + 1,
+  });
+  options?.onUnwrappableMembers?.(result.skipped);
+  if (result.wrapped === 0) {
+    // The rotator is always wrapable from the key they are holding, so this is a
+    // guard rather than a path: an epoch this device is not in would make every
+    // message it sends unreadable, including to itself.
+    throw new Error(`No member of ${conversation.id} could be wrapped for`);
+  }
+  if (result.applied > 0) {
+    return rootKey;
+  }
+  // Every wrap we asked for was already on file, so this epoch belongs to somebody
+  // else's rotation. Read theirs.
+  const fresh = await options?.refreshConversation?.();
+  if (!fresh) {
+    return null;
+  }
+  const unwrapped = await unwrapNewestReadableEpoch(
+    fresh,
+    privateKey,
+    myUserId,
+    peerFallbackPublicKey(fresh, myUserId)
+  );
+  return unwrapped?.rootKey ?? null;
+}
+
+// Makes sure the conversation has a root key this device can send under, then
+// returns it. The returned key is ALWAYS the newest epoch's, because a new
+// message must never be written under an older one: a member removed since that
+// epoch was minted still holds it, so anything sent under it would be readable
+// by somebody no longer in the den.
+//
+// That single rule is what makes the triggers fall out as they do. A new epoch is
+// minted when:
+//   - nothing unwraps for this device: a conversation created before this device
+//     had keys, an identity reset, or a member who just joined and holds no
+//     epoch at all;
+//   - the newest readable epoch is older than the newest epoch: somebody else
+//     rotated without covering me;
+//   - the newest epoch still holds a wrap for somebody who is no longer a member:
+//     a removed member, or somebody who left, can still read that epoch;
+//   - somebody who holds no wrap at all has to be given one, which means a new
+//     epoch, and so does anybody whose membership row is too recent to prove they
+//     were in the room when this one was minted — including every case where that
+//     cannot be told at all. See cannotHealIntoEpoch.
+//
+// Otherwise the current epoch is good enough to send under, and the only work left
+// is a heal: a member who was already in the room when it was minted has no wrap
+// for it, which means an interrupted fan-out or a legacy client that wrote one row
+// where this code writes all of them. Those are the only wraps a heal posts, which
+// is what keeps a membership change from costing the den a fresh epoch it does not
+// need.
+//
+// Both paths are idempotent, because posting keys is append-only and never
+// overwrites, and the happy path — already keyed, roster unchanged — does exactly
+// one unwrap and no writes at all, so the per-member ECDH fan-out never runs on a
+// send.
+//
+// A member with no message identity cannot be wrapped for. They are skipped and
+// reported through `onUnwrappableMembers` rather than failing the epoch: refusing
+// to rotate would cost every other member their next message over somebody who has
+// not turned messages on, and an epoch that skipped them is still complete for
+// everyone who can read, which is what keeps a skipped member from being locked
+// out. They are picked up by the next heal or rotation, by which time they have an
+// identity; the one case that writes nothing is a heal whose only gap is
+// unwrappable, which is not a reason to refuse a message everybody else can read.
+//
+// `refreshConversation` is the stale-snapshot guard, and it answers two questions.
+// The first is the rotate case: when nothing unwraps we cannot tell "my identity
+// reset" from "I am holding an outdated snapshot of a conversation that was already
+// rotated". Rotating on the latter would mint a fresh epoch wrapped for keys that
+// have been superseded, which nobody can unwrap, so their new messages would stay
+// unreadable. The second is membership: a snapshot the server has already reported
+// as moved past is never a basis for a send or a rotation, because the roster it
+// names may no longer exist and its newest epoch may be one a removed member still
+// holds. When a refresh is supplied it is consulted before either; if the key
+// material changed, or the snapshot was known stale, the freshest snapshot is used
+// instead.
+//
+// Null means the caller must not send. Three ways to get here: another member's
+// rotation won the race for this epoch and there was no fresh snapshot to resolve
+// theirs from; the conversation has nobody this device could ever be wrapped with;
+// or the snapshot is known to be behind the server and there was no way to fetch a
+// current one. All are recoverable on the next attempt, which is why the failure
+// is a null rather than a throw.
+export async function ensureConversationKeys(
+  conversation: MessageConversationData,
+  privateKey: CryptoKey,
+  myUserId: string,
+  options?: {
+    onUnwrappableMembers?: (userIds: string[]) => void;
+    refreshConversation?: () => Promise<MessageConversationData | null>;
+  }
+): Promise<Uint8Array | null> {
+  // A snapshot the server has already moved past is not a basis for anything: it
+  // can name a member who has since been removed, and it offers as sendable the
+  // exact epoch that removed member already holds. Skipping the whole decision is
+  // what closes the window the composer's post-send refetch only bounds.
+  const stale = isConversationSnapshotStale(conversation);
+  if (!stale) {
+    const current = await resolveSendableEpoch(
+      conversation,
+      privateKey,
+      myUserId,
+      options
+    );
+    if (current) {
+      return current.rootKey;
+    }
+  }
+
+  // Nothing sendable. Before rotating, confirm our snapshot is current.
+  const refresh = options?.refreshConversation;
+  if (!refresh) {
+    // Without a fresher answer there is nothing to rotate against that is known to
+    // be true, so a stale snapshot is refused rather than minted or sent on.
+    return stale
+      ? null
+      : await rotateConversationEpoch(
+          conversation,
+          privateKey,
+          myUserId,
+          options
+        );
+  }
+  const before = conversationKeySignature(conversation, myUserId);
+  const fresh = await refresh();
+  // The signature covers the roster and the key material, so an unchanged
+  // signature means the refetch proved the snapshot was current after all. A stale
+  // snapshot has to be re-decided either way: only its updatedAt moved, and
+  // updatedAt is exactly what a membership change moves.
+  if (
+    fresh &&
+    (stale || conversationKeySignature(fresh, myUserId) !== before)
+  ) {
+    const healed = await resolveSendableEpoch(
+      fresh,
+      privateKey,
+      myUserId,
+      options
+    );
+    if (healed) {
+      return healed.rootKey;
+    }
+    // Still nothing on the freshest snapshot: rotate against it, so every wrap
+    // uses the current key of its member rather than a superseded one.
+    return await rotateConversationEpoch(fresh, privateKey, myUserId, options);
+  }
+
+  return stale
+    ? null
+    : await rotateConversationEpoch(
+        conversation,
+        privateKey,
+        myUserId,
+        options
+      );
+}
+
+// The root key to send under, or null when the conversation needs a new epoch.
+// Split out of ensureConversationKeys so the pre-rotation refresh can re-run
+// exactly the same decision against a fresher snapshot.
+async function resolveSendableEpoch(
+  conversation: MessageConversationData,
+  privateKey: CryptoKey,
+  myUserId: string,
+  options?: { onUnwrappableMembers?: (userIds: string[]) => void }
+): Promise<{ rootKey: Uint8Array } | null> {
+  const unwrapped = await unwrapNewestReadableEpoch(
+    conversation,
+    privateKey,
+    myUserId,
+    peerFallbackPublicKey(conversation, myUserId)
+  );
+  const newest = newestEpoch(conversation);
+  // An older readable epoch is deliberately not good enough: see the note on
+  // ensureConversationKeys about removed members holding older epochs.
+  if (!unwrapped || unwrapped.version !== newest) {
+    return null;
+  }
+  // The epoch is readable by somebody who has left. Mint a new one rather than
+  // write anything else into it.
+  if (departedEpochHolders(conversation, newest).length > 0) {
+    return null;
+  }
+  // The heal is the only thing left that can hand a root to somebody, so it
+  // decides on exactly the members missing one. Deciding on the whole roster
+  // instead would rotate for a newcomer who is already covered, on every send,
+  // forever; deciding on the missing set makes the decision self-cancelling,
+  // because the rotation it forces gives that member a wrap for the new epoch.
+  const missing = membersMissingEpoch(conversation, newest);
+  const epochStart = epochStartedAt(conversation, newest);
+  if (
+    missing.some((userId) =>
+      cannotHealIntoEpoch(conversation, userId, epochStart)
+    )
+  ) {
+    return null;
+  }
+  await healMissingMemberWraps({
+    conversation,
+    myUserId,
+    onUnwrappableMembers: options?.onUnwrappableMembers,
+    privateKey,
+    rootKey: unwrapped.rootKey,
+    userIds: missing,
+    version: newest,
+  });
+  return unwrapped;
 }
 
 function importPublicKey(jwk: JsonWebKey): Promise<CryptoKey> {
@@ -921,191 +2829,11 @@ function importPublicKey(jwk: JsonWebKey): Promise<CryptoKey> {
   );
 }
 
-// Signature of the material a key decision depends on: my wraps for the
-// conversation (ciphertext per epoch) and the peer's identity public key. Used
-// to tell a genuinely stale snapshot from an unchanged refetch, so a rotate
-// cannot silently wrap for a peer key that has been superseded.
-function conversationKeySignature(
-  conversation: MessageConversationData,
-  myUserId: string
-): string {
-  const wraps = conversation.keys
-    .filter((key) => key.ownerUserId === myUserId)
-    .map((key) => `${key.version ?? 1}:${key.encryptedKey}:${key.iv}`)
-    .toSorted()
-    .join("|");
-  const peer = conversation.members.find(
-    (member) => member.userId !== myUserId
-  );
-  return `${wraps}#${peer?.user.messageIdentity?.publicKey ?? ""}`;
-}
-
-// Unwraps the newest wrap this device can read, healing a missing peer wrap for
-// that epoch. Returns null when nothing unwraps, which means the stored wraps
-// belong to a superseded identity and the caller must rotate.
-async function unwrapExistingKey(
-  conversation: MessageConversationData,
-  privateKey: CryptoKey,
-  myUserId: string,
-  peerUserId: string,
-  peerKey: CryptoKey
-): Promise<Uint8Array | null> {
-  // Newest epoch first. The first wrap I can actually unwrap is my current
-  // epoch; a wrap left over from a superseded identity simply fails to unwrap
-  // and falls through. Sequential on purpose: each iteration's await depends on
-  // the previous failure, and the first success exits the loop.
-  const myKeys = conversation.keys
-    .filter((key) => key.ownerUserId === myUserId)
-    .toSorted((left, right) => (right.version ?? 1) - (left.version ?? 1));
-  // oxlint-disable no-await-in-loop -- ordered epoch probe with early exit
-  for (const myKey of myKeys) {
-    let rootKey: Uint8Array;
-    try {
-      rootKey = await unwrapRootKey(privateKey, peerKey, conversation.id, {
-        ciphertext: myKey.encryptedKey,
-        iv: myKey.iv,
-      });
-    } catch {
-      continue;
-    }
-    const version = myKey.version ?? 1;
-    // Heal a missing peer wrap for this exact epoch (a crash between posting
-    // the two entries, or a peer who has not fetched the rotation yet). The
-    // wrap is symmetric, so one blob serves both entries.
-    const peerHasEpoch = conversation.keys.some(
-      (key) => key.ownerUserId === peerUserId && (key.version ?? 1) === version
-    );
-    if (!peerHasEpoch) {
-      const wrappedForPeer = await wrapRootKey(
-        privateKey,
-        peerKey,
-        conversation.id,
-        rootKey
-      );
-      await postConversationKeys(conversation.id, [
-        { encryptedKey: wrappedForPeer, ownerUserId: peerUserId, version },
-      ]);
-    }
-    return rootKey;
-  }
-  // oxlint-enable no-await-in-loop
-  return null;
-}
-
-// Rotates to a fresh epoch: a new root key wrapped for both members at the next
-// version. Used when this device's identity changed (reset) and no stored wrap
-// unwraps, so the peer's older wraps stay intact and keep their history.
-async function rotateConversationEpoch(
-  conversation: MessageConversationData,
-  privateKey: CryptoKey,
-  myUserId: string,
-  peerUserId: string,
-  peerKey: CryptoKey
-): Promise<Uint8Array> {
-  let maxVersion = 0;
-  for (const key of conversation.keys) {
-    maxVersion = Math.max(maxVersion, key.version ?? 1);
-  }
-  const nextVersion = maxVersion + 1;
-  const rootKey = generateRootKey();
-  const wrapped = await wrapRootKey(
-    privateKey,
-    peerKey,
-    conversation.id,
-    rootKey
-  );
-  await postConversationKeys(conversation.id, [
-    { encryptedKey: wrapped, ownerUserId: myUserId, version: nextVersion },
-    { encryptedKey: wrapped, ownerUserId: peerUserId, version: nextVersion },
-  ]);
-  return rootKey;
-}
-
-// Makes sure a conversation has wrapped root keys for both members, then
-// returns the unwrapped root key. Handles the heal cases: a conversation
-// created before this device had keys (both missing → generate + wrap both), a
-// crash that left only one member's key posted (unwrap mine → wrap for the
-// peer), and an identity reset (my old wraps no longer unwrap → rotate to a
-// new epoch and wrap it for both). Idempotent: posting keys is append-only.
-//
-// `refreshConversation` is the stale-snapshot guard for the rotate case: when
-// nothing unwraps we cannot tell "my identity reset" from "I am holding an
-// outdated snapshot of a conversation the peer already rotated". Rotating on
-// the latter would mint a fresh epoch wrapped for the peer's OLD public key,
-// which they can never unwrap, so their new messages stay unreadable. When a
-// refresh is supplied it is consulted once before rotating; if the key material
-// changed, the freshest snapshot is used instead.
-export async function ensureConversationKeys(
-  conversation: MessageConversationData,
-  privateKey: CryptoKey,
-  myUserId: string,
-  options?: {
-    refreshConversation?: () => Promise<MessageConversationData | null>;
-  }
-): Promise<Uint8Array | null> {
-  const peer = conversation.members.find(
-    (member) => member.userId !== myUserId
-  );
-  const peerPublicKeyBase64 = peer?.user.messageIdentity?.publicKey;
-  if (!peerPublicKeyBase64 || !peer) {
-    return null;
-  }
-  const peerPublicKey = await publicKeyBase64ToJwk(peerPublicKeyBase64);
-  const peerKey = await importPublicKey(peerPublicKey);
-
-  const existing = await unwrapExistingKey(
-    conversation,
-    privateKey,
-    myUserId,
-    peer.userId,
-    peerKey
-  );
-  if (existing) {
-    return existing;
-  }
-
-  // Nothing unwraps. Before rotating, confirm our snapshot is current.
-  const refresh = options?.refreshConversation;
-  if (refresh) {
-    const before = conversationKeySignature(conversation, myUserId);
-    const fresh = await refresh();
-    if (fresh && conversationKeySignature(fresh, myUserId) !== before) {
-      const freshPeer = fresh.members.find(
-        (member) => member.userId !== myUserId
-      );
-      const freshPeerPublicKey = freshPeer?.user.messageIdentity?.publicKey;
-      if (freshPeer && freshPeerPublicKey) {
-        const freshPeerKey = await importPublicKey(
-          await publicKeyBase64ToJwk(freshPeerPublicKey)
-        );
-        const healed = await unwrapExistingKey(
-          fresh,
-          privateKey,
-          myUserId,
-          freshPeer.userId,
-          freshPeerKey
-        );
-        if (healed) {
-          return healed;
-        }
-        // Still nothing on the freshest snapshot: rotate against it so the
-        // peer wrap uses their current public key.
-        return rotateConversationEpoch(
-          fresh,
-          privateKey,
-          myUserId,
-          freshPeer.userId,
-          freshPeerKey
-        );
-      }
-    }
-  }
-
-  return rotateConversationEpoch(
-    conversation,
-    privateKey,
-    myUserId,
-    peer.userId,
-    peerKey
-  );
+// Import for a pairing key held as base64. Every caller is already inside a try
+// that falls through to "this wrap is not mine", so a malformed key needs no
+// special handling of its own.
+async function importPublicKeyBase64(
+  publicKeyBase64: string
+): Promise<CryptoKey> {
+  return importPublicKey(await publicKeyBase64ToJwk(publicKeyBase64));
 }

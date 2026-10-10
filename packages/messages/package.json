@@ -1,0 +1,41 @@
+{
+  "name": "@asm/messages",
+  "version": "1.0.9",
+  "private": true,
+  "description": "Shared message crypto and search contracts",
+  "license": "AGPL-3.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./search": {
+      "types": "./src/search.ts",
+      "default": "./src/search.ts"
+    },
+    "./normalization": {
+      "types": "./src/normalization.ts",
+      "default": "./src/normalization.ts"
+    },
+    "./search-contracts": {
+      "types": "./src/search-contracts.ts",
+      "default": "./src/search-contracts.ts"
+    },
+    "./payload": {
+      "types": "./src/payload.ts",
+      "default": "./src/payload.ts"
+    },
+    "./references": {
+      "types": "./src/references.ts",
+      "default": "./src/references.ts"
+    },
+    "./crypto": {
+      "types": "./src/crypto.ts",
+      "default": "./src/crypto.ts"
+    }
+  },
+  "dependencies": {
+    "@asm/media": "workspace:*"
+  }
+}

@@ -1,12 +1,16 @@
 {
   "name": "@asm/auth",
-  "version": "1.1.83",
+  "version": "1.1.96",
   "private": true,
   "description": "asocialmedia authentication & email service package",
   "license": "AGPL-3.0",
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "exports": {
+    "./validation": {
+      "types": "./src/validation/index.ts",
+      "default": "./src/validation/index.ts"
+    },
     ".": {
       "types": "./src/index.ts",
       "default": "./src/index.ts"
@@ -14,10 +18,6 @@
     "./core": {
       "types": "./src/core/index.ts",
       "default": "./src/core/index.ts"
-    },
-    "./validation": {
-      "types": "./src/validation/index.ts",
-      "default": "./src/validation/index.ts"
     }
   },
   "scripts": {

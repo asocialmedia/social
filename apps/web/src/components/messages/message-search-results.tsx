@@ -1,5 +1,6 @@
 "use client";
 
+import { normalizeMessageSearchQuery } from "@asm/messages/search";
 import { useEffect, useMemo, useRef } from "react";
 
 import UserAvatar from "@/components/layouts/user/user-avatar";
@@ -11,7 +12,10 @@ import type { RankedSearchResult } from "@/lib/messages/message-search";
 import type { MessageData } from "@/lib/messages/types";
 import { cn } from "@/lib/utils";
 
-import { searchListEmptyState } from "./message-search-status";
+import {
+  isMessageSearchQueryTooLong,
+  searchListEmptyState,
+} from "./message-search-status";
 
 // The list half of chat search, rendered as a full surface inside the DM. It is
 // deliberately chrome-free: the search bar above already owns the mode toggle,
@@ -23,7 +27,9 @@ import { searchListEmptyState } from "./message-search-status";
 interface MessageSearchResultsProps {
   activeIndex: number;
   allMessages: MessageData[];
-  indexing: boolean;
+  pageHitIds: string[];
+  savedScope?: boolean;
+  coverageUnavailable?: boolean;
   // A backfill walk is paging through older history right now. Told apart from
   // `indexing` (the transcript's own fill) because an empty page means something
   // different while a walk is running: more matches may still surface.
@@ -39,6 +45,7 @@ interface MessageSearchResultsProps {
   // truthful thing to say about an empty page.
   listPageStale: boolean;
   myUserId: string;
+  members: { userId: string; displayName: string; avatarUrl: string | null }[];
   onJump: (messageId: string) => void;
   query: string;
   results: RankedSearchResult[];
@@ -52,12 +59,15 @@ interface MessageSearchResultsProps {
 export function MessageSearchResults({
   activeIndex,
   allMessages,
-  indexing,
+  pageHitIds,
+  savedScope = false,
+  coverageUnavailable = false,
   indexingOlder,
   listPageError,
   listPageLoading,
   listPageStale,
   myUserId,
+  members,
   onJump,
   query,
   results,
@@ -73,6 +83,14 @@ export function MessageSearchResults({
     () => new Map(allMessages.map((message) => [message.id, message])),
     [allMessages]
   );
+  const sendersById = useMemo(
+    () => new Map(members.map((member) => [member.userId, member])),
+    [members]
+  );
+  const resultsById = useMemo(
+    () => new Map(results.map((result) => [result.id, result])),
+    [results]
+  );
 
   useEffect(() => {
     if (prevActiveRef.current !== activeIndex) {
@@ -81,19 +99,23 @@ export function MessageSearchResults({
     }
   }, [activeIndex]);
 
-  const queryReady = query.trim().length >= MIN_SEARCH_QUERY_LENGTH;
+  const queryReady = normalizeMessageSearchQuery(query).valid;
   // One empty state for the three ways a page can be empty: still reading,
   // failed to read, or resolved with nothing on it. The helper keeps the body's
   // wording and the bar's counter from contradicting each other -- an empty
   // page beside "29 matches" used to read "No messages match this search".
   const emptyState = searchListEmptyState({
-    indexing,
+    coverageUnavailable,
+    // Server results do not depend on the transcript's separate history fetch.
+    indexing: false,
     indexingOlder,
     listPageError,
     listPageLoading,
     listPageStale,
     queryReady,
-    resultCount: results.length,
+    queryTooLong: isMessageSearchQueryTooLong(query),
+    resultCount: pageHitIds.length,
+    savedScope,
     totalMatches,
   });
 
@@ -107,31 +129,72 @@ export function MessageSearchResults({
       ) : null}
 
       <div className="hide-native-scrollbar min-h-0 flex-1 overflow-y-auto p-2">
-        {results.map((result, index) => (
-          <SearchResultRow
-            active={index === activeIndex}
-            key={result.id}
-            message={messagesById.get(result.id)}
-            myUserId={myUserId}
-            onSelect={() => onJump(result.id)}
-            ref={index === activeIndex ? activeRowRef : undefined}
-            result={result}
-          />
-        ))}
-        {emptyState ? (
-          <p
-            aria-live="polite"
-            className="text-muted-foreground px-4 py-8 text-center text-sm"
-          >
-            {emptyState}
-          </p>
-        ) : null}
-        {queryReady ? null : (
-          <p className="text-muted-foreground px-4 py-8 text-center text-sm">
-            Type at least {MIN_SEARCH_QUERY_LENGTH} characters to search this
-            conversation.
-          </p>
-        )}
+        <ul aria-label="Search results" className="m-0 list-none p-0">
+          {pageHitIds.map((messageId, index) => {
+            const result = resultsById.get(messageId);
+            const message = messagesById.get(messageId);
+            const sender = message
+              ? sendersById.get(message.senderId)
+              : undefined;
+            return (
+              <li key={messageId}>
+                {result ? (
+                  <SearchResultRow
+                    active={index === activeIndex}
+                    key={result.id}
+                    message={message}
+                    myUserId={myUserId}
+                    onSelect={() => onJump(result.id)}
+                    ref={index === activeIndex ? activeRowRef : undefined}
+                    result={result}
+                    sender={sender}
+                  />
+                ) : (
+                  <button
+                    aria-label={`Open message from ${message?.senderId === myUserId ? "you" : (sender?.displayName ?? "conversation member")}; preview unavailable`}
+                    className={cn(
+                      "flex min-h-[68px] w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left",
+                      index === activeIndex
+                        ? "bg-[hsl(var(--primary))]/10"
+                        : "hover:bg-muted/60"
+                    )}
+                    onClick={() => onJump(messageId)}
+                    ref={index === activeIndex ? activeRowRef : undefined}
+                    type="button"
+                  >
+                    <span className="mt-0.5 shrink-0">
+                      <UserAvatar
+                        avatarUrl={sender?.avatarUrl ?? null}
+                        size={32}
+                      />
+                    </span>
+                    <span className="text-muted-foreground text-sm">
+                      Message preview unavailable. Open message to retry.
+                    </span>
+                  </button>
+                )}
+              </li>
+            );
+          })}
+          {emptyState ? (
+            <li>
+              <p
+                aria-live="polite"
+                className="text-muted-foreground px-4 py-8 text-center text-sm"
+              >
+                {emptyState}
+              </p>
+            </li>
+          ) : null}
+          {queryReady ? null : (
+            <li>
+              <p className="text-muted-foreground px-4 py-8 text-center text-sm">
+                Type at least {MIN_SEARCH_QUERY_LENGTH} characters to search
+                this conversation.
+              </p>
+            </li>
+          )}
+        </ul>
       </div>
     </div>
   );
@@ -144,6 +207,7 @@ interface SearchResultRowProps {
   onSelect: () => void;
   ref?: React.Ref<HTMLButtonElement | null>;
   result: RankedSearchResult;
+  sender?: { displayName: string; avatarUrl: string | null };
 }
 
 function SearchResultRow({
@@ -153,29 +217,30 @@ function SearchResultRow({
   onSelect,
   ref,
   result,
+  sender,
 }: SearchResultRowProps) {
   const mine = message?.senderId === myUserId;
-  const senderName = mine ? "You" : (message?.sender?.displayName ?? "them");
+  const senderName = mine
+    ? "You"
+    : (message?.sender?.displayName ??
+      sender?.displayName ??
+      "Conversation member");
   return (
     <button
-      aria-selected={active}
-      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- an option row with rich content; a native option cannot hold focus or rich layout like this
-      role="option"
+      aria-current={active ? "true" : undefined}
       className={cn(
-        "flex w-full items-start gap-3 rounded-xl px-3 py-2.5 text-left transition-colors",
+        "flex min-h-[68px] w-full items-start gap-3 rounded-xl px-3 py-2.5 text-left transition-colors",
         active ? "bg-[hsl(var(--primary))]/10" : "hover:bg-muted/60"
       )}
       onClick={onSelect}
-      onMouseEnter={(event) => {
-        // Hover follows the mouse; focusing keeps screen-reader context on the
-        // row without the list scrolling underneath the pointer.
-        event.currentTarget.focus({ preventScroll: true });
-      }}
       ref={ref}
       type="button"
     >
       <span className="mt-0.5 shrink-0">
-        <UserAvatar avatarUrl={message?.sender?.avatarUrl ?? null} size={32} />
+        <UserAvatar
+          avatarUrl={message?.sender?.avatarUrl ?? sender?.avatarUrl ?? null}
+          size={32}
+        />
       </span>
       <span className="min-w-0 flex-1">
         <span className="flex items-baseline gap-2">

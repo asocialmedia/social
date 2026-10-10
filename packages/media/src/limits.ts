@@ -7,6 +7,11 @@ export interface MediaLimits {
   // Per-request body ceiling accepted from the network before any parsing.
   maxRequestBytes: number;
   maxImageBytes: number;
+  // A custom chat wallpaper, which is well under the general image ceiling.
+  // This one is re-fetched every time a conversation is opened rather than once
+  // per post, and it is decorative, so a member has no reason to spend 25MB of
+  // someone's bandwidth on it. Override with MEDIA_MAX_WALLPAPER_BYTES.
+  maxWallpaperBytes: number;
   maxVideoBytes: number;
   maxAudioBytes: number;
   maxDocumentBytes: number;
@@ -53,6 +58,7 @@ export const DEFAULT_LIMITS: MediaLimits = {
   maxUserStorageBytes: 5 * 1024 * 1024 * 1024,
   maxVideoBytes: 250 * 1024 * 1024,
   maxVideoDurationSec: 30 * 60,
+  maxWallpaperBytes: 10 * 1024 * 1024,
   originalRetentionDays: 30,
   processingTimeoutMs: 15 * 60 * 1000,
   scanTimeoutMs: 5 * 60 * 1000,
@@ -84,6 +90,7 @@ export function resolveMediaLimits(
   };
   assign("maxRequestBytes", "MEDIA_MAX_REQUEST_BYTES");
   assign("maxImageBytes", "MEDIA_MAX_IMAGE_BYTES");
+  assign("maxWallpaperBytes", "MEDIA_MAX_WALLPAPER_BYTES");
   assign("maxVideoBytes", "MEDIA_MAX_VIDEO_BYTES");
   assign("maxAudioBytes", "MEDIA_MAX_AUDIO_BYTES");
   assign("maxDocumentBytes", "MEDIA_MAX_DOCUMENT_BYTES");
@@ -126,6 +133,20 @@ export function maxBytesForType(limits: MediaLimits, type: string): number {
       return 0;
     }
   }
+}
+
+// The byte cap for a specific upload purpose. A wallpaper is an image, so it
+// inherits the image cap unless a tighter purpose-specific ceiling applies.
+// Returns the general cap for any purpose that has no tighter one.
+export function maxBytesForPurpose(
+  limits: MediaLimits,
+  purpose: string | null,
+  type: string
+): number {
+  if (purpose === "wallpaper" && type === "IMAGE") {
+    return Math.min(limits.maxImageBytes, limits.maxWallpaperBytes);
+  }
+  return maxBytesForType(limits, type);
 }
 
 // Hard ceiling on attachments per post, enforced client-side (composer

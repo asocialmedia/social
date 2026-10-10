@@ -6,7 +6,7 @@ import avatarPlaceholder from "@assets/general/avatar-placeholder.png";
 import { ImagePlus, Pencil, Trash2 } from "lucide-react";
 import Image from "next/image";
 import type { StaticImageData } from "next/image";
-import type { SyntheticEvent } from "react";
+import type { ReactNode, SyntheticEvent } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Resizer from "react-image-file-resizer";
 
@@ -283,6 +283,36 @@ export const BannerInput = ({
   );
 };
 
+// The `src` an avatar control actually renders.
+//
+// Extracted from the component because it is a decision worth asserting and the
+// component is not worth rendering in a test. Three callers exist (the profile
+// editor, the community wizard, the den create sheet) and they spell "no picture
+// chosen yet" three different ways, which is how the empty-string warning
+// reached `next/image` in the first place.
+//
+// An empty string is "no picture", not a URL. `next/image` accepts `src=""`,
+// renders an `<img>` with no usable source and React warns that the browser may
+// re-request the whole page; the placeholder is the same answer the component was
+// already giving for a missing `src`, so the empty string joins it here rather
+// than at each call site.
+//
+// A `blob:` URL is passed through untouched: an optimistic local preview is the
+// only source the uploading client can resolve, and normalising it through
+// `getSecureImageUrl` would strip the scheme.
+export function resolveAvatarSrc(
+  src: string | StaticImageData,
+  placeholder: string
+): string {
+  if (typeof src !== "string") {
+    return placeholder;
+  }
+  if (src.startsWith("blob:")) {
+    return src;
+  }
+  return src.length > 0 ? getSecureImageUrl(src) : placeholder;
+}
+
 export interface AvatarInputProps {
   canDelete: boolean;
   // Sizing override for the avatar in the bare variant (the settings hero
@@ -298,6 +328,17 @@ export interface AvatarInputProps {
   shape?: "circle" | "squircle";
   stage?: UploadStage | null;
   src: string | StaticImageData;
+  // What to draw in the empty slot, in place of the generic placeholder asset.
+  //
+  // The default placeholder is right whenever an avatar belongs to a person: no
+  // picture yet means a stock face. It is wrong for a den, which has no single
+  // person - and the create sheet promised "without one the den shows its
+  // members", so an empty well showing a stock face contradicted the den it was
+  // about to make. A caller that has something truer to show passes it here.
+  //
+  // Only used when `src` is empty: once a file is picked the preview is the
+  // person's chosen bytes, placeholder or not.
+  emptySlot?: ReactNode;
   // See BannerInputProps.user.
   user: Pick<PrivateUserData, "id">;
   // "row" is the dialog's bordered row with helper copy; "bare" is just the
@@ -309,6 +350,7 @@ export const AvatarInput = (props: AvatarInputProps) => {
   const {
     canDelete,
     className,
+    emptySlot,
     isDeleted,
     isUploading,
     onDelete,
@@ -326,12 +368,15 @@ export const AvatarInput = (props: AvatarInputProps) => {
   const [gifToCenter, setGifToCenter] = useState<File>();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const avatarSrc = useMemo(() => {
-    if (typeof src === "string" && !src.startsWith("blob:")) {
-      return getSecureImageUrl(src);
-    }
-    return typeof src === "string" ? src : avatarPlaceholder.src;
-  }, [src]);
+  const avatarSrc = useMemo(
+    () => resolveAvatarSrc(src, avatarPlaceholder.src),
+    [src]
+  );
+  // Whether the caller supplied real bytes. A `StaticImageData` counts as real (it
+  // is the bundled placeholder), so only an empty or whitespace string is empty -
+  // the same test `resolveAvatarSrc` makes to decide to substitute the placeholder.
+  const hasSuppliedSrc = typeof src !== "string" || src.trim().length > 0;
+  const slot = hasSuppliedSrc ? null : emptySlot;
 
   const resetInput = useCallback(() => {
     if (fileInputRef.current) {
@@ -450,20 +495,22 @@ export const AvatarInput = (props: AvatarInputProps) => {
         onClick={handleAvatarClick}
         type="button"
       >
-        <Image
-          alt="Avatar preview"
-          className={cn(
-            "avatar-ring size-24 flex-none object-cover",
-            shapeClass,
-            isUploading && "opacity-50",
-            className
-          )}
-          height={150}
-          onError={handleAvatarError}
-          src={avatarSrc}
-          unoptimized
-          width={150}
-        />
+        {slot ?? (
+          <Image
+            alt="Avatar preview"
+            className={cn(
+              "avatar-ring size-24 flex-none object-cover",
+              shapeClass,
+              isUploading && "opacity-50",
+              className
+            )}
+            height={150}
+            onError={handleAvatarError}
+            src={avatarSrc}
+            unoptimized
+            width={150}
+          />
+        )}
         {isUploading ? (
           <span
             className={cn(

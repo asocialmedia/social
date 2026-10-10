@@ -24,6 +24,8 @@ function rawNotification(overrides: Record<string, unknown> = {}): unknown {
     commentId: null,
     community: null,
     communityId: null,
+    conversation: null,
+    conversationId: null,
     count: 1,
     createdAt: "2026-09-13T12:00:00.000Z",
     id: "notif-1",
@@ -66,6 +68,63 @@ describe("fetchNotificationsPage", () => {
     expect(page.notifications[0]?.id).toBe("notif-1");
     expect(page.notifications[0]?.issuer.displayName).toBe("Alice");
     expect(page.notifications[0]?.createdAt).toBe("2026-09-13T12:00:00.000Z");
+  });
+
+  test("keeps the den a message notification names, and nothing else about it", async () => {
+    // The native row needs the room's name for its copy and the room's id for
+    // its tap target. The server sends no member list with it, so there is
+    // nothing else to keep.
+    const page = await fetchNotificationsPage("all", null, {
+      apiBase: API_BASE,
+      baseFetch: (() =>
+        Promise.resolve(
+          jsonResponse({
+            nextCursor: null,
+            notifications: [
+              rawNotification({
+                conversation: {
+                  _type: "DEN",
+                  id: "den-1",
+                  name: "Study group",
+                },
+                conversationId: "den-1",
+                id: "notif-den",
+                postId: null,
+                type: "DEN_MESSAGE",
+              }),
+            ],
+          })
+        )) as unknown as typeof fetch,
+    });
+    const [row] = page.notifications;
+    expect(row?.type).toBe("DEN_MESSAGE");
+    expect(row?.conversation).toEqual({ id: "den-1", name: "Study group" });
+    expect(row?.conversationId).toBe("den-1");
+  });
+
+  test("drops a den notification with no conversation rather than a partial one", async () => {
+    // A row whose conversation did not parse must not become a den the app
+    // cannot open, and must not take a half-parsed name with it.
+    const page = await fetchNotificationsPage("all", null, {
+      apiBase: API_BASE,
+      baseFetch: (() =>
+        Promise.resolve(
+          jsonResponse({
+            nextCursor: null,
+            notifications: [
+              rawNotification({
+                conversation: { _type: "DEN", name: "Study group" },
+                conversationId: "den-1",
+                id: "notif-den",
+                type: "DEN_MESSAGE",
+              }),
+            ],
+          })
+        )) as unknown as typeof fetch,
+    });
+    const [row] = page.notifications;
+    expect(row?.type).toBe("DEN_MESSAGE");
+    expect(row?.conversation).toBeNull();
   });
 
   test("drops rows with an unknown type instead of crashing a render", async () => {

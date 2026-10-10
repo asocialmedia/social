@@ -1,16 +1,41 @@
 import { describe, expect, test } from "bun:test";
 
 import type { DecryptEntry } from "@/lib/messages/decryptor";
+import type { SharedRefRecord } from "@/lib/messages/shared-refs-format";
 
 import type { ConversationMediaMessage } from "./message-conversation-media";
 import {
+  buildConversationMediaWindow,
   buildConversationMediaIndex,
+  mediaItemsFromSharedRefs,
+  mergeConversationMediaPage,
+  CONVERSATION_MEDIA_VIEWER_WINDOW_LIMIT,
   mediaFlatKey,
   messageIdFromFlatKey,
 } from "./message-conversation-media";
 
+function refs(start: number, end: number): SharedRefRecord[] {
+  return Array.from({ length: end - start }, (_, offset) => {
+    const index = start + offset;
+    return {
+      createdAt: index,
+      index: 0,
+      mediaKind: "image",
+      messageId: `m${index}`,
+      senderId: "sender",
+      url: `/api/media/${index}`,
+      version: 1,
+    };
+  });
+}
+
 function messages(...ids: string[]): ConversationMediaMessage[] {
-  return ids.map((id) => ({ deletedAt: null, id }));
+  return ids.map((id, index) => ({
+    createdAt: new Date(index),
+    deletedAt: null,
+    id,
+    senderId: "sender",
+  }));
 }
 
 function mediaPayload(urls: string[], kind: "gif" | "image" = "image") {
@@ -229,5 +254,140 @@ describe("buildConversationMediaIndex", () => {
     expect(index.items.map((item) => item.flatKey)).toEqual(
       Array.from({ length: 10 }, (_, i) => `m${i * 100}:0`)
     );
+  });
+});
+
+describe("buildConversationMediaWindow", () => {
+  function fixture(count: number) {
+    const list = messages(
+      ...Array.from({ length: count }, (_, index) => `m${index}`)
+    );
+    const entries: Record<string, ReturnType<typeof mediaPayload>> = {};
+    for (let index = 0; index < count; index += 1) {
+      entries[`m${index}`] = mediaPayload([`/api/media/${index}`]);
+    }
+    return { entries, list };
+  }
+
+  test("keeps a centered 100-item window and reports stable absolute position", () => {
+    const { entries, list } = fixture(250);
+    const window = buildConversationMediaWindow(
+      list,
+      lookup(entries),
+      "m120:0"
+    );
+
+    expect(window.items).toHaveLength(CONVERSATION_MEDIA_VIEWER_WINDOW_LIMIT);
+    expect(window.startIndex).toBe(70);
+    expect(window.activeIndex).toBe(50);
+    expect(window.absoluteIndex).toBe(120);
+    expect(window.totalItems).toBe(250);
+    expect(window.items[0]?.flatKey).toBe("m70:0");
+    expect(window.items.at(-1)?.flatKey).toBe("m169:0");
+    expect(window.indexByKey.get("m120:0")).toBe(50);
+  });
+
+  test("clamps the window at the oldest and newest boundaries", () => {
+    const { entries, list } = fixture(250);
+    const oldest = buildConversationMediaWindow(list, lookup(entries), "m0:0");
+    const newest = buildConversationMediaWindow(
+      list,
+      lookup(entries),
+      "m249:0"
+    );
+
+    expect(oldest.startIndex).toBe(0);
+    expect(oldest.activeIndex).toBe(0);
+    expect(oldest.items[0]?.flatKey).toBe("m0:0");
+    expect(newest.startIndex).toBe(150);
+    expect(newest.activeIndex).toBe(99);
+    expect(newest.items.at(-1)?.flatKey).toBe("m249:0");
+  });
+
+  test("uses the newest bounded slice when the requested anchor is unavailable", () => {
+    const { entries, list } = fixture(250);
+    const window = buildConversationMediaWindow(
+      list,
+      lookup(entries),
+      "missing:0"
+    );
+
+    expect(window.items).toHaveLength(100);
+    expect(window.startIndex).toBe(150);
+    expect(window.activeIndex).toBe(-1);
+    expect(window.absoluteIndex).toBe(-1);
+    expect(window.items.at(-1)?.flatKey).toBe("m249:0");
+  });
+
+  test("returns an empty window when no media is available", () => {
+    const list = messages("text");
+    const window = buildConversationMediaWindow(
+      list,
+      lookup({ text: { content: "hello", type: "text" } }),
+      "missing:0"
+    );
+
+    expect(window.items).toEqual([]);
+    expect(window.indexByKey.size).toBe(0);
+    expect(window.totalItems).toBe(0);
+    expect(window.activeIndex).toBe(-1);
+  });
+});
+
+describe("server media reference windows", () => {
+  test("centers an initial server page on the selected image and caps it at 100", () => {
+    const page = mediaItemsFromSharedRefs(refs(70, 170));
+    const anchor = mediaItemsFromSharedRefs(refs(120, 121));
+    const merged = mergeConversationMediaPage({
+      anchorKey: "m120:0",
+      current: [],
+      direction: "initial",
+      incoming: [...page, ...anchor],
+    });
+
+    expect(merged).toHaveLength(100);
+    expect(merged.findIndex((item) => item.flatKey === "m120:0")).toBe(50);
+    expect(merged[0]?.flatKey).toBe("m70:0");
+    expect(merged.at(-1)?.flatKey).toBe("m169:0");
+  });
+
+  test("older pages retain the selected older edge within the 100-item cap", () => {
+    const current = mediaItemsFromSharedRefs(refs(100, 200));
+    const older = mediaItemsFromSharedRefs(refs(80, 100));
+    const merged = mergeConversationMediaPage({
+      current,
+      direction: "older",
+      incoming: older,
+    });
+
+    expect(merged).toHaveLength(100);
+    expect(merged[0]?.flatKey).toBe("m80:0");
+    expect(merged.at(-1)?.flatKey).toBe("m179:0");
+  });
+
+  test("newer pages retain the selected newer edge within the 100-item cap", () => {
+    const current = mediaItemsFromSharedRefs(refs(80, 180));
+    const newer = mediaItemsFromSharedRefs(refs(180, 200));
+    const merged = mergeConversationMediaPage({
+      current,
+      direction: "newer",
+      incoming: newer,
+    });
+
+    expect(merged).toHaveLength(100);
+    expect(merged[0]?.flatKey).toBe("m100:0");
+    expect(merged.at(-1)?.flatKey).toBe("m199:0");
+  });
+
+  test("deduplicates an item present in both local and server references", () => {
+    const local = mediaItemsFromSharedRefs(refs(1, 2));
+    const server = mediaItemsFromSharedRefs(refs(1, 3));
+    const merged = mergeConversationMediaPage({
+      current: local,
+      direction: "initial",
+      incoming: server,
+    });
+
+    expect(merged.map((item) => item.flatKey)).toEqual(["m1:0", "m2:0"]);
   });
 });

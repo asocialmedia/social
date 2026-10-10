@@ -8,10 +8,11 @@
 // PATCH /api/users/[userId]/profile, exactly like web.
 import { updateUserProfileSchema } from "@asm/auth/validation";
 import type { UpdateUserProfileValues } from "@asm/auth/validation";
+import { useRouter } from "expo-router";
 import { Link2, UserRound } from "lucide-react-native";
 import { useCallback, useEffect, useState } from "react";
 import type { RefObject } from "react";
-import { ScrollView, StyleSheet, Text, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { AnimatedWordCounter } from "@/components/feedback/animated-word-counter";
 import { toast } from "@/components/feedback/toast";
@@ -121,6 +122,37 @@ function errorMessageOf(body: unknown, fallback: string): string {
     return body;
   }
   return fallback;
+}
+
+function LegalSettingsLinks() {
+  const router = useRouter();
+  const { theme } = useAppTheme();
+  const openDocument = (document: "privacy" | "terms") => {
+    router.push({ params: { document }, pathname: "/legal/[document]" });
+  };
+
+  return (
+    <SettingsCard>
+      <Text style={[styles.legalTitle, { color: theme.inputText }]}>Legal</Text>
+      <Text style={[styles.note, { color: theme.dividerText }]}>
+        The Terms and Privacy Policy you accepted when you signed up.
+      </Text>
+      <Pressable
+        accessibilityRole="link"
+        onPress={() => openDocument("terms")}
+        style={styles.legalLink}
+      >
+        <Text style={styles.heroLink}>Terms &amp; Conditions</Text>
+      </Pressable>
+      <Pressable
+        accessibilityRole="link"
+        onPress={() => openDocument("privacy")}
+        style={styles.legalLink}
+      >
+        <Text style={styles.heroLink}>Privacy Policy</Text>
+      </Pressable>
+    </SettingsCard>
+  );
 }
 
 export function ProfileTab({
@@ -301,6 +333,7 @@ export function ProfileTab({
             Sign in to edit your profile.
           </Text>
         </SettingsCard>
+        <LegalSettingsLinks />
       </ScrollView>
     );
   }
@@ -418,6 +451,7 @@ export function ProfileTab({
           </View>
         </>
       )}
+      <LegalSettingsLinks />
     </ScrollView>
   );
 }
@@ -442,6 +476,8 @@ const styles = StyleSheet.create({
     paddingBottom: 20,
     paddingHorizontal: 16,
   },
+  legalLink: { paddingVertical: 6 },
+  legalTitle: { fontFamily: "SofiaProBold", fontSize: 16 },
   note: { fontFamily: "SofiaProReg", fontSize: 14 },
   saveRow: { alignItems: "flex-end" },
   socialBlock: { gap: 14, paddingTop: 4 },

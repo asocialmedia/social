@@ -7,8 +7,12 @@ import { messageDecryptor } from "@/lib/messages/decryptor";
 import type {
   ConversationMediaIndex,
   ConversationMediaMessage,
+  ConversationMediaWindow,
 } from "./message-conversation-media";
-import { buildConversationMediaIndex } from "./message-conversation-media";
+import {
+  buildConversationMediaIndex,
+  buildConversationMediaWindow,
+} from "./message-conversation-media";
 
 // Derives the conversation-wide media index from the loaded transcript, so the
 // fullscreen viewer can page through every image in the thread.
@@ -34,5 +38,29 @@ export function useConversationMediaIndex(
         revision
       ),
     [messages, revision]
+  );
+}
+
+export function useConversationMediaWindow(
+  messages: readonly ConversationMediaMessage[],
+  anchorKey: string,
+  limit?: number
+): ConversationMediaWindow {
+  const revision = useSyncExternalStore(
+    messageDecryptor.subscribe,
+    () => messageDecryptor.getVersion(),
+    () => 0
+  );
+
+  return useMemo(
+    () =>
+      buildConversationMediaWindow(
+        messages,
+        (id) => messageDecryptor.get(id),
+        anchorKey,
+        revision,
+        limit
+      ),
+    [anchorKey, limit, messages, revision]
   );
 }

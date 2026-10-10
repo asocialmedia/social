@@ -18,6 +18,27 @@ import type { SearchIndexStore } from "./search-index-format";
 
 const CONVO = "c1";
 
+async function pendingIdsFor(
+  store: SearchIndexStore,
+  conversationId: string
+): Promise<string[]> {
+  const messageIds: string[] = [];
+  let after: string | undefined;
+  // oxlint-disable no-await-in-loop -- each page cursor depends on the previous page
+  while (true) {
+    const page = await store.readPendingPage(conversationId, {
+      after,
+      limit: 256,
+    });
+    messageIds.push(...page);
+    if (page.length < 256) {
+      return messageIds;
+    }
+    after = page.at(-1);
+  }
+  // oxlint-enable no-await-in-loop
+}
+
 // A promise the test opens by hand. Used where the property under test is that
 // nothing proceeds until something ELSE decides it may.
 function gate() {
@@ -311,6 +332,66 @@ describe("message index backfill", () => {
     expect(result.refsReachedStart).toBe(true);
     const meta = await harness.store.readMeta(CONVO);
     expect(meta?.refsReachedStart).toBe(true);
+  });
+
+  test("keeps refs coverage incomplete until a failed artifact is retried", async () => {
+    const store = createMemorySearchIndexStore();
+    const { putSharedRefs } = store;
+    let failRefs = true;
+    store.putSharedRefs = (...args) => {
+      if (failRefs) {
+        return Promise.reject(new Error("refs store temporarily unavailable"));
+      }
+      return putSharedRefs(...args);
+    };
+    const payloads = new Map<string, IndexablePayload>([
+      ["message-with-link", { content: "https://example.com/a", type: "text" }],
+    ]);
+    const createWriter = () =>
+      createMessageIndexWriter({
+        conversationId: CONVO,
+        getPayload: (id) => payloads.get(id),
+        store,
+      });
+    const fetchPage = () => ({
+      messages: [message("message-with-link", 1)],
+      previousCursor: null,
+    });
+    const first = createMessageIndexBackfill({
+      awaitDecrypts: async () => {},
+      conversationId: CONVO,
+      fetchPage,
+      pageDelayMs: 0,
+      store,
+      writer: createWriter(),
+    });
+
+    const incomplete = await first.run();
+    expect(incomplete.reachedStart).toBe(true);
+    expect(incomplete.refsReachedStart).toBe(false);
+    expect(await pendingIdsFor(store, CONVO)).toEqual(["message-with-link"]);
+    const incompleteMeta = await store.readMeta(CONVO);
+    expect(incompleteMeta?.refsReachedStart).toBe(false);
+
+    failRefs = false;
+    const resumed = createMessageIndexBackfill({
+      awaitDecrypts: async () => {},
+      conversationId: CONVO,
+      fetchPage,
+      pageDelayMs: 0,
+      store,
+      writer: createWriter(),
+    });
+    const completed = await resumed.run();
+
+    expect(completed.refsReachedStart).toBe(true);
+    expect(await pendingIdsFor(store, CONVO)).toEqual([]);
+    const linkedMessages = await store.readSharedRefs(CONVO, "link", {
+      limit: 10,
+    });
+    const completedMeta = await store.readMeta(CONVO);
+    expect(linkedMessages.items).toHaveLength(1);
+    expect(completedMeta?.refsReachedStart).toBe(true);
   });
 
   test("a run that stops on its budget claims neither, and resumes to both", async () => {
@@ -845,8 +926,12 @@ describe("message index backfill", () => {
     // Models a decrypt that only finishes on abort.
     const decrypting = gate();
     const controller = new AbortController();
+    let decryptSignal: AbortSignal | undefined;
     const hanging = createMessageIndexBackfill({
-      awaitDecrypts: () => decrypting.promise,
+      awaitDecrypts: (_messages, signal) => {
+        decryptSignal = signal;
+        return decrypting.promise;
+      },
       conversationId: CONVO,
       fetchPage: harness.fetchPage,
       signal: controller.signal,
@@ -864,6 +949,7 @@ describe("message index backfill", () => {
       });
     }
     // oxlint-enable no-await-in-loop
+    expect(decryptSignal).toBe(controller.signal);
     const started = performance.now();
     hanging.stop();
     controller.abort();
@@ -959,7 +1045,7 @@ describe("message index backfill", () => {
     expect(result.reachedStart).toBe(true);
     expect(result.state).toBe("done");
     expect(result.pendingCount).toBeGreaterThan(0);
-    const queued = await store.readPending(CONVO);
+    const queued = await pendingIdsFor(store, CONVO);
     expect(queued.length).toBeGreaterThan(0);
     // Nothing was indexed, and nothing pretends otherwise.
     expect(await idsFor(store, "deploy")).toEqual([]);
@@ -968,7 +1054,7 @@ describe("message index backfill", () => {
 
   test("the cursor stays put when the queue itself cannot be persisted", async () => {
     const store = createMemorySearchIndexStore();
-    store.writePending = () => Promise.reject(new Error("quota"));
+    store.updatePending = () => Promise.reject(new Error("quota"));
     const payloads = new Map<string, IndexablePayload>();
     const writer = createMessageIndexWriter({
       conversationId: CONVO,
@@ -988,7 +1074,7 @@ describe("message index backfill", () => {
     // No cursor at all: those rows are committed or recoverable from nowhere, and
     // moving the cursor would strand them permanently.
     expect(await store.readMeta(CONVO)).toBeNull();
-    expect(await store.readPending(CONVO)).toEqual([]);
+    expect(await pendingIdsFor(store, CONVO)).toEqual([]);
   });
 
   test("a page that fully commits advances the cursor as before", async () => {
@@ -998,7 +1084,7 @@ describe("message index backfill", () => {
     const meta = await harness.store.readMeta(CONVO);
     expect(meta?.indexedThroughId).toBe("m0000");
     // Nothing left over once every row committed.
-    expect(await harness.store.readPending(CONVO)).toEqual([]);
+    expect(await pendingIdsFor(harness.store, CONVO)).toEqual([]);
   });
 
   test("keeps the pending set when persisting the cursor", async () => {

@@ -19,6 +19,7 @@ import {
 import type { PrivateUserData } from "@/hooks/users/use-user-data";
 
 import AccountSettings from "./tabs/account-settings";
+import PrivacySettings from "./tabs/privacy-settings";
 import ProfileSettings from "./tabs/profile-settings";
 import SecuritySettings from "./tabs/security-settings";
 import type { SecurityPasskey, SecurityState } from "./tabs/security-settings";
@@ -106,6 +107,9 @@ export default function ClientSettings({
                 <TabsTrigger className={TAB_TRIGGER_CLASS} value="account">
                   Account
                 </TabsTrigger>
+                <TabsTrigger className={TAB_TRIGGER_CLASS} value="privacy">
+                  Privacy
+                </TabsTrigger>
                 <TabsTrigger className={TAB_TRIGGER_CLASS} value="security">
                   Security
                 </TabsTrigger>
@@ -140,6 +144,10 @@ export default function ClientSettings({
                   accountLinkingReadiness={accountLinkingReadiness}
                   user={user}
                 />
+              </TabsContent>
+
+              <TabsContent className="mt-0 pb-12" value="privacy">
+                <PrivacySettings user={user} />
               </TabsContent>
 
               <TabsContent className="mt-0 pb-12" value="security">

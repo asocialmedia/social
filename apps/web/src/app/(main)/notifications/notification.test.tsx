@@ -35,6 +35,8 @@ function createMockNotificationItem(
     commentId: null,
     community: null,
     communityId: null,
+    conversation: null,
+    conversationId: null,
     count: 1,
     createdAt: new Date("2026-09-13T12:00:00.000Z"),
     id,
@@ -276,5 +278,39 @@ describe("Notification component (grouped rendering)", () => {
     expect(html).toContain("Alice");
     expect(html).toContain("Bob");
     expect(html).toMatch(/amplified your (?:<!-- -->)?eddie/);
+  });
+
+  test("names the den and the sender on a message in a den", () => {
+    const notif = createMockNotificationItem({
+      conversation: { _type: "DEN", id: "den-1", name: "Study group" },
+      conversationId: "den-1",
+      id: "notif-den",
+      issuerId: "alice",
+      postId: null,
+      type: "DEN_MESSAGE",
+    });
+
+    const html = renderNotificationComponent(notif);
+    // The room is named between the sender and the verb, because that is the
+    // run a reader scans for when the inbox is full.
+    expect(html).toMatch(/Study group/);
+    expect(html).toMatch(/sent a message/);
+    // And it links to the den, not to a post.
+    expect(html).toContain("/messages?c=den-1");
+  });
+
+  test("counts a folded den into the message total", () => {
+    const notif = createMockNotificationItem({
+      conversation: { _type: "DEN", id: "den-1", name: "Study group" },
+      conversationId: "den-1",
+      count: 12,
+      id: "notif-den-folded",
+      issuerId: "alice",
+      postId: null,
+      type: "DEN_MESSAGE",
+    });
+
+    const html = renderNotificationComponent(notif);
+    expect(html).toMatch(/12 new messages/);
   });
 });

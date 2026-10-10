@@ -330,3 +330,65 @@ export function parsePasskeys(payload: unknown): PasskeyEntry[] {
     ];
   });
 }
+
+// --- Privacy ----------------------------------------------------------------
+
+// The group-add setting, as the native side reads and writes it.
+//
+// Reuses the web route rather than adding a native one. The values are a privacy
+// decision about who may reach an account, and a second endpoint would be a
+// second place for them to be defined and a second thing to keep in step; mobile
+// already calls every other settings route on the same server.
+export const GROUP_ADD_POLICIES = [
+  "EVERYONE",
+  "FOLLOWING_ONLY",
+  "NO_DIRECT_ADDS",
+] as const;
+
+export type GroupAddPolicy = (typeof GROUP_ADD_POLICIES)[number];
+
+export function isGroupAddPolicy(value: unknown): value is GroupAddPolicy {
+  return (
+    typeof value === "string" &&
+    (GROUP_ADD_POLICIES as readonly string[]).includes(value)
+  );
+}
+
+export interface GroupAddSetting {
+  groupAddPolicy: GroupAddPolicy;
+}
+
+// Falls back to the account default rather than to null, so a signed-out read or a
+// route that has not answered leaves the tab showing the same choice a freshly
+// created account has instead of an empty control the reader has to interpret.
+export function parseGroupAddSetting(payload: unknown): GroupAddSetting {
+  const body = objectOf(payload);
+  return {
+    groupAddPolicy: isGroupAddPolicy(body?.groupAddPolicy)
+      ? body.groupAddPolicy
+      : "FOLLOWING_ONLY",
+  };
+}
+
+export function fetchGroupAddSetting(
+  options: ApiCallOptions
+): Promise<GroupAddSetting | null> {
+  return readSettings(
+    "/api/users/privacy/group-add-policy",
+    options,
+    parseGroupAddSetting
+  );
+}
+
+export function setGroupAddPolicy(
+  policy: GroupAddPolicy,
+  options: ApiCallOptions
+): Promise<SettingsMutationResult> {
+  return mutateSettings(
+    "/api/users/privacy/group-add-policy",
+    "PATCH",
+    { groupAddPolicy: policy },
+    options,
+    "Couldn't save that setting"
+  );
+}

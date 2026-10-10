@@ -104,6 +104,11 @@ export function getPrivateUserQuery(orm: PrismaOrm, loggedInUserId: string) {
     "emailVerified",
     "githubUsername",
     "googleId",
+    // Private on purpose: this is the reader's own privacy setting and it belongs
+    // to nobody else's payload. `getPublicUserQuery` deliberately does not carry
+    // it - another account's policy is reported by the den search, as a decision
+    // this viewer may act on rather than a fact about that person.
+    "groupAddPolicy",
     "id",
     "lastLoginMethod",
     "linkedinUsername",
@@ -409,22 +414,33 @@ export interface CommentsPage {
 }
 
 export function getNotificationDataQuery(orm: PrismaOrm) {
-  return orm.public.Notifications.include("comment", (comment) =>
-    comment
-      .select("id", "parentId")
-      .include("parent", (parent) => parent.select("userId"))
-  )
-    .include("community", (community) =>
-      community.select("accentColor", "id", "name", "slug")
+  return (
+    orm.public.Notifications.include("comment", (comment) =>
+      comment
+        .select("id", "parentId")
+        .include("parent", (parent) => parent.select("userId"))
     )
-    .include("issuer", (issuer) =>
-      issuer.select("avatarUrl", "displayName", "id", "username")
-    )
-    .include("post", (post) =>
-      post
-        .select("content", "id", "isGust", "parentPostId")
-        .include("community", (community) => community.select("slug"))
-    );
+      .include("community", (community) =>
+        community.select("accentColor", "id", "name", "slug")
+      )
+      // The den a den row names, and nothing else about it. `name` is the second
+      // half of the copy for a message ("Alice in Study group: sent a message")
+      // and the whole of it for a removal ("Alice removed you from Study group").
+      // The member list is never selected, so it cannot reach a client that
+      // renders this row. A dissolve carries no conversation at all - the den row
+      // is gone - and the copy has to survive that.
+      .include("conversation", (conversation) =>
+        conversation.select("_type", "id", "name")
+      )
+      .include("issuer", (issuer) =>
+        issuer.select("avatarUrl", "displayName", "id", "username")
+      )
+      .include("post", (post) =>
+        post
+          .select("content", "id", "isGust", "parentPostId")
+          .include("community", (community) => community.select("slug"))
+      )
+  );
 }
 
 export type NotificationQueryData = ResultType<
@@ -495,39 +511,95 @@ export interface NotificationCountInfo {
 
 // Message shapes. The server only ever sees ciphertext; the include below
 // is intentionally lean (no plaintext fields to leak).
+//
+// Den columns ride along on the conversation row and on each member's row
+// (role), and the wrapper identity on each key row, because the client needs all
+// three to fan a root key out to N members and to gate management routes. They
+// are selected explicitly rather than through a wildcard so adding a den column
+// later is a deliberate line here instead of a silent widening of every payload.
 export function getMessageConversationDataQuery(orm: PrismaOrm) {
-  return orm.public.MessageConversations.include(
-    "messageConversationKeys"
-  ).include("messageConversationMembers", (members) =>
-    members.include("user", (user) =>
-      user
-        .select(
-          "avatarUrl",
-          "badge",
-          "badges",
-          "bannerUrl",
-          "displayName",
-          "id",
-          "username"
-        )
-        .include("communityMembers", (memberships) =>
-          memberships
-            .where((member) =>
-              and(
-                member.status.eq("ACTIVE"),
-                member.role.in(["OWNER", "MODERATOR", "MEMBER"])
-              )
-            )
-            .select("role")
-            .include("community", (community) =>
-              community.select("accentColor", "avatarUrl", "name", "slug")
-            )
-        )
-        .include("messageIdentities", (identity) =>
-          identity.select("publicKey")
-        )
+  return orm.public.MessageConversations.select(
+    "avatarMediaId",
+    "createdById",
+    "description",
+    "id",
+    "inviteCode",
+    "name",
+    "ownerId",
+    "pairKey",
+    "_type",
+    "createdAt",
+    // The roster-only change counter, carried on every conversation payload so a
+    // client can tell whether the detail it is holding has been overtaken. See
+    // the column's note in contract.prisma for what does and does not move it.
+    "membershipSeq",
+    "updatedAt"
+  )
+    .include("messageConversationKeys", (keys) =>
+      keys.select(
+        "conversationId",
+        "createdAt",
+        "encryptedKey",
+        "id",
+        "iv",
+        "ownerUserId",
+        "ratchetCounter",
+        "version",
+        "wrapperPublicKey",
+        "wrapperUserId"
+      )
     )
-  );
+    .include("messageConversationMembers", (members) =>
+      members
+        .select(
+          "conversationId",
+          "createdAt",
+          "invitedById",
+          "lastDeliveredAt",
+          "lastReadAt",
+          "lastReadSequence",
+          "unreadCount",
+          // Den-only. The client needs it to render a den somebody left as
+          // read-only rather than as one they are still in, and the write routes
+          // need it to refuse them with a reason the composer can show.
+          "leftAt",
+          "mutedAt",
+          "role",
+          "themeKey",
+          "userId",
+          "wallpaperDim",
+          "wallpaperKey",
+          "wallpaperMediaId"
+        )
+        .include("user", (user) =>
+          user
+            .select(
+              "avatarUrl",
+              "badge",
+              "badges",
+              "bannerUrl",
+              "displayName",
+              "id",
+              "username"
+            )
+            .include("communityMembers", (memberships) =>
+              memberships
+                .where((member) =>
+                  and(
+                    member.status.eq("ACTIVE"),
+                    member.role.in(["OWNER", "MODERATOR", "MEMBER"])
+                  )
+                )
+                .select("role")
+                .include("community", (community) =>
+                  community.select("accentColor", "avatarUrl", "name", "slug")
+                )
+            )
+            .include("messageIdentities", (identity) =>
+              identity.select("publicKey")
+            )
+        )
+    );
 }
 
 export type MessageConversationData = ResultType<

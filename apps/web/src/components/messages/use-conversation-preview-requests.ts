@@ -1,12 +1,14 @@
 "use client";
 
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
 import type { ConversationListItem } from "@/lib/messages/client";
+import { toWrappedKeyPayloads } from "@/lib/messages/client";
 import { importRatchetBaseKey } from "@/lib/messages/crypto";
 import { messageDecryptor } from "@/lib/messages/decryptor";
 import {
+  findMyWrappedKeys,
   findPeerPublicKey,
   useRootKeyStore,
 } from "@/lib/messages/use-decryption";
@@ -30,6 +32,10 @@ export function useConversationPreviewRequests(
   const { user } = useSession();
   const rootKeyStore = useRootKeyStore();
   const userId = user?.id;
+  const itemsByConversationId = useMemo(
+    () => new Map(items.map((item) => [item.conversation.id, item])),
+    [items]
+  );
 
   // Same scope the thread sets, so a payload decrypted here is not served to a
   // different identity and the reset path clears it. Idempotent when the thread
@@ -47,27 +53,20 @@ export function useConversationPreviewRequests(
       if (!rootKeyStore || !userId) {
         return [];
       }
-      const item = items.find(
-        (candidate) => candidate.conversation.id === targetConversationId
-      );
+      const item = itemsByConversationId.get(targetConversationId);
       if (!item) {
         return [];
       }
       const peerPublicKey = findPeerPublicKey(item.conversation, userId);
-      if (!peerPublicKey) {
-        return [];
-      }
       // The list carries the raw key ROWS (`encryptedKey` and `iv` as sibling
       // strings), not the client's wrapped-key payload with the blob nested, so
-      // they are adapted here rather than translated on the server for the sake of
-      // a preview.
-      const wrappedKeys = item.conversation.keys
-        .filter((key) => key.ownerUserId === userId)
-        .toSorted((left, right) => right.version - left.version)
-        .map((key) => ({
-          encryptedKey: { ciphertext: key.encryptedKey, iv: key.iv },
-          version: key.version,
-        }));
+      // they are adapted rather than translated on the server for the sake of a
+      // preview.
+      const wrappedKeys = findMyWrappedKeys(
+        toWrappedKeyPayloads(item.conversation.keys),
+        item.conversation,
+        userId
+      );
       if (wrappedKeys.length === 0) {
         return [];
       }
@@ -75,7 +74,8 @@ export function useConversationPreviewRequests(
         const roots = await rootKeyStore.getRootKeys(
           targetConversationId,
           wrappedKeys,
-          peerPublicKey
+          // Only a DM needs the peer: a den wrap pairs with its own wrapper.
+          peerPublicKey ?? ""
         );
         return await Promise.all(roots.map(importRatchetBaseKey));
       } catch {
@@ -84,7 +84,7 @@ export function useConversationPreviewRequests(
         return [];
       }
     },
-    [items, rootKeyStore, userId]
+    [itemsByConversationId, rootKeyStore, userId]
   );
 
   useEffect(() => {

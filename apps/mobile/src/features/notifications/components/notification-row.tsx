@@ -24,6 +24,7 @@ import {
   ShieldAlert,
   Sparkles,
   UserPlus,
+  Users,
 } from "lucide-react-native";
 import type { ComponentType } from "react";
 import { useState } from "react";
@@ -59,6 +60,7 @@ const ICONS: Record<
   ShieldAlert,
   Sparkles,
   UserPlus,
+  Users,
 };
 
 interface NotificationRowProps {

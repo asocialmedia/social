@@ -1,14 +1,14 @@
 {
   "name": "@asm/web",
-  "version": "1.5.48",
+  "version": "1.7.5",
   "private": true,
   "description": "asocialmedia Web App",
   "license": "AGPL-3.0",
   "scripts": {
-    "build": "next build",
-    "check-types": "tsc --noEmit",
     "dev": "cross-env NODE_ENV=development next dev",
-    "start": "next start -p 3000"
+    "build": "next build",
+    "start": "next start -p 3000",
+    "check-types": "tsc --noEmit"
   },
   "dependencies": {
     "@asm/aggregator": "workspace:*",
@@ -83,6 +83,7 @@
     "@types/react-syntax-highlighter": "^15.5.13",
     "bun-types": "^1.4.0",
     "fake-indexeddb": "^6.2.5",
+    "happy-dom": "^20.14.6",
     "prisma": "8.0.0-rc.20",
     "tailwindcss": "^4.3.3",
     "typescript": "^7.0.2"

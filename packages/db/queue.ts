@@ -69,6 +69,11 @@ export const MEDIA_SCAN_QUEUE = "media-scan";
 export const MEDIA_PROCESS_QUEUE = "media-process";
 const CONTENT_EVENTS_QUEUE = "content-events";
 export const NOTIFICATIONS_QUEUE = "notifications";
+export const MESSAGE_SEARCH_LIVE_QUEUE = "message-search-live";
+export const MESSAGE_SEARCH_BACKFILL_QUEUE = "message-search-backfill";
+export const MESSAGE_SEARCH_COUNT_QUEUE = "message-search-count";
+export const MESSAGE_UNREAD_COUNTER_QUEUE = "message-unread-counter";
+export const MESSAGE_SEARCH_MAX_ATTEMPTS = 8;
 const MAINTENANCE_QUEUE = "maintenance";
 
 // The worker increments this when a notification is created, and the web app
@@ -163,9 +168,16 @@ export const unreadNotificationCache = {
   },
 };
 
-// Unread DMs counter, mirrored off the notification badge: incremented when a
-// message is created, decremented when the user reads a conversation, and
-// polled every 60s by the nav badge (plus an instant bump over the SSE stream).
+// Unread messages counter, mirrored off the notification badge: incremented
+// when a message is created, decremented when the user reads a conversation,
+// and polled every 60s by the nav badge (plus an instant bump over the SSE
+// stream). One counter per user across every conversation they are in.
+//
+// DMs only, historically, because a DM has exactly one peer. A den does not, so
+// one send has to move up to DEN_LIMITS.membersMax - 1 counters at once. That is
+// `incrementMany`, and the reason it is a pipeline rather than a loop is that a
+// den's send path is a hot path: ninety-nine awaited round trips per message is
+// the difference between a send and a stall.
 const UNREAD_MESSAGE_PREFIX = "unread:messages:";
 
 export const unreadMessageCache = {
@@ -212,11 +224,54 @@ export const unreadMessageCache = {
     }
   },
 
+  // One hit for each of `userIds`, in a single round trip. Deduplicated, because
+  // two callers naming the same recipient twice must still only move their
+  // badge once, and a den's roster is exactly the kind of list that can arrive
+  // with a duplicate in it.
+  //
+  // The whole pipeline is one failure: a partial fan-out would leave some
+  // members' badges short of the truth and others exact, and the read route
+  // decrements by the real unread count, so a recipient that missed its
+  // increment would drift permanently high rather than being reconciled by the
+  // next seed. All-or-nothing is the honest failure here, and the caller treats
+  // it as best-effort either way.
+  async incrementMany(userIds: readonly string[]): Promise<void> {
+    const recipients = [...new Set(userIds)];
+    if (recipients.length === 0) {
+      return;
+    }
+    try {
+      const pipeline = redis.pipeline();
+      for (const userId of recipients) {
+        pipeline.incrby(`${UNREAD_MESSAGE_PREFIX}${userId}`, 1);
+      }
+      await pipeline.exec();
+    } catch (error) {
+      console.error("Error incrementing unread message counts:", error);
+    }
+  },
+
   async reset(userId: string): Promise<void> {
     try {
       await redis.del(`${UNREAD_MESSAGE_PREFIX}${userId}`);
     } catch (error) {
       console.error("Error resetting unread message count:", error);
+    }
+  },
+
+  async resetMany(userIds: readonly string[]): Promise<void> {
+    const recipients = [...new Set(userIds)];
+    if (recipients.length === 0) {
+      return;
+    }
+    try {
+      const pipeline = redis.pipeline();
+      for (const userId of recipients) {
+        pipeline.del(`${UNREAD_MESSAGE_PREFIX}${userId}`);
+      }
+      await pipeline.exec();
+    } catch (error) {
+      console.error("Error resetting unread message counts:", error);
     }
   },
 };
@@ -381,7 +436,95 @@ async function addWithFreshId(
       });
     }
   }
-  await queue.add(name, data, options);
+  await queue.add(name, data, { ...options, jobId });
+}
+
+export async function enqueueMessageSearchOutbox(
+  outboxId: string
+): Promise<void> {
+  await addWithFreshId(
+    getQueue(MESSAGE_SEARCH_LIVE_QUEUE),
+    "index-message-outbox",
+    `dm-search-${outboxId}`,
+    { outboxId },
+    {
+      attempts: MESSAGE_SEARCH_MAX_ATTEMPTS,
+      backoff: { delay: 1000, jitter: 0.25, type: "exponential" },
+      removeOnComplete: 1000,
+      removeOnFail: 5000,
+    }
+  );
+}
+
+export async function enqueueMessageSearchBackfillOutbox(
+  outboxId: string
+): Promise<void> {
+  await addWithFreshId(
+    getQueue(MESSAGE_SEARCH_BACKFILL_QUEUE),
+    "index-message-outbox",
+    `dm-search-backfill-${outboxId}`,
+    { outboxId },
+    {
+      attempts: MESSAGE_SEARCH_MAX_ATTEMPTS,
+      backoff: { delay: 1000, jitter: 0.25, type: "exponential" },
+      removeOnComplete: 1000,
+      removeOnFail: 5000,
+    }
+  );
+}
+
+export async function enqueueMessageSearchBackfill(
+  conversationId: string,
+  cursorKey: string | null = "start"
+): Promise<void> {
+  await addWithFreshId(
+    getQueue(MESSAGE_SEARCH_BACKFILL_QUEUE),
+    "index-conversation-search-backfill",
+    `dm-search-backfill-${conversationId}-${cursorKey}`,
+    { conversationId },
+    {
+      attempts: MESSAGE_SEARCH_MAX_ATTEMPTS,
+      backoff: { delay: 1000, jitter: 0.25, type: "exponential" },
+      removeOnComplete: 1000,
+      removeOnFail: 5000,
+    }
+  );
+}
+
+export async function enqueueMessageSearchCount(
+  requestId: string
+): Promise<void> {
+  await addWithFreshId(
+    getQueue(MESSAGE_SEARCH_COUNT_QUEUE),
+    "count-conversation-search",
+    `dm-search-count-${requestId}`,
+    { requestId },
+    {
+      attempts: MESSAGE_SEARCH_MAX_ATTEMPTS,
+      backoff: { delay: 1000, jitter: 0.25, type: "exponential" },
+      priority: 20,
+      removeOnComplete: 1000,
+      removeOnFail: 5000,
+    }
+  );
+}
+
+export async function enqueueMessageUnreadCounter(
+  conversationId: string,
+  userId: string
+): Promise<void> {
+  await addWithFreshId(
+    getQueue(MESSAGE_UNREAD_COUNTER_QUEUE),
+    "reconcile-message-unread-counter",
+    `dm-unread-${conversationId}-${userId}`,
+    { conversationId, userId },
+    {
+      attempts: 8,
+      backoff: { delay: 1000, jitter: 0.25, type: "exponential" },
+      removeOnComplete: 1000,
+      removeOnFail: 5000,
+    }
+  );
 }
 
 export async function enqueueMediaScan(

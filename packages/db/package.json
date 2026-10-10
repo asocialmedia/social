@@ -1,6 +1,6 @@
 {
   "name": "@asm/db",
-  "version": "1.1.94",
+  "version": "1.2.55",
   "private": true,
   "description": "asocialmedia database & cache package",
   "license": "AGPL-3.0",
@@ -11,13 +11,17 @@
       "types": "./index.ts",
       "default": "./index.ts"
     },
-    "./communities": {
-      "types": "./src/communities/shared.ts",
-      "default": "./src/communities/shared.ts"
-    },
     "./dates": {
       "types": "./src/dates.ts",
       "default": "./src/dates.ts"
+    },
+    "./messages/dens": {
+      "types": "./src/messages/dens.ts",
+      "default": "./src/messages/dens.ts"
+    },
+    "./communities": {
+      "types": "./src/communities/shared.ts",
+      "default": "./src/communities/shared.ts"
     },
     "./recommendation/trending-snapshot": {
       "types": "./src/recommendation/trending-snapshot.ts",
@@ -25,12 +29,12 @@
     }
   },
   "scripts": {
-    "check-types": "tsc --noEmit",
-    "db:gen": "prisma contract emit",
-    "db:migrate": "prisma db migrate --advance-ref db",
     "db:status": "prisma migration status",
+    "db:migrate": "prisma db migrate --advance-ref db",
     "db:sign": "prisma db sign --no-advance-ref",
-    "db:verify": "prisma db verify"
+    "db:verify": "prisma db verify",
+    "check-types": "tsc --noEmit",
+    "db:gen": "prisma contract emit"
   },
   "dependencies": {
     "@asm/config": "workspace:*",

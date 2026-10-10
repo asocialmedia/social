@@ -1,16 +1,16 @@
 {
   "name": "@asm/auth-app",
-  "version": "1.1.84",
+  "version": "1.1.97",
   "private": true,
   "description": "asocialmedia Auth Service",
   "scripts": {
-    "build": "target=$(bash scripts/resolve-build-target.sh); bun build --compile --minify --target=$target --external msgpackr-extract ./src/server.ts --outfile ./dist/auth-server",
     "build:worker": "target=$(bash scripts/resolve-build-target.sh); bun build --compile --minify --target=$target --external msgpackr-extract ./src/worker.ts --outfile ./dist/asm-worker",
-    "check-types": "tsc --noEmit",
+    "build": "target=$(bash scripts/resolve-build-target.sh); bun build --compile --minify --target=$target --external msgpackr-extract ./src/server.ts --outfile ./dist/auth-server",
     "dev": "cross-env NODE_ENV=development bun --watch src/dev.ts",
-    "dev:worker": "bun --watch src/worker.ts",
     "start": "bun run src/server.ts",
-    "start:worker": "bun run src/worker.ts"
+    "dev:worker": "bun --watch src/worker.ts",
+    "start:worker": "bun run src/worker.ts",
+    "check-types": "tsc --noEmit"
   },
   "dependencies": {
     "@asm/aggregator": "workspace:*",

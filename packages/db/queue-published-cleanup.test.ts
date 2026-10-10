@@ -100,6 +100,48 @@ describe("queue notification cleanup jobs and schedulers", () => {
     });
   });
 
+  test("message search jobs use stable BullMQ job IDs", async () => {
+    const {
+      enqueueMessageSearchBackfill,
+      enqueueMessageSearchCount,
+      enqueueMessageSearchOutbox,
+    } = await import("./queue");
+
+    await enqueueMessageSearchOutbox("outbox-1");
+    await enqueueMessageSearchOutbox("outbox-1");
+    await enqueueMessageSearchBackfill("conversation-1", "message-1");
+    await enqueueMessageSearchCount("request-1");
+
+    expect(mockJobs.get("message-search-live")).toEqual([
+      expect.objectContaining({
+        data: { outboxId: "outbox-1" },
+        name: "index-message-outbox",
+        opts: expect.objectContaining({ jobId: "dm-search-outbox-1" }),
+      }),
+      expect.objectContaining({
+        data: { outboxId: "outbox-1" },
+        name: "index-message-outbox",
+        opts: expect.objectContaining({ jobId: "dm-search-outbox-1" }),
+      }),
+    ]);
+    expect(mockJobs.get("message-search-backfill")).toEqual([
+      expect.objectContaining({
+        data: { conversationId: "conversation-1" },
+        name: "index-conversation-search-backfill",
+        opts: expect.objectContaining({
+          jobId: "dm-search-backfill-conversation-1-message-1",
+        }),
+      }),
+    ]);
+    expect(mockJobs.get("message-search-count")).toEqual([
+      expect.objectContaining({
+        data: { requestId: "request-1" },
+        name: "count-conversation-search",
+        opts: expect.objectContaining({ jobId: "dm-search-count-request-1" }),
+      }),
+    ]);
+  });
+
   test("registerMaintenanceSchedulers registers the credential-account heal", async () => {
     const { registerMaintenanceSchedulers } = await import("./queue");
 

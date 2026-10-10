@@ -14,6 +14,7 @@ import {
   expandPrefixTerm,
   internRows,
   intersectPostingLists,
+  intersectPostingListsWindow,
   rowListAdd,
   rowListRemove,
   rowListRemoveMany,
@@ -27,6 +28,7 @@ import {
   unionPostingLists,
 } from "./search-index-format";
 import type {
+  SearchIndexCursor,
   SearchIndexPostingList,
   SearchIndexEntry,
   SearchIndexStore,
@@ -539,6 +541,117 @@ describe("intersectPostingLists", () => {
     });
     expect(window).toEqual([{ createdAt: 100, row: 2 }]);
     expect(result.totalMatched).toBe(2);
+  });
+});
+
+describe("intersectPostingListsWindow", () => {
+  test("counts the exact intersection while retaining only the requested window", () => {
+    const first = postingList([0, 1, 2], [300, 200, 100]);
+    const second = postingList([0, 2], [300, 100]);
+
+    expect(intersectPostingListsWindow([first, second], 1)).toEqual({
+      hasMore: true,
+      totalMatched: 2,
+      window: [{ createdAt: 300, row: 0 }],
+    });
+  });
+
+  test("pages tied timestamps strictly by row id", () => {
+    const list = postingList([0, 1, 2], [100, 100, 100]);
+    const first = intersectPostingListsWindow([list], 2);
+    const cursor: SearchIndexCursor = {
+      createdAt: 100,
+      row: first.window.at(-1)?.row ?? 0,
+    };
+
+    expect(first.window).toEqual([
+      { createdAt: 100, row: 0 },
+      { createdAt: 100, row: 1 },
+    ]);
+    expect(first.hasMore).toBe(true);
+    expect(intersectPostingListsWindow([list], 2, cursor)).toEqual({
+      hasMore: false,
+      totalMatched: 3,
+      window: [{ createdAt: 100, row: 2 }],
+    });
+  });
+
+  test("keeps broad-query memory bounded by the page size", () => {
+    const length = 100_000;
+    const rows = Uint32Array.from({ length }, (_, index) => index);
+    const times = Float64Array.from({ length }, (_, index) => index);
+    const result = intersectPostingListsWindow([{ rows, times }], 20);
+
+    expect(result.totalMatched).toBe(length);
+    expect(result.hasMore).toBe(true);
+    expect(result.window).toHaveLength(20);
+    expect(result.window[0]).toEqual({
+      createdAt: length - 1,
+      row: length - 1,
+    });
+    expect(result.window.at(-1)).toEqual({
+      createdAt: length - 20,
+      row: length - 20,
+    });
+  });
+
+  test("matches the reference intersection and cursor window on mixed postings", () => {
+    let randomState = 0x5e_ed;
+    const nextRandom = () => {
+      randomState = (randomState * 1_664_525 + 1_013_904_223) % 0x1_00_00_00_00;
+      return randomState / 0x1_00_00_00_00;
+    };
+
+    for (let scenario = 0; scenario < 30; scenario += 1) {
+      const lists = Array.from({ length: 1 + (scenario % 4) }, () => {
+        const rows: number[] = [];
+        const times: number[] = [];
+        for (let row = 0; row < 80; row += 1) {
+          if (nextRandom() < 0.55) {
+            rows.push(row);
+            times.push(Math.floor(nextRandom() * 12));
+          }
+        }
+        return postingList(rows, times);
+      });
+      const reference = intersectPostingLists(lists);
+      const expectedCursor =
+        scenario % 2 === 0
+          ? undefined
+          : (windowCursor(
+              selectNewestFirstWindow(reference.matches, 1 + (scenario % 7))
+                .window
+            ) ?? undefined);
+      const limit = 1 + (scenario % 7);
+      const expectedWindow = selectNewestFirstWindow(
+        reference.matches,
+        limit,
+        expectedCursor
+      );
+
+      expect(intersectPostingListsWindow(lists, limit, expectedCursor)).toEqual(
+        {
+          hasMore: expectedWindow.hasMore,
+          totalMatched: reference.totalMatched,
+          window: expectedWindow.window,
+        }
+      );
+    }
+  });
+
+  test("returns an exact empty result for missing postings or a non-positive limit", () => {
+    const list = postingList([0, 1], [2, 1]);
+
+    expect(intersectPostingListsWindow([postingList([])], 20)).toEqual({
+      hasMore: false,
+      totalMatched: 0,
+      window: [],
+    });
+    expect(intersectPostingListsWindow([list], 0)).toEqual({
+      hasMore: false,
+      totalMatched: 0,
+      window: [],
+    });
   });
 });
 

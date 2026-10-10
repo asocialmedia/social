@@ -28,6 +28,8 @@ const DrawerPortal = DrawerPrimitive.Portal;
 
 const DrawerClose = DrawerPrimitive.Close;
 
+const DrawerHandle = DrawerPrimitive.Handle;
+
 const DrawerOverlay = ({
   className,
   ref,
@@ -46,22 +48,26 @@ DrawerOverlay.displayName = DrawerPrimitive.Overlay.displayName;
 const DrawerContent = ({
   className,
   children,
+  showHandle = true,
   ref,
   ...props
 }: ComponentPropsWithoutRef<typeof DrawerPrimitive.Content> & {
   ref?: React.Ref<ElementRef<typeof DrawerPrimitive.Content> | null>;
+  showHandle?: boolean;
 }) => (
   <DrawerPortal>
     <DrawerOverlay />
     <DrawerPrimitive.Content
       className={cn(
-        "bg-background fixed inset-x-0 bottom-0 z-50 mt-24 flex h-auto flex-col rounded-t-[10px] border",
+        "panel-3d fixed inset-x-0 bottom-0 z-50 mt-24 flex h-auto flex-col rounded-t-2xl!",
         className
       )}
       ref={ref}
       {...props}
     >
-      <div className="bg-muted mx-auto mt-4 h-2 w-[100px] rounded-full" />
+      {showHandle ? (
+        <div className="bg-muted mx-auto mt-4 h-2 w-[100px] rounded-full" />
+      ) : null}
       {children}
     </DrawerPrimitive.Content>
   </DrawerPortal>
@@ -129,6 +135,7 @@ export {
   DrawerContent,
   DrawerDescription,
   DrawerFooter,
+  DrawerHandle,
   DrawerHeader,
   DrawerOverlay,
   DrawerPortal,

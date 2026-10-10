@@ -47,6 +47,27 @@ function makeHarness() {
   return { coverage, payloads, store, writer };
 }
 
+async function pendingIdsFor(
+  store: SearchIndexStore,
+  conversationId: string
+): Promise<string[]> {
+  const messageIds: string[] = [];
+  let after: string | undefined;
+  // oxlint-disable no-await-in-loop -- each page cursor depends on the previous page
+  while (true) {
+    const page = await store.readPendingPage(conversationId, {
+      after,
+      limit: 256,
+    });
+    messageIds.push(...page);
+    if (page.length < 256) {
+      return messageIds;
+    }
+    after = page.at(-1);
+  }
+  // oxlint-enable no-await-in-loop
+}
+
 // Reads one token's posting list and maps the interned rows back to message ids,
 // which is the read path the search hook uses.
 async function idsFor(
@@ -190,6 +211,44 @@ describe("message index writer", () => {
     expect(await idsFor(counting, "deploy")).toHaveLength(6);
   });
 
+  test("a removal waits behind an in-flight index write and stays final", async () => {
+    const store = createMemorySearchIndexStore();
+    const originalPut = store.putEntries;
+    let releaseWrite: (() => void) | null = null;
+    let reportWriteStarted: (() => void) | null = null;
+    // oxlint-disable-next-line promise/avoid-new -- explicit gates expose the interleaving under test
+    const writeStarted = new Promise<void>((resolve) => {
+      reportWriteStarted = resolve;
+    });
+    // oxlint-disable-next-line promise/avoid-new -- explicit gates expose the interleaving under test
+    const writeGate = new Promise<void>((resolve) => {
+      releaseWrite = resolve;
+    });
+    store.putEntries = async (conversationId, entries) => {
+      reportWriteStarted?.();
+      await writeGate;
+      await originalPut(conversationId, entries);
+    };
+    const writer = createMessageIndexWriter({
+      conversationId: CONVO,
+      getPayload: () => ({ content: "remove this", type: "text" }),
+      store,
+    });
+    writer.consider([message("m1")]);
+    const firstFlush = writer.flush();
+    await writeStarted;
+    writer.remove(["m1"]);
+    const release = releaseWrite;
+    if (!release) {
+      throw new Error("Expected the blocked write to be releasable");
+    }
+    release();
+    await firstFlush;
+    await writer.flush();
+    expect(await idsFor(store, "remove")).toEqual([]);
+    expect(await pendingIdsFor(store, CONVO)).toEqual([]);
+  });
+
   // An empty flush must stay silent. It used to notify on every pass, and one
   // subscriber re-considered on every notification -- a self-sustaining loop
   // of empty commits (~8/sec in the browser) that burned writes forever and,
@@ -315,6 +374,86 @@ describe("message index writer", () => {
     await harness.writer.flush();
     expect(await idsFor(harness.store, "goodbye")).toEqual([]);
     expect(harness.writer.coverage().indexedCount).toBe(0);
+  });
+
+  test("a conversation reset clears durable rows and cached signatures", async () => {
+    const current = message("m1");
+    harness.payloads.set("m1", { content: "deploy safely", type: "text" });
+    harness.writer.consider([current]);
+    await harness.writer.flush();
+
+    expect(await idsFor(harness.store, "deploy")).toEqual(["m1"]);
+    expect(await harness.writer.clearConversation()).toBe(true);
+    expect(await idsFor(harness.store, "deploy")).toEqual([]);
+    expect(harness.writer.coverage().indexedCount).toBe(0);
+
+    harness.writer.consider([current]);
+    await harness.writer.flush();
+    expect(await idsFor(harness.store, "deploy")).toEqual(["m1"]);
+  });
+
+  test("a failed conversation reset is reported and can be retried", async () => {
+    const clear = harness.store.clearConversation;
+    let failNext = true;
+    harness.store.clearConversation = (conversationId) => {
+      if (failNext) {
+        failNext = false;
+        return Promise.reject(new Error("storage unavailable"));
+      }
+      return clear(conversationId);
+    };
+    harness.payloads.set("m1", { content: "deploy safely", type: "text" });
+    harness.writer.consider([message("m1")]);
+    await harness.writer.flush();
+
+    expect(await harness.writer.clearConversation()).toBe(false);
+    expect(await harness.writer.clearConversation()).toBe(true);
+    expect(await idsFor(harness.store, "deploy")).toEqual([]);
+  });
+
+  test("waitable removals report storage failures and retry cleanly", async () => {
+    harness.payloads.set("m1", { content: "deploy safely", type: "text" });
+    harness.writer.consider([message("m1")]);
+    await harness.writer.flush();
+    const { removeEntries } = harness.store;
+    let failNext = true;
+    harness.store.removeEntries = (conversationId, messageIds) => {
+      if (failNext) {
+        failNext = false;
+        return Promise.reject(new Error("storage unavailable"));
+      }
+      return removeEntries(conversationId, messageIds);
+    };
+
+    expect(await harness.writer.removeAndWait(["m1"])).toBe(false);
+    expect(await harness.writer.removeAndWait(["m1"])).toBe(true);
+    expect(await idsFor(harness.store, "deploy")).toEqual([]);
+  });
+
+  test("an empty edit removal failure stays pending until the stale row is gone", async () => {
+    harness.payloads.set("m1", { content: "deploy safely", type: "text" });
+    harness.writer.consider([message("m1")]);
+    await harness.writer.flush();
+    const { removeEntries } = harness.store;
+    let failNext = true;
+    harness.store.removeEntries = (conversationId, messageIds) => {
+      if (failNext) {
+        failNext = false;
+        return Promise.reject(new Error("storage unavailable"));
+      }
+      return removeEntries(conversationId, messageIds);
+    };
+    harness.payloads.set("m1", { content: "", type: "text" });
+    harness.writer.consider([message("m1")]);
+
+    const first = await harness.writer.flush();
+    expect(first.failed).toBe(true);
+    expect(first.stillPending).toEqual(["m1"]);
+    expect(await idsFor(harness.store, "deploy")).toEqual(["m1"]);
+
+    const second = await harness.writer.flush();
+    expect(second.failed).toBe(false);
+    expect(await idsFor(harness.store, "deploy")).toEqual([]);
   });
 
   test("a row already marked deleted is never indexed", async () => {
@@ -481,7 +620,7 @@ describe("message index writer", () => {
     expect(result.stillPending).toEqual(["m1"]);
     expect(result.committed).toEqual([]);
     // And it is on disk, not only in this process.
-    expect(await harness.store.readPending(CONVO)).toEqual(["m1"]);
+    expect(await pendingIdsFor(harness.store, CONVO)).toEqual(["m1"]);
   });
 
   test("a refused write is persisted so the row is not lost with the tab", async () => {
@@ -500,7 +639,7 @@ describe("message index writer", () => {
     const result = await writer.flush();
     expect(result.failed).toBe(false);
     expect(result.stillPending).toEqual(["m1"]);
-    expect(await store.readPending(CONVO)).toEqual(["m1"]);
+    expect(await pendingIdsFor(store, CONVO)).toEqual(["m1"]);
 
     // A later session's writer loads the queue and can pick the row back up.
     const recovered = createMessageIndexWriter({
@@ -508,13 +647,30 @@ describe("message index writer", () => {
       getPayload: (id) => payloads.get(id),
       store,
     });
-    expect(await recovered.durablePending()).toEqual(["m1"]);
+    expect(await recovered.durablePending(["m1"])).toEqual(["m1"]);
     store.putEntries = original;
+  });
+
+  test("persists every pending id beyond the in-session retry cap", async () => {
+    const store = createMemorySearchIndexStore();
+    const writer = createMessageIndexWriter({
+      conversationId: CONVO,
+      getPayload: () => "pending",
+      store,
+    });
+    const messages = Array.from({ length: 5001 }, (_, index) =>
+      message(`pending-${index}`)
+    );
+    writer.consider(messages);
+    const result = await writer.flush();
+    expect(result.failed).toBe(false);
+    expect(result.stillPending).toHaveLength(5001);
+    expect(await pendingIdsFor(store, CONVO)).toHaveLength(5001);
   });
 
   test("a queue that cannot be persisted reports failure, so the cursor stays put", async () => {
     const store = createMemorySearchIndexStore();
-    store.writePending = () => Promise.reject(new Error("quota"));
+    store.updatePending = () => Promise.reject(new Error("quota"));
     const payloads = new Map<string, IndexablePayload>([
       ["m1", { content: "text", type: "text" }],
     ]);
@@ -535,24 +691,24 @@ describe("message index writer", () => {
     harness.payloads.set("m1", "pending");
     harness.writer.consider([message("m1")]);
     await harness.writer.flush();
-    expect(await harness.store.readPending(CONVO)).toEqual(["m1"]);
+    expect(await pendingIdsFor(harness.store, CONVO)).toEqual(["m1"]);
 
     harness.payloads.set("m1", { content: "finally here", type: "text" });
     harness.writer.consider([message("m1")]);
     const result = await harness.writer.flush();
     expect(result.committed).toEqual(["m1"]);
-    expect(await harness.store.readPending(CONVO)).toEqual([]);
+    expect(await pendingIdsFor(harness.store, CONVO)).toEqual([]);
   });
 
   test("a deleted row leaves the durable queue", async () => {
     harness.payloads.set("m1", "pending");
     harness.writer.consider([message("m1")]);
     await harness.writer.flush();
-    expect(await harness.store.readPending(CONVO)).toEqual(["m1"]);
+    expect(await pendingIdsFor(harness.store, CONVO)).toEqual(["m1"]);
 
     harness.writer.remove(["m1"]);
     await harness.writer.flush();
-    expect(await harness.store.readPending(CONVO)).toEqual([]);
+    expect(await pendingIdsFor(harness.store, CONVO)).toEqual([]);
   });
 
   test("pending rows are retried when their payload arrives", async () => {
@@ -582,7 +738,7 @@ describe("message index writer", () => {
     await writer.flush();
     const found = await idsFor(store, "arrived");
     expect(found).toEqual(["m1"]);
-    expect(await store.readPending(CONVO)).toEqual([]);
+    expect(await pendingIdsFor(store, CONVO)).toEqual([]);
   });
 
   test("a payload notification with nothing pending does not write", async () => {
@@ -609,6 +765,116 @@ describe("message index writer", () => {
     await Promise.resolve();
     // An idle conversation must not wake the writer on every decrypt anywhere.
     expect(writes).toBe(0);
+  });
+
+  test("dispose unsubscribes and flushes the final queued batch", async () => {
+    let notify: (() => void) | null = null;
+    let unsubscribed = false;
+    let writes = 0;
+    const store = createMemorySearchIndexStore();
+    const { putEntries } = store;
+    store.putEntries = (conversationId, entries) => {
+      writes += 1;
+      return putEntries(conversationId, entries);
+    };
+    const writer = createMessageIndexWriter({
+      conversationId: CONVO,
+      getPayload: () => ({ content: "final batch", type: "text" }),
+      store,
+      subscribeToPayloads: (listener) => {
+        notify = listener;
+        return () => {
+          unsubscribed = true;
+          notify = null;
+        };
+      },
+    });
+    writer.consider([message("m1")]);
+
+    const result = await writer.dispose();
+    notify?.();
+    expect(unsubscribed).toBe(true);
+    expect(result.committed).toEqual(["m1"]);
+    expect(writes).toBe(1);
+    expect(await idsFor(store, "final")).toEqual(["m1"]);
+  });
+
+  test("dispose without flushing clears scope data after an in-flight write", async () => {
+    const store = createMemorySearchIndexStore();
+    const originalPut = store.putEntries;
+    let releaseWrite: (() => void) | null = null;
+    let reportWriteStarted: (() => void) | null = null;
+    // oxlint-disable-next-line promise/avoid-new -- explicit gates expose the interleaving under test
+    const writeStarted = new Promise<void>((resolve) => {
+      reportWriteStarted = resolve;
+    });
+    // oxlint-disable-next-line promise/avoid-new -- explicit gates expose the interleaving under test
+    const writeGate = new Promise<void>((resolve) => {
+      releaseWrite = resolve;
+    });
+    await store.putSharedRefs(
+      CONVO,
+      new Map([
+        [
+          "old-scope-message",
+          {
+            createdAt: 1_700_000_000_000,
+            messageId: "old-scope-message",
+            refs: {
+              links: ["https://example.test/old-scope"],
+              media: [],
+              postIds: [],
+            },
+            senderId: "sender",
+          },
+        ],
+      ])
+    );
+    store.putEntries = async (conversationId, entries) => {
+      reportWriteStarted?.();
+      await writeGate;
+      await originalPut(conversationId, entries);
+    };
+    const writer = createMessageIndexWriter({
+      conversationId: CONVO,
+      getPayload: () => ({ content: "old recovery scope", type: "text" }),
+      store,
+    });
+    writer.consider([message("old-scope-message")]);
+    const flushingWrite = writer.flush();
+    await writeStarted;
+
+    const discarded = writer.dispose({ flush: false });
+    const release = releaseWrite;
+    if (!release) {
+      throw new Error("Expected the blocked write to be releasable");
+    }
+    release();
+    await Promise.all([flushingWrite, discarded]);
+
+    expect(await idsFor(store, "recovery")).toEqual([]);
+    expect(await pendingIdsFor(store, CONVO)).toEqual([]);
+    const refs = await store.readSharedRefs(CONVO, "link", { limit: 10 });
+    expect(refs.items).toEqual([]);
+    expect(writer.coverage()).toEqual({ indexedCount: 0, pendingCount: 0 });
+  });
+
+  test("bounds the in-memory signature cache for long backfills", async () => {
+    const payloads = new Map<string, IndexablePayload>();
+    const messages = [];
+    for (let index = 0; index < 1100; index += 1) {
+      const id = `bounded-${index}`;
+      payloads.set(id, { content: `message ${index}`, type: "text" });
+      messages.push(message(id));
+    }
+    const writer = createMessageIndexWriter({
+      conversationId: CONVO,
+      getPayload: (id) => payloads.get(id),
+      store: createMemorySearchIndexStore(),
+    });
+    writer.consider(messages);
+    await writer.flush();
+    expect(writer.coverage().indexedCount).toBe(1024);
   });
 
   test("coverage counts the durable queue, not the in-memory retry set", async () => {
@@ -999,8 +1265,15 @@ describe("message index writer: shared refs", () => {
     // IndexedDB rejection here would mean faulting the browser.
     const failing = createMemorySearchIndexStore();
     let failNext = true;
+    let textWrites = 0;
     const spy = {
       ...failing,
+      putEntries: (
+        ...args: Parameters<typeof failing.putEntries>
+      ): Promise<void> => {
+        textWrites += 1;
+        return failing.putEntries(...args);
+      },
       putSharedRefs: (
         ...args: Parameters<typeof failing.putSharedRefs>
       ): Promise<void> => {
@@ -1014,10 +1287,17 @@ describe("message index writer: shared refs", () => {
     const payloads = new Map<string, IndexablePayload>([
       ["m1", { content: "https://example.com/a", type: "text" }],
     ]);
+    let notify: (() => void) | null = null;
     const writer = createMessageIndexWriter({
       conversationId: CONVO,
       getPayload: (id) => payloads.get(id),
       store: spy,
+      subscribeToPayloads: (listener) => {
+        notify = listener;
+        return () => {
+          notify = null;
+        };
+      },
     });
     writer.consider([message("m1")]);
     const failed = await writer.flush();
@@ -1031,9 +1311,10 @@ describe("message index writer: shared refs", () => {
     // And the retry lands it. This is the part the two-half signature exists for:
     // the text half was already current, so a combined signature would have
     // skipped this pass and left the hole open for good.
-    writer.consider([message("m1")]);
+    notify?.();
     await writer.flush();
     const filled = await failing.readSharedRefs(CONVO, "link", { limit: 10 });
     expect(filled.items).toHaveLength(1);
+    expect(textWrites).toBe(1);
   });
 });

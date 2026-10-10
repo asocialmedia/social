@@ -38,6 +38,8 @@ export async function DELETE(
       media.usersUsers.none(),
       media.communities.none(),
       media.communitiesCommunities.none(),
+      media.messageConversationMembers.none(),
+      media.wallpaperConversations.none(),
       media.status.in([
         "UPLOADING",
         "QUARANTINED",

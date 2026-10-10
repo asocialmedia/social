@@ -157,7 +157,7 @@ export default function GifCenteringDialog({
   return (
     <Dialog onOpenChange={onClose} open>
       <DialogContent
-        className="apple-panel flex max-h-[75dvh] w-[calc(100%-1.5rem)] max-w-120 flex-col gap-4 overflow-hidden rounded-2xl border-0 p-0 md:max-h-[85vh] [&>button:last-child]:hidden"
+        className="flex max-h-[75dvh] w-[calc(100%-2rem)] max-w-120 flex-col gap-4 overflow-hidden rounded-2xl! p-0 md:max-h-[85vh] [&>button:last-child]:hidden"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header - matches Edit Profile */}
@@ -189,7 +189,7 @@ export default function GifCenteringDialog({
           </DialogClose>
         </div>
 
-        <div className="flex min-h-0 flex-1 flex-col items-center gap-4 overflow-y-auto px-5 pb-5">
+        <div className="flex min-h-0 flex-1 flex-col items-center gap-4 overflow-y-auto px-4 pb-4">
           <div
             className={cn(
               "border-border/60 relative flex shrink-0 items-center justify-center overflow-hidden rounded-xl border bg-[hsl(var(--background))] shadow-[inset_0_1px_2px_rgba(0,0,0,0.04)]",
@@ -297,9 +297,9 @@ export default function GifCenteringDialog({
         </div>
 
         {/* Footer - fixed, matches Edit Profile Save button theme */}
-        <div className="border-border/60 flex shrink-0 items-center justify-end gap-2 border-t bg-[hsl(var(--background))] px-5 py-3">
+        <div className="border-border/60 flex shrink-0 items-center justify-end gap-2 border-t bg-[hsl(var(--background))] px-4 py-3">
           <Button
-            className="pill-3d-hover text-muted-foreground h-10 rounded-xl px-5"
+            className="pill-3d-hover text-muted-foreground h-10 rounded-xl px-4"
             disabled={mutation.isPending}
             onClick={onClose}
             variant="outline"

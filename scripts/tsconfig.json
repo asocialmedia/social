@@ -14,6 +14,9 @@
     // REPLACES the inherited map rather than extending it, and without this the
     // transitive `@/...` imports of any file a script reaches fail to resolve.
     "paths": {
+      "@asm/auth/core": ["../packages/auth/src/core/index.ts"],
+      "@asm/messages": ["../packages/messages/src/index.ts"],
+      "@asm/messages/*": ["../packages/messages/src/*"],
       "@/*": ["../apps/web/src/*"],
       "@asm/db": ["../packages/db/index.ts"]
     }
