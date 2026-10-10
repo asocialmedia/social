@@ -1,3 +1,7 @@
+import {
+  advanceGustHeader,
+  followingGustAvatars,
+} from "@asm/ui/lib/gust-header";
 import { NavigationBar } from "expo-navigation-bar";
 // The Gusts reel: a 1:1 native port of web's /gusts page (client-gusts.tsx)
 // at phone size. A full-screen vertical pager snaps one gust per screen;
@@ -17,7 +21,6 @@ import {
   Captions,
   ChevronLeft,
   EyeOff,
-  Search,
   Speech,
   Subtitles,
 } from "lucide-react-native";
@@ -27,6 +30,7 @@ import { StyleSheet, View } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
   useAnimatedScrollHandler,
+  useAnimatedStyle,
   useSharedValue,
   withTiming,
 } from "react-native-reanimated";
@@ -54,6 +58,7 @@ import {
 import { useVideoCaptionsStore } from "@/features/feed/state/video-captions-store";
 import { PROD_API_URL } from "@/lib/api-base";
 import { getApiBaseUrl } from "@/lib/api-env";
+import { haptic } from "@/lib/haptics";
 import { SHOWS_SCROLL_INDICATOR } from "@/lib/scroll-indicator";
 import { logInfo, logWarn } from "@/lib/telemetry";
 import { useAppTheme } from "@/theme";
@@ -75,6 +80,7 @@ import {
   shouldMountVideo,
 } from "../lib/reel-gestures";
 import { useGustMuteStore } from "../state/gust-mute-store";
+import { useFollowingGustPreview } from "../state/use-following-gust-preview";
 import { useGustsFeed } from "../state/use-gusts-feed";
 import { GustCard } from "./gust-card";
 import { GustCardSkeleton } from "./gust-card-skeleton";
@@ -86,6 +92,7 @@ import {
   PullIndicator,
 } from "./gust-chrome";
 import { GustEddiesSheet } from "./gust-eddies-sheet";
+import { GustFeedControls } from "./gust-feed-controls";
 import { RAIL_ICON_COLOR, RailButton } from "./rail-button";
 
 const VIEWABILITY = { itemVisiblePercentThreshold: 60 };
@@ -181,7 +188,7 @@ export function GustsScreen() {
   // account-only. A guest who taps the tab (or follows a deep link) gets a
   // sign-in prompt instead of a feed, and nothing is fetched. A ?id= deep link
   // is always chronological, so it stays viewable by guests.
-  const gatedPersonalized = tab === "personalized" && !viewerId && !initialId;
+  const gatedPersonalized = tab !== "latest" && !viewerId && !initialId;
   const feed = useGustsFeed({
     enabled: !isPending && !gatedPersonalized,
     initialId,
@@ -193,6 +200,21 @@ export function GustsScreen() {
   const [pageHeight, setPageHeight] = useState(0);
   const [activeIndex, setActiveIndex] = useState(0);
   const [focused, setFocused] = useState(true);
+  const followingPreview = useFollowingGustPreview(
+    viewerId,
+    tab !== "following" && focused
+  );
+  const followingAvatars = followingGustAvatars(
+    tab === "following" ? posts : (followingPreview.data?.posts ?? []),
+    tab === "following" ? activeIndex : 0
+  );
+  const headerScroll = useSharedValue({ anchor: 0, visible: true });
+  const headerVisibility = useSharedValue(1);
+  const headerStyle = useAnimatedStyle(() => ({
+    opacity: headerVisibility.get(),
+    pointerEvents: headerScroll.get().visible ? "box-none" : "none",
+    transform: [{ translateY: -16 * (1 - headerVisibility.get()) }],
+  }));
   const pull = useSharedValue(0);
   const scrollOffset = useSharedValue(0);
   const pullBaseline = useSharedValue<number | null>(null);
@@ -297,7 +319,7 @@ export function GustsScreen() {
     }
     void (async () => {
       const cookie = await authClient.getCookie();
-      viewBatcher.mark(activeId, { apiBase, cookie });
+      viewBatcher.mark(activeId, { apiBase, getCookie: authClient.getCookie });
       if (!viewerId) {
         return;
       }
@@ -343,6 +365,9 @@ export function GustsScreen() {
     if (next === tab && !initialId) {
       return;
     }
+    haptic("selection");
+    headerScroll.set({ anchor: 0, visible: true });
+    headerVisibility.set(withTiming(1, { duration: 180 }));
     logInfo("gusts.tab_changed", { tab: next });
     setTabChoice(next);
     if (viewerId) {
@@ -431,7 +456,14 @@ export function GustsScreen() {
 
   const refreshFromPull = useCallback(() => refreshRef.current(), []);
   const onScroll = useAnimatedScrollHandler((event) => {
-    scrollOffset.set(event.contentOffset.y);
+    const offset = event.contentOffset.y;
+    scrollOffset.set(offset);
+    const previous = headerScroll.get();
+    const next = advanceGustHeader(offset, previous);
+    headerScroll.set(next);
+    if (previous.visible !== next.visible) {
+      headerVisibility.set(withTiming(next.visible ? 1 : 0, { duration: 180 }));
+    }
   });
   // The pager and pull feedback never enter React or the JS runtime during a drag.
   // oxlint-disable-next-line react/hook-use-state, react/refs -- the gesture retains a callback and only invokes its ref on release; only shared values change during recognition
@@ -634,30 +666,25 @@ export function GustsScreen() {
             top={insets.top + 56}
           />
 
-          <View
-            pointerEvents="box-none"
-            style={[styles.tabsRow, { top: chromeTop }]}
+          <Animated.View
+            style={[styles.header, { top: chromeTop }, headerStyle]}
           >
-            <GustTabs active={tab} onChange={changeTab} />
-          </View>
-          <RailButton
-            accessibilityLabel="Go back"
-            onPress={goBack}
-            size={40}
-            style={[styles.back, { top: chromeTop }]}
-          >
-            <ChevronLeft color={RAIL_ICON_COLOR} size={20} />
-          </RailButton>
-          {/* Web opens Spotlight search; native has no search screen yet, so
-          the button holds its place disabled, like the dock's stubs. */}
-          <RailButton
-            accessibilityLabel="Search"
-            disabled
-            size={40}
-            style={[styles.search, { top: chromeTop }]}
-          >
-            <Search color={RAIL_ICON_COLOR} size={20} />
-          </RailButton>
+            <RailButton accessibilityLabel="Go back" onPress={goBack} size={40}>
+              <ChevronLeft color={RAIL_ICON_COLOR} size={20} />
+            </RailButton>
+            <View style={styles.controls}>
+              {viewerId ? (
+                <GustFeedControls
+                  active={tab}
+                  apiBase={apiBase}
+                  avatars={followingAvatars}
+                  onChange={changeTab}
+                />
+              ) : (
+                <GustTabs active={tab} onChange={changeTab} />
+              )}
+            </View>
+          </Animated.View>
 
           {feed.newItems.length > 0 && !initialId ? (
             <View
@@ -702,9 +729,13 @@ export function GustsScreen() {
 }
 
 const styles = StyleSheet.create({
-  back: {
+  controls: { alignItems: "center", flex: 1, paddingRight: 16 },
+  header: {
+    alignItems: "center",
+    flexDirection: "row",
     left: 16,
     position: "absolute",
+    right: 8,
     zIndex: 30,
   },
   pillRow: {
@@ -715,19 +746,5 @@ const styles = StyleSheet.create({
   },
   root: {
     flex: 1,
-  },
-  search: {
-    position: "absolute",
-    right: 16,
-    zIndex: 30,
-  },
-  tabsRow: {
-    alignItems: "center",
-    height: 40,
-    justifyContent: "center",
-    left: 0,
-    position: "absolute",
-    right: 0,
-    zIndex: 30,
   },
 });

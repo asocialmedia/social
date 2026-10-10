@@ -381,6 +381,17 @@ export function mapPostData(post: PostQueryData): PostData {
   };
 }
 
+export interface GustFollowingSource {
+  avatarUrl: string | null;
+  id: string;
+  username: string;
+}
+
+export interface GustsPage {
+  nextCursor: string | null;
+  posts: (PostData & { followingSources?: GustFollowingSource[] })[];
+}
+
 export interface PostsPage {
   nextCursor: string | null;
   posts: PostData[];

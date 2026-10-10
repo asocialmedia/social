@@ -558,7 +558,7 @@ export const PostCard = memo(
                     onPress={() => setShowComments((value) => !value)}
                   />
                   <RespondButton count={responseCount} post={post} />
-                  <ViewsBadge count={post.viewCount ?? 0} />
+                  <ViewsBadge count={post.viewCount ?? 0} postId={post.id} />
                   <View style={styles.actionCluster}>
                     <ShareButton onPress={() => onShare(post)} />
                     <BookmarkToggle

@@ -22,6 +22,7 @@ interface BatcherOptions {
 export class ViewBatcher {
   private consecutiveFailures = 0;
   private flushing = false;
+  private generation = 0;
   private latest: BatcherOptions | null = null;
   // Called with reconciled counts after every flush (view-count display).
   public onFlush: ((counts: Record<string, number>) => void) | null = null;
@@ -31,7 +32,10 @@ export class ViewBatcher {
   // scroll produced a stream of one-id flushes (the `batchSize: 1` pattern in
   // the dev log). The server already dedupes per (user, post), so those extra
   // requests bought nothing. Bounded, and cleared with the session.
-  private counted = new Set<string>();
+  private counted = new Map<string, number>();
+  private counts = new Map<string, number>();
+  private listeners = new Set<() => void>();
+  private readonly now: () => number;
   private countedOrder: string[] = [];
   private maxCounted: number;
   private submit: (
@@ -45,9 +49,10 @@ export class ViewBatcher {
       postIds: string[],
       options: BatcherOptions
     ) => Promise<Record<string, number>> = submitViewBatch,
-    options: { maxCounted?: number } = {}
+    options: { maxCounted?: number; now?: () => number } = {}
   ) {
     this.submit = submit;
+    this.now = options.now ?? Date.now;
     this.maxCounted = Math.max(1, options.maxCounted ?? COUNTED_LIMIT);
   }
 
@@ -55,12 +60,13 @@ export class ViewBatcher {
     if (this.counted.has(postId)) {
       return;
     }
-    this.counted.add(postId);
+    this.counted.set(postId, this.now());
     this.countedOrder.push(postId);
     while (this.countedOrder.length > this.maxCounted) {
       const oldest = this.countedOrder.shift();
       if (oldest !== undefined) {
         this.counted.delete(oldest);
+        this.counts.delete(oldest);
       }
     }
   }
@@ -68,8 +74,13 @@ export class ViewBatcher {
   mark(postId: string, options: BatcherOptions): void {
     // Already counted this session: counting again would only re-send an id the
     // server has already recorded for this viewer.
-    if (this.counted.has(postId)) {
+    const countedAt = this.counted.get(postId);
+    if (countedAt !== undefined && this.now() - countedAt < 15 * 60 * 1000) {
       return;
+    }
+    if (countedAt !== undefined) {
+      this.counted.delete(postId);
+      this.countedOrder = this.countedOrder.filter((id) => id !== postId);
     }
     if (!this.pending.includes(postId)) {
       this.pending.push(postId);
@@ -101,6 +112,7 @@ export class ViewBatcher {
       return {};
     }
     this.flushing = true;
+    const { generation } = this;
     try {
       const options = this.latest;
       const cookie = options.getCookie
@@ -110,20 +122,29 @@ export class ViewBatcher {
         apiBase: options.apiBase,
         cookie: cookie ?? undefined,
       });
+      if (generation !== this.generation) {
+        return {};
+      }
       this.consecutiveFailures = 0;
       // Only a confirmed send retires the ids. A failed batch is requeued
       // below, and must stay eligible on the next attempt.
       for (const postId of batch) {
         this.remember(postId);
       }
+      for (const [postId, count] of Object.entries(counts)) {
+        this.counts.set(postId, count);
+      }
       this.onFlush?.(counts);
+      for (const listener of this.listeners) {
+        listener();
+      }
       return counts;
     } catch {
       // Best-effort telemetry, but a transient failure must not silently
       // drop the batch: requeue ahead of newer ids and retry on schedule.
       // After repeated failures the endpoint is presumed down and the batch
       // is dropped, so a dead backend cannot spin the radio forever.
-      if (this.consecutiveFailures < 3) {
+      if (generation === this.generation && this.consecutiveFailures < 3) {
         this.consecutiveFailures += 1;
         this.pending.unshift(
           ...batch.filter((id) => !this.pending.includes(id))
@@ -131,10 +152,39 @@ export class ViewBatcher {
       }
       return {};
     } finally {
-      this.flushing = false;
-      // A batch caps at MAX_BATCH; keep draining while work remains.
-      this.scheduleFlush();
+      if (generation === this.generation) {
+        this.flushing = false;
+        // A batch caps at MAX_BATCH; keep draining while work remains.
+        this.scheduleFlush();
+      }
     }
+  }
+
+  reset(): void {
+    this.generation += 1;
+    if (this.timer) {
+      clearTimeout(this.timer);
+    }
+    this.timer = null;
+    this.pending = [];
+    this.counted.clear();
+    this.countedOrder = [];
+    this.counts.clear();
+    this.latest = null;
+    this.flushing = false;
+    this.consecutiveFailures = 0;
+    for (const listener of this.listeners) {
+      listener();
+    }
+  }
+
+  subscribe = (listener: () => void): (() => void) => {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  };
+
+  count(postId: string, fallback: number): number {
+    return Math.max(fallback, this.counts.get(postId) ?? 0);
   }
 
   get size(): number {

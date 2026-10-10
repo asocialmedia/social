@@ -254,10 +254,13 @@ export function PostDetailScreen({ postId }: { postId: string }) {
             });
           }
         })();
-        // Visit + view, logged-in only (guests have no visit history).
+        // Views include guests; visit history belongs only to a signed-in account.
+        viewBatcher.mark(detail.post.id, {
+          apiBase,
+          getCookie: authClient.getCookie,
+        });
         if (viewerId) {
           void recordPostVisit(detail.post.id, { apiBase, cookie });
-          viewBatcher.mark(detail.post.id, { apiBase, cookie });
         }
       } catch (error) {
         if (cancelled) {

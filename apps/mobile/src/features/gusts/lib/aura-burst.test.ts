@@ -39,13 +39,13 @@ describe("rapid Gust amplification feedback", () => {
       6
     );
     for (const burst of bursts) {
-      expect(burst).toHaveLength(3);
-      expect(burst[1]?.drift).toBeLessThan(0);
-      expect(burst[2]?.drift).toBeGreaterThan(0);
+      expect(burst).toHaveLength(1);
+      expect(burst[0]?.drift).toBeGreaterThan(0);
       for (const particle of burst) {
-        expect(particle.opacity).toBeGreaterThanOrEqual(0.55);
-        expect(particle.opacity).toBeLessThanOrEqual(1);
-        expect(particle.size).toBeLessThanOrEqual(54);
+        expect(particle.opacity).toBeGreaterThanOrEqual(0.8);
+        expect(particle.opacity).toBeLessThanOrEqual(0.95);
+        expect(particle.size).toBeGreaterThanOrEqual(40);
+        expect(particle.size).toBeLessThanOrEqual(55);
       }
     }
   });

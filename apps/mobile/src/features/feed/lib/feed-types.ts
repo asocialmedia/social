@@ -93,6 +93,11 @@ export interface FeedParentPost {
 }
 
 export interface FeedPost {
+  followingSources?: {
+    avatarUrl: string | null;
+    id: string;
+    username?: string | null;
+  }[];
   _count?: Partial<FeedCounts>;
   attachments?: FeedMedia[];
   aura?: number;

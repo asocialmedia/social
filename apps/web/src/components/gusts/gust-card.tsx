@@ -637,6 +637,14 @@ export const GustCard: React.FC<GustCardProps> = ({
               );
             })()}
             {/* oxlint-enable jsx-a11y/media-has-caption */}
+            <div
+              aria-hidden
+              className="pointer-events-none absolute inset-0 rounded-[inherit] transition-opacity duration-300"
+              style={{
+                boxShadow: `inset 0 0 0 ${1 / previewScale}px rgba(255,255,255,0.2), inset 0 0 0 ${2 / previewScale}px rgba(0,0,0,0.55), inset 0 ${2 / previewScale}px 0 ${2 / previewScale}px rgba(255,255,255,0.18)`,
+                opacity: commentsOpen ? 1 : 0,
+              }}
+            />
           </div>
         </motion.div>
 
@@ -650,6 +658,22 @@ export const GustCard: React.FC<GustCardProps> = ({
             type="button"
           />
         )}
+
+        {commentsOpen ? (
+          <button
+            aria-label={isMuted ? "Unmute video" : "Mute video"}
+            className="rail-3d-btn absolute right-4 z-20 flex size-10 items-center justify-center rounded-full"
+            onClick={onToggleMute}
+            style={{ top: viewport.height / 2 - 56 }}
+            type="button"
+          >
+            {isMuted ? (
+              <VolumeX className="size-5" />
+            ) : (
+              <Volume2 className="size-5" />
+            )}
+          </button>
+        ) : null}
 
         {/* Play/Pause Pulse Overlay */}
         <AnimatePresence>

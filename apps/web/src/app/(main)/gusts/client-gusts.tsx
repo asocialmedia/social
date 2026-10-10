@@ -1,16 +1,23 @@
 "use client";
 
-import type { PostsPage, UserData } from "@asm/db";
+import type { GustsPage, UserData } from "@asm/db";
+import {
+  advanceGustHeader,
+  followingGustAvatars,
+} from "@asm/ui/lib/gust-header";
 import { Button } from "@asm/ui/shadui/button";
 import noMediaImage from "@assets/general/nomedia.png";
-import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  useInfiniteQuery,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import {
   ChevronDown,
   ChevronLeft,
   ChevronUp,
   Loader2,
   Plus,
-  Search,
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import Image from "next/image";
@@ -30,10 +37,11 @@ import { NewContentPill } from "@/components/feeds/new-content-pill";
 import type { NewContentAuthor } from "@/components/feeds/new-content-pill";
 import { GustCard } from "@/components/gusts/gust-card";
 import { GustCardSkeleton } from "@/components/gusts/gust-card-skeleton";
+import { GustFeedControls } from "@/components/gusts/gust-feed-controls";
+import type { GustFeed } from "@/components/gusts/gust-feed-controls";
 import { GustsCommentsDrawer } from "@/components/gusts/gusts-comments-drawer";
 import { MobileGustEddies } from "@/components/gusts/mobile-gust-eddies";
 import { RecommendationTracker } from "@/components/recommendations/recommendation-tracker";
-import { useSpotlight } from "@/components/search/spotlight-provider";
 import { useRequireAuth } from "@/hooks/auth/use-require-auth";
 import { useNewContentProbe } from "@/hooks/feed/use-new-content-probe";
 import { useMediaQuery } from "@/hooks/use-media-query";
@@ -103,14 +111,15 @@ export const ClientGusts: React.FC<ClientGustsProps> = () => {
   const { user } = useSession();
   const { goToLogin } = useRequireAuth();
   const openComposer = useComposerStore((state) => state.openComposer);
-  const { openSpotlight } = useSpotlight();
   const autoOpenCreate = searchParams.get("create") === "true";
   const queryClient = useQueryClient();
   const isLoggedIn = Boolean(user);
   const requestedTab = searchParams.get("tab");
   const defaultTab = isLoggedIn ? "personalized" : "latest";
   const gustTab =
-    requestedTab === "latest" || requestedTab === "personalized"
+    requestedTab === "latest" ||
+    requestedTab === "personalized" ||
+    requestedTab === "following"
       ? requestedTab
       : defaultTab;
   const isPersonalized = gustTab === "personalized" && !initialPostId;
@@ -118,11 +127,13 @@ export const ClientGusts: React.FC<ClientGustsProps> = () => {
   // account-only. A guest who opens it gets a sign-in prompt instead of a
   // feed, and nothing is fetched; a ?id= deep link is chronological and stays
   // viewable.
-  const gatedPersonalized = isPersonalized && !isLoggedIn;
+  const gatedPersonalized =
+    gustTab !== "latest" && !initialPostId && !isLoggedIn;
 
   const handleTabChange = useCallback(
-    (value: "latest" | "personalized") => {
+    (value: GustFeed) => {
       const nextParams = new URLSearchParams(searchParams.toString());
+      nextParams.delete("id");
       if (value === defaultTab) {
         nextParams.delete("tab");
       } else {
@@ -135,6 +146,8 @@ export const ClientGusts: React.FC<ClientGustsProps> = () => {
   );
 
   const [activeIndex, setActiveIndex] = useState(0);
+  const [headerVisible, setHeaderVisible] = useState(true);
+  const headerScroll = useRef({ anchor: 0, visible: true });
   const [isMuted, setIsMuted] = useState(true);
   const [isCommentsOpen, setIsCommentsOpen] = useState(false);
   const isMobile = useMediaQuery("(max-width: 767px)");
@@ -226,6 +239,8 @@ export const ClientGusts: React.FC<ClientGustsProps> = () => {
       };
       if (isPersonalized) {
         queryParams.mode = "personalized";
+      } else if (gustTab === "following" && !initialPostId) {
+        queryParams.mode = "following";
       }
       if (pageParam) {
         queryParams.cursor = pageParam;
@@ -234,7 +249,7 @@ export const ClientGusts: React.FC<ClientGustsProps> = () => {
       }
       return kyInstance
         .get("/api/gusts", { searchParams: queryParams })
-        .json<PostsPage>();
+        .json<GustsPage>();
     },
     queryKey,
     ...FEED_QUERY_BEHAVIOR,
@@ -246,6 +261,8 @@ export const ClientGusts: React.FC<ClientGustsProps> = () => {
   useEffect(() => {
     queueMicrotask(() => {
       setActiveIndex(0);
+      setHeaderVisible(true);
+      headerScroll.current = { anchor: 0, visible: true };
     });
     containerRef.current?.scrollTo({ top: 0 });
     // oxlint-disable-next-line react/exhaustive-effect-dependencies -- gustTab is intentionally a change signal for the new query
@@ -262,6 +279,23 @@ export const ClientGusts: React.FC<ClientGustsProps> = () => {
     [data?.pages, hiddenPostIds]
   );
 
+  const followingPreview = useQuery({
+    enabled: isLoggedIn && gustTab !== "following",
+    queryFn: () =>
+      kyInstance
+        .get("/api/gusts", {
+          searchParams: { excludeModerated: "1", mode: "following", take: "5" },
+        })
+        .json<GustsPage>(),
+    queryKey: ["following-gust-preview", user?.id ?? "guest"],
+    staleTime: 60_000,
+  });
+  const followingAvatars = followingGustAvatars(
+    gustTab === "following" ? posts : (followingPreview.data?.posts ?? []),
+    gustTab === "following" ? activeIndex : 0
+  );
+  const headerShown = headerVisible && !(isCommentsOpen && isMobile);
+
   // Head-only probe: new clips collect in `newGusts` and surface as an avatar
   // badge without replacing the reel or moving the viewer. Only the badge tap
   // merges them in. The video filter matches what the reel actually renders.
@@ -273,10 +307,12 @@ export const ClientGusts: React.FC<ClientGustsProps> = () => {
       };
       if (isPersonalized) {
         queryParams.mode = "personalized";
+      } else if (gustTab === "following" && !initialPostId) {
+        queryParams.mode = "following";
       }
       const fresh = await kyInstance
         .get("/api/gusts", { searchParams: queryParams })
-        .json<PostsPage>();
+        .json<GustsPage>();
       return fresh.posts;
     },
     filter: (post) => post.attachments.some((media) => media.type === "VIDEO"),
@@ -617,30 +653,22 @@ export const ClientGusts: React.FC<ClientGustsProps> = () => {
     return (
       <div className="flex h-full w-full max-w-6xl items-center justify-center gap-4 py-0 sm:px-2 sm:py-3 md:px-6">
         <div className="relative h-full w-full max-w-4xl transition-[width] duration-300 ease-out">
-          <div
-            className={cn(
-              "pointer-events-none absolute inset-x-0 top-1 z-30 flex h-10 items-center justify-center md:top-2",
-              isCommentsOpen && isMobile && "hidden"
-            )}
-          >
-            <div className="pointer-events-auto flex items-center gap-2">
-              <GustTab
-                active={gustTab === "latest"}
-                label="Latest"
-                onClick={() => handleTabChange("latest")}
-              />
-              <GustTab
-                active={gustTab === "personalized"}
-                label="For you"
-                onClick={() => handleTabChange("personalized")}
-              />
-            </div>
-          </div>
           {/* Vertical Snap Stream */}
           <div
             className="hide-native-scrollbar h-full w-full snap-y snap-mandatory overflow-y-auto overscroll-y-contain"
             style={{
               overflowY: isCommentsOpen && isMobile ? "hidden" : undefined,
+            }}
+            onScroll={(event) => {
+              const previous = headerScroll.current;
+              const next = advanceGustHeader(
+                event.currentTarget.scrollTop,
+                previous
+              );
+              headerScroll.current = next;
+              if (previous.visible !== next.visible) {
+                setHeaderVisible(next.visible);
+              }
             }}
             ref={containerRef}
           >
@@ -712,9 +740,10 @@ export const ClientGusts: React.FC<ClientGustsProps> = () => {
         {/* Floating back button (mobile, over the video) */}
         <button
           aria-label="Go back"
+          inert={!headerShown}
           className={cn(
-            "rail-3d-btn absolute top-4 left-4 z-30 flex h-10 w-10 items-center justify-center rounded-full md:hidden",
-            isCommentsOpen && "hidden"
+            "rail-3d-btn absolute top-4 left-4 z-30 flex h-10 w-10 items-center justify-center rounded-full transition-[opacity,transform] duration-200 md:hidden",
+            !headerShown && "pointer-events-none -translate-y-4 opacity-0"
           )}
           onClick={() => router.back()}
           type="button"
@@ -727,25 +756,47 @@ export const ClientGusts: React.FC<ClientGustsProps> = () => {
             on the same level. */}
         <button
           aria-label="Go back"
-          className="icon-btn-3d absolute top-3.5 left-4 z-30 hidden size-9 items-center justify-center rounded-full md:flex"
+          inert={!headerShown}
+          className={cn(
+            "icon-btn-3d absolute top-3.5 left-4 z-30 hidden size-9 items-center justify-center rounded-full transition-[opacity,transform] duration-200 md:flex",
+            !headerShown && "pointer-events-none -translate-y-4 opacity-0"
+          )}
           onClick={() => router.back()}
           type="button"
         >
           <ChevronLeft className="size-4.5" />
         </button>
 
-        {/* Floating search button (mobile) */}
-        <button
-          aria-label="Search"
+        <div
+          aria-hidden={!headerShown}
+          inert={!headerShown}
+          data-gust-header
           className={cn(
-            "rail-3d-btn absolute top-4 right-4 z-30 flex h-10 w-10 items-center justify-center rounded-full md:hidden",
-            isCommentsOpen && "hidden"
+            "absolute top-3 right-2 left-16 z-30 flex min-h-11 justify-center transition-[opacity,transform] duration-200 motion-reduce:transform-none md:left-14",
+            !headerShown && "pointer-events-none -translate-y-4 opacity-0"
           )}
-          onClick={() => openSpotlight()}
-          type="button"
         >
-          <Search className="size-5" />
-        </button>
+          {isLoggedIn ? (
+            <GustFeedControls
+              active={gustTab}
+              avatars={followingAvatars}
+              onChange={handleTabChange}
+            />
+          ) : (
+            <div className="flex items-center gap-2">
+              <GustTab
+                active={gustTab === "latest"}
+                label="Latest"
+                onClick={() => handleTabChange("latest")}
+              />
+              <GustTab
+                active={gustTab === "personalized"}
+                label="For you"
+                onClick={() => handleTabChange("personalized")}
+              />
+            </div>
+          )}
+        </div>
 
         {renderContent()}
 

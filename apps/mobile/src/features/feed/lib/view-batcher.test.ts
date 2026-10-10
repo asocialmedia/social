@@ -112,3 +112,55 @@ test("a slow batch cannot overlap the next view batch", async () => {
   await batcher.flush();
   expect(batches).toEqual([["p1"], ["p2"]]);
 });
+
+test("view reconciliation reaches independent Gust and post-detail subscribers", async () => {
+  const batcher = new ViewBatcher(() =>
+    Promise.resolve({ gust: 42, post: 18 })
+  );
+  let notifications = 0;
+  const off = batcher.subscribe(() => {
+    notifications += 1;
+  });
+  batcher.mark("gust", OPTIONS);
+  batcher.mark("post", OPTIONS);
+  await batcher.flush();
+  expect(batcher.count("gust", 3)).toBe(42);
+  expect(batcher.count("post", 2)).toBe(18);
+  expect(batcher.count("post", 20)).toBe(20);
+  expect(notifications).toBe(1);
+  off();
+  batcher.mark("another", OPTIONS);
+  await batcher.flush();
+  expect(notifications).toBe(1);
+});
+
+test("a view becomes eligible again after the server's fifteen-minute deduplication window", async () => {
+  let now = 0;
+  const { batches, submit } = recorder();
+  const batcher = new ViewBatcher(submit, { now: () => now });
+  batcher.mark("gust", OPTIONS);
+  await batcher.flush();
+  now = 15 * 60 * 1000 - 1;
+  batcher.mark("gust", OPTIONS);
+  await batcher.flush();
+  expect(batches).toHaveLength(1);
+  now += 1;
+  batcher.mark("gust", OPTIONS);
+  await batcher.flush();
+  expect(batches).toHaveLength(2);
+});
+
+test("sign-out resets counted ids and ignores a late response from the previous account", async () => {
+  const response = Promise.withResolvers<Record<string, number>>();
+  const batcher = new ViewBatcher(() => response.promise);
+  batcher.mark("post", OPTIONS);
+  const request = batcher.flush();
+  batcher.reset();
+  response.resolve({ post: 12 });
+  await request;
+  expect(batcher.count("post", 0)).toBe(0);
+  batcher.mark("post", OPTIONS);
+  expect(batcher.size).toBe(1);
+  await batcher.flush();
+  expect(batcher.count("post", 0)).toBe(12);
+});

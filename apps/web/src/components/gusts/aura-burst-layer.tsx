@@ -90,14 +90,6 @@ export function AuraBurstLayer({ ref }: { ref: Ref<AuraBurstHandle> }) {
               size={particle.size}
               strokeWidth={1.5}
             />
-            <Flame
-              className="absolute"
-              color={particle.light}
-              fill={particle.light}
-              size={particle.size * 0.4}
-              strokeWidth={1}
-              style={{ bottom: particle.size * 0.15 }}
-            />
           </motion.div>
         ))
       )}

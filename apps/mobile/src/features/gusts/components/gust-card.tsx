@@ -65,6 +65,7 @@ import {
   splitTranscriptIntoTimedLines,
 } from "@/features/feed/lib/transcript-cues";
 import type { TranscriptCue } from "@/features/feed/lib/transcript-cues";
+import { usePostViews } from "@/features/feed/state/use-post-views";
 import {
   BioContent,
   MentionChip,
@@ -462,6 +463,7 @@ export function GustCard({
   );
   const needsToggle = captionNeedsToggle(content);
   const flame = getAuraFlameStyle(vote.aura);
+  const views = usePostViews(post.id, post.viewCount ?? 0);
   const progress = duration > 0 ? currentTime / duration : 0;
   const showBuffering =
     isActive && revealed && source !== null && status === "loading";
@@ -514,6 +516,15 @@ export function GustCard({
     };
   });
 
+  const previewBorderStyle = useAnimatedStyle(() => {
+    const fraction = eddiesOpen ? previewProgress.get() : 0;
+    const scale = Math.max(
+      0.001,
+      1 + (preview.width / fullVideoWidth - 1) * fraction
+    );
+    return { borderRadius: (20 * fraction) / scale, opacity: fraction };
+  });
+
   return (
     <GestureDetector gesture={zoom.pinch}>
       <View style={[styles.card, { height: pageHeight }]}>
@@ -551,6 +562,19 @@ export function GustCard({
                 style={[styles.fill, styles.poster]}
               />
             )}
+            <Animated.View
+              pointerEvents="none"
+              style={[
+                styles.fill,
+                {
+                  borderColor: "rgba(255,255,255,0.2)",
+                  borderWidth: 1,
+                  boxShadow:
+                    "inset 0 0 0 2px rgba(0,0,0,0.55), inset 0 2px 0 2px rgba(255,255,255,0.25)",
+                },
+                previewBorderStyle,
+              ]}
+            />
           </Animated.View>
         </Animated.View>
 
@@ -560,6 +584,26 @@ export function GustCard({
           onPress={handleTap}
           style={styles.fill}
         />
+
+        {eddiesOpen ? (
+          <RailButton
+            accessibilityLabel={isMuted ? "Unmute video" : "Mute video"}
+            onPress={toggleMuted}
+            size={40}
+            style={{
+              position: "absolute",
+              right: 16,
+              top: pageHeight / 2 - 56,
+              zIndex: 20,
+            }}
+          >
+            {isMuted ? (
+              <VolumeX color={RAIL_ICON_COLOR} size={20} />
+            ) : (
+              <Volume2 color={RAIL_ICON_COLOR} size={20} />
+            )}
+          </RailButton>
+        ) : null}
 
         {pulse ? (
           <PlayPulse
@@ -744,7 +788,7 @@ export function GustCard({
           <View style={styles.viewsRow}>
             <Eye color="rgba(255, 255, 255, 0.85)" size={16} />
             <Text style={styles.views}>
-              {formatNumber(post.viewCount ?? 0)}
+              {formatNumber(views)}
               <Text style={styles.viewsLabel}> views</Text>
             </Text>
           </View>

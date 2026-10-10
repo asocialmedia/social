@@ -157,13 +157,6 @@ function AuraParticle({
         size={particle.size}
         strokeWidth={1.5}
       />
-      <Flame
-        color={particle.light}
-        fill={particle.light}
-        size={particle.size * 0.4}
-        strokeWidth={1}
-        style={{ bottom: particle.size * 0.15, position: "absolute" }}
-      />
     </Reanimated.View>
   );
 }
