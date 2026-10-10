@@ -27,8 +27,6 @@ import {
   ListChecks,
   Reply,
   Search,
-  ShieldCheck,
-  Users,
   X,
 } from "lucide-react-native";
 import {
@@ -40,7 +38,6 @@ import {
   useSyncExternalStore,
 } from "react";
 import {
-  Alert,
   BackHandler,
   Dimensions,
   FlatList,
@@ -61,6 +58,7 @@ import { authClient } from "@/features/auth/lib/auth-client";
 import { useInstall } from "@/features/auth/state/install";
 import { useSessionContext } from "@/features/auth/state/session";
 import type { ApiCallOptions } from "@/features/feed/lib/feed-api";
+import { UserBadge } from "@/features/home/components/user-badge";
 import {
   ackMessageDelivered,
   ensureConversationKeys,
@@ -71,11 +69,7 @@ import {
   sendTypingIndicator,
 } from "@/features/messages/lib/client";
 import { resolveConversationTheme } from "@/features/messages/lib/conversation-theme";
-import {
-  derivePublicKeyFromPrivate,
-  generateFingerprint,
-  getMediaImages,
-} from "@/features/messages/lib/crypto";
+import { getMediaImages } from "@/features/messages/lib/crypto";
 import type { MessagePayload } from "@/features/messages/lib/crypto";
 import { messageDecryptor } from "@/features/messages/lib/decryptor";
 import type {
@@ -87,7 +81,7 @@ import { getMessageReceipt } from "@/features/messages/lib/message-receipts";
 import { messageReadRetryDelay } from "@/features/messages/lib/read-retry";
 import { buildTranscriptRows } from "@/features/messages/lib/transcript-rows";
 import type { TranscriptItem } from "@/features/messages/lib/transcript-rows";
-import type { MessageData } from "@/features/messages/lib/types";
+import type { MessageData, MessageSender } from "@/features/messages/lib/types";
 import { UNREAD_DIVIDER_LABEL } from "@/features/messages/lib/unread-marker";
 import { conversationListStore } from "@/features/messages/state/conversation-list-store";
 import { useMessagesIdentity } from "@/features/messages/state/message-identity";
@@ -112,7 +106,6 @@ import { MessageComposer, reclaimOwnMedia } from "./message-composer";
 import type { ComposerTarget } from "./message-composer";
 import { MessageIdentityLocked } from "./message-identity-locked";
 import { MessageMediaViewer } from "./message-media-viewer";
-import { MessagePeoplePanel } from "./message-people-panel";
 import { MessageSearchBar } from "./message-search-bar";
 import { MessageSearchResults } from "./message-search-results";
 import { MessagesIconButton } from "./messages-primitives";
@@ -203,13 +196,15 @@ export function MessageThreadScreen({
   const transcript = useTranscript(conversationId);
   const presence = useMessagePresence();
 
-  const [peer, setPeer] = useState<{
-    avatarUrl: string | null;
-    displayName: string;
-    publicKey: string | null;
-    id: string | null;
-    username: string | null;
-  } | null>(null);
+  const [peer, setPeer] = useState<
+    | ({
+        avatarUrl: string | null;
+        displayName: string;
+        id: string | null;
+        username: string | null;
+      } & Pick<MessageSender, "badge" | "badges" | "communityMemberships">)
+    | null
+  >(null);
   const [themeKey, setThemeKey] = useState<string | null>(null);
   const [replyTo, setReplyTo] = useState<ComposerTarget | null>(null);
   const [editing, setEditing] = useState<ComposerTarget | null>(null);
@@ -221,7 +216,6 @@ export function MessageThreadScreen({
   const readTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [readyKey, setReadyKey] = useState<typeof privateKey>(null);
   const [searchOpen, setSearchOpen] = useState(false);
-  const [friendsOpen, setFriendsOpen] = useState(false);
   const [keySignature, setKeySignature] = useState("");
   const healedSignature = useRef<string | null>(null);
   const chatTheme = useMemo(
@@ -236,6 +230,9 @@ export function MessageThreadScreen({
   const cachedPeer = conversationListStore
     .getSnapshot()
     .rows.find((row) => row.conversation.id === conversationId);
+  const cachedPeerUser = cachedPeer?.conversation.members.find(
+    (member) => member.userId === cachedPeer.peerId
+  )?.user;
 
   const apiOptions = useCallback(async (): Promise<ApiCallOptions> => {
     const cookie = await authClient.getCookie();
@@ -270,10 +267,12 @@ export function MessageThreadScreen({
         setDetailError(false);
         setPeer({
           avatarUrl: peerMember?.user.avatarUrl ?? null,
+          badge: peerMember?.user.badge ?? null,
+          badges: peerMember?.user.badges ?? [],
+          communityMemberships: peerMember?.user.communityMemberships ?? [],
           displayName:
             peerMember?.user.displayName || peerMember?.user.username || "Chat",
           id: peerMember?.userId ?? null,
-          publicKey: peerMember?.user.messageIdentity?.publicKey ?? null,
           username: peerMember?.user.username ?? null,
         });
         setThemeKey(mine?.themeKey ?? null);
@@ -591,17 +590,6 @@ export function MessageThreadScreen({
     [conversationId, getBaseKeys]
   );
 
-  const peerPublicKey = peer?.publicKey ?? null;
-  const fingerprint = useMemo(() => {
-    if (!privateKey || !peerPublicKey) {
-      return null;
-    }
-    return generateFingerprint(
-      derivePublicKeyFromPrivate(privateKey),
-      peerPublicKey
-    );
-  }, [privateKey, peerPublicKey]);
-
   const handleLoadOlder = useCallback(() => {
     transcript.loadOlder();
   }, [transcript]);
@@ -884,7 +872,11 @@ export function MessageThreadScreen({
         <ThreadHeader
           avatarUrl={peer?.avatarUrl ?? cachedPeer?.avatarUrl ?? null}
           displayName={peer?.displayName ?? cachedPeer?.displayName ?? "Chat"}
-          fingerprint={fingerprint}
+          badge={peer?.badge ?? cachedPeerUser?.badge}
+          badges={peer?.badges ?? cachedPeerUser?.badges}
+          communityRoles={
+            peer?.communityMemberships ?? cachedPeerUser?.communityMemberships
+          }
           onBack={onBack}
           onSearch={() => {
             if (searchOpen) {
@@ -893,7 +885,6 @@ export function MessageThreadScreen({
               setSearchOpen(true);
             }
           }}
-          onFriends={() => setFriendsOpen((open) => !open)}
           username={peer?.username ?? cachedPeer?.peerUsername ?? null}
           presence={
             presence.find(
@@ -903,12 +894,6 @@ export function MessageThreadScreen({
           typing={transcript.snapshot.peerTyping}
         />
       )}
-      {friendsOpen ? (
-        <MessagePeoplePanel
-          mode="online"
-          onClose={() => setFriendsOpen(false)}
-        />
-      ) : null}
       {searchOpen ? (
         <MessageSearchBar
           query={search.query}
@@ -1077,36 +1062,43 @@ function readDecryptedRows(
   return map;
 }
 
-// The header: peer identity, typing state, and the fingerprint two people can
-// compare out of band.
+// The header keeps the peer's badges and presence beside their identity.
 function ThreadHeader({
   avatarUrl,
   displayName,
-  fingerprint,
+  badge,
+  badges,
+  communityRoles,
   onBack,
   onSearch,
-  onFriends,
   username,
   typing,
   presence,
 }: {
   avatarUrl: string | null;
   displayName: string;
-  fingerprint: string | null;
+  badge?: string | null;
+  badges?: string[];
+  communityRoles?: MessageSender["communityMemberships"];
   onBack: () => void;
   onSearch: () => void;
-  onFriends: () => void;
   username: string | null;
   typing: boolean;
   presence: "online" | "idle" | null;
 }) {
   const { isDark, theme } = useAppTheme();
+  let presenceColor = "#8e8e93";
+  let presenceLabel = "Offline";
   let statusText = username ? `@${username}` : "";
   if (presence === "online") {
     statusText = "Online";
+    presenceColor = "#22c55e";
+    presenceLabel = "Online";
   }
   if (presence === "idle") {
     statusText = "Idle";
+    presenceColor = "#f59e0b";
+    presenceLabel = "Idle";
   }
   return (
     <View
@@ -1124,32 +1116,35 @@ function ThreadHeader({
         onPress={onBack}
         size={32}
       />
-      <View>
+      <View style={styles.headerAvatar}>
         <UserAvatar size={32} url={avatarUrl} />
-        {presence ? (
-          <View
-            accessibilityLabel={presence === "online" ? "Online" : "Idle"}
-            style={{
-              backgroundColor: presence === "online" ? "#22c55e" : "#f59e0b",
-              borderColor: theme.containerBg,
-              borderRadius: 5,
-              borderWidth: 2,
-              bottom: -1,
-              height: 10,
-              position: "absolute",
-              right: -1,
-              width: 10,
-            }}
-          />
-        ) : null}
+        <View
+          accessible
+          accessibilityLabel={presenceLabel}
+          testID="chat-header-presence"
+          style={[
+            styles.headerPresence,
+            { backgroundColor: presenceColor, borderColor: theme.containerBg },
+          ]}
+        />
       </View>
       <View style={styles.headerIdentity}>
-        <Text
-          numberOfLines={1}
-          style={[styles.headerName, { color: isDark ? "#eeeeee" : "#202020" }]}
-        >
-          {displayName}
-        </Text>
+        <View style={styles.headerNameRow}>
+          <Text
+            numberOfLines={1}
+            style={[
+              styles.headerName,
+              { color: isDark ? "#eeeeee" : "#202020" },
+            ]}
+          >
+            {displayName}
+          </Text>
+          <UserBadge
+            badge={badge}
+            badges={badges}
+            communityRoles={communityRoles}
+          />
+        </View>
         {typing ? (
           <Text style={[styles.headerSub, { color: theme.dividerText }]}>
             typing...
@@ -1163,29 +1158,10 @@ function ThreadHeader({
           </Text>
         )}
       </View>
-      {fingerprint ? (
-        <MessagesIconButton
-          icon={ShieldCheck}
-          label="Safety number"
-          size={32}
-          onPress={() =>
-            Alert.alert(
-              "Safety number",
-              `${fingerprint}\n\nMessages are encrypted in transit and at rest. Your account automatically recovers its keys on new devices.`
-            )
-          }
-        />
-      ) : null}
       <MessagesIconButton
         icon={Search}
         label="Search in conversation"
         onPress={onSearch}
-        size={32}
-      />
-      <MessagesIconButton
-        icon={Users}
-        label="Online friends"
-        onPress={onFriends}
         size={32}
       />
       <MessagesIconButton
@@ -1228,15 +1204,6 @@ const styles = StyleSheet.create({
     fontFamily: "SofiaProReg",
     fontSize: 11,
   },
-  fingerprint: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 4,
-  },
-  fingerprintText: {
-    fontFamily: "SofiaProReg",
-    fontSize: 10,
-  },
   header: {
     alignItems: "center",
     borderBottomWidth: 1,
@@ -1245,12 +1212,25 @@ const styles = StyleSheet.create({
     height: 56,
     paddingHorizontal: 12,
   },
+  headerAvatar: { height: 32, width: 32 },
   headerIdentity: {
     flex: 1,
+    minWidth: 0,
   },
   headerName: {
+    flexShrink: 1,
     fontFamily: "SofiaProMed",
     fontSize: 14,
+  },
+  headerNameRow: { alignItems: "center", flexDirection: "row", gap: 5 },
+  headerPresence: {
+    borderRadius: 6,
+    borderWidth: 2,
+    bottom: -2,
+    height: 12,
+    position: "absolute",
+    right: -2,
+    width: 12,
   },
   headerSub: {
     fontFamily: "SofiaProReg",

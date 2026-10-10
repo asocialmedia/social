@@ -3,6 +3,19 @@ export interface MessageFrame {
   height: number;
 }
 
+export const REPLY_TRIGGER_DISTANCE = 56;
+
+export function replyFeedback(distance: number) {
+  "worklet";
+  const progress = Math.min(1, Math.max(0, distance / REPLY_TRIGGER_DISTANCE));
+  return {
+    opacity: Math.min(1, Math.max(0, (distance - 8) / 24)),
+    progress,
+    ringOpacity: Math.min(1, Math.max(0, (progress - 0.7) / 0.3)),
+    scale: 0.7 + 0.3 * progress,
+  };
+}
+
 export function messageAtPoint(
   frames: Readonly<Record<string, MessageFrame>>,
   contentY: number
@@ -82,7 +95,9 @@ export function selectionScrollVelocity(
 
 export function shouldReply(distance: number, velocity: number): boolean {
   "worklet";
-  return distance >= 56 || (distance >= 24 && velocity >= 800);
+  return (
+    distance >= REPLY_TRIGGER_DISTANCE || (distance >= 24 && velocity >= 800)
+  );
 }
 
 export function replyOffset(distance: number): number {

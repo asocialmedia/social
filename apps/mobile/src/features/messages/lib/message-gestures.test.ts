@@ -4,6 +4,7 @@ import {
   applySelectionRange,
   invertedContentY,
   messageAtPoint,
+  replyFeedback,
   replyOffset,
   selectionRangeIds,
   selectionScrollVelocity,
@@ -75,5 +76,26 @@ describe("native message gestures", () => {
     expect(replyOffset(56)).toBe(56);
     expect(replyOffset(1000)).toBeGreaterThan(72);
     expect(replyOffset(1000)).toBeLessThan(88);
+  });
+  test("reply feedback stays hidden at rest and fills its ready ring at the reply threshold", () => {
+    expect(replyFeedback(0)).toEqual({
+      opacity: 0,
+      progress: 0,
+      ringOpacity: 0,
+      scale: 0.7,
+    });
+    expect(replyFeedback(-100)).toEqual(replyFeedback(0));
+    const partial = replyFeedback(28);
+    expect(partial.progress).toBe(0.5);
+    expect(partial.opacity).toBeGreaterThan(0);
+    expect(partial.ringOpacity).toBe(0);
+    expect(partial.scale).toBeLessThan(1);
+    expect(replyFeedback(56)).toEqual({
+      opacity: 1,
+      progress: 1,
+      ringOpacity: 1,
+      scale: 1,
+    });
+    expect(replyFeedback(1000)).toEqual(replyFeedback(56));
   });
 });
