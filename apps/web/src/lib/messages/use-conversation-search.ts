@@ -76,9 +76,16 @@ export interface ConversationSearch {
   searchError: string | null;
   offlineSearch: boolean;
   savedHistorySearch: boolean;
+  totalMatchesExact: boolean;
+  countState: "pending" | "exact" | "unavailable" | null;
   serverCoverageIncomplete: boolean;
   serverCoverageUnavailable: boolean;
   serverHasMore: boolean;
+  pageHitIds: string[];
+  windowStartPage: number;
+  windowEndPage: number;
+  canNextPage: boolean;
+  canPreviousPage: boolean;
   retry: () => void;
 }
 
@@ -93,6 +100,7 @@ interface ServerSearchPage {
   coverageSettled: boolean;
   countToken: string | null;
   hits: MessageData[];
+  hitIds?: string[];
   offline: boolean;
   nextCursor: string | null;
   previousCursor: string | null;
@@ -259,6 +267,7 @@ export function useConversationSearch(
   const [serverCount, setServerCount] = useState<{
     count: number;
     key: string;
+    state: "exact" | "unavailable";
   } | null>(null);
   useEffect(() => {
     const updateConnectivity = () => {
@@ -432,15 +441,11 @@ export function useConversationSearch(
     const requestGenerationChanged =
       currentWindow.pages.length > 0 &&
       serverPageState.requestGeneration !== serverRequestGeneration;
-    const refreshingIncompleteHead =
-      requestGenerationChanged && summary?.coverageComplete === false;
-    const pageRequest = refreshingIncompleteHead
-      ? { cursor: null, pageIndex: 0 }
-      : searchResultPageRequest({
-          pageIndex: listPage,
-          refresh: requestGenerationChanged,
-          window: currentWindow,
-        });
+    const pageRequest = searchResultPageRequest({
+      pageIndex: listPage,
+      refresh: requestGenerationChanged,
+      window: currentWindow,
+    });
     if (!pageRequest) {
       return;
     }
@@ -467,7 +472,10 @@ export function useConversationSearch(
               ...searchPageSummary(page),
               countToken:
                 page.countToken ??
-                (!page.offline && !reset && current.key === requestKey
+                (!page.offline &&
+                !reset &&
+                current.key === requestKey &&
+                current.summary?.snapshotToken === page.snapshotToken
                   ? (current.summary?.countToken ?? null)
                   : null),
             },
@@ -476,7 +484,8 @@ export function useConversationSearch(
         if (page.totalMatches !== null) {
           setServerCount({
             count: page.totalMatches,
-            key: `${requestKey}\u0000`,
+            key: `${requestKey}\u0000${page.snapshotToken ?? ""}\u0000${page.countToken ?? ""}`,
+            state: "exact",
           });
         }
         setServerRequest({ error: null, key: requestKey, loading: false });
@@ -522,6 +531,7 @@ export function useConversationSearch(
           coverageComplete: true,
           coveragePaused: false,
           coverageSettled: true,
+          hitIds: page.hits.map((record) => record.id),
           hits: page.hits.map((record) =>
             offlineSearchRecordToMessageData(conversationId, record)
           ),
@@ -572,7 +582,8 @@ export function useConversationSearch(
         if (lastPage.totalMatches !== null) {
           setServerCount({
             count: lastPage.totalMatches,
-            key: `${requestKey}\u0000`,
+            key: `${requestKey}\u0000${lastPage.snapshotToken ?? ""}\u0000${lastPage.countToken ?? ""}`,
+            state: "exact",
           });
         }
         setServerRequest({ error: null, key: requestKey, loading: false });
@@ -610,7 +621,7 @@ export function useConversationSearch(
       }
       try {
         const snapshot =
-          pageIndex === 0 && refreshingIncompleteHead
+          pageIndex === 0 && requestGenerationChanged
             ? summary?.snapshotToken
             : undefined;
         const response = await fetch(
@@ -742,6 +753,12 @@ export function useConversationSearch(
           typeof body.nextCursor === "string" ? body.nextCursor : null;
         const countToken =
           typeof body.countToken === "string" ? body.countToken : null;
+        const totalMatches =
+          typeof body.totalMatches === "number" &&
+          Number.isSafeInteger(body.totalMatches) &&
+          body.totalMatches >= 0
+            ? body.totalMatches
+            : null;
         const { snapshotToken } = body;
         if (!cancelled) {
           serverScopeRestartKeyRef.current = "";
@@ -751,6 +768,7 @@ export function useConversationSearch(
               coverageComplete,
               coveragePaused,
               coverageSettled,
+              hitIds: hits.map((hit) => hit.id),
               hits,
               nextCursor,
               offline: false,
@@ -760,10 +778,9 @@ export function useConversationSearch(
                   : null,
               requestCursor: cursor,
               snapshotToken,
-              totalMatches: null,
+              totalMatches,
             },
-            pageIndex,
-            refreshingIncompleteHead
+            pageIndex
           );
         }
       } catch {
@@ -810,7 +827,7 @@ export function useConversationSearch(
   const serverSummary =
     serverPageState.key === serverSearchKey ? serverPageState.summary : null;
   const serverCountToken = serverSummary?.countToken ?? null;
-  const serverCountKey = `${serverSearchKey}\u0000${serverCountToken ?? ""}`;
+  const serverCountKey = `${serverSearchKey}\u0000${serverSummary?.snapshotToken ?? ""}\u0000${serverCountToken ?? ""}`;
   useEffect(() => {
     if (!enabled || !serverCountToken) {
       return;
@@ -819,6 +836,14 @@ export function useConversationSearch(
     let timer: ReturnType<typeof setTimeout> | null = null;
     let controller: AbortController | null = null;
     let delayMs = 1000;
+    let consecutiveFailures = 0;
+    const stopUnavailable = () => {
+      setServerCount({
+        count: 0,
+        key: serverCountKey,
+        state: "unavailable",
+      });
+    };
     const pollCount = async () => {
       controller = new AbortController();
       try {
@@ -847,23 +872,46 @@ export function useConversationSearch(
               Number.isSafeInteger(body.count) &&
               body.count >= 0
             ) {
-              setServerCount({ count: body.count, key: serverCountKey });
+              setServerCount({
+                count: body.count,
+                key: serverCountKey,
+                state: "exact",
+              });
               return;
             }
             if (body.state === "unavailable") {
+              setServerCount({
+                count: 0,
+                key: serverCountKey,
+                state: "unavailable",
+              });
               return;
             }
+            if (body.state === "pending") {
+              consecutiveFailures = 0;
+            } else {
+              consecutiveFailures += 1;
+            }
+          } else {
+            consecutiveFailures += 1;
           }
         } else if (response.status === 429) {
           const retryAfter = Number(response.headers.get("Retry-After"));
           if (Number.isFinite(retryAfter) && retryAfter > 0) {
-            delayMs = Math.max(delayMs, retryAfter * 1000);
+            delayMs = Math.max(delayMs, Math.min(retryAfter * 1000, 60_000));
           }
+        } else {
+          consecutiveFailures += 1;
         }
       } catch {
         if (cancelled || controller.signal.aborted) {
           return;
         }
+        consecutiveFailures += 1;
+      }
+      if (consecutiveFailures >= 5) {
+        stopUnavailable();
+        return;
       }
       if (!cancelled) {
         timer = setTimeout(() => {
@@ -887,8 +935,18 @@ export function useConversationSearch(
 
   const retry = useCallback(() => {
     serverScopeRestartKeyRef.current = "";
+    if (serverSummary?.offline && online) {
+      setServerCount(null);
+      setServerPageState({
+        key: "",
+        pages: [],
+        requestGeneration: -1,
+        startPage: 0,
+        summary: null,
+      });
+    }
     setServerRequestGeneration((generation) => generation + 1);
-  }, []);
+  }, [online, serverSummary]);
 
   // Ask for decrypts of loaded rows the visible-window prefetcher never
   // reached. Requests are idempotent in the decryptor, and rows that resolve
@@ -933,6 +991,17 @@ export function useConversationSearch(
     serverPageState.key === serverSearchKey
       ? searchResultPage(serverPageState, listPage)
       : null;
+  const windowStartPage =
+    serverPageState.key === serverSearchKey ? serverPageState.startPage : 0;
+  const windowEndPage = windowStartPage + serverPages.length - 1;
+  const canNextPage = Boolean(
+    serverPage?.nextCursor || listPage < windowEndPage
+  );
+  const canPreviousPage = Boolean(
+    listPage > 0 && (serverPage?.previousCursor || listPage > windowStartPage)
+  );
+  const pageHitIds =
+    serverPage?.hitIds ?? serverPage?.hits.map((message) => message.id) ?? [];
   const serverOffline = serverSummary?.offline === true;
   const serverPageResults = useMemo(() => {
     if (!serverPage) {
@@ -974,9 +1043,21 @@ export function useConversationSearch(
     nextCursor: lastServerPage?.nextCursor ?? null,
   });
   const serverExactCount =
-    serverCount?.key === serverCountKey ? serverCount.count : null;
-  const serverTotalMatches =
-    serverExactCount ?? serverKnownHitCount + (serverHasMore ? 1 : 0);
+    serverCount?.key === serverCountKey && serverCount.state === "exact"
+      ? serverCount.count
+      : null;
+  const serverTotalMatches = serverExactCount ?? serverKnownHitCount;
+  let serverCountState: ConversationSearch["countState"] = null;
+  if (serverExactCount !== null) {
+    serverCountState = "exact";
+  } else if (
+    serverCount?.key === serverCountKey &&
+    serverCount.state === "unavailable"
+  ) {
+    serverCountState = "unavailable";
+  } else if (serverCountToken) {
+    serverCountState = "pending";
+  }
   const serverRequestCurrent = serverRequest.key === serverSearchKey;
   const serverSearchError = serverRequestCurrent ? serverRequest.error : null;
   const serverSearchLoading = serverRequestCurrent && serverRequest.loading;
@@ -1031,6 +1112,9 @@ export function useConversationSearch(
   ]);
 
   return {
+    canNextPage,
+    canPreviousPage,
+    countState: serverCountState,
     debouncedQuery,
     listPageError: serverSearchError,
     listPageLoading:
@@ -1041,6 +1125,7 @@ export function useConversationSearch(
     listPageStale: serverCoverageIncomplete,
     matchIds,
     offlineSearch: serverOffline && !online,
+    pageHitIds,
     query,
     resultMessages: serverMessages,
     results: enabled ? serverPageResults : [],
@@ -1053,6 +1138,9 @@ export function useConversationSearch(
     serverHasMore,
     setQuery,
     totalMatches: serverTotalMatches,
+    totalMatchesExact: serverExactCount !== null,
     truncated: false,
+    windowEndPage,
+    windowStartPage,
   };
 }

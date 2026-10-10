@@ -353,4 +353,13 @@ describe("searchListEmptyState", () => {
     expect(searchListEmptyState({ ...BASE, indexing: true })).toBeNull();
     expect(searchListEmptyState({ ...BASE, indexingOlder: true })).toBeNull();
   });
+
+  test("qualifies empty saved and unreadable-history scopes", () => {
+    expect(searchListEmptyState({ ...BASE, savedScope: true })).toBe(
+      "No matching saved messages."
+    );
+    expect(searchListEmptyState({ ...BASE, coverageUnavailable: true })).toBe(
+      "No matches in searchable history. Some older messages couldn't be searched."
+    );
+  });
 });

@@ -431,6 +431,87 @@ describe("POST /api/messages/conversations/:id/search", () => {
     expect(mockEnqueueCount).toHaveBeenCalledWith("count-request-1");
   });
 
+  test("returns a direct exact total for a complete single-page search", async () => {
+    mockStartBackfill.mockReturnValueOnce(
+      Promise.resolve({
+        completedAt: new Date("2026-10-08T00:01:00.000Z"),
+        expectedPosition: { createdAt: null, messageId: null },
+        throughSequence: 90,
+      })
+    );
+    mockCoverage.mockReturnValueOnce({
+      artifactsCommitted: 100,
+      backfillCompletedAt: new Date("2026-10-08T00:01:00.000Z"),
+      completedChangeSeq: 90,
+      rowsTraversed: 100,
+      unrecoverableEpochs: 0,
+    });
+    mockSearchCandidates.mockResolvedValueOnce([
+      {
+        ciphertext: "ciphertext",
+        createdAt: new Date("2026-10-08T00:00:00.000Z"),
+        id: "message-1",
+        iv: "iv",
+        keyEpoch: 1,
+        ratchetIndex: 1,
+        revision: 1,
+        senderId: "user-1",
+      },
+    ]);
+
+    const response = await POST(request({ query: "needle" }), context);
+    const body = (await response.json()) as {
+      countToken: string | null;
+      totalMatches: number | null;
+    };
+
+    expect(body).toMatchObject({ countToken: null, totalMatches: 1 });
+    expect(mockRequestCount).not.toHaveBeenCalled();
+  });
+
+  test("starts exact counting when coverage completes during a snapshot refresh", async () => {
+    const candidates = Array.from({ length: 21 }, (_, index) => ({
+      ciphertext: "ciphertext",
+      createdAt: new Date(
+        `2026-10-08T00:00:${String(21 - index).padStart(2, "0")}.000Z`
+      ),
+      id: `message-${index}`,
+      iv: "iv",
+      keyEpoch: 1,
+      ratchetIndex: index,
+      revision: 1,
+      senderId: "user-1",
+    }));
+    mockSearchCandidates.mockResolvedValueOnce(candidates);
+    const initial = await POST(request({ query: "needle" }), context);
+    const initialBody = (await initial.json()) as {
+      countToken: string | null;
+      snapshotToken: string;
+    };
+    expect(initialBody.countToken).toBeNull();
+
+    mockCoverage.mockReturnValueOnce({
+      artifactsCommitted: 100,
+      backfillCompletedAt: new Date("2026-10-08T00:01:00.000Z"),
+      completedChangeSeq: 90,
+      hasUnreadableMessages: false,
+      rowsTraversed: 100,
+      unrecoverableEpochs: 0,
+    });
+    mockSearchCandidates.mockResolvedValueOnce(candidates);
+    const refreshed = await POST(
+      request({ query: "needle", snapshot: initialBody.snapshotToken }),
+      context
+    );
+    const refreshedBody = (await refreshed.json()) as {
+      countToken: string | null;
+    };
+
+    expect(refreshedBody.countToken).toBeString();
+    expect(mockRequestCount).toHaveBeenCalledTimes(1);
+    expect(mockEnqueueCount).toHaveBeenCalledWith("count-request-1");
+  });
+
   test("pins later pages to the original snapshot and stable keyset", async () => {
     mockSearchCandidates.mockReturnValueOnce(
       Promise.resolve(

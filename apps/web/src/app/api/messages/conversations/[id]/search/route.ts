@@ -321,11 +321,9 @@ export async function POST(
       epochCoverage.unavailable === 0;
     let countToken: string | null = null;
     if (
-      rawBody.cursor === undefined &&
-      rawBody.snapshot === undefined &&
-      hasMore &&
       coverageComplete &&
-      features.counts
+      features.counts &&
+      (hasMore || rawBody.cursor !== undefined)
     ) {
       try {
         const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
@@ -396,6 +394,10 @@ export async function POST(
         { ...cursorScope, snapshotSequence: effectiveSnapshotSequence },
         keys.VIEWER_HASH_SECRET
       ),
+      totalMatches:
+        rawBody.cursor === undefined && coverageComplete && !hasMore
+          ? hits.length
+          : null,
     });
     searchOutcome = "success";
     return response;

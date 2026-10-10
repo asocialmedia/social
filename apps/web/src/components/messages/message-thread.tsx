@@ -604,6 +604,7 @@ export function MessageThread({
   const [searchView, setSearchView] = useState<SearchView>("chat");
   const [searchPage, setSearchPage] = useState(0);
   const [searchListIndex, setSearchListIndex] = useState(0);
+  const pendingSearchNavigationRef = useRef<1 | -1 | 0>(0);
   const [serverSearchRefreshToken, setServerSearchRefreshToken] = useState(0);
   const [serverRefsRefreshToken, setServerRefsRefreshToken] = useState(0);
   const [offlineCacheDisabledFor, setOfflineCacheDisabledFor] = useState<
@@ -617,6 +618,7 @@ export function MessageThread({
   // The current match: persistent for as long as the query is, so the bar's
   // "n of N" counter and the stepper keep pointing at it after the flash ends.
   const [searchActiveId, setSearchActiveId] = useState<string | null>(null);
+  const [searchActiveOrdinal, setSearchActiveOrdinal] = useState(0);
   // The shimmer target: transient (cleared by its own timer) and deliberately
   // separate from the current match, so the single sweep can expire without the
   // counter losing its position. The timer outlasts the 800ms animation by just
@@ -3100,14 +3102,31 @@ export function MessageThread({
     allMessages,
     conversationId,
     enabled: searchOpen,
-    listPage: searchView === "list" ? searchPage : 0,
+    listPage: searchPage,
     offlineCacheRefreshToken: serverSearchRefreshToken,
     offlineSearchScope: activeOfflineSearchScope,
     requestDecryptBatch,
     serverRefreshToken: serverSearchRefreshToken,
     serverSearchEnabled: SERVER_MESSAGE_SEARCH_ENABLED,
   });
-  const handleRetrySearch = search.retry;
+  const {
+    offlineSearch: searchOffline,
+    retry: retrySearch,
+    savedHistorySearch: searchSavedHistory,
+  } = search;
+  const handleRetrySearch = useCallback(() => {
+    if (searchSavedHistory && !searchOffline) {
+      setSearchPage(0);
+      setSearchListIndex(0);
+    }
+    pendingSearchNavigationRef.current = 0;
+    retrySearch();
+  }, [retrySearch, searchOffline, searchSavedHistory]);
+  const handleRetryJump = useCallback(() => {
+    if (searchActiveId) {
+      void jumpToMessage(searchActiveId);
+    }
+  }, [jumpToMessage, searchActiveId]);
   const { matchIds } = search;
 
   // A jump outlives the session that asked for it unless the session ends here.
@@ -3164,14 +3183,22 @@ export function MessageThread({
         search.results,
         searchPage,
         SEARCH_PAGE_SIZE,
-        search.totalMatches
+        search.totalMatches,
+        search.totalMatchesExact
       ),
-    [search.results, search.totalMatches, searchPage]
+    [search.results, search.totalMatches, search.totalMatchesExact, searchPage]
   );
   const searchListIndexClamped = Math.min(
     searchListIndex,
-    searchPageSlice.pageResults.length - 1
+    search.pageHitIds.length - 1
   );
+  const searchPageResultCount = Math.max(
+    search.pageHitIds.length,
+    searchPageSlice.pageResults.length
+  );
+  const searchRangeEnd = searchPageResultCount
+    ? searchPageSlice.rangeStart + searchPageResultCount - 1
+    : searchPageSlice.rangeEnd;
 
   // Auto-jump on commit: each newly debounced query lands on its newest match,
   // Telegram-style. Three guards keep it honest:
@@ -3192,20 +3219,22 @@ export function MessageThread({
     }
     if (committedQueryRef.current !== search.debouncedQuery) {
       committedQueryRef.current = search.debouncedQuery;
-      pendingAutoJumpRef.current = true;
-      setSearchActiveId(null);
+      pendingAutoJumpRef.current = searchView === "chat";
+      if (searchView === "chat") {
+        setSearchActiveId(null);
+        setSearchActiveOrdinal(0);
+      }
+    }
+    if (searchView !== "chat") {
+      return;
     }
     // Nothing to land on yet: stay armed so the first match that resolves wins.
     if (matchIds.length === 0) {
       return;
     }
-    const activeIndex = searchActiveId ? matchIds.indexOf(searchActiveId) : -1;
     if (pendingAutoJumpRef.current) {
       pendingAutoJumpRef.current = false;
-      void jumpToMessage(matchIds[0]);
-    } else if (activeIndex === -1) {
-      // The landed match is no longer a match for this query (hidden or
-      // deleted); re-anchor on the newest one so the counter stays truthful.
+      setSearchActiveOrdinal(search.windowStartPage * SEARCH_PAGE_SIZE + 1);
       void jumpToMessage(matchIds[0]);
     }
   }, [
@@ -3213,7 +3242,8 @@ export function MessageThread({
     matchIds,
     search.debouncedQuery,
     search.query,
-    searchActiveId,
+    searchView,
+    search.windowStartPage,
     searchOpen,
   ]);
 
@@ -3236,49 +3266,120 @@ export function MessageThread({
         return;
       }
       const current = searchActiveId ? matchIds.indexOf(searchActiveId) : -1;
+      if (current === -1) {
+        const target = direction > 0 ? matchIds[0] : matchIds.at(-1);
+        if (target) {
+          const targetIndex = matchIds.indexOf(target);
+          setSearchActiveOrdinal(
+            search.windowStartPage * SEARCH_PAGE_SIZE + targetIndex + 1
+          );
+          void jumpToMessage(target);
+        }
+        return;
+      }
       const from = current === -1 ? 0 : current;
+      if (
+        direction === 1 &&
+        from === matchIds.length - 1 &&
+        search.canNextPage
+      ) {
+        pendingSearchNavigationRef.current = 1;
+        setSearchPage(search.windowEndPage + 1);
+        return;
+      }
+      if (direction === -1 && from === 0 && search.canPreviousPage) {
+        pendingSearchNavigationRef.current = -1;
+        setSearchPage(search.windowStartPage - 1);
+        return;
+      }
       const next = (from + direction + matchIds.length) % matchIds.length;
       const id = matchIds[next];
       if (id) {
+        setSearchActiveOrdinal(
+          search.windowStartPage * SEARCH_PAGE_SIZE + next + 1
+        );
         void jumpToMessage(id);
       }
     },
     [
       jumpToMessage,
       matchIds,
+      search.canNextPage,
+      search.canPreviousPage,
       search.debouncedQuery,
       search.query,
       searchActiveId,
+      search.windowEndPage,
+      search.windowStartPage,
     ]
   );
+
+  useEffect(() => {
+    const direction = pendingSearchNavigationRef.current;
+    if (direction === 0) {
+      return;
+    }
+    if (search.listPageError) {
+      pendingSearchNavigationRef.current = 0;
+      return;
+    }
+    if (
+      search.listPageLoading ||
+      searchPage < search.windowStartPage ||
+      searchPage > search.windowEndPage
+    ) {
+      return;
+    }
+    const pageOffset = (searchPage - search.windowStartPage) * SEARCH_PAGE_SIZE;
+    const target =
+      direction > 0
+        ? search.matchIds[pageOffset]
+        : search.matchIds[
+            Math.min(
+              pageOffset + SEARCH_PAGE_SIZE - 1,
+              search.matchIds.length - 1
+            )
+          ];
+    if (target) {
+      pendingSearchNavigationRef.current = 0;
+      const targetIndex = search.matchIds.indexOf(target);
+      setSearchActiveOrdinal(
+        search.windowStartPage * SEARCH_PAGE_SIZE + targetIndex + 1
+      );
+      void jumpToMessage(target);
+    }
+  }, [
+    jumpToMessage,
+    search.listPageError,
+    search.listPageLoading,
+    search.matchIds,
+    search.windowEndPage,
+    search.windowStartPage,
+    searchPage,
+  ]);
 
   const moveListCursor = useCallback(
     (direction: 1 | -1) => {
       setSearchListIndex((index) => {
-        const last = searchPageSlice.pageResults.length - 1;
+        const last = search.pageHitIds.length - 1;
         return Math.min(Math.max(index + direction, 0), Math.max(last, 0));
       });
     },
-    [searchPageSlice.pageResults.length]
+    [search.pageHitIds.length]
   );
 
   const changeSearchPage = useCallback(
     (delta: 1 | -1) => {
-      setSearchPage((page) => {
-        // Clamped against the TOTAL, so the pager spans the whole result set
-        // rather than the page currently in hand. Without this the last page
-        // would read as page 0 of 1 for any query whose rows the hook has not
-        // loaded yet.
-        const size = Math.max(1, SEARCH_PAGE_SIZE);
-        const reachablePages = Math.max(
-          1,
-          Math.ceil(search.totalMatches / size)
-        );
-        return Math.min(Math.max(page + delta, 0), reachablePages - 1);
-      });
+      if (
+        (delta > 0 && !search.canNextPage) ||
+        (delta < 0 && !search.canPreviousPage)
+      ) {
+        return;
+      }
+      setSearchPage((page) => Math.max(page + delta, 0));
       setSearchListIndex(0);
     },
-    [search.totalMatches]
+    [search.canNextPage, search.canPreviousPage]
   );
 
   const searchNext = useCallback(() => {
@@ -3305,15 +3406,21 @@ export function MessageThread({
       stepThroughMatches(1);
       return;
     }
-    const result = searchPageSlice.pageResults[searchListIndexClamped];
-    if (result) {
+    const resultId = search.pageHitIds[searchListIndexClamped];
+    if (resultId) {
+      pendingAutoJumpRef.current = false;
+      setSearchActiveId(resultId);
+      setSearchActiveOrdinal(
+        searchPage * SEARCH_PAGE_SIZE + searchListIndexClamped + 1
+      );
       setSearchView("chat");
-      void jumpToMessage(result.id);
+      void jumpToMessage(resultId);
     }
   }, [
     jumpToMessage,
+    search.pageHitIds,
     searchListIndexClamped,
-    searchPageSlice.pageResults,
+    searchPage,
     searchView,
     stepThroughMatches,
   ]);
@@ -3324,6 +3431,7 @@ export function MessageThread({
     setSearchPage(0);
     setSearchListIndex(0);
     setSearchActiveId(null);
+    setSearchActiveOrdinal(0);
     if (jumpTimerRef.current) {
       clearTimeout(jumpTimerRef.current);
       setJumpTargetId(null);
@@ -3331,6 +3439,7 @@ export function MessageThread({
     // A closed session keeps nothing: the next open starts from an empty field
     // and a re-armed auto-jump, so it never re-lands on a stale query.
     pendingAutoJumpRef.current = false;
+    pendingSearchNavigationRef.current = 0;
     committedQueryRef.current = null;
     setJumpError(null);
     search.setQuery("");
@@ -3348,7 +3457,6 @@ export function MessageThread({
 
   const toggleSearchView = useCallback(() => {
     setSearchView((view) => (view === "list" ? "chat" : "list"));
-    setSearchListIndex(0);
   }, []);
 
   // Opening resets the same refs, which matters when the previous session was
@@ -3360,6 +3468,7 @@ export function MessageThread({
     setSearchPage(0);
     setSearchListIndex(0);
     setSearchActiveId(null);
+    setSearchActiveOrdinal(0);
     setJumpError(null);
     setSearchOpen(true);
   }, []);
@@ -3371,6 +3480,8 @@ export function MessageThread({
       search.setQuery(query);
       setSearchPage(0);
       setSearchListIndex(0);
+      pendingSearchNavigationRef.current = 0;
+      setSearchActiveOrdinal(0);
       setJumpError(null);
     },
     [search]
@@ -3379,10 +3490,19 @@ export function MessageThread({
   // Landing on a result reveals it, so the list view hands back to the chat.
   const jumpFromList = useCallback(
     (messageId: string) => {
+      const selectedIndex = search.pageHitIds.indexOf(messageId);
+      if (selectedIndex !== -1) {
+        setSearchListIndex(selectedIndex);
+        setSearchActiveOrdinal(
+          searchPage * SEARCH_PAGE_SIZE + selectedIndex + 1
+        );
+      }
+      pendingAutoJumpRef.current = false;
+      setSearchActiveId(messageId);
       setSearchView("chat");
       void jumpToMessage(messageId);
     },
-    [jumpToMessage]
+    [jumpToMessage, search.pageHitIds, searchPage]
   );
 
   // Load one older page on demand for the viewer's "Load older images"
@@ -4459,8 +4579,13 @@ export function MessageThread({
 
   // 1-based counter position of the landed match, or 0 when the landed message
   // is no longer one of the current matches (query changed, or it was hidden).
-  const activeIndex = searchActiveId ? matchIds.indexOf(searchActiveId) : -1;
-  const searchActivePosition = activeIndex + 1;
+  const activeSearchIndex = searchActiveId
+    ? matchIds.indexOf(searchActiveId)
+    : -1;
+  const searchActivePosition =
+    activeSearchIndex >= 0
+      ? search.windowStartPage * SEARCH_PAGE_SIZE + activeSearchIndex + 1
+      : searchActiveOrdinal;
 
   // The member's own wallpaper and dim. Resolved here rather than inside the
   // style prop so the same two values could feed the details panel's swatch, and
@@ -4519,6 +4644,7 @@ export function MessageThread({
               searchError={search.searchError}
               searchHasMore={search.serverHasMore}
               onRetrySearch={handleRetrySearch}
+              onRetryJump={handleRetryJump}
               // Jump in flight counts as work: the anchored read and the walk
               // behind it are the slowest requests this bar can be waiting on.
               indexing={transcriptFetching || jumpLoading}
@@ -4528,6 +4654,7 @@ export function MessageThread({
               inputRef={searchInputRef}
               jumpError={jumpError}
               listPageError={search.listPageError}
+              listPageLoading={search.listPageLoading}
               listPageStale={search.listPageStale}
               matchCount={search.totalMatches}
               onClose={dismissSearch}
@@ -4539,12 +4666,17 @@ export function MessageThread({
               onToggleView={toggleSearchView}
               page={searchPageSlice.page}
               pageCount={searchPageSlice.pageCount}
+              canNextPage={search.canNextPage}
+              canPreviousPage={search.canPreviousPage}
               query={search.query}
               storageFull={false}
-              rangeEnd={searchPageSlice.rangeEnd}
+              rangeEnd={searchRangeEnd}
               rangeStart={searchPageSlice.rangeStart}
-              resultCount={searchPageSlice.pageResults.length}
+              resultCount={searchPageResultCount}
               totalResults={search.totalMatches}
+              totalMatchesExact={search.totalMatchesExact}
+              countState={search.countState}
+              hasSelectedResult={searchActiveId !== null}
               view={searchView}
             />
           ) : null}
@@ -4862,25 +4994,34 @@ export function MessageThread({
               </DialogContent>
             </Dialog>
 
-            {searchView === "list" ? (
-              <div className="absolute inset-0 z-20 flex min-h-0 flex-col bg-[hsl(var(--background))]">
-                <MessageSearchResults
-                  activeIndex={Math.max(searchListIndexClamped, 0)}
-                  allMessages={search.resultMessages}
-                  indexing={transcriptFetching}
-                  indexingOlder={indexingOlder}
-                  listPageError={search.listPageError}
-                  listPageLoading={search.listPageLoading}
-                  listPageStale={search.listPageStale}
-                  myUserId={userId ?? ""}
-                  onJump={jumpFromList}
-                  query={search.query}
-                  results={searchPageSlice.pageResults}
-                  totalMatches={search.totalMatches}
-                  truncated={search.truncated}
-                />
-              </div>
-            ) : null}
+            <div
+              aria-hidden={!searchOpen || searchView !== "list"}
+              className="absolute inset-0 z-20 flex min-h-0 flex-col bg-[hsl(var(--background))]"
+              hidden={!searchOpen || searchView !== "list"}
+            >
+              <MessageSearchResults
+                activeIndex={Math.max(searchListIndexClamped, 0)}
+                allMessages={search.resultMessages}
+                pageHitIds={search.pageHitIds}
+                indexingOlder={indexingOlder}
+                savedScope={search.savedHistorySearch}
+                coverageUnavailable={search.serverCoverageUnavailable}
+                listPageError={search.listPageError}
+                listPageLoading={search.listPageLoading}
+                listPageStale={search.listPageStale}
+                myUserId={userId ?? ""}
+                members={detail.conversation.members.map((member) => ({
+                  avatarUrl: member.user.avatarUrl,
+                  displayName: member.user.displayName,
+                  userId: member.userId,
+                }))}
+                onJump={jumpFromList}
+                query={search.query}
+                results={searchPageSlice.pageResults}
+                totalMatches={search.totalMatches}
+                truncated={search.truncated}
+              />
+            </div>
           </div>
 
           {selectionActive ? (

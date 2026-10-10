@@ -135,14 +135,15 @@ function searchResponse(
   page: number,
   query = "needle",
   countToken: string | null = null,
-  coverageComplete = true
+  coverageComplete = true,
+  coverageSettled = true
 ): Response {
   return Response.json({
     countToken,
     coverage: {
       complete: coverageComplete,
       paused: false,
-      settled: true,
+      settled: coverageSettled,
     },
     hits: Array.from({ length: 20 }, (_, index) => ({
       createdAt: new Date(
@@ -273,6 +274,52 @@ afterEach(async () => {
 });
 
 describe("conversation search hook cutover", () => {
+  test("settled coverage refresh keeps the selected cursor page and starts exact counting", async () => {
+    let searchRequests = 0;
+    fetchHandler = (input, init) => {
+      if (String(input).endsWith("/search/count")) {
+        return Response.json({ count: 37, state: "exact" });
+      }
+      const body = JSON.parse(String(init?.body)) as {
+        cursor?: string;
+        query: string;
+        snapshot?: string;
+      };
+      const page = body.cursor?.startsWith("older-")
+        ? Number(body.cursor.slice(6)) + 1
+        : 0;
+      searchRequests += 1;
+      return searchResponse(
+        page,
+        body.query,
+        searchRequests > 2 ? "count-token-1" : null,
+        searchRequests > 2,
+        searchRequests > 2
+      );
+    };
+
+    await render();
+    await act(() => currentSearch().setQuery("needle"));
+    await settle(() => currentSearch().results[0]?.id === "needle-0-0");
+    await render({ listPage: 1 });
+    await settle(() => currentSearch().results[0]?.id === "needle-1-0");
+    await settle(() => currentSearch().totalMatchesExact);
+
+    expect(currentSearch().results[0]?.id).toBe("needle-1-0");
+    expect(currentSearch().resultMessages).toHaveLength(40);
+    expect(currentSearch().totalMatches).toBe(37);
+    expect(currentSearch().countState).toBe("exact");
+    const refresh = [...fetchCalls]
+      .toReversed()
+      .find(
+        (call) => call.url.endsWith("/search") && call.body.cursor === "older-0"
+      );
+    expect(refresh?.body.cursor).toBe("older-0");
+    expect(fetchCalls.some((call) => call.url.endsWith("/search/count"))).toBe(
+      true
+    );
+  });
+
   test("paginates readable matches when settled coverage is partial", async () => {
     fetchHandler = (input, init) => {
       if (String(input).endsWith("/search/count")) {
@@ -386,6 +433,11 @@ describe("conversation search hook cutover", () => {
     await settle(() => currentSearch().results.length === 1);
     expect(currentSearch().savedHistorySearch).toBe(true);
     expect(currentSearch().offlineSearch).toBe(false);
+    fetchHandler = () => searchResponse(0);
+    await act(() => currentSearch().retry());
+    await settle(() => currentSearch().results.length === 20);
+    expect(currentSearch().savedHistorySearch).toBe(false);
+    expect(currentSearch().searchError).toBeNull();
   });
 
   test("unavailable saved storage shows a retryable failure instead of a false empty scope", async () => {
@@ -475,6 +527,8 @@ describe("conversation search hook cutover", () => {
       fetchCalls.some((call) => String(call.body.cursor).startsWith("newer-"))
     ).toBe(true);
     expect(currentSearch().totalMatches).toBe(999);
+    expect(currentSearch().totalMatchesExact).toBe(true);
+    expect(currentSearch().countState).toBe("exact");
     expect(
       fetchCalls.filter((call) => call.url.endsWith("/search/count"))
     ).toHaveLength(1);

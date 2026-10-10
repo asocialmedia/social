@@ -121,6 +121,8 @@ export interface SearchListEmptyInput {
   // here", never "does not exist".
   resultCount: number;
   totalMatches: number;
+  savedScope?: boolean;
+  coverageUnavailable?: boolean;
 }
 
 // The list body's empty state. Kept here with the other wording so the rule is
@@ -142,6 +144,8 @@ export function searchListEmptyState(
     queryTooLong = false,
     resultCount,
     totalMatches,
+    savedScope = false,
+    coverageUnavailable = false,
   } = input;
   if (queryTooLong) {
     return MESSAGE_SEARCH_QUERY_TOO_LONG_MESSAGE;
@@ -173,6 +177,12 @@ export function searchListEmptyState(
   }
   if (indexing || indexingOlder) {
     return null;
+  }
+  if (savedScope) {
+    return "No matching saved messages.";
+  }
+  if (coverageUnavailable) {
+    return "No matches in searchable history. Some older messages couldn't be searched.";
   }
   return "No messages match this search.";
 }

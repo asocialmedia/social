@@ -49,7 +49,9 @@ describe("MessageSearchBar user-facing fallback states", () => {
       savedHistorySearch: true,
       serverManaged: true,
     });
-    expect(markup).toContain("Searching saved messages");
+    expect(markup).toContain(
+      "Full search unavailable — showing saved messages"
+    );
     expect(markup).not.toContain("Offline");
     expect(markup).not.toContain("No matching messages");
     expect(markup).not.toContain("Searching older messages");
@@ -85,11 +87,91 @@ describe("MessageSearchBar user-facing fallback states", () => {
       resultCount: 7,
       searchHasMore: false,
       serverManaged: true,
+      totalMatchesExact: false,
       totalResults: 7,
     });
 
+    expect(markup).toContain("1 of 7 found so far");
     expect(markup).toContain("Searching older messages…");
-    expect(markup).not.toContain("7 results");
+  });
+
+  test("shows an exact result count without an uncertainty suffix", () => {
+    const markup = renderSearchBar({
+      fullyCovered: true,
+      matchCount: 7,
+      resultCount: 7,
+      serverManaged: true,
+      totalMatchesExact: true,
+      totalResults: 7,
+    });
+
+    expect(markup).toContain("1 of 7");
+    expect(markup).not.toContain("of at least");
+    expect(markup).not.toContain("7+");
+  });
+
+  test("keeps jump failures visible and retryable beside existing matches", () => {
+    const markup = renderSearchBar({
+      activePosition: 1,
+      jumpError: "This message is no longer available.",
+      matchCount: 5,
+      onRetryJump: () => {},
+      serverManaged: true,
+      totalMatchesExact: true,
+      totalResults: 5,
+    });
+
+    expect(markup).toContain("This message is no longer available.");
+    expect(markup).toContain("Retry message");
+    expect(markup).not.toContain("1 of 5");
+  });
+
+  test("does not claim a result range while an empty page is loading", () => {
+    const markup = renderSearchBar({
+      listPageLoading: true,
+      matchCount: 29,
+      page: 1,
+      rangeEnd: 40,
+      rangeStart: 21,
+      resultCount: 0,
+      serverManaged: true,
+      totalMatchesExact: true,
+      totalResults: 29,
+      view: "list",
+    });
+
+    expect(markup).toContain("Loading results…");
+    expect(markup).not.toContain("21–40");
+  });
+
+  test("shows the exact localized total in list mode", () => {
+    const markup = renderSearchBar({
+      fullyCovered: true,
+      page: 0,
+      pageCount: 264,
+      rangeEnd: 20,
+      rangeStart: 1,
+      resultCount: 20,
+      serverManaged: true,
+      totalMatchesExact: true,
+      totalResults: 5274,
+      view: "list",
+    });
+
+    expect(markup).toContain(`1–20 of ${new Intl.NumberFormat().format(5274)}`);
+    expect(markup).toContain("Page 1 of 264");
+  });
+
+  test("rejects a single emoji using the shared Unicode minimum", () => {
+    const markup = renderSearchBar({
+      fullyCovered: true,
+      query: "😀",
+      serverManaged: true,
+      totalMatchesExact: true,
+    });
+
+    expect(markup).not.toContain("No matching messages");
+    expect(markup).not.toContain("No matching saved messages");
   });
 
   test("stops the older-history state when settled history has unreadable messages", () => {
@@ -110,7 +192,7 @@ describe("MessageSearchBar user-facing fallback states", () => {
       totalResults: 0,
     });
 
-    expect(markup).toContain("Offline — searching saved messages");
+    expect(markup).toContain("Offline — saved messages only");
     expect(markup).not.toContain("No matching messages");
   });
 });
