@@ -34,9 +34,6 @@ export async function dispatchMessageSearchBackfillJob(
   const cursorMessageId =
     await handlers.processConversationBackfill(conversationId);
   if (cursorMessageId) {
-    await handlers.enqueueConversationBackfill(
-      conversationId,
-      cursorMessageId
-    );
+    await handlers.enqueueConversationBackfill(conversationId, cursorMessageId);
   }
 }
