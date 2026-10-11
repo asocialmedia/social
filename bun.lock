@@ -88,7 +88,7 @@
     },
     "apps/mobile": {
       "name": "@asocialmedia/mobile",
-      "version": "0.1.75",
+      "version": "0.1.76",
       "dependencies": {
         "@asm/auth": "workspace:*",
         "@asm/media": "workspace:*",
@@ -166,7 +166,7 @@
     },
     "apps/web": {
       "name": "@asm/web",
-      "version": "1.7.6",
+      "version": "1.7.7",
       "dependencies": {
         "@asm/aggregator": "workspace:*",
         "@asm/auth": "workspace:*",
@@ -293,7 +293,7 @@
     },
     "packages/db": {
       "name": "@asm/db",
-      "version": "1.2.56",
+      "version": "1.2.58",
       "dependencies": {
         "@asm/config": "workspace:*",
         "@asm/logger": "workspace:*",

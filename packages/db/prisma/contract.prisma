@@ -25,9 +25,9 @@ namespace public {
     communityVisits        CommunityVisits[]
     notifications          Notifications[]
     posts                  Posts[]
-    avatarMedia            PostMedia?               @relation(name: "communities_avatarMediaId_fkey", fields:[avatarMediaId], references:[id], onDelete: SetNull, onUpdate: Cascade, map: "communities_avatarMediaId_fkey")
-    bannerMedia            PostMedia?               @relation(name: "communities_bannerMediaId_fkey", fields:[bannerMediaId], references:[id], onDelete: SetNull, onUpdate: Cascade, map: "communities_bannerMediaId_fkey")
-    owner                  Users                    @relation(fields:[ownerId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "communities_ownerId_fkey")
+    avatarMedia            PostMedia?               @relation(name: "communities_avatarMediaId_fkey", fields: [avatarMediaId], references: [id], onDelete: SetNull, onUpdate: Cascade, map: "communities_avatarMediaId_fkey")
+    bannerMedia            PostMedia?               @relation(name: "communities_bannerMediaId_fkey", fields: [bannerMediaId], references: [id], onDelete: SetNull, onUpdate: Cascade, map: "communities_bannerMediaId_fkey")
+    owner                  Users                    @relation(fields: [ownerId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "communities_ownerId_fkey")
 
     @@unique([avatarMediaId], map: "communities_avatarMediaId_key")
     @@unique([bannerMediaId], map: "communities_bannerMediaId_key")
@@ -76,10 +76,10 @@ namespace public {
     votes                                  Votes[]
     communityPostShares                    CommunityPostShares[]  @relation(name: "community_post_shares_postId_fkey")
     communityPostSharesCommunityPostShares CommunityPostShares[]  @relation(name: "community_post_shares_sourcePostId_fkey")
-    community                              Communities?           @relation(fields:[communityId], references:[id], onDelete: SetNull, onUpdate: Cascade, map: "posts_communityId_fkey", index: false)
-    parentPost                             Posts?                 @relation(name: "posts_parentPostId_fkey", fields:[parentPostId], references:[id], onDelete: SetNull, onUpdate: Cascade, map: "posts_parentPostId_fkey", index: false)
+    community                              Communities?           @relation(fields: [communityId], references: [id], onDelete: SetNull, onUpdate: Cascade, map: "posts_communityId_fkey", index: false)
+    parentPost                             Posts?                 @relation(name: "posts_parentPostId_fkey", fields: [parentPostId], references: [id], onDelete: SetNull, onUpdate: Cascade, map: "posts_parentPostId_fkey", index: false)
     posts                                  Posts[]                @relation(name: "posts_parentPostId_fkey")
-    user                                   Users                  @relation(fields:[userId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "posts_userId_fkey", index: false)
+    user                                   Users                  @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "posts_userId_fkey", index: false)
 
     @@index([communityId, aura], map: "posts_communityId_aura_idx")
     @@index([communityId, createdAt], map: "posts_communityId_createdAt_idx")
@@ -111,12 +111,12 @@ namespace public {
     commentVotes     CommentVotes[]
     notifications    Notifications[]
     postMedias       PostMedia[]
-    parent           Comments?       @relation(name: "comments_parentId_fkey", fields:[parentId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "comments_parentId_fkey", index: false)
+    parent           Comments?       @relation(name: "comments_parentId_fkey", fields: [parentId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "comments_parentId_fkey", index: false)
     comments         Comments[]      @relation(name: "comments_parentId_fkey")
-    post             Posts           @relation(fields:[postId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "comments_postId_fkey", index: false)
-    root             Comments?       @relation(name: "comments_rootId_fkey", fields:[rootId], references:[id], onDelete: SetNull, onUpdate: Cascade, map: "comments_rootId_fkey", index: false)
+    post             Posts           @relation(fields: [postId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "comments_postId_fkey", index: false)
+    root             Comments?       @relation(name: "comments_rootId_fkey", fields: [rootId], references: [id], onDelete: SetNull, onUpdate: Cascade, map: "comments_rootId_fkey", index: false)
     commentsComments Comments[]      @relation(name: "comments_rootId_fkey")
-    user             Users           @relation(fields:[userId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "comments_userId_fkey", index: false)
+    user             Users           @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "comments_userId_fkey", index: false)
 
     @@index([postId, createdAt], map: "comments_postId_createdAt_idx")
     @@index([postId, parentId], map: "comments_postId_parentId_idx")
@@ -125,98 +125,39 @@ namespace public {
   }
 
   model MessageConversations {
-    id                         String                       @id(map: "message_conversations_pkey") @default(uuid())
-    // Deterministic "a:b" dedup key for a DM. Always NULL for a DEN: a den has
-    // no fixed pair, so its uniqueness comes from the invite code instead. The
-    // unique index tolerates many NULLs, which is what keeps both shapes in one
-    // table.
-    pairKey                    String?
-    _type                      pg.enum(ConversationType)   @default("DM") @map("type")
-    // Den-only presentation columns. NULL on a DM, where the peer profile
-    // supplies the label and avatar.
-    name                       String?
-    description                String?
-    wallpaperKey               String?
-    wallpaperDim               Int?
-    wallpaperMediaId           String?
-    avatarMediaId              String?
-    // SetNull rather than Cascade on both people columns: deleting the last
-    // member's account must not delete a den's history out from under everyone
-    // else in it. An ownerless or creatorless den is app-level state Phase 1
-    // resolves (transfer or dissolve), not a cascade.
-    ownerId                    String?
-    createdById                String?
-    // Rotatable join code. NULL on a DM. Unique index tolerates many NULLs,
-    // same as pairKey.
-    inviteCode                 String?
-    // When the current code stops opening the den. NULL means it never expires,
-    // which is what every code minted before this column existed is, and what
-    // the "never" preset writes. Expiry is evaluated lazily at preview/join time
-    // rather than by a worker: the boundary is a read decision, not an event, so
-    // there is nothing to schedule and nothing to write at the moment it passes.
-    inviteExpiresAt           Timestamp(3)?
-    // The last duration a manager chose when minting a link, in days. NULL means
-    // "never". Kept so the next mint's picker defaults to what this den last
-    // used, rather than resetting every time. A preference, not a rule: the code
-    // itself is bounded by `inviteExpiresAt`, not by this column.
-    inviteDurationDays         Int?
-    // Rotatable 6-character uppercase alphanumeric join code. NULL on a DM and
-    // on dens whose manager has not minted one. Unique index tolerates many
-    // NULLs, same as inviteCode.
-    inviteShortCode            String?
-    // When the current short code stops opening the den. NULL means it never
-    // expires, matching the link code semantics. Lazy evaluation at preview/join.
-    inviteShortCodeExpiresAt   Timestamp(3)?
-    // The last duration a manager chose when minting a short code, in days.
-    // NULL means "never". Kept so the next short-code mint defaults to what
-    // this den last used, independent of the link code's duration.
-    inviteShortCodeDurationDays Int?
-    createdAt                  Timestamp(3)                 @default(now())
-    updatedAt                  Timestamp(3)                 @default(now())
-    // Roster-only change counter. Incremented by exactly one on every committed
-    // mutation that moves WHO may read and write this conversation: an add, a
-    // removal, a leave, an ownership transfer, a role change, an invite join. It
-    // is the signal a client compares against to detect a lost realtime event,
-    // because it is monotonic and it carries a value rather than a wall clock.
-    //
-    // What must NOT move it: a message send (which moves `updatedAt` on the
-    // hottest path in the app), a rename or description edit, an invite-code
-    // rotation, a preferences write, and dissolving the row (there is nothing
-    // left to count). None of those change the roster, and a client that treated
-    // any of them as a roster change would refetch its detail for nothing.
-    //
-    // Why this is not `updatedAt`, which already exists and is already bumped by
-    // `touchDen`: `updatedAt` also moves on every send, so it cannot distinguish
-    // "the roster moved" from "somebody said something", and it is millisecond
-    // resolution, so two changes inside one millisecond compare equal. Using it
-    // as the roster signal costs a spurious conversation-detail refetch on every
-    // message in every busy den, and the gap-detection it is needed for is
-    // unsound exactly when it matters. Reusing it was rejected for both reasons,
-    // not for lack of a column.
-    //
-    // Monotonic and never reused: a client records the highest value it has seen
-    // and ignores anything at or below it, which is what makes a duplicate
-    // delivery free and a missing one visible. Additive and unbackfilled - 0 is
-    // a valid roster-change count for a fresh row, and for every row that
-    // existed before this column did, because no membership change has ever
-    // needed recording against them: a client that reads 0 learns nothing it did
-    // not already have from `updatedAt`.
-    membershipSeq              Int                          @default(0)
-    changeSeq                  Int                          @default(0)
-    // The codes this den has rotated away, so a link that was already shared can
-    // still name the den. See `MessageConversationInviteCodes`.
-    messageConversationInviteCodes MessageConversationInviteCodes[]
-    messageConversationBans MessageDenBans[]
+    id                                  String                                @id(map: "message_conversations_pkey") @default(uuid())
+    pairKey                             String?
+    _type                               pg.enum(ConversationType)             @default("DM") @map("type")
+    name                                String?
+    description                         String?
+    wallpaperKey                        String?
+    wallpaperDim                        Int?
+    wallpaperMediaId                    String?
+    avatarMediaId                       String?
+    ownerId                             String?
+    createdById                         String?
+    inviteCode                          String?
+    inviteExpiresAt                     Timestamp(3)?
+    inviteDurationDays                  Int?
+    inviteShortCode                     String?
+    inviteShortCodeExpiresAt            Timestamp(3)?
+    inviteShortCodeDurationDays         Int?
+    createdAt                           Timestamp(3)                          @default(now())
+    updatedAt                           Timestamp(3)                          @default(now())
+    membershipSeq                       Int                                   @default(0)
+    changeSeq                           Int                                   @default(0)
+    messageConversationInviteCodes      MessageConversationInviteCodes[]
+    messageConversationBans             MessageDenBans[]
     messageConversationMembershipEvents MessageConversationMembershipEvents[]
-    messageConversationKeys        MessageConversationKeys[]
-    messageConversationMembers     MessageConversationMembers[]
-    messages                       Messages[]
-    notifications                  Notifications[]
-    postMedias                     PostMedia[]
-    wallpaperMedia                 PostMedia? @relation(name: "message_conversations_wallpaperMediaId_fkey", fields:[wallpaperMediaId], references:[id], onDelete: SetNull, onUpdate: Cascade, map: "message_conversations_wallpaperMediaId_fkey")
-    avatarMedia                    PostMedia?                   @relation(name: "message_conversations_avatarMediaId_fkey", fields:[avatarMediaId], references:[id], onDelete: SetNull, onUpdate: Cascade, map: "message_conversations_avatarMediaId_fkey")
-    createdBy                      Users?                      @relation(name: "message_conversations_createdById_fkey", fields:[createdById], references:[id], onDelete: SetNull, onUpdate: Cascade, map: "message_conversations_createdById_fkey")
-    owner                          Users?                      @relation(name: "message_conversations_ownerId_fkey", fields:[ownerId], references:[id], onDelete: SetNull, onUpdate: Cascade, map: "message_conversations_ownerId_fkey")
+    messageConversationKeys             MessageConversationKeys[]
+    messageConversationMembers          MessageConversationMembers[]
+    messages                            Messages[]
+    notifications                       Notifications[]
+    postMedias                          PostMedia[]
+    wallpaperMedia                      PostMedia?                            @relation(name: "message_conversations_wallpaperMediaId_fkey", fields: [wallpaperMediaId], references: [id], onDelete: SetNull, onUpdate: Cascade, map: "message_conversations_wallpaperMediaId_fkey")
+    avatarMedia                         PostMedia?                            @relation(name: "message_conversations_avatarMediaId_fkey", fields: [avatarMediaId], references: [id], onDelete: SetNull, onUpdate: Cascade, map: "message_conversations_avatarMediaId_fkey")
+    createdBy                           Users?                                @relation(name: "message_conversations_createdById_fkey", fields: [createdById], references: [id], onDelete: SetNull, onUpdate: Cascade, map: "message_conversations_createdById_fkey")
+    owner                               Users?                                @relation(name: "message_conversations_ownerId_fkey", fields: [ownerId], references: [id], onDelete: SetNull, onUpdate: Cascade, map: "message_conversations_ownerId_fkey")
 
     @@index([avatarMediaId], map: "message_conversations_avatarMediaId_idx")
     @@unique([inviteCode], map: "message_conversations_inviteCode_key")
@@ -224,80 +165,77 @@ namespace public {
     @@unique([pairKey], map: "message_conversations_pairKey_key")
     @@index([ownerId], map: "message_conversations_ownerId_idx")
     @@index([_type, updatedAt], map: "message_conversations_type_updatedAt_idx")
-    // Application code enforces the same bound; the database refuses to store a
-    // den whose name is blank or over-long even if some other writer reaches the
-    // table directly. Empty string is not a valid name, hence the lower bound.
     @@check(expression: "name IS NULL OR char_length(name) BETWEEN 1 AND 64", name: "message_conversations_name_length")
     @@map("message_conversations")
   }
 
   model PostMedia {
-    id                     String                    @id(map: "post_media_pkey") @default(uuid())
-    postId                 String?
-    commentId              String?
-    userId                 String?
-    url                    String
-    key                    String                    @default("")
-    mimeType               String                    @default("application/octet-stream")
-    _type                  pg.enum(MediaType)        @default("IMAGE") @map("type")
-    size                   Int                       @default(0)
-    width                  Int?
-    height                 Int?
-    thumbnailKey           String?
-    thumbnailWidth         Int?
-    thumbnailHeight        Int?
-    customThumbnailKey     String?
-    hasHls                 Boolean                   @default(false)
-    createdAt              Timestamp(3)              @default(now())
-    status                 pg.enum(MediaStatus)      @default("UPLOADING")
-    visibility             pg.enum(MediaVisibility)  @default("PUBLIC")
-    originalKey            String?
-    publishedKey           String?
-    claimedMime            String?
-    detectedMime           String?
-    originalName           String?
-    sha256                 String?
-    phash                  String?
-    rejectedReason         pg.enum(RejectionReason)?
-    failureCode            String?
-    failureDetail          Jsonb?
-    attempts               Int                       @default(0)
-    techMetadata           Jsonb?
-    exifStripped           Boolean                   @default(false)
-    altText                String?
-    generatedAltText       String?
-    ocrText                String?
-    safety                 Jsonb?
-    semantics              Jsonb?
-    aiGenerated            Boolean?
-    aiProvenance           Jsonb?
-    pipelineVersion        String?
-    processedAt            Timestamp(3)?
-    audioOverlayId         String?
-    updatedAt              Timestamp(3)              @default(now())
-    blurDataUrl            String?
-    platform               String                    @default("asocialmedia.cc")
-    uploaderDisplayName    String?
-    uploaderUsername       String?
-    encoderVersion         String?
-    duplicateOf            String?
-    originalProvenanceId   String?
-    reShareChecked         Boolean                   @default(false)
-    captionsKey            String?
-    semanticTags           String[]?
-    transcript             String?
-    messageConversationId  String?
-    postMediaDerivatives   PostMediaDerivatives[]
-    communities            Communities[]             @relation(name: "communities_avatarMediaId_fkey")
-    communitiesCommunities Communities[]             @relation(name: "communities_bannerMediaId_fkey")
-    audioOverlay           PostMedia?                @relation(name: "post_media_audioOverlayId_fkey", fields:[audioOverlayId], references:[id], onDelete: SetNull, onUpdate: Cascade, map: "post_media_audioOverlayId_fkey")
-    postMedia              PostMedia[]               @relation(name: "post_media_audioOverlayId_fkey")
-    comment                Comments?                 @relation(fields:[commentId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "post_media_commentId_fkey")
-    messageConversation    MessageConversations?     @relation(fields:[messageConversationId], references:[id], onDelete: SetNull, onUpdate: Cascade, map: "post_media_messageConversationId_fkey")
-    post                   Posts?                    @relation(fields:[postId], references:[id], onDelete: SetNull, onUpdate: Cascade, map: "post_media_postId_fkey")
-    users                  Users[]                   @relation(name: "users_avatarMediaId_fkey")
-    usersUsers             Users[]                   @relation(name: "users_bannerMediaId_fkey")
-    wallpaperConversations MessageConversations[] @relation(name: "message_conversations_wallpaperMediaId_fkey")
+    id                         String                       @id(map: "post_media_pkey") @default(uuid())
+    postId                     String?
+    commentId                  String?
+    userId                     String?
+    url                        String
+    key                        String                       @default("")
+    mimeType                   String                       @default("application/octet-stream")
+    _type                      pg.enum(MediaType)           @default("IMAGE") @map("type")
+    size                       Int                          @default(0)
+    width                      Int?
+    height                     Int?
+    thumbnailKey               String?
+    thumbnailWidth             Int?
+    thumbnailHeight            Int?
+    customThumbnailKey         String?
+    hasHls                     Boolean                      @default(false)
+    createdAt                  Timestamp(3)                 @default(now())
+    status                     pg.enum(MediaStatus)         @default("UPLOADING")
+    visibility                 pg.enum(MediaVisibility)     @default("PUBLIC")
+    originalKey                String?
+    publishedKey               String?
+    claimedMime                String?
+    detectedMime               String?
+    originalName               String?
+    sha256                     String?
+    phash                      String?
+    rejectedReason             pg.enum(RejectionReason)?
+    failureCode                String?
+    failureDetail              Jsonb?
+    attempts                   Int                          @default(0)
+    techMetadata               Jsonb?
+    exifStripped               Boolean                      @default(false)
+    altText                    String?
+    generatedAltText           String?
+    ocrText                    String?
+    safety                     Jsonb?
+    semantics                  Jsonb?
+    aiGenerated                Boolean?
+    aiProvenance               Jsonb?
+    pipelineVersion            String?
+    processedAt                Timestamp(3)?
+    audioOverlayId             String?
+    updatedAt                  Timestamp(3)                 @default(now())
+    blurDataUrl                String?
+    platform                   String                       @default("asocialmedia.cc")
+    uploaderDisplayName        String?
+    uploaderUsername           String?
+    encoderVersion             String?
+    duplicateOf                String?
+    originalProvenanceId       String?
+    reShareChecked             Boolean                      @default(false)
+    captionsKey                String?
+    semanticTags               String[]?
+    transcript                 String?
+    messageConversationId      String?
+    postMediaDerivatives       PostMediaDerivatives[]
+    communities                Communities[]                @relation(name: "communities_avatarMediaId_fkey")
+    communitiesCommunities     Communities[]                @relation(name: "communities_bannerMediaId_fkey")
+    audioOverlay               PostMedia?                   @relation(name: "post_media_audioOverlayId_fkey", fields: [audioOverlayId], references: [id], onDelete: SetNull, onUpdate: Cascade, map: "post_media_audioOverlayId_fkey")
+    postMedia                  PostMedia[]                  @relation(name: "post_media_audioOverlayId_fkey")
+    comment                    Comments?                    @relation(fields: [commentId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "post_media_commentId_fkey")
+    messageConversation        MessageConversations?        @relation(fields: [messageConversationId], references: [id], onDelete: SetNull, onUpdate: Cascade, map: "post_media_messageConversationId_fkey")
+    post                       Posts?                       @relation(fields: [postId], references: [id], onDelete: SetNull, onUpdate: Cascade, map: "post_media_postId_fkey")
+    users                      Users[]                      @relation(name: "users_avatarMediaId_fkey")
+    usersUsers                 Users[]                      @relation(name: "users_bannerMediaId_fkey")
+    wallpaperConversations     MessageConversations[]       @relation(name: "message_conversations_wallpaperMediaId_fkey")
     messageConversationMembers MessageConversationMembers[] @relation(name: "message_conversation_members_wallpaperMediaId_fkey")
 
     @@unique([audioOverlayId], map: "post_media_audioOverlayId_key")
@@ -315,93 +253,90 @@ namespace public {
   }
 
   model Users {
-    id                         String                       @id(map: "users_pkey") @default(uuid())
-    aura                       Int                          @default(0)
-    username                   String
-    displayName                String
-    displayUsername            String?
-    email                      String?
-    passwordHash               String?
-    googleId                   String?
-    githubId                   String?
-    discordId                  String?
-    twitterId                  String?
-    redditId                   String?
-    avatarUrl                  String?
-    avatarKey                  String?
-    avatarMediaId              String?
-    bannerUrl                  String?
-    bannerKey                  String?
-    bannerMediaId              String?
-    bio                        String?
-    githubUsername             String?
-    linkedinUsername           String?
-    twitterUsername            String?
-    redditUsername             String?
-    customDomain               String?
-    emailVerified              Boolean                      @default(false)
-    emailVerifiedAt            Timestamp(3)?
-    image                      String?
-    name                       String?
-    role                       String                       @default("user")
-    badge                      String?
-    badges                     String[]?
-    banned                     Boolean                      @default(false)
-    banReason                  String?
-    banExpires                 Timestamp(3)?
-    createdAt                  Timestamp(3)                 @default(now())
-    updatedAt                  Timestamp(3)                 @default(now())
-    lastLoginMethod            String?
-    twoFactorEnabled           Boolean                      @default(false)
-    // Who may add this account to a group without asking. Defaults to the
-    // account's own following list rather than to open, so an account that never
-    // opens Settings behaves the way it behaved before the setting existed.
-    groupAddPolicy             pg.enum(GroupAddPolicy)       @default("FOLLOWING_ONLY")
-    hNBookmarks                HNBookmark[]
-    accounts                   Accounts[]
-    bookmarks                  Bookmarks[]
-    commentVotes               CommentVotes[]
-    comments                   Comments[]
-    communities                Communities[]
-    communityJoinBonuses       CommunityJoinBonuses[]
-    communityMembers           CommunityMembers[]
-    communitySubscriptions     CommunitySubscriptions[]
-    communityVisits            CommunityVisits[]
-    devicePushTokens           DevicePushTokens[]
-    mentions                   Mentions[]
-    messageConversationBans    MessageDenBans[]            @relation(name: "message_den_bans_userId_fkey")
-    messageConversationBansBy  MessageDenBans[]            @relation(name: "message_den_bans_bannedById_fkey")
-    messageConversationKeys    MessageConversationKeys[]    @relation(name: "message_conversation_keys_ownerUserId_fkey")
-    messageConversationMembers MessageConversationMembers[]    @relation(name: "message_conversation_members_userId_fkey")
-    messageHiddens             MessageHiddens[]
-    messageIdentities          MessageIdentities?
-    messages                   Messages[]
-    passkeys                   Passkey[]
-    passwordResetTokens        PasswordResetTokens[]
-    postVisits                 PostVisits[]
-    posts                      Posts[]
-    pushSubscriptions          PushSubscriptions[]
-    recommendationEvents       RecommendationEvents[]
-    twoFactor                  TwoFactor[]
-    usernameAliases            UsernameAliases[]
-    verifications              Verification[]
-    votes                      Votes[]
-    auraLogs                   AuraLogs[]                   @relation(name: "aura_logs_issuerId_fkey")
-    auraLogsAuraLogs           AuraLogs[]                   @relation(name: "aura_logs_userId_fkey")
-    blocks                     Blocks[]                     @relation(name: "blocks_blockedId_fkey")
-    blocksBlocks               Blocks[]                     @relation(name: "blocks_blockerId_fkey")
-    follows                    Follows[]                    @relation(name: "follows_followerId_fkey")
-    followsFollows             Follows[]                    @relation(name: "follows_followingId_fkey")
-    messageConversationKeysWrapper MessageConversationKeys[] @relation(name: "message_conversation_keys_wrapperUserId_fkey")
+    id                                String                       @id(map: "users_pkey") @default(uuid())
+    aura                              Int                          @default(0)
+    username                          String
+    displayName                       String
+    displayUsername                   String?
+    email                             String?
+    passwordHash                      String?
+    googleId                          String?
+    githubId                          String?
+    discordId                         String?
+    twitterId                         String?
+    redditId                          String?
+    avatarUrl                         String?
+    avatarKey                         String?
+    avatarMediaId                     String?
+    bannerUrl                         String?
+    bannerKey                         String?
+    bannerMediaId                     String?
+    bio                               String?
+    githubUsername                    String?
+    linkedinUsername                  String?
+    twitterUsername                   String?
+    redditUsername                    String?
+    customDomain                      String?
+    emailVerified                     Boolean                      @default(false)
+    emailVerifiedAt                   Timestamp(3)?
+    image                             String?
+    name                              String?
+    role                              String                       @default("user")
+    badge                             String?
+    badges                            String[]?
+    banned                            Boolean                      @default(false)
+    banReason                         String?
+    banExpires                        Timestamp(3)?
+    createdAt                         Timestamp(3)                 @default(now())
+    updatedAt                         Timestamp(3)                 @default(now())
+    lastLoginMethod                   String?
+    twoFactorEnabled                  Boolean                      @default(false)
+    groupAddPolicy                    pg.enum(GroupAddPolicy)      @default("FOLLOWING_ONLY")
+    hNBookmarks                       HNBookmark[]
+    accounts                          Accounts[]
+    bookmarks                         Bookmarks[]
+    commentVotes                      CommentVotes[]
+    comments                          Comments[]
+    communities                       Communities[]
+    communityJoinBonuses              CommunityJoinBonuses[]
+    communityMembers                  CommunityMembers[]
+    communitySubscriptions            CommunitySubscriptions[]
+    communityVisits                   CommunityVisits[]
+    devicePushTokens                  DevicePushTokens[]
+    mentions                          Mentions[]
+    messageConversationBans           MessageDenBans[]             @relation(name: "message_den_bans_userId_fkey")
+    messageConversationBansBy         MessageDenBans[]             @relation(name: "message_den_bans_bannedById_fkey")
+    messageConversationKeys           MessageConversationKeys[]    @relation(name: "message_conversation_keys_ownerUserId_fkey")
+    messageConversationMembers        MessageConversationMembers[] @relation(name: "message_conversation_members_userId_fkey")
+    messageHiddens                    MessageHiddens[]
+    messageIdentities                 MessageIdentities?
+    messages                          Messages[]
+    passkeys                          Passkey[]
+    passwordResetTokens               PasswordResetTokens[]
+    postVisits                        PostVisits[]
+    posts                             Posts[]
+    pushSubscriptions                 PushSubscriptions[]
+    recommendationEvents              RecommendationEvents[]
+    twoFactor                         TwoFactor[]
+    usernameAliases                   UsernameAliases[]
+    verifications                     Verification[]
+    votes                             Votes[]
+    auraLogs                          AuraLogs[]                   @relation(name: "aura_logs_issuerId_fkey")
+    auraLogsAuraLogs                  AuraLogs[]                   @relation(name: "aura_logs_userId_fkey")
+    blocks                            Blocks[]                     @relation(name: "blocks_blockedId_fkey")
+    blocksBlocks                      Blocks[]                     @relation(name: "blocks_blockerId_fkey")
+    follows                           Follows[]                    @relation(name: "follows_followerId_fkey")
+    followsFollows                    Follows[]                    @relation(name: "follows_followingId_fkey")
+    messageConversationKeysWrapper    MessageConversationKeys[]    @relation(name: "message_conversation_keys_wrapperUserId_fkey")
     messageConversationMembersInvited MessageConversationMembers[] @relation(name: "message_conversation_members_invitedById_fkey")
-    messageConversationsCreated MessageConversations[]     @relation(name: "message_conversations_createdById_fkey")
-    messageConversationsOwned   MessageConversations[]     @relation(name: "message_conversations_ownerId_fkey")
-    notifications              Notifications[]              @relation(name: "notifications_issuerId_fkey")
-    notificationsNotifications Notifications[]              @relation(name: "notifications_recipientId_fkey")
-    sessions                   Sessions[]                   @relation(name: "sessions_impersonatedBy_fkey")
-    sessionsSessions           Sessions[]                   @relation(name: "sessions_userId_fkey")
-    avatarMedia                PostMedia?                   @relation(name: "users_avatarMediaId_fkey", fields:[avatarMediaId], references:[id], onDelete: SetNull, onUpdate: Cascade, map: "users_avatarMediaId_fkey")
-    bannerMedia                PostMedia?                   @relation(name: "users_bannerMediaId_fkey", fields:[bannerMediaId], references:[id], onDelete: SetNull, onUpdate: Cascade, map: "users_bannerMediaId_fkey")
+    messageConversationsCreated       MessageConversations[]       @relation(name: "message_conversations_createdById_fkey")
+    messageConversationsOwned         MessageConversations[]       @relation(name: "message_conversations_ownerId_fkey")
+    notifications                     Notifications[]              @relation(name: "notifications_issuerId_fkey")
+    notificationsNotifications        Notifications[]              @relation(name: "notifications_recipientId_fkey")
+    sessions                          Sessions[]                   @relation(name: "sessions_impersonatedBy_fkey")
+    sessionsSessions                  Sessions[]                   @relation(name: "sessions_userId_fkey")
+    avatarMedia                       PostMedia?                   @relation(name: "users_avatarMediaId_fkey", fields: [avatarMediaId], references: [id], onDelete: SetNull, onUpdate: Cascade, map: "users_avatarMediaId_fkey")
+    bannerMedia                       PostMedia?                   @relation(name: "users_bannerMediaId_fkey", fields: [bannerMediaId], references: [id], onDelete: SetNull, onUpdate: Cascade, map: "users_bannerMediaId_fkey")
 
     @@index([role], name: "users_admin_role_unique", where: "(role = 'admin'::text)", unique: true)
     @@index([aura], map: "users_aura_idx")
@@ -441,7 +376,7 @@ namespace public {
     password              String?
     createdAt             Timestamp(3)  @default(now())
     updatedAt             Timestamp(3)  @default(now())
-    user                  Users         @relation(fields:[userId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "accounts_userId_fkey", index: false)
+    user                  Users         @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "accounts_userId_fkey", index: false)
 
     @@index([issuer, accountId], map: "accounts_issuer_accountId_idx")
     @@unique([providerId, accountId], map: "accounts_providerId_accountId_key")
@@ -458,10 +393,10 @@ namespace public {
     commentId    String?
     targetUserId String?
     createdAt    Timestamp(3)      @default(now())
-    comment      Comments?         @relation(fields:[commentId], references:[id], onDelete: SetNull, onUpdate: Cascade, map: "aura_logs_commentId_fkey", index: false)
-    issuer       Users             @relation(name: "aura_logs_issuerId_fkey", fields:[issuerId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "aura_logs_issuerId_fkey", index: false)
-    post         Posts?            @relation(fields:[postId], references:[id], onDelete: SetNull, onUpdate: Cascade, map: "aura_logs_postId_fkey", index: false)
-    user         Users             @relation(name: "aura_logs_userId_fkey", fields:[userId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "aura_logs_userId_fkey", index: false)
+    comment      Comments?         @relation(fields: [commentId], references: [id], onDelete: SetNull, onUpdate: Cascade, map: "aura_logs_commentId_fkey", index: false)
+    issuer       Users             @relation(name: "aura_logs_issuerId_fkey", fields: [issuerId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "aura_logs_issuerId_fkey", index: false)
+    post         Posts?            @relation(fields: [postId], references: [id], onDelete: SetNull, onUpdate: Cascade, map: "aura_logs_postId_fkey", index: false)
+    user         Users             @relation(name: "aura_logs_userId_fkey", fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "aura_logs_userId_fkey", index: false)
 
     @@index([issuerId, targetUserId, createdAt], map: "aura_logs_issuerId_targetUserId_createdAt_idx")
     @@index([userId, createdAt], map: "aura_logs_userId_createdAt_idx")
@@ -472,8 +407,8 @@ namespace public {
     blockerId String
     blockedId String
     createdAt Timestamp(3) @default(now())
-    blocked   Users        @relation(name: "blocks_blockedId_fkey", fields:[blockedId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "blocks_blockedId_fkey")
-    blocker   Users        @relation(name: "blocks_blockerId_fkey", fields:[blockerId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "blocks_blockerId_fkey", index: false)
+    blocked   Users        @relation(name: "blocks_blockedId_fkey", fields: [blockedId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "blocks_blockedId_fkey")
+    blocker   Users        @relation(name: "blocks_blockerId_fkey", fields: [blockerId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "blocks_blockerId_fkey", index: false)
 
     @@id([blockerId, blockedId], map: "blocks_pkey")
     @@index([blockedId], map: "blocks_blockedId_idx")
@@ -487,8 +422,8 @@ namespace public {
     bookmarkerAura Int          @default(0)
     authorAura     Int          @default(0)
     createdAt      Timestamp(3) @default(now())
-    post           Posts        @relation(fields:[postId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "bookmarks_postId_fkey")
-    user           Users        @relation(fields:[userId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "bookmarks_userId_fkey", index: false)
+    post           Posts        @relation(fields: [postId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "bookmarks_postId_fkey")
+    user           Users        @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "bookmarks_userId_fkey", index: false)
 
     @@index([postId], map: "bookmarks_postId_idx")
     @@index([userId, createdAt], map: "bookmarks_userId_createdAt_idx")
@@ -503,8 +438,8 @@ namespace public {
     awardedAura    Int          @default(0)
     mutingCostAura Int          @default(0)
     createdAt      Timestamp(3) @default(now())
-    comment        Comments     @relation(fields:[commentId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "comment_votes_commentId_fkey", index: false)
-    user           Users        @relation(fields:[userId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "comment_votes_userId_fkey", index: false)
+    comment        Comments     @relation(fields: [commentId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "comment_votes_commentId_fkey", index: false)
+    user           Users        @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "comment_votes_userId_fkey", index: false)
 
     @@index([commentId, value], map: "comment_votes_commentId_value_idx")
     @@id([userId, commentId], map: "comment_votes_pkey")
@@ -518,8 +453,8 @@ namespace public {
     joinerAura  Int
     ownerAura   Int
     createdAt   Timestamp(3) @default(now())
-    community   Communities  @relation(fields:[communityId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "community_join_bonuses_communityId_fkey", index: false)
-    user        Users        @relation(fields:[userId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "community_join_bonuses_userId_fkey", index: false)
+    community   Communities  @relation(fields: [communityId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "community_join_bonuses_communityId_fkey", index: false)
+    user        Users        @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "community_join_bonuses_userId_fkey", index: false)
 
     @@unique([communityId, userId], map: "community_join_bonuses_communityId_userId_key")
     @@index([userId, createdAt], map: "community_join_bonuses_userId_createdAt_idx")
@@ -533,8 +468,8 @@ namespace public {
     role        pg.enum(CommunityRole)         @default("PARTICIPANT")
     status      pg.enum(CommunityMemberStatus) @default("ACTIVE")
     createdAt   Timestamp(3)                   @default(now())
-    community   Communities                    @relation(fields:[communityId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "community_members_communityId_fkey", index: false)
-    user        Users                          @relation(fields:[userId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "community_members_userId_fkey")
+    community   Communities                    @relation(fields: [communityId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "community_members_communityId_fkey", index: false)
+    user        Users                          @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "community_members_userId_fkey")
 
     @@index([communityId, role], map: "community_members_communityId_role_idx")
     @@index([communityId, status], map: "community_members_communityId_status_idx")
@@ -550,9 +485,9 @@ namespace public {
     sourcePostId String
     communityId  String
     createdAt    Timestamp(3) @default(now())
-    community    Communities  @relation(fields:[communityId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "community_post_shares_communityId_fkey")
-    post         Posts        @relation(name: "community_post_shares_postId_fkey", fields:[postId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "community_post_shares_postId_fkey")
-    sourcePost   Posts        @relation(name: "community_post_shares_sourcePostId_fkey", fields:[sourcePostId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "community_post_shares_sourcePostId_fkey")
+    community    Communities  @relation(fields: [communityId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "community_post_shares_communityId_fkey")
+    post         Posts        @relation(name: "community_post_shares_postId_fkey", fields: [postId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "community_post_shares_postId_fkey")
+    sourcePost   Posts        @relation(name: "community_post_shares_sourcePostId_fkey", fields: [sourcePostId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "community_post_shares_sourcePostId_fkey")
 
     @@index([communityId], map: "community_post_shares_communityId_idx")
     @@unique([postId], map: "community_post_shares_postId_key")
@@ -565,8 +500,8 @@ namespace public {
     communityId String
     userId      String
     createdAt   Timestamp(3) @default(now())
-    community   Communities  @relation(fields:[communityId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "community_subscriptions_communityId_fkey")
-    user        Users        @relation(fields:[userId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "community_subscriptions_userId_fkey", index: false)
+    community   Communities  @relation(fields: [communityId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "community_subscriptions_communityId_fkey")
+    user        Users        @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "community_subscriptions_userId_fkey", index: false)
 
     @@index([communityId], map: "community_subscriptions_communityId_idx")
     @@unique([communityId, userId], map: "community_subscriptions_communityId_userId_key")
@@ -579,8 +514,8 @@ namespace public {
     communityId String
     userId      String
     visitedAt   Timestamp(3) @default(now())
-    community   Communities  @relation(fields:[communityId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "community_visits_communityId_fkey", index: false)
-    user        Users        @relation(fields:[userId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "community_visits_userId_fkey", index: false)
+    community   Communities  @relation(fields: [communityId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "community_visits_communityId_fkey", index: false)
+    user        Users        @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "community_visits_userId_fkey", index: false)
 
     @@unique([communityId, userId], map: "community_visits_communityId_userId_key")
     @@index([communityId, visitedAt], map: "community_visits_communityId_visitedAt_idx")
@@ -596,7 +531,7 @@ namespace public {
     platform  String
     createdAt Timestamp(3) @default(now())
     updatedAt Timestamp(3) @default(now())
-    user      Users        @relation(fields:[userId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "device_push_tokens_userId_fkey")
+    user      Users        @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "device_push_tokens_userId_fkey")
 
     @@unique([token], map: "device_push_tokens_token_key")
     @@index([userId], map: "device_push_tokens_userId_idx")
@@ -608,8 +543,8 @@ namespace public {
     followingId String
     gainedAura  Int    @default(0)
     givenAura   Int    @default(0)
-    follower    Users  @relation(name: "follows_followerId_fkey", fields:[followerId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "follows_followerId_fkey", index: false)
-    following   Users  @relation(name: "follows_followingId_fkey", fields:[followingId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "follows_followingId_fkey")
+    follower    Users  @relation(name: "follows_followerId_fkey", fields: [followerId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "follows_followerId_fkey", index: false)
+    following   Users  @relation(name: "follows_followingId_fkey", fields: [followingId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "follows_followingId_fkey")
 
     @@id([followerId, followingId], map: "follows_pkey")
     @@index([followingId], map: "follows_followingId_idx")
@@ -621,7 +556,7 @@ namespace public {
     userId    String
     storyId   Int
     createdAt Timestamp(3) @default(now())
-    user      Users        @relation(fields:[userId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "HNBookmark_userId_fkey")
+    user      Users        @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "HNBookmark_userId_fkey")
 
     @@index([userId, createdAt], map: "HNBookmark_userId_createdAt_idx")
     @@index([userId], map: "HNBookmark_userId_idx")
@@ -640,7 +575,7 @@ namespace public {
     score       Int
     descendants Int
     createdAt   Timestamp(3) @default(now())
-    post        Posts        @relation(fields:[postId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "hn_story_shares_postId_fkey")
+    post        Posts        @relation(fields: [postId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "hn_story_shares_postId_fkey")
 
     @@unique([postId], map: "hn_story_shares_postId_key")
     @@map("hn_story_shares")
@@ -664,8 +599,8 @@ namespace public {
     postId    String
     userId    String
     createdAt Timestamp(3) @default(now())
-    post      Posts        @relation(fields:[postId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "mentions_postId_fkey", index: false)
-    user      Users        @relation(fields:[userId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "mentions_userId_fkey")
+    post      Posts        @relation(fields: [postId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "mentions_postId_fkey", index: false)
+    user      Users        @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "mentions_userId_fkey")
 
     @@unique([postId, userId], map: "mentions_postId_userId_key")
     @@index([userId], map: "mentions_userId_idx")
@@ -673,197 +608,61 @@ namespace public {
   }
 
   model MessageConversationInviteCodes {
-    // A join code a den has retired, kept so that a link or short code which
-    // no longer joins can still identify the den it used to open.
-    //
-    // Holds both kinds of retired join codes: 12-character link codes and
-    // 6-character short codes. Lengths (6 vs 12) are disjoint so primary keys
-    // can never collide across kinds. Live-column-first lookup keeps a live
-    // code beating an archive row. Shared retention window of 5 per den.
-    //
-    // Rotating a den's code overwrote `message_conversations.inviteCode` (or
-    // `inviteShortCode`), which meant a link or code that had already been
-    // shared stopped resolving with no trace at all. The person holding it got
-    // one dead end - "this link is not valid" - and no way to learn which den had
-    // retired the code or who to ask for a new one. This table is the fix, and
-    // it exists for exactly that: a code is written here in the SAME transaction
-    // that replaces it on the conversation row, so a rotation cannot commit
-    // without archiving the code it invalidated.
-    //
-    // What it must NOT be used for:
-    //
-    //   - As a way back in. A retired code grants nothing. `joinDenByInviteCode`
-    //     resolves against the live column alone and never reads this table, so an
-    //     archived code can never be replayed into a membership row. The archive
-    //     identifies a den; it never admits to one.
-    //
-    //   - As a validity oracle for guessing. Reading this table IS a disclosure:
-    //     a code found here answers with the den's id, name, member count and
-    //     owner. That trade is deliberate and bounded - see the decision above
-    //     `previewRetiredInvite` - but it is the reason nothing here may ever grow
-    //     past those four facts. A roster, a join log, or a message count would
-    //     turn this into a history of a room that people have since left.
-    //
-    //   - As an audit log. There is no "who retired it" column, on purpose.
-    //     Rotation is already gated on den management, the archived string grants
-    //     nothing the moment it is retired, and the den's live `ownerId` stays the
-    //     authority on who to ask - an actor snapshot here would go stale on every
-    //     ownership transfer and on every account deletion, and no query would ever
-    //     read it. A column nothing reads is a column that leaks.
-    //
-    // Retention is bounded per den by `DEN_LIMITS.retiredInviteCodeMax`, pruned by
-    // the same rotation that wrote the row. Unbounded this is a slow-motion leak of
-    // secrets that no longer open anything, growing with how often somebody presses
-    // a button rather than with how many people use the product.
     code           String
-    // The den this code used to open. Cascade, and that is the whole answer for a
-    // dissolved den: its codes go with it, so a link to a room that no longer
-    // exists reads as a link that never resolved, rather than as a link to a den
-    // whose owner has vanished and whose messages are unreadable.
     conversationId String
-    // When the code stopped working. Read only to order the prune, newest first,
-    // so a den keeps its most recent codes and drops older ones. Never returned to
-    // a reader and never used to authorise anything: an archived code is dead
-    // whether it was retired a second ago or a year ago.
     retiredAt      Timestamp(3)
-    conversation   MessageConversations @relation(fields:[conversationId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "message_conversation_invite_codes_conversationId_fkey", index: false)
+    conversation   MessageConversations @relation(fields: [conversationId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "message_conversation_invite_codes_conversationId_fkey", index: false)
 
-    // The primary key rather than a surrogate id with a unique beside it, because
-    // the code IS this row's identity and there is nothing else to look one up by.
-    //
-    // It is NOT unique against the two live columns, which are in a different
-    // table, so a code can in principle be current on one den and archived from
-    // another. The mint-time archive probe makes that state near-impossible for
-    // both namespaces (a rotation archives only the code it is replacing, and
-    // never adopts an archived value), and the lookup answers the residue anyway
-    // by reading the live columns first, so a live code always beats an archive
-    // row naming some other den. This table holds BOTH namespaces - retired
-    // 12-character links and retired 6-character short codes - under one shared
-    // per-den retention budget.
     @@id([code], map: "message_conversation_invite_codes_pkey")
-    // Serves the prune, which is the only query that reads this table by
-    // conversation: it asks for one den's newest archived codes. The join screen's
-    // own lookup is by `code`, which the primary key above already answers with a
-    // single index probe.
     @@index([conversationId, retiredAt], map: "message_conversation_invite_codes_conversationId_retiredAt_idx")
     @@map("message_conversation_invite_codes")
   }
 
   model MessageDenBans {
-    // Somebody who cannot come back to a den, however they arrive.
-    //
-    // This is the table that separates "remove" from "ban". A removal stamps
-    // `leftAt` on the membership row and stops access from now on, but it grants
-    // nothing about the future: a removed person can walk back in with a live
-    // invite link, which is correct for somebody who was removed and correct for
-    // somebody who left voluntarily, and useless for somebody who was removed on
-    // purpose. A ban is the answer to the second case, and it has to be its own
-    // row rather than a flag on the membership because the two facts are
-    // independent: a ban outlives the departure (there may not BE a membership row
-    // at the moment it is applied), and a departure outlives nothing.
-    //
-    // Deliberately NOT inferred from the membership log. `REMOVED` says a manager
-    // took somebody out; it does not say they were never allowed back, and
-    // retroactively banning every removed member would lock out people a manager
-    // expects to return. A ban is only ever written by an explicit ban action.
     conversationId String
-    userId          String
-    // Who imposed it. SetNull rather than Cascade: deleting the account of an
-    // Elder who banned somebody must not delete the ban and quietly let them back
-    // into a room they were kept out of on purpose.
-    bannedById      String?
-    // Why, in the moderator's own words. Manager-only and never shown to the
-    // banned person, so it is a note to the next manager rather than a sentence
-    // somebody has to answer for. Nullable, because a ban does not require a
-    // reason and a mandatory field is a reason people stop using the control.
-    reason          String?
-    createdAt       Timestamp(3)                 @default(now())
-    conversation    MessageConversations @relation(name: "message_den_bans_conversationId_fkey", fields:[conversationId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "message_den_bans_conversationId_fkey", index: false)
-    user            Users                @relation(name: "message_den_bans_userId_fkey", fields:[userId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "message_den_bans_userId_fkey", index: false)
-    bannedBy        Users?               @relation(name: "message_den_bans_bannedById_fkey", fields:[bannedById], references:[id], onDelete: SetNull, onUpdate: Cascade, map: "message_den_bans_bannedById_fkey", index: false)
+    userId         String
+    bannedById     String?
+    reason         String?
+    createdAt      Timestamp(3)         @default(now())
+    conversation   MessageConversations @relation(name: "message_den_bans_conversationId_fkey", fields: [conversationId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "message_den_bans_conversationId_fkey", index: false)
+    user           Users                @relation(name: "message_den_bans_userId_fkey", fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "message_den_bans_userId_fkey", index: false)
+    bannedBy       Users?               @relation(name: "message_den_bans_bannedById_fkey", fields: [bannedById], references: [id], onDelete: SetNull, onUpdate: Cascade, map: "message_den_bans_bannedById_fkey", index: false)
 
-    // One row per person per den, which is the whole identity of the fact: a ban is
-    // a set membership, not a log. Unbanning deletes the row rather than stamping it,
-    // so there is no "was banned once" state to consult at the door - and no way for
-    // the door to be wrong because an expiry was misread.
     @@id([conversationId, userId], map: "message_den_bans_pkey")
-    // The manager-facing list is "this den's bans, newest first", which is a range
-    // scan on this index.
     @@index([conversationId, createdAt], map: "mdb_conversationId_createdAt_idx")
-    // "What has this account been kept out of", for a ban count on a profile and for
-    // the sweep that would answer it.
     @@index([userId], map: "mdb_userId_idx")
     @@map("message_den_bans")
   }
 
   model MessageConversationMembershipEvents {
-    // A durable log line for the transcript: somebody joined, left, was removed,
-    // or their role moved.
-    //
-    // Role changes used to overwrite the membership row and departures deleted it,
-    // so neither left a trace, and a chat that showed no history of who came and
-    // went was missing the context that makes a room make sense. This table is that
-    // trace.
-    //
-    // Name columns are SNAPSHOTS, deliberately, and there is no foreign key to
-    // Users. A membership log has to outlive the membership and the account: the
-    // person who left is not on the roster any more, so a join through the live
-    // roster would find nobody and the line would read "Unknown left". Snapshotting
-    // the name at write time is what keeps "Ada removed Bob" readable after Bob's
-    // account is gone, and no FK means an account deletion cannot cascade the
-    // history away with it.
-    //
-    // `actorId`/`targetUserId` are kept alongside the snapshots so a client can mark
-    // the reader's own actions ("You removed Bob") and so a future feature can key
-    // on a stable id, but nothing joins on them.
-    id             String                    @id(map: "message_conversation_membership_events_pkey") @default(uuid())
+    id             String                            @id(map: "message_conversation_membership_events_pkey") @default(uuid())
     conversationId String
-    // Who did it. Null only for a row with no single actor, which does not exist
-    // yet: creation names the creator, and every subsequent line names the manager
-    // or the person acting on themselves.
     actorId        String?
     actorName      String?
-    // Who it happened to, when that is somebody other than the actor. Null for a
-    // join or a leave, where the actor is the subject.
     targetUserId   String?
     targetName     String?
     action         pg.enum(DenMembershipEventAction)
-    createdAt      Timestamp(3)              @default(now())
-    // Cascade is the whole answer for a dissolved den: its history goes with it, as
-    // its messages do, so a deleted den leaves nothing behind.
-    conversation   MessageConversations      @relation(fields:[conversationId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "message_conversation_membership_events_conversationId_fkey", index: false)
+    createdAt      Timestamp(3)                      @default(now())
+    conversation   MessageConversations              @relation(fields: [conversationId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "message_conversation_membership_events_conversationId_fkey", index: false)
 
-    // The only query is "this den's log, oldest first", which this answers.
     @@index([conversationId, createdAt], map: "mcme_conversationId_createdAt_idx")
     @@map("message_conversation_membership_events")
   }
 
   model MessageConversationKeys {
-    id             String               @id(map: "message_conversation_keys_pkey") @default(uuid())
-    conversationId String
-    ownerUserId    String
-    // The member who performed the wrap. SetNull, not Cascade: the wrap stays
-    // readable by the members it was made for even after the wrapper leaves, and
-    // dropping the row on their account deletion would silently erase a root-key
-    // epoch from everyone else's history.
-    wrapper        Users?                @relation(name: "message_conversation_keys_wrapperUserId_fkey", fields:[wrapperUserId], references:[id], onDelete: SetNull, onUpdate: Cascade, map: "message_conversation_keys_wrapperUserId_fkey")
-    encryptedKey   String
-    iv             String
-    version        Int                  @default(1)
-    // Which member performed the ECDH wrap for this row. NULL on every DM row
-    // written before this column existed, where the wrapper is unambiguously the
-    // single peer.
-    wrapperUserId  String?
-    // The wrapper's identity public key, snapshotted at wrap time. Public key
-    // material, so storing it reveals nothing the identity row does not. It is
-    // denormalized deliberately: a member who leaves the den is still the
-    // wrapper for epochs the remaining members must keep reading, so resolving
-    // the wrapper through the live roster would strand those epochs.
+    id               String               @id(map: "message_conversation_keys_pkey") @default(uuid())
+    conversationId   String
+    ownerUserId      String
+    wrapper          Users?               @relation(name: "message_conversation_keys_wrapperUserId_fkey", fields: [wrapperUserId], references: [id], onDelete: SetNull, onUpdate: Cascade, map: "message_conversation_keys_wrapperUserId_fkey")
+    encryptedKey     String
+    iv               String
+    version          Int                  @default(1)
+    wrapperUserId    String?
     wrapperPublicKey String?
-    ratchetCounter Int                  @default(0)
-    createdAt      Timestamp(3)         @default(now())
-    conversation   MessageConversations @relation(fields:[conversationId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "message_conversation_keys_conversationId_fkey", index: false)
-    ownerUser      Users                @relation(name: "message_conversation_keys_ownerUserId_fkey", fields:[ownerUserId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "message_conversation_keys_ownerUserId_fkey", index: false)
+    ratchetCounter   Int                  @default(0)
+    createdAt        Timestamp(3)         @default(now())
+    conversation     MessageConversations @relation(fields: [conversationId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "message_conversation_keys_conversationId_fkey", index: false)
+    ownerUser        Users                @relation(name: "message_conversation_keys_ownerUserId_fkey", fields: [ownerUserId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "message_conversation_keys_ownerUserId_fkey", index: false)
 
     @@unique([conversationId, ownerUserId, version], map: "message_conversation_keys_conversationId_ownerUserId_versio_key")
     @@index([conversationId, ownerUserId], map: "message_conversation_keys_conversationId_ownerUserId_idx")
@@ -872,46 +671,25 @@ namespace public {
   }
 
   model MessageConversationMembers {
-    conversationId  String
-    userId          String
-    // Den-only. A DM row carries MEMBER, which is never read: the DM gates are
-    // membership, not role, so existing rows need no data transform to become
-    // valid den rows.
-    role            pg.enum(DenRole)    @default("MEMBER")
-    // Den-only provenance: who added this member. NULL when the member was the
-    // creator, or joined through an invite link with no single referrer.
-    invitedById     String?
-    // Den-only, and the one column that decides read from write. NULL is the only
-    // state that can act in the den: set on leave or removal, and cleared again if
-    // the person rejoins through an invite.
-    //
-    // The row is kept rather than deleted so the den stays in the person's message
-    // list and its history stays readable, up to the moment they left. Nothing after
-    // `leftAt` is theirs to read: it never reaches their device, because the key
-    // fan-out and the stream both enumerate members with this column still NULL.
-    //
-    // Den rows only. A DM row carries NULL forever, so every filter here is a no-op
-    // for DMs and none of the DM gates need to know this column exists.
-    leftAt          Timestamp(3)?
-    lastReadAt      Timestamp(3)?
-    // Null until the member marks the thread read after sequence cursors are deployed.
+    conversationId   String
+    userId           String
+    role             pg.enum(DenRole)     @default("MEMBER")
+    invitedById      String?
+    leftAt           Timestamp(3)?
+    lastReadAt       Timestamp(3)?
     lastReadSequence Int?
-    // Null until the durable backfill worker has reconciled this member's unread
-    // state. A null counter always falls back to the indexed unread aggregate.
-    unreadCount     Int?
-    lastDeliveredAt Timestamp(3)?
-    mutedAt         Timestamp(3)?
-    themeKey        String?
-    wallpaperKey    String?
-    wallpaperDim    Int?
+    unreadCount      Int?
+    lastDeliveredAt  Timestamp(3)?
+    mutedAt          Timestamp(3)?
+    themeKey         String?
+    wallpaperKey     String?
+    wallpaperDim     Int?
     wallpaperMediaId String?
-    createdAt       Timestamp(3)         @default(now())
-    conversation    MessageConversations @relation(fields:[conversationId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "message_conversation_members_conversationId_fkey", index: false)
-    user            Users                @relation(name: "message_conversation_members_userId_fkey", fields:[userId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "message_conversation_members_userId_fkey")
-    // SetNull, not Cascade: deleting the account that added somebody must not
-    // delete that somebody's membership.
-    invitedBy      Users?               @relation(name: "message_conversation_members_invitedById_fkey", fields:[invitedById], references:[id], onDelete: SetNull, onUpdate: Cascade, map: "message_conversation_members_invitedById_fkey")
-    wallpaperMedia  PostMedia?           @relation(name: "message_conversation_members_wallpaperMediaId_fkey", fields:[wallpaperMediaId], references:[id], onDelete: SetNull, onUpdate: Cascade, map: "message_conversation_members_wallpaperMediaId_fkey")
+    createdAt        Timestamp(3)         @default(now())
+    conversation     MessageConversations @relation(fields: [conversationId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "message_conversation_members_conversationId_fkey", index: false)
+    user             Users                @relation(name: "message_conversation_members_userId_fkey", fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "message_conversation_members_userId_fkey")
+    invitedBy        Users?               @relation(name: "message_conversation_members_invitedById_fkey", fields: [invitedById], references: [id], onDelete: SetNull, onUpdate: Cascade, map: "message_conversation_members_invitedById_fkey")
+    wallpaperMedia   PostMedia?           @relation(name: "message_conversation_members_wallpaperMediaId_fkey", fields: [wallpaperMediaId], references: [id], onDelete: SetNull, onUpdate: Cascade, map: "message_conversation_members_wallpaperMediaId_fkey")
 
     @@id([conversationId, userId], map: "message_conversation_members_pkey")
     @@index([userId], map: "message_conversation_members_userId_idx")
@@ -932,27 +710,27 @@ namespace public {
     kdfIterations       Int
     createdAt           Timestamp(3) @default(now())
     updatedAt           Timestamp(3) @default(now())
-    user                Users        @relation(fields:[userId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "message_identities_userId_fkey")
+    user                Users        @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "message_identities_userId_fkey")
 
     @@map("message_identities")
   }
 
   model Messages {
-    id             String               @id(map: "messages_pkey") @default(uuid())
-    conversationId String
-    senderId       String
-    ciphertext     String
-    iv             String
-    ratchetIndex   Int                  @default(0)
-    revision       Int                  @default(1)
-    keyEpoch       Int?
-    creationSequence Int                @default(0)
-    createdAt      Timestamp(3)         @default(now())
-    deletedAt      Timestamp(3)?
-    editedAt       Timestamp(3)?
-    conversation   MessageConversations @relation(fields:[conversationId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "messages_conversationId_fkey", index: false)
-    sender         Users                @relation(fields:[senderId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "messages_senderId_fkey")
-    hiddenFor      MessageHiddens[]
+    id               String               @id(map: "messages_pkey") @default(uuid())
+    conversationId   String
+    senderId         String
+    ciphertext       String
+    iv               String
+    ratchetIndex     Int                  @default(0)
+    revision         Int                  @default(1)
+    keyEpoch         Int?
+    creationSequence Int                  @default(0)
+    createdAt        Timestamp(3)         @default(now())
+    deletedAt        Timestamp(3)?
+    editedAt         Timestamp(3)?
+    conversation     MessageConversations @relation(fields: [conversationId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "messages_conversationId_fkey", index: false)
+    sender           Users                @relation(fields: [senderId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "messages_senderId_fkey")
+    hiddenFor        MessageHiddens[]
 
     @@index([conversationId, createdAt], map: "messages_conversationId_createdAt_idx")
     @@index([conversationId, id], map: "messages_conversationId_id_idx")
@@ -965,8 +743,8 @@ namespace public {
     messageId String
     userId    String
     createdAt Timestamp(3) @default(now())
-    message   Messages     @relation(fields:[messageId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "message_hidden_messageId_fkey", index: false)
-    user      Users        @relation(fields:[userId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "message_hidden_userId_fkey")
+    message   Messages     @relation(fields: [messageId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "message_hidden_messageId_fkey", index: false)
+    user      Users        @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "message_hidden_userId_fkey")
 
     @@id([messageId, userId], map: "message_hidden_pkey")
     @@index([userId], map: "message_hidden_userId_idx")
@@ -974,16 +752,16 @@ namespace public {
   }
 
   model MessageSearchOutbox {
-    id               String    @id(map: "message_search_outbox_pkey") @default(uuid())
-    conversationId   String
-    messageId        String
-    revision         Int
-    changeSequence   Int
-    kind             String
-    audienceUserIds  String[]  @default([])
-    createdAt        Timestamp(3) @default(now())
-    attempts         Int       @default(0)
-    completedAt      Timestamp(3)?
+    id              String        @id(map: "message_search_outbox_pkey") @default(uuid())
+    conversationId  String
+    messageId       String
+    revision        Int
+    changeSequence  Int
+    kind            String
+    audienceUserIds String[]      @default([])
+    createdAt       Timestamp(3)  @default(now())
+    attempts        Int           @default(0)
+    completedAt     Timestamp(3)?
 
     @@index([conversationId, changeSequence], map: "message_search_outbox_conversation_sequence_idx")
     @@index([completedAt, createdAt], map: "message_search_outbox_pending_created_idx")
@@ -992,13 +770,13 @@ namespace public {
   }
 
   model MessageConversationChanges {
-    id              String    @id(map: "message_conversation_changes_pkey") @default(uuid())
+    id              String       @id(map: "message_conversation_changes_pkey") @default(uuid())
     conversationId  String
     sequence        Int
     messageId       String?
     revision        Int?
     kind            String
-    audienceUserIds String[]  @default([])
+    audienceUserIds String[]     @default([])
     createdAt       Timestamp(3) @default(now())
 
     @@unique([conversationId, sequence], map: "message_conversation_changes_conversation_sequence_key")
@@ -1007,11 +785,11 @@ namespace public {
   }
 
   model MessageSearchTerms {
-    id               Int       @id(map: "message_search_terms_pkey") @default(autoincrement())
-    conversationId   String
-    normalized       String
-    gramKeys         String[]
-    documentFrequency Int       @default(0)
+    id                Int      @id(map: "message_search_terms_pkey") @default(autoincrement())
+    conversationId    String
+    normalized        String
+    gramKeys          String[]
+    documentFrequency Int      @default(0)
 
     @@unique([conversationId, normalized], map: "message_search_terms_conversation_normalized_key")
     @@index([conversationId, id], map: "message_search_terms_conversation_id_idx")
@@ -1021,11 +799,11 @@ namespace public {
   }
 
   model MessageSearchDocuments {
-    messageId        String    @id(map: "message_search_documents_pkey")
-    conversationId   String
-    revision         Int
-    createdAt        Timestamp(3)
-    termIds          Int[]     @default([])
+    messageId      String       @id(map: "message_search_documents_pkey")
+    conversationId String
+    revision       Int
+    createdAt      Timestamp(3)
+    termIds        Int[]        @default([])
 
     @@index([conversationId, createdAt, messageId], map: "message_search_documents_conversation_created_message_idx")
     @@index([termIds], map: "message_search_documents_term_ids_idx", type: "gin")
@@ -1048,20 +826,20 @@ namespace public {
   }
 
   model MessageSearchCoverage {
-    conversationId          String       @id(map: "message_search_coverage_pkey")
-    rowsTraversed           Int          @default(0)
-    artifactsCommitted      Int          @default(0)
-    unrecoverableEpochs     Int          @default(0)
-    unrecoverableEpochIds   Int[]        @default([])
-    hasUnreadableMessages   Boolean      @default(false)
-    completedChangeSeq      Int          @default(0)
-    recoveryGeneration      Int          @default(0)
+    conversationId          String        @id(map: "message_search_coverage_pkey")
+    rowsTraversed           Int           @default(0)
+    artifactsCommitted      Int           @default(0)
+    unrecoverableEpochs     Int           @default(0)
+    unrecoverableEpochIds   Int[]         @default([])
+    hasUnreadableMessages   Boolean       @default(false)
+    completedChangeSeq      Int           @default(0)
+    recoveryGeneration      Int           @default(0)
     backfillThroughSequence Int?
     backfillCursorCreatedAt Timestamp(3)?
     backfillCursorMessageId String?
     backfillStartedAt       Timestamp(3)?
     backfillCompletedAt     Timestamp(3)?
-    updatedAt               Timestamp(3) @default(now())
+    updatedAt               Timestamp(3)  @default(now())
 
     @@index([backfillCompletedAt, backfillStartedAt], map: "message_search_coverage_backfill_idx")
 
@@ -1071,9 +849,9 @@ namespace public {
   model MessageSearchGap {
     conversationId     String
     messageId          String
-    revision            Int
-    keyEpoch            Int?
-    unrecoverableEpoch  Boolean @default(false)
+    revision           Int
+    keyEpoch           Int?
+    unrecoverableEpoch Boolean @default(false)
 
     @@id([conversationId, messageId], map: "message_search_gaps_pkey")
     @@index([conversationId, keyEpoch], map: "message_search_gaps_epoch_idx")
@@ -1081,15 +859,15 @@ namespace public {
   }
 
   model MessageSearchAccountState {
-    userId              String @id(map: "message_search_account_state_pkey")
-    recoveryGeneration Int    @default(0)
-    updatedAt           Timestamp(3) @default(now())
+    userId             String       @id(map: "message_search_account_state_pkey")
+    recoveryGeneration Int          @default(0)
+    updatedAt          Timestamp(3) @default(now())
 
     @@map("message_search_account_state")
   }
 
   model MessageSearchEpochReadability {
-    wrapId             String       @id(map: "message_search_epoch_readability_pkey")
+    wrapId             String                  @id(map: "message_search_epoch_readability_pkey")
     wrap               MessageConversationKeys @relation(fields: [wrapId], references: [id], onDelete: Cascade, onUpdate: Cascade, index: false)
     conversationId     String
     userId             String
@@ -1097,32 +875,32 @@ namespace public {
     recoveryGeneration Int
     sourceFingerprint  String
     readable           Boolean
-    verifiedAt         Timestamp(3) @default(now())
+    verifiedAt         Timestamp(3)            @default(now())
 
     @@index([conversationId, userId, keyEpoch], map: "message_search_epoch_readability_scope_idx")
     @@map("message_search_epoch_readability")
   }
 
   model MessageSearchCountRequests {
-    id                    String    @id(map: "message_search_count_requests_pkey") @default(uuid())
-    requestKey            String    @unique(map: "message_search_count_requests_request_key_key")
-    userId                String
-    conversationId        String
-    queryHash             String
-    normalizationVersion  Int
-    snapshotSequence      Int
+    id                   String        @id(map: "message_search_count_requests_pkey") @default(uuid())
+    requestKey           String        @unique(map: "message_search_count_requests_request_key_key")
+    userId               String
+    conversationId       String
+    queryHash            String
+    normalizationVersion Int
+    snapshotSequence     Int
     membershipSequence   Int
-    recoveryGeneration    Int
-    fragments             Jsonb?
-    membershipWindows     Jsonb?
-    state                 String    @default("pending")
-    exactCount            Int?
-    attempts              Int       @default(0)
-    expiresAt             Timestamp(3)
-    leaseUntil            Timestamp(3)?
-    completedAt           Timestamp(3)?
-    createdAt             Timestamp(3) @default(now())
-    updatedAt             Timestamp(3) @default(now())
+    recoveryGeneration   Int
+    fragments            Jsonb?
+    membershipWindows    Jsonb?
+    state                String        @default("pending")
+    exactCount           Int?
+    attempts             Int           @default(0)
+    expiresAt            Timestamp(3)
+    leaseUntil           Timestamp(3)?
+    completedAt          Timestamp(3)?
+    createdAt            Timestamp(3)  @default(now())
+    updatedAt            Timestamp(3)  @default(now())
 
     @@index([state, createdAt], map: "message_search_count_requests_state_created_idx")
     @@index([userId, conversationId, createdAt], map: "message_search_count_requests_scope_created_idx")
@@ -1131,39 +909,26 @@ namespace public {
   }
 
   model Notifications {
-    id          String                    @id(map: "notifications_pkey") @default(uuid())
-    recipientId String
-    issuerId    String
-    postId      String?
-    commentId   String?
-    _type       pg.enum(NotificationType) @map("type")
-    read        Boolean                   @default(false)
-    createdAt   Timestamp(3)              @default(now())
-    communityId String?
-    // The conversation a DEN_MESSAGE belongs to: the den's name is the second
-    // half of that notification's copy ("Alice in Study group: sent a
-    // message"), and with forty notifications in an inbox the den is what says
-    // which thread any of them belong to. The den row is joined for the name
-    // rather than copied, so a rename moves every row that names it.
-    //
-    // Never carries message content. The server only ever holds ciphertext, so
-    // there is nothing here a push could quote, and no message id to tempt a
-    // future join that would put one there. Cascade, like postId and
-    // communityId: a dissolved den takes its notifications with it.
+    id             String                    @id(map: "notifications_pkey") @default(uuid())
+    recipientId    String
+    issuerId       String
+    postId         String?
+    commentId      String?
+    _type          pg.enum(NotificationType) @map("type")
+    read           Boolean                   @default(false)
+    createdAt      Timestamp(3)              @default(now())
+    communityId    String?
     conversationId String?
-    count       Int                       @default(1)
-    comment     Comments?                 @relation(fields:[commentId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "notifications_commentId_fkey")
-    community   Communities?              @relation(fields:[communityId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "notifications_communityId_fkey", index: false)
-    conversation MessageConversations?    @relation(fields:[conversationId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "notifications_conversationId_fkey", index: false)
-    issuer      Users                     @relation(name: "notifications_issuerId_fkey", fields:[issuerId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "notifications_issuerId_fkey", index: false)
-    post        Posts?                    @relation(fields:[postId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "notifications_postId_fkey", index: false)
-    recipient   Users                     @relation(name: "notifications_recipientId_fkey", fields:[recipientId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "notifications_recipientId_fkey", index: false)
+    count          Int                       @default(1)
+    comment        Comments?                 @relation(fields: [commentId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "notifications_commentId_fkey")
+    community      Communities?              @relation(fields: [communityId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "notifications_communityId_fkey", index: false)
+    conversation   MessageConversations?     @relation(fields: [conversationId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "notifications_conversationId_fkey", index: false)
+    issuer         Users                     @relation(name: "notifications_issuerId_fkey", fields: [issuerId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "notifications_issuerId_fkey", index: false)
+    post           Posts?                    @relation(fields: [postId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "notifications_postId_fkey", index: false)
+    recipient      Users                     @relation(name: "notifications_recipientId_fkey", fields: [recipientId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "notifications_recipientId_fkey", index: false)
 
     @@index([commentId], map: "notifications_commentId_idx")
     @@index([issuerId, _type, createdAt], map: "notifications_issuerId_type_createdAt_idx")
-    // The den fan-out's fold lookup: one row per recipient per den while it is
-    // unread, found on every message a member sends. Same shape as the
-    // community index above, which serves the same fold for community posts.
     @@index([recipientId, conversationId, _type, read], map: "notifications_recipientId_conversationId_type_read_idx")
     @@index([recipientId, communityId, _type, read], map: "notifications_recipientId_communityId_type_read_idx")
     @@index([recipientId, createdAt], map: "notifications_recipientId_createdAt_idx")
@@ -1183,7 +948,7 @@ namespace public {
     transports   String?
     createdAt    Timestamp(3) @default(now())
     aaguid       String?
-    user         Users        @relation(fields:[userId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "passkey_userId_fkey")
+    user         Users        @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "passkey_userId_fkey")
 
     @@unique([credentialID], map: "passkey_credentialID_key")
     @@index([userId], map: "passkey_userId_idx")
@@ -1196,7 +961,7 @@ namespace public {
     userId    String
     createdAt Timestamp(3) @default(now())
     expiresAt Timestamp(3)
-    user      Users        @relation(fields:[userId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "password_reset_tokens_userId_fkey", index: false)
+    user      Users        @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "password_reset_tokens_userId_fkey", index: false)
 
     @@index([token], map: "password_reset_tokens_token_idx")
     @@unique([token], map: "password_reset_tokens_token_key")
@@ -1216,7 +981,7 @@ namespace public {
     durationMs      Int?
     pipelineVersion String
     createdAt       Timestamp(3) @default(now())
-    media           PostMedia    @relation(fields:[mediaId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "post_media_derivatives_mediaId_fkey", index: false)
+    media           PostMedia    @relation(fields: [mediaId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "post_media_derivatives_mediaId_fkey", index: false)
 
     @@index([key], map: "post_media_derivatives_key_idx")
     @@unique([mediaId, kind, variant], map: "post_media_derivatives_mediaId_kind_variant_key")
@@ -1237,8 +1002,8 @@ namespace public {
   model PostToTag {
     a     String @map("A")
     b     String @map("B")
-    posts Posts  @relation(fields:[a], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "_PostToTag_A_fkey", index: false)
-    tag   Tag    @relation(fields:[b], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "_PostToTag_B_fkey")
+    posts Posts  @relation(fields: [a], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "_PostToTag_A_fkey", index: false)
+    tag   Tag    @relation(fields: [b], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "_PostToTag_B_fkey")
 
     @@id([a, b], map: "_PostToTag_AB_pkey")
     @@index([b], map: "_PostToTag_B_index")
@@ -1250,8 +1015,8 @@ namespace public {
     userId    String
     postId    String
     visitedAt Timestamp(3) @default(now())
-    post      Posts        @relation(fields:[postId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "post_visits_postId_fkey")
-    user      Users        @relation(fields:[userId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "post_visits_userId_fkey", index: false)
+    post      Posts        @relation(fields: [postId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "post_visits_postId_fkey")
+    user      Users        @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "post_visits_userId_fkey", index: false)
 
     @@index([postId], map: "post_visits_postId_idx")
     @@unique([userId, postId], map: "post_visits_userId_postId_key")
@@ -1268,7 +1033,7 @@ namespace public {
     userAgent String?
     createdAt Timestamp(3) @default(now())
     updatedAt Timestamp(3) @default(now())
-    user      Users        @relation(fields:[userId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "push_subscriptions_userId_fkey")
+    user      Users        @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "push_subscriptions_userId_fkey")
 
     @@unique([endpoint], map: "push_subscriptions_endpoint_key")
     @@index([userId], map: "push_subscriptions_userId_idx")
@@ -1285,8 +1050,8 @@ namespace public {
     sessionId  String?
     createdAt  Timestamp(3) @default(now())
     dedupeKey  String?
-    post       Posts        @relation(fields:[postId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "recommendation_events_postId_fkey", index: false)
-    user       Users        @relation(fields:[userId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "recommendation_events_userId_fkey", index: false)
+    post       Posts        @relation(fields: [postId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "recommendation_events_postId_fkey", index: false)
+    user       Users        @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "recommendation_events_userId_fkey", index: false)
 
     @@unique([dedupeKey], map: "recommendation_events_dedupeKey_key")
     @@index([postId, eventType, createdAt], map: "recommendation_events_postId_eventType_createdAt_idx")
@@ -1306,8 +1071,8 @@ namespace public {
     createdAt      Timestamp(3) @default(now())
     updatedAt      Timestamp(3) @default(now())
     country        String?
-    users          Users?       @relation(name: "sessions_impersonatedBy_fkey", fields:[impersonatedBy], references:[id], onDelete: SetNull, onUpdate: Cascade, map: "sessions_impersonatedBy_fkey", index: false)
-    user           Users        @relation(name: "sessions_userId_fkey", fields:[userId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "sessions_userId_fkey", index: false)
+    users          Users?       @relation(name: "sessions_impersonatedBy_fkey", fields: [impersonatedBy], references: [id], onDelete: SetNull, onUpdate: Cascade, map: "sessions_impersonatedBy_fkey", index: false)
+    user           Users        @relation(name: "sessions_userId_fkey", fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "sessions_userId_fkey", index: false)
 
     @@unique([token], map: "sessions_token_key")
     @@map("sessions")
@@ -1321,7 +1086,7 @@ namespace public {
     clicks    Int          @default(0)
     createdAt Timestamp(3) @default(now())
     updatedAt Timestamp(3) @default(now())
-    post      Posts        @relation(fields:[postId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "share_stats_postId_fkey", index: false)
+    post      Posts        @relation(fields: [postId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "share_stats_postId_fkey", index: false)
 
     @@unique([postId, platform], map: "share_stats_postId_platform_key")
     @@map("share_stats")
@@ -1337,7 +1102,7 @@ namespace public {
     lockedUntil             Timestamp(3)?
     createdAt               Timestamp(3)  @default(now())
     updatedAt               Timestamp(3)  @default(now())
-    user                    Users         @relation(fields:[userId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "twoFactor_userId_fkey")
+    user                    Users         @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "twoFactor_userId_fkey")
 
     @@index([secret], map: "twoFactor_secret_idx")
     @@unique([userId], map: "twoFactor_userId_key")
@@ -1350,7 +1115,7 @@ namespace public {
     userId    String
     expiresAt Timestamp(3)
     createdAt Timestamp(3) @default(now())
-    user      Users        @relation(fields:[userId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "username_aliases_userId_fkey", index: false)
+    user      Users        @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "username_aliases_userId_fkey", index: false)
 
     @@index([expiresAt], map: "username_aliases_expiresAt_idx")
     @@index([userId, createdAt], map: "username_aliases_userId_createdAt_idx")
@@ -1367,7 +1132,7 @@ namespace public {
     userId     String?
     createdAt  Timestamp(3) @default(now())
     updatedAt  Timestamp(3) @default(now())
-    user       Users?       @relation(fields:[userId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "verification_userId_fkey", index: false)
+    user       Users?       @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "verification_userId_fkey", index: false)
 
     @@index([expiresAt], map: "verification_expiresAt_idx")
     @@index([identifier], map: "verification_identifier_idx")
@@ -1381,8 +1146,8 @@ namespace public {
     awardedAura    Int          @default(0)
     mutingCostAura Int          @default(0)
     createdAt      Timestamp(3) @default(now())
-    post           Posts        @relation(fields:[postId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "votes_postId_fkey")
-    user           Users        @relation(fields:[userId], references:[id], onDelete: Cascade, onUpdate: Cascade, map: "votes_userId_fkey", index: false)
+    post           Posts        @relation(fields: [postId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "votes_postId_fkey")
+    user           Users        @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "votes_userId_fkey", index: false)
 
     @@index([postId], map: "votes_postId_idx")
     @@id([userId, postId], map: "votes_pkey")
@@ -1444,9 +1209,6 @@ namespace public {
     MEMBER = "MEMBER"
   }
 
-  // What a durable membership log line can record. One value per mutation the
-  // transcript draws, so a new mutation that wants a line is a compile error here
-  // rather than a string that silently renders as nothing.
   native_enum DenMembershipEventAction {
     CREATED = "CREATED"
     JOINED = "JOINED"
@@ -1457,19 +1219,9 @@ namespace public {
     OWNER_TRANSFERRED = "OWNER_TRANSFERRED"
   }
 
-  // Who may put this account in a group conversation without being asked first.
-  //
-  // `FOLLOWING_ONLY` is named for the direction it means rather than the word
-  // "followers", because the two are opposites here: it qualifies an adder the
-  // candidate already follows, not somebody who follows the candidate. The
-  // setting is the candidate's own list, so the naming has to say whose list.
   native_enum GroupAddPolicy {
-    // Anybody at all.
     EVERYONE = "EVERYONE"
-    // Only the people this account already follows.
     FOLLOWING_ONLY = "FOLLOWING_ONLY"
-    // Nobody. An invite link still works, because joining is the account's own
-    // decision and a link is how they are asked.
     NO_DIRECT_ADDS = "NO_DIRECT_ADDS"
   }
 
@@ -1508,12 +1260,6 @@ namespace public {
     REPLY = "REPLY"
     COMMUNITY_POST = "COMMUNITY_POST"
     DEN_MESSAGE = "DEN_MESSAGE"
-    // A den membership ended without the recipient's consent: they were removed,
-    // or the owner dissolved the den. The only den event a member cannot
-    // discover by looking at the app, because both leave a den that is either
-    // gone or closed to them. Carries no conversationId: a dissolved den's row
-    // cascades the foreign key away, and a removed member is not a member, so
-    // there is no address the row could honestly point at.
     DEN_MEMBERSHIP_ENDED = "DEN_MEMBERSHIP_ENDED"
   }
 

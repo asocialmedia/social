@@ -100,7 +100,7 @@ let enqueueFailure: Error | null = null;
 let transactionFailure: Error | null = null;
 let denFanOutFailure: Error | null = null;
 // The den fan-out's own reads, its mute filter and its fold are covered against
-// a live database in packages/db/src/messages/den-notifications.integration.test.ts.
+// a live database in packages/db/src/messages/notifications/den-notifications.integration.test.ts.
 // Here it stands in for the layer that decides the audience, so these tests can
 // pin the route's half: that the route enqueues exactly what the fan-out
 // reported, and that a member the fan-out skipped is skipped by the enqueue too.
