@@ -59,7 +59,7 @@ export default function CropImageDialog({
   return (
     <Dialog onOpenChange={onClose} open>
       <DialogContent
-        className="apple-panel flex max-h-[75dvh] w-[calc(100%-1.5rem)] max-w-120 flex-col gap-4 overflow-hidden rounded-2xl border-0 p-0 md:max-h-[85vh] [&>button:last-child]:hidden"
+        className="flex max-h-[75dvh] w-[calc(100%-2rem)] max-w-120 flex-col gap-4 overflow-hidden rounded-2xl! p-0 md:max-h-[85vh] [&>button:last-child]:hidden"
         onClick={handleContentClick}
       >
         {/* Header - matches EditProfile dialog */}
@@ -89,7 +89,7 @@ export default function CropImageDialog({
           </DialogClose>
         </div>
 
-        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-5 pb-5">
+        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 pb-4">
           {/* Custom cropper orange accent - uniform 10px dots centered on 2px border */}
           <style>{`
             .asm-cropper .cropper-view-box {

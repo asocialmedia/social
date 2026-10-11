@@ -209,27 +209,59 @@ describe("needsTailReturn", () => {
   // The ordinary case: the transcript already sits on the newest page, so the
   // scroll costs nothing and no read is issued.
   test("a transcript at the newest message just scrolls", () => {
-    expect(needsTailReturn({ hasNextPage: false, inFlight: false })).toBe(
-      false
-    );
+    expect(
+      needsTailReturn({
+        hasLatestPage: true,
+        hasNextPage: false,
+        inFlight: false,
+      })
+    ).toBe(false);
   });
 
   // The bug. A jump left a cursor for newer messages, so the window is not the
   // tail and the end of the list is not the bottom of the conversation.
   test("a transcript anchored mid-history fetches the tail first", () => {
-    expect(needsTailReturn({ hasNextPage: true, inFlight: false })).toBe(true);
+    expect(
+      needsTailReturn({
+        hasLatestPage: false,
+        hasNextPage: true,
+        inFlight: false,
+      })
+    ).toBe(true);
   });
 
   // A double-click on the button is ordinary. Two concurrent tail reads would
   // race their cache writes, and whichever landed second would decide where "the
   // bottom" is -- so a "go to latest" that ends up not at the latest.
   test("a second press while the tail read is in flight does not start another", () => {
-    expect(needsTailReturn({ hasNextPage: true, inFlight: true })).toBe(false);
+    expect(
+      needsTailReturn({
+        hasLatestPage: false,
+        hasNextPage: true,
+        inFlight: true,
+      })
+    ).toBe(false);
   });
 
   // A failed read must not wedge the button: the ref is released in a finally, so
   // the next press can try again.
   test("an idle guard with an anchored window still fetches", () => {
-    expect(needsTailReturn({ hasNextPage: true, inFlight: false })).toBe(true);
+    expect(
+      needsTailReturn({
+        hasLatestPage: false,
+        hasNextPage: true,
+        inFlight: false,
+      })
+    ).toBe(true);
+  });
+
+  test("refetches the tail after the bounded window evicted its newest page", () => {
+    expect(
+      needsTailReturn({
+        hasLatestPage: false,
+        hasNextPage: false,
+        inFlight: false,
+      })
+    ).toBe(true);
   });
 });

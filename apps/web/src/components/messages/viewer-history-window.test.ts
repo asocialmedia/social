@@ -1,12 +1,13 @@
 import { describe, expect, test } from "bun:test";
 
+import { InfiniteQueryObserver, QueryClient } from "@tanstack/react-query";
+import type { InfiniteData } from "@tanstack/react-query";
+
 import type { MessagePage } from "@/lib/messages/types";
 
 import {
-  pagesToDropForTranscriptHistory,
   pagesToDropForViewerHistory,
-  TRANSCRIPT_HISTORY_KEEP_PAGES,
-  TRANSCRIPT_MIN_ROWS_ABOVE_BOUNDARY,
+  TRANSCRIPT_MAX_HISTORY_PAGES,
   trimOldestPages,
   VIEWER_HISTORY_KEEP_PAGES,
   VIEWER_HISTORY_MIN_OLDER_ITEMS,
@@ -99,69 +100,64 @@ describe("pagesToDropForViewerHistory", () => {
   });
 });
 
-describe("pagesToDropForTranscriptHistory", () => {
-  const pages = Array.from({ length: 20 }, (_, index) => page(`p${index}`));
-  const findPageIndex = (id: string) =>
-    pages.findIndex((p) => p.messages.some((m) => m.id === id));
+describe("bounded transcript pagination", () => {
+  test("caps pages in both directions and keeps page parameters aligned", async () => {
+    interface WindowPage {
+      value: number;
+    }
+    type WindowData = InfiniteData<WindowPage, number>;
 
-  test("keeps everything while the reader is near the oldest loaded row", () => {
-    // Right at the auto-loader's trigger band: trimming here would drop a page
-    // the near-top loader is about to ask for, and loop.
-    expect(
-      pagesToDropForTranscriptHistory({
-        anchorMessageId: "p15",
-        findPageIndex,
-        firstVisibleIndex: TRANSCRIPT_MIN_ROWS_ABOVE_BOUNDARY - 1,
-        pageCount: pages.length,
-      })
-    ).toBe(0);
-  });
-
-  test("drops the oldest pages beyond the keep buffer once clear of them", () => {
-    const drop = pagesToDropForTranscriptHistory({
-      anchorMessageId: "p15",
-      findPageIndex,
-      firstVisibleIndex: TRANSCRIPT_MIN_ROWS_ABOVE_BOUNDARY + 1,
-      pageCount: pages.length,
+    const queryClient = new QueryClient();
+    const queryKey = ["bounded-message-history"] as const;
+    const observer = new InfiniteQueryObserver(queryClient, {
+      getNextPageParam: (lastPage) =>
+        lastPage.value < 20 ? lastPage.value + 1 : undefined,
+      getPreviousPageParam: (firstPage) =>
+        firstPage.value > 0 ? firstPage.value - 1 : undefined,
+      initialPageParam: 8,
+      maxPages: TRANSCRIPT_MAX_HISTORY_PAGES,
+      queryFn: ({ pageParam }) => Promise.resolve({ value: pageParam }),
+      queryKey,
     });
-    expect(drop).toBe(15 - TRANSCRIPT_HISTORY_KEEP_PAGES);
-    // The anchor page and everything from the keep buffer onward survive.
-    expect(pages.length - drop).toBeGreaterThanOrEqual(
-      TRANSCRIPT_HISTORY_KEEP_PAGES
-    );
-  });
+    const unsubscribe = observer.subscribe(() => {});
 
-  test("is inert with too few pages to be worth trimming", () => {
-    const few = pages.slice(0, TRANSCRIPT_HISTORY_KEEP_PAGES + 1);
-    expect(
-      pagesToDropForTranscriptHistory({
-        anchorMessageId: "p3",
-        findPageIndex,
-        firstVisibleIndex: 5000,
-        pageCount: few.length,
-      })
-    ).toBe(0);
-  });
+    try {
+      await observer.refetch();
+      for (let index = 0; index < TRANSCRIPT_MAX_HISTORY_PAGES; index += 1) {
+        // oxlint-disable-next-line no-await-in-loop -- each page changes the cursor for the next fetch.
+        await observer.fetchPreviousPage();
+      }
 
-  test("is inert before mount or for an anchor outside the loaded pages", () => {
-    expect(
-      pagesToDropForTranscriptHistory({
-        anchorMessageId: null,
-        findPageIndex,
-        firstVisibleIndex: 5000,
-        pageCount: pages.length,
-      })
-    ).toBe(0);
-    // An anchor the cache cannot place (hidden or evicted between render and
-    // effect) must not produce a blind slice.
-    expect(
-      pagesToDropForTranscriptHistory({
-        anchorMessageId: "gone",
-        findPageIndex,
-        firstVisibleIndex: 5000,
-        pageCount: pages.length,
-      })
-    ).toBe(0);
+      const olderWindow = queryClient.getQueryData<WindowData>(queryKey);
+      expect(olderWindow?.pages.map(({ value }) => value)).toEqual(
+        Array.from(
+          { length: TRANSCRIPT_MAX_HISTORY_PAGES },
+          (_, index) => index
+        )
+      );
+      expect(olderWindow?.pageParams).toEqual(
+        olderWindow?.pages.map(({ value }) => value)
+      );
+
+      for (let index = 0; index < 12; index += 1) {
+        // oxlint-disable-next-line no-await-in-loop -- each page changes the cursor for the next fetch.
+        await observer.fetchNextPage();
+      }
+
+      const newerWindow = queryClient.getQueryData<WindowData>(queryKey);
+      expect(newerWindow?.pages.map(({ value }) => value)).toEqual(
+        Array.from(
+          { length: TRANSCRIPT_MAX_HISTORY_PAGES },
+          (_, index) => index + 12
+        )
+      );
+      expect(newerWindow?.pageParams).toEqual(
+        newerWindow?.pages.map(({ value }) => value)
+      );
+    } finally {
+      unsubscribe();
+      queryClient.clear();
+    }
   });
 });
 

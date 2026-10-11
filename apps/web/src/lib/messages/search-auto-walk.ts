@@ -79,8 +79,10 @@ export function shouldAutoStartWalk(input: ShouldAutoStartWalkInput): boolean {
   }
   if (coverage) {
     // Only a run that yielded on its page budget chains. Failed runs need a
-    // human; stopped runs re-evaluate from a cleared report next session.
-    return coverage.state === "done";
+    // human; stopped runs re-evaluate from a cleared report next session. A run
+    // that reached the end but still has unsettled artifacts waits for the next
+    // session/retry trigger instead of spinning on the empty terminal page.
+    return coverage.state === "done" && coverage.reachedStart !== true;
   }
   // No report yet: need BOTH persisted halves to skip. No transcript check:
   // a jump replaces the window with an anchored page whose cursors say nothing

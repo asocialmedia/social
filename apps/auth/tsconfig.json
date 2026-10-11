@@ -10,6 +10,7 @@
     "paths": {
       "@/*": ["./src/*"],
       "@root/*": ["./*"],
+      "@asm/messages/*": ["../../packages/messages/src/*"],
       "@asm/*": ["../../packages/*/src"]
     },
     "strictNullChecks": true,

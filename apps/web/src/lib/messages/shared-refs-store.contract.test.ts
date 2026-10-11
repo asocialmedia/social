@@ -37,6 +37,13 @@ export const CONVERSATION = "conv-1";
 // The four methods a consumer of the refs index uses. Narrowed from the full
 // store contract so this suite can also be pointed at a test double.
 export interface SharedRefsStoreUnderTest {
+  listConversations: () => Promise<
+    {
+      conversationId: string;
+      indexedRowCount: number;
+      lastAccessedAt: number;
+    }[]
+  >;
   putSharedRefs: (
     conversationId: string,
     rows: Map<string, SharedRefsWriteRow>
@@ -298,6 +305,16 @@ export function runSharedRefsStoreSuite(
       });
       expect(first.items).toHaveLength(2);
       expect(second.items).toHaveLength(1);
+    });
+
+    test("refs-only conversations are enumerable for account-scope cleanup", async () => {
+      const store = create();
+      await store.putSharedRefs(CONVERSATION, rowsFor("media", 1));
+
+      const summaries = await store.listConversations();
+      expect(summaries.map((summary) => summary.conversationId)).toContain(
+        CONVERSATION
+      );
     });
 
     test("a stored row keeps the sender and the time it was indexed from", async () => {

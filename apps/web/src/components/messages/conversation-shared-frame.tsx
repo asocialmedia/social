@@ -2,6 +2,8 @@
 
 import type { VirtualItem } from "@tanstack/react-virtual";
 import { Loader2 } from "lucide-react";
+import Image from "next/image";
+import type { StaticImageData } from "next/image";
 import type { ReactNode, Ref } from "react";
 import { useEffect } from "react";
 
@@ -91,6 +93,22 @@ export const AUTO_LOAD_LAST_ROWS = 2;
 // exists to avoid.
 export const READ_FAILED_FOOTNOTE =
   "Couldn't read the saved index, so this is only what this device has loaded.";
+export const SHARED_REFS_UNAVAILABLE_FOOTNOTE =
+  "Some older shared items couldn't be loaded.";
+
+export function sharedRefsEmptyFootnote(input: {
+  coverageUnavailable: boolean;
+  fallback: string;
+  readError: boolean;
+}): string {
+  if (input.readError) {
+    return READ_FAILED_FOOTNOTE;
+  }
+  if (input.coverageUnavailable) {
+    return SHARED_REFS_UNAVAILABLE_FOOTNOTE;
+  }
+  return input.fallback;
+}
 
 // Whether a virtualized list should read its next page.
 //
@@ -154,10 +172,12 @@ export function useAutoLoadMore(input: {
 // conversation and the reader could otherwise believe it is -- a background walk
 // still running, and a store this device cannot read.
 export function ListFooter({
+  coverageUnavailable,
   indexing,
   noun,
   readError,
 }: {
+  coverageUnavailable?: boolean;
   indexing: boolean;
   noun: string;
   readError: boolean;
@@ -167,6 +187,13 @@ export function ListFooter({
       <p className="text-muted-foreground/80 py-3 text-center text-[11px]">
         Couldn&apos;t read the saved index, so this is only what this device has
         loaded.
+      </p>
+    );
+  }
+  if (coverageUnavailable) {
+    return (
+      <p className="text-muted-foreground/80 py-3 text-center text-[11px]">
+        {SHARED_REFS_UNAVAILABLE_FOOTNOTE}
       </p>
     );
   }
@@ -196,23 +223,30 @@ export function ListFooter({
 export function EmptyShared({
   body,
   footnote,
-  icon,
+  illustration,
   title,
 }: {
   body: string;
   footnote?: string;
-  icon: ReactNode;
+  illustration: StaticImageData;
   title: string;
 }) {
   return (
-    <div className="flex h-full flex-col items-center justify-center gap-2 px-8 text-center">
-      <span className="chip-3d text-muted-foreground flex size-10 items-center justify-center rounded-full">
-        {icon}
-      </span>
+    <div className="flex h-full min-h-64 flex-col items-center justify-center gap-2 px-5 text-center">
+      <Image
+        alt=""
+        className="mb-1 h-24 w-36 object-contain sm:h-28 sm:w-40"
+        draggable={false}
+        height={128}
+        src={illustration}
+        width={192}
+      />
       <p className="text-sm font-medium">{title}</p>
-      <p className="text-muted-foreground text-xs">{body}</p>
+      <p className="text-muted-foreground max-w-[38ch] text-xs text-pretty">
+        {body}
+      </p>
       {footnote ? (
-        <p className="text-muted-foreground/70 max-w-[30ch] text-[11px]">
+        <p className="text-muted-foreground/70 max-w-[38ch] text-[11px] text-pretty">
           {footnote}
         </p>
       ) : null}

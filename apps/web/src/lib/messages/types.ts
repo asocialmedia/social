@@ -1,4 +1,26 @@
-import type { CommunityRoleRow } from "@asm/db";
+import type {
+  CommunityRoleRow,
+  ConversationType,
+  DenMembershipEventAction,
+  DenRole,
+} from "@asm/db";
+
+// One durable line in a den's membership log, as the events route returns it.
+//
+// Names are snapshots taken when the line was written, not joins against the
+// current roster: the person who left is not a member any more, and an account
+// deletion must not turn "Ada removed Bob" into "Ada removed Unknown". Every
+// field is already server-rendered by the time the transcript sees it; the client
+// only decides which facts to put in a sentence.
+export interface DenMembershipEvent {
+  action: DenMembershipEventAction;
+  actorId: string | null;
+  actorName: string | null;
+  createdAt: Date;
+  id: string;
+  targetName: string | null;
+  targetUserId: string | null;
+}
 
 export interface MessageIdentitySummary {
   publicKey: string;
@@ -17,8 +39,48 @@ export interface MessageSender {
   username: string;
 }
 
+// One stretch of a member's presence in a den, as the server computed it from
+// the membership log: they were inside from `after` until `before`, and a null
+// bound is open on that side. ISO strings on the wire.
+//
+// The member row alone cannot express "left and came back" - a rejoin clears
+// `leftAt` on the original row, so `createdAt` is always the FIRST join - and a
+// member with a gap in their presence must not be handed a wrap for an epoch
+// minted inside it. The heal gate (`cannotHealIntoEpoch` in client.ts) reads
+// these windows instead of the raw join timestamp.
+export interface MessageConversationWindow {
+  after: string | null;
+  before: string | null;
+}
+
 export interface MessageConversationMember {
   conversationId: string;
+  // When this person FIRST joined. Den send paths read it to tell a member who
+  // was in the room when the current root-key epoch was minted from one who
+  // arrived after it: the first can be handed a missing wrap for that epoch, the
+  // second must not be, because that epoch's root already encrypts everything
+  // written before they arrived. For anything finer - a member who left and came
+  // back - `membershipWindows` is the answer; this column stays the first join.
+  createdAt: Date;
+  // The member's presence stints in this den, ISO-bounded, computed server-side
+  // from the membership log. Optional because it is: a payload cached before the
+  // field existed, a list response (which carries no windows), and every DM can
+  // all arrive without it. The heal gate reads absent as "cannot prove they were
+  // in the room", which fails closed into a rotation - the same answer an
+  // unreadable epoch start already gets.
+  membershipWindows?: MessageConversationWindow[];
+  // Den-only provenance: who added this member, absent for the creator and for
+  // somebody who arrived through an invite link.
+  invitedById?: string | null;
+  // Den-only, and the column the read/write split turns on. NULL is every DM row
+  // and every member who is still in the den. Set means the person left or was
+  // removed: they keep this row, so the conversation stays in their list and the
+  // history stays readable, but nothing they write now lands.
+  //
+  // Both the client and the server read it, and they read it for the same reason:
+  // "is this person still in the room" is the question that separates reading a
+  // den from posting in one.
+  leftAt?: Date | null;
   lastReadAt: Date | null;
   // Watermark of the newest message this member confirmed receipt of, and this
   // member's own DM preferences. Both are per-member, so the peer never sees
@@ -26,6 +88,9 @@ export interface MessageConversationMember {
   lastDeliveredAt?: Date | null;
   mutedAt?: Date | null;
   themeKey?: string | null;
+  // Den-only. A DM row carries MEMBER, which no gate reads: DM authorization is
+  // membership, not role.
+  role?: DenRole;
   user: MessageSender & {
     messageIdentity: MessageIdentitySummary | null;
   };
@@ -43,6 +108,12 @@ export interface MessageConversationKey {
   // Root-key epoch. A member holds one wrap per epoch; older ones stay readable
   // so a reset never costs the peer its history.
   version: number;
+  // Which member performed this wrap, and the public key they used. Null on
+  // every DM row written before these columns existed, where the wrapper is
+  // unambiguously the single peer. A den reader needs both to know whose ECDH
+  // pairing this blob was made for.
+  wrapperPublicKey?: string | null;
+  wrapperUserId?: string | null;
 }
 
 export interface MessageConversationData {
@@ -52,6 +123,25 @@ export interface MessageConversationData {
   members: MessageConversationMember[];
   pairKey: string | null;
   updatedAt: Date;
+  // How many roster changes this conversation has been through. Optional because
+  // it is: a payload cached before the column existed, a server that has not been
+  // deployed yet, and every DM (whose roster never moves) can all arrive without
+  // it. Absent means "cannot tell", which the client reads as the behaviour it
+  // had before the field existed - never as "fresh".
+  membershipSeq?: number;
+  // Den-only columns, null on a DM. `type` is required rather than optional: it is
+  // the field every gate reads to decide whether it is looking at a pair or at a
+  // group, it is NOT NULL in the database with a DM default, and every server
+  // mapper sets it. Making it optional here would push a `?? "DM"` fallback onto
+  // every future call site, which is exactly the kind of default that hides a
+  // route that forgot to branch.
+  type: ConversationType;
+  avatarMediaId?: string | null;
+  createdById?: string | null;
+  description?: string | null;
+  inviteCode?: string | null;
+  name?: string | null;
+  ownerId?: string | null;
 }
 
 export interface MessageData {
@@ -65,7 +155,9 @@ export interface MessageData {
   editedAt: Date | null;
   id: string;
   iv: string;
+  keyEpoch?: number | null;
   ratchetIndex: number;
+  revision?: number;
   sender?: MessageSender | null;
   senderId: string;
 }

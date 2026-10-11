@@ -252,11 +252,11 @@ export default function PostMoreButton({
         {/* `apple-panel` (deprecated, unlayered) used to sit here and fought
             the primitive's `panel-3d` surface; dropping it lets the shared
             3D recipe - and its now-rounded corners - apply. */}
-        <DropdownMenuContent align="end" className="p-1.5">
+        <DropdownMenuContent align="end" className="rounded-2xl! p-2">
           {extraItems}
           {user && post.community && !post.moderated ? (
             <DropdownMenuItem
-              className="pill-3d-hover rounded-md px-2 py-2"
+              className="pill-3d-hover rounded-lg px-2 py-2"
               onClick={handleShareToFeed}
             >
               <span className="flex items-center gap-3">
@@ -267,7 +267,7 @@ export default function PostMoreButton({
           ) : null}
           {user && !isOwner ? (
             <DropdownMenuItem
-              className="pill-3d-hover rounded-md px-2 py-2"
+              className="pill-3d-hover rounded-lg px-2 py-2"
               onClick={handleNotInterested}
             >
               <span className="flex items-center gap-3">
@@ -278,7 +278,7 @@ export default function PostMoreButton({
           ) : null}
           {canModerate ? (
             <DropdownMenuItem
-              className="pill-3d-hover rounded-md px-2 py-2"
+              className="pill-3d-hover rounded-lg px-2 py-2"
               onClick={handleShowModerationDialog}
             >
               <span className="flex items-center gap-3">
@@ -289,7 +289,7 @@ export default function PostMoreButton({
           ) : null}
           {hasAltText ? (
             <DropdownMenuItem
-              className="pill-3d-hover rounded-md px-2 py-2"
+              className="pill-3d-hover rounded-lg px-2 py-2"
               onClick={handleToggleAlt}
             >
               <span className="flex items-center gap-3">
@@ -300,7 +300,7 @@ export default function PostMoreButton({
           ) : null}
           {hasVideo && !post.moderated ? (
             <DropdownMenuItem
-              className="pill-3d-hover rounded-md px-2 py-2"
+              className="pill-3d-hover rounded-lg px-2 py-2"
               onClick={handleToggleCaptions}
             >
               <span className="flex items-center gap-3">
@@ -311,7 +311,7 @@ export default function PostMoreButton({
           ) : null}
           {isOwner ? (
             <DropdownMenuItem
-              className="pill-3d-hover rounded-md px-2 py-2"
+              className="pill-3d-hover rounded-lg px-2 py-2"
               onClick={handleShowEditDialog}
             >
               <span className="flex items-center gap-3">
@@ -322,7 +322,7 @@ export default function PostMoreButton({
           ) : null}
           {isOwner ? (
             <DropdownMenuItem
-              className="pill-3d-hover rounded-md px-2 py-2"
+              className="pill-3d-hover rounded-lg px-2 py-2"
               onClick={handleShowDeleteDialog}
             >
               <span className="text-destructive flex items-center gap-3">

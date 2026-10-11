@@ -33,7 +33,7 @@ const MORE = [
     term: "Provenance you cannot edit away",
   },
   {
-    body: "Zeph issues moderation notices so the person behind the ban is never the one exposed. End-to-end read receipts, edit and delete for everyone, and history that stays on your device if you ever need to reset.",
+    body: "Zeph issues moderation notices so the person behind the ban is never the one exposed. Read receipts that travel end to end, edit and delete for everyone, and history that stays on your device if you ever need to reset.",
     term: "Messages and moderation",
   },
   {

@@ -1,14 +1,40 @@
 import {
   and,
+  canManageDen,
+  createDen,
   fromPrismaDateTime,
   getMessageConversationDataQuery,
-  or,
+  listDenMembershipEventsForUser,
   prisma,
-  toPrismaDateTime,
+  unreadMessagesWhere,
   visibleToUser,
 } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/auth/session";
+import { dmPeerId, isHiddenByBlock } from "@/lib/messages/blocks";
+import {
+  denErrorResponse,
+  objectOf,
+  optionalStringField,
+} from "@/lib/messages/den-api";
+import {
+  DEN_CREATE_RATE_LIMIT,
+  DEN_DM_CREATE_RATE_LIMIT,
+  consumeDenRateLimit,
+} from "@/lib/messages/den-rate-limit";
+import {
+  denCandidateFailureResponse,
+  parseMemberIds,
+  validateDenRoster,
+} from "@/lib/messages/den-roster";
+import {
+  readerMessageWindows,
+  readerWindowsContain,
+} from "@/lib/messages/reader-window";
+import type {
+  ReaderMembershipEvent,
+  ReaderMessageWindow,
+} from "@/lib/messages/reader-window";
 import {
   areBlocked,
   hasMessageIdentity,
@@ -74,12 +100,86 @@ type ConversationQueryDataWithMessages = ConversationQueryData & {
   messages?: RawMessage[];
 };
 
-function mapConversation(
-  conversation: ConversationQueryDataWithMessages
-): ConversationWithLastMessage {
+// Every conversation payload this module builds, for one viewer.
+//
+// The viewer id is a PARAMETER rather than something read from module state
+// because the invite code is decided here and nowhere else on this surface: it is
+// the ability to add strangers to a room, `GET /api/messages/dens/:id` withholds
+// it from anybody who cannot manage, and this mapper used to hand it to every
+// plain member through the list route. A detail gate is only a gate if the other
+// route that returns the same object respects it too - and this one is the route
+// every client fetches on load, so it is not a channel nobody gated, it is the
+// one everybody walks through.
+//
+// `canManageDen`, not a written-out role comparison, so the list, the detail gate
+// and the service's own authorization are one answer to "who may manage a den"
+// rather than three.
+//
+// A DM carries no code, so redaction cannot change a DM's payload and the type
+// does not have to be branched on.
+// The viewer's own membership row for this conversation, in the shape the reader
+// window takes. Null when there is no row, which the window answers as "no window".
+function viewerMembership(
+  conversation: ConversationQueryDataWithMessages,
+  viewerId: string
+) {
+  const member = conversation.messageConversationMembers.find(
+    (candidate) => candidate.userId === viewerId
+  );
+  if (!member) {
+    return null;
+  }
   return {
+    createdAt: fromPrismaDateTime(member.createdAt),
+    leftAt: member.leftAt ? fromPrismaDateTime(member.leftAt) : null,
+  };
+}
+
+// Drops the preview rows that fall outside every one of the reader's windows.
+//
+// Only ever removes a row, and the input is the single newest message the query
+// already limited, so this is at most one comparison per conversation on screen.
+function previewInWindows<T extends { createdAt: unknown }>(
+  messages: T[],
+  windows: readonly ReaderMessageWindow[]
+): T[] {
+  if (
+    windows.some((window) => window.after === null && window.before === null)
+  ) {
+    return messages;
+  }
+  return messages.filter((message) =>
+    readerWindowsContain(windows, fromPrismaDateTime(message.createdAt))
+  );
+}
+
+function mapConversation(
+  conversation: ConversationQueryDataWithMessages,
+  viewerId: string,
+  // The viewer's own membership log lines for this conversation, oldest first.
+  // A rejoin leaves the row unable to say which stretch the viewer missed, so the
+  // stint boundaries come from the log; the create paths pass nothing because a
+  // conversation being born has no stints to miss.
+  membershipEvents: readonly ReaderMembershipEvent[]
+): ConversationWithLastMessage {
+  const canManage = conversation.messageConversationMembers.some(
+    (member) => member.userId === viewerId && canManageDen(member.role)
+  );
+  const previewWindows = readerMessageWindows({
+    conversationType: conversation._type,
+    events: membershipEvents,
+    membership: viewerMembership(conversation, viewerId),
+    userId: viewerId,
+  });
+  return {
+    // Den columns, null on a DM. `type` is never null, so a caller can branch on
+    // it without a fallback.
+    avatarMediaId: conversation.avatarMediaId,
     createdAt: fromPrismaDateTime(conversation.createdAt),
+    createdById: conversation.createdById,
+    description: conversation.description,
     id: conversation.id,
+    inviteCode: canManage ? conversation.inviteCode : null,
     keys: conversation.messageConversationKeys.map((key) => ({
       ...key,
       createdAt: fromPrismaDateTime(key.createdAt),
@@ -92,9 +192,23 @@ function mapConversation(
       return [
         {
           conversationId: member.conversationId,
+          createdAt: fromPrismaDateTime(member.createdAt),
           lastReadAt: member.lastReadAt
             ? fromPrismaDateTime(member.lastReadAt)
             : null,
+          // Den-only, and carried through for the same reason `mutedAt` is below:
+          // the rail draws a "left" marker from it and the composer decides
+          // read-only from it, so a mapper that omitted it left both reading
+          // `undefined` and drawing a den somebody left as one they are in.
+          leftAt: member.leftAt ? fromPrismaDateTime(member.leftAt) : null,
+          // Carried through rather than dropped. The list route zeroes a muted
+          // conversation's badge from this field and the rail draws its muted
+          // marker from it, so a mapper that omitted it left both reading
+          // `undefined` and quietly reporting an unmuted thread as unmuted.
+          // Kept next to `lastReadAt` because it is the same kind of fact: this
+          // member's own relationship with this conversation.
+          mutedAt: member.mutedAt ? fromPrismaDateTime(member.mutedAt) : null,
+          role: member.role,
           user: {
             avatarUrl: memberUser.avatarUrl,
             badge: memberUser.badge,
@@ -119,15 +233,35 @@ function mapConversation(
         },
       ];
     }),
-    messages: (conversation.messages ?? []).map((message) => ({
-      ...message,
-      createdAt: fromPrismaDateTime(message.createdAt),
-      deletedAt: message.deletedAt
-        ? fromPrismaDateTime(message.deletedAt)
-        : null,
-      editedAt: message.editedAt ? fromPrismaDateTime(message.editedAt) : null,
-    })),
+    // Carried through unchanged, like `inviteCode` above: the client's guard
+    // compares the counter in this payload against the newest one the server has
+    // reported to it, and a mapper that dropped it would leave the guard with
+    // nothing to compare. It names nobody and describes no roster, so a plain
+    // member reading it learns only how many changes they may have missed - the
+    // same thing the stream tells them.
+    membershipSeq: conversation.membershipSeq,
+    // The preview is the newest message this viewer may see, and the transcript
+    // route already floors that by the viewer's join - so without this the list row
+    // could offer a pre-join message the transcript then refuses to open. Same
+    // windows, same helper, applied here because this route cannot express a per
+    // conversation floor inside the nested query: the bounds are facts about the
+    // VIEWER's membership, and there is one of those per conversation on screen.
+    // Filtering the already-limited single row costs nothing and keeps the list and
+    // the thread from disagreeing about what this person has seen.
+    messages: previewInWindows(conversation.messages ?? [], previewWindows).map(
+      (message) => ({
+        ...message,
+        createdAt: fromPrismaDateTime(message.createdAt),
+        deletedAt: message.deletedAt
+          ? fromPrismaDateTime(message.deletedAt)
+          : null,
+        editedAt: message.editedAt
+          ? fromPrismaDateTime(message.editedAt)
+          : null,
+      })
+    ),
     pairKey: conversation.pairKey,
+    type: conversation._type,
     updatedAt: fromPrismaDateTime(conversation.updatedAt),
   };
 }
@@ -214,7 +348,34 @@ export async function GET(request: Request) {
     }
   }
   const conversationRows = await conversationQuery.all();
-  const page = conversationRows.map(mapConversation);
+  const readSequenceByConversation = new Map(
+    conversationRows.map((row) => [
+      row.id,
+      row.messageConversationMembers.find((member) => member.userId === user.id)
+        ?.lastReadSequence ?? null,
+    ])
+  );
+  const unreadCounterByConversation = new Map(
+    conversationRows.map((row) => [
+      row.id,
+      row.messageConversationMembers.find((member) => member.userId === user.id)
+        ?.unreadCount ?? null,
+    ])
+  );
+  // The viewer's own stint boundaries for every den on the page, in one read.
+  // A rejoin leaves the membership row unable to say which stretch of the
+  // transcript the viewer was away for, and the preview below must not offer a
+  // message from that stretch any more than the transcript route may serve it.
+  const membershipEventsByDen = await listDenMembershipEventsForUser(
+    conversationRows.filter((row) => row._type === "DEN").map((row) => row.id),
+    user.id
+  );
+  // Bound, so the mapper's viewer is the session's and not a closure over
+  // something that a later caller could get wrong. `map` passes (row, index), and
+  // an index would silently become the viewer id if this were passed bare.
+  const page = conversationRows.map((row) =>
+    mapConversation(row, user.id, membershipEventsByDen.get(row.id) ?? [])
+  );
   const hasMore = page.length > PAGE_SIZE;
   const visiblePage = hasMore ? page.slice(0, PAGE_SIZE) : page;
 
@@ -230,65 +391,88 @@ export async function GET(request: Request) {
     ...iBlocked.map((row) => row.blockedId),
     ...blockedMe.map((row) => row.blockerId),
   ]);
+  // Hiding a blocked peer is a DM-only rule, and this filter is the conversation
+  // LIST half of it. The decision is delegated to the same predicate the detail
+  // gate, the badge seed and the send path use rather than re-derived here; a den
+  // passes it whatever the predicate says, because a den admits regardless of
+  // blocks.
   const visibleConversations = visiblePage.filter((conversation) => {
-    const other = conversation.members.find(
-      (member) => member.userId !== user.id
-    );
-    return !other || !hiddenPartnerIds.has(other.userId);
+    const other = dmPeerId(conversation.members, user.id);
+    if (
+      isHiddenByBlock(
+        conversation.type,
+        other,
+        other !== undefined && hiddenPartnerIds.has(other)
+      )
+    ) {
+      return false;
+    }
+    // An empty DM is not a conversation yet, so it is not on the rail either.
+    // Starting a chat with somebody creates the row immediately (create-or-find),
+    // and without this filter the list showed a silent, messageless row for every
+    // person the reader had ever opened a thread with. Dens keep their place even
+    // when quiet: membership is the fact a den row represents, and a room you
+    // belong to is worth clicking into even before anybody speaks. The list
+    // re-fetches on every arriving message (the client listens for that), so the
+    // moment the DM has a message it appears - nothing is lost, only deferred
+    // until there is something to show.
+    if (conversation.type === "DM" && conversation.messages.length === 0) {
+      return false;
+    }
+    return true;
   });
 
-  // One grouped query for the whole page instead of a count round-trip per
-  // conversation. Each member's own read watermark bounds its conversation's
-  // unread set, so the query fetches only genuinely-unread rows rather than
-  // every message since epoch 0 (a page-wide "earliest" bound would let one
-  // never-read thread pull all messages across the page).
-  const readAtByConversation = new Map<string, Date>();
-  for (const conversation of visibleConversations) {
+  // Ready counters answer each conversation directly. One grouped query handles
+  // only members awaiting durable backfill; PostgreSQL still groups that fallback
+  // set instead of sending unread message rows to JavaScript. Each pending
+  // member's own read watermark bounds its conversation's unread set.
+  const unreadWatermarks = visibleConversations.flatMap((conversation) => {
+    if (unreadCounterByConversation.get(conversation.id) !== null) {
+      return [];
+    }
     const myMember = conversation.members.find(
       (member) => member.userId === user.id
     );
-    readAtByConversation.set(
-      conversation.id,
-      myMember?.lastReadAt ?? new Date(0)
-    );
-  }
-  const unreadRows =
-    visibleConversations.length === 0
+    const lastReadSequence = readSequenceByConversation.get(conversation.id);
+    return [
+      {
+        conversationId: conversation.id,
+        lastReadAt: myMember?.lastReadAt ?? null,
+        ...(lastReadSequence === null || lastReadSequence === undefined
+          ? {}
+          : { lastReadSequence }),
+        windows:
+          conversation.type === "DEN"
+            ? readerMessageWindows({
+                conversationType: "DEN",
+                events: membershipEventsByDen.get(conversation.id) ?? [],
+                membership: myMember
+                  ? {
+                      createdAt: myMember.createdAt,
+                      leftAt: myMember.leftAt ?? null,
+                    }
+                  : null,
+                userId: user.id,
+              })
+            : undefined,
+      },
+    ];
+  });
+  const unreadCounts =
+    unreadWatermarks.length === 0
       ? []
-      : await prisma.orm.public.Messages.select("conversationId")
-          .where((message) =>
-            and(
-              // Per-conversation bound: each OR branch carries its own
-              // watermark, so a never-read thread cannot drag in every message
-              // on the page.
-              or(
-                ...visibleConversations.map((conversation) =>
-                  and(
-                    message.conversationId.eq(conversation.id),
-                    message.createdAt.gt(
-                      toPrismaDateTime(
-                        readAtByConversation.get(conversation.id) ?? new Date(0)
-                      )
-                    )
-                  )
-                )
-              ),
-              message.deletedAt.isNull(),
-              message.hiddenFor.none((hidden) => hidden.userId.eq(user.id)),
-              message.senderId.notIn([user.id])
-            )
-          )
-          .all();
+      : await prisma.orm.public.Messages.where(
+          unreadMessagesWhere({
+            userId: user.id,
+            watermarks: unreadWatermarks,
+          })
+        )
+          .groupBy("conversationId")
+          .aggregate((aggregate) => ({ count: aggregate.count() }));
 
-  // Bucket the (already watermark-filtered) unread rows in one pass. No further
-  // per-row compare is needed: every row cleared its own conversation's bound.
-  const unreadCountByConversation = new Map<string, number>();
-  for (const row of unreadRows) {
-    unreadCountByConversation.set(
-      row.conversationId,
-      (unreadCountByConversation.get(row.conversationId) ?? 0) + 1
-    );
-  }
+  const unreadCountByConversation = new Map(
+    unreadCounts.map((row) => [row.conversationId, row.count])
+  );
 
   const items: ConversationListItem[] = visibleConversations.map(
     (conversation) => {
@@ -296,15 +480,23 @@ export async function GET(request: Request) {
       const myMember = conversation.members.find(
         (member) => member.userId === user.id
       );
-      const unreadCount = unreadCountByConversation.get(conversation.id) ?? 0;
+      const unreadCount =
+        unreadCounterByConversation.get(conversation.id) ??
+        unreadCountByConversation.get(conversation.id) ??
+        0;
       // A muted chat keeps its messages but loses its badge: mute is this
       // member's own preference, so it is applied here rather than by filtering
       // the query (which would also drop the thread from the rail).
-      return toListItem(
-        conversation,
-        lastMessage,
-        myMember?.mutedAt ? 0 : unreadCount
-      );
+      //
+      // A den somebody left loses its badge for the same reason and a stronger
+      // one: they cannot mark it read, because the read route refuses them, so a
+      // badge here is a number that can only go up and never come down. It would
+      // sit on the rail forever counting messages they will never be able to open.
+      let badge = unreadCount;
+      if (myMember?.leftAt || myMember?.mutedAt) {
+        badge = 0;
+      }
+      return toListItem(conversation, lastMessage, badge);
     }
   );
 
@@ -330,8 +522,36 @@ export async function POST(request: Request) {
   }
 
   const parsed = await parseJsonBody(request);
-  const body = parsed as { recipientId?: string } | null;
-  const { recipientId } = body ?? {};
+  const body = objectOf(parsed);
+
+  // Two shapes share one route because they share one table and one client cache
+  // entry. The discriminator is explicit (`type: "DEN"`) rather than inferred
+  // from the presence of memberIds, so a malformed DM body can never be mistaken
+  // for a request to create a group.
+  if (body?.type === "DEN") {
+    // The already-parsed body, not the Request. A Request body is a stream that
+    // can be read once, and this route has read it; re-parsing here returned
+    // null, so every den create answered "name is required" and - the reason
+    // this is a correctness fix rather than a tidy-up - never reached the
+    // limiter below it. A budget that cannot be reached is not a budget.
+    return await createDenFromRequest(body, user.id);
+  }
+
+  // The DM half of this route. The den half has been metered since it was
+  // written and this half was not, which is the oldest asymmetry on the surface.
+  //
+  // Charged on its own bucket rather than sharing the den's, because the two
+  // cannot compete and a shared budget would only ever be the looser of the two:
+  // somebody legitimately opening DMs all afternoon would spend the budget a den
+  // create needs, and a script creating one den an hour would spend a DM's. It
+  // sits before the recipient lookup and the four follow/identity/block queries,
+  // since a limiter that runs after them has already paid for them.
+  const limited = await consumeDenRateLimit(DEN_DM_CREATE_RATE_LIMIT, user.id);
+  if (limited) {
+    return limited;
+  }
+
+  const recipientId = body?.recipientId;
   if (typeof recipientId !== "string" || recipientId.length === 0) {
     return Response.json({ error: "recipientId is required" }, { status: 400 });
   }
@@ -407,7 +627,7 @@ export async function POST(request: Request) {
     .first();
   if (existingRow) {
     return Response.json({
-      conversation: mapConversation(existingRow),
+      conversation: mapConversation(existingRow, user.id, []),
       isNew: false,
     });
   }
@@ -424,10 +644,12 @@ export async function POST(request: Request) {
       });
       await tx.orm.public.MessageConversationMembers.create({
         conversationId: created.id,
+        unreadCount: 0,
         userId: recipientId,
       });
       await tx.orm.public.MessageConversationMembers.create({
         conversationId: created.id,
+        unreadCount: 0,
         userId: user.id,
       });
       const row = await getMessageConversationDataQuery(tx.orm)
@@ -436,7 +658,7 @@ export async function POST(request: Request) {
       if (!row) {
         throw new Error("Conversation not found after creation");
       }
-      return mapConversation(row);
+      return mapConversation(row, user.id, []);
     })
     .catch(async (error: unknown) => {
       if (!isUniqueConstraintViolation(error)) {
@@ -446,10 +668,156 @@ export async function POST(request: Request) {
         .where({ pairKey })
         .first();
       if (winner) {
-        return mapConversation(winner);
+        return mapConversation(winner, user.id, []);
       }
       throw error;
     });
 
   return Response.json({ conversation, isNew: true }, { status: 201 });
+}
+
+// Binds a freshly-created den's avatar to the new conversation so the rest of
+// the roster can load it. A den avatar is uploaded BEFORE the den exists (the
+// creator picks it in the create sheet), so it cannot be conversation-bound at
+// upload the way a message attachment is; it lands as an owner-readable unlinked
+// row. This binds it after the fact.
+//
+// The binding is what `decideMediaAccess` reads to admit conversation members.
+// Without it only the creator could fetch `/api/media/{id}`, and every other
+// member's den would render a placeholder for a picture the creator can see.
+// The same conservative guard as `message-link` runs here: the caller must own
+// the row AND it must not already be bound elsewhere, so this can never re-point
+// somebody else's media or move an existing attachment.
+//
+// Best-effort. The den exists either way, and an avatar the roster cannot see is
+// a lesser outcome than a failed create; the creator's own copy still renders
+// because an unlinked row is owner-readable.
+async function bindDenAvatarToConversation(
+  conversationId: string,
+  avatarMediaId: string | null,
+  creatorId: string
+): Promise<void> {
+  if (!avatarMediaId) {
+    return;
+  }
+  try {
+    await prisma.orm.public.PostMedia.where((media) =>
+      and(
+        media.id.eq(avatarMediaId),
+        media.userId.eq(creatorId),
+        media.status.in([
+          "READY",
+          "PROCESSING",
+          "SCANNING",
+          "QUARANTINED",
+          "UPLOADING",
+        ]),
+        media.messageConversationId.isNull()
+      )
+    ).updateAndCount({ messageConversationId: conversationId });
+  } catch (error) {
+    console.error("Failed to bind den avatar to conversation:", error);
+  }
+}
+
+// Den creation. Shares this route so the client lands on the same conversation
+// cache entry it would for a DM, and so the response shape is identical.
+async function createDenFromRequest(
+  body: Record<string, unknown> | null,
+  creatorId: string
+): Promise<Response> {
+  const name = body?.name;
+  if (typeof name !== "string") {
+    return Response.json({ error: "name is required" }, { status: 400 });
+  }
+  const parsedIds = parseMemberIds(body?.memberIds);
+  if (parsedIds.failure) {
+    return denCandidateFailureResponse(parsedIds.failure);
+  }
+
+  // The creator needs their own identity before anyone can be wrapped for them.
+  if (!(await hasMessageIdentity(creatorId))) {
+    return Response.json(
+      { error: "Enable Messages first to start a conversation" },
+      { status: 409 }
+    );
+  }
+
+  const limited = await consumeDenRateLimit(DEN_CREATE_RATE_LIMIT, creatorId);
+  if (limited) {
+    return limited;
+  }
+
+  // Each candidate's own group-add policy decides, not the relationship between
+  // the creator and the candidate: a den admits regardless of blocks, so there is
+  // no incumbent roster to test anybody against, and the one relationship that
+  // does matter is the one the candidate controls.
+  const failure = await validateDenRoster(
+    creatorId,
+    [creatorId, ...parsedIds.memberIds],
+    { currentMemberCount: 0 }
+  );
+  if (failure) {
+    return denCandidateFailureResponse(failure);
+  }
+
+  const avatarMediaId = optionalStringField(body ?? null, "avatarMediaId");
+  if (!avatarMediaId.ok) {
+    return Response.json(
+      { error: "avatarMediaId must be a string" },
+      { status: 400 }
+    );
+  }
+  const description = optionalStringField(body ?? null, "description");
+  if (!description.ok) {
+    return Response.json(
+      { error: "description must be a string" },
+      { status: 400 }
+    );
+  }
+
+  try {
+    const created = await createDen({
+      avatarMediaId: avatarMediaId.value ?? null,
+      creatorId,
+      description: description.value ?? null,
+      memberIds: parsedIds.memberIds,
+      name,
+    });
+    // The avatar was picked before the den existed, so it is bound to the
+    // conversation only now. Every member's client loads it through
+    // `/api/media/{id}`, and that route admits conversation members off this link.
+    await bindDenAvatarToConversation(
+      created.id,
+      avatarMediaId.value ?? null,
+      creatorId
+    );
+    // Re-read through the same mapper the DM path uses, so the client receives
+    // an identical conversation shape and does not need a second fetch before it
+    // can fan the root key out to the new members.
+    const row = await getMessageConversationDataQuery(prisma.orm)
+      .where({ id: created.id })
+      .first();
+    if (!row) {
+      return Response.json({ error: "Den not found" }, { status: 404 });
+    }
+    return Response.json(
+      {
+        conversation: mapConversation(row, creatorId, []),
+        // Both doors come back at creation: the creator is the person most
+        // likely to share immediately, and the details route would otherwise
+        // be the only way to learn the short code exists. Manager-scoped
+        // exactly like `inviteCode` - the creator is the only reader here.
+        inviteCode: created.inviteCode,
+        inviteShortCode: created.inviteShortCode,
+        isNew: true,
+      },
+      { status: 201 }
+    );
+  } catch (error) {
+    return denErrorResponse(error, {
+      operation: "den.create",
+      userId: creatorId,
+    });
+  }
 }

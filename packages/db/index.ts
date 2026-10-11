@@ -14,8 +14,161 @@ export * from "./src/communities/media";
 export * from "./src/communities/service";
 export * from "./src/communities/slug";
 export { communityVisibilityWhere } from "./src/communities/visibility";
-export { visibleToUser, unreadMessageWhere } from "./src/messages/visibility";
+export {
+  DEN_INVITE_CODE_ALPHABET,
+  DEN_INVITE_DURATION_DAYS,
+  DEN_LIMITS,
+  DEN_MANAGEMENT_ROLES,
+  DEN_ROLES,
+  DEN_SHORT_CODE_ALPHABET,
+  DEN_SHORT_CODE_LENGTH,
+  GROUP_ADD_POLICIES,
+  GROUP_ADD_REFUSAL_COPY,
+  canManageDen,
+  canManageRole,
+  denInviteExpiresAt,
+  groupAddRefusal,
+  isDenInviteDurationDays,
+  isDenRole,
+  isDenShortCode,
+  isGroupAddPolicy,
+  normalizeDenName,
+  normalizeDenShortCode,
+  validateDenDescription,
+  validateDenName,
+} from "./src/messages/dens";
+export type {
+  ConversationType,
+  DenInviteDurationDays,
+  DenManagementRole,
+  DenMembershipEventAction,
+  DenRole,
+  GroupAddPolicy,
+  GroupAddRefusal,
+} from "./src/messages/dens";
+export {
+  groupAddEligibility,
+  groupAddRefusalError,
+  groupAddRefusalFor,
+} from "./src/messages/den-group-add";
+export {
+  DEN_BAN_REASON_MAX,
+  filterBannedUserIds,
+  isDenBanned,
+  listDenBans,
+  normalizeDenBanReason,
+} from "./src/messages/den-bans";
+export type { DenBan } from "./src/messages/den-bans";
+export {
+  DenError,
+  addDenMembers,
+  archiveCodeIsTaken,
+  banDenMember,
+  createDen,
+  createDenInvite,
+  createDenShortCode,
+  dissolveDen,
+  generateDenShortCode,
+  generateInviteCode,
+  getDenMembership,
+  isCurrentDenMember,
+  joinDenByInviteCode,
+  leaveDen,
+  listDenMembershipEvents,
+  listDenMembershipEventsForUser,
+  previewInvite,
+  removeDenMember,
+  requireDenManager,
+  requireDenMembership,
+  requireDenOwner,
+  setDenMemberRole,
+  transferDenOwnership,
+  unbanDenMember,
+  updateDenDetails,
+} from "./src/messages/den-service";
+export type {
+  CreateDenInput,
+  DenInvitePreview,
+  DenMembership,
+  DenMembershipEvent,
+  JoinDenResult,
+  LeaveDenResult,
+} from "./src/messages/den-service";
+export {
+  visibleToUser,
+  unreadMessagesWhere,
+  unreadMessageWhere,
+} from "./src/messages/visibility";
 export { prebuildDmIndexes } from "./src/messages/prebuild-indexes";
+export {
+  commitMessageSearchBackfillBatch,
+  commitMessageHides,
+  commitMessageConversationRead,
+  closeMessageSearchPool,
+  commitMessageSearchMutation,
+  claimMessageSearchCountRequest,
+  completeMessageSearchCountRequest,
+  countMessageSearchCandidates,
+  commitMessageIdentityBackupRefresh,
+  hydrateSearchMessageCandidates,
+  listMessageSearchReferences,
+  listRunnableMessageUnreadCounters,
+  reconcileMessageUnreadCounter,
+  expireStaleMessageSearchCounts,
+  getMessageSearchCountRequestStatus,
+  listRunnableMessageSearchCounts,
+  listMessageConversationChanges,
+  listRunnableMessageSearchBackfills,
+  listRunnableMessageSearchOutbox,
+  markSearchOutboxUnreadable,
+  persistSearchDocument,
+  recordMessageSearchOutboxFailure,
+  readNextMessageSearchBackfillBatch,
+  readMessageSearchViewerEpochCoverage,
+  releaseMessageSearchCountRequest,
+  requestMessageSearchCount,
+  searchMessageCandidates,
+  startMessageSearchBackfill,
+} from "./src/messages/search-index";
+export type {
+  MessageIdentityBackupRefreshInput,
+  MessageIdentityBackupRefreshResult,
+  MessageConversationChange,
+  MessageHideCommitResult,
+  MessageReadCommitResult,
+} from "./src/messages/search-index";
+export type {
+  MessageSearchCountRequest,
+  MessageSearchCountRequestInput,
+  MessageSearchCountRequestStatus,
+  MessageSearchMutationInput,
+  MessageSearchMutationResult,
+  MessageSearchBackfillArtifact,
+  MessageSearchBackfillBatch,
+  MessageSearchBackfillMessage,
+  MessageSearchBackfillOutcome,
+  MessageSearchBackfillPosition,
+  SearchCandidateQuery,
+  SearchCandidateRow,
+  SearchHydrationQuery,
+  SearchHydrationRequest,
+  SearchReferenceCursor,
+  SearchReferenceQuery,
+  SearchReferenceRow,
+  SearchDocumentArtifact,
+  SearchReferenceArtifact,
+  SearchMessageWindow,
+  SearchTermArtifact,
+  MessageUnreadCounterMember,
+} from "./src/messages/search-index";
+export { keys } from "./keys";
+export { createDenMessageNotifications } from "./src/messages/den-notifications";
+export type { DenMessageNotification } from "./src/messages/den-notifications";
+export { createDenMembershipEndedNotifications } from "./src/messages/den-membership-notifications";
+export type {
+  DenMembershipEndedNotification,
+  DenMembershipEndedReason,
+} from "./src/messages/den-membership-notifications";
 export * from "./src/users/badges";
 export * from "./queue";
 export * from "./src/client";
@@ -45,3 +198,6 @@ export * from "./src/recommendation/trending-score";
 export * from "./src/notifications";
 export * from "./src/posts/ancestors";
 export * from "./src/posts/visible";
+
+export { messageSearchEpochFingerprint } from "./src/messages/epoch-readability";
+export type { MessageSearchEpochProof } from "./src/messages/epoch-readability";

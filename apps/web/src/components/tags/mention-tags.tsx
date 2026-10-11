@@ -288,7 +288,7 @@ export const MentionTags = ({
       ) : null}
 
       <Dialog onOpenChange={setIsEditing} open={isEditing}>
-        <DialogContent className="rounded-xl border border-blue-500/15 shadow-lg shadow-blue-500/5 sm:max-w-[400px]">
+        <DialogContent className="rounded-2xl! sm:max-w-[400px]">
           <DialogTitle className="flex items-center gap-2 text-base font-medium">
             <AtSign className="h-3.5 w-3.5 text-blue-500" />
             Mention People

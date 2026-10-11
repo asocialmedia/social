@@ -14,7 +14,24 @@ function createPrismaClient(): PrismaClient {
   return postgres<Contract>({
     contractJson,
     poolOptions: {
-      connectionTimeoutMillis: 5000,
+      // Generous on purpose, because the ceiling is not an accident of this app:
+      // a den admits up to `DEN_LIMITS.membersMax` people, and every membership
+      // change takes that den's claim lock, so a burst of legitimate roster writes
+      // serializes into a queue behind one row. Each writer in that queue is
+      // holding a connection while it waits, so the pool has to be willing to wait
+      // for its turn rather than give up.
+      //
+      // At the 5s this used to be, that queue was not the thing being measured -
+      // the wait was. A hundred-way race lost writers to
+      // "timeout exceeded when trying to connect" before the lock ever got to
+      // them, so the test reported a dropped write where the service had actually
+      // done nothing wrong, and the same would have happened to a real owner
+      // inviting a full den's worth of people at once.
+      //
+      // This is the pool's acquisition wait, not a query timeout: it bounds how
+      // long a caller sits waiting for a connection, and nothing here caps how
+      // long a statement may run once it has one.
+      connectionTimeoutMillis: 30_000,
       idleTimeoutMillis: 60_000,
     },
     url: keys.DATABASE_URL,

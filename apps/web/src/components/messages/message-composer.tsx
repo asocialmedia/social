@@ -23,15 +23,23 @@ import { MessageAttachmentStrip } from "@/components/messages/message-attachment
 import { useMessagesIdentity } from "@/components/messages/message-identity-provider";
 import { useMessageAttachments } from "@/components/messages/use-message-attachments";
 import { toast } from "@/lib/gooey-toast";
+import { messageWindowIncludesLatest } from "@/lib/messages/anchored-window";
 import {
   MessagesApiError,
-  appendMessageToLastPage,
+  foldMessageIntoBoundedData,
   ensureConversationKeys,
   fetchConversationDetail,
   sendEncryptedMessage,
   sendTypingIndicator,
 } from "@/lib/messages/client";
-import type { ConversationDetailResponse } from "@/lib/messages/client";
+import type {
+  ConversationDetailResponse,
+  MessagePageAxis,
+} from "@/lib/messages/client";
+import {
+  composerPlaceholder,
+  replySenderFallbackName,
+} from "@/lib/messages/composer-copy";
 import type { MessagePayload } from "@/lib/messages/crypto";
 import type { MessagePage } from "@/lib/messages/types";
 import { cn } from "@/lib/utils";
@@ -43,6 +51,11 @@ const MessageImageEditDialog = dynamic(
 );
 
 interface MessageComposerProps {
+  // Set when the server told us this member is no longer inside the conversation.
+  // The composer stays mounted and keeps its draft; only the controls go quiet, so
+  // being removed from a den mid-sentence does not throw away what was being
+  // written, and the placeholder below explains why the input is dead.
+  accessEnded?: boolean;
   conversation: ConversationDetailResponse;
   editTarget: {
     content: string;
@@ -100,6 +113,7 @@ async function sendWithRatchetRetry(
 }
 
 export function MessageComposer({
+  accessEnded = false,
   conversation,
   editTarget,
   onDraftInput,
@@ -181,13 +195,39 @@ export function MessageComposer({
     // oxlint-disable-next-line react/exhaustive-effect-dependencies -- text intentionally triggers a height re-measure on every keystroke
   }, [text, adjustTextareaHeight]);
 
+  // The peer, and only once this device knows who it is.
+  //
+  // Gated on the session rather than only on the comparison, because with no session
+  // every `member.userId !== undefined` is true and the FIRST member came back - so
+  // during the window before the session resolved a DM named the wrong person, and a
+  // den named whichever of its members happened to be listed first. Nothing downstream
+  // can act on it (`sendPayload` already refuses without a user), but it is the one
+  // thing the reader can see, so it says "them" instead.
+  //
+  // `user` rather than `user?.id` as the dependency, which the React Compiler
+  // enforces: it infers `user`, and a narrower listed dependency is a manual memo it
+  // cannot preserve.
   const peer = useMemo(
     () =>
-      conversation.conversation.members.find(
-        (member) => member.userId !== user?.id
-      ),
-    [conversation.conversation.members, user?.id]
+      user
+        ? conversation.conversation.members.find(
+            (member) => member.userId !== user.id
+          )
+        : undefined,
+    [conversation.conversation.members, user]
   );
+
+  // A den has no single peer, so it is never addressed by one. `peer` above stays
+  // as it is because the send path guards on it, but the two things that NAME
+  // somebody - the placeholder and the reply byline - read this instead.
+  const isDen = conversation.conversation.type === "DEN";
+  const placeholder = composerPlaceholder({
+    denName: conversation.conversation.name ?? null,
+    editing,
+    isDen,
+    peerDisplayName: peer?.user.displayName ?? null,
+    writeBlockedByMembership: accessEnded,
+  });
 
   // Unwrap the root key, encrypt, post, and fold the sent message into the
   // cache. Shared by text, image, and GIF sends so every message type uses the
@@ -257,17 +297,18 @@ export function MessageComposer({
           payload
         );
 
-        // Fold the sent message into the cache (deduped against the SSE echo
-        // of the same message) and clear the input.
-        queryClient.setQueryData(
+        // Fold the sent message into the cache (deduped against the SSE echo of
+        // the same message) and clear the input.
+        queryClient.setQueryData<InfiniteData<MessagePage, MessagePageAxis>>(
           ["messages", conversation.conversation.id],
-          (old: unknown) => {
-            if (!old) {
+          (old) => {
+            if (
+              !old ||
+              !messageWindowIncludesLatest(old.pages, old.pageParams)
+            ) {
               return old;
             }
-            const data = old as InfiniteData<MessagePage, string | undefined>;
-            const nextPages = appendMessageToLastPage(data.pages, sent);
-            return nextPages ? { ...data, pages: nextPages } : old;
+            return foldMessageIntoBoundedData(old, sent) ?? old;
           }
         );
         if (!options?.preserveInput) {
@@ -495,12 +536,18 @@ export function MessageComposer({
     [addFiles]
   );
 
-  const handleDragOver = useCallback((event: React.DragEvent) => {
-    if (event.dataTransfer.types.includes("Files")) {
-      event.preventDefault();
-      setDragActive(true);
-    }
-  }, []);
+  const handleDragOver = useCallback(
+    (event: React.DragEvent) => {
+      if (accessEnded) {
+        return;
+      }
+      if (event.dataTransfer.types.includes("Files")) {
+        event.preventDefault();
+        setDragActive(true);
+      }
+    },
+    [accessEnded]
+  );
 
   const handleDragLeave = useCallback((event: React.DragEvent) => {
     // Ignore leaves that stay inside the composer (fired when moving between
@@ -515,9 +562,12 @@ export function MessageComposer({
     (event: React.DragEvent) => {
       event.preventDefault();
       setDragActive(false);
+      if (accessEnded) {
+        return;
+      }
       handleFilesSelected(event.dataTransfer.files);
     },
-    [handleFilesSelected]
+    [accessEnded, handleFilesSelected]
   );
 
   const handlePaste = useCallback(
@@ -525,10 +575,13 @@ export function MessageComposer({
       const { files } = event.clipboardData ?? {};
       if (files && files.length > 0) {
         event.preventDefault();
+        if (accessEnded) {
+          return;
+        }
         handleFilesSelected(files);
       }
     },
-    [handleFilesSelected]
+    [accessEnded, handleFilesSelected]
   );
 
   const handleEditAttachment = useCallback((id: string) => {
@@ -569,11 +622,17 @@ export function MessageComposer({
   // to remove it, so an empty body is allowed for those types.
   const emptyBodyBlocksSave =
     editTarget?.payloadType === "text" && text.trim().length === 0;
-  const sendDisabled = editing
-    ? busy || emptyBodyBlocksSave
-    : busy ||
-      isUploading ||
-      (attachments.length > 0 ? !canSend : text.trim().length === 0);
+  const sendDisabled =
+    accessEnded ||
+    (editing
+      ? busy || emptyBodyBlocksSave
+      : busy ||
+        isUploading ||
+        (attachments.length > 0 ? !canSend : text.trim().length === 0));
+  // One flag for every control that would start a write, so a removed member
+  // cannot slip a send through the Enter key or a pasted attachment while the
+  // button is merely greyed out.
+  const writeBlocked = accessEnded || busy;
 
   // The send button doubles as a save button in edit mode; a spinner wins while
   // either request is in flight.
@@ -626,9 +685,11 @@ export function MessageComposer({
             <span className="text-muted-foreground">Replying to </span>
             <span className="font-medium">
               {replyTarget.senderName ??
-                (replyTarget.senderId === user?.id
-                  ? "yourself"
-                  : (peer?.user.displayName ?? "them"))}
+                replySenderFallbackName({
+                  isDen,
+                  peerDisplayName: peer?.user.displayName ?? null,
+                  senderIsMe: replyTarget.senderId === user?.id,
+                })}
             </span>
             {replyTarget.content ? (
               <span className="text-muted-foreground block truncate">
@@ -683,8 +744,8 @@ export function MessageComposer({
         />
         <textarea
           aria-label="Message"
-          className="placeholder:text-muted-foreground max-h-32 min-h-10 flex-1 resize-none bg-transparent py-1.5 text-sm outline-none"
-          disabled={busy}
+          className="placeholder:text-muted-foreground max-h-32 min-h-10 flex-1 resize-none bg-transparent py-1.5 text-sm outline-none disabled:opacity-60"
+          disabled={writeBlocked}
           onChange={(event) => {
             const { value } = event.target;
             setText(value);
@@ -707,11 +768,7 @@ export function MessageComposer({
           }}
           onKeyDown={handleKeyDown}
           onPaste={handlePaste}
-          placeholder={
-            editing
-              ? "Edit message…"
-              : `Message ${peer?.user.displayName ?? "them"}…`
-          }
+          placeholder={placeholder}
           ref={textareaRef}
           rows={1}
           value={text}
@@ -723,7 +780,7 @@ export function MessageComposer({
             "hover:bg-linear-to-b hover:from-[#ff9500] hover:to-[#e65500] hover:text-white hover:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)] hover:brightness-110",
             (busy || editing) && "opacity-50"
           )}
-          disabled={busy || editing}
+          disabled={writeBlocked || editing}
           onClick={() => fileInputRef.current?.click()}
           type="button"
         >
@@ -738,7 +795,7 @@ export function MessageComposer({
               : "hover:bg-linear-to-b hover:from-[#ff9500] hover:to-[#e65500] hover:text-white hover:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)] hover:brightness-110",
             (busy || editing) && "opacity-50"
           )}
-          disabled={busy || editing}
+          disabled={writeBlocked || editing}
           onClick={() => setGifPickerOpen((prev) => !prev)}
           type="button"
         >

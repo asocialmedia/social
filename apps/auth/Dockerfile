@@ -15,7 +15,7 @@ WORKDIR /app/apps/auth
 
 RUN bun run build
 RUN bun run build:worker
-FROM alpine:3.20 AS runtime
+FROM alpine:3.20 AS runtime-base
 RUN apk add --no-cache \
     curl \
     libgcc \
@@ -23,10 +23,20 @@ RUN apk add --no-cache \
     && addgroup -g 1001 -S auth \
     && adduser -S auth -u 1001 -G auth
 WORKDIR /app
+ENV NODE_ENV=production
 COPY --from=build --chown=auth:auth /app/apps/auth/dist/auth-server ./auth-server
 COPY --from=build --chown=auth:auth /app/apps/auth/dist/asm-worker ./asm-worker
 COPY --from=build --chown=auth:auth /app/apps/auth/scripts/docker-entrypoint.sh ./docker-entrypoint.sh
 RUN chmod +x ./docker-entrypoint.sh
+
+FROM runtime-base AS message-search-worker
+USER auth
+ENV MESSAGE_SEARCH_WORKER_ONLY=1
+HEALTHCHECK --interval=10s --timeout=3s --start-period=30s --retries=3 \
+    CMD ["./asm-worker", "--health-check"]
+CMD ["./asm-worker"]
+
+FROM runtime-base AS runtime
 USER auth
 EXPOSE 3001
 ENV PORT=3001

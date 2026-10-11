@@ -69,8 +69,17 @@ export interface SharedRefRecord {
 export interface SharedRefsPage {
   // Strictly OLDER than this, on the next read. Absent means "from the newest".
   after?: string;
+  coverageComplete?: boolean;
+  coveragePaused?: boolean;
+  coverageSettled?: boolean;
   hasMore: boolean;
   items: SharedRefRecord[];
+  window?: {
+    hasNewer: boolean;
+    hasOlder: boolean;
+    newerCursor: string | null;
+    olderCursor: string | null;
+  };
 }
 
 // Per-conversation, per-kind totals, so a tab can label itself before reading a

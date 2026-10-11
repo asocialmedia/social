@@ -15,7 +15,8 @@
 // search index accepts. This is the only place that reads the attachment and
 // post references, and it is also the only place that can turn them into rows.
 
-import { extractPostUrls } from "@/lib/link-embeds/shared";
+import { extractMessageReferences } from "@asm/messages/crypto";
+
 import { getMediaImages } from "@/lib/messages/crypto";
 import type { MessagePayload } from "@/lib/messages/crypto";
 
@@ -53,44 +54,30 @@ export interface SharedRefs {
 export function extractSharedRefs(payload: MessagePayload): SharedRefs | null {
   const media: SharedMediaRef[] = [];
   const postIds: string[] = [];
-  let links: string[] = [];
+  const links: string[] = [];
+  const images = payload.type === "media" ? getMediaImages(payload) : [];
 
-  if (payload.type === "post") {
-    // Truthy-checked rather than assumed. A payload that decrypts to a shape this
-    // build does not recognise is not hypothetical here: the writer's own test
-    // fixtures are built from a deliberately loose view, and a missing `postId`
-    // would otherwise be stored as a post share that resolves to nothing.
-    if (payload.postId) {
-      postIds.push(payload.postId);
-    }
-  } else if (payload.type === "media") {
-    const images = getMediaImages(payload);
-    for (let imageIndex = 0; imageIndex < images.length; imageIndex += 1) {
-      const image = images[imageIndex];
-      if (!image?.url) {
-        continue;
+  for (const reference of extractMessageReferences(payload)) {
+    if (
+      reference.kind === "media" &&
+      reference.url &&
+      payload.type === "media"
+    ) {
+      const image = images[reference.ordinal];
+      if (image) {
+        media.push({
+          height: image.height,
+          imageIndex: reference.ordinal,
+          kind: payload.kind,
+          url: reference.url,
+          width: image.width,
+        });
       }
-      media.push({
-        height: image.height,
-        imageIndex,
-        kind: payload.kind,
-        url: image.url,
-        width: image.width,
-      });
+    } else if (reference.kind === "post" && reference.requiredId) {
+      postIds.push(reference.requiredId);
+    } else if (reference.kind === "link" && reference.url) {
+      links.push(reference.url);
     }
-  }
-
-  // A text body, or the caption typed alongside a post share or a media album.
-  // Both are places a link can hide, and the transcript unfurls both, so the
-  // index records both. String-checked, because a payload of a shape this build
-  // does not recognise can reach here and `extractPostUrls` would throw on a
-  // non-string instead of contributing nothing.
-  const text = typeof payload.content === "string" ? payload.content : "";
-  if (text) {
-    // Sanitized, deduped and capped per message, exactly as the bubble unfurls
-    // them, so the list and the thread can never disagree about what a message
-    // contains.
-    links = extractPostUrls(text);
   }
 
   if (media.length === 0 && postIds.length === 0 && links.length === 0) {

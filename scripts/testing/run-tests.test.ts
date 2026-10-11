@@ -175,7 +175,7 @@ describe("runTestSuite", () => {
     expect(invocations[0]?.cmd).toEqual([
       "bun",
       "test",
-      "--parallel",
+      "--parallel=4",
       "--env-file=.env.test",
       "--timings=test-timings.json",
       "--update-timings",
@@ -208,7 +208,7 @@ describe("runTestSuite", () => {
     expect(invocations[0]?.cmd).toEqual([
       "bun",
       "test",
-      "--parallel",
+      "--parallel=4",
       "--env-file=.env.test",
       "--timings=test-timings.json",
       "--update-timings",
@@ -251,7 +251,7 @@ describe("runTestSuite", () => {
     expect(invocations[0]?.cmd).toEqual([
       "bun",
       "test",
-      "--parallel",
+      "--parallel=4",
       "--env-file=.env.test",
       "--timings=test-timings.json",
       "--update-timings",
@@ -279,7 +279,7 @@ describe("runTestSuite", () => {
     expect(invocations[0]?.cmd).toEqual([
       "bun",
       "test",
-      "--parallel",
+      "--parallel=4",
       "--env-file=.env.test",
       "--timings=test-timings.json",
       "--update-timings",
@@ -301,5 +301,16 @@ describe("runTestSuite", () => {
     });
 
     expect(invocations.length).toBe(1);
+  });
+
+  test("honors an explicit parallel worker override", async () => {
+    const { deps, invocations } = makeDeps({
+      allFiles: ["apps/web/b.test.ts"],
+    });
+
+    await runTestSuite(["--parallel=2"], deps);
+
+    expect(invocations[0]?.cmd).toContain("--parallel=2");
+    expect(invocations[0]?.cmd).not.toContain("--parallel=4");
   });
 });

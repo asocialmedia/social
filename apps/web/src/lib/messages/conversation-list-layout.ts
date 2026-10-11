@@ -25,16 +25,31 @@ export interface ConversationListLayoutInput {
   // True at Tailwind's `md` and up, matched with `48rem` so the CSS and this agree
   // on one number.
   desktopViewport: boolean;
+  // Explicit user collapse preference for desktop viewports.
+  collapsed?: boolean;
 }
 
 export function conversationListLayout({
+  collapsed,
   conversationOpen,
   desktopViewport,
 }: ConversationListLayoutInput): ConversationListLayout {
-  // Nothing open: the list is the surface, at every width. On a phone it is the
-  // whole screen; on a desktop it sits beside the empty state.
+  // Below md (phone), only one pane shows at a time: the thread if open,
+  // or the full list if nothing is open.
+  if (!desktopViewport) {
+    return conversationOpen ? "hidden" : "full";
+  }
+
+  // On desktop viewports, an explicit collapse choice takes precedence.
+  if (collapsed !== undefined) {
+    return collapsed ? "rail" : "full";
+  }
+
+  // Fallback when no collapse preference is specified:
+  // With nothing open, the list is the surface. With a thread open, desktop
+  // defaults to rail.
   if (!conversationOpen) {
     return "full";
   }
-  return desktopViewport ? "rail" : "hidden";
+  return "rail";
 }

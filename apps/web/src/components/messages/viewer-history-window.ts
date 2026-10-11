@@ -53,57 +53,34 @@ export function pagesToDropForViewerHistory(
   return Math.max(droppable, 0);
 }
 
-// ---- transcript retention ---------------------------------------------------
-//
-// The transcript's infinite query has no page cap, so scrolling up through a
-// long conversation retains every page ever fetched (measured: ~102MB for a
-// loaded 200k-message DM). Once a search jump can land anywhere in history via
-// an anchored read, that unbounded growth becomes the crash vector rather than
-// a slow leak, so the oldest pages are dropped once the reader has moved well
-// clear of them.
-//
-// Same shape and same safety argument as the viewer's policy above: trimming is
-// gated on the reader being a comfortable distance from the oldest loaded row,
-// so the near-top auto-loader can never re-fetch a page this just dropped and
-// spin in a load/trim loop.
+export const TRANSCRIPT_MAX_HISTORY_PAGES = 8;
+const LEGACY_TRANSCRIPT_HISTORY_KEEP_PAGES = 8;
+const LEGACY_TRANSCRIPT_MIN_ROWS_ABOVE_BOUNDARY = 240;
 
-// Pages retained before the anchor's page, as a buffer so a short scroll back
-// does not immediately need the network again.
-export const TRANSCRIPT_HISTORY_KEEP_PAGES = 8;
-
-// Minimum number of rows between the top of the loaded list and the first
-// visible row before any trim is allowed. Rows, not pages, because that is the
-// viewport's coordinate space and the auto-loader's trigger is an index.
-export const TRANSCRIPT_MIN_ROWS_ABOVE_BOUNDARY = 240;
-
+// Retained for the local scale audit; the live transcript uses bounded pagination.
 export interface TranscriptHistoryTrimInput {
-  // First message currently rendered in the viewport, or null before mount.
   anchorMessageId: string | null;
-  // Index of the first row the virtualizer has mounted.
   firstVisibleIndex: number;
-  // Finder returning the page index containing a message id, or -1.
   findPageIndex: (messageId: string) => number;
   pageCount: number;
 }
 
-// Number of oldest pages that may be dropped right now, or 0 when trimming is
-// unsafe. Pure so the policy is unit-tested independently of the virtualizer.
 export function pagesToDropForTranscriptHistory(
   input: TranscriptHistoryTrimInput
 ): number {
   const { anchorMessageId, findPageIndex, firstVisibleIndex, pageCount } =
     input;
-  if (!anchorMessageId || pageCount <= TRANSCRIPT_HISTORY_KEEP_PAGES + 1) {
-    return 0;
-  }
-  if (firstVisibleIndex < TRANSCRIPT_MIN_ROWS_ABOVE_BOUNDARY) {
+  if (
+    !anchorMessageId ||
+    pageCount <= LEGACY_TRANSCRIPT_HISTORY_KEEP_PAGES + 1 ||
+    firstVisibleIndex < LEGACY_TRANSCRIPT_MIN_ROWS_ABOVE_BOUNDARY
+  ) {
     return 0;
   }
   const anchorPage = findPageIndex(anchorMessageId);
-  if (anchorPage < 0) {
-    return 0;
-  }
-  return Math.max(anchorPage - TRANSCRIPT_HISTORY_KEEP_PAGES, 0);
+  return anchorPage < 0
+    ? 0
+    : Math.max(anchorPage - LEGACY_TRANSCRIPT_HISTORY_KEEP_PAGES, 0);
 }
 
 // Slices the oldest `drop` pages and their matching pageParams in lockstep.

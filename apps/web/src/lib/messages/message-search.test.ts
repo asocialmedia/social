@@ -328,6 +328,19 @@ describe("paginateSearchResults", () => {
       expect(page.pageResults[0]).toBe(onePage[0]);
     });
 
+    test("does not clamp cursor navigation to an inexact lower-bound count", () => {
+      const page = paginateSearchResults(
+        onePage,
+        9,
+        SEARCH_PAGE_SIZE,
+        100,
+        false
+      );
+      expect(page.page).toBe(9);
+      expect(page.rangeStart).toBe(181);
+      expect(page.pageResults).toHaveLength(SEARCH_PAGE_SIZE);
+    });
+
     test("an unread page is empty but keeps honest bounds", () => {
       // Before the window lands: the bounds must already describe the position,
       // or the bar would read "1–20 of 20" for page 500.

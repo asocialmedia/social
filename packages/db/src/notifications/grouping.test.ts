@@ -15,6 +15,8 @@ function createMockNotification(
     commentId: null,
     community: null,
     communityId: null,
+    conversation: null,
+    conversationId: null,
     count: 1,
     createdAt: new Date("2026-09-13T12:00:00.000Z"),
     issuer: {

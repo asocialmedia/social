@@ -1,5 +1,11 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import {
+  DEN_DELIVERY_RECEIPT_RATE_LIMIT,
+  DEN_READ_RECEIPT_RATE_LIMIT,
+} from "@/lib/messages/den-rate-limit";
+import { messageRouteLimiter } from "@/lib/messages/test-support/route-limiter-probe";
+
 import { POST } from "./route";
 
 type Session = { user: { id: string } } | null;
@@ -11,8 +17,10 @@ const mockUpdateAndCount = mock(() => 1);
 let lastMemberWhere: Record<string, unknown> | null = null;
 let lastWatermark: unknown = null;
 const mockPublishDelivered = mock(
-  (_conversationId: string, _userId: string, _deliveredAt: string) =>
-    Promise.resolve()
+  (_conversationId: string, _userId: string, _deliveredAt: string) => {
+    limiter.service("publish");
+    return Promise.resolve();
+  }
 );
 
 const CREATED_AT = new Date("2026-01-01T12:00:00.000Z");
@@ -20,6 +28,12 @@ const CREATED_AT = new Date("2026-01-01T12:00:00.000Z");
 mock.module("@/lib/auth/session", () => ({
   getSessionFromApi: mockGetSession,
 }));
+
+// The limiter this route charges. Mocked explicitly because bun's
+// `mock.module("@asm/db")` does not reach the rules module's own binding on it,
+// and an unmocked limiter spends real Redis budget from the test suite.
+const limiter = messageRouteLimiter();
+mock.module("@/lib/messages/den-rate-limit", () => limiter.module);
 
 mock.module("@/lib/messages/server", () => ({
   getConversationForUser: (conversationId: string, userId: string) =>
@@ -106,6 +120,16 @@ function deliveredRequest(body: unknown) {
 
 const params = { params: Promise.resolve({ id: "convo-1" }) };
 
+function ack() {
+  return POST(
+    new Request("http://localhost:3000/delivered", {
+      body: JSON.stringify({ messageId: "msg-1" }),
+      method: "POST",
+    }),
+    { params: Promise.resolve({ id: "convo-1" }) }
+  );
+}
+
 describe("POST /api/messages/conversations/:id/delivered", () => {
   beforeEach(() => {
     mockGetSession.mockReset();
@@ -120,7 +144,11 @@ describe("POST /api/messages/conversations/:id/delivered", () => {
     lastMemberWhere = null;
     lastWatermark = null;
     mockPublishDelivered.mockReset();
-    mockPublishDelivered.mockImplementation(() => Promise.resolve());
+    mockPublishDelivered.mockImplementation(() => {
+      limiter.service("publish");
+      return Promise.resolve();
+    });
+    limiter.reset();
   });
 
   test("requires auth", async () => {
@@ -188,5 +216,63 @@ describe("POST /api/messages/conversations/:id/delivered", () => {
     );
     const res = await POST(deliveredRequest({ messageId: "m1" }), params);
     expect(res.status).toBe(200);
+  });
+});
+
+describe("POST /api/messages/conversations/:id/delivered rate limit", () => {
+  beforeEach(() => {
+    mockGetSession.mockReset();
+    mockGetSession.mockImplementation(() => ({ user: { id: "user1" } }));
+    mockMessageFirst.mockReset();
+    mockMessageFirst.mockImplementation(() => ({
+      createdAt: CREATED_AT,
+      senderId: "user2",
+    }));
+    mockUpdateAndCount.mockReset();
+    mockUpdateAndCount.mockImplementation(() => 1);
+    lastMemberWhere = null;
+    lastWatermark = null;
+    mockPublishDelivered.mockReset();
+    mockPublishDelivered.mockImplementation(() => {
+      limiter.service("publish");
+      return Promise.resolve();
+    });
+    limiter.reset();
+  });
+
+  test("spends the delivery-receipt budget, per account", async () => {
+    const res = await ack();
+    expect(res.status).toBe(200);
+    expect(limiter.chargedBuckets).toEqual([
+      DEN_DELIVERY_RECEIPT_RATE_LIMIT.bucket,
+    ]);
+    expect(limiter.chargedIdentifiers).toEqual(["user1"]);
+  });
+
+  test("429s with a retry-after and advances no watermark when over budget", async () => {
+    limiter.setDenied(true);
+    const res = await ack();
+    expect(res.status).toBe(429);
+    expect(res.headers.get("retry-after")).toBe("42");
+    expect(mockUpdateAndCount).not.toHaveBeenCalled();
+    expect(mockPublishDelivered).not.toHaveBeenCalled();
+  });
+
+  test("charges the limiter before it looks the message up", async () => {
+    const res = await ack();
+    expect(res.status).toBe(200);
+    expect(limiter.order[0]).toBe(
+      `consume:${DEN_DELIVERY_RECEIPT_RATE_LIMIT.bucket}`
+    );
+    expect(limiter.order).toContain("service:publish");
+  });
+
+  test("is metered on a different bucket from the read receipt beside it", async () => {
+    // Same shape, same cost, separate budgets - so an ack loop cannot spend the
+    // budget that stops a read loop, or the other way round.
+    await ack();
+    expect(DEN_DELIVERY_RECEIPT_RATE_LIMIT.bucket).not.toBe(
+      DEN_READ_RECEIPT_RATE_LIMIT.bucket
+    );
   });
 });

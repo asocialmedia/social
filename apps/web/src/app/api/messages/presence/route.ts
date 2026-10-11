@@ -7,11 +7,16 @@ import {
 } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/auth/session";
+import {
+  DEN_PRESENCE_RATE_LIMIT,
+  consumeDenRateLimit,
+} from "@/lib/messages/den-rate-limit";
 
 export interface PresenceUser {
   avatarUrl: string | null;
   displayName: string;
   id: string;
+  isFollowing: boolean;
   status: "idle" | "online";
   username: string;
 }
@@ -21,6 +26,15 @@ export async function POST() {
   const user = session?.user;
   if (!user) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  // The cheapest write on the surface - four idempotent Redis commands and no
+  // database work at all - which is exactly why it needs a bound: a loop against
+  // it accumulates nothing except load. The client heartbeats every thirty
+  // seconds shared across every mounted consumer.
+  const limited = await consumeDenRateLimit(DEN_PRESENCE_RATE_LIMIT, user.id);
+  if (limited) {
+    return limited;
   }
 
   await markUserOnline(user.id);
@@ -48,6 +62,11 @@ export async function GET() {
       .all(),
   ]);
   const follows = [...followingRows, ...followerRows];
+  const followingIds = new Set(
+    followingRows
+      .filter((follow) => follow.followerId === user.id)
+      .map((follow) => follow.followingId)
+  );
   const connectedIds = new Set<string>();
   for (const follow of follows) {
     if (follow.followerId !== user.id) {
@@ -109,6 +128,7 @@ export async function GET() {
 
   const withStatus: PresenceUser[] = users.map((member) => ({
     ...member,
+    isFollowing: followingIds.has(member.id),
     status: onlineSet.has(member.id) ? "online" : "idle",
   }));
 

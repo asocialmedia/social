@@ -58,12 +58,9 @@ export default function CommentMoreButton({
             <MoreHorizontal className="size-5" />
           </button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent
-          align="end"
-          className="apple-panel p-1.5 shadow-none"
-        >
+        <DropdownMenuContent align="end" className="rounded-2xl! p-2">
           <DropdownMenuItem
-            className="pill-3d-hover rounded-md px-2 py-2"
+            className="pill-3d-hover rounded-lg px-2 py-2"
             onClick={handleDeleteClick}
           >
             <span className="text-destructive flex items-center gap-3">

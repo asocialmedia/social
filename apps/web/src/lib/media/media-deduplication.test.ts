@@ -76,8 +76,10 @@ function createMediaFindQuery(where: Record<string, unknown>) {
               ...row,
               communities: [],
               communitiesCommunities: [],
+              messageConversationMembers: [],
               users: [],
               usersUsers: [],
+              wallpaperConversations: [],
             }
           : row
       ),

@@ -2,22 +2,32 @@ import { redis } from "@asm/db";
 import { NextResponse } from "next/server";
 
 const WORKER_HEARTBEAT_KEY = "worker:heartbeat";
+const MESSAGE_SEARCH_WORKER_HEARTBEAT_KEY = "worker:message-search:heartbeat";
 const WORKER_STALE_MS = 25_000;
 
-export async function GET() {
-  let worker: "healthy" | "unhealthy" | "unknown" = "unknown";
+async function readWorkerHealth(
+  key: string
+): Promise<"healthy" | "unhealthy" | "unknown"> {
   try {
-    const heartbeat = await redis.get(WORKER_HEARTBEAT_KEY);
-    if (heartbeat) {
-      const age = Date.now() - Math.trunc(Number(heartbeat));
-      worker =
-        Number.isNaN(age) || age > WORKER_STALE_MS ? "unhealthy" : "healthy";
+    const heartbeat = await redis.get(key);
+    if (!heartbeat) {
+      return "unknown";
     }
+    const age = Date.now() - Math.trunc(Number(heartbeat));
+    return Number.isNaN(age) || age > WORKER_STALE_MS ? "unhealthy" : "healthy";
   } catch {
-    worker = "unknown";
+    return "unknown";
   }
+}
+
+export async function GET() {
+  const [worker, messageSearchWorker] = await Promise.all([
+    readWorkerHealth(WORKER_HEARTBEAT_KEY),
+    readWorkerHealth(MESSAGE_SEARCH_WORKER_HEARTBEAT_KEY),
+  ]);
 
   return NextResponse.json({
+    messageSearchWorker,
     service: "asm-web",
     status: "healthy",
     timestamp: new Date().toISOString(),

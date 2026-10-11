@@ -4,7 +4,9 @@ import type { MessageData } from "@/lib/messages/types";
 
 import {
   isDecryptSettled,
+  requestDecryptsWithBackpressure,
   unsettledDecryptIds,
+  waitForDecryptQueueSpace,
   waitForDecrypts,
 } from "./wait-for-decrypts";
 
@@ -180,5 +182,156 @@ describe("waitForDecrypts", () => {
       timeoutMs: 1000,
     });
     expect(values.get("a")).toEqual({ content: "x", type: "text" });
+  });
+
+  test("abort releases the subscription without waiting for the timeout", async () => {
+    const controller = new AbortController();
+    let unsubscribed = false;
+    const waiting = waitForDecrypts([message("a")], {
+      lookup: alwaysPending,
+      signal: controller.signal,
+      subscribe: () => () => {
+        unsubscribed = true;
+      },
+      timeoutMs: 5000,
+    });
+    controller.abort();
+    await waiting;
+    expect(unsubscribed).toBe(true);
+  });
+});
+
+describe("waitForDecryptQueueSpace", () => {
+  test("returns immediately when the bounded queue has room", async () => {
+    await expect(
+      waitForDecryptQueueSpace({ hasSpace: () => true })
+    ).resolves.toBe(true);
+  });
+
+  test("wakes when a decrypt completion frees queue capacity", async () => {
+    let hasSpace = false;
+    let notify: (() => void) | undefined;
+    let unsubscribed = false;
+    const waiting = waitForDecryptQueueSpace({
+      hasSpace: () => hasSpace,
+      subscribe: (listener) => {
+        notify = listener;
+        return () => {
+          unsubscribed = true;
+        };
+      },
+      timeoutMs: 1000,
+    });
+    hasSpace = true;
+    notify?.();
+    await expect(waiting).resolves.toBe(true);
+    expect(unsubscribed).toBe(true);
+  });
+
+  test("abort releases the subscription and refuses to enqueue overflow", async () => {
+    const controller = new AbortController();
+    let unsubscribed = false;
+    const waiting = waitForDecryptQueueSpace({
+      hasSpace: () => false,
+      signal: controller.signal,
+      subscribe: () => () => {
+        unsubscribed = true;
+      },
+      timeoutMs: 5000,
+    });
+    controller.abort();
+    await expect(waiting).resolves.toBe(false);
+    expect(unsubscribed).toBe(true);
+  });
+
+  test("returns false when a full queue stops making progress", async () => {
+    await expect(
+      waitForDecryptQueueSpace({
+        hasSpace: () => false,
+        timeoutMs: 10,
+      })
+    ).resolves.toBe(false);
+  });
+});
+
+describe("requestDecryptsWithBackpressure", () => {
+  test("retries every refused row as queue capacity is released", async () => {
+    const rows = Array.from({ length: 5 }, (_, index) => message(`m${index}`));
+    const queue = new Set<string>();
+    const values = new Map<string, unknown>();
+    const listeners = new Set<() => void>();
+    const requested: string[] = [];
+    let maximumQueueLength = 0;
+    const notify = () => {
+      for (const listener of listeners) {
+        listener();
+      }
+    };
+    const request = (batch: MessageData[]) => {
+      const rejected: MessageData[] = [];
+      for (const row of batch) {
+        if (queue.size >= 2) {
+          rejected.push(row);
+          continue;
+        }
+        queue.add(row.id);
+        values.set(row.id, "pending");
+        requested.push(row.id);
+        maximumQueueLength = Math.max(maximumQueueLength, queue.size);
+      }
+      setTimeout(() => {
+        for (const id of queue) {
+          values.set(id, { content: id, type: "text" });
+        }
+        queue.clear();
+        notify();
+      }, 0);
+      return rejected;
+    };
+
+    await requestDecryptsWithBackpressure(rows, {
+      getId: (row) => row.id,
+      hasSpace: () => queue.size < 2,
+      lookup: (id) => values.get(id),
+      request,
+      subscribe: (listener) => {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      },
+    });
+
+    expect(maximumQueueLength).toBe(2);
+    expect([...requested].toSorted()).toEqual(
+      rows.map((row) => row.id).toSorted()
+    );
+    expect(rows.every((row) => isDecryptSettled(values.get(row.id)))).toBe(
+      true
+    );
+  });
+
+  test("stops retrying overflow when the owning operation is aborted", async () => {
+    const controller = new AbortController();
+    const rows = [message("first"), message("second")];
+    const requested: string[] = [];
+    let notify: (() => void) | undefined;
+    const waiting = requestDecryptsWithBackpressure(rows, {
+      getId: (row) => row.id,
+      hasSpace: () => false,
+      lookup: alwaysPending,
+      request: (batch) => {
+        requested.push(batch[0]?.id ?? "");
+        return batch.slice(1);
+      },
+      signal: controller.signal,
+      subscribe: (listener) => {
+        notify = listener;
+        return () => {};
+      },
+      timeoutMs: 5000,
+    });
+    controller.abort();
+    notify?.();
+    await waiting;
+    expect(requested).toEqual(["first"]);
   });
 });

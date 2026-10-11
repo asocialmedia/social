@@ -46,7 +46,6 @@ import {
   prisma,
   toPrismaDateTime,
 } from "@asm/db";
-
 import {
   decryptMessage,
   decryptWithMasterKey,
@@ -58,8 +57,8 @@ import {
   importRatchetBaseKey,
   publicKeyBase64ToJwk,
   unwrapRootKey,
-} from "../apps/web/src/lib/messages/crypto";
-import type { MessagePayload } from "../apps/web/src/lib/messages/crypto";
+} from "@asm/messages/crypto";
+import type { MessagePayload } from "@asm/messages/crypto";
 
 function flag(argv: string[], name: string): string | undefined {
   const prefix = `--${name}=`;
@@ -214,12 +213,18 @@ async function resolveRootKey(
   ownerUserId: string,
   peerUserId: string
 ): Promise<Uint8Array> {
-  const [owner, peer, wrap] = await Promise.all([
+  const [owner, peer, ownerWrap, peerWrap] = await Promise.all([
     prisma.orm.public.MessageIdentities.where({ userId: ownerUserId }).first(),
     prisma.orm.public.MessageIdentities.where({ userId: peerUserId }).first(),
     prisma.orm.public.MessageConversationKeys.where({
       conversationId,
       ownerUserId,
+    })
+      .orderBy((wrap) => wrap.version.desc())
+      .first(),
+    prisma.orm.public.MessageConversationKeys.where({
+      conversationId,
+      ownerUserId: peerUserId,
     })
       .orderBy((wrap) => wrap.version.desc())
       .first(),
@@ -232,10 +237,11 @@ async function resolveRootKey(
   if (!peer) {
     throw new Error(`${peerUserId} has no message identity.`);
   }
-  if (!wrap) {
-    throw new Error(
-      `No conversation key for ${ownerUserId}. Open the thread once so a root key is created.`
-    );
+  if (!peer.masterKeyHash) {
+    throw new Error(`${peerUserId} has no recoverable identity seed.`);
+  }
+  if (!ownerWrap || !peerWrap || ownerWrap.version !== peerWrap.version) {
+    throw new Error(`No matching conversation key epoch for both DM members.`);
   }
 
   const masterKey = await deriveMasterKey(
@@ -252,13 +258,52 @@ async function resolveRootKey(
     await decryptWithMasterKey(masterKey, { ciphertext, iv })
   );
   const privateKey = await importPrivateKeyJwk(privateKeyJwk);
-  const peerPublicKey = await importPublicKeyJwk(
-    publicKeyBase64ToJwk(peer.publicKey)
+  const pairingPublicKey = await importPublicKeyJwk(
+    publicKeyBase64ToJwk(ownerWrap.wrapperPublicKey ?? peer.publicKey)
   );
-  return unwrapRootKey(privateKey, peerPublicKey, conversationId, {
-    ciphertext: wrap.encryptedKey,
-    iv: wrap.iv,
-  });
+  const rootKey = await unwrapRootKey(
+    privateKey,
+    pairingPublicKey,
+    conversationId,
+    {
+      ciphertext: ownerWrap.encryptedKey,
+      iv: ownerWrap.iv,
+    }
+  );
+  const peerMasterKey = await deriveMasterKey(
+    peer.masterKeyHash,
+    base64ToBytes(peer.salt),
+    peer.kdfIterations
+  );
+  const [peerBackupIv, peerBackupCiphertext] =
+    peer.encryptedPrivateKey.split(".");
+  if (!peerBackupIv || !peerBackupCiphertext) {
+    throw new Error(`${peerUserId} has an unreadable encryptedPrivateKey.`);
+  }
+  const peerPrivateKey = await importPrivateKeyJwk(
+    JSON.parse(
+      await decryptWithMasterKey(peerMasterKey, {
+        ciphertext: peerBackupCiphertext,
+        iv: peerBackupIv,
+      })
+    )
+  );
+  const peerPairingPublicKey = await importPublicKeyJwk(
+    publicKeyBase64ToJwk(peerWrap.wrapperPublicKey ?? owner.publicKey)
+  );
+  const peerRootKey = await unwrapRootKey(
+    peerPrivateKey,
+    peerPairingPublicKey,
+    conversationId,
+    {
+      ciphertext: peerWrap.encryptedKey,
+      iv: peerWrap.iv,
+    }
+  );
+  if (Buffer.compare(Buffer.from(rootKey), Buffer.from(peerRootKey)) !== 0) {
+    throw new Error("DM members recovered different root keys");
+  }
+  return rootKey;
 }
 
 // Proves the whole chain before a single row is written. If this cannot decrypt a
@@ -295,11 +340,32 @@ async function verifyExistingMessages(
     verified += 1;
   }
   if (verified === 0) {
-    throw new Error(
-      "No existing message could be decrypted, so the key chain is wrong. Refusing to write."
-    );
+    return 0;
   }
   return verified;
+}
+
+async function verifyFreshMessageCrypto(
+  conversationId: string,
+  senderId: string,
+  rootKey: Uint8Array,
+  ratchetIndex: number
+): Promise<void> {
+  const text = "dm-search-seed-crypto-check";
+  const encrypted = await encryptMessage(
+    rootKey,
+    senderId,
+    ratchetIndex,
+    conversationId,
+    { content: text, type: "text" }
+  );
+  const decrypted = await decryptMessage(rootKey, senderId, conversationId, {
+    ...encrypted,
+    ratchetIndex,
+  });
+  if (decrypted.type !== "text" || decrypted.content !== text) {
+    throw new Error("Fresh DM key failed an encrypt/decrypt round trip");
+  }
 }
 
 async function nextIndexFor(
@@ -353,8 +419,22 @@ async function main(): Promise<void> {
   const existing = await prisma.orm.public.Messages.where({
     conversationId,
   }).aggregate((aggregate) => ({ count: aggregate.count() }));
+  const [conversation, currentWrap] = await Promise.all([
+    prisma.orm.public.MessageConversations.select("changeSeq")
+      .where({ id: conversationId })
+      .first(),
+    prisma.orm.public.MessageConversationKeys.select("version")
+      .where({ conversationId, ownerUserId: senderA })
+      .orderBy((wrap) => wrap.version.desc())
+      .first(),
+  ]);
+  if (!conversation || !currentWrap) {
+    throw new Error("Conversation sequence or current key epoch is missing");
+  }
+  const sequenceStart = conversation.changeSeq;
+  const keyEpoch = currentWrap.version;
   console.log(
-    `conversation ${conversationId}\n  members   ${memberIds.join(", ")}\n  existing  ${existing} messages`
+    `conversation ${conversationId}\n  members   ${memberIds.join(", ")}\n  existing  ${existing.count} messages`
   );
 
   const rootKey = await resolveRootKey(conversationId, senderA, senderB);
@@ -365,7 +445,17 @@ async function main(): Promise<void> {
     senders,
     options
   );
-  console.log(`  verified  decrypted ${verified} existing message(s) OK`);
+  if (verified === 0) {
+    await verifyFreshMessageCrypto(
+      conversationId,
+      senderA,
+      rootKey,
+      await nextIndexFor(conversationId, senderA)
+    );
+    console.log("  verified  both members recover one matching root key");
+  } else {
+    console.log(`  verified  decrypted ${verified} existing message(s) OK`);
+  }
 
   if (options.verifyOnly) {
     return;
@@ -435,7 +525,9 @@ async function main(): Promise<void> {
     ciphertext: string;
     conversationId: string;
     createdAt: Temporal.PlainDateTime;
+    creationSequence: number;
     iv: string;
+    keyEpoch: number;
     ratchetIndex: number;
     senderId: string;
   }[] = [];
@@ -463,12 +555,20 @@ async function main(): Promise<void> {
         createdAt: toPrismaDateTime(
           new Date(firstAt + Math.floor((spanMs * globalIndex) / options.total))
         ),
+        creationSequence: sequenceStart + globalIndex + 1,
         iv,
+        keyEpoch,
         ratchetIndex,
         senderId,
       });
     }
-    await prisma.orm.public.Messages.createAll(pending);
+    const nextSequence = sequenceStart + written + pending.length;
+    await prisma.transaction(async (tx) => {
+      await tx.orm.public.Messages.createAll(pending);
+      await tx.orm.public.MessageConversations.where({
+        id: conversationId,
+      }).update({ changeSeq: nextSequence });
+    });
     written += pending.length;
     if (!options.quiet) {
       const elapsed = (Date.now() - startedAt) / 1000;
@@ -492,6 +592,9 @@ async function main(): Promise<void> {
       ownerUserId: senderId,
     }).updateAll({ ratchetCounter: next });
   }
+  await prisma.orm.public.MessageConversationMembers.where({
+    conversationId,
+  }).updateAll({ lastReadAt: toPrismaDateTime(new Date()) });
   console.log(
     `  counters  ${senders.map((id) => `${id}@${counters[id] ?? 0}`).join(" ")}`
   );

@@ -1,6 +1,16 @@
-import { fromPrismaDateTime, prisma } from "@asm/db";
+import {
+  commitMessageIdentityBackupRefresh,
+  enqueueMessageSearchBackfill,
+  fromPrismaDateTime,
+  prisma,
+  toPrismaDateTime,
+} from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/auth/session";
+import {
+  consumeDenRateLimit,
+  DEN_MESSAGE_IDENTITY_REFRESH_RATE_LIMIT,
+} from "@/lib/messages/den-rate-limit";
 import {
   isUniqueConstraintViolation,
   parseJsonBody,
@@ -16,6 +26,52 @@ export interface MessageIdentityPayload {
   updatedAt: string;
 }
 
+interface IdentityBackupRefreshBody {
+  encryptedPrivateKey: string;
+  expectedUpdatedAt: string;
+  kdfIterations: number;
+  masterKeyHash: string;
+  publicKey: string;
+  salt: string;
+}
+
+const MAX_IDENTITY_REFRESH_BODY_BYTES = 128 * 1024;
+
+function isIdentityBackupRefreshBody(
+  value: unknown
+): value is IdentityBackupRefreshBody {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return false;
+  }
+  const body = value as Record<string, unknown>;
+  if (
+    typeof body.encryptedPrivateKey !== "string" ||
+    body.encryptedPrivateKey.length === 0 ||
+    body.encryptedPrivateKey.length > 65_536 ||
+    typeof body.masterKeyHash !== "string" ||
+    body.masterKeyHash.length < 32 ||
+    body.masterKeyHash.length > 256 ||
+    typeof body.publicKey !== "string" ||
+    body.publicKey.length === 0 ||
+    body.publicKey.length > 4096 ||
+    typeof body.salt !== "string" ||
+    body.salt.length === 0 ||
+    body.salt.length > 256 ||
+    typeof body.kdfIterations !== "number" ||
+    !Number.isSafeInteger(body.kdfIterations) ||
+    body.kdfIterations < 100_000 ||
+    body.kdfIterations > 5_000_000 ||
+    typeof body.expectedUpdatedAt !== "string"
+  ) {
+    return false;
+  }
+  const expectedUpdatedAt = new Date(body.expectedUpdatedAt);
+  return (
+    Number.isFinite(expectedUpdatedAt.getTime()) &&
+    expectedUpdatedAt.toISOString() === body.expectedUpdatedAt
+  );
+}
+
 export async function GET() {
   const session = await getSessionFromApi();
   const user = session?.user;
@@ -23,11 +79,15 @@ export async function GET() {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const identity = await prisma.orm.public.MessageIdentities.where({
-    userId: user.id,
-  }).first();
+  const [identity, searchState] = await Promise.all([
+    prisma.orm.public.MessageIdentities.where({ userId: user.id }).first(),
+    prisma.orm.public.MessageSearchAccountState.select("recoveryGeneration")
+      .where({ userId: user.id })
+      .first(),
+  ]);
+  const recoveryGeneration = searchState?.recoveryGeneration ?? 0;
   if (!identity || !identity.masterKeyHash) {
-    return Response.json({ identity: null });
+    return Response.json({ identity: null, recoveryGeneration });
   }
 
   const payload: MessageIdentityPayload = {
@@ -39,7 +99,7 @@ export async function GET() {
     salt: identity.salt,
     updatedAt: fromPrismaDateTime(identity.updatedAt).toISOString(),
   };
-  return Response.json({ identity: payload });
+  return Response.json({ identity: payload, recoveryGeneration });
 }
 
 export async function POST(request: Request) {
@@ -120,6 +180,97 @@ export async function POST(request: Request) {
   }
 }
 
+export async function PATCH(request: Request) {
+  const session = await getSessionFromApi();
+  const user = session?.user;
+  if (!user) {
+    return Response.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  const rateLimit = await consumeDenRateLimit(
+    DEN_MESSAGE_IDENTITY_REFRESH_RATE_LIMIT,
+    user.id
+  );
+  if (rateLimit) {
+    return rateLimit;
+  }
+
+  const contentLength = Number(request.headers.get("content-length") ?? 0);
+  if (contentLength > MAX_IDENTITY_REFRESH_BODY_BYTES) {
+    return Response.json(
+      { error: "Identity backup refresh is too large" },
+      { status: 413 }
+    );
+  }
+  let parsed: unknown;
+  try {
+    const bodyText = await request.text();
+    if (
+      new TextEncoder().encode(bodyText).byteLength >
+      MAX_IDENTITY_REFRESH_BODY_BYTES
+    ) {
+      return Response.json(
+        { error: "Identity backup refresh is too large" },
+        { status: 413 }
+      );
+    }
+    parsed = JSON.parse(bodyText);
+  } catch {
+    return Response.json(
+      { error: "Invalid identity backup refresh" },
+      { status: 400 }
+    );
+  }
+  if (!isIdentityBackupRefreshBody(parsed)) {
+    return Response.json(
+      { error: "Invalid identity backup refresh" },
+      { status: 400 }
+    );
+  }
+
+  const expectedUpdatedAt = new Date(parsed.expectedUpdatedAt);
+  const nextUpdatedAt = new Date(
+    Math.max(Date.now(), expectedUpdatedAt.getTime() + 1)
+  );
+  try {
+    const refreshed = await commitMessageIdentityBackupRefresh({
+      encryptedPrivateKey: parsed.encryptedPrivateKey,
+      expectedUpdatedAt,
+      kdfIterations: parsed.kdfIterations,
+      masterKeyHash: parsed.masterKeyHash,
+      nextUpdatedAt,
+      publicKey: parsed.publicKey,
+      salt: parsed.salt,
+      userId: user.id,
+    });
+    if (refreshed.status !== "updated") {
+      return Response.json(
+        { error: "Identity changed; reload messages to continue" },
+        { status: 409 }
+      );
+    }
+    for (const conversationId of refreshed.repairConversationIds) {
+      void (async () => {
+        try {
+          await enqueueMessageSearchBackfill(conversationId, null);
+        } catch {
+          // The durable coverage row lets the worker sweep retry after Redis recovers.
+          console.error("Failed to enqueue recovered DM search history");
+        }
+      })();
+    }
+    return Response.json({
+      recoveryGeneration: refreshed.recoveryGeneration,
+      updatedAt: nextUpdatedAt.toISOString(),
+    });
+  } catch (error) {
+    console.error("Failed to refresh message identity backup:", error);
+    return Response.json(
+      { error: "Failed to refresh identity backup" },
+      { status: 500 }
+    );
+  }
+}
+
 // Re-provisions a lost identity. This is the recovery path when a device can no
 // longer read the stored backup: start a new keypair. The reset is strictly
 // self-scoped:
@@ -141,7 +292,7 @@ export async function DELETE() {
   }
 
   try {
-    const removedKeys = await prisma.transaction(async (tx) => {
+    const reset = await prisma.transaction(async (tx) => {
       await tx.orm.public.MessageIdentities.where({ userId: user.id }).delete();
       // Both conditions are required: the owner filter keeps other members'
       // wraps, and the conversationId foreign key means a wrap without a live
@@ -150,10 +301,23 @@ export async function DELETE() {
       const deleted = await tx.orm.public.MessageConversationKeys.where({
         ownerUserId: user.id,
       }).deleteAndCount();
-      return deleted;
+      const searchState = await tx.orm.public.MessageSearchAccountState.where({
+        userId: user.id,
+      }).first();
+      const recoveryGeneration = (searchState?.recoveryGeneration ?? 0) + 1;
+      await tx.orm.public.MessageSearchAccountState.where({
+        userId: user.id,
+      }).upsert({
+        create: { recoveryGeneration, userId: user.id },
+        update: {
+          recoveryGeneration,
+          updatedAt: toPrismaDateTime(new Date()),
+        },
+      });
+      return { recoveryGeneration, removedKeys: deleted };
     });
 
-    return Response.json({ ok: true, removedKeys });
+    return Response.json({ ok: true, ...reset });
   } catch (error) {
     console.error("Failed to reset message identity:", error);
     return Response.json(
