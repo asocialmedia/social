@@ -1,11 +1,19 @@
 import {
-  discoveryFleetFeed,
+  discoveryFeedPress,
   followingFleetAvatars,
+  homeFeedTabs,
 } from "@asm/ui/lib/home-feed-controls";
+import type { DiscoveryFleetFeed } from "@asm/ui/lib/home-feed-controls";
 import { ChevronDown, Flame, Sparkles } from "lucide-react-native";
 import type { LucideProps } from "lucide-react-native";
 import { useEffect, useRef, useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
+import Animated, {
+  useAnimatedStyle,
+  useReducedMotion,
+  useSharedValue,
+  withTiming,
+} from "react-native-reanimated";
 
 import { UserAvatar } from "@/components/avatar/user-avatar";
 import { authClient } from "@/features/auth/lib/auth-client";
@@ -22,6 +30,10 @@ function FilledSparkles(props: LucideProps) {
   return <Sparkles {...props} fill={props.color ?? "currentColor"} />;
 }
 
+function FilledFlame(props: LucideProps) {
+  return <Flame {...props} fill={props.color ?? "currentColor"} />;
+}
+
 const peopleCache = new Map<
   string,
   {
@@ -29,6 +41,37 @@ const peopleCache = new Map<
     people: Awaited<ReturnType<typeof fetchProfileUserList>>;
   }
 >();
+
+function FollowingAvatar({
+  person,
+  index,
+}: {
+  person: ReturnType<typeof followingFleetAvatars>[number];
+  index: number;
+}) {
+  const reducedMotion = useReducedMotion();
+  const progress = useSharedValue(0);
+  useEffect(() => {
+    progress.set(withTiming(1, { duration: 180 + index * 35 }));
+  }, [index, progress]);
+  const animatedStyle = useAnimatedStyle(() => ({
+    opacity: progress.get(),
+    transform: [{ translateY: reducedMotion ? 0 : (1 - progress.get()) * 6 }],
+  }));
+  return (
+    <Animated.View
+      testID={`home-following-avatar-${person.id}`}
+      style={[{ marginLeft: index ? -9 : 0, zIndex: 3 - index }, animatedStyle]}
+    >
+      <UserAvatar
+        radius={6}
+        size={22}
+        seed={person.id}
+        url={person.avatarUrl}
+      />
+    </Animated.View>
+  );
+}
 
 function FollowingAvatars({ userId }: { userId: string }) {
   const apiBase = getApiBaseUrl();
@@ -80,17 +123,7 @@ function FollowingAvatars({ userId }: { userId: string }) {
   return (
     <View style={styles.stack} pointerEvents="none">
       {avatars.map((person, index) => (
-        <View
-          key={person.id}
-          style={{ marginLeft: index ? -9 : 0, zIndex: 3 - index }}
-        >
-          <UserAvatar
-            radius={6}
-            size={22}
-            seed={person.id}
-            url={person.avatarUrl}
-          />
-        </View>
+        <FollowingAvatar key={person.id} person={person} index={index} />
       ))}
     </View>
   );
@@ -98,42 +131,35 @@ function FollowingAvatars({ userId }: { userId: string }) {
 
 export function HomeFeedControls({
   active,
+  discovery,
   onChange,
   userId,
 }: {
   active: HomeTab;
+  discovery: DiscoveryFleetFeed;
   onChange: (tab: HomeTab) => void;
   userId?: string;
 }) {
   const { theme } = useAppTheme();
   const trigger = useRef<View>(null);
   const [anchor, setAnchor] = useState<MenuAnchor | null>(null);
-  const [remembered, setRemembered] = useState<"personalized" | "trending">(
-    "personalized"
-  );
-  const discovery = discoveryFleetFeed(active, remembered);
-  if (
-    (active === "personalized" || active === "trending") &&
-    remembered !== active
-  ) {
-    setRemembered(active);
-  }
-  const tabs = [
-    {
-      label: discovery === "personalized" ? "For you" : "Trending",
-      value: discovery,
-    },
-    { label: "Latest", value: "latest" },
-    { label: "Following", value: "following" },
-  ] as const;
+  const tabs = homeFeedTabs(discovery);
   return (
     <View>
       <FeedTabs<HomeTab>
         active={active}
         tabs={tabs}
         onPressActive
+        indicatorWidth={(tab, width) =>
+          tab.value === "following" ? Math.max(48, width * 0.6) : 24
+        }
         onChange={(value) => {
           if (value === discovery) {
+            const action = discoveryFeedPress(active, discovery);
+            if (action.type === "navigate") {
+              onChange(action.feed);
+              return;
+            }
             trigger.current?.measureInWindow((x, y, width, height) =>
               setAnchor({ height, width, x, y })
             );
@@ -172,15 +198,14 @@ export function HomeFeedControls({
         anchor={anchor}
         minWidth={128}
         entries={(["personalized", "trending"] as const)
-          .filter((value) => value !== active)
+          .filter((value) => value !== discovery)
           .map((value) => ({
             action: { type: value },
-            icon: value === "personalized" ? FilledSparkles : Flame,
+            icon: value === "personalized" ? FilledSparkles : FilledFlame,
             label: value === "personalized" ? "For you" : "Trending",
           }))}
         onClose={() => setAnchor(null)}
         onAction={({ type }) => {
-          setRemembered(type);
           onChange(type);
         }}
       />

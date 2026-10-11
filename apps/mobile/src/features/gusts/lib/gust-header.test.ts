@@ -3,7 +3,31 @@ import { describe, expect, test } from "bun:test";
 import {
   advanceGustHeader,
   followingGustAvatars,
+  gustFeedIndicator,
 } from "@asm/ui/lib/gust-header";
+
+describe("Gust feed indicator geometry", () => {
+  test("centers the narrow discovery and wider Following bars under their labels", () => {
+    expect(gustFeedIndicator({ width: 80, x: 0 }, false)).toEqual({
+      width: 24,
+      x: 28,
+    });
+    expect(gustFeedIndicator({ width: 70, x: 90 }, true)).toEqual({
+      width: 48,
+      x: 101,
+    });
+  });
+  test("repositions when the discovery label or accessibility text size changes", () => {
+    expect(gustFeedIndicator({ width: 100, x: 120 }, true)).toEqual({
+      width: 48,
+      x: 146,
+    });
+    expect(gustFeedIndicator({ width: 100, x: 0 }, false)).toEqual({
+      width: 24,
+      x: 38,
+    });
+  });
+});
 
 describe("Gust header direction", () => {
   test("hides down, shows on reversing before reaching the previous Gust, and stays shown at the first Gust", () => {

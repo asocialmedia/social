@@ -1,21 +1,14 @@
-// Home feed tab strip: For you / Latest / Trending / Following with the
-// sliding orange indicator from web's AnimatedTabTrigger (shared layoutId,
-// spring between tabs). The indicator is measured per trigger and animated
-// with the core Animated API: bar sits bottom-center under the active label
-// (h-1 w-6 rounded-full, orange gradient), labels are inactive-muted and
-// active semibold-ink.
+// Feed tab strip with a measured orange indicator. Reanimated moves and
+// resizes the absolute bar on the UI thread as labels and avatars change.
 import { LinearGradient } from "expo-linear-gradient";
 import type { ReactNode } from "react";
-import { useEffect, useMemo, useRef, useState } from "react";
-import {
-  Animated,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
+import { useEffect, useRef, useState } from "react";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import Animated, {
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from "react-native-reanimated";
 
 import { haptic } from "@/lib/haptics";
 import { SHOWS_SCROLL_INDICATOR } from "@/lib/scroll-indicator";
@@ -40,6 +33,7 @@ interface FeedTabsProps<T extends string = HomeTab> {
   // Two-tab surfaces (notifications) stretch each trigger to half the width,
   // matching web's flex-1 tab buttons; the feed strip stays content-centered.
   fill?: boolean;
+  indicatorWidth?: (tab: FeedTabDef<T>, triggerWidth: number) => number;
   onChange: (tab: T) => void;
   scrollable?: boolean;
   renderLabel?: (tab: FeedTabDef<T>, selected: boolean) => ReactNode;
@@ -55,6 +49,7 @@ interface TriggerLayout {
 export function FeedTabs<T extends string = HomeTab>({
   active,
   fill = false,
+  indicatorWidth,
   onChange,
   scrollable = false,
   renderLabel,
@@ -63,7 +58,8 @@ export function FeedTabs<T extends string = HomeTab>({
 }: FeedTabsProps<T>) {
   const { theme } = useAppTheme();
   const [layouts, setLayouts] = useState<Record<string, TriggerLayout>>({});
-  const indicatorX = useMemo(() => new Animated.Value(0), []);
+  const indicatorX = useSharedValue(0);
+  const indicatorSize = useSharedValue(24);
   // First placement is the mount, not a tab switch: set without animating
   // so the bar never slides in from the left edge.
   const firstPlaced = useRef(true);
@@ -75,22 +71,27 @@ export function FeedTabs<T extends string = HomeTab>({
   );
   const activeDef = tabs[activeIndex];
   const layout = activeDef ? layouts[activeDef.value] : undefined;
+  const barWidth =
+    layout && activeDef
+      ? (indicatorWidth?.(activeDef, layout.width) ?? 24)
+      : 24;
+  const indicatorStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: indicatorX.get() }],
+    width: indicatorSize.get(),
+  }));
 
   useEffect(() => {
     if (!layout) {
       return;
     }
-    // Center the 24px bar under the active label, like web's justify-center.
-    const left = layout.x + (layout.width - 24) / 2;
+    const left = layout.x + (layout.width - barWidth) / 2;
     if (firstPlaced.current) {
       firstPlaced.current = false;
-      indicatorX.setValue(left);
+      indicatorX.set(left);
+      indicatorSize.set(barWidth);
     } else {
-      Animated.timing(indicatorX, {
-        duration: 220,
-        toValue: left,
-        useNativeDriver: Platform.OS !== "web",
-      }).start();
+      indicatorX.set(withTiming(left, { duration: 220 }));
+      indicatorSize.set(withTiming(barWidth, { duration: 220 }));
     }
 
     // Scroll to reveal the active tab when scrollable is active.
@@ -98,7 +99,7 @@ export function FeedTabs<T extends string = HomeTab>({
       const targetX = Math.max(0, layout.x - 48);
       scrollRef.current.scrollTo({ animated: true, x: targetX });
     }
-  }, [indicatorX, layout, scrollable]);
+  }, [barWidth, indicatorSize, indicatorX, layout, scrollable]);
 
   const content = (
     <View
@@ -158,10 +159,7 @@ export function FeedTabs<T extends string = HomeTab>({
       })}
       {layout ? (
         <Animated.View
-          style={[
-            styles.indicator,
-            { pointerEvents: "none", transform: [{ translateX: indicatorX }] },
-          ]}
+          style={[styles.indicator, { pointerEvents: "none" }, indicatorStyle]}
         >
           <LinearGradient
             colors={["#ff9500", "#e65500"]}
