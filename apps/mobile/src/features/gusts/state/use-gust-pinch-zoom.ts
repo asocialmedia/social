@@ -42,14 +42,16 @@ export function useGustPinchZoom({
     }
   }, [enabled, homeArmed, transform]);
 
+  // One-finger paging must not wait for a possible pinch; the pager yields on a second touch.
   // oxlint-disable-next-line react/capitalized-calls -- Gesture.Pinch is the gesture-handler builder
   const pinch = Gesture.Pinch()
     .enabled(enabled)
-    .blocksExternalGesture(...pagerGestures)
+    .simultaneousWithExternalGesture(...pagerGestures)
     .onTouchesDown((event) => {
       const [touch] = event.allTouches;
       if (event.numberOfTouches === 1 && touch) {
-        touchOrigin.set({ x: touch.x, y: touch.y });
+        // The card moves with the pager; measure the finger in screen coordinates.
+        touchOrigin.set({ x: touch.absoluteX, y: touch.absoluteY });
       }
     })
     .onTouchesMove((event, manager) => {
@@ -57,7 +59,9 @@ export function useGustPinchZoom({
       if (event.numberOfTouches === 1 && !pinching.get() && touch) {
         const origin = touchOrigin.get();
         // Yield immediately to one-finger paging instead of waiting for touch-up.
-        if (Math.hypot(touch.x - origin.x, touch.y - origin.y) > 8) {
+        if (
+          Math.hypot(touch.absoluteX - origin.x, touch.absoluteY - origin.y) > 8
+        ) {
           manager.fail();
         }
       }

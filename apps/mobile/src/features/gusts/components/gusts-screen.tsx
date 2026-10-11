@@ -74,6 +74,7 @@ import {
 import type { GustTab } from "../lib/gusts-api";
 import { RecommendationQueue } from "../lib/recommendation-tracker";
 import {
+  gustPullIntent,
   pullDistance,
   pullTriggers,
   shouldFetchMore,
@@ -96,7 +97,6 @@ import { GustFeedControls } from "./gust-feed-controls";
 import { RAIL_ICON_COLOR, RailButton } from "./rail-button";
 
 const VIEWABILITY = { itemVisiblePercentThreshold: 60 };
-const PULL_CAPTURE_SLOP = 12;
 
 function firstParam(value: string | string[] | undefined): string | null {
   const raw = Array.isArray(value) ? value[0] : value;
@@ -221,6 +221,7 @@ export function GustsScreen() {
   const pull = useSharedValue(0);
   const scrollOffset = useSharedValue(0);
   const pullBaseline = useSharedValue<number | null>(null);
+  const pullOrigin = useSharedValue({ x: 0, y: 0 });
   const refreshing = useSharedValue(false);
   const eddiePreviewProgress = useSharedValue(0);
   const [eddiesPostId, setEddiesPostId] = useState<string | null>(null);
@@ -471,11 +472,52 @@ export function GustsScreen() {
   // The pager and pull feedback never enter React or the JS runtime during a drag.
   // oxlint-disable-next-line react/hook-use-state, react/refs -- the gesture retains a callback and only invokes its ref on release; only shared values change during recognition
   const [gestures] = useState(() => {
-    const nativeScroll = Gesture.Native();
+    const nativeScroll = Gesture.Native().onTouchesDown((event, manager) => {
+      // Cancel the native drag as soon as a second finger starts a pinch.
+      if (event.numberOfTouches > 1) {
+        manager.fail();
+      }
+    });
     const pan = Gesture.Pan()
-      .activeOffsetY(PULL_CAPTURE_SLOP)
-      .failOffsetX([-PULL_CAPTURE_SLOP * 2, PULL_CAPTURE_SLOP * 2])
+      .manualActivation(true)
       .simultaneousWithExternalGesture(nativeScroll)
+      .onTouchesDown((event, manager) => {
+        const [touch] = event.allTouches;
+        if (
+          !touch ||
+          gustPullIntent({
+            offset: scrollOffset.get(),
+            refreshing: refreshing.get(),
+            touches: event.numberOfTouches,
+            x: 0,
+            y: 0,
+          }) === "fail"
+        ) {
+          manager.fail();
+          return;
+        }
+        pullOrigin.set({ x: touch.absoluteX, y: touch.absoluteY });
+      })
+      .onTouchesMove((event, manager) => {
+        const [touch] = event.allTouches;
+        if (!touch) {
+          manager.fail();
+          return;
+        }
+        const origin = pullOrigin.get();
+        const intent = gustPullIntent({
+          offset: scrollOffset.get(),
+          refreshing: refreshing.get(),
+          touches: event.numberOfTouches,
+          x: touch.absoluteX - origin.x,
+          y: touch.absoluteY - origin.y,
+        });
+        if (intent === "fail") {
+          manager.fail();
+        } else if (intent === "activate") {
+          manager.activate();
+        }
+      })
       .onBegin(() => pullBaseline.set(null))
       .onUpdate((event) => {
         if (refreshing.get() || scrollOffset.get() > 1) {
@@ -599,7 +641,7 @@ export function GustsScreen() {
         <GestureDetector gesture={gestures.nativeScroll}>
           <Animated.FlatList
             data={posts}
-            decelerationRate={0.985}
+            decelerationRate="fast"
             disableIntervalMomentum
             getItemLayout={(_, index) => ({
               index,

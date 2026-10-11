@@ -560,7 +560,10 @@ export function GustCard({
 
   return (
     <GestureDetector gesture={zoom.pinch}>
-      <View style={[styles.card, { height: pageHeight }]}>
+      <View
+        style={[styles.card, { height: pageHeight }]}
+        testID={`gust-card-${post.id}`}
+      >
         <Animated.View pointerEvents="none" style={[styles.fill, zoom.style]}>
           <Animated.View
             pointerEvents="none"

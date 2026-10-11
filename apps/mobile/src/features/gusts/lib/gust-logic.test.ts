@@ -6,6 +6,7 @@ import {
   burstRotation,
   captionNeedsToggle,
   classifyTap,
+  gustPullIntent,
   MAX_BURSTS,
   pullDistance,
   pullTriggers,
@@ -63,6 +64,21 @@ describe("gustVoteToast", () => {
 });
 
 describe("reel gestures", () => {
+  test("returning to earlier Gusts yields to paging before refresh activates", () => {
+    const drag = { offset: 900, refreshing: false, touches: 1, x: 0, y: 0 };
+    expect(gustPullIntent(drag)).toBe("fail");
+    expect(gustPullIntent({ ...drag, y: 100 })).toBe("fail");
+    expect(gustPullIntent({ ...drag, y: -100 })).toBe("fail");
+  });
+  test("refresh waits at the first Gust, activates downward and yields upward", () => {
+    const drag = { offset: 0, refreshing: false, touches: 1, x: 0, y: 0 };
+    expect(gustPullIntent(drag)).toBe("wait");
+    expect(gustPullIntent({ ...drag, y: 13 })).toBe("activate");
+    expect(gustPullIntent({ ...drag, y: -13 })).toBe("fail");
+    expect(gustPullIntent({ ...drag, x: 25, y: 30 })).toBe("fail");
+    expect(gustPullIntent({ ...drag, touches: 2, y: 30 })).toBe("fail");
+    expect(gustPullIntent({ ...drag, refreshing: true, y: 30 })).toBe("fail");
+  });
   test("pull resistance, cap and trigger match web", () => {
     expect(pullDistance(-10)).toBe(0);
     expect(pullDistance(100)).toBeCloseTo(45);

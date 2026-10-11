@@ -11,6 +11,34 @@ import { isRapidGustTap } from "@asm/ui/lib/aura-burst";
 export const PULL_RESISTANCE = 0.45;
 export const PULL_MAX = 96;
 export const PULL_TRIGGER = 56;
+export const PULL_CAPTURE_SLOP = 12;
+
+// Only a downward, single-finger drag at the start of the reel may refresh.
+export function gustPullIntent({
+  offset,
+  refreshing,
+  touches,
+  x,
+  y,
+}: {
+  offset: number;
+  refreshing: boolean;
+  touches: number;
+  x: number;
+  y: number;
+}): "activate" | "fail" | "wait" {
+  "worklet";
+  if (
+    refreshing ||
+    offset > 1 ||
+    touches !== 1 ||
+    Math.abs(x) > PULL_CAPTURE_SLOP * 2 ||
+    y < -PULL_CAPTURE_SLOP
+  ) {
+    return "fail";
+  }
+  return y > PULL_CAPTURE_SLOP ? "activate" : "wait";
+}
 
 export function pullDistance(dragDelta: number): number {
   "worklet";
