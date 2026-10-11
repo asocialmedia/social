@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { fileURLToPath } from "node:url";
 
 import { rawExecutePlan, rawParams, rawQueryPlan } from "./raw-sql";
 
@@ -10,6 +11,41 @@ function parametersOf(plan: ReturnType<typeof rawQueryPlan>) {
 }
 
 describe("Prisma 8 positional SQL plans", () => {
+  test("accepts parameters from a separate server bundle sharing the Prisma singleton", async () => {
+    const bundle = await Bun.build({
+      entrypoints: [fileURLToPath(import.meta.resolve("./raw-sql"))],
+      format: "esm",
+      target: "bun",
+    });
+    expect(bundle.success).toBe(true);
+    const [output] = bundle.outputs;
+    if (!output) {
+      throw new Error("Missing raw SQL bundle");
+    }
+    const moduleUrl = `data:text/javascript;base64,${Buffer.from(await output.text()).toString("base64")}`;
+    const bundled: { rawQueryPlan: typeof rawQueryPlan } = await import(
+      moduleUrl
+    );
+    const plan = bundled.rawQueryPlan(
+      "SELECT $1::text AS id, to_jsonb($2::text[]) AS ids, $3::jsonb AS payload",
+      [
+        { codecId: "pg/text@1", value: null },
+        { codecId: "pg/text-array@1", value: ["one", "two"] },
+        { codecId: "pg/jsonb@1", value: { id: "fixture" } },
+      ],
+      {
+        id: { codecId: "pg/text@1", nullable: true },
+        ids: "pg/jsonb@1",
+        payload: "pg/jsonb@1",
+      }
+    );
+    expect(parametersOf(plan)).toEqual([
+      { codecId: "pg/text@1", value: null },
+      { codecId: "pg/text-array@1", value: ["one", "two"] },
+      { codecId: "pg/jsonb@1", value: { id: "fixture" } },
+    ]);
+  });
+
   test("binds repeated, reordered, and multi-digit placeholders without inserting values into SQL", () => {
     const unsafeText = "'); DROP TABLE messages; --";
     const values = Array.from(
