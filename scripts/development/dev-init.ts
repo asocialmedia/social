@@ -32,6 +32,7 @@ import {
   shouldUpdateDatabase,
 } from "./dev-init-lib";
 import type { StepDecision } from "./dev-init-lib";
+import { postgresInspectionQuery } from "./postgres-inspection";
 
 const ROOT = process.cwd();
 const MARKER_FILE = path.join(ROOT, ".dev-init");
@@ -257,7 +258,7 @@ async function listInstalledExtensions(): Promise<string[]> {
     "asocialmedia",
     "-At",
     "-c",
-    "SELECT extname FROM pg_extension ORDER BY extname;",
+    postgresInspectionQuery("extensions"),
   ]);
   if (result.exitCode !== 0) {
     return [];

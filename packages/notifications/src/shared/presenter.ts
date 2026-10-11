@@ -18,6 +18,10 @@ export type NotificationTarget =
     }
   | { kind: "community"; slug: string }
   | { kind: "user"; username: string }
+  // A den (group conversation) thread, opened by id. Carries no name and no
+  // roster: the surface that renders it already knows who the reader is, and a
+  // notification must not describe the den's membership to anyone.
+  | { kind: "conversation"; conversationId: string }
   | { kind: "none" };
 
 // One run of the headline. `emphasis: "name"` renders bold ink; `"action"`
@@ -52,7 +56,8 @@ export type NotificationIconName =
   | "MessageCircle"
   | "ShieldAlert"
   | "Sparkles"
-  | "UserPlus";
+  | "UserPlus"
+  | "Users";
 
 // Gradient endpoints mirror web's notification.tsx badgeClass exactly.
 const TYPE_META: Record<
@@ -70,6 +75,20 @@ const TYPE_META: Record<
   COMMUNITY_POST: {
     badge: { from: "#a78bfa", to: "#4f46e5" },
     icon: "LayoutGrid",
+  },
+  // A den membership that ended without the recipient's consent. The room glyph,
+  // as a message in a den has, but in red rather than the den's cyan: this is the
+  // same conversation as a DEN_MESSAGE and it must not look like another message
+  // arriving in it.
+  DEN_MEMBERSHIP_ENDED: {
+    badge: { from: "#f87171", to: "#b91c1c" },
+    icon: "Users",
+  },
+  // A message in a den. The two-person glyph belongs to COMMENT, which is about
+  // your own post; a den is a room, so it gets the room glyph.
+  DEN_MESSAGE: {
+    badge: { from: "#22d3ee", to: "#0891b2" },
+    icon: "Users",
   },
   FOLLOW: {
     badge: { from: "#ff9500", to: "#e65500" },
@@ -124,6 +143,34 @@ function postNoun(notification: NotificationRecord): "gust" | "post" {
   return notification.post?.isGust ? "gust" : "post";
 }
 
+// The den a row names, or null when it carries no conversation. A DEN_MESSAGE
+// always has one (the foreign key cascades, so a live row does); a
+// DEN_MEMBERSHIP_ENDED row has one only for a removal, because a dissolve
+// deletes the den and the cascade would take the notification with it. The null
+// case is handled rather than asserted so a hand-built row cannot crash a
+// render.
+export function notificationDenName(
+  notification: NotificationRecord
+): string | null {
+  return notification.conversation?.name ?? null;
+}
+
+// Falls back to an unnamed den rather than to an empty string, which would
+// read as "Alice in : sent a message".
+function denLabel(notification: NotificationRecord): string {
+  const name = notificationDenName(notification)?.trim();
+  return name && name.length > 0 ? name : "a den";
+}
+
+// What happened in the den, before its name. The server only ever holds
+// ciphertext, so there is never a message to quote: the copy says a message
+// arrived and never what it said.
+function denVerb(notification: NotificationRecord): string {
+  return notification.count > 1
+    ? `${notification.count} new messages`
+    : "sent a message";
+}
+
 function getCommentAction(notification: NotificationRecord): string {
   const { comment } = notification;
   const suffix = communitySuffix(notification);
@@ -153,6 +200,21 @@ function getAction(notification: NotificationRecord): string {
         ? `${notification.count} new fleets posted in a/${slug}`
         : `posted a new fleet in a/${slug}`;
     }
+    case "DEN_MEMBERSHIP_ENDED": {
+      // The den is named only when it still exists, which is the removal case.
+      // A dissolve has no den to name, so the sentence is deliberately generic:
+      // claiming a name here would be printing something the row does not carry
+      // and could not survive the cascade.
+      return notification.conversation
+        ? `removed you from ${denLabel(notification)}`
+        : "deleted a den you were in";
+    }
+    case "DEN_MESSAGE": {
+      // "sent a message in Study group". This is also the push body, so it
+      // stands alone under the sender's name as a tray title rather than
+      // carrying the "in <den>" clause twice.
+      return `${denVerb(notification)} in ${denLabel(notification)}`;
+    }
     case "FOLLOW": {
       return "followed you";
     }
@@ -179,7 +241,8 @@ function getAction(notification: NotificationRecord): string {
 
 // The link target a notification resolves to. A community post goes to its
 // /a/<slug> home only for the batched COMMUNITY_POST row (which spans several
-// authors); every other type points at the individual post.
+// authors); a den message opens the den; every other type points at the
+// individual post.
 export function getNotificationTarget(
   notification: NotificationRecord
 ): NotificationTarget {
@@ -188,6 +251,20 @@ export function getNotificationTarget(
   }
   if (notification.type === "FOLLOW") {
     return { kind: "user", username: notification.issuer.username ?? "" };
+  }
+  if (notification.type === "DEN_MESSAGE") {
+    const conversationId =
+      notification.conversation?.id ?? notification.conversationId ?? null;
+    return conversationId
+      ? { conversationId, kind: "conversation" }
+      : { kind: "none" };
+  }
+  // Nowhere to go, and deliberately so. The recipient of this row is no longer
+  // a member of the den, so the thread it names is closed to them, and a
+  // dissolved den has no thread at all. Pointing at either would be a tap that
+  // lands on a 404. The row is information, not a route.
+  if (notification.type === "DEN_MEMBERSHIP_ENDED") {
+    return { kind: "none" };
   }
   if (notification.post?.id) {
     return {
@@ -210,6 +287,60 @@ export function getNotificationTarget(
   return { kind: "none" };
 }
 
+// "Alice", "Alice and Bob", "Alice, Bob and Carol", "Alice, Bob and +3 others".
+// The name runs on their own so a caller can append whatever tail its type
+// needs: a den appends "in <den>: <what happened>", an amplify appends the
+// thing that was amplified.
+function namesRun(issuers: NotificationRecord["issuer"][]): HeadlineSegment[] {
+  const names = issuers.map(
+    (issuer) => issuer.displayName ?? issuer.username ?? ""
+  );
+  const [first, second, third] = names;
+  if (names.length <= 1) {
+    return [{ emphasis: "name", text: first ?? "" }];
+  }
+  if (names.length === 2) {
+    return [
+      { emphasis: "name", text: first ?? "" },
+      { emphasis: "action", text: " and " },
+      { emphasis: "name", text: second ?? "" },
+    ];
+  }
+  if (names.length === 3) {
+    return [
+      { emphasis: "name", text: first ?? "" },
+      { emphasis: "action", text: ", " },
+      { emphasis: "name", text: second ?? "" },
+      { emphasis: "action", text: " and " },
+      { emphasis: "name", text: third ?? "" },
+    ];
+  }
+  return [
+    { emphasis: "name", text: first ?? "" },
+    { emphasis: "action", text: ", " },
+    { emphasis: "name", text: second ?? "" },
+    { emphasis: "action", text: " and " },
+    { emphasis: "name", text: `+${names.length - 2} others` },
+  ];
+}
+
+// A den message names the room as well as the person, and the room comes
+// first: "Alice in Study group: sent a message". An inbox with forty rows in it
+// gives the reader no other way to tell which conversation a row belongs to, so
+// the den is set in the same ink as the sender's name instead of trailing the
+// verb phrase where a glance misses it.
+function denHeadline(
+  notification: NotificationRecord,
+  issuers: NotificationRecord["issuer"][]
+): HeadlineSegment[] {
+  return [
+    ...namesRun(issuers),
+    { emphasis: "action", text: " in " },
+    { emphasis: "name", text: denLabel(notification) },
+    { emphasis: "action", text: `: ${denVerb(notification)}` },
+  ];
+}
+
 // Joins the issuer names and the action into styled runs, mirroring web's
 // NotificationHeadline. A folded COMMUNITY_POST row spans several authors, so
 // it is community-level and carries no subject name.
@@ -221,47 +352,39 @@ function buildHeadline(
   if (notification.type === "COMMUNITY_POST" && notification.count > 1) {
     return [{ emphasis: "action", text: action }];
   }
+  if (notification.type === "DEN_MESSAGE") {
+    return denHeadline(notification, issuers);
+  }
+  if (notification.type === "DEN_MEMBERSHIP_ENDED") {
+    // The plain issuer-then-action shape, which is already the default below, is
+    // the whole of it: there is no room to name on a dissolve, and on a removal
+    // the room is inside the action. Spelled out rather than left to the
+    // fallback so a future branch here cannot change this row's shape by
+    // accident.
+    const [single] = issuers;
+    return [
+      {
+        emphasis: "name",
+        text: single?.displayName ?? single?.username ?? "",
+      },
+      { emphasis: "action", text: ` ${action}` },
+    ];
+  }
   if (notification.type !== "AMPLIFY" || issuers.length <= 1) {
     const [single] = issuers;
-    const name = single?.displayName ?? single?.username ?? "";
     return [
-      { emphasis: "name", text: name },
+      { emphasis: "name", text: single?.displayName ?? single?.username ?? "" },
       { emphasis: "action", text: ` ${action}` },
     ];
   }
 
   const noun = isEddie(notification) ? "eddie" : "post";
-  const tail = ` ${communitySuffix(notification)}`;
-  const names = issuers.map(
-    (issuer) => issuer.displayName ?? issuer.username ?? ""
-  );
-
-  if (names.length === 2) {
-    return [
-      { emphasis: "name", text: names[0] ?? "" },
-      { emphasis: "action", text: " and " },
-      { emphasis: "name", text: names[1] ?? "" },
-      { emphasis: "action", text: ` amplified your ${noun}${tail}` },
-    ];
-  }
-  if (names.length === 3) {
-    return [
-      { emphasis: "name", text: names[0] ?? "" },
-      { emphasis: "action", text: ", " },
-      { emphasis: "name", text: names[1] ?? "" },
-      { emphasis: "action", text: " and " },
-      { emphasis: "name", text: names[2] ?? "" },
-      { emphasis: "action", text: ` amplified your ${noun}${tail}` },
-    ];
-  }
-  const others = names.length - 2;
   return [
-    { emphasis: "name", text: names[0] ?? "" },
-    { emphasis: "action", text: ", " },
-    { emphasis: "name", text: names[1] ?? "" },
-    { emphasis: "action", text: " and " },
-    { emphasis: "name", text: `+${others} others` },
-    { emphasis: "action", text: ` amplified your ${noun}${tail}` },
+    ...namesRun(issuers),
+    {
+      emphasis: "action",
+      text: ` amplified your ${noun}${communitySuffix(notification)}`,
+    },
   ];
 }
 

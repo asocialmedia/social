@@ -5,6 +5,7 @@ import { collectTestFiles, isIntegrationTestFile } from "./test-file-discovery";
 
 const ENV_FILE_NAME = ".env.test";
 const TIMINGS_FILE_NAME = "test-timings.json";
+const DEFAULT_TEST_FILE_WORKERS = 4;
 
 export type ServiceName = "postgres" | "redis";
 
@@ -199,11 +200,18 @@ export async function runTestSuite(
     }
   }
 
+  const hasParallelOverride = extraArgs.some(
+    (argument) =>
+      argument === "--parallel" || argument.startsWith("--parallel=")
+  );
+
   return await runProcess({
     cmd: [
       "bun",
       "test",
-      "--parallel",
+      ...(hasParallelOverride
+        ? []
+        : [`--parallel=${DEFAULT_TEST_FILE_WORKERS}`]),
       `--env-file=${ENV_FILE_NAME}`,
       `--timings=${TIMINGS_FILE_NAME}`,
       "--update-timings",

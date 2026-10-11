@@ -850,8 +850,8 @@ export default function SecuritySettings({
         }}
         open={twoFactorAction !== null}
       >
-        <DialogContent className="apple-panel w-[calc(100%-1.5rem)] max-w-[420px] gap-0 overflow-hidden border-0 p-0 sm:rounded-2xl">
-          <DialogHeader className="border-border/60 gap-0 border-b px-5 pt-5 pb-4 text-left">
+        <DialogContent className="w-[calc(100%-2rem)] max-w-[420px] gap-0 overflow-hidden rounded-2xl! p-0">
+          <DialogHeader className="border-border/60 gap-0 border-b px-4 pt-4 pb-4 text-left">
             <DialogTitle className="flex items-center gap-2 text-base font-semibold">
               <div
                 className={cn(
@@ -869,7 +869,7 @@ export default function SecuritySettings({
           </DialogHeader>
           <Form {...passwordForm}>
             <form onSubmit={passwordForm.handleSubmit(submitTwoFactorAction)}>
-              <div className="px-5 py-4">
+              <div className="px-4 py-4">
                 <FormField
                   control={passwordForm.control}
                   name="password"
@@ -888,7 +888,7 @@ export default function SecuritySettings({
                   )}
                 />
               </div>
-              <DialogFooter className="border-border/60 flex-row justify-end gap-2 border-t px-5 py-3 sm:space-x-0">
+              <DialogFooter className="border-border/60 flex-row justify-end gap-2 border-t px-4 py-3 sm:space-x-0">
                 <Button
                   className="btn-3d-gray h-9 rounded-full px-4 text-sm!"
                   onClick={() => setTwoFactorAction(null)}
@@ -920,8 +920,8 @@ export default function SecuritySettings({
         }}
         open={totpSetup !== null}
       >
-        <DialogContent className="apple-panel w-[calc(100%-1.5rem)] max-w-[420px] gap-0 overflow-hidden border-0 p-0 sm:rounded-2xl">
-          <DialogHeader className="border-border/60 gap-0 border-b px-5 pt-5 pb-4 text-left">
+        <DialogContent className="w-[calc(100%-2rem)] max-w-[420px] gap-0 overflow-hidden rounded-2xl! p-0">
+          <DialogHeader className="border-border/60 gap-0 border-b px-4 pt-4 pb-4 text-left">
             <DialogTitle className="flex items-center gap-2 text-base font-semibold">
               <div
                 className={cn(
@@ -937,7 +937,7 @@ export default function SecuritySettings({
             </DialogTitle>
           </DialogHeader>
           {totpSetup && (
-            <div className="space-y-4 px-5 py-4">
+            <div className="space-y-4 px-4 py-4">
               {hasRecoveryCodesToSave ? (
                 <>
                   <p className="text-muted-foreground text-sm">
@@ -1000,8 +1000,8 @@ export default function SecuritySettings({
       </Dialog>
 
       <Dialog onOpenChange={setIsPasskeyDialogOpen} open={isPasskeyDialogOpen}>
-        <DialogContent className="apple-panel w-[calc(100%-1.5rem)] max-w-[420px] gap-0 overflow-hidden border-0 p-0 sm:rounded-2xl">
-          <DialogHeader className="border-border/60 gap-0 border-b px-5 pt-5 pb-4 text-left">
+        <DialogContent className="w-[calc(100%-2rem)] max-w-[420px] gap-0 overflow-hidden rounded-2xl! p-0">
+          <DialogHeader className="border-border/60 gap-0 border-b px-4 pt-4 pb-4 text-left">
             <DialogTitle className="flex items-center gap-2 text-base font-semibold">
               <div
                 className={cn(
@@ -1020,7 +1020,7 @@ export default function SecuritySettings({
           </DialogHeader>
           <Form {...passkeyNameForm}>
             <form onSubmit={passkeyNameForm.handleSubmit(addPasskey)}>
-              <div className="px-5 py-4">
+              <div className="px-4 py-4">
                 <FormField
                   control={passkeyNameForm.control}
                   name="name"
@@ -1035,7 +1035,7 @@ export default function SecuritySettings({
                   )}
                 />
               </div>
-              <DialogFooter className="border-border/60 flex-row justify-end gap-2 border-t px-5 py-3 sm:space-x-0">
+              <DialogFooter className="border-border/60 flex-row justify-end gap-2 border-t px-4 py-3 sm:space-x-0">
                 <Button
                   className="btn-3d-gray h-9 rounded-full px-4 text-sm!"
                   onClick={() => setIsPasskeyDialogOpen(false)}
@@ -1068,8 +1068,8 @@ export default function SecuritySettings({
         }}
         open={isPasskeyReauthenticationOpen}
       >
-        <DialogContent className="apple-panel w-[calc(100%-1.5rem)] max-w-[420px] gap-0 overflow-hidden border-0 p-0 sm:rounded-2xl">
-          <DialogHeader className="border-border/60 gap-0 border-b px-5 pt-5 pb-4 text-left">
+        <DialogContent className="w-[calc(100%-2rem)] max-w-[420px] gap-0 overflow-hidden rounded-2xl! p-0">
+          <DialogHeader className="border-border/60 gap-0 border-b px-4 pt-4 pb-4 text-left">
             <DialogTitle className="flex items-center gap-2 text-base font-semibold">
               <div
                 className={cn(
@@ -1096,7 +1096,7 @@ export default function SecuritySettings({
                 confirmPasskeyReauthentication
               )}
             >
-              <div className="px-5 py-4">
+              <div className="px-4 py-4">
                 <FormField
                   control={passkeyReauthenticationForm.control}
                   name="password"
@@ -1115,7 +1115,7 @@ export default function SecuritySettings({
                   )}
                 />
               </div>
-              <DialogFooter className="border-border/60 flex-row justify-end gap-2 border-t px-5 py-3 sm:space-x-0">
+              <DialogFooter className="border-border/60 flex-row justify-end gap-2 border-t px-4 py-3 sm:space-x-0">
                 <Button
                   className="btn-3d-gray h-9 rounded-full px-4 text-sm!"
                   onClick={() => setIsPasskeyReauthenticationOpen(false)}

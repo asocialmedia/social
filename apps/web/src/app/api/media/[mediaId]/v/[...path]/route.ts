@@ -13,7 +13,10 @@ import {
   DERIVATIVE_MIME_BY_EXT,
   parseVariantRequest,
 } from "@/lib/media/media-variants";
-import { resolveMessageMediaMembership } from "@/lib/media/message-media-access";
+import {
+  resolveDenWallpaperConversationId,
+  resolveMessageMediaMembership,
+} from "@/lib/media/message-media-access";
 import {
   ASMOB_BUCKET,
   asmobClient,
@@ -142,6 +145,14 @@ export async function GET(
   }
   const session = await getSessionFromApi();
   const viewer = session?.user ?? null;
+  if (
+    !mappedOwnership.postId &&
+    !mappedOwnership.commentId &&
+    mappedOwnership.mimeType.startsWith("image/")
+  ) {
+    mappedOwnership.messageConversationId ??=
+      await resolveDenWallpaperConversationId(mediaId, viewer?.id);
+  }
   const isConversationMember = await resolveMessageMediaMembership(
     mappedOwnership.messageConversationId,
     viewer?.id

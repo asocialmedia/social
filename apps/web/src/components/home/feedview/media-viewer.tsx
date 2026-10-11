@@ -1646,7 +1646,7 @@ const MediaViewer = ({
       {/* The named view transition makes the post <-> media route swap a smooth
           crossfade into/out of the fullscreen viewer instead of an instant pop. */}
       <DialogContent
-        className="h-dvh max-h-dvh max-w-none border-none bg-black p-0 [&>button:last-child]:hidden"
+        className="h-dvh max-h-dvh w-screen max-w-none rounded-none! border-none bg-black p-0 [&>button:last-child]:hidden"
         style={{ viewTransitionName: "media-viewer" }}
       >
         <DialogTitle asChild>

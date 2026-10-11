@@ -100,7 +100,7 @@ export default function MessageImageEditDialog({
 
   return (
     <Dialog onOpenChange={onClose} open>
-      <DialogContent className="flex max-h-[85dvh] w-[calc(100%-1.5rem)] max-w-140 flex-col gap-4 overflow-hidden rounded-2xl p-0 [&>button:last-child]:hidden">
+      <DialogContent className="flex max-h-[85dvh] w-[calc(100%-2rem)] max-w-140 flex-col gap-4 overflow-hidden rounded-2xl! p-0 [&>button:last-child]:hidden">
         <div className="border-border/60 flex shrink-0 items-center border-b py-2 pr-3 pl-4">
           <div className="flex min-w-0 flex-1 flex-col justify-center py-1">
             <DialogTitle className="text-base font-semibold">
@@ -120,7 +120,7 @@ export default function MessageImageEditDialog({
           </DialogClose>
         </div>
 
-        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-5 pb-5">
+        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 pb-4">
           <div className="border-border/60 flex min-h-0 items-center justify-center overflow-hidden rounded-xl border bg-[hsl(var(--background))] shadow-[inset_0_1px_2px_rgba(0,0,0,0.04)]">
             {kind === "gif" ? (
               <Image

@@ -16,6 +16,7 @@ import {
 import { applyFlatAward } from "../aura/ledger";
 import { computeStandingForUser, getCommunityStanding } from "../aura/standing";
 import { getPostDataQuery, mapPostData } from "../client";
+import { planFoldedNotification } from "../notifications/plan";
 import prisma, { fromPrismaDateTime, toPrismaDateTime } from "../prisma";
 import type { PrismaOrm, PrismaTransaction } from "../prisma";
 import {
@@ -30,7 +31,6 @@ import {
   DEFAULT_COMMUNITY_ACCENT,
   isCommunityAccent,
 } from "./constants";
-import { planCommunityNotification } from "./notification-plan";
 import { isValidCommunitySlug, normalizeCommunitySlug } from "./slug";
 
 const logger = createLogger({ serviceName: "communities" });
@@ -721,7 +721,7 @@ export async function notifyCommunitySubscribers(
       )
     )
     .all();
-  const { fold, fresh } = planCommunityNotification(
+  const { fold, fresh } = planFoldedNotification(
     recipientIds,
     existing.map((notification) => notification.recipientId)
   );

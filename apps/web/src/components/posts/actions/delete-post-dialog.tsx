@@ -43,10 +43,10 @@ export default function DeletePostDialog({
   return (
     <Dialog onOpenChange={handleOpenChange} open={open}>
       <DialogContent
-        className="apple-panel w-full max-w-[400px] gap-4 overflow-hidden p-0 sm:rounded-2xl"
+        className="w-[calc(100%-2rem)] max-w-[400px] gap-4 overflow-hidden rounded-2xl! p-0"
         onClick={handleContentClick}
       >
-        <div className="border-border/60 border-b px-5 pt-5 pb-3">
+        <div className="border-border/60 border-b px-4 pt-4 pb-3">
           <DialogTitle className="flex items-center gap-2 text-base font-semibold">
             <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-b from-[#f87171] to-[#dc2626] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(150,30,30,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]">
               <Trash2 className="h-3.5 w-3.5" />
@@ -58,7 +58,7 @@ export default function DeletePostDialog({
           </DialogDescription>
         </div>
 
-        <div className="px-5 pb-5">
+        <div className="px-4 pb-4">
           <p className="text-sm">
             Are you sure you want to delete this post? Once deleted, it&apos;s
             gone forever.
@@ -74,7 +74,7 @@ export default function DeletePostDialog({
               Cancel
             </Button>
             <LoadingButton
-              className="rounded-full bg-gradient-to-b from-[#f87171] to-[#dc2626] px-5 py-2 text-sm text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(150,30,30,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)] hover:from-[#ef4444] hover:to-[#b91c1c]"
+              className="rounded-full bg-gradient-to-b from-[#f87171] to-[#dc2626] px-4 py-2 text-sm text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(150,30,30,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)] hover:from-[#ef4444] hover:to-[#b91c1c]"
               loading={mutation.isPending}
               onClick={handleDelete}
             >

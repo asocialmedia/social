@@ -1,0 +1,819 @@
+import { beforeEach, describe, expect, mock, test } from "bun:test";
+
+import type { DenError as DenErrorClass } from "@asm/db";
+import {
+  DEN_LIMITS,
+  isCurrentDenMember as realIsCurrentDenMember,
+} from "@asm/db/messages/dens";
+
+import {
+  DEN_JOIN_PREVIEW_RATE_LIMIT,
+  DEN_JOIN_RATE_LIMIT,
+  denRateLimitDouble,
+} from "@/lib/messages/test-support/den-rate-limit-double";
+import { asmDbMockBase } from "@/posts/test-support/asm-db-mock";
+
+import { GET, POST } from "./route";
+
+// This is the widest door in the product: the URL is shareable and anybody
+// holding it can present it. The preview is therefore the surface under the most
+// scrutiny here - it must not become a way to enumerate who is in a den, and it
+// must not disclose membership to somebody signed out - and the join must refuse
+// a member with no message identity before writing anything at all.
+//
+// The one disclosure the preview does make is a RETIRED code's den and owner, which
+// is what lets somebody whose link stopped working be told who to ask. It is tested
+// here from both sides: that it names the right four facts and no more, and that
+// the unknown outcome is still byte-identical to a code that never existed - the
+// second being what stops the disclosure from being an oracle for guessing.
+
+class DenError extends Error {
+  code: DenErrorClass["code"];
+  constructor(code: DenErrorClass["code"], message: string) {
+    super(message);
+    this.code = code;
+    this.name = "DenError";
+  }
+}
+
+interface Preview {
+  avatarMediaId: string | null;
+  expired: boolean;
+  id: string;
+  inviteCode: string;
+  memberCount: number;
+  name: string | null;
+  ownerId: string | null;
+}
+
+type Session = { user: { id: string } } | null;
+const mockGetSession = mock((): Session => ({ user: { id: "newcomer" } }));
+
+let preview: Preview | null = {
+  avatarMediaId: "media-1",
+  expired: false,
+  id: "den-1",
+  inviteCode: "code-abcdefghijk",
+  memberCount: 4,
+  name: "game night",
+  ownerId: "owner-1",
+};
+const mockPreviewInvite = mock((_code: string) => Promise.resolve(preview));
+
+// `leftAt` is carried because it is the column the route now reads. Null means
+// currently inside; a timestamp means departed. The existing fixtures leave it null,
+// which is what "inside" is, so they keep their meaning.
+let membership: { leftAt: Date | null; role: string } | null = null;
+const mockGetDenMembership = mock((_conversationId: string, _userId: string) =>
+  Promise.resolve(membership)
+);
+
+let joinResult = { alreadyMember: false, id: "den-1" };
+const mockJoinDenByInviteCode = mock((_code: string, _userId: string) =>
+  Promise.resolve(joinResult)
+);
+
+// Defaults to true, so a test only has to say the one identity it is missing.
+const mockHasMessageIdentity = mock((userId: string) =>
+  Promise.resolve(userId !== "no-identity")
+);
+
+mock.module("@/lib/auth/session", () => ({
+  getSessionFromApi: mockGetSession,
+}));
+
+let limiterDenies = false;
+// Which rule each call was handed, so a test can say WHICH budget an operation
+// spends rather than only that a limiter was consulted.
+const chargedRules: { bucket: string; identifier: string }[] = [];
+const mockConsumeDenRateLimit = mock(
+  (rule: { bucket: string }, identifier: string) => {
+    chargedRules.push({ bucket: rule.bucket, identifier });
+    return Promise.resolve(
+      limiterDenies
+        ? Response.json({ error: "slow down" }, { status: 429 })
+        : null
+    );
+  }
+);
+mock.module("@/lib/messages/den-rate-limit", () =>
+  denRateLimitDouble(mockConsumeDenRateLimit)
+);
+
+mock.module("@/lib/messages/server", () => ({
+  hasMessageIdentity: mockHasMessageIdentity,
+}));
+
+// Whether the holder of this code is banned from the den it names. Stubbed rather than
+// left to reach `prisma`, because the real helper would build a query against the
+// mocked barrel and 500 on a bind it cannot express - a failure that looks like a route
+// bug and says nothing about the ban.
+const mockIsDenBanned = mock((_conversationId: string, _userId: string) =>
+  Promise.resolve(false)
+);
+
+mock.module("@asm/db", () => ({
+  ...asmDbMockBase,
+  DenError,
+  getDenMembership: mockGetDenMembership,
+  // The REAL predicate. `@asm/db/messages/dens` is a different specifier from the
+  // mocked barrel, so it resolves for real, and the route's answer is the product's
+  // rather than this file's idea of "inside".
+  isCurrentDenMember: realIsCurrentDenMember,
+  isDenBanned: mockIsDenBanned,
+  joinDenByInviteCode: mockJoinDenByInviteCode,
+  previewInvite: mockPreviewInvite,
+}));
+
+function previewRequest(code = "code-abcdefghijk", session: Session = null) {
+  mockGetSession.mockReturnValue(session);
+  return GET(
+    new Request(`http://localhost:3000/api/messages/dens/join/${code}`),
+    { params: Promise.resolve({ code }) }
+  );
+}
+
+function join(code = "code-abcdefghijk", session: Session = null) {
+  mockGetSession.mockReturnValue(session);
+  return POST(
+    new Request(`http://localhost:3000/api/messages/dens/join/${code}`, {
+      method: "POST",
+    }),
+    { params: Promise.resolve({ code }) }
+  );
+}
+
+describe("GET /api/messages/dens/join/:code", () => {
+  beforeEach(() => {
+    preview = {
+      avatarMediaId: "media-1",
+      expired: false,
+      id: "den-1",
+      inviteCode: "code-abcdefghijk",
+      memberCount: 4,
+      name: "game night",
+      ownerId: "owner-1",
+    };
+    membership = null;
+    limiterDenies = false;
+    chargedRules.length = 0;
+    mockConsumeDenRateLimit.mockClear();
+    mockGetDenMembership.mockClear();
+    mockGetSession.mockClear();
+    mockIsDenBanned.mockClear();
+    mockIsDenBanned.mockImplementation(() => Promise.resolve(false));
+    mockPreviewInvite.mockClear();
+    mockPreviewInvite.mockImplementation(() => Promise.resolve(preview));
+  });
+
+  test("404s a code that does not resolve", async () => {
+    // The `code` field is part of the answer on purpose: a caller branching on
+    // it must not be able to tell this from a full den, and it cannot, because
+    // a full den is answered with these same bytes.
+    preview = null;
+    const res = await previewRequest();
+    expect(res.status).toBe(404);
+    expect(await res.json()).toEqual({
+      code: "NOT_FOUND",
+      error: "That join code is not valid",
+    });
+  });
+
+  test("answers a code it cannot explain the same way as one that never existed", async () => {
+    // A pruned code, a code whose den has been dissolved, and a code the archive
+    // could not be read to explain all arrive here as null from `previewInvite`, and
+    // all three have to reach the client as exactly the bytes a never-issued code
+    // gets. Otherwise this endpoint is a probe for whether a guessed code was ever
+    // real, which turns a 12-character secret into an oracle.
+    preview = null;
+    const neverExisted = await previewRequest("nope-nope-nope");
+    const unexplainable = await previewRequest("old-code-old-c");
+    expect(unexplainable.status).toBe(neverExisted.status);
+    expect(await unexplainable.json()).toEqual(await neverExisted.json());
+  });
+
+  // The session gate on short codes. A 6-character code is guessable where a
+  // 12-character link is not, and the preview answers every hit with a den's
+  // name, size and - on a retired or expired code - its owner. A link is still
+  // previewable signed out because it arrives from outside the app; a code is
+  // only ever entered inside the app, by somebody who already has an account.
+  // The gate runs before the limiter and before the lookup, and its refusal is
+  // byte-identical to an unknown code so the gate cannot become its own oracle.
+  test("a signed-out preview of a 6-character code is refused like an unknown code", async () => {
+    // The reference for "unknown" is the route's own 404 for a code that does
+    // not resolve: with the preview nulled, a link code with no den behind it
+    // answers exactly those bytes.
+    preview = null;
+    const unknownLink = await previewRequest("nope-nope-nope");
+    preview = {
+      avatarMediaId: "media-1",
+      expired: false,
+      id: "den-1",
+      inviteCode: "ABC123",
+      memberCount: 4,
+      name: "game night",
+      ownerId: "owner-1",
+    };
+    // The reference request above legitimately charged both; only the GATED
+    // request must reach neither.
+    mockConsumeDenRateLimit.mockClear();
+    mockPreviewInvite.mockClear();
+    const gated = await previewRequest("ABC123");
+    expect(gated.status).toBe(404);
+    expect(await gated.text()).toBe(await unknownLink.text());
+    // Gated BEFORE the limiter and the lookup: an anonymous sweep of the
+    // short-code space spends neither its budget nor a query.
+    expect(mockConsumeDenRateLimit).not.toHaveBeenCalled();
+    expect(mockPreviewInvite).not.toHaveBeenCalled();
+  });
+
+  test("a signed-in preview of a 6-character code reads normally", async () => {
+    preview = {
+      avatarMediaId: "media-1",
+      expired: false,
+      id: "den-1",
+      inviteCode: "ABC123",
+      memberCount: 4,
+      name: "game night",
+      ownerId: "owner-1",
+    };
+    const res = await previewRequest("ABC123", { user: { id: "newcomer" } });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      den: {
+        avatarMediaId: "media-1",
+        id: "den-1",
+        memberCount: 4,
+        name: "game night",
+      },
+      isBanned: false,
+      isMember: false,
+    });
+  });
+
+  test("a lowercase-typed short code from a signed-out viewer is gated too", async () => {
+    // Normalization runs before the gate, so the lowercase form of a code
+    // cannot slip past it.
+    preview = null;
+    const unknownLink = await previewRequest("nope-nope-nope");
+    preview = {
+      avatarMediaId: "media-1",
+      expired: false,
+      id: "den-1",
+      inviteCode: "ABC123",
+      memberCount: 4,
+      name: "game night",
+      ownerId: "owner-1",
+    };
+    const gated = await previewRequest("abc123");
+    expect(gated.status).toBe(404);
+    expect(await gated.text()).toBe(await unknownLink.text());
+  });
+
+  test("previews a live 6-character short code", async () => {
+    preview = {
+      avatarMediaId: "media-1",
+      expired: false,
+      id: "den-1",
+      inviteCode: "ABC123",
+      memberCount: 4,
+      name: "game night",
+      ownerId: "owner-1",
+    };
+    // Signed in: a short code is previewed from inside the app, where the
+    // reader always has an account. The signed-out variant is the gate test.
+    const res = await previewRequest("ABC123", { user: { id: "newcomer" } });
+    expect(res.status).toBe(200);
+    expect(mockPreviewInvite).toHaveBeenCalledWith("ABC123");
+    expect(await res.json()).toEqual({
+      den: {
+        avatarMediaId: "media-1",
+        id: "den-1",
+        memberCount: 4,
+        name: "game night",
+      },
+      isBanned: false,
+      isMember: false,
+    });
+  });
+
+  test("an unknown 6-character code returns the same 404 as any invalid code", async () => {
+    preview = null;
+    const unknownShort = await previewRequest("ABC123", {
+      user: { id: "newcomer" },
+    });
+    const neverExisted = await previewRequest("nope-nope-nope", {
+      user: { id: "newcomer" },
+    });
+    expect(unknownShort.status).toBe(404);
+    expect(await unknownShort.json()).toEqual(await neverExisted.json());
+  });
+
+  // The promise the whole retired-code branch rests on, restated for the one field
+  // that was added to it. Adding the archive must not change what somebody holding a
+  // WORKING code is told beyond the picture; `expired` is absent rather than false,
+  // and `ownerId` is absent rather than named, so a reader with a live code learns
+  // exactly what they learned before plus the room's own image.
+  test("a live code's payload is the four facts plus the den's image", async () => {
+    const res = await previewRequest();
+    expect(await res.json()).toEqual({
+      den: {
+        avatarMediaId: "media-1",
+        id: "den-1",
+        memberCount: 4,
+        name: "game night",
+      },
+      isBanned: false,
+      isMember: false,
+    });
+  });
+
+  // The one fact the preview adds that is about the READER rather than the den. It has
+  // to be here rather than discovered by pressing Join: a banned reader who is only
+  // told on submit has already been through the door, and the screen they land on is a
+  // dead end. It is scoped to the session's own account, so it says nothing about
+  // anybody else - see the disclosure test below.
+  test("tells a banned holder they cannot join rather than letting them try", async () => {
+    mockIsDenBanned.mockImplementation(() => Promise.resolve(true));
+    const res = await previewRequest("code-abcdefghijk", {
+      user: { id: "stranger-1" },
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      den: {
+        avatarMediaId: "media-1",
+        id: "den-1",
+        memberCount: 4,
+        name: "game night",
+      },
+      isBanned: true,
+      isMember: false,
+    });
+  });
+
+  test("a live code for a den with no image says so rather than omitting it", async () => {
+    // Carried as an explicit null rather than dropped, so the client can tell "this
+    // den has no picture" from an older server that did not send the field at all.
+    preview = { ...preview, avatarMediaId: null };
+    const res = await previewRequest();
+    expect(await res.json()).toEqual({
+      den: {
+        avatarMediaId: null,
+        id: "den-1",
+        memberCount: 4,
+        name: "game night",
+      },
+      isBanned: false,
+      isMember: false,
+    });
+  });
+
+  test("a retired code names the den and its owner", async () => {
+    // The disclosure this route now makes, and the whole point of the archive. The
+    // holder of a retired code was given it by somebody in that den, so it names a
+    // room and a person they were already told about - and it hands back no way in.
+    preview = {
+      // Null, not absent: this is the service's retired shape, and the picture is
+      // the one field the live path carries and this one deliberately does not.
+      avatarMediaId: null,
+      expired: true,
+      id: "den-1",
+      inviteCode: "code-abcdefghijk",
+      memberCount: 4,
+      name: "game night",
+      ownerId: "owner-1",
+    };
+    const res = await previewRequest();
+    expect(res.status).toBe(200);
+    // No `avatarMediaId` key at all, asserted rather than left implicit: the image
+    // is disclosed on a code that still works and on nothing else, so this payload
+    // has to be exactly the four facts and the flag.
+    expect(await res.json()).toEqual({
+      den: {
+        id: "den-1",
+        memberCount: 4,
+        name: "game night",
+        ownerId: "owner-1",
+      },
+      expired: true,
+      isMember: false,
+    });
+  });
+
+  test("a retired code with no owner says so rather than naming a stranger", async () => {
+    // The den's owner account can be deleted. The route has to report that honestly
+    // rather than reaching for another id, because the join screen's whole choice -
+    // offer "ask for a new invite", or degrade - hangs on this being null.
+    preview = {
+      avatarMediaId: null,
+      expired: true,
+      id: "den-1",
+      inviteCode: "code-abcdefghijk",
+      memberCount: 4,
+      name: "game night",
+      ownerId: null,
+    };
+    const res = await previewRequest();
+    const body = (await res.json()) as { den: { ownerId: string | null } };
+    expect(body.den.ownerId).toBeNull();
+  });
+
+  test("a retired code carries nothing a live one does not, and no roster", async () => {
+    // The bound on what may ever ride along. A roster, a join log or a message count
+    // here would turn a "go ask the owner" screen into a history of a room people
+    // have since left.
+    preview = {
+      // Null, not absent: this is the service's retired shape, and the picture is
+      // the one field the live path carries and this one deliberately does not.
+      avatarMediaId: null,
+      expired: true,
+      id: "den-1",
+      inviteCode: "code-abcdefghijk",
+      memberCount: 4,
+      name: "game night",
+      ownerId: "owner-1",
+    };
+    const res = await previewRequest();
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(Object.keys(body).toSorted()).toEqual([
+      "den",
+      "expired",
+      "isMember",
+    ]);
+    expect(Object.keys(body.den as Record<string, unknown>).toSorted()).toEqual(
+      ["id", "memberCount", "name", "ownerId"]
+    );
+    // The code itself never comes back, retired or live: it is the one value the
+    // reader already has.
+    expect(JSON.stringify(body)).not.toContain("inviteCode");
+  });
+
+  test("a signed-in member of a den whose code was retired is told so", async () => {
+    // Same disclosure rule as the live path, and it is what stops the screen offering
+    // somebody already inside a den a conversation with its owner.
+    preview = {
+      // Null, not absent: this is the service's retired shape, and the picture is
+      // the one field the live path carries and this one deliberately does not.
+      avatarMediaId: null,
+      expired: true,
+      id: "den-1",
+      inviteCode: "code-abcdefghijk",
+      memberCount: 4,
+      name: "game night",
+      ownerId: "owner-1",
+    };
+    membership = { leftAt: null, role: "MEMBER" };
+    const res = await previewRequest("code-abcdefghijk", {
+      user: { id: "member-1" },
+    });
+    const body = (await res.json()) as { isMember: boolean };
+    expect(body.isMember).toBe(true);
+    expect(mockGetDenMembership).toHaveBeenCalledWith("den-1", "member-1");
+  });
+
+  test("a signed-out reader of a retired code is told nothing about membership", async () => {
+    // A leaked code must not tell an outsider whether somebody is still inside the
+    // den, and that rule is the same one the live path has always had.
+    preview = {
+      // Null, not absent: this is the service's retired shape, and the picture is
+      // the one field the live path carries and this one deliberately does not.
+      avatarMediaId: null,
+      expired: true,
+      id: "den-1",
+      inviteCode: "code-abcdefghijk",
+      memberCount: 4,
+      name: "game night",
+      ownerId: "owner-1",
+    };
+    await previewRequest();
+    expect(mockGetDenMembership).not.toHaveBeenCalled();
+  });
+
+  test("reads without a session", async () => {
+    // The join screen has to render for somebody who has not signed in yet, so
+    // this route is the one den endpoint that does not require a session - for
+    // LINK codes. A 6-character code from a signed-out viewer is gated above;
+    // this fixture is a 12-character link, which keeps its anonymous preview.
+    const res = await previewRequest();
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      den: { id: string; memberCount: number; name: string | null };
+      isMember: boolean;
+    };
+    expect(body.den).toEqual({
+      avatarMediaId: "media-1",
+      id: "den-1",
+      memberCount: 4,
+      name: "game night",
+    });
+    expect(body.isMember).toBe(false);
+  });
+
+  test("never discloses the roster or a member identity", async () => {
+    // Possession of a code is not a reason to enumerate who is in a den, so the
+    // whole payload is asserted rather than a few keys of it. The image is in the
+    // list because it was added deliberately: it identifies the room, which is the
+    // same class of fact as the name and the size, and it is not a roster.
+    //
+    // `isBanned` is in the list for the same reason and it is worth being precise:
+    // it is a fact about the READER, answered from their own session, so it discloses
+    // nothing about anybody else in the den. The payload still names no other person,
+    // which is the property this test actually protects.
+    const res = await previewRequest();
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(Object.keys(body).toSorted()).toEqual([
+      "den",
+      "isBanned",
+      "isMember",
+    ]);
+    expect(Object.keys(body.den as Record<string, unknown>).toSorted()).toEqual(
+      ["avatarMediaId", "id", "memberCount", "name"]
+    );
+    expect(JSON.stringify(body)).not.toContain("inviteCode");
+  });
+
+  test("does not even look up membership for a signed-out viewer", async () => {
+    // A leaked code then tells an outsider nothing about whether its owner is
+    // still inside the den.
+    await previewRequest();
+    expect(mockGetDenMembership).not.toHaveBeenCalled();
+  });
+
+  test("spends the preview's own budget, not the join's", async () => {
+    // The gap this pins. A preview is a read, so it looked harmless to leave
+    // unmetered while the join beside it was capped - but the preview is the
+    // half that needs no session, and its 200-versus-404 answer is the half a
+    // sweep would be reading. Unmetered, it was an open, anonymous, per-request
+    // database lookup whose only cost was a comparison.
+    await previewRequest();
+    expect(chargedRules).toHaveLength(1);
+    expect(chargedRules[0]?.bucket).toBe(DEN_JOIN_PREVIEW_RATE_LIMIT.bucket);
+    // And the buckets are not the same, so neither can exhaust the other.
+    expect(DEN_JOIN_PREVIEW_RATE_LIMIT.bucket).not.toBe(
+      DEN_JOIN_RATE_LIMIT.bucket
+    );
+  });
+
+  test("a refused preview never reaches the database", async () => {
+    // Metered before the lookup, so a denied request costs no query at all. A
+    // limiter that ran after the read would have already paid for the read it was
+    // meant to prevent.
+    limiterDenies = true;
+    const res = await previewRequest();
+    expect(res.status).toBe(429);
+    expect(mockPreviewInvite).not.toHaveBeenCalled();
+  });
+
+  test("a signed-in previewer is metered per account, a stranger per address", async () => {
+    // Two different keys, so a signed-out sweep cannot spend a signed-in
+    // account's budget and vice versa. The address half is asserted by its kind
+    // rather than its value: it is a keyed hash of whatever the ingress reported,
+    // and pinning the digest here would test the HMAC instead of the routing.
+    await previewRequest("code-abcdefghijk", { user: { id: "member-1" } });
+    expect(chargedRules.at(-1)?.identifier).toBe("u:member-1");
+    await previewRequest();
+    expect(chargedRules.at(-1)?.identifier).toMatch(/^a:.+/u);
+    expect(chargedRules.at(-1)?.identifier).not.toBe("u:member-1");
+  });
+
+  test("tells a signed-in member they are already inside", async () => {
+    membership = { leftAt: null, role: "MEMBER" };
+    const res = await previewRequest("code-abcdefghijk", {
+      user: { id: "member-1" },
+    });
+    const body = (await res.json()) as { isMember: boolean };
+    expect(res.status).toBe(200);
+    expect(body.isMember).toBe(true);
+    expect(mockGetDenMembership).toHaveBeenCalledWith("den-1", "member-1");
+  });
+
+  // The bug. Leaving and removal set `leftAt` and keep the row, so a departed member
+  // still has a membership row. Answered as "a row exists", the flag was true for every
+  // kicked or departed person, and the join screen told them "You're already in this
+  // den" instead of offering to join - even though the join behind it would have worked.
+  test("a departed member is NOT told they are inside", async () => {
+    membership = { leftAt: new Date(0), role: "MEMBER" };
+    const res = await previewRequest("code-abcdefghijk", {
+      user: { id: "member-1" },
+    });
+    const body = (await res.json()) as { isMember: boolean };
+    expect(res.status).toBe(200);
+    expect(body.isMember).toBe(false);
+  });
+
+  test("a departed member of a retired code reaches the expired screen", async () => {
+    // Same definition on both shapes, deliberately: a second one is how the live
+    // shape's bug happened. A dead link's screen names whoever can mint a replacement,
+    // and it says no more to somebody who was once in the room than to a stranger.
+    preview = {
+      avatarMediaId: null,
+      expired: true,
+      id: "den-1",
+      inviteCode: "code-abcdefghijk",
+      memberCount: 4,
+      name: "game night",
+      ownerId: "owner-1",
+    };
+    membership = { leftAt: new Date(0), role: "MEMBER" };
+    const res = await previewRequest("code-abcdefghijk", {
+      user: { id: "member-1" },
+    });
+    const body = (await res.json()) as { isMember: boolean };
+    expect(body.isMember).toBe(false);
+  });
+
+  test("tells a signed-in stranger they are not inside", async () => {
+    const res = await previewRequest("code-abcdefghijk", {
+      user: { id: "stranger" },
+    });
+    const body = (await res.json()) as { isMember: boolean };
+    expect(body.isMember).toBe(false);
+    expect(mockGetDenMembership).toHaveBeenCalled();
+  });
+});
+
+describe("POST /api/messages/dens/join/:code", () => {
+  beforeEach(() => {
+    joinResult = { alreadyMember: false, id: "den-1" };
+    limiterDenies = false;
+    mockConsumeDenRateLimit.mockClear();
+    mockGetSession.mockClear();
+    mockHasMessageIdentity.mockClear();
+    mockHasMessageIdentity.mockImplementation((userId: string) =>
+      Promise.resolve(userId !== "no-identity")
+    );
+    mockJoinDenByInviteCode.mockClear();
+    mockJoinDenByInviteCode.mockImplementation(() =>
+      Promise.resolve(joinResult)
+    );
+  });
+
+  test("requires auth", async () => {
+    const res = await join();
+    expect(res.status).toBe(401);
+    expect(mockJoinDenByInviteCode).not.toHaveBeenCalled();
+  });
+
+  test("refuses a member with no message identity before writing anything", async () => {
+    // Checked BEFORE the join rather than after: a member with nothing to unwrap
+    // a root key with would be left in a den they can see the name of and read
+    // none of. Refusing first means the membership row is never written.
+    const res = await join("code-abcdefghijk", {
+      user: { id: "no-identity" },
+    });
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({
+      error: "Enable Messages first to join a den",
+    });
+    expect(mockJoinDenByInviteCode).not.toHaveBeenCalled();
+    // The limiter is not spent on a request that was never going to happen.
+    expect(mockConsumeDenRateLimit).not.toHaveBeenCalled();
+  });
+
+  test("answers 429 without joining when the limiter denies", async () => {
+    limiterDenies = true;
+    const res = await join("code-abcdefghijk", { user: { id: "newcomer" } });
+    expect(res.status).toBe(429);
+    expect(mockJoinDenByInviteCode).not.toHaveBeenCalled();
+  });
+
+  test("201s a real join", async () => {
+    const res = await join("code-abcdefghijk", { user: { id: "newcomer" } });
+    expect(res.status).toBe(201);
+    expect(await res.json()).toEqual({
+      alreadyMember: false,
+      conversationId: "den-1",
+      ok: true,
+    });
+    expect(mockJoinDenByInviteCode).toHaveBeenCalledWith(
+      "code-abcdefghijk",
+      "newcomer"
+    );
+  });
+
+  test("200s a re-opened link the caller already joined through", async () => {
+    // Not an error: a client re-opening the link it already used should navigate
+    // rather than show a failure toast. 200 rather than 201 because nothing new
+    // was created.
+    joinResult = { alreadyMember: true, id: "den-1" };
+    const res = await join("code-abcdefghijk", { user: { id: "member-1" } });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      alreadyMember: true,
+      conversationId: "den-1",
+      ok: true,
+    });
+  });
+
+  test("skips the follow gate, which is what a link is for", async () => {
+    // A non-follower arriving through a link is the whole point of one, so the
+    // join must not consult anything the add route would have consulted. The
+    // only precondition here is a message identity, asserted above.
+    await join("code-abcdefghijk", { user: { id: "nobody-follows-them" } });
+    expect(mockJoinDenByInviteCode).toHaveBeenCalledWith(
+      "code-abcdefghijk",
+      "nobody-follows-them"
+    );
+  });
+
+  test("404s a code that does not resolve", async () => {
+    mockJoinDenByInviteCode.mockRejectedValueOnce(
+      new DenError("NOT_FOUND", "That join code is not valid")
+    );
+    const res = await join("nope-nope-nope", { user: { id: "newcomer" } });
+    expect(res.status).toBe(404);
+  });
+
+  test("joins with a 6-character short code", async () => {
+    joinResult = { alreadyMember: false, id: "den-1" };
+    const res = await join("ABC123", { user: { id: "newcomer" } });
+    expect(res.status).toBe(201);
+    expect(mockJoinDenByInviteCode).toHaveBeenCalledWith("ABC123", "newcomer");
+    expect(await res.json()).toEqual({
+      alreadyMember: false,
+      conversationId: "den-1",
+      ok: true,
+    });
+  });
+
+  test("an unknown 6-character code returns the same 404 on join", async () => {
+    mockJoinDenByInviteCode.mockRejectedValueOnce(
+      new DenError("NOT_FOUND", "That join code is not valid")
+    );
+    const unknownShort = await join("ABC123", { user: { id: "newcomer" } });
+    mockJoinDenByInviteCode.mockRejectedValueOnce(
+      new DenError("NOT_FOUND", "That join code is not valid")
+    );
+    const neverIssued = await join("nope-nope-nope", {
+      user: { id: "newcomer" },
+    });
+    expect(unknownShort.status).toBe(404);
+    expect(await unknownShort.text()).toBe(await neverIssued.text());
+  });
+
+  test("a retired code is refused exactly as one that never existed", async () => {
+    // The door is shut whatever the preview said, and it is shut indistinguishably.
+    // `joinDenByInviteCode` resolves against the live column alone, so it raises the
+    // same refusal it raises for a fabricated code - and this asserts the refusal the
+    // client sees, because a distinguishable one would turn the preview's retired
+    // branch into a sweepable oracle over the whole code space.
+    mockJoinDenByInviteCode.mockRejectedValueOnce(
+      new DenError("NOT_FOUND", "That join code is not valid")
+    );
+    const retired = await join("old-code-old-c", { user: { id: "newcomer" } });
+    mockJoinDenByInviteCode.mockRejectedValueOnce(
+      new DenError("NOT_FOUND", "That join code is not valid")
+    );
+    const neverIssued = await join("nope-nope-nope", {
+      user: { id: "newcomer" },
+    });
+    expect(retired.status).toBe(neverIssued.status);
+    expect(await retired.text()).toBe(await neverIssued.text());
+  });
+
+  test("a full den is refused exactly as a dead code is", async () => {
+    // A full den used to answer 409 LIMIT_REACHED while a dead code answered
+    // 404, so the difference between the two statuses was a validity oracle for
+    // anybody sweeping codes. It is now the same 404 and the same body, and the
+    // screen learns the den is full from the preview's member count instead -
+    // which it was given either way.
+    mockJoinDenByInviteCode.mockRejectedValueOnce(
+      new DenError(
+        "LIMIT_REACHED",
+        `This den is full (${DEN_LIMITS.membersMax} members)`
+      )
+    );
+    const res = await join("code-abcdefghijk", { user: { id: "newcomer" } });
+    expect(res.status).toBe(404);
+    expect(await res.json()).toEqual({
+      code: "NOT_FOUND",
+      error: "That join code is not valid",
+    });
+  });
+
+  test("a dead code and a full den are byte-identical answers", async () => {
+    mockJoinDenByInviteCode.mockRejectedValueOnce(
+      new DenError("NOT_FOUND", "That join code is not valid")
+    );
+    const dead = await join("code-abcdefghijk", {
+      user: { id: "newcomer" },
+    });
+    mockJoinDenByInviteCode.mockRejectedValueOnce(
+      new DenError(
+        "LIMIT_REACHED",
+        `This den is full (${DEN_LIMITS.membersMax} members)`
+      )
+    );
+    const full = await join("code-abcdefghijk", { user: { id: "newcomer" } });
+    // Not merely the same status: the same body, so there is nothing in the
+    // response shape to tell the two apart either.
+    expect(full.status).toBe(dead.status);
+    expect(await full.text()).toBe(await dead.text());
+  });
+
+  test("500s on a failure that is not a domain outcome", async () => {
+    mockJoinDenByInviteCode.mockRejectedValueOnce(new Error("boom"));
+    const res = await join("code-abcdefghijk", { user: { id: "newcomer" } });
+    expect(res.status).toBe(500);
+  });
+});

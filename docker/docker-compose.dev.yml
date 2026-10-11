@@ -13,7 +13,7 @@ services:
     volumes:
       - postgres_data_dev:/var/lib/postgresql
     command: >
-      postgres -c listen_addresses='*' -c max_connections=50 -c shared_buffers=128MB -c work_mem=4MB -c maintenance_work_mem=32MB -c effective_cache_size=256MB -c wal_level=replica -c max_wal_senders=4 -c log_statement=none -c timezone=UTC
+      postgres -c listen_addresses='*' -c max_connections=200 -c shared_buffers=128MB -c work_mem=4MB -c maintenance_work_mem=32MB -c effective_cache_size=256MB -c wal_level=replica -c max_wal_senders=4 -c log_statement=none -c timezone=UTC
     networks:
       - dev_network
     healthcheck:

@@ -59,6 +59,15 @@ interface MessageBubbleProps {
   // white shimmer across the bubble box only (see msg-jump-shimmer), leaving
   // the rest of the row untouched.
   jumpShimmer?: boolean;
+  // Whether this row carries its sender's name. Decided by the thread from the
+  // conversation type and the row's place in its run (see shouldShowSenderName),
+  // so the rule lives in one place and the bubble only draws the answer. False
+  // for every DM, which is why the DM transcript renders exactly as it did.
+  showSenderName?: boolean;
+  // What to print when a den bubble's sender did not resolve. Passed in rather
+  // than imported so the fallback is decided beside the same logic that asks for
+  // the name, and the bubble stays about drawing.
+  unknownSenderName: string;
 }
 
 export function MessageBubble({
@@ -73,6 +82,8 @@ export function MessageBubble({
   position,
   selectionActive,
   jumpShimmer,
+  showSenderName = false,
+  unknownSenderName,
 }: MessageBubbleProps) {
   const mine = message.senderId === myUserId;
   // Media albums render as bare collages (their own frames), unlike text/post
@@ -98,6 +109,21 @@ export function MessageBubble({
     );
   } else if (!mine) {
     avatarNode = <span aria-hidden className="w-7 shrink-0" />;
+  }
+
+  // The byline. Above the bubble and left-aligned with it, on the row that starts
+  // a sender-run -- the row that already carries the tighter top rounding and the
+  // time divider, so it has somewhere to put a name without changing the shape of
+  // the run below it.
+  let senderNameNode: React.ReactNode = null;
+  if (showSenderName) {
+    senderNameNode = (
+      <span className="text-muted-foreground mb-0.5 block truncate text-xs font-medium">
+        {message.sender?.displayName ||
+          message.sender?.username ||
+          unknownSenderName}
+      </span>
+    );
   }
 
   const copyText = useCallback(async () => {
@@ -305,6 +331,13 @@ export function MessageBubble({
           "flex"
         )}
       >
+        {/* Inside the width cap, so a long name truncates with the bubble rather
+            than pushing the row wider than the transcript. */}
+        {senderNameNode ? (
+          <span className="flex w-full min-w-0 justify-start">
+            {senderNameNode}
+          </span>
+        ) : null}
         <div className="flex max-w-full min-w-0 items-end gap-1.5">
           {/* Desktop: inline actions revealed on hover/focus. Hidden in select
               mode so a click toggles the row instead of hitting an action, and

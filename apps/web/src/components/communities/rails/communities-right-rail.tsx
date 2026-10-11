@@ -215,7 +215,7 @@ export default function CommunitiesRightRail({
               </PopoverTrigger>
               <PopoverContent
                 align="start"
-                className="w-64 p-3.5"
+                className="w-64 rounded-2xl! p-4"
                 side="bottom"
               >
                 <CommunityCreationGate quota={quota.data} />

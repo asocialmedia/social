@@ -4,6 +4,18 @@ const evalResults: unknown[] = [];
 const incrbyArgs: string[] = [];
 const getValue = mock(() => "5");
 const delKeys: string[] = [];
+const pipelineDelKeys: string[] = [];
+const pipelineDel = mock((key: string) => {
+  pipelineDelKeys.push(key);
+});
+const pipelineExec = mock(() => Promise.resolve([]));
+const pipelineIncrby = mock((_key: string, _amount: number) => {});
+const pipeline = {
+  del: pipelineDel,
+  exec: pipelineExec,
+  incrby: pipelineIncrby,
+};
+const pipelineFactory = mock(() => pipeline);
 
 const mockRedis = {
   del: mock((key: string) => {
@@ -27,6 +39,7 @@ const mockRedis = {
     incrbyArgs.push(key);
     return amount;
   }),
+  pipeline: pipelineFactory,
 };
 
 mock.module("./src/redis", () => ({
@@ -36,11 +49,16 @@ mock.module("./src/redis", () => ({
 beforeEach(() => {
   incrbyArgs.length = 0;
   delKeys.length = 0;
+  pipelineDelKeys.length = 0;
   evalResults.length = 0;
   mockRedis.incrby.mockClear();
   mockRedis.eval.mockClear();
   getValue.mockClear();
   mockRedis.del.mockClear();
+  pipelineDel.mockClear();
+  pipelineExec.mockClear();
+  pipelineIncrby.mockClear();
+  pipelineFactory.mockClear();
 });
 
 describe("unreadNotificationCache", () => {
@@ -137,5 +155,26 @@ describe("unreadMessageCache", () => {
     await unreadMessageCache.reset("user-1");
 
     expect(delKeys).toEqual(["unread:messages:user-1"]);
+  });
+
+  test("resetMany deduplicates keys and deletes them in one pipeline", async () => {
+    const { unreadMessageCache } = await import("./queue");
+
+    await unreadMessageCache.resetMany(["user-1", "user-2", "user-1"]);
+
+    expect(pipelineFactory).toHaveBeenCalledTimes(1);
+    expect(pipelineDelKeys).toEqual([
+      "unread:messages:user-1",
+      "unread:messages:user-2",
+    ]);
+    expect(pipelineExec).toHaveBeenCalledTimes(1);
+  });
+
+  test("resetMany skips an empty set", async () => {
+    const { unreadMessageCache } = await import("./queue");
+
+    await unreadMessageCache.resetMany([]);
+
+    expect(pipelineFactory).not.toHaveBeenCalled();
   });
 });

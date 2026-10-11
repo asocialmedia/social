@@ -17,6 +17,7 @@ import {
   ShieldAlert,
   Sparkles,
   UserPlus,
+  Users,
   X,
 } from "lucide-react";
 import Link from "next/link";
@@ -101,6 +102,21 @@ function getCommentHref(
     : base;
 }
 
+// A den's name, for the row that names both the sender and the room. Falls back
+// to an unnamed den so a missing conversation cannot read as "Alice in :".
+function denLabel(notification: NotificationProps["notification"]): string {
+  const name = notification.conversation?.name?.trim();
+  return name && name.length > 0 ? name : "a den";
+}
+
+// What happened in the den, before its name. The server only ever holds
+// ciphertext, so there is never a message to quote here.
+function denVerb(notification: NotificationProps["notification"]): string {
+  return notification.count > 1
+    ? `${notification.count} new messages`
+    : "sent a message";
+}
+
 const TYPE_CONFIG: Record<NotificationType, TypeConfig> = {
   AMPLIFY: {
     action: (notification) =>
@@ -137,6 +153,31 @@ const TYPE_CONFIG: Record<NotificationType, TypeConfig> = {
         ? `/a/${notification.community.slug}`
         : getNotificationPostHref(notification),
     icon: LayoutGrid,
+  },
+  // A den membership that ended without the recipient's consent. Links to the
+  // notifications list rather than to the den, because the recipient is no longer
+  // a member of it: the thread is closed to them, so the den's own address would
+  // answer 404 for exactly the tap that produced this row.
+  DEN_MEMBERSHIP_ENDED: {
+    action: (notification) =>
+      notification.conversation
+        ? `removed you from ${denLabel(notification)}`
+        : "deleted a den you were in",
+    badgeClass: "bg-gradient-to-b from-red-400 to-red-700",
+    href: () => "/notifications",
+    icon: Users,
+  },
+  // A message in a den. The room is set in the same ink as the sender's name
+  // ("Alice in Study group: sent a message"), because with a full inbox the den
+  // is the only thing that says which conversation a row belongs to.
+  DEN_MESSAGE: {
+    action: (notification) => denVerb(notification),
+    badgeClass: "bg-gradient-to-b from-cyan-300 to-cyan-700",
+    href: (notification) =>
+      notification.conversation
+        ? `/messages?c=${encodeURIComponent(notification.conversation.id)}`
+        : "/messages",
+    icon: Users,
   },
   FOLLOW: {
     action: () => "followed you",
@@ -259,6 +300,8 @@ function NotificationHeadline({
   action,
   batchCount,
   communitySuffixText,
+  denLabelText,
+  denVerbText,
   isEddie,
   issuers,
   type,
@@ -268,10 +311,25 @@ function NotificationHeadline({
   // authors, so there is no single person to name.
   batchCount: number;
   communitySuffixText: string;
+  // A den row reads "Alice in Study group: sent a message", so it supplies its
+  // own two halves instead of one trailing action phrase.
+  denLabelText: string;
+  denVerbText: string;
   isEddie: boolean;
   issuers: NotificationIssuer[];
   type: NotificationType;
 }) {
+  if (type === "DEN_MESSAGE") {
+    return (
+      <p className="text-sm leading-snug">
+        <span className="font-semibold">{issuers[0]?.displayName}</span>{" "}
+        <span className="text-muted-foreground">in</span>{" "}
+        <span className="font-semibold">{denLabelText}</span>
+        <span className="text-muted-foreground">: {denVerbText}</span>
+      </p>
+    );
+  }
+
   if (batchCount > 1) {
     return (
       <p className="text-sm leading-snug">
@@ -400,6 +458,8 @@ export default function Notification({ notification }: NotificationProps) {
               notification.type === "COMMUNITY_POST" ? notification.count : 0
             }
             communitySuffixText={communitySuffix(notification)}
+            denLabelText={denLabel(notification)}
+            denVerbText={denVerb(notification)}
             isEddie={Boolean(notification.comment)}
             issuers={issuers}
             type={notification.type}

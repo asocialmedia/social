@@ -16,7 +16,13 @@ import {
 // against the strict 11-char base64url alphabet, so the iframe src is
 // always exactly /embed/<id>.
 
-export function YouTubeEmbed({ embed }: { embed: LinkEmbed }) {
+export function YouTubeEmbed({
+  embed,
+  compact = false,
+}: {
+  embed: LinkEmbed;
+  compact?: boolean;
+}) {
   const [playing, setPlaying] = useState(false);
   const videoId = embed.videoId ?? "";
   const thumbnail = youtubeEmbedThumbnail(videoId);
@@ -27,9 +33,11 @@ export function YouTubeEmbed({ embed }: { embed: LinkEmbed }) {
   }
 
   return (
-    <div className="embed-panel-3d group overflow-hidden">
+    <div
+      className={`embed-panel-3d group overflow-hidden ${compact ? "flex h-50 flex-col" : ""}`}
+    >
       <a
-        className="flex items-center gap-1.5 p-3 pb-2"
+        className="flex shrink-0 items-center gap-1.5 p-3 pb-2"
         href={embed.url}
         onClick={(event) => event.stopPropagation()}
         rel="nofollow ugc noopener noreferrer"
@@ -42,7 +50,9 @@ export function YouTubeEmbed({ embed }: { embed: LinkEmbed }) {
           {embed.videoAuthor ?? embed.siteName ?? "YouTube"}
         </span>
       </a>
-      <div className="relative aspect-video w-full bg-black">
+      <div
+        className={`relative w-full bg-black ${compact ? "min-h-0 flex-1" : "aspect-video"}`}
+      >
         {playing ? (
           // oxlint-disable-next-line react/iframe-missing-sandbox -- the YouTube player requires scripts; the embed is same-scheme youtube-nocookie with a server-validated 11-char id
           <iframe
@@ -83,8 +93,8 @@ export function YouTubeEmbed({ embed }: { embed: LinkEmbed }) {
           </button>
         )}
       </div>
-      <p className="text-foreground px-3 py-2 text-sm font-medium">
-        {embed.title}
+      <p className="text-foreground h-14 shrink-0 px-3 py-2 text-sm font-medium">
+        <span className="line-clamp-2">{embed.title}</span>
       </p>
     </div>
   );

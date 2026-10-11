@@ -8,7 +8,16 @@ import {
 } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/auth/session";
-import { getConversationForUser, parseJsonBody } from "@/lib/messages/server";
+import {
+  DEN_DELIVERY_RECEIPT_RATE_LIMIT,
+  consumeDenRateLimit,
+} from "@/lib/messages/den-rate-limit";
+import {
+  getConversationForUser,
+  hasLeftConversation,
+  leftConversationResponse,
+  parseJsonBody,
+} from "@/lib/messages/server";
 
 // Delivery acknowledgement. A browser that has received a peer message reports
 // it so the sender can label its own bubble Delivered. The server stores a
@@ -29,10 +38,26 @@ export async function POST(
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  // One ack per inbound message, debounced and deduped by the client, so this
+  // is a per-message-cost route in a busy thread. Metered before the membership
+  // read and the message lookup.
+  const limited = await consumeDenRateLimit(
+    DEN_DELIVERY_RECEIPT_RATE_LIMIT,
+    user.id
+  );
+  if (limited) {
+    return limited;
+  }
+
   const { id } = await ctx.params;
   const conversation = await getConversationForUser(id, user.id);
   if (!conversation) {
     return Response.json({ error: "Conversation not found" }, { status: 404 });
+  }
+  // The read gate admits somebody who left a den so they keep their history; this
+  // is the write half of that split.
+  if (hasLeftConversation(conversation, user.id)) {
+    return leftConversationResponse();
   }
 
   const body = (await parseJsonBody(request)) as { messageId?: unknown } | null;

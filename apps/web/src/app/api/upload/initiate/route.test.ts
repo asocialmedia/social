@@ -5,6 +5,9 @@ import { asmDbMockBase } from "@/posts/test-support/asm-db-mock";
 import { POST } from "./route";
 
 const mockGetSession = mock(() => ({ user: { id: "user1" } }));
+// Set by the mocked membership table when the query constrains `leftAt`.
+let membershipAskedForCurrent = false;
+
 const mockFindMember = mock((conversationId: string) =>
   conversationId === "convo-1"
     ? { conversationId: "convo-1", userId: "user1" }
@@ -46,6 +49,12 @@ mock.module("@asm/db", () => ({
                     return {};
                   },
                 },
+                leftAt: {
+                  isNull: () => {
+                    membershipAskedForCurrent = true;
+                    return {};
+                  },
+                },
                 userId: { eq: () => ({}) },
               });
               return { first: () => mockFindMember(conversationId) };
@@ -68,6 +77,33 @@ mock.module("@/lib/media/media-pipeline", () => ({
   },
   createInitiatedUpload: mockCreateUpload,
 }));
+
+describe("a departed member cannot upload", () => {
+  beforeEach(() => {
+    mockCreateUpload.mockClear();
+    mockFindMember.mockClear();
+    membershipAskedForCurrent = false;
+  });
+
+  test("the membership check asks for current members, not just a row", async () => {
+    // The reported gap: a member who was removed keeps their membership row, so
+    // a row check alone waves them through and they can keep pushing new bytes at
+    // a den that no longer admits them. Nothing downstream catches it - the upload
+    // is owner-readable from the start, and a finalize would bind it to a
+    // conversation this account has already lost the right to write to.
+    //
+    // Asserted on the constraint rather than on a 403, because the mock decides
+    // who is a member: `mockFindMember` returning a row is exactly the case this
+    // is about, and a 403 here would be the mock's opinion rather than the
+    // route's.
+    const response = await postWith({
+      ...base,
+      conversationId: "convo-1",
+    });
+    expect(response.status).toBe(200);
+    expect(membershipAskedForCurrent).toBe(true);
+  });
+});
 
 function postWith(body: Record<string, unknown>) {
   const req = new Request("http://localhost:3000/api/upload/initiate", {

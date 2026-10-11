@@ -29,6 +29,7 @@ import {
   PRE_RESET_SEARCH_DB_VERSION,
   SEARCH_HEADER_STORE,
   SEARCH_META_STORE,
+  SEARCH_PENDING_QUEUE_STORE,
   SEARCH_PENDING_STORE,
   SEARCH_POSTINGS_STORE,
   SEARCH_ROW_IDS_STORE,
@@ -37,6 +38,8 @@ import {
   SHARED_REFS_MESSAGE_STORE,
   SHARED_REFS_STORE,
 } from "./message-db";
+import { createMessageIndexWriter } from "./message-index-writer";
+import type { IndexablePayload } from "./message-index-writer";
 import {
   buildSearchIndexEntry,
   emptySearchIndexMeta,
@@ -62,6 +65,27 @@ const ROWS_STORE = SEARCH_ROWS_STORE;
 
 function createTestStore(): SearchIndexStore {
   return createIndexedDbSearchIndexStore();
+}
+
+async function pendingIdsFor(
+  store: SearchIndexStore,
+  conversationId: string
+): Promise<string[]> {
+  const messageIds: string[] = [];
+  let after: string | undefined;
+  // oxlint-disable no-await-in-loop -- each page cursor depends on the previous page
+  while (true) {
+    const page = await store.readPendingPage(conversationId, {
+      after,
+      limit: 256,
+    });
+    messageIds.push(...page);
+    if (page.length < 256) {
+      return messageIds;
+    }
+    after = page.at(-1);
+  }
+  // oxlint-enable no-await-in-loop
 }
 
 // Posting lists keyed by token TEXT, resolved back through the header's
@@ -321,6 +345,78 @@ describe("indexeddb search index store", () => {
     const reopened = createTestStore();
     const found = await queryStore(reopened, "c1", ["deploy"]);
     expect(found.ids).toEqual(["m1"]);
+  });
+
+  test("a serialized conversation reset clears IDB and lets the writer re-index", async () => {
+    const payloads = new Map<string, IndexablePayload>([
+      ["m1", { content: "deploy safely", type: "text" }],
+    ]);
+    const writer = createMessageIndexWriter({
+      conversationId: "c1",
+      getPayload: (id) => payloads.get(id),
+      store,
+    });
+    const message = {
+      createdAt: new Date(1),
+      id: "m1",
+      senderId: "user-a",
+    };
+
+    try {
+      writer.consider([message]);
+      await writer.flush();
+      expect(await queryStore(store, "c1", ["deploy"])).toEqual({
+        ids: ["m1"],
+        totalMatched: 1,
+      });
+
+      expect(await writer.clearConversation()).toBe(true);
+      expect(await queryStore(store, "c1", ["deploy"])).toEqual({
+        ids: [],
+        totalMatched: 0,
+      });
+
+      writer.consider([message]);
+      await writer.flush();
+      expect(await queryStore(store, "c1", ["deploy"])).toEqual({
+        ids: ["m1"],
+        totalMatched: 1,
+      });
+    } finally {
+      await writer.dispose();
+    }
+  });
+
+  test("waitable removals commit text and shared-reference deletes before returning", async () => {
+    const writer = createMessageIndexWriter({
+      conversationId: "c1",
+      getPayload: () => ({
+        content: "deploy safely",
+        kind: "image",
+        type: "media",
+        url: "https://example.test/image.png",
+      }),
+      store,
+    });
+
+    try {
+      writer.consider([
+        { createdAt: new Date(1), id: "m1", senderId: "user-a" },
+      ]);
+      await writer.flush();
+      const refsBeforeRemoval = await store.readSharedRefsCounts("c1");
+      expect(refsBeforeRemoval?.media).toBe(1);
+
+      expect(await writer.removeAndWait(["m1"])).toBe(true);
+      expect(await queryStore(store, "c1", ["deploy"])).toEqual({
+        ids: [],
+        totalMatched: 0,
+      });
+      const refsAfterRemoval = await store.readSharedRefsCounts("c1");
+      expect(refsAfterRemoval?.media).toBe(0);
+    } finally {
+      await writer.dispose();
+    }
   });
 
   test("keeps conversations isolated", async () => {
@@ -666,7 +762,7 @@ describe("indexeddb search index store", () => {
   test("clearing a conversation drops entries, meta, and the allocator", async () => {
     await store.putEntries("c1", new Map([["m1", entry("deploy", 1)]]));
     await store.writeMeta(emptySearchIndexMeta("c1"));
-    await store.writePending("c1", ["m-pending"]);
+    await store.updatePending("c1", { add: ["m-pending"] });
     expect(await store.readMeta("c1")).not.toBeNull();
     await store.clearConversation("c1");
     expect(await store.readMeta("c1")).toBeNull();
@@ -677,7 +773,72 @@ describe("indexeddb search index store", () => {
     // No row record and no forward-index entry survive either.
     expect(await readRaw(ROWS_STORE, ["c1", "0"])).toBeUndefined();
     expect(await readRaw(ROW_IDS_STORE, ["c1", "m1"])).toBeUndefined();
-    expect(await store.readPending("c1")).toEqual([]);
+    expect(await pendingIdsFor(store, "c1")).toEqual([]);
+  });
+
+  test("pending ids are paged and updated without replacing a full list", async () => {
+    await store.updatePending("c1", { add: ["m-a", "m-b", "m-c"] });
+    expect(await store.countPending("c1")).toBe(3);
+    expect(await store.readPendingPage("c1", { limit: 2 })).toEqual([
+      "m-a",
+      "m-b",
+    ]);
+    expect(
+      await store.readPendingPage("c1", { after: "m-b", limit: 2 })
+    ).toEqual(["m-c"]);
+    expect([...(await store.hasPendingMessages("c1", ["m-a", "m-z"]))]).toEqual(
+      ["m-a"]
+    );
+    expect(
+      await store.updatePending("c1", {
+        add: ["m-d"],
+        remove: ["m-b"],
+      })
+    ).toBe(3);
+    expect(await pendingIdsFor(store, "c1")).toEqual(["m-a", "m-c", "m-d"]);
+  });
+
+  test("drops the legacy retry array and rewinds its coverage for bounded recovery", async () => {
+    await store.countPending("c-legacy");
+    await store.writeMeta({
+      ...emptySearchIndexMeta("c-legacy"),
+      cursorVerified: true,
+      indexedThroughId: "m-cursor",
+      reachedStart: true,
+      refsReachedStart: true,
+    });
+    await writeRaw(SEARCH_PENDING_STORE, "c-legacy", ["m-1", "m-2"]);
+    expect(await store.readPendingPage("c-legacy", { limit: 1 })).toEqual([]);
+    expect(await readRaw(SEARCH_PENDING_STORE, "c-legacy")).toBeUndefined();
+    expect(await store.countPending("c-legacy")).toBe(0);
+    expect(
+      await readRaw(SEARCH_PENDING_QUEUE_STORE, ["c-legacy", "m-2"])
+    ).toBeUndefined();
+    const meta = await store.readMeta("c-legacy");
+    expect(meta?.indexedThroughId).toBeNull();
+    expect(meta?.cursorVerified).toBe(false);
+    expect(meta?.reachedStart).toBe(false);
+    expect(meta?.refsReachedStart).toBe(false);
+  });
+
+  test("pages through a large pending backlog without changing its contents", async () => {
+    const messageIds = Array.from(
+      { length: 2000 },
+      (_, index) => `m-${String(index).padStart(4, "0")}`
+    );
+    await store.updatePending("c-large", { add: messageIds });
+
+    const firstPage = await store.readPendingPage("c-large", { limit: 128 });
+    const secondPage = await store.readPendingPage("c-large", {
+      after: firstPage.at(-1),
+      limit: 128,
+    });
+
+    expect(firstPage).toHaveLength(128);
+    expect(secondPage).toHaveLength(128);
+    expect(firstPage.at(-1)).toBe("m-0127");
+    expect(secondPage[0]).toBe("m-0128");
+    expect(await store.countPending("c-large")).toBe(2000);
   });
 
   test("clearing one conversation leaves the other alone", async () => {

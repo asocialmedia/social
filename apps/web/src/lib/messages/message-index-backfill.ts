@@ -84,7 +84,10 @@ export interface MessageIndexBackfillOptions {
   conversationId: string;
   // Resolves when the page's payloads are decrypted, or when the wait is given up
   // on. Injected so this module stays free of crypto and WebCrypto.
-  awaitDecrypts: (messages: MessageData[]) => Promise<void>;
+  awaitDecrypts: (
+    messages: MessageData[],
+    signal?: AbortSignal
+  ) => Promise<void>;
   // Resolves before the walk is allowed to ask for a page.
   //
   // The walk and the transcript share one rate-limit budget, and on a fresh
@@ -229,15 +232,14 @@ export function createMessageIndexBackfill(
   // The cursor only ever moves forward through committed pages, so a failed or
   // aborted page leaves the persisted position pointing at real indexed history.
   //
-  // `refsReachedStart` is written here, alongside `reachedStart` and never
-  // separately, because the two mean the same range: a run that reached the oldest
-  // message derived that message's shared refs on the way, in the same writer pass.
-  // Writing them in one place is what keeps the verdict from claiming a text
-  // coverage the refs index does not share.
+  // Both verdicts are written with the cursor, but they answer different
+  // questions: `reachedStart` records traversal, while `refsReachedStart` is
+  // true only after every encountered artifact has settled.
   async function persistCursor(
     oldestReachedId: string | null,
     reachedStart: boolean,
-    chainVerified: boolean
+    chainVerified: boolean,
+    refsReachedStart: boolean
   ): Promise<void> {
     try {
       const existing =
@@ -248,7 +250,7 @@ export function createMessageIndexBackfill(
         cursorVerified: chainVerified,
         indexedThroughId: oldestReachedId,
         reachedStart,
-        refsReachedStart: reachedStart,
+        refsReachedStart,
         updatedAt: Date.now(),
       });
     } catch {
@@ -295,7 +297,7 @@ export function createMessageIndexBackfill(
     // walk on a wait error would strand coverage behind one bad page.
     const ready = (async (): Promise<true> => {
       try {
-        await awaitDecrypts(messages);
+        await awaitDecrypts(messages, signal);
       } catch {
         // Settles as waited-out: see above.
       }
@@ -390,6 +392,20 @@ export function createMessageIndexBackfill(
     runController = new AbortController();
     let cursor: string | undefined;
     let chainVerified: boolean;
+    let pending = 0;
+    try {
+      const initialFlush = await writer.flush();
+      pending = writer.coverage().pendingCount;
+      if (initialFlush.failed) {
+        setState("failed");
+        report({ pendingCount: pending });
+        return progress;
+      }
+    } catch {
+      setState("failed");
+      report({ pendingCount: pending });
+      return progress;
+    }
     try {
       const meta = await store.readMeta(conversationId);
       cursor = meta?.indexedThroughId ?? undefined;
@@ -402,18 +418,15 @@ export function createMessageIndexBackfill(
       cursor = undefined;
       chainVerified = true;
     }
-    // Rows already queued as unsearchable, read once per run. A page holding
-    // only these needs no decrypt or commit -- the queue outlives the run and
-    // the writer retries it -- but the cursor still advances past it.
-    let durableSnapshot = new Set<string>();
-    try {
-      durableSnapshot = new Set(await store.readPending(conversationId));
-    } catch {
-      // Unreadable queue: pages fall back to decrypting and deciding per row.
+    if (pending > 0) {
+      // A pending row may sit anywhere above the saved cursor. Revisit from the
+      // newest page and include durable pending IDs so a fresh writer can retry
+      // them instead of silently treating queue membership as completed work.
+      cursor = undefined;
+      chainVerified = true;
     }
-    // Rows this run queued but could not index yet. Together with the snapshot
-    // above, the set of ids the run knows are covered without re-reading.
-    const pendingThisRun = new Set<string>();
+    // Rows this run queued but could not index yet. Persisted queue membership
+    // is checked per bounded page instead of loading the conversation backlog.
     if (cursor !== undefined) {
       // Trust-but-verify the resume hint. The walk only ever descends, so a
       // cursor pointing below uncovered history -- new arrivals above it, a
@@ -430,15 +443,12 @@ export function createMessageIndexBackfill(
         const top = await fetchPage();
         const topIds = top.messages.map((row) => row.id);
         if (topIds.length > 0) {
-          const indexedTop = await store.hasIndexedMessages(
-            conversationId,
-            topIds
-          );
+          const [indexedTop, pendingTop] = await Promise.all([
+            store.hasIndexedMessages(conversationId, topIds),
+            store.hasPendingMessages(conversationId, topIds),
+          ]);
           const topCovered = topIds.every(
-            (id) =>
-              indexedTop.has(id) ||
-              durableSnapshot.has(id) ||
-              pendingThisRun.has(id)
+            (id) => indexedTop.has(id) || pendingTop.has(id)
           );
           if (!topCovered || !chainVerified) {
             cursor = undefined;
@@ -456,7 +466,6 @@ export function createMessageIndexBackfill(
 
     let pages = 0;
     let indexed = 0;
-    let pending = 0;
     let latestIndexedId: string | null = null;
     let oldestReachedId = cursor ?? null;
     let reachedStart = false;
@@ -569,17 +578,14 @@ export function createMessageIndexBackfill(
         // for it -- while still verifying every page, so a gap can never hide
         // behind a trusted cursor again.
         const pageIds = messages.map((row) => row.id);
-        const indexedPage = await store.hasIndexedMessages(
-          conversationId,
-          pageIds
+        const [indexedPage, pendingPage] = await Promise.all([
+          store.hasIndexedMessages(conversationId, pageIds),
+          store.hasPendingMessages(conversationId, pageIds),
+        ]);
+        const toIndex = messages.filter(
+          (row) => !indexedPage.has(row.id) || pendingPage.has(row.id)
         );
-        const uncovered = messages.filter(
-          (row) =>
-            !indexedPage.has(row.id) &&
-            !durableSnapshot.has(row.id) &&
-            !pendingThisRun.has(row.id)
-        );
-        if (uncovered.length === 0) {
+        if (toIndex.length === 0) {
           // Nothing to do: counts and cursor advance through the shared tail
           // below, and the flush still runs so transcript-queued rows commit on
           // the walk's cadence rather than their own.
@@ -589,15 +595,12 @@ export function createMessageIndexBackfill(
           // pending and retry them against a transcript that will never hold
           // them. A stop lands here as an abandoned wait, not a skipped page:
           // the fetched rows still commit below, and the halt is after them.
-          waitedOut = await waitForPageDecrypts(uncovered, signal);
-          writer.consider(uncovered);
+          waitedOut = await waitForPageDecrypts(toIndex, signal);
+          writer.consider(toIndex);
         }
         const result = await writer.flush();
         indexed += messages.length;
-        pending = result.stillPending.length;
-        for (const id of result.stillPending) {
-          pendingThisRun.add(id);
-        }
+        pending = writer.coverage().pendingCount;
         if (result.failed) {
           // The rows committed or were queued, but the QUEUE could not be
           // persisted, so any row that did not commit is recoverable from
@@ -637,7 +640,7 @@ export function createMessageIndexBackfill(
       // Persisted per page, not per run: an interrupted walk must not redo the
       // pages it already paid for. Safe now precisely because every row in the
       // page is committed or durably queued.
-      await persistCursor(oldestReachedId, false, chainVerified);
+      await persistCursor(oldestReachedId, false, chainVerified, false);
 
       if (!waitedOut || stopped || signal?.aborted) {
         // Stopped mid-page: the fetched rows committed above, so the cursor is
@@ -660,7 +663,15 @@ export function createMessageIndexBackfill(
     // ended without error. That is what `reachedStart` distinguishes: the UI
     // keeps offering "index older messages" until it is true.
     // oxlint-enable no-await-in-loop
-    await persistCursor(oldestReachedId, reachedStart, chainVerified);
+    pending = writer.coverage().pendingCount;
+    const refsReachedStart =
+      reachedStart && writer.coverage().pendingCount === 0;
+    await persistCursor(
+      oldestReachedId,
+      reachedStart,
+      chainVerified,
+      refsReachedStart
+    );
     setState(stopped || signal?.aborted ? "stopped" : "done");
     report({
       indexedCount: indexed,
@@ -668,7 +679,7 @@ export function createMessageIndexBackfill(
       oldestReachedId,
       pendingCount: pending,
       reachedStart,
-      refsReachedStart: reachedStart,
+      refsReachedStart,
     });
     return progress;
   }

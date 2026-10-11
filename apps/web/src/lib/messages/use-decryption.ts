@@ -3,7 +3,14 @@
 import { useMemo } from "react";
 
 import { useMessagesIdentity } from "@/components/messages/message-identity-provider";
-import { createRootKeyStore } from "@/lib/messages/client";
+import {
+  createRootKeyStore,
+  resolveMyConversationWraps,
+} from "@/lib/messages/client";
+import type {
+  ConversationWrap,
+  WrappedKeyPayload,
+} from "@/lib/messages/client";
 import type { EncryptedBlob } from "@/lib/messages/crypto";
 import type { MessageConversationData } from "@/lib/messages/types";
 
@@ -27,23 +34,19 @@ export function findMyWrappedKey(
   return mine?.encryptedKey ?? null;
 }
 
-// Every wrap belonging to `userId`, so the root-key store can offer one root
-// per root-key epoch (identity reset appends a new one). Newest first.
+// Every wrap belonging to `userId`, newest epoch first, each paired with the
+// public key it was wrapped against.
+//
+// The conversation is needed for that pairing: a den wrap names the member who
+// performed it, and resolving that to a public key means reading the roster. The
+// resolution itself lives in client.ts, where the rest of the key orchestration
+// is, so the decrypt and send paths cannot disagree about which epoch is which.
 export function findMyWrappedKeys(
-  keys: {
-    encryptedKey: EncryptedBlob;
-    ownerUserId: string;
-    version?: number;
-  }[],
+  keys: readonly WrappedKeyPayload[],
+  conversation: MessageConversationData,
   userId: string
-): { encryptedKey: EncryptedBlob; version: number }[] {
-  return keys
-    .filter((key) => key.ownerUserId === userId)
-    .toSorted((left, right) => (right.version ?? 1) - (left.version ?? 1))
-    .map(({ encryptedKey, version }) => ({
-      encryptedKey,
-      version: version ?? 1,
-    }));
+): ConversationWrap[] {
+  return resolveMyConversationWraps(keys, conversation, userId);
 }
 
 // The other member's public identity key (base64).

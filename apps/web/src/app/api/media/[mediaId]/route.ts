@@ -8,7 +8,10 @@ import {
   resolveOwningCommunity,
 } from "@/lib/media/media-access";
 import { mediaError } from "@/lib/media/media-responses";
-import { resolveMessageMediaMembership } from "@/lib/media/message-media-access";
+import {
+  resolveDenWallpaperConversationId,
+  resolveMessageMediaMembership,
+} from "@/lib/media/message-media-access";
 import {
   ASMOB_BUCKET,
   asmobClient,
@@ -219,6 +222,16 @@ export async function GET(
   }
   const session = await getSessionFromApi();
   const viewer = session?.user ?? null;
+  if (
+    !ownership.postId &&
+    !ownership.commentId &&
+    ownership.mimeType.startsWith("image/")
+  ) {
+    ownership.messageConversationId ??= await resolveDenWallpaperConversationId(
+      mediaId,
+      viewer?.id
+    );
+  }
   const isConversationMember = await resolveMessageMediaMembership(
     ownership.messageConversationId,
     viewer?.id

@@ -510,7 +510,7 @@ export default function CreateCommunityDialog({
           sm too (the base only rounds from sm up), matching the app's surfaces.
           `[&>button:last-child]:hidden` hides DialogContent's stock close so the
           header can carry the app's 3D one instead. */}
-      <DialogContent className="flex max-h-[90dvh] w-[calc(100%-2rem)] flex-col gap-0 overflow-hidden rounded-2xl p-0 sm:max-w-[56rem] [&>button:last-child]:hidden">
+      <DialogContent className="flex max-h-[90dvh] w-[calc(100%-2rem)] flex-col gap-0 overflow-hidden rounded-2xl! p-0 sm:max-w-[56rem] [&>button:last-child]:hidden">
         {/* Compact header: title, a slim segmented step rail, and the 3D close. */}
         <header className="border-border/60 flex shrink-0 items-center gap-3 border-b px-4 py-2.5">
           <DialogTitle className="text-base leading-tight font-bold tracking-tight">
@@ -774,7 +774,7 @@ export default function CreateCommunityDialog({
           </Button>
           {isLastStep ? (
             <Button
-              className="h-9 rounded-lg px-5 text-sm!"
+              className="h-9 rounded-lg px-4 text-sm!"
               disabled={isSubmitting || !stepValid}
               onClick={handleSubmit}
               type="button"
@@ -787,7 +787,7 @@ export default function CreateCommunityDialog({
             </Button>
           ) : (
             <Button
-              className="h-9 rounded-lg px-5 text-sm!"
+              className="h-9 rounded-lg px-4 text-sm!"
               disabled={!stepValid}
               onClick={() => setStep((s) => s + 1)}
               type="button"

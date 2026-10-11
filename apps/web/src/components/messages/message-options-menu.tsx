@@ -243,11 +243,11 @@ export function MessageOptionsMenu({
         />
         <div
           aria-label="Message options"
-          className="panel-3d fixed inset-x-0 bottom-0 z-50 mx-2 mb-2 max-h-[80vh] overflow-y-auto rounded-2xl p-1.5 text-sm outline-none"
+          className="panel-3d fixed inset-x-0 bottom-0 z-50 mx-2 mb-2 max-h-[80vh] overflow-y-auto rounded-2xl! p-2 text-sm outline-none"
           ref={panelRef}
           role="menu"
           style={{
-            paddingBottom: "max(0.375rem, env(safe-area-inset-bottom))",
+            paddingBottom: "max(0.5rem, env(safe-area-inset-bottom))",
           }}
           tabIndex={-1}
         >
@@ -263,7 +263,7 @@ export function MessageOptionsMenu({
   return createPortal(
     <div
       aria-label="Message options"
-      className="panel-3d fixed z-50 max-h-[calc(100vh-1rem)] w-56 max-w-[calc(100vw-1rem)] overflow-x-hidden overflow-y-auto rounded-xl p-1.5 text-sm outline-none"
+      className="panel-3d fixed z-50 max-h-[calc(100vh-1rem)] w-56 max-w-[calc(100vw-1rem)] overflow-x-hidden overflow-y-auto rounded-2xl! p-2 text-sm outline-none"
       ref={panelRef}
       role="menu"
       style={{ left: position.x, top: position.y }}
@@ -290,7 +290,7 @@ function MenuRow({
   return (
     <button
       className={cn(
-        "pill-3d-hover flex w-full items-center gap-3 rounded-md px-2 py-2 text-left",
+        "pill-3d-hover flex min-h-11 w-full items-center gap-3 rounded-lg px-2.5 py-2 text-left sm:min-h-9",
         destructive && "text-destructive"
       )}
       onClick={onSelect}

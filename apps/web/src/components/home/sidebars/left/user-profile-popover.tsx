@@ -223,7 +223,7 @@ const UserProfilePopover: React.FC<UserProfilePopoverProps> = ({
 
         <PopoverContent
           align="start"
-          className="apple-panel z-50 w-84 overflow-hidden rounded-2xl border-0 p-0 shadow-none"
+          className="z-50 w-84 overflow-hidden rounded-2xl! p-0"
           // Radix moves focus to the first tabbable child when a popover opens.
           // Here that child is the badge, and Radix's HoverCard opens on focus -
           // so opening this menu immediately popped the badge card on top of it

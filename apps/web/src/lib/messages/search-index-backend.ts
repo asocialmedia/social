@@ -2,8 +2,12 @@
 // missing, denied, or fails to open, fall back to a session-only in-memory
 // index rather than breaking the transcript.
 
-import { createIndexedDbSearchIndexStore } from "./indexeddb-search-index";
+import {
+  clearLegacySearchIndexData,
+  createIndexedDbSearchIndexStore,
+} from "./indexeddb-search-index";
 import { createMemorySearchIndexStore } from "./memory-search-index";
+import { clearSearchIndexScope } from "./scoped-search-index";
 import type { SearchIndexStore } from "./search-index-format";
 
 export type SearchIndexBackend = "indexeddb" | "memory";
@@ -37,7 +41,39 @@ export async function resolveSearchIndexStore(): Promise<ResolvedSearchIndex> {
     : { backend: "memory", store: createMemorySearchIndexStore() };
 }
 
-// Test seam; no cached state to clear.
+export async function clearLegacySearchIndexScope(scope: {
+  recoveryGeneration: number;
+  userId: string;
+}): Promise<boolean> {
+  try {
+    const resolved = await resolveSearchIndexStore();
+    if (resolved.backend !== "indexeddb") {
+      return true;
+    }
+    return await clearSearchIndexScope(resolved.store, scope);
+  } catch {
+    return false;
+  }
+}
+
+let legacySearchRetirement: Promise<boolean> | null = null;
+
+export function retireLegacySearchIndex(): Promise<boolean> {
+  if (legacySearchRetirement) {
+    return legacySearchRetirement;
+  }
+  const pending = clearLegacySearchIndexData();
+  legacySearchRetirement = pending;
+  void (async () => {
+    const succeeded = await pending;
+    if (!succeeded && legacySearchRetirement === pending) {
+      legacySearchRetirement = null;
+    }
+  })();
+  return pending;
+}
+
+// Test seam; reset the cutover cleanup so another test can exercise it.
 export function resetSearchIndexStoreForTests(): void {
-  // No cached state to clear.
+  legacySearchRetirement = null;
 }

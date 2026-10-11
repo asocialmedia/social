@@ -6,6 +6,10 @@ import {
 } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/auth/session";
+import {
+  DEN_ACTIVITY_STREAM_RATE_LIMIT,
+  consumeDenRateLimit,
+} from "@/lib/messages/den-rate-limit";
 
 // A user's own stream of "a message landed in one of your conversations".
 //
@@ -21,6 +25,18 @@ export async function GET(request: Request): Promise<Response> {
   const session = await getSessionFromApi();
   if (!session?.user) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  // Same reasoning as the per-conversation stream, on its own bucket: this is a
+  // separate subscriber on a separate channel, and a loop against one must not be
+  // able to spend the other's budget. Metered before the stream is built, because
+  // building it is the part that costs.
+  const limited = await consumeDenRateLimit(
+    DEN_ACTIVITY_STREAM_RATE_LIMIT,
+    session.user.id
+  );
+  if (limited) {
+    return limited;
   }
 
   const encoder = new TextEncoder();

@@ -479,7 +479,13 @@ export async function uploadMediaFile(
     // Conversation a message attachment belongs to. Required when purpose is
     // "message" so the peer can fetch the bytes back.
     messageConversationId?: string | null;
-    purpose?: "avatar" | "banner" | "comment" | "message" | "post";
+    purpose?:
+      | "avatar"
+      | "banner"
+      | "comment"
+      | "message"
+      | "post"
+      | "wallpaper";
     // Natural image dimensions captured client-side; stored so receivers can
     // reserve the bubble box before the bytes arrive.
     width?: number | null;

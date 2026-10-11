@@ -38,6 +38,14 @@ describe("push path routing", () => {
     expect(pathToNativeRoute("/notifications")).toBe("/notifications");
   });
 
+  test("routes conversation paths without guessing the kind from their id", () => {
+    // The path carries only an id; DM and den ids share the same format.
+    expect(pathToNativeRoute("/messages?c=den-1")).toBe("/messages/den-1");
+    expect(pathToNativeRoute("/messages?c=den%2Fwith-slash")).toBe(
+      "/notifications"
+    );
+  });
+
   test("opens gust links in the native reel", () => {
     expect(pathToNativeRoute("/gusts?id=abc-123")).toBe("/gusts?id=abc-123");
     expect(pathToNativeRoute("/gusts?tab=latest&id=abc")).toBe("/gusts?id=abc");

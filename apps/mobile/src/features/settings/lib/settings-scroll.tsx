@@ -231,6 +231,7 @@ export const SETTINGS_CATALOG: SettingsSearchEntry[] = [
 
 export const TAB_LABELS: Record<SettingsTab, string> = {
   account: "Account",
+  privacy: "Privacy",
   profile: "Profile",
   security: "Security",
 };

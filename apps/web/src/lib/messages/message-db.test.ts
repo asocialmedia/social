@@ -25,7 +25,12 @@ import {
   IDENTITY_STORE,
   MESSAGES_DB_NAME,
   MESSAGES_DB_VERSION,
+  OFFLINE_SEARCH_DOCUMENTS_BY_CONVERSATION_INDEX,
+  OFFLINE_SEARCH_DOCUMENTS_STORE,
+  OFFLINE_SEARCH_TOMBSTONES_BY_CONVERSATION_INDEX,
+  OFFLINE_SEARCH_TOMBSTONES_STORE,
   PRE_RESET_SEARCH_DB_VERSION,
+  OFFLINE_SEARCH_STORES,
   SHARED_REFS_STORES,
   SEARCH_META_STORE,
   SEARCH_POSTINGS_STORE,
@@ -168,6 +173,21 @@ describe("shared messages database", () => {
       for (const name of SHARED_REFS_STORES) {
         expect(db.objectStoreNames.contains(name)).toBe(true);
       }
+      for (const name of OFFLINE_SEARCH_STORES) {
+        expect(db.objectStoreNames.contains(name)).toBe(true);
+      }
+      expect(
+        db
+          .transaction(OFFLINE_SEARCH_DOCUMENTS_STORE)
+          .objectStore(OFFLINE_SEARCH_DOCUMENTS_STORE)
+          .indexNames.contains(OFFLINE_SEARCH_DOCUMENTS_BY_CONVERSATION_INDEX)
+      ).toBe(true);
+      expect(
+        db
+          .transaction(OFFLINE_SEARCH_TOMBSTONES_STORE)
+          .objectStore(OFFLINE_SEARCH_TOMBSTONES_STORE)
+          .indexNames.contains(OFFLINE_SEARCH_TOMBSTONES_BY_CONVERSATION_INDEX)
+      ).toBe(true);
     } finally {
       db.close();
     }

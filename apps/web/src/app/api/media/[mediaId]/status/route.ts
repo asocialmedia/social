@@ -4,7 +4,10 @@ import { NextResponse } from "next/server";
 import { getSessionFromApi } from "@/lib/auth/session";
 import { decideMediaAccess } from "@/lib/media/media-access";
 import { mediaJsonError } from "@/lib/media/media-responses";
-import { resolveMessageMediaMembership } from "@/lib/media/message-media-access";
+import {
+  resolveDenWallpaperConversationId,
+  resolveMessageMediaMembership,
+} from "@/lib/media/message-media-access";
 
 // Lightweight lifecycle polling for the composer: the frontend uploads
 // asynchronously and needs to know when an attachment becomes READY (or was
@@ -25,6 +28,7 @@ export async function GET(
     "failureCode",
     "id",
     "messageConversationId",
+    "mimeType",
     "postId",
     "rejectedReason",
     "safety",
@@ -39,6 +43,16 @@ export async function GET(
 
   const session = await getSessionFromApi();
   const viewer = session?.user ?? null;
+  if (
+    !media.postId &&
+    !media.commentId &&
+    media.mimeType.startsWith("image/")
+  ) {
+    media.messageConversationId ??= await resolveDenWallpaperConversationId(
+      mediaId,
+      viewer?.id
+    );
+  }
   const isConversationMember = await resolveMessageMediaMembership(
     media.messageConversationId,
     viewer?.id

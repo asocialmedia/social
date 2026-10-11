@@ -19,6 +19,7 @@ const posts = {
   muted: randomUUID(),
   unrelated: randomUUID(),
 };
+const mediaIds: string[] = [];
 
 beforeAll(async () => {
   for (const [name, id] of Object.entries(ids)) {
@@ -60,10 +61,12 @@ beforeAll(async () => {
           ? ids.author
           : ids.outsider,
     });
+    const mediaId = randomUUID();
+    mediaIds.push(mediaId);
     // oxlint-disable-next-line no-await-in-loop -- each fixture media belongs to its post
     await prisma.orm.public.PostMedia.create({
       _type: "VIDEO",
-      id: randomUUID(),
+      id: mediaId,
       postId: id,
       url: "https://example.invalid/qa.mp4",
     });
@@ -81,12 +84,26 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  await prisma.orm.public.PostMedia.where((media) =>
-    media.postId.in(Object.values(posts))
-  ).delete();
-  await prisma.orm.public.Users.where((user) =>
-    user.id.in(Object.values(ids))
-  ).delete();
+  await prisma.transaction(async (tx) => {
+    await tx.orm.public.PostMedia.where((media) =>
+      media.id.in(mediaIds)
+    ).deleteAndCount();
+    await tx.orm.public.Users.where((user) =>
+      user.id.in(Object.values(ids))
+    ).deleteAndCount();
+  });
+  const remainingFixtures = await Promise.all([
+    prisma.orm.public.PostMedia.select("id")
+      .where((media) => media.id.in(mediaIds))
+      .all(),
+    prisma.orm.public.Posts.select("id")
+      .where((post) => post.id.in(Object.values(posts)))
+      .all(),
+    prisma.orm.public.Users.select("id")
+      .where((user) => user.id.in(Object.values(ids)))
+      .all(),
+  ]);
+  expect(remainingFixtures).toEqual([[], [], []]);
 });
 
 test("Following includes followed authors and positive amplifiers only, with ordered source avatars and exclusive pagination", async () => {

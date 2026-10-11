@@ -731,18 +731,26 @@ export function paginateSearchResults(
   results: RankedSearchResult[],
   requestedPage: number,
   pageSize = SEARCH_PAGE_SIZE,
-  totalCount = results.length
+  totalCount = results.length,
+  totalCountExact = true
 ): SearchPage {
   const size = Math.max(1, Math.trunc(pageSize));
   const total = Math.max(
     0,
     Math.trunc(Number.isFinite(totalCount) ? totalCount : 0)
   );
-  const pageCount = Math.max(1, Math.ceil(total / size));
   const requested = Number.isFinite(requestedPage)
     ? Math.trunc(requestedPage)
     : 0;
-  const page = Math.min(Math.max(requested, 0), pageCount - 1);
+  const normalizedRequested = Math.max(requested, 0);
+  const pageCount = Math.max(
+    1,
+    Math.ceil(total / size),
+    totalCountExact ? 0 : normalizedRequested + 1
+  );
+  const page = totalCountExact
+    ? Math.min(normalizedRequested, pageCount - 1)
+    : normalizedRequested;
   const start = page * size;
   const end = Math.min(start + size, total);
   // The rows for this page are the ones the caller holds when it is holding this

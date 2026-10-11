@@ -1546,7 +1546,7 @@ export default function PostEditor({
                         </DropdownMenuTrigger>
                         <DropdownMenuContent
                           align="start"
-                          className="apple-panel min-w-44 p-1.5 shadow-md"
+                          className="min-w-44 rounded-2xl! p-2"
                         >
                           <DropdownMenuItem
                             className="flex cursor-pointer items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors"
