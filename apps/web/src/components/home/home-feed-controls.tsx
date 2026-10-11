@@ -83,6 +83,7 @@ export function HomeFeedControls({
   onChange: (tab: HomeTab) => void;
   userId?: string;
 }) {
+  const reducedMotion = useReducedMotion();
   const [menuOpen, setMenuOpen] = useState(false);
   return (
     <div
@@ -112,14 +113,21 @@ export function HomeFeedControls({
                 : "text-muted-foreground font-medium"
             )}
           >
-            {discovery === "personalized" ? "For you" : "Trending"}
+            <span
+              className="relative flex min-h-11 items-center"
+              data-home-discovery-label
+            >
+              {discovery === "personalized" ? "For you" : "Trending"}
+              {active === discovery ? (
+                <motion.span
+                  aria-hidden
+                  className="absolute inset-x-0 bottom-0 mx-auto h-1 w-[60%] rounded-full bg-linear-to-b from-[#ff9500] to-[#e65500]"
+                  layout={!reducedMotion}
+                  data-home-discovery-indicator
+                />
+              ) : null}
+            </span>
             <ChevronDown className="size-3.5" />
-            {active === discovery ? (
-              <span
-                aria-hidden
-                className="absolute bottom-0 left-1/2 h-1 w-6 -translate-x-1/2 rounded-full bg-linear-to-b from-[#ff9500] to-[#e65500]"
-              />
-            ) : null}
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" className="min-w-32 p-1.5 font-sans">

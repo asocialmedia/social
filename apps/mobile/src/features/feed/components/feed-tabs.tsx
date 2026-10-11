@@ -33,6 +33,7 @@ interface FeedTabsProps<T extends string = HomeTab> {
   // Two-tab surfaces (notifications) stretch each trigger to half the width,
   // matching web's flex-1 tab buttons; the feed strip stays content-centered.
   fill?: boolean;
+  indicatorLabelLayout?: (tab: FeedTabDef<T>) => TriggerLayout | undefined;
   indicatorWidth?: (tab: FeedTabDef<T>, triggerWidth: number) => number;
   onChange: (tab: T) => void;
   scrollable?: boolean;
@@ -49,6 +50,7 @@ interface TriggerLayout {
 export function FeedTabs<T extends string = HomeTab>({
   active,
   fill = false,
+  indicatorLabelLayout,
   indicatorWidth,
   onChange,
   scrollable = false,
@@ -71,10 +73,12 @@ export function FeedTabs<T extends string = HomeTab>({
   );
   const activeDef = tabs[activeIndex];
   const layout = activeDef ? layouts[activeDef.value] : undefined;
+  const labelLayout = activeDef ? indicatorLabelLayout?.(activeDef) : undefined;
+  const labelWidth = labelLayout?.width ?? layout?.width ?? 0;
   const barWidth =
-    layout && activeDef
-      ? (indicatorWidth?.(activeDef, layout.width) ?? 24)
-      : 24;
+    layout && activeDef ? (indicatorWidth?.(activeDef, labelWidth) ?? 24) : 24;
+  const targetX =
+    (layout?.x ?? 0) + (labelLayout?.x ?? 0) + (labelWidth - barWidth) / 2;
   const indicatorStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: indicatorX.get() }],
     width: indicatorSize.get(),
@@ -84,22 +88,21 @@ export function FeedTabs<T extends string = HomeTab>({
     if (!layout) {
       return;
     }
-    const left = layout.x + (layout.width - barWidth) / 2;
     if (firstPlaced.current) {
       firstPlaced.current = false;
-      indicatorX.set(left);
+      indicatorX.set(targetX);
       indicatorSize.set(barWidth);
     } else {
-      indicatorX.set(withTiming(left, { duration: 220 }));
+      indicatorX.set(withTiming(targetX, { duration: 220 }));
       indicatorSize.set(withTiming(barWidth, { duration: 220 }));
     }
 
     // Scroll to reveal the active tab when scrollable is active.
     if (scrollable && scrollRef.current) {
-      const targetX = Math.max(0, layout.x - 48);
-      scrollRef.current.scrollTo({ animated: true, x: targetX });
+      const scrollTargetX = Math.max(0, layout.x - 48);
+      scrollRef.current.scrollTo({ animated: true, x: scrollTargetX });
     }
-  }, [barWidth, indicatorSize, indicatorX, layout, scrollable]);
+  }, [barWidth, indicatorSize, indicatorX, layout, scrollable, targetX]);
 
   const content = (
     <View
@@ -159,6 +162,7 @@ export function FeedTabs<T extends string = HomeTab>({
       })}
       {layout ? (
         <Animated.View
+          testID="feed-tab-indicator"
           style={[styles.indicator, { pointerEvents: "none" }, indicatorStyle]}
         >
           <LinearGradient

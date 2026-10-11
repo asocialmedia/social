@@ -143,6 +143,11 @@ export function HomeFeedControls({
   const { theme } = useAppTheme();
   const trigger = useRef<View>(null);
   const [anchor, setAnchor] = useState<MenuAnchor | null>(null);
+  const [discoveryLabelX, setDiscoveryLabelX] = useState(0);
+  const [discoveryTextLayouts, setDiscoveryTextLayouts] = useState<
+    Partial<Record<DiscoveryFleetFeed, { x: number; width: number }>>
+  >({});
+  const discoveryText = discoveryTextLayouts[discovery];
   const tabs = homeFeedTabs(discovery);
   return (
     <View>
@@ -150,9 +155,20 @@ export function HomeFeedControls({
         active={active}
         tabs={tabs}
         onPressActive
-        indicatorWidth={(tab, width) =>
-          tab.value === "following" ? Math.max(48, width * 0.6) : 24
+        indicatorLabelLayout={(tab) =>
+          tab.value === discovery && discoveryText
+            ? {
+                width: discoveryText.width,
+                x: discoveryLabelX + discoveryText.x,
+              }
+            : undefined
         }
+        indicatorWidth={(tab, width) => {
+          if (tab.value === discovery) {
+            return width * 0.6;
+          }
+          return tab.value === "following" ? Math.max(48, width * 0.6) : 24;
+        }}
         onChange={(value) => {
           if (value === discovery) {
             const action = discoveryFeedPress(active, discovery);
@@ -170,9 +186,29 @@ export function HomeFeedControls({
         renderLabel={(tab, selected) => (
           <View
             ref={tab.value === discovery ? trigger : undefined}
+            onLayout={(event) => {
+              if (tab.value === discovery) {
+                setDiscoveryLabelX(event.nativeEvent.layout.x);
+              }
+            }}
             style={styles.label}
           >
             <Text
+              testID={
+                tab.value === discovery ? "home-discovery-label" : undefined
+              }
+              onLayout={(event) => {
+                if (tab.value !== discovery) {
+                  return;
+                }
+                const { width, x } = event.nativeEvent.layout;
+                setDiscoveryTextLayouts((current) =>
+                  current[discovery]?.width === width &&
+                  current[discovery]?.x === x
+                    ? current
+                    : { ...current, [discovery]: { width, x } }
+                );
+              }}
               style={{
                 color: selected ? theme.inputText : theme.dividerText,
                 fontFamily: selected ? "SofiaProBold" : "SofiaProMed",

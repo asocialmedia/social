@@ -29,6 +29,7 @@ function parseNodes(xml: string) {
         node.match(/bounds="(?<bounds>[^"]+)"/)?.groups?.bounds ?? ""
       ).matchAll(/\d+/g),
     ].map(([value]) => Number(value)),
+    id: node.match(/resource-id="(?<id>[^"]*)"/)?.groups?.id ?? "",
     label: node.match(/content-desc="(?<label>[^"]*)"/)?.groups?.label ?? "",
     selected: node.includes('selected="true"'),
     text: node.match(/text="(?<text>[^"]*)"/)?.groups?.text ?? "",
@@ -110,6 +111,22 @@ function expectSelected(screen: UiNode[], label: string) {
     throw new Error(`Expected selected feed: ${label}`);
   }
   expectMenu(screen, false);
+  if (label === "Trending" || label === "For you") {
+    const text = screen.find((node) => node.id === "home-discovery-label");
+    const indicator = screen.find((node) => node.id === "feed-tab-indicator");
+    if (!text || !indicator) {
+      throw new Error("The discovery label or its indicator is absent");
+    }
+    const [textLeft = 0, , textRight = 0] = text.bounds;
+    const [barLeft = 0, , barRight = 0] = indicator.bounds;
+    const centerDifference = (barLeft + barRight - textLeft - textRight) / 2;
+    const widthDifference = barRight - barLeft - (textRight - textLeft) * 0.6;
+    if (Math.abs(centerDifference) > 2 || Math.abs(widthDifference) > 2) {
+      throw new Error(
+        `${label} indicator is misaligned: center ${centerDifference}, width ${widthDifference}`
+      );
+    }
+  }
 }
 
 function expectMenu(screen: UiNode[], open: boolean, alternative?: string) {
