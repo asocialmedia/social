@@ -2,7 +2,11 @@ import type { ApiCallOptions } from "@/features/feed/lib/feed-api";
 
 // One identity owns one root-key store shared by list previews and all threads.
 // Ciphertext, epochs and the peer public key control reuse; plaintext stays in memory.
-import { createRootKeyStore, fetchConversationDetail } from "./client";
+import {
+  createRootKeyStore,
+  fetchConversationDetail,
+  resolveMyConversationWraps,
+} from "./client";
 import type { EcdhPrivateKey } from "./crypto-primitives";
 
 export function createConversationKeySource(
@@ -21,13 +25,14 @@ export function createConversationKeySource(
       (member) => member.userId !== userId
     );
     const publicKey = peer?.user.messageIdentity?.publicKey;
-    if (!publicKey) {
-      return [];
-    }
-    const wraps = detail.keys
-      .filter((key) => key.ownerUserId === userId)
-      .map((key) => ({ ...key, version: key.version ?? 1 }));
-    return store.getRootKeys(conversationId, wraps, publicKey);
+    const wraps = resolveMyConversationWraps(
+      detail.keys,
+      detail.conversation,
+      userId
+    );
+    const fallback =
+      detail.conversation.type === "DEN" ? "" : (publicKey ?? "");
+    return store.getRootKeys(conversationId, wraps, fallback);
   };
   const getBaseKeys = (conversationId: string): Promise<Uint8Array[]> => {
     const cached = pending.get(conversationId);
@@ -35,6 +40,12 @@ export function createConversationKeySource(
       return cached;
     }
     const promise = resolveKeys(conversationId);
+    if (pending.size >= 64) {
+      const oldest = pending.keys().next().value;
+      if (oldest) {
+        pending.delete(oldest);
+      }
+    }
     pending.set(conversationId, promise);
     void (async () => {
       let keys: Uint8Array[] = [];

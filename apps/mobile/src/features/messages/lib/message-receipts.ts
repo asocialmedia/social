@@ -98,6 +98,11 @@ export function advanceWatermark(
   return Math.max(current, next);
 }
 
+const oldestWatermark = (values: (number | null)[]) =>
+  values.some((value) => value === null)
+    ? null
+    : Math.min(...values.filter((value): value is number => value !== null));
+
 // Reads the peer's watermarks out of the conversation member rows. Tolerant of
 // Date or ISO-string values (JSON responses stringify dates) and of a missing peer
 // (returns empty, which reports "sent" only).
@@ -106,6 +111,7 @@ export function peerWatermarks(
     | {
         lastDeliveredAt?: Date | string | null;
         lastReadAt?: Date | string | null;
+        leftAt?: string | null;
         userId: string;
       }[]
     | undefined,
@@ -114,12 +120,16 @@ export function peerWatermarks(
   if (!members || !myUserId) {
     return EMPTY_WATERMARKS;
   }
-  const peer = members.find((member) => member.userId !== myUserId);
-  if (!peer) {
+  const peers = members.filter(
+    (member) => member.userId !== myUserId && !member.leftAt
+  );
+  if (!peers.length) {
     return EMPTY_WATERMARKS;
   }
   return {
-    deliveredAt: toTime(peer.lastDeliveredAt),
-    readAt: toTime(peer.lastReadAt),
+    deliveredAt: oldestWatermark(
+      peers.map((peer) => toTime(peer.lastDeliveredAt))
+    ),
+    readAt: oldestWatermark(peers.map((peer) => toTime(peer.lastReadAt))),
   };
 }

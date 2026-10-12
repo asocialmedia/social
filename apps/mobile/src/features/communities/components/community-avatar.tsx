@@ -7,6 +7,7 @@ import { getApiBaseUrl } from "@/lib/api-env";
 import { useAppTheme } from "@/theme";
 
 import type { CommunityData } from "../lib/communities-api";
+import { resolveCommunityAccentColor } from "../lib/community-accents";
 
 export function CommunityAvatar({
   community,
@@ -15,9 +16,9 @@ export function CommunityAvatar({
   community: Pick<CommunityData, "accentColor" | "avatarUrl" | "name" | "slug">;
   size?: number;
 }) {
-  const { theme } = useAppTheme();
+  const { theme, isDark } = useAppTheme();
   const [failed, setFailed] = useState(false);
-  const accent = community.accentColor ?? "#f97316";
+  const accent = resolveCommunityAccentColor(community.accentColor, isDark);
   const uri = resolveProfileImageUrl(community.avatarUrl, getApiBaseUrl());
   return (
     <View

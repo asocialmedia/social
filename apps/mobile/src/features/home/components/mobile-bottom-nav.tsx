@@ -40,6 +40,7 @@ import { Path, Svg } from "react-native-svg";
 
 import { Gradient3D } from "@/components/surface/gradient-3d";
 import { useSessionContext } from "@/features/auth/state/session";
+import { activeCommunityStore } from "@/features/communities/state/active-community";
 import { useComposerStore } from "@/features/composer/state/composer-store";
 import { subscribeHeaderVisibility } from "@/features/feed/lib/header-visibility";
 import { useUnreadMessageCount } from "@/features/messages/state/use-unread-message-count";
@@ -375,6 +376,12 @@ export function MobileBottomNav({
       goToLogin();
       return;
     }
+    const activeCommunity = activeCommunityStore.getState().active;
+    if (activeCommunity?.canPost) {
+      useComposerStore.getState().setDraft({ communityId: activeCommunity.id });
+      openComposer("post");
+      return;
+    }
     haptic();
     router.navigate("/camera");
   };
@@ -382,6 +389,10 @@ export function MobileBottomNav({
     if (!isLoggedIn) {
       goToLogin();
       return;
+    }
+    const activeCommunity = activeCommunityStore.getState().active;
+    if (activeCommunity?.canPost) {
+      useComposerStore.getState().setDraft({ communityId: activeCommunity.id });
     }
     openComposer("post");
   };

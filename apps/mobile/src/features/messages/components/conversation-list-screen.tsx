@@ -8,34 +8,63 @@
 // last message is decrypted through the same scheduler the thread uses, so opening
 // a conversation later is instant.
 
+import { Plus, Search, Ticket, X, MessageCircle } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { FlatList, RefreshControl, StyleSheet, Text, View } from "react-native";
+import {
+  FlatList,
+  RefreshControl,
+  StyleSheet,
+  Text,
+  TextInput,
+  Pressable,
+  ScrollView,
+  View,
+} from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { UserAvatar } from "@/components/avatar/user-avatar";
-import { useSessionContext } from "@/features/auth/state/session";
+import { authClient } from "@/features/auth/lib/auth-client";
 import { MobileBottomNav } from "@/features/home/components/mobile-bottom-nav";
-import { MobileHeader } from "@/features/home/components/mobile-header";
+import { UserBadge } from "@/features/home/components/user-badge";
+import { createConversation } from "@/features/messages/lib/client";
+import type { PresenceUser } from "@/features/messages/lib/client";
+import {
+  CONVERSATION_FILTERS,
+  conversationCounts,
+  conversationKind,
+  conversationLeft,
+} from "@/features/messages/lib/conversation-presentation";
+import type { ConversationFilter } from "@/features/messages/lib/conversation-presentation";
 import { messageDecryptor } from "@/features/messages/lib/decryptor";
 import type { DecryptItem } from "@/features/messages/lib/decryptor";
 import {
   formatArrivalCount,
   formatListTimestamp,
 } from "@/features/messages/lib/message-grouping";
+import {
+  chip3d,
+  reelsInput,
+  surface3d,
+} from "@/features/messages/lib/message-recipes";
 import { conversationListStore } from "@/features/messages/state/conversation-list-store";
 import type { ConversationRowView } from "@/features/messages/state/conversation-list-store";
 import { useMessagesIdentity } from "@/features/messages/state/message-identity";
 import { useMessagePresence } from "@/features/messages/state/use-message-presence";
 import { useConversationList } from "@/features/messages/state/use-messages-data";
-import { useMessagesForeground } from "@/features/messages/state/use-messages-foreground";
-import { useUnreadNotificationCount } from "@/features/notifications/state/use-unread-count";
-import { haptic } from "@/lib/haptics";
+import { getApiBaseUrl } from "@/lib/api-env";
 import { LIST_VIRTUALIZATION_PROPS } from "@/lib/list-virtualization";
 import { SHOWS_SCROLL_INDICATOR } from "@/lib/scroll-indicator";
 import { useAppTheme } from "@/theme";
 
+import { DenAvatar } from "./den-avatar";
+import { DenDialog } from "./den-dialog";
 import { MessagePeoplePanel } from "./message-people-panel";
 import { MessagePresenceIndicator } from "./message-presence-indicator";
-import { MutedGlyph, PressableRow } from "./messages-primitives";
+import {
+  MessagesIconButton,
+  MutedGlyph,
+  PressableRow,
+} from "./messages-primitives";
 
 export { conversationListStore } from "@/features/messages/state/conversation-list-store";
 
@@ -44,14 +73,53 @@ export function ConversationListScreen({
 }: {
   onOpen: (conversationId: string) => void;
 }) {
-  const { theme } = useAppTheme();
-  const [searchOpen, setSearchOpen] = useState(false);
-  const { user } = useSessionContext();
-  const userId = user?.id ?? null;
+  const { theme, isDark } = useAppTheme();
+  const insets = useSafeAreaInsets();
+  const [query, setQuery] = useState("");
+  const [filter, setFilter] = useState<ConversationFilter>("ALL");
+  const [denDialog, setDenDialog] = useState<"create" | "join" | null>(null);
+  const identity = useMessagesIdentity();
+  const field = reelsInput(isDark);
+  const raised = surface3d(isDark);
+  const chip = chip3d(isDark);
+
   const list = useConversationList();
-  const foreground = useMessagesForeground();
-  const unreadCount = useUnreadNotificationCount(userId, foreground);
+  const [openingPerson, setOpeningPerson] = useState(false);
+  const handleOnlinePerson = async (person: PresenceUser) => {
+    if (openingPerson) {
+      return;
+    }
+    setOpeningPerson(true);
+    try {
+      const existing = list.rows.find(
+        (row) =>
+          conversationKind(row.conversation) === "DM" &&
+          row.peerId === person.id
+      );
+      if (existing) {
+        onOpen(existing.conversation.id);
+      } else {
+        const result = await createConversation(person.id, {
+          apiBase: getApiBaseUrl(),
+          cookie: await authClient.getCookie(),
+        });
+        list.refresh();
+        onOpen(result.conversation.id);
+      }
+    } catch {
+      conversationListStore.setSnapshot({
+        error: "Couldn't open this conversation. Try again.",
+      });
+    }
+    setOpeningPerson(false);
+  };
+
+  const handleLoadMore = list.loadMore;
   const presence = useMessagePresence();
+  const counts = conversationCounts(list.rows.map((row) => row.conversation));
+  const rows = list.rows.filter(
+    (row) => filter === "ALL" || conversationKind(row.conversation) === filter
+  );
 
   const presenceById = useMemo(
     () => new Map(presence.map((entry) => [entry.id, entry.status])),
@@ -98,40 +166,229 @@ export function ConversationListScreen({
 
   return (
     <View style={[styles.root, { backgroundColor: theme.containerBg }]}>
-      <MobileHeader
-        onSearchPress={() => {
-          haptic();
-          setSearchOpen((open) => !open);
-        }}
-        searchLabel="Search people"
-        searchOpen={searchOpen}
-        unreadCount={unreadCount}
-        user={
-          user
-            ? {
-                avatarUrl: user.image ?? null,
-                id: user.id,
-                username: user.username ?? "",
-              }
-            : null
-        }
-      />
-      <View style={{ flex: 1 }}>
-        {searchOpen ? (
-          <View
+      <View
+        style={{ backgroundColor: theme.containerBg, paddingTop: insets.top }}
+      >
+        <View
+          style={{
+            borderBottomColor: theme.dividerLine,
+            borderBottomWidth: StyleSheet.hairlineWidth,
+            height: 56,
+            justifyContent: "center",
+            paddingHorizontal: 10,
+          }}
+        >
+          <Text
             style={{
-              left: 8,
-              position: "absolute",
-              right: 8,
-              top: 8,
-              zIndex: 10,
+              color: theme.inputText,
+              fontFamily: "SofiaProBold",
+              fontSize: 16,
             }}
           >
-            <MessagePeoplePanel
-              mode="search"
-              onClose={() => setSearchOpen(false)}
+            Messages
+          </Text>
+        </View>
+        <View
+          style={{
+            alignItems: "center",
+            flexDirection: "row",
+            gap: 8,
+            height: 56,
+            paddingHorizontal: 10,
+            zIndex: 20,
+          }}
+        >
+          <View
+            style={{
+              alignItems: "center",
+              backgroundColor: field.background,
+              borderRadius: 12,
+              boxShadow: field.shadows,
+              flex: 1,
+              flexDirection: "row",
+              gap: 8,
+              height: 36,
+              paddingHorizontal: 12,
+            }}
+          >
+            <Search size={16} color={theme.dividerText} />
+            <TextInput
+              accessibilityLabel="Search people you follow"
+              placeholder="Search people you follow…"
+              placeholderTextColor={theme.dividerText}
+              value={query}
+              onChangeText={setQuery}
+              autoCapitalize="none"
+              style={{
+                color: theme.inputText,
+                flex: 1,
+                fontFamily: "SofiaProReg",
+                fontSize: 14,
+                minWidth: 0,
+                padding: 0,
+              }}
             />
+            {query ? (
+              <MessagesIconButton
+                icon={X}
+                label="Clear search"
+                size={24}
+                onPress={() => setQuery("")}
+              />
+            ) : null}
           </View>
+          <MessagesIconButton
+            icon={Ticket}
+            label="Join a den"
+            size={36}
+            onPress={() => setDenDialog("join")}
+          />
+          <MessagesIconButton
+            icon={Plus}
+            label="New den"
+            size={36}
+            onPress={() => setDenDialog("create")}
+          />
+          {query.trim() ? (
+            <View
+              style={{
+                left: 10,
+                position: "absolute",
+                right: 10,
+                top: 56,
+                zIndex: 30,
+              }}
+            >
+              <MessagePeoplePanel
+                mode="search"
+                searchQuery={query}
+                onClose={() => {
+                  setQuery("");
+                  list.refresh();
+                }}
+              />
+            </View>
+          ) : null}
+        </View>
+        {presence.some(
+          (person) => person.status === "online" && person.isFollowing
+        ) ? (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={{
+              gap: 12,
+              paddingHorizontal: 10,
+              paddingVertical: 8,
+            }}
+          >
+            {presence
+              .filter(
+                (person) => person.status === "online" && person.isFollowing
+              )
+              .map((person) => (
+                <Pressable
+                  key={person.id}
+                  accessibilityLabel={`Message ${person.displayName}, online`}
+                  disabled={openingPerson}
+                  onPress={() => {
+                    void handleOnlinePerson(person);
+                  }}
+                >
+                  <UserAvatar
+                    radius={24}
+                    size={48}
+                    url={person.avatarUrl}
+                    userId={person.id}
+                  />
+                  <MessagePresenceIndicator
+                    status="online"
+                    testID="online-friend-presence"
+                  />
+                </Pressable>
+              ))}
+          </ScrollView>
+        ) : null}
+        <View
+          accessibilityRole="tablist"
+          style={{
+            backgroundColor: raised.background,
+            borderRadius: 16,
+            boxShadow: raised.shadows,
+            flexDirection: "row",
+            gap: 4,
+            marginHorizontal: 10,
+            marginVertical: 4,
+            padding: 4,
+          }}
+        >
+          {CONVERSATION_FILTERS.map((option) => (
+            <Pressable
+              accessibilityRole="tab"
+              accessibilityLabel={`${option.label}, ${counts[option.key]} conversations`}
+              accessibilityState={{ selected: filter === option.key }}
+              key={option.key}
+              onPress={() => setFilter(option.key)}
+              style={{
+                alignItems: "center",
+                backgroundColor:
+                  filter === option.key ? chip.background : "transparent",
+                borderRadius: 12,
+                boxShadow: filter === option.key ? chip.shadows : undefined,
+                flex: 1,
+                flexDirection: "row",
+                gap: 8,
+                justifyContent: "center",
+                minHeight: 44,
+              }}
+            >
+              <Text
+                style={{
+                  color: theme.inputText,
+                  fontFamily:
+                    filter === option.key ? "SofiaProBold" : "SofiaProMed",
+                  fontSize: 12,
+                }}
+              >
+                {option.label}
+              </Text>
+              <View
+                style={{
+                  backgroundColor: chip.background,
+                  borderRadius: 999,
+                  boxShadow: chip.shadows,
+                  minWidth: 20,
+                  paddingHorizontal: 6,
+                  paddingVertical: 2,
+                }}
+              >
+                <Text
+                  style={{
+                    color: theme.inputText,
+                    fontFamily: "SofiaProMed",
+                    fontSize: 10,
+                    textAlign: "center",
+                  }}
+                >
+                  {counts[option.key]}
+                </Text>
+              </View>
+            </Pressable>
+          ))}
+        </View>
+      </View>
+      <View style={{ flex: 1 }}>
+        {identity.status === "error" || identity.status === "locked" ? (
+          <PressableRow
+            onPress={() => identity.retry()}
+            style={{ padding: 16 }}
+          >
+            <Text
+              style={{ color: theme.dividerText, fontFamily: "SofiaProReg" }}
+            >
+              {identity.error ?? "Couldn't recover Messages. Tap to retry."}
+            </Text>
+          </PressableRow>
         ) : null}
         {list.error ? (
           <PressableRow onPress={handleRefresh} style={{ padding: 16 }}>
@@ -147,7 +404,36 @@ export function ConversationListScreen({
         ) : (
           <FlatList
             contentContainerStyle={styles.listContent}
-            data={list.rows}
+            data={rows}
+            onEndReached={handleLoadMore}
+            onEndReachedThreshold={0.5}
+            ListFooterComponent={
+              list.loadingMore ? <ConversationListSkeleton /> : null
+            }
+            ListEmptyComponent={
+              <View
+                style={{
+                  alignItems: "center",
+                  gap: 8,
+                  paddingHorizontal: 24,
+                  paddingVertical: 40,
+                }}
+              >
+                <MessageCircle size={24} color={theme.dividerText} />
+                <Text
+                  style={{
+                    color: theme.dividerText,
+                    fontFamily: "SofiaProReg",
+                    fontSize: 12,
+                    textAlign: "center",
+                  }}
+                >
+                  {list.rows.length === 0
+                    ? "No conversations yet. Search for someone you follow to start one, or make a den for a group."
+                    : `No ${filter === "DM" ? "DMs" : "dens"} yet.`}
+                </Text>
+              </View>
+            }
             keyExtractor={(row) => row.conversation.id}
             refreshControl={
               <RefreshControl
@@ -163,6 +449,17 @@ export function ConversationListScreen({
         )}
       </View>
       <MobileBottomNav />
+      {denDialog ? (
+        <DenDialog
+          mode={denDialog}
+          onClose={() => setDenDialog(null)}
+          onOpen={(id) => {
+            setDenDialog(null);
+            list.refresh();
+            onOpen(id);
+          }}
+        />
+      ) : null}
     </View>
   );
 }
@@ -206,16 +503,23 @@ function ConversationRow({
   return (
     <PressableRow onPress={onPress} style={styles.row}>
       <View style={styles.avatarWrap}>
-        <UserAvatar
-          size={40}
-          url={row.avatarUrl}
-          userId={row.peerId}
-          username={row.peerUsername}
-        />
-        <MessagePresenceIndicator
-          status={presence}
-          testID="conversation-list-presence"
-        />
+        {conversationKind(row.conversation) === "DEN" ? (
+          <DenAvatar conversation={row.conversation} />
+        ) : (
+          <UserAvatar
+            radius={20}
+            size={40}
+            url={row.avatarUrl}
+            userId={row.peerId}
+            username={row.peerUsername}
+          />
+        )}
+        {conversationKind(row.conversation) === "DEN" ? null : (
+          <MessagePresenceIndicator
+            status={presence}
+            testID="conversation-list-presence"
+          />
+        )}
       </View>
       <View style={styles.rowBody}>
         <View style={styles.rowTop}>
@@ -231,10 +535,29 @@ function ConversationRow({
           >
             {row.displayName}
           </Text>
+          {conversationKind(row.conversation) === "DM" ? (
+            <UserBadge
+              badge={
+                row.conversation.members.find(
+                  (member) => member.userId === row.peerId
+                )?.user.badge
+              }
+              badges={
+                row.conversation.members.find(
+                  (member) => member.userId === row.peerId
+                )?.user.badges
+              }
+            />
+          ) : null}
+          {conversationLeft(row.conversation, row.mineUserId) ? (
+            <Text style={{ color: theme.dividerText, fontSize: 10 }}>Left</Text>
+          ) : null}
           <View style={styles.rowMeta}>
             {row.muted ? <MutedGlyph /> : null}
             <Text style={[styles.rowTime, { color: theme.dividerText }]}>
-              {formatListTimestamp(row.conversation.updatedAt)}
+              {row.lastMessage
+                ? formatListTimestamp(row.lastMessage.createdAt)
+                : ""}
             </Text>
           </View>
         </View>
@@ -340,9 +663,10 @@ const styles = StyleSheet.create({
   row: {
     alignItems: "center",
     flexDirection: "row",
-    gap: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 12,
+    gap: 10,
+    height: 64,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
   },
   rowBody: {
     flex: 1,
@@ -360,11 +684,11 @@ const styles = StyleSheet.create({
   },
   rowName: {
     flex: 1,
-    fontSize: 15,
+    fontSize: 14,
   },
   rowPreview: {
     flex: 1,
-    fontSize: 13,
+    fontSize: 12,
   },
   rowTime: {
     fontFamily: "SofiaProReg",

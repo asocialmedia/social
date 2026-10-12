@@ -77,14 +77,14 @@ function ensureConfigured(module: GoogleSdk): void {
 }
 
 export type NativeGoogleResult =
-  | { accessToken: string; idToken: string }
+  | { idToken: string }
   | { cancelled: true }
   | { error: string };
 
 export const GOOGLE_UNAVAILABLE_ERROR = "Google sign-in isn't available yet.";
 export const GOOGLE_GENERIC_ERROR = "Error connecting with social provider.";
 
-// Runs the native account picker and returns Google's tokens.
+// The account picker already returns the ID token; no Google API access token is needed.
 export async function signInWithGoogleNative(): Promise<NativeGoogleResult> {
   if (!(googleModule && hasNativeGoogle)) {
     return { error: GOOGLE_UNAVAILABLE_ERROR };
@@ -98,12 +98,12 @@ export async function signInWithGoogleNative(): Promise<NativeGoogleResult> {
     if (isCancelledResponse(response)) {
       return { cancelled: true };
     }
-    const tokens = await GoogleSignin.getTokens();
-    if (!tokens.idToken) {
+    const { idToken } = response.data;
+    if (!idToken) {
       logError("auth.google_native_no_id_token", new Error("empty idToken"));
       return { error: GOOGLE_GENERIC_ERROR };
     }
-    return { accessToken: tokens.accessToken, idToken: tokens.idToken };
+    return { idToken };
   } catch (error) {
     if (isErrorWithCode(error)) {
       if (error.code === statusCodes.SIGN_IN_CANCELLED) {

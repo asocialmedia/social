@@ -293,7 +293,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       return { error: native.error, kind: "unknown", ok: false };
     }
     const result = await authClient.signIn.social({
-      idToken: { accessToken: native.accessToken, token: native.idToken },
+      idToken: { token: native.idToken },
       provider: "google",
     });
     if (result?.error) {

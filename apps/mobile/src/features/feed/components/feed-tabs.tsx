@@ -29,6 +29,7 @@ export const HOME_TAB_DEFS: readonly FeedTabDef[] = [
 
 interface FeedTabsProps<T extends string = HomeTab> {
   active: T;
+  alignment?: "center" | "start";
   // Two-tab surfaces (notifications) stretch each trigger to half the width,
   // matching web's flex-1 tab buttons; the feed strip stays content-centered.
   fill?: boolean;
@@ -77,6 +78,7 @@ function FeedTabIndicator({ x, width }: { x: number; width: number }) {
 
 export function FeedTabs<T extends string = HomeTab>({
   active,
+  alignment = "center",
   fill = false,
   indicatorLabelLayout,
   indicatorWidth,
@@ -120,6 +122,7 @@ export function FeedTabs<T extends string = HomeTab>({
         styles.stripInner,
         scrollable ? styles.stripScrollableInner : null,
         fill ? styles.stripFill : null,
+        alignment === "start" ? { justifyContent: "flex-start" } : null,
       ]}
     >
       {tabs.map((tab) => {
@@ -207,6 +210,7 @@ export function FeedTabs<T extends string = HomeTab>({
       style={[
         styles.strip,
         fill ? styles.stripFill : null,
+        alignment === "start" ? { justifyContent: "flex-start" } : null,
         {
           backgroundColor: theme.containerBg,
           borderBottomColor: theme.cardBorder,

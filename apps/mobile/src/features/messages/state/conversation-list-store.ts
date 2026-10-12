@@ -19,6 +19,10 @@ import type {
   SearchUserResult,
   PresenceUser,
 } from "@/features/messages/lib/client";
+import {
+  conversationName,
+  conversationPreview,
+} from "@/features/messages/lib/conversation-presentation";
 import type { MessagePayload } from "@/features/messages/lib/crypto";
 import { conversationPreviewText } from "@/features/messages/lib/message-preview";
 import type { MessageConversationData } from "@/features/messages/lib/types";
@@ -65,9 +69,12 @@ function toRow(
   return {
     ...item,
     avatarUrl: peer?.user.avatarUrl ?? null,
-    displayName: peer?.user.displayName || peer?.user.username || "Unknown",
+    displayName: conversationName(item.conversation, myUserId),
     mineUserId: myUserId,
-    muted: Boolean(peer?.mutedAt),
+    muted: Boolean(
+      item.conversation.members.find((member) => member.userId === myUserId)
+        ?.mutedAt
+    ),
     payload: undefined,
     peerId: peer?.userId ?? null,
     peerUsername: peer?.user.username ?? null,
@@ -159,7 +166,27 @@ export class ConversationListStore {
             old.lastMessage?.deletedAt === item.lastMessage?.deletedAt &&
             old.lastMessage?.ratchetIndex === item.lastMessage?.ratchetIndex
           ) {
-            return { ...next, payload: old.payload, preview: old.preview };
+            return {
+              ...next,
+              payload: old.payload,
+              preview: old.payload
+                ? conversationPreview(
+                    next.conversation,
+                    myUserId,
+                    item.lastMessage?.senderId ?? null,
+                    conversationPreviewText({
+                      deleted: Boolean(item.lastMessage?.deletedAt),
+                      mine: item.lastMessage?.senderId === myUserId,
+                      payload: old.payload,
+                    })
+                  )
+                : conversationPreview(
+                    next.conversation,
+                    myUserId,
+                    item.lastMessage?.senderId ?? null,
+                    old.preview
+                  ),
+            };
           }
           return next;
         }),
@@ -229,11 +256,16 @@ export class ConversationListStore {
       return {
         ...row,
         payload,
-        preview: conversationPreviewText({
-          deleted: Boolean(last.deletedAt),
-          mine: last.senderId === row.mineUserId,
-          payload,
-        }),
+        preview: conversationPreview(
+          row.conversation,
+          row.mineUserId,
+          last.senderId,
+          conversationPreviewText({
+            deleted: Boolean(last.deletedAt),
+            mine: last.senderId === row.mineUserId,
+            payload,
+          })
+        ),
       };
     });
     // The decryptor re-reports rows it already holds on every version bump, so
@@ -260,10 +292,11 @@ export class ConversationListStore {
               ...row,
               conversation: {
                 ...row.conversation,
-                members: row.conversation.members.map((member) => ({
-                  ...member,
-                  themeKey,
-                })),
+                members: row.conversation.members.map((member) =>
+                  member.userId === row.mineUserId
+                    ? { ...member, themeKey }
+                    : member
+                ),
               },
             }
           : row
