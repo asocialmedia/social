@@ -856,6 +856,7 @@ const styles = StyleSheet.create({
   actionEnd: { alignItems: "flex-end" },
   actionEndGap: {
     flexDirection: "row",
+    flexWrap: "wrap",
     gap: 8,
     justifyContent: "flex-end",
   },
@@ -881,6 +882,7 @@ const styles = StyleSheet.create({
   },
   dialogActions: {
     flexDirection: "row",
+    flexWrap: "wrap",
     gap: 8,
     justifyContent: "flex-end",
     marginTop: 4,
@@ -943,9 +945,11 @@ const styles = StyleSheet.create({
   rowBetween: {
     alignItems: "center",
     flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 12,
     justifyContent: "space-between",
   },
-  rowGap: { flexDirection: "row", gap: 8 },
+  rowGap: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   section: { gap: 12 },
   stepHint: { fontFamily: "SofiaProMed", fontSize: 12 },
 });

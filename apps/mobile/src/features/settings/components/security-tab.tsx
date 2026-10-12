@@ -1162,7 +1162,13 @@ function MessageRecoveryCard({
         <>
           <View style={styles.recoveryRow}>
             <ShieldCheck color="#10b981" size={16} />
-            <Text style={[styles.note, { color: theme.dividerText }]}>
+            <Text
+              style={[
+                styles.note,
+                styles.recoveryCopy,
+                { color: theme.dividerText },
+              ]}
+            >
               Your messages are encrypted, and a new device restores access
               automatically: there is nothing to save or remember.
             </Text>
@@ -1562,6 +1568,7 @@ const styles = StyleSheet.create({
   },
   dialogActions: {
     flexDirection: "row",
+    flexWrap: "wrap",
     gap: 8,
     justifyContent: "flex-end",
     marginTop: 4,
@@ -1630,6 +1637,7 @@ const styles = StyleSheet.create({
     padding: 12,
   },
   qrWrap: { alignItems: "center" },
+  recoveryCopy: { flex: 1, minWidth: 0 },
   recoveryRow: { alignItems: "flex-start", flexDirection: "row", gap: 8 },
   sessionCopy: { flex: 1, gap: 3, minWidth: 0 },
   sessionName: { fontFamily: "SofiaProMed", fontSize: 14 },

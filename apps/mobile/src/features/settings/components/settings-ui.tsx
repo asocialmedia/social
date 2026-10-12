@@ -250,6 +250,7 @@ export function SettingsButton({
         onPress();
       }}
       style={[
+        styles.buttonBounds,
         block ? styles.buttonBlock : null,
         gated ? styles.buttonGated : null,
       ]}
@@ -536,22 +537,28 @@ const styles = StyleSheet.create({
   button: {
     alignItems: "center",
     justifyContent: "center",
+    maxWidth: "100%",
   },
   buttonBlock: { alignSelf: "stretch", width: "100%" },
   buttonBlockInner: { width: "100%" },
+  buttonBounds: { maxWidth: "100%" },
   buttonContent: {
     alignItems: "center",
     flexDirection: "row",
+    flexShrink: 1,
     gap: 8,
+    maxWidth: "100%",
   },
   buttonGated: { opacity: 0.5 },
-  buttonMd: { height: 40, paddingHorizontal: 22 },
+  buttonMd: { minHeight: 40, paddingHorizontal: 22, paddingVertical: 8 },
   buttonPressed: { transform: [{ translateY: 1 }] },
-  buttonSm: { height: 36, paddingHorizontal: 18 },
+  buttonSm: { minHeight: 36, paddingHorizontal: 18, paddingVertical: 8 },
   buttonText: {
+    flexShrink: 1,
     fontFamily: "SofiaProBold",
     fontSize: 14,
     fontWeight: "normal",
+    textAlign: "center",
   },
   card: {
     borderCurve: "continuous",
@@ -561,7 +568,9 @@ const styles = StyleSheet.create({
   cardHeading: {
     alignItems: "center",
     flexDirection: "row",
+    flexShrink: 1,
     gap: 8,
+    minWidth: 0,
   },
   cardHeadingAction: { marginLeft: "auto" },
   cardHeadingDesc: { fontFamily: "SofiaProReg", fontSize: 13 },
@@ -569,7 +578,9 @@ const styles = StyleSheet.create({
   cardHeadingTitle: { fontFamily: "SofiaProMed", fontSize: 15 },
   cardPadded: { gap: 12, padding: 20 },
   chip: {
+    alignSelf: "flex-start",
     borderRadius: 9999,
+    maxWidth: "100%",
     paddingHorizontal: 10,
     paddingVertical: 4,
   },
@@ -603,7 +614,7 @@ const styles = StyleSheet.create({
     fontSize: 15,
   },
   inputMultilineText: { paddingVertical: 0, textAlignVertical: "top" },
-  minWidthZero: { flexShrink: 1, minWidth: 0 },
+  minWidthZero: { flex: 1, minWidth: 0 },
   sectionHeader: { alignItems: "center", flexDirection: "row", gap: 12 },
   sectionHeaderDesc: { fontFamily: "SofiaProReg", fontSize: 13 },
   sectionHeaderTile: { height: 40, width: 40 },
