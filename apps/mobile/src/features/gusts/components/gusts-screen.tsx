@@ -243,10 +243,13 @@ export function GustsScreen() {
   const settleSwipeRef = useRef<
     (origin: number, translation: number, velocity: number) => void
   >(() => {
-    /* empty */
+    // Replaced once the page height and sheet state are known.
   });
   useEffect(() => {
     settleSwipeRef.current = (origin, translation, velocity) => {
+      if (eddiesPostId !== null) {
+        return;
+      }
       const offset = gustSwipeTarget({
         origin,
         pageHeight,
@@ -258,7 +261,7 @@ export function GustsScreen() {
         listRef.current?.scrollToOffset({ animated: true, offset });
       }
     };
-  }, [pageHeight, posts.length]);
+  }, [eddiesPostId, pageHeight, posts.length]);
   const createHandledRef = useRef(false);
 
   useEffect(() => {

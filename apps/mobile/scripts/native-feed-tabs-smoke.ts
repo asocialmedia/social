@@ -1,5 +1,6 @@
 // Runs against the installed release APK without clearing its account or tab memory.
 // Usage: bun apps/mobile/scripts/native-feed-tabs-smoke.ts
+// Set ASM_SMOKE_FAST_DUMP=1 to inspect playing Gusts with the installed AsmFastDump helper.
 import { mkdir } from "node:fs/promises";
 
 const packageName = "cc.asocialmedia.mobile";
@@ -39,16 +40,27 @@ function parseNodes(xml: string) {
 type UiNode = ReturnType<typeof parseNodes>[number];
 
 let viewingGusts = false;
+const fastDump = process.env.ASM_SMOKE_FAST_DUMP === "1";
 
 async function snapshot() {
   await adb("shell", "rm", "-f", "/sdcard/asm-feed-tabs-smoke.xml");
-  let output = await adb(
-    "shell",
-    "uiautomator",
-    "dump",
-    "/sdcard/asm-feed-tabs-smoke.xml"
-  );
-  if (!output.includes("dumped to:") && viewingGusts) {
+  let output = fastDump
+    ? await adb(
+        "shell",
+        "env",
+        "CLASSPATH=/data/local/tmp/asm-fast-dump.jar:/system/framework/uiautomator.jar",
+        "app_process",
+        "/system/bin",
+        "AsmFastDump",
+        "/sdcard/asm-feed-tabs-smoke.xml"
+      )
+    : await adb(
+        "shell",
+        "uiautomator",
+        "dump",
+        "/sdcard/asm-feed-tabs-smoke.xml"
+      );
+  if (!fastDump && !output.includes("dumped to:") && viewingGusts) {
     // Pause the playing clip so its progress and captions let Android reach idle.
     await adb(
       "shell",
@@ -111,6 +123,26 @@ function expectSelected(screen: UiNode[], label: string) {
     throw new Error(`Expected selected feed: ${label}`);
   }
   expectMenu(screen, false);
+  if (label.endsWith(", choose Gusts feed") || label === "Following Gusts") {
+    const following = label === "Following Gusts";
+    const text = screen.find(
+      (node) =>
+        node.id ===
+        (following ? "gust-following-label" : "gust-discovery-label")
+    );
+    const indicator = screen.find((node) => node.id === "gust-feed-indicator");
+    if (!text || !indicator) {
+      throw new Error("The Gust label or its indicator is absent");
+    }
+    const [textLeft = 0, , textRight = 0] = text.bounds;
+    const [barLeft = 0, , barRight = 0] = indicator.bounds;
+    const centerDifference = (barLeft + barRight - textLeft - textRight) / 2;
+    if (Math.abs(centerDifference) > 2) {
+      throw new Error(
+        `${label} indicator is misaligned by ${centerDifference} pixels`
+      );
+    }
+  }
   if (label === "Trending" || label === "For you") {
     const text = screen.find((node) => node.id === "home-discovery-label");
     const indicator = screen.find((node) => node.id === "feed-tab-indicator");

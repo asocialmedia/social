@@ -1,4 +1,4 @@
-// Usage: bun apps/mobile/scripts/native-gust-paging-smoke.ts latest [--continuous] [--speed]
+// Usage: bun apps/mobile/scripts/native-gust-paging-smoke.ts latest [--continuous] [--speed] [--eddies]
 // Set ASM_SMOKE_FAST_DUMP=1 for the installed AsmFastDump helper and --continuous.
 // Verifies direct reversals on the installed release without clearing account data.
 import { mkdir } from "node:fs/promises";
@@ -54,7 +54,9 @@ async function capture(name: string) {
 
 const fastDump = process.env.ASM_SMOKE_FAST_DUMP === "1";
 if (
-  (process.argv.includes("--continuous") || process.argv.includes("--speed")) &&
+  ["--continuous", "--speed", "--eddies"].some((flag) =>
+    process.argv.includes(flag)
+  ) &&
   !fastDump
 ) {
   throw new Error(
@@ -148,8 +150,76 @@ await adb(
   "-d",
   `asocialmedia://gusts?tab=${tab}`
 );
-await Bun.sleep(2000);
+await Bun.sleep(4000);
 const first = await settledCard("first");
+if (process.argv.includes("--eddies")) {
+  const tapControl = async (name: string, label: string) => {
+    const xml = await Bun.file(`${artifactDirectory}/${name}.xml`).text();
+    const node = [...xml.matchAll(/<node\s[^>]+>/g)].find(([entry]) =>
+      entry.includes(`content-desc="${label}"`)
+    )?.[0];
+    const bounds = [
+      ...(
+        node?.match(/bounds="(?<bounds>[^"]+)"/)?.groups?.bounds ?? ""
+      ).matchAll(/\d+/g),
+    ].map(([value]) => Number(value));
+    if (bounds.length !== 4) {
+      throw new Error(`${label} control is absent`);
+    }
+    const [left = 0, top = 0, right = 0, bottom = 0] = bounds;
+    await adb(
+      "shell",
+      "input",
+      "tap",
+      String((left + right) / 2),
+      String((top + bottom) / 2)
+    );
+  };
+  await tapControl("first", "Open eddies");
+  if ((await settledCard("eddies-open")) !== first) {
+    throw new Error("Opening eddies changed the active Gust");
+  }
+  for (const direction of ["next", "previous"] as const) {
+    const upper = String(Math.round(height * 0.15));
+    const lower = String(Math.round(height * 0.43));
+    // oxlint-disable-next-line no-await-in-loop -- verify both directions over the exposed card while the sheet remains open
+    await adb(
+      "shell",
+      "input",
+      "swipe",
+      String(width * 0.45),
+      direction === "next" ? lower : upper,
+      String(width * 0.45),
+      direction === "next" ? upper : lower,
+      "300"
+    );
+    const name = `eddies-${direction}`;
+    // oxlint-disable-next-line no-await-in-loop -- inspect the active card after each blocked swipe
+    if ((await settledCard(name)) !== first) {
+      throw new Error(
+        `${direction} swipe moved the reel while eddies were open`
+      );
+    }
+    // oxlint-disable-next-line no-await-in-loop -- assert the sheet remained mounted for the full regression check
+    const xml = await Bun.file(`${artifactDirectory}/${name}.xml`).text();
+    if (!xml.includes('resource-id="gust-eddies-sheet"')) {
+      throw new Error("The eddies sheet closed during the blocked swipe check");
+    }
+  }
+  await tapControl("eddies-previous", "Close eddies");
+  if ((await settledCard("eddies-closed")) !== first) {
+    throw new Error("Closing eddies changed the active Gust");
+  }
+  const closed = await Bun.file(
+    `${artifactDirectory}/eddies-closed.xml`
+  ).text();
+  if (closed.includes('resource-id="gust-eddies-sheet"')) {
+    throw new Error("The eddies sheet did not close");
+  }
+  console.log(
+    "PASS eddies keep the active Gust fixed during swipes over the exposed card"
+  );
+}
 if (process.argv.includes("--speed")) {
   const x = String(Math.round(width * 0.45));
   const y = String(Math.round(height * 0.4));

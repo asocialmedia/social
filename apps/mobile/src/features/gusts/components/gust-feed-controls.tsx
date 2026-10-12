@@ -54,23 +54,20 @@ export function GustFeedControls({
   const [layouts, setLayouts] = useState<
     Partial<Record<"discovery" | "following", { x: number; width: number }>>
   >({});
-  const [labelLayout, setLabelLayout] = useState<{
-    x: number;
-    width: number;
-  } | null>(null);
+  const [labelLayouts, setLabelLayouts] = useState<
+    Partial<Record<"discovery" | "following", { x: number; width: number }>>
+  >({});
   const firstPlacement = useRef(true);
   const indicatorX = useSharedValue(0);
   const indicatorWidth = useSharedValue(24);
   const indicatorReady = useSharedValue(0);
   const following = active === "following";
   const target = layouts[following ? "following" : "discovery"];
-  let measuredLabel = target ?? null;
-  if (following) {
-    measuredLabel =
-      target && labelLayout
-        ? { width: labelLayout.width, x: target.x + labelLayout.x }
-        : null;
-  }
+  const labelLayout = labelLayouts[following ? "following" : "discovery"];
+  const measuredLabel =
+    target && labelLayout
+      ? { width: labelLayout.width, x: target.x + labelLayout.x }
+      : null;
   const { width: barWidth, x: targetX } = gustFeedIndicator(
     measuredLabel ?? { width: 0, x: 0 },
     following
@@ -134,7 +131,19 @@ export function GustFeedControls({
         }}
         style={styles.control}
       >
-        <Text style={[styles.text, active === "following" && styles.idle]}>
+        <Text
+          style={[styles.text, active === "following" && styles.idle]}
+          testID="gust-discovery-label"
+          onLayout={(event) => {
+            const { x, width: labelWidth } = event.nativeEvent.layout;
+            setLabelLayouts((current) =>
+              current.discovery?.x === x &&
+              current.discovery.width === labelWidth
+                ? current
+                : { ...current, discovery: { width: labelWidth, x } }
+            );
+          }}
+        >
           {label}
         </Text>
         <ChevronDown
@@ -180,10 +189,11 @@ export function GustFeedControls({
           testID="gust-following-label"
           onLayout={(event) => {
             const { x, width: labelWidth } = event.nativeEvent.layout;
-            setLabelLayout((current) =>
-              current?.x === x && current.width === labelWidth
+            setLabelLayouts((current) =>
+              current.following?.x === x &&
+              current.following.width === labelWidth
                 ? current
-                : { width: labelWidth, x }
+                : { ...current, following: { width: labelWidth, x } }
             );
           }}
         >
