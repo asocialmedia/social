@@ -13,6 +13,32 @@ export const PULL_MAX = 96;
 export const PULL_TRIGGER = 56;
 export const PULL_CAPTURE_SLOP = 12;
 
+export function gustSwipeTarget({
+  origin,
+  pageHeight,
+  total,
+  translation,
+  velocity,
+}: {
+  origin: number;
+  pageHeight: number;
+  total: number;
+  translation: number;
+  velocity: number;
+}): number | null {
+  if (
+    pageHeight <= 0 ||
+    total < 2 ||
+    Math.abs(translation) < 12 ||
+    (Math.abs(translation) < pageHeight * 0.12 && Math.abs(velocity) < 600)
+  ) {
+    return null;
+  }
+  const start = Math.round(origin / pageHeight);
+  const next = Math.max(0, Math.min(total - 1, start - Math.sign(translation)));
+  return next === start ? null : next * pageHeight;
+}
+
 // Only a downward, single-finger drag at the start of the reel may refresh.
 export function gustPullIntent({
   offset,

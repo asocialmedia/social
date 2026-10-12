@@ -1,3 +1,4 @@
+import { GUST_SPEED_BOOST } from "@asm/ui/lib/gust-speed";
 import { useEvent, useEventListener } from "expo";
 // One full-screen gust, a 1:1 port of web's gust-card.tsx at phone size:
 // the video (object-contain on black, looping, poster until the first
@@ -182,6 +183,10 @@ export function GustCard({
   const { status } = useEvent(player, "statusChange", {
     status: player.status,
   });
+  const { playbackRate } = useEvent(player, "playbackRateChange", {
+    playbackRate: player.playbackRate,
+  });
+  const [holdingSpeed, setHoldingSpeed] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [videoAspectRatio, setVideoAspectRatio] = useState(() =>
@@ -505,6 +510,20 @@ export function GustCard({
       }
     }
   }, []);
+  const canHoldSpeed =
+    isActive &&
+    appActive &&
+    !suspended &&
+    revealed &&
+    !eddiesOpen &&
+    !transcriptOpen &&
+    source !== null;
+  const speedBoosted = canHoldSpeed && holdingSpeed;
+  // Player access stays in the mounted effect, never in a late gesture callback.
+  useEffect(() => {
+    // oxlint-disable-next-line react/immutability -- expo-video's documented player API; no setter exists
+    player.playbackRate = speedBoosted ? GUST_SPEED_BOOST : 1;
+  }, [player, speedBoosted]);
   const zoom = useGustPinchZoom({
     enabled: isActive && !suspended && revealed && !eddiesOpen,
     mediaHeight: fullVideoHeight,
@@ -515,6 +534,8 @@ export function GustCard({
     viewportWidth: window.width,
   });
   const mediaGestures = useGustMediaGestures({
+    holdEnabled: canHoldSpeed && isPlaying,
+    onHoldState: setHoldingSpeed,
     onInteractionState: handleMediaGestureState,
     onOpenAuthor: openAuthorProfile,
     onTap: handleTap,
@@ -620,7 +641,7 @@ export function GustCard({
             accessibilityActions={[
               { label: "Toggle playback", name: "activate" },
             ]}
-            accessibilityHint="Double tap to amplify. Pinch to zoom in or out. Swipe left to open the author's profile."
+            accessibilityHint="Hold while playing for 2× speed. Double tap to amplify. Pinch to zoom in or out. Swipe left to open the author's profile."
             accessibilityLabel={isPlaying ? "Pause gust" : "Play gust"}
             accessibilityRole="button"
             onAccessibilityAction={(event) => {
@@ -631,6 +652,20 @@ export function GustCard({
             style={styles.fill}
           />
         </GestureDetector>
+
+        {playbackRate === GUST_SPEED_BOOST ? (
+          <View
+            accessibilityLabel="Playing at 2× speed"
+            className="absolute inset-x-0 items-center"
+            pointerEvents="none"
+            style={{ top: insets.top + 84 }}
+            testID="gust-speed-boost"
+          >
+            <Text className="rounded-full border border-white/20 bg-black/70 px-4 py-2 text-sm font-semibold text-white">
+              2× speed
+            </Text>
+          </View>
+        ) : null}
 
         {pulse ? (
           <PlayPulse

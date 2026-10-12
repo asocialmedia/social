@@ -1,4 +1,4 @@
-// Usage: bun apps/mobile/scripts/native-gust-paging-smoke.ts latest [--continuous]
+// Usage: bun apps/mobile/scripts/native-gust-paging-smoke.ts latest [--continuous] [--speed]
 // Set ASM_SMOKE_FAST_DUMP=1 for the installed AsmFastDump helper and --continuous.
 // Verifies direct reversals on the installed release without clearing account data.
 import { mkdir } from "node:fs/promises";
@@ -53,7 +53,10 @@ async function capture(name: string) {
 }
 
 const fastDump = process.env.ASM_SMOKE_FAST_DUMP === "1";
-if (process.argv.includes("--continuous") && !fastDump) {
+if (
+  (process.argv.includes("--continuous") || process.argv.includes("--speed")) &&
+  !fastDump
+) {
   throw new Error(
     "Continuous checks require ASM_SMOKE_FAST_DUMP=1 to inspect playing Gusts without pausing"
   );
@@ -147,6 +150,42 @@ await adb(
 );
 await Bun.sleep(2000);
 const first = await settledCard("first");
+if (process.argv.includes("--speed")) {
+  const x = String(Math.round(width * 0.45));
+  const y = String(Math.round(height * 0.4));
+  const holding = adb("shell", "input", "swipe", x, y, x, y, "6000");
+  try {
+    await Bun.sleep(1000);
+    if ((await settledCard("speed-held", 0)) !== first) {
+      throw new Error("Holding changed the active Gust");
+    }
+    const held = await Bun.file(`${artifactDirectory}/speed-held.xml`).text();
+    if (!held.includes('resource-id="gust-speed-boost"')) {
+      throw new Error(
+        "The native player did not report 2× speed during the hold"
+      );
+    }
+  } finally {
+    await holding;
+  }
+  if ((await settledCard("speed-released")) !== first) {
+    throw new Error("Releasing the hold changed the active Gust");
+  }
+  const released = await Bun.file(
+    `${artifactDirectory}/speed-released.xml`
+  ).text();
+  if (
+    released.includes('resource-id="gust-speed-boost"') ||
+    !released.includes('content-desc="Pause gust"')
+  ) {
+    throw new Error(
+      "Releasing did not restore normal speed with playback continuing"
+    );
+  }
+  console.log(
+    "PASS hold reports 2× speed; release restores normal speed without a playback tap"
+  );
+}
 if (process.argv.includes("--continuous")) {
   const directions = [
     "next",
