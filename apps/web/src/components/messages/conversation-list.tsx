@@ -408,8 +408,8 @@ export function ConversationList({
           collapsed ? "w-16" : "w-full md:w-72 xl:w-80"
         )}
       >
-        {/* Header row: Messages title + Sidebar toggle button */}
-        <div className="border-border/60 relative flex h-14 shrink-0 items-center border-b px-2.5 transition-all duration-300 ease-[cubic-bezier(0.25,1,0.5,1)]">
+        {/* Desktop sidebar title and collapse control. */}
+        <div className="border-border/60 relative hidden h-14 shrink-0 items-center border-b px-2.5 transition-all duration-300 ease-[cubic-bezier(0.25,1,0.5,1)] md:flex">
           <h2
             className={cn(
               "text-base font-semibold tracking-tight whitespace-nowrap transition-all duration-300 ease-[cubic-bezier(0.25,1,0.5,1)]",

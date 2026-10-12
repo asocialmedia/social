@@ -94,7 +94,7 @@ export function MessagesSkeleton() {
   return (
     <div className="flex h-full min-h-0 flex-1 flex-row overflow-hidden">
       <div className="flex w-full shrink-0 flex-col border-r border-[hsl(var(--border))] md:w-72 xl:w-80">
-        <div className="border-border/60 flex h-14 shrink-0 items-center justify-between border-b px-4">
+        <div className="border-border/60 hidden h-14 shrink-0 items-center justify-between border-b px-4 md:flex">
           <Skeleton className="h-4 w-20 rounded-md" />
           <Skeleton className="h-9 w-9 rounded-full" />
         </div>

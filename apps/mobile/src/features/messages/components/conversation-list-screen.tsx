@@ -8,6 +8,7 @@
 // last message is decrypted through the same scheduler the thread uses, so opening
 // a conversation later is instant.
 
+import { useFocusEffect } from "expo-router";
 import { Plus, Search, Ticket, X, MessageCircle } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
@@ -20,11 +21,13 @@ import {
   ScrollView,
   View,
 } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { UserAvatar } from "@/components/avatar/user-avatar";
 import { authClient } from "@/features/auth/lib/auth-client";
+import { useSessionContext } from "@/features/auth/state/session";
+import { resetHeaderScroll } from "@/features/feed/lib/header-visibility";
 import { MobileBottomNav } from "@/features/home/components/mobile-bottom-nav";
+import { MobileHeader } from "@/features/home/components/mobile-header";
 import { UserBadge } from "@/features/home/components/user-badge";
 import { createConversation } from "@/features/messages/lib/client";
 import type { PresenceUser } from "@/features/messages/lib/client";
@@ -51,6 +54,7 @@ import type { ConversationRowView } from "@/features/messages/state/conversation
 import { useMessagesIdentity } from "@/features/messages/state/message-identity";
 import { useMessagePresence } from "@/features/messages/state/use-message-presence";
 import { useConversationList } from "@/features/messages/state/use-messages-data";
+import { useUnreadNotificationCount } from "@/features/notifications/state/use-unread-count";
 import { getApiBaseUrl } from "@/lib/api-env";
 import { LIST_VIRTUALIZATION_PROPS } from "@/lib/list-virtualization";
 import { SHOWS_SCROLL_INDICATOR } from "@/lib/scroll-indicator";
@@ -74,7 +78,16 @@ export function ConversationListScreen({
   onOpen: (conversationId: string) => void;
 }) {
   const { theme, isDark } = useAppTheme();
-  const insets = useSafeAreaInsets();
+  const { user } = useSessionContext();
+  const unreadNotifications = useUnreadNotificationCount(
+    user?.id ?? null,
+    Boolean(user)
+  );
+  useFocusEffect(
+    useCallback(() => {
+      resetHeaderScroll();
+    }, [])
+  );
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<ConversationFilter>("ALL");
   const [denDialog, setDenDialog] = useState<"create" | "join" | null>(null);
@@ -166,28 +179,11 @@ export function ConversationListScreen({
 
   return (
     <View style={[styles.root, { backgroundColor: theme.containerBg }]}>
-      <View
-        style={{ backgroundColor: theme.containerBg, paddingTop: insets.top }}
-      >
-        <View
-          style={{
-            borderBottomColor: theme.dividerLine,
-            borderBottomWidth: StyleSheet.hairlineWidth,
-            height: 56,
-            justifyContent: "center",
-            paddingHorizontal: 10,
-          }}
-        >
-          <Text
-            style={{
-              color: theme.inputText,
-              fontFamily: "SofiaProBold",
-              fontSize: 16,
-            }}
-          >
-            Messages
-          </Text>
-        </View>
+      <MobileHeader
+        unreadCount={unreadNotifications}
+        user={user ? { ...user, username: user.username ?? "" } : null}
+      />
+      <View style={{ backgroundColor: theme.containerBg }}>
         <View
           style={{
             alignItems: "center",

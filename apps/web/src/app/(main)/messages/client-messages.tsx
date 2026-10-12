@@ -6,6 +6,7 @@ import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
+import MobileTopBar from "@/components/layouts/navigation/mobile/mobile-top-bar";
 import { ActiveFriendsRail } from "@/components/messages/active-friends-rail";
 import { ConversationList } from "@/components/messages/conversation-list";
 import { useMessagesIdentity } from "@/components/messages/message-identity-provider";
@@ -18,6 +19,21 @@ import { cn } from "@/lib/utils";
 import { useMessagesSidebarStore } from "@/store/messages-sidebar-store";
 
 export default function ClientMessages() {
+  const searchParams = useSearchParams();
+
+  return (
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+      {searchParams.get("c") ? null : (
+        <div className="shrink-0">
+          <MobileTopBar />
+        </div>
+      )}
+      <MessagesPanes />
+    </div>
+  );
+}
+
+function MessagesPanes() {
   const { status, reset } = useMessagesIdentity();
   const { isCollapsed, setCollapsed, toggleCollapsed } =
     useMessagesSidebarStore();
