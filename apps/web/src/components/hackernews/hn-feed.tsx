@@ -28,12 +28,11 @@ export type HNSortOption =
 const ITEMS_PER_PAGE = 20;
 
 interface HNFeedProps {
-  filter: string;
   search: string;
   sortBy: HNSortOption;
 }
 
-export const HNFeed = ({ filter, search, sortBy }: HNFeedProps) => {
+export const HNFeed = ({ search, sortBy }: HNFeedProps) => {
   const {
     data,
     error,
@@ -55,14 +54,11 @@ export const HNFeed = ({ filter, search, sortBy }: HNFeedProps) => {
       if (search.trim()) {
         params.search = search.trim();
       }
-      if (filter !== "all") {
-        params.type = filter;
-      }
       return kyInstance
         .get("/api/hackernews", { searchParams: params })
         .json<HNApiResponse>();
     },
-    queryKey: ["hackernews", search, sortBy, filter],
+    queryKey: ["hackernews", search, sortBy],
     staleTime: 1000 * 60 * 5,
   });
 

@@ -9,6 +9,7 @@ import { StyleSheet, View } from "react-native";
 import Animated from "react-native-reanimated";
 
 import { useSkeletonPulse } from "@/components/feedback/use-skeleton-pulse";
+import type { ExploreTab } from "@/features/feed/state/tab-store";
 import { useAppTheme } from "@/theme";
 
 import {
@@ -24,21 +25,10 @@ function useBlock() {
 
 // The "Trending Gusts" rail: a header row then a horizontal row of 9:16 tiles.
 function GustRailSkeleton() {
-  const { theme } = useAppTheme();
   const pulse = useSkeletonPulse();
   const block = useBlock();
-  const { cardBg, cardBorder } = theme;
   return (
-    <Animated.View
-      style={[
-        styles.rail,
-        {
-          backgroundColor: cardBg,
-          borderColor: cardBorder,
-          opacity: pulse,
-        },
-      ]}
-    >
+    <Animated.View style={[styles.rail, { opacity: pulse }]}>
       <View style={styles.railHeader}>
         <View style={styles.railTitleGroup}>
           <View style={[styles.railIcon, block]} />
@@ -141,11 +131,17 @@ function SkeletonCard({ item }: { item: SkeletonItem }) {
 
 // The masonry body for For you / Trending / Gusts: the gust rail then the two
 // evenly-split columns of post and user cards.
-export function ExploreMasonrySkeleton() {
-  const { left, right } = splitIntoColumns(buildMasonryLayout());
+export function ExploreMasonrySkeleton({
+  continuation = false,
+}: {
+  continuation?: boolean;
+}) {
+  const { left, right } = splitIntoColumns(
+    buildMasonryLayout(continuation ? [4 / 5, 3 / 4, 1, 4 / 5] : undefined)
+  );
   return (
     <View style={styles.body}>
-      <GustRailSkeleton />
+      {continuation ? null : <GustRailSkeleton />}
       <View style={styles.masonryRow}>
         <View style={styles.masonryColumn}>
           {left.map((item, index) => (
@@ -163,14 +159,89 @@ export function ExploreMasonrySkeleton() {
 }
 
 // The People tab body: a single column of user cards.
-export function ExplorePeopleSkeleton() {
+export function ExplorePeopleSkeleton({
+  continuation = false,
+}: {
+  continuation?: boolean;
+}) {
   return (
     <View style={styles.body}>
       <View style={styles.peopleColumn}>
-        {[0, 1, 2, 3, 4, 5].map((index) => (
+        {Array.from({ length: continuation ? 2 : 6 }, (_, index) => (
           <UserSkeleton key={`people-${index}`} />
         ))}
       </View>
+    </View>
+  );
+}
+
+function GustSkeleton() {
+  const pulse = useSkeletonPulse();
+  const block = useBlock();
+  const { theme } = useAppTheme();
+  return (
+    <Animated.View
+      style={[
+        styles.gustTile,
+        {
+          backgroundColor: theme.cardBg,
+          borderColor: theme.cardBorder,
+          opacity: pulse,
+        },
+      ]}
+    >
+      <View style={[styles.gustBadge, block]} />
+      <View style={styles.gustCopy}>
+        <View style={styles.authorRow}>
+          <View style={[styles.avatar, block]} />
+          <View style={styles.authorLines}>
+            <View style={[styles.line, styles.textWide, block]} />
+            <View style={[styles.line, styles.textHalf, block]} />
+          </View>
+        </View>
+        <View style={[styles.line, styles.textWide, block]} />
+      </View>
+    </Animated.View>
+  );
+}
+
+export function ExploreLoadingSkeleton({
+  tab,
+  continuation = false,
+}: {
+  tab: ExploreTab;
+  continuation?: boolean;
+}) {
+  let content;
+  if (tab === "people") {
+    content = <ExplorePeopleSkeleton continuation={continuation} />;
+  } else if (tab === "gusts") {
+    content = (
+      <View style={[styles.body, continuation ? null : { paddingTop: 0 }]}>
+        <View style={styles.masonryRow}>
+          {[0, 1].map((column) => (
+            <View key={column} style={styles.masonryColumn}>
+              {Array.from({ length: continuation ? 1 : 3 }, (_, row) => (
+                <GustSkeleton key={row} />
+              ))}
+            </View>
+          ))}
+        </View>
+      </View>
+    );
+  } else {
+    content = <ExploreMasonrySkeleton continuation={continuation} />;
+  }
+  return (
+    <View
+      accessibilityRole="progressbar"
+      accessibilityLabel={
+        continuation ? "Loading more Explore items" : "Loading Explore items"
+      }
+      testID={`explore-${tab}-${continuation ? "footer" : "initial"}-skeleton`}
+      style={{ marginHorizontal: tab === "people" ? -16 : -8 }}
+    >
+      {content}
     </View>
   );
 }
@@ -197,31 +268,32 @@ const styles = StyleSheet.create({
   cardBody: { gap: 8, padding: 12 },
   cardFooter: { paddingBottom: 12, paddingHorizontal: 12 },
   followPill: { borderRadius: 9999, height: 32, marginTop: 4, width: "100%" },
+  gustBadge: { borderRadius: 999, height: 24, width: 64 },
+  gustCopy: { gap: 10 },
+  gustTile: {
+    aspectRatio: 9 / 16,
+    borderRadius: 16,
+    borderWidth: 1,
+    justifyContent: "space-between",
+    marginBottom: 16,
+    padding: 12,
+  },
   line: { borderRadius: 4, height: 12 },
   masonryColumn: { flex: 1 },
   masonryRow: { flexDirection: "row", gap: 16 },
   peopleColumn: { gap: 0 },
   pill: { borderRadius: 9999, height: 32, width: 80 },
-  rail: {
-    borderCurve: "continuous",
-    borderRadius: 16,
-    borderWidth: 1,
-    marginBottom: 16,
-    overflow: "hidden",
-    paddingBottom: 16,
-  },
+  rail: { gap: 12, marginBottom: 24 },
   railHeader: {
     alignItems: "center",
     flexDirection: "row",
     justifyContent: "space-between",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
   },
   railIcon: { borderRadius: 9999, height: 16, width: 16 },
-  railRow: { flexDirection: "row", gap: 12, paddingHorizontal: 16 },
+  railRow: { flexDirection: "row", gap: 12 },
   railSeeAll: { height: 12, width: 56 },
   railSubtitle: { height: 10, width: 140 },
-  railTile: { aspectRatio: 9 / 16, borderRadius: 14, width: 120 },
+  railTile: { aspectRatio: 9 / 16, borderRadius: 14, width: 144 },
   railTitle: { height: 14, width: 100 },
   railTitleGroup: { alignItems: "center", flexDirection: "row", gap: 8 },
   railTitleLines: { gap: 6 },

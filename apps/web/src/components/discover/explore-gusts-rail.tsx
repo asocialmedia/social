@@ -127,7 +127,7 @@ const GustRailCard = ({
         />
       )}
 
-      <div className="absolute top-2 left-2 z-10 flex items-center gap-1 rounded-full bg-black/60 px-2 py-0.5 text-white backdrop-blur-md">
+      <div className="chip-3d explore-gust-chip absolute top-2 left-2 z-10 flex items-center gap-1 rounded-full px-2 py-0.5 text-white">
         <Clapperboard className="text-primary size-3" />
         <span className="text-[10px] font-bold">Gust</span>
       </div>
@@ -193,9 +193,9 @@ export const ExploreGustsRail: React.FC<ExploreGustsRailProps> = ({
   }
 
   return (
-    <section className="sidebar-subcard mb-6 overflow-hidden rounded-2xl">
+    <section aria-label="Trending Gusts" className="mb-6 space-y-3">
       {/* Header */}
-      <div className="flex items-center justify-between gap-3 px-4 pt-3.5 pb-2.5">
+      <div className="flex items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-2.5">
           <Clapperboard className="text-primary size-4.5 shrink-0" />
           <div className="min-w-0">
@@ -233,7 +233,7 @@ export const ExploreGustsRail: React.FC<ExploreGustsRailProps> = ({
       </div>
 
       {/* Horizontal scrollable rail with a right-edge fade hint */}
-      <div className="hide-native-scrollbar flex gap-3 overflow-x-auto overscroll-x-contain [mask-image:linear-gradient(to_right,black_calc(100%-1.5rem),transparent)] px-4 pt-0.5 pb-4">
+      <div className="hide-native-scrollbar flex gap-3 overflow-x-auto overscroll-x-contain [mask-image:linear-gradient(to_right,black_calc(100%-1.5rem),transparent)] pt-0.5 pb-1">
         {eligibleGusts.map((gust, index) => (
           <GustRailCard gust={gust} key={gust.id} priority={index === 0} />
         ))}

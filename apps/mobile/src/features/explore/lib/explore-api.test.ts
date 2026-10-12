@@ -63,6 +63,21 @@ describe("explore parsing", () => {
 });
 
 describe("explore requests", () => {
+  test("pagination fetches only posts, preserving already loaded recommendations", async () => {
+    const requests: string[] = [];
+    const page = await fetchExplorePage("trending", "", "next", {
+      apiBase: API,
+      baseFetch: ((input: RequestInfo | URL) => {
+        requests.push(String(input));
+        return Promise.resolve(
+          Response.json({ nextCursor: null, posts: [post] })
+        );
+      }) as typeof fetch,
+    });
+    expect(requests).toHaveLength(1);
+    expect(requests[0]).toContain("cursor=next");
+    expect(page.users).toEqual([]);
+  });
   test("loads a feed page with cookie forwarding", async () => {
     const requests: string[] = [];
     const page = await fetchExplorePage("trending", "", null, {

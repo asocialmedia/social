@@ -1,5 +1,5 @@
 import { Image } from "expo-image";
-import { Clapperboard, Play } from "lucide-react-native";
+import { Play } from "lucide-react-native";
 import { useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
@@ -16,6 +16,8 @@ import { mediaGridImageUrl } from "@/features/feed/lib/media-url";
 import { UserBadge } from "@/features/home/components/user-badge";
 import { getApiBaseUrl } from "@/lib/api-env";
 import { SURFACE_SHADOWS, SURFACE_SHADOWS_DARK, useAppTheme } from "@/theme";
+
+import { ExploreBadge } from "./explore-badge";
 
 function embedPreview(embed: LinkEmbed | undefined): string | null {
   if (!embed) {
@@ -119,10 +121,7 @@ export function ExplorePostCard({
                 </View>
               ) : null}
               {post.isGust ? (
-                <View style={styles.gustBadge}>
-                  <Clapperboard color="#ff9500" size={11} />
-                  <Text style={styles.gustText}>Gust</Text>
-                </View>
+                <ExploreBadge kind="gust" style={styles.gustBadge} />
               ) : null}
               {imageFailed ? (
                 <View
@@ -221,19 +220,7 @@ const styles = StyleSheet.create({
     paddingBottom: 12,
     paddingHorizontal: 12,
   },
-  gustBadge: {
-    alignItems: "center",
-    backgroundColor: "rgba(0,0,0,0.55)",
-    borderRadius: 999,
-    flexDirection: "row",
-    gap: 4,
-    left: 8,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    position: "absolute",
-    top: 8,
-  },
-  gustText: { color: "#ffffff", fontFamily: "SofiaProMed", fontSize: 10 },
+  gustBadge: { left: 8, position: "absolute", top: 8 },
   image: { height: "100%", width: "100%" },
   imageFallback: { bottom: 0, left: 0, position: "absolute", right: 0, top: 0 },
   muted: {

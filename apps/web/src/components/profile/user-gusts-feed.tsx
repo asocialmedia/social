@@ -127,7 +127,7 @@ const GustGridItem = ({ post }: { post: PostsPage["posts"][number] }) => {
         />
       )}
 
-      <div className="absolute top-2.5 left-2.5 flex items-center gap-1.5 rounded-full bg-black/40 px-2 py-0.5 text-xs text-white backdrop-blur-md">
+      <div className="chip-3d explore-gust-chip absolute top-2.5 left-2.5 flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs text-white">
         <Clapperboard className="text-primary size-3" />
         <span className="text-[11px] font-medium">Gust</span>
       </div>

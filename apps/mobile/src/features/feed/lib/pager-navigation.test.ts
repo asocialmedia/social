@@ -8,6 +8,7 @@ import {
   handoffIndex,
   retainPagerPages,
   settleIndex,
+  shouldSyncPagerTarget,
 } from "./pager-navigation";
 
 describe("clampIndex", () => {
@@ -99,5 +100,21 @@ describe("retained feed pages", () => {
     expect(retainPagerPages(999, 4)).toEqual({ first: 2, last: 3 });
     expect(retainPagerPages(0, 1)).toEqual({ first: 0, last: 0 });
     expect(retainPagerPages(0, 0)).toEqual({ first: 0, last: -1 });
+  });
+});
+
+describe("pager animation ownership", () => {
+  test("a delayed selected-tab update leaves the release spring running", () => {
+    expect(shouldSyncPagerTarget(1, 400, 1, -400, false)).toBe(false);
+  });
+  test("early tab handoff cannot replace a live finger drag", () => {
+    expect(shouldSyncPagerTarget(1, 400, 0, 0, true)).toBe(false);
+  });
+  test("a new tap or viewport width change starts a new target", () => {
+    expect(shouldSyncPagerTarget(2, 400, 1, -400, false)).toBe(true);
+    expect(shouldSyncPagerTarget(1, 600, 1, -400, false)).toBe(true);
+  });
+  test("a cancelled swipe keeps its return spring instead of snapping", () => {
+    expect(shouldSyncPagerTarget(0, 400, 0, 0, false)).toBe(false);
   });
 });

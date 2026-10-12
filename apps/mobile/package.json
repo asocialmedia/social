@@ -1,6 +1,6 @@
 {
   "name": "@asocialmedia/mobile",
-  "version": "0.1.81",
+  "version": "0.1.82",
   "private": true,
   "main": "expo-router/entry",
   "scripts": {
@@ -29,6 +29,7 @@
     "@noble/curves": "^2.4.0",
     "@noble/hashes": "^2.4.0",
     "@react-native-google-signin/google-signin": "^16.1.5",
+    "@shopify/flash-list": "2.0.2",
     "@tailwindcss/postcss": "^4.3.3",
     "better-auth": "^1.7.5",
     "expo": "~57.0.26",

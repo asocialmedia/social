@@ -37,9 +37,11 @@ import {
 import { classifySessionRefresh } from "@/features/auth/lib/session-connection";
 import type { SessionRefreshResult } from "@/features/auth/lib/session-connection";
 import { useInstall } from "@/features/auth/state/install";
+import { clearExploreCache } from "@/features/explore/lib/explore-cache-native";
 import { engagementStore } from "@/features/feed/lib/engagement-store";
 import { viewBatcher } from "@/features/feed/lib/view-batcher";
 import { feedCache } from "@/features/feed/state/feed-store";
+import { clearHnCache } from "@/features/hackernews/lib/hn-cache-native";
 import { sleep } from "@/features/media-upload/lib/retry";
 import { clearMessageSession } from "@/features/messages/state/clear-message-session";
 import { unregisterPushNotifications } from "@/features/notifications/lib/push";
@@ -393,6 +395,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       engagementStore.clear();
       viewBatcher.reset();
       feedCache.clear();
+      clearExploreCache();
+      clearHnCache();
       clearMessageSession();
       if (options?.reason) {
         router.replace(

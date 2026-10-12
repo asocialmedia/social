@@ -1,36 +1,38 @@
+import { FlashList } from "@shopify/flash-list";
+import type { FlashListRef } from "@shopify/flash-list";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useIsFocused, useLocalSearchParams, useRouter } from "expo-router";
 import {
   ChevronRight,
   Clapperboard,
   Eye,
   Flame,
   Plus,
-  Search,
-  X,
 } from "lucide-react-native";
 import {
   useCallback,
-  useDeferredValue,
   useEffect,
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
 } from "react";
+import type { Ref } from "react";
 import {
   ActivityIndicator,
   Animated,
-  PanResponder,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from "react-native";
-import type { NativeScrollEvent, NativeSyntheticEvent } from "react-native";
+import type {
+  NativeScrollEvent,
+  NativeSyntheticEvent,
+  ScrollViewProps,
+} from "react-native";
 import { GestureDetector } from "react-native-gesture-handler";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -42,9 +44,7 @@ import { Gradient3D } from "@/components/surface/gradient-3d";
 import { authClient } from "@/features/auth/lib/auth-client";
 import { useInstall } from "@/features/auth/state/install";
 import { useSessionContext } from "@/features/auth/state/session";
-import { CommunityAvatar } from "@/features/communities/components/community-avatar";
-import { FeedTabs } from "@/features/feed/components/feed-tabs";
-import type { FeedTabDef } from "@/features/feed/components/feed-tabs";
+import { FeedPager } from "@/features/feed/components/feed-pager";
 import { NewContentPill } from "@/features/feed/components/new-content-pill";
 import type { PillAuthor } from "@/features/feed/components/new-content-pill";
 import { findUnseenItems } from "@/features/feed/lib/feed-types";
@@ -53,6 +53,7 @@ import { mediaGridImageUrl } from "@/features/feed/lib/media-url";
 import {
   EXPLORE_TABS,
   resolveExploreTab,
+  resolveExploreDiscoveryTab,
 } from "@/features/feed/state/tab-store";
 import type { ExploreTab } from "@/features/feed/state/tab-store";
 import {
@@ -70,8 +71,6 @@ import { logInfo, logWarn } from "@/lib/telemetry";
 import {
   LOGIN_BUTTON_SHADOWS,
   LOGIN_BUTTON_SHADOWS_LIGHT,
-  SEARCH_PANEL_SHADOWS,
-  SEARCH_PANEL_SHADOWS_DARK,
   SURFACE_SHADOWS,
   SURFACE_SHADOWS_DARK,
   useAppTheme,
@@ -85,23 +84,20 @@ import {
   fetchExploreTopGusts,
   mutateExploreFollow,
 } from "../lib/explore-api";
-import type { ExploreCommunityResult, ExploreUser } from "../lib/explore-api";
+import type { ExploreUser } from "../lib/explore-api";
+import { exploreCache, exploreCacheKey } from "../lib/explore-cache";
+import type { ExploreData } from "../lib/explore-cache";
+import { hydrateExploreCache } from "../lib/explore-cache-native";
+import { exploreFeedTabs, explorePageIndex } from "../lib/explore-navigation";
+import { ExploreBadge } from "./explore-badge";
+import { ExploreFeedControls } from "./explore-feed-controls";
+import { ExploreGuestSearch } from "./explore-guest-search";
 import { ExplorePostCard } from "./explore-post-card";
-import {
-  ExplorePeopleSkeleton,
-  ExploreMasonrySkeleton,
-} from "./explore-skeleton";
+import { ExploreLoadingSkeleton } from "./explore-skeleton";
 import { ExploreUserCard } from "./explore-user-card";
 
 // Matches web's useNewContentProbe cadence on the Explore feeds.
 const PROBE_INTERVAL_MS = 45_000;
-
-const TAB_DEFS: readonly FeedTabDef<ExploreTab>[] = [
-  { label: "For you", value: "for-you" },
-  { label: "Gusts", value: "gusts" },
-  { label: "People", value: "people" },
-  { label: "Trending", value: "trending" },
-];
 
 type ExploreItem =
   | { kind: "post"; post: FeedPost }
@@ -116,16 +112,16 @@ export function ExploreScreen() {
   const params = useLocalSearchParams<{ tab?: string | string[] }>();
   const { isPending, user } = useSessionContext();
   const insets = useSafeAreaInsets();
-  const viewerId = user?.id;
+  const isFocused = useIsFocused();
   const [dockHeight, setDockHeight] = useState(56);
-  const { runWithInstallToken } = useInstall();
-  const { isDark, theme } = useAppTheme();
+  const { theme } = useAppTheme();
   const mobileHeaderUser = user
     ? { ...user, username: user.username ?? "unknown" }
     : null;
   const showGuestBar = !isPending && !user;
   const memoryReady = useHomeTabMemoryReady();
   const storedExplore = useTabStore((state) => state.explore);
+  const storedDiscovery = useTabStore((state) => state.exploreDiscovery);
   const setExploreTab = useTabStore((state) => state.setExploreTab);
   const tabParam = Array.isArray(params.tab) ? params.tab[0] : params.tab;
   const activeTab = resolveExploreTab(
@@ -134,220 +130,230 @@ export function ExploreScreen() {
     storedExplore,
     memoryReady
   );
-  const [search, setSearch] = useState("");
-  const deferredSearch = useDeferredValue(search.trim());
-  const [posts, setPosts] = useState<FeedPost[]>([]);
-  const [users, setUsers] = useState<ExploreUser[]>([]);
-  const [communities, setCommunities] = useState<ExploreCommunityResult[]>([]);
-  const [gusts, setGusts] = useState<FeedPost[]>([]);
-  const [nextCursor, setNextCursor] = useState<string | null>(null);
-  const [status, setStatus] = useState<"error" | "loading" | "success">(
-    "loading"
+  const discovery = resolveExploreDiscoveryTab(
+    activeTab,
+    Boolean(user),
+    storedDiscovery,
+    memoryReady
   );
-  const [refreshing, setRefreshing] = useState(false);
+  const tabs = exploreFeedTabs(discovery);
+  useEffect(() => {
+    if (
+      memoryReady &&
+      (activeTab === "for-you" || activeTab === "trending") &&
+      storedDiscovery?.value !== activeTab
+    ) {
+      setExploreTab(activeTab);
+    }
+  }, [activeTab, memoryReady, setExploreTab, storedDiscovery?.value]);
+  const selectTab = useCallback(
+    (next: ExploreTab) => {
+      if (!EXPLORE_TABS.has(next) || next === activeTab) {
+        return;
+      }
+      setExploreTab(next);
+      router.setParams({ tab: next });
+    },
+    [activeTab, router, setExploreTab]
+  );
+  const activeIndex = explorePageIndex(activeTab);
+  const changeIndex = useCallback(
+    (index: number) => {
+      const tab = tabs[index];
+      if (tab) {
+        selectTab(tab.value);
+      }
+    },
+    [selectTab, tabs]
+  );
+  return (
+    <View style={[styles.root, { backgroundColor: theme.containerBg }]}>
+      <MobileHeader user={mobileHeaderUser} />
+      <ExploreFeedControls
+        active={activeTab}
+        discovery={discovery}
+        onChange={selectTab}
+      />
+      {showGuestBar ? <ExploreGuestSearch /> : null}
+      {memoryReady ? (
+        <FeedPager activeIndex={activeIndex} onIndexChange={changeIndex}>
+          {tabs.map((tab, index) =>
+            index === 0 ? (
+              <View
+                key={`discovery:${user?.id ?? "guest"}`}
+                style={styles.root}
+              >
+                {(["for-you", "trending"] as const).map((feed) => (
+                  <View
+                    key={feed}
+                    pointerEvents={feed === discovery ? "auto" : "none"}
+                    accessibilityElementsHidden={feed !== discovery}
+                    importantForAccessibility={
+                      feed === discovery ? "auto" : "no-hide-descendants"
+                    }
+                    style={[
+                      StyleSheet.absoluteFill,
+                      { opacity: feed === discovery ? 1 : 0 },
+                    ]}
+                  >
+                    <ExploreTabContent
+                      activeTab={feed}
+                      isActive={
+                        isFocused && activeIndex === 0 && feed === discovery
+                      }
+                      enabled={isFocused && Math.abs(activeIndex) <= 1}
+                      selectTab={selectTab}
+                      bottomInset={showGuestBar ? 176 : 96}
+                    />
+                  </View>
+                ))}
+              </View>
+            ) : (
+              <ExploreTabContent
+                key={`${tab.value}:${user?.id ?? "guest"}`}
+                activeTab={tab.value}
+                isActive={isFocused && index === activeIndex}
+                enabled={isFocused && Math.abs(index - activeIndex) <= 1}
+                selectTab={selectTab}
+                bottomInset={showGuestBar ? 176 : 96}
+              />
+            )
+          )}
+        </FeedPager>
+      ) : (
+        <ActivityIndicator color="#f97316" style={styles.root} />
+      )}
+      {showGuestBar ? (
+        <View
+          pointerEvents="box-none"
+          style={[styles.authDock, { bottom: dockHeight + insets.bottom + 12 }]}
+        >
+          <GuestAuthBar />
+        </View>
+      ) : null}
+      <MobileBottomNav onHeightChange={setDockHeight} />
+    </View>
+  );
+}
+
+const EMPTY_DATA: ExploreData = {
+  communities: [],
+  gusts: [],
+  nextCursor: null,
+  posts: [],
+  users: [],
+};
+
+function ExploreTabContent({
+  activeTab,
+  isActive,
+  enabled,
+  selectTab,
+  bottomInset,
+}: {
+  activeTab: ExploreTab;
+  isActive: boolean;
+  enabled: boolean;
+  selectTab: (tab: ExploreTab) => void;
+  bottomInset: number;
+}) {
+  const router = useRouter();
+  const { isPending, user } = useSessionContext();
+  const viewerId = user?.id;
+  const { runWithInstallToken } = useInstall();
+  const { theme } = useAppTheme();
+  const deferredSearch = "";
+  const apiBase = getApiBaseUrl();
+  const cacheKey = exploreCacheKey(
+    apiBase,
+    viewerId,
+    activeTab,
+    deferredSearch
+  );
+  const resource = useSyncExternalStore(exploreCache.subscribe, () =>
+    exploreCache.read(cacheKey)
+  );
+  const { posts, users, gusts, nextCursor } = resource.data ?? EMPTY_DATA;
+  let status: "error" | "loading" | "success" = "loading";
+  if (resource.data) {
+    status = "success";
+  } else if (resource.error) {
+    status = "error";
+  }
+  const refreshing = resource.pending === "refresh";
+  const loadingMore = resource.pending === "append";
   const [newItems, setNewItems] = useState<FeedPost[]>([]);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const scrollViewRef = useRef<ScrollView>(null);
+  const scrollViewRef = useRef<FlashListRef<ExploreItem>>(null);
   const [isScrolledDown, setIsScrolledDown] = useState(false);
   const isScrolledRef = useRef(false);
+  const restoredKey = useRef<string | null>(null);
+  const initialOffset = useMemo(
+    () => exploreCache.scrollOffset(cacheKey),
+    [cacheKey]
+  );
 
   const load = useCallback(
     async (cursor: string | null, append: boolean, refresh = false) => {
       if (!viewerId && activeTab === "for-you") {
         return;
       }
-      const cookie = await authClient.getCookie();
-      const options = { apiBase: getApiBaseUrl(), cookie };
-      const [page, topGusts] = await Promise.all([
-        activeTab === "people"
-          ? fetchExplorePeople(
-              deferredSearch,
-              Boolean(viewerId),
-              options,
-              refresh
-            )
-          : fetchExplorePage(activeTab, deferredSearch, cursor, options),
-        !append && (activeTab === "for-you" || activeTab === "trending")
-          ? fetchExploreTopGusts(options)
-          : Promise.resolve([]),
-      ]);
-      setPosts((current) =>
-        append
-          ? [
-              ...current,
-              ...page.posts.filter(
-                (post) => !current.some((item) => item.id === post.id)
-              ),
-            ]
-          : page.posts
+      const replacementMode = refresh ? "refresh" : "initial";
+      if (!append && !refresh && exploreCache.isFresh(cacheKey)) {
+        logInfo("explore.cache_hit", { tab: activeTab });
+      }
+      await exploreCache.load(
+        cacheKey,
+        async () => {
+          logInfo("explore.page_request", {
+            append,
+            refresh,
+            searching: Boolean(deferredSearch),
+            tab: activeTab,
+          });
+          const options = { apiBase, cookie: await authClient.getCookie() };
+          const [page, topGusts] = await Promise.all([
+            activeTab === "people"
+              ? fetchExplorePeople(
+                  deferredSearch,
+                  Boolean(viewerId),
+                  options,
+                  refresh
+                )
+              : fetchExplorePage(activeTab, deferredSearch, cursor, options),
+            !append && (activeTab === "for-you" || activeTab === "trending")
+              ? fetchExploreTopGusts(options)
+              : Promise.resolve([]),
+          ]);
+          return { ...page, gusts: topGusts };
+        },
+        append ? "append" : replacementMode,
+        cursor ?? undefined
       );
-      setUsers((current) =>
-        append
-          ? [
-              ...current,
-              ...page.users.filter(
-                (candidate) => !current.some((item) => item.id === candidate.id)
-              ),
-            ]
-          : page.users
-      );
-      setCommunities(page.communities);
-      setGusts(topGusts);
-      setNextCursor(page.nextCursor);
-      setStatus("success");
     },
-    [activeTab, deferredSearch, viewerId]
+    [activeTab, apiBase, cacheKey, deferredSearch, viewerId]
   );
 
   useEffect(() => {
-    let active = true;
+    if ((!enabled && !isActive) || (isPending && !viewerId)) {
+      return;
+    }
+    let cancelled = false;
     void (async () => {
-      const cookie = await authClient.getCookie();
-      if (!active) {
-        return;
-      }
-      setStatus("loading");
-      if (!viewerId && activeTab === "for-you") {
-        setStatus("success");
-        return;
-      }
-      setPosts([]);
-      setNewItems([]);
-      setUsers([]);
-      setCommunities([]);
-      setGusts([]);
-      setNextCursor(null);
-      try {
-        const options = { apiBase: getApiBaseUrl(), cookie };
-        const [page, topGusts] = await Promise.all([
-          activeTab === "people"
-            ? fetchExplorePeople(deferredSearch, Boolean(viewerId), options)
-            : fetchExplorePage(activeTab, deferredSearch, null, options),
-          activeTab === "for-you" || activeTab === "trending"
-            ? fetchExploreTopGusts(options)
-            : Promise.resolve([]),
-        ]);
-        if (!active) {
-          return;
-        }
-        setPosts(page.posts);
-        setUsers(page.users);
-        setCommunities(page.communities);
-        setGusts(topGusts);
-        setNextCursor(page.nextCursor);
-        setStatus("success");
-      } catch {
-        if (active) {
-          setStatus("error");
-        }
+      await hydrateExploreCache();
+      if (!cancelled) {
+        void load(null, false);
       }
     })();
     return () => {
-      active = false;
+      cancelled = true;
     };
-  }, [activeTab, deferredSearch, viewerId]);
-
-  // Changing the query changes which posts are on screen, so anything the
-  // probe found for the previous identity is dropped here rather than in an
-  // effect, where it would cost an extra render.
-  const handleSearch = useCallback((value: string) => {
-    setSearch(value);
-    setNewItems([]);
-  }, []);
-
-  const selectTab = useCallback(
-    (next: ExploreTab) => {
-      if (!EXPLORE_TABS.has(next) || next === activeTab) {
-        return;
-      }
-      setNewItems([]);
-      setExploreTab(next);
-      handleSearch("");
-      router.setParams({ tab: next });
-    },
-    [activeTab, handleSearch, router, setExploreTab]
-  );
-
-  const handleSwipeNavigate = useCallback(
-    (direction: -1 | 1) => {
-      const tabOrder: readonly ExploreTab[] = [
-        "for-you",
-        "gusts",
-        "people",
-        "trending",
-      ];
-      const currentIndex = tabOrder.indexOf(activeTab);
-      const nextIndex = currentIndex + direction;
-      if (nextIndex >= 0 && nextIndex < tabOrder.length) {
-        selectTab(tabOrder[nextIndex]);
-      }
-    },
-    [activeTab, selectTab]
-  );
-
-  const panResponder = useMemo(
-    () =>
-      PanResponder.create({
-        onMoveShouldSetPanResponder: (_event, gesture) => {
-          if (gesture.numberActiveTouches !== 1) {
-            return false;
-          }
-          const absDx = Math.abs(gesture.dx);
-          const absDy = Math.abs(gesture.dy);
-          return absDx > 14 && absDx > absDy * 1.35;
-        },
-        onPanResponderRelease: (_event, gesture) => {
-          const { dx, vx } = gesture;
-          if (dx <= -48 || vx <= -0.45) {
-            handleSwipeNavigate(1);
-          } else if (dx >= 48 || vx >= 0.45) {
-            handleSwipeNavigate(-1);
-          }
-        },
-      }),
-    [handleSwipeNavigate]
-  );
-
-  const activeTabTrackedRef = useRef(activeTab);
-  const slideAnim = useMemo(() => new Animated.Value(0), []);
-  const opacityAnim = useMemo(() => new Animated.Value(1), []);
-
-  useEffect(() => {
-    if (activeTabTrackedRef.current !== activeTab) {
-      const tabOrder: readonly ExploreTab[] = [
-        "for-you",
-        "gusts",
-        "people",
-        "trending",
-      ];
-      const nextIndex = tabOrder.indexOf(activeTab);
-      const prevIndex = tabOrder.indexOf(activeTabTrackedRef.current);
-      const direction = nextIndex >= prevIndex ? 1 : -1;
-      activeTabTrackedRef.current = activeTab;
-
-      slideAnim.setValue(direction * 28);
-      opacityAnim.setValue(0.7);
-
-      Animated.parallel([
-        Animated.timing(slideAnim, {
-          duration: 180,
-          toValue: 0,
-          useNativeDriver: Platform.OS !== "web",
-        }),
-        Animated.timing(opacityAnim, {
-          duration: 180,
-          toValue: 1,
-          useNativeDriver: Platform.OS !== "web",
-        }),
-      ]).start();
-    }
-  }, [activeTab, opacityAnim, slideAnim]);
+  }, [enabled, isActive, isPending, load, viewerId]);
 
   const handleFollow = useCallback(
     async (userId: string, next: boolean) => {
       if (!viewerId) {
         router.push("/(auth)/login");
-        return;
+        throw new Error("Sign in to follow people");
       }
       const cookie = await authClient.getCookie();
       const result = await runWithInstallToken(
@@ -359,21 +365,11 @@ export function ExploreScreen() {
         (value) => value instanceof ExploreApiError && value.status === 403
       );
       if (!result) {
-        return;
+        throw new Error("Follow request cancelled");
       }
-      setUsers((current) =>
-        current.map((candidate) =>
-          candidate.id === userId
-            ? {
-                ...candidate,
-                _count: { ...candidate._count, followers: result.followers },
-                isFollowing: result.isFollowedByUser,
-              }
-            : candidate
-        )
-      );
+      exploreCache.updateFollow(apiBase, viewerId, userId, result);
     },
-    [router, runWithInstallToken, viewerId]
+    [apiBase, router, runWithInstallToken, viewerId]
   );
 
   // Web polls each Explore feed every 45s and offers the new posts behind a
@@ -393,6 +389,8 @@ export function ExploreScreen() {
 
   useEffect(() => {
     if (
+      !isActive ||
+      (!viewerId && probeTab === "for-you") ||
       status !== "success" ||
       probeTab === "gusts" ||
       probeTab === "people" ||
@@ -400,7 +398,8 @@ export function ExploreScreen() {
     ) {
       return;
     }
-    const key = `${probeTab}:${probeSearch}`;
+    let cancelled = false;
+    const key = cacheKey;
     probeKeyRef.current = key;
     const probe = async () => {
       try {
@@ -411,7 +410,11 @@ export function ExploreScreen() {
             cookie: await authClient.getCookie(),
           }
         );
-        if (probeKeyRef.current !== key || knownIdsRef.current.size === 0) {
+        if (
+          cancelled ||
+          probeKeyRef.current !== key ||
+          knownIdsRef.current.size === 0
+        ) {
           return;
         }
         const newest = headPosts[0]?.id;
@@ -438,23 +441,21 @@ export function ExploreScreen() {
       skipInitialPoll: true,
     });
     poller.start();
-    return () => poller.stop();
-  }, [probeTab, probeSearch, status]);
+    return () => {
+      cancelled = true;
+      poller.stop();
+    };
+  }, [cacheKey, isActive, probeTab, probeSearch, status, viewerId]);
 
   const showNewItems = useCallback(() => {
     if (newItems.length === 0) {
       return;
     }
     logInfo("explore.new_shown", { count: newItems.length, tab: activeTab });
-    setPosts((current) => [
-      ...newItems,
-      ...current.filter(
-        (post) => !newItems.some((item) => item.id === post.id)
-      ),
-    ]);
+    exploreCache.prepend(cacheKey, newItems);
     setNewItems([]);
-    scrollViewRef.current?.scrollTo({ animated: true, y: 0 });
-  }, [activeTab, newItems, setNewItems]);
+    scrollViewRef.current?.scrollToOffset({ animated: true, offset: 0 });
+  }, [activeTab, cacheKey, newItems]);
 
   const newItemAuthors: PillAuthor[] = [
     ...new Map(
@@ -469,18 +470,8 @@ export function ExploreScreen() {
     ).values(),
   ];
 
-  // Only the People tab has a Refresh control, and only that endpoint honours
-  // a cache bypass, so the flag rides along with the reload.
-  const refresh = async () => {
-    setRefreshing(true);
-    try {
-      await load(null, false, activeTab === "people");
-    } catch {
-      setStatus("error");
-      setRefreshing(false);
-      return;
-    }
-    setRefreshing(false);
+  const refresh = () => {
+    void load(null, false, true);
   };
 
   const handleCreateGust = () => {
@@ -491,20 +482,18 @@ export function ExploreScreen() {
     );
   };
 
-  const fetchMore = useCallback(async () => {
-    if (loadingMore || !nextCursor || activeTab === "people") {
+  const fetchMore = useCallback(() => {
+    if (
+      !isActive ||
+      resource.pending ||
+      resource.error ||
+      !nextCursor ||
+      activeTab === "people"
+    ) {
       return;
     }
-    setLoadingMore(true);
-    try {
-      await load(nextCursor, true);
-    } catch {
-      setStatus("error");
-      setLoadingMore(false);
-      return;
-    }
-    setLoadingMore(false);
-  }, [activeTab, load, loadingMore, nextCursor]);
+    void load(nextCursor, true);
+  }, [activeTab, isActive, load, nextCursor, resource.error, resource.pending]);
 
   const items = useMemo<ExploreItem[]>(() => {
     const next: ExploreItem[] = [];
@@ -537,43 +526,25 @@ export function ExploreScreen() {
     return next;
   }, [activeTab, posts, users]);
 
-  const { leftItems, rightItems } = useMemo(() => {
-    const left: { index: number; item: ExploreItem }[] = [];
-    const right: { index: number; item: ExploreItem }[] = [];
-    for (const [index, item] of items.entries()) {
-      if (index % 2 === 0) {
-        left.push({ index, item });
-      } else {
-        right.push({ index, item });
-      }
-    }
-    return { leftItems: left, rightItems: right };
-  }, [items]);
-
-  const handleScroll = useCallback(
-    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
-      const { contentOffset, contentSize, layoutMeasurement } =
-        event.nativeEvent;
-      const paddingToBottom = 300;
-      if (
-        layoutMeasurement.height + contentOffset.y >=
-        contentSize.height - paddingToBottom
-      ) {
-        void fetchMore();
-      }
-    },
-    [fetchMore]
-  );
-
   // The same 3D pull loader the feed uses, not the stock RefreshControl, so a
   // refresh here reads identically to a refresh there. Placed before the
   // loading early-return below, since a hook after one is conditional.
   const pull = usePullToRefresh({
-    failed: status === "error",
+    failed: Boolean(resource.error),
     onRefresh: refresh,
     refreshing,
     updatedMessage: "Explore updated",
   });
+
+  const { nativeScrollGesture } = pull;
+  const renderScrollComponent = useCallback(
+    (props: ScrollViewProps & { ref?: Ref<ScrollView> }) => (
+      <GestureDetector gesture={nativeScrollGesture}>
+        <ScrollView {...props} />
+      </GestureDetector>
+    ),
+    [nativeScrollGesture]
+  );
 
   // The screen's own infinite-scroll probe and the pull's bounce reading both
   // need the same event, so chain them rather than picking a winner.
@@ -585,10 +556,13 @@ export function ExploreScreen() {
         isScrolledRef.current = scrolled;
         setIsScrolledDown(scrolled);
       }
-      handleScroll(event);
+      if (!isActive) {
+        return;
+      }
+      exploreCache.setScrollOffset(cacheKey, offsetY);
       pull.onScroll(event);
     },
-    [handleScroll, pull]
+    [cacheKey, isActive, pull]
   );
 
   const renderItem = useCallback(
@@ -612,6 +586,7 @@ export function ExploreScreen() {
       if (item.kind === "post") {
         return (
           <ExplorePostCard
+            key={item.post.id}
             onPress={() =>
               router.push({
                 params: { postId: item.post.id },
@@ -626,6 +601,7 @@ export function ExploreScreen() {
       }
       return (
         <ExploreUserCard
+          key={item.user.id}
           canFollow={viewerId !== item.user.id}
           highlight={
             Boolean(viewerId) &&
@@ -655,16 +631,7 @@ export function ExploreScreen() {
     !deferredSearch;
 
   const header = (
-    <View>
-      <MobileHeader user={mobileHeaderUser} />
-      <FeedTabs active={activeTab} onChange={selectTab} tabs={TAB_DEFS} />
-      {activeTab === "for-you" || activeTab === "trending" ? (
-        <ExplorePostSearch
-          onSearch={handleSearch}
-          search={search}
-          tab={activeTab}
-        />
-      ) : null}
+    <View style={{ marginHorizontal: activeTab === "people" ? -16 : -8 }}>
       {showPill && !isScrolledDown ? (
         <View style={styles.pillRow}>
           <NewContentPill
@@ -676,75 +643,10 @@ export function ExploreScreen() {
         </View>
       ) : null}
       {activeTab === "people" ? (
-        <ExplorePeopleHeader
-          loggedIn={Boolean(viewerId)}
-          onRefresh={refresh}
-          onSearch={handleSearch}
-          search={search}
-        />
-      ) : null}
-      {deferredSearch && communities.length > 0 ? (
-        <View style={styles.communityMatches}>
-          <Text style={[styles.sectionLabel, { color: theme.dividerText }]}>
-            Communities
-          </Text>
-          <ScrollView
-            contentContainerStyle={styles.matchRow}
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
-          >
-            {communities.map((community) => (
-              <Pressable
-                accessibilityLabel={`Open community ${community.name}`}
-                accessibilityRole="button"
-                key={community.id}
-                onPress={() =>
-                  router.push({
-                    params: { slug: community.slug },
-                    pathname: "/a/[slug]",
-                  })
-                }
-                style={[
-                  styles.match,
-                  {
-                    backgroundColor: theme.cardBg,
-                    borderColor: theme.cardBorder,
-                    boxShadow: isDark ? SURFACE_SHADOWS_DARK : SURFACE_SHADOWS,
-                  },
-                ]}
-              >
-                <CommunityAvatar community={community} size={36} />
-                <View style={styles.matchCopy}>
-                  <Text
-                    numberOfLines={1}
-                    style={[styles.matchName, { color: theme.inputText }]}
-                  >
-                    {community.name}
-                  </Text>
-                  <Text
-                    numberOfLines={1}
-                    style={[styles.matchSlug, { color: theme.dividerText }]}
-                  >
-                    a/{community.slug}
-                  </Text>
-                </View>
-              </Pressable>
-            ))}
-          </ScrollView>
-        </View>
+        <ExplorePeopleHeader loggedIn={Boolean(viewerId)} onRefresh={refresh} />
       ) : null}
       {gusts.length > 0 && activeTab !== "gusts" && activeTab !== "people" ? (
-        <View
-          style={[
-            styles.gustRail,
-            {
-              backgroundColor: theme.cardBg,
-              borderColor: theme.cardBorder,
-              boxShadow: isDark ? SURFACE_SHADOWS_DARK : SURFACE_SHADOWS,
-            },
-          ]}
-        >
+        <View style={styles.gustRail} testID="explore-gusts-rail">
           <View style={styles.railHeading}>
             <View style={styles.railTitleGroup}>
               <View style={styles.railTitleRow}>
@@ -791,13 +693,10 @@ export function ExploreScreen() {
   );
 
   let empty: React.ReactNode = null;
-  if (status === "loading") {
-    empty =
-      activeTab === "people" ? (
-        <ExplorePeopleSkeleton />
-      ) : (
-        <ExploreMasonrySkeleton />
-      );
+  if (activeTab === "for-you" && !viewerId && !isPending) {
+    empty = <ExploreAuthPrompt onLogin={() => router.push("/(auth)/login")} />;
+  } else if (status === "loading") {
+    empty = <ExploreLoadingSkeleton tab={activeTab} />;
   } else if (status === "error") {
     const message = errorMessageFor(activeTab);
     empty = (
@@ -805,10 +704,15 @@ export function ExploreScreen() {
         <Text style={[styles.errorText, { color: theme.errorBannerText }]}>
           {message}
         </Text>
+        <Pressable
+          accessibilityRole="button"
+          onPress={refresh}
+          style={styles.refreshButton}
+        >
+          <Text style={styles.refreshText}>Retry</Text>
+        </Pressable>
       </View>
     );
-  } else if (activeTab === "for-you" && !viewerId) {
-    empty = <ExploreAuthPrompt onLogin={() => router.push("/(auth)/login")} />;
   } else if (items.length === 0) {
     empty = (
       <ExploreEmptyState
@@ -819,104 +723,99 @@ export function ExploreScreen() {
     );
   }
 
-  return (
-    <View
-      style={[styles.root, { backgroundColor: theme.containerBg }]}
-      {...panResponder.panHandlers}
-    >
-      <GestureDetector gesture={pull.gesture}>
-        <View style={styles.listWrap}>
-          <Animated.View
-            style={[
-              styles.listShift,
-              { transform: [{ translateY: pull.pullShift }] },
-            ]}
-          >
-            <GestureDetector gesture={pull.nativeScrollGesture}>
-              <ScrollView
-                contentContainerStyle={[
-                  styles.content,
-                  { paddingBottom: showGuestBar ? 176 : 96 },
-                ]}
-                contentInsetAdjustmentBehavior="automatic"
-                keyboardShouldPersistTaps="handled"
-                onScroll={handleContentScroll}
-                onScrollEndDrag={() => pull.onScrollEndDrag()}
-                ref={scrollViewRef}
-                scrollEventThrottle={150}
-                showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
-              >
-                {header}
-                {empty || (
-                  <Animated.View
-                    style={{
-                      opacity: opacityAnim,
-                      transform: [{ translateX: slideAnim }],
-                    }}
-                  >
-                    {activeTab === "people" ? (
-                      <View style={styles.peopleList}>
-                        {items.map((item, index) => (
-                          <View key={itemKey(item)}>
-                            {renderItem({ index, item })}
-                          </View>
-                        ))}
-                      </View>
-                    ) : (
-                      <View style={styles.masonryRow}>
-                        <View style={styles.masonryColumn}>
-                          {leftItems.map(({ index, item }) => (
-                            <View key={itemKey(item)}>
-                              {renderItem({ index, item })}
-                            </View>
-                          ))}
-                        </View>
-                        <View style={styles.masonryColumn}>
-                          {rightItems.map(({ index, item }) => (
-                            <View key={itemKey(item)}>
-                              {renderItem({ index, item })}
-                            </View>
-                          ))}
-                        </View>
-                      </View>
-                    )}
-                  </Animated.View>
-                )}
-                {loadingMore ? (
-                  <ActivityIndicator
-                    color="#f97316"
-                    style={styles.footerLoader}
-                  />
-                ) : null}
-              </ScrollView>
-            </GestureDetector>
-          </Animated.View>
-          {pull.loader}
-          {showPill && isScrolledDown ? (
-            <View
-              pointerEvents="box-none"
-              style={[styles.floatingPillWrap, { top: insets.top + 8 }]}
-            >
-              <NewContentPill
-                authors={newItemAuthors}
-                count={newItems.length}
-                floating={false}
-                onPress={showNewItems}
-              />
-            </View>
-          ) : null}
-        </View>
-      </GestureDetector>
-      {showGuestBar ? (
-        <View
-          pointerEvents="box-none"
-          style={[styles.authDock, { bottom: dockHeight + insets.bottom + 12 }]}
+  let footer: React.ReactNode = null;
+  if (resource.error && resource.data) {
+    footer = (
+      <View style={styles.errorState}>
+        <Text style={[styles.errorText, { color: theme.errorBannerText }]}>
+          Could not update Explore. Your saved items are still available.
+        </Text>
+        <Pressable
+          accessibilityRole="button"
+          onPress={refresh}
+          style={styles.refreshButton}
         >
-          <GuestAuthBar />
-        </View>
-      ) : null}
-      <MobileBottomNav onHeightChange={setDockHeight} />
-    </View>
+          <Text style={styles.refreshText}>Retry</Text>
+        </Pressable>
+      </View>
+    );
+  } else if (loadingMore) {
+    footer = <ExploreLoadingSkeleton continuation tab={activeTab} />;
+  }
+
+  return (
+    <GestureDetector gesture={pull.gesture}>
+      <View style={styles.listWrap}>
+        <Animated.View
+          style={[
+            styles.listShift,
+            { transform: [{ translateY: pull.pullShift }] },
+          ]}
+        >
+          <FlashList
+            key={cacheKey}
+            ref={scrollViewRef}
+            renderScrollComponent={renderScrollComponent}
+            data={empty ? [] : items}
+            masonry={activeTab !== "people"}
+            numColumns={activeTab === "people" ? 1 : 2}
+            optimizeItemArrangement={false}
+            getItemType={(item) => item.kind}
+            keyExtractor={itemKey}
+            contentContainerStyle={{
+              paddingBottom: bottomInset,
+              paddingHorizontal: activeTab === "people" ? 16 : 8,
+              paddingTop: activeTab === "gusts" ? 16 : 0,
+            }}
+            keyboardShouldPersistTaps="handled"
+            maintainVisibleContentPosition={{ disabled: true }}
+            onLoad={() => {
+              if (restoredKey.current === cacheKey) {
+                return;
+              }
+              restoredKey.current = cacheKey;
+              const offset = initialOffset;
+              if (offset > 0) {
+                scrollViewRef.current?.scrollToOffset({
+                  animated: false,
+                  offset,
+                });
+              }
+            }}
+            onEndReached={fetchMore}
+            onEndReachedThreshold={0.5}
+            onScroll={handleContentScroll}
+            onScrollEndDrag={() => pull.onScrollEndDrag()}
+            scrollEventThrottle={32}
+            showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
+            ListHeaderComponent={header}
+            ListEmptyComponent={empty}
+            ListFooterComponent={footer}
+            renderItem={({ item, index }) => (
+              <View
+                style={activeTab === "people" ? undefined : styles.gridCell}
+              >
+                {renderItem({ index, item })}
+              </View>
+            )}
+          />
+        </Animated.View>
+        {pull.loader}
+        {showPill && isScrolledDown ? (
+          <View
+            pointerEvents="box-none"
+            style={[styles.floatingPillWrap, { top: 8 }]}
+          >
+            <NewContentPill
+              authors={newItemAuthors}
+              count={newItems.length}
+              floating={false}
+              onPress={showNewItems}
+            />
+          </View>
+        ) : null}
+      </View>
+    </GestureDetector>
   );
 }
 
@@ -954,14 +853,12 @@ function ExploreGustTile({
       ]}
     >
       <Image
+        cachePolicy="memory-disk"
         contentFit="cover"
         source={{ uri: imageUrl }}
         style={styles.gustImage}
       />
-      <View style={styles.gustBadge}>
-        <Clapperboard color="#f97316" size={11} />
-        <Text style={styles.gustBadgeText}>Gust</Text>
-      </View>
+      <ExploreBadge kind="gust" style={styles.gustBadge} />
       <LinearGradient
         colors={["transparent", "rgba(0,0,0,0.92)"]}
         style={styles.gustOverlay}
@@ -1125,49 +1022,13 @@ function ExploreEmptyState({
 function ExplorePeopleHeader({
   loggedIn,
   onRefresh,
-  onSearch,
-  search,
 }: {
   loggedIn: boolean;
   onRefresh: () => void;
-  onSearch: (value: string) => void;
-  search: string;
 }) {
-  const { isDark, theme } = useAppTheme();
+  const { theme } = useAppTheme();
   return (
     <View style={styles.peopleHeader}>
-      <View
-        style={[
-          styles.peopleSearch,
-          {
-            backgroundColor: theme.inputBg,
-            borderColor: theme.inputBorder,
-            boxShadow: isDark
-              ? SEARCH_PANEL_SHADOWS_DARK
-              : SEARCH_PANEL_SHADOWS,
-          },
-        ]}
-      >
-        <Search color={theme.dividerText} size={16} />
-        <TextInput
-          accessibilityLabel="Search people"
-          autoCapitalize="none"
-          autoCorrect={false}
-          onChangeText={onSearch}
-          placeholder="Search people by name or @username"
-          placeholderTextColor={theme.inputPlaceholder}
-          style={[styles.peopleSearchInput, { color: theme.inputText }]}
-          value={search}
-        />
-        {search ? (
-          <Pressable
-            accessibilityLabel="Clear people search"
-            onPress={() => onSearch("")}
-          >
-            <X color={theme.dividerText} size={16} />
-          </Pressable>
-        ) : null}
-      </View>
       <View style={styles.peopleHeading}>
         <Text style={[styles.peopleHeadingText, { color: theme.inputText }]}>
           {loggedIn ? "Recommended for you" : "Trending people"}
@@ -1175,62 +1036,6 @@ function ExplorePeopleHeader({
         {loggedIn ? (
           <Pressable onPress={onRefresh} style={styles.refreshButton}>
             <Text style={styles.refreshText}>Refresh</Text>
-          </Pressable>
-        ) : null}
-      </View>
-    </View>
-  );
-}
-
-// Web searches the post feeds too: the input is shown on For you and Trending
-// (not Gusts, which has nothing to search, and not People, which owns its own
-// header above). The same query already flows through fetchExplorePage, so the
-// field only had to be surfaced.
-function ExplorePostSearch({
-  onSearch,
-  search,
-  tab,
-}: {
-  onSearch: (value: string) => void;
-  search: string;
-  tab: ExploreTab;
-}) {
-  const { isDark, theme } = useAppTheme();
-  const label =
-    tab === "trending"
-      ? "Search trending posts"
-      : "Search posts, people and communities";
-  return (
-    <View style={styles.peopleHeader}>
-      <View
-        style={[
-          styles.peopleSearch,
-          {
-            backgroundColor: theme.inputBg,
-            borderColor: theme.inputBorder,
-            boxShadow: isDark
-              ? SEARCH_PANEL_SHADOWS_DARK
-              : SEARCH_PANEL_SHADOWS,
-          },
-        ]}
-      >
-        <Search color={theme.dividerText} size={16} />
-        <TextInput
-          accessibilityLabel={label}
-          autoCapitalize="none"
-          autoCorrect={false}
-          onChangeText={onSearch}
-          placeholder={label}
-          placeholderTextColor={theme.inputPlaceholder}
-          style={[styles.peopleSearchInput, { color: theme.inputText }]}
-          value={search}
-        />
-        {search ? (
-          <Pressable
-            accessibilityLabel="Clear post search"
-            onPress={() => onSearch("")}
-          >
-            <X color={theme.dividerText} size={16} />
           </Pressable>
         ) : null}
       </View>
@@ -1268,8 +1073,7 @@ const styles = StyleSheet.create({
   },
   authPromptImage: { height: 128, width: 160 },
   authPromptTitle: { fontFamily: "SofiaProBold", fontSize: 16 },
-  communityMatches: { gap: 8, paddingTop: 12 },
-  content: { paddingTop: 0 },
+
   createButton: {
     alignItems: "center",
     marginTop: 4,
@@ -1309,7 +1113,7 @@ const styles = StyleSheet.create({
     right: 0,
     zIndex: 40,
   },
-  footerLoader: { marginVertical: 20 },
+  gridCell: { paddingHorizontal: 8 },
   gustAuthorCopy: { flex: 1, minWidth: 0 },
   gustAuthorName: {
     color: "#ffffff",
@@ -1319,19 +1123,7 @@ const styles = StyleSheet.create({
   },
   gustAuthorNameRow: { alignItems: "center", flexDirection: "row", gap: 3 },
   gustAuthorRow: { alignItems: "center", flexDirection: "row", gap: 6 },
-  gustBadge: {
-    alignItems: "center",
-    backgroundColor: "rgba(0,0,0,0.6)",
-    borderRadius: 999,
-    flexDirection: "row",
-    gap: 4,
-    left: 8,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    position: "absolute",
-    top: 8,
-  },
-  gustBadgeText: { color: "#ffffff", fontFamily: "SofiaProBold", fontSize: 10 },
+  gustBadge: { left: 8, position: "absolute", top: 8 },
   gustContent: {
     color: "rgba(255,255,255,0.8)",
     fontFamily: "SofiaProReg",
@@ -1358,15 +1150,9 @@ const styles = StyleSheet.create({
     right: 0,
   },
   gustRail: {
-    borderRadius: 16,
-    borderWidth: 1,
-    gap: 10,
-    marginBottom: 20,
-    marginHorizontal: 16,
-    marginTop: 14,
-    overflow: "hidden",
-    paddingBottom: 16,
-    paddingTop: 14,
+    gap: 12,
+    marginBottom: 24,
+    marginTop: 16,
   },
   gustRow: { gap: 12, paddingHorizontal: 16 },
   gustTile: {
@@ -1394,31 +1180,9 @@ const styles = StyleSheet.create({
   },
   listWrap: {
     flex: 1,
+    overflow: "hidden",
     position: "relative",
   },
-  masonryColumn: {
-    flex: 1,
-  },
-  masonryRow: {
-    flexDirection: "row",
-    gap: 16,
-    paddingHorizontal: 16,
-  },
-  match: {
-    alignItems: "center",
-    borderCurve: "continuous",
-    borderRadius: 12,
-    borderWidth: 1,
-    flexDirection: "row",
-    gap: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    width: 224,
-  },
-  matchCopy: { flex: 1, minWidth: 0 },
-  matchName: { fontFamily: "SofiaProMed", fontSize: 13 },
-  matchRow: { gap: 8, paddingHorizontal: 16 },
-  matchSlug: { fontFamily: "SofiaProReg", fontSize: 11 },
   peopleHeader: { gap: 12, paddingHorizontal: 16, paddingTop: 16 },
   peopleHeading: {
     alignItems: "center",
@@ -1430,26 +1194,6 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   peopleHeadingText: { fontFamily: "SofiaProMed", fontSize: 14 },
-  peopleList: {
-    paddingHorizontal: 16,
-  },
-  peopleSearch: {
-    alignItems: "center",
-    backgroundColor: "#111111",
-    borderColor: "rgba(255,255,255,0.12)",
-    borderRadius: 10,
-    borderWidth: 1,
-    flexDirection: "row",
-    gap: 8,
-    minHeight: 40,
-    paddingHorizontal: 12,
-  },
-  peopleSearchInput: {
-    flex: 1,
-    fontFamily: "SofiaProReg",
-    fontSize: 13,
-    minHeight: 38,
-  },
   pillRow: {
     alignItems: "center",
     justifyContent: "center",
@@ -1467,13 +1211,6 @@ const styles = StyleSheet.create({
   railTitleRow: { alignItems: "center", flexDirection: "row", gap: 8 },
   refreshButton: { paddingHorizontal: 8, paddingVertical: 4 },
   refreshText: { color: "#f97316", fontFamily: "SofiaProMed", fontSize: 12 },
-  retry: {
-    backgroundColor: "#f97316",
-    borderRadius: 999,
-    paddingHorizontal: 18,
-    paddingVertical: 10,
-  },
-  retryText: { color: "#ffffff", fontFamily: "SofiaProMed", fontSize: 13 },
   root: { flex: 1 },
   sectionLabel: {
     fontFamily: "SofiaProMed",

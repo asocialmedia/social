@@ -1,5 +1,4 @@
-// Feed tab strip with a measured orange indicator. Reanimated moves and
-// resizes the absolute bar on the UI thread as labels and avatars change.
+// Place the orange indicator from the same measured layout as its label.
 import { LinearGradient } from "expo-linear-gradient";
 import type { ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
@@ -33,7 +32,9 @@ interface FeedTabsProps<T extends string = HomeTab> {
   // Two-tab surfaces (notifications) stretch each trigger to half the width,
   // matching web's flex-1 tab buttons; the feed strip stays content-centered.
   fill?: boolean;
-  indicatorLabelLayout?: (tab: FeedTabDef<T>) => TriggerLayout | undefined;
+  indicatorLabelLayout?: (
+    tab: FeedTabDef<T>
+  ) => TriggerLayout | null | undefined;
   indicatorWidth?: (tab: FeedTabDef<T>, triggerWidth: number) => number;
   onChange: (tab: T) => void;
   scrollable?: boolean;
@@ -45,6 +46,33 @@ interface FeedTabsProps<T extends string = HomeTab> {
 interface TriggerLayout {
   width: number;
   x: number;
+}
+
+function FeedTabIndicator({ x, width }: { x: number; width: number }) {
+  const indicatorX = useSharedValue(x);
+  const indicatorWidth = useSharedValue(width);
+  useEffect(() => {
+    indicatorX.set(withTiming(x, { duration: 180 }));
+    indicatorWidth.set(withTiming(width, { duration: 180 }));
+  }, [indicatorWidth, indicatorX, width, x]);
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: indicatorX.get() }],
+    width: indicatorWidth.get(),
+  }));
+  return (
+    <Animated.View
+      testID="feed-tab-indicator"
+      pointerEvents="none"
+      style={[styles.indicator, animatedStyle]}
+    >
+      <LinearGradient
+        colors={["#ff9500", "#e65500"]}
+        end={{ x: 0.5, y: 1 }}
+        start={{ x: 0.5, y: 0 }}
+        style={styles.indicatorBar}
+      />
+    </Animated.View>
+  );
 }
 
 export function FeedTabs<T extends string = HomeTab>({
@@ -60,11 +88,6 @@ export function FeedTabs<T extends string = HomeTab>({
 }: FeedTabsProps<T>) {
   const { theme } = useAppTheme();
   const [layouts, setLayouts] = useState<Record<string, TriggerLayout>>({});
-  const indicatorX = useSharedValue(0);
-  const indicatorSize = useSharedValue(24);
-  // First placement is the mount, not a tab switch: set without animating
-  // so the bar never slides in from the left edge.
-  const firstPlaced = useRef(true);
   const scrollRef = useRef<ScrollView>(null);
 
   const activeIndex = Math.max(
@@ -79,30 +102,17 @@ export function FeedTabs<T extends string = HomeTab>({
     layout && activeDef ? (indicatorWidth?.(activeDef, labelWidth) ?? 24) : 24;
   const targetX =
     (layout?.x ?? 0) + (labelLayout?.x ?? 0) + (labelWidth - barWidth) / 2;
-  const indicatorStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: indicatorX.get() }],
-    width: indicatorSize.get(),
-  }));
 
   useEffect(() => {
     if (!layout) {
       return;
     }
-    if (firstPlaced.current) {
-      firstPlaced.current = false;
-      indicatorX.set(targetX);
-      indicatorSize.set(barWidth);
-    } else {
-      indicatorX.set(withTiming(targetX, { duration: 220 }));
-      indicatorSize.set(withTiming(barWidth, { duration: 220 }));
-    }
-
     // Scroll to reveal the active tab when scrollable is active.
     if (scrollable && scrollRef.current) {
       const scrollTargetX = Math.max(0, layout.x - 48);
       scrollRef.current.scrollTo({ animated: true, x: scrollTargetX });
     }
-  }, [barWidth, indicatorSize, indicatorX, layout, scrollable, targetX]);
+  }, [layout, scrollable]);
 
   const content = (
     <View
@@ -160,18 +170,8 @@ export function FeedTabs<T extends string = HomeTab>({
           </Pressable>
         );
       })}
-      {layout ? (
-        <Animated.View
-          testID="feed-tab-indicator"
-          style={[styles.indicator, { pointerEvents: "none" }, indicatorStyle]}
-        >
-          <LinearGradient
-            colors={["#ff9500", "#e65500"]}
-            end={{ x: 0.5, y: 1 }}
-            start={{ x: 0.5, y: 0 }}
-            style={styles.indicatorBar}
-          />
-        </Animated.View>
+      {layout && layout.width > 0 && labelWidth > 0 && labelLayout !== null ? (
+        <FeedTabIndicator x={targetX} width={barWidth} />
       ) : null}
     </View>
   );

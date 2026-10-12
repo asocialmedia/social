@@ -1,6 +1,6 @@
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
-import { Flame, Sparkles, Users } from "lucide-react-native";
+import { Flame, Users } from "lucide-react-native";
 import { useState } from "react";
 import type { ReactNode } from "react";
 import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
@@ -20,6 +20,7 @@ import {
 } from "@/theme";
 
 import type { ExploreUser } from "../lib/explore-api";
+import { ExploreBadge } from "./explore-badge";
 import {
   AVATAR_CORNER,
   AVATAR_OVERLAP,
@@ -62,7 +63,10 @@ export function ExploreUserCard({
   user: ExploreUser;
 }) {
   const { isDark, theme } = useAppTheme();
-  const [following, setFollowing] = useState(user.isFollowing);
+  const [optimisticFollowing, setOptimisticFollowing] = useState<
+    boolean | null
+  >(null);
+  const following = optimisticFollowing ?? user.isFollowing;
   const [pending, setPending] = useState(false);
   const [bannerFailed, setBannerFailed] = useState(false);
   const apiBase = getApiBaseUrl();
@@ -128,14 +132,15 @@ export function ExploreUserCard({
     }
     setPending(true);
     const next = !following;
-    setFollowing(next);
+    setOptimisticFollowing(next);
     void (async () => {
       try {
         await onFollow(next);
       } catch {
-        setFollowing(!next);
+        setOptimisticFollowing(null);
       }
       setPending(false);
+      setOptimisticFollowing(null);
     })();
   };
 
@@ -169,10 +174,7 @@ export function ExploreUserCard({
           style={StyleSheet.absoluteFill}
         />
         {highlight ? (
-          <View style={styles.recommended}>
-            <Sparkles color="#f97316" fill="#f97316" size={11} />
-            <Text style={styles.recommendedText}>Recommended</Text>
-          </View>
+          <ExploreBadge kind="recommended" style={styles.recommended} />
         ) : null}
       </View>
       <View style={styles.content}>
@@ -352,24 +354,6 @@ const styles = StyleSheet.create({
     maxWidth: "100%",
   },
   reason: { fontFamily: "SofiaProReg", fontSize: 11, marginTop: 6 },
-  recommended: {
-    alignItems: "center",
-    backgroundColor: "rgba(249,115,22,0.2)",
-    borderColor: "rgba(249,115,22,0.4)",
-    borderRadius: 999,
-    borderWidth: 1,
-    flexDirection: "row",
-    gap: 4,
-    left: 10,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    position: "absolute",
-    top: 10,
-  },
-  recommendedText: {
-    color: "#f97316",
-    fontFamily: "SofiaProMed",
-    fontSize: 10,
-  },
+  recommended: { left: 10, position: "absolute", top: 10 },
   username: { fontFamily: "SofiaProReg", fontSize: 12, marginTop: 2 },
 });

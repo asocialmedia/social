@@ -155,14 +155,18 @@ export function HomeFeedControls({
         active={active}
         tabs={tabs}
         onPressActive
-        indicatorLabelLayout={(tab) =>
-          tab.value === discovery && discoveryText
-            ? {
-                width: discoveryText.width,
-                x: discoveryLabelX + discoveryText.x,
-              }
-            : undefined
-        }
+        indicatorLabelLayout={(tab) => {
+          if (tab.value !== discovery) {
+            return;
+          }
+          if (!discoveryText) {
+            return null;
+          }
+          return {
+            width: discoveryText.width,
+            x: discoveryLabelX + discoveryText.x,
+          };
+        }}
         indicatorWidth={(tab, width) => {
           if (tab.value === discovery) {
             return width * 0.6;

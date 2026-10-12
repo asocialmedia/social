@@ -131,7 +131,7 @@ const GustRowCard: React.FC<{
             src={videoUrl}
           />
         )}
-        <div className="absolute top-1.5 left-1.5 z-10 flex items-center gap-1 rounded-full bg-black/50 px-2 py-0.5 text-white backdrop-blur-md">
+        <div className="chip-3d explore-gust-chip absolute top-1.5 left-1.5 z-10 flex items-center gap-1 rounded-full px-2 py-0.5 text-white">
           <Clapperboard className="text-primary size-3" />
           <span className="text-[10px] font-bold">Gust</span>
         </div>

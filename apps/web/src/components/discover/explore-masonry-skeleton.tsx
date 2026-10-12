@@ -1,7 +1,7 @@
 import { Skeleton } from "@asm/ui/shadui/skeleton";
 
-// Mirrors the explore page structure exactly: the "Trending Gusts" rail (a
-// sidebar-subcard with a header + horizontal row of 9:16 gust tiles) followed
+// Mirrors the explore page: an open "Trending Gusts" heading and
+// horizontal row of 9:16 gust tiles followed
 // by the masonry of interleaved post cards and user cards. The top bar + tabs
 // render above this in explore-client, so this only mirrors the scroll body.
 const ASPECTS = [4 / 5, 3 / 4, 1, 4 / 5, 3 / 4, 1, 4 / 5, 3 / 4, 1, 4 / 5];
@@ -21,17 +21,17 @@ const KEYS = [
 
 const GustRailSkeleton: React.FC = () => (
   // Header row, then the horizontal row of 9:16 gust tiles.
-  <section className="sidebar-subcard mb-6 overflow-hidden rounded-2xl">
-    <div className="flex items-center justify-between gap-3 px-4 pt-3.5 pb-2.5">
+  <section className="mb-6 space-y-3">
+    <div className="flex items-center justify-between gap-3">
       <div className="flex min-w-0 items-center gap-2.5">
         <Skeleton className="size-4.5 rounded-full" />
         <Skeleton className="h-4 w-28 rounded-md" />
       </div>
       <Skeleton className="h-4 w-16 rounded-md" />
     </div>
-    <div className="flex gap-3 overflow-hidden px-4 pb-4">
+    <div className="flex gap-3 overflow-hidden pb-1">
       {[0, 1, 2, 3].map((index) => (
-        <div className="w-28 shrink-0 sm:w-36" key={`gust-rail-${index}`}>
+        <div className="w-36 shrink-0 sm:w-44" key={`gust-rail-${index}`}>
           <Skeleton className="aspect-[9/16] w-full rounded-2xl" />
         </div>
       ))}

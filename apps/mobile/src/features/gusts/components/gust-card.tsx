@@ -1034,12 +1034,13 @@ const styles = StyleSheet.create({
     fontWeight: "normal",
   },
   authorCopy: {
-    flexShrink: 1,
+    flex: 1,
+    minWidth: 0,
   },
   authorIdentity: {
     alignItems: "center",
+    flex: 1,
     flexDirection: "row",
-    flexShrink: 1,
     gap: 6,
     minWidth: 0,
   },

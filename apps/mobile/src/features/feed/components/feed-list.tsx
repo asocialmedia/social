@@ -503,7 +503,7 @@ export const FeedList = memo(
       () => (
         <View
           // Only inactive pages need a placeholder; a live composer must also shrink.
-          style={header ? undefined : { height: headerHeight }}
+          style={header ? undefined : { height: active ? 0 : headerHeight }}
           onLayout={
             header
               ? (event) => {
@@ -515,7 +515,7 @@ export const FeedList = memo(
           {header}
         </View>
       ),
-      [header, headerHeight, onHeaderHeight]
+      [active, header, headerHeight, onHeaderHeight]
     );
 
     // Memoized above every early return: without this every parent render
