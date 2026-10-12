@@ -2,6 +2,27 @@ import type { GustFollowingAvatar } from "./gust-header";
 
 export type DiscoveryFleetFeed = "personalized" | "trending";
 
+// Discovery is one visible slot, regardless of which feed its menu selects.
+export function homeFeedTabs(discovery: DiscoveryFleetFeed) {
+  return [
+    {
+      label: discovery === "personalized" ? "For you" : "Trending",
+      value: discovery,
+    },
+    { label: "Latest", value: "latest" },
+    { label: "Following", value: "following" },
+  ] as const;
+}
+
+export function discoveryFeedPress<T extends string>(
+  active: string,
+  selected: T
+) {
+  return active === selected
+    ? ({ type: "open" } as const)
+    : ({ feed: selected, type: "navigate" } as const);
+}
+
 export function discoveryFleetFeed(
   active: string,
   remembered: DiscoveryFleetFeed

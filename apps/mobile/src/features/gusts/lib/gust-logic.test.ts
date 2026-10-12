@@ -6,6 +6,8 @@ import {
   burstRotation,
   captionNeedsToggle,
   classifyTap,
+  gustPullIntent,
+  gustSwipeTarget,
   MAX_BURSTS,
   pullDistance,
   pullTriggers,
@@ -63,6 +65,62 @@ describe("gustVoteToast", () => {
 });
 
 describe("reel gestures", () => {
+  test("a clear swipe commits one page in either direction, regardless of fling prediction", () => {
+    const swipe = {
+      origin: 2000,
+      pageHeight: 1000,
+      total: 5,
+      translation: -400,
+      velocity: -300,
+    };
+    expect(gustSwipeTarget(swipe)).toBe(3000);
+    expect(gustSwipeTarget({ ...swipe, translation: 400, velocity: 300 })).toBe(
+      1000
+    );
+    expect(gustSwipeTarget({ ...swipe, translation: 1800 })).toBe(1000);
+  });
+  test("a short flick pages while jitter and small slow drags do not", () => {
+    const swipe = {
+      origin: 1000,
+      pageHeight: 1000,
+      total: 5,
+      translation: -30,
+      velocity: -800,
+    };
+    expect(gustSwipeTarget(swipe)).toBe(2000);
+    expect(gustSwipeTarget({ ...swipe, translation: -8 })).toBeNull();
+    expect(gustSwipeTarget({ ...swipe, velocity: -100 })).toBeNull();
+  });
+  test("swiping at the reel boundaries leaves refresh and the final Gust in place", () => {
+    const swipe = {
+      origin: 0,
+      pageHeight: 1000,
+      total: 3,
+      translation: 400,
+      velocity: 800,
+    };
+    expect(gustSwipeTarget(swipe)).toBeNull();
+    expect(
+      gustSwipeTarget({ ...swipe, origin: 2000, translation: -400 })
+    ).toBeNull();
+    expect(gustSwipeTarget({ ...swipe, pageHeight: 0 })).toBeNull();
+    expect(gustSwipeTarget({ ...swipe, total: 1 })).toBeNull();
+  });
+  test("returning to earlier Gusts yields to paging before refresh activates", () => {
+    const drag = { offset: 900, refreshing: false, touches: 1, x: 0, y: 0 };
+    expect(gustPullIntent(drag)).toBe("fail");
+    expect(gustPullIntent({ ...drag, y: 100 })).toBe("fail");
+    expect(gustPullIntent({ ...drag, y: -100 })).toBe("fail");
+  });
+  test("refresh waits at the first Gust, activates downward and yields upward", () => {
+    const drag = { offset: 0, refreshing: false, touches: 1, x: 0, y: 0 };
+    expect(gustPullIntent(drag)).toBe("wait");
+    expect(gustPullIntent({ ...drag, y: 13 })).toBe("activate");
+    expect(gustPullIntent({ ...drag, y: -13 })).toBe("fail");
+    expect(gustPullIntent({ ...drag, x: 25, y: 30 })).toBe("fail");
+    expect(gustPullIntent({ ...drag, touches: 2, y: 30 })).toBe("fail");
+    expect(gustPullIntent({ ...drag, refreshing: true, y: 30 })).toBe("fail");
+  });
   test("pull resistance, cap and trigger match web", () => {
     expect(pullDistance(-10)).toBe(0);
     expect(pullDistance(100)).toBeCloseTo(45);

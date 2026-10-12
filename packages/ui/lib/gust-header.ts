@@ -3,6 +3,15 @@ export interface GustHeaderScroll {
   visible: boolean;
 }
 
+// Measure the label rather than its avatar stack so the bar stays under the text.
+export function gustFeedIndicator(
+  label: { x: number; width: number },
+  following: boolean
+) {
+  const width = following ? 48 : 24;
+  return { width, x: label.x + (label.width - width) / 2 };
+}
+
 // Accumulate real movement so fractional scroll noise cannot flicker the header.
 export function advanceGustHeader(
   offset: number,

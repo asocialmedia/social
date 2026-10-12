@@ -3,9 +3,10 @@
 import type { PostsPage } from "@asm/db";
 import type { GustFollowingAvatar } from "@asm/ui/lib/gust-header";
 import {
-  discoveryFleetFeed,
+  discoveryFeedPress,
   followingFleetAvatars,
 } from "@asm/ui/lib/home-feed-controls";
+import type { DiscoveryFleetFeed } from "@asm/ui/lib/home-feed-controls";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -16,6 +17,7 @@ import { TabsList } from "@asm/ui/shadui/tabs";
 import { skipToken, useQuery } from "@tanstack/react-query";
 import type { InfiniteData } from "@tanstack/react-query";
 import { ChevronDown, Flame, Sparkles } from "lucide-react";
+import { motion, useReducedMotion } from "motion/react";
 import { useState } from "react";
 
 import { AnimatedTabTrigger } from "@/components/home/feedview/animated-tab-trigger";
@@ -25,6 +27,7 @@ import { cn } from "@/lib/utils";
 import type { HomeTab } from "@/store/tab-store";
 
 function FollowingAvatars({ userId }: { userId: string }) {
+  const reducedMotion = useReducedMotion();
   const { data: feed } = useQuery<InfiniteData<PostsPage>>({
     enabled: false,
     queryFn: skipToken,
@@ -45,8 +48,15 @@ function FollowingAvatars({ userId }: { userId: string }) {
   return (
     <span aria-hidden className="ml-1 flex -space-x-2">
       {avatars.map((person, index) => (
-        <span
+        <motion.span
           key={person.id}
+          initial={{ opacity: 0, y: reducedMotion ? 0 : 6 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{
+            delay: reducedMotion ? 0 : index * 0.035,
+            duration: 0.18,
+            ease: "easeOut",
+          }}
           className="ring-background rounded-md ring-1"
           style={{ zIndex: 3 - index }}
         >
@@ -56,7 +66,7 @@ function FollowingAvatars({ userId }: { userId: string }) {
             seed={person.id}
             size={22}
           />
-        </span>
+        </motion.span>
       ))}
     </span>
   );
@@ -64,29 +74,34 @@ function FollowingAvatars({ userId }: { userId: string }) {
 
 export function HomeFeedControls({
   active,
+  discovery,
   onChange,
   userId,
 }: {
   active: HomeTab;
+  discovery: DiscoveryFleetFeed;
   onChange: (tab: HomeTab) => void;
   userId?: string;
 }) {
-  const [remembered, setRemembered] = useState<"personalized" | "trending">(
-    "personalized"
-  );
-  const discovery = discoveryFleetFeed(active, remembered);
-  if (
-    (active === "personalized" || active === "trending") &&
-    remembered !== active
-  ) {
-    setRemembered(active);
-  }
+  const reducedMotion = useReducedMotion();
+  const [menuOpen, setMenuOpen] = useState(false);
   return (
     <div
       className="flex flex-1 items-center justify-center font-sans md:hidden"
       data-home-feed-controls
     >
-      <DropdownMenu>
+      <DropdownMenu
+        open={menuOpen && active === discovery}
+        onOpenChange={(open) => {
+          const action = discoveryFeedPress(active, discovery);
+          if (open && action.type === "navigate") {
+            setMenuOpen(false);
+            onChange(action.feed);
+          } else {
+            setMenuOpen(open);
+          }
+        }}
+      >
         <DropdownMenuTrigger asChild>
           <button
             type="button"
@@ -98,19 +113,26 @@ export function HomeFeedControls({
                 : "text-muted-foreground font-medium"
             )}
           >
-            {discovery === "personalized" ? "For you" : "Trending"}
+            <span
+              className="relative flex min-h-11 items-center"
+              data-home-discovery-label
+            >
+              {discovery === "personalized" ? "For you" : "Trending"}
+              {active === discovery ? (
+                <motion.span
+                  aria-hidden
+                  className="absolute inset-x-0 bottom-0 mx-auto h-1 w-[60%] rounded-full bg-linear-to-b from-[#ff9500] to-[#e65500]"
+                  layout={!reducedMotion}
+                  data-home-discovery-indicator
+                />
+              ) : null}
+            </span>
             <ChevronDown className="size-3.5" />
-            {active === discovery ? (
-              <span
-                aria-hidden
-                className="absolute bottom-0 left-1/2 h-1 w-6 -translate-x-1/2 rounded-full bg-linear-to-b from-[#ff9500] to-[#e65500]"
-              />
-            ) : null}
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" className="min-w-32 p-1.5 font-sans">
           {(["personalized", "trending"] as const)
-            .filter((value) => value !== active)
+            .filter((value) => value !== discovery)
             .map((value) => {
               const Icon = value === "personalized" ? Sparkles : Flame;
               return (
@@ -118,14 +140,11 @@ export function HomeFeedControls({
                   key={value}
                   className="pill-3d-hover gap-3 rounded-md px-2 py-2"
                   onSelect={() => {
-                    setRemembered(value);
+                    setMenuOpen(false);
                     onChange(value);
                   }}
                 >
-                  <Icon
-                    className="size-4"
-                    fill={value === "personalized" ? "currentColor" : "none"}
-                  />
+                  <Icon className="size-4" fill="currentColor" />
                   {value === "personalized" ? "For you" : "Trending"}
                 </DropdownMenuItem>
               );
@@ -146,6 +165,7 @@ export function HomeFeedControls({
           className="data-[state=active]:px-3"
           layoutId="home-mobile-tab-indicator"
           value="following"
+          indicatorClassName="w-[60%] min-w-12"
         >
           Following
           {active === "following" && userId ? (

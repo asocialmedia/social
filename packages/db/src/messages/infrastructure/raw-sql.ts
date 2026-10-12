@@ -57,7 +57,7 @@ export function rawStatement(
   parameters: readonly RawParam[]
 ): RawBuilder {
   const segments: string[] = [];
-  const expressions: ReturnType<typeof param>[] = [];
+  const expressions: Parameters<typeof prisma.raw.sql>[1][] = [];
   let offset = 0;
   for (const match of sql.matchAll(/\$(?<index>\d+)/g)) {
     const index = Number(match.groups?.index);
@@ -66,7 +66,16 @@ export function rawStatement(
       throw new RangeError(`Missing raw SQL parameter $${match.groups?.index}`);
     }
     segments.push(sql.slice(offset, match.index));
-    expressions.push(param(parameter.value, { codecId: parameter.codecId }));
+    const reference = param(parameter.value, { codecId: parameter.codecId });
+    // Next's page and API bundles can have distinct ParamRef classes while sharing prismaGlobal.
+    // The expression protocol accepts the AST without an instanceof check across bundles.
+    expressions.push({
+      buildAst: () => reference,
+      returnType: {
+        codecId: parameter.codecId,
+        nullable: parameter.value === null,
+      },
+    });
     offset = match.index + match[0].length;
   }
   segments.push(sql.slice(offset));

@@ -74,6 +74,8 @@ import {
 import type { GustTab } from "../lib/gusts-api";
 import { RecommendationQueue } from "../lib/recommendation-tracker";
 import {
+  gustPullIntent,
+  gustSwipeTarget,
   pullDistance,
   pullTriggers,
   shouldFetchMore,
@@ -96,7 +98,6 @@ import { GustFeedControls } from "./gust-feed-controls";
 import { RAIL_ICON_COLOR, RailButton } from "./rail-button";
 
 const VIEWABILITY = { itemVisiblePercentThreshold: 60 };
-const PULL_CAPTURE_SLOP = 12;
 
 function firstParam(value: string | string[] | undefined): string | null {
   const raw = Array.isArray(value) ? value[0] : value;
@@ -220,7 +221,9 @@ export function GustsScreen() {
   }));
   const pull = useSharedValue(0);
   const scrollOffset = useSharedValue(0);
+  const swipeOrigin = useSharedValue(0);
   const pullBaseline = useSharedValue<number | null>(null);
+  const pullOrigin = useSharedValue({ x: 0, y: 0 });
   const refreshing = useSharedValue(false);
   const eddiePreviewProgress = useSharedValue(0);
   const [eddiesPostId, setEddiesPostId] = useState<string | null>(null);
@@ -237,6 +240,28 @@ export function GustsScreen() {
   const refreshRef = useRef<() => void>(() => {
     // Replaced once the feed hook is ready.
   });
+  const settleSwipeRef = useRef<
+    (origin: number, translation: number, velocity: number) => void
+  >(() => {
+    // Replaced once the page height and sheet state are known.
+  });
+  useEffect(() => {
+    settleSwipeRef.current = (origin, translation, velocity) => {
+      if (eddiesPostId !== null) {
+        return;
+      }
+      const offset = gustSwipeTarget({
+        origin,
+        pageHeight,
+        total: posts.length,
+        translation,
+        velocity,
+      });
+      if (offset !== null) {
+        listRef.current?.scrollToOffset({ animated: true, offset });
+      }
+    };
+  }, [eddiesPostId, pageHeight, posts.length]);
   const createHandledRef = useRef(false);
 
   useEffect(() => {
@@ -458,6 +483,12 @@ export function GustsScreen() {
   };
 
   const refreshFromPull = useCallback(() => refreshRef.current(), []);
+  const settlePageSwipe = useCallback(
+    (origin: number, translation: number, velocity: number) => {
+      settleSwipeRef.current(origin, translation, velocity);
+    },
+    []
+  );
   const onScroll = useAnimatedScrollHandler((event) => {
     const offset = event.contentOffset.y;
     scrollOffset.set(offset);
@@ -471,11 +502,54 @@ export function GustsScreen() {
   // The pager and pull feedback never enter React or the JS runtime during a drag.
   // oxlint-disable-next-line react/hook-use-state, react/refs -- the gesture retains a callback and only invokes its ref on release; only shared values change during recognition
   const [gestures] = useState(() => {
-    const nativeScroll = Gesture.Native();
+    const nativeScroll = Gesture.Native()
+      .disallowInterruption(true)
+      .onTouchesDown((event, manager) => {
+        // Cancel the native drag as soon as a second finger starts a pinch.
+        if (event.numberOfTouches > 1) {
+          manager.fail();
+        }
+      });
     const pan = Gesture.Pan()
-      .activeOffsetY(PULL_CAPTURE_SLOP)
-      .failOffsetX([-PULL_CAPTURE_SLOP * 2, PULL_CAPTURE_SLOP * 2])
+      .manualActivation(true)
       .simultaneousWithExternalGesture(nativeScroll)
+      .onTouchesDown((event, manager) => {
+        const [touch] = event.allTouches;
+        if (
+          !touch ||
+          gustPullIntent({
+            offset: scrollOffset.get(),
+            refreshing: refreshing.get(),
+            touches: event.numberOfTouches,
+            x: 0,
+            y: 0,
+          }) === "fail"
+        ) {
+          manager.fail();
+          return;
+        }
+        pullOrigin.set({ x: touch.absoluteX, y: touch.absoluteY });
+      })
+      .onTouchesMove((event, manager) => {
+        const [touch] = event.allTouches;
+        if (!touch) {
+          manager.fail();
+          return;
+        }
+        const origin = pullOrigin.get();
+        const intent = gustPullIntent({
+          offset: scrollOffset.get(),
+          refreshing: refreshing.get(),
+          touches: event.numberOfTouches,
+          x: touch.absoluteX - origin.x,
+          y: touch.absoluteY - origin.y,
+        });
+        if (intent === "fail") {
+          manager.fail();
+        } else if (intent === "activate") {
+          manager.activate();
+        }
+      })
       .onBegin(() => pullBaseline.set(null))
       .onUpdate((event) => {
         if (refreshing.get() || scrollOffset.get() > 1) {
@@ -498,7 +572,29 @@ export function GustsScreen() {
         pull.set(withTiming(0, { duration: 150 }));
         pullBaseline.set(null);
       });
-    return { nativeScroll, pan };
+    const pageSwipe = Gesture.Pan()
+      .activeOffsetY([-12, 12])
+      .failOffsetX([-24, 24])
+      .maxPointers(1)
+      .simultaneousWithExternalGesture(nativeScroll, pan)
+      .onTouchesDown((event, manager) => {
+        if (event.numberOfTouches > 1) {
+          manager.fail();
+          return;
+        }
+        swipeOrigin.set(scrollOffset.get());
+      })
+      .onEnd((event, success) => {
+        if (success) {
+          scheduleOnRN(
+            settlePageSwipe,
+            swipeOrigin.get(),
+            event.translationY,
+            event.velocityY
+          );
+        }
+      });
+    return { nativeScroll, pageSwipe, pan };
   });
 
   const renderItem = useCallback(
@@ -510,7 +606,11 @@ export function GustsScreen() {
           eddiesOpen={eddiesPostId === item.id}
           previewProgress={eddiePreviewProgress}
           pageHeight={pageHeight}
-          pagerGestures={[gestures.nativeScroll, gestures.pan]}
+          pagerGestures={[
+            gestures.nativeScroll,
+            gestures.pan,
+            gestures.pageSwipe,
+          ]}
           isActive={index === safeIndex}
           mountVideo={shouldMountVideo(index, safeIndex)}
           onCloseTranscript={() => setTranscriptPostId(null)}
@@ -595,48 +695,47 @@ export function GustsScreen() {
     );
   } else if (pageHeight > 0) {
     body = (
-      <GestureDetector gesture={gestures.pan}>
-        <GestureDetector gesture={gestures.nativeScroll}>
-          <Animated.FlatList
-            data={posts}
-            decelerationRate={0.985}
-            disableIntervalMomentum
-            getItemLayout={(_, index) => ({
-              index,
-              length: pageHeight,
-              offset: pageHeight * index,
-            })}
-            initialNumToRender={2}
-            keyExtractor={(item) => item.id}
-            maxToRenderPerBatch={3}
-            onMomentumScrollEnd={(event) => {
-              if (pageHeight > 0) {
-                const nextIndex = Math.round(
-                  event.nativeEvent.contentOffset.y / pageHeight
-                );
-                if (
-                  nextIndex >= 0 &&
-                  nextIndex < posts.length &&
-                  nextIndex !== activeIndex
-                ) {
-                  setActiveIndex(nextIndex);
+      <GestureDetector gesture={gestures.pageSwipe}>
+        <GestureDetector gesture={gestures.pan}>
+          <GestureDetector gesture={gestures.nativeScroll}>
+            <Animated.FlatList
+              data={posts}
+              getItemLayout={(_, index) => ({
+                index,
+                length: pageHeight,
+                offset: pageHeight * index,
+              })}
+              initialNumToRender={2}
+              keyExtractor={(item) => item.id}
+              maxToRenderPerBatch={3}
+              onMomentumScrollEnd={(event) => {
+                if (pageHeight > 0) {
+                  const nextIndex = Math.round(
+                    event.nativeEvent.contentOffset.y / pageHeight
+                  );
+                  if (
+                    nextIndex >= 0 &&
+                    nextIndex < posts.length &&
+                    nextIndex !== activeIndex
+                  ) {
+                    setActiveIndex(nextIndex);
+                  }
                 }
-              }
-            }}
-            onScroll={onScroll}
-            onViewableItemsChanged={onViewableItemsChanged}
-            overScrollMode="never"
-            ref={listRef}
-            removeClippedSubviews
-            renderItem={renderItem}
-            scrollEnabled={eddiesPostId === null}
-            scrollEventThrottle={16}
-            showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
-            snapToAlignment="start"
-            snapToInterval={pageHeight}
-            viewabilityConfig={VIEWABILITY}
-            windowSize={5}
-          />
+              }}
+              onScroll={onScroll}
+              onViewableItemsChanged={onViewableItemsChanged}
+              overScrollMode="never"
+              pagingEnabled
+              ref={listRef}
+              removeClippedSubviews
+              renderItem={renderItem}
+              scrollEnabled={eddiesPostId === null}
+              scrollEventThrottle={16}
+              showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
+              viewabilityConfig={VIEWABILITY}
+              windowSize={5}
+            />
+          </GestureDetector>
         </GestureDetector>
       </GestureDetector>
     );

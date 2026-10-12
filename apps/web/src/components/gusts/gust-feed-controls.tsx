@@ -1,6 +1,7 @@
 "use client";
 
 import type { GustFollowingAvatar } from "@asm/ui/lib/gust-header";
+import { discoveryFeedPress } from "@asm/ui/lib/home-feed-controls";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -8,7 +9,8 @@ import {
   DropdownMenuTrigger,
 } from "@asm/ui/shadui/dropdown-menu";
 import { ChevronDown, Clock3, Sparkles } from "lucide-react";
-import { useState } from "react";
+import { motion, useReducedMotion } from "motion/react";
+import { useId, useState } from "react";
 
 import UserAvatar from "@/components/layouts/user/user-avatar";
 import { cn } from "@/lib/utils";
@@ -24,24 +26,48 @@ export function GustFeedControls({
   avatars: readonly GustFollowingAvatar[];
   onChange: (feed: GustFeed) => void;
 }) {
+  const indicatorId = useId();
+  const reducedMotion = useReducedMotion();
+  const indicatorTransition = {
+    duration: reducedMotion ? 0 : 0.22,
+    ease: "easeInOut",
+  } as const;
   const [discovery, setDiscovery] = useState<"latest" | "personalized">(
     active === "latest" ? "latest" : "personalized"
   );
   const selected = active === "following" ? discovery : active;
+  if (selected !== discovery) {
+    setDiscovery(selected);
+  }
+  const [menuOpen, setMenuOpen] = useState(false);
   const alternative = selected === "latest" ? "personalized" : "latest";
   const AlternativeIcon = alternative === "latest" ? Clock3 : Sparkles;
   const text = selected === "latest" ? "Latest" : "For you";
   const control =
     "relative flex min-h-11 items-center gap-1.5 px-2 text-sm font-semibold [text-shadow:0_1px_4px_rgba(0,0,0,0.8)]";
   const underline = (
-    <span
+    <motion.span
       aria-hidden
-      className="absolute bottom-0.5 left-1/2 h-0.5 w-6 -translate-x-1/2 rounded-full bg-linear-to-b from-[#ff9500] to-[#e65500]"
+      className="absolute inset-x-0 bottom-0.5 mx-auto h-0.5 w-6 rounded-full bg-linear-to-b from-[#ff9500] to-[#e65500]"
+      initial={false}
+      layoutId={indicatorId}
+      transition={indicatorTransition}
     />
   );
   return (
     <div className="flex items-center gap-1 font-sans" data-gust-feed-controls>
-      <DropdownMenu>
+      <DropdownMenu
+        open={menuOpen && active === selected}
+        onOpenChange={(open) => {
+          const action = discoveryFeedPress(active, selected);
+          if (open && action.type === "navigate") {
+            setMenuOpen(false);
+            onChange(action.feed);
+          } else {
+            setMenuOpen(open);
+          }
+        }}
+      >
         <DropdownMenuTrigger asChild>
           <button
             aria-label={`${text}, choose Gusts feed`}
@@ -61,6 +87,7 @@ export function GustFeedControls({
             className="pill-3d-hover gap-3 rounded-md px-2 py-2"
             onSelect={() => {
               setDiscovery(alternative);
+              setMenuOpen(false);
               onChange(alternative);
             }}
           >
@@ -85,9 +112,12 @@ export function GustFeedControls({
         <span className="relative flex min-h-11 items-center">
           Following
           {active === "following" ? (
-            <span
+            <motion.span
               aria-hidden
-              className="absolute bottom-0.5 left-1/2 h-0.5 w-12 -translate-x-1/2 rounded-full bg-linear-to-b from-[#ff9500] to-[#e65500]"
+              className="absolute inset-x-0 bottom-0.5 mx-auto h-0.5 w-12 rounded-full bg-linear-to-b from-[#ff9500] to-[#e65500]"
+              initial={false}
+              layoutId={indicatorId}
+              transition={indicatorTransition}
             />
           ) : null}
         </span>

@@ -1,7 +1,12 @@
+import {
+  discoveryFleetFeed,
+  homeFeedTabs,
+} from "@asm/ui/lib/home-feed-controls";
+import type { DiscoveryFleetFeed } from "@asm/ui/lib/home-feed-controls";
 import { useIsFocused } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
-// Root home page: mobile header, the four-tab feed (For you / Latest /
-// Trending / Following) with swipe navigation, and the guest auth bar docked
+// Root home page: mobile header, three visible feed slots (discovery / Latest /
+// Following) with swipe navigation, and the guest auth bar docked
 // at the bottom. Ports web ClientHome's tab mechanics: the remembered tab
 // restores from SecureStore-backed memory (logged-in users default to For
 // you, guests to Latest), Following prompts guests to log in, and every tab
@@ -21,7 +26,6 @@ import { PostEditor } from "@/features/composer/components/post-editor";
 import { useComposerStore } from "@/features/composer/state/composer-store";
 import { FeedList } from "@/features/feed/components/feed-list";
 import { FeedPager } from "@/features/feed/components/feed-pager";
-import { HOME_TAB_DEFS } from "@/features/feed/components/feed-tabs";
 import { HEADER_BAR_HEIGHT } from "@/features/feed/lib/header-visibility";
 import type { HomeTab } from "@/features/feed/state/tab-store";
 import { resolveHomeTab } from "@/features/feed/state/tab-store";
@@ -56,6 +60,13 @@ export default function HomeScreen() {
   // surface); the notifications screen reads the same store.
   const unreadCount = useUnreadNotificationCount(user?.id ?? null, showUser);
   const tab = resolveHomeTab(null, isLoggedIn, storedHome, memoryReady);
+  const [rememberedDiscovery, setRememberedDiscovery] =
+    useState<DiscoveryFleetFeed>("personalized");
+  const discovery = discoveryFleetFeed(tab, rememberedDiscovery);
+  if (discovery !== rememberedDiscovery) {
+    setRememberedDiscovery(discovery);
+  }
+  const tabs = homeFeedTabs(discovery);
   // Web fixes both the guest banner and the bottom nav over the feed (the
   // feed pads its tail instead), so the dock floats over content on a
   // transparent backdrop rather than sitting in a solid band. Same here:
@@ -98,7 +109,7 @@ export default function HomeScreen() {
   const feedBottomPad = showGuestBar ? bannerHeight + dockLift + 12 : dockLift;
   const activeIndex = Math.max(
     0,
-    HOME_TAB_DEFS.findIndex((entry) => entry.value === tab)
+    tabs.findIndex((entry) => entry.value === tab)
   );
 
   const handleTabChange = useCallback(
@@ -110,13 +121,13 @@ export default function HomeScreen() {
 
   const handleIndexChange = useCallback(
     (index: number) => {
-      const def = HOME_TAB_DEFS[index];
+      const def = homeFeedTabs(discovery)[index];
       if (def && def.value !== tab) {
         haptic();
         setHomeTab(def.value, user?.id);
       }
     },
-    [setHomeTab, tab, user?.id]
+    [discovery, setHomeTab, tab, user?.id]
   );
 
   // Hide-on-scroll follow: tabs + feed translate by the bar height on the
@@ -135,7 +146,7 @@ export default function HomeScreen() {
   // scroll carries it, which is why it needs no overlay, no clipping and no
   // per-frame work of its own.
   //
-  // Only the visible tab is handed one. A header on all four would mount four
+  // Only the visible tab is handed one. A header on every feed would mount four
   // composers (a TextInput, an avatar and 3D surfaces each) and swap one for
   // another on every tab switch; this way exactly one exists at a time.
   // Memoized so the element is stable across renders and the list is not asked
@@ -197,38 +208,66 @@ export default function HomeScreen() {
       >
         <HomeFeedControls
           active={tab}
+          discovery={discovery}
           onChange={handleTabChange}
           userId={user?.id}
         />
         <FeedPager activeIndex={activeIndex} onIndexChange={handleIndexChange}>
-          {HOME_TAB_DEFS.map((def, index) => (
+          {tabs.map((def, index) => (
             // Neighbour tabs preload their data in the background so
             // switching lands on cached rows instead of a skeleton; only
             // the visible tab autoplays video and publishes viewability.
             // Public tabs fetch immediately as guest instead of waiting for
             // the session: first paint wins, and the session upgrade
             // re-keys (guest to user) and refetches with identity.
-            <FeedList
-              active={isFocused && index === activeIndex}
-              bottomInset={feedBottomPad}
-              enabled={
-                isFocused &&
-                Math.abs(index - activeIndex) <= 1 &&
-                // For you and Following are account-only; a guest sees the
-                // sign-in prompt in FeedList instead, and nothing is fetched.
-                (def.value === "following" || def.value === "personalized"
-                  ? isLoggedIn
-                  : true)
-              }
-              // Only the visible tab carries the composer, so exactly one is
-              // ever mounted.
-              header={index === activeIndex ? composerHeader : undefined}
-              headerHeight={isLoggedIn ? composerHeight : 0}
-              onHeaderHeight={setComposerHeight}
-              key={`${def.value}:${user?.id ?? "guest"}`}
-              userId={user?.id}
-              variant={def.value}
-            />
+            <View
+              key={index === 0 ? "discovery" : def.value}
+              style={styles.content}
+            >
+              {(index === 0
+                ? (["personalized", "trending"] as const)
+                : [def.value]
+              ).map((variant) => (
+                <View
+                  key={variant}
+                  style={[
+                    styles.content,
+                    variant !== def.value && styles.hiddenFeed,
+                  ]}
+                >
+                  <FeedList
+                    active={
+                      isFocused &&
+                      index === activeIndex &&
+                      variant === def.value
+                    }
+                    bottomInset={feedBottomPad}
+                    enabled={
+                      isFocused &&
+                      variant === def.value &&
+                      Math.abs(index - activeIndex) <= 1 &&
+                      // For you and Following are account-only; a guest sees the
+                      // sign-in prompt in FeedList instead, and nothing is fetched.
+                      (variant === "following" || variant === "personalized"
+                        ? isLoggedIn
+                        : true)
+                    }
+                    // Only the visible tab carries the composer, so exactly one is
+                    // ever mounted.
+                    header={
+                      index === activeIndex && variant === def.value
+                        ? composerHeader
+                        : undefined
+                    }
+                    headerHeight={isLoggedIn ? composerHeight : 0}
+                    onHeaderHeight={setComposerHeight}
+                    key={`${variant}:${user?.id ?? "guest"}`}
+                    userId={user?.id}
+                    variant={variant}
+                  />
+                </View>
+              ))}
+            </View>
           ))}
         </FeedPager>
       </Animated.View>
@@ -263,6 +302,7 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
   },
+  hiddenFeed: { display: "none" },
   memoryWait: {
     alignItems: "center",
     flex: 1,
