@@ -8,6 +8,7 @@
 // family with the feed and profile surfaces.
 import type { ComponentType, ReactNode } from "react";
 import { useState } from "react";
+import type { GestureResponderEvent } from "react-native";
 import {
   ActivityIndicator,
   Pressable,
@@ -231,7 +232,7 @@ export function SettingsButton({
   disabled?: boolean;
   label: string;
   loading?: boolean;
-  onPress: () => void;
+  onPress: (event: GestureResponderEvent) => void;
   size?: "md" | "sm";
   tone?: SettingsButtonTone;
 }) {
@@ -245,9 +246,9 @@ export function SettingsButton({
       accessibilityRole="button"
       accessibilityState={{ disabled: gated }}
       disabled={gated}
-      onPress={() => {
+      onPress={(event) => {
         haptic();
-        onPress();
+        onPress(event);
       }}
       style={[
         styles.buttonBounds,
@@ -394,6 +395,7 @@ function iconButtonColor(
 export function SettingsInput({
   autoCapitalize = "none",
   editable = true,
+  hideLabel = false,
   keyboardType,
   label,
   leading,
@@ -408,6 +410,7 @@ export function SettingsInput({
 }: {
   autoCapitalize?: "none" | "sentences" | "words";
   editable?: boolean;
+  hideLabel?: boolean;
   keyboardType?: "default" | "email-address" | "numeric";
   label: string;
   leading?: ReactNode;
@@ -415,7 +418,7 @@ export function SettingsInput({
   leadingText?: string;
   maxLength?: number;
   multiline?: boolean;
-  onChangeText: (value: string) => void;
+  onChangeText?: (value: string) => void;
   placeholder?: string;
   secureTextEntry?: boolean;
   value: string;
@@ -425,9 +428,11 @@ export function SettingsInput({
   const field = premiumInput(isDark, focused);
   return (
     <View style={styles.field}>
-      <Text style={[styles.fieldLabel, { color: theme.dividerText }]}>
-        {label}
-      </Text>
+      {hideLabel ? null : (
+        <Text style={[styles.fieldLabel, { color: theme.dividerText }]}>
+          {label}
+        </Text>
+      )}
       {/* Android does not paint an inset box-shadow on a TextInput itself, so
           the premium-input recipe rides a wrapper View and the field inside
           stays transparent, exactly like web's `.premium-input` on a div. */}

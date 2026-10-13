@@ -6,6 +6,7 @@ const mockGetSession = mock();
 const mockSessionFindFirst = mock();
 const mockSessionFindMany = mock();
 const mockPublishSessionRevocation = mock();
+const mockEnforceAccountSessionLimit = mock();
 const fetchMock = mock();
 
 interface SessionWhereCall {
@@ -31,6 +32,7 @@ mock.module("@/lib/auth/auth-internal", () => ({
 
 mock.module("@asm/db", () => ({
   ...asmDbMockBase,
+  enforceAccountSessionLimit: mockEnforceAccountSessionLimit,
   prisma: {
     orm: {
       public: {
@@ -95,6 +97,8 @@ function revokeRequest(body: unknown): Request {
 
 describe("/api/security/sessions", () => {
   beforeEach(() => {
+    mockEnforceAccountSessionLimit.mockReset();
+    mockEnforceAccountSessionLimit.mockResolvedValue([]);
     mockGetSession.mockReset();
     mockSessionFindFirst.mockReset();
     mockSessionFindMany.mockReset();
@@ -149,6 +153,13 @@ describe("/api/security/sessions", () => {
     expect(sessionWhereCalls[0]?.expiresAt.getTime()).toBeGreaterThan(
       Date.now() - 1000
     );
+  });
+
+  test("rejects an older current session when the account limit prunes it", async () => {
+    mockEnforceAccountSessionLimit.mockResolvedValue(["current-session"]);
+    const response = await GET();
+    expect(response.status).toBe(401);
+    expect(mockSessionFindMany).not.toHaveBeenCalled();
   });
 
   test("uses a server-side token lookup before revoking one session", async () => {

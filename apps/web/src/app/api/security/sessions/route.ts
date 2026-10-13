@@ -1,5 +1,6 @@
 import {
   and,
+  enforceAccountSessionLimit,
   fromPrismaDateTime,
   prisma,
   publishSessionRevocation,
@@ -45,6 +46,10 @@ export async function GET(request?: Request): Promise<Response> {
   }
 
   try {
+    const revokedIds = await enforceAccountSessionLimit(currentSession.user.id);
+    if (revokedIds.includes(currentSession.session.id)) {
+      return noStoreJson({ error: "Unauthorized" }, 401);
+    }
     const sessions = await prisma.orm.public.Sessions.select(
       "country",
       "createdAt",

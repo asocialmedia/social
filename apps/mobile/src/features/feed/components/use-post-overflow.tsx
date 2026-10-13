@@ -139,6 +139,11 @@ export function usePostOverflow(handlers: PostOverflowHandlers): {
         postId={moderateTarget?.id ?? ""}
       />
       <EditPostTagsDialog
+        initialMentions={(tagsTarget?.mentions ?? []).flatMap((mention) =>
+          mention.user.username
+            ? [{ ...mention.user, username: mention.user.username }]
+            : []
+        )}
         initialTags={(tagsTarget?.tags ?? []).map((tag) => tag.name)}
         onClose={() => setTagsTarget(null)}
         onSaved={(postId, tags) => {

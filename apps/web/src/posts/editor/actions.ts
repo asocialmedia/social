@@ -1,5 +1,7 @@
 "use server";
 
+import { randomUUID } from "node:crypto";
+
 import type { CreatePostInput } from "@asm/auth/validation";
 import { createGustSchema, createPostSchema } from "@asm/auth/validation";
 import {
@@ -444,7 +446,10 @@ export async function submitPost(input: CreatePostInput) {
           .where({ name: normalizedTagName })
           .first();
         if (!tag) {
-          tag = await tx.orm.public.Tag.create({ name: normalizedTagName });
+          tag = await tx.orm.public.Tag.create({
+            id: randomUUID(),
+            name: normalizedTagName,
+          });
         }
         await tx.orm.public.PostToTag.create({
           a: post.id,
@@ -865,7 +870,10 @@ export async function updatePostTags(postId: string, tags: string[]) {
         .where({ name: tagName })
         .first();
       if (!tag) {
-        tag = await tx.orm.public.Tag.create({ name: tagName });
+        tag = await tx.orm.public.Tag.create({
+          id: randomUUID(),
+          name: tagName,
+        });
       }
       await tx.orm.public.PostToTag.create({ a: postId, b: tag.id });
     });

@@ -19,9 +19,9 @@ import {
   Keyboard,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -36,16 +36,19 @@ import {
   APPLE_PANEL_TOKENS,
   ORANGE_BUTTON_SHADOWS,
   ORANGE_GRADIENT,
-  premiumInput,
   PURPLE_GRADIENT,
   themeText,
+  iconButton,
 } from "@/components/surface/recipes";
 import { useSessionContext } from "@/features/auth/state/session";
+import type { InlineRichInputRef } from "@/features/composer/components/inline-rich-input";
 import { keyboardOverlap, keyboardScreenTop } from "@/lib/keyboard-overlap";
 import { useAppTheme } from "@/theme";
 
 import { useEddieComposerStore } from "../state/eddie-composer-store";
 import { EddieAttachmentTile } from "./eddie-attachment-tile";
+import { EddieLinkPreviews } from "./eddie-link-previews";
+import { EddieRichField } from "./eddie-rich-field";
 import {
   MAX_EDDIE_CHARS,
   MAX_EDDIE_WORDS,
@@ -70,6 +73,7 @@ function RoundIconButton({
 }) {
   const { isDark } = useAppTheme();
   const text = themeText(isDark);
+  const resting = iconButton(isDark);
   return (
     <Pressable
       accessibilityLabel={label}
@@ -92,6 +96,10 @@ function RoundIconButton({
           <View
             style={[
               styles.round,
+              {
+                backgroundColor: resting.background,
+                boxShadow: resting.shadows,
+              },
               pressed && { backgroundColor: "rgba(246, 107, 21, 0.1)" },
             ]}
           >
@@ -160,7 +168,7 @@ export function FloatingEddieBar({
   const setReplyingTo = useEddieComposerStore((state) => state.setReplyingTo);
   const sender = useEddieSender(postId, replyingTo?.commentId ?? null);
   const params = useLocalSearchParams<{ eddie?: string }>();
-  const fieldRef = useRef<TextInput>(null);
+  const fieldRef = useRef<InlineRichInputRef>(null);
   useEffect(() => {
     if (params.eddie !== "1") {
       return;
@@ -177,7 +185,6 @@ export function FloatingEddieBar({
       restingBottomInset.current = insets.bottom;
     }
   }, [insets.bottom, keyboardTop]);
-  const input = premiumInput(isDark, focused);
   const panel = isDark ? APPLE_PANEL_TOKENS.dark : APPLE_PANEL_TOKENS.light;
 
   useEffect(() => {
@@ -211,13 +218,19 @@ export function FloatingEddieBar({
     return null;
   }
 
-  const expanded = focused || gifOpen || sender.attachments.length > 0;
+  const expanded =
+    focused ||
+    gifOpen ||
+    sender.attachments.length > 0 ||
+    sender.text.trim().length > 0;
   const busy = sender.isBusy || sender.sending;
+  const handleChangeText = (value: string) => sender.setText(value);
   const submit = async () => {
     const created = await sender.send();
     if (created) {
       setGifOpen(false);
       setReplyingTo(null);
+      fieldRef.current?.blur();
       Keyboard.dismiss();
     }
   };
@@ -245,7 +258,21 @@ export function FloatingEddieBar({
           },
         ]}
       >
-        <View style={styles.inner}>
+        <ScrollView
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+          style={{
+            flexGrow: 0,
+            maxHeight: Math.max(
+              140,
+              viewportBottom -
+                keyboardOverlap(viewportBottom, keyboardTop) -
+                insets.top -
+                16
+            ),
+          }}
+          contentContainerStyle={styles.inner}
+        >
           {replyingTo ? (
             <View
               style={[
@@ -284,33 +311,19 @@ export function FloatingEddieBar({
           ) : null}
           <View style={styles.row}>
             <UserAvatar radius={10} size={36} url={viewerAvatar} />
-            <TextInput
-              ref={fieldRef}
-              accessibilityLabel="Eddie"
+            <EddieRichField
+              key={`${postId}:${replyingTo?.commentId ?? "root"}`}
+              inputRef={fieldRef}
+              autoFocus={params.eddie === "1" || Boolean(replyingTo)}
               editable={!sender.sending}
-              multiline
-              onBlur={() => setFocused(false)}
-              onChangeText={(value) => sender.setText(value)}
-              onFocus={() => setFocused(true)}
-              onSubmitEditing={() => {
-                void submit();
-              }}
+              onChange={handleChangeText}
+              onFocusChange={setFocused}
+              onSubmit={submit}
               placeholder={
                 replyingTo
                   ? `Reply to @${replyingTo.username}...`
                   : "Add your Eddie to the flow..."
               }
-              placeholderTextColor={input.placeholder}
-              returnKeyType="send"
-              style={[
-                styles.field,
-                {
-                  backgroundColor: input.background,
-                  boxShadow: input.shadows,
-                  color: input.text,
-                },
-              ]}
-              submitBehavior="submit"
               value={sender.text}
             />
             {expanded ? null : (
@@ -406,9 +419,13 @@ export function FloatingEddieBar({
                   />
                 </View>
               ) : null}
+              <EddieLinkPreviews
+                key={`${postId}:${replyingTo?.commentId ?? "root"}`}
+                content={sender.text}
+              />
             </View>
           ) : null}
-        </View>
+        </ScrollView>
       </View>
     </View>
   );

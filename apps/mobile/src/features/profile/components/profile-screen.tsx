@@ -300,12 +300,11 @@ export function ProfileScreen() {
   // buttons left roughly a hundred pixels of dead space above the tab labels on a
   // notched device, and that row existed only to stop the two colliding. They do
   // not collide: the strip only becomes visible once the header has scrolled
-  // away, and by then the back button has faded out. The settings button stays,
-  // floating above the strip, which is where it belongs.
+  // away, and by then both floating buttons have faded out.
   const stickyTop = insets.top > 0 ? insets.top + 6 : 14;
 
   const topBar = (
-    <View style={[styles.topBar, { top: stickyTop }]}>
+    <View pointerEvents="box-none" style={[styles.topBar, { top: stickyTop }]}>
       <Animated.View
         pointerEvents={backVisible ? "auto" : "none"}
         style={{ opacity: backOpacity }}
@@ -329,7 +328,12 @@ export function ProfileScreen() {
           <ArrowLeft color="#fff" size={20} />
         </Pressable>
       </Animated.View>
-      {own ? settingsButton : <View style={styles.topButtonSpacer} />}
+      <Animated.View
+        pointerEvents={backVisible ? "auto" : "none"}
+        style={{ opacity: backOpacity }}
+      >
+        {own ? settingsButton : <View style={styles.topButtonSpacer} />}
+      </Animated.View>
     </View>
   );
 

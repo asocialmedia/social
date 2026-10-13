@@ -43,10 +43,10 @@ export interface ProfileMedia extends FeedMedia {
 }
 
 // Web sizes each media tile by the item's real dimensions so the tab reads as
-// a masonry wall rather than a uniform checkerboard, falling back to square
+// a masonry wall rather than a uniform checkerboard, falling back to portrait
 // when an upload never recorded them. A falsy width is caught by the same
 // check, because zero would otherwise divide the tile away to nothing.
-const DEFAULT_MEDIA_ASPECT = 1;
+const DEFAULT_MEDIA_ASPECT = 4 / 5;
 
 export function mediaTileAspect(item: ProfileMedia): number {
   return item.width && item.height

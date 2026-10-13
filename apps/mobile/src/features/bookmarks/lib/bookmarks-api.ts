@@ -1,18 +1,12 @@
 import type { ApiCallOptions } from "@/features/feed/lib/feed-api";
 import type { FeedPost, PostsPage } from "@/features/feed/lib/feed-types";
 import { normalizePostsData } from "@/features/feed/lib/feed-types";
+import { parseHnStories } from "@/features/hackernews/lib/hackernews-api";
+import type { HnStory } from "@/features/hackernews/lib/hackernews-api";
 import { withAuthHeaders } from "@/lib/auth-headers";
 import { getWithTimeout } from "@/lib/http-get";
 
-export interface HnStory {
-  by: string;
-  descendants: number;
-  id: number;
-  score: number;
-  time: string;
-  title: string;
-  url: string | null;
-}
+export type { HnStory } from "@/features/hackernews/lib/hackernews-api";
 
 function objectOf(value: unknown): Record<string, unknown> | null {
   return typeof value === "object" && value !== null
@@ -34,22 +28,6 @@ function parsePostsPage(payload: unknown): PostsPage {
   };
 }
 
-function parseHnStory(value: unknown): HnStory | null {
-  const row = objectOf(value);
-  if (!row || typeof row.id !== "number" || typeof row.title !== "string") {
-    return null;
-  }
-  return {
-    by: typeof row.by === "string" ? row.by : "unknown",
-    descendants: typeof row.descendants === "number" ? row.descendants : 0,
-    id: row.id,
-    score: typeof row.score === "number" ? row.score : 0,
-    time: typeof row.time === "string" ? row.time : new Date().toISOString(),
-    title: row.title,
-    url: typeof row.url === "string" ? row.url : null,
-  };
-}
-
 function get(path: string, options: ApiCallOptions): Promise<Response> {
   return getWithTimeout(
     `${options.apiBase}${path}`,
@@ -66,25 +44,52 @@ export async function fetchBookmarkedPosts(
   filter: "gusts" | "posts",
   options: ApiCallOptions
 ): Promise<FeedPost[]> {
-  const path =
-    filter === "gusts"
-      ? "/api/posts/bookmarked?filter=gusts"
-      : "/api/posts/bookmarked";
-  const response = await get(path, options);
+  const page = await fetchBookmarkedPage(filter, options);
+  return page.posts;
+}
+
+export async function fetchBookmarkedPage(
+  filter: "gusts" | "posts",
+  options: ApiCallOptions,
+  cursor?: string
+): Promise<PostsPage> {
+  const query = new URLSearchParams();
+  if (filter === "gusts") {
+    query.set("filter", "gusts");
+  }
+  if (cursor) {
+    query.set("cursor", cursor);
+  }
+  const params = query.toString();
+  const response = await get(
+    `/api/posts/bookmarked${params ? `?${params}` : ""}`,
+    options
+  );
   if (!response.ok) {
     throw new Error(`Bookmarks request failed (${response.status})`);
   }
-  return parsePostsPage(await readJson(response)).posts;
+  return parsePostsPage(await readJson(response));
 }
 
 export async function fetchLikedPosts(
   options: ApiCallOptions
 ): Promise<FeedPost[]> {
-  const response = await get("/api/posts/liked", options);
+  const page = await fetchLikedPage(options);
+  return page.posts;
+}
+
+export async function fetchLikedPage(
+  options: ApiCallOptions,
+  cursor?: string
+): Promise<PostsPage> {
+  const response = await get(
+    `/api/posts/liked${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`,
+    options
+  );
   if (!response.ok) {
     throw new Error(`Likes request failed (${response.status})`);
   }
-  return parsePostsPage(await readJson(response)).posts;
+  return parsePostsPage(await readJson(response));
 }
 
 export async function fetchBookmarkedHn(
@@ -96,11 +101,5 @@ export async function fetchBookmarkedHn(
       `Hacker News bookmarks request failed (${response.status})`
     );
   }
-  const row = objectOf(await readJson(response)) ?? {};
-  return Array.isArray(row.stories)
-    ? row.stories.flatMap((value) => {
-        const story = parseHnStory(value);
-        return story ? [story] : [];
-      })
-    : [];
+  return parseHnStories(await readJson(response));
 }

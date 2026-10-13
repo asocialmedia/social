@@ -108,6 +108,9 @@ export default function PushSettingsCard() {
 }
 
 function describe(support: PushSupport, state: ToggleState): string {
+  if (state === "loading") {
+    return "Checking notification support for this browser…";
+  }
   if (!support.supported) {
     switch (support.reason) {
       case "denied": {

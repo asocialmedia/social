@@ -51,6 +51,7 @@ import {
   useAppTheme,
 } from "@/theme";
 
+import { supportsExplicitBlur } from "../lib/explicit-cover";
 import { fetchCaptionsVtt, fetchWavePeaks } from "../lib/feed-api";
 import type { FeedMedia, FeedPost } from "../lib/feed-types";
 import { isMediaActivityVisible } from "../lib/media-activity";
@@ -99,6 +100,7 @@ import {
 import { useMediaPreviewStore } from "../state/media-preview-store";
 import { useVideoCaptionsStore } from "../state/video-captions-store";
 import { useVideoMuteStore } from "../state/video-mute-store";
+import { ConcealedMediaCover } from "./concealed-media-cover";
 import { MediaHold, MediaPostContext } from "./media-hold";
 
 // Feed cards keep their complete poster/chrome while native media resources
@@ -1351,18 +1353,10 @@ export function markExplicitRevealed(revealKey: string): void {
   revealedExplicitIds.add(revealKey);
 }
 
-// expo-image blurRadius renders through RenderEffect, which needs Android 14
-// (API 34+ for the framework path expo-image uses) — older devices show the
-// still sharp. Those fall back to a fully opaque veil so nothing leaks.
+// Android's view filter blurs animated covers on API 31 and above.
+// Older devices keep an opaque cover until the viewer chooses Continue.
 export function explicitBlurSupported(): boolean {
-  if (Platform.OS === "ios" || Platform.OS === "web") {
-    return true;
-  }
-  if (Platform.OS === "android") {
-    const version = typeof Platform.Version === "number" ? Platform.Version : 0;
-    return version >= 34;
-  }
-  return false;
+  return supportsExplicitBlur(Platform.OS, Platform.Version);
 }
 
 export function ExplicitGate({
@@ -1387,21 +1381,10 @@ export function ExplicitGate({
   // NOT mounted until consent - so nothing protected is legible beforehand
   // and reveal needs no refetch. The veil below only styles the cover still.
   const cover = attachments.find((media) => !isAudioMedia(media));
-  let coverUri: string | null = null;
-  if (cover) {
-    if (isVideoMedia(cover)) {
-      coverUri = mediaPosterUrl(apiBase, cover.id);
-    } else if (isGifMedia(cover)) {
-      coverUri = mediaImageUrl(apiBase, cover);
-    } else {
-      coverUri = mediaGridImageUrl(apiBase, cover);
-    }
-  }
   const coverAspect =
     cover && cover.width && cover.height && cover.height > 0
       ? cover.width / cover.height
       : 16 / 10;
-  const blurSupported = explicitBlurSupported();
   // The gate panel is web's `apple-panel` on hsl(var(--background-alt)).
   const panel = isDark ? APPLE_PANEL_DARK : APPLE_PANEL_LIGHT;
 
@@ -1414,21 +1397,8 @@ export function ExplicitGate({
 
   return (
     <View style={[styles.gateWrap, { aspectRatio: coverAspect }]}>
-      {coverUri ? (
-        <Image
-          accessibilityLabel=""
-          // A concealed cover stays still until consent; the revealed gallery
-          // owns viewport-scoped animation and playback.
-          autoplay={false}
-          blurRadius={blurSupported ? 40 : 0}
-          cachePolicy="memory-disk"
-          contentFit="cover"
-          source={{ uri: coverUri }}
-          style={[
-            styles.gateBackdrop,
-            { opacity: 0.6, transform: [{ scale: 1.05 }] },
-          ]}
-        />
+      {cover ? (
+        <ConcealedMediaCover apiBase={apiBase} media={cover} />
       ) : (
         <LinearGradient
           colors={["#2a2d34", "#17181c"]}
@@ -1437,15 +1407,6 @@ export function ExplicitGate({
           style={styles.gateBackdrop}
         />
       )}
-      <View
-        pointerEvents="none"
-        style={[
-          styles.gateMask,
-          {
-            backgroundColor: blurSupported ? "transparent" : theme.containerBg,
-          },
-        ]}
-      />
       <View style={styles.gateOverlay}>
         <View
           style={[

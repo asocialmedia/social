@@ -13,7 +13,6 @@ import {
   Pressable,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from "react-native";
 
@@ -26,11 +25,7 @@ import { logInfo, logWarn } from "@/lib/telemetry";
 import { useAppTheme } from "@/theme";
 
 import type { ApiCallOptions } from "../lib/feed-api";
-import {
-  deletePost,
-  updatePostModeration,
-  updatePostTags,
-} from "../lib/post-mutations";
+import { deletePost, updatePostModeration } from "../lib/post-mutations";
 
 async function options(): Promise<ApiCallOptions> {
   return { apiBase: getApiBaseUrl(), cookie: await authClient.getCookie() };
@@ -332,154 +327,7 @@ export function PostModerationDialog({
   );
 }
 
-export function EditPostTagsDialog({
-  initialTags,
-  onClose,
-  onSaved,
-  open,
-  postId,
-}: {
-  initialTags: readonly string[];
-  onClose: () => void;
-  onSaved: (postId: string, tags: string[]) => void;
-  open: boolean;
-  postId: string;
-}) {
-  const { isDark } = useAppTheme();
-  const { runWithInstallToken } = useInstall();
-  const [value, setValue] = useState(initialTags.join(", "));
-  const [busy, setBusy] = useState(false);
-  if (!open) {
-    return null;
-  }
-  const { panel, text } = shell(isDark);
-
-  const parsed = value
-    .split(",")
-    .map((tag) => tag.trim())
-    .filter(Boolean);
-
-  const save = async () => {
-    if (parsed.length === 0) {
-      toast({
-        description: "Add at least one tag",
-        title: "No tags",
-        variant: "destructive",
-      });
-      return;
-    }
-    setBusy(true);
-    const result = await runWithInstallToken(
-      async () => {
-        try {
-          await updatePostTags(postId, parsed, await options(), log);
-          return "done" as const;
-        } catch (error) {
-          return error instanceof Error ? error.message : "unknown";
-        }
-      },
-      (value_) => value_ === "done"
-    );
-    setBusy(false);
-    if (result === null) {
-      return;
-    }
-    if (result === "done") {
-      onSaved(postId, parsed);
-      onClose();
-      return;
-    }
-    toast({
-      description: result === "unknown" ? "Couldn't save those tags" : result,
-      title: "Save failed",
-      variant: "destructive",
-    });
-  };
-
-  return (
-    <Modal
-      animationType="fade"
-      navigationBarTranslucent
-      onRequestClose={onClose}
-      statusBarTranslucent
-      transparent
-      visible
-    >
-      <View style={styles.center}>
-        <Pressable
-          accessibilityLabel="Close"
-          disabled={busy}
-          onPress={onClose}
-          style={[StyleSheet.absoluteFill, styles.overlay]}
-        />
-        <View
-          accessibilityRole="alert"
-          style={[
-            styles.card,
-            {
-              backgroundColor: panel.background,
-              borderColor: panel.border,
-              boxShadow: panel.shadows,
-            },
-          ]}
-        >
-          <Text style={[styles.title, { color: text.foreground }]}>
-            Edit tags
-          </Text>
-          <Text style={[styles.description, { color: text.muted }]}>
-            Separate tags with commas. They decide who sees the post.
-          </Text>
-          <TextInput
-            accessibilityLabel="Post tags"
-            autoCapitalize="none"
-            autoCorrect={false}
-            editable={!busy}
-            onChangeText={setValue}
-            placeholder="art, music"
-            placeholderTextColor={text.muted}
-            style={[
-              styles.input,
-              { borderColor: panel.border, color: text.foreground },
-            ]}
-            value={value}
-          />
-          <View style={styles.footer}>
-            <Pressable
-              accessibilityRole="button"
-              disabled={busy}
-              onPress={save}
-              style={({ pressed }) => [
-                styles.button,
-                { backgroundColor: "#f97316" },
-                pressed && styles.pressed,
-              ]}
-            >
-              {busy ? <ActivityIndicator color="#ffffff" size={14} /> : null}
-              <Text style={styles.buttonText}>Save</Text>
-            </Pressable>
-            <Pressable
-              accessibilityRole="button"
-              disabled={busy}
-              onPress={onClose}
-              style={({ pressed }) => [
-                styles.button,
-                {
-                  backgroundColor: panel.background,
-                  borderColor: panel.border,
-                },
-                pressed && styles.pressed,
-              ]}
-            >
-              <Text style={[styles.buttonText, { color: text.foreground }]}>
-                Cancel
-              </Text>
-            </Pressable>
-          </View>
-        </View>
-      </View>
-    </Modal>
-  );
-}
+export { EditPostTagsDialog } from "./post-meta-editor-dialog";
 
 const styles = StyleSheet.create({
   button: {

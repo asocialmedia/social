@@ -21,6 +21,7 @@ import { MdPlayArrow } from "react-icons/md";
 import { useMediaQuery } from "usehooks-ts";
 
 import { AiGeneratedBadge } from "@/components/media/ai-generated-badge";
+import { MediaHoldDrawer } from "@/components/media/media-hold-drawer";
 import {
   parseWebVttCues,
   splitTranscriptIntoTimedLines,
@@ -986,7 +987,9 @@ export const MediaPreviews = ({
     initialMediaIndex ?? null
   );
   const [showAll, setShowAll] = useState(false);
-  const isMobile = useMediaQuery("(max-width: 768px)") || forceMobile;
+  const isMobile =
+    useMediaQuery("(max-width: 768px)", { initializeWithValue: false }) ||
+    forceMobile;
 
   // The grid wrapper animates its real height (measured, not a layout
   // transform) so expanding/collapsing media grows the card smoothly without
@@ -1531,291 +1534,293 @@ export const MediaPreviews = ({
   };
 
   return (
-    <div className="w-full">
-      {!isFeedBento && !isBento && isMobile && first ? (
-        <motion.div
-          animate={{ opacity: 1, y: 0 }}
-          className={cn("w-full", rest.length > 0 && "mb-3")}
-          initial={{ opacity: 0, y: 6 }}
-          transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
-        >
-          {renderFirstAttachment()}
-        </motion.div>
-      ) : null}
-
-      {isFeedBento ? (
-        <motion.div
-          className={cn(
-            "grid gap-2",
-            "auto-rows-32.5",
-            !isMobile && "sm:auto-rows-45",
-            FEED_BENTO_LAYOUTS[attachments.length]?.cols
-          )}
-        >
-          {attachments.map((m, index) => (
-            <motion.div
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              className={cn(
-                "group relative overflow-hidden rounded-lg shadow-xs transition-shadow duration-300 hover:shadow-md",
-                FEED_BENTO_LAYOUTS[attachments.length]?.spans?.[index]
-              )}
-              initial={{ opacity: 0, scale: 0.96, y: 8 }}
-              key={m.id}
-              onClick={interactive ? () => openAtIndex(index) : undefined}
-              onKeyDown={
-                interactive
-                  ? (event: React.KeyboardEvent<HTMLDivElement>) => {
-                      if (event.key === "Enter" || event.key === " ") {
-                        event.preventDefault();
-                        openAtIndex(index);
-                      }
-                    }
-                  : undefined
-              }
-              role={interactive ? "button" : undefined}
-              tabIndex={interactive ? 0 : undefined}
-              transition={{
-                delay: (index % 3) * 0.04,
-                duration: 0.32,
-                ease: [0.16, 1, 0.3, 1],
-              }}
-            >
-              <div className="absolute inset-0 h-full w-full">
-                {renderBentoTileContent(m, index)}
-              </div>
-              <div className="absolute inset-0 bg-black/5 transition-opacity group-hover:opacity-0" />
-              <AiGeneratedBadge
-                className="absolute bottom-2 left-2 z-10"
-                media={m}
-              />
-            </motion.div>
-          ))}
-        </motion.div>
-      ) : null}
-      {!isFeedBento && isBento ? (
-        <motion.div
-          className={cn(
-            "grid gap-2",
-            isMobile ? "auto-rows-35 grid-cols-2" : "auto-rows-45 grid-cols-3"
-          )}
-          layout
-          transition={{ damping: 30, stiffness: 300, type: "spring" }}
-        >
-          <AnimatePresence initial={false} mode="popLayout">
-            {visibleAttachments.map((m, index) => {
-              const isFirst = index === 0;
-              return (
-                <motion.div
-                  animate={{ opacity: 1, scale: 1, y: 0 }}
-                  className={cn(
-                    "group relative overflow-hidden rounded-lg shadow-xs transition-shadow duration-300 hover:shadow-md",
-                    isFirst ? "col-span-2 row-span-2" : ""
-                  )}
-                  exit={{ opacity: 0, scale: 0.96, y: 8 }}
-                  initial={{ opacity: 0, scale: 0.96, y: 8 }}
-                  key={m.id}
-                  onClick={interactive ? () => openAtIndex(index) : undefined}
-                  onKeyDown={
-                    interactive
-                      ? (event: React.KeyboardEvent<HTMLDivElement>) => {
-                          if (event.key === "Enter" || event.key === " ") {
-                            event.preventDefault();
-                            openAtIndex(index);
-                          }
-                        }
-                      : undefined
-                  }
-                  role={interactive ? "button" : undefined}
-                  tabIndex={interactive ? 0 : undefined}
-                  transition={{
-                    delay: index * 0.04,
-                    duration: 0.32,
-                    ease: [0.16, 1, 0.3, 1],
-                  }}
-                  whileHover={{
-                    transition: {
-                      damping: 28,
-                      mass: 0.4,
-                      stiffness: 420,
-                      type: "spring",
-                    },
-                    y: -2,
-                  }}
-                >
-                  <div className="absolute inset-0 h-full w-full">
-                    {(() => {
-                      if (m.type === "IMAGE") {
-                        if (m.mimeType === "image/svg+xml") {
-                          return (
-                            <object
-                              className="h-full w-full object-cover"
-                              data={getMediaUrl(m.id)}
-                              type="image/svg+xml"
-                            >
-                              <Image
-                                alt="Attachment unavailable"
-                                className="h-full w-full object-cover opacity-60"
-                                fill
-                                sizes="(max-width: 768px) 50vw, 33vw"
-                                src={noMediaImage}
-                              />
-                            </object>
-                          );
-                        }
-                        return <BentoImagePreview media={m} />;
-                      }
-                      if (m.type === "VIDEO") {
-                        return (
-                          <VideoPreview
-                            autoPlay={autoPlayVideos}
-                            fill
-                            media={m}
-                          />
-                        );
-                      }
-                      return renderPreview(m, index, true);
-                    })()}
-                  </div>
-                  <div className="absolute inset-0 bg-black/5 transition-opacity group-hover:opacity-0" />
-                  <AiGeneratedBadge
-                    className="absolute bottom-2 left-2 z-10"
-                    media={m}
-                  />
-                </motion.div>
-              );
-            })}
-          </AnimatePresence>
-        </motion.div>
-      ) : null}
-      {!isFeedBento && !isBento && (!isMobile || rest.length > 0) ? (
-        // The wrapper's height is a real CSS transition (measured px values,
-        // never a layout transform or "auto" interpolation), so the card
-        // grows and collapses smoothly without stretching the tiles. Only
-        // grids that can actually collapse (4+ attachments) get the measured
-        // height: single images size by natural ratio after load and would
-        // leave the measured height stale below them.
-        <div
-          className={
-            attachments.length > initialCount ? "overflow-hidden" : undefined
-          }
-          ref={gridHeightWrapperRef}
-          style={
-            attachments.length > initialCount && gridPixelHeight !== null
-              ? {
-                  height: `${gridPixelHeight}px`,
-                  transition: "height 480ms cubic-bezier(0.16, 1, 0.3, 1)",
-                }
-              : undefined
-          }
-        >
-          <div
-            className={cn(
-              "grid gap-4",
-              !isMobile && visibleAttachments.length > 1 && "pt-1 pb-2",
-              (() => {
-                if (isMobile) {
-                  return "grid-cols-2";
-                }
-                if (visibleAttachments.length === 1) {
-                  return "grid-cols-1";
-                }
-                if (visibleAttachments.length === 2) {
-                  return "grid-cols-2";
-                }
-                return "grid-cols-3";
-              })()
-            )}
-            ref={gridRef}
-          >
-            <AnimatePresence initial={false} mode="popLayout">
-              {(isMobile ? rest : visibleAttachments).map((m, index) => {
-                const isSingleImage =
-                  visibleAttachments.length === 1 &&
-                  m.type === "IMAGE" &&
-                  m.mimeType !== "image/svg+xml";
-                if (isSingleImage) {
-                  return renderSingleImage(m, index);
-                }
-                const isSingleVideo =
-                  visibleAttachments.length === 1 && m.type === "VIDEO";
-                if (isSingleVideo) {
-                  return renderSingleVideo(m, index);
-                }
-                const tileIndex = isMobile ? index + 1 : index;
-                if (interactive) {
-                  return renderGridTile(m, tileIndex, "large");
-                }
-                return renderGridCell(m, tileIndex);
-              })}
-            </AnimatePresence>
-          </div>
-        </div>
-      ) : null}
-
-      <AnimatePresence initial={false} mode="popLayout">
-        {!isFeedBento &&
-        !isBento &&
-        !showAll &&
-        attachments.length > initialCount
-          ? renderShowMoreSection()
-          : null}
-      </AnimatePresence>
-
-      <AnimatePresence initial={false} mode="popLayout">
-        {!isFeedBento && !isBento && showAll ? (
+    <MediaHoldDrawer enabled={interactive} media={attachments} post={post}>
+      <div className="w-full">
+        {!isFeedBento && !isBento && isMobile && first ? (
           <motion.div
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            className="mt-3 px-0.5 pb-1"
-            exit={{ opacity: 0, scale: 0.98, y: 6 }}
-            initial={{ opacity: 0, scale: 0.98, y: 6 }}
-            key="show-less"
-            transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
+            animate={{ opacity: 1, y: 0 }}
+            className={cn("w-full", rest.length > 0 && "mb-3")}
+            initial={{ opacity: 0, y: 6 }}
+            transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
           >
-            <motion.button
-              aria-label="Show fewer media"
-              className="apple-panel flex w-full cursor-pointer items-center justify-center gap-1.5 rounded-2xl px-4 py-3 text-sm font-semibold"
-              onClick={handleShowLess}
-              type="button"
-              whileHover={{ y: -1 }}
-              whileTap={{ scale: 0.98, y: 0 }}
-              transition={{ damping: 25, stiffness: 400, type: "spring" }}
-            >
-              Show less
-              <motion.span whileHover={{ y: -1 }}>
-                <ChevronUp className="text-muted-foreground h-4 w-4" />
-              </motion.span>
-            </motion.button>
+            {renderFirstAttachment()}
           </motion.div>
         ) : null}
-      </AnimatePresence>
 
-      {/* Inline alt text strip, toggled by "Show alt" in the more menu - one
-          caption row per described attachment, in attachment order. */}
-      {altRevealed && describedAttachments.length > 0 ? (
-        <div className="mt-2 flex flex-col gap-1.5">
-          {describedAttachments.map((media) => (
+        {isFeedBento ? (
+          <motion.div
+            className={cn(
+              "grid gap-2",
+              "auto-rows-32.5",
+              !isMobile && "sm:auto-rows-45",
+              FEED_BENTO_LAYOUTS[attachments.length]?.cols
+            )}
+          >
+            {attachments.map((m, index) => (
+              <motion.div
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                className={cn(
+                  "group relative overflow-hidden rounded-lg shadow-xs transition-shadow duration-300 hover:shadow-md",
+                  FEED_BENTO_LAYOUTS[attachments.length]?.spans?.[index]
+                )}
+                initial={{ opacity: 0, scale: 0.96, y: 8 }}
+                key={m.id}
+                onClick={interactive ? () => openAtIndex(index) : undefined}
+                onKeyDown={
+                  interactive
+                    ? (event: React.KeyboardEvent<HTMLDivElement>) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          openAtIndex(index);
+                        }
+                      }
+                    : undefined
+                }
+                role={interactive ? "button" : undefined}
+                tabIndex={interactive ? 0 : undefined}
+                transition={{
+                  delay: (index % 3) * 0.04,
+                  duration: 0.32,
+                  ease: [0.16, 1, 0.3, 1],
+                }}
+              >
+                <div className="absolute inset-0 h-full w-full">
+                  {renderBentoTileContent(m, index)}
+                </div>
+                <div className="absolute inset-0 bg-black/5 transition-opacity group-hover:opacity-0" />
+                <AiGeneratedBadge
+                  className="absolute bottom-2 left-2 z-10"
+                  media={m}
+                />
+              </motion.div>
+            ))}
+          </motion.div>
+        ) : null}
+        {!isFeedBento && isBento ? (
+          <motion.div
+            className={cn(
+              "grid gap-2",
+              isMobile ? "auto-rows-35 grid-cols-2" : "auto-rows-45 grid-cols-3"
+            )}
+            layout
+            transition={{ damping: 30, stiffness: 300, type: "spring" }}
+          >
+            <AnimatePresence initial={false} mode="popLayout">
+              {visibleAttachments.map((m, index) => {
+                const isFirst = index === 0;
+                return (
+                  <motion.div
+                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                    className={cn(
+                      "group relative overflow-hidden rounded-lg shadow-xs transition-shadow duration-300 hover:shadow-md",
+                      isFirst ? "col-span-2 row-span-2" : ""
+                    )}
+                    exit={{ opacity: 0, scale: 0.96, y: 8 }}
+                    initial={{ opacity: 0, scale: 0.96, y: 8 }}
+                    key={m.id}
+                    onClick={interactive ? () => openAtIndex(index) : undefined}
+                    onKeyDown={
+                      interactive
+                        ? (event: React.KeyboardEvent<HTMLDivElement>) => {
+                            if (event.key === "Enter" || event.key === " ") {
+                              event.preventDefault();
+                              openAtIndex(index);
+                            }
+                          }
+                        : undefined
+                    }
+                    role={interactive ? "button" : undefined}
+                    tabIndex={interactive ? 0 : undefined}
+                    transition={{
+                      delay: index * 0.04,
+                      duration: 0.32,
+                      ease: [0.16, 1, 0.3, 1],
+                    }}
+                    whileHover={{
+                      transition: {
+                        damping: 28,
+                        mass: 0.4,
+                        stiffness: 420,
+                        type: "spring",
+                      },
+                      y: -2,
+                    }}
+                  >
+                    <div className="absolute inset-0 h-full w-full">
+                      {(() => {
+                        if (m.type === "IMAGE") {
+                          if (m.mimeType === "image/svg+xml") {
+                            return (
+                              <object
+                                className="h-full w-full object-cover"
+                                data={getMediaUrl(m.id)}
+                                type="image/svg+xml"
+                              >
+                                <Image
+                                  alt="Attachment unavailable"
+                                  className="h-full w-full object-cover opacity-60"
+                                  fill
+                                  sizes="(max-width: 768px) 50vw, 33vw"
+                                  src={noMediaImage}
+                                />
+                              </object>
+                            );
+                          }
+                          return <BentoImagePreview media={m} />;
+                        }
+                        if (m.type === "VIDEO") {
+                          return (
+                            <VideoPreview
+                              autoPlay={autoPlayVideos}
+                              fill
+                              media={m}
+                            />
+                          );
+                        }
+                        return renderPreview(m, index, true);
+                      })()}
+                    </div>
+                    <div className="absolute inset-0 bg-black/5 transition-opacity group-hover:opacity-0" />
+                    <AiGeneratedBadge
+                      className="absolute bottom-2 left-2 z-10"
+                      media={m}
+                    />
+                  </motion.div>
+                );
+              })}
+            </AnimatePresence>
+          </motion.div>
+        ) : null}
+        {!isFeedBento && !isBento && (!isMobile || rest.length > 0) ? (
+          // The wrapper's height is a real CSS transition (measured px values,
+          // never a layout transform or "auto" interpolation), so the card
+          // grows and collapses smoothly without stretching the tiles. Only
+          // grids that can actually collapse (4+ attachments) get the measured
+          // height: single images size by natural ratio after load and would
+          // leave the measured height stale below them.
+          <div
+            className={
+              attachments.length > initialCount ? "overflow-hidden" : undefined
+            }
+            ref={gridHeightWrapperRef}
+            style={
+              attachments.length > initialCount && gridPixelHeight !== null
+                ? {
+                    height: `${gridPixelHeight}px`,
+                    transition: "height 480ms cubic-bezier(0.16, 1, 0.3, 1)",
+                  }
+                : undefined
+            }
+          >
             <div
-              className="apple-panel flex items-start rounded-lg px-3 py-2"
-              key={media.id}
+              className={cn(
+                "grid gap-4",
+                !isMobile && visibleAttachments.length > 1 && "pt-1 pb-2",
+                (() => {
+                  if (isMobile) {
+                    return "grid-cols-2";
+                  }
+                  if (visibleAttachments.length === 1) {
+                    return "grid-cols-1";
+                  }
+                  if (visibleAttachments.length === 2) {
+                    return "grid-cols-2";
+                  }
+                  return "grid-cols-3";
+                })()
+              )}
+              ref={gridRef}
             >
-              <p className="text-muted-foreground min-w-0 flex-1 text-xs leading-snug wrap-break-word">
-                {media.altText}
-              </p>
+              <AnimatePresence initial={false} mode="popLayout">
+                {(isMobile ? rest : visibleAttachments).map((m, index) => {
+                  const isSingleImage =
+                    visibleAttachments.length === 1 &&
+                    m.type === "IMAGE" &&
+                    m.mimeType !== "image/svg+xml";
+                  if (isSingleImage) {
+                    return renderSingleImage(m, index);
+                  }
+                  const isSingleVideo =
+                    visibleAttachments.length === 1 && m.type === "VIDEO";
+                  if (isSingleVideo) {
+                    return renderSingleVideo(m, index);
+                  }
+                  const tileIndex = isMobile ? index + 1 : index;
+                  if (interactive) {
+                    return renderGridTile(m, tileIndex, "large");
+                  }
+                  return renderGridCell(m, tileIndex);
+                })}
+              </AnimatePresence>
             </div>
-          ))}
-        </div>
-      ) : null}
+          </div>
+        ) : null}
 
-      {interactive && selectedIndex !== null && (
-        <MediaViewer
-          initialIndex={selectedIndex}
-          isOpen={selectedIndex !== null}
-          media={attachments}
-          onClose={handleCloseViewer}
-          onNavigate={handleNavigateIndex}
-          post={post}
-        />
-      )}
-    </div>
+        <AnimatePresence initial={false} mode="popLayout">
+          {!isFeedBento &&
+          !isBento &&
+          !showAll &&
+          attachments.length > initialCount
+            ? renderShowMoreSection()
+            : null}
+        </AnimatePresence>
+
+        <AnimatePresence initial={false} mode="popLayout">
+          {!isFeedBento && !isBento && showAll ? (
+            <motion.div
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              className="mt-3 px-0.5 pb-1"
+              exit={{ opacity: 0, scale: 0.98, y: 6 }}
+              initial={{ opacity: 0, scale: 0.98, y: 6 }}
+              key="show-less"
+              transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
+            >
+              <motion.button
+                aria-label="Show fewer media"
+                className="apple-panel flex w-full cursor-pointer items-center justify-center gap-1.5 rounded-2xl px-4 py-3 text-sm font-semibold"
+                onClick={handleShowLess}
+                type="button"
+                whileHover={{ y: -1 }}
+                whileTap={{ scale: 0.98, y: 0 }}
+                transition={{ damping: 25, stiffness: 400, type: "spring" }}
+              >
+                Show less
+                <motion.span whileHover={{ y: -1 }}>
+                  <ChevronUp className="text-muted-foreground h-4 w-4" />
+                </motion.span>
+              </motion.button>
+            </motion.div>
+          ) : null}
+        </AnimatePresence>
+
+        {/* Inline alt text strip, toggled by "Show alt" in the more menu - one
+          caption row per described attachment, in attachment order. */}
+        {altRevealed && describedAttachments.length > 0 ? (
+          <div className="mt-2 flex flex-col gap-1.5">
+            {describedAttachments.map((media) => (
+              <div
+                className="apple-panel flex items-start rounded-lg px-3 py-2"
+                key={media.id}
+              >
+                <p className="text-muted-foreground min-w-0 flex-1 text-xs leading-snug wrap-break-word">
+                  {media.altText}
+                </p>
+              </div>
+            ))}
+          </div>
+        ) : null}
+
+        {interactive && selectedIndex !== null && (
+          <MediaViewer
+            initialIndex={selectedIndex}
+            isOpen={selectedIndex !== null}
+            media={attachments}
+            onClose={handleCloseViewer}
+            onNavigate={handleNavigateIndex}
+            post={post}
+          />
+        )}
+      </div>
+    </MediaHoldDrawer>
   );
 };

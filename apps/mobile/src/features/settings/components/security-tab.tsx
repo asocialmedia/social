@@ -1304,7 +1304,7 @@ function SecuritySessionsCard({
     <SettingsCard>
       <View style={styles.headRow}>
         <SettingsCardHeading
-          description="Each browser profile or app sign-in has its own session."
+          description="Up to four sign-ins across browsers and apps. A new sign-in ends the oldest session when the limit is reached."
           icon={MonitorSmartphone}
           title="Active sessions"
         />

@@ -5,6 +5,7 @@ import { Pressable, Text, View } from "react-native";
 import { UserAvatar } from "@/components/avatar/user-avatar";
 import { authClient } from "@/features/auth/lib/auth-client";
 import { useSessionContext } from "@/features/auth/state/session";
+import { ConcealedMediaCover } from "@/features/feed/components/concealed-media-cover";
 import type { FeedPost } from "@/features/feed/lib/feed-types";
 import {
   mediaGridImageUrl,
@@ -142,7 +143,24 @@ export function MessagePostPreview({ postId }: { postId: string }) {
             (failed ? "This post is unavailable" : "Loading post…")}
         </Text>
       </View>
-      {preview ? (
+      {preview && (post?.explicitContent || post?.moderated) ? (
+        <View
+          style={{
+            alignItems: "center",
+            height: 160,
+            justifyContent: "center",
+            overflow: "hidden",
+          }}
+        >
+          {media ? (
+            <ConcealedMediaCover apiBase={apiBase} media={media} />
+          ) : null}
+          <Text style={{ color: theme.inputText, fontFamily: "SofiaProMed" }}>
+            {post.moderated ? "Restricted media" : "Sensitive media"}
+          </Text>
+        </View>
+      ) : null}
+      {preview && !post?.explicitContent && !post?.moderated ? (
         <MessageImage source={preview} style={{ height: 160, width: "100%" }} />
       ) : null}
       <View

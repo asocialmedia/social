@@ -1,4 +1,9 @@
-import { fromPrismaDateTime, isReservedUsername, prisma } from "@asm/db";
+import {
+  enforceAccountSessionLimit,
+  fromPrismaDateTime,
+  isReservedUsername,
+  prisma,
+} from "@asm/db";
 import { createLogger } from "@asm/logger";
 import { expo } from "@better-auth/expo";
 import { passkey } from "@better-auth/passkey";
@@ -676,6 +681,9 @@ export function createAuthConfig(config: AuthConfig = {}) {
       },
       session: {
         create: {
+          after: async (session) => {
+            await enforceAccountSessionLimit(session.userId);
+          },
           before: async (session, context) => {
             const user = await prisma.orm.public.Users.select(
               "banExpires",

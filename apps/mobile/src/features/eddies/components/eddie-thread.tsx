@@ -1112,6 +1112,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     flexDirection: "row",
     gap: 10,
+    paddingHorizontal: 16,
     paddingVertical: 10,
   },
   stateText: {

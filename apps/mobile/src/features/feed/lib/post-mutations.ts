@@ -179,7 +179,22 @@ export async function updatePostTags(
   );
 }
 
-/** Web's canModeratePost, for deciding whether the entry is offered at all. */
+export async function updatePostMentions(
+  postId: string,
+  userIds: readonly string[],
+  options: ApiCallOptions
+): Promise<void> {
+  await postJson(
+    postPath(postId, "/mentions"),
+    {
+      body: JSON.stringify({ userIds: [...new Set(userIds)] }),
+      method: "POST",
+    },
+    options
+  );
+}
+
+// Web's canModeratePost, for deciding whether the entry is offered at all.
 export function canModeratePost(
   post: FeedPost,
   viewer: { id?: string | null; role?: string | null } | null | undefined

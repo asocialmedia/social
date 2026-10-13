@@ -7,7 +7,9 @@ import { Placeholder } from "@tiptap/extension-placeholder";
 import { EditorContent, useEditor } from "@tiptap/react";
 import { StarterKit } from "@tiptap/starter-kit";
 import { Asset } from "expo-asset";
-import type { DOMProps } from "expo/dom";
+import { useDOMImperativeHandle } from "expo/dom";
+import type { DOMProps, DOMImperativeFactory } from "expo/dom";
+import type { Ref } from "react";
 import { useEffect, useRef } from "react";
 
 import sofiaFont from "../../../../assets/fonts/SofiaProSoftReg.ttf";
@@ -121,7 +123,15 @@ function readSelection(editor: Editor): SelectionRange {
 
 const EMPTY_MENTIONS: readonly MentionPick[] = [];
 
+export interface InlineRichInputRef extends DOMImperativeFactory {
+  focus: () => void;
+  blur: () => void;
+}
+
 export default function InlineRichInput({
+  ref,
+  editable = true,
+  onSubmit,
   autoFocus = false,
   avatarBase,
   mentions = EMPTY_MENTIONS,
@@ -137,6 +147,9 @@ export default function InlineRichInput({
   selection,
   value,
 }: {
+  ref?: Ref<InlineRichInputRef>;
+  editable?: boolean;
+  onSubmit?: () => Promise<void>;
   autoFocus?: boolean;
   avatarBase: string;
   mentions?: readonly MentionPick[];
@@ -164,10 +177,20 @@ export default function InlineRichInput({
     },
     []
   );
-  const callbacks = useRef({ onChange, onFocusChange, onSelectionChange });
+  const callbacks = useRef({
+    onChange,
+    onFocusChange,
+    onSelectionChange,
+    onSubmit,
+  });
   useEffect(() => {
-    callbacks.current = { onChange, onFocusChange, onSelectionChange };
-  }, [onChange, onFocusChange, onSelectionChange]);
+    callbacks.current = {
+      onChange,
+      onFocusChange,
+      onSelectionChange,
+      onSubmit,
+    };
+  }, [onChange, onFocusChange, onSelectionChange, onSubmit]);
 
   const editor = useEditor({
     content: badgeDocument(value, mentions, avatarBase),
@@ -177,6 +200,20 @@ export default function InlineRichInput({
         "aria-multiline": "true",
         class: "native-rich-input",
         role: "textbox",
+      },
+      handleDOMEvents: {
+        keydown: (_view, event) => {
+          if (
+            event.key !== "Enter" ||
+            event.shiftKey ||
+            !callbacks.current.onSubmit
+          ) {
+            return false;
+          }
+          event.preventDefault();
+          void callbacks.current.onSubmit();
+          return true;
+        },
       },
     },
     extensions: [
@@ -229,6 +266,22 @@ export default function InlineRichInput({
       void callbacks.current.onChange(text, readSelection(current));
     },
   });
+
+  useDOMImperativeHandle(
+    ref ?? null,
+    () => ({
+      blur: () => {
+        editor?.commands.blur();
+      },
+      focus: () => {
+        editor?.commands.focus("end");
+      },
+    }),
+    [editor]
+  );
+  useEffect(() => {
+    editor?.setEditable(editable);
+  }, [editable, editor]);
 
   useEffect(() => {
     if (!editor || editor.isDestroyed) {
