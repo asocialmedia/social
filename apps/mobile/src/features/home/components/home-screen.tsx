@@ -4,7 +4,7 @@ import {
 } from "@asm/ui/lib/home-feed-controls";
 import type { DiscoveryFleetFeed } from "@asm/ui/lib/home-feed-controls";
 import { useIsFocused } from "expo-router";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 // Root home page: mobile header, three visible feed slots (discovery / Latest /
 // Following) with swipe navigation, and the guest auth bar docked
 // at the bottom. Ports web ClientHome's tab mechanics: the remembered tab
@@ -19,6 +19,10 @@ import {
   StyleSheet,
   View,
 } from "react-native";
+import Reanimated, {
+  useAnimatedStyle,
+  useSharedValue,
+} from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useSessionContext } from "@/features/auth/state/session";
@@ -76,6 +80,10 @@ export default function HomeScreen() {
   const [dockHeight, setDockHeight] = useState(56);
   const [dockHidden, setDockHidden] = useState(false);
   const [composerHeight, setComposerHeight] = useState(0);
+  const composerScrollOffset = useSharedValue(0);
+  const composerStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: -composerScrollOffset.get() }],
+  }));
   const composerOpen = useComposerStore((state) => state.isOpen);
   const [bannerHeight, setBannerHeight] = useState(90);
   const showGuestBar = !isPending && !user;
@@ -141,27 +149,8 @@ export default function HomeScreen() {
     inputRange: [0, 1],
     outputRange: [0, -HEADER_BAR_HEIGHT],
   });
-  // The inline composer is the active tab's list header, so it sits at the top
-  // of the feed's content and scrolls away with the first post - the list's own
-  // scroll carries it, which is why it needs no overlay, no clipping and no
-  // per-frame work of its own.
-  //
-  // Only the visible tab is handed one. A header on every feed would mount four
-  // composers (a TextInput, an avatar and 3D surfaces each) and swap one for
-  // another on every tab switch; this way exactly one exists at a time.
-  // Memoized so the element is stable across renders and the list is not asked
-  // to re-render its header on every parent update.
-  const composerHeader = useMemo(() => {
-    if (!isLoggedIn) {
-      return null;
-    }
-    // The modal owns the draft while open; do not decode its video twice underneath it.
-    return composerOpen ? (
-      <View style={{ height: composerHeight }} />
-    ) : (
-      <PostEditor variant="feed" />
-    );
-  }, [composerHeight, composerOpen, isLoggedIn]);
+  // One editor survives every feed switch. Lists reserve its measured space;
+  // the active list moves it on the UI thread, independently of horizontal paging.
 
   // Wait for tab memory before mounting the pager: mounting on the default
   // tab and then jumping to the remembered one slides the whole pager over,
@@ -212,7 +201,22 @@ export default function HomeScreen() {
           onChange={handleTabChange}
           userId={user?.id}
         />
-        <FeedPager activeIndex={activeIndex} onIndexChange={handleIndexChange}>
+        <FeedPager
+          activeIndex={activeIndex}
+          onIndexChange={handleIndexChange}
+          overlay={
+            isLoggedIn && !composerOpen ? (
+              <Reanimated.View
+                onLayout={(event) =>
+                  setComposerHeight(event.nativeEvent.layout.height)
+                }
+                style={[styles.composer, composerStyle]}
+              >
+                <PostEditor key={user?.id} variant="feed" />
+              </Reanimated.View>
+            ) : null
+          }
+        >
           {tabs.map((def, index) => (
             // Neighbour tabs preload their data in the background so
             // switching lands on cached rows instead of a skeleton; only
@@ -235,36 +239,31 @@ export default function HomeScreen() {
                     variant !== def.value && styles.hiddenFeed,
                   ]}
                 >
-                  <FeedList
-                    active={
-                      isFocused &&
-                      index === activeIndex &&
-                      variant === def.value
-                    }
-                    bottomInset={feedBottomPad}
-                    enabled={
-                      isFocused &&
-                      variant === def.value &&
-                      Math.abs(index - activeIndex) <= 1 &&
-                      // For you and Following are account-only; a guest sees the
-                      // sign-in prompt in FeedList instead, and nothing is fetched.
-                      (variant === "following" || variant === "personalized"
-                        ? isLoggedIn
-                        : true)
-                    }
-                    // Only the visible tab carries the composer, so exactly one is
-                    // ever mounted.
-                    header={
-                      index === activeIndex && variant === def.value
-                        ? composerHeader
-                        : undefined
-                    }
-                    headerHeight={isLoggedIn ? composerHeight : 0}
-                    onHeaderHeight={setComposerHeight}
-                    key={`${variant}:${user?.id ?? "guest"}`}
-                    userId={user?.id}
-                    variant={variant}
-                  />
+                  {isLoggedIn && composerHeight === 0 ? null : (
+                    <FeedList
+                      active={
+                        isFocused &&
+                        index === activeIndex &&
+                        variant === def.value
+                      }
+                      bottomInset={feedBottomPad}
+                      enabled={
+                        isFocused &&
+                        variant === def.value &&
+                        Math.abs(index - activeIndex) <= 1 &&
+                        // For you and Following are account-only; a guest sees the
+                        // sign-in prompt in FeedList instead, and nothing is fetched.
+                        (variant === "following" || variant === "personalized"
+                          ? isLoggedIn
+                          : true)
+                      }
+                      headerHeight={isLoggedIn ? composerHeight : 0}
+                      headerScrollOffset={composerScrollOffset}
+                      key={`${variant}:${user?.id ?? "guest"}`}
+                      userId={user?.id}
+                      variant={variant}
+                    />
+                  )}
                 </View>
               ))}
             </View>
@@ -299,6 +298,12 @@ export default function HomeScreen() {
 }
 
 const styles = StyleSheet.create({
+  composer: {
+    left: 0,
+    position: "absolute",
+    right: 0,
+    top: 0,
+  },
   content: {
     flex: 1,
   },

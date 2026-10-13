@@ -280,7 +280,7 @@ function MessageBubbleInner({
     >
       {!mine && group.isLastInGroup ? (
         <View style={styles.peerAvatar}>
-          <UserAvatar radius={14} size={28} url={peerAvatarUrl ?? null} />
+          <UserAvatar size={28} url={peerAvatarUrl ?? null} />
         </View>
       ) : null}
       <SentOrReceived

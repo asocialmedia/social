@@ -474,12 +474,7 @@ export function ConversationDetails({
           {isDen ? (
             <DenAvatar conversation={conversation} size={72} />
           ) : (
-            <UserAvatar
-              url={peer?.avatarUrl}
-              userId={peer?.id}
-              size={72}
-              radius={36}
-            />
+            <UserAvatar url={peer?.avatarUrl} userId={peer?.id} size={72} />
           )}
         </View>
         <Text

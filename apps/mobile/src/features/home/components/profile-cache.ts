@@ -47,6 +47,7 @@ export class PopupCache {
   private profileFlights = new Map<string, Promise<PopupProfile>>();
   private bookmarkFlights = new Map<string, Promise<number>>();
   private onChange: () => void;
+  private listeners = new Set<() => void>();
   private discardRestored = false;
 
   constructor(
@@ -57,6 +58,20 @@ export class PopupCache {
     this.now = now;
     this.maxEntries = maxEntries;
     this.onChange = onChange;
+  }
+
+  subscribe = (listener: () => void): (() => void) => {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  };
+
+  private notify(): void {
+    this.onChange();
+    for (const listener of this.listeners) {
+      listener();
+    }
   }
 
   private isFresh<T>(
@@ -90,7 +105,7 @@ export class PopupCache {
   setProfile(userId: string, data: PopupProfile): void {
     this.profiles.set(userId, { data, fetchedAt: this.now() });
     this.prune(this.profiles);
-    this.onChange();
+    this.notify();
   }
 
   getStaleBookmarkTotal(userId: string): number | null {
@@ -105,7 +120,7 @@ export class PopupCache {
   setBookmarkTotal(userId: string, total: number): void {
     this.bookmarkTotals.set(userId, { data: total, fetchedAt: this.now() });
     this.prune(this.bookmarkTotals);
-    this.onChange();
+    this.notify();
   }
 
   snapshot(): PopupCacheSnapshot {
@@ -152,6 +167,7 @@ export class PopupCache {
     }
     this.prune(this.profiles);
     this.prune(this.bookmarkTotals);
+    this.notify();
   }
 
   loadProfile(
@@ -238,7 +254,7 @@ export class PopupCache {
     this.profileFlights.delete(userId);
     this.bookmarkTotals.delete(userId);
     this.profiles.delete(userId);
-    this.onChange();
+    this.notify();
   }
 
   // Drops everything. Call on logout so the next account starts clean.
@@ -250,7 +266,7 @@ export class PopupCache {
     this.bookmarkFlights.clear();
     this.generation += 1;
     this.discardRestored = true;
-    this.onChange();
+    this.notify();
   }
 }
 

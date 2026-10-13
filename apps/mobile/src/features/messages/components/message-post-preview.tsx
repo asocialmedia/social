@@ -96,7 +96,6 @@ export function MessagePostPreview({ postId }: { postId: string }) {
               url={post.user.avatarUrl}
               userId={post.user.id}
               size={28}
-              radius={14}
             />
             <View style={{ flex: 1 }}>
               <View

@@ -22,6 +22,7 @@ function renderList(props: {
   activeConversationId?: string;
   isCollapsed?: boolean;
   layout: "full" | "hidden" | "rail";
+  listError?: boolean;
 }) {
   const queryClient = new QueryClient({
     defaultOptions: {
@@ -31,6 +32,18 @@ function renderList(props: {
       },
     },
   });
+  if (props.listError) {
+    queryClient
+      .getQueryCache()
+      .build(queryClient, {
+        queryKey: ["message-conversations", undefined],
+      })
+      .setState({
+        error: new Error("Unavailable"),
+        fetchStatus: "idle",
+        status: "error",
+      });
+  }
   queryClient.setQueryData(
     ["messages-presence", undefined],
     [
@@ -61,6 +74,14 @@ function renderList(props: {
 }
 
 describe("ConversationList collapsible sidebar", () => {
+  test("shows one illustrated error instead of a false empty conversation list", () => {
+    const html = renderList({ layout: "full", listError: true });
+    expect(html.match(/role="alert"/g)).toHaveLength(1);
+    expect(html).toContain("connect to Messages");
+    expect(html).toContain("Try again");
+    expect(html).not.toContain("No conversations yet");
+    expect(html).toContain("size-36");
+  });
   test("expanded state renders full search bar, new den button, and collapse trigger", () => {
     const html = renderList({ isCollapsed: false, layout: "full" });
 

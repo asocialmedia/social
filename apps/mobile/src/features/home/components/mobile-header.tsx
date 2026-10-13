@@ -138,14 +138,10 @@ export function MobileHeader({
   // in avatarUrl while the session's image only covers OAuth providers. The
   // popup profile (cache-first, shared with the popup itself) carries the
   // DB avatarUrl, so the header resolves the same precedence.
-  const { hydrated: profileHydrated, state: popupState } = usePopupProfile(
-    user?.id ?? null
-  );
+  const { state: popupState } = usePopupProfile(user?.id ?? null);
   const profileAvatar =
     popupState.status === "ready" ? popupState.profile.avatarUrl : null;
-  const rawAvatar = profileHydrated
-    ? (profileAvatar ?? user?.avatarUrl ?? user?.image ?? null)
-    : null;
+  const rawAvatar = profileAvatar ?? user?.avatarUrl ?? user?.image ?? null;
   const avatarUri = rawAvatar
     ? resolveProfileImageUrl(rawAvatar, getApiBaseUrl())
     : null;

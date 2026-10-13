@@ -19,6 +19,10 @@ import { toast } from "@/components/feedback/toast";
 import { authClient } from "@/features/auth/lib/auth-client";
 import { useInstall } from "@/features/auth/state/install";
 import type { SessionUser } from "@/features/auth/state/session";
+import {
+  popupCache,
+  popupProfileKey,
+} from "@/features/home/components/profile-cache";
 import { fetchProfileByUsername } from "@/features/profile/lib/profile-api";
 import type { ProfileHeaderProfile } from "@/features/profile/lib/profile-view-model";
 import { getApiBaseUrl } from "@/lib/api-env";
@@ -369,7 +373,22 @@ export function ProfileTab({
                 <View style={styles.avatarSlot}>
                   <SettingsAvatarInput
                     canDelete={Boolean(avatarUrl)}
-                    onChanged={setAvatarUrl}
+                    onChanged={(nextAvatarUrl) => {
+                      setAvatarUrl(nextAvatarUrl);
+                      if (profile) {
+                        const key = popupProfileKey(
+                          getApiBaseUrl(),
+                          profile.id
+                        );
+                        const cached = popupCache.getStaleProfile(key);
+                        if (cached) {
+                          popupCache.setProfile(key, {
+                            ...cached,
+                            avatarUrl: nextAvatarUrl,
+                          });
+                        }
+                      }
+                    }}
                     src={avatarUrl}
                   />
                 </View>

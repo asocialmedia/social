@@ -120,7 +120,7 @@ export function PostEmbed({ mine, postId }: PostEmbedProps) {
         )}
       >
         <div className="flex items-center gap-2 px-3 pt-2.5">
-          <div className="size-6 rounded-full bg-current opacity-20" />
+          <div className="size-6 rounded-lg bg-current opacity-20" />
           <div className="min-w-0 flex-1">
             <div className="h-3 w-1/3 rounded bg-current opacity-20" />
             <div className="mt-1 h-2.5 w-1/4 rounded bg-current opacity-15" />

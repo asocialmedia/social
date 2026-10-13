@@ -37,12 +37,14 @@ interface FeedPagerProps {
   activeIndex: number;
   children: ReactNode[];
   onIndexChange: (index: number) => void;
+  overlay?: ReactNode;
 }
 
 export function FeedPager({
   activeIndex,
   children,
   onIndexChange,
+  overlay,
 }: FeedPagerProps) {
   const pageCount = children.length;
   const onIndexChangeRef = useRef(onIndexChange);
@@ -211,16 +213,19 @@ export function FeedPager({
       style={styles.viewport}
     >
       <GestureDetector gesture={gesture}>
-        <Animated.View style={[styles.track, animatedStyle]}>
-          {children.map((child, index) => {
-            const mounted = index >= retained.first && index <= retained.last;
-            return (
-              <View key={index} style={[styles.page, { width: pageWidth }]}>
-                {mounted ? child : null}
-              </View>
-            );
-          })}
-        </Animated.View>
+        <View style={styles.viewport}>
+          <Animated.View style={[styles.track, animatedStyle]}>
+            {children.map((child, index) => {
+              const mounted = index >= retained.first && index <= retained.last;
+              return (
+                <View key={index} style={[styles.page, { width: pageWidth }]}>
+                  {mounted ? child : null}
+                </View>
+              );
+            })}
+          </Animated.View>
+          {overlay}
+        </View>
       </GestureDetector>
     </View>
   );

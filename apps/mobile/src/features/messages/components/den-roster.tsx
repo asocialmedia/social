@@ -197,7 +197,6 @@ export function DenRoster({
                   url={person.avatarUrl}
                   userId={person.id}
                   size={36}
-                  radius={18}
                 />
                 <Text style={{ ...textStyle, flex: 1 }}>
                   {person.displayName}
@@ -264,7 +263,6 @@ export function DenRoster({
                     url={member.user.avatarUrl}
                     userId={member.userId}
                     size={36}
-                    radius={18}
                   />
                   <View style={{ flex: 1 }}>
                     <Text style={textStyle}>

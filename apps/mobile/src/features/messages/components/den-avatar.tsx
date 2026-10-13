@@ -20,7 +20,7 @@ export function DenAvatar({
     return (
       <View
         style={{
-          borderRadius: size / 2,
+          borderRadius: Math.round(size * 0.3),
           height: size,
           overflow: "hidden",
           width: size,
@@ -73,7 +73,7 @@ export function DenAvatar({
     <View
       style={{
         backgroundColor: theme.cardBg,
-        borderRadius: size * 0.25,
+        borderRadius: Math.round(size * 0.3),
         height: size,
         width: size,
       }}
@@ -83,7 +83,7 @@ export function DenAvatar({
           key={member.userId}
           style={{
             borderColor: theme.containerBg,
-            borderRadius: diameter / 2,
+            borderRadius: Math.round(diameter * 0.3),
             borderWidth: 1,
             left: slots[index][0] * size - diameter / 2,
             overflow: "hidden",

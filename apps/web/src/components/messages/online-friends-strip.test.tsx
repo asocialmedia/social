@@ -25,10 +25,12 @@ function renderStrip(users: PresenceUser[], creating: string | null = null) {
 }
 
 describe("mobile online friends strip", () => {
-  test("shows online followed people with circular avatars and online indicators", () => {
+  test("shows online followed people with squircle avatars and online indicators", () => {
     const html = renderStrip([person()]);
     expect(html).toContain("Message Ada (@ada), online");
-    expect(html).toContain("rounded-full!");
+    expect(html).toContain("rounded-xl");
+    expect(html).toContain("rounded-[30%]");
+    expect(html).not.toContain("rounded-full!");
     expect(html).toContain("bg-green-500");
     expect(html).toContain("overflow-x-auto");
     expect(html).toContain("md:hidden");

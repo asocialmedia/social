@@ -8,6 +8,7 @@
 // last message is decrypted through the same scheduler the thread uses, so opening
 // a conversation later is instant.
 
+import { MESSAGES_CONNECTION_ERROR } from "@asm/ui/lib/messages-errors";
 import { useFocusEffect } from "expo-router";
 import { Plus, Search, Ticket, X, MessageCircle } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -64,6 +65,7 @@ import { DenAvatar } from "./den-avatar";
 import { DenDialog } from "./den-dialog";
 import { MessagePeoplePanel } from "./message-people-panel";
 import { MessagePresenceIndicator } from "./message-presence-indicator";
+import { MessagesErrorState } from "./messages-error-state";
 import {
   MessagesIconButton,
   MutedGlyph,
@@ -97,6 +99,17 @@ export function ConversationListScreen({
   const chip = chip3d(isDark);
 
   const list = useConversationList();
+  const identityFailed =
+    identity.status === "error" || identity.status === "locked";
+  const messageError = identityFailed
+    ? (identity.error ?? MESSAGES_CONNECTION_ERROR)
+    : list.error && MESSAGES_CONNECTION_ERROR;
+  const retryMessages = () => {
+    if (identityFailed) {
+      identity.retry();
+    }
+    list.refresh();
+  };
   const [openingPerson, setOpeningPerson] = useState(false);
   const handleOnlinePerson = async (person: PresenceUser) => {
     if (openingPerson) {
@@ -292,7 +305,6 @@ export function ConversationListScreen({
                   }}
                 >
                   <UserAvatar
-                    radius={24}
                     size={48}
                     url={person.avatarUrl}
                     userId={person.id}
@@ -374,30 +386,21 @@ export function ConversationListScreen({
         </View>
       </View>
       <View style={{ flex: 1 }}>
-        {identity.status === "error" || identity.status === "locked" ? (
-          <PressableRow
-            onPress={() => identity.retry()}
-            style={{ padding: 16 }}
-          >
-            <Text
-              style={{ color: theme.dividerText, fontFamily: "SofiaProReg" }}
-            >
-              {identity.error ?? "Couldn't recover Messages. Tap to retry."}
-            </Text>
-          </PressableRow>
+        {messageError && list.rows.length > 0 ? (
+          <MessagesErrorState
+            compact
+            message={messageError}
+            onRetry={retryMessages}
+          />
         ) : null}
-        {list.error ? (
-          <PressableRow onPress={handleRefresh} style={{ padding: 16 }}>
-            <Text
-              style={{ color: theme.dividerText, fontFamily: "SofiaProReg" }}
-            >
-              Couldn't update Messages. Tap to retry.
-            </Text>
-          </PressableRow>
+        {messageError && list.rows.length === 0 ? (
+          <MessagesErrorState message={messageError} onRetry={retryMessages} />
         ) : null}
-        {list.loading && list.rows.length === 0 ? (
+        {!messageError && list.loading && list.rows.length === 0 ? (
           <ConversationListSkeleton />
-        ) : (
+        ) : null}
+        {(!messageError || list.rows.length > 0) &&
+        (!list.loading || list.rows.length > 0) ? (
           <FlatList
             contentContainerStyle={styles.listContent}
             data={rows}
@@ -407,28 +410,30 @@ export function ConversationListScreen({
               list.loadingMore ? <ConversationListSkeleton /> : null
             }
             ListEmptyComponent={
-              <View
-                style={{
-                  alignItems: "center",
-                  gap: 8,
-                  paddingHorizontal: 24,
-                  paddingVertical: 40,
-                }}
-              >
-                <MessageCircle size={24} color={theme.dividerText} />
-                <Text
+              messageError ? null : (
+                <View
                   style={{
-                    color: theme.dividerText,
-                    fontFamily: "SofiaProReg",
-                    fontSize: 12,
-                    textAlign: "center",
+                    alignItems: "center",
+                    gap: 8,
+                    paddingHorizontal: 24,
+                    paddingVertical: 40,
                   }}
                 >
-                  {list.rows.length === 0
-                    ? "No conversations yet. Search for someone you follow to start one, or make a den for a group."
-                    : `No ${filter === "DM" ? "DMs" : "dens"} yet.`}
-                </Text>
-              </View>
+                  <MessageCircle size={24} color={theme.dividerText} />
+                  <Text
+                    style={{
+                      color: theme.dividerText,
+                      fontFamily: "SofiaProReg",
+                      fontSize: 12,
+                      textAlign: "center",
+                    }}
+                  >
+                    {list.rows.length === 0
+                      ? "No conversations yet. Search for someone you follow to start one, or make a den for a group."
+                      : `No ${filter === "DM" ? "DMs" : "dens"} yet.`}
+                  </Text>
+                </View>
+              )
             }
             keyExtractor={(row) => row.conversation.id}
             refreshControl={
@@ -442,7 +447,7 @@ export function ConversationListScreen({
             showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
             {...LIST_VIRTUALIZATION_PROPS}
           />
-        )}
+        ) : null}
       </View>
       <MobileBottomNav />
       {denDialog ? (
@@ -503,7 +508,6 @@ function ConversationRow({
           <DenAvatar conversation={row.conversation} />
         ) : (
           <UserAvatar
-            radius={20}
             size={40}
             url={row.avatarUrl}
             userId={row.peerId}

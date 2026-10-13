@@ -12,6 +12,7 @@ import { ConversationList } from "@/components/messages/conversation-list";
 import { useMessagesIdentity } from "@/components/messages/message-identity-provider";
 import { MessageIdentityLocked } from "@/components/messages/message-identity-recovery";
 import { MessageThread } from "@/components/messages/message-thread";
+import { MessagesErrorState } from "@/components/messages/messages-error-state";
 import { MessagesSkeleton } from "@/components/messages/messages-skeleton";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { conversationListLayout } from "@/lib/messages/conversation-list-layout";
@@ -122,11 +123,7 @@ function MessagesPanes() {
   if (status === "error") {
     return (
       <div className="border-border/60 flex min-w-0 flex-1 flex-col bg-[hsl(var(--background-alt))] sm:border-x">
-        <div className="flex flex-1 items-center justify-center p-8 text-center">
-          <p className="text-muted-foreground text-sm">
-            Messages couldn't be set up. Reload to try again.
-          </p>
-        </div>
+        <MessagesErrorState onRetry={() => window.location.reload()} />
       </div>
     );
   }

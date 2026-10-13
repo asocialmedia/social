@@ -1299,7 +1299,7 @@ function ThreadHeader({
           {conversation ? (
             <DenAvatar conversation={conversation} size={32} />
           ) : (
-            <UserAvatar radius={16} size={32} url={avatarUrl} />
+            <UserAvatar size={32} url={avatarUrl} />
           )}
           {conversation ? null : (
             <MessagePresenceIndicator

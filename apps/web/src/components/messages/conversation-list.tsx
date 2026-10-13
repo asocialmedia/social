@@ -48,6 +48,7 @@ import { useMessageActivity } from "@/lib/messages/use-message-activity";
 import { usePresence } from "@/lib/messages/use-presence";
 import { cn } from "@/lib/utils";
 
+import { MessagesErrorState } from "./messages-error-state";
 import { useConversationPreviewRequests } from "./use-conversation-preview-requests";
 
 // A stable empty array, so the rail's call into the preview hook does not look
@@ -107,7 +108,7 @@ export function ConversationList({
   const [denDialogOpen, setDenDialogOpen] = useState(false);
   const [joinDialogOpen, setJoinDialogOpen] = useState(false);
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError } = useQuery({
     queryFn: () => fetchConversationList(),
     queryKey: ["message-conversations", user?.id],
     refetchInterval: 30_000,
@@ -335,6 +336,9 @@ export function ConversationList({
   }
 
   function renderConversationList() {
+    if (isError && visibleItems.length === 0) {
+      return <MessagesErrorState collapsed={collapsed} onRetry={refetchList} />;
+    }
     if (isLoading) {
       return <ConversationListSkeleton full={!collapsed} />;
     }
@@ -373,25 +377,39 @@ export function ConversationList({
       );
     }
     const myId = user?.id ?? "";
-    return visibleItems.map((item) => {
-      const peer =
-        item.conversation.type === "DM"
-          ? item.conversation.members.find((member) => member.userId !== myId)
-              ?.user
-          : undefined;
-      const presence = peer ? (presenceByUserId.get(peer.id) ?? null) : null;
-      return (
-        <ConversationRow
-          active={item.conversation.id === activeConversationId}
-          collapsed={collapsed}
-          item={item}
-          key={item.conversation.id}
-          myUserId={myId}
-          onSelect={onSelect}
-          presence={presence}
-        />
-      );
-    });
+    return (
+      <>
+        {isError ? (
+          <MessagesErrorState
+            collapsed={collapsed}
+            compact
+            onRetry={refetchList}
+          />
+        ) : null}
+        {visibleItems.map((item) => {
+          const peer =
+            item.conversation.type === "DM"
+              ? item.conversation.members.find(
+                  (member) => member.userId !== myId
+                )?.user
+              : undefined;
+          const presence = peer
+            ? (presenceByUserId.get(peer.id) ?? null)
+            : null;
+          return (
+            <ConversationRow
+              active={item.conversation.id === activeConversationId}
+              collapsed={collapsed}
+              item={item}
+              key={item.conversation.id}
+              myUserId={myId}
+              onSelect={onSelect}
+              presence={presence}
+            />
+          );
+        })}
+      </>
+    );
   }
 
   // A phone with a conversation open shows that conversation and nothing else; the
