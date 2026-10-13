@@ -1,6 +1,10 @@
 import { describe, expect, it } from "bun:test";
 
-import { HN_RAIL_COLOR, getPostRailColor } from "./feed-rail";
+import {
+  HN_RAIL_COLOR,
+  getPostRailColor,
+  resolveResponseCommunityAccent,
+} from "./feed-rail";
 
 describe("getPostRailColor", () => {
   it("resolves community accent color for a community post", () => {
@@ -44,6 +48,26 @@ describe("getPostRailColor", () => {
     expect(getPostRailColor(post, true)).toBe("#fb923c");
   });
 
+  it("does not give a global response its source community rail", () => {
+    expect(
+      getPostRailColor(
+        { parentPost: { community: { accentColor: "pine" } } },
+        false
+      )
+    ).toBeNull();
+  });
+  it("reads the source accent from matching membership on older response payloads", () => {
+    expect(
+      resolveResponseCommunityAccent({
+        community: { slug: "asocialmedia" },
+        user: {
+          communityMemberships: [
+            { community: { accentColor: "ember", slug: "asocialmedia" } },
+          ],
+        },
+      })
+    ).toBe("ember");
+  });
   it("returns null for a regular post without community or HN embed", () => {
     const post = {};
     expect(getPostRailColor(post, true)).toBeNull();

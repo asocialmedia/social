@@ -48,8 +48,7 @@ export function usePostOverflow(handlers: PostOverflowHandlers): {
   ) => MoreMenuEntry[];
   onAction: (action: MoreAction, post: FeedPost) => void;
 } {
-  const openComposer = useComposerStore((state) => state.open);
-  const setDraft = useComposerStore((state) => state.setDraft);
+  const openWithContext = useComposerStore((state) => state.openWithContext);
   const [deleteTarget, setDeleteTarget] = useState<FeedPost | null>(null);
   const [moderateTarget, setModerateTarget] = useState<FeedPost | null>(null);
   const [tagsTarget, setTagsTarget] = useState<FeedPost | null>(null);
@@ -106,10 +105,17 @@ export function usePostOverflow(handlers: PostOverflowHandlers): {
       if (!community) {
         return;
       }
-      setDraft({ communityId: community.id, communitySharePostId: post.id });
-      openComposer("post", null);
+      openWithContext({
+        kind: "share",
+        source: {
+          accentColor: community.accentColor,
+          name: community.name,
+          slug: community.slug,
+          sourcePostId: post.id,
+        },
+      });
     },
-    [handlers, openComposer, setDraft]
+    [handlers, openWithContext]
   );
 
   const dialogs = (

@@ -45,18 +45,6 @@ import {
 } from "@/lib/notifications/deferred-events";
 import { getPostUrl } from "@/lib/seo/seo";
 
-type ExtendedCreatePostInput = CreatePostInput & {
-  hnStory?: {
-    storyId: number;
-    title: string;
-    url?: string;
-    by: string;
-    time: number;
-    score: number;
-    descendants: number;
-  };
-};
-
 // Creation rewards come from the aura economy config - the single tuning
 // surface for every aura constant (see packages/db/src/aura/config.ts).
 const AURA_REWARDS = {
@@ -167,7 +155,7 @@ async function calculateAuraReward(mediaIds: string[], hasHnStory: boolean) {
   return Math.min(totalAura, AURA_REWARDS.MAX_TOTAL);
 }
 
-export async function submitPost(input: ExtendedCreatePostInput) {
+export async function submitPost(input: CreatePostInput) {
   try {
     console.log("Checking session for post submission...");
     const { getSessionFromApi } = await import("@/lib/auth/session");
@@ -196,6 +184,7 @@ export async function submitPost(input: ExtendedCreatePostInput) {
       communitySharePostId: input.communitySharePostId,
       content: input.content,
       dismissedEmbedUrls: input.dismissedEmbedUrls ?? [],
+      hnStory: input.hnStory,
       isGust: isResponse ? false : (input.isGust ?? false),
       mediaIds: input.mediaIds || [],
       mentions: input.mentions || [],
@@ -279,7 +268,7 @@ export async function submitPost(input: ExtendedCreatePostInput) {
 
     const auraReward = await calculateAuraReward(
       validatedInput.mediaIds,
-      !!input.hnStory
+      !!parsed.hnStory
     );
 
     let publishedNotificationId: string | undefined;
@@ -569,16 +558,16 @@ export async function submitPost(input: ExtendedCreatePostInput) {
         }
       }
 
-      if (input.hnStory) {
+      if (parsed.hnStory) {
         await tx.orm.public.HnStoryShares.create({
-          by: input.hnStory.by,
-          descendants: input.hnStory.descendants,
+          by: parsed.hnStory.by,
+          descendants: parsed.hnStory.descendants,
           postId: post.id,
-          score: input.hnStory.score,
-          storyId: input.hnStory.storyId,
-          time: input.hnStory.time,
-          title: input.hnStory.title,
-          url: input.hnStory.url || null,
+          score: parsed.hnStory.score,
+          storyId: parsed.hnStory.storyId,
+          time: parsed.hnStory.time,
+          title: parsed.hnStory.title,
+          url: parsed.hnStory.url || null,
         });
       }
 
@@ -653,7 +642,7 @@ export async function submitPost(input: ExtendedCreatePostInput) {
         type: "POST_CREATION",
       });
 
-      if (input.hnStory) {
+      if (parsed.hnStory) {
         await applyFlatAward(tx, {
           actorId: sessionData.user.id,
           baseAmount: AURA_REWARDS.HN_SHARE,
@@ -668,7 +657,7 @@ export async function submitPost(input: ExtendedCreatePostInput) {
       const attachmentBonus =
         auraReward -
         AURA_REWARDS.BASE_POST -
-        (input.hnStory ? AURA_REWARDS.HN_SHARE : 0);
+        (parsed.hnStory ? AURA_REWARDS.HN_SHARE : 0);
       if (attachmentBonus > 0) {
         await applyFlatAward(tx, {
           actorId: sessionData.user.id,

@@ -8,7 +8,33 @@ export interface PostRailCandidate {
   communityShare?: {
     community?: { accentColor?: string | null } | null;
   } | null;
+  parentPost?: {
+    community?: { accentColor?: string | null; slug?: string } | null;
+    user?: {
+      communityMemberships?: {
+        community?: {
+          accentColor?: string | null;
+          slug?: string | null;
+        } | null;
+      }[];
+    };
+  } | null;
   hnStoryShare?: unknown | null;
+}
+
+export function resolveResponseCommunityAccent(
+  parent: PostRailCandidate["parentPost"]
+): string | null | undefined {
+  const community = parent?.community;
+  if (!community) {
+    return undefined;
+  }
+  return (
+    community.accentColor ??
+    parent?.user?.communityMemberships?.find(
+      (membership) => membership.community?.slug === community.slug
+    )?.community?.accentColor
+  );
 }
 
 // Computes the left vertical indicator color for post cards.

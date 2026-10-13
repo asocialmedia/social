@@ -5,12 +5,14 @@ import { ImageOff } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 
+import { CommunityAttribution } from "@/components/communities/card/community-attribution";
 import UserAvatar from "@/components/layouts/user/user-avatar";
 import UserBadge from "@/components/layouts/user/user-badge";
 import PostLinkedContent from "@/components/posts/content/post-linked-content";
 import PostLinkEmbeds from "@/components/posts/embeds/link-embeds";
+import { communityAccentStyle } from "@/lib/communities/accent";
 import { isInteractiveTarget } from "@/lib/interactive-target";
 import { parseStoredEmbeds } from "@/lib/link-embeds/shared";
 import { getPostPath } from "@/lib/seo/seo";
@@ -34,6 +36,10 @@ export function ResponseParentRow({
   parentPostId,
 }: ResponseParentCardProps) {
   const router = useRouter();
+  const [natural, setNatural] = useState<{
+    width: number;
+    height: number;
+  } | null>(null);
   const href = parent
     ? getPostPath({
         community: parent.community,
@@ -86,98 +92,137 @@ export function ResponseParentRow({
   const displayName = parent.user?.displayName || username;
   const media = parent.attachments?.[0];
   const embeds = parseStoredEmbeds(parent.embeds);
+  const width = natural?.width ?? media?.width ?? 0;
+  const height = natural?.height ?? media?.height ?? 0;
+  const portrait = width > 0 && height >= width;
 
   return (
-    <div className="flex min-h-[2.75rem] items-stretch gap-3 sm:min-h-[3rem]">
-      <div className="flex w-9 shrink-0 flex-col items-center sm:w-10">
-        <Link
-          aria-label={`View @${username}'s profile`}
-          className="relative z-10 shrink-0"
-          href={`/users/${username}`}
-        >
-          <UserAvatar
-            className="h-9 w-9 sm:h-10 sm:w-10"
-            size={36}
-            user={parent.user}
-          />
-        </Link>
-        {
-          // Connector rail: continues the thread seamlessly from behind the parent avatar down to
-          // behind the reply avatar below.
-        }
+    <div className="relative" data-response-source={parentPostId}>
+      {parent.community ? (
         <span
           aria-hidden="true"
-          className="bg-border -mt-1 -mb-3 w-0.5 flex-1"
+          className="community-accent-rail pointer-events-none absolute inset-y-0 -left-4 w-0.5"
+          data-testid="response-source-community-rail"
+          style={communityAccentStyle(parent.community.accentColor ?? "ember")}
         />
-      </div>
-
-      <div
-        className="group/parent min-w-0 flex-1 cursor-pointer pb-1.5 sm:pb-2"
-        onClick={handleRowClick}
-        onKeyDown={handleRowKeyDown}
-      >
-        <div className="flex min-w-0 items-center gap-1.5 text-xs sm:gap-2 sm:text-sm">
+      ) : null}
+      {parent.community ? (
+        <CommunityAttribution
+          className="mb-2.5"
+          community={{
+            accentColor: parent.community.accentColor ?? "ember",
+            id: parent.community.id ?? parent.community.slug,
+            name: parent.community.name ?? parent.community.slug,
+            slug: parent.community.slug,
+          }}
+        />
+      ) : null}
+      <div className="flex min-h-[2.75rem] items-stretch gap-3 sm:min-h-[3rem]">
+        <div className="flex w-9 shrink-0 flex-col items-center sm:w-10">
           <Link
-            className="text-foreground truncate font-semibold hover:underline"
-            href={href}
-          >
-            {displayName}
-          </Link>
-          <UserBadge
-            badge={parent.user?.badge}
-            badges={parent.user?.badges}
-            communityRoles={parent.user?.communityMemberships}
-          />
-          <Link
-            className="text-muted-foreground truncate hover:underline"
+            aria-label={`View @${username}'s profile`}
+            className="relative z-10 shrink-0"
             href={`/users/${username}`}
           >
-            @{username}
-          </Link>
-          {parent.isGust ? (
-            <span className="bg-muted text-muted-foreground shrink-0 rounded-full px-1.5 text-[10px] font-semibold">
-              Gust
-            </span>
-          ) : null}
-          <span className="text-muted-foreground shrink-0">·</span>
-          <Link
-            className="text-muted-foreground shrink-0 hover:underline"
-            href={href}
-            suppressHydrationWarning
-          >
-            {formatRelativeDate(parent.createdAt)}
-          </Link>
-        </div>
-        {parent.content ? (
-          <div className="mt-1 line-clamp-6">
-            <PostLinkedContent content={parent.content} embeds={embeds} />
-          </div>
-        ) : null}
-        {media ? (
-          <div className="border-border/60 bg-muted/20 relative mt-2.5 block aspect-[16/10] max-h-72 w-full max-w-md overflow-hidden rounded-xl border sm:max-h-80 sm:max-w-lg">
-            <Image
-              alt=""
-              className="object-cover transition-transform duration-300 group-hover/parent:scale-[1.01]"
-              fill
-              sizes="(max-width: 640px) 100vw, 512px"
-              src={getMediaProxyUrl({
-                id: media.id,
-                type: media.type as string,
-              })}
-              unoptimized
+            <UserAvatar
+              className="h-9 w-9 sm:h-10 sm:w-10"
+              size={36}
+              user={parent.user}
             />
+          </Link>
+          {
+            // Connector rail: continues the thread seamlessly from behind the parent avatar down to
+            // behind the reply avatar below.
+          }
+          <span
+            aria-hidden="true"
+            className="bg-border -mt-1 -mb-3 w-0.5 flex-1"
+          />
+        </div>
+
+        <div
+          className="group/parent min-w-0 flex-1 cursor-pointer pb-1.5 sm:pb-2"
+          onClick={handleRowClick}
+          onKeyDown={handleRowKeyDown}
+        >
+          <div className="flex min-w-0 items-center gap-1.5 text-xs sm:gap-2 sm:text-sm">
+            <Link
+              className="text-foreground truncate font-semibold hover:underline"
+              href={href}
+            >
+              {displayName}
+            </Link>
+            <UserBadge
+              badge={parent.user?.badge}
+              badges={parent.user?.badges}
+              communityRoles={parent.user?.communityMemberships}
+            />
+            <Link
+              className="text-muted-foreground truncate hover:underline"
+              href={`/users/${username}`}
+            >
+              @{username}
+            </Link>
+            {parent.isGust ? (
+              <span className="bg-muted text-muted-foreground shrink-0 rounded-full px-1.5 text-[10px] font-semibold">
+                Gust
+              </span>
+            ) : null}
+            <span className="text-muted-foreground shrink-0">·</span>
+            <Link
+              className="text-muted-foreground shrink-0 hover:underline"
+              href={href}
+              suppressHydrationWarning
+            >
+              {formatRelativeDate(parent.createdAt)}
+            </Link>
           </div>
-        ) : null}
-        {embeds.length > 0 ? (
-          <div className="max-w-md sm:max-w-lg">
-            <PostLinkEmbeds embeds={embeds} />
-          </div>
-        ) : null}
-        {!parent.content && !media && embeds.length === 0 ? (
-          <p className="text-muted-foreground mt-1 min-w-0 text-xs italic sm:text-sm">
-            Post
-          </p>
-        ) : null}
+          {parent.content ? (
+            <div className="mt-1 line-clamp-6">
+              <PostLinkedContent content={parent.content} embeds={embeds} />
+            </div>
+          ) : null}
+          {media ? (
+            <div className="border-border/60 relative mt-2.5 block w-fit max-w-full overflow-hidden rounded-xl border">
+              <Image
+                alt=""
+                className={cn(
+                  "object-contain",
+                  portrait
+                    ? "h-72 w-auto max-w-full sm:h-80"
+                    : "h-auto max-h-80 w-auto max-w-full"
+                )}
+                width={width || 512}
+                height={height || 512}
+                onLoad={(event) => {
+                  const image = event.currentTarget;
+                  if (image.naturalWidth > 0) {
+                    setNatural({
+                      height: image.naturalHeight,
+                      width: image.naturalWidth,
+                    });
+                  }
+                }}
+                sizes="(max-width: 640px) 100vw, 512px"
+                src={getMediaProxyUrl({
+                  id: media.id,
+                  type: media.type as string,
+                })}
+                unoptimized
+              />
+            </div>
+          ) : null}
+          {embeds.length > 0 ? (
+            <div className="max-w-md sm:max-w-lg">
+              <PostLinkEmbeds embeds={embeds} />
+            </div>
+          ) : null}
+          {!parent.content && !media && embeds.length === 0 ? (
+            <p className="text-muted-foreground mt-1 min-w-0 text-xs italic sm:text-sm">
+              Post
+            </p>
+          ) : null}
+        </div>
       </div>
     </div>
   );

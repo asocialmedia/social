@@ -15,7 +15,6 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import avatarPlaceholder from "@/assets/images/avatar-placeholder.png";
 import { authClient } from "@/features/auth/lib/auth-client";
-import { resolveCommunityAccentColor } from "@/features/communities/lib/community-accents";
 import { fetchPostDetail } from "@/features/post/lib/post-api";
 import { postDetailCache, postDetailKey } from "@/features/post/lib/post-cache";
 import { usePrefetchProfile } from "@/features/profile";
@@ -45,6 +44,7 @@ import { parseStoredEmbeds } from "../lib/link-embeds";
 import { buildMoreEntries } from "../lib/more-entries";
 import { useMediaPreviewStore } from "../state/media-preview-store";
 import { useVideoCaptionsStore } from "../state/video-captions-store";
+import { CommunityAttribution } from "./community-attribution";
 import type { MenuAnchor } from "./more-menu";
 import {
   BookmarkToggle,
@@ -73,48 +73,6 @@ import {
 // Content past this length collapses behind Show more, mirroring web's
 // ~6-line clamp. BioContent cuts at segment boundaries so pills never split.
 const CONTENT_CLAMP_LENGTH = 400;
-
-function CommunityAttribution({
-  accentColor,
-  reason,
-  slug,
-}: {
-  accentColor?: string | null;
-  reason: boolean;
-  slug: string;
-}) {
-  const { theme, isDark } = useAppTheme();
-  const router = useRouter();
-  const resolvedColor = resolveCommunityAccentColor(accentColor, isDark);
-  return (
-    <Pressable
-      accessibilityLabel={`Community a/${slug}`}
-      accessibilityRole="link"
-      onPress={(event) => {
-        event.stopPropagation();
-        router.push({ params: { slug }, pathname: "/a/[slug]" });
-      }}
-      style={styles.attribution}
-    >
-      <View
-        style={[styles.attributionBar, { backgroundColor: resolvedColor }]}
-      />
-      <Text
-        numberOfLines={1}
-        style={[styles.attributionText, { color: theme.dividerText }]}
-      >
-        <Text style={{ color: theme.inputText, fontFamily: "SofiaProMed" }}>
-          a/{slug}
-        </Text>
-        {reason ? (
-          <Text style={{ color: theme.dividerText, fontFamily: "SofiaProReg" }}>
-            {" · "}Trending in a/{slug}
-          </Text>
-        ) : null}
-      </Text>
-    </Pressable>
-  );
-}
 
 function ThreadRail({
   hasThreadChild,
@@ -195,6 +153,7 @@ export const PostCard = memo(
 
     const apiBase = getApiBaseUrl();
     const author = post.user;
+    const contextCommunity = post.community;
     const displayName = author?.displayName || author?.username || "unknown";
     const username = author?.username ?? "unknown";
     const authorSeed = author?.username || author?.id || null;
@@ -322,11 +281,11 @@ export const PostCard = memo(
             <ResponseParentRow post={post} />
           ) : null}
 
-          {post.community && showCommunity ? (
+          {contextCommunity && showCommunity ? (
             <CommunityAttribution
-              accentColor={post.community.accentColor}
-              reason={showCommunityReason}
-              slug={post.community.slug}
+              accentColor={contextCommunity.accentColor}
+              reason={Boolean(post.community) && showCommunityReason}
+              slug={contextCommunity.slug}
             />
           ) : null}
 
@@ -612,24 +571,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "normal",
     marginTop: 6,
-  },
-  attribution: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 8,
-    marginBottom: 10,
-  },
-  attributionBar: {
-    borderRadius: 9999,
-    height: 14,
-    width: 2,
-  },
-  attributionText: {
-    flex: 1,
-    fontFamily: "SofiaProMed",
-    fontSize: 12,
-    fontWeight: "normal",
-    minWidth: 0,
   },
   authorIdentity: {
     alignItems: "center",

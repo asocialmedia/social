@@ -327,6 +327,7 @@ const PostContent: React.FC<PostContentProps> = ({
   const contentRef = useRef<HTMLDivElement>(null);
   const [isOverflowing, setIsOverflowing] = useState(false);
   const attachments = post.attachments ?? [];
+  const contextCommunity = post.community;
   const [firstMedia] = attachments;
   // Validated stored embed payloads drive both the inline link badges and
   // the preview cards below the post.
@@ -408,12 +409,17 @@ const PostContent: React.FC<PostContentProps> = ({
           set above the avatar so the space it belongs to reads first, before
           the author. Suppressed inside that community's own feed, where the
           attribution is redundant; ranked feeds add the reason line. */}
-      {post.community && showCommunity ? (
+      {contextCommunity && showCommunity ? (
         <CommunityAttribution
           className="mb-2.5"
-          community={post.community}
+          community={{
+            accentColor: contextCommunity.accentColor ?? "ember",
+            id: contextCommunity.id ?? contextCommunity.slug,
+            name: contextCommunity.name ?? contextCommunity.slug,
+            slug: contextCommunity.slug,
+          }}
           reason={
-            showCommunityReason
+            post.community && showCommunityReason
               ? `Trending in a/${post.community.slug}`
               : undefined
           }
@@ -922,16 +928,14 @@ const PostCard: React.FC<PostCardProps> = ({
   let railStyle: React.CSSProperties | undefined;
   let railClassName =
     "pointer-events-none absolute inset-y-0 left-0 z-10 w-0.5";
-  if (post.community) {
-    railStyle = communityAccentStyle(post.community.accentColor);
-    railClassName = cn(
-      railClassName,
-      "bg-[var(--community-accent)] dark:bg-[var(--community-accent-dark)]"
-    );
+  const railCommunity = post.community ?? post.communityShare?.community;
+  if (railCommunity) {
+    railStyle = communityAccentStyle(post.community?.accentColor ?? "ember");
+    railClassName = cn(railClassName, "community-accent-rail");
   } else if (hasHnIndicator) {
     railClassName = cn(railClassName, "bg-orange-500");
   }
-  const showRail = Boolean(post.community) || hasHnIndicator;
+  const showRail = Boolean(railCommunity) || hasHnIndicator;
 
   return (
     // oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- full card is clickable for post navigation while maintaining semantic article structure

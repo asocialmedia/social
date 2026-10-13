@@ -2,15 +2,24 @@
 // naming the post being responded to (avatar, name, badge, @handle, Gust
 // chip, · date), its text (scrolls past 208px), and a "Replying to
 // @username" footer, with an X that turns the composer back into a normal
-// post. The attachment strip is summarized as a count chip (web renders
-// non-interactive previews there).
-import { CornerDownRight, ImageIcon, X } from "lucide-react-native";
+// post. Quoted media stays non-interactive, and source links keep their preview cards.
+import { CornerDownRight, X } from "lucide-react-native";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { UserAvatar } from "@/components/avatar/user-avatar";
-import { themeText } from "@/components/surface/recipes";
+import { panel3d, themeText } from "@/components/surface/recipes";
+import { CommunityAttribution } from "@/features/feed/components/community-attribution";
+import {
+  HNStoryCard,
+  CommunityShareCard,
+} from "@/features/feed/components/post-embeds";
+import { PostLinkEmbeds } from "@/features/feed/components/post-link-embeds";
+import { MediaGallery } from "@/features/feed/components/post-media";
 import { formatRelativeDate } from "@/features/feed/lib/feed-types";
+import { parseStoredEmbeds } from "@/features/feed/lib/link-embeds";
+import { BioContent } from "@/features/home/components/bio-content";
 import { UserBadge } from "@/features/home/components/user-badge";
+import { getApiBaseUrl } from "@/lib/api-env";
 import { SHOWS_SCROLL_INDICATOR } from "@/lib/scroll-indicator";
 import { useAppTheme } from "@/theme";
 
@@ -25,21 +34,28 @@ export function ResponsePreview({
 }) {
   const { isDark } = useAppTheme();
   const text = themeText(isDark);
-  const attachmentCount = replyTo.attachments?.length ?? 0;
+  const panel = panel3d(isDark);
+  const attachments = replyTo.attachments ?? [];
+  const embeds = parseStoredEmbeds(replyTo.embeds);
+  const apiBase = getApiBaseUrl();
   return (
     <View
       style={[
         styles.card,
         {
-          backgroundColor: isDark
-            ? "rgba(48, 48, 48, 0.2)"
-            : "rgba(232, 232, 232, 0.2)",
-          borderColor: isDark
-            ? "rgba(255, 255, 255, 0.1)"
-            : "rgba(0, 0, 0, 0.08)",
+          backgroundColor: panel.background,
+          borderColor: panel.border,
+          boxShadow: panel.shadows,
         },
       ]}
     >
+      {replyTo.community ? (
+        <CommunityAttribution
+          slug={replyTo.community.slug}
+          accentColor={replyTo.community.accentColor}
+          reason={false}
+        />
+      ) : null}
       <View style={styles.top}>
         <UserAvatar radius={12} size={36} url={replyTo.avatarUrl} />
         <View style={styles.body}>
@@ -51,7 +67,11 @@ export function ResponsePreview({
               >
                 {replyTo.displayName || replyTo.username}
               </Text>
-              <UserBadge badge={replyTo.badge} badges={replyTo.badges} />
+              <UserBadge
+                badge={replyTo.badge}
+                badges={replyTo.badges}
+                communityRoles={replyTo.communityMemberships}
+              />
               <Text
                 numberOfLines={1}
                 style={[styles.meta, styles.shrink, { color: text.muted }]}
@@ -92,18 +112,32 @@ export function ResponsePreview({
               style={styles.contentScroll}
               showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
             >
-              <Text style={[styles.content, { color: text.foreground }]}>
-                {replyTo.content}
-              </Text>
+              <BioContent apiBase={apiBase} bio={replyTo.content} />
             </ScrollView>
           ) : null}
-          {attachmentCount > 0 ? (
-            <View style={styles.attachments}>
-              <ImageIcon color={text.muted} size={14} />
-              <Text style={[styles.meta, { color: text.muted }]}>
-                {attachmentCount} attachment{attachmentCount === 1 ? "" : "s"}
-              </Text>
+          {attachments.length > 0 ? (
+            <View pointerEvents="none" style={styles.attachments}>
+              <MediaGallery
+                active={false}
+                apiBase={apiBase}
+                attachments={attachments}
+                postId={replyTo.id}
+              />
             </View>
+          ) : null}
+          {replyTo.hnStoryShare ? (
+            <HNStoryCard post={{ hnStoryShare: replyTo.hnStoryShare }} />
+          ) : null}
+          {replyTo.communityShare ? (
+            <CommunityShareCard
+              post={{
+                community: replyTo.community,
+                communityShare: replyTo.communityShare,
+              }}
+            />
+          ) : null}
+          {embeds.length > 0 ? (
+            <PostLinkEmbeds apiBase={apiBase} embeds={embeds} />
           ) : null}
         </View>
       </View>
@@ -131,10 +165,9 @@ export function ResponsePreview({
 
 const styles = StyleSheet.create({
   attachments: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 6,
+    borderRadius: 12,
     marginTop: 10,
+    overflow: "hidden",
   },
   body: {
     flex: 1,
