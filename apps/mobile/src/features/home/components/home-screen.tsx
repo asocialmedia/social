@@ -207,6 +207,7 @@ export default function HomeScreen() {
           overlay={
             isLoggedIn && !composerOpen ? (
               <Reanimated.View
+                collapsable={false}
                 onLayout={(event) =>
                   setComposerHeight(event.nativeEvent.layout.height)
                 }
@@ -303,6 +304,7 @@ const styles = StyleSheet.create({
     position: "absolute",
     right: 0,
     top: 0,
+    zIndex: 1,
   },
   content: {
     flex: 1,

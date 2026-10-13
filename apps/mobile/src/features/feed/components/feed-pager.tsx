@@ -213,7 +213,7 @@ export function FeedPager({
       style={styles.viewport}
     >
       <GestureDetector gesture={gesture}>
-        <View style={styles.viewport}>
+        <View collapsable={false} style={styles.viewport}>
           <Animated.View style={[styles.track, animatedStyle]}>
             {children.map((child, index) => {
               const mounted = index >= retained.first && index <= retained.last;

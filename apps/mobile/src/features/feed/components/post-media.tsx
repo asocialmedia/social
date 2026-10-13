@@ -312,7 +312,8 @@ function SingleImage({
       <Pressable
         accessibilityLabel={media.altText ?? "Open post media"}
         accessibilityRole="link"
-        onPress={() => {
+        onPress={(event) => {
+          event.stopPropagation();
           if (!useMediaPreviewStore.getState().request) {
             onPressMedia(index);
           }
@@ -375,7 +376,8 @@ function GridImage({
       <Pressable
         accessibilityLabel={media.altText ?? "Open post media"}
         accessibilityRole="link"
-        onPress={() => {
+        onPress={(event) => {
+          event.stopPropagation();
           if (!useMediaPreviewStore.getState().request) {
             onPressMedia(index);
           }
@@ -790,7 +792,8 @@ function VideoTile({
       <Pressable
         accessibilityLabel={media.altText ?? previewLabel}
         accessibilityRole={onPressPreview ? "link" : "button"}
-        onPress={() => {
+        onPress={(event) => {
+          event.stopPropagation();
           if (!useMediaPreviewStore.getState().request) {
             (onPressPreview ?? togglePlayback)();
           }
