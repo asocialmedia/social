@@ -1,9 +1,19 @@
+// oxlint-disable-next-line typescript/triple-slash-reference -- Consumers typecheck workspace sources without including this package's ambient declarations.
+/// <reference path="../sql.d.ts" />
 import { and } from "@prisma/orm-postgres/orm-client";
 
+import sessionLimitSql from "../sql/session-limit.sql" with { type: "text" };
 import { toPrismaDateTime } from "./dates";
 import { rawQuery } from "./messages/infrastructure/raw-sql";
+import { readSqlBundle } from "./messages/infrastructure/sql-template";
 import prisma from "./prisma";
 import { publishSessionRevocation } from "./redis";
+
+const {
+  enforceAccountSessionLimit: { lockUser },
+} = readSqlBundle(sessionLimitSql, {
+  enforceAccountSessionLimit: ["lockUser"],
+} as const);
 
 export const ACCOUNT_SESSION_LIMIT = 4;
 
@@ -13,7 +23,7 @@ export async function enforceAccountSessionLimit(
   const revokedIds = await prisma.transaction(async (transaction) => {
     // Serialize pruning across auth instances and concurrent sign-ins for this account.
     await rawQuery<{ id: string }>(
-      'SELECT "id" FROM "users" WHERE "id" = $1 FOR UPDATE',
+      lockUser,
       [userId],
       { id: "pg/text@1" },
       transaction
