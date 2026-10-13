@@ -1,6 +1,6 @@
 {
   "name": "@asocialmedia/social",
-  "version": "1.10.19",
+  "version": "1.10.21",
   "private": true,
   "homepage": "https://asocialmedia.cc",
   "license": "AGPL-3.0",
@@ -65,5 +65,8 @@
     "react-native-safe-area-context": "5.7.0",
     "react-native-svg": "15.15.5"
   },
-  "packageManager": "bun@1.4.0"
+  "packageManager": "bun@1.4.0",
+  "patchedDependencies": {
+    "expo-web-browser@57.0.3": "patches/expo-web-browser@57.0.3.patch"
+  }
 }

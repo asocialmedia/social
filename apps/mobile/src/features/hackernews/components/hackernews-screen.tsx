@@ -55,13 +55,14 @@ export function HackerNewsScreen() {
   const [search, setSearch] = useState("");
   const [query, setQuery] = useState("");
   const [dockHeight, setDockHeight] = useState(56);
-  // Measured so the chrome can slide the tabs fully out of view while the
-  // search bar, which sits below them, comes to rest at the very top.
+  // Measured from the tabs' natural (unclipped) height, so it is real from the
+  // first layout. The wrapper is never given a zero height up front, which is
+  // what previously made the strip measure as 0 and stay collapsed forever.
   const [tabsHeight, setTabsHeight] = useState(0);
   // Local, JS-driven companion to the native header slide. The header's shared
-  // value cannot carry a height (native driver forbids layout props), so the
-  // tabs collapse on this one, kept in lockstep by the same visibility signal;
-  // as they shrink, the search row below rides up into their place.
+  // value cannot carry a layout change (the native driver forbids it), so the
+  // tabs' space collapses on this one, kept in lockstep by the same visibility
+  // signal; as it closes, the search row below rides up into its place.
   // oxlint-disable-next-line react/hook-use-state -- single stable Animated.Value created once; driven by the subscription below
   const [tabsLift] = useState(() => new Animated.Value(0));
 
@@ -190,11 +191,26 @@ export function HackerNewsScreen() {
         <Animated.View
           style={[
             styles.tabsWrap,
-            { height: tabsCollapse, overflow: "hidden" },
+            {
+              // Until the strip has measured its natural height the wrapper is
+              // left unconstrained: clipping it to a height derived from a
+              // not-yet-measured value of 0 collapsed it on Android and it
+              // could never report anything but 0 again.
+              height: tabsHeight > 0 ? tabsCollapse : undefined,
+              overflow: "hidden",
+            },
           ]}
         >
           <View
-            onLayout={(event) => setTabsHeight(event.nativeEvent.layout.height)}
+            onLayout={(event) => {
+              // Only accept a real measurement: once the wrapper is clipping the
+              // strip, Android reports the collapsed 0, and writing that back
+              // would drop the strip to zero height for good.
+              const { height } = event.nativeEvent.layout;
+              if (height > 0) {
+                setTabsHeight(height);
+              }
+            }}
           >
             <FeedTabs active={sort} onChange={setSort} tabs={HN_SORT_OPTIONS} />
           </View>

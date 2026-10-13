@@ -1,6 +1,6 @@
 {
   "name": "@asocialmedia/mobile",
-  "version": "0.1.85",
+  "version": "0.1.87",
   "private": true,
   "main": "expo-router/entry",
   "scripts": {
@@ -90,5 +90,14 @@
     "@types/react": "^19.2.18",
     "bun-types": "^1.4.0",
     "typescript": "^7.0.2"
+  },
+  "expo": {
+    "autolinking": {
+      "android": {
+        "buildFromSource": [
+          "expo-web-browser"
+        ]
+      }
+    }
   }
 }

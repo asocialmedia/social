@@ -34,6 +34,7 @@ import {
   hasNativeGoogle,
   signInWithGoogleNative,
 } from "@/features/auth/lib/google-native";
+import { describePasskeyFailure } from "@/features/auth/lib/passkey-errors";
 import { classifySessionRefresh } from "@/features/auth/lib/session-connection";
 import type { SessionRefreshResult } from "@/features/auth/lib/session-connection";
 import { useInstall } from "@/features/auth/state/install";
@@ -109,8 +110,8 @@ const CANCELLED: { cancelled: true; ok: false } = {
 
 // Shapes a failed call for the screen. The technical detail (server code,
 // raw message) only goes to the log, never to the banner.
-function failure(error: unknown): SignInFailure {
-  const info = describeAuthError(error);
+function failure(error: unknown, fallback?: string): SignInFailure {
+  const info = describeAuthError(error, fallback);
   if (info.detail) {
     logWarn("auth.server_error", { detail: info.detail, kind: info.kind });
   }
@@ -360,7 +361,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       try {
         const result = await passkey();
         if (result?.error) {
-          return failure(result.error);
+          const described = describePasskeyFailure(result.error);
+          return "cancelled" in described
+            ? CANCELLED
+            : failure(result.error, described.error);
         }
         const confirmed = await confirmSession();
         if (confirmed.ok) {
@@ -369,8 +373,12 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         }
         return { error: PASSKEY_FAILED_ERROR, kind: "unknown", ok: false };
       } catch (error) {
+        const described = describePasskeyFailure(error);
+        if ("cancelled" in described) {
+          return CANCELLED;
+        }
         logError("auth.passkey_sign_in_failed", error);
-        return failure(error);
+        return failure(error, described.error);
       }
     };
     const result = await runWithInstallToken(attempt, needsInstallToken);
