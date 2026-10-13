@@ -1,4 +1,9 @@
-import { fromPrismaDateTime, isReservedUsername, prisma } from "@asm/db";
+import {
+  enforceAccountSessionLimit,
+  fromPrismaDateTime,
+  isReservedUsername,
+  prisma,
+} from "@asm/db";
 import { createLogger } from "@asm/logger";
 import { expo } from "@better-auth/expo";
 import { passkey } from "@better-auth/passkey";
@@ -25,6 +30,7 @@ import { validateEmailAdvanced } from "../validation/email-validator";
 import { buildPasskeyOrigins } from "./passkey-origins";
 import { hashPasswordWithScrypt, verifyPasswordHash } from "./password";
 import { prismaAdapter } from "./prisma-adapter";
+import { sessionMetadata } from "./session-metadata";
 
 const DEFAULT_AVATARS = ["/avatars/default-1.png", "/avatars/default-2.png"];
 
@@ -675,6 +681,9 @@ export function createAuthConfig(config: AuthConfig = {}) {
       },
       session: {
         create: {
+          after: async (session) => {
+            await enforceAccountSessionLimit(session.userId);
+          },
           before: async (session, context) => {
             const user = await prisma.orm.public.Users.select(
               "banExpires",
@@ -706,13 +715,15 @@ export function createAuthConfig(config: AuthConfig = {}) {
               }
             }
 
-            const country = context?.request?.headers
-              .get("cf-ipcountry")
-              ?.trim()
-              .toUpperCase();
-            if (country && /^[A-Z]{2}$/.test(country)) {
-              return { data: { country } };
-            }
+            return {
+              data: {
+                ...session,
+                ...sessionMetadata(
+                  session,
+                  context?.headers ?? context?.request?.headers
+                ),
+              },
+            };
           },
         },
       },

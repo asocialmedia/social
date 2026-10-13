@@ -4,7 +4,7 @@ import type { UserData } from "@asm/db";
 import { Button } from "@asm/ui/shadui/button";
 import asmLogo from "@assets/asm.png";
 import { useQuery } from "@tanstack/react-query";
-import { Bell, Search } from "lucide-react";
+import { ArrowLeft, Bell, Search } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import type React from "react";
@@ -17,7 +17,7 @@ import { useUnreadNotificationCount } from "@/hooks/notifications/use-unread-not
 import kyInstance from "@/lib/ky";
 import { cn } from "@/lib/utils";
 
-const MobileTopBar: React.FC = () => {
+const MobileTopBar: React.FC<{ backHref?: string }> = ({ backHref }) => {
   const { user } = useSession();
   const { openSpotlight } = useSpotlight();
   const { data: notificationData } = useUnreadNotificationCount();
@@ -51,7 +51,23 @@ const MobileTopBar: React.FC = () => {
 
   return (
     <div className="border-border/60 relative flex items-center gap-2 border-b px-3 py-2 md:hidden">
-      <div className="flex w-10 shrink-0 items-center">{profileTrigger()}</div>
+      <div
+        className={cn(
+          "flex shrink-0 items-center gap-2",
+          backHref ? "w-auto" : "w-10"
+        )}
+      >
+        {backHref ? (
+          <Link
+            href={backHref}
+            aria-label="Back to profile"
+            className="icon-btn-3d flex size-8 items-center justify-center rounded-full"
+          >
+            <ArrowLeft className="size-4" />
+          </Link>
+        ) : null}
+        {profileTrigger()}
+      </div>
 
       {/* Out of flow and pinned to the bar's own centerline: the side columns
           have different widths, so centering within the leftover space would

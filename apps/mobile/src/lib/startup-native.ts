@@ -7,6 +7,7 @@ import { hydrateFeedCache } from "@/features/feed/state/feed-store";
 import { hydrateHomeTabMemory } from "@/features/feed/state/tab-store-native";
 import { hydratePopupCache } from "@/features/home/components/profile-cache";
 import { hydratePostDetailCache } from "@/features/post/lib/post-cache";
+import { hydrateThemePreference } from "@/theme/theme-preference-native";
 
 import { loadLaunchResumeRoute } from "./app-resume";
 import { prepareStartup } from "./startup";
@@ -40,6 +41,7 @@ async function hydrateSession(): Promise<void> {
 let preparation: Promise<void> | undefined;
 export function prepareNativeStartup(): Promise<void> {
   preparation ??= prepareStartup([
+    hydrateThemePreference,
     hydrateSession,
     hydrateFeedCache,
     hydrateMediaDimensions,

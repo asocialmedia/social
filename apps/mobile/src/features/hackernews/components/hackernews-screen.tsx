@@ -41,8 +41,7 @@ export function HackerNewsScreen() {
   const { isPending, user } = useSessionContext();
   const showUser = !isPending && Boolean(user);
   const unreadCount = useUnreadNotificationCount(user?.id ?? null, showUser);
-  const openComposer = useComposerStore((state) => state.open);
-  const setDraft = useComposerStore((state) => state.setDraft);
+  const openWithContext = useComposerStore((state) => state.openWithContext);
 
   const params = useLocalSearchParams<{ sort?: string | string[] }>();
   const initialSort = Array.isArray(params.sort) ? params.sort[0] : params.sort;
@@ -85,27 +84,26 @@ export function HackerNewsScreen() {
         router.push("/(auth)/login");
         return;
       }
-      setDraft({
-        hnStory: {
+      openWithContext({
+        kind: "hn",
+        story: {
           by: story.by,
           // HnStory names it `comments`; the publish shape names it
           // `descendants`, which is the field the Hacker News API uses.
           descendants: story.comments,
           score: story.score,
-          // HnStory.id is a number, and the publish shape wants a string.
-          storyId: String(story.id),
+          storyId: story.id,
           time: story.time,
           title: story.title,
           url: story.url,
         },
       });
-      openComposer("post", null);
       toast({
         description: "Add your thoughts and share it with your followers!",
         title: "Story Ready",
       });
     },
-    [openComposer, router, setDraft, user]
+    [openWithContext, router, user]
   );
 
   // The hide-on-scroll signal is module state shared with MobileHeader and the

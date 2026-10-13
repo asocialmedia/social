@@ -1,3 +1,10 @@
+import {
+  ArrowUp,
+  Clapperboard,
+  ImagePlus,
+  Pencil,
+  X,
+} from "lucide-react-native";
 // The message composer: text, reply and edit context, attachments, and send.
 //
 // Ported from apps/web/src/components/messages/message-composer.tsx, with the
@@ -13,8 +20,6 @@
 // READY, so a message that went out early would hand the peer a broken image. It
 // also means one slow photo does not send the rest out of order, and the ratchet
 // chain stays in step with what the peer can actually read.
-
-import { ArrowUp, Clapperboard, ImagePlus, X } from "lucide-react-native";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Image,
@@ -30,6 +35,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { toast } from "@/components/feedback/toast";
 import { GifPicker } from "@/components/media/gif-picker";
 import { Gradient3D } from "@/components/surface/gradient-3d";
+import { IconButton3D } from "@/components/surface/icon-button-3d";
 import { authClient } from "@/features/auth/lib/auth-client";
 import {
   downloadGif,
@@ -45,15 +51,20 @@ import {
   linkMessageMedia,
 } from "@/features/messages/lib/client";
 import type { MessagePayload } from "@/features/messages/lib/crypto";
+import { deliverMessages } from "@/features/messages/lib/deliver-messages";
 import {
   panel3d,
   reelsInput,
   sendButton,
 } from "@/features/messages/lib/message-recipes";
 import { useMessagesForeground } from "@/features/messages/state/use-messages-foreground";
+import { useProfileMediaCropper } from "@/features/profile/components/profile-media-cropper";
 import { getApiBaseUrl } from "@/lib/api-env";
 import { logWarn } from "@/lib/telemetry";
 import { useAppTheme } from "@/theme";
+
+import { useSharedPostDraft } from "../state/shared-post-draft";
+import { MessagePostPreview } from "./message-post-preview";
 
 // The payload validator caps an album at 10, so the picker does too.
 const MAX_MESSAGE_ATTACHMENTS = 10;
@@ -128,6 +139,10 @@ export function MessageComposer({
   // What the user has typed this session, keyed by nothing: it survives a cancel so
   // cancelling an edit restores what they had before it.
   const [draft, setDraft] = useState("");
+  const sharedPostId = useSharedPostDraft(
+    (state) => state.drafts[conversationId]
+  );
+  const { crop, cropper } = useProfileMediaCropper();
   const [attachments, setAttachments] = useState<StagedAttachment[]>([]);
   const [sending, setSending] = useState(false);
   const typingSent = useRef(false);
@@ -187,7 +202,9 @@ export function MessageComposer({
     !disabled &&
     !sending &&
     !isUploading &&
-    (fieldValue.trim().length > 0 || attachments.length > 0) &&
+    (fieldValue.trim().length > 0 ||
+      attachments.length > 0 ||
+      Boolean(sharedPostId)) &&
     attachments.every((item) => item.error === null && item.mediaId !== null);
 
   const stopTyping = useCallback(() => {
@@ -260,6 +277,48 @@ export function MessageComposer({
     })();
   }, [conversationId, update]);
 
+  const editAttachment = async (item: StagedAttachment) => {
+    Keyboard.dismiss();
+    try {
+      const result = await crop(
+        { purpose: "message", source: item.file },
+        "post"
+      );
+      if (!result) {
+        return;
+      }
+      const staged: StagedAttachment = {
+        error: null,
+        file: { ...result.source, size: result.source.size ?? 0 },
+        id: `${item.id}-edit-${result.source.uri}`,
+        mediaId: null,
+        owned: false,
+        progress: 0,
+      };
+      setAttachments((current) =>
+        current.map((entry) => (entry.id === item.id ? staged : entry))
+      );
+      await uploadStagedAttachments([staged], {
+        aborts,
+        conversationId,
+        onPatch: update,
+      });
+      if (item.mediaId && item.owned) {
+        void discardMessageMedia(item.mediaId, {
+          apiBase: getApiBaseUrl(),
+          baseFetch: fetch,
+        });
+      }
+    } catch (error) {
+      toast({
+        description:
+          error instanceof Error ? error.message : "Try another image",
+        title: "Couldn't edit image",
+        variant: "destructive",
+      });
+    }
+  };
+
   const remove = useCallback((id: string) => {
     aborts.current.get(id)?.abort();
     aborts.current.delete(id);
@@ -287,16 +346,20 @@ export function MessageComposer({
         setSending(false);
       },
       onSuccess: () => {
+        useSharedPostDraft.getState().clear(conversationId);
         setDraft("");
         setAttachments([]);
         onCancelEdit();
         onCancelReply();
         stopTyping();
       },
+      postId: sharedPostId,
       replyTo,
       send: onSend,
     });
   }, [
+    conversationId,
+    sharedPostId,
     attachments,
     canSend,
     onCancelEdit,
@@ -319,6 +382,29 @@ export function MessageComposer({
         },
       ]}
     >
+      {cropper}
+      {sharedPostId ? (
+        <View
+          style={{
+            alignSelf: "flex-start",
+            marginBottom: 8,
+            maxWidth: 320,
+            width: "100%",
+          }}
+        >
+          <MessagePostPreview postId={sharedPostId} />
+          <View style={{ position: "absolute", right: 8, top: 8 }}>
+            <IconButton3D
+              accessibilityLabel="Remove shared post"
+              icon={X}
+              size={28}
+              onPress={() =>
+                useSharedPostDraft.getState().clear(conversationId)
+              }
+            />
+          </View>
+        </View>
+      ) : null}
       {editing ? (
         <ContextBar
           label="Editing message"
@@ -340,6 +426,9 @@ export function MessageComposer({
               attachment={item}
               key={item.id}
               onRemove={() => remove(item.id)}
+              onEdit={() => {
+                void editAttachment(item);
+              }}
             />
           ))}
         </View>
@@ -379,7 +468,7 @@ export function MessageComposer({
         <Pressable
           accessibilityLabel="Add photo"
           accessibilityRole="button"
-          disabled={disabled || atCapacity}
+          disabled={disabled || atCapacity || Boolean(sharedPostId)}
           hitSlop={4}
           onPress={attach}
           style={styles.attachButton}
@@ -389,7 +478,7 @@ export function MessageComposer({
         <Pressable
           accessibilityLabel="Add GIF"
           accessibilityRole="button"
-          disabled={disabled || atCapacity}
+          disabled={disabled || atCapacity || Boolean(sharedPostId)}
           hitSlop={4}
           onPress={() => {
             Keyboard.dismiss();
@@ -560,6 +649,7 @@ async function stageOneAttachment(
  */
 async function runSend(input: {
   attachments: StagedAttachment[];
+  postId?: string;
   caption: string;
   onSettled: () => void;
   onSuccess: () => void;
@@ -570,6 +660,7 @@ async function runSend(input: {
     attachments: input.attachments,
     caption: input.caption,
     onSend: input.send,
+    postId: input.postId,
     replyTo: input.replyTo,
   });
   await delivery.then(
@@ -594,61 +685,6 @@ async function runSend(input: {
     }
   );
   input.onSettled();
-}
-
-/**
- * Delivers the composer draft.
- *
- * A media payload carries ONE `kind` for all of its images, so a mixed batch (photos
- * plus a GIF) becomes two messages rather than one malformed one. The caption goes
- * on the first only: repeating it would read as a duplicate.
- */
-async function deliverMessages(input: {
-  attachments: StagedAttachment[];
-  caption: string;
-  onSend: (payload: MessagePayload) => Promise<void>;
-  replyTo: ComposerTarget | null;
-}): Promise<void> {
-  const { attachments, caption, onSend, replyTo } = input;
-  if (attachments.length === 0) {
-    await onSend({
-      content: caption,
-      replyToId: replyTo?.id,
-      replyToSenderId: replyTo?.senderId,
-      type: "text",
-    });
-    return;
-  }
-  const photos = attachments.filter(
-    (item) => item.file.mimeType !== "image/gif"
-  );
-  const gifs = attachments.filter((item) => item.file.mimeType === "image/gif");
-  if (photos.length > 0) {
-    await onSend(buildMediaPayload(photos, "image", caption, replyTo));
-  }
-  if (gifs.length > 0) {
-    await onSend(buildMediaPayload(gifs, "gif", "", replyTo));
-  }
-}
-
-function buildMediaPayload(
-  items: StagedAttachment[],
-  kind: "gif" | "image",
-  caption: string,
-  replyTo: ComposerTarget | null
-): MessagePayload {
-  return {
-    content: caption || undefined,
-    images: items.map((item) => ({
-      height: item.file.height,
-      url: `/api/media/${item.mediaId}`,
-      width: item.file.width,
-    })),
-    kind,
-    replyToId: replyTo?.id,
-    replyToSenderId: replyTo?.senderId,
-    type: "media",
-  };
 }
 
 /**
@@ -720,9 +756,11 @@ function ContextBar({
 function AttachmentTile({
   attachment,
   onRemove,
+  onEdit,
 }: {
   attachment: StagedAttachment;
   onRemove: () => void;
+  onEdit: () => void;
 }) {
   const { theme } = useAppTheme();
   return (
@@ -731,6 +769,20 @@ function AttachmentTile({
         source={{ uri: attachment.file.uri }}
         style={StyleSheet.absoluteFill}
       />
+      {attachment.progress === null ? (
+        <View style={{ bottom: 4, left: 4, position: "absolute" }}>
+          <IconButton3D
+            accessibilityLabel={
+              attachment.file.mimeType === "image/gif"
+                ? "Edit GIF"
+                : "Edit image"
+            }
+            icon={Pencil}
+            size={28}
+            onPress={onEdit}
+          />
+        </View>
+      ) : null}
       {attachment.progress === null ? null : (
         <View
           accessibilityRole="progressbar"

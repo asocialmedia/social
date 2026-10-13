@@ -3,9 +3,18 @@
 // fleet mode, since responses are always fleets.
 import { create } from "zustand";
 
-import type { FeedMedia, FeedPost } from "@/features/feed/lib/feed-types";
+import type {
+  FeedMedia,
+  FeedPost,
+  FeedUser,
+} from "@/features/feed/lib/feed-types";
 import { haptic } from "@/lib/haptics";
 
+import {
+  draftForComposerOpen,
+  draftWithContext,
+} from "../lib/composer-context";
+import type { ComposerContext } from "../lib/composer-context";
 import type { MentionPick } from "../lib/inline-relations";
 
 export type ComposerMode = "gust" | "post";
@@ -20,6 +29,11 @@ export interface ReplyTarget {
   displayName: string | null;
   id: string;
   isGust?: boolean;
+  community?: FeedPost["community"];
+  communityMemberships?: FeedUser["communityMemberships"];
+  embeds?: FeedPost["embeds"];
+  hnStoryShare?: FeedPost["hnStoryShare"];
+  communityShare?: FeedPost["communityShare"];
   username: string;
 }
 
@@ -31,7 +45,7 @@ export interface HnShareDraft {
   by?: string | null;
   descendants?: number | null;
   score?: number | null;
-  storyId: string;
+  storyId: number;
   time?: number | null;
   title: string;
   url?: string | null;
@@ -44,7 +58,14 @@ export interface ComposerDraft {
   // communitySharePostId so the server records the share side row, and a pure
   // reshare is allowed to have no caption of its own.
   communityId?: string;
+  communitySlug?: string;
   communitySharePostId?: string;
+  communityShare?: {
+    sourcePostId: string;
+    slug: string;
+    name: string;
+    accentColor?: string | null;
+  };
   // Set by the Hacker News card's "Reshare as fleet".
   hnStory?: HnShareDraft;
   mentions: MentionPick[];
@@ -62,6 +83,7 @@ interface ComposerState {
   isOpen: boolean;
   mode: ComposerMode;
   open: (mode?: ComposerMode, replyTo?: ReplyTarget | null) => void;
+  openWithContext: (context: ComposerContext) => void;
   replyTo: ReplyTarget | null;
   setMode: (mode: ComposerMode) => void;
   clearReplyTo: () => void;
@@ -76,7 +98,21 @@ export const useComposerStore = create<ComposerState>((set) => ({
   mode: "post",
   open: (mode = "post", replyTo = null) => {
     haptic();
-    set({ isOpen: true, mode: replyTo ? "post" : mode, replyTo });
+    set((state) => ({
+      draft: draftForComposerOpen(state.draft, mode, replyTo !== null),
+      isOpen: true,
+      mode: replyTo ? "post" : mode,
+      replyTo,
+    }));
+  },
+  openWithContext: (context) => {
+    haptic();
+    set((state) => ({
+      draft: draftWithContext(state.draft, context),
+      isOpen: true,
+      mode: "post",
+      replyTo: null,
+    }));
   },
   replyTo: null,
   setDraft: (draft) =>
@@ -90,9 +126,14 @@ export function replyTargetFromPost(post: FeedPost): ReplyTarget {
     avatarUrl: post.user?.avatarUrl ?? null,
     badge: post.user?.badge ?? null,
     badges: post.user?.badges ?? null,
+    community: post.community,
+    communityMemberships: post.user?.communityMemberships,
+    communityShare: post.communityShare,
     content: post.content ?? "",
     createdAt: post.createdAt,
     displayName: post.user?.displayName ?? null,
+    embeds: post.embeds,
+    hnStoryShare: post.hnStoryShare,
     id: post.id,
     isGust: post.isGust ?? false,
     username: post.user?.username ?? "",

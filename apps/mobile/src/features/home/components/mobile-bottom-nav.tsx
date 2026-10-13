@@ -378,8 +378,9 @@ export function MobileBottomNav({
     }
     const activeCommunity = activeCommunityStore.getState().active;
     if (activeCommunity?.canPost) {
-      useComposerStore.getState().setDraft({ communityId: activeCommunity.id });
-      openComposer("post");
+      useComposerStore
+        .getState()
+        .openWithContext({ community: activeCommunity, kind: "community" });
       return;
     }
     haptic();
@@ -392,7 +393,10 @@ export function MobileBottomNav({
     }
     const activeCommunity = activeCommunityStore.getState().active;
     if (activeCommunity?.canPost) {
-      useComposerStore.getState().setDraft({ communityId: activeCommunity.id });
+      useComposerStore
+        .getState()
+        .openWithContext({ community: activeCommunity, kind: "community" });
+      return;
     }
     openComposer("post");
   };

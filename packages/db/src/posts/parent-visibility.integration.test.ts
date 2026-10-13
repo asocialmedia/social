@@ -1,7 +1,12 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 
-import { createCommunity, getPostDataQuery, prisma } from "@asm/db";
+import {
+  createCommunity,
+  getPostDataQuery,
+  mapPostData,
+  prisma,
+} from "@asm/db";
 import { or } from "@prisma/orm-postgres/orm-client";
 
 // A reply is a normal post with `parentPostId` set; its `communityId` is the
@@ -71,6 +76,17 @@ beforeAll(async () => {
     userId: OWNER_ID,
   });
   _privateParentId = parent.id;
+  await prisma.orm.public.PostMedia.create({
+    _type: "IMAGE",
+    height: 1280,
+    id: randomUUID(),
+    mimeType: "image/png",
+    postId: parent.id,
+    status: "READY",
+    url: "https://example.test/portrait.png",
+    userId: OWNER_ID,
+    width: 720,
+  });
 
   // The reply carries NO community, so it is a global (world-readable) post
   // that nevertheless points at the private parent.
@@ -121,6 +137,22 @@ describe("embedded parent visibility", () => {
       .where((post) => post.id.eq(globalReplyId))
       .first();
     expect(reply?.parentPost?.content).toBe(SECRET_CONTENT);
+    if (!reply) {
+      throw new Error("reply missing");
+    }
+    const mapped = mapPostData(reply);
+    expect(mapped.parentPost?.attachments[0]).toMatchObject({
+      height: 1280,
+      mimeType: "image/png",
+      type: "IMAGE",
+      width: 720,
+    });
+    expect(mapped.parentPost?.community).toMatchObject({
+      accentColor: expect.any(String),
+      id: expect.any(String),
+      name: "Parent Vis Private",
+      slug: PRIVATE_SLUG,
+    });
   });
 
   test("a stranger logged in is denied the parent too", async () => {

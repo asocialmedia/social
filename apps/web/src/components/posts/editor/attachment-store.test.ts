@@ -69,6 +69,53 @@ describe("composer attachment draft persistence", () => {
     sessionStorage.clear();
   });
 
+  test("an edited image is uploaded and keeps its position and alt text", async () => {
+    const first = new File(["first"], "first.png", { type: "image/png" });
+    const original = new File(["original"], "original.gif", {
+      type: "image/gif",
+    });
+    const last = new File(["last"], "last.png", { type: "image/png" });
+    const edited = new File(["edited"], "edited.png", { type: "image/png" });
+    const { startUpload } = useComposerAttachmentStore.getState();
+    const uploaded: File[] = [];
+    useComposerAttachmentStore.setState({
+      attachments: [first, original, last].map((file) => ({
+        altText: file === original ? "Original description" : "",
+        file,
+        isUploading: false,
+        progress: 100,
+      })),
+      startUpload: (files) => {
+        uploaded.push(...files);
+        useComposerAttachmentStore.setState((state) => ({
+          attachments: [
+            ...state.attachments,
+            ...files.map((file) => ({
+              file,
+              isUploading: false,
+              progress: 100,
+            })),
+          ],
+        }));
+      },
+    });
+    try {
+      await useComposerAttachmentStore
+        .getState()
+        .replaceAttachment(original.name, edited);
+      expect(uploaded).toEqual([edited]);
+      const { attachments } = useComposerAttachmentStore.getState();
+      expect(attachments.map((item) => item.file?.name)).toEqual([
+        first.name,
+        edited.name,
+        last.name,
+      ]);
+      expect(attachments[1].altText).toBe("Original description");
+    } finally {
+      useComposerAttachmentStore.setState({ startUpload });
+    }
+  });
+
   test("a gust draft persists with the composer mode it was authored in", () => {
     useComposerStore.getState().setMode("gust");
     useComposerAttachmentStore.setState({

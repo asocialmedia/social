@@ -40,9 +40,14 @@ const HIGHLIGHTS = [
   },
 ] as const;
 
-export default function TermsPage() {
+export default function TermsPage({
+  embedded = false,
+}: {
+  embedded?: boolean;
+}) {
   return (
     <DocPage
+      embedded={embedded}
       crossLink={{ href: "/privacy", label: "Privacy Policy" }}
       effectiveDate="17 September 2026"
       sections={SECTIONS}

@@ -7,6 +7,7 @@ const SETTINGS_TABS = new Set<SettingsTab>([
   "account",
   "privacy",
   "security",
+  "personalization",
 ]);
 
 export function getSettingsTab(

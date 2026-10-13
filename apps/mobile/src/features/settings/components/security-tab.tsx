@@ -56,6 +56,8 @@ import type { PasskeyEntry } from "../lib/security-api";
 import {
   formatLastActive,
   getSessionLocation,
+  hasSessionRefresh,
+  sessionClientLabel,
   sessionDeviceLabel,
 } from "../lib/session-labels";
 import {
@@ -938,19 +940,32 @@ function SessionsBody({
                 {sessionDeviceLabel(session.userAgent)}
               </Text>
               {session.current ? (
-                <SettingsStatusChip label="Current device" on />
+                <SettingsStatusChip label="Current session" on />
               ) : null}
             </View>
+            <Text style={[styles.methodDesc, { color: theme.dividerText }]}>
+              {sessionClientLabel(session.userAgent)}
+            </Text>
             <Text style={[styles.methodDesc, { color: theme.dividerText }]}>
               {getSessionLocation(session.country, session.city ?? null)}
             </Text>
             <Text style={[styles.methodDesc, { color: theme.dividerText }]}>
-              Last active {formatLastActive(session.updatedAt, currentTimeMs())}
+              Signed in{" "}
+              {new Date(session.createdAt).toLocaleString(undefined, {
+                dateStyle: "medium",
+                timeStyle: "short",
+              })}
             </Text>
+            {hasSessionRefresh(session.createdAt, session.updatedAt) ? (
+              <Text style={[styles.methodDesc, { color: theme.dividerText }]}>
+                Session refreshed{" "}
+                {formatLastActive(session.updatedAt, currentTimeMs())}
+              </Text>
+            ) : null}
           </View>
           <SettingsButton
             disabled={revoking === session.id}
-            label={session.current ? "Sign out" : "End"}
+            label={session.current ? "Sign out" : "End session"}
             onPress={() => onRevoke(session)}
             size="sm"
             tone="danger"
@@ -1289,7 +1304,7 @@ function SecuritySessionsCard({
     <SettingsCard>
       <View style={styles.headRow}>
         <SettingsCardHeading
-          description="Devices currently signed in to your account"
+          description="Up to four sign-ins across browsers and apps. A new sign-in ends the oldest session when the limit is reached."
           icon={MonitorSmartphone}
           title="Active sessions"
         />
@@ -1314,7 +1329,7 @@ function SecuritySessionsCard({
         <View style={styles.bulkActions}>
           <SettingsButton
             disabled={revoking !== null || sessions.length < 2}
-            label="Sign out other devices"
+            label="Sign out other sessions"
             onPress={() => setPendingRevoke({ action: "other-sessions" })}
             size="sm"
             tone="gray"
@@ -1375,17 +1390,17 @@ function revokeCopy(action?: "all" | "other-sessions" | "single"): {
   }
   if (action === "other-sessions") {
     return {
-      confirm: "Sign out other devices",
+      confirm: "Sign out other sessions",
       description:
-        "This ends all other active sessions and keeps this device signed in.",
-      title: "Sign out other devices?",
+        "This ends all other browser and app sessions and keeps this session signed in.",
+      title: "Sign out other sessions?",
     };
   }
   return {
     confirm: "Sign out session",
     description:
-      "This device will need to sign in again to access your account.",
-    title: "Sign out this device?",
+      "This sign-in will end. Other browser profiles and app sign-ins stay active.",
+    title: "Sign out this session?",
   };
 }
 

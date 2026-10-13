@@ -903,6 +903,7 @@ export function PostMediaScreen({
     // status bar.
     <View style={styles.root}>
       <FlatList
+        key={`${postId}:${params.mediaId ?? initialIndex}`}
         data={media}
         getItemLayout={(_, index) => ({
           index,
@@ -910,7 +911,7 @@ export function PostMediaScreen({
           offset: width * index,
         })}
         horizontal
-        initialScrollIndex={Math.min(initialIndex, media.length - 1)}
+        initialScrollIndex={Math.min(currentIndex, media.length - 1)}
         keyExtractor={(item) => item.id}
         onMomentumScrollEnd={(event) => {
           const next = Math.round(event.nativeEvent.contentOffset.x / width);

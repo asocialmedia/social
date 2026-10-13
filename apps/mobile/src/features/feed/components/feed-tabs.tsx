@@ -1,7 +1,8 @@
+import { visibleTabScrollOffset } from "@asm/ui/lib/tab-scroll";
 // Place the orange indicator from the same measured layout as its label.
 import { LinearGradient } from "expo-linear-gradient";
 import type { ReactNode } from "react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import Animated, {
   useAnimatedStyle,
@@ -91,6 +92,8 @@ export function FeedTabs<T extends string = HomeTab>({
   const { theme } = useAppTheme();
   const [layouts, setLayouts] = useState<Record<string, TriggerLayout>>({});
   const scrollRef = useRef<ScrollView>(null);
+  const scrollOffset = useRef(0);
+  const [viewportWidth, setViewportWidth] = useState(0);
 
   const activeIndex = Math.max(
     0,
@@ -105,16 +108,27 @@ export function FeedTabs<T extends string = HomeTab>({
   const targetX =
     (layout?.x ?? 0) + (labelLayout?.x ?? 0) + (labelWidth - barWidth) / 2;
 
+  const revealTab = useCallback(
+    (target: TriggerLayout) => {
+      // Scroll to reveal the active tab when scrollable is active.
+      if (scrollable && scrollRef.current) {
+        const scrollTargetX = visibleTabScrollOffset({
+          itemLeft: target.x,
+          itemWidth: target.width,
+          offset: scrollOffset.current,
+          viewportWidth,
+        });
+        scrollRef.current.scrollTo({ animated: true, x: scrollTargetX });
+      }
+    },
+    [scrollable, viewportWidth]
+  );
+
   useEffect(() => {
-    if (!layout) {
-      return;
+    if (layout) {
+      revealTab(layout);
     }
-    // Scroll to reveal the active tab when scrollable is active.
-    if (scrollable && scrollRef.current) {
-      const scrollTargetX = Math.max(0, layout.x - 48);
-      scrollRef.current.scrollTo({ animated: true, x: scrollTargetX });
-    }
-  }, [layout, scrollable]);
+  }, [layout, revealTab]);
 
   const content = (
     <View
@@ -144,6 +158,10 @@ export function FeedTabs<T extends string = HomeTab>({
               );
             }}
             onPress={() => {
+              const targetLayout = layouts[tab.value];
+              if (targetLayout) {
+                revealTab(targetLayout);
+              }
               if (!selected || onPressActive) {
                 haptic();
                 onChange(tab.value);
@@ -195,6 +213,11 @@ export function FeedTabs<T extends string = HomeTab>({
           contentContainerStyle={styles.scrollContent}
           horizontal
           ref={scrollRef}
+          onLayout={(event) => setViewportWidth(event.nativeEvent.layout.width)}
+          onScroll={(event) => {
+            scrollOffset.current = event.nativeEvent.contentOffset.x;
+          }}
+          scrollEventThrottle={16}
           showsHorizontalScrollIndicator={false}
           showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
         >

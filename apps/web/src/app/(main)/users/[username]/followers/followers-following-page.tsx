@@ -1,17 +1,20 @@
 "use client";
 
 import type { UserData } from "@asm/db";
+import type { ProfileUserListData } from "@asm/ui/lib/user-list";
+import { Input } from "@asm/ui/shadui/input";
 import { Separator } from "@asm/ui/shadui/separator";
+import { Tabs, TabsList } from "@asm/ui/shadui/tabs";
 import noFollowImage from "@assets/general/nofollow.png";
-import { useQuery } from "@tanstack/react-query";
-import { ArrowLeft, Loader2 } from "lucide-react";
+import { useQueries } from "@tanstack/react-query";
+import { Search } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import type React from "react";
-import { useCallback, useRef } from "react";
+import { useCallback, useRef, useState } from "react";
 
-import { TAB_TRIGGER_CLASS } from "@/components/home/feedview/tab-trigger-class";
+import { AnimatedTabTrigger } from "@/components/home/feedview/animated-tab-trigger";
 import TrendingTopics from "@/components/home/sidebars/right/trending-topics";
 import { FeedScrollbar } from "@/components/layouts/feed/feed-scrollbar";
 import MobileBottomNav from "@/components/layouts/navigation/mobile/mobile-bottom-nav";
@@ -19,91 +22,175 @@ import MobileTopBar from "@/components/layouts/navigation/mobile/mobile-top-bar"
 import FollowButton from "@/components/layouts/user/follow-button";
 import UserAvatar from "@/components/layouts/user/user-avatar";
 import PostHistoryCard from "@/components/posts/views/post-history-card";
+import { useFeedSwipeNavigation } from "@/hooks/feed/use-feed-swipe-navigation";
 import kyInstance from "@/lib/ky";
 
-interface UserListItem {
-  _count: {
-    followers: number;
-  };
-  avatarUrl: string | null;
-  bio: string | null;
-  displayName: string;
-  id: string;
-  isFollowing: boolean;
-  username: string;
+type ListTab = "followers" | "following";
+const TABS = ["followers", "following"] as const;
+
+function UserListSkeleton() {
+  return (
+    <div aria-label="Loading people" className="animate-pulse">
+      {Array.from({ length: 7 }, (_, index) => (
+        <div
+          key={index}
+          className="border-border/60 flex items-center gap-3 border-b px-4 py-4"
+        >
+          <div className="bg-muted size-11 rounded-xl" />
+          <div className="flex-1 space-y-2">
+            <div className="bg-muted h-3 w-2/3 rounded" />
+            <div className="bg-muted h-3 w-1/2 rounded" />
+          </div>
+          <div className="bg-muted h-8 w-20 rounded-full" />
+        </div>
+      ))}
+    </div>
+  );
 }
 
-type ListTab = "followers" | "following";
-
-interface FollowersFollowingPageProps {
+const FollowersFollowingPage: React.FC<{
   loggedInUserData: UserData;
   userData: UserData;
-}
-
-const FollowersFollowingPage: React.FC<FollowersFollowingPageProps> = ({
-  userData,
-}) => {
+}> = ({ userData, loggedInUserData }) => {
   const pathname = usePathname();
-  const router = useRouter();
   const searchParams = useSearchParams();
   const feedScrollRef = useRef<HTMLDivElement>(null);
-
-  const tabParam = searchParams.get("tab");
+  const [query, setQuery] = useState("");
   const activeTab: ListTab =
-    tabParam === "following" ? "following" : "followers";
-
-  const { data, status } = useQuery({
-    queryFn: () =>
-      kyInstance
-        .get(
-          `/api/users/${userData.id}/${activeTab === "followers" ? "followers-list" : "following-list"}`
-        )
-        .json<UserListItem[]>(),
-    queryKey: [
-      activeTab === "followers" ? "followers-list" : "following-list",
-      userData.id,
-    ],
-    staleTime: 60 * 1000,
+    searchParams.get("tab") === "following" ? "following" : "followers";
+  const results = useQueries({
+    queries: TABS.map((tab) => ({
+      queryFn: () =>
+        kyInstance
+          .get(`/api/users/${userData.id}/${tab}-list`)
+          .json<ProfileUserListData[]>(),
+      queryKey: ["profile-user-list", loggedInUserData.id, userData.id, tab],
+      staleTime: 60_000,
+    })),
   });
-
-  const users = data ?? [];
-
+  const result = results[activeTab === "followers" ? 0 : 1];
+  const search = query.trim().replace(/^@/, "").toLowerCase();
+  const users = (result.data ?? []).filter(
+    (user) =>
+      !search ||
+      `${user.displayName ?? ""} ${user.username}`
+        .toLowerCase()
+        .includes(search)
+  );
   const handleTabChange = useCallback(
-    (tab: string) => {
-      const nextParams = new URLSearchParams(searchParams.toString());
-      if (tab === "following") {
-        nextParams.set("tab", "following");
+    (value: string) => {
+      const next = new URLSearchParams(searchParams.toString());
+      if (value === "following") {
+        next.set("tab", "following");
       } else {
-        nextParams.delete("tab");
+        next.delete("tab");
       }
-      const query = nextParams.toString();
-      router.push(query ? `${pathname}?${query}` : pathname);
+      const queryString = next.toString();
+      window.history.replaceState(
+        null,
+        "",
+        queryString ? `${pathname}?${queryString}` : pathname
+      );
+      feedScrollRef.current?.scrollTo({ top: 0 });
     },
-    [pathname, router, searchParams]
+    [pathname, searchParams]
   );
-
-  const handleGoBack = useCallback(() => {
-    router.push(`/users/${userData.username}`);
-  }, [router, userData.username]);
-
-  const handleTabClick = useCallback(
-    (e: React.MouseEvent<HTMLButtonElement>) => {
-      const { tab } = e.currentTarget.dataset;
-      if (tab) {
-        handleTabChange(tab);
+  const navigateTab = useCallback(
+    (direction: -1 | 1) => {
+      if (
+        (activeTab === "followers" && direction === 1) ||
+        (activeTab === "following" && direction === -1)
+      ) {
+        handleTabChange(activeTab === "followers" ? "following" : "followers");
       }
     },
-    [handleTabChange]
+    [activeTab, handleTabChange]
   );
+  useFeedSwipeNavigation(feedScrollRef, navigateTab);
 
+  const emptyTitle = query.trim()
+    ? "No matching people"
+    : { followers: "No followers yet", following: "Not following anyone yet" }[
+        activeTab
+      ];
+  const emptyMessage = query.trim()
+    ? "Try another name or username."
+    : {
+        followers: "People who follow this profile will show up here.",
+        following: "People this profile follows will show up here.",
+      }[activeTab];
   let body: React.ReactNode;
-  if (status === "pending") {
+  if (result.isPending) {
+    body = <UserListSkeleton />;
+  } else if (result.isError && !result.data) {
     body = (
-      <div className="flex justify-center py-10">
-        <Loader2 className="text-muted-foreground h-5 w-5 animate-spin" />
+      <div className="space-y-3 px-4 py-10 text-center">
+        <p>Couldn't load this list.</p>
+        <button
+          className="btn-3d-gray rounded-full px-4 py-2"
+          onClick={() => {
+            void result.refetch();
+          }}
+          type="button"
+        >
+          Try again
+        </button>
       </div>
     );
-  } else if (users.length === 0) {
+  } else if (users.length) {
+    body = (
+      <div>
+        {users.map((user, index) => (
+          <div key={user.id}>
+            {index > 0 ? <Separator className="bg-border/60" /> : null}
+            <div className="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-[hsl(var(--muted))]">
+              <Link className="shrink-0" href={`/users/${user.username}`}>
+                <UserAvatar avatarUrl={user.avatarUrl} className="size-11" />
+              </Link>
+              <div className="min-w-0 flex-1">
+                <Link
+                  className="block truncate text-sm font-medium hover:underline"
+                  href={`/users/${user.username}`}
+                >
+                  {user.displayName || user.username}
+                </Link>
+                <span className="text-muted-foreground block truncate text-xs">
+                  @{user.username}
+                </span>
+                {user.mutualCount > 0 ? (
+                  <div className="text-muted-foreground mt-1 flex items-center gap-1.5 text-[11px]">
+                    <span className="flex -space-x-1.5">
+                      {user.mutualFollowers.map((mutual) => (
+                        <UserAvatar
+                          key={mutual.id}
+                          avatarUrl={mutual.avatarUrl}
+                          className="ring-background size-4.5 rounded-full! ring-2"
+                        />
+                      ))}
+                    </span>
+                    <span>
+                      {user.mutualCount}{" "}
+                      {user.mutualCount === 1 ? "mutual" : "mutuals"}
+                    </span>
+                  </div>
+                ) : null}
+              </div>
+              {user.id === loggedInUserData.id ? null : (
+                <FollowButton
+                  className="h-8 shrink-0 px-3 text-xs"
+                  initialState={{
+                    followers: user._count.followers,
+                    isFollowedByUser: user.isFollowing,
+                  }}
+                  userId={user.id}
+                />
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  } else {
     body = (
       <div className="flex flex-col items-center justify-center gap-3 px-4 py-16 text-center">
         <Image
@@ -114,125 +201,66 @@ const FollowersFollowingPage: React.FC<FollowersFollowingPageProps> = ({
           src={noFollowImage}
           width={1536}
         />
-        <p className="font-medium">
-          {activeTab === "followers"
-            ? "No followers yet"
-            : "Not following anyone yet"}
-        </p>
-        <p className="text-muted-foreground text-sm">
-          {activeTab === "followers"
-            ? "People who follow this profile will show up here."
-            : "People this profile follows will show up here."}
-        </p>
-      </div>
-    );
-  } else {
-    body = (
-      <div className="flex flex-col">
-        {users.map((user, index) => (
-          <div key={user.id}>
-            {index > 0 && <Separator className="bg-border/60" />}
-            <div className="group flex items-center gap-3 px-4 py-3 transition-colors duration-150 hover:bg-[hsl(var(--muted))]">
-              <Link className="shrink-0" href={`/users/${user.username}`}>
-                <UserAvatar avatarUrl={user.avatarUrl} className="h-11 w-11" />
-              </Link>
-              <div className="min-w-0 flex-1">
-                <Link
-                  className="block truncate text-sm font-medium hover:underline"
-                  href={`/users/${user.username}`}
-                >
-                  {user.displayName}
-                </Link>
-                <span className="text-muted-foreground block truncate text-xs">
-                  @{user.username}
-                </span>
-                {user.bio ? (
-                  <span className="text-muted-foreground mt-0.5 line-clamp-1 block text-xs">
-                    {user.bio}
-                  </span>
-                ) : null}
-              </div>
-              <FollowButton
-                className="h-8 shrink-0 px-3 text-xs"
-                initialState={{
-                  followers: user._count.followers,
-                  isFollowedByUser: user.isFollowing,
-                }}
-                userId={user.id}
-              />
-            </div>
-          </div>
-        ))}
+        <p className="font-medium">{emptyTitle}</p>
+        <p className="text-muted-foreground text-sm">{emptyMessage}</p>
       </div>
     );
   }
-
   return (
     <>
       <div className="border-border/60 mx-auto flex min-w-0 flex-1 flex-col bg-[hsl(var(--background-alt))] sm:border-x lg:max-w-5xl">
         <div className="z-20 shrink-0 bg-[hsl(var(--background-alt))]/90 pt-2 backdrop-blur-md">
-          <MobileTopBar />
-          <div className="border-border/60 flex shrink-0 items-center gap-2 border-b bg-[hsl(var(--background-alt))] px-3 py-2">
-            <button
-              aria-label="Go back"
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-white/10 active:translate-y-px"
-              onClick={handleGoBack}
-              type="button"
-            >
-              <ArrowLeft className="h-5 w-5" />
-            </button>
-            <div className="min-w-0">
-              <h1 className="truncate text-lg leading-tight font-semibold">
-                {userData.displayName || userData.username}
-              </h1>
-              <p className="text-muted-foreground truncate text-xs">
-                @{userData.username}
-              </p>
+          <MobileTopBar backHref={`/users/${userData.username}`} />
+          <Tabs value={activeTab} onValueChange={handleTabChange}>
+            <div className="border-border/60 border-b py-1.5">
+              <TabsList className="flex h-full w-full justify-center gap-0 bg-transparent p-0">
+                <AnimatedTabTrigger
+                  active={activeTab === "followers"}
+                  layoutId="user-list-tab-indicator"
+                  value="followers"
+                >
+                  Followers
+                </AnimatedTabTrigger>
+                <AnimatedTabTrigger
+                  active={activeTab === "following"}
+                  layoutId="user-list-tab-indicator"
+                  value="following"
+                >
+                  Following
+                </AnimatedTabTrigger>
+              </TabsList>
+            </div>
+          </Tabs>
+          <div className="px-4 py-3">
+            <div className="relative">
+              <Search className="text-muted-foreground pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2" />
+              <Input
+                id="user-list-search"
+                aria-label="Search followers and following"
+                placeholder="Search by name or username…"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                className="pl-9"
+              />
             </div>
           </div>
-          <div className="border-border/60 flex items-center border-b">
-            <button
-              className={`${TAB_TRIGGER_CLASS} flex-1`}
-              data-state={activeTab === "followers" ? "active" : "inactive"}
-              data-tab="followers"
-              onClick={handleTabClick}
-              type="button"
-            >
-              Followers
-            </button>
-            <button
-              className={`${TAB_TRIGGER_CLASS} flex-1`}
-              data-state={activeTab === "following" ? "active" : "inactive"}
-              data-tab="following"
-              onClick={handleTabClick}
-              type="button"
-            >
-              Following
-            </button>
-          </div>
         </div>
-
         <div className="relative min-h-0 flex-1">
           <div
-            className="hide-native-scrollbar h-full overflow-x-hidden overflow-y-auto"
             ref={feedScrollRef}
+            className="hide-native-scrollbar h-full overflow-x-hidden overflow-y-auto pb-24"
           >
             {body}
           </div>
           <FeedScrollbar containerRef={feedScrollRef} />
         </div>
       </div>
-
-      <aside className="hide-native-scrollbar bg-background border-border/60 sticky top-0 hidden h-screen w-72 shrink-0 flex-col overflow-y-auto border-l px-2.5 pt-2.5 pb-6 xl:flex">
-        <div className="flex flex-col gap-4">
-          <PostHistoryCard />
-          <TrendingTopics />
-        </div>
+      <aside className="sticky top-0 hidden h-screen w-80 shrink-0 flex-col gap-3 overflow-y-auto border-l border-[hsl(var(--border))] bg-[hsl(var(--background-alt))] p-3 lg:flex">
+        <PostHistoryCard />
+        <TrendingTopics />
       </aside>
-
       <MobileBottomNav />
     </>
   );
 };
-
 export default FollowersFollowingPage;

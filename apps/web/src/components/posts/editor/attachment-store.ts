@@ -198,16 +198,17 @@ function discardServerDraft(mediaId: string | undefined): void {
 interface ComposerAttachmentState {
   attachments: Attachment[];
   cancelUpload: (fileName: string) => void;
-  /** One-shot: restore persisted drafts and resume their pipeline watchers. */
+  // One-shot: restore persisted drafts and resume their pipeline watchers.
   hydrate: () => void;
   isUploading: boolean;
   removeAttachment: (fileName: string) => void;
   reorderAttachments: (ordered: Attachment[]) => void;
+  replaceAttachment: (fileName: string, edited: File) => Promise<void>;
   reset: () => void;
   retryUpload: (fileName: string) => Promise<void>;
   setAltText: (fileName: string, altText: string) => void;
-  /** Shared one-at-a-time gate: sound + thumbnail uploads raise it too, so
-   * every upload button disables while any of them is in flight. */
+  // Shared one-at-a-time gate: sound + thumbnail uploads raise it too, so
+  // every upload button disables while any of them is in flight.
   setUploading: (isUploading: boolean) => void;
   startUpload: (
     incomingFiles: File[],
@@ -219,7 +220,7 @@ export const useComposerAttachmentStore = create<ComposerAttachmentState>()((
   set,
   get
 ) => {
-  /** Single mutation funnel: swap the list, then mirror it to storage. */
+  // Single mutation funnel: swap the list, then mirror it to storage.
   const commit = (next: Attachment[]): void => {
     persistAttachments(next);
     set({ attachments: next });
@@ -389,6 +390,41 @@ export const useComposerAttachmentStore = create<ComposerAttachmentState>()((
     },
     reorderAttachments: (ordered) => {
       commit(ordered);
+    },
+    replaceAttachment: async (fileName, edited) => {
+      const original = get().attachments;
+      const index = original.findIndex(
+        (item) => (item.file?.name ?? item.name) === fileName
+      );
+      if (index === -1) {
+        return;
+      }
+      const previous = original[index];
+      get().removeAttachment(fileName);
+      if (get().isUploading) {
+        // oxlint-disable-next-line promise/avoid-new -- Resume the edited upload when the current batch releases its gate.
+        await new Promise<void>((resolve) => {
+          const unsubscribe = useComposerAttachmentStore.subscribe((state) => {
+            if (!state.isUploading) {
+              unsubscribe();
+              resolve();
+            }
+          });
+        });
+      }
+      await get().startUpload([edited]);
+      const replacement = get().attachments.find(
+        (item) => item.file === edited
+      );
+      if (!replacement) {
+        return;
+      }
+      const ordered = get().attachments.filter((item) => item !== replacement);
+      ordered.splice(index, 0, replacement);
+      get().reorderAttachments(ordered);
+      if (previous.altText) {
+        get().setAltText(edited.name, previous.altText);
+      }
     },
     reset: () => {
       // Successful submit: attachments are now owned by the post, so
@@ -793,7 +829,7 @@ if (typeof window !== "undefined") {
   });
 }
 
-/** Test seam: allows isolation between store-touching tests. */
+// Test seam: allows isolation between store-touching tests.
 export function __resetComposerAttachmentStoreForTests(): void {
   hydrated = false;
   controllers.clear();

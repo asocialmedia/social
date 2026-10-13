@@ -32,7 +32,7 @@ export const CommunityAttribution = ({
   <div className={cn("flex min-w-0 items-center gap-2", className)}>
     <span
       aria-hidden="true"
-      className="h-3.5 w-0.5 shrink-0 rounded-full bg-(--community-accent) dark:bg-(--community-accent-dark)"
+      className="community-accent-rail h-3.5 w-0.5 shrink-0 rounded-full"
       style={communityAccentStyle(community.accentColor)}
     />
     <Link
@@ -75,7 +75,7 @@ export const CommunityShareCard = ({
     >
       <span
         aria-hidden="true"
-        className="h-8 w-0.5 shrink-0 rounded-full bg-[var(--community-accent)] dark:bg-[var(--community-accent-dark)]"
+        className="community-accent-rail h-8 w-0.5 shrink-0 rounded-full"
         style={communityAccentStyle(community.accentColor)}
       />
       <span className="min-w-0 flex-1">

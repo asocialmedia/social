@@ -16,6 +16,7 @@ mock.module("../../env", () => ({
 // mock it before the module under test loads. Both providers use fixture credentials.
 mock.module("@asm/db", () => ({
   and: () => null,
+  enforceAccountSessionLimit: () => Promise.resolve([]),
   exactInsensitivePattern: (value: string) =>
     value.replaceAll(/[\\%_]/g, "\\$&"),
   fromPrismaDateTime: (value: Date) => value,

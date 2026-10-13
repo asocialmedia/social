@@ -23,15 +23,12 @@ import type { ProfileViewTab } from "../lib/profile-tab-memory";
 // user will never see before the fetch lands.
 const SKELETON_ROWS = 3;
 
-// Tiles mirror the real geometry: 9:16 for gusts, square for media. The media
-// tab sizes tiles by each item's true aspect ratio, which is unknowable before
-// the data lands, so square is the right stand-in, and it is the same fallback
-// mediaTileAspect uses when an upload recorded no dimensions.
+// Media placeholders use the same portrait fallback and gutters as the masonry tiles.
 function GridSkeleton({ tab }: { tab: ProfileViewTab }) {
   const { theme } = useAppTheme();
   const pulse = useSkeletonPulse();
   const isGusts = tab === "gusts";
-  const aspectRatio = isGusts ? 9 / 16 : 1;
+  const aspectRatio = isGusts ? 9 / 16 : 4 / 5;
   // gustRow and mediaRow carry different gutters, so each grid keeps its own.
   const rowStyle = isGusts ? styles.gustRow : styles.mediaRow;
   const tile = {
@@ -137,9 +134,9 @@ const styles = StyleSheet.create({
   },
   mediaRow: {
     flexDirection: "row",
-    gap: 10,
-    paddingHorizontal: 12,
-    paddingTop: 12,
+    gap: 8,
+    paddingHorizontal: 4,
+    paddingTop: 8,
   },
   replyAvatar: {
     borderRadius: 19,

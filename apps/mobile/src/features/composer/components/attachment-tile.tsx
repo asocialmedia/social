@@ -17,6 +17,7 @@ import { Image } from "expo-image";
 import { useVideoPlayer, VideoView } from "expo-video";
 import {
   Film,
+  Pencil,
   Pause,
   Play,
   RefreshCw,
@@ -46,6 +47,8 @@ import { uploadProgressInfo } from "@/features/media-upload/lib/upload-status";
 import type { UploadStage } from "@/features/media-upload/lib/upload-status";
 import type { DraftAttachment } from "@/features/media-upload/state/attachment-store";
 import { useAppTheme } from "@/theme";
+
+import { attachmentFrame } from "../lib/attachment-frame";
 
 const PROGRESS_TRACK_SHADOWS =
   "inset 0 0 0 1px rgba(255, 255, 255, 0.25), inset 0 1.5px 2px rgba(255, 255, 255, 0.5), 0 0 0 1px rgba(170, 60, 0, 0.5), 0 1px 2px rgba(0, 0, 0, 0.25)";
@@ -98,13 +101,7 @@ function RailChip({
   );
 }
 
-function VideoPreview({
-  attachment,
-  gust = false,
-}: {
-  attachment: DraftAttachment;
-  gust?: boolean;
-}) {
+function VideoPreview({ attachment }: { attachment: DraftAttachment }) {
   const [muted, setMuted] = useState(true);
   const [firstFrame, setFirstFrame] = useState(false);
   const player = useVideoPlayer(attachment.uri, (created) => {
@@ -124,26 +121,8 @@ function VideoPreview({
     currentOffsetFromLive: null,
     currentTime: 0,
   });
-  const ratio =
-    attachment.width && attachment.height
-      ? attachment.width / attachment.height
-      : 16 / 9;
-  const portrait = ratio <= 1;
-  let frame: ViewStyle;
-  if (gust) {
-    frame = { aspectRatio: 9 / 16, width: "100%" };
-  } else if (portrait) {
-    frame = {
-      alignSelf: "flex-start",
-      aspectRatio: ratio,
-      height: 380,
-      maxWidth: "100%",
-    };
-  } else {
-    frame = { aspectRatio: ratio, maxHeight: 380, width: "100%" };
-  }
   return (
-    <View style={[styles.mediaFrame, frame]}>
+    <View style={[styles.mediaFrame, styles.previewFill]}>
       {firstFrame ? null : (
         <View style={styles.center}>
           <Film color="rgba(128, 128, 128, 0.4)" size={48} />
@@ -283,20 +262,6 @@ function ImagePreview({
 }) {
   const { isDark } = useAppTheme();
   const panel = isDark ? APPLE_PANEL_TOKENS.dark : APPLE_PANEL_TOKENS.light;
-  const ratio =
-    attachment.width && attachment.height
-      ? attachment.width / attachment.height
-      : null;
-  let frame: ViewStyle;
-  if (attachment.isGif) {
-    frame = { aspectRatio: ratio ?? 1, maxHeight: 280, maxWidth: "100%" };
-  } else if (ratio !== null && ratio <= 1) {
-    frame = { aspectRatio: ratio, height: 320, maxWidth: "100%" };
-  } else if (ratio === null) {
-    frame = { aspectRatio: 1, height: 176, maxWidth: "100%" };
-  } else {
-    frame = { aspectRatio: ratio, maxHeight: 380, width: "100%" };
-  }
   return (
     <View
       style={[
@@ -307,7 +272,7 @@ function ImagePreview({
           borderWidth: 1,
           boxShadow: panel.shadows,
         },
-        frame,
+        styles.previewFill,
       ]}
     >
       <Image
@@ -326,6 +291,7 @@ export function AttachmentTile({
   gust = false,
   onChangeVideo,
   onEditAlt,
+  onEditMedia,
   onRemove,
   onRetry,
 }: {
@@ -333,12 +299,14 @@ export function AttachmentTile({
   gust?: boolean;
   onChangeVideo?: () => void;
   onEditAlt?: () => void;
+  onEditMedia?: () => void;
   onRemove: () => void;
   onRetry: () => void;
 }) {
   const { isDark } = useAppTheme();
   const text = themeText(isDark);
   const panel = isDark ? APPLE_PANEL_TOKENS.dark : APPLE_PANEL_TOKENS.light;
+  const [availableWidth, setAvailableWidth] = useState(1);
   const [previewFailed, setPreviewFailed] = useState(false);
   const hasError = attachment.stage === "error";
   const isUploading =
@@ -347,7 +315,7 @@ export function AttachmentTile({
   let preview: React.ReactNode;
   if (previewFailed) {
     preview = (
-      <View style={[styles.mediaFrame, { aspectRatio: 16 / 9, width: "100%" }]}>
+      <View style={[styles.mediaFrame, styles.previewFill]}>
         <Image
           accessibilityLabel={attachment.name}
           contentFit="cover"
@@ -357,7 +325,7 @@ export function AttachmentTile({
       </View>
     );
   } else if (attachment.family === "VIDEO") {
-    preview = <VideoPreview attachment={attachment} gust={gust} />;
+    preview = <VideoPreview attachment={attachment} />;
   } else if (attachment.family === "AUDIO") {
     preview = <AudioPreview attachment={attachment} />;
   } else {
@@ -398,13 +366,6 @@ export function AttachmentTile({
         <Text style={[styles.progressLabel, { color: text.muted }]}>
           {label}
         </Text>
-        <IconButton3D
-          accessibilityLabel="Cancel upload"
-          danger
-          icon={X}
-          onPress={onRemove}
-          size={28}
-        />
       </View>
     );
   } else if (hasError) {
@@ -459,11 +420,6 @@ export function AttachmentTile({
             </Gradient3D>
           )}
         </Pressable>
-        <IconButton3D
-          accessibilityLabel="Remove attachment"
-          icon={X}
-          onPress={onRemove}
-        />
       </View>
     );
   } else if (attachment.isProcessing) {
@@ -484,25 +440,10 @@ export function AttachmentTile({
         >
           Processing in background · you can publish now
         </Text>
-        <IconButton3D
-          accessibilityLabel="Remove attachment"
-          icon={X}
-          iconSize={14}
-          onPress={onRemove}
-          size={28}
-        />
       </View>
     );
   } else {
-    actionBar = (
-      <View style={styles.settledRemove}>
-        <IconButton3D
-          accessibilityLabel="Remove attachment"
-          icon={X}
-          onPress={onRemove}
-        />
-      </View>
-    );
+    actionBar = null;
   }
 
   // The ALT chip clears the media controls: video's mute toggle, audio's
@@ -515,39 +456,73 @@ export function AttachmentTile({
   }
 
   return (
-    <View style={styles.tile}>
-      <Pressable
-        accessibilityHint={
-          onChangeVideo ? "Change the Gust video" : "Opens the alt text editor"
-        }
-        accessibilityLabel={formatFileName(attachment.name)}
-        disabled={
-          hasError ||
-          isUploading ||
-          (!onChangeVideo && (!onEditAlt || attachment.family === "VIDEO"))
-        }
-        onPress={onChangeVideo ?? onEditAlt}
-        style={(isUploading || hasError) && styles.dimmed}
+    <View
+      style={styles.tile}
+      onLayout={(event) => setAvailableWidth(event.nativeEvent.layout.width)}
+    >
+      <View
+        style={[
+          styles.previewContainer,
+          attachmentFrame({ ...attachment, gust }, availableWidth),
+        ]}
       >
-        {preview}
-      </Pressable>
-      {onEditAlt && !isUploading && !hasError ? (
         <Pressable
-          accessibilityLabel={
-            attachment.altText ? "Edit alt text" : "Add alt text to this media"
+          accessibilityHint={
+            onChangeVideo
+              ? "Change the Gust video"
+              : "Opens the alt text editor"
           }
-          accessibilityRole="button"
-          hitSlop={4}
-          onPress={onEditAlt}
-          style={[styles.altChipWrap, { left: altLeft }]}
+          accessibilityLabel={formatFileName(attachment.name)}
+          disabled={
+            hasError ||
+            isUploading ||
+            (!onChangeVideo && (!onEditAlt || attachment.family === "VIDEO"))
+          }
+          onPress={onChangeVideo ?? onEditAlt}
+          style={(isUploading || hasError) && styles.dimmed}
         >
-          <RailChip style={styles.altChip}>
-            <Text numberOfLines={1} style={styles.railText}>
-              {attachment.altText ? "ALT" : "Add alt text"}
-            </Text>
-          </RailChip>
+          {preview}
         </Pressable>
-      ) : null}
+        {onEditMedia ? (
+          <View style={{ left: 8, position: "absolute", top: 8, zIndex: 10 }}>
+            <IconButton3D
+              accessibilityLabel={attachment.isGif ? "Edit GIF" : "Edit image"}
+              icon={Pencil}
+              size={32}
+              onPress={onEditMedia}
+            />
+          </View>
+        ) : null}
+        {onEditAlt && !isUploading && !hasError ? (
+          <Pressable
+            accessibilityLabel={
+              attachment.altText
+                ? "Edit alt text"
+                : "Add alt text to this media"
+            }
+            accessibilityRole="button"
+            hitSlop={4}
+            onPress={onEditAlt}
+            style={[styles.altChipWrap, { left: altLeft }]}
+          >
+            <RailChip style={styles.altChip}>
+              <Text numberOfLines={1} style={styles.railText}>
+                {attachment.altText ? "ALT" : "Add alt text"}
+              </Text>
+            </RailChip>
+          </Pressable>
+        ) : null}
+        <View style={styles.settledRemove}>
+          <IconButton3D
+            accessibilityLabel={
+              isUploading ? "Cancel upload" : "Remove attachment"
+            }
+            danger={isUploading}
+            icon={X}
+            onPress={onRemove}
+          />
+        </View>
+      </View>
       {actionBar}
     </View>
   );
@@ -672,6 +647,8 @@ const styles = StyleSheet.create({
   pressed: {
     transform: [{ translateY: 1 }],
   },
+  previewContainer: { alignSelf: "flex-start", position: "relative" },
+  previewFill: { height: "100%", width: "100%" },
   processingRow: {
     alignItems: "center",
     borderRadius: 12,
@@ -735,8 +712,9 @@ const styles = StyleSheet.create({
   },
   settledRemove: {
     position: "absolute",
-    right: 12,
-    top: 12,
+    right: 8,
+    top: 8,
+    zIndex: 10,
   },
   tile: {
     position: "relative",

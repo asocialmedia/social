@@ -4,6 +4,7 @@ import {
   buildProfileFeedPath,
   buildProfilePostsPath,
   buildProfileUsernamePath,
+  fetchProfileUserList,
   mutateFollow,
   parseFollowInfo,
   parseProfileFeedPage,
@@ -57,6 +58,40 @@ describe("profile paths", () => {
 });
 
 describe("profile parsing", () => {
+  test("user lists tolerate older responses and bound validated mutual avatars", async () => {
+    const baseFetch = (() =>
+      Promise.resolve(
+        Response.json([
+          { id: "old", isFollowing: true, username: "older" },
+          {
+            id: "new",
+            mutualCount: 4,
+            mutualFollowers: [
+              null,
+              { id: "invalid" },
+              ...[1, 2, 3, 4].map((index) => ({
+                id: `mutual-${index}`,
+                username: `friend${index}`,
+              })),
+            ],
+            username: "newer",
+          },
+        ])
+      )) as unknown as typeof fetch;
+    const users = await fetchProfileUserList("owner", "followers", {
+      apiBase: API,
+      baseFetch,
+    });
+    expect(users[0]?.mutualFollowers).toEqual([]);
+    expect(users[0]?.mutualCount).toBe(0);
+    expect(users[1]?.mutualCount).toBe(4);
+    expect(users[1]?.mutualFollowers.map((user) => user.id)).toEqual([
+      "mutual-1",
+      "mutual-2",
+      "mutual-3",
+    ]);
+  });
+
   test("parses public UserData and viewer follow projection", () => {
     const profile = parseProfileHeader({
       aura: 12,

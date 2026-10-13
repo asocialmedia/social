@@ -22,6 +22,7 @@ RUN curl -fsSL https://bun.sh/install | bash
 ENV PATH="/root/.bun/bin:${PATH}"
 WORKDIR /app
 COPY package.json bun.lock ./
+COPY patches/ ./patches/
 COPY packages/ ./packages/
 COPY apps/web/ ./apps/web/
 RUN bun install

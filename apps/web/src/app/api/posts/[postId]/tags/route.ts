@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import { prisma, tagCache } from "@asm/db";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
@@ -17,7 +19,10 @@ async function createPostTags(
     .where({ name: tagName })
     .first();
   if (!tag) {
-    tag = await prisma.orm.public.Tag.create({ name: tagName });
+    tag = await prisma.orm.public.Tag.create({
+      id: randomUUID(),
+      name: tagName,
+    });
   }
   await prisma.orm.public.PostToTag.create({ a: postId, b: tag.id });
   return createPostTags(postId, tags, index + 1);
@@ -64,7 +69,7 @@ export async function POST(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    await prisma.orm.public.PostToTag.where({ a: postId }).delete();
+    await prisma.orm.public.PostToTag.where({ a: postId }).deleteAndCount();
 
     const normalizedTags = tags.map((tag: string) => tag.toLowerCase());
 

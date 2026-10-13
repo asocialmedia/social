@@ -20,7 +20,7 @@ describe("getSessionDevice", () => {
   test("reads the browser and the platform apart", () => {
     expect(getSessionDevice(CHROME_ANDROID)).toEqual({
       browser: "Chrome",
-      device: "Android device",
+      device: "Android",
     });
     expect(getSessionDevice(EDGE_WINDOWS)).toEqual({
       browser: "Microsoft Edge",
@@ -28,7 +28,7 @@ describe("getSessionDevice", () => {
     });
     expect(getSessionDevice(FIREFOX_LINUX)).toEqual({
       browser: "Firefox",
-      device: "Linux device",
+      device: "Linux",
     });
   });
 
@@ -60,7 +60,7 @@ describe("getSessionDevice", () => {
 
 describe("sessionDeviceLabel", () => {
   test("joins the two halves when both are known", () => {
-    expect(sessionDeviceLabel(CHROME_ANDROID)).toBe("Chrome on Android device");
+    expect(sessionDeviceLabel(CHROME_ANDROID)).toBe("Chrome on Android");
   });
 
   test("uses whichever half is known rather than printing Unknown", () => {
@@ -123,7 +123,7 @@ describe("formatLastActive", () => {
 
 test("native sessions identify the actual model and show coarse city without an address", () => {
   expect(sessionDeviceLabel("Asocialmedia/0.1.72 (Android 16; Pixel 9)")).toBe(
-    "Asocialmedia on Pixel 9"
+    "asocialmedia app on Pixel 9"
   );
   expect(getSessionLocation("IN", "Betul")).toBe("Betul, India");
 });

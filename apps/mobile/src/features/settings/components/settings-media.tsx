@@ -1,11 +1,3 @@
-// Native port of web's `components/profile/profile-media-inputs.tsx`
-// (BannerInput / AvatarInput), for the settings profile tab.
-//
-// Web holds a cropped blob locally and uploads it on the form's Save; native
-// has no browser crop step (the platform image editor does the framing), so the
-// pick and the upload are one action here - the same pipeline the profile edit
-// modal already uses. The parent receives the new URL and keeps it in state, so
-// the hero reflects a successful upload immediately.
 import { Image } from "expo-image";
 import { ImagePlus, Pencil, Trash2 } from "lucide-react-native";
 import { useState } from "react";
@@ -15,6 +7,7 @@ import { Spinner3D } from "@/components/feedback/spinner-3d";
 import { toast } from "@/components/feedback/toast";
 import { useInstall } from "@/features/auth/state/install";
 import { resolveProfileImageUrl } from "@/features/home/components/profile-utils";
+import { useProfileMediaCropper } from "@/features/profile/components/profile-media-cropper";
 import type { ProfileImageKind } from "@/features/profile/lib/profile-media";
 import {
   deleteProfileMedia,
@@ -57,6 +50,7 @@ function useMediaUpload(
   onUploaded: (url: string | null) => void
 ) {
   const { runWithInstallToken } = useInstall();
+  const { crop, cropper } = useProfileMediaCropper();
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState(0);
   const [stage, setStage] = useState<string | null>(null);
@@ -71,6 +65,7 @@ function useMediaUpload(
     const result = await updateProfileMedia(
       kind,
       {
+        crop,
         onBytes: setProgress,
         onStage: (next) => {
           setStage(next);
@@ -133,7 +128,7 @@ function useMediaUpload(
     });
   };
 
-  return { busy, progress, remove, stage, upload };
+  return { busy, cropper, progress, remove, stage, upload };
 }
 
 // Web's `BannerInput` in its settings-hero form: flush-top, tall, no radius.
@@ -149,7 +144,7 @@ export function SettingsBannerInput({
   src: string | null;
 }) {
   const { isDark, theme } = useAppTheme();
-  const { busy, progress, remove, stage, upload } = useMediaUpload(
+  const { busy, cropper, progress, remove, stage, upload } = useMediaUpload(
     "banner",
     onChanged
   );
@@ -157,6 +152,7 @@ export function SettingsBannerInput({
 
   return (
     <View style={{ height }}>
+      {cropper}
       <Pressable
         accessibilityLabel="Change profile header"
         accessibilityRole="button"
@@ -249,7 +245,7 @@ export function SettingsAvatarInput({
   src: string | null;
 }) {
   const { theme } = useAppTheme();
-  const { busy, progress, remove, stage, upload } = useMediaUpload(
+  const { busy, cropper, progress, remove, stage, upload } = useMediaUpload(
     "avatar",
     onChanged
   );
@@ -258,6 +254,7 @@ export function SettingsAvatarInput({
 
   return (
     <View style={{ height: size, width: size }}>
+      {cropper}
       <Pressable
         accessibilityLabel="Change profile avatar"
         accessibilityRole="button"

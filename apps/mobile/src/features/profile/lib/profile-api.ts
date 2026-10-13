@@ -1,3 +1,8 @@
+import type {
+  ProfileUserListData,
+  UserListMutual,
+} from "@asm/ui/lib/user-list";
+
 import type { ApiCallOptions } from "@/features/feed/lib/feed-api";
 import type {
   FeedMedia,
@@ -41,15 +46,7 @@ export type FollowMutationResult =
   | { kind: "install-token-required" }
   | { kind: "error"; message: string; status: number };
 
-export interface ProfileUserListItem {
-  _count: { followers: number };
-  avatarUrl: string | null;
-  bio: string | null;
-  displayName: string | null;
-  id: string;
-  isFollowing: boolean;
-  username: string;
-}
+export type ProfileUserListItem = ProfileUserListData;
 
 function countOf(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
@@ -464,6 +461,26 @@ function parseUserListItem(value: unknown): ProfileUserListItem | null {
     displayName: textOf(user.displayName),
     id: user.id,
     isFollowing: user.isFollowing === true,
+    mutualCount: countOf(user.mutualCount),
+    mutualFollowers: Array.isArray(user.mutualFollowers)
+      ? user.mutualFollowers
+          .flatMap((entry): UserListMutual[] => {
+            const mutual = objectOf(entry);
+            return mutual &&
+              typeof mutual.id === "string" &&
+              typeof mutual.username === "string"
+              ? [
+                  {
+                    avatarUrl: textOf(mutual.avatarUrl),
+                    displayName: textOf(mutual.displayName),
+                    id: mutual.id,
+                    username: mutual.username,
+                  },
+                ]
+              : [];
+          })
+          .slice(0, 3)
+      : [],
     username: user.username,
   };
 }

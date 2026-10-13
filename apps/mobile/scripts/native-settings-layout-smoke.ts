@@ -45,6 +45,7 @@ const tabs = [
   { name: "account", section: "settings-username" },
   { name: "privacy", section: "" },
   { name: "security", section: "settings-two-factor" },
+  { name: "personalization", section: "settings-appearance" },
 ];
 let snapshotsChecked = 0;
 const checkedLabels = new Set<string>();
@@ -68,9 +69,9 @@ for (const tab of tabs) {
       "shell",
       "input",
       "swipe",
-      String(width / 2),
+      String(width - 10),
       String(height * 0.42),
-      String(width / 2),
+      String(width - 10),
       String(height * 0.8),
       "150"
     );
@@ -120,9 +121,9 @@ for (const tab of tabs) {
       "shell",
       "input",
       "swipe",
-      String(width / 2),
+      String(width - 10),
       String(height * 0.8),
-      String(width / 2),
+      String(width - 10),
       String(height * 0.42),
       "350"
     );
@@ -136,6 +137,11 @@ for (const label of [
   "Messages recovery",
   "Active sessions",
   "Refresh",
+  "Appearance",
+  "System",
+  "Light",
+  "Dark",
+  "Legal",
 ]) {
   if (!checkedLabels.has(label)) {
     throw new Error(`Expected Settings content was not checked: ${label}`);

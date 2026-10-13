@@ -104,6 +104,12 @@ export function useFeedTab({
   const entry = feedCache.get(cacheKey);
   const { error, hasMore, pages, status } = entry;
 
+  useEffect(() => {
+    if (enabled) {
+      return feedCache.retain(cacheKey);
+    }
+  }, [cacheKey, enabled]);
+
   // External cache writes (view-count reconciles, invalidations from other
   // tabs) must also rerender the list. Keyed writes that miss this tab are
   // skipped: a reconcile for another tab must not re-render this list

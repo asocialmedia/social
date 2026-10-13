@@ -207,8 +207,12 @@ export function getPostDataQuery(orm: PrismaOrm, loggedInUserId: string) {
           "moderated",
           "userId"
         )
-        .include("postMedias", (media) => media.select("id", "_type").limit(1))
-        .include("community", (community) => community.select("slug"))
+        .include("postMedias", (media) =>
+          media.select("id", "_type", "width", "height", "mimeType").limit(1)
+        )
+        .include("community", (community) =>
+          community.select("slug", "accentColor", "id", "name")
+        )
         .include("user", (user) =>
           user
             .select(
@@ -240,10 +244,18 @@ export type PostQueryData = ResultType<ReturnType<typeof getPostDataQuery>>;
 
 export interface PostParentData {
   attachments: {
+    width?: number | null;
+    height?: number | null;
+    mimeType?: string;
     id: string;
     type: "AUDIO" | "DOCUMENT" | "IMAGE" | "VIDEO";
   }[];
-  community: { slug: string } | null;
+  community: {
+    slug: string;
+    accentColor?: string;
+    id?: string;
+    name?: string;
+  } | null;
   content: string;
   createdAt: Date;
   embeds: unknown;
@@ -354,8 +366,11 @@ export function mapPostData(post: PostQueryData): PostData {
           return {
             ...parent,
             attachments: parentPostMedias.map((media) => ({
+              height: media.height,
               id: media.id,
+              mimeType: media.mimeType,
               type: media._type,
+              width: media.width,
             })),
             createdAt: fromPrismaDateTime(parent.createdAt),
             user: {

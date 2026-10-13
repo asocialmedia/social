@@ -1,3 +1,5 @@
+// oxlint-disable sort-keys -- Action order groups lifecycle operations rather than sorting them alphabetically.
+import { MAX_POST_ATTACHMENTS } from "@asm/media";
 // Draft attachments for every native composer, ported from web's
 // components/posts/editor/attachment-store.ts. Each composer owns a scope
 // ("post", "eddie:<postId>:<parentId>") so the post composer and the eddie
@@ -333,6 +335,38 @@ export const attachmentActions = {
       }
     }
     return { added: accepted.length, rejected };
+  },
+
+  replace(localId: string, picked: PickedMedia): void {
+    const { scopes } = useAttachmentState.getState();
+    const scope = Object.keys(scopes).find((key) =>
+      scopes[key].some((item) => item.localId === localId)
+    );
+    if (!scope) {
+      return;
+    }
+    const original = scopes[scope];
+    const index = original.findIndex((item) => item.localId === localId);
+    const previous = original[index];
+    attachmentActions.remove(localId);
+    attachmentActions.add(scope, [picked], {
+      audioOverlayId: previous.audioOverlayId,
+      max: MAX_POST_ATTACHMENTS,
+      purpose: previous.purpose,
+      waitForProcessing: previous.waitForProcessing,
+    });
+    const current = useAttachmentState.getState().scopes[scope];
+    const replacement = current.at(-1);
+    if (!replacement) {
+      return;
+    }
+    const ordered = current.filter(
+      (item) => item.localId !== replacement.localId
+    );
+    ordered.splice(index, 0, { ...replacement, altText: previous.altText });
+    useAttachmentState.setState((state) => ({
+      scopes: { ...state.scopes, [scope]: ordered },
+    }));
   },
 
   // After a successful publish the media is attached (no discard); on a

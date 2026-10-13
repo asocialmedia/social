@@ -1,9 +1,8 @@
 // @mention / #tag autocomplete for the native composer, ported from web's
 // inline-suggestions (trigger regex, 6 results) + collectInlineRelations.
-// Web inserts atom pills in TipTap; the native TextInput inserts the plain
-// `@username ` / `#tag ` text and remembers the pick. As on web, only picked
-// entries count as relations (typed `@x` does nothing), and a pick whose text
-// was edited away no longer counts. Pure for unit tests.
+// Selected entries become inline pills and still serialize to plain text.
+// Only picked entries count as relations; edited-away picks stop counting.
+// Kept pure for tests.
 
 export interface ActiveTrigger {
   query: string;

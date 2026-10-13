@@ -183,6 +183,7 @@ export type { Contract, Models, TypeMaps } from "./generated/prisma/contract";
 export * from "./src/notification-type";
 export * from "./src/rate-limit";
 export * from "./src/redis";
+export * from "./src/session-limit";
 export * from "./src/users/profile-media";
 export * from "./src/recommendation/feed-service";
 export * from "./src/recommendation/profile";

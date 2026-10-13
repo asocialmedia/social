@@ -13,7 +13,14 @@ export function isPublicSessionAddress(value: string): boolean {
     return false;
   }
   if (value.includes(":")) {
-    const normalized = value.toLowerCase();
+    let normalized: string;
+    try {
+      normalized = new URL(`http://[${value}]`).hostname
+        .slice(1, -1)
+        .toLowerCase();
+    } catch {
+      return false;
+    }
     return (
       !normalized.startsWith("::") &&
       !normalized.startsWith("fc") &&
