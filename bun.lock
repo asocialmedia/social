@@ -26,7 +26,7 @@
     },
     "apps/auth": {
       "name": "@asm/auth-app",
-      "version": "1.2.1",
+      "version": "1.2.2",
       "dependencies": {
         "@asm/aggregator": "workspace:*",
         "@asm/auth": "workspace:*",
@@ -62,7 +62,7 @@
     },
     "apps/media-processing": {
       "name": "@asm/media-processing",
-      "version": "1.0.98",
+      "version": "1.0.99",
       "dependencies": {
         "@asm/config": "workspace:*",
         "@asm/db": "workspace:*",
@@ -176,7 +176,7 @@
     },
     "apps/web": {
       "name": "@asm/web",
-      "version": "1.7.23",
+      "version": "1.7.24",
       "dependencies": {
         "@asm/aggregator": "workspace:*",
         "@asm/auth": "workspace:*",
@@ -272,7 +272,7 @@
     },
     "packages/auth": {
       "name": "@asm/auth",
-      "version": "1.2.0",
+      "version": "1.2.1",
       "dependencies": {
         "@asm/db": "workspace:*",
         "@asm/logger": "workspace:*",
