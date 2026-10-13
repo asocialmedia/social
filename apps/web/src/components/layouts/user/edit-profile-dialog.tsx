@@ -18,7 +18,6 @@ import {
 } from "@asm/ui/shadui/form";
 import { Input } from "@asm/ui/shadui/input";
 import { Label } from "@asm/ui/shadui/label";
-import { Textarea } from "@asm/ui/shadui/textarea";
 import avatarPlaceholder from "@assets/general/avatar-placeholder.png";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
@@ -37,6 +36,7 @@ import {
 } from "@/app/(main)/users/[username]/avatar-mutations";
 import { LoadingButton } from "@/components/auth/fields/loading-button";
 import { AnimatedWordCounter } from "@/components/misc/animated-word-counter";
+import { InlineRichEditor } from "@/components/posts/editor/inline-rich-editor";
 import {
   AvatarInput,
   BannerInput,
@@ -491,11 +491,13 @@ export default function EditProfileDialog({
         <FormLabel>Bio</FormLabel>
         <FormControl>
           <div className="space-y-1">
-            <Textarea
-              className="resize-none"
-              placeholder="Tell us a little bit about yourself"
-              rows={4}
-              {...field}
+            <InlineRichEditor
+              className="premium-input rounded-xl"
+              editorClassName="max-h-40 min-h-24 overflow-y-auto px-3 py-3 text-sm leading-relaxed"
+              enableLinks
+              initialContent={field.value}
+              onChange={(value) => field.onChange(value)}
+              placeholder="Tell us a little bit about yourself - @mention, #tag or drop a link"
             />
             <div className="flex justify-end">
               <AnimatedWordCounter

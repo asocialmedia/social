@@ -14,7 +14,13 @@
 // also means one slow photo does not send the rest out of order, and the ratchet
 // chain stays in step with what the peer can actually read.
 
-import { ArrowUp, Clapperboard, ImagePlus, X } from "lucide-react-native";
+import {
+  ArrowUp,
+  Clapperboard,
+  ImagePlus,
+  Pencil,
+  X,
+} from "lucide-react-native";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Image,
@@ -30,6 +36,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { toast } from "@/components/feedback/toast";
 import { GifPicker } from "@/components/media/gif-picker";
 import { Gradient3D } from "@/components/surface/gradient-3d";
+import { IconButton3D } from "@/components/surface/icon-button-3d";
 import { authClient } from "@/features/auth/lib/auth-client";
 import {
   downloadGif,
@@ -51,6 +58,7 @@ import {
   sendButton,
 } from "@/features/messages/lib/message-recipes";
 import { useMessagesForeground } from "@/features/messages/state/use-messages-foreground";
+import { useProfileMediaCropper } from "@/features/profile/components/profile-media-cropper";
 import { getApiBaseUrl } from "@/lib/api-env";
 import { logWarn } from "@/lib/telemetry";
 import { useAppTheme } from "@/theme";
@@ -128,6 +136,7 @@ export function MessageComposer({
   // What the user has typed this session, keyed by nothing: it survives a cancel so
   // cancelling an edit restores what they had before it.
   const [draft, setDraft] = useState("");
+  const { crop, cropper } = useProfileMediaCropper();
   const [attachments, setAttachments] = useState<StagedAttachment[]>([]);
   const [sending, setSending] = useState(false);
   const typingSent = useRef(false);
@@ -260,6 +269,48 @@ export function MessageComposer({
     })();
   }, [conversationId, update]);
 
+  const editAttachment = async (item: StagedAttachment) => {
+    Keyboard.dismiss();
+    try {
+      const result = await crop(
+        { purpose: "message", source: item.file },
+        "post"
+      );
+      if (!result) {
+        return;
+      }
+      const staged: StagedAttachment = {
+        error: null,
+        file: { ...result.source, size: result.source.size ?? 0 },
+        id: `${item.id}-edit-${result.source.uri}`,
+        mediaId: null,
+        owned: false,
+        progress: 0,
+      };
+      setAttachments((current) =>
+        current.map((entry) => (entry.id === item.id ? staged : entry))
+      );
+      await uploadStagedAttachments([staged], {
+        aborts,
+        conversationId,
+        onPatch: update,
+      });
+      if (item.mediaId && item.owned) {
+        void discardMessageMedia(item.mediaId, {
+          apiBase: getApiBaseUrl(),
+          baseFetch: fetch,
+        });
+      }
+    } catch (error) {
+      toast({
+        description:
+          error instanceof Error ? error.message : "Try another image",
+        title: "Couldn't edit image",
+        variant: "destructive",
+      });
+    }
+  };
+
   const remove = useCallback((id: string) => {
     aborts.current.get(id)?.abort();
     aborts.current.delete(id);
@@ -319,6 +370,7 @@ export function MessageComposer({
         },
       ]}
     >
+      {cropper}
       {editing ? (
         <ContextBar
           label="Editing message"
@@ -340,6 +392,9 @@ export function MessageComposer({
               attachment={item}
               key={item.id}
               onRemove={() => remove(item.id)}
+              onEdit={() => {
+                void editAttachment(item);
+              }}
             />
           ))}
         </View>
@@ -720,9 +775,11 @@ function ContextBar({
 function AttachmentTile({
   attachment,
   onRemove,
+  onEdit,
 }: {
   attachment: StagedAttachment;
   onRemove: () => void;
+  onEdit: () => void;
 }) {
   const { theme } = useAppTheme();
   return (
@@ -731,6 +788,20 @@ function AttachmentTile({
         source={{ uri: attachment.file.uri }}
         style={StyleSheet.absoluteFill}
       />
+      {attachment.progress === null ? (
+        <View style={{ bottom: 4, left: 4, position: "absolute" }}>
+          <IconButton3D
+            accessibilityLabel={
+              attachment.file.mimeType === "image/gif"
+                ? "Edit GIF"
+                : "Edit image"
+            }
+            icon={Pencil}
+            size={28}
+            onPress={onEdit}
+          />
+        </View>
+      ) : null}
       {attachment.progress === null ? null : (
         <View
           accessibilityRole="progressbar"
