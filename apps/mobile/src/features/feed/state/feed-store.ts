@@ -155,6 +155,7 @@ export class FeedCache {
   private now: () => number;
   private tabs = new Map<string, TabFeed>();
   private residentAt = new Map<string, number>();
+  private readers = new Map<string, Set<symbol>>();
 
   constructor(now: () => number = Date.now) {
     this.now = now;
@@ -177,8 +178,8 @@ export class FeedCache {
   private prune(): void {
     for (const key of this.tabs.keys()) {
       if (
-        this.now() - (this.residentAt.get(key) ?? 0) >
-        FEED_CACHE_RETENTION_MS
+        !this.readers.has(key) &&
+        this.now() - (this.residentAt.get(key) ?? 0) > FEED_CACHE_RETENTION_MS
       ) {
         this.tabs.delete(key);
         this.residentAt.delete(key);
@@ -189,6 +190,23 @@ export class FeedCache {
   get(key: string): TabFeed {
     this.prune();
     return this.tabs.get(key) ?? emptyFeed();
+  }
+
+  // Mounted feeds own their rows; retention begins after the last reader leaves.
+  retain(key: string): () => void {
+    const reader = Symbol(key);
+    const readers = this.readers.get(key) ?? new Set<symbol>();
+    readers.add(reader);
+    this.readers.set(key, readers);
+    return () => {
+      if (!readers.delete(reader) || readers.size > 0) {
+        return;
+      }
+      this.readers.delete(key);
+      if (this.tabs.has(key)) {
+        this.residentAt.set(key, this.now());
+      }
+    };
   }
 
   // Live keys for snapshotting. Prunes first so expired tabs never persist.

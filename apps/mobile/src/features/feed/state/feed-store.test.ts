@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import type { FeedPost } from "../lib/feed-types";
 import {
   FeedCache,
+  FEED_CACHE_RETENTION_MS,
   reconcileFeedHead,
   feedFetchStatus,
   clearFeedTopRequest,
@@ -203,6 +204,39 @@ describe("FeedCache", () => {
     cache.invalidateAll();
     expect(cache.get("b").stale).toBe(true);
     cache.clear();
+    expect(cache.get("a").status).toBe("idle");
+  });
+
+  test("an idle mounted feed keeps its posts and cursor while unused tabs expire", () => {
+    let now = 0;
+    const cache = new FeedCache(() => now);
+    const release = cache.retain("reading");
+    cache.applyPage("reading", [post("visible")], "next", {}, false);
+    cache.applyPage("unused", [post("old")], null, {}, false);
+    now = FEED_CACHE_RETENTION_MS * 2;
+    expect(cache.keys()).toEqual(["reading"]);
+    expect(cache.get("reading").status).toBe("success");
+    expect(cache.get("reading").pages[0]?.[0]?.id).toBe("visible");
+    expect(cache.get("reading").cursor).toBe("next");
+    release();
+    now += FEED_CACHE_RETENTION_MS;
+    expect(cache.get("reading").status).toBe("success");
+    now += 1;
+    expect(cache.get("reading").status).toBe("idle");
+  });
+
+  test("retention waits for every reader and release is idempotent", () => {
+    let now = 0;
+    const cache = new FeedCache(() => now);
+    const releaseFirst = cache.retain("a");
+    const releaseSecond = cache.retain("a");
+    cache.applyPage("a", [post("visible")], null, {}, false);
+    releaseFirst();
+    releaseFirst();
+    now = FEED_CACHE_RETENTION_MS * 2;
+    expect(cache.get("a").status).toBe("success");
+    releaseSecond();
+    now += FEED_CACHE_RETENTION_MS + 1;
     expect(cache.get("a").status).toBe("idle");
   });
 });
