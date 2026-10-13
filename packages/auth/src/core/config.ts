@@ -25,6 +25,7 @@ import { validateEmailAdvanced } from "../validation/email-validator";
 import { buildPasskeyOrigins } from "./passkey-origins";
 import { hashPasswordWithScrypt, verifyPasswordHash } from "./password";
 import { prismaAdapter } from "./prisma-adapter";
+import { sessionMetadata } from "./session-metadata";
 
 const DEFAULT_AVATARS = ["/avatars/default-1.png", "/avatars/default-2.png"];
 
@@ -706,13 +707,15 @@ export function createAuthConfig(config: AuthConfig = {}) {
               }
             }
 
-            const country = context?.request?.headers
-              .get("cf-ipcountry")
-              ?.trim()
-              .toUpperCase();
-            if (country && /^[A-Z]{2}$/.test(country)) {
-              return { data: { country } };
-            }
+            return {
+              data: {
+                ...session,
+                ...sessionMetadata(
+                  session,
+                  context?.headers ?? context?.request?.headers
+                ),
+              },
+            };
           },
         },
       },

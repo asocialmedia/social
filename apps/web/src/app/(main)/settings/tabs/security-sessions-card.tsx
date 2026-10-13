@@ -14,6 +14,8 @@ import {
   Loader2,
   LogOut,
   MonitorSmartphone,
+  Smartphone,
+  Monitor,
   ShieldAlert,
 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
@@ -30,9 +32,11 @@ import { useToast } from "@/lib/gooey-toast";
 import { cn } from "@/lib/utils";
 
 import {
-  getSessionDevice,
   getSessionLocation,
+  hasSessionRefresh,
   isSecuritySession,
+  sessionClientLabel,
+  sessionDeviceLabel,
 } from "./security-session-utils";
 import type { SecuritySession } from "./security-session-utils";
 
@@ -46,6 +50,7 @@ function normalizeSession(value: unknown): SecuritySession | null {
   }
   return {
     ...value,
+    city: value.city ?? null,
     country: value.country ?? null,
     ipAddress: value.ipAddress ?? null,
     userAgent: value.userAgent ?? null,
@@ -80,8 +85,10 @@ async function listSecuritySessions(): Promise<SecuritySession[]> {
     .filter((session): session is SecuritySession => session !== null)
     .toSorted(
       (firstSession, secondSession) =>
+        Number(Boolean(secondSession.current)) -
+          Number(Boolean(firstSession.current)) ||
         new Date(secondSession.updatedAt).getTime() -
-        new Date(firstSession.updatedAt).getTime()
+          new Date(firstSession.updatedAt).getTime()
     );
 }
 
@@ -129,17 +136,17 @@ function getRevokeCopy(action: RevokeAction): {
   }
   if (action === "other-sessions") {
     return {
-      confirm: "Sign out other devices",
+      confirm: "Sign out other sessions",
       description:
-        "This ends all other active sessions and keeps this device signed in.",
-      title: "Sign out other devices?",
+        "This ends all other browser and app sessions and keeps this session signed in.",
+      title: "Sign out other sessions?",
     };
   }
   return {
     confirm: "Sign out session",
     description:
-      "This device will need to sign in again to access your account.",
-    title: "Sign out this device?",
+      "This sign-in will end. Other browser profiles and app sign-ins stay active.",
+    title: "Sign out this session?",
   };
 }
 
@@ -213,8 +220,8 @@ export default function SecuritySessionsCard({
       toast({
         description:
           revokeAction === "other-sessions"
-            ? "Other devices have been signed out."
-            : "That device has been signed out.",
+            ? "Other sessions have been signed out."
+            : "That session has been signed out.",
         title: "Sessions updated",
       });
     } catch (error) {
@@ -239,7 +246,7 @@ export default function SecuritySessionsCard({
     >
       <div className="flex items-start justify-between gap-4">
         <SettingsCardHeading
-          description="Devices currently signed in to your account"
+          description="Each browser profile or app sign-in has its own session."
           icon={MonitorSmartphone}
           title="Active sessions"
         />
@@ -272,33 +279,51 @@ export default function SecuritySessionsCard({
       {!isLoading && sessions.length > 0 ? (
         <div className="mt-4 space-y-2">
           {sessions.map((session) => {
-            const device = getSessionDevice(session.userAgent);
-            const isCurrentSession = session.id === currentSessionId;
+            const isCurrentSession =
+              session.current ?? session.id === currentSessionId;
+            const clientLabel = sessionClientLabel(session.userAgent);
+            let DeviceIcon = MonitorSmartphone;
+            if (clientLabel.startsWith("Web")) {
+              DeviceIcon = Monitor;
+            } else if (/^(?:Android|iOS|App)/.test(clientLabel)) {
+              DeviceIcon = Smartphone;
+            }
+
             return (
               <div
                 className={cn(
                   SETTINGS_SUBCARD_CLASS,
-                  "flex items-start gap-3 p-3"
+                  "flex flex-wrap items-start gap-3 p-3"
                 )}
                 key={session.id}
               >
-                <MonitorSmartphone className="text-muted-foreground mt-0.5 size-4 shrink-0" />
+                <DeviceIcon className="text-muted-foreground mt-0.5 size-4 shrink-0" />
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <p className="font-medium">
-                      {device.browser} on {device.device}
+                      {sessionDeviceLabel(session.userAgent)}
                     </p>
                     {isCurrentSession ? (
-                      <SettingsStatusChip on>Current device</SettingsStatusChip>
+                      <SettingsStatusChip on>
+                        Current session
+                      </SettingsStatusChip>
                     ) : null}
                   </div>
                   <div className="text-muted-foreground mt-1 space-y-0.5 text-xs">
+                    <p>{clientLabel}</p>
                     <p className="flex items-center gap-1.5">
                       <Globe2 className="size-3" />
-                      {getSessionLocation(session.country, session.ipAddress)}
+                      {getSessionLocation(
+                        session.country,
+                        session.city ?? null
+                      )}
                     </p>
                     <p>Signed in {formatSessionDate(session.createdAt)}</p>
-                    <p>Last active {formatSessionDate(session.updatedAt)}</p>
+                    {hasSessionRefresh(session.createdAt, session.updatedAt) ? (
+                      <p>
+                        Session refreshed {formatSessionDate(session.updatedAt)}
+                      </p>
+                    ) : null}
                   </div>
                 </div>
                 <Button
@@ -307,7 +332,7 @@ export default function SecuritySessionsCard({
                   variant="ghost"
                 >
                   <LogOut className="size-3.5" />
-                  {isCurrentSession ? "Sign out" : "End"}
+                  {isCurrentSession ? "Sign out" : "End session"}
                 </Button>
               </div>
             );
@@ -321,7 +346,7 @@ export default function SecuritySessionsCard({
           onClick={() => openRevokeDialog("other-sessions")}
           variant="ghost"
         >
-          Sign out other devices
+          Sign out other sessions
         </Button>
         <Button
           className="btn-3d-danger h-9 rounded-full px-4 text-sm"
