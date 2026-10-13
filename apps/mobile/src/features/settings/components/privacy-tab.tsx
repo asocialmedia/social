@@ -12,8 +12,9 @@ import { Shield } from "lucide-react-native";
 // web tab uses, and the greying-out of rows lives on the web only.
 import { useCallback, useEffect, useState } from "react";
 import type { RefObject } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ScrollView, StyleSheet, Text, View } from "react-native";
 import type { ScrollView as ScrollViewType } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { toast } from "@/components/feedback/toast";
 import { authClient } from "@/features/auth/lib/auth-client";
@@ -24,7 +25,11 @@ import { useAppTheme } from "@/theme";
 
 import { fetchGroupAddSetting, setGroupAddPolicy } from "../lib/settings-api";
 import type { GroupAddPolicy } from "../lib/settings-api";
+import { SectionAnchor } from "../lib/settings-scroll";
+import { LegalSettingsLinks } from "./legal-settings-links";
+import { SettingsChoice } from "./settings-choice";
 import {
+  SettingsButton,
   SettingsCard,
   SettingsCardHeading,
   SettingsSectionHeader,
@@ -63,9 +68,13 @@ export function PrivacyTab({
   onChanged: () => void;
   scrollRef?: RefObject<ScrollViewType | null>;
 }) {
-  const { isDark, theme } = useAppTheme();
+  const { theme } = useAppTheme();
+  const insets = useSafeAreaInsets();
   const { runWithInstallToken } = useInstall();
   const [selected, setSelected] = useState<GroupAddPolicy>("FOLLOWING_ONLY");
+  const [loaded, setLoaded] = useState(false);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [loadAttempt, setLoadAttempt] = useState(0);
   const [saving, setSaving] = useState<GroupAddPolicy | null>(null);
 
   // The session user is the source of truth, as it is for the account tab: a
@@ -77,19 +86,27 @@ export function PrivacyTab({
         apiBase: getApiBaseUrl(),
         cookie: await authClient.getCookie(),
       };
-      const setting = await fetchGroupAddSetting(options);
+      const setting = await fetchGroupAddSetting(options).catch(() => null);
       if (!cancelled && setting) {
         setSelected(setting.groupAddPolicy);
+      }
+      if (!cancelled) {
+        setLoaded(true);
+        setLoadFailed(!setting);
       }
     };
     void read();
     return () => {
       cancelled = true;
     };
-  }, []);
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- The retry counter explicitly restarts the initial read.
+  }, [loadAttempt]);
 
   const choose = useCallback(
     async (policy: GroupAddPolicy) => {
+      if (!loaded || loadFailed || saving || policy === selected) {
+        return;
+      }
       const previous = selected;
       setSelected(policy);
       setSaving(policy);
@@ -102,15 +119,15 @@ export function PrivacyTab({
         (value) => Boolean(value && value.kind === "install-token-required")
       );
       setSaving(null);
-      if (result === null) {
-        return;
-      }
-      if (result.kind === "error") {
+      if (!result || result.kind !== "success") {
         // Rolled back, because a row that snapped to the new choice and stayed
         // there would be a setting the server never accepted.
         setSelected(previous);
         toast({
-          description: result.message,
+          description:
+            result && result.kind === "error"
+              ? result.message
+              : "Your privacy choice was not saved.",
           title: "Couldn't save",
           variant: "destructive",
         });
@@ -118,12 +135,15 @@ export function PrivacyTab({
       }
       onChanged();
     },
-    [onChanged, runWithInstallToken, selected]
+    [loaded, loadFailed, onChanged, runWithInstallToken, saving, selected]
   );
 
   return (
     <ScrollView
-      contentContainerStyle={styles.content}
+      contentContainerStyle={[
+        styles.content,
+        { paddingBottom: 96 + insets.bottom },
+      ]}
       ref={scrollRef}
       showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
     >
@@ -132,78 +152,54 @@ export function PrivacyTab({
         icon={Shield}
         title="Privacy"
       />
-      <SettingsCard>
-        <SettingsCardHeading
-          description="Applies to new groups. It never changes a group you are already in."
-          icon={Shield}
-          title="Who can add me to a group"
-        />
-        <View accessibilityRole="radiogroup" style={styles.options}>
-          {GROUP_ADD_OPTIONS.map((option) => {
-            const checked = selected === option.value;
-            const busy = saving === option.value;
-            return (
-              <Pressable
-                accessibilityRole="radio"
-                accessibilityState={{ checked, disabled: busy }}
+      <SectionAnchor id="settings-group-adds" tab="privacy">
+        <SettingsCard>
+          <SettingsCardHeading
+            description="Applies to new groups. It never changes a group you are already in."
+            icon={Shield}
+            title="Who can add me to a group"
+          />
+          {loadFailed ? (
+            <SettingsButton
+              label="Retry privacy settings"
+              tone="gray"
+              onPress={() => {
+                setLoaded(false);
+                setLoadFailed(false);
+                setLoadAttempt((value) => value + 1);
+              }}
+            />
+          ) : null}
+          <View accessibilityRole="radiogroup" style={styles.options}>
+            {GROUP_ADD_OPTIONS.map((option) => (
+              <SettingsChoice
                 key={option.value}
+                checked={selected === option.value}
+                disabled={!loaded || loadFailed || saving !== null}
+                label={option.label}
+                description={option.description}
                 onPress={() => {
-                  if (!checked && !busy) {
-                    void choose(option.value);
-                  }
+                  void choose(option.value);
                 }}
-                style={({ pressed }) => [
-                  styles.option,
-                  {
-                    backgroundColor: theme.cardBg,
-                    borderColor: checked ? "#ff9500" : theme.cardBorder,
-                    boxShadow: isDark
-                      ? "inset 0 0 0 1px rgba(255,255,255,0.05)"
-                      : "inset 0 0 0 1px rgba(255,255,255,0.6)",
-                    opacity: pressed ? 0.82 : 1,
-                  },
-                ]}
-              >
-                <View
-                  style={[
-                    styles.marker,
-                    {
-                      backgroundColor: checked ? "#ff9500" : "transparent",
-                      borderColor: checked ? "#ff9500" : theme.dividerText,
-                    },
-                  ]}
-                />
-                <View style={styles.optionText}>
-                  <Text
-                    style={[styles.optionLabel, { color: theme.inputText }]}
-                  >
-                    {option.label}
-                  </Text>
-                  <Text
-                    style={[
-                      styles.optionDescription,
-                      { color: theme.dividerText },
-                    ]}
-                  >
-                    {option.description}
-                  </Text>
-                </View>
-              </Pressable>
-            );
-          })}
-        </View>
-        <Text style={[styles.note, { color: theme.dividerText }]}>
-          Invite links are not affected by this. Anyone you send one to can
-          still open it and join, because joining is your decision rather than
-          theirs.
-        </Text>
-      </SettingsCard>
+              />
+            ))}
+          </View>
+          <Text style={[styles.note, { color: theme.dividerText }]}>
+            Invite links are not affected by this. Anyone you send one to can
+            still open it and join, because joining is your decision rather than
+            theirs.
+          </Text>
+        </SettingsCard>
+      </SectionAnchor>
+      <SectionAnchor id="settings-legal" tab="privacy">
+        <LegalSettingsLinks />
+      </SectionAnchor>
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  content: { gap: 14, padding: 16, paddingBottom: 40 },
+  content: { gap: 14, padding: 16 },
   marker: {
     borderCurve: "continuous",
     borderRadius: 999,

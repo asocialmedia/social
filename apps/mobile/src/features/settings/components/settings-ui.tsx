@@ -451,6 +451,8 @@ export function SettingsInput({
           </Text>
         ) : null}
         <TextInput
+          accessibilityLabel={label}
+          textAlignVertical={multiline ? "top" : "center"}
           autoCapitalize={autoCapitalize}
           autoCorrect={false}
           editable={editable}
@@ -608,12 +610,20 @@ const styles = StyleSheet.create({
     minHeight: 44,
     paddingHorizontal: 16,
   },
-  inputFieldMultiline: { alignItems: "flex-start", minHeight: 88 },
+  inputFieldMultiline: {
+    alignItems: "flex-start",
+    minHeight: 112,
+    paddingVertical: 12,
+  },
   inputLeadingText: {
     fontFamily: "SofiaProMed",
     fontSize: 15,
   },
-  inputMultilineText: { paddingVertical: 0, textAlignVertical: "top" },
+  inputMultilineText: {
+    minHeight: 88,
+    paddingVertical: 0,
+    textAlignVertical: "top",
+  },
   minWidthZero: { flex: 1, minWidth: 0 },
   sectionHeader: { alignItems: "center", flexDirection: "row", gap: 12 },
   sectionHeaderDesc: { fontFamily: "SofiaProReg", fontSize: 13 },

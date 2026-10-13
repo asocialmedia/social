@@ -44,9 +44,14 @@ const COMMITMENTS = [
   },
 ] as const;
 
-export default function PrivacyPolicyPage() {
+export default function PrivacyPolicyPage({
+  embedded = false,
+}: {
+  embedded?: boolean;
+}) {
   return (
     <DocPage
+      embedded={embedded}
       crossLink={{ href: "/toc", label: "Terms of Service" }}
       effectiveDate="17 September 2026"
       sections={SECTIONS}

@@ -33,6 +33,7 @@ import {
 } from "../lib/settings-view-model";
 import type { LinkedAccountInfo } from "../lib/settings-view-model";
 import { AccountTab } from "./account-tab";
+import { PersonalizationTab } from "./personalization-tab";
 import { PrivacyTab } from "./privacy-tab";
 import { ProfileTab } from "./profile-tab";
 import { SecurityTab } from "./security-tab";
@@ -61,6 +62,7 @@ export function SettingsScreen() {
   const scrollRefs = useMemo(
     () => ({
       account: { current: null as ScrollViewType | null },
+      personalization: { current: null as ScrollViewType | null },
       privacy: { current: null as ScrollViewType | null },
       profile: { current: null as ScrollViewType | null },
       security: { current: null as ScrollViewType | null },
@@ -163,6 +165,8 @@ export function SettingsScreen() {
       <View style={styles.chrome}>
         <FeedTabs
           active={tab}
+          scrollable
+          alignment="start"
           onChange={(next) => goToTab(next)}
           tabs={SETTINGS_TAB_DEFS}
         />
@@ -206,6 +210,7 @@ export function SettingsScreen() {
             <SettingsCardSkeleton fields={1} />
           </ScrollView>
         )}
+        <PersonalizationTab scrollRef={scrollRefs.personalization} />
       </FeedPager>
 
       <MobileBottomNav />

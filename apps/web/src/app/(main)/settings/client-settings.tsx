@@ -1,5 +1,6 @@
 "use client";
 
+import { visibleTabScrollOffset } from "@asm/ui/lib/tab-scroll";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@asm/ui/shadui/tabs";
 import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -9,6 +10,7 @@ import { FeedScrollbar } from "@/components/layouts/feed/feed-scrollbar";
 import MobileBottomNav from "@/components/layouts/navigation/mobile/mobile-bottom-nav";
 import MobileTopBar from "@/components/layouts/navigation/mobile/mobile-top-bar";
 import type { AccountLinkingReadiness } from "@/components/settings/linked-accounts";
+import PersonalizationSettings from "@/components/settings/personalization-settings";
 import SettingsSearch from "@/components/settings/settings-search";
 import type { SettingsTab } from "@/components/settings/settings-search";
 import SettingsSidebar from "@/components/settings/settings-sidebar";
@@ -40,10 +42,47 @@ export default function ClientSettings({
   user,
 }: ClientSettingsProps) {
   const feedScrollRef = useRef<HTMLDivElement>(null);
+  const tabsRef = useRef<HTMLDivElement>(null);
   const searchParams = useSearchParams();
   const [activeTab, setActiveTab] = useState<SettingsTab>(() =>
     getSettingsTab(searchParams)
   );
+
+  const revealTab = useCallback((selected: HTMLElement) => {
+    const tabs = tabsRef.current;
+    if (!tabs) {
+      return;
+    }
+    const bounds = selected.getBoundingClientRect();
+    const viewport = tabs.getBoundingClientRect();
+    tabs.scrollTo({
+      behavior: "auto",
+      left: visibleTabScrollOffset({
+        itemLeft: bounds.left - viewport.left + tabs.scrollLeft,
+        itemWidth: bounds.width,
+        offset: tabs.scrollLeft,
+        viewportWidth: tabs.clientWidth,
+      }),
+    });
+  }, []);
+
+  useEffect(() => {
+    const tabs = tabsRef.current;
+    const selected = tabs?.querySelector<HTMLElement>(
+      `[data-state="active"][data-settings-tab="${activeTab}"]`
+    );
+    if (!tabs || !selected) {
+      return;
+    }
+    const revealSelected = () => {
+      revealTab(selected);
+    };
+    revealSelected();
+    const observer = new ResizeObserver(revealSelected);
+    observer.observe(tabs);
+    observer.observe(selected);
+    return () => observer.disconnect();
+  }, [activeTab, revealTab]);
 
   useEffect(() => {
     const restoreTabFromHistory = () => {
@@ -100,18 +139,49 @@ export default function ClientSettings({
           <div className="z-20 shrink-0 bg-[hsl(var(--background-alt))]/90 pt-2 backdrop-blur-md">
             <MobileTopBar />
             <div className="border-border/60 relative flex items-center border-b py-1.5">
-              <TabsList className="flex h-full flex-1 items-center justify-center gap-0 bg-transparent p-0 md:justify-start">
-                <TabsTrigger className={TAB_TRIGGER_CLASS} value="profile">
+              <TabsList
+                ref={tabsRef}
+                className="hide-native-scrollbar flex h-full min-w-0 flex-1 items-center justify-start gap-0 overflow-x-auto bg-transparent p-0 md:justify-start [&>[role=tab]]:shrink-0"
+              >
+                <TabsTrigger
+                  className={TAB_TRIGGER_CLASS}
+                  onClick={(event) => revealTab(event.currentTarget)}
+                  data-settings-tab="profile"
+                  value="profile"
+                >
                   Profile
                 </TabsTrigger>
-                <TabsTrigger className={TAB_TRIGGER_CLASS} value="account">
+                <TabsTrigger
+                  className={TAB_TRIGGER_CLASS}
+                  onClick={(event) => revealTab(event.currentTarget)}
+                  data-settings-tab="account"
+                  value="account"
+                >
                   Account
                 </TabsTrigger>
-                <TabsTrigger className={TAB_TRIGGER_CLASS} value="privacy">
+                <TabsTrigger
+                  className={TAB_TRIGGER_CLASS}
+                  onClick={(event) => revealTab(event.currentTarget)}
+                  data-settings-tab="privacy"
+                  value="privacy"
+                >
                   Privacy
                 </TabsTrigger>
-                <TabsTrigger className={TAB_TRIGGER_CLASS} value="security">
+                <TabsTrigger
+                  className={TAB_TRIGGER_CLASS}
+                  onClick={(event) => revealTab(event.currentTarget)}
+                  data-settings-tab="security"
+                  value="security"
+                >
                   Security
+                </TabsTrigger>
+                <TabsTrigger
+                  className={TAB_TRIGGER_CLASS}
+                  onClick={(event) => revealTab(event.currentTarget)}
+                  value="personalization"
+                  data-settings-tab="personalization"
+                >
+                  Personalization
                 </TabsTrigger>
               </TabsList>
               <div className="ml-auto hidden min-w-0 items-center gap-2 pr-1.5 md:flex">
@@ -130,7 +200,16 @@ export default function ClientSettings({
               className="hide-native-scrollbar h-full overflow-x-hidden overflow-y-auto"
               ref={feedScrollRef}
             >
-              <TabsContent className="mt-0 pb-12" value="profile">
+              <TabsContent
+                className="mt-0 pb-[calc(env(safe-area-inset-bottom)+6rem)] lg:pb-12"
+                value="personalization"
+              >
+                <PersonalizationSettings />
+              </TabsContent>
+              <TabsContent
+                className="mt-0 pb-[calc(env(safe-area-inset-bottom)+6rem)] lg:pb-12"
+                value="profile"
+              >
                 <ProfileSettings
                   onNavigateToAccount={() =>
                     handleNavigate("account", "settings-username")
@@ -139,18 +218,27 @@ export default function ClientSettings({
                 />
               </TabsContent>
 
-              <TabsContent className="mt-0 pb-12" value="account">
+              <TabsContent
+                className="mt-0 pb-[calc(env(safe-area-inset-bottom)+6rem)] lg:pb-12"
+                value="account"
+              >
                 <AccountSettings
                   accountLinkingReadiness={accountLinkingReadiness}
                   user={user}
                 />
               </TabsContent>
 
-              <TabsContent className="mt-0 pb-12" value="privacy">
+              <TabsContent
+                className="mt-0 pb-[calc(env(safe-area-inset-bottom)+6rem)] lg:pb-12"
+                value="privacy"
+              >
                 <PrivacySettings user={user} />
               </TabsContent>
 
-              <TabsContent className="mt-0 pb-12" value="security">
+              <TabsContent
+                className="mt-0 pb-[calc(env(safe-area-inset-bottom)+6rem)] lg:pb-12"
+                value="security"
+              >
                 <SecuritySettings
                   currentSessionId={currentSessionId}
                   initialPasskeys={initialPasskeys}

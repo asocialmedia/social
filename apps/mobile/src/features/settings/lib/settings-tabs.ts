@@ -7,6 +7,7 @@ export const SETTINGS_TABS = [
   "account",
   "profile",
   "privacy",
+  "personalization",
   "security",
 ] as const;
 
@@ -20,6 +21,7 @@ export const SETTINGS_TAB_DEFS = [
   { label: "Account", value: "account" },
   { label: "Privacy", value: "privacy" },
   { label: "Security", value: "security" },
+  { label: "Personalization", value: "personalization" },
 ] as const satisfies readonly { label: string; value: SettingsTab }[];
 
 export interface SettingsTabMeta {
@@ -34,6 +36,11 @@ export const SETTINGS_TAB_META: Record<SettingsTab, SettingsTabMeta> = {
     description: "Your username, email and sign-in methods",
     label: "Account",
     title: "Account",
+  },
+  personalization: {
+    description: "Theme and appearance",
+    label: "Personalization",
+    title: "Personalization",
   },
   privacy: {
     description: "Who can reach you, and who can put you in a group",
@@ -68,7 +75,7 @@ export function resolveSettingsTab(
   return isSettingsTab(value) ? value : DEFAULT_SETTINGS_TAB;
 }
 
-/** The path for a tab, so switching tabs is a real navigation. */
+// The path for a tab, so switching tabs is a real navigation.
 export function settingsTabPath(tab: SettingsTab): string {
   return `/settings?tab=${tab}`;
 }

@@ -20,7 +20,13 @@ describe("settings tab state", () => {
     // missing here is a section the reader cannot be linked to. The list is
     // written out rather than imported from the component, because the component
     // is what this is checking.
-    for (const tab of ["profile", "account", "privacy", "security"]) {
+    for (const tab of [
+      "profile",
+      "account",
+      "privacy",
+      "security",
+      "personalization",
+    ]) {
       expect(getSettingsTab(new URLSearchParams(`tab=${tab}`))).toBe(tab);
       expect(isSettingsTab(tab)).toBe(true);
     }
