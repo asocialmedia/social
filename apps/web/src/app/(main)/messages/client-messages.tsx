@@ -6,11 +6,13 @@ import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
+import MobileTopBar from "@/components/layouts/navigation/mobile/mobile-top-bar";
 import { ActiveFriendsRail } from "@/components/messages/active-friends-rail";
 import { ConversationList } from "@/components/messages/conversation-list";
 import { useMessagesIdentity } from "@/components/messages/message-identity-provider";
 import { MessageIdentityLocked } from "@/components/messages/message-identity-recovery";
 import { MessageThread } from "@/components/messages/message-thread";
+import { MessagesErrorState } from "@/components/messages/messages-error-state";
 import { MessagesSkeleton } from "@/components/messages/messages-skeleton";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { conversationListLayout } from "@/lib/messages/conversation-list-layout";
@@ -18,6 +20,21 @@ import { cn } from "@/lib/utils";
 import { useMessagesSidebarStore } from "@/store/messages-sidebar-store";
 
 export default function ClientMessages() {
+  const searchParams = useSearchParams();
+
+  return (
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+      {searchParams.get("c") ? null : (
+        <div className="shrink-0">
+          <MobileTopBar />
+        </div>
+      )}
+      <MessagesPanes />
+    </div>
+  );
+}
+
+function MessagesPanes() {
   const { status, reset } = useMessagesIdentity();
   const { isCollapsed, setCollapsed, toggleCollapsed } =
     useMessagesSidebarStore();
@@ -106,11 +123,7 @@ export default function ClientMessages() {
   if (status === "error") {
     return (
       <div className="border-border/60 flex min-w-0 flex-1 flex-col bg-[hsl(var(--background-alt))] sm:border-x">
-        <div className="flex flex-1 items-center justify-center p-8 text-center">
-          <p className="text-muted-foreground text-sm">
-            Messages couldn't be set up. Reload to try again.
-          </p>
-        </div>
+        <MessagesErrorState onRetry={() => window.location.reload()} />
       </div>
     );
   }

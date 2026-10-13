@@ -35,17 +35,13 @@ export function OnlineFriendsStrip({
           <button
             aria-busy={creating === person.id}
             aria-label={`Message ${person.displayName} (@${person.username}), online`}
-            className="relative flex size-12 cursor-pointer items-center justify-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))] focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-60"
+            className="relative flex size-12 cursor-pointer items-center justify-center rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))] focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-60"
             disabled={creating !== null}
             onClick={() => onSelect(person.id)}
             title={`${person.displayName} · Online`}
             type="button"
           >
-            <UserAvatar
-              avatarUrl={person.avatarUrl}
-              className="rounded-full!"
-              size={48}
-            />
+            <UserAvatar avatarUrl={person.avatarUrl} size={48} />
             <span
               aria-hidden
               className="border-background absolute right-0 bottom-0 size-3 rounded-full border-2 bg-green-500"

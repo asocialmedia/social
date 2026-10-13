@@ -9,13 +9,13 @@
 // the swipe is settling. Inactive media releases its native decoding source.
 // Handoff + settle math lives in lib/pager-navigation and is unchanged.
 // Worklet rule: gesture callbacks never capture JS refs. Everything the UI
-// thread touches is a shared value; the two scheduleOnRN hops (drag flag,
-// index publish) run on the RN thread through stable callbacks.
-import { useCallback, useEffect, useMemo, useState } from "react";
+// thread touches is a shared value; index publication uses a stable RN callback.
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { Dimensions, StyleSheet, View } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
+  cancelAnimation,
   useAnimatedStyle,
   useSharedValue,
   withSpring,
@@ -27,6 +27,7 @@ import {
   handoffIndex,
   retainPagerPages,
   settleIndex,
+  shouldSyncPagerTarget,
 } from "../lib/pager-navigation";
 
 // Finger-driven settle keeps velocity and honours reduced motion by default.
@@ -36,14 +37,20 @@ interface FeedPagerProps {
   activeIndex: number;
   children: ReactNode[];
   onIndexChange: (index: number) => void;
+  overlay?: ReactNode;
 }
 
 export function FeedPager({
   activeIndex,
   children,
   onIndexChange,
+  overlay,
 }: FeedPagerProps) {
   const pageCount = children.length;
+  const onIndexChangeRef = useRef(onIndexChange);
+  useEffect(() => {
+    onIndexChangeRef.current = onIndexChange;
+  }, [onIndexChange]);
   const clampedIndex = clampIndex(activeIndex, pageCount);
   const [mountedRange, setMountedRange] = useState(() =>
     retainPagerPages(clampedIndex, pageCount)
@@ -73,31 +80,28 @@ export function FeedPager({
     countSv.set(pageCount);
   }, [countSv, pageCount]);
 
-  // RN-thread hops for the gesture. Stable callbacks so the gesture memo
-  // below never re-creates per render.
-  const setDragging = useCallback(
-    (value: boolean): void => {
-      draggingSv.set(value);
-    },
-    [draggingSv]
-  );
-
-  const publishIndex = useCallback(
-    (index: number): void => {
-      onIndexChange(index);
-    },
-    [onIndexChange]
-  );
+  // Index publication is the only RN-thread hop; drag ownership stays on the UI thread.
+  const publishIndex = useCallback((index: number): void => {
+    onIndexChangeRef.current(index);
+  }, []);
 
   // Tap-driven index change: animate the track to the new page. Stands down
   // while a live drag owns the track; the gesture's own settle animates it.
   // Reads draggingSv in an effect (RN thread), never during render.
   useEffect(() => {
-    if (draggingSv.get()) {
+    if (
+      !shouldSyncPagerTarget(
+        clampedIndex,
+        pageWidth,
+        originSv.get(),
+        baseSv.get(),
+        draggingSv.get()
+      )
+    ) {
       return;
     }
-    // A tapped tab is immediate; horizontal swipes retain their native gesture.
-    translateX.set(-clampedIndex * pageWidth);
+    // A published swipe target already has a spring; only a new tap starts another one.
+    translateX.set(withSpring(-clampedIndex * pageWidth, SETTLE_SPRING));
     originSv.set(clampedIndex);
     baseSv.set(-clampedIndex * pageWidth);
     handedSv.set(clampedIndex);
@@ -116,6 +120,7 @@ export function FeedPager({
     width: widthSv.get() * countSv.get(),
   }));
 
+  // oxlint-disable react/refs -- Worklets schedule publishIndex; its ref is read later on the RN thread.
   const gesture = useMemo(
     () =>
       // oxlint-disable-next-line react/capitalized-calls -- Gesture.Pan is a factory, not a component
@@ -123,12 +128,12 @@ export function FeedPager({
         .activeOffsetX([-10, 10])
         .failOffsetY([-12, 12])
         .onStart(() => {
+          cancelAnimation(translateX);
           draggingSv.set(true);
-          scheduleOnRN(setDragging, true);
           const origin = clampIndex(originSv.get(), countSv.get());
           originSv.set(origin);
           handedSv.set(origin);
-          baseSv.set(-origin * widthSv.get());
+          baseSv.set(translateX.get());
         })
         .onUpdate((event) => {
           const width = widthSv.get();
@@ -143,9 +148,11 @@ export function FeedPager({
             scheduleOnRN(publishIndex, next);
           }
         })
-        .onEnd((event) => {
+        .onEnd((event, success) => {
+          if (!success) {
+            return;
+          }
           draggingSv.set(false);
-          scheduleOnRN(setDragging, false);
           const count = countSv.get();
           const width = widthSv.get();
           const origin = originSv.get();
@@ -159,12 +166,23 @@ export function FeedPager({
           originSv.set(settled);
           handedSv.set(settled);
           baseSv.set(-settled * width);
-          translateX.set(withSpring(-settled * width, SETTLE_SPRING));
+          translateX.set(
+            withSpring(-settled * width, {
+              ...SETTLE_SPRING,
+              velocity: event.velocityX,
+            })
+          );
           scheduleOnRN(publishIndex, settled);
         })
-        .onFinalize(() => {
+        .onFinalize((_event, success) => {
+          if (!success && draggingSv.get()) {
+            const origin = clampIndex(originSv.get(), countSv.get());
+            handedSv.set(origin);
+            baseSv.set(-origin * widthSv.get());
+            translateX.set(withSpring(-origin * widthSv.get(), SETTLE_SPRING));
+            scheduleOnRN(publishIndex, origin);
+          }
           draggingSv.set(false);
-          scheduleOnRN(setDragging, false);
         }),
     [
       baseSv,
@@ -173,11 +191,12 @@ export function FeedPager({
       originSv,
       countSv,
       publishIndex,
-      setDragging,
       translateX,
       widthSv,
     ]
   );
+
+  // oxlint-enable react/refs
 
   return (
     <View
@@ -194,16 +213,19 @@ export function FeedPager({
       style={styles.viewport}
     >
       <GestureDetector gesture={gesture}>
-        <Animated.View style={[styles.track, animatedStyle]}>
-          {children.map((child, index) => {
-            const mounted = index >= retained.first && index <= retained.last;
-            return (
-              <View key={index} style={[styles.page, { width: pageWidth }]}>
-                {mounted ? child : null}
-              </View>
-            );
-          })}
-        </Animated.View>
+        <View collapsable={false} style={styles.viewport}>
+          <Animated.View style={[styles.track, animatedStyle]}>
+            {children.map((child, index) => {
+              const mounted = index >= retained.first && index <= retained.last;
+              return (
+                <View key={index} style={[styles.page, { width: pageWidth }]}>
+                  {mounted ? child : null}
+                </View>
+              );
+            })}
+          </Animated.View>
+          {overlay}
+        </View>
       </GestureDetector>
     </View>
   );
@@ -211,7 +233,7 @@ export function FeedPager({
 
 const styles = StyleSheet.create({
   page: {
-    flex: 1,
+    flexShrink: 0,
   },
   track: {
     flex: 1,

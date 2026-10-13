@@ -41,6 +41,7 @@ import {
 } from "@/features/messages/lib/message-recipes";
 import { useAppTheme } from "@/theme";
 
+import { MessagePostPreview } from "./message-post-preview";
 import { MessageSearchHighlight } from "./message-search-highlight";
 import {
   DeletedBubble,
@@ -254,9 +255,10 @@ function MessageBubbleInner({
           mine={mine}
           theme={theme}
         >
-          <Text style={styles.sharedLabel}>
-            {payload.content?.trim() || "Shared a post"}
-          </Text>
+          {payload.content?.trim() ? (
+            <Text style={styles.sharedLabel}>{payload.content.trim()}</Text>
+          ) : null}
+          <MessagePostPreview key={payload.postId} postId={payload.postId} />
         </SentOrReceived>
         {showReceipt && mine && receipt ? (
           <ReceiptLine

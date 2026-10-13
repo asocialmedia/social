@@ -2,7 +2,6 @@ import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import {
-  Clapperboard,
   CornerDownRight,
   Eye,
   FileText,
@@ -37,6 +36,7 @@ import { toast } from "@/components/feedback/toast";
 import { usePullToRefresh } from "@/components/feedback/use-pull-to-refresh";
 import { deleteEddie } from "@/features/composer/lib/publish-api";
 import { DeleteEddieDialog } from "@/features/eddies/components/delete-eddie-dialog";
+import { ExploreBadge } from "@/features/explore/components/explore-badge";
 import {
   MoreMenu,
   buildMoreEntries,
@@ -279,10 +279,7 @@ const GustGridTile = memo(
         ) : (
           <View style={[styles.gustGridImage, styles.gustGridFallback]} />
         )}
-        <View style={styles.gustGridChip}>
-          <Clapperboard color="#f97316" size={10} />
-          <Text style={styles.gustGridChipText}>Gust</Text>
-        </View>
+        <ExploreBadge kind="gust" style={styles.gustGridChip} />
         <LinearGradient
           colors={["transparent", "rgba(0,0,0,0.45)", "rgba(0,0,0,0.85)"]}
           locations={[0, 0.4, 1]}
@@ -1292,23 +1289,7 @@ const styles = StyleSheet.create({
   },
   footer: { alignItems: "center", paddingVertical: 18 },
   gridCell: { flex: 1 },
-  gustGridChip: {
-    alignItems: "center",
-    backgroundColor: "rgba(0,0,0,0.55)",
-    borderRadius: 999,
-    flexDirection: "row",
-    gap: 4,
-    left: 8,
-    paddingHorizontal: 7,
-    paddingVertical: 2,
-    position: "absolute",
-    top: 8,
-  },
-  gustGridChipText: {
-    color: "#ffffff",
-    fontFamily: "SofiaProBold",
-    fontSize: 10,
-  },
+  gustGridChip: { left: 8, position: "absolute", top: 8 },
   gustGridContent: {
     color: "rgba(255,255,255,0.92)",
     fontFamily: "SofiaProMed",

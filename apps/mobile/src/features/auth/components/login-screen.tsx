@@ -848,6 +848,8 @@ export default function LoginScreen() {
 
                       {/* 3D Passkey Button (icon-btn-3d) */}
                       <Pressable
+                        accessibilityLabel="Sign in with a passkey"
+                        accessibilityRole="button"
                         disabled={activeSocial !== null || isLoading}
                         onPress={() => {
                           void handlePasskeyClick();

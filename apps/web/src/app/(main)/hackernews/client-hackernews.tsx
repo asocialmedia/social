@@ -10,7 +10,6 @@ import { HN_SORT_OPTIONS, HNFeed } from "@/components/hackernews/hn-feed";
 import type { HNSortOption } from "@/components/hackernews/hn-feed";
 import HnRightSideBar from "@/components/hackernews/hn-right-side-bar";
 import { HNSearchBar } from "@/components/hackernews/hn-search-bar";
-import type { HNFilterId } from "@/components/hackernews/hn-search-bar";
 import { TAB_TRIGGER_CLASS } from "@/components/home/feedview/tab-trigger-class";
 import { FeedScrollbar } from "@/components/layouts/feed/feed-scrollbar";
 import MobileBottomNav from "@/components/layouts/navigation/mobile/mobile-bottom-nav";
@@ -41,7 +40,6 @@ const ClientHackerNews: React.FC<ClientHackerNewsProps> = ({ userData }) => {
   }
 
   const [search, setSearch] = useState("");
-  const [filter, setFilter] = useState<HNFilterId>("all");
   const debouncedSearch = useDebounce(search, 300);
   const feedScrollRef = useRef<HTMLDivElement>(null);
 
@@ -113,22 +111,12 @@ const ClientHackerNews: React.FC<ClientHackerNewsProps> = ({ userData }) => {
                   this header copy serves the md-xl gap. */}
               <div className="ml-auto hidden min-w-0 items-center gap-2 pr-1.5 md:flex xl:hidden">
                 <div className="w-full max-w-[24rem] xl:max-w-md">
-                  <HNSearchBar
-                    filter={filter}
-                    onFilterChange={setFilter}
-                    onSearchChange={setSearch}
-                    search={search}
-                  />
+                  <HNSearchBar onSearchChange={setSearch} search={search} />
                 </div>
               </div>
             </div>
             <div className="border-border/60 flex items-center gap-2 border-b px-3 py-2 md:hidden">
-              <HNSearchBar
-                filter={filter}
-                onFilterChange={setFilter}
-                onSearchChange={setSearch}
-                search={search}
-              />
+              <HNSearchBar onSearchChange={setSearch} search={search} />
             </div>
           </div>
 
@@ -137,23 +125,14 @@ const ClientHackerNews: React.FC<ClientHackerNewsProps> = ({ userData }) => {
               className="hide-native-scrollbar h-full touch-pan-y overflow-x-hidden overflow-y-auto"
               ref={feedScrollRef}
             >
-              <HNFeed
-                filter={filter}
-                search={debouncedSearch}
-                sortBy={sortBy}
-              />
+              <HNFeed search={debouncedSearch} sortBy={sortBy} />
             </div>
             <FeedScrollbar containerRef={feedScrollRef} />
           </div>
         </Tabs>
       </div>
 
-      <HnRightSideBar
-        filter={filter}
-        onFilterChange={setFilter}
-        onSearchChange={setSearch}
-        search={search}
-      />
+      <HnRightSideBar onSearchChange={setSearch} search={search} />
       <MobileBottomNav />
     </>
   );

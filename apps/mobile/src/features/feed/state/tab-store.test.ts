@@ -7,6 +7,7 @@ import {
   isTabValue,
   HOME_TABS,
   resolveExploreTab,
+  resolveExploreDiscoveryTab,
   resolveGustResumeTab,
   resolveHomeTab,
   resolveProfileTab,
@@ -184,5 +185,60 @@ describe("tab memory store", () => {
     const store = createTabMemoryStore(storage);
     await store.persist.rehydrate();
     expect(store.getState().home?.value).toBe("following");
+  });
+});
+
+describe("Explore discovery selection memory", () => {
+  test("visiting Gusts and People preserves the selected discovery feed across restart", async () => {
+    const storage = memoryStorage();
+    const store = createTabMemoryStore(storage);
+    store.getState().setExploreTab("trending");
+    store.getState().setExploreTab("gusts");
+    store.getState().setExploreTab("people");
+    const restored = createTabMemoryStore(storage);
+    await restored.persist.rehydrate();
+    expect(restored.getState().explore?.value).toBe("people");
+    expect(
+      resolveExploreDiscoveryTab(
+        "people",
+        true,
+        restored.getState().exploreDiscovery,
+        true
+      )
+    ).toBe("trending");
+  });
+  test("old persisted Trending selections become the discovery choice", async () => {
+    const storage = memoryStorage();
+    storage.backing.set(
+      "asm-tab-memory",
+      JSON.stringify({
+        state: { explore: { updatedAt: Date.now(), value: "trending" } },
+        version: 2,
+      })
+    );
+    const store = createTabMemoryStore(storage);
+    await store.persist.rehydrate();
+    expect(store.getState().exploreDiscovery?.value).toBe("trending");
+  });
+  test("explicit discovery links win over memory and expired choices fall back", () => {
+    expect(
+      resolveExploreDiscoveryTab(
+        "for-you",
+        true,
+        { updatedAt: Date.now(), value: "trending" },
+        true
+      )
+    ).toBe("for-you");
+    expect(resolveExploreDiscoveryTab("gusts", false, null, true)).toBe(
+      "trending"
+    );
+    expect(
+      resolveExploreDiscoveryTab(
+        "people",
+        true,
+        { updatedAt: Date.now() - TAB_MEMORY_TTL_MS - 1, value: "trending" },
+        true
+      )
+    ).toBe("for-you");
   });
 });

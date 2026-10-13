@@ -15,7 +15,6 @@ import kyInstance from "@/lib/ky";
 import { formatNumber } from "@/lib/utils";
 
 import { HNSearchBar } from "./hn-search-bar";
-import type { HNFilterId } from "./hn-search-bar";
 
 const FOOTER_LINKS = [
   { href: "/toc", label: "Terms" },
@@ -40,15 +39,11 @@ const SubCard: React.FC<{
 );
 
 interface HnRightSideBarProps {
-  filter: HNFilterId;
-  onFilterChange: (filter: HNFilterId) => void;
   onSearchChange: (value: string) => void;
   search: string;
 }
 
 const HnRightSideBar: React.FC<HnRightSideBarProps> = ({
-  filter,
-  onFilterChange,
   onSearchChange,
   search,
 }) => {
@@ -74,12 +69,7 @@ const HnRightSideBar: React.FC<HnRightSideBarProps> = ({
   return (
     <aside className="bg-background border-border/60 sticky top-0 z-30 hidden h-screen w-72 shrink-0 flex-col overflow-visible border-l px-2.5 pt-2.5 pb-6 xl:flex">
       <div className="shrink-0 pb-4">
-        <HNSearchBar
-          filter={filter}
-          onFilterChange={onFilterChange}
-          onSearchChange={onSearchChange}
-          search={search}
-        />
+        <HNSearchBar onSearchChange={onSearchChange} search={search} />
       </div>
       <div className="hide-native-scrollbar flex flex-1 flex-col gap-4 overflow-y-auto">
         <SubCard

@@ -13,7 +13,7 @@ export function ConversationListSkeleton({ full = false }: { full?: boolean }) {
             className="flex items-center gap-3 rounded-2xl px-2.5 py-2.5"
             key={`convo-skeleton-${index}`}
           >
-            <Skeleton className="size-11 shrink-0 rounded-full" />
+            <Skeleton className="size-11 shrink-0 rounded-xl" />
             <div className="min-w-0 flex-1 space-y-1.5">
               <Skeleton className="h-3.5 w-2/5 rounded-md" />
               <Skeleton className="h-3 w-3/5 rounded-md" />
@@ -40,7 +40,7 @@ export function MessageThreadSkeleton() {
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col">
       <div className="border-border/60 flex h-14 shrink-0 items-center gap-3 border-b px-4">
-        <Skeleton className="h-9 w-9 shrink-0 rounded-full" />
+        <Skeleton className="h-9 w-9 shrink-0 rounded-xl" />
         <div className="min-w-0 flex-1 space-y-1.5">
           <Skeleton className="h-3.5 w-32 rounded-md" />
           <Skeleton className="h-3 w-20 rounded-md" />
@@ -78,7 +78,7 @@ export function ActiveFriendsRailSkeleton() {
           className="flex items-center gap-2.5 rounded-xl px-2 py-2"
           key={`rail-skeleton-${index}`}
         >
-          <Skeleton className="h-9 w-9 shrink-0 rounded-full" />
+          <Skeleton className="h-9 w-9 shrink-0 rounded-xl" />
           <div className="min-w-0 flex-1 space-y-1.5">
             <Skeleton className="h-3.5 w-3/4 rounded-md" />
             <Skeleton className="h-3 w-1/2 rounded-md" />
@@ -94,7 +94,7 @@ export function MessagesSkeleton() {
   return (
     <div className="flex h-full min-h-0 flex-1 flex-row overflow-hidden">
       <div className="flex w-full shrink-0 flex-col border-r border-[hsl(var(--border))] md:w-72 xl:w-80">
-        <div className="border-border/60 flex h-14 shrink-0 items-center justify-between border-b px-4">
+        <div className="border-border/60 hidden h-14 shrink-0 items-center justify-between border-b px-4 md:flex">
           <Skeleton className="h-4 w-20 rounded-md" />
           <Skeleton className="h-9 w-9 rounded-full" />
         </div>

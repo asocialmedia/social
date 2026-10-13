@@ -88,7 +88,6 @@ function MediaAction({
   busy,
   centered = false,
   color,
-  edgeColor,
   icon: Icon,
   iconColor,
   label,
@@ -99,7 +98,6 @@ function MediaAction({
   busy: boolean;
   centered?: boolean;
   color: string;
-  edgeColor?: string;
   icon: LucideIcon;
   iconColor: string;
   label: string;
@@ -154,30 +152,6 @@ function MediaAction({
                 {...activePill}
                 radius={19}
                 style={{ height: "100%", width: "100%" }}
-              />
-              <View
-                style={{
-                  borderColor: edgeColor,
-                  borderRadius: 19,
-                  borderWidth: 1,
-                  bottom: 0,
-                  left: 0,
-                  position: "absolute",
-                  right: 0,
-                  top: 0,
-                }}
-              />
-              <View
-                style={{
-                  borderColor: "rgba(255,255,255,0.55)",
-                  borderRadius: 18,
-                  borderWidth: 1,
-                  bottom: 1,
-                  left: 1,
-                  position: "absolute",
-                  right: 1,
-                  top: 1,
-                }}
               />
             </View>
           ) : null}
@@ -599,6 +573,7 @@ export function MediaPreview({ request }: { request: MediaPreviewRequest }) {
   ];
   return (
     <Modal
+      hardwareAccelerated
       transparent
       statusBarTranslucent
       navigationBarTranslucent

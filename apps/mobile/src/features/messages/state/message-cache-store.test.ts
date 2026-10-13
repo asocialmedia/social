@@ -149,3 +149,34 @@ test("disk cache follows the recovered identity so a self-reset never resurrects
     messageCacheScope("https://other.example", "alice", "old-public-key")
   ).not.toBe(original);
 });
+
+test("search anchors replace the window without manufacturing a gap or losing receipts", () => {
+  const store = new TranscriptStore();
+  store.setPages("chat", {
+    messages: [message("new-1", 100), message("new-2", 101)],
+    nextCursor: null,
+    previousCursor: "older",
+  });
+  store.setPeerWatermarks("chat", { deliveredAt: 99_000, readAt: 100_000 });
+  store.replaceWindow("chat", {
+    messages: [message("anchor-1", 10), message("anchor-2", 11)],
+    nextCursor: "newer",
+    previousCursor: "before-anchor",
+  });
+  expect(store.getSnapshot("chat").messages.map((row) => row.id)).toEqual([
+    "anchor-1",
+    "anchor-2",
+  ]);
+  expect(store.getSnapshot("chat").hasMoreNewer).toBe(true);
+  expect(store.getSnapshot("chat").peerWatermarks.readAt).toBe(100_000);
+  store.replaceWindow("chat", {
+    messages: [message("new-1", 100), message("new-2", 101)],
+    nextCursor: null,
+    previousCursor: "older",
+  });
+  expect(store.getSnapshot("chat").messages.map((row) => row.id)).toEqual([
+    "new-1",
+    "new-2",
+  ]);
+  expect(store.getSnapshot("chat").hasMoreNewer).toBe(false);
+});

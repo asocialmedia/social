@@ -211,14 +211,16 @@ function buildSocialProviderConfig(authBaseUrl: string | undefined): {
       clientId: env.REDDIT_CLIENT_ID,
       clientSecret: env.REDDIT_CLIENT_SECRET,
       mapProfileToUser(profile: RedditProfile): SocialUserMapping {
-        const derivedUsername = deriveUsernameFromProfile(profile);
+        const derivedUsername = deriveUsernameFromProfile({
+          username: profile.name,
+        });
         return {
           // Reddit's OAuth does not expose the user's email; better-auth
           // synthesizes a placeholder. The OAuth handshake already proves
           // identity, so mark it verified rather than forcing a re-verify of a
           // fake address.
           emailVerified: true,
-          name: derivedUsername,
+          name: profile.name || derivedUsername,
           username: derivedUsername,
         };
       },

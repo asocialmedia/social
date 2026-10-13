@@ -356,6 +356,47 @@ function stubProfile(username = "asocialmedia") {
 }
 
 describe("PopupCache", () => {
+  test("publishes a loaded avatar before an unrelated bookmark lookup finishes", async () => {
+    const cache = new PopupCache();
+    const avatars: (string | null)[] = [];
+    const unsubscribe = cache.subscribe(() => {
+      avatars.push(cache.getStaleProfile("u1")?.avatarUrl ?? null);
+    });
+    const pendingBookmarks = Promise.withResolvers<number>();
+    const bookmarks = cache.loadBookmarkTotal(
+      "u1",
+      () => pendingBookmarks.promise
+    );
+    await cache.loadProfile("u1", () =>
+      Promise.resolve({
+        ...stubProfile(),
+        avatarUrl: "/current-avatar.png",
+      })
+    );
+    expect(avatars).toEqual(["/current-avatar.png"]);
+    expect(cache.getFreshBookmarkTotal("u1")).toBeNull();
+    pendingBookmarks.resolve(7);
+    await bookmarks;
+    unsubscribe();
+  });
+
+  test("notifies mounted avatar consumers when the cached profile changes", () => {
+    const cache = new PopupCache();
+    const avatars: (string | null)[] = [];
+    const unsubscribe = cache.subscribe(() => {
+      avatars.push(cache.getStaleProfile("u1")?.avatarUrl ?? null);
+    });
+    const profile = { ...stubProfile(), avatarUrl: "/first-avatar.png" };
+    cache.setProfile("u1", profile);
+    expect(cache.getStaleProfile("u1")).toBe(profile);
+    cache.setProfile("u1", { ...profile, avatarUrl: "/new-avatar.png" });
+    cache.invalidate("u1");
+    expect(avatars).toEqual(["/first-avatar.png", "/new-avatar.png", null]);
+    unsubscribe();
+    cache.setProfile("u1", profile);
+    expect(avatars).toHaveLength(3);
+  });
+
   test("serves fresh entries with no network", () => {
     let now = 1000;
     const cache = new PopupCache(() => now);

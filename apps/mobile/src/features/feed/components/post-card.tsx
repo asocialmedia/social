@@ -43,6 +43,7 @@ import {
 } from "../lib/feed-types";
 import { parseStoredEmbeds } from "../lib/link-embeds";
 import { buildMoreEntries } from "../lib/more-entries";
+import { useMediaPreviewStore } from "../state/media-preview-store";
 import { useVideoCaptionsStore } from "../state/video-captions-store";
 import type { MenuAnchor } from "./more-menu";
 import {
@@ -210,6 +211,10 @@ export const PostCard = memo(
     // Card-wide navigation, mirroring web's handleCardClick (interactive
     // targets opt out by living outside the Pressable below).
     const openDetail = () => {
+      // The release of a media hold must never navigate the card behind its drawer.
+      if (useMediaPreviewStore.getState().request) {
+        return;
+      }
       if (onOpenDetail) {
         onOpenDetail(post);
         return;

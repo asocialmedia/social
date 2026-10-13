@@ -22,6 +22,8 @@ import { orderedCopy } from "@/lib/ordered-copy";
 
 import {
   encryptMessage,
+  exportPrivateKeyJwk,
+  publicKeyJwkToBase64,
   generateRootKey,
   publicKeyBase64ToJwk,
   importPublicKeyJwk,
@@ -29,7 +31,7 @@ import {
   wrapRootKey,
 } from "./crypto";
 import type { EncryptedBlob, EncryptedMessage, MessagePayload } from "./crypto";
-import type { EcdhPrivateKey, EcdhPublicKey } from "./crypto-primitives";
+import type { EcdhPrivateKey } from "./crypto-primitives";
 import { HistoryThrottledError } from "./history-throttle";
 import type {
   MessageConversationData,
@@ -48,6 +50,8 @@ export interface MessageIdentityPayload {
 }
 
 export interface WrappedKeyPayload {
+  wrapperPublicKey?: string | null;
+  wrapperUserId?: string | null;
   encryptedKey: EncryptedBlob;
   ownerUserId: string;
   // Root-key epoch this wrap belongs to. Omitted on legacy payloads, which are
@@ -56,6 +60,9 @@ export interface WrappedKeyPayload {
 }
 
 export interface ConversationPrefs {
+  wallpaperKey?: string | null;
+  wallpaperDim?: number | null;
+  wallpaperMediaId?: string | null;
   // ISO timestamp of when this member muted the thread, or null when not muted.
   // Preserved across re-mutes, so it reads as "muted since".
   mutedAt: string | null;
@@ -106,6 +113,7 @@ export interface PresenceUser {
   avatarUrl: string | null;
   displayName: string;
   id: string;
+  isFollowing?: boolean;
   status: "idle" | "online";
   username: string;
 }
@@ -192,7 +200,8 @@ async function request<T>(
   }
   // The mutation endpoints answer 200 with no body, so there is nothing to parse
   // and no value to hand back; `undefined as T` is the honest cast for that.
-  return (await response.json()) as T;
+  const text = await response.text();
+  return (text ? JSON.parse(text) : undefined) as T;
 }
 
 export function fetchIdentity(
@@ -241,11 +250,15 @@ export async function postConversationKeys(
   conversationId: string,
   keys: WrappedKeyPayload[],
   options: ApiCallOptions
-): Promise<void> {
-  await request(`/api/messages/conversations/${conversationId}/keys`, options, {
-    body: JSON.stringify({ keys }),
-    method: "POST",
-  });
+): Promise<{ applied: number }> {
+  const body = await request<{ applied?: number }>(
+    `/api/messages/conversations/${conversationId}/keys`,
+    options,
+    { body: JSON.stringify({ keys }), method: "POST" }
+  );
+  return {
+    applied: typeof body?.applied === "number" ? body.applied : keys.length,
+  };
 }
 
 export function fetchConversationList(
@@ -267,7 +280,12 @@ export function fetchConversationDetail(
 // sent, so a mute toggle cannot clear the theme and a theme pick cannot unmute.
 export async function updateConversationPrefs(
   conversationId: string,
-  prefs: { muted?: boolean; themeKey?: string | null },
+  prefs: {
+    muted?: boolean;
+    themeKey?: string | null;
+    wallpaperKey?: string | null;
+    wallpaperDim?: number | null;
+  },
   options: ApiCallOptions
 ): Promise<ConversationPrefs> {
   const body = await request<{ prefs: ConversationPrefs }>(
@@ -711,7 +729,11 @@ export function createRootKeyStore(privateKey: EcdhPrivateKey) {
 
   function getRootKeys(
     conversationId: string,
-    myWrappedKeys: { encryptedKey: EncryptedBlob; version: number }[],
+    myWrappedKeys: {
+      encryptedKey: EncryptedBlob;
+      version: number;
+      wrapperPublicKeyBase64?: string | null;
+    }[],
     peerPublicKeyBase64: string
   ): Promise<Uint8Array[]> {
     // The peer key is part of the signature because a new peer key produces
@@ -719,7 +741,7 @@ export function createRootKeyStore(privateKey: EcdhPrivateKey) {
     const signature = `${myWrappedKeys
       .map(
         (wrapped) =>
-          `${wrapped.version}:${wrapped.encryptedKey.ciphertext}:${wrapped.encryptedKey.iv}`
+          `${wrapped.version}:${wrapped.encryptedKey.ciphertext}:${wrapped.encryptedKey.iv}:${wrapped.wrapperPublicKeyBase64 ?? ""}`
       )
       .join("|")}#${peerPublicKeyBase64}`;
     const cached = cache.get(conversationId);
@@ -727,9 +749,6 @@ export function createRootKeyStore(privateKey: EcdhPrivateKey) {
       return cached.promise;
     }
     const promise = (async () => {
-      const peerKey = importPublicKeyJwk(
-        publicKeyBase64ToJwk(peerPublicKeyBase64)
-      );
       const ordered = orderedCopy(
         myWrappedKeys,
         (left, right) => right.version - left.version
@@ -739,9 +758,14 @@ export function createRootKeyStore(privateKey: EcdhPrivateKey) {
       const unwrapped = await Promise.all(
         ordered.map(async (wrapped) => {
           try {
+            const pairing =
+              wrapped.wrapperPublicKeyBase64 ?? peerPublicKeyBase64;
+            if (!pairing) {
+              return null;
+            }
             return await unwrapRootKey(
               privateKey,
-              peerKey,
+              importPublicKeyJwk(publicKeyBase64ToJwk(pairing)),
               conversationId,
               wrapped.encryptedKey
             );
@@ -790,87 +814,76 @@ export function wrapRootKeyForPeer(
   return wrapRootKey(myPrivateKey, peerKey, conversationId, rootKey);
 }
 
-// Signature of the material a key decision depends on: my wraps for the
-// conversation and the peer's identity public key.
-function conversationKeySignature(
+// Modern rows carry their wrapper's immutable public key; legacy DMs use the peer.
+export function resolveMyConversationWraps(
+  keys: readonly WrappedKeyPayload[],
   conversation: MessageConversationData,
   myUserId: string
-): string {
-  const wraps = orderedCopy(
-    conversation.keys
+) {
+  return orderedCopy(
+    keys
       .filter((key) => key.ownerUserId === myUserId)
-      .map((key) => `${key.version ?? 1}:${key.encryptedKey}:${key.iv}`),
-    (left, right) => (left < right ? -1 : Number(left > right))
-  ).join("|");
-  const peer = conversation.members.find(
-    (member) => member.userId !== myUserId
+      .map((key) => ({
+        encryptedKey: key.encryptedKey,
+        version: key.version ?? 1,
+        wrapperPublicKeyBase64:
+          key.wrapperPublicKey ||
+          (key.wrapperUserId
+            ? (conversation.members.find(
+                (member) => member.userId === key.wrapperUserId
+              )?.user.messageIdentity?.publicKey ?? null)
+            : null),
+      })),
+    (left, right) => right.version - left.version
   );
-  return `${wraps}#${peer?.user.messageIdentity?.publicKey ?? ""}`;
 }
 
-// Unwraps the newest wrap this device can read, healing a missing peer wrap for
-// that epoch. Returns null when nothing unwraps, which means the stored wraps
-// belong to a superseded identity and the caller must rotate.
-async function unwrapExistingKey(
+export function toWrappedKeyPayloads(
+  keys: readonly MessageConversationData["keys"][number][]
+): WrappedKeyPayload[] {
+  return keys.map((key) => ({
+    encryptedKey: { ciphertext: key.encryptedKey, iv: key.iv },
+    ownerUserId: key.ownerUserId,
+    version: key.version,
+    wrapperPublicKey: key.wrapperPublicKey,
+    wrapperUserId: key.wrapperUserId,
+  }));
+}
+
+function canHealMemberEpoch(
   conversation: MessageConversationData,
-  privateKey: EcdhPrivateKey,
-  myUserId: string,
-  peerUserId: string,
-  peerKey: EcdhPublicKey,
-  postKeys: (conversationId: string, keys: WrappedKeyPayload[]) => Promise<void>
-): Promise<Uint8Array | null> {
-  // Newest epoch first. A wrap left over from a superseded identity fails to
-  // unwrap and falls through. Sequential on purpose: each iteration's await
-  // depends on the previous failure, and the first success exits the loop.
-  const myKeys = orderedCopy(
-    conversation.keys.filter((key) => key.ownerUserId === myUserId),
-    (left, right) => (right.version ?? 1) - (left.version ?? 1)
-  );
-  // oxlint-disable no-await-in-loop -- ordered epoch probe with early exit
-  for (const myKey of myKeys) {
-    let rootKey: Uint8Array;
-    try {
-      rootKey = await unwrapRootKey(privateKey, peerKey, conversation.id, {
-        ciphertext: myKey.encryptedKey,
-        iv: myKey.iv,
-      });
-    } catch {
-      continue;
-    }
-    const version = myKey.version ?? 1;
-    // Heal a missing peer wrap for this exact epoch (a crash between posting the
-    // two entries, or a peer who has not fetched the rotation yet). The wrap is
-    // symmetric, so one blob serves both entries.
-    const peerHasEpoch = conversation.keys.some(
-      (key) => key.ownerUserId === peerUserId && (key.version ?? 1) === version
-    );
-    if (!peerHasEpoch) {
-      const wrappedForPeer = await wrapRootKey(
-        privateKey,
-        peerKey,
-        conversation.id,
-        rootKey
-      );
-      await postKeys(conversation.id, [
-        { encryptedKey: wrappedForPeer, ownerUserId: peerUserId, version },
-      ]);
-    }
-    return rootKey;
+  memberId: string,
+  version: number
+): boolean {
+  if (conversation.type !== "DEN") {
+    return true;
   }
-  // oxlint-enable no-await-in-loop
-  return null;
+  if (!conversation.keys.some((key) => key.ownerUserId === memberId)) {
+    return false;
+  }
+  const times = conversation.keys
+    .filter((key) => key.version === version)
+    .map((key) => Date.parse(key.createdAt));
+  if (times.length === 0 || times.some((time) => !Number.isFinite(time))) {
+    return false;
+  }
+  const epochStart = Math.min(...times);
+  return (
+    conversation.members
+      .find((member) => member.userId === memberId)
+      ?.membershipWindows?.some((window) => {
+        const after = window.after ? Date.parse(window.after) : Number.NaN;
+        const before = window.before
+          ? Date.parse(window.before)
+          : Number.POSITIVE_INFINITY;
+        return (
+          Number.isFinite(after) && epochStart > after && epochStart < before
+        );
+      }) ?? false
+  );
 }
 
-// Makes sure a conversation has wrapped root keys for both members, then returns
-// the unwrapped root key. Handles the heal cases: a conversation created before
-// this device had keys, a crash that left only one member's key posted, and an
-// identity reset. Idempotent: posting keys is append-only.
-//
-// `refreshConversation` is the stale-snapshot guard for the rotate case: when
-// nothing unwraps we cannot tell "my identity reset" from "I am holding an
-// outdated snapshot of a conversation the peer already rotated". Rotating on the
-// latter would mint an epoch wrapped for the peer's OLD public key, which they can
-// never unwrap, so their new messages stay unreadable.
+// Read the current roster before every write; never send under an epoch held by departed members.
 export async function ensureConversationKeys(
   conversation: MessageConversationData,
   privateKey: EcdhPrivateKey,
@@ -879,106 +892,386 @@ export async function ensureConversationKeys(
     postKeys: (
       conversationId: string,
       keys: WrappedKeyPayload[]
-    ) => Promise<void>;
+    ) => Promise<void> | Promise<{ applied: number }>;
     refreshConversation?: () => Promise<MessageConversationData | null>;
   }
 ): Promise<Uint8Array | null> {
-  const { postKeys } = options;
-  const peer = conversation.members.find(
-    (member) => member.userId !== myUserId
-  );
-  const peerPublicKeyBase64 = peer?.user.messageIdentity?.publicKey;
-  if (!peerPublicKeyBase64 || !peer) {
+  const current = options.refreshConversation
+    ? await options.refreshConversation()
+    : conversation;
+  if (!current) {
     return null;
   }
-  const peerKey = importPublicKeyJwk(publicKeyBase64ToJwk(peerPublicKeyBase64));
-
-  const existing = await unwrapExistingKey(
-    conversation,
-    privateKey,
-    myUserId,
-    peer.userId,
-    peerKey,
-    postKeys
-  );
-  if (existing) {
-    return existing;
+  const active = current.members.filter((member) => !member.leftAt);
+  if (!active.some((member) => member.userId === myUserId)) {
+    return null;
   }
-
-  // Nothing unwraps. Before rotating, confirm our snapshot is current.
-  const refresh = options.refreshConversation;
-  if (refresh) {
-    const before = conversationKeySignature(conversation, myUserId);
-    const fresh = await refresh();
-    if (fresh && conversationKeySignature(fresh, myUserId) !== before) {
-      const freshPeer = fresh.members.find(
-        (member) => member.userId !== myUserId
+  const peerPublic =
+    current.type === "DEN"
+      ? null
+      : active.find((member) => member.userId !== myUserId)?.user
+          .messageIdentity?.publicKey;
+  if (current.type !== "DEN" && !peerPublic) {
+    return null;
+  }
+  let newest = 0;
+  for (const key of current.keys) {
+    newest = Math.max(newest, key.version ?? 1);
+  }
+  const mine = resolveMyConversationWraps(
+    toWrappedKeyPayloads(current.keys),
+    current,
+    myUserId
+  );
+  let root: Uint8Array | null = null;
+  for (const wrap of mine.filter((entry) => entry.version === newest)) {
+    const pairing = wrap.wrapperPublicKeyBase64 ?? peerPublic;
+    if (!pairing) {
+      continue;
+    }
+    try {
+      // oxlint-disable-next-line no-await-in-loop -- probe the current epoch until an authenticated unwrap succeeds
+      root = await unwrapRootKey(
+        privateKey,
+        importPublicKeyJwk(publicKeyBase64ToJwk(pairing)),
+        current.id,
+        wrap.encryptedKey
       );
-      const freshPeerPublicKey = freshPeer?.user.messageIdentity?.publicKey;
-      if (freshPeer && freshPeerPublicKey) {
-        const freshPeerKey = importPublicKeyJwk(
-          publicKeyBase64ToJwk(freshPeerPublicKey)
-        );
-        const healed = await unwrapExistingKey(
-          fresh,
-          privateKey,
-          myUserId,
-          freshPeer.userId,
-          freshPeerKey,
-          postKeys
-        );
-        if (healed) {
-          return healed;
-        }
-        // Still nothing on the freshest snapshot: rotate against it so the peer
-        // wrap uses their current public key.
-        return rotateWithPost(
-          fresh,
-          privateKey,
-          myUserId,
-          freshPeer.userId,
-          freshPeerKey,
-          postKeys
-        );
-      }
+      break;
+    } catch {
+      // Superseded identity wraps do not prevent recovery from another valid wrap.
     }
   }
+  const holders = current.keys.filter((key) => key.version === newest);
+  const missing = active.filter(
+    (member) => !holders.some((key) => key.ownerUserId === member.userId)
+  );
+  const contaminated = holders.some(
+    (key) => !active.some((member) => member.userId === key.ownerUserId)
+  );
+  const rotate =
+    !root ||
+    contaminated ||
+    missing.some(
+      (member) => !canHealMemberEpoch(current, member.userId, newest)
+    );
+  const recipients = rotate ? active : missing;
+  if (recipients.length === 0 && root) {
+    return root;
+  }
+  const version = rotate ? newest + 1 : newest;
+  const rootKey = rotate ? generateRootKey() : root;
+  if (!rootKey) {
+    return null;
+  }
+  const selfPublic = publicKeyJwkToBase64(exportPrivateKeyJwk(privateKey));
+  const wrapped = await Promise.all(
+    recipients.map(async (member): Promise<WrappedKeyPayload | null> => {
+      const pairing =
+        member.userId === myUserId
+          ? selfPublic
+          : member.user.messageIdentity?.publicKey;
+      if (!pairing) {
+        return null;
+      }
+      return {
+        encryptedKey: await wrapRootKey(
+          privateKey,
+          importPublicKeyJwk(publicKeyBase64ToJwk(pairing)),
+          current.id,
+          rootKey
+        ),
+        ownerUserId: member.userId,
+        version,
+        wrapperPublicKey: selfPublic,
+        wrapperUserId: myUserId,
+      };
+    })
+  );
+  const keys = wrapped.filter((key): key is WrappedKeyPayload => key !== null);
+  if (!keys.some((key) => key.ownerUserId === myUserId) && rotate) {
+    return null;
+  }
+  if (keys.length > 0) {
+    const written = await options.postKeys(current.id, keys);
+    if (written?.applied === 0) {
+      const fresh = await options.refreshConversation?.();
+      return fresh
+        ? ensureConversationKeys(fresh, privateKey, myUserId, {
+            postKeys: options.postKeys,
+          })
+        : null;
+    }
+  }
+  return rootKey;
+}
 
-  return rotateWithPost(
-    conversation,
-    privateKey,
-    myUserId,
-    peer.userId,
-    peerKey,
-    postKeys
+export function createDen(
+  input: {
+    name: string;
+    description?: string;
+    memberIds: string[];
+    avatarMediaId?: string | null;
+  },
+  options: ApiCallOptions
+): Promise<{
+  conversation: MessageConversationData;
+  inviteCode: string;
+  inviteShortCode: string;
+  isNew: boolean;
+}> {
+  return request("/api/messages/conversations", options, {
+    body: JSON.stringify({ ...input, type: "DEN" }),
+    method: "POST",
+  });
+}
+export interface DenInvitePreview {
+  den: {
+    id: string;
+    name: string | null;
+    memberCount: number;
+    avatarMediaId?: string | null;
+    ownerId?: string | null;
+  };
+  expired?: boolean;
+  isBanned?: boolean;
+  isMember: boolean;
+}
+export function fetchDenInvitePreview(
+  code: string,
+  options: ApiCallOptions
+): Promise<DenInvitePreview> {
+  return request(
+    `/api/messages/dens/join/${encodeURIComponent(code)}`,
+    options
+  );
+}
+export function joinDen(
+  code: string,
+  options: ApiCallOptions
+): Promise<{ alreadyMember: boolean; conversationId: string }> {
+  return request(
+    `/api/messages/dens/join/${encodeURIComponent(code)}`,
+    options,
+    { method: "POST" }
+  );
+}
+export function leaveDen(
+  conversationId: string,
+  options: ApiCallOptions
+): Promise<void> {
+  return request(
+    `/api/messages/dens/${encodeURIComponent(conversationId)}/leave`,
+    options,
+    { method: "POST" }
   );
 }
 
-// Rotation needs to post, and the caller owns the transport, so the writer is
-// threaded through here rather than imported.
-async function rotateWithPost(
-  conversation: MessageConversationData,
-  privateKey: EcdhPrivateKey,
-  myUserId: string,
-  peerUserId: string,
-  peerKey: EcdhPublicKey,
-  postKeys: (conversationId: string, keys: WrappedKeyPayload[]) => Promise<void>
-): Promise<Uint8Array> {
-  let maxVersion = 0;
-  for (const key of conversation.keys) {
-    maxVersion = Math.max(maxVersion, key.version ?? 1);
-  }
-  const nextVersion = maxVersion + 1;
-  const rootKey = generateRootKey();
-  const wrapped = await wrapRootKey(
-    privateKey,
-    peerKey,
-    conversation.id,
-    rootKey
+export interface ConversationSearchPage {
+  hits: { id: string; revision: number; createdAt: string; senderId: string }[];
+  nextCursor: string | null;
+  previousCursor: string | null;
+  totalMatches: number | null;
+  coverage: {
+    complete: boolean;
+    settled: boolean;
+    unrecoverableEpochs: number;
+  };
+}
+export function searchConversationHistory(
+  conversationId: string,
+  input: { query: string; cursor?: string },
+  options: ApiCallOptions,
+  signal?: AbortSignal
+): Promise<ConversationSearchPage> {
+  return request(
+    `/api/messages/conversations/${encodeURIComponent(conversationId)}/search`,
+    options,
+    { body: JSON.stringify(input), method: "POST", signal }
   );
-  await postKeys(conversation.id, [
-    { encryptedKey: wrapped, ownerUserId: myUserId, version: nextVersion },
-    { encryptedKey: wrapped, ownerUserId: peerUserId, version: nextVersion },
-  ]);
-  return rootKey;
+}
+export function hydrateSearchHits(
+  conversationId: string,
+  hits: { id: string; revision: number }[],
+  options: ApiCallOptions,
+  signal?: AbortSignal
+): Promise<{
+  messages: MessageData[];
+  unavailableIds: string[];
+  deferredIds: string[];
+}> {
+  if (hits.length === 0) {
+    return Promise.resolve({
+      deferredIds: [],
+      messages: [],
+      unavailableIds: [],
+    });
+  }
+  return request(
+    `/api/messages/conversations/${encodeURIComponent(conversationId)}/messages/batch`,
+    options,
+    { body: JSON.stringify({ messages: hits }), method: "POST", signal }
+  );
+}
+
+export interface DenInformation {
+  canManage: boolean;
+  den: {
+    name: string | null;
+    description: string | null;
+    avatarMediaId: string | null;
+    memberCount: number;
+    inviteCode: string | null;
+    inviteShortCode: string | null;
+    ownerId: string | null;
+  };
+  membership: { role: "OWNER" | "ADMIN" | "MEMBER" };
+}
+export function fetchDenInformation(
+  id: string,
+  options: ApiCallOptions
+): Promise<DenInformation> {
+  return request(`/api/messages/dens/${encodeURIComponent(id)}`, options);
+}
+export function updateDenDetails(
+  id: string,
+  input: {
+    name?: string;
+    description?: string | null;
+    avatarMediaId?: string | null;
+  },
+  options: ApiCallOptions
+): Promise<void> {
+  return request(`/api/messages/dens/${encodeURIComponent(id)}`, options, {
+    body: JSON.stringify(input),
+    method: "PATCH",
+  });
+}
+
+export function changeDenMember(
+  id: string,
+  input: {
+    userId: string;
+    action:
+      | "add"
+      | "remove"
+      | "ban"
+      | "unban"
+      | "promote"
+      | "demote"
+      | "transfer";
+  },
+  options: ApiCallOptions
+): Promise<void> {
+  const base = `/api/messages/dens/${encodeURIComponent(id)}`;
+  const { action, userId } = input;
+  if (action === "remove" || action === "unban") {
+    return request(
+      `${base}/${action === "remove" ? "members" : "bans"}/${encodeURIComponent(userId)}`,
+      options,
+      { method: "DELETE" }
+    );
+  }
+  const route = {
+    add: "members",
+    ban: "bans",
+    demote: "role",
+    promote: "role",
+    transfer: "transfer",
+  }[action];
+  let body:
+    | { memberIds: string[] }
+    | { userId: string; role?: "ADMIN" | "MEMBER" } = { userId };
+  if (action === "add") {
+    body = { memberIds: [userId] };
+  }
+  if (action === "promote" || action === "demote") {
+    body = { role: action === "promote" ? "ADMIN" : "MEMBER", userId };
+  }
+  return request(`${base}/${route}`, options, {
+    body: JSON.stringify(body),
+    method: "POST",
+  });
+}
+
+export function fetchDenBans(
+  id: string,
+  options: ApiCallOptions
+): Promise<{
+  bans: {
+    id: string;
+    displayName: string | null;
+    username: string | null;
+    reason: string | null;
+  }[];
+}> {
+  return request(`/api/messages/dens/${encodeURIComponent(id)}/bans`, options);
+}
+
+export function renewDenInvite(
+  id: string,
+  kind: "link" | "code",
+  durationDays: number | null,
+  options: ApiCallOptions
+): Promise<void> {
+  return request(
+    `/api/messages/dens/${encodeURIComponent(id)}/${kind === "link" ? "invite" : "invite-code"}`,
+    options,
+    { body: JSON.stringify({ durationDays }), method: "POST" }
+  );
+}
+
+export function dissolveDen(
+  id: string,
+  options: ApiCallOptions
+): Promise<void> {
+  return request(`/api/messages/dens/${encodeURIComponent(id)}`, options, {
+    method: "DELETE",
+  });
+}
+export interface SharedConversationPage {
+  items: {
+    kind: "media" | "post" | "link";
+    messageId: string;
+    ordinal: number;
+    requiredId: string | null;
+    revision: number;
+    createdAt: string;
+    senderId: string;
+  }[];
+  nextCursor: string | null;
+  coverageComplete: boolean;
+  coverageSettled: boolean;
+}
+export function fetchSharedConversationItems(
+  id: string,
+  kind: "media" | "post" | "link",
+  options: ApiCallOptions,
+  cursor?: string,
+  signal?: AbortSignal
+): Promise<SharedConversationPage> {
+  const query = new URLSearchParams({
+    kind,
+    limit: "20",
+    ...(cursor ? { cursor } : {}),
+  });
+  return request(
+    `/api/messages/conversations/${encodeURIComponent(id)}/shared?${query}`,
+    options,
+    { signal }
+  );
+}
+export function setConversationWallpaperUpload(
+  id: string,
+  mediaId: string | null,
+  options: ApiCallOptions
+): Promise<{ prefs: ConversationPrefs }> {
+  return request(
+    `/api/messages/conversations/${encodeURIComponent(id)}/wallpaper`,
+    options,
+    {
+      method: mediaId ? "POST" : "DELETE",
+      ...(mediaId ? { body: JSON.stringify({ mediaId }) } : {}),
+    }
+  );
 }

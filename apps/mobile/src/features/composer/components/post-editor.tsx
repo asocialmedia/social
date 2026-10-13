@@ -723,8 +723,7 @@ export function PostEditor({
         // page background (web's --background-alt) rather than a hardcoded
         // shade, and is separated by the app's standard hairline divider. Using
         // the tokens keeps it in step with the feed across both themes. It
-        // needs no stacking of its own: it renders as the feed list's header,
-        // so it scrolls with the content and nothing can overlap it.
+        // scrolls with the feed beneath it through the shared editor layer.
         inline
           ? {
               backgroundColor: theme.containerBg,

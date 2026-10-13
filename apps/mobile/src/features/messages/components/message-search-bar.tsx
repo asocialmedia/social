@@ -1,7 +1,7 @@
 import {
   ChevronLeft,
   ChevronRight,
-  History,
+  RotateCcw,
   List,
   MessageSquare,
   Search,
@@ -30,6 +30,7 @@ const EXIT = FadeOut.duration(100).reduceMotion(ReduceMotion.System);
 
 export function MessageSearchBar({
   query,
+  statusLabel,
   onQueryChange,
   listView,
   onToggleView,
@@ -47,6 +48,7 @@ export function MessageSearchBar({
   page,
 }: {
   query: string;
+  statusLabel: string;
   onQueryChange: (query: string) => void;
   listView: boolean;
   onToggleView: () => void;
@@ -70,7 +72,8 @@ export function MessageSearchBar({
     queryReady: query.trim().length >= MIN_SEARCH_QUERY_LENGTH,
   };
   const status =
-    error ??
+    statusLabel ||
+    error ||
     (listView
       ? searchListStatus({
           ...statusInput,
@@ -96,6 +99,7 @@ export function MessageSearchBar({
       <Search color={theme.dividerText} size={16} />
       <TextInput
         accessibilityLabel="Search messages in this conversation"
+        maxLength={200}
         autoFocus
         className="min-w-0 flex-1 bg-transparent"
         style={{
@@ -134,7 +138,7 @@ export function MessageSearchBar({
       />
       {listView ? (
         <Text style={{ color: theme.dividerText, fontSize: 12 }}>
-          {page.page + 1}/{page.pageCount}
+          {page.page + 1}
         </Text>
       ) : null}
       <MessagesIconButton
@@ -151,10 +155,10 @@ export function MessageSearchBar({
           size="small"
         />
       ) : null}
-      {!indexingOlder && canIndexOlder ? (
+      {!indexingOlder && (canIndexOlder || Boolean(error)) ? (
         <MessagesIconButton
-          icon={History}
-          label={coverage}
+          icon={RotateCcw}
+          label="Retry search"
           onPress={onIndexOlder}
           size={28}
         />

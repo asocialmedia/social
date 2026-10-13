@@ -4,7 +4,7 @@
 // pill overlay, and loading/error/empty/end states mirroring web HomeFeed.
 import { Image } from "expo-image";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ReactElement, ReactNode } from "react";
+import type { ReactNode } from "react";
 import {
   Animated,
   Platform,
@@ -19,6 +19,7 @@ import Reanimated, {
   useAnimatedScrollHandler,
   useSharedValue,
 } from "react-native-reanimated";
+import type { SharedValue } from "react-native-reanimated";
 import { scheduleOnRN } from "react-native-worklets";
 
 import errorImage from "@/assets/images/error.png";
@@ -131,14 +132,9 @@ interface FeedListProps {
   // never moves visible items, so it can jump with overlay visibility.
   bottomInset?: number;
   enabled: boolean;
-  // Rendered as the list's own header, so it scrolls away with the content
-  // and comes back on pull-down. Only the visible tab is given one: a header
-  // per tab would mount a composer (a TextInput, an avatar, 3D surfaces) four
-  // times over and remount on every switch. Typed as an element rather than a
-  // bare ReactNode because that is all ListHeaderComponent accepts.
-  header?: ReactElement | null;
+  // Every page reserves the same space for the persistent editor above the pager.
   headerHeight?: number;
-  onHeaderHeight?: (height: number) => void;
+  headerScrollOffset?: SharedValue<number>;
   userId: string | undefined;
   variant: FeedVariant;
 }
@@ -148,9 +144,8 @@ export const FeedList = memo(
     active,
     bottomInset = 0,
     enabled,
-    header,
     headerHeight = 0,
-    onHeaderHeight,
+    headerScrollOffset,
     userId,
     variant,
   }: FeedListProps) => {
@@ -278,8 +273,10 @@ export const FeedList = memo(
       }
       jumpedToTop.current = true;
       scrollMemory.delete(memoryKey);
+      scrollOffset.set(0);
+      headerScrollOffset?.set(0);
       listRef.current?.scrollToOffset({ animated: false, offset: 0 });
-    }, [isActive, memoryKey, variant]);
+    }, [isActive, memoryKey, variant, scrollOffset, headerScrollOffset]);
 
     useEffect(() => {
       if (status !== "success" || posts.length === 0) {
@@ -320,6 +317,7 @@ export const FeedList = memo(
       setFeedMediaActive(memoryKey, isActive);
       if (isActive) {
         const offset = Math.max(0, scrollOffset.get());
+        headerScrollOffset?.set(offset);
         scrollVisibility.set({ baseline: offset, hidden: false });
         scrollActive.set(true);
         resetHeaderScroll(offset);
@@ -335,7 +333,14 @@ export const FeedList = memo(
           setAutoplayPostId(null);
         };
       }
-    }, [isActive, memoryKey, scrollActive, scrollOffset, scrollVisibility]);
+    }, [
+      isActive,
+      memoryKey,
+      scrollActive,
+      scrollOffset,
+      scrollVisibility,
+      headerScrollOffset,
+    ]);
 
     const publishVisibleIds = useCallback(
       (ids: ReadonlySet<string>, autoplayPostId: string | null) => {
@@ -421,6 +426,7 @@ export const FeedList = memo(
         const previous = scrollOffset.get();
         scrollOffset.set(offset);
         if (scrollActive.get()) {
+          headerScrollOffset?.set(Math.max(0, offset));
           const state = scrollVisibility.get();
           const next = { ...state };
           if (userScrolling.get()) {
@@ -500,22 +506,8 @@ export const FeedList = memo(
     }, [enabled, prefetchKey]);
 
     const listHeader = useMemo(
-      () => (
-        <View
-          // Only inactive pages need a placeholder; a live composer must also shrink.
-          style={header ? undefined : { height: headerHeight }}
-          onLayout={
-            header
-              ? (event) => {
-                  onHeaderHeight?.(event.nativeEvent.layout.height);
-                }
-              : undefined
-          }
-        >
-          {header}
-        </View>
-      ),
-      [header, headerHeight, onHeaderHeight]
+      () => <View style={{ height: headerHeight }} />,
+      [headerHeight]
     );
 
     // Memoized above every early return: without this every parent render
@@ -551,12 +543,11 @@ export const FeedList = memo(
       );
     }
 
-    // Web's inline composer is rendered above the pager, not inside a list, so
-    // the tabs carry no header of their own and every one of them reaches the
-    // top of its own content.
+    // The shared editor stays above loading and empty feeds as well as populated lists.
     if (status === "loading" || (status === "idle" && enabled)) {
       return (
         <FeedState>
+          {listHeader}
           <FeedSkeleton />
         </FeedState>
       );
@@ -565,6 +556,7 @@ export const FeedList = memo(
     if (status === "error" && posts.length === 0) {
       return (
         <FeedState>
+          {listHeader}
           <View
             style={[
               styles.centerWrap,
@@ -599,6 +591,7 @@ export const FeedList = memo(
       const copy = EMPTY_COPY[variant];
       return (
         <FeedState>
+          {listHeader}
           <View
             style={[
               styles.centerWrap,
@@ -683,7 +676,7 @@ export const FeedList = memo(
                     paddingBottom: HEADER_BAR_HEIGHT + bottomInset,
                   }}
                   data={rows}
-                  maintainVisibleContentPosition={{ minIndexForVisible: 1 }}
+                  maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
                   keyExtractor={feedRowKey}
                   {...LIST_VIRTUALIZATION_PROPS}
                   onEndReached={fetchNext}
@@ -699,10 +692,8 @@ export const FeedList = memo(
                   viewabilityConfig={STABLE_VIEWABILITY}
                   renderItem={renderRow}
                   ListFooterComponent={footer}
-                  // The composer lives here, as real content. It scrolls away with
-                  // the first post and returns on pull-down for free, because the
-                  // list's own scroll already moves it - no overlay, no clipped
-                  // layer over the scroll view, and no per-frame work of our own.
+                  // The spacer and editor move together; preserving the visible
+                  // spacer prevents typing from scrolling the editor out of view.
                   ListHeaderComponent={listHeader}
                 />
               </GestureDetector>

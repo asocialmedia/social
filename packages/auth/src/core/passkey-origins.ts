@@ -8,11 +8,11 @@
 
 const ANDROID_PREFIX = "android:apk-key-hash:";
 const HEX_FINGERPRINT = /^[0-9a-f]{2}(?::[0-9a-f]{2}){31}$/i;
+// The release certificate published in the site's Digital Asset Links file.
+const RELEASE_ANDROID_ORIGIN =
+  "android:apk-key-hash:iMI4-LlXDxeSKHD6lDjDeAMJTmyobTa7C95nrGPwBxk";
 
-/**
- * Converts an Android signing-cert SHA-256 fingerprint as printed by keytool
- * ("AA:BB:...") into the base64url digest WebAuthn expects in the origin.
- */
+// Converts a keytool SHA-256 fingerprint into the base64url WebAuthn origin digest.
 export function apkKeyHashFromFingerprint(fingerprint: string): string {
   const normalized = fingerprint.trim();
   if (!HEX_FINGERPRINT.test(normalized)) {
@@ -22,11 +22,7 @@ export function apkKeyHashFromFingerprint(fingerprint: string): string {
   return bytes.toString("base64url");
 }
 
-/**
- * Parses PASSKEY_ANDROID_APK_KEY_HASHES: a comma-separated list where each
- * entry is a base64url digest, a keytool fingerprint, or a full
- * `android:apk-key-hash:` origin. Blank entries are ignored.
- */
+// Parses configured digests, fingerprints, or full Android origins; ignores blanks.
 export function parseAndroidApkKeyHashes(value?: string): string[] {
   if (!value) {
     return [];
@@ -46,10 +42,18 @@ export function parseAndroidApkKeyHashes(value?: string): string[] {
     });
 }
 
-/** Browser origin first, then every configured Android app origin. */
+// Browser origin first, followed by the app's release certificate and configured certificates.
 export function buildPasskeyOrigins(
   webOrigin: string,
   androidApkKeyHashes?: string
 ): string[] {
-  return [webOrigin, ...parseAndroidApkKeyHashes(androidApkKeyHashes)];
+  const releaseOrigins =
+    webOrigin === "https://asocialmedia.cc" ? [RELEASE_ANDROID_ORIGIN] : [];
+  return [
+    ...new Set([
+      webOrigin,
+      ...releaseOrigins,
+      ...parseAndroidApkKeyHashes(androidApkKeyHashes),
+    ]),
+  ];
 }

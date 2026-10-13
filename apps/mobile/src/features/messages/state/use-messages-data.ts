@@ -100,6 +100,8 @@ function useMessagesApiContext(): MessagesApiContext {
 
 export function useConversationList(): ConversationListSnapshot & {
   refresh: () => void;
+  loadMore: () => void;
+  loadingMore: boolean;
 } {
   const { user } = useSessionContext();
   const { apiBase, cookie } = useMessagesApiContext();
@@ -108,6 +110,8 @@ export function useConversationList(): ConversationListSnapshot & {
   const foreground = useMessagesForeground();
   const [nonce, setNonce] = useState(0);
   const loadedNonce = useRef(0);
+  const paging = useRef(false);
+  const [loadingMore, setLoadingMore] = useState(false);
 
   const snapshot = useSyncExternalStore(
     conversationListStore.subscribe,
@@ -123,7 +127,7 @@ export function useConversationList(): ConversationListSnapshot & {
 
   // oxlint-disable-next-line react/set-state-in-effect -- the list is an external system; a poll that lands mid-render has to be written to state
   useEffect(() => {
-    if (!userId || !cookie || !foreground || !identityKey) {
+    if (!userId || !cookie || !foreground) {
       return;
     }
     let cancelled = false;
@@ -131,7 +135,9 @@ export function useConversationList(): ConversationListSnapshot & {
 
     const load = async () => {
       try {
-        await hydrateMessageCache(apiBase, userId, identityKey);
+        if (identityKey) {
+          await hydrateMessageCache(apiBase, userId, identityKey);
+        }
         if (cancelled) {
           return;
         }
@@ -187,7 +193,41 @@ export function useConversationList(): ConversationListSnapshot & {
     return unreadMessageStore.subscribeActivity(refresh);
   }, [foreground, refresh]);
 
-  return { ...snapshot, refresh };
+  const loadMore = useCallback(() => {
+    const current = conversationListStore.getSnapshot();
+    if (
+      !cookie ||
+      !userId ||
+      !foreground ||
+      !current.nextCursor ||
+      paging.current
+    ) {
+      return;
+    }
+    paging.current = true;
+    setLoadingMore(true);
+    const load = async () => {
+      try {
+        const page = await fetchConversationList(
+          { apiBase, cookie },
+          current.nextCursor ?? undefined
+        );
+        if (
+          conversationListStore.getSnapshot().rows[0]?.mineUserId === userId
+        ) {
+          conversationListStore.appendOlder(page, userId);
+        }
+      } catch {
+        conversationListStore.setSnapshot({
+          error: "Couldn't load more conversations.",
+        });
+      }
+      paging.current = false;
+      setLoadingMore(false);
+    };
+    void load();
+  }, [apiBase, cookie, foreground, userId]);
+  return { ...snapshot, loadMore, loadingMore, refresh };
 }
 
 export { useUnreadMessageCount } from "./use-unread-message-count";
@@ -196,7 +236,9 @@ export { useUnreadMessageCount } from "./use-unread-message-count";
 
 export interface TranscriptBinding {
   snapshot: TranscriptSnapshot;
+  detailRevision: number;
   /** Loads the newest page. Safe to call repeatedly. */
+  loadAround: (messageId: string) => Promise<void>;
   loadNewest: () => void;
   loadOlder: () => void;
   /** Asks the stream for a reconcile. */
@@ -211,8 +253,12 @@ export function useTranscript(conversationId: string): TranscriptBinding {
   const userId = user?.id ?? null;
   const foreground = useMessagesForeground();
   const [nonce, setNonce] = useState(0);
+  const [detailRevision, setDetailRevision] = useState(0);
   const [reload, setReload] = useState(0);
   const newestFetching = useRef(false);
+  const anchored = useRef(false);
+  const windowGeneration = useRef(0);
+  const replaceNewest = useRef(false);
   const catchUpPending = useRef(false);
   const newestRetries = useRef(0);
   const loadedRequest = useRef("");
@@ -237,6 +283,9 @@ export function useTranscript(conversationId: string): TranscriptBinding {
   }, []);
 
   const loadNewest = useCallback(() => {
+    windowGeneration.current += 1;
+    replaceNewest.current = anchored.current;
+    anchored.current = false;
     setReload((value) => value + 1);
   }, []);
 
@@ -288,6 +337,9 @@ export function useTranscript(conversationId: string): TranscriptBinding {
     }
     let cancelled = false;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    if (anchored.current) {
+      return;
+    }
     newestFetching.current = true;
     transcriptStore.setSnapshotLoading(conversationId, true);
     const finishNewestRequest = () => {
@@ -331,7 +383,16 @@ export function useTranscript(conversationId: string): TranscriptBinding {
         )) {
           messageDecryptor.invalidate(id);
         }
-        transcriptStore.setPages(conversationId, page);
+        if (anchored.current) {
+          finishNewestRequest();
+          return;
+        }
+        if (replaceNewest.current) {
+          transcriptStore.replaceWindow(conversationId, page);
+          replaceNewest.current = false;
+        } else {
+          transcriptStore.setPages(conversationId, page);
+        }
         // Seed the read/delivered watermarks from the detail call, so a receipt
         // drawn before the first stream event is still correct.
         const detail = await fetchConversationDetail(conversationId, {
@@ -438,7 +499,9 @@ export function useTranscript(conversationId: string): TranscriptBinding {
           if (!message?.id) {
             return;
           }
-          transcriptStore.appendMessage(conversationId, message);
+          if (!anchored.current) {
+            transcriptStore.appendMessage(conversationId, message);
+          }
           if (message.senderId === userId) {
             // Our own message: the thread marks read immediately.
             transcriptStore.setPeerTyping(conversationId, false);
@@ -477,6 +540,13 @@ export function useTranscript(conversationId: string): TranscriptBinding {
           return;
         }
         case "conversation.read": {
+          const row = conversationListStore
+            .getSnapshot()
+            .rows.find((item) => item.conversation.id === conversationId);
+          if (row?.conversation.type !== "DM") {
+            setNonce((value) => value + 1);
+            return;
+          }
           if (event.userId === userId) {
             return;
           }
@@ -486,6 +556,13 @@ export function useTranscript(conversationId: string): TranscriptBinding {
           return;
         }
         case "conversation.delivered": {
+          const row = conversationListStore
+            .getSnapshot()
+            .rows.find((item) => item.conversation.id === conversationId);
+          if (row?.conversation.type !== "DM") {
+            setNonce((value) => value + 1);
+            return;
+          }
           if (event.userId === userId) {
             return;
           }
@@ -501,7 +578,10 @@ export function useTranscript(conversationId: string): TranscriptBinding {
           transcriptStore.setPeerTyping(conversationId, true);
           return;
         }
+        case "den.membership.changed":
         case "keys.rotated": {
+          setDetailRevision((value) => value + 1);
+          unreadMessageStore.notifyActivity();
           // A rotation invalidates every cached root for this conversation, so the
           // next fetch resolves the newest wraps rather than reading superseded ones.
           invalidateKeys(conversationId);
@@ -563,7 +643,41 @@ export function useTranscript(conversationId: string): TranscriptBinding {
     userId,
   ]);
 
-  return { loadNewest, loadOlder, refresh, snapshot };
+  const loadAround = useCallback(
+    async (messageId: string) => {
+      if (!cookie) {
+        throw new Error("Messages aren't connected yet");
+      }
+      windowGeneration.current += 1;
+      const generation = windowGeneration.current;
+      anchored.current = true;
+      try {
+        const page = await fetchMessages(
+          conversationId,
+          { kind: "around", messageId },
+          { apiBase, cookie },
+          MESSAGE_PAGE_SIZE
+        );
+        if (windowGeneration.current === generation) {
+          transcriptStore.replaceWindow(conversationId, page);
+        }
+      } catch (caughtError) {
+        if (windowGeneration.current === generation) {
+          anchored.current = false;
+        }
+        throw caughtError;
+      }
+    },
+    [apiBase, conversationId, cookie]
+  );
+  return {
+    detailRevision,
+    loadAround,
+    loadNewest,
+    loadOlder,
+    refresh,
+    snapshot,
+  };
 }
 
 // Requests the decrypt items for a set of visible rows and returns the decrypted

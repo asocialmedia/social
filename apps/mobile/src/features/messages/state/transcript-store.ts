@@ -244,6 +244,19 @@ export class TranscriptStore {
     }
   }
 
+  // An anchor is a different contiguous window, not another page to merge across a gap.
+  replaceWindow(conversationId: string, page: MessagePage): void {
+    const entry = this.#entries.get(conversationId);
+    if (entry) {
+      this.#entries.set(conversationId, {
+        ...entry,
+        pages: [],
+        snapshot: { ...entry.snapshot, initialLoaded: false, messages: [] },
+      });
+    }
+    this.setPages(conversationId, page);
+  }
+
   /** Prepends an older page, keeping the transcript oldest-first. */
   prependOlder(conversationId: string, page: MessagePage): void {
     const entry = this.#entries.get(conversationId);

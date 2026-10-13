@@ -19,6 +19,7 @@ import type { ServerMediaStatus } from "./upload-status";
 // which left avatar and banner uploads impossible to express even though the
 // API has always accepted them.
 export type UploadPurpose =
+  | "wallpaper"
   | "avatar"
   | "banner"
   | "comment"

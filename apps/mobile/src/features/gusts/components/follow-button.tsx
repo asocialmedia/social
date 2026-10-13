@@ -58,6 +58,7 @@ function CrossfadeLabel({ text }: { text: string }) {
   }, [rise]);
   return (
     <Animated.Text
+      numberOfLines={1}
       style={[
         styles.label,
         {
@@ -97,6 +98,7 @@ export function FollowButton({
       disabled={pending}
       hitSlop={6}
       onPress={onPress}
+      style={styles.trigger}
     >
       {({ pressed }) => (
         <Gradient3D
@@ -114,7 +116,9 @@ export function FollowButton({
             <CrossfadeLabel key={label} text={label} />
           )}
           {/* Keeps the pill width steady while the dots show. */}
-          <Text style={[styles.label, styles.ghost]}>{label}</Text>
+          <Text numberOfLines={1} style={[styles.label, styles.ghost]}>
+            Following
+          </Text>
         </Gradient3D>
       )}
     </Pressable>
@@ -144,12 +148,16 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "normal",
     position: "absolute",
+    textAlign: "center",
   },
   pill: {
-    height: 28,
+    minHeight: 28,
+    minWidth: 88,
     paddingHorizontal: 12,
+    paddingVertical: 4,
   },
   pressed: {
     transform: [{ translateY: 1 }],
   },
+  trigger: { flexShrink: 0 },
 });

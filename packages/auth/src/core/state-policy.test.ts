@@ -7,12 +7,13 @@ mock.module("../../env", () => ({
     GOOGLE_CLIENT_ID: "mock-google-client-id",
     GOOGLE_CLIENT_SECRET: "mock-google-client-secret",
     NODE_ENV: "development",
+    REDDIT_CLIENT_ID: "mock-reddit-client-id",
+    REDDIT_CLIENT_SECRET: "mock-reddit-client-secret",
   },
 }));
 
 // The prisma adapter reaches the database at import time through @asm/db, so
-// mock it before the module under test loads. Reddit credentials are unset in
-// the test environment, so only the google provider gets configured.
+// mock it before the module under test loads. Both providers use fixture credentials.
 mock.module("@asm/db", () => ({
   and: () => null,
   exactInsensitivePattern: (value: string) =>
@@ -98,6 +99,30 @@ function lastCaptured(): Record<string, unknown> {
 }
 
 describe("createAuthConfig oauth state cookie policy", () => {
+  test("maps Reddit's actual name field to a unique app username", () => {
+    createAuthConfig({ baseURL: "http://localhost:3001" });
+    const providers = lastCaptured().socialProviders as {
+      reddit: {
+        mapProfileToUser: (profile: { name: string }) => {
+          emailVerified: boolean;
+          name: string;
+          username: string;
+        };
+        redirectURI: string;
+      };
+    };
+    expect(
+      providers.reddit.mapProfileToUser({ name: "Some-Redditor" })
+    ).toEqual({
+      emailVerified: true,
+      name: "Some-Redditor",
+      username: "some_redditor",
+    });
+    expect(providers.reddit.redirectURI).toBe(
+      "http://localhost:3001/api/auth/callback/reddit"
+    );
+  });
+
   test("skips the state cookie check in development (split dev hosts)", () => {
     createAuthConfig({ environment: "development" });
 

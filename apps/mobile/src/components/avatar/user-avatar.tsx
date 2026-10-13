@@ -52,6 +52,7 @@ export function UserAvatar({
         accessibilityLabel=""
         cachePolicy="memory-disk"
         contentFit="cover"
+        key={resolved}
         onError={() => setFailedUrl(resolved)}
         source={showImage ? { uri: resolved } : avatarPlaceholder}
         style={{ borderRadius: cornerRadius, height: size, width: size }}
@@ -74,10 +75,7 @@ export function UserAvatar({
 // custom upload (avatarUrl) over the session's OAuth image.
 export function useViewerAvatarUrl(): string | null {
   const { user } = useSessionContext();
-  const { hydrated, state: popup } = usePopupProfile(user?.id ?? null);
-  if (!hydrated) {
-    return null;
-  }
+  const { state: popup } = usePopupProfile(user?.id ?? null);
   const profileAvatar =
     popup.status === "ready" ? popup.profile.avatarUrl : null;
   return profileAvatar ?? user?.image ?? null;

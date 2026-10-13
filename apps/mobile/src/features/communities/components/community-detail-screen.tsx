@@ -1,491 +1,548 @@
 import { Image } from "expo-image";
-import { useLocalSearchParams, useRouter } from "expo-router";
-import { ArrowLeft, CalendarDays, Flame, Users } from "lucide-react-native";
-import { useCallback, useEffect, useState } from "react";
+import { LinearGradient } from "expo-linear-gradient";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ActivityIndicator,
   FlatList,
   Pressable,
+  RefreshControl,
   StyleSheet,
   Text,
   View,
 } from "react-native";
+import type { ViewToken } from "react-native";
 
+import { StatusActionButton } from "@/components/feedback/status-action-button";
 import { authClient } from "@/features/auth/lib/auth-client";
 import { useSessionContext } from "@/features/auth/state/session";
-import { ExplorePostCard } from "@/features/explore/components/explore-post-card";
+import {
+  FeedSkeleton,
+  FeedSkeletonCard,
+} from "@/features/feed/components/feed-skeleton";
+import { FeedTabs } from "@/features/feed/components/feed-tabs";
+import { MoreMenu } from "@/features/feed/components/more-menu";
+import type {
+  MenuAnchor,
+  MoreAction,
+} from "@/features/feed/components/more-menu";
+import { PostCard } from "@/features/feed/components/post-card";
+import { ShareSheet } from "@/features/feed/components/share-sheet";
+import { usePostOverflow } from "@/features/feed/components/use-post-overflow";
+import { flattenFeedRows } from "@/features/feed/lib/feed-rows";
+import type { FeedRow } from "@/features/feed/lib/feed-rows";
+import { groupPostsIntoThreads } from "@/features/feed/lib/feed-types";
 import type { FeedPost } from "@/features/feed/lib/feed-types";
+import { MobileBottomNav } from "@/features/home/components/mobile-bottom-nav";
+import { MobileHeader } from "@/features/home/components/mobile-header";
+import { useUnreadNotificationCount } from "@/features/notifications/state/use-unread-count";
 import { getApiBaseUrl } from "@/lib/api-env";
+import { formatNumber } from "@/lib/format-number";
 import { LIST_VIRTUALIZATION_PROPS } from "@/lib/list-virtualization";
 import { SHOWS_SCROLL_INDICATOR } from "@/lib/scroll-indicator";
 import { useAppTheme } from "@/theme";
 
 import {
-  CommunityApiError,
   fetchCommunityDetail,
   fetchCommunityPosts,
 } from "../lib/communities-api";
 import type { CommunityDetail } from "../lib/communities-api";
+import { resolveCommunityAccentColor } from "../lib/community-accents";
+import {
+  communityMediaUrl,
+  communityPageCache,
+} from "../lib/community-page-cache";
+import { activeCommunityStore } from "../state/active-community";
 import { useCommunityMembership } from "../state/use-community-membership";
 import { CommunityAvatar } from "./community-avatar";
 import { CommunityJoinButton } from "./community-join-button";
 import { CommunityMatureGate } from "./community-mature-gate";
 import { CommunityNotifyButton } from "./community-notify-button";
-import { CommunityRosterCard } from "./community-roster-card";
 
-// Inferred from the API's own signature so the screen can never drift from the
-// sorts the endpoint accepts, and so no type import is needed alongside the
-// value import from the same module.
-type CommunitySort = NonNullable<Parameters<typeof fetchCommunityPosts>[3]>;
+const COMMUNITY_VIEWABILITY = {
+  itemVisiblePercentThreshold: 50,
+  minimumViewTime: 200,
+};
 
+type CommunitySort = "new" | "top";
 export function CommunityDetailScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ slug?: string | string[] }>();
-  const slug = Array.isArray(params.slug) ? params.slug[0] : params.slug;
-  const { theme } = useAppTheme();
+  const slug =
+    (Array.isArray(params.slug) ? params.slug[0] : params.slug) ?? "";
+  const { theme, isDark } = useAppTheme();
   const { user } = useSessionContext();
   const [detail, setDetail] = useState<CommunityDetail | null>(null);
-  const [posts, setPosts] = useState<FeedPost[]>([]);
-  const [nextCursor, setNextCursor] = useState<string | null>(null);
-  const [status, setStatus] = useState<"error" | "loading" | "success">(
-    "loading"
-  );
-  const [error, setError] = useState<string | null>(null);
-  // Web's community feed sorts New or Top; native was pinned to New.
+  const [detailError, setDetailError] = useState(false);
   const [sort, setSort] = useState<CommunitySort>("new");
-  // The 18+ confirmation is per community and per session, so it is not
-  // remembered across launches: the gate is shown every time until confirmed.
-  const [matureConfirmed, setMatureConfirmed] = useState(false);
-
-  const load = useCallback(
-    async (cursor: string | null) => {
-      if (!slug) {
-        return;
-      }
-      const options = {
-        apiBase: getApiBaseUrl(),
-        cookie: await authClient.getCookie(),
-      };
-      if (cursor === null) {
-        const [nextDetail, nextPosts] = await Promise.all([
-          fetchCommunityDetail(slug, options),
-          fetchCommunityPosts(slug, null, options, sort),
-        ]);
-        setDetail(nextDetail);
-        setPosts(nextPosts.posts);
-        setNextCursor(nextPosts.nextCursor);
-        setStatus("success");
-        setError(null);
-        return;
-      }
-      const nextPosts = await fetchCommunityPosts(slug, cursor, options, sort);
-      setPosts((current) => [
-        ...current,
-        ...nextPosts.posts.filter(
-          (post) => !current.some((item) => item.id === post.id)
-        ),
-      ]);
-      setNextCursor(nextPosts.nextCursor);
-      setStatus("success");
-      setError(null);
-    },
-    [slug, sort]
+  const [revision, setRevision] = useState(0);
+  const [posts, setPosts] = useState<FeedPost[]>([]);
+  const [visiblePostIds, setVisiblePostIds] = useState<ReadonlySet<string>>(
+    new Set()
   );
-
-  useEffect(() => {
-    if (!slug) {
-      return;
-    }
-    let active = true;
-    void (async () => {
-      await authClient.getCookie();
-      if (!active) {
-        return;
-      }
-      setStatus("loading");
-      setError(null);
-      try {
-        await load(null);
-      } catch (caughtError) {
-        if (active) {
-          setError(
-            caughtError instanceof CommunityApiError
-              ? caughtError.message
-              : "Couldn't load community"
-          );
-          setStatus("error");
-        }
-      }
-    })();
-    return () => {
-      active = false;
-    };
-  }, [load, slug]);
-
-  const retry = useCallback(async () => {
-    if (!slug) {
-      return;
-    }
-    setStatus("loading");
-    setError(null);
-    try {
-      await load(null);
-    } catch (caughtError) {
-      setError(
-        caughtError instanceof CommunityApiError
-          ? caughtError.message
-          : "Couldn't load community"
+  const handleViewable = useCallback(
+    ({ viewableItems }: { viewableItems: ViewToken<FeedRow>[] }) => {
+      setVisiblePostIds(
+        new Set(
+          viewableItems
+            .filter((item) => item.isViewable)
+            .map((item) => item.item.post.id)
+        )
       );
-      setStatus("error");
-    }
-  }, [load, slug]);
-
-  // Declared before the early returns so hook order stays stable while the
-  // detail is still loading; the state settles on its own once the slug is
-  // known and the first membership read lands.
-  const membershipState = useCommunityMembership({
-    initialMembership: detail?.membership ?? null,
-    isLoggedIn: Boolean(user),
-    slug: slug ?? "",
-  });
-
-  const requireLogin = useCallback(() => {
-    router.push("/(auth)/login");
-  }, [router]);
-
-  // Web records the visit from its server-rendered page, which native has no
-  // equivalent of, so the weekly-visitor count is pinged from the client on
-  // open. Best effort: a failed ping must never block the screen.
+    },
+    []
+  );
+  const rows = useMemo(
+    () => flattenFeedRows(groupPostsIntoThreads(posts)),
+    [posts]
+  );
+  const unreadNotifications = useUnreadNotificationCount(
+    user?.id ?? null,
+    Boolean(user)
+  );
+  const [cursor, setCursor] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [feedError, setFeedError] = useState(false);
+  const [acceptedSlug, setAcceptedSlug] = useState<string | null>(null);
+  const matureAccepted = acceptedSlug === slug;
+  const [menuPost, setMenuPost] = useState<FeedPost | null>(null);
+  const [menuAnchor, setMenuAnchor] = useState<MenuAnchor | null>(null);
+  const [sharePost, setSharePost] = useState<FeedPost | null>(null);
+  const generation = useRef(0);
+  const paging = useRef(false);
+  const forcedKey = useRef<string | null>(null);
+  const apiBase = getApiBaseUrl();
+  const cacheKey = `${apiBase}:${user?.id ?? "guest"}:${slug}:${sort}`;
   useEffect(() => {
-    if (!slug || !user) {
+    if (!user?.id || !slug) {
       return;
     }
-    let active = true;
-    void (async () => {
+    const record = async () => {
       try {
-        const cookie = await authClient.getCookie();
-        if (!active) {
-          return;
-        }
         await fetch(
-          `${getApiBaseUrl()}/api/communities/${encodeURIComponent(slug)}/visit`,
-          { headers: { cookie }, method: "POST" }
+          `${apiBase}/api/communities/${encodeURIComponent(slug)}/visit`,
+          { headers: { cookie: await authClient.getCookie() }, method: "POST" }
         );
       } catch {
-        // Ignored on purpose.
+        // Visits are best effort; a failure must not hide the community.
       }
-    })();
+    };
+    void record();
+  }, [apiBase, slug, user?.id]);
+  const membership = useCommunityMembership({
+    initialMembership: detail?.membership ?? null,
+    isLoggedIn: Boolean(user),
+    slug,
+  });
+  const handleRetry = useCallback(() => {
+    forcedKey.current = cacheKey;
+    setRevision((value) => value + 1);
+  }, [cacheKey]);
+  // oxlint-disable-next-line react/set-state-in-effect -- reset the external detail read for this route before its transport settles
+  useEffect(() => {
+    const requestRevision = revision;
+    if (requestRevision < 0) {
+      return;
+    }
+    let active = true;
+    const viewerScope = user?.id ?? "guest";
+    if (!viewerScope) {
+      return;
+    }
+    const load = async () => {
+      setDetail((current) =>
+        current?.community.slug === slug ? current : null
+      );
+      setDetailError(false);
+      try {
+        const options = { apiBase, cookie: await authClient.getCookie() };
+        const next = await fetchCommunityDetail(slug, options);
+        if (active) {
+          setDetail(next);
+        }
+      } catch {
+        if (active) {
+          setDetailError(true);
+        }
+      }
+    };
+    const timer = setTimeout(() => {
+      if (slug) {
+        void load();
+      } else {
+        setDetailError(true);
+      }
+    }, 0);
     return () => {
       active = false;
+      clearTimeout(timer);
     };
-  }, [slug, user]);
-
-  if (!slug) {
-    return (
-      <View style={[styles.center, { backgroundColor: theme.containerBg }]}>
-        <Text style={{ color: theme.inputText }}>Community not found</Text>
-        <Pressable onPress={() => router.back()} style={styles.retry}>
-          <Text style={styles.retryText}>Go back</Text>
-        </Pressable>
-      </View>
-    );
-  }
-  if (status === "loading" || !detail) {
-    return (
-      <View style={[styles.center, { backgroundColor: theme.containerBg }]}>
-        <ActivityIndicator color="#f97316" />
-      </View>
-    );
-  }
-  if (status === "error") {
-    return (
-      <View style={[styles.center, { backgroundColor: theme.containerBg }]}>
-        <Text style={{ color: theme.inputText }}>{error}</Text>
-        <Pressable onPress={retry} style={styles.retry}>
-          <Text style={styles.retryText}>Try again</Text>
-        </Pressable>
-      </View>
-    );
-  }
-
-  const { community } = detail;
-  const banner = community.bannerUrl
-    ? `${getApiBaseUrl()}${community.bannerUrl}`
+  }, [apiBase, slug, user?.id, revision]);
+  // oxlint-disable-next-line react/set-state-in-effect -- hydrate the selected external page cache before its request settles
+  useEffect(() => {
+    if (revision < 0) {
+      return;
+    }
+    generation.current += 1;
+    const token = generation.current;
+    const load = async () => {
+      const cached = communityPageCache.get(cacheKey);
+      const forced = forcedKey.current === cacheKey;
+      if (forced) {
+        forcedKey.current = null;
+      }
+      if (!forced) {
+        setPosts(cached?.posts ?? []);
+        setCursor(cached?.nextCursor ?? null);
+      }
+      setLoading(!cached && !forced);
+      setFeedError(false);
+      setLoadingMore(false);
+      paging.current = false;
+      try {
+        const page = await communityPageCache.load(
+          cacheKey,
+          async () =>
+            fetchCommunityPosts(
+              slug,
+              null,
+              { apiBase, cookie: await authClient.getCookie() },
+              sort
+            ),
+          forced
+        );
+        if (generation.current === token) {
+          setPosts(page.posts);
+          setCursor(page.nextCursor);
+        }
+      } catch {
+        if (generation.current === token) {
+          setFeedError(true);
+        }
+      }
+      if (generation.current === token) {
+        setLoading(false);
+        setRefreshing(false);
+      }
+    };
+    void load();
+    return () => {
+      if (generation.current === token) {
+        generation.current += 1;
+      }
+    };
+  }, [apiBase, cacheKey, revision, slug, sort]);
+  useFocusEffect(
+    useCallback(() => {
+      if (detail) {
+        activeCommunityStore.getState().set({
+          canPost:
+            Boolean(user) &&
+            membership.membership?.status === "ACTIVE" &&
+            (!detail.community.mature || matureAccepted),
+          id: detail.community.id,
+          slug,
+        });
+      }
+      return () => activeCommunityStore.getState().clear(slug);
+    }, [detail, matureAccepted, membership.membership?.status, slug, user])
+  );
+  const handleRefresh = () => {
+    setRefreshing(true);
+    handleRetry();
+  };
+  const handleMore = async () => {
+    if (!cursor || paging.current || loading || feedError) {
+      return;
+    }
+    const token = generation.current;
+    paging.current = true;
+    setLoadingMore(true);
+    try {
+      const page = await fetchCommunityPosts(
+        slug,
+        cursor,
+        { apiBase, cookie: await authClient.getCookie() },
+        sort
+      );
+      if (generation.current === token) {
+        const next = communityPageCache.append(cacheKey, page);
+        setPosts(next.posts);
+        setCursor(next.nextCursor);
+      }
+    } catch {
+      if (generation.current === token) {
+        setFeedError(true);
+      }
+    }
+    if (generation.current === token) {
+      paging.current = false;
+      setLoadingMore(false);
+    }
+  };
+  const overflow = usePostOverflow({
+    onDeleted: (id) => {
+      communityPageCache.removePost(id);
+      setPosts((current) => current.filter((post) => post.id !== id));
+    },
+    onHide: (post) => {
+      communityPageCache.removePost(post.id);
+      setPosts((current) => current.filter((entry) => entry.id !== post.id));
+    },
+    onModerated: handleRetry,
+    onTagsSaved: handleRetry,
+    viewerId: user?.id ?? null,
+  });
+  const handleAction = (action: MoreAction) => {
+    if (menuPost) {
+      overflow.onAction(action, menuPost);
+    }
+    setMenuPost(null);
+    setMenuAnchor(null);
+  };
+  const handleRequireLogin = () => router.push("/(auth)/login");
+  const headerUser = user
+    ? {
+        avatarUrl: user.image ?? null,
+        id: user.id,
+        username: user.username ?? "",
+      }
     : null;
+  if (detailError) {
+    return (
+      <View
+        style={[
+          styles.root,
+          styles.state,
+          { backgroundColor: theme.containerBg },
+        ]}
+      >
+        <Text
+          style={{
+            color: theme.inputText,
+            fontFamily: "SofiaProBold",
+            fontSize: 18,
+          }}
+        >
+          Couldn't load this community
+        </Text>
+        <StatusActionButton label="Try again" onPress={handleRetry} />
+      </View>
+    );
+  }
+  if (!detail) {
+    return (
+      <View style={[styles.root, { backgroundColor: theme.containerBg }]}>
+        <MobileHeader user={headerUser} unreadCount={unreadNotifications} />
+        <View style={{ backgroundColor: theme.cardBg, height: 144 }} />
+        <FeedSkeleton />
+      </View>
+    );
+  }
+  const { community } = detail;
+  const banner = communityMediaUrl(community.bannerUrl, apiBase);
+  let empty = (
+    <View style={styles.state}>
+      <Text
+        style={{
+          color: theme.inputText,
+          fontFamily: "SofiaProBold",
+          fontSize: 18,
+        }}
+      >
+        No posts yet
+      </Text>
+      <Text style={{ color: theme.dividerText, fontFamily: "SofiaProReg" }}>
+        Be the first to post here.
+      </Text>
+    </View>
+  );
+  if (loading) {
+    empty = <FeedSkeleton />;
+  } else if (feedError) {
+    empty = (
+      <View style={styles.state}>
+        <Text style={{ color: theme.inputText }}>Couldn't load posts</Text>
+        <StatusActionButton label="Try again" onPress={handleRetry} />
+      </View>
+    );
+  }
   return (
     <View style={[styles.root, { backgroundColor: theme.containerBg }]}>
-      <FlatList
-        {...LIST_VIRTUALIZATION_PROPS}
-        contentContainerStyle={styles.content}
-        data={posts}
-        keyExtractor={(post) => post.id}
-        ListHeaderComponent={
-          <View>
-            <View style={styles.topBar}>
-              <Pressable
-                accessibilityLabel="Go back"
-                accessibilityRole="button"
-                onPress={() => router.back()}
-                style={styles.topButton}
-              >
-                <ArrowLeft color={theme.inputText} size={21} />
-              </Pressable>
-              <Text
-                numberOfLines={1}
-                style={[styles.topTitle, { color: theme.inputText }]}
-              >
-                {community.name}
-              </Text>
-              <View style={styles.topButton} />
-            </View>
-            <View
-              style={[
-                styles.banner,
-                { backgroundColor: `${community.accentColor ?? "#f97316"}33` },
-              ]}
-            >
-              {banner ? (
-                <Image
-                  contentFit="cover"
-                  source={{ uri: banner }}
-                  style={styles.bannerImage}
-                />
-              ) : null}
-            </View>
-            <View style={styles.header}>
-              <View style={styles.avatar}>
-                <CommunityAvatar community={community} size={64} />
-              </View>
-              <Text style={[styles.name, { color: theme.inputText }]}>
-                {community.name}
-              </Text>
-              <Text style={[styles.slug, { color: theme.dividerText }]}>
-                a/{community.slug}
-              </Text>
-              {community.description ? (
-                <Text
-                  style={[styles.description, { color: theme.dividerText }]}
-                >
-                  {community.description}
-                </Text>
-              ) : null}
-              <View
-                style={[
-                  styles.stats,
-                  {
-                    backgroundColor: theme.cardBg,
-                    borderColor: theme.cardBorder,
-                  },
-                ]}
-              >
-                <Stat
-                  icon={<Flame color="#ff9500" fill="#ff9500" size={15} />}
-                  label="Aura"
-                  value={detail.stats.communityAura}
-                />
-                <Stat
-                  icon={<Users color="#f97316" fill="#f97316" size={15} />}
-                  label="Members"
-                  value={detail.stats.members}
-                />
-                <Stat
-                  icon={<CalendarDays color="#f97316" size={15} />}
-                  label="Visitors"
-                  value={detail.stats.weeklyVisitors}
-                />
-              </View>
-              <View style={styles.sortTabs}>
-                {(["new", "top"] as const).map((option) => {
-                  const selected = option === sort;
-                  return (
-                    <Pressable
-                      accessibilityRole="tab"
-                      accessibilityState={{ selected }}
-                      key={option}
-                      onPress={() => {
-                        if (option === sort) {
-                          return;
-                        }
-                        setSort(option);
-                        setStatus("loading");
-                      }}
-                      style={styles.sortTab}
-                    >
-                      <Text
-                        style={[
-                          styles.sortText,
-                          { color: selected ? "#ff9500" : theme.dividerText },
-                        ]}
-                      >
-                        {option === "new" ? "New" : "Top"}
-                      </Text>
-                      {selected ? <View style={styles.sortUnderline} /> : null}
-                    </Pressable>
-                  );
-                })}
-              </View>
-              <View style={styles.actions}>
-                <CommunityJoinButton
-                  isLoggedIn={Boolean(user)}
-                  membershipState={membershipState}
-                  onRequireLogin={requireLogin}
-                  style={styles.joinButton}
-                />
-                <CommunityNotifyButton
-                  isLoggedIn={Boolean(user)}
-                  membershipState={membershipState}
-                  onRequireLogin={requireLogin}
-                />
-              </View>
-            </View>
-            <CommunityRosterCard
-              canModerate={membershipState.canModerate}
-              onRequireLogin={requireLogin}
-              slug={community.slug}
+      <MobileHeader user={headerUser} unreadCount={unreadNotifications} />
+      <View
+        style={{
+          backgroundColor: `${resolveCommunityAccentColor(community.accentColor, isDark)}38`,
+          height: 144,
+          overflow: "hidden",
+        }}
+      >
+        {banner ? (
+          <Image
+            source={{ uri: banner }}
+            contentFit="cover"
+            style={StyleSheet.absoluteFill}
+          />
+        ) : null}
+        <LinearGradient
+          colors={["transparent", theme.containerBg]}
+          style={{
+            bottom: 0,
+            height: 64,
+            left: 0,
+            position: "absolute",
+            right: 0,
+          }}
+        />
+      </View>
+      <View style={{ paddingBottom: 16, paddingHorizontal: 16 }}>
+        <View
+          style={{
+            alignItems: "flex-end",
+            flexDirection: "row",
+            gap: 12,
+            justifyContent: "space-between",
+            marginTop: -32,
+          }}
+        >
+          <CommunityAvatar community={community} size={64} />
+          <View
+            style={{
+              alignItems: "center",
+              flexDirection: "row",
+              gap: 8,
+              paddingBottom: 4,
+            }}
+          >
+            <CommunityJoinButton
+              isLoggedIn={Boolean(user)}
+              membershipState={membership}
+              onRequireLogin={handleRequireLogin}
+            />
+            <CommunityNotifyButton
+              isLoggedIn={Boolean(user)}
+              membershipState={membership}
+              onRequireLogin={handleRequireLogin}
             />
           </View>
-        }
-        ListEmptyComponent={
-          <Text style={[styles.empty, { color: theme.dividerText }]}>
-            No posts in this community yet.
+        </View>
+        <Text
+          style={{
+            color: theme.inputText,
+            fontFamily: "SofiaProBold",
+            fontSize: 20,
+            marginTop: 12,
+          }}
+        >
+          {community.name}
+        </Text>
+        <Text
+          style={{
+            color: theme.dividerText,
+            fontFamily: "SofiaProReg",
+            fontSize: 14,
+          }}
+        >
+          a/{community.slug} · {formatNumber(detail.stats.members)}{" "}
+          {detail.stats.members === 1 ? "member" : "members"}
+        </Text>
+      </View>
+      <FeedTabs
+        alignment="start"
+        active={sort}
+        tabs={[
+          { label: "New", value: "new" },
+          { label: "Top", value: "top" },
+        ]}
+        onChange={(value) => setSort(value === "top" ? "top" : "new")}
+      />
+      {feedError && posts.length > 0 ? (
+        <Pressable onPress={handleRefresh}>
+          <Text style={{ color: theme.dividerText, padding: 12 }}>
+            Couldn't load more posts. Tap to retry.
           </Text>
+        </Pressable>
+      ) : null}
+      <FlatList
+        {...LIST_VIRTUALIZATION_PROPS}
+        style={{ flex: 1 }}
+        contentContainerStyle={{
+          flexGrow: posts.length ? 0 : 1,
+          paddingBottom: 110,
+        }}
+        data={rows}
+        keyExtractor={(row) => row.post.id}
+        ListEmptyComponent={empty}
+        ListFooterComponent={loadingMore ? <FeedSkeletonCard /> : null}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+            tintColor={theme.dividerText}
+          />
         }
         onEndReached={() => {
-          if (nextCursor) {
-            void load(nextCursor);
-          }
+          void handleMore();
         }}
         onEndReachedThreshold={0.6}
+        viewabilityConfig={COMMUNITY_VIEWABILITY}
+        onViewableItemsChanged={handleViewable}
         renderItem={({ item }) => (
-          <ExplorePostCard
-            onPress={() =>
-              router.push({
-                params: { postId: item.id },
-                pathname: "/posts/[postId]",
-              })
+          <PostCard
+            active={
+              visiblePostIds.has(item.post.id) &&
+              (!detail?.community.mature || matureAccepted)
             }
-            onRequireLogin={() => router.push("/(auth)/login")}
-            post={item}
-            viewerId={user?.id ?? null}
+            hasThreadChild={item.hasThreadChild}
+            hasThreadParent={item.hasThreadParent}
+            showCommunity={false}
+            post={item.post}
+            viewerId={user?.id}
+            onMore={(post, anchor) => {
+              setMenuPost(post);
+              setMenuAnchor(anchor);
+            }}
+            onShare={setSharePost}
           />
         )}
         showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
       />
-      {community.mature && !matureConfirmed ? (
+      <MobileBottomNav />
+      <MoreMenu
+        anchor={menuAnchor}
+        entries={
+          menuPost
+            ? overflow.entriesFor(menuPost, {
+                showCaptions: false,
+                showingAlt: false,
+              })
+            : []
+        }
+        onAction={handleAction}
+        onClose={() => {
+          setMenuPost(null);
+          setMenuAnchor(null);
+        }}
+      />
+      <ShareSheet post={sharePost} onClose={() => setSharePost(null)} />
+      {overflow.dialogs}
+      {community.mature && !matureAccepted ? (
         <CommunityMatureGate
           community={community}
-          onEnter={() => {
-            setMatureConfirmed(true);
-          }}
-          onLeave={() => {
-            router.back();
-          }}
+          onEnter={() => setAcceptedSlug(slug)}
+          onLeave={() => router.back()}
         />
       ) : null}
     </View>
   );
 }
-
-function Stat({
-  icon,
-  label,
-  value,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: number;
-}) {
-  const { theme } = useAppTheme();
-  return (
-    <View style={styles.stat}>
-      {icon}
-      <Text style={[styles.statValue, { color: theme.inputText }]}>
-        {value.toLocaleString()}
-      </Text>
-      <Text style={[styles.statLabel, { color: theme.dividerText }]}>
-        {label}
-      </Text>
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
-  actions: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 10,
-    marginTop: 16,
-  },
-  avatar: { marginTop: -32 },
-  banner: { height: 150, overflow: "hidden" },
-  bannerImage: { height: "100%", width: "100%" },
-  center: {
-    alignItems: "center",
-    flex: 1,
-    gap: 14,
-    justifyContent: "center",
-    padding: 24,
-  },
-  content: { paddingBottom: 40 },
-  description: {
-    fontFamily: "SofiaProReg",
-    fontSize: 14,
-    lineHeight: 20,
-    marginTop: 10,
-  },
-  empty: {
-    fontFamily: "SofiaProReg",
-    fontSize: 14,
-    padding: 32,
-    textAlign: "center",
-  },
-  header: { paddingHorizontal: 16, paddingTop: 0 },
-  joinButton: { flex: 1 },
-  name: { fontFamily: "SofiaProBold", fontSize: 25, marginTop: 12 },
-  retry: {
-    backgroundColor: "#f97316",
-    borderRadius: 999,
-    paddingHorizontal: 18,
-    paddingVertical: 10,
-  },
-  retryText: { color: "#ffffff", fontFamily: "SofiaProMed", fontSize: 13 },
   root: { flex: 1 },
-  slug: { fontFamily: "SofiaProReg", fontSize: 14, marginTop: 2 },
-  sortTab: { alignItems: "flex-start", paddingVertical: 8 },
-  sortTabs: { flexDirection: "row", gap: 18, marginTop: 14 },
-  sortText: { fontFamily: "SofiaProMed", fontSize: 14 },
-  sortUnderline: {
-    backgroundColor: "#ff9500",
-    borderRadius: 2,
-    height: 2,
-    marginTop: 3,
-    width: "100%",
-  },
-  stat: { alignItems: "center", gap: 3 },
-  statLabel: { fontFamily: "SofiaProReg", fontSize: 10 },
-  statValue: { fontFamily: "SofiaProBold", fontSize: 15, marginTop: 2 },
-  stats: {
-    borderCurve: "continuous",
-    borderRadius: 16,
-    borderWidth: 1,
-    flexDirection: "row",
-    justifyContent: "space-around",
-    marginTop: 18,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-  },
-  topBar: {
+  state: {
     alignItems: "center",
-    flexDirection: "row",
-    height: 52,
-    justifyContent: "space-between",
-    paddingHorizontal: 16,
-  },
-  topButton: {
-    alignItems: "center",
-    height: 40,
+    gap: 12,
     justifyContent: "center",
-    width: 40,
+    padding: 32,
   },
-  topTitle: { fontFamily: "SofiaProBold", fontSize: 16, maxWidth: 240 },
 });
