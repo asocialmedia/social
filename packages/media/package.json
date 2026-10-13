@@ -1,6 +1,6 @@
 {
   "name": "@asm/media",
-  "version": "1.0.36",
+  "version": "1.0.38",
   "private": true,
   "description": "Shared media pipeline contracts: lifecycle state machine, storage layout, limits, content detection, derivative policy",
   "license": "AGPL-3.0",
@@ -10,11 +10,23 @@
     ".": {
       "types": "./src/index.ts",
       "default": "./src/index.ts"
+    },
+    "./image-edit": {
+      "types": "./src/image-crop-browser.ts",
+      "default": "./src/image-crop-browser.ts"
+    },
+    "./crop-geometry": {
+      "types": "./src/image-crop-geometry.ts",
+      "default": "./src/image-crop-geometry.ts"
     }
   },
   "scripts": {
     "check-types": "tsc --noEmit",
     "test": "bun test src"
+  },
+  "dependencies": {
+    "gifenc": "^1.0.3",
+    "gifuct-js": "^2.1.2"
   },
   "devDependencies": {
     "@asm/config": "workspace:*",
