@@ -9,7 +9,7 @@
 // in sync with `router.setParams`, which updates in place and never remounts
 // the screen, so switching tabs no longer refreshes the header, search or data.
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { ScrollView, StyleSheet, View } from "react-native";
 import type { ScrollView as ScrollViewType } from "react-native";
 
@@ -42,6 +42,12 @@ import {
   SettingsCardSkeleton,
   SettingsHeaderSkeleton,
 } from "./settings-skeleton";
+
+const MemoProfileTab = memo(ProfileTab);
+const MemoAccountTab = memo(AccountTab);
+const MemoPrivacyTab = memo(PrivacyTab);
+const MemoSecurityTab = memo(SecurityTab);
+const MemoPersonalizationTab = memo(PersonalizationTab);
 
 export function SettingsScreen() {
   const { theme } = useAppTheme();
@@ -77,7 +83,10 @@ export function SettingsScreen() {
   const [linked, setLinked] = useState<LinkedAccountInfo | null>(null);
   const [hasAuthenticatorApp, setHasAuthenticatorApp] = useState(false);
   const [securityLoaded, setSecurityLoaded] = useState(false);
-  const facts = linked ? withLinkedAccounts(baseFacts, linked) : baseFacts;
+  const facts = useMemo(
+    () => (linked ? withLinkedAccounts(baseFacts, linked) : baseFacts),
+    [baseFacts, linked]
+  );
   const [accountsToken, setAccountsToken] = useState(0);
 
   const section = Array.isArray(params.section)
@@ -129,6 +138,11 @@ export function SettingsScreen() {
     [router, scrollRefs]
   );
 
+  const navigateToAccount = useCallback(
+    () => goToTab("account", "settings-username"),
+    [goToTab]
+  );
+
   const handleIndexChange = useCallback(
     (index: number) => {
       const def = SETTINGS_TAB_DEFS[index];
@@ -177,21 +191,27 @@ export function SettingsScreen() {
         </View>
       </View>
 
-      <FeedPager activeIndex={activeIndex} onIndexChange={handleIndexChange}>
-        <ProfileTab
+      <FeedPager
+        activeIndex={activeIndex}
+        onIndexChange={handleIndexChange}
+        preloadAll
+        publishOnSettle
+        rasterizePages
+      >
+        <MemoProfileTab
           onChanged={onChanged}
-          onNavigateToAccount={() => goToTab("account", "settings-username")}
+          onNavigateToAccount={navigateToAccount}
           scrollRef={scrollRefs.profile}
           user={user}
         />
-        <AccountTab
+        <MemoAccountTab
           facts={facts}
           onChanged={onChanged}
           scrollRef={scrollRefs.account}
         />
-        <PrivacyTab onChanged={onChanged} scrollRef={scrollRefs.privacy} />
+        <MemoPrivacyTab onChanged={onChanged} scrollRef={scrollRefs.privacy} />
         {securityReady ? (
-          <SecurityTab
+          <MemoSecurityTab
             active={tab === "security"}
             key={user?.id ?? "guest"}
             email={facts.email}
@@ -210,7 +230,7 @@ export function SettingsScreen() {
             <SettingsCardSkeleton fields={1} />
           </ScrollView>
         )}
-        <PersonalizationTab scrollRef={scrollRefs.personalization} />
+        <MemoPersonalizationTab scrollRef={scrollRefs.personalization} />
       </FeedPager>
 
       <MobileBottomNav />

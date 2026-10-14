@@ -10,6 +10,7 @@
 
 import * as Linking from "expo-linking";
 import { useRouter } from "expo-router";
+import * as WebBrowser from "expo-web-browser";
 import {
   createContext,
   useCallback,
@@ -17,10 +18,16 @@ import {
   useEffect,
   useMemo,
   useRef,
+  useState,
 } from "react";
 import type { ReactNode } from "react";
+import { Platform } from "react-native";
 
-import { authClient, hasNativePasskey } from "@/features/auth/lib/auth-client";
+import {
+  authClient,
+  hasNativePasskey,
+  persistBrowserSessionCookie,
+} from "@/features/auth/lib/auth-client";
 import {
   PASSKEY_FAILED_ERROR,
   PASSKEY_UNAVAILABLE_ERROR,
@@ -30,6 +37,10 @@ import {
 } from "@/features/auth/lib/auth-errors";
 import type { AuthErrorKind } from "@/features/auth/lib/auth-errors";
 import {
+  authorizationProxyUrl,
+  runBrowserOAuth,
+} from "@/features/auth/lib/browser-oauth";
+import {
   GOOGLE_UNAVAILABLE_ERROR,
   hasNativeGoogle,
   signInWithGoogleNative,
@@ -37,6 +48,7 @@ import {
 import { describePasskeyFailure } from "@/features/auth/lib/passkey-errors";
 import { classifySessionRefresh } from "@/features/auth/lib/session-connection";
 import type { SessionRefreshResult } from "@/features/auth/lib/session-connection";
+import { runSignOutFlow } from "@/features/auth/lib/sign-out-flow";
 import { useInstall } from "@/features/auth/state/install";
 import { clearExploreCache } from "@/features/explore/lib/explore-cache-native";
 import { engagementStore } from "@/features/feed/lib/engagement-store";
@@ -47,7 +59,7 @@ import { sleep } from "@/features/media-upload/lib/retry";
 import { clearMessageSession } from "@/features/messages/state/clear-message-session";
 import { unregisterPushNotifications } from "@/features/notifications/lib/push";
 import { supportsPasskeyOrigin } from "@/lib/api-base";
-import { getApiBaseUrl } from "@/lib/api-env";
+import { getApiBaseUrl, getAuthBaseUrl } from "@/lib/api-env";
 import { createExpoPoller } from "@/lib/expo-poller";
 import { logError, logInfo, logWarn } from "@/lib/telemetry";
 
@@ -88,6 +100,7 @@ export interface SignOutOptions {
 
 export interface SessionContextValue {
   isPending: boolean;
+  isSigningOut: boolean;
   sessionId: string | null;
   signIn: (identifier: string, password: string) => Promise<SignInResult>;
   signInSocial: (provider: SocialProvider) => Promise<SocialResult>;
@@ -157,6 +170,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const router = useRouter();
   const { data, isPending, refetch } = authClient.useSession();
   const { runWithInstallToken } = useInstall();
+  const [isSigningOut, setIsSigningOut] = useState(false);
+  const signOutFlight = useRef<Promise<void> | null>(null);
 
   const refreshFlight = useRef<Promise<SessionRefreshResult> | null>(null);
   const refresh = useCallback((): Promise<SessionRefreshResult> => {
@@ -197,6 +212,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       const value = identifier.trim();
       const method = value.includes("@") ? "email" : "username";
       const attempt = async (): Promise<SignInResult> => {
+        await signOutFlight.current;
         try {
           const result =
             method === "email"
@@ -240,13 +256,74 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  // Browser round-trip through the provider. The expo client opens the auth
-  // session and swallows the returning deep link, so the only way to learn
-  // that the provider bounced with `?error=` is to listen for the URL
-  // ourselves while the browser is up (Android delivers it; iOS auth
-  // sessions do not, and there we fall back to "no session => cancelled").
+  // Native browser results carry both errors and cookies. Finish persistence
+  // and session refresh before the login screen navigates to the feed.
   const browserSocial = useCallback(
     async (provider: SocialProvider): Promise<SocialResult> => {
+      if (Platform.OS !== "web") {
+        const callbackUrl = Linking.createURL("/login", {
+          scheme: "asocialmedia",
+        });
+        const outcome = await runBrowserOAuth({
+          callbackUrl,
+          open: async (authorizationUrl) =>
+            WebBrowser.openAuthSessionAsync(
+              authorizationProxyUrl(
+                getAuthBaseUrl(),
+                authorizationUrl,
+                await authClient.getCookie()
+              ),
+              callbackUrl
+            ),
+          persist: persistBrowserSessionCookie,
+          refresh: async () => {
+            await refreshFlight.current;
+            const result = await refresh();
+            return result.status === "valid";
+          },
+          request: async () => {
+            const response = await authClient.signIn.social(
+              {
+                callbackURL: callbackUrl,
+                disableRedirect: true,
+                errorCallbackURL: callbackUrl,
+                newUserCallbackURL: callbackUrl,
+                provider,
+              },
+              { timeout: 20_000 }
+            );
+            return { error: response.error, url: response.data?.url };
+          },
+        });
+        if (outcome.status === "complete") {
+          logInfo("auth.social_sign_in", { provider });
+          return { ok: true };
+        }
+        if (outcome.status === "cancelled") {
+          return CANCELLED;
+        }
+        if (outcome.status === "failed") {
+          return failure(outcome.error);
+        }
+        if (outcome.status === "redirect-error") {
+          logWarn("auth.social_redirect_error", {
+            code: outcome.code,
+            provider,
+          });
+          return {
+            error:
+              describeOAuthRedirectError(outcome.code) ??
+              "Couldn't complete sign-in. Please try again.",
+            kind: "unknown",
+            ok: false,
+          };
+        }
+        return {
+          error: "Couldn't restore your sign-in. Please try again.",
+          kind: "unknown",
+          ok: false,
+        };
+      }
       const { code, result } = await withRedirectCapture(async () => {
         const response = await authClient.signIn.social({
           callbackURL: "/",
@@ -271,7 +348,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       }
       return confirmSession();
     },
-    [confirmSession]
+    [confirmSession, refresh]
   );
 
   // Native SDK flow: Google mints an ID token for our web client id and the
@@ -306,6 +383,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const signInSocial = useCallback(
     async (provider: SocialProvider): Promise<SocialResult> => {
       const attempt = async (): Promise<SocialResult> => {
+        await signOutFlight.current;
         try {
           if (provider === "google" && hasNativeGoogle) {
             return await nativeGoogle();
@@ -358,6 +436,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       return unavailable;
     }
     const attempt = async (): Promise<SignInResult> => {
+      await signOutFlight.current;
       try {
         const result = await passkey();
         if (result?.error) {
@@ -386,33 +465,42 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, [confirmSession, runWithInstallToken]);
 
   const signOut = useCallback(
-    async (options?: SignOutOptions) => {
-      // Unregister this device's push token while the session still exists:
-      // once signOut clears the cookie the server rejects the DELETE, and the
-      // old account's notifications would keep arriving on this device. Capped
-      // so a slow network never holds up signing out.
-      await Promise.race([unregisterPushNotifications(), sleep(3000)]);
-      try {
-        await authClient.signOut();
-      } catch (error) {
-        logError("auth.sign_out_failed", error);
+    (options?: SignOutOptions): Promise<void> => {
+      if (signOutFlight.current) {
+        return signOutFlight.current;
       }
-      // Per-viewer state (own votes, own bookmarks) must not survive the
-      // account, or the next sign-in would briefly render the previous
-      // viewer's highlights.
-      engagementStore.clear();
-      viewBatcher.reset();
-      feedCache.clear();
-      clearExploreCache();
-      clearHnCache();
-      clearMessageSession();
-      if (options?.reason) {
-        router.replace(
-          `/(auth)/login?reason=${encodeURIComponent(options.reason)}`
-        );
-      } else {
-        router.replace("/(auth)/login");
-      }
+      setIsSigningOut(true);
+      const flight = runSignOutFlow({
+        clear: () => {
+          engagementStore.clear();
+          viewBatcher.reset();
+          feedCache.clear();
+          clearExploreCache();
+          clearHnCache();
+          clearMessageSession();
+        },
+        complete: () => {
+          signOutFlight.current = null;
+          setIsSigningOut(false);
+        },
+        navigate: () =>
+          router.replace({
+            params: options?.reason ? { reason: options.reason } : {},
+            pathname: "/(auth)/login",
+          }),
+        // Push unregistration needs the old cookie, before Better Auth clears it.
+        revoke: async () => {
+          try {
+            await authClient.signOut();
+          } catch (error) {
+            logError("auth.sign_out_failed", error);
+          }
+        },
+        unregister: () =>
+          Promise.race([unregisterPushNotifications(), sleep(3000)]),
+      });
+      signOutFlight.current = flight;
+      return flight;
     },
     [router]
   );
@@ -423,6 +511,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     const sessionId = (rawSession as { id?: string } | undefined)?.id ?? null;
     return {
       isPending,
+      isSigningOut,
       refresh,
       sessionId,
       signIn,
@@ -431,7 +520,16 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       signOut,
       user: sessionUser ?? null,
     };
-  }, [data, isPending, refresh, signIn, signInPasskey, signInSocial, signOut]);
+  }, [
+    data,
+    isPending,
+    isSigningOut,
+    refresh,
+    signIn,
+    signInPasskey,
+    signInSocial,
+    signOut,
+  ]);
 
   return (
     <SessionContext.Provider value={value}>{children}</SessionContext.Provider>

@@ -38,6 +38,9 @@ interface FeedPagerProps {
   children: ReactNode[];
   onIndexChange: (index: number) => void;
   overlay?: ReactNode;
+  preloadAll?: boolean;
+  publishOnSettle?: boolean;
+  rasterizePages?: boolean;
 }
 
 export function FeedPager({
@@ -45,6 +48,9 @@ export function FeedPager({
   children,
   onIndexChange,
   overlay,
+  preloadAll = false,
+  publishOnSettle = false,
+  rasterizePages = false,
 }: FeedPagerProps) {
   const pageCount = children.length;
   const onIndexChangeRef = useRef(onIndexChange);
@@ -53,7 +59,9 @@ export function FeedPager({
   }, [onIndexChange]);
   const clampedIndex = clampIndex(activeIndex, pageCount);
   const [mountedRange, setMountedRange] = useState(() =>
-    retainPagerPages(clampedIndex, pageCount)
+    preloadAll
+      ? { first: 0, last: pageCount - 1 }
+      : retainPagerPages(clampedIndex, pageCount)
   );
   const retained = retainPagerPages(clampedIndex, pageCount, mountedRange);
   if (retained !== mountedRange) {
@@ -143,7 +151,7 @@ export function FeedPager({
           const clamped = Math.min(0, Math.max(min, raw));
           translateX.set(clamped);
           const next = handoffIndex(originSv.get(), event.translationX, count);
-          if (next !== handedSv.get()) {
+          if (!publishOnSettle && next !== handedSv.get()) {
             handedSv.set(next);
             scheduleOnRN(publishIndex, next);
           }
@@ -167,12 +175,19 @@ export function FeedPager({
           handedSv.set(settled);
           baseSv.set(-settled * width);
           translateX.set(
-            withSpring(-settled * width, {
-              ...SETTLE_SPRING,
-              velocity: event.velocityX,
-            })
+            withSpring(
+              -settled * width,
+              { ...SETTLE_SPRING, velocity: event.velocityX },
+              (finished) => {
+                if (publishOnSettle && finished) {
+                  scheduleOnRN(publishIndex, settled);
+                }
+              }
+            )
           );
-          scheduleOnRN(publishIndex, settled);
+          if (!publishOnSettle) {
+            scheduleOnRN(publishIndex, settled);
+          }
         })
         .onFinalize((_event, success) => {
           if (!success && draggingSv.get()) {
@@ -191,6 +206,7 @@ export function FeedPager({
       originSv,
       countSv,
       publishIndex,
+      publishOnSettle,
       translateX,
       widthSv,
     ]
@@ -218,7 +234,12 @@ export function FeedPager({
             {children.map((child, index) => {
               const mounted = index >= retained.first && index <= retained.last;
               return (
-                <View key={index} style={[styles.page, { width: pageWidth }]}>
+                <View
+                  key={index}
+                  renderToHardwareTextureAndroid={rasterizePages}
+                  shouldRasterizeIOS={rasterizePages}
+                  style={[styles.page, { width: pageWidth }]}
+                >
                   {mounted ? child : null}
                 </View>
               );

@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 
 import { hashPasswordWithScrypt } from "@asm/auth/core";
+import { recoveryEmail } from "@asm/auth/validation";
 import { debugLog } from "@asm/config/debug";
 import {
   and,
@@ -113,7 +114,7 @@ export const resetPasswordRouter = router({
           )
           .first();
 
-        if (!user) {
+        if (!user || !recoveryEmail(user.email)) {
           logger.info(
             { identifier: redactIdentifier(identifier) },
             "reset password requested for unknown account"

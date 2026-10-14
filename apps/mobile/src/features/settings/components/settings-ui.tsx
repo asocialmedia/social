@@ -49,6 +49,20 @@ type IconComponent = ComponentType<{ color?: string; size?: number }>;
 // wears, so one orange appears across the whole screen.
 const ORANGE_TILE_GRADIENT = ORANGE_GRADIENT;
 
+export function SettingsDialogIcon({ icon: Icon }: { icon: IconComponent }) {
+  const { isDark } = useAppTheme();
+  return (
+    <Gradient3D
+      colors={ORANGE_TILE_GRADIENT}
+      radius={8}
+      shadows={isDark ? LOGIN_BUTTON_SHADOWS : LOGIN_BUTTON_SHADOWS_LIGHT}
+      style={{ height: 32, width: 32 }}
+    >
+      <Icon color="#ffffff" size={16} />
+    </Gradient3D>
+  );
+}
+
 // Web's `SettingsSectionHeader`: the orange tile plus title and description.
 export function SettingsSectionHeader({
   description,
@@ -227,6 +241,9 @@ export function SettingsButton({
   onPress,
   size = "md",
   tone = "primary",
+  radius = 9999,
+  leadingIcon: LeadingIcon,
+  trailingIcon: TrailingIcon,
 }: {
   block?: boolean;
   disabled?: boolean;
@@ -235,6 +252,9 @@ export function SettingsButton({
   onPress: (event: GestureResponderEvent) => void;
   size?: "md" | "sm";
   tone?: SettingsButtonTone;
+  radius?: number;
+  leadingIcon?: IconComponent;
+  trailingIcon?: IconComponent;
 }) {
   const { isDark } = useAppTheme();
   const gated = Boolean(disabled) || Boolean(loading);
@@ -259,7 +279,7 @@ export function SettingsButton({
       {({ pressed }) => (
         <Gradient3D
           colors={pressed && !gated ? recipe.pressedColors : recipe.colors}
-          radius={9999}
+          radius={radius}
           shadows={pressed && !gated ? recipe.pressedShadows : recipe.shadows}
           style={[
             styles.button,
@@ -269,12 +289,18 @@ export function SettingsButton({
           ]}
         >
           <View style={styles.buttonContent}>
+            {LeadingIcon ? (
+              <LeadingIcon color={recipe.textColor} size={16} />
+            ) : null}
             {loading ? (
               <ActivityIndicator color={recipe.textColor} size="small" />
             ) : null}
             <Text style={[styles.buttonText, { color: recipe.textColor }]}>
               {label}
             </Text>
+            {TrailingIcon ? (
+              <TrailingIcon color={recipe.textColor} size={16} />
+            ) : null}
           </View>
         </Gradient3D>
       )}

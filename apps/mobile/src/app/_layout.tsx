@@ -262,10 +262,7 @@ export default function RootLayout() {
                   <Stack.Screen name="communities" />
                   <Stack.Screen
                     name="communities/create"
-                    options={{
-                      animation: "slide_from_bottom",
-                      presentation: "modal",
-                    }}
+                    options={{ animation: "none" }}
                   />
                   <Stack.Screen name="a/[slug]" />
                   <Stack.Screen
@@ -282,8 +279,7 @@ export default function RootLayout() {
                   <Stack.Screen
                     name="(auth)"
                     options={{
-                      animation: "fade",
-                      animationDuration: 200,
+                      animation: "none",
                     }}
                   />
                 </Stack>

@@ -2,7 +2,11 @@
 // expo-secure-store (encrypted keychain/keystore), never in cleartext.
 // All calls ride the web proxy (/api/auth/*), which injects origin +
 // x-internal-secret server-side — the app carries no secrets.
-import { expoClient } from "@better-auth/expo/client";
+import {
+  expoClient,
+  getSetCookie,
+  storageAdapter,
+} from "@better-auth/expo/client";
 import type { BetterAuthClientPlugin } from "better-auth/client";
 import { twoFactorClient, usernameClient } from "better-auth/client/plugins";
 import { createAuthClient } from "better-auth/react";
@@ -63,6 +67,17 @@ const webStorage = {
 };
 
 const authStorage = Platform.OS === "web" ? webStorage : SecureStore;
+const managedAuthStorage = storageAdapter(authStorage);
+
+export async function persistBrowserSessionCookie(
+  cookie: string
+): Promise<void> {
+  const previous = await managedAuthStorage.getItemAsync("asocialmedia_cookie");
+  await managedAuthStorage.setItemAsync(
+    "asocialmedia_cookie",
+    getSetCookie(cookie, previous ?? undefined)
+  );
+}
 
 export const authClient = createAuthClient({
   baseURL: getAuthBaseUrl(),

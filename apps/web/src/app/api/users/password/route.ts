@@ -3,6 +3,7 @@ import {
   hashPasswordWithScrypt,
   PasswordSafetyError,
 } from "@asm/auth/core";
+import { recoveryEmail } from "@asm/auth/validation";
 import { and, prisma } from "@asm/db";
 import { z } from "zod";
 
@@ -61,7 +62,7 @@ export async function POST(request: Request): Promise<Response> {
   )
     .where({ id: session.user.id })
     .first();
-  if (!currentUser?.email || !currentUser.emailVerified) {
+  if (!recoveryEmail(currentUser?.email) || !currentUser?.emailVerified) {
     return Response.json(
       {
         error:
@@ -82,7 +83,7 @@ export async function POST(request: Request): Promise<Response> {
       )
         .where({ id: session.user.id })
         .first();
-      if (!freshUser?.email || !freshUser.emailVerified) {
+      if (!recoveryEmail(freshUser?.email) || !freshUser?.emailVerified) {
         throw new Error("Email verification is required");
       }
 

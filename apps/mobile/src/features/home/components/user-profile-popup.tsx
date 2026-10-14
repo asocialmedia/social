@@ -206,11 +206,11 @@ export function UserProfilePopup({ onClose, userId }: UserProfilePopupProps) {
 
   const closeLogout = () => setLogoutOpen(false);
   const confirmLogout = () => {
-    setLogoutOpen(false);
-    onClose();
     // The next account must never see this one's cached popup.
     popupCache.clear();
     void signOut();
+    setLogoutOpen(false);
+    onClose();
   };
 
   const openLogoutDialog = () => {

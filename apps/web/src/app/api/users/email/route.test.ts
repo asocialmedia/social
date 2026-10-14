@@ -167,3 +167,20 @@ describe("PATCH /api/users/email", () => {
     expect(state.authCalls.length).toBe(0);
   });
 });
+
+test("a Reddit placeholder skips current-mail OTP and still requires verification of the new email", async () => {
+  resetState();
+  state.session = {
+    user: { ...USER, email: "reddit-id@reddit.placeholder.invalid" },
+  };
+  const response = await PATCH(
+    new Request("http://localhost/api/users/email", {
+      body: JSON.stringify({ email: "real@example.com" }),
+      headers: { "content-type": "application/json" },
+      method: "PATCH",
+    })
+  );
+  expect(response.status).toBe(200);
+  expect(state.authCalls).toHaveLength(1);
+  expect(state.authCalls[0]?.path).toContain("request-email-change");
+});

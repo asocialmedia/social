@@ -147,7 +147,7 @@ export const HnStoryCard = memo(
     }, [story.title, target]);
 
     return (
-      <View style={styles.card}>
+      <View renderToHardwareTextureAndroid style={styles.card}>
         <View style={styles.top}>
           <View style={styles.brand}>
             <Gradient3D

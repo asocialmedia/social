@@ -45,13 +45,13 @@ describe("community paths and parsing", () => {
   test("encodes category, search, cursor, and joined filters", () => {
     expect(
       buildCommunitiesPath({
-        category: "science_tech",
+        category: "science-tech",
         cursor: "next cursor",
         joined: true,
         query: "two words",
       })
     ).toBe(
-      "/api/communities?category=science_tech&limit=24&q=two+words&cursor=next+cursor&joined=1"
+      "/api/communities?category=science-tech&limit=24&q=two+words&cursor=next+cursor&joined=1"
     );
   });
 

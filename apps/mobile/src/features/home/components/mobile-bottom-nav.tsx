@@ -43,6 +43,7 @@ import { useSessionContext } from "@/features/auth/state/session";
 import { activeCommunityStore } from "@/features/communities/state/active-community";
 import { useComposerStore } from "@/features/composer/state/composer-store";
 import { subscribeHeaderVisibility } from "@/features/feed/lib/header-visibility";
+import { dockTabState } from "@/features/home/lib/dock-navigation";
 import { useUnreadMessageCount } from "@/features/messages/state/use-unread-message-count";
 import { haptic } from "@/lib/haptics";
 import {
@@ -316,19 +317,21 @@ export function MobileBottomNav({
 
   // A thread keeps its tab lit, so the check is a prefix match rather than an
   // equality one: /messages/<id> is still the Messages tab.
-  const isActive = (href: Href) => {
-    if (href === "/") {
-      return pathname === "/" || pathname.startsWith("/?");
-    }
-    return pathname === href || pathname.startsWith(`${href}/`);
-  };
+  const tabState = (item: MobileNavItem) =>
+    dockTabState(
+      pathname,
+      typeof item.href === "string" ? item.href : item.href.pathname,
+      item.requiresAuth === true,
+      isLoggedIn
+    );
 
   const renderTab = (item: MobileNavItem) => {
     const live = LIVE_ROUTES.has(item.href);
-    if (item.requiresAuth && !isLoggedIn) {
+    const state = tabState(item);
+    if (state.requiresLogin) {
       return (
         <DockTab
-          active={false}
+          active={state.selected}
           badge={item.href === "/messages" ? unreadCount : undefined}
           icon={item.icon}
           // Labels are unique per tab and always strings; the typed href's
@@ -352,13 +355,13 @@ export function MobileBottomNav({
     }
     return (
       <DockTab
-        active={isActive(item.href)}
+        active={state.selected}
         badge={item.href === "/messages" ? unreadCount : undefined}
         icon={item.icon}
         key={item.label}
         label={item.label}
         onPress={() => {
-          if (!isActive(item.href)) {
+          if (!state.selected) {
             if (item.href === "/") {
               router.dismissTo("/");
             } else {

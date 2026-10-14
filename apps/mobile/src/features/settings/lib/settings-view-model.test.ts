@@ -78,11 +78,11 @@ describe("accountFactsFrom", () => {
       username: "ada",
     });
     expect(facts.hasPassword).toBe(true);
-    // Linking another provider needs both a verified email and a password.
+    // The signed-in session authorizes explicit provider linking.
     expect(facts.canLinkProviders).toBe(true);
   });
 
-  test("a social-only account cannot link another provider yet", () => {
+  test("a signed-in social-only account can link another provider", () => {
     const facts = accountFactsFrom({
       accounts: [{ providerId: "google" }],
       email: "ada@example.com",
@@ -91,10 +91,10 @@ describe("accountFactsFrom", () => {
       username: "ada",
     });
     expect(facts.hasPassword).toBe(false);
-    expect(facts.canLinkProviders).toBe(false);
+    expect(facts.canLinkProviders).toBe(true);
   });
 
-  test("an unverified email blocks linking even with a password", () => {
+  test("explicit linking uses the signed-in identity rather than email verification", () => {
     const facts = accountFactsFrom({
       accounts: [{ providerId: "credential" }],
       email: "ada@example.com",
@@ -102,14 +102,12 @@ describe("accountFactsFrom", () => {
       id: "u1",
       username: "ada",
     });
-    expect(facts.canLinkProviders).toBe(false);
+    expect(facts.canLinkProviders).toBe(true);
   });
 
-  test("assumes a password exists when no account list is exposed", () => {
-    // A false negative would show a redundant "add a password" form; a false
-    // positive only hides it, so the safe default is to assume one.
+  test("waits for authoritative password state when no accounts are exposed", () => {
     const facts = accountFactsFrom({ id: "u1", username: "ada" });
-    expect(facts.hasPassword).toBe(true);
+    expect(facts.hasPassword).toBe(false);
   });
 
   test("ignores malformed account entries rather than throwing", () => {
@@ -152,6 +150,18 @@ describe("withLinkedAccounts", () => {
     });
     expect(merged.hasPassword).toBe(false);
     expect(merged.hasReddit).toBe(true);
-    expect(merged.canLinkProviders).toBe(false);
+    expect(merged.canLinkProviders).toBe(true);
   });
+});
+
+test("native Reddit-only settings offer a real recovery email and provider linking", () => {
+  const facts = accountFactsFrom({
+    accounts: [{ providerId: "reddit" }],
+    email: "reddit-id@reddit.placeholder.invalid",
+    emailVerified: true,
+    id: "reddit-user",
+  });
+  expect(facts.email).toBeNull();
+  expect(facts.emailVerified).toBe(false);
+  expect(facts.canLinkProviders).toBe(true);
 });

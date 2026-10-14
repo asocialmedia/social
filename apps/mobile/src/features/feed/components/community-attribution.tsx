@@ -1,24 +1,28 @@
 import { useRouter } from "expo-router";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text } from "react-native";
 
-import { resolveCommunityAccentColor } from "@/features/communities/lib/community-accents";
+import { CommunityAvatar } from "@/features/communities/components/community-avatar";
+import { getApiBaseUrl } from "@/lib/api-env";
 import { useAppTheme } from "@/theme";
 
 export function CommunityAttribution({
   accentColor,
+  id,
+  name,
   reason,
   slug,
 }: {
   accentColor?: string | null;
+  id?: string;
+  name?: string;
   reason: boolean;
   slug: string;
 }) {
-  const { theme, isDark } = useAppTheme();
+  const { theme } = useAppTheme();
   const router = useRouter();
-  const resolvedColor = resolveCommunityAccentColor(accentColor, isDark);
   return (
     <Pressable
-      accessibilityLabel={`Community a/${slug}`}
+      accessibilityLabel={`Shared via a/${slug}`}
       accessibilityRole="link"
       onPress={(event) => {
         event.stopPropagation();
@@ -26,13 +30,22 @@ export function CommunityAttribution({
       }}
       style={styles.attribution}
     >
-      <View
-        style={[styles.attributionBar, { backgroundColor: resolvedColor }]}
+      <CommunityAvatar
+        community={{
+          accentColor: accentColor ?? null,
+          avatarUrl: id
+            ? `${getApiBaseUrl()}/api/communities/avatar/${encodeURIComponent(id)}/image`
+            : null,
+          name: name ?? slug,
+          slug,
+        }}
+        size={22}
       />
       <Text
         numberOfLines={1}
         style={[styles.attributionText, { color: theme.dividerText }]}
       >
+        {"Shared via "}
         <Text style={{ color: theme.inputText, fontFamily: "SofiaProMed" }}>
           a/{slug}
         </Text>
@@ -52,11 +65,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 8,
     marginBottom: 10,
-  },
-  attributionBar: {
-    borderRadius: 9999,
-    height: 14,
-    width: 2,
   },
   attributionText: {
     flex: 1,

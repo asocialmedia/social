@@ -2,6 +2,7 @@ import { DARK_PALETTE, LIGHT_PALETTE } from "./colors";
 
 export { BRAND_COLORS } from "./colors";
 export interface AppTheme {
+  backgroundAlt: string;
   auxLink: string;
   auxLinkSeparator: string;
   bgGradient: readonly [string, string, string];
@@ -42,6 +43,7 @@ export const THEMES: { dark: AppTheme; light: AppTheme } = {
   dark: {
     auxLink: DARK_PALETTE.auxLink,
     auxLinkSeparator: DARK_PALETTE.auxLinkSeparator,
+    backgroundAlt: DARK_PALETTE.backgroundAlt,
     bgGradient: [
       "rgba(255, 149, 0, 0.08)",
       "rgba(31, 31, 31, 0.72)",
@@ -82,6 +84,7 @@ export const THEMES: { dark: AppTheme; light: AppTheme } = {
   light: {
     auxLink: LIGHT_PALETTE.auxLink,
     auxLinkSeparator: LIGHT_PALETTE.auxLinkSeparator,
+    backgroundAlt: LIGHT_PALETTE.backgroundAlt,
     bgGradient: [
       "rgba(255, 149, 0, 0.06)",
       "rgba(249, 249, 249, 0.82)",
