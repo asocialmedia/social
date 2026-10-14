@@ -1,5 +1,6 @@
 "use client";
 
+import { recoveryEmail } from "@asm/auth/validation";
 import { Button } from "@asm/ui/shadui/button";
 import {
   Form,
@@ -208,6 +209,7 @@ export default function AccountSettings({
 }: AccountSettingsProps) {
   const { toast } = useToast();
   const router = useRouter();
+  const currentEmail = recoveryEmail(user.email);
   const [emailStep, setEmailStep] = useState<EmailStep>("idle");
   const [pendingNewEmail, setPendingNewEmail] = useState<string | null>(null);
   const [isSettingPassword, setIsSettingPassword] = useState(false);
@@ -221,7 +223,7 @@ export default function AccountSettings({
 
   const emailForm = useForm<EmailFormValues>({
     defaultValues: {
-      email: user.email || "",
+      email: currentEmail || "",
       otp: "",
     },
     resolver: zodResolver(emailSchema),
@@ -229,7 +231,7 @@ export default function AccountSettings({
 
   const emailVerifyForm = useForm<EmailVerifyFormValues>({
     defaultValues: {
-      email: user.email || "",
+      email: currentEmail || "",
       otp: "",
     },
     resolver: zodResolver(emailVerifySchema),
@@ -284,7 +286,7 @@ export default function AccountSettings({
   // first mail a code to the CURRENT address; accounts without one (Reddit)
   // start the change immediately and move straight to the new-email code.
   function onStartEmailChange(values: EmailFormValues) {
-    if (values.email === user.email) {
+    if (values.email === currentEmail) {
       toast({
         description: "That's already your email, try a new one",
         title: "No Changes",
@@ -296,7 +298,7 @@ export default function AccountSettings({
     emailVerifyForm.setValue("email", values.email);
     emailVerifyForm.setValue("otp", "");
 
-    if (!user.email) {
+    if (!currentEmail) {
       emailMutation.mutate(
         { email: values.email },
         {
@@ -330,7 +332,7 @@ export default function AccountSettings({
       onSuccess: () => {
         setEmailStep("current");
         toast({
-          description: `We emailed a code to ${user.email}`,
+          description: `We emailed a code to ${currentEmail}`,
           title: "Code Sent",
         });
       },
@@ -348,7 +350,7 @@ export default function AccountSettings({
       },
       onSuccess: () => {
         toast({
-          description: `We emailed a new code to ${user.email}`,
+          description: `We emailed a new code to ${currentEmail}`,
           title: "Code Resent",
         });
       },
@@ -410,7 +412,7 @@ export default function AccountSettings({
   function onCancelEmailChange() {
     setEmailStep("idle");
     setPendingNewEmail(null);
-    emailForm.setValue("email", user.email || "");
+    emailForm.setValue("email", currentEmail || "");
     emailForm.setValue("otp", "");
     emailVerifyForm.setValue("otp", "");
   }
@@ -441,7 +443,7 @@ export default function AccountSettings({
   // A short, plain-language cue for which stage of the email change is active.
   let emailStepHint: string | null = null;
   if (emailStep === "current") {
-    emailStepHint = `Step 1 of 2 - confirm the code sent to ${user.email}`;
+    emailStepHint = `Step 1 of 2 - confirm the code sent to ${currentEmail}`;
   } else if (emailStep === "new") {
     emailStepHint = `Step 2 of 2 - confirm the code sent to ${pendingNewEmail}`;
   }
@@ -454,11 +456,13 @@ export default function AccountSettings({
         title="Account"
       />
 
-      <LinkAccountAlert />
+      <LinkAccountAlert
+        linkedProviders={accountLinkingReadiness.linkedProviders}
+      />
 
       {/* Reddit never shares an email; accounts created through it have no
           recovery address, so prompt them to add one. */}
-      {user.redditId && !user.email ? <AddEmailBanner /> : null}
+      {user.redditId && !currentEmail ? <AddEmailBanner /> : null}
 
       {/* One card for identity: username and email are both how people reach
           the account, so they read better as one surface with two parts. */}

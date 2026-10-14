@@ -1,3 +1,7 @@
+import {
+  accountLinkErrorMessage,
+  hasLinkedProvider,
+} from "@asm/auth/validation";
 import { useLocalSearchParams } from "expo-router";
 // Native port of web's `settings/tabs/account-settings.tsx`.
 //
@@ -7,7 +11,7 @@ import { useLocalSearchParams } from "expo-router";
 // no address at all (a Reddit-only signup) skips straight to confirm-new. The
 // username, linked sign-in methods and the add-a-password card match web.
 import { AtSign, KeyRound, Mail } from "lucide-react-native";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { RefObject } from "react";
 import {
   Modal,
@@ -21,7 +25,9 @@ import {
 import { toast } from "@/components/feedback/toast";
 import { OtpInput } from "@/features/auth/components/otp-input";
 import { authClient } from "@/features/auth/lib/auth-client";
+import { linkProvider } from "@/features/auth/lib/link-provider";
 import { useInstall } from "@/features/auth/state/install";
+import { useSessionContext } from "@/features/auth/state/session";
 import { getApiBaseUrl } from "@/lib/api-env";
 import { SHOWS_SCROLL_INDICATOR } from "@/lib/scroll-indicator";
 import { useAppTheme } from "@/theme";
@@ -43,6 +49,7 @@ import {
   SettingsButton,
   SettingsCard,
   SettingsCardHeading,
+  SettingsDialogIcon,
   SettingsInput,
   SettingsSectionHeader,
   SettingsStatusChip,
@@ -59,26 +66,6 @@ type SocialProvider = (typeof SOCIAL_PROVIDERS)[number];
 
 function providerLabel(provider: SocialProvider): string {
   return provider === "google" ? "Google" : "Reddit";
-}
-
-// Web starts the link flow with a full-page navigation; native hands it to
-// better-auth's expo client, which opens the provider in an auth session.
-function linkProvider(provider: SocialProvider) {
-  void (async () => {
-    try {
-      await authClient.linkSocial({
-        callbackURL: `/settings?account_success=${provider}`,
-        errorCallbackURL: "/settings?account_error=provider_flow_failed",
-        provider,
-      });
-    } catch {
-      toast({
-        description: "Couldn't start linking, try again?",
-        title: "Couldn't Link",
-        variant: "destructive",
-      });
-    }
-  })();
 }
 
 // Web's `LinkAccountAlert`: the OAuth link callback carries an
@@ -125,29 +112,38 @@ export function AccountTab({
   scrollRef: RefObject<ScrollView | null>;
 }) {
   const { theme } = useAppTheme();
+  const { user, refresh } = useSessionContext();
   const { runWithInstallToken } = useInstall();
   const params = useLocalSearchParams<{
     account_error?: string | string[];
     account_success?: string | string[];
     error?: string | string[];
     success?: string | string[];
+    link_provider?: string;
+    link_user?: string;
   }>();
+
+  const [linkingProvider, setLinkingProvider] = useState<SocialProvider | null>(
+    null
+  );
+  const handledLink = useRef<string | null>(null);
 
   // Surface the OAuth-link callback result once, exactly like web's
   // LinkAccountAlert.
   useEffect(() => {
     const pick = (value?: string | string[]) =>
       Array.isArray(value) ? value[0] : value;
-    const error = pick(params.account_error) ?? pick(params.error);
+    const error = pick(params.error) ?? pick(params.account_error);
     const success = pick(params.account_success) ?? pick(params.success);
     if (error) {
       toast({
-        description: LINK_ERROR_MESSAGES[error] ?? "An error occurred",
+        description:
+          LINK_ERROR_MESSAGES[error] ?? accountLinkErrorMessage(error),
         title: "Link Failed",
         variant: "destructive",
       });
     }
-    if (success) {
+    if (success && !error && facts.linkedProviders.includes(success)) {
       toast({
         description: LINK_SUCCESS_MESSAGES[success] ?? "All set!",
         title:
@@ -160,6 +156,64 @@ export function AccountTab({
     params.account_success,
     params.error,
     params.success,
+    facts.linkedProviders,
+  ]);
+
+  useEffect(() => {
+    const provider = params.link_provider;
+    const expectedUser = params.link_user;
+    if (
+      !provider ||
+      !expectedUser ||
+      linkingProvider ||
+      params.error ||
+      (provider !== "google" && provider !== "reddit")
+    ) {
+      return;
+    }
+    const key = `${provider}:${expectedUser}`;
+    if (handledLink.current === key) {
+      return;
+    }
+    handledLink.current = key;
+    void (async () => {
+      try {
+        await refresh();
+        const current = await authClient.getSession();
+        const accounts = await authClient.listAccounts();
+        if (
+          current.data?.user.id === expectedUser &&
+          !accounts.error &&
+          hasLinkedProvider(accounts.data, provider)
+        ) {
+          toast({
+            description: `Your ${providerLabel(provider)} account is now connected`,
+            title: "Account Connected",
+          });
+          onChanged();
+        } else {
+          toast({
+            description: "Couldn't verify the connection. Please try again.",
+            title: "Couldn't Connect",
+            variant: "destructive",
+          });
+        }
+      } catch {
+        toast({
+          description: "Couldn't verify the connection. Please try again.",
+          title: "Couldn't Connect",
+          variant: "destructive",
+        });
+      }
+    })();
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- verify each returned provider and user once, independent of tab rerenders
+  }, [
+    params.link_provider,
+    params.link_user,
+    params.error,
+    linkingProvider,
+    refresh,
+    onChanged,
   ]);
 
   const [username, setUsername] = useState(facts.username);
@@ -402,7 +456,8 @@ export function AccountTab({
           setPassword("");
           setConfirmPassword("");
           toast({
-            description: "You can now connect another sign-in method.",
+            description:
+              "You can now sign in with your username or email and password.",
             title: "Password Added",
           });
           onChanged();
@@ -411,6 +466,40 @@ export function AccountTab({
       );
       setSavingPassword(false);
     })();
+  };
+
+  const connect = async (provider: SocialProvider) => {
+    if (!user || linkingProvider) {
+      return;
+    }
+    setLinkingProvider(provider);
+    try {
+      const result = await linkProvider(provider, user.id, refresh);
+      handledLink.current = `${provider}:${user.id}`;
+      if (result.status === "complete") {
+        toast({
+          description: `Your ${providerLabel(provider)} account is now connected`,
+          title: "Account Connected",
+        });
+        onChanged();
+      } else if (result.status !== "cancelled") {
+        toast({
+          description:
+            result.status === "redirect-error"
+              ? accountLinkErrorMessage(result.code)
+              : "Couldn't verify the connection. Please try again.",
+          title: "Couldn't Connect",
+          variant: "destructive",
+        });
+      }
+    } catch {
+      toast({
+        description: "Couldn't start linking. Please try again.",
+        title: "Couldn't Connect",
+        variant: "destructive",
+      });
+    }
+    setLinkingProvider(null);
   };
 
   const disconnect = (provider: SocialProvider) => {
@@ -636,17 +725,15 @@ export function AccountTab({
             icon={KeyRound}
             title="Sign-in methods"
           />
-          {isLinkingReady ? null : (
-            <Text style={[styles.note, { color: theme.dividerText }]}>
-              Verify an email address and add a password before connecting
-              another sign-in method.
-            </Text>
-          )}
+          <Text style={[styles.note, { color: theme.dividerText }]}>
+            Connect another provider to sign in to this same ASM account. Your
+            posts and messages stay here.
+          </Text>
           <View style={styles.providerGrid}>
             {SOCIAL_PROVIDERS.map((provider) => (
               <ProviderCard
                 isConnected={facts.linkedProviders.includes(provider)}
-                isLinkingReady={isLinkingReady}
+                isLinkingReady={isLinkingReady && linkingProvider === null}
                 key={provider}
                 onPress={() => {
                   if (facts.linkedProviders.includes(provider)) {
@@ -719,7 +806,7 @@ export function AccountTab({
         >
           <Pressable
             onPress={() => {
-              /* taps on the card must not close the sheet */
+              // Taps on the card must not close the sheet.
             }}
             style={[
               styles.dialog,
@@ -727,9 +814,7 @@ export function AccountTab({
             ]}
           >
             <View style={styles.dialogTitleRow}>
-              <View style={styles.dialogTile}>
-                <KeyRound color="#ffffff" size={16} />
-              </View>
+              <SettingsDialogIcon icon={KeyRound} />
               <Text style={[styles.dialogTitle, { color: theme.inputText }]}>
                 Connect{" "}
                 {providerToConfirm
@@ -793,7 +878,7 @@ export function AccountTab({
                   const provider = providerToConfirm;
                   setProviderToConfirm(null);
                   if (provider) {
-                    linkProvider(provider);
+                    void connect(provider);
                   }
                 }}
                 size="sm"
@@ -898,14 +983,6 @@ const styles = StyleSheet.create({
     padding: 12,
   },
   dialogProviderName: { fontFamily: "SofiaProMed", fontSize: 14 },
-  dialogTile: {
-    alignItems: "center",
-    backgroundColor: "#ff9500",
-    borderRadius: 8,
-    height: 32,
-    justifyContent: "center",
-    width: 32,
-  },
   dialogTitle: { fontFamily: "SofiaProBold", fontSize: 16 },
   dialogTitleRow: { alignItems: "center", flexDirection: "row", gap: 8 },
   divider: { height: 1, marginVertical: 6 },

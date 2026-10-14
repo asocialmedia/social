@@ -1,17 +1,22 @@
 "use client";
 
+import { accountLinkErrorMessage } from "@asm/auth/validation";
 import { useSearchParams } from "next/navigation";
 import { useEffect } from "react";
 
 import { useToast } from "@/lib/gooey-toast";
 
-export default function LinkAccountAlert() {
+export default function LinkAccountAlert({
+  linkedProviders,
+}: {
+  linkedProviders: readonly string[];
+}) {
   const searchParams = useSearchParams();
   const { toast } = useToast();
 
   useEffect(() => {
     const error =
-      searchParams.get("account_error") || searchParams.get("error");
+      searchParams.get("error") || searchParams.get("account_error");
     const success =
       searchParams.get("account_success") || searchParams.get("success");
 
@@ -43,13 +48,13 @@ export default function LinkAccountAlert() {
       };
 
       toast({
-        description: errorMessages[error] || "An error occurred",
+        description: errorMessages[error] || accountLinkErrorMessage(error),
         title: "Link Failed",
         variant: "destructive",
       });
     }
 
-    if (success) {
+    if (success && !error && linkedProviders.includes(success)) {
       const successMessages: Record<string, string> = {
         google: "Your Google account is now connected",
         google_linked: "Your Google account is now connected",
@@ -63,7 +68,7 @@ export default function LinkAccountAlert() {
           success === "google_unlinked" ? "Account Unlinked" : "Account Linked",
       });
     }
-  }, [searchParams, toast]);
+  }, [searchParams, toast, linkedProviders]);
 
   return null;
 }

@@ -49,6 +49,20 @@ type IconComponent = ComponentType<{ color?: string; size?: number }>;
 // wears, so one orange appears across the whole screen.
 const ORANGE_TILE_GRADIENT = ORANGE_GRADIENT;
 
+export function SettingsDialogIcon({ icon: Icon }: { icon: IconComponent }) {
+  const { isDark } = useAppTheme();
+  return (
+    <Gradient3D
+      colors={ORANGE_TILE_GRADIENT}
+      radius={8}
+      shadows={isDark ? LOGIN_BUTTON_SHADOWS : LOGIN_BUTTON_SHADOWS_LIGHT}
+      style={{ height: 32, width: 32 }}
+    >
+      <Icon color="#ffffff" size={16} />
+    </Gradient3D>
+  );
+}
+
 // Web's `SettingsSectionHeader`: the orange tile plus title and description.
 export function SettingsSectionHeader({
   description,

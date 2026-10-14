@@ -82,7 +82,8 @@ export default function LoginScreen() {
   const [showPassword, setShowPassword] = useState(false);
   const [isFocusedUser, setIsFocusedUser] = useState(false);
   const [isFocusedPass, setIsFocusedPass] = useState(false);
-  const { signIn, signInPasskey, signInSocial } = useSessionContext();
+  const { isSigningOut, signIn, signInPasskey, signInSocial } =
+    useSessionContext();
   // A failed provider callback deep-links back here as /login?error=<code>
   // (mirrors the web's /login/error page). A cold start lands with the param
   // already set, so it seeds the banner; while the screen is up, the session
@@ -97,7 +98,8 @@ export default function LoginScreen() {
     }
     return describeOAuthRedirectError(redirectErrorCode);
   });
-  const [isLoading, setIsLoading] = useState(false);
+  const [loginPending, setLoginPending] = useState(false);
+  const isLoading = loginPending || isSigningOut;
   const [activeSocial, setActiveSocial] = useState<
     "google" | "reddit" | "passkey" | null
   >(null);
@@ -141,9 +143,9 @@ export default function LoginScreen() {
     // only shows the install gate if the server explicitly demands a token,
     // and resumes the request afterwards, so the spinner stays on until it
     // settles.
-    setIsLoading(true);
+    setLoginPending(true);
     const result = await signIn(username, password);
-    setIsLoading(false);
+    setLoginPending(false);
     if (result.ok) {
       // Web raises the welcome toast before `window.location.assign("/")`, and
       // the order matters here too: the toaster is mounted at the app root so it
@@ -233,12 +235,8 @@ export default function LoginScreen() {
           );
           setError(described.message);
           triggerShake();
-          // Web's two branches here: the server's own message when it sends one,
-          // the generic copy when it does not.
           toast({
-            description:
-              result.error.message ||
-              "That code could not be verified. Try again.",
+            description: described.message,
             title: "Couldn’t verify code",
             variant: "destructive",
           });

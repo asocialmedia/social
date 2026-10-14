@@ -1,3 +1,5 @@
+import { recoveryEmail } from "@asm/auth/validation";
+
 import { authInternalHeaders, getAuthBaseUrl } from "@/lib/auth/auth-internal";
 import { getSessionFromApi } from "@/lib/auth/session";
 
@@ -9,7 +11,7 @@ export async function POST() {
   if (!session?.user) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
-  const currentEmail = session.user.email;
+  const currentEmail = recoveryEmail(session.user.email);
   if (!currentEmail) {
     return Response.json(
       { error: "No email on this account" },

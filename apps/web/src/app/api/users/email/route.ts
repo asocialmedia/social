@@ -1,3 +1,4 @@
+import { recoveryEmail } from "@asm/auth/validation";
 import { z } from "zod";
 
 import { authInternalHeaders, getAuthBaseUrl } from "@/lib/auth/auth-internal";
@@ -44,7 +45,7 @@ export async function PATCH(request: Request) {
   if (!session?.user) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
-  const hasCurrentEmail = Boolean(session.user.email);
+  const hasCurrentEmail = Boolean(recoveryEmail(session.user.email));
 
   let body: unknown;
   try {

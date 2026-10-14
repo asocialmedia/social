@@ -8,10 +8,16 @@ import { useSearchParams } from "next/navigation";
 import { Suspense } from "react";
 
 const ERROR_MESSAGES = {
+  USERNAME_IS_ALREADY_TAKEN:
+    "Sign in to your existing ASM account, then connect this provider in Settings.",
   accountNotFound: "Account not found.",
+  account_not_linked:
+    "Sign in to your existing ASM account, then connect this provider in Settings.",
   emailExists: "This email is already registered.",
   invalidCredentials: "Invalid email or password.",
   oauthError: "Error connecting with social provider.",
+  oauth_email_not_verified:
+    "Verify your Google email before using it to sign in.",
   serverError: "An unexpected error occurred.",
   unauthorized: "You must be logged in to access this page.",
 };
@@ -85,7 +91,8 @@ function LoginErrorContent() {
   const email = searchParams.get("email");
 
   const errorMessage = error
-    ? ERROR_MESSAGES[error as keyof typeof ERROR_MESSAGES]
+    ? ERROR_MESSAGES[error as keyof typeof ERROR_MESSAGES] ||
+      "Couldn't complete sign-in. Please try again."
     : "An error occurred";
 
   return (

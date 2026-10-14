@@ -282,8 +282,7 @@ export default function RootLayout() {
                   <Stack.Screen
                     name="(auth)"
                     options={{
-                      animation: "fade",
-                      animationDuration: 200,
+                      animation: "none",
                     }}
                   />
                 </Stack>

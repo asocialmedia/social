@@ -2,6 +2,7 @@ import { Button } from "@asm/ui/shadui/button";
 import { Loader2 } from "lucide-react";
 
 import { authClient } from "@/lib/auth/auth";
+import { useToast } from "@/lib/gooey-toast";
 
 interface Props {
   disabled?: boolean;
@@ -16,20 +17,31 @@ export default function RedditSignInButton({
   onStart,
   onEnd,
 }: Props) {
+  const { toast } = useToast();
   const handleRedditSignIn = async () => {
     const base = process.env.NEXT_PUBLIC_URL || window.location.origin;
     try {
       onStart?.();
-      await authClient.signIn.social({
+      const result = await authClient.signIn.social({
         callbackURL: `${base}/`,
+        errorCallbackURL: `${base}/login/error`,
         newUserCallbackURL: `${base}/`,
         provider: "reddit",
       });
-    } catch (error) {
-      // Reset before rethrowing so the callback runs on the failure path too
-      // (replaces the previous `finally` clause).
-      onEnd?.();
-      throw error;
+      if (result.error) {
+        toast({
+          description: "Couldn't start sign-in. Please try again.",
+          title: "Couldn't Sign In",
+          variant: "destructive",
+        });
+      }
+    } catch {
+      toast({
+        description:
+          "Couldn't reach sign-in. Check your connection and try again.",
+        title: "Couldn't Sign In",
+        variant: "destructive",
+      });
     }
     onEnd?.();
   };

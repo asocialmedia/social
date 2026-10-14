@@ -1,3 +1,4 @@
+import { accountLinkErrorMessage } from "@asm/auth/validation";
 import { prisma } from "@asm/db";
 import type { NextRequest } from "next/server";
 
@@ -45,6 +46,7 @@ export async function POST(
     );
   }
   const accounts = (await accountsRes.json().catch(() => [])) as {
+    accountId?: string;
     id: string;
     providerId: string;
   }[];
@@ -60,18 +62,28 @@ export async function POST(
   });
 
   const data = (await response.json().catch(() => ({}))) as {
+    code?: string;
     message?: string;
   };
 
   if (!response.ok) {
     return Response.json(
-      { error: data.message || "Failed to unlink account" },
+      {
+        error: data.code
+          ? accountLinkErrorMessage(data.code)
+          : data.message || "Failed to unlink account",
+      },
       { status: response.status }
     );
   }
 
+  const remaining = accounts.find(
+    (account) => account.id !== target.id && account.providerId === provider
+  );
   await prisma.orm.public.Users.where({ id: session.user.id }).update(
-    provider === "google" ? { googleId: null } : { redditId: null }
+    provider === "google"
+      ? { googleId: remaining?.accountId ?? null }
+      : { redditId: remaining?.accountId ?? null }
   );
 
   return Response.json({ success: true });
