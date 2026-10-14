@@ -19,6 +19,7 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import type { GestureResponderEvent } from "react-native";
 
 import { UserAvatar } from "@/components/avatar/user-avatar";
+import { CommunityAvatar } from "@/features/communities/components/community-avatar";
 import { resolveCommunityAccentColor } from "@/features/communities/lib/community-accents";
 import { UserBadge } from "@/features/home/components/user-badge";
 import { getApiBaseUrl } from "@/lib/api-env";
@@ -142,6 +143,8 @@ export function ResponseParentRow({ post }: { post: FeedPost }) {
       {parent.community ? (
         <CommunityAttribution
           accentColor={resolveResponseCommunityAccent(parent)}
+          id={parent.community.id}
+          name={parent.community.name}
           reason={false}
           slug={parent.community.slug}
         />
@@ -522,7 +525,7 @@ export function CommunityShareCard({
 }: {
   post: Pick<FeedPost, "community" | "communityShare">;
 }) {
-  const { theme, isDark } = useAppTheme();
+  const { theme } = useAppTheme();
   const router = useRouter();
   const share = post.communityShare;
   const shareCommunity = share?.community;
@@ -533,7 +536,6 @@ export function CommunityShareCard({
   const communityName =
     post.community?.name ?? shareCommunity.name ?? communitySlug;
   const accentKey = post.community?.accentColor ?? shareCommunity.accentColor;
-  const accentColor = resolveCommunityAccentColor(accentKey, isDark);
 
   const openShare = (event: GestureResponderEvent) => {
     event.stopPropagation();
@@ -549,7 +551,7 @@ export function CommunityShareCard({
 
   return (
     <Pressable
-      accessibilityLabel={`Shared from a/${communitySlug}`}
+      accessibilityLabel={`Shared via a/${communitySlug}`}
       accessibilityRole="button"
       onPress={openShare}
       style={[
@@ -557,7 +559,15 @@ export function CommunityShareCard({
         { backgroundColor: theme.cardBg, borderColor: theme.cardBorder },
       ]}
     >
-      <View style={[styles.shareBar, { backgroundColor: accentColor }]} />
+      <CommunityAvatar
+        community={{
+          accentColor: accentKey ?? null,
+          avatarUrl: `${getApiBaseUrl()}/api/communities/avatar/${encodeURIComponent(shareCommunity.id)}/image`,
+          name: communityName,
+          slug: communitySlug,
+        }}
+        size={32}
+      />
       <View style={styles.shareBody}>
         <Text
           numberOfLines={1}
@@ -569,7 +579,7 @@ export function CommunityShareCard({
           numberOfLines={1}
           style={[styles.shareSub, { color: theme.dividerText }]}
         >
-          Shared from a/{communitySlug}
+          Shared via a/{communitySlug}
         </Text>
       </View>
       <ArrowUpRight color={theme.dividerText} size={16} />

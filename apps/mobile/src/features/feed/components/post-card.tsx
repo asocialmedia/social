@@ -284,6 +284,8 @@ export const PostCard = memo(
           {contextCommunity && showCommunity ? (
             <CommunityAttribution
               accentColor={contextCommunity.accentColor}
+              id={contextCommunity.id}
+              name={contextCommunity.name}
               reason={Boolean(post.community) && showCommunityReason}
               slug={contextCommunity.slug}
             />

@@ -35,6 +35,7 @@ import { GuestAuthBar } from "@/features/home/components/guest-auth-bar";
 import { MobileBottomNav } from "@/features/home/components/mobile-bottom-nav";
 import { MobileHeader } from "@/features/home/components/mobile-header";
 import { getApiBaseUrl } from "@/lib/api-env";
+import { bottomDockPadding } from "@/lib/bottom-dock-layout";
 import { LIST_VIRTUALIZATION_PROPS } from "@/lib/list-virtualization";
 import { SHOWS_SCROLL_INDICATOR } from "@/lib/scroll-indicator";
 import {
@@ -92,6 +93,7 @@ export function CommunitiesScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [dockHeight, setDockHeight] = useState(56);
+  const [guestBarHeight, setGuestBarHeight] = useState(72);
   const showGuestBar = !isPending && !user;
 
   const load = useCallback(
@@ -495,7 +497,13 @@ export function CommunitiesScreen() {
                 }
                 contentContainerStyle={[
                   styles.content,
-                  { paddingBottom: showGuestBar ? 176 : 96 },
+                  {
+                    paddingBottom: bottomDockPadding({
+                      bottomInset: insets.bottom,
+                      dockHeight,
+                      guestBarHeight: showGuestBar ? guestBarHeight + 12 : 0,
+                    }),
+                  },
                 ]}
                 contentInsetAdjustmentBehavior="automatic"
                 data={communities}
@@ -523,6 +531,9 @@ export function CommunitiesScreen() {
       </GestureDetector>
       {showGuestBar ? (
         <View
+          onLayout={(event) =>
+            setGuestBarHeight(event.nativeEvent.layout.height)
+          }
           pointerEvents="box-none"
           style={[styles.authDock, { bottom: dockHeight + insets.bottom + 12 }]}
         >

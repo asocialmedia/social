@@ -27,6 +27,7 @@ export function CommunityAvatar({
         {
           backgroundColor: failed || !uri ? `${accent}33` : theme.cardBg,
           borderColor: accent,
+          borderRadius: Math.min(12, size / 4),
           height: size,
           width: size,
         },
@@ -42,7 +43,9 @@ export function CommunityAvatar({
           style={styles.image}
         />
       ) : (
-        <Text style={[styles.initial, { color: accent }]}>
+        <Text
+          style={[styles.initial, { color: accent, fontSize: size * 0.375 }]}
+        >
           {(community.name[0] ?? "a").toUpperCase()}
         </Text>
       )}

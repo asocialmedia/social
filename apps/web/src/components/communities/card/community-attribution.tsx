@@ -3,12 +3,14 @@
 import { ArrowUpRight } from "lucide-react";
 import Link from "next/link";
 
-import { communityAccentStyle } from "@/lib/communities/accent";
 import { getShortPostId } from "@/lib/seo/seo";
 import { cn } from "@/lib/utils";
 
+import CommunityAvatar from "./community-avatar";
+
 export interface CommunityIdentity {
   accentColor: string;
+  avatarUrl?: string | null;
   id: string;
   name: string;
   slug: string;
@@ -30,15 +32,20 @@ export const CommunityAttribution = ({
   reason?: string;
 }) => (
   <div className={cn("flex min-w-0 items-center gap-2", className)}>
-    <span
-      aria-hidden="true"
-      className="community-accent-rail h-3.5 w-0.5 shrink-0 rounded-full"
-      style={communityAccentStyle(community.accentColor)}
+    <CommunityAvatar
+      {...community}
+      avatarUrl={
+        community.avatarUrl ??
+        `/api/communities/avatar/${encodeURIComponent(community.id)}/image`
+      }
+      className="size-5.5! rounded-md!"
+      size={22}
     />
     <Link
       className="text-muted-foreground hover:text-foreground min-w-0 truncate text-xs font-medium transition-colors"
       href={`/a/${community.slug}`}
     >
+      <span className="font-normal">Shared via </span>
       a/{community.slug}
     </Link>
     {reason ? (
@@ -73,17 +80,21 @@ export const CommunityShareCard = ({
       className="border-border/60 hover:bg-muted/40 group mt-3 flex items-center gap-2.5 rounded-xl border px-3 py-2.5 transition-colors"
       href={sourceHref}
     >
-      <span
-        aria-hidden="true"
-        className="community-accent-rail h-8 w-0.5 shrink-0 rounded-full"
-        style={communityAccentStyle(community.accentColor)}
+      <CommunityAvatar
+        {...community}
+        avatarUrl={
+          community.avatarUrl ??
+          `/api/communities/avatar/${encodeURIComponent(community.id)}/image`
+        }
+        className="size-8! rounded-lg!"
+        size={32}
       />
       <span className="min-w-0 flex-1">
         <span className="text-foreground block truncate text-sm font-medium">
           {community.name}
         </span>
         <span className="text-muted-foreground block truncate text-xs">
-          Shared from a/{community.slug}
+          Shared via a/{community.slug}
         </span>
       </span>
       <ArrowUpRight className="text-muted-foreground group-hover:text-foreground size-4 shrink-0 transition-colors" />

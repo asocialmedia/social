@@ -11,6 +11,7 @@ import {
   View,
 } from "react-native";
 import type { ViewToken } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { StatusActionButton } from "@/components/feedback/status-action-button";
 import { authClient } from "@/features/auth/lib/auth-client";
@@ -36,6 +37,7 @@ import { MobileBottomNav } from "@/features/home/components/mobile-bottom-nav";
 import { MobileHeader } from "@/features/home/components/mobile-header";
 import { useUnreadNotificationCount } from "@/features/notifications/state/use-unread-count";
 import { getApiBaseUrl } from "@/lib/api-env";
+import { bottomDockPadding } from "@/lib/bottom-dock-layout";
 import { formatNumber } from "@/lib/format-number";
 import { LIST_VIRTUALIZATION_PROPS } from "@/lib/list-virtualization";
 import { SHOWS_SCROLL_INDICATOR } from "@/lib/scroll-indicator";
@@ -66,6 +68,8 @@ const COMMUNITY_VIEWABILITY = {
 type CommunitySort = "new" | "top";
 export function CommunityDetailScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
+  const [dockHeight, setDockHeight] = useState(56);
   const params = useLocalSearchParams<{ slug?: string | string[] }>();
   const slug =
     (Array.isArray(params.slug) ? params.slug[0] : params.slug) ?? "";
@@ -469,7 +473,10 @@ export function CommunityDetailScreen() {
         style={{ flex: 1 }}
         contentContainerStyle={{
           flexGrow: posts.length ? 0 : 1,
-          paddingBottom: 110,
+          paddingBottom: bottomDockPadding({
+            bottomInset: insets.bottom,
+            dockHeight,
+          }),
         }}
         data={rows}
         keyExtractor={(row) => row.post.id}
@@ -508,7 +515,7 @@ export function CommunityDetailScreen() {
         )}
         showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
       />
-      <MobileBottomNav />
+      <MobileBottomNav onHeightChange={setDockHeight} />
       <MoreMenu
         anchor={menuAnchor}
         entries={
