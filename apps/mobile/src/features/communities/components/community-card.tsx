@@ -9,6 +9,7 @@ import { getApiBaseUrl } from "@/lib/api-env";
 import { SURFACE_SHADOWS, SURFACE_SHADOWS_DARK, useAppTheme } from "@/theme";
 
 import type { CommunityData } from "../lib/communities-api";
+import { resolveCommunityAccentColor } from "../lib/community-accents";
 import { CommunityAvatar } from "./community-avatar";
 
 function formatNumber(value: number): string {
@@ -51,6 +52,7 @@ export function CommunityCard({
   width?: number;
 }) {
   const { isDark, theme } = useAppTheme();
+  const accent = resolveCommunityAccentColor(community.accentColor, isDark);
   const [bannerFailed, setBannerFailed] = useState(false);
   const bannerUri = resolveProfileImageUrl(
     community.bannerUrl,
@@ -64,7 +66,7 @@ export function CommunityCard({
       style={({ pressed }) => [
         styles.card,
         {
-          backgroundColor: theme.cardBg,
+          backgroundColor: theme.backgroundAlt,
           borderColor: theme.cardBorder,
           boxShadow: isDark ? SURFACE_SHADOWS_DARK : SURFACE_SHADOWS,
           opacity: pressed ? 0.88 : 1,
@@ -72,12 +74,7 @@ export function CommunityCard({
         },
       ]}
     >
-      <View
-        style={[
-          styles.banner,
-          { backgroundColor: `${community.accentColor ?? "#f97316"}33` },
-        ]}
-      >
+      <View style={[styles.banner, { backgroundColor: `${accent}33` }]}>
         {bannerUri && !bannerFailed ? (
           <Image
             cachePolicy="memory-disk"
@@ -88,14 +85,17 @@ export function CommunityCard({
           />
         ) : null}
         <LinearGradient
-          colors={["transparent", theme.containerBg]}
+          colors={["transparent", theme.backgroundAlt]}
           style={styles.bannerFade}
         />
         {community.mature ? (
           <View
             style={[
               styles.mature,
-              { backgroundColor: theme.cardBg, borderColor: theme.cardBorder },
+              {
+                backgroundColor: theme.backgroundAlt,
+                borderColor: theme.cardBorder,
+              },
             ]}
           >
             <Text style={[styles.matureText, { color: theme.inputText }]}>
@@ -133,15 +133,21 @@ export function CommunityCard({
         </Text>
         <View style={[styles.stats, { borderTopColor: theme.cardBorder }]}>
           <Stat
-            icon={<Flame color="#ff9500" fill="#ff9500" size={14} />}
+            icon={
+              <Flame
+                color="#ff9500"
+                fill={aura > 0 ? "#ff9500" : "transparent"}
+                size={16}
+              />
+            }
             value={formatNumber(aura)}
           />
           <Stat
-            icon={<Users color="#f97316" fill="#f97316" size={14} />}
+            icon={<Users color="#f97316" fill="#f97316" size={16} />}
             value={formatNumber(community._count.members)}
           />
           <Stat
-            icon={<LayoutGrid color="#f97316" fill="#f97316" size={14} />}
+            icon={<LayoutGrid color="#f97316" fill="#f97316" size={16} />}
             value={formatNumber(community._count.posts)}
           />
           <Text
@@ -169,7 +175,12 @@ function Stat({ icon, value }: { icon: React.ReactNode; value: string }) {
 }
 
 const styles = StyleSheet.create({
-  age: { fontFamily: "SofiaProReg", fontSize: 10, marginLeft: "auto" },
+  age: {
+    fontFamily: "SofiaProReg",
+    fontSize: 12,
+    marginLeft: "auto",
+    paddingLeft: 8,
+  },
   avatarOverlap: { marginTop: -32, zIndex: 2 },
   banner: {
     height: 112,
@@ -194,10 +205,10 @@ const styles = StyleSheet.create({
   },
   description: {
     fontFamily: "SofiaProReg",
-    fontSize: 13,
-    lineHeight: 19,
+    fontSize: 14,
+    lineHeight: 20,
     marginTop: 8,
-    minHeight: 38,
+    minHeight: 40,
   },
   identity: { flex: 1, minWidth: 0 },
   identityRow: {
@@ -216,16 +227,23 @@ const styles = StyleSheet.create({
     top: 12,
   },
   matureText: { fontFamily: "SofiaProMed", fontSize: 10 },
-  name: { fontFamily: "SofiaProBold", fontSize: 18 },
-  slug: { fontFamily: "SofiaProReg", fontSize: 12, marginTop: 2 },
-  stat: { alignItems: "center", flexDirection: "row", gap: 4 },
-  statValue: { fontFamily: "SofiaProMed", fontSize: 12 },
+  name: {
+    fontFamily: "SofiaProBold",
+    fontSize: 18,
+    letterSpacing: -0.45,
+    lineHeight: 28,
+  },
+  slug: { fontFamily: "SofiaProReg", fontSize: 13, lineHeight: 19.5 },
+  stat: { alignItems: "center", flexDirection: "row", gap: 6 },
+  statValue: { fontFamily: "SofiaProMed", fontSize: 13 },
   stats: {
     alignItems: "center",
     borderTopWidth: 1,
+    columnGap: 16,
     flexDirection: "row",
-    gap: 14,
-    marginTop: 14,
+    flexWrap: "wrap",
+    marginTop: 12,
     paddingTop: 12,
+    rowGap: 4,
   },
 });

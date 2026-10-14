@@ -241,6 +241,9 @@ export function SettingsButton({
   onPress,
   size = "md",
   tone = "primary",
+  radius = 9999,
+  leadingIcon: LeadingIcon,
+  trailingIcon: TrailingIcon,
 }: {
   block?: boolean;
   disabled?: boolean;
@@ -249,6 +252,9 @@ export function SettingsButton({
   onPress: (event: GestureResponderEvent) => void;
   size?: "md" | "sm";
   tone?: SettingsButtonTone;
+  radius?: number;
+  leadingIcon?: IconComponent;
+  trailingIcon?: IconComponent;
 }) {
   const { isDark } = useAppTheme();
   const gated = Boolean(disabled) || Boolean(loading);
@@ -273,7 +279,7 @@ export function SettingsButton({
       {({ pressed }) => (
         <Gradient3D
           colors={pressed && !gated ? recipe.pressedColors : recipe.colors}
-          radius={9999}
+          radius={radius}
           shadows={pressed && !gated ? recipe.pressedShadows : recipe.shadows}
           style={[
             styles.button,
@@ -283,12 +289,18 @@ export function SettingsButton({
           ]}
         >
           <View style={styles.buttonContent}>
+            {LeadingIcon ? (
+              <LeadingIcon color={recipe.textColor} size={16} />
+            ) : null}
             {loading ? (
               <ActivityIndicator color={recipe.textColor} size="small" />
             ) : null}
             <Text style={[styles.buttonText, { color: recipe.textColor }]}>
               {label}
             </Text>
+            {TrailingIcon ? (
+              <TrailingIcon color={recipe.textColor} size={16} />
+            ) : null}
           </View>
         </Gradient3D>
       )}

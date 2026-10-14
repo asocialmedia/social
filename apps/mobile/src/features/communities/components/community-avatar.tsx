@@ -2,7 +2,10 @@ import { Image } from "expo-image";
 import { useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
 
-import { resolveProfileImageUrl } from "@/features/home/components/profile-utils";
+import {
+  getDefaultAvatar,
+  resolveProfileImageUrl,
+} from "@/features/home/components/profile-utils";
 import { getApiBaseUrl } from "@/lib/api-env";
 import { useAppTheme } from "@/theme";
 
@@ -12,14 +15,20 @@ import { resolveCommunityAccentColor } from "../lib/community-accents";
 export function CommunityAvatar({
   community,
   size = 48,
+  imageHeaders,
 }: {
   community: Pick<CommunityData, "accentColor" | "avatarUrl" | "name" | "slug">;
   size?: number;
+  imageHeaders?: Record<string, string>;
 }) {
   const { theme, isDark } = useAppTheme();
   const [failed, setFailed] = useState(false);
   const accent = resolveCommunityAccentColor(community.accentColor, isDark);
-  const uri = resolveProfileImageUrl(community.avatarUrl, getApiBaseUrl());
+  const useDefault = failed || !community.avatarUrl;
+  const uri = resolveProfileImageUrl(
+    useDefault ? getDefaultAvatar(community.slug) : community.avatarUrl,
+    getApiBaseUrl()
+  );
   return (
     <View
       style={[
@@ -33,13 +42,13 @@ export function CommunityAvatar({
         },
       ]}
     >
-      {uri && !failed ? (
+      {uri ? (
         <Image
           accessibilityLabel={`${community.name} community`}
           cachePolicy="memory-disk"
           contentFit="cover"
           onError={() => setFailed(true)}
-          source={{ uri }}
+          source={{ headers: useDefault ? undefined : imageHeaders, uri }}
           style={styles.image}
         />
       ) : (

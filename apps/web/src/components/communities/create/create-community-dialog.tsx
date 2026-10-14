@@ -533,7 +533,7 @@ export default function CreateCommunityDialog({
         {/* Body: one scroll column on mobile, two independent columns from md -
             the form on the left and the live preview pinned on the right. */}
         <div className="flex min-h-0 flex-1 flex-col overflow-y-auto md:grid md:grid-cols-[minmax(0,1fr)_19rem] md:overflow-hidden">
-          <div className="hide-native-scrollbar min-h-0 px-4 py-4 md:overflow-y-auto">
+          <div className="hide-native-scrollbar min-h-0 shrink-0 px-4 py-4 md:shrink md:overflow-y-auto">
             {step === 0 ? (
               <div className="flex flex-col gap-3">
                 <div>
@@ -741,7 +741,7 @@ export default function CreateCommunityDialog({
           </div>
 
           {/* Live preview, pinned in its own inset column on the right. */}
-          <aside className="border-border/60 bg-[hsl(var(--background-alt))] px-4 py-4 md:min-h-0 md:overflow-y-auto md:border-l">
+          <aside className="border-border/60 shrink-0 bg-[hsl(var(--background-alt))] px-4 py-4 md:min-h-0 md:overflow-y-auto md:border-l">
             <CreateCommunityPreview
               accentColor={accentColor}
               avatarPreview={avatarPreview}

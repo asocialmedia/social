@@ -1,7 +1,9 @@
 import { Image } from "expo-image";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { LinearGradient } from "expo-linear-gradient";
+import { useIsFocused, useLocalSearchParams, useRouter } from "expo-router";
 import {
   FileText,
+  Info,
   LayoutGrid,
   Plus,
   Search,
@@ -9,18 +11,19 @@ import {
   Users,
   X,
 } from "lucide-react-native";
-import { useCallback, useDeferredValue, useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Animated,
-  FlatList,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
+  useAnimatedValue,
   View,
 } from "react-native";
+import type { NativeScrollEvent, NativeSyntheticEvent } from "react-native";
 import { GestureDetector } from "react-native-gesture-handler";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -28,12 +31,24 @@ import bannerAsm from "@/assets/images/banner-asm.png";
 import noSearchImage from "@/assets/images/nosearch.png";
 import zephImage from "@/assets/images/zeph.png";
 import { usePullToRefresh } from "@/components/feedback/use-pull-to-refresh";
+import { DialogPanel } from "@/components/surface/dialog-panel";
 import { Gradient3D } from "@/components/surface/gradient-3d";
+import { IconButton3D } from "@/components/surface/icon-button-3d";
 import { authClient } from "@/features/auth/lib/auth-client";
 import { useSessionContext } from "@/features/auth/state/session";
+import {
+  HEADER_BAR_HEIGHT,
+  reportFeedScroll,
+  resetHeaderScroll,
+  subscribeHeaderVisibility,
+} from "@/features/feed/lib/header-visibility";
 import { GuestAuthBar } from "@/features/home/components/guest-auth-bar";
 import { MobileBottomNav } from "@/features/home/components/mobile-bottom-nav";
-import { MobileHeader } from "@/features/home/components/mobile-header";
+import {
+  headerSlide,
+  MobileHeader,
+} from "@/features/home/components/mobile-header";
+import { SettingsButton } from "@/features/settings/components/settings-ui";
 import { getApiBaseUrl } from "@/lib/api-env";
 import { bottomDockPadding } from "@/lib/bottom-dock-layout";
 import { LIST_VIRTUALIZATION_PROPS } from "@/lib/list-virtualization";
@@ -53,13 +68,23 @@ import {
 import {
   COMMUNITY_DISCOVERY_CATEGORIES,
   fetchCommunitiesPage,
+  fetchCreationQuota,
 } from "../lib/communities-api";
 import type {
   CommunityCategory,
   CommunityData,
   CommunityPage,
+  CommunityCreationQuota,
 } from "../lib/communities-api";
+import {
+  communityDiscoveryRows,
+  COMMUNITY_SEARCH_ROW_INDEX,
+  COMMUNITY_PAGE_GUTTER,
+} from "../lib/community-discovery";
+import type { CommunityDiscoveryRow } from "../lib/community-discovery";
 import { CommunityCard } from "./community-card";
+import { CommunityCreateDialog } from "./community-create-dialog";
+import { CommunityCreationGate } from "./community-creation-gate";
 import { CommunityRail } from "./community-rail";
 
 function number(value: number): string {
@@ -74,7 +99,10 @@ function number(value: number): string {
 
 export function CommunitiesScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ search?: string | string[] }>();
+  const params = useLocalSearchParams<{
+    search?: string | string[];
+    create?: string;
+  }>();
   const { isPending, user } = useSessionContext();
   const insets = useSafeAreaInsets();
   const { isDark, theme } = useAppTheme();
@@ -83,7 +111,29 @@ export function CommunitiesScreen() {
     ? params.search[0]
     : params.search;
   const [search, setSearch] = useState(initialSearch ?? "");
-  const deferredSearch = useDeferredValue(search.trim());
+  const [deferredSearch, setDeferredSearch] = useState(search.trim());
+  useEffect(() => {
+    const timer = setTimeout(() => setDeferredSearch(search.trim()), 300);
+    return () => clearTimeout(timer);
+  }, [search]);
+  const focused = useIsFocused();
+  const scrollY = useAnimatedValue(0);
+  const [heroHeight, setHeroHeight] = useState(0);
+  const [searchHeight, setSearchHeight] = useState(0);
+  const [firstRailSize, setFirstRailSize] = useState({ height: 0, key: "" });
+  const [searchStuck, setSearchStuck] = useState(false);
+  const [headerHidden, setHeaderHidden] = useState(false);
+  const [categoryHeight, setCategoryHeight] = useState(46);
+  useEffect(() => subscribeHeaderVisibility(setHeaderHidden), []);
+  useEffect(() => {
+    if (focused) {
+      resetHeaderScroll();
+    }
+  }, [focused]);
+  const followUp = headerSlide.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, -HEADER_BAR_HEIGHT],
+  });
   const [category, setCategory] = useState<CommunityCategory>("all");
   const [page, setPage] = useState<CommunityPage | null>(null);
   const [communities, setCommunities] = useState<CommunityData[]>([]);
@@ -95,6 +145,48 @@ export function CommunitiesScreen() {
   const [dockHeight, setDockHeight] = useState(56);
   const [guestBarHeight, setGuestBarHeight] = useState(72);
   const showGuestBar = !isPending && !user;
+  const [createOpen, setCreateOpen] = useState(false);
+  useEffect(() => {
+    if (params.create === "1" && !isPending) {
+      router.setParams({ create: undefined });
+      if (user) {
+        // oxlint-disable-next-line react/set-state-in-effect -- Consume a navigation command on the existing directory screen.
+        setCreateOpen(true);
+      } else {
+        router.push("/(auth)/login");
+      }
+    }
+  }, [params.create, isPending, user, router]);
+  const [quotaResult, setQuotaResult] = useState<{
+    userId: string;
+    value: CommunityCreationQuota | null;
+  } | null>(null);
+  const [gateOpen, setGateOpen] = useState(false);
+  const viewerId = user?.id;
+  const quota = quotaResult?.userId === viewerId ? quotaResult?.value : null;
+
+  useEffect(() => {
+    let active = true;
+    void (async () => {
+      if (!viewerId) {
+        return;
+      }
+      try {
+        const result = await fetchCreationQuota({
+          apiBase: getApiBaseUrl(),
+          cookie: await authClient.getCookie(),
+        });
+        if (active) {
+          setQuotaResult({ userId: viewerId, value: result });
+        }
+      } catch {
+        // The server checks eligibility again when the community is submitted.
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [viewerId]);
 
   const load = useCallback(
     async (cursor: string | null, append: boolean) => {
@@ -122,7 +214,7 @@ export function CommunitiesScreen() {
   useEffect(() => {
     let active = true;
     void (async () => {
-      const cookie = await authClient.getCookie();
+      const cookie = viewerId ? await authClient.getCookie() : "";
       if (!active) {
         return;
       }
@@ -147,7 +239,7 @@ export function CommunitiesScreen() {
     return () => {
       active = false;
     };
-  }, [category, deferredSearch]);
+  }, [category, deferredSearch, viewerId]);
 
   const refresh = async () => {
     setRefreshing(true);
@@ -192,22 +284,48 @@ export function CommunitiesScreen() {
   );
 
   const handleCreate = () => {
-    router.push(user ? "/communities/create" : "/(auth)/login");
+    if (!user) {
+      router.push("/(auth)/login");
+      return;
+    }
+    if (quota && !quota.canCreate) {
+      setGateOpen(true);
+      return;
+    }
+    setCreateOpen(true);
+  };
+  const closeCreate = () => {
+    setCreateOpen(false);
   };
 
   const showRails = !deferredSearch && category === "all";
   const activeLabel =
     COMMUNITY_DISCOVERY_CATEGORIES.find((item) => item.key === category)
       ?.label ?? "All";
+  let browseHeading = category === "all" ? "All communities" : activeLabel;
+  if (deferredSearch) {
+    browseHeading = `Results for “${deferredSearch}”`;
+  }
+  const rows = communityDiscoveryRows({ communities, page, showRails });
+  const firstRail = rows.find((row) => row.kind === "rail");
+  const washHeight =
+    categoryHeight +
+    heroHeight +
+    searchHeight +
+    (firstRail && firstRailSize.key === firstRail.key
+      ? firstRailSize.height
+      : 0) +
+    28;
   const stats = page?.stats ?? { communities: 0, members: 0, posts: 0 };
   const counts = page?.counts ?? {};
 
   const categoryBar = (
     <View
+      onLayout={(event) => setCategoryHeight(event.nativeEvent.layout.height)}
       style={[
         styles.categoryBar,
         {
-          backgroundColor: theme.containerBg,
+          backgroundColor: theme.backgroundAlt,
           borderBottomColor: theme.cardBorder,
         },
       ]}
@@ -271,184 +389,180 @@ export function CommunitiesScreen() {
     ) : (
       <CommunityEmptyState
         activeLabel={activeLabel}
-        onCreate={handleCreate}
+        failed={status === "error"}
+        onRetry={() => {
+          void refresh();
+        }}
         searching={Boolean(deferredSearch)}
       />
     );
 
-  const scrollHeader = (
-    <View>
-      <View style={styles.hero}>
-        <Image
-          pointerEvents="none"
-          source={bannerAsm}
-          style={styles.heroWash}
-        />
-        <View style={styles.heroContent}>
-          <Text style={[styles.heroTitle, { color: theme.inputText }]}>
-            Discover your
-          </Text>
-          <View style={styles.heroTitleRow}>
+  const hero = (
+    <View
+      style={styles.hero}
+      onLayout={(event) => setHeroHeight(event.nativeEvent.layout.height)}
+    >
+      <View style={styles.heroContent}>
+        <View style={styles.heroHeadline}>
+          <View style={styles.heroStatement}>
             <Text style={[styles.heroTitle, { color: theme.inputText }]}>
-              next
+              Discover your
             </Text>
-            <Image
-              contentFit="contain"
-              source={zephImage}
-              style={styles.heroMark}
-            />
-            <Text style={[styles.heroTitle, { color: theme.inputText }]}>
-              community
-            </Text>
-          </View>
-          <Text style={[styles.heroBody, { color: theme.dividerText }]}>
-            Find a new space to play, chill, and hang out.
-          </Text>
-          <Pressable
-            accessibilityRole="button"
-            onPress={handleCreate}
-            style={({ pressed }) => [
-              styles.createButton,
-              { opacity: pressed ? 0.88 : 1 },
-            ]}
-          >
-            <Gradient3D
-              colors={["#ff9500", "#e65500"]}
-              radius={10}
-              shadows={
-                isDark ? LOGIN_BUTTON_SHADOWS : LOGIN_BUTTON_SHADOWS_LIGHT
-              }
-              style={styles.createButtonSurface}
-            >
-              <Plus color="#ffffff" size={16} />
-              <Text style={styles.createButtonText}>Create community</Text>
-            </Gradient3D>
-          </Pressable>
-          <View
-            style={[
-              styles.statsPanel,
-              {
-                backgroundColor: theme.cardBg,
-                borderColor: theme.cardBorder,
-                boxShadow: isDark ? SURFACE_SHADOWS_DARK : SURFACE_SHADOWS,
-              },
-            ]}
-          >
-            <View style={styles.stat}>
-              <View style={styles.statLabel}>
-                <Users color="#f97316" fill="#f97316" size={14} />
-                <Text
-                  style={[styles.statLabelText, { color: theme.dividerText }]}
-                >
-                  Communities
-                </Text>
-              </View>
-              <Text style={[styles.statValue, { color: theme.inputText }]}>
-                {number(stats.communities)}
+            <View style={styles.heroTitleRow}>
+              <Text style={[styles.heroTitle, { color: theme.inputText }]}>
+                next
               </Text>
-            </View>
-            <View style={styles.stat}>
-              <View style={styles.statLabel}>
-                <UserRound color="#f97316" fill="#f97316" size={14} />
-                <Text
-                  style={[styles.statLabelText, { color: theme.dividerText }]}
-                >
-                  Members
-                </Text>
-              </View>
-              <Text style={[styles.statValue, { color: theme.inputText }]}>
-                {number(stats.members)}
-              </Text>
-            </View>
-            <View style={styles.stat}>
-              <View style={styles.statLabel}>
-                <FileText color="#f97316" fill="#f97316" size={14} />
-                <Text
-                  style={[styles.statLabelText, { color: theme.dividerText }]}
-                >
-                  Posts
-                </Text>
-              </View>
-              <Text style={[styles.statValue, { color: theme.inputText }]}>
-                {number(stats.posts)}
+              <Image
+                contentFit="contain"
+                source={zephImage}
+                style={styles.heroMark}
+              />
+              <Text style={[styles.heroTitle, { color: theme.inputText }]}>
+                community
               </Text>
             </View>
           </View>
+          {quota && !quota.canCreate ? (
+            <View style={styles.creationInfo}>
+              <IconButton3D
+                accessibilityLabel="Why can’t I create a community?"
+                icon={Info}
+                onPress={() => setGateOpen(true)}
+                size={32}
+              />
+            </View>
+          ) : null}
         </View>
-      </View>
-      <View style={styles.searchBand}>
+        <Text style={[styles.heroBody, { color: theme.dividerText }]}>
+          Find a new space to play, chill, and hang out.
+        </Text>
+        <View style={styles.createAction}>
+          {quota && !quota.canCreate ? null : (
+            <Pressable
+              accessibilityRole="button"
+              onPress={handleCreate}
+              style={({ pressed }) => [
+                styles.createButton,
+                { opacity: pressed ? 0.88 : 1 },
+              ]}
+            >
+              <Gradient3D
+                colors={["#ff9500", "#e65500"]}
+                radius={8}
+                shadows={
+                  isDark ? LOGIN_BUTTON_SHADOWS : LOGIN_BUTTON_SHADOWS_LIGHT
+                }
+                style={styles.createButtonSurface}
+              >
+                <Plus color="#ffffff" size={16} strokeWidth={4} />
+                <Text style={styles.createButtonText}>Create community</Text>
+              </Gradient3D>
+            </Pressable>
+          )}
+        </View>
         <View
           style={[
-            styles.search,
+            styles.statsPanel,
             {
-              backgroundColor: theme.inputBg,
-              borderColor: theme.inputBorder,
-              boxShadow: isDark
-                ? SEARCH_PANEL_SHADOWS_DARK
-                : SEARCH_PANEL_SHADOWS,
+              backgroundColor: theme.backgroundAlt,
+              borderColor: theme.cardBorder,
+              boxShadow: isDark ? SURFACE_SHADOWS_DARK : SURFACE_SHADOWS,
             },
           ]}
         >
-          <Search color={theme.dividerText} size={16} />
-          <TextInput
-            accessibilityLabel="Search communities"
-            autoCapitalize="none"
-            autoCorrect={false}
-            onChangeText={setSearch}
-            placeholder="Search communities"
-            placeholderTextColor={theme.dividerText}
-            style={styles.searchInput}
-            value={search}
-          />
-          {search ? (
-            <Pressable
-              accessibilityLabel="Clear search"
-              accessibilityRole="button"
-              hitSlop={6}
-              onPress={() => setSearch("")}
-            >
-              <X color={theme.dividerText} size={16} />
-            </Pressable>
-          ) : null}
+          <View style={styles.stat}>
+            <View style={styles.statLabel}>
+              <Users color="#f97316" fill="#f97316" size={14} />
+              <Text
+                style={[styles.statLabelText, { color: theme.dividerText }]}
+              >
+                Communities
+              </Text>
+            </View>
+            <Text style={[styles.statValue, { color: theme.inputText }]}>
+              {number(stats.communities)}
+            </Text>
+          </View>
+          <View style={styles.stat}>
+            <View style={styles.statLabel}>
+              <UserRound color="#f97316" fill="#f97316" size={14} />
+              <Text
+                style={[styles.statLabelText, { color: theme.dividerText }]}
+              >
+                Members
+              </Text>
+            </View>
+            <Text style={[styles.statValue, { color: theme.inputText }]}>
+              {number(stats.members)}
+            </Text>
+          </View>
+          <View style={styles.stat}>
+            <View style={styles.statLabel}>
+              <FileText color="#f97316" fill="#f97316" size={14} />
+              <Text
+                style={[styles.statLabelText, { color: theme.dividerText }]}
+              >
+                Posts
+              </Text>
+            </View>
+            <Text style={[styles.statValue, { color: theme.inputText }]}>
+              {number(stats.posts)}
+            </Text>
+          </View>
         </View>
       </View>
-      {showRails && page?.joined.length ? (
-        <View style={styles.rail}>
-          <CommunityRail
-            auras={page.auras}
-            communities={page.joined}
-            icon="users"
-            onOpen={openCommunity}
-            title="Joined communities"
-          />
-        </View>
-      ) : null}
-      {showRails && page?.sections.trending.length ? (
-        <View style={styles.rail}>
-          <CommunityRail
-            auras={page.auras}
-            communities={page.sections.trending}
-            icon="flame"
-            onOpen={openCommunity}
-            title="Trending communities"
-          />
-        </View>
-      ) : null}
-      {showRails && page?.sections.growing.length ? (
-        <View style={styles.rail}>
-          <CommunityRail
-            auras={page.auras}
-            communities={page.sections.growing}
-            icon="zap"
-            onOpen={openCommunity}
-            title="Growing fast"
-          />
-        </View>
-      ) : null}
+    </View>
+  );
+  const searchBand = (
+    <View
+      onLayout={(event) => setSearchHeight(event.nativeEvent.layout.height)}
+      style={[
+        styles.searchBand,
+        searchStuck && { backgroundColor: theme.backgroundAlt },
+      ]}
+    >
+      <View
+        style={[
+          styles.search,
+          {
+            backgroundColor: theme.containerBg,
+            borderColor: theme.inputBorder,
+            boxShadow: isDark
+              ? SEARCH_PANEL_SHADOWS_DARK
+              : SEARCH_PANEL_SHADOWS,
+          },
+        ]}
+      >
+        <Search color={theme.dividerText} size={16} />
+        <TextInput
+          accessibilityLabel="Search communities"
+          autoCapitalize="none"
+          autoCorrect={false}
+          onChangeText={setSearch}
+          placeholder="Search communities"
+          placeholderTextColor={theme.dividerText}
+          style={styles.searchInput}
+          value={search}
+        />
+        {search ? (
+          <Pressable
+            accessibilityLabel="Clear search"
+            accessibilityRole="button"
+            hitSlop={6}
+            onPress={() => setSearch("")}
+          >
+            <X color={theme.dividerText} size={16} />
+          </Pressable>
+        ) : null}
+      </View>
+    </View>
+  );
+  const browse = (
+    <View>
       <View style={styles.browseHeading}>
         <LayoutGrid color="#f97316" fill="#f97316" size={20} />
         <Text style={[styles.browseTitle, { color: theme.inputText }]}>
-          {activeLabel}
+          {browseHeading}
         </Text>
       </View>
       <View style={styles.browseCountRow}>
@@ -459,76 +573,180 @@ export function CommunitiesScreen() {
           {" "}
           Results Found
         </Text>
+        {status === "loading" || search.trim() !== deferredSearch ? (
+          <Text style={[styles.refreshLabel, { color: theme.dividerText }]}>
+            Refreshing…
+          </Text>
+        ) : null}
       </View>
     </View>
   );
 
+  const renderRow = ({ item }: { item: CommunityDiscoveryRow }) => {
+    if (item.kind === "hero") {
+      return hero;
+    }
+    if (item.kind === "search") {
+      return searchBand;
+    }
+    if (item.kind === "browse") {
+      return browse;
+    }
+    if (item.kind === "state") {
+      return empty;
+    }
+    if (item.kind === "rail") {
+      return (
+        <View
+          onLayout={
+            item.key === firstRail?.key
+              ? (event) =>
+                  setFirstRailSize({
+                    height: event.nativeEvent.layout.height,
+                    key: item.key,
+                  })
+              : undefined
+          }
+          style={[styles.rail, item.key === "growing" && styles.growingRail]}
+        >
+          <CommunityRail
+            auras={page?.auras ?? {}}
+            communities={item.communities}
+            icon={item.icon}
+            onOpen={openCommunity}
+            title={item.title}
+          />
+        </View>
+      );
+    }
+    return (
+      <View style={styles.cardWrap}>
+        <CommunityCard
+          aura={page?.auras[item.community.id] ?? 0}
+          community={item.community}
+          onPress={() => openCommunity(item.community)}
+        />
+      </View>
+    );
+  };
+
   return (
-    <View style={[styles.root, { backgroundColor: theme.containerBg }]}>
-      <GestureDetector gesture={pull.gesture}>
-        <View style={styles.listWrap}>
-          <Animated.View
-            style={[
-              styles.listShift,
-              { transform: [{ translateY: pull.pullShift }] },
-            ]}
-          >
-            <GestureDetector gesture={pull.nativeScrollGesture}>
-              <FlatList
-                {...LIST_VIRTUALIZATION_PROPS}
-                ListEmptyComponent={empty}
-                ListFooterComponent={
-                  loadingMore ? (
-                    <ActivityIndicator color="#f97316" style={styles.footer} />
-                  ) : null
-                }
-                ListHeaderComponent={
-                  <>
-                    <MobileHeader
-                      user={
-                        user
-                          ? { ...user, username: user.username ?? user.name }
-                          : null
-                      }
-                    />
-                    {categoryBar}
-                    {scrollHeader}
-                  </>
-                }
-                contentContainerStyle={[
-                  styles.content,
+    <View style={[styles.root, { backgroundColor: theme.backgroundAlt }]}>
+      <MobileHeader
+        user={user ? { ...user, username: user.username ?? user.name } : null}
+      />
+      <Animated.View
+        style={[
+          styles.chromeFollow,
+          {
+            marginBottom: -HEADER_BAR_HEIGHT,
+            transform: [{ translateY: followUp }],
+          },
+        ]}
+      >
+        {categoryBar}
+        <GestureDetector gesture={pull.gesture}>
+          <View style={styles.listWrap}>
+            <Animated.View
+              style={[
+                styles.listShift,
+                { transform: [{ translateY: pull.pullShift }] },
+              ]}
+            >
+              <Animated.View
+                pointerEvents="none"
+                style={[
+                  styles.wash,
                   {
-                    paddingBottom: bottomDockPadding({
-                      bottomInset: insets.bottom,
-                      dockHeight,
-                      guestBarHeight: showGuestBar ? guestBarHeight + 12 : 0,
-                    }),
+                    height: washHeight,
+                    top: -categoryHeight,
+                    transform: [{ translateY: Animated.multiply(scrollY, -1) }],
                   },
                 ]}
-                contentInsetAdjustmentBehavior="automatic"
-                data={communities}
-                keyExtractor={(community) => community.id}
-                onEndReached={loadMore}
-                onEndReachedThreshold={0.6}
-                onScroll={(event) => pull.onScroll(event)}
-                onScrollEndDrag={() => pull.onScrollEndDrag()}
-                renderItem={({ item }) => (
-                  <View style={styles.cardWrap}>
-                    <CommunityCard
-                      aura={page?.auras[item.id] ?? 0}
-                      community={item}
-                      onPress={() => openCommunity(item)}
-                    />
-                  </View>
-                )}
-                showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
-                stickyHeaderIndices={[1]}
-              />
-            </GestureDetector>
-          </Animated.View>
-          {pull.loader}
-        </View>
-      </GestureDetector>
+              >
+                <Image
+                  source={bannerAsm}
+                  contentFit="cover"
+                  style={[
+                    StyleSheet.absoluteFill,
+                    { opacity: isDark ? 0.15 : 0.2 },
+                  ]}
+                />
+                <LinearGradient
+                  colors={[
+                    theme.backgroundAlt,
+                    "transparent",
+                    "transparent",
+                    theme.backgroundAlt,
+                  ]}
+                  locations={[
+                    0,
+                    Math.min(0.45, 96 / Math.max(1, washHeight)),
+                    Math.max(0.55, 1 - 28 / Math.max(1, washHeight)),
+                    1,
+                  ]}
+                  style={StyleSheet.absoluteFill}
+                />
+              </Animated.View>
+              <GestureDetector gesture={pull.nativeScrollGesture}>
+                <Animated.FlatList
+                  {...LIST_VIRTUALIZATION_PROPS}
+                  ListFooterComponent={
+                    loadingMore ? (
+                      <ActivityIndicator
+                        color="#f97316"
+                        style={styles.footer}
+                      />
+                    ) : null
+                  }
+                  contentContainerStyle={[
+                    styles.content,
+                    {
+                      paddingBottom:
+                        (headerHidden ? 0 : HEADER_BAR_HEIGHT) +
+                        bottomDockPadding({
+                          bottomInset: insets.bottom,
+                          dockHeight: headerHidden ? 0 : dockHeight,
+                          guestBarHeight: showGuestBar
+                            ? guestBarHeight + 12
+                            : 0,
+                        }),
+                    },
+                  ]}
+                  contentInsetAdjustmentBehavior="automatic"
+                  data={rows}
+                  keyExtractor={(row) => row.key}
+                  stickyHeaderIndices={[COMMUNITY_SEARCH_ROW_INDEX]}
+                  removeClippedSubviews={false}
+                  onEndReached={loadMore}
+                  onEndReachedThreshold={0.6}
+                  onScroll={Animated.event(
+                    [{ nativeEvent: { contentOffset: { y: scrollY } } }],
+                    {
+                      listener: (
+                        event: NativeSyntheticEvent<NativeScrollEvent>
+                      ) => {
+                        pull.onScroll(event);
+                        const offset = event.nativeEvent.contentOffset.y;
+                        setSearchStuck(offset >= heroHeight - 1);
+                        if (focused) {
+                          reportFeedScroll(offset);
+                        }
+                      },
+                      useNativeDriver: true,
+                    }
+                  )}
+                  scrollEventThrottle={16}
+                  onScrollEndDrag={() => pull.onScrollEndDrag()}
+                  renderItem={renderRow}
+                  showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
+                />
+              </GestureDetector>
+            </Animated.View>
+            {pull.loader}
+          </View>
+        </GestureDetector>
+      </Animated.View>
       {showGuestBar ? (
         <View
           onLayout={(event) =>
@@ -541,6 +759,29 @@ export function CommunitiesScreen() {
         </View>
       ) : null}
       <MobileBottomNav onHeightChange={setDockHeight} />
+      {createOpen && user && (!quota || quota.canCreate) ? (
+        <CommunityCreateDialog
+          key={user.id}
+          userId={user.id}
+          onClose={closeCreate}
+          onCreated={(slug) => {
+            setCreateOpen(false);
+            router.push({ params: { slug }, pathname: "/a/[slug]" });
+          }}
+        />
+      ) : null}
+      {quota && (gateOpen || (createOpen && !quota.canCreate)) ? (
+        <DialogPanel
+          title="Founding is earned"
+          description=""
+          onClose={() => {
+            setGateOpen(false);
+            closeCreate();
+          }}
+        >
+          <CommunityCreationGate quota={quota} />
+        </DialogPanel>
+      ) : null}
     </View>
   );
 }
@@ -561,52 +802,44 @@ function CommunityLoadingState() {
 
 function CommunityEmptyState({
   activeLabel,
-  onCreate,
+  failed,
+  onRetry,
   searching,
 }: {
   activeLabel: string;
-  onCreate: () => void;
+  failed: boolean;
+  onRetry: () => void;
   searching: boolean;
 }) {
-  const { isDark, theme } = useAppTheme();
+  const { theme } = useAppTheme();
   const title = searching
     ? "No communities match that search"
     : `Nothing in ${activeLabel} yet`;
   const body = searching
-    ? "Try a different name or topic, or start the community you were looking for."
-    : "Be the first to plant a flag here.";
+    ? "Nothing here answers to that name. Try a broader word, a topic instead of a title, or look for the people you already follow."
+    : "This shelf is waiting on its first community. Make one for the thing you keep coming back to: a game, a language, a city, a weekly ritual. Name it, set the tone, and the regulars find their way in.";
   return (
-    <View
-      style={[
-        styles.empty,
-        {
-          backgroundColor: theme.cardBg,
-          borderColor: theme.cardBorder,
-          boxShadow: isDark ? SURFACE_SHADOWS_DARK : SURFACE_SHADOWS,
-        },
-      ]}
-    >
+    <View style={styles.empty}>
       <Image
         contentFit="contain"
         source={noSearchImage}
         style={styles.emptyImage}
       />
       <Text style={[styles.emptyTitle, { color: theme.inputText }]}>
-        {title}
+        {failed ? "We couldn’t load the communities right now." : title}
       </Text>
       <Text style={[styles.emptyBody, { color: theme.dividerText }]}>
-        {body}
+        {failed ? "Check your connection, then try again." : body}
       </Text>
-      {searching ? null : (
-        <Pressable
-          accessibilityRole="button"
-          onPress={onCreate}
-          style={[styles.emptyCreate, { borderColor: theme.cardBorder }]}
-        >
-          <Plus color="#f97316" size={16} />
-          <Text style={styles.emptyCreateText}>Create community</Text>
-        </Pressable>
-      )}
+      {failed ? (
+        <SettingsButton
+          label="Try again"
+          onPress={onRetry}
+          radius={8}
+          size="sm"
+          tone="gray"
+        />
+      ) : null}
     </View>
   );
 }
@@ -622,19 +855,20 @@ const styles = StyleSheet.create({
   browseCountRow: {
     alignItems: "center",
     flexDirection: "row",
-    paddingBottom: 0,
-    paddingHorizontal: 16,
-    paddingTop: 12,
+    paddingBottom: 12,
+    paddingHorizontal: COMMUNITY_PAGE_GUTTER,
+    paddingTop: 0,
   },
   browseHeading: {
     alignItems: "center",
     flexDirection: "row",
     gap: 10,
-    paddingHorizontal: 16,
+    paddingBottom: 12,
+    paddingHorizontal: COMMUNITY_PAGE_GUTTER,
     paddingTop: 32,
   },
   browseTitle: { fontFamily: "SofiaProBold", fontSize: 18 },
-  cardWrap: { paddingHorizontal: 16, paddingTop: 0 },
+  cardWrap: { paddingBottom: 16, paddingHorizontal: COMMUNITY_PAGE_GUTTER },
   category: {
     alignItems: "center",
     borderCurve: "continuous",
@@ -646,8 +880,6 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
   },
   categoryBar: {
-    borderBottomWidth: 1,
-    paddingHorizontal: 32,
     paddingVertical: 6,
   },
   categoryInactive: {
@@ -655,25 +887,26 @@ const styles = StyleSheet.create({
   },
   categoryCount: {
     fontFamily: "SofiaProReg",
-    fontSize: 11,
+    fontSize: 12,
     fontVariant: ["tabular-nums"],
   },
-  categoryRow: { gap: 6 },
-  categoryText: { fontFamily: "SofiaProMed", fontSize: 13 },
+  categoryRow: { gap: 6, paddingHorizontal: COMMUNITY_PAGE_GUTTER },
+  categoryText: { fontFamily: "SofiaProMed", fontSize: 14, lineHeight: 20 },
   content: { paddingTop: 0 },
-  countLabel: { fontFamily: "SofiaProReg", fontSize: 12 },
+  countLabel: { fontFamily: "SofiaProReg", fontSize: 14 },
   countStrong: {
     fontFamily: "SofiaProBold",
-    fontSize: 12,
+    fontSize: 14,
     fontVariant: ["tabular-nums"],
   },
   createButton: {
     alignItems: "center",
-    marginTop: 20,
+    maxWidth: 320,
+    width: "100%",
   },
   createButtonSurface: {
     alignItems: "center",
-    borderRadius: 10,
+    borderRadius: 8,
     flexDirection: "row",
     gap: 8,
     justifyContent: "center",
@@ -683,66 +916,59 @@ const styles = StyleSheet.create({
   createButtonText: {
     color: "#ffffff",
     fontFamily: "SofiaProBold",
-    fontSize: 14,
+    fontSize: 15,
   },
   empty: {
     alignItems: "center",
-    borderCurve: "continuous",
-    borderRadius: 16,
-    borderWidth: 1,
-    gap: 10,
+    gap: 12,
     justifyContent: "flex-start",
-    marginHorizontal: 32,
-    minHeight: 260,
+    marginHorizontal: COMMUNITY_PAGE_GUTTER,
     paddingHorizontal: 24,
-    paddingVertical: 50,
+    paddingVertical: 64,
   },
   emptyBody: {
     fontFamily: "SofiaProReg",
     fontSize: 12,
+    lineHeight: 19.5,
     maxWidth: 320,
     textAlign: "center",
-  },
-  emptyCreate: {
-    alignItems: "center",
-    borderColor: "#f9731680",
-    borderRadius: 8,
-    borderWidth: 1,
-    flexDirection: "row",
-    gap: 6,
-    marginTop: 4,
-    paddingHorizontal: 14,
-    paddingVertical: 9,
-  },
-  emptyCreateText: {
-    color: "#f97316",
-    fontFamily: "SofiaProMed",
-    fontSize: 12,
   },
   emptyImage: { height: 96, width: 96 },
   emptyTitle: { fontFamily: "SofiaProMed", fontSize: 14 },
   footer: { marginVertical: 20 },
-  hero: { minHeight: 270, position: "relative" },
+  hero: { position: "relative" },
   heroBody: {
     fontFamily: "SofiaProReg",
     fontSize: 14,
     lineHeight: 20,
-    marginTop: 8,
-    maxWidth: 310,
+    marginTop: 12,
   },
-  heroContent: { gap: 4, paddingHorizontal: 16, paddingTop: 32 },
-  heroMark: { height: 30, width: 38 },
-  heroTitle: { fontFamily: "SofiaProBold", fontSize: 30, lineHeight: 32 },
-  heroTitleRow: { alignItems: "center", flexDirection: "row", gap: 7 },
-  heroWash: {
-    height: 360,
-    left: 0,
-    opacity: 0.2,
-    position: "absolute",
-    right: 0,
-    top: 0,
-    width: "100%",
+  heroContent: {
+    paddingBottom: 16,
+    paddingHorizontal: COMMUNITY_PAGE_GUTTER,
+    paddingTop: 32,
   },
+  heroHeadline: {
+    alignItems: "flex-start",
+    flexDirection: "row",
+    gap: 12,
+    justifyContent: "space-between",
+  },
+  heroStatement: { flexShrink: 1 },
+  creationInfo: { paddingTop: 4 },
+  heroMark: { height: 36, width: 40 },
+  heroTitle: {
+    fontFamily: "SofiaProBold",
+    fontSize: 30,
+    letterSpacing: -0.75,
+    lineHeight: 32,
+  },
+  heroTitleRow: { alignItems: "center", flexDirection: "row", gap: 4.8 },
+  createAction: { marginTop: 20, width: "100%" },
+  chromeFollow: { flex: 1 },
+  wash: { left: 0, position: "absolute", right: 0, top: 0 },
+  growingRail: { paddingBottom: 28 },
+  refreshLabel: { fontFamily: "SofiaProReg", fontSize: 12, marginLeft: "auto" },
   // The pull shifts this view, so the list needs to be allowed to fill it and
   // the wrapper needs a positioning context for the absolutely-placed loader.
   listShift: {
@@ -750,6 +976,7 @@ const styles = StyleSheet.create({
   },
   listWrap: {
     flex: 1,
+    overflow: "hidden",
     position: "relative",
   },
   loadingCard: { borderRadius: 16, height: 280 },
@@ -763,24 +990,24 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     flexDirection: "row",
     gap: 12,
-    marginHorizontal: 16,
     minHeight: 48,
     paddingHorizontal: 16,
   },
-  searchBand: { paddingBottom: 8, paddingTop: 8 },
+  searchBand: { paddingHorizontal: COMMUNITY_PAGE_GUTTER, paddingVertical: 8 },
   searchInput: {
     flex: 1,
     fontFamily: "SofiaProReg",
     fontSize: 14,
     minHeight: 46,
   },
-  stat: { gap: 5, minWidth: 72 },
-  statLabel: { alignItems: "center", flexDirection: "row", gap: 4 },
-  statLabelText: { fontFamily: "SofiaProReg", fontSize: 10 },
+  stat: { gap: 4 },
+  statLabel: { alignItems: "center", flexDirection: "row", gap: 6 },
+  statLabelText: { fontFamily: "SofiaProMed", fontSize: 12 },
   statValue: {
     fontFamily: "SofiaProBold",
-    fontSize: 20,
+    fontSize: 24,
     fontVariant: ["tabular-nums"],
+    lineHeight: 24,
   },
   statsPanel: {
     alignItems: "flex-start",
@@ -789,9 +1016,9 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     borderWidth: 1,
     flexDirection: "row",
-    gap: 18,
-    marginTop: 15,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    gap: 20,
+    marginTop: 20,
+    paddingHorizontal: 20,
+    paddingVertical: 16,
   },
 });

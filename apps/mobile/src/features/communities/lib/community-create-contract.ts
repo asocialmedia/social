@@ -1,17 +1,10 @@
-// The community creation contract, mirrored from @asm/auth's
-// createCommunitySchema so the wizard can validate before it spends a round
-// trip. The keys are duplicated rather than imported because the mobile app
-// cannot pull the server validation bundle into the React Native runtime, and
-// a stale list here would offer a topic the server then rejects.
-//
-// The server remains the authority: createCommunitySchema re-validates
-// everything, so a mistake in this mirror surfaces as the server's message
-// rather than as bad data.
-
 import {
+  createCommunitySchema,
   COMMUNITY_ACCENT_KEYS,
   COMMUNITY_TOPIC_KEYS,
 } from "@asm/auth/validation";
+// The native wizard uses the same schema and slug rules as web.
+import { slugifyCommunityName } from "@asm/db/communities";
 
 export const COMMUNITY_ACCENTS = COMMUNITY_ACCENT_KEYS;
 export const COMMUNITY_TOPICS = COMMUNITY_TOPIC_KEYS;
@@ -41,31 +34,24 @@ export const COMMUNITY_TYPE_META: readonly {
     value: "PUBLIC",
   },
   {
-    description: "Anyone can view, approved people can post",
+    description: "Anyone can view, only approved users can post",
     label: "Restricted",
     value: "RESTRICTED",
   },
   {
-    description: "Only members can see it at all",
+    description: "Only approved users can view and post",
     label: "Private",
     value: "PRIVATE",
   },
 ];
 
-/** The community's own address, or null while the name cannot make one. */
+// The community's own address, or null while the name cannot make one.
 export function communitySlug(name: string): string {
-  const slug = name
-    .trim()
-    .toLowerCase()
-    .replaceAll(/[^a-z0-9]+/g, "_")
-    .replaceAll(/^_+|_+$/g, "");
-  if (
-    slug.length < COMMUNITY_LIMITS.slugMin ||
-    slug.length > COMMUNITY_LIMITS.slugMax
-  ) {
-    return "";
-  }
-  return slug;
+  const slug = slugifyCommunityName(name);
+  return slug.length >= COMMUNITY_LIMITS.slugMin &&
+    name.trim().length <= COMMUNITY_LIMITS.nameMax
+    ? slug
+    : "";
 }
 
 export interface CommunityDraft {
@@ -90,7 +76,7 @@ export function emptyCommunityDraft(): CommunityDraft {
   };
 }
 
-/** The first problem with a draft, or null when it would pass the server. */
+// The first problem with a draft, or null when it would pass the server.
 export function validateCommunityDraft(draft: CommunityDraft): string | null {
   const name = draft.name.trim();
   if (name.length < COMMUNITY_LIMITS.nameMin) {
@@ -106,8 +92,8 @@ export function validateCommunityDraft(draft: CommunityDraft): string | null {
   if (description.length > COMMUNITY_LIMITS.descriptionMax) {
     return "Description must be at most 500 characters";
   }
-  if (!draft.slug) {
-    return "Community address must be 3 to 21 letters, numbers, or underscores";
+  if (!/^[a-z0-9_]{3,21}$/.test(draft.slug.trim())) {
+    return "Community address must be 3 to 21 lowercase letters, numbers, or underscores";
   }
   if (draft.topics.length < COMMUNITY_LIMITS.topicsMin) {
     return "Pick at least one topic";
@@ -115,10 +101,13 @@ export function validateCommunityDraft(draft: CommunityDraft): string | null {
   if (draft.topics.length > COMMUNITY_LIMITS.topicsMax) {
     return "Pick at most 5 topics";
   }
-  return null;
+  const parsed = createCommunitySchema.safeParse(draft);
+  return parsed.success
+    ? null
+    : (parsed.error.issues[0]?.message ?? "Check your community details");
 }
 
-/** Whether a topic can still be added, so the picker can disable the rest. */
+// Whether a topic can still be added, so the picker can disable the rest.
 export function canAddTopic(
   topics: readonly CommunityTopic[],
   topic: CommunityTopic
