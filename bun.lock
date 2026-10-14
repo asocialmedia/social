@@ -88,7 +88,7 @@
     },
     "apps/mobile": {
       "name": "@asocialmedia/mobile",
-      "version": "0.1.98",
+      "version": "0.1.99",
       "dependencies": {
         "@asm/auth": "workspace:*",
         "@asm/media": "workspace:*",
@@ -176,7 +176,7 @@
     },
     "apps/web": {
       "name": "@asm/web",
-      "version": "1.7.26",
+      "version": "1.7.27",
       "dependencies": {
         "@asm/aggregator": "workspace:*",
         "@asm/auth": "workspace:*",

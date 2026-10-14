@@ -8,7 +8,7 @@
 // of the screen from wherever it sits.
 import { useIsFocused, useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Animated, Easing, StyleSheet, View } from "react-native";
+import { Animated, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { toast } from "@/components/feedback/toast";
@@ -19,7 +19,6 @@ import { FeedTabs } from "@/features/feed/components/feed-tabs";
 import {
   HEADER_BAR_HEIGHT,
   resetHeaderScroll,
-  subscribeHeaderVisibility,
 } from "@/features/feed/lib/header-visibility";
 import { useUnreadNotificationCount } from "@/features/notifications/state/use-unread-count";
 import { useSearchStore } from "@/features/search/state/search-store";
@@ -58,13 +57,6 @@ export function HackerNewsScreen() {
   // first layout. The wrapper is never given a zero height up front, which is
   // what previously made the strip measure as 0 and stay collapsed forever.
   const [tabsHeight, setTabsHeight] = useState(0);
-  // Local, JS-driven companion to the native header slide. The header's shared
-  // value cannot carry a layout change (the native driver forbids it), so the
-  // tabs' space collapses on this one, kept in lockstep by the same visibility
-  // signal; as it closes, the search row below rides up into its place.
-  // oxlint-disable-next-line react/hook-use-state -- single stable Animated.Value created once; driven by the subscription below
-  const [tabsLift] = useState(() => new Animated.Value(0));
-
   // Web debounces the search field before it reaches the feed; the same 300ms
   // is applied here so typing does not fire a request per keystroke.
   useEffect(() => {
@@ -111,37 +103,12 @@ export function HackerNewsScreen() {
   // next screen.
   useEffect(() => resetHeaderScroll, []);
 
-  // The header bar slides out on scroll down and the sort tabs collapse with
-  // it, leaving the search bar resting at the very top; scrolling up brings
-  // both back. This is the home feed's proven layout (move the block up by the
-  // bar height, extend it past the fold with a matching negative margin) plus a
-  // measured height collapse on the tabs, which is what lets the tabs vanish
-  // while the search row - their next sibling - rides up to take their place.
+  // Translate the complete chrome on the native driver. The fixed extension
+  // below the viewport replaces a per-frame height collapse and list relayout.
+  const chromeHeight = HEADER_BAR_HEIGHT + tabsHeight;
   const followUp = headerSlide.interpolate({
     inputRange: [0, 1],
-    outputRange: [0, -HEADER_BAR_HEIGHT],
-  });
-  // Drives the tabs' measured height on the same hide flip as the header, with
-  // the same 220ms ease-out-cubic, so the two collapse as one motion. Layout
-  // props cannot ride the native headerSlide, so this is a JS-thread value fed
-  // by the shared visibility signal.
-  useEffect(
-    () =>
-      subscribeHeaderVisibility((hidden) => {
-        Animated.timing(tabsLift, {
-          duration: 220,
-          easing: Easing.out(Easing.cubic),
-          toValue: hidden ? 1 : 0,
-          // A height is a layout property, which the native driver refuses; this
-          // one value is therefore JS-thread and drives only the tabs.
-          useNativeDriver: false,
-        }).start();
-      }),
-    [tabsLift]
-  );
-  const tabsCollapse = tabsLift.interpolate({
-    inputRange: [0, 1],
-    outputRange: [tabsHeight, 0],
+    outputRange: [0, -chromeHeight],
   });
 
   const activeIndex = Math.max(
@@ -181,29 +148,14 @@ export function HackerNewsScreen() {
         style={[
           styles.content,
           {
-            marginBottom: -HEADER_BAR_HEIGHT,
+            marginBottom: -chromeHeight,
             transform: [{ translateY: followUp }],
           },
         ]}
       >
-        <Animated.View
-          style={[
-            styles.tabsWrap,
-            {
-              // Until the strip has measured its natural height the wrapper is
-              // left unconstrained: clipping it to a height derived from a
-              // not-yet-measured value of 0 collapsed it on Android and it
-              // could never report anything but 0 again.
-              height: tabsHeight > 0 ? tabsCollapse : undefined,
-              overflow: "hidden",
-            },
-          ]}
-        >
+        <View style={styles.tabsWrap}>
           <View
             onLayout={(event) => {
-              // Only accept a real measurement: once the wrapper is clipping the
-              // strip, Android reports the collapsed 0, and writing that back
-              // would drop the strip to zero height for good.
               const { height } = event.nativeEvent.layout;
               if (height > 0) {
                 setTabsHeight(height);
@@ -212,7 +164,7 @@ export function HackerNewsScreen() {
           >
             <FeedTabs active={sort} onChange={setSort} tabs={HN_SORT_OPTIONS} />
           </View>
-        </Animated.View>
+        </View>
         <Animated.View
           style={[
             styles.searchRow,
@@ -254,6 +206,17 @@ export function HackerNewsScreen() {
         </View>
       </Animated.View>
       <MobileBottomNav onHeightChange={setDockHeight} />
+      <View
+        pointerEvents="none"
+        style={{
+          backgroundColor: theme.containerBg,
+          height: insets.top,
+          left: 0,
+          position: "absolute",
+          right: 0,
+          top: 0,
+        }}
+      />
     </View>
   );
 }
@@ -263,7 +226,7 @@ const styles = StyleSheet.create({
   // The pager clips at its own top: the story lists scroll under the search
   // row rather than pushing it, since the row is a sibling above them.
   pagerWrap: { flex: 1, overflow: "hidden" },
-  root: { flex: 1 },
+  root: { flex: 1, overflow: "hidden" },
   searchRow: {
     borderBottomWidth: 1,
     paddingBottom: 8,
@@ -272,7 +235,6 @@ const styles = StyleSheet.create({
     // Above the pager so the pinned row paints over the list scrolling under it.
     zIndex: 20,
   },
-  // The tabs keep their natural height; the animated wrapper clips it to zero
-  // as they collapse on scroll, so no measure/layout guess is needed.
+  // The measured strip moves with the search and list without changing height.
   tabsWrap: { position: "relative" },
 });

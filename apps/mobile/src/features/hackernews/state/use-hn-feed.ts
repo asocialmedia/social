@@ -122,6 +122,10 @@ export function useHnFeed({
         },
         mode
       );
+      const failure = hnCache.read(cacheKey).error;
+      if (failure) {
+        logWarn("hackernews.load_failed", { reason: failure });
+      }
       if (!activeRef.current) {
         return;
       }

@@ -1,16 +1,18 @@
-// One HackerNews sort tab's list: story rows in a FlatList with the same
+// One HackerNews sort tab uses recycled story rows with the same
 // virtualization and UI-thread scroll handling the home feed uses
 // (features/feed/components/feed-list.tsx), so scrolling matches it instead of
 // stuttering on the JS thread. Rows come from the per-sort hnCache, so a warm
 // tab renders instantly and a stale one revalidates without a skeleton.
+import { FlashList } from "@shopify/flash-list";
+import type { FlashListRef } from "@shopify/flash-list";
 import { Image } from "expo-image";
 import * as Linking from "expo-linking";
-import { memo, useCallback, useEffect, useMemo, useRef } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { Platform, StyleSheet, Text, View } from "react-native";
-import type { FlatList } from "react-native";
+import { StyleSheet, Text, View } from "react-native";
 import { GestureDetector } from "react-native-gesture-handler";
 import Reanimated, {
+  createAnimatedComponent,
   useAnimatedScrollHandler,
   useSharedValue,
 } from "react-native-reanimated";
@@ -27,7 +29,6 @@ import {
   resetHeaderScroll,
   setHeaderHidden,
 } from "@/features/feed/lib/header-visibility";
-import { LIST_VIRTUALIZATION_PROPS } from "@/lib/list-virtualization";
 import { SHOWS_SCROLL_INDICATOR } from "@/lib/scroll-indicator";
 import { useAppTheme } from "@/theme";
 
@@ -36,6 +37,9 @@ import { hnCache, hnCacheKey } from "../lib/hn-cache";
 import { useHnFeed } from "../state/use-hn-feed";
 import { HnFeedSkeleton, HnFeedSkeletonCard } from "./hn-feed-skeleton";
 import { HnStoryCard, hnItemUrl } from "./hn-story-card";
+
+const AnimatedHnList = createAnimatedComponent(FlashList<HnStory>);
+const MAINTAIN_POSITION = { disabled: true };
 
 function hnStoryKey(story: HnStory): string {
   return String(story.id);
@@ -64,7 +68,10 @@ export const HnFeedTab = memo(
     userId,
   }: HnFeedTabProps) => {
     const { isDark, theme } = useAppTheme();
-    const listRef = useRef<FlatList<HnStory>>(null);
+    const listRef = useRef<FlashListRef<HnStory>>(null);
+    const [viewportHeight, setViewportHeight] = useState(0);
+    const contentBottom = bottomInset + HEADER_BAR_HEIGHT + 24;
+    const emptyHeight = Math.max(0, viewportHeight - contentBottom);
     const memoryKey = hnCacheKey(apiBase, userId, sort, search);
     const scrollOffset = useSharedValue(hnCache.scrollOffset(memoryKey));
     const scrollActive = useSharedValue(false);
@@ -74,7 +81,6 @@ export const HnFeedTab = memo(
 
     const {
       bookmarks,
-      error,
       fetchNext,
       hasMore,
       now,
@@ -240,7 +246,7 @@ export const HnFeedTab = memo(
       }
       if (rateLimited) {
         return (
-          <View style={[styles.state, styles.stateError]}>
+          <View style={[styles.state, { minHeight: emptyHeight }]}>
             <Image
               contentFit="contain"
               source={noSearchImage}
@@ -252,17 +258,17 @@ export const HnFeedTab = memo(
                 { color: themeText(isDark).destructive },
               ]}
             >
-              Rate limit exceeded. Please try again later.
+              Let’s give HackerNews a moment.
             </Text>
             <Text style={[styles.stateHint, { color: theme.dividerText }]}>
-              You&apos;re moving too fast, take a breather and try again.
+              Please wait a little, then pull down to try again.
             </Text>
           </View>
         );
       }
       if (status === "error") {
         return (
-          <View style={[styles.state, styles.stateError]}>
+          <View style={[styles.state, { minHeight: emptyHeight }]}>
             <Image
               contentFit="contain"
               source={noSearchImage}
@@ -274,16 +280,16 @@ export const HnFeedTab = memo(
                 { color: themeText(isDark).destructive },
               ]}
             >
-              An error occurred while loading stories.
+              We couldn’t load the stories right now.
             </Text>
             <Text style={[styles.stateHint, { color: theme.dividerText }]}>
-              {error ?? "Please try refreshing the page."}
+              Check your connection, then pull down to try again.
             </Text>
           </View>
         );
       }
       return (
-        <View style={styles.state}>
+        <View style={[styles.state, { minHeight: emptyHeight }]}>
           <Image
             contentFit="contain"
             source={notFoundImage}
@@ -299,7 +305,7 @@ export const HnFeedTab = memo(
       );
     }, [
       enabled,
-      error,
+      emptyHeight,
       isDark,
       rateLimited,
       status,
@@ -324,7 +330,12 @@ export const HnFeedTab = memo(
 
     return (
       <GestureDetector gesture={pull.gesture}>
-        <View style={styles.listWrap}>
+        <View
+          style={styles.listWrap}
+          onLayout={(event) =>
+            setViewportHeight(event.nativeEvent.layout.height)
+          }
+        >
           <Reanimated.View
             style={[
               styles.listShift,
@@ -332,10 +343,10 @@ export const HnFeedTab = memo(
             ]}
           >
             <GestureDetector gesture={pull.nativeScrollGesture}>
-              <Reanimated.FlatList
+              <AnimatedHnList
                 contentContainerStyle={{
                   flexGrow: 1,
-                  paddingBottom: bottomInset + HEADER_BAR_HEIGHT + 24,
+                  paddingBottom: contentBottom,
                 }}
                 data={stories}
                 keyExtractor={hnStoryKey}
@@ -345,11 +356,10 @@ export const HnFeedTab = memo(
                 onEndReachedThreshold={0.5}
                 onScroll={handleScroll}
                 ref={listRef}
-                removeClippedSubviews={Platform.OS === "android"}
                 renderItem={renderItem}
                 scrollEventThrottle={16}
                 showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
-                {...LIST_VIRTUALIZATION_PROPS}
+                maintainVisibleContentPosition={MAINTAIN_POSITION}
               />
             </GestureDetector>
           </Reanimated.View>
@@ -381,7 +391,6 @@ const styles = StyleSheet.create({
     paddingVertical: 64,
   },
   stateArt: { height: 176, width: 211 },
-  stateError: { justifyContent: "flex-end", paddingBottom: 64, paddingTop: 40 },
   stateHint: { fontFamily: "SofiaProReg", fontSize: 12, textAlign: "center" },
   stateTitle: { fontFamily: "SofiaProBold", fontSize: 14, textAlign: "center" },
 });
