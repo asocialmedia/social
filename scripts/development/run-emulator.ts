@@ -90,22 +90,27 @@ const newLdPath = [...emulatorLibDirs, existingLdPath]
   .filter(Boolean)
   .join(":");
 
-// Discover host Vulkan ICDs for NixOS hardware acceleration
+// Discover host Vulkan ICDs for NixOS hardware acceleration (only used when host GPU is explicitly requested)
 const hostVulkanIcds = [
   "/run/opengl-driver/share/vulkan/icd.d/intel_icd.x86_64.json",
   "/run/opengl-driver/share/vulkan/icd.d/nvidia_icd.json",
 ].filter(existsSync);
 const defaultVkIcd = hostVulkanIcds.join(":");
 
+const defaultGpuMode = process.env.EMULATOR_GPU ?? "swiftshader";
 const hasGpuArg = extraArgs.includes("-gpu");
 const spawnArgs = [
   `@${targetAvd}`,
-  ...(hasGpuArg ? [] : ["-gpu", "host"]),
+  ...(hasGpuArg ? [] : ["-gpu", defaultGpuMode]),
   ...extraArgs,
 ];
 
+const selectedGpu = hasGpuArg
+  ? (extraArgs[extraArgs.indexOf("-gpu") + 1] ?? "custom")
+  : defaultGpuMode;
+
 console.log(
-  `Starting Android emulator: @${targetAvd} with GPU acceleration (host)`
+  `Starting Android emulator: @${targetAvd} with GPU mode (${selectedGpu})`
 );
 
 // Baseline before spawn: findNewEmulatorSerial compares before/after, so the
@@ -113,13 +118,15 @@ console.log(
 // fresh device in "before" and missing it entirely.
 const baselineSnapshot = await devicesSnapshot().catch(() => "");
 
+const isHostGpu = selectedGpu === "host";
+
 const child = spawn(emulatorBin, spawnArgs, {
   stdio: "inherit",
   env: {
     ...process.env,
     LD_LIBRARY_PATH: newLdPath,
     QT_QPA_PLATFORM: process.env.QT_QPA_PLATFORM ?? "xcb",
-    ...(defaultVkIcd
+    ...(isHostGpu && defaultVkIcd
       ? {
           VK_DRIVER_FILES: process.env.VK_DRIVER_FILES ?? defaultVkIcd,
           VK_ICD_FILENAMES: process.env.VK_ICD_FILENAMES ?? defaultVkIcd,
