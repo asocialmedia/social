@@ -98,16 +98,18 @@ export function usePostEngagement({
   // neither subscribes to the store.
   const canPersist = Boolean(viewerId) && !commentId;
 
-  // Eddie rows are reused across comments, so their props change without a
-  // remount. This mirrors the prop-sync effect the old VoteCluster carried.
-  const [local, setLocal] = useState<PostEngagement | null>(null);
+  // Recycled cards and eddie rows must use the new item's vote on first paint.
+  const [local, setLocal] = useState<{
+    key: string;
+    engagement: PostEngagement;
+  } | null>(null);
   useEffect(() => {
     if (canPersist) {
       return;
     }
     // oxlint-disable-next-line react/set-state-in-effect -- prop sync for reused comment rows, not derivable during render
-    setLocal(fallback);
-  }, [canPersist, fallback]);
+    setLocal({ engagement: fallback, key });
+  }, [canPersist, fallback, key]);
 
   const subscribe = useCallback(
     (listener: () => void) =>
@@ -118,11 +120,12 @@ export function usePostEngagement({
           },
     [canPersist]
   );
-  const getSnapshot = useCallback(
-    () =>
-      canPersist ? engagementStore.read(key, fallback) : (local ?? fallback),
-    [canPersist, fallback, key, local]
-  );
+  const getSnapshot = useCallback(() => {
+    if (canPersist) {
+      return engagementStore.read(key, fallback);
+    }
+    return local?.key === key ? local.engagement : fallback;
+  }, [canPersist, fallback, key, local]);
 
   const engagement = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 
@@ -143,7 +146,7 @@ export function usePostEngagement({
         engagementStore.set(key, { ...getSnapshot(), ...value });
         return;
       }
-      setLocal({ ...getSnapshot(), ...value });
+      setLocal({ engagement: { ...getSnapshot(), ...value }, key });
     },
     [canPersist, getSnapshot, key]
   );

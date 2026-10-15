@@ -13,6 +13,34 @@ import {
 
 const API = "https://api.test";
 
+test("profile headers preserve bounded mutual previews from the public API", () => {
+  const users = Array.from({ length: 7 }, (_, index) => ({
+    avatarUrl: null,
+    id: `mutual-${index}`,
+    username: `mutual${index}`,
+  }));
+  const profile = parseProfileHeader({
+    _count: { followers: 18, following: 27, posts: 9 },
+    id: "profile",
+    mutuals: { followers: users, following: users.slice(1, 3) },
+    username: "profile",
+  });
+  expect(profile?._count).toEqual({ followers: 18, following: 27, posts: 9 });
+  expect(profile?.mutuals?.followers).toHaveLength(3);
+  expect(profile?.mutuals?.counts).toEqual({ followers: 7, following: 2 });
+  expect(profile?.mutuals?.following.map((user) => user.id)).toEqual([
+    "mutual-1",
+    "mutual-2",
+  ]);
+  expect(
+    parseProfileHeader({ id: "older", username: "older" })?.mutuals
+  ).toEqual({
+    counts: { followers: 0, following: 0 },
+    followers: [],
+    following: [],
+  });
+});
+
 function post(
   overrides: Record<string, unknown> = {}
 ): Record<string, unknown> {
@@ -109,6 +137,32 @@ describe("profile parsing", () => {
     expect(profile?.communityMemberships).toEqual([
       { community: { slug: "general" }, role: "OWNER" },
     ]);
+  });
+
+  test("keeps explicit flags for profile posts, response parents, media and reply context", () => {
+    const marked = post({
+      explicitContent: true,
+      parentPost: { explicitContent: true, id: "source" },
+    });
+    const pages = [
+      parseProfileFeedPage({ posts: [marked] }, "posts"),
+      parseProfileFeedPage(
+        { media: [{ id: "media", post: marked, type: "IMAGE" }] },
+        "media"
+      ),
+      parseProfileFeedPage(
+        { replies: [{ attachments: [], id: "reply", post: marked }] },
+        "replies"
+      ),
+    ];
+    for (const page of pages) {
+      if (page.kind === "posts") {
+        expect(page.items[0]?.explicitContent).toBe(true);
+        expect(page.items[0]?.parentPost?.explicitContent).toBe(true);
+      } else {
+        expect(page.items[0]?.post?.explicitContent).toBe(true);
+      }
+    }
   });
 
   test("normalizes post, media, and reply cursor pages", () => {

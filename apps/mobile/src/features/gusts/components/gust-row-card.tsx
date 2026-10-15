@@ -5,6 +5,7 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { UserAvatar } from "@/components/avatar/user-avatar";
 import { ExploreBadge } from "@/features/explore/components/explore-badge";
+import { ConcealedMediaCover } from "@/features/feed/components/concealed-media-cover";
 import type { FeedPost } from "@/features/feed/lib/feed-types";
 import { mediaImageUrl, mediaPosterUrl } from "@/features/feed/lib/media-url";
 import { getAuraFlameStyle } from "@/features/home/components/profile-utils";
@@ -40,6 +41,27 @@ export function GustRowCard({
     posterUri = mediaImageUrl(apiBase, image);
   }
 
+  const previewMedia = video ?? image;
+  let preview = <View style={[styles.thumbnail, styles.fallbackThumbnail]} />;
+  if (posterUri) {
+    preview = (
+      <Image
+        contentFit="cover"
+        source={{ uri: posterUri }}
+        style={styles.thumbnail}
+      />
+    );
+  }
+  if (post.explicitContent && previewMedia) {
+    preview = (
+      <ConcealedMediaCover
+        accessibilityLabel="Blurred explicit media preview"
+        apiBase={apiBase}
+        media={previewMedia}
+      />
+    );
+  }
+
   const handlePress = () => {
     if (onOpen) {
       onOpen(post);
@@ -63,18 +85,7 @@ export function GustRowCard({
     >
       {/* 9:16 thumbnail poster with Gust badge and play indicator */}
       <View style={styles.thumbnailWrap}>
-        {posterUri ? (
-          <Image
-            contentFit="cover"
-            source={{ uri: posterUri }}
-            style={[
-              styles.thumbnail,
-              post.explicitContent ? styles.blurred : null,
-            ]}
-          />
-        ) : (
-          <View style={[styles.thumbnail, styles.fallbackThumbnail]} />
-        )}
+        {preview}
         <ExploreBadge kind="gust" style={styles.chip} />
         <View pointerEvents="none" style={styles.playBadge}>
           <Play color="#ffffff" fill="#ffffff" size={14} />
@@ -161,9 +172,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     flexDirection: "row",
     gap: 8,
-  },
-  blurred: {
-    opacity: 0.5,
   },
   card: {
     borderRadius: 16,

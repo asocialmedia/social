@@ -4,9 +4,31 @@ import {
   DERIVATIVE_MIME_BY_EXT,
   isSafeHlsFilename,
   parseVariantRequest,
+  hlsGeneration,
+  hlsGenerationKey,
+  pinHlsManifest,
 } from "./media-variants";
 
 describe("variant request parsing", () => {
+  test("pins every HLS URI to one generation during background upgrades", () => {
+    const generation = "v4.11111111-1111-4111-8111-111111111111";
+    const key =
+      "derived/v4/media/11111111-1111-4111-8111-111111111111/hls/master.m3u8";
+    expect(hlsGeneration(key)).toBe(generation);
+    expect(hlsGenerationKey("media", generation, "seg-360p-0000.m4s")).toBe(
+      key.replace("master.m3u8", "seg-360p-0000.m4s")
+    );
+    expect(
+      hlsGenerationKey("media", "../../quarantine", "master.m3u8")
+    ).toBeNull();
+    const manifest = pinHlsManifest(
+      '#EXTM3U\n#EXT-X-MAP:URI="init-360p.mp4"\nseg-360p-0000.m4s\n720p.m3u8\n',
+      generation
+    );
+    expect(manifest).toContain(`init-360p.mp4?g=${generation}`);
+    expect(manifest).toContain(`seg-360p-0000.m4s?g=${generation}`);
+    expect(manifest).toContain(`720p.m3u8?g=${generation}`);
+  });
   test("qualified kind-variant.ext forms", () => {
     expect(parseVariantRequest(["thumb-webp.webp"])).toEqual({
       kind: "thumb",

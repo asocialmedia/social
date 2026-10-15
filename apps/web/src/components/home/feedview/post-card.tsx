@@ -1,6 +1,7 @@
 "use client";
 
 import type { PostData, UserData } from "@asm/db";
+import { mediaReshareLabel } from "@asm/media";
 import { Button } from "@asm/ui/shadui/button";
 import { Card, CardContent } from "@asm/ui/shadui/card";
 import { CornerDownRight, Eye, MessageSquare } from "lucide-react";
@@ -390,6 +391,20 @@ const PostContent: React.FC<PostContentProps> = ({
           post={post}
         />
       ) : null}
+      {[
+        ...new Set(
+          attachments
+            .map(mediaReshareLabel)
+            .filter((label): label is string => Boolean(label))
+        ),
+      ].map((label) => (
+        <span
+          key={label}
+          className="chip-3d text-muted-foreground w-fit px-2 py-1 text-xs"
+        >
+          {label}
+        </span>
+      ))}
       {postEmbeds.length > 0 ? (
         // Spacing comes from the column gap, not the embeds' own top margin.
         <PostLinkEmbeds className="" embeds={postEmbeds} />

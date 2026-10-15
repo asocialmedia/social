@@ -123,9 +123,10 @@ export function FeedPager({
     translateX,
   ]);
 
+  // A constant width in this worklet still travels with every transform update
+  // and forces Fabric's layout path. Only the translation changes per frame.
   const animatedStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: translateX.get() }],
-    width: widthSv.get() * countSv.get(),
   }));
 
   // oxlint-disable react/refs -- Worklets schedule publishIndex; its ref is read later on the RN thread.
@@ -230,7 +231,13 @@ export function FeedPager({
     >
       <GestureDetector gesture={gesture}>
         <View collapsable={false} style={styles.viewport}>
-          <Animated.View style={[styles.track, animatedStyle]}>
+          <Animated.View
+            style={[
+              styles.track,
+              { width: pageWidth * pageCount },
+              animatedStyle,
+            ]}
+          >
             {children.map((child, index) => {
               const mounted = index >= retained.first && index <= retained.last;
               return (

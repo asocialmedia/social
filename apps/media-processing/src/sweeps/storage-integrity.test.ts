@@ -292,6 +292,7 @@ mock.module("@asm/db", () => ({
       },
     },
   },
+  redis: {},
   toPrismaDateTime: (value: Date) => value,
 }));
 
@@ -386,7 +387,7 @@ describe("storage-integrity sweep", () => {
         {
           key: "m1/poster",
           kind: "poster",
-          pipelineVersion: "3",
+          pipelineVersion: "4",
           variant: "d",
         },
       ],
@@ -406,7 +407,7 @@ describe("storage-integrity sweep", () => {
     current.rows = [row("m1")];
     current.derivatives = {
       m1: [
-        { key: "m1/mp4", kind: "mp4-h264", pipelineVersion: "3", variant: "d" },
+        { key: "m1/mp4", kind: "mp4-h264", pipelineVersion: "4", variant: "d" },
       ],
     };
     // The source survived; the transcoded object did not. The row exists, which
@@ -530,7 +531,7 @@ describe("storage-integrity sweep", () => {
         {
           key: "m1/poster",
           kind: "poster",
-          pipelineVersion: "3",
+          pipelineVersion: "4",
           variant: "d",
         },
       ],
@@ -744,7 +745,7 @@ describe("storage-integrity sweep", () => {
         {
           key: "m1/poster",
           kind: "poster",
-          pipelineVersion: "3",
+          pipelineVersion: "4",
           variant: "d",
         },
       ],
@@ -762,7 +763,7 @@ describe("storage-integrity sweep", () => {
     current.rows = [row("m1"), row("m2")];
     current.derivatives = {
       m2: [
-        { key: "m2/mp4", kind: "mp4-h264", pipelineVersion: "3", variant: "d" },
+        { key: "m2/mp4", kind: "mp4-h264", pipelineVersion: "4", variant: "d" },
       ],
     };
     current.present = new Set(["m2/published", "m2/mp4"]);
@@ -786,7 +787,7 @@ describe("storage-integrity sweep", () => {
     current.rows = [row("m1")];
     current.derivatives = {
       m1: [
-        { key: "m1/mp4", kind: "mp4-h264", pipelineVersion: "3", variant: "d" },
+        { key: "m1/mp4", kind: "mp4-h264", pipelineVersion: "4", variant: "d" },
       ],
     };
     current.present = new Set(["m1/published"]);

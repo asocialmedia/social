@@ -202,3 +202,13 @@ export * from "./src/posts/visible";
 
 export { messageSearchEpochFingerprint } from "./src/messages/epochs/epoch-readability";
 export type { MessageSearchEpochProof } from "./src/messages/epochs/epoch-readability";
+
+export * from "./src/media-analysis";
+
+export * from "./src/recommendation/semantic-index";
+
+export * from "./src/recommendation/shared-topic-graph";
+
+export * from "./src/recommendation/attribution";
+export * from "./src/recommendation/retrieval-benchmark";
+export * from "./src/recommendation/experiment-report";

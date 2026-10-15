@@ -38,17 +38,24 @@ async function hydrateSession(): Promise<void> {
   }
 }
 
-let preparation: Promise<void> | undefined;
-export function prepareNativeStartup(): Promise<void> {
-  preparation ??= prepareStartup([
-    hydrateThemePreference,
-    hydrateSession,
-    hydrateFeedCache,
-    hydrateMediaDimensions,
-    hydrateHomeTabMemory,
-    hydratePopupCache,
-    hydratePostDetailCache,
-    loadLaunchResumeRoute,
-  ]);
+let preparation: Promise<string | null> | undefined;
+export function prepareNativeStartup(): Promise<string | null> {
+  preparation ??= (async () => {
+    let resumePath: string | null = null;
+    await prepareStartup([
+      hydrateThemePreference,
+      hydrateSession,
+      hydrateFeedCache,
+      hydrateMediaDimensions,
+      hydrateHomeTabMemory,
+      hydratePopupCache,
+      hydratePostDetailCache,
+      async () => {
+        const resume = await loadLaunchResumeRoute();
+        resumePath = resume?.pathname ?? "/";
+      },
+    ]);
+    return resumePath;
+  })();
   return preparation;
 }

@@ -133,6 +133,7 @@ mock.module("@asm/db", () => ({
     return Promise.resolve();
   },
   prisma: mockPrisma,
+  resolveLastRankingContext: () => Promise.resolve(null),
 }));
 
 mock.module("@asm/logger", () => ({

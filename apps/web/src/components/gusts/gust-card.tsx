@@ -43,13 +43,14 @@ import ModeratedNotice from "@/components/posts/content/moderated-notice";
 import PostLinkedContent from "@/components/posts/content/post-linked-content";
 import ViewTracker from "@/components/posts/effects/view-counter";
 import { PostMeta } from "@/components/tags/post-meta";
+import { useVideoDelivery } from "@/lib/media/use-video-delivery";
 import { getPostAttachments } from "@/lib/posts/post-normalize";
 import { toggleAltReveal, useAltRevealed } from "@/lib/stores/alt-reveal-store";
 import { useExplicitRevealed } from "@/lib/stores/explicit-reveal-store";
 import { useVideoCaptionsStore } from "@/lib/stores/video-captions-store";
 import { getUserCount } from "@/lib/types";
 import { cn, formatNumber } from "@/lib/utils";
-import { getMediaProxyUrl } from "@/lib/utils/image-url";
+import { getMediaVideoUrl, getMediaProxyUrl } from "@/lib/utils/image-url";
 
 import { AuraBurstLayer } from "./aura-burst-layer";
 import type { AuraBurstHandle } from "./aura-burst-layer";
@@ -499,12 +500,21 @@ export const GustCard: React.FC<GustCardProps> = ({
     [amplify, interactive, post.moderated, togglePlay, suppressTapUntil]
   );
 
+  useVideoDelivery(
+    videoRef,
+    videoMedia?.id,
+    shouldMountVideo &&
+      isActive &&
+      (!post.explicitContent || explicitRevealed || sharedExplicitRevealed),
+    videoMedia?.hasHls
+  );
+
   if (!videoMedia) {
     return null;
   }
 
   const thumbUrl = getMediaProxyUrl(videoMedia);
-  const videoUrl = `/api/media/${videoMedia.id}`;
+  const videoUrl = getMediaVideoUrl(videoMedia.id);
   const canFollow = Boolean(
     user &&
     post.user &&

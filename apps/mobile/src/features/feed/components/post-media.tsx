@@ -32,6 +32,7 @@ import {
   StyleSheet,
   Text,
   View,
+  useWindowDimensions,
 } from "react-native";
 import type { ViewStyle } from "react-native";
 
@@ -86,6 +87,7 @@ import {
   isFeedMediaActive,
   subscribeFeedMediaActivity,
   isAutoplayPost,
+  setAutoplayPostId,
   isPostVisible,
   subscribeAutoplayPost,
   subscribePostVisibility,
@@ -231,6 +233,12 @@ function SingleImage({
   onFailed: (id: string) => void;
   onPressMedia?: (index: number) => void;
 }) {
+  const viewport = useWindowDimensions();
+  const imageUri = mediaImageUrl(
+    apiBase,
+    media,
+    Math.min(viewport.width - 32, 640) * viewport.scale
+  );
   const stored =
     media.width && media.height && media.height > 0
       ? { h: media.height, w: media.width }
@@ -262,10 +270,7 @@ function SingleImage({
     >
       <ActivityFeedImage
         accessibilityLabel={media.altText ?? "Post image"}
-        cachePolicy={imageCachePolicy(
-          mediaImageUrl(apiBase, media),
-          isGifMedia(media)
-        )}
+        cachePolicy={imageCachePolicy(imageUri, isGifMedia(media))}
         contentFit="contain"
         placeholder={media.blurDataUrl ?? undefined}
         placeholderContentFit="contain"
@@ -286,7 +291,10 @@ function SingleImage({
             );
           }
         }}
-        source={{ uri: mediaImageUrl(apiBase, media) }}
+        source={{
+          headers: { Accept: "image/avif,image/webp,image/*" },
+          uri: imageUri,
+        }}
         style={
           portrait
             ? [styles.singlePortrait, { aspectRatio: ratio }]
@@ -488,9 +496,10 @@ function useFade(on: boolean, duration: number, easing: (t: number) => number) {
 // preference. Web's tile opens the post page on tap and plays on hover;
 // native has neither, so a lone video autoplays muted in the viewport (web's
 // autoPlay arrangement, all pills visible) and a tap toggles playback.
-function VideoTile({
+export function VideoTile({
   apiBase,
   autoPlayEnabled,
+  exclusiveAutoplay = false,
   media,
   onPressPreview,
   postId,
@@ -500,6 +509,8 @@ function VideoTile({
   // Only a lone video autoplays in the viewport; grid tiles stay
   // tap-to-play so a multi-video post does not blast them all at once.
   autoPlayEnabled?: boolean;
+  // Explore releases the previous decoder as soon as another preview owns playback.
+  exclusiveAutoplay?: boolean;
   media: FeedMedia;
   onPressPreview?: () => void;
   postId: string;
@@ -517,12 +528,19 @@ function VideoTile({
   const [hasPlayed, setHasPlayed] = useState(false);
   const prepareVideo =
     visible &&
+    (!exclusiveAutoplay || autoplayOwner) &&
     ((autoPlayEnabled === true && autoplayOwner) || engaged || hasPlayed);
   const player = useVideoPlayer(
-    prepareVideo ? mediaVideoUrl(apiBase, media.id) : null,
+    prepareVideo ? mediaVideoUrl(apiBase, media.id, media.hasHls) : null,
     (created) => {
       // oxlint-disable-next-line react/immutability -- muting is expo-video's documented player API; no setter exists
       created.muted = useVideoMuteStore.getState().isMuted;
+      // oxlint-disable-next-line react/immutability -- configure the native buffer as one object
+      created.bufferOptions = {
+        maxBufferBytes: 8 * 1024 * 1024,
+        minBufferForPlayback: 1.5,
+        preferredForwardBufferDuration: 8,
+      };
       // oxlint-disable-next-line react/immutability -- expo-video's documented player API; no setter exists
       created.timeUpdateEventInterval = 0.25;
     }
@@ -609,7 +627,7 @@ function VideoTile({
   // A paused native player still buffers and owns a decoder. Off-screen
   // cards use a null source; visible paused frames retain their loaded source.
   useEffect(() => {
-    if (!visible) {
+    if (!visible || (exclusiveAutoplay && !autoplayOwner)) {
       manualPausedRef.current = false;
       // oxlint-disable-next-line react/set-state-in-effect -- reset the frame latch when the external viewport releases this native source
       setFirstFrame(false);
@@ -632,7 +650,15 @@ function VideoTile({
     } else {
       player.pause();
     }
-  }, [autoPlayEnabled, autoplayOwner, engaged, player, prepareVideo, visible]);
+  }, [
+    autoPlayEnabled,
+    autoplayOwner,
+    engaged,
+    exclusiveAutoplay,
+    player,
+    prepareVideo,
+    visible,
+  ]);
 
   // Web fetches the WebVTT track once the preview is live; an empty track
   // falls back to spreading the transcript across the clip.
@@ -681,6 +707,9 @@ function VideoTile({
   const controlsOpacity = useFade(controlsVisible, 200, CSS_EASE);
 
   const togglePlayback = () => {
+    if (exclusiveAutoplay && visible && !autoplayOwner) {
+      setAutoplayPostId(postId);
+    }
     setEngaged(true);
     if (!prepareVideo) {
       // The source-bearing player is created on the next render. Its effect
@@ -827,7 +856,10 @@ function VideoTile({
           accessibilityLabel={isMuted ? "Unmute" : "Mute"}
           accessibilityRole="button"
           hitSlop={6}
-          onPress={toggleMute}
+          onPress={(event) => {
+            event.stopPropagation();
+            toggleMute();
+          }}
           style={({ pressed }) => [
             styles.mutePill,
             pressed && styles.pressedNudge,
@@ -850,7 +882,10 @@ function VideoTile({
           accessibilityLabel={isPlaying ? "Pause" : "Play"}
           accessibilityRole="button"
           hitSlop={6}
-          onPress={togglePlayback}
+          onPress={(event) => {
+            event.stopPropagation();
+            togglePlayback();
+          }}
           style={({ pressed }) => [
             styles.playToggle,
             pressed && styles.pressedNudge,
@@ -872,6 +907,7 @@ function VideoTile({
       </Animated.View>
       {media.aiGenerated ? <AiBadge bottom={44} /> : null}
       <VideoCaptions
+        compact={tile}
         cues={cues}
         enabled={showCaptions && (isVideoActive || isPlaying || engaged)}
         player={player}
@@ -924,10 +960,12 @@ function VideoTimePill({ player }: { player: VideoPlayer }) {
 }
 
 function VideoCaptions({
+  compact = false,
   cues,
   enabled,
   player,
 }: {
+  compact?: boolean;
   cues: TranscriptCue[];
   enabled: boolean;
   player: VideoPlayer;
@@ -958,7 +996,10 @@ function VideoCaptions({
     return null;
   }
   return (
-    <View pointerEvents="none" style={styles.captionRow}>
+    <View
+      pointerEvents="none"
+      style={[styles.captionRow, compact && styles.compactCaptionRow]}
+    >
       <View style={styles.captionBox}>
         <Text numberOfLines={2} style={styles.captionText}>
           {text}
@@ -1886,6 +1927,7 @@ const styles = StyleSheet.create({
     lineHeight: 15,
     textAlign: "center",
   },
+  compactCaptionRow: { bottom: 72 },
   fill: {
     bottom: 0,
     height: "100%",

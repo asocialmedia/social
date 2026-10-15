@@ -11,9 +11,9 @@ import {
   cancelMediaCleanup,
   COMMENT_RECEIVED_AURA,
   enqueueMediaAnalyze,
+  enqueuePostAnalyze,
   enqueueNotificationCreated,
   enqueueShitposterCheck,
-  generateLocalEmbedding,
   getPostDataQuery,
   HN_SHARE_BONUS_AURA,
   invalidateAuraSignals,
@@ -414,14 +414,11 @@ export async function submitPost(input: CreatePostInput) {
       // another transaction won the race and this post creation aborts (the
       // claim rolls back with the transaction).
       const postId = crypto.randomUUID();
-      const initialEmbedding = generateLocalEmbedding(
-        `${validatedInput.content} ${validatedInput.tags.join(" ")}`
-      );
       const post = await tx.orm.public.Posts.create({
         aura: 0,
         communityId,
         content: validatedInput.content,
-        embedding: initialEmbedding,
+        embedding: [],
         embeds: embedsJson,
         id: postId,
         isGust: validatedInput.isGust ?? false,
@@ -719,6 +716,12 @@ export async function submitPost(input: CreatePostInput) {
     }
 
     // The media is now attached to a post, so the abandoned-upload cleanup jobs must not delete it.
+    try {
+      await enqueuePostAnalyze(newPost.id);
+    } catch (error) {
+      console.error("Failed to enqueue post classification", error);
+    }
+
     // Enqueue media analyze only AFTER the transaction commits so a rollback does not leave an orphan job.
     for (const mediaId of validatedInput.mediaIds) {
       // oxlint-disable-next-line promise/prefer-await-to-then, promise/prefer-await-to-callbacks

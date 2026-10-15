@@ -26,7 +26,10 @@ import { loadInstallToken } from "@/lib/install-credentials";
 import { installFetchInterceptor } from "@/lib/install-fetch";
 import { finishPostEnter, postEnterAnimation } from "@/lib/navigation-motion";
 import { ResumeGate, ResumeSaver } from "@/lib/resume-gate";
-import { StartupPresentedContext } from "@/lib/startup-context";
+import {
+  StartupPresentedContext,
+  StartupResumePathContext,
+} from "@/lib/startup-context";
 import { prepareNativeStartup } from "@/lib/startup-native";
 import { initTelemetry } from "@/lib/telemetry";
 import { useAppTheme } from "@/theme";
@@ -125,6 +128,9 @@ export default function RootLayout() {
   }, []);
 
   const [localReady, setLocalReady] = useState(false);
+  const [startupResumePath, setStartupResumePath] = useState<string | null>(
+    null
+  );
   const [fontFallback, setFontFallback] = useState(false);
   const [routeReady, setRouteReady] = useState(false);
   const [presented, setPresented] = useState(false);
@@ -133,8 +139,9 @@ export default function RootLayout() {
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      await prepareNativeStartup();
+      const resumePath = await prepareNativeStartup();
       if (!cancelled) {
+        setStartupResumePath(resumePath);
         setLocalReady(true);
       }
     })();
@@ -180,126 +187,131 @@ export default function RootLayout() {
           <InstallProvider>
             <SessionProvider>
               <StartupPresentedContext.Provider value={presented}>
-                <ResumeGate onReady={markRouteReady} />
-                <ResumeSaver />
-                {/* Launch-time support check. The app it replaced downloaded a
+                <StartupResumePathContext.Provider value={startupResumePath}>
+                  <ResumeGate onReady={markRouteReady} />
+                  <ResumeSaver />
+                  {/* Launch-time support check. The app it replaced downloaded a
                 release APK and launched the system installer, which Play Store
                 policy forbids; this asks the server whether the running build is
                 still served and hands an out-of-date one to the store. Inside
                 the session provider so the check shares the API base. Deferred
                 past first paint: it is not needed to show cached content. */}
-                <Suspense fallback={null}>
-                  {deferredReady ? <SupportGate /> : null}
-                  {deferredReady ? <UnreadMessageObserver /> : null}
-                </Suspense>
-                {/* Native push registration + tap routing. Inside the session
+                  <Suspense fallback={null}>
+                    {deferredReady ? <SupportGate /> : null}
+                    {deferredReady ? <UnreadMessageObserver /> : null}
+                  </Suspense>
+                  {/* Native push registration + tap routing. Inside the session
                 provider so it can react to sign-in/out. */}
-                <PushRegistrar />
-                {/* Real-time session revocation listener (SSE stream). Terminates
+                  <PushRegistrar />
+                  {/* Real-time session revocation listener (SSE stream). Terminates
                 the local session immediately if revoked remotely or on 401. */}
-                <SessionRevocationGuard />
-                <Stack
-                  screenOptions={{
-                    animation: presented ? navigationAnimation : "none",
-                    // Keep later page transitions short; the restored route
-                    // itself is committed without animation beneath the splash.
-                    animationDuration: 200,
-                    contentStyle: { backgroundColor: theme.containerBg },
-                    // Frozen off-screen routes stop re-rendering while the
-                    // foreground animates, which is the main home-to-profile
-                    // jank source on low-end Android.
-                    freezeOnBlur: true,
-                    headerShown: false,
-                  }}
-                >
-                  <Stack.Screen name="index" options={{ animation: "none" }} />
-                  <Stack.Screen
-                    name="posts"
-                    options={{ animation: postEnterAnimation(presented) }}
-                    listeners={({ navigation }) => ({
-                      transitionEnd: (event) => {
-                        finishPostEnter(
-                          navigation.setOptions,
-                          event.data.closing,
-                          Platform.OS,
-                          reducedMotion
-                        );
-                      },
-                    })}
-                  />
-                  <Stack.Screen name="notifications" />
-                  <Stack.Screen name="bookmarks" />
-                  {/* Messages is a nested stack of its own (see messages/_layout.tsx):
+                  <SessionRevocationGuard />
+                  <Stack
+                    screenOptions={{
+                      animation: presented ? navigationAnimation : "none",
+                      // Keep later page transitions short; the restored route
+                      // itself is committed without animation beneath the splash.
+                      animationDuration: 200,
+                      contentStyle: { backgroundColor: theme.containerBg },
+                      // Frozen off-screen routes stop re-rendering while the
+                      // foreground animates, which is the main home-to-profile
+                      // jank source on low-end Android.
+                      freezeOnBlur: true,
+                      headerShown: false,
+                    }}
+                  >
+                    <Stack.Screen
+                      name="index"
+                      options={{ animation: "none" }}
+                    />
+                    <Stack.Screen
+                      name="posts"
+                      options={{ animation: postEnterAnimation(presented) }}
+                      listeners={({ navigation }) => ({
+                        transitionEnd: (event) => {
+                          finishPostEnter(
+                            navigation.setOptions,
+                            event.data.closing,
+                            Platform.OS,
+                            reducedMotion
+                          );
+                        },
+                      })}
+                    />
+                    <Stack.Screen name="notifications" />
+                    <Stack.Screen name="bookmarks" />
+                    {/* Messages is a nested stack of its own (see messages/_layout.tsx):
                     the conversation list, then one thread per conversation. Only
                     the group is registered here -- the thread lives inside that
                     layout, so naming it at this level would match no child. */}
-                  <Stack.Screen name="messages" />
-                  <Stack.Screen
-                    name="gusts"
-                    options={{
-                      animation: "fade_from_bottom",
-                      animationDuration: 250,
-                      contentStyle: { backgroundColor: "#000000" },
-                      presentation: "fullScreenModal",
-                    }}
-                  />
-                  <Stack.Screen
-                    name="camera"
-                    options={{
-                      animation: "fade_from_bottom",
-                      animationDuration: 250,
-                      contentStyle: { backgroundColor: "#000000" },
-                      presentation: "fullScreenModal",
-                    }}
-                  />
-                  <Stack.Screen
-                    name="users/[username]"
-                    options={{ animationDuration: 200 }}
-                  />
-                  <Stack.Screen name="users/[username]/followers" />
-                  <Stack.Screen name="users/[username]/following" />
-                  <Stack.Screen name="discover" />
-                  <Stack.Screen name="communities" />
-                  <Stack.Screen
-                    name="communities/create"
-                    options={{ animation: "none" }}
-                  />
-                  <Stack.Screen name="a/[slug]" />
-                  <Stack.Screen
-                    name="legal/[document]"
-                    options={{
-                      animation: "fade",
-                      contentStyle: { backgroundColor: "transparent" },
-                      presentation: "transparentModal",
-                    }}
-                  />
-                  <Stack.Screen name="hashtag/[tag]" />
-                  <Stack.Screen name="hackernews" />
-                  <Stack.Screen name="settings" />
-                  <Stack.Screen
-                    name="(auth)"
-                    options={{
-                      animation: "none",
-                    }}
-                  />
-                </Stack>
-                {/* Shown only when a mutating request needs the install credential
+                    <Stack.Screen name="messages" />
+                    <Stack.Screen
+                      name="gusts"
+                      options={{
+                        animation: "fade_from_bottom",
+                        animationDuration: 250,
+                        contentStyle: { backgroundColor: "#000000" },
+                        presentation: "fullScreenModal",
+                      }}
+                    />
+                    <Stack.Screen
+                      name="camera"
+                      options={{
+                        animation: "fade_from_bottom",
+                        animationDuration: 250,
+                        contentStyle: { backgroundColor: "#000000" },
+                        presentation: "fullScreenModal",
+                      }}
+                    />
+                    <Stack.Screen
+                      name="users/[username]"
+                      options={{ animationDuration: 200 }}
+                    />
+                    <Stack.Screen name="users/[username]/followers" />
+                    <Stack.Screen name="users/[username]/following" />
+                    <Stack.Screen name="discover" />
+                    <Stack.Screen name="communities" />
+                    <Stack.Screen
+                      name="communities/create"
+                      options={{ animation: "none" }}
+                    />
+                    <Stack.Screen name="a/[slug]" />
+                    <Stack.Screen
+                      name="legal/[document]"
+                      options={{
+                        animation: "fade",
+                        contentStyle: { backgroundColor: "transparent" },
+                        presentation: "transparentModal",
+                      }}
+                    />
+                    <Stack.Screen name="hashtag/[tag]" />
+                    <Stack.Screen name="hackernews" />
+                    <Stack.Screen name="settings" />
+                    <Stack.Screen
+                      name="(auth)"
+                      options={{
+                        animation: "none",
+                      }}
+                    />
+                  </Stack>
+                  {/* Shown only when a mutating request needs the install credential
                 and none is stored yet, so browsing never pays the cost. */}
-                <InstallVerificationGate
-                  sitekey={process.env.EXPO_PUBLIC_TURNSTILE_SITE_KEY}
-                />
-                {/* The post composer (opened from the dock's + and Respond) and
+                  <InstallVerificationGate
+                    sitekey={process.env.EXPO_PUBLIC_TURNSTILE_SITE_KEY}
+                  />
+                  {/* The post composer (opened from the dock's + and Respond) and
                   the app-wide toast stack. Deferred past first paint. */}
-                <Suspense fallback={null}>
-                  {deferredReady ? <ComposerModal /> : null}
-                </Suspense>
-                {/* Floating spotlight search modal, matching web's SpotlightProvider. */}
-                <Suspense fallback={null}>
-                  {deferredReady ? <SpotlightModal /> : null}
-                </Suspense>
-                <MediaPreviewLauncher />
-                <Toaster />
-                <StartupGate ready={routeReady} onPresented={markPresented} />
+                  <Suspense fallback={null}>
+                    {deferredReady ? <ComposerModal /> : null}
+                  </Suspense>
+                  {/* Floating spotlight search modal, matching web's SpotlightProvider. */}
+                  <Suspense fallback={null}>
+                    {deferredReady ? <SpotlightModal /> : null}
+                  </Suspense>
+                  <MediaPreviewLauncher />
+                  <Toaster />
+                  <StartupGate ready={routeReady} onPresented={markPresented} />
+                </StartupResumePathContext.Provider>
               </StartupPresentedContext.Provider>
             </SessionProvider>
           </InstallProvider>

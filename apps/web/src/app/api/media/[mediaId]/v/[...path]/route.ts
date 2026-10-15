@@ -1,9 +1,17 @@
+import { createHash } from "node:crypto";
+
 import { and, canViewCommunity, prisma } from "@asm/db";
-import { hlsBaseFromMasterKey } from "@asm/media";
+import {
+  acceptsAvif,
+  hlsBaseFromMasterKey,
+  IMAGE_DELIVERY_WIDTHS,
+  selectImageDerivative,
+} from "@asm/media";
 import { GetObjectCommand, S3ServiceException } from "@aws-sdk/client-s3";
 import { NextResponse } from "next/server";
 
 import { getSessionFromApi } from "@/lib/auth/session";
+import { recordDeliveryPayload } from "@/lib/media/delivery-metrics";
 import {
   decideMediaAccess,
   resolveOwningCommunity,
@@ -12,6 +20,9 @@ import { mediaError } from "@/lib/media/media-responses";
 import {
   DERIVATIVE_MIME_BY_EXT,
   parseVariantRequest,
+  hlsGeneration,
+  hlsGenerationKey,
+  pinHlsManifest,
 } from "@/lib/media/media-variants";
 import {
   resolveDenWallpaperConversationId,
@@ -188,6 +199,9 @@ export async function GET(
 
   try {
     let objectKey: string | null = null;
+    let derivativeMime: string | undefined;
+    let isFallback = false;
+    let generation: string | null = null;
 
     if ("hlsFile" in parsed) {
       const master = await prisma.orm.public.PostMediaDerivatives.select("key")
@@ -202,10 +216,40 @@ export async function GET(
       if (!master) {
         return mediaError("Not found", 404);
       }
-      objectKey = `${hlsBaseFromMasterKey(master.key)}/${parsed.hlsFile}`;
+      const requestedGeneration = new URL(request.url).searchParams.get("g");
+      generation = requestedGeneration ?? hlsGeneration(master.key);
+      objectKey = requestedGeneration
+        ? hlsGenerationKey(mediaId, requestedGeneration, parsed.hlsFile)
+        : `${hlsBaseFromMasterKey(master.key)}/${parsed.hlsFile}`;
+      if (!objectKey) {
+        return mediaError("Not found", 404);
+      }
+    } else if (
+      parsed.kind in IMAGE_DELIVERY_WIDTHS ||
+      parsed.kind === "orig-img"
+    ) {
+      const candidates = await prisma.orm.public.PostMediaDerivatives.select(
+        "key",
+        "kind",
+        "variant",
+        "sizeBytes",
+        "mimeType"
+      )
+        .where({ mediaId })
+        .all();
+      const selected = selectImageDerivative(
+        candidates,
+        parsed.kind,
+        parsed.variant,
+        acceptsAvif(request.headers.get("accept")) ||
+          new URL(request.url).searchParams.get("format") === "avif"
+      );
+      objectKey = selected?.key ?? null;
+      derivativeMime = selected?.mimeType;
     } else {
       const derivative = await prisma.orm.public.PostMediaDerivatives.select(
-        "key"
+        "key",
+        "mimeType"
       )
         .where((candidate) =>
           and(
@@ -216,13 +260,26 @@ export async function GET(
         )
         .first();
       objectKey = derivative?.key ?? null;
+      derivativeMime = derivative?.mimeType;
+      if (!objectKey && parsed.kind === "webm" && parsed.variant === "av1") {
+        const compatible = await prisma.orm.public.PostMediaDerivatives.select(
+          "key",
+          "mimeType"
+        )
+          .where({ kind: "mp4", mediaId, variant: "h264" })
+          .first();
+        objectKey = compatible?.key ?? null;
+        derivativeMime = compatible?.mimeType;
+      }
     }
 
     let mimeType: string;
     if (objectKey) {
       const extension = objectKey.split(".").pop()?.toLowerCase() ?? "";
       mimeType =
-        DERIVATIVE_MIME_BY_EXT[extension] ?? "application/octet-stream";
+        derivativeMime ??
+        DERIVATIVE_MIME_BY_EXT[extension] ??
+        "application/octet-stream";
     } else {
       // Graceful fallback: READY media without the requested derivative
       // (legacy rows, GIFs, exotic formats) serves its published original
@@ -231,6 +288,7 @@ export async function GET(
         return mediaError("Not found", 404);
       }
       objectKey = mappedOwnership.publishedKey ?? (mappedOwnership.key || null);
+      isFallback = true;
       if (!objectKey) {
         return mediaError("Not found", 404);
       }
@@ -246,16 +304,19 @@ export async function GET(
     let status = 200;
     const headers = new Headers();
     headers.set("Content-Type", mimeType);
+    headers.set("Vary", "Accept");
     // Only public post-linked media is immutable and safe to share-cache.
     // Everything else is viewer-gated - message media (membership + blocks can
     // be revoked at any time), a private community's media, and comment/draft
     // media - so it must never be stored: a cached copy would keep serving
     // after a block, unfriend, deletion, or membership revocation. This mirrors
     // the main serving route's policy so the two cannot drift.
-    const cacheControl =
-      mappedOwnership.postId && !isPrivateCommunityPost
-        ? "public, max-age=31536000, immutable, stale-while-revalidate=86400"
-        : "private, no-store";
+    let cacheControl = "private, no-store";
+    if (mappedOwnership.postId && !isPrivateCommunityPost) {
+      cacheControl = isFallback
+        ? "public, max-age=15, must-revalidate"
+        : "public, max-age=300, must-revalidate";
+    }
     headers.set("Cache-Control", cacheControl);
     // HLS playlists must not be cached aggressively by shared caches so
     // takedowns propagate quickly; segments are content-addressed anyway. Only
@@ -269,6 +330,18 @@ export async function GET(
     }
     headers.set("Accept-Ranges", "bytes");
     headers.set("X-Content-Type-Options", "nosniff");
+    const etag = `"${createHash("sha256").update(objectKey).digest("hex")}"`;
+    headers.set("ETag", etag);
+    if (
+      !range &&
+      request.headers
+        .get("if-none-match")
+        ?.split(",")
+        .some((value) => value.trim().replace(/^W\//, "") === etag) &&
+      cacheControl.startsWith("public")
+    ) {
+      return new NextResponse(null, { headers, status: 304 });
+    }
 
     if (range) {
       const upstream = await fetchRange(objectKey, range, request.signal);
@@ -302,7 +375,8 @@ export async function GET(
         new GetObjectCommand({
           Bucket: ASMOB_BUCKET,
           Key: objectKey,
-        })
+        }),
+        { abortSignal: request.signal }
       );
       if (!response.Body) {
         return mediaError("Not found", 404);
@@ -320,6 +394,21 @@ export async function GET(
           : (response.Body as ReadableStream<Uint8Array>);
     }
 
+    if (status === 200 && objectKey.endsWith(".m3u8") && generation) {
+      const playlist = pinHlsManifest(
+        await new Response(body).text(),
+        generation
+      );
+      headers.set(
+        "Content-Length",
+        String(new TextEncoder().encode(playlist).byteLength)
+      );
+      void recordDeliveryPayload(new TextEncoder().encode(playlist).byteLength);
+      return new NextResponse(playlist, { headers, status });
+    }
+    void recordDeliveryPayload(
+      Number(headers.get("Content-Length")) || undefined
+    );
     return new NextResponse(body, { headers, status });
   } catch (error) {
     // Client disconnected mid-stream (seek, scroll away, close): the request

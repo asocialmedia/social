@@ -49,7 +49,13 @@ export type ContentEvent =
 // enqueued.
 const queueInstances = new Map<string, Queue>();
 
-function getQueue(name: string): Queue {
+export async function closeQueueConnections(): Promise<void> {
+  const queues = [...queueInstances.values()];
+  queueInstances.clear();
+  await Promise.all(queues.map((queue) => queue.close()));
+}
+
+export function getQueue(name: string): Queue {
   let queue = queueInstances.get(name);
   if (!queue) {
     queue = new Queue(name, { connection: bullConnection() });
@@ -67,6 +73,7 @@ function getQueue(name: string): Queue {
 // bound and need the long lock duration.
 export const MEDIA_SCAN_QUEUE = "media-scan";
 export const MEDIA_PROCESS_QUEUE = "media-process";
+export const MEDIA_ANALYZE_QUEUE = "media-analyze";
 const CONTENT_EVENTS_QUEUE = "content-events";
 export const NOTIFICATIONS_QUEUE = "notifications";
 export const MESSAGE_SEARCH_LIVE_QUEUE = "message-search-live";
@@ -563,7 +570,7 @@ export async function enqueueMediaScan(
 
 export async function enqueueMediaProcess(
   mediaId: string,
-  options?: { jobIdSuffix?: string }
+  options?: { backfill?: boolean; jobIdSuffix?: string }
 ): Promise<void> {
   const queue = getQueue(MEDIA_PROCESS_QUEUE);
   // A custom jobId that still exists in Redis (retained completed/failed
@@ -577,10 +584,13 @@ export async function enqueueMediaProcess(
     "media-process",
     jobId,
     { mediaId },
-    mediaJobOptions(
-      "process",
-      options?.jobIdSuffix ? `${mediaId}-${options.jobIdSuffix}` : mediaId
-    )
+    {
+      ...mediaJobOptions(
+        "process",
+        options?.jobIdSuffix ? `${mediaId}-${options.jobIdSuffix}` : mediaId
+      ),
+      ...(options?.backfill ? { priority: 10 } : {}),
+    }
   );
 }
 
@@ -588,7 +598,7 @@ export async function enqueueMediaAnalyze(
   mediaId: string,
   options?: { semanticRefresh?: boolean }
 ): Promise<void> {
-  const queue = getQueue(MEDIA_PROCESS_QUEUE);
+  const queue = getQueue(MEDIA_ANALYZE_QUEUE);
   const suffix = options?.semanticRefresh ? "semantic-refresh-v2" : undefined;
   const jobKey = suffix ? `${mediaId}-${suffix}` : mediaId;
   await addWithFreshId(
@@ -596,7 +606,26 @@ export async function enqueueMediaAnalyze(
     "media-analyze",
     `analyze-${jobKey}`,
     { mediaId, semanticRefresh: options?.semanticRefresh ?? false },
-    mediaJobOptions("analyze", jobKey)
+    {
+      ...mediaJobOptions("analyze", jobKey),
+      priority: options?.semanticRefresh ? 10 : 1,
+    }
+  );
+}
+
+export async function enqueuePostAnalyze(
+  postId: string,
+  options?: { backfill?: boolean }
+): Promise<void> {
+  await addWithFreshId(
+    getQueue(MEDIA_ANALYZE_QUEUE),
+    "post-analyze",
+    `post-analyze-${postId}`,
+    { backfill: options?.backfill ?? false, postId },
+    {
+      ...mediaJobOptions("analyze", postId),
+      priority: options?.backfill ? 10 : 1,
+    }
   );
 }
 

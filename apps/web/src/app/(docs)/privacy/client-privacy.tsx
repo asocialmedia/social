@@ -14,6 +14,7 @@ const SECTIONS = [
   { id: "data-controller", label: "Data Controller & Scope" },
   { id: "data-collected", label: "Information We Collect" },
   { id: "how-we-use-data", label: "How We Use Your Information" },
+  { id: "media-analysis", label: "Media Analysis & Recommendations" },
   { id: "legal-bases", label: "Legal Bases for Processing" },
   { id: "cookies-storage", label: "Cookies & Local Storage" },
   { id: "subprocessors", label: "Service Providers" },
@@ -35,7 +36,7 @@ const COMMITMENTS = [
     title: "You own your content",
   },
   {
-    body: "We collect only what authenticates your account, hosts your feed, and protects the service against abuse.",
+    body: "We use account, content, and interaction data to operate the platform, improve accessibility and discovery, personalize feeds, and protect against abuse.",
     title: "Minimal footprint",
   },
   {
@@ -53,7 +54,7 @@ export default function PrivacyPolicyPage({
     <DocPage
       embedded={embedded}
       crossLink={{ href: "/toc", label: "Terms of Service" }}
-      effectiveDate="17 September 2026"
+      effectiveDate="15 October 2026"
       sections={SECTIONS}
       summary={
         <>
@@ -78,7 +79,7 @@ export default function PrivacyPolicyPage({
         </>
       }
       title="Privacy Policy"
-      version="2.0"
+      version="2.1"
     >
       <DocSection id="data-controller" title="Data Controller & Scope">
         <p>
@@ -89,11 +90,12 @@ export default function PrivacyPolicyPage({
         </p>
         <p>
           This Privacy Policy applies solely to the hosted platform at{" "}
-          <code>asocialmedia.cc</code>, its official APIs, and associated web
-          applications. If you choose to self-host an independent instance of
-          the open-source software repository, the operator of that independent
-          deployment acts as their own data controller, and this policy does not
-          govern their independent operation.
+          <code>asocialmedia.cc</code>, its official APIs, and its associated
+          web and official native applications. If you choose to self-host an
+          independent instance of the open-source software repository, the
+          operator of that independent deployment acts as their own data
+          controller, and this policy does not govern their independent
+          operation.
         </p>
         <p>
           For any privacy-related requests or inquiries, you may contact our
@@ -111,7 +113,7 @@ export default function PrivacyPolicyPage({
         <p>
           We categorize the information we collect into three categories:
           information you provide directly, information collected automatically
-          for operational security, and information we strictly do not collect.
+          for operating the service, and information we do not request.
         </p>
 
         <h3 className="mt-4 text-lg font-semibold">
@@ -154,22 +156,41 @@ export default function PrivacyPolicyPage({
             points (&quot;Aura&quot;), interaction counts, follower/following
             relationships, and notification history.
           </li>
+          <li>
+            <strong>Media Analysis Results:</strong> Text extracted from images,
+            speech transcripts and captions, inferred topics and safety labels,
+            provenance signals, and numerical representations of content
+            (&quot;embeddings&quot;).
+          </li>
+          <li>
+            <strong>Recommendation & Playback Signals:</strong> Feed
+            impressions, foreground viewing time, playback completion, buffering
+            and errors, saves, votes, and feedback such as &quot;not
+            interested.&quot; We may associate these events with your account,
+            the content shown, its feed position, and a ranking experiment to
+            personalize feeds and evaluate reliability and relevance.
+          </li>
         </ul>
 
         <h3 className="mt-4 text-lg font-semibold">
-          C. Information We Never Collect
+          C. Information We Do Not Request
         </h3>
         <ul className="list-disc space-y-1 pl-5">
           <li>
-            We do <strong>not</strong> collect financial, credit card, or
-            banking details (asocialmedia is a free community platform).
+            We do <strong>not</strong> ask for credit card or banking details to
+            use the free community platform.
           </li>
           <li>
-            We do <strong>not</strong> collect precise GPS geolocation.
+            We do <strong>not</strong> request precise GPS location from your
+            device. Uploaded files may contain location metadata; the media
+            pipeline removes supported metadata from public delivery copies.
           </li>
           <li>
-            We do <strong>not</strong> collect government IDs, biometric data,
-            or sensitive racial/ethnic categories.
+            We do <strong>not</strong> request government IDs, perform biometric
+            identification, or intentionally infer sensitive racial or ethnic
+            categories. Content you choose to upload can still contain sensitive
+            personal information and may undergo the media analysis described in
+            this policy.
           </li>
           <li>
             We do <strong>not</strong> buy or acquire third-party data broker
@@ -204,7 +225,45 @@ export default function PrivacyPolicyPage({
             (via IndexNow protocol) of newly published public posts so users can
             discover content across the web.
           </li>
+          <li>
+            <strong>Accessibility & Personalized Discovery:</strong> Extracting
+            text, generating captions and content labels, finding related posts,
+            ranking feeds, and evaluating recommendation changes using the
+            content and interaction signals described in this policy.
+          </li>
         </ul>
+      </DocSection>
+      <DocSection id="media-analysis" title="Media Analysis & Recommendations">
+        <p>
+          We use automated services to understand uploaded media and post text.
+          Depending on the feature, this can involve sending image derivatives
+          or sampled video frames to Google Cloud Vision for text extraction;
+          extracted audio to the Google Gemini API for speech transcription;
+          post text, extracted text, transcripts, and selected images or frames
+          to Cloudflare Workers AI for topic and safety classification; and
+          content text or selected media to Google Gemini for embeddings.
+          Processing may happen after publication and when existing content is
+          reprocessed. Embeddings represent content numerically; they are not
+          anonymous merely because they are numerical.
+        </p>
+        <p>
+          We combine these results with your interactions and preferences to
+          support captions, search, content labels, and personalized feeds.
+          Automated labels and recommendations can be inaccurate. An automated
+          explicit-content label is separate from a decision to remove content
+          or penalize an account. You may report incorrect results or contact us
+          to exercise the rights described below.
+        </p>
+        <p>
+          Content sent for analysis may itself contain personal information. The
+          providers receive the content needed for the relevant analysis; the
+          classification and embedding requests do not require your account
+          password or a copy of your full viewing history. Provider processing,
+          retention, and any permitted use to improve models depend on the
+          applicable service terms and account configuration described under
+          Service Providers. This policy does not promise that every provider
+          request has zero retention or is excluded from model improvement.
+        </p>
       </DocSection>
       <DocSection
         id="legal-bases"
@@ -225,7 +284,9 @@ export default function PrivacyPolicyPage({
           <li>
             <strong>Legitimate Interests (GDPR Art. 6(1)(f)):</strong> Operating
             a reliable, secure service; investigating platform abuse, fraud, or
-            spam; maintaining technical infrastructure and server stability.
+            spam; maintaining technical infrastructure and server stability; and
+            improving accessibility, content discovery, and recommendation
+            relevance, subject to applicable law and your right to object.
           </li>
           <li>
             <strong>Legal Obligation (GDPR Art. 6(1)(c)):</strong> Complying
@@ -276,19 +337,63 @@ export default function PrivacyPolicyPage({
           </tr>
         </DocTable>
 
-        <DocNote title="No advertising or tracking cookies">
+        <DocNote title="No advertising or cross-site marketing trackers">
           <p>
-            We do <strong>not</strong> deploy advertising cookies, cross-site
-            tracking beacons, or third-party behavioral fingerprinting scripts.
+            We do <strong>not</strong> deploy advertising cookies or cross-site
+            marketing trackers. Security services such as Cloudflare Turnstile
+            may process browser, device, and network signals to detect automated
+            abuse, as described under Service Providers.
           </p>
         </DocNote>
       </DocSection>
       <DocSection id="subprocessors" title="Service Providers & Subprocessors">
         <p>
-          We collaborate only with trusted infrastructure providers who adhere
-          to stringent security and privacy regulations:
+          We use service providers to operate the platform and process the data
+          needed for their functions. These include:
         </p>
         <ul className="list-disc space-y-1 pl-5">
+          <li>
+            <strong>Google Cloud Platform & Google Gemini:</strong> Cloud Vision
+            processes images and sampled frames for OCR. The Gemini API
+            processes audio, content text, and selected media for transcription
+            and embeddings. See the{" "}
+            <Link href="https://cloud.google.com/terms/cloud-privacy-notice">
+              Google Cloud Privacy Notice
+            </Link>
+            ,{" "}
+            <Link href="https://cloud.google.com/terms/data-processing-addendum">
+              Cloud Data Processing Addendum
+            </Link>
+            ,{" "}
+            <Link href="https://policies.google.com/privacy">
+              Google Privacy Policy
+            </Link>
+            , and{" "}
+            <Link href="https://ai.google.dev/gemini-api/terms">
+              Gemini API Additional Terms
+            </Link>
+            . Google distinguishes Cloud customer content from operational
+            service data, and Gemini&apos;s terms distinguish paid and unpaid
+            services. Depending on the applicable terms, unpaid Gemini
+            processing can permit model improvement and human review;
+            paid-service terms restrict use of submitted content for product
+            improvement. We do not treat all Google services as having identical
+            data-use rules.
+          </li>
+          <li>
+            <strong>Cloudflare:</strong> Workers AI processes content supplied
+            for topic and safety classification. Turnstile processes challenge
+            tokens and browser/device or network signals for bot protection. See
+            the{" "}
+            <Link href="https://www.cloudflare.com/privacypolicy/">
+              Cloudflare Privacy Policy
+            </Link>{" "}
+            and{" "}
+            <Link href="https://developers.cloudflare.com/workers-ai/platform/data-usage/">
+              Workers AI data-use terms
+            </Link>
+            .
+          </li>
           <li>
             <strong>Cloud Compute & Edge Infrastructure:</strong> Hosts our
             application servers, databases, and SSL termination.
@@ -309,6 +414,13 @@ export default function PrivacyPolicyPage({
             discoverability.
           </li>
         </ul>
+        <p>
+          The providers&apos; applicable privacy notices, service terms, and
+          data-processing agreements also describe how they handle data when
+          providing these services, including their own operational or security
+          data. They supplement this disclosure; they do not replace this policy
+          or remove asocialmedia&apos;s responsibility for its own processing.
+        </p>
         <p>
           We do not sell, rent, or monetize your information to any third party
           under any circumstance.
@@ -341,6 +453,15 @@ export default function PrivacyPolicyPage({
             expire and overwrite within a rolling 30-day window.
           </li>
         </ul>
+        <p>
+          Extracted text, transcripts, labels, embeddings, and recommendation
+          events may be stored separately from the original upload. Temporary
+          analysis caches and aggregate topic relationships can expire on a
+          different schedule. Our deletion controls do not establish the
+          retention period for a provider&apos;s independent security, abuse, or
+          service records; consult the linked service terms and contact us about
+          data-access or deletion requests involving provider processing.
+        </p>
       </DocSection>
       <DocSection
         id="your-rights"
@@ -452,10 +573,12 @@ export default function PrivacyPolicyPage({
         <p>
           Because asocialmedia operates globally, your information may be
           processed and stored on servers located outside of your country of
-          residence. Where personal data is transferred across international
-          borders, we ensure that appropriate safeguards (such as standard
-          contractual clauses or equivalent legal adequacy mechanisms) are in
-          place to maintain protection equivalent to applicable privacy laws.
+          residence, including by Google and Cloudflare when delivering the
+          services described above. Where personal data is transferred across
+          international borders, we ensure that appropriate safeguards (such as
+          standard contractual clauses or equivalent legal adequacy mechanisms)
+          are in place to maintain protection equivalent to applicable privacy
+          laws.
         </p>
       </DocSection>
       <DocSection

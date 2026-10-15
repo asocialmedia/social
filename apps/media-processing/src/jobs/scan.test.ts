@@ -707,7 +707,7 @@ describe("processMediaScan", () => {
       expect(readyData.detectedMime).toBe("video/mp4");
     });
 
-    test("av remux failure publishes the scanned bytes and does not claim a strip", async () => {
+    test("av remux failure stays private and retryable", async () => {
       declaredFixture.kind = "mp4";
       row = freshRow({
         claimedMime: "video/mp4",
@@ -717,19 +717,11 @@ describe("processMediaScan", () => {
       });
       failAvStrip = true;
 
-      const { CryptoHasher } = Bun;
-      const outcome = await processMediaScan({ mediaId: "m-fixture" });
-      expect(outcome.outcome).toBe("published");
-
-      // Fallback contract: still published, but the READY row must not
-      // claim the original was scrubbed.
-      const readyData = readyFlipData();
-      expect(readyData.exifStripped).toBe(false);
-
-      const hasher = new CryptoHasher("sha256");
-      hasher.update(MP4_FIXTURE);
-      expect(row?.sha256).toBe(hasher.digest("hex"));
-      expect(row?.detectedMime).toBe("video/mp4");
+      await expect(processMediaScan({ mediaId: "m-fixture" })).rejects.toThrow(
+        "remux exploded"
+      );
+      expect(row?.status).toBe("QUARANTINED");
+      expect(row?.publishedKey).toBeNull();
     });
   });
 

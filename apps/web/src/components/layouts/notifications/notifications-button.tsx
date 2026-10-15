@@ -8,6 +8,7 @@ import { usePathname } from "next/navigation";
 
 import { HeaderIconButton } from "@/components/styles/header-buttons";
 import kyInstance from "@/lib/ky";
+import { cn } from "@/lib/utils";
 
 interface NotificationsButtonProps {
   initialState: NotificationCountInfo;
@@ -40,7 +41,10 @@ export default function NotificationsButton({
       >
         <Link className="relative flex items-center" href="/notifications">
           <Bell
-            className={`h-5 w-5 ${isActive ? "text-primary" : "text-muted-foreground"}`}
+            className={cn(
+              "h-5 w-5",
+              isActive ? "text-primary fill-current" : "text-muted-foreground"
+            )}
           />
           {data.unreadCount > 0 && (
             <span className="bg-primary text-primary-foreground absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full text-[10px]">
@@ -58,7 +62,12 @@ export default function NotificationsButton({
       href="/notifications"
       icon={
         <>
-          <Bell className={`h-5 w-5 ${isActive ? "text-primary" : ""}`} />
+          <Bell
+            className={cn(
+              "h-5 w-5",
+              isActive ? "text-primary fill-current" : ""
+            )}
+          />
           {isActive && (
             <span className="bg-primary pointer-events-none absolute -bottom-2 left-1/2 h-1 w-1 -translate-x-1/2 rounded-full" />
           )}

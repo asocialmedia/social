@@ -17,9 +17,11 @@ import {
   verifyDeclaredMatchesContent,
 } from "@asm/media";
 import type { MediaScanJobData } from "@asm/media";
+import sharp from "sharp";
 
 import { resolveWorkerMediaLimits, workerEnv } from "../env";
 import { mediaLogger, withSpan } from "../log";
+import { recordMediaMetric } from "../metrics";
 import { inspectAssetProvenance } from "../provenance/reader";
 import { stampAiGenerated } from "../provenance/stamp";
 import { getS3 } from "../s3";
@@ -55,8 +57,8 @@ const METADATA_STRIPABLE_MIMES: ReadonlySet<string> = new Set([
 ]);
 
 // Families that carry EXIF/XMP but have no lossless structural stripper:
-// re-encode to JPEG (stripped by construction) so the published original
-// never leaks GPS. The 30-day quarantine copy preserves the raw for forensics.
+// encode lossless WebP without the source metadata. The exact upload stays
+// private for recovery and future processing.
 const REENCODE_STRIP_MIMES: ReadonlySet<string> = new Set([
   "image/avif",
   "image/heic",
@@ -177,6 +179,7 @@ export function processMediaScan(
       const strippedPath = `${tempPath}-stripped`;
       const stampedPath = `${tempPath}-c2pa`;
       const avStrippedPath = `${tempPath}-avstrip`;
+      const watermarkPath = `${tempPath}-watermark`;
       let reEncodedPath: string | null = null;
 
       try {
@@ -346,20 +349,20 @@ export function processMediaScan(
           return { detail: "lost claim", outcome: "skipped" };
         }
 
-        const extension = sanitizeExtension(detected.mime.split("/")[1]);
+        let publishedMime = detected.mime;
+        let extension = sanitizeExtension(publishedMime.split("/")[1]);
 
         // 5. Lossless metadata strip: EXIF (GPS!), XMP, IPTC and PNG text
         // containers never leave quarantine attached to served bytes. The
         // rewrite is structural, so pixels are untouched; ICC color profiles
-        // and any C2PA/JUMBF provenance chain survive. Failure publishes the
-        // scanned bytes unmodified rather than blocking the upload.
+        // and any C2PA/JUMBF provenance chain survive. Failures retry privately.
         let publishPath = tempPath;
         let exifStripped = false;
         let capturedOrientation: number | undefined;
         // Re-encoded fallback for image families that carry EXIF/XMP but have
-        // no lossless structural stripper: decode pixels and re-encode as JPEG
+        // no lossless structural stripper: decode pixels and encode lossless WebP
         // (stripped by construction) so the published original never leaks GPS.
-        // The 30-day quarantine copy preserves the raw for forensics.
+        // The private quarantine copy preserves the raw for forensics.
         const needsReEncodeStrip = REENCODE_STRIP_MIMES.has(detected.mime);
         if (METADATA_STRIPABLE_MIMES.has(detected.mime)) {
           try {
@@ -410,8 +413,9 @@ export function processMediaScan(
           } catch (error) {
             mediaLogger.warn(
               { error: String(error), mediaId },
-              "metadata stripping failed; publishing unmodified"
+              "metadata stripping failed; retaining private upload for retry"
             );
+            throw error;
           }
         }
         if (needsReEncodeStrip) {
@@ -421,13 +425,17 @@ export function processMediaScan(
             );
             // autoOrient so fallback isn't rotated; re-encode drops all
             // metadata by construction.
-            const oriented = new Bun.Image(reEncodeBytes, {
-              autoOrient: true,
-              maxPixels: SCAN_LIMITS.maxPixelCount,
-            });
-            const jpegBuf = await oriented.jpeg({ quality: 92 }).buffer();
-            reEncodedPath = `${tempPath}-reencode.jpg`;
-            await Bun.write(reEncodedPath, jpegBuf);
+            const encoded = await sharp(reEncodeBytes, {
+              animated: true,
+              limitInputPixels: SCAN_LIMITS.maxPixelCount,
+            })
+              .autoOrient()
+              .webp({ lossless: true })
+              .toBuffer();
+            reEncodedPath = `${tempPath}-reencode.webp`;
+            await Bun.write(reEncodedPath, encoded);
+            publishedMime = "image/webp";
+            extension = "webp";
             publishPath = reEncodedPath;
             exifStripped = true;
             mediaLogger.info(
@@ -453,9 +461,7 @@ export function processMediaScan(
         // with a lossless stream-copy remux. Packets are copied untouched, so
         // there is zero quality loss and the pass is I/O-fast. The scrub runs
         // BEFORE stamping so the published object is: scrubbed original +
-        // exactly one signed platform manifest. Failure publishes the scanned
-        // bytes unmodified rather than blocking the upload - the 30-day
-        // quarantine copy still holds the raw for forensics.
+        // exactly one signed platform manifest. A scrub failure retries privately.
         let avStripped = false;
         if (
           (detected.family === "VIDEO" || detected.family === "AUDIO") &&
@@ -477,19 +483,14 @@ export function processMediaScan(
           } catch (error) {
             mediaLogger.warn(
               { error: String(error), mediaId },
-              "av metadata strip failed; publishing scanned bytes"
+              "AV metadata stripping failed; retaining private upload for retry"
             );
+            throw error;
           }
         }
 
-        // 5c. Invisible watermark — tiled LSB, crop-resistant, applied to the
-        // stripped (or re-encoded) image bytes before signing. Images only:
-        // the embedder is an image codec (sharp); feeding it video bytes
-        // would decode nothing, silently skip the watermark AND buffer the
-        // whole file (up to maxVideoBytes) in worker RAM. Video/audio carry
-        // their identity through C2PA stamps + the DB row instead. Failure is
-        // best-effort: publish proceeds without watermark, DB remains
-        // authoritative.
+        // 5c. Embed an opaque asset ID without changing compressed pixels.
+        // Metadata helps locate a candidate; server-side matching is authoritative.
         if (detected.mime.startsWith("image/")) {
           const watermarkStart = performance.now();
           try {
@@ -506,13 +507,13 @@ export function processMediaScan(
               watermarkImageBuffer(
                 Buffer.from(sourceForWatermark),
                 payload,
-                SCAN_LIMITS.maxPixelCount
+                SCAN_LIMITS.maxPixelCount,
+                provenance?.verdict.aiGenerated === true
               ),
               workerEnv.IMAGE_WATERMARK_TIMEOUT_MS,
               "image watermark timed out"
             );
             if (watermarked) {
-              const watermarkPath = `${tempPath}-watermark`;
               await Bun.write(watermarkPath, watermarked);
               publishPath = watermarkPath;
               const watermarkMs = Math.round(
@@ -551,7 +552,7 @@ export function processMediaScan(
         const uploaderUsername = uploaderRecord?.username ?? null;
         let stamped = false;
         let stampKind: "ai" | "platform" | null = null;
-        if (workerEnv.C2PA_STAMP_ENABLED && isStampableForC2Pa(detected.mime)) {
+        if (workerEnv.C2PA_STAMP_ENABLED && isStampableForC2Pa(publishedMime)) {
           const hashedUploaderId = hashUserIdForProvenance(
             media.userId,
             workerEnv.WATERMARK_PEPPER ?? null
@@ -564,7 +565,7 @@ export function processMediaScan(
                     provenance.verdict.evidence[0]?.detail ?? "ai",
                   hashedUploaderId,
                   mediaId,
-                  mime: detected.mime,
+                  mime: publishedMime,
                   uploaderDisplayName,
                   uploaderUsername,
                 }),
@@ -583,7 +584,7 @@ export function processMediaScan(
                 stampPlatformProvenance(publishPath, stampedPath, {
                   hashedUploaderId,
                   mediaId,
-                  mime: detected.mime,
+                  mime: publishedMime,
                   uploaderDisplayName,
                   uploaderUsername,
                 }),
@@ -652,7 +653,7 @@ export function processMediaScan(
                 stamped,
               }
             : null,
-          detectedMime: detected.mime,
+          detectedMime: publishedMime,
           duplicateOf: existingDuplicate?.id ?? null,
           encoderVersion: MEDIA_ENCODER_VERSION,
           exifStripped: exifStripped || avStripped,
@@ -664,9 +665,13 @@ export function processMediaScan(
           size: totalBytes,
           status: "READY",
           techMetadata: {
+            ...(provenance?.sourceMediaId
+              ? { sourceMediaId: provenance.sourceMediaId }
+              : {}),
             avScanned: scanned,
             container: detected.container,
             family: detected.family,
+            sourceMime: detected.mime,
             ...(capturedOrientation
               ? { orientation: capturedOrientation }
               : {}),
@@ -685,6 +690,10 @@ export function processMediaScan(
         });
 
         if (secondFlip > 0) {
+          void recordMediaMetric(
+            "upload.playable",
+            Date.now() - new Date(String(media.createdAt)).getTime()
+          );
           // Dual-write legacy columns so today's serving route renders this
           // media immediately; variant serving supersedes in phase 2 without
           // touching this contract.
@@ -712,14 +721,10 @@ export function processMediaScan(
           );
         }
 
-        // Original retention: keep the exact uploaded bytes under quarantine/
-        // for the configured window (forensics, re-processing, incident
-        // review) - the retention sweep deletes them once it passes. Only the
-        // strip/stamp-free published copy would be byte-identical anyway, so
-        // for stripped or stamped media this is the sole surviving original.
-        // retentionDays <= 0 restores immediate deletion.
+        // Exact uploaded bytes stay private for future recovery and encoding.
+        // Time-limited retention is available only when preservation is disabled.
         const retentionDays = SCAN_LIMITS.originalRetentionDays;
-        if (retentionDays > 0) {
+        if (workerEnv.PRESERVE_ORIGINALS || retentionDays > 0) {
           mediaLogger.info(
             {
               bytes: totalBytes,
@@ -727,7 +732,7 @@ export function processMediaScan(
               mediaId,
               retainedKey: media.originalKey,
             },
-            "quarantine original retained for retention window"
+            "private uploaded original retained"
           );
         } else {
           await s3.delete(media.originalKey).catch(() => null);
@@ -744,7 +749,11 @@ export function processMediaScan(
         // failure marking happens in the worker's failed handler once BullMQ
         // exhausts attempts.
         await prisma.orm.public.PostMedia.where((candidate) =>
-          and(candidate.id.eq(mediaId), candidate.status.eq("SCANNING"))
+          and(
+            candidate.id.eq(mediaId),
+            candidate.status.in(["SCANNING", "PROCESSING"]),
+            candidate.publishedKey.isNull()
+          )
         ).updateAndCount({
           failureCode: "scan-failed",
           failureDetail: { message: String(error) },
@@ -752,7 +761,7 @@ export function processMediaScan(
         });
         throw error;
       } finally {
-        await Bun.$`rm -f ${tempPath} ${strippedPath} ${stampedPath} ${avStrippedPath} ${reEncodedPath ?? ""}`
+        await Bun.$`rm -f ${tempPath} ${watermarkPath} ${strippedPath} ${stampedPath} ${avStrippedPath} ${reEncodedPath ?? ""}`
           .quiet()
           .catch(() => null);
       }

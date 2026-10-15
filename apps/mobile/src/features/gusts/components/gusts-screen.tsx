@@ -63,7 +63,6 @@ import { SHOWS_SCROLL_INDICATOR } from "@/lib/scroll-indicator";
 import { logInfo, logWarn } from "@/lib/telemetry";
 import { useAppTheme } from "@/theme";
 
-import { GustViewSession } from "../lib/gust-view-session";
 import {
   gustShareUrl,
   markPostVisited,
@@ -316,7 +315,7 @@ export function GustsScreen() {
 
   // Signals for the active gust: views, history, recommendation dwell.
   const queueRef = useRef<RecommendationQueue | null>(null);
-  const sessionsRef = useRef(new Map<string, GustViewSession>());
+
   useEffect(() => {
     const queue = new RecommendationQueue(async (events) => {
       try {
@@ -330,12 +329,7 @@ export function GustsScreen() {
       }
     });
     queueRef.current = queue;
-    const sessions = sessionsRef.current;
     return () => {
-      for (const session of sessions.values()) {
-        session.stop();
-      }
-      sessions.clear();
       void queue.flush();
       queueRef.current = null;
     };
@@ -357,18 +351,6 @@ export function GustsScreen() {
         logWarn("gusts.visit_failed", { reason: reason(error) });
       }
     })();
-    const queue = queueRef.current;
-    if (!viewerId || !queue) {
-      return;
-    }
-    let session = sessionsRef.current.get(activeId);
-    if (!session) {
-      session = new GustViewSession(activeId, queue);
-      sessionsRef.current.set(activeId, session);
-    }
-    session.start();
-    const current = session;
-    return () => current.stop();
   }, [activeId, apiBase, focused, viewerId]);
 
   // The transcript belongs to one card; paging away closes it.
@@ -603,6 +585,15 @@ export function GustsScreen() {
         <GustCard
           apiBase={apiBase}
           captionsOn={captionsOn}
+          onRecommendationEvent={(event) =>
+            queueRef.current?.push(
+              event.eventType,
+              item.id,
+              event.durationMs,
+              undefined,
+              item.recommendation?.requestId
+            )
+          }
           eddiesOpen={eddiesPostId === item.id}
           previewProgress={eddiePreviewProgress}
           pageHeight={pageHeight}

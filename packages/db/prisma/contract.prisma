@@ -57,6 +57,8 @@ namespace public {
     embeds                                 Jsonb?
     createdAt                              Timestamp(3)           @default(now())
     embedding                              Float[]?
+    embeddingModel                         String?
+    embeddingFingerprint                   String?
     semanticTags                           String[]?
     parentPostId                           String?
     rootPostId                             String?
@@ -1041,6 +1043,7 @@ namespace public {
   }
 
   model RecommendationEvents {
+    rankingContext Json?
     id         String       @id(map: "recommendation_events_pkey") @default(uuid())
     userId     String
     postId     String

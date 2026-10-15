@@ -8,10 +8,13 @@
 // calls neither.
 
 export interface FeedMedia {
+  attributionPublic?: boolean;
   aiGenerated?: boolean | null;
   altText?: string | null;
   blurDataUrl?: string | null;
   generatedAltText?: string | null;
+  originalProvenanceId?: string | null;
+  hasHls?: boolean;
   height?: number | null;
   id: string;
   key?: string | null;
@@ -85,6 +88,7 @@ export interface FeedParentPost {
   content?: string | null;
   createdAt: string;
   embeds?: string | null;
+  explicitContent?: boolean;
   id?: string;
   isGust?: boolean;
   moderated?: boolean;
@@ -93,6 +97,7 @@ export interface FeedParentPost {
 }
 
 export interface FeedPost {
+  recommendation?: { requestId: string };
   followingSources?: {
     avatarUrl: string | null;
     id: string;

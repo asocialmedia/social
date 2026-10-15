@@ -1,0 +1,70 @@
+[
+  {
+    "id": "column.public.posts.embeddingFingerprint",
+    "label": "Add column \"embeddingFingerprint\" to \"posts\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "column",
+        "name": "embeddingFingerprint",
+        "table": "posts"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure column \"embeddingFingerprint\" is missing",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": ["public", "posts", "embeddingFingerprint"]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add column \"embeddingFingerprint\"",
+        "sql": "ALTER TABLE \"public\".\"posts\" ADD COLUMN \"embeddingFingerprint\" text"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify column \"embeddingFingerprint\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": ["public", "posts", "embeddingFingerprint"]
+      }
+    ]
+  },
+  {
+    "id": "column.public.posts.embeddingModel",
+    "label": "Add column \"embeddingModel\" to \"posts\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "column",
+        "name": "embeddingModel",
+        "table": "posts"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure column \"embeddingModel\" is missing",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": ["public", "posts", "embeddingModel"]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add column \"embeddingModel\"",
+        "sql": "ALTER TABLE \"public\".\"posts\" ADD COLUMN \"embeddingModel\" text"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify column \"embeddingModel\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": ["public", "posts", "embeddingModel"]
+      }
+    ]
+  }
+]

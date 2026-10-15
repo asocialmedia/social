@@ -12,20 +12,37 @@ import {
 import type { FeedMedia } from "../lib/feed-types";
 
 export function ConcealedMediaCover({
+  accessibilityLabel,
   apiBase,
   media,
 }: {
+  accessibilityLabel?: string;
   apiBase: string;
   media: FeedMedia;
 }) {
+  return (
+    <ConcealedImageCover
+      accessibilityLabel={accessibilityLabel}
+      uri={explicitCoverUrl(apiBase, media)}
+    />
+  );
+}
+
+export function ConcealedImageCover({
+  accessibilityLabel,
+  uri,
+}: {
+  accessibilityLabel?: string;
+  uri: string | null;
+}) {
   const { theme } = useAppTheme();
-  const uri = explicitCoverUrl(apiBase, media);
   const [staticUri, setStaticUri] = useState<string | null>(null);
   const supported = supportsExplicitBlur(Platform.OS, Platform.Version);
   const viewBlur = Platform.OS === "android" && supported;
   const ready = supported && Boolean(uri) && staticUri === uri;
   return (
     <View
+      accessibilityLabel={accessibilityLabel}
       pointerEvents="none"
       style={[StyleSheet.absoluteFill, { backgroundColor: theme.containerBg }]}
     >

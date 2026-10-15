@@ -3,6 +3,7 @@ import { GetObjectCommand, S3ServiceException } from "@aws-sdk/client-s3";
 import { NextResponse } from "next/server";
 
 import { getSessionFromApi } from "@/lib/auth/session";
+import { recordDeliveryPayload } from "@/lib/media/delivery-metrics";
 import {
   decideMediaAccess,
   resolveOwningCommunity,
@@ -626,6 +627,7 @@ export async function GET(
 
     // If storage honored the Range, respond 206 with the partial content and
     // the Content-Range header so the browser can resume/seek correctly.
+    void recordDeliveryPayload(response.ContentLength);
     const isPartial = range !== undefined && response.ContentRange;
     if (isPartial) {
       headers.set("Content-Range", response.ContentRange as string);

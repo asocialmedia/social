@@ -1,3 +1,5 @@
+import { EngagementSession } from "@asm/media";
+import type { EngagementEvent } from "@asm/media";
 import { GUST_SPEED_BOOST } from "@asm/ui/lib/gust-speed";
 import { useEvent, useEventListener } from "expo";
 // One full-screen gust, a 1:1 port of web's gust-card.tsx at phone size:
@@ -118,6 +120,7 @@ const AI_BADGE_SHADOWS =
 
 export interface GustCardProps {
   apiBase: string;
+  onRecommendationEvent?: (event: EngagementEvent) => void;
   captionsOn: boolean;
   eddiesOpen: boolean;
   previewProgress: SharedValue<number>;
@@ -145,6 +148,7 @@ function reason(error: unknown): string {
 
 export function GustCard({
   apiBase,
+  onRecommendationEvent,
   captionsOn,
   eddiesOpen,
   previewProgress,
@@ -166,12 +170,19 @@ export function GustCard({
   const insets = useSafeAreaInsets();
   const window = useWindowDimensions();
   const video = gustVideo(post);
-  const source = mountVideo && video ? gustVideoUrl(apiBase, video.id) : null;
+  const source =
+    mountVideo && video ? gustVideoUrl(apiBase, video.id, video.hasHls) : null;
   const isMuted = useGustMuteStore((state) => state.isMuted);
   const toggleMuted = useGustMuteStore((state) => state.toggleMuted);
   const player = useVideoPlayer(source, (created) => {
     // oxlint-disable-next-line react/immutability -- expo-video's documented player API; no setter exists
     created.loop = true;
+    // oxlint-disable-next-line react/immutability -- configure native buffering as one object
+    created.bufferOptions = {
+      maxBufferBytes: 8 * 1024 * 1024,
+      minBufferForPlayback: 1.5,
+      preferredForwardBufferDuration: 8,
+    };
     // oxlint-disable-next-line react/immutability -- expo-video's documented player API; no setter exists
     created.muted = useGustMuteStore.getState().isMuted;
     // oxlint-disable-next-line react/immutability -- expo-video's documented player API; no setter exists
@@ -224,8 +235,80 @@ export function GustCard({
   const posterUri = video ? mediaPosterUrl(apiBase, video.id) : null;
   const hasFrame = source !== null && frameSource === source;
 
+  const recommendationCallback = useRef(onRecommendationEvent);
+  useEffect(() => {
+    recommendationCallback.current = onRecommendationEvent;
+  }, [onRecommendationEvent]);
+  const engagement = useRef<EngagementSession | null>(null);
+  useEffect(() => {
+    const session = new EngagementSession(
+      (event) => recommendationCallback.current?.(event),
+      post.id
+    );
+    engagement.current = session;
+    return () => {
+      session.stop();
+      engagement.current = null;
+    };
+  }, [post.id]);
+  const playbackSample = useRef({
+    buffering: false,
+    duration: 0,
+    failed: false,
+    foreground: false,
+    playing: false,
+    position: 0,
+    video: true,
+    visible: false,
+  });
+  useEffect(() => {
+    if (engagement.current?.postId !== post.id) {
+      return;
+    }
+    playbackSample.current = {
+      ...playbackSample.current,
+      buffering: status === "loading",
+      duration,
+      failed: status === "error",
+      foreground: appActive,
+      playing: isPlaying,
+      visible: isActive && revealed && !suspended && Boolean(viewerId),
+    };
+    engagement.current?.sample(playbackSample.current, Date.now());
+    if (!isActive || suspended || !appActive) {
+      engagement.current?.stop(isActive === false);
+    }
+  }, [
+    appActive,
+    duration,
+    post.id,
+    isActive,
+    isPlaying,
+    revealed,
+    status,
+    suspended,
+    viewerId,
+  ]);
+  useEffect(() => {
+    if (
+      !isActive ||
+      suspended ||
+      !appActive ||
+      engagement.current?.postId !== post.id
+    ) {
+      return;
+    }
+    const timer = setInterval(
+      () => engagement.current?.sample(playbackSample.current, Date.now()),
+      250
+    );
+    return () => clearInterval(timer);
+  }, [appActive, isActive, suspended, post.id]);
+
   useEventListener(player, "timeUpdate", (payload) => {
     setCurrentTime(payload.currentTime);
+    playbackSample.current.position = payload.currentTime;
+    engagement.current?.sample(playbackSample.current, Date.now());
   });
   useEventListener(player, "sourceLoad", (payload) => {
     const size = payload.availableVideoTracks.find(

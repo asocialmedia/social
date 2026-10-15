@@ -82,7 +82,7 @@ function GustTab({
         "relative rounded-none px-3 pt-1.5 pb-2 text-sm transition-all duration-200 ease-out",
         // Resting tabs sit on video, so legibility leans on a text shadow;
         // the hover surface supplies its own contrast, so the shadow drops.
-        "[text-shadow:0_1px_4px_rgba(0,0,0,0.6)] hover:[text-shadow:none]",
+        "[text-shadow:0_1px_4px_rgba(0,0,0,0.6)] hover:text-shadow-none",
         active
           ? "font-semibold text-white"
           : cn("font-medium text-white/70", GUST_TAB_HOVER_CLASS)
@@ -706,6 +706,7 @@ export const ClientGusts: React.FC<ClientGustsProps> = () => {
                   <RecommendationTracker
                     className="h-full w-full"
                     postId={post.id}
+                    requestId={post.recommendation?.requestId}
                   >
                     <GustCard
                       commentsOpen={
@@ -737,7 +738,7 @@ export const ClientGusts: React.FC<ClientGustsProps> = () => {
         </div>
 
         {isCommentsOpen && posts[activeIndex] ? (
-          <div className="hidden h-full max-h-[calc(100dvh-5rem)] w-[420px] shrink-0 md:block">
+          <div className="hidden h-full max-h-[calc(100dvh-5rem)] w-105 shrink-0 md:block">
             <div className="reels-panel flex h-full w-full flex-col overflow-hidden rounded-3xl">
               <GustsCommentsDrawer
                 onClose={() => setIsCommentsOpen(false)}

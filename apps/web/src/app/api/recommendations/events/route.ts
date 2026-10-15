@@ -1,4 +1,10 @@
-import { consumeRateLimit, invalidateFypProfile, prisma } from "@asm/db";
+import {
+  consumeRateLimit,
+  invalidateFypProfile,
+  prisma,
+  resolveRankingContext,
+  rememberRankingImpression,
+} from "@asm/db";
 import { createLogger } from "@asm/logger";
 
 import { getSessionFromApi } from "@/lib/auth/session";
@@ -8,6 +14,9 @@ const MAX_DURATION_MS = 30 * 60 * 1000;
 const logger = createLogger({ serviceName: "api-recommendation-events" });
 const EVENT_TYPES = new Set([
   "IMPRESSION",
+  "BUFFER",
+  "PLAYBACK_ERROR",
+  "PLAYBACK_STARTUP",
   "VIEW_START",
   "VIEW_COMPLETE",
   "DWELL",
@@ -17,6 +26,8 @@ const EVENT_TYPES = new Set([
 ]);
 
 interface RecommendationEventInput {
+  eventId?: string;
+  requestId?: string;
   durationMs?: number;
   eventType: string;
   postId: string;
@@ -54,6 +65,14 @@ function parseEvent(value: unknown): RecommendationEventInput | null {
     return null;
   }
   return {
+    ...(typeof value.eventId === "string" &&
+    /^[a-z\d_-]{1,80}$/i.test(value.eventId)
+      ? { eventId: value.eventId }
+      : {}),
+    ...(typeof value.requestId === "string" &&
+    /^[a-f\d-]{36}$/i.test(value.requestId)
+      ? { requestId: value.requestId }
+      : {}),
     durationMs:
       typeof durationMs === "number" && Number.isFinite(durationMs)
         ? Math.max(0, Math.min(MAX_DURATION_MS, Math.trunc(durationMs)))
@@ -130,19 +149,40 @@ export async function POST(request: Request) {
   }
 
   const insertEvents = async (eventList: RecommendationEventInput[]) => {
-    // One impression per (user, post, day) is enforced by the unique dedupeKey.
+    // Served pages scope impressions to an exposure; legacy events use a UTC day.
     // The client re-sends impressions on re-render/scroll/refetch, so the same
     // key arrives repeatedly. A plain create() turns every repeat into a
     // Postgres ERROR log line (even when the app swallows it). Upsert on the
     // key is atomic (ON CONFLICT DO NOTHING) so repeats are silent, and
     // in-batch dedupe avoids firing N identical writes for the same key.
     const day = new Date().toISOString().slice(0, 10);
+    const contexts = new Map<
+      string,
+      Awaited<ReturnType<typeof resolveRankingContext>>
+    >();
+    const unique = new Map(
+      eventList.map((event) => [
+        `${event.requestId ?? ""}:${event.postId}`,
+        event,
+      ])
+    );
+    await Promise.all(
+      [...unique].map(async ([key, event]) => {
+        contexts.set(
+          key,
+          await resolveRankingContext(userId, event.postId, event.requestId)
+        );
+      })
+    );
+    const exposureKey = (event: RecommendationEventInput) =>
+      contexts.get(`${event.requestId ?? ""}:${event.postId}`)?.requestId ??
+      day;
     const seenImpressionKeys = new Set<string>();
     const deduped = eventList.filter((event) => {
       if (event.eventType !== "IMPRESSION") {
         return true;
       }
-      const key = `impression:${userId}:${event.postId}:${day}`;
+      const key = `impression:${userId}:${event.postId}:${exposureKey(event)}`;
       if (seenImpressionKeys.has(key)) {
         return false;
       }
@@ -151,15 +191,24 @@ export async function POST(request: Request) {
     });
 
     const insertEvent = async (event: RecommendationEventInput) => {
-      const dedupeKey =
-        event.eventType === "IMPRESSION"
-          ? `impression:${userId}:${event.postId}:${day}`
-          : null;
+      const rankingContext = contexts.get(
+        `${event.requestId ?? ""}:${event.postId}`
+      );
+      let dedupeKey: string | null = null;
+      if (event.eventType === "IMPRESSION") {
+        dedupeKey = `impression:${userId}:${event.postId}:${exposureKey(event)}`;
+      } else if (rankingContext && event.eventId) {
+        dedupeKey = `event:${userId}:${event.postId}:${rankingContext.requestId}:${event.eventId}`;
+      }
+      const attribution = rankingContext
+        ? { rankingContext: { ...rankingContext } }
+        : {};
       try {
         await (dedupeKey
           ? prisma.orm.public.RecommendationEvents.upsert({
               conflictOn: { dedupeKey },
               create: {
+                ...attribution,
                 dedupeKey,
                 durationMs: event.durationMs ?? null,
                 eventType: event.eventType,
@@ -171,6 +220,7 @@ export async function POST(request: Request) {
               update: {},
             })
           : prisma.orm.public.RecommendationEvents.create({
+              ...attribution,
               dedupeKey,
               durationMs: event.durationMs ?? null,
               eventType: event.eventType,
@@ -179,6 +229,9 @@ export async function POST(request: Request) {
               userId,
               value: event.value ?? null,
             }));
+        if (event.eventType === "IMPRESSION" && rankingContext) {
+          await rememberRankingImpression(userId, event.postId, rankingContext);
+        }
       } catch (error) {
         // Safety net for a race between two batches carrying the same key.
         if (!isDuplicateKeyError(error)) {
@@ -229,7 +282,13 @@ export async function POST(request: Request) {
     },
     "recommendation events accepted"
   );
-  if (acceptedEvents.some((event) => event.eventType === "NOT_INTERESTED")) {
+  if (
+    acceptedEvents.some((event) =>
+      ["NOT_INTERESTED", "DWELL", "VIEW_COMPLETE", "SKIP", "SHARE"].includes(
+        event.eventType
+      )
+    )
+  ) {
     void invalidateFypProfile(userId);
   }
 

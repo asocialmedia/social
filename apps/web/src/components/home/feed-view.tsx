@@ -273,7 +273,11 @@ export const FeedView: React.FC<FeedViewProps> = ({
             const hasThreadChild = !isLast;
 
             return (
-              <RecommendationTracker key={post.id} postId={post.id}>
+              <RecommendationTracker
+                key={post.id}
+                postId={post.id}
+                requestId={post.recommendation?.requestId}
+              >
                 <MemoizedPostCard
                   hasThreadChild={hasThreadChild}
                   hasThreadParent={hasThreadParent}

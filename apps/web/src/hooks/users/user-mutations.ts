@@ -146,7 +146,7 @@ export function useFollowUserMutation() {
           queryKey: QUERY_KEYS.followerInfo(userId),
         }),
         queryClient.invalidateQueries({ queryKey: QUERY_KEYS.suggestedUsers }),
-        queryClient.invalidateQueries({ queryKey: QUERY_KEYS.user(userId) }),
+        queryClient.invalidateQueries({ queryKey: ["user"] }),
         queryClient.invalidateQueries({
           queryKey: QUERY_KEYS.userProfile(userId),
         }),
@@ -261,7 +261,7 @@ export function useUnfollowUserMutation() {
           queryKey: QUERY_KEYS.followerInfo(userId),
         }),
         queryClient.invalidateQueries({ queryKey: QUERY_KEYS.suggestedUsers }),
-        queryClient.invalidateQueries({ queryKey: QUERY_KEYS.user(userId) }),
+        queryClient.invalidateQueries({ queryKey: ["user"] }),
         queryClient.invalidateQueries({
           queryKey: QUERY_KEYS.userProfile(userId),
         }),

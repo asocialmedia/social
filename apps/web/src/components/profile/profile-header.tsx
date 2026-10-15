@@ -16,6 +16,7 @@ import UserAvatar from "@/components/layouts/user/user-avatar";
 import UserBadge from "@/components/layouts/user/user-badge";
 import PostLinkedContent from "@/components/posts/content/post-linked-content";
 import CommunityRoleSummary from "@/components/profile/community-role-summary";
+import { ProfileMutualAvatars } from "@/components/profile/profile-mutual-avatars";
 import { useRequireAuth } from "@/hooks/auth/use-require-auth";
 import type { PrivateUserData } from "@/hooks/users/use-user-data";
 import { useUserDataQuery } from "@/hooks/users/use-user-data-query";
@@ -257,9 +258,9 @@ const ProfileHeader: React.FC<ProfileHeaderProps> = ({
         ) : null}
 
         {/* Stats + share, on the same row with the share pinned right */}
-        <div className="mt-2.5 flex items-center gap-4 pb-4 text-sm">
+        <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-2 pb-4 text-sm">
           <Link
-            className="group hover:bg-accent/50 rounded-md px-1 py-0.5 transition-colors"
+            className="group hover:bg-accent/50 inline-flex items-center gap-1 rounded-md px-1 py-0.5 whitespace-nowrap transition-colors"
             href={`/users/${liveUserData.username}/following`}
           >
             <span className="font-semibold">
@@ -268,9 +269,14 @@ const ProfileHeader: React.FC<ProfileHeaderProps> = ({
             <span className="text-muted-foreground group-hover:text-foreground transition-colors">
               Following
             </span>
+            <ProfileMutualAvatars
+              kind="following"
+              total={liveUserData.mutuals?.counts?.following}
+              users={liveUserData.mutuals?.following}
+            />
           </Link>
           <Link
-            className="group hover:bg-accent/50 rounded-md px-1 py-0.5 transition-colors"
+            className="group hover:bg-accent/50 inline-flex items-center gap-1 rounded-md px-1 py-0.5 whitespace-nowrap transition-colors"
             href={`/users/${liveUserData.username}/followers`}
           >
             <span className="font-semibold">
@@ -279,6 +285,11 @@ const ProfileHeader: React.FC<ProfileHeaderProps> = ({
             <span className="text-muted-foreground group-hover:text-foreground transition-colors">
               Followers
             </span>
+            <ProfileMutualAvatars
+              kind="followers"
+              total={liveUserData.mutuals?.counts?.followers}
+              users={liveUserData.mutuals?.followers}
+            />
           </Link>
           <span
             className="inline-flex items-center gap-1.5 font-bold"

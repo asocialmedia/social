@@ -56,6 +56,7 @@ import {
 } from "../lib/visible-posts";
 import { consumeFeedTop, feedCache } from "../state/feed-store";
 import { useFeedTab } from "../state/use-feed";
+import { useFeedImpressions } from "../state/use-feed-impressions";
 import { useVideoCaptionsStore } from "../state/video-captions-store";
 import { FeedSkeleton, FeedSkeletonCard } from "./feed-skeleton";
 import { buildMoreEntries, MoreMenu } from "./more-menu";
@@ -195,6 +196,8 @@ export const FeedList = memo(
       status,
       undoDismiss,
     } = useFeedTab({ active: isActive, enabled, userId, variant });
+
+    useFeedImpressions(posts, latestVisibleRef, isActive, user?.id);
 
     const overflow = usePostOverflow({
       onDeleted: (postId) => {

@@ -4,12 +4,18 @@
 // never block or fail an upload.
 
 import type { AiProvenanceVerdict } from "@asm/media";
-import { detectAiFromManifestStore } from "@asm/media";
+import {
+  detectAiFromManifestStore,
+  detectAiFromXmp,
+  readMediaIdentityXmp,
+} from "@asm/media";
 import { Reader } from "@contentauth/c2pa-node";
+import sharp from "sharp";
 
 import { mediaLogger } from "../log";
 
 export interface AssetProvenance {
+  sourceMediaId?: string | null;
   claimGenerator: string | null;
   // True when the SDK validated signatures against its trust list.
   signatureTrusted: boolean;
@@ -21,6 +27,28 @@ export async function inspectAssetProvenance(
   mime: string
 ): Promise<AssetProvenance | null> {
   let reader: Reader | null = null;
+  let xmpVerdict = detectAiFromXmp();
+  let sourceMediaId: string | null = null;
+  if (mime.startsWith("image/")) {
+    try {
+      const metadata = await sharp(filePath, {
+        limitInputPixels: 100_000_000,
+      }).metadata();
+      xmpVerdict = detectAiFromXmp(metadata.xmp?.toString());
+      sourceMediaId = readMediaIdentityXmp(metadata.xmp?.toString());
+    } catch {
+      // Unsupported image containers can still carry a C2PA manifest.
+    }
+  }
+  const xmpResult =
+    xmpVerdict.aiGenerated || sourceMediaId
+      ? {
+          claimGenerator: null,
+          signatureTrusted: false,
+          sourceMediaId,
+          verdict: xmpVerdict,
+        }
+      : null;
   try {
     reader = await Reader.fromAsset(
       { mimeType: mime, path: filePath },
@@ -51,21 +79,24 @@ export async function inspectAssetProvenance(
         "unexpected C2PA inspection failure"
       );
     }
-    return null;
+    return xmpResult;
   }
   if (!reader) {
-    return null;
+    return xmpResult;
   }
 
   const active = reader.getActive();
   if (!active) {
-    return null;
+    return xmpResult;
   }
 
   const verdict = detectAiFromManifestStore(reader.json());
+  verdict.evidence.push(...xmpVerdict.evidence);
+  verdict.aiGenerated ||= xmpVerdict.aiGenerated;
   return {
     claimGenerator: active.claim_generator_info?.[0]?.name ?? null,
     signatureTrusted: false,
+    sourceMediaId,
     verdict,
   };
 }

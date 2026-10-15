@@ -25,15 +25,35 @@ if (import.meta.main) {
 
   type Telemetry = ReturnType<typeof initTelemetry>;
 
-  const { and, MEDIA_PROCESS_QUEUE, MEDIA_SCAN_QUEUE, prisma } =
-    await import("@asm/db");
+  const {
+    and,
+    closeQueueConnections,
+    getQueue,
+    getMediaAnalysisCoverage,
+    getMediaDeliveryMetrics,
+    getPlaybackMetrics,
+    redis,
+    MEDIA_PROCESS_QUEUE,
+    MEDIA_ANALYZE_QUEUE,
+    MEDIA_SCAN_QUEUE,
+    prisma,
+  } = await import("@asm/db");
   const { MEDIA_JOB_NAMES } = await import("@asm/media");
-  const { Worker } = await import("bullmq");
+  const { Worker, DelayedError } = await import("bullmq");
+  const { ClefDeferredError, withAnalysisLane } =
+    await import("./analyze/clef");
+  const { ProviderBudgetDeferredError, providerBudgetSnapshot } =
+    await import("./analyze/provider-budget");
+  const { OcrDeferredError } = await import("./analyze/ocr");
+  const { processPostAnalyze } = await import("./jobs/analyze-post");
   const { processMediaScan } = await import("./jobs/scan");
   const { processMedia } = await import("./jobs/process");
   const { processMediaCleanup } = await import("./jobs/cleanup");
   const { processMediaAnalyze } = await import("./jobs/analyze");
   const { workerEnv } = await import("./env");
+  const { getS3 } = await import("./s3");
+  const { withTimeout } = await import("./transcode/ffmpeg");
+  const { mediaMetricSnapshot } = await import("./metrics");
   const { registerSweepSchedulers } = await import("./sweeps");
 
   let running = true;
@@ -82,7 +102,22 @@ if (import.meta.main) {
           return await processMedia(job.data as { mediaId: string });
         }
         case MEDIA_JOB_NAMES.analyze: {
-          return await processMediaAnalyze(job.data as MediaAnalyzeJobData);
+          try {
+            return await withAnalysisLane(
+              Boolean(job.data.semanticRefresh),
+              () => processMediaAnalyze(job.data as MediaAnalyzeJobData)
+            );
+          } catch (error) {
+            if (
+              error instanceof ClefDeferredError ||
+              error instanceof OcrDeferredError ||
+              error instanceof ProviderBudgetDeferredError
+            ) {
+              await job.moveToDelayed(error.retryAt, job.token);
+              throw new DelayedError();
+            }
+            throw error;
+          }
         }
         default: {
           throw new Error(`Unknown media job: ${job.name}`);
@@ -96,6 +131,46 @@ if (import.meta.main) {
       // Process worker needs a long lock so it isn't considered stalled.
       lockDuration: 5 * 60 * 1000,
       stalledInterval: 30_000,
+    }
+  );
+
+  // Model/API latency must not occupy the slots that create playable media.
+  // Keep the legacy analyze case above while pre-deploy jobs drain.
+  const analyzeWorker = new Worker(
+    MEDIA_ANALYZE_QUEUE,
+    async (job) => {
+      try {
+        if (job.name === "post-analyze") {
+          return await withAnalysisLane(Boolean(job.data.backfill), () =>
+            processPostAnalyze(job.data as { postId: string })
+          );
+        }
+        if (job.name !== MEDIA_JOB_NAMES.analyze) {
+          throw new Error(`Unknown analyze job: ${job.name}`);
+        }
+        return await withAnalysisLane(Boolean(job.data.semanticRefresh), () =>
+          processMediaAnalyze(job.data as MediaAnalyzeJobData)
+        );
+      } catch (error) {
+        if (
+          error instanceof ClefDeferredError ||
+          error instanceof OcrDeferredError ||
+          error instanceof ProviderBudgetDeferredError
+        ) {
+          await job.moveToDelayed(error.retryAt, job.token);
+          mediaLogger.warn(
+            { jobId: job.id, reason: error.message, retryAt: error.retryAt },
+            "Media analysis deferred"
+          );
+          throw new DelayedError();
+        }
+        throw error;
+      }
+    },
+    {
+      concurrency: 1,
+      connection: bullConnection(),
+      lockDuration: 5 * 60 * 1000,
     }
   );
 
@@ -194,6 +269,10 @@ if (import.meta.main) {
 
   scanWorker.on("failed", handleFailed);
   processWorker.on("failed", handleFailed);
+  analyzeWorker.on("failed", handleFailed);
+  analyzeWorker.on("error", (error) =>
+    mediaLogger.error({ error: String(error) }, "analyze worker error")
+  );
 
   // "error" fires on connection problems (Redis drops, auth failures) that
   // do not fail any specific job - without this listener a wedged worker
@@ -215,9 +294,88 @@ if (import.meta.main) {
     mediaLogger.debug({ jobId: job.id, name: job.name }, "media job completed");
   });
 
-  // Minimal liveness surface for container orchestration.
+  // Liveness is separate from readiness so dependency outages do not look
+  // healthy or force a restart loop while Redis/database recover.
   const healthServer = Bun.serve({
-    fetch() {
+    async fetch(request) {
+      if (new URL(request.url).pathname === "/metrics") {
+        try {
+          const queues = await Promise.all(
+            [MEDIA_SCAN_QUEUE, MEDIA_PROCESS_QUEUE, MEDIA_ANALYZE_QUEUE].map(
+              async (name) => {
+                const queue = getQueue(name);
+                const oldest = await queue.getJobs(
+                  ["wait", "prioritized", "delayed"],
+                  0,
+                  99,
+                  true
+                );
+                return {
+                  counts: await queue.getJobCounts(
+                    "wait",
+                    "prioritized",
+                    "delayed",
+                    "active",
+                    "failed"
+                  ),
+                  name,
+                  pendingSampleSize: oldest.length,
+                  sampledOldestPendingAgeMs: oldest.length
+                    ? Math.max(
+                        ...oldest.map((job) => Date.now() - job.timestamp)
+                      )
+                    : 0,
+                };
+              }
+            )
+          );
+          return Response.json({
+            coverage: await getMediaAnalysisCoverage(),
+            delivery: await getMediaDeliveryMetrics(),
+            latency: await mediaMetricSnapshot(),
+            playback: await getPlaybackMetrics(),
+            queues,
+            quota: {
+              dailyLimitNeurons: workerEnv.CLEF_DAILY_NEURONS,
+              providers: await providerBudgetSnapshot(),
+              reservedOrUsedNeurons: Number(
+                await redis.get(
+                  `media:clef:${workerEnv.CLOUDFLARE_ACCOUNT_ID}:neurons:${new Date().toISOString().slice(0, 10)}`
+                )
+              ),
+            },
+          });
+        } catch {
+          return Response.json(
+            { error: "Metrics unavailable" },
+            { status: 503 }
+          );
+        }
+      }
+      if (new URL(request.url).pathname === "/ready") {
+        try {
+          await withTimeout(
+            Promise.all([
+              redis.ping(),
+              getS3().list({ maxKeys: 1 }),
+              prisma.orm.public.PostMedia.select("id").limit(1).all(),
+            ]),
+            2000,
+            "readiness timed out"
+          );
+          const ready =
+            running &&
+            scanWorker.isRunning() &&
+            processWorker.isRunning() &&
+            analyzeWorker.isRunning();
+          return Response.json(
+            { status: ready ? "ready" : "not-ready" },
+            { status: ready ? 200 : 503 }
+          );
+        } catch {
+          return Response.json({ status: "not-ready" }, { status: 503 });
+        }
+      }
       return Response.json({
         clamav: workerEnv.CLAMAV_HOST ? "configured" : "disabled",
         status: running ? "ok" : "shutting-down",
@@ -236,8 +394,10 @@ if (import.meta.main) {
     await Promise.allSettled([
       scanWorker.close(),
       processWorker.close(),
+      analyzeWorker.close(),
       sweepWorker.close(),
     ]);
+    await closeQueueConnections();
     await (telemetry as Telemetry).shutdown().catch(() => null);
     process.exit(0);
   };

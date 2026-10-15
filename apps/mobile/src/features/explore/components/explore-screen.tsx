@@ -1,5 +1,5 @@
 import { FlashList } from "@shopify/flash-list";
-import type { FlashListRef } from "@shopify/flash-list";
+import type { FlashListRef, ViewToken } from "@shopify/flash-list";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { useIsFocused, useLocalSearchParams, useRouter } from "expo-router";
@@ -11,6 +11,7 @@ import {
   Plus,
 } from "lucide-react-native";
 import {
+  memo,
   useCallback,
   useEffect,
   useMemo,
@@ -28,13 +29,15 @@ import {
   Text,
   View,
 } from "react-native";
-import type {
-  NativeScrollEvent,
-  NativeSyntheticEvent,
-  ScrollViewProps,
-} from "react-native";
+import type { ScrollViewProps } from "react-native";
 import { GestureDetector } from "react-native-gesture-handler";
+import {
+  createAnimatedComponent,
+  useAnimatedScrollHandler,
+  useSharedValue,
+} from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { scheduleOnRN } from "react-native-worklets";
 
 import noFollowImage from "@/assets/images/nofollow.png";
 import noMediaImage from "@/assets/images/nomedia.png";
@@ -44,12 +47,19 @@ import { Gradient3D } from "@/components/surface/gradient-3d";
 import { authClient } from "@/features/auth/lib/auth-client";
 import { useInstall } from "@/features/auth/state/install";
 import { useSessionContext } from "@/features/auth/state/session";
+import { ConcealedMediaCover } from "@/features/feed/components/concealed-media-cover";
 import { FeedPager } from "@/features/feed/components/feed-pager";
 import { NewContentPill } from "@/features/feed/components/new-content-pill";
 import type { PillAuthor } from "@/features/feed/components/new-content-pill";
+import { FeedMediaScope } from "@/features/feed/components/post-media";
 import { findUnseenItems } from "@/features/feed/lib/feed-types";
 import type { FeedPost } from "@/features/feed/lib/feed-types";
 import { mediaGridImageUrl } from "@/features/feed/lib/media-url";
+import {
+  setAutoplayPostId,
+  setFeedMediaActive,
+  setVisiblePostIds,
+} from "@/features/feed/lib/visible-posts";
 import {
   EXPLORE_TABS,
   resolveExploreTab,
@@ -85,6 +95,7 @@ import {
   mutateExploreFollow,
 } from "../lib/explore-api";
 import type { ExploreUser } from "../lib/explore-api";
+import { selectExploreAutoplayPost } from "../lib/explore-autoplay";
 import { exploreCache, exploreCacheKey } from "../lib/explore-cache";
 import type { ExploreData } from "../lib/explore-cache";
 import { hydrateExploreCache } from "../lib/explore-cache-native";
@@ -102,6 +113,17 @@ const PROBE_INTERVAL_MS = 45_000;
 type ExploreItem =
   | { kind: "post"; post: FeedPost }
   | { kind: "user"; user: ExploreUser };
+
+const AnimatedExploreList = createAnimatedComponent(FlashList<ExploreItem>);
+const MAINTAIN_POSITION = { disabled: true };
+const VIDEO_VIEWABILITY = {
+  itemVisiblePercentThreshold: 70,
+  minimumViewTime: 300,
+};
+
+function itemType(item: ExploreItem): ExploreItem["kind"] {
+  return item.kind;
+}
 
 function itemKey(item: ExploreItem): string {
   return `${item.kind}-${item.kind === "post" ? item.post.id : item.user.id}`;
@@ -136,7 +158,7 @@ export function ExploreScreen() {
     storedDiscovery,
     memoryReady
   );
-  const tabs = exploreFeedTabs(discovery);
+  const tabs = useMemo(() => exploreFeedTabs(discovery), [discovery]);
   useEffect(() => {
     if (
       memoryReady &&
@@ -148,13 +170,13 @@ export function ExploreScreen() {
   }, [activeTab, memoryReady, setExploreTab, storedDiscovery?.value]);
   const selectTab = useCallback(
     (next: ExploreTab) => {
-      if (!EXPLORE_TABS.has(next) || next === activeTab) {
+      if (!EXPLORE_TABS.has(next)) {
         return;
       }
       setExploreTab(next);
       router.setParams({ tab: next });
     },
-    [activeTab, router, setExploreTab]
+    [router, setExploreTab]
   );
   const activeIndex = explorePageIndex(activeTab);
   const changeIndex = useCallback(
@@ -176,7 +198,11 @@ export function ExploreScreen() {
       />
       {showGuestBar ? <ExploreGuestSearch /> : null}
       {memoryReady ? (
-        <FeedPager activeIndex={activeIndex} onIndexChange={changeIndex}>
+        <FeedPager
+          activeIndex={activeIndex}
+          onIndexChange={changeIndex}
+          publishOnSettle
+        >
           {tabs.map((tab, index) =>
             index === 0 ? (
               <View
@@ -196,12 +222,17 @@ export function ExploreScreen() {
                       { opacity: feed === discovery ? 1 : 0 },
                     ]}
                   >
-                    <ExploreTabContent
+                    <ExploreDiscoveryContent
                       activeTab={feed}
+                      selected={feed === discovery}
                       isActive={
                         isFocused && activeIndex === 0 && feed === discovery
                       }
-                      enabled={isFocused && Math.abs(activeIndex) <= 1}
+                      enabled={
+                        isFocused &&
+                        feed === discovery &&
+                        Math.abs(activeIndex) <= 1
+                      }
                       selectTab={selectTab}
                       bottomInset={showGuestBar ? 176 : 96}
                     />
@@ -244,568 +275,468 @@ const EMPTY_DATA: ExploreData = {
   users: [],
 };
 
-function ExploreTabContent({
-  activeTab,
-  isActive,
-  enabled,
-  selectTab,
-  bottomInset,
-}: {
-  activeTab: ExploreTab;
-  isActive: boolean;
-  enabled: boolean;
-  selectTab: (tab: ExploreTab) => void;
-  bottomInset: number;
-}) {
-  const router = useRouter();
-  const { isPending, user } = useSessionContext();
-  const viewerId = user?.id;
-  const { runWithInstallToken } = useInstall();
-  const { theme } = useAppTheme();
-  const deferredSearch = "";
-  const apiBase = getApiBaseUrl();
-  const cacheKey = exploreCacheKey(
-    apiBase,
-    viewerId,
-    activeTab,
-    deferredSearch
-  );
-  const resource = useSyncExternalStore(exploreCache.subscribe, () =>
-    exploreCache.read(cacheKey)
-  );
-  const { posts, users, gusts, nextCursor } = resource.data ?? EMPTY_DATA;
-  let status: "error" | "loading" | "success" = "loading";
-  if (resource.data) {
-    status = "success";
-  } else if (resource.error) {
-    status = "error";
+// Do not construct the other discovery feed until it has actually been selected.
+// Once visited, keep its recycler and position for an instant return.
+function ExploreDiscoveryContent({
+  selected,
+  ...props
+}: Parameters<typeof ExploreTabContent>[0] & { selected: boolean }) {
+  const [visited, setVisited] = useState(selected);
+  if (selected && !visited) {
+    setVisited(true);
   }
-  const refreshing = resource.pending === "refresh";
-  const loadingMore = resource.pending === "append";
-  const [newItems, setNewItems] = useState<FeedPost[]>([]);
-  const scrollViewRef = useRef<FlashListRef<ExploreItem>>(null);
-  const [isScrolledDown, setIsScrolledDown] = useState(false);
-  const isScrolledRef = useRef(false);
-  const restoredKey = useRef<string | null>(null);
-  const initialOffset = useMemo(
-    () => exploreCache.scrollOffset(cacheKey),
-    [cacheKey]
-  );
+  return visited || selected ? <ExploreTabContent {...props} /> : null;
+}
 
-  const load = useCallback(
-    async (cursor: string | null, append: boolean, refresh = false) => {
-      if (!viewerId && activeTab === "for-you") {
-        return;
-      }
-      const replacementMode = refresh ? "refresh" : "initial";
-      if (!append && !refresh && exploreCache.isFresh(cacheKey)) {
-        logInfo("explore.cache_hit", { tab: activeTab });
-      }
-      await exploreCache.load(
-        cacheKey,
-        async () => {
-          logInfo("explore.page_request", {
-            append,
-            refresh,
-            searching: Boolean(deferredSearch),
-            tab: activeTab,
-          });
-          const options = { apiBase, cookie: await authClient.getCookie() };
-          const [page, topGusts] = await Promise.all([
-            activeTab === "people"
-              ? fetchExplorePeople(
-                  deferredSearch,
-                  Boolean(viewerId),
-                  options,
-                  refresh
-                )
-              : fetchExplorePage(activeTab, deferredSearch, cursor, options),
-            !append && (activeTab === "for-you" || activeTab === "trending")
-              ? fetchExploreTopGusts(options)
-              : Promise.resolve([]),
-          ]);
-          return { ...page, gusts: topGusts };
-        },
-        append ? "append" : replacementMode,
-        cursor ?? undefined
-      );
-    },
-    [activeTab, apiBase, cacheKey, deferredSearch, viewerId]
-  );
-
-  useEffect(() => {
-    if ((!enabled && !isActive) || (isPending && !viewerId)) {
-      return;
-    }
-    let cancelled = false;
-    void (async () => {
-      await hydrateExploreCache();
-      if (!cancelled) {
-        void load(null, false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [enabled, isActive, isPending, load, viewerId]);
-
-  const handleFollow = useCallback(
-    async (userId: string, next: boolean) => {
-      if (!viewerId) {
-        router.push("/(auth)/login");
-        throw new Error("Sign in to follow people");
-      }
-      const cookie = await authClient.getCookie();
-      const result = await runWithInstallToken(
-        () =>
-          mutateExploreFollow(userId, next, {
-            apiBase: getApiBaseUrl(),
-            cookie,
-          }),
-        (value) => value instanceof ExploreApiError && value.status === 403
-      );
-      if (!result) {
-        throw new Error("Follow request cancelled");
-      }
-      exploreCache.updateFollow(apiBase, viewerId, userId, result);
-    },
-    [apiBase, router, runWithInstallToken, viewerId]
-  );
-
-  // Web polls each Explore feed every 45s and offers the new posts behind a
-  // pill, so a reader who has sat on the tab sees arrivals without pulling to
-  // refresh. The probe diffs the head against what is already on screen and
-  // never rewrites the list on its own; tapping the pill prepends and scrolls to top.
-  const knownIdsRef = useRef<Set<string>>(new Set());
-  const newestIdRef = useRef<string | null>(null);
-  const probeKeyRef = useRef("");
-  const probeTab = activeTab;
-  const probeSearch = deferredSearch;
-
-  useEffect(() => {
-    newestIdRef.current = posts.length > 0 ? posts[0].id : null;
-    knownIdsRef.current = new Set(posts.map((post) => post.id));
-  }, [posts]);
-
-  useEffect(() => {
-    if (
-      !isActive ||
-      (!viewerId && probeTab === "for-you") ||
-      status !== "success" ||
-      probeTab === "gusts" ||
-      probeTab === "people" ||
-      probeSearch
-    ) {
-      return;
-    }
-    let cancelled = false;
-    const key = cacheKey;
-    probeKeyRef.current = key;
-    const probe = async () => {
-      try {
-        const headPosts = await fetchExploreHeadPosts(
-          probeTab as "for-you" | "trending",
-          {
-            apiBase: getApiBaseUrl(),
-            cookie: await authClient.getCookie(),
-          }
-        );
-        if (
-          cancelled ||
-          probeKeyRef.current !== key ||
-          knownIdsRef.current.size === 0
-        ) {
-          return;
-        }
-        const newest = headPosts[0]?.id;
-        // If the newest post is unchanged, the head is unchanged - do not count
-        // shifts or re-rankings inside candidate sets as new arrivals.
-        if (!newest || newest === newestIdRef.current) {
-          return;
-        }
-        newestIdRef.current = newest;
-        const unseen = findUnseenItems(headPosts, knownIdsRef.current);
-        if (unseen.length > 0) {
-          setNewItems(unseen);
-        }
-      } catch (error) {
-        logWarn("explore.probe_failed", {
-          reason: error instanceof Error ? error.message : String(error),
-          tab: probeTab,
-        });
-      }
-    };
-    const poller = createExpoPoller({
-      intervalMs: PROBE_INTERVAL_MS,
-      onPoll: probe,
-      skipInitialPoll: true,
-    });
-    poller.start();
-    return () => {
-      cancelled = true;
-      poller.stop();
-    };
-  }, [cacheKey, isActive, probeTab, probeSearch, status, viewerId]);
-
-  const showNewItems = useCallback(() => {
-    if (newItems.length === 0) {
-      return;
-    }
-    logInfo("explore.new_shown", { count: newItems.length, tab: activeTab });
-    exploreCache.prepend(cacheKey, newItems);
-    setNewItems([]);
-    scrollViewRef.current?.scrollToOffset({ animated: true, offset: 0 });
-  }, [activeTab, cacheKey, newItems]);
-
-  const newItemAuthors: PillAuthor[] = [
-    ...new Map(
-      newItems.map((post) => [
-        post.userId,
-        {
-          avatarUrl: post.user?.avatarUrl,
-          id: post.userId,
-          username: post.user?.username,
-        },
-      ])
-    ).values(),
-  ];
-
-  const refresh = () => {
-    void load(null, false, true);
-  };
-
-  const handleCreateGust = () => {
-    router.push(
-      viewerId
-        ? { params: { create: "true" }, pathname: "/gusts" }
-        : "/(auth)/login"
+const ExploreTabContent = memo(
+  ({
+    activeTab,
+    isActive,
+    enabled,
+    selectTab,
+    bottomInset,
+  }: {
+    activeTab: ExploreTab;
+    isActive: boolean;
+    enabled: boolean;
+    selectTab: (tab: ExploreTab) => void;
+    bottomInset: number;
+  }) => {
+    const router = useRouter();
+    const { isPending, user } = useSessionContext();
+    const viewerId = user?.id;
+    const { runWithInstallToken } = useInstall();
+    const { theme } = useAppTheme();
+    const deferredSearch = "";
+    const apiBase = getApiBaseUrl();
+    const cacheKey = exploreCacheKey(
+      apiBase,
+      viewerId,
+      activeTab,
+      deferredSearch
     );
-  };
-
-  const fetchMore = useCallback(() => {
-    if (
-      !isActive ||
-      resource.pending ||
-      resource.error ||
-      !nextCursor ||
-      activeTab === "people"
-    ) {
-      return;
-    }
-    void load(nextCursor, true);
-  }, [activeTab, isActive, load, nextCursor, resource.error, resource.pending]);
-
-  const items = useMemo<ExploreItem[]>(() => {
-    const next: ExploreItem[] = [];
-    let userIndex = 0;
-    for (let index = 0; index < posts.length; index += 1) {
-      if (
-        activeTab !== "people" &&
-        userIndex < users.length &&
-        index > 0 &&
-        index % 6 === 0
-      ) {
-        const candidate = users[userIndex];
-        if (candidate) {
-          next.push({ kind: "user", user: candidate });
-          userIndex += 1;
-        }
-      }
-      const post = posts[index];
-      if (post) {
-        next.push({ kind: "post", post });
-      }
-    }
-    while (userIndex < users.length) {
-      const candidate = users[userIndex];
-      if (candidate) {
-        next.push({ kind: "user", user: candidate });
-      }
-      userIndex += 1;
-    }
-    return next;
-  }, [activeTab, posts, users]);
-
-  // The same 3D pull loader the feed uses, not the stock RefreshControl, so a
-  // refresh here reads identically to a refresh there. Placed before the
-  // loading early-return below, since a hook after one is conditional.
-  const pull = usePullToRefresh({
-    failed: Boolean(resource.error),
-    onRefresh: refresh,
-    refreshing,
-    updatedMessage: "Explore updated",
-  });
-
-  const { nativeScrollGesture } = pull;
-  const renderScrollComponent = useCallback(
-    (props: ScrollViewProps & { ref?: Ref<ScrollView> }) => (
-      <GestureDetector gesture={nativeScrollGesture}>
-        <ScrollView {...props} />
-      </GestureDetector>
-    ),
-    [nativeScrollGesture]
-  );
-
-  // The screen's own infinite-scroll probe and the pull's bounce reading both
-  // need the same event, so chain them rather than picking a winner.
-  const handleContentScroll = useCallback(
-    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
-      const offsetY = event.nativeEvent.contentOffset.y;
-      const scrolled = offsetY > 180;
-      if (scrolled !== isScrolledRef.current) {
-        isScrolledRef.current = scrolled;
-        setIsScrolledDown(scrolled);
-      }
+    const mediaScope = `explore:${cacheKey}`;
+    const mediaActive = useRef(isActive);
+    const visiblePosts = useRef<FeedPost[]>([]);
+    const autoplayPost = useRef<string | null>(null);
+    useEffect(() => {
+      mediaActive.current = isActive;
+      setFeedMediaActive(mediaScope, isActive);
       if (!isActive) {
         return;
       }
-      exploreCache.setScrollOffset(cacheKey, offsetY);
-      pull.onScroll(event);
-    },
-    [cacheKey, isActive, pull]
-  );
+      setVisiblePostIds(new Set(visiblePosts.current.map((post) => post.id)));
+      setAutoplayPostId(autoplayPost.current);
+      return () => {
+        mediaActive.current = false;
+        setFeedMediaActive(mediaScope, false);
+        setVisiblePostIds(new Set());
+        setAutoplayPostId(null);
+      };
+    }, [isActive, mediaScope]);
+    const handleViewableItemsChanged = useCallback(
+      ({ viewableItems }: { viewableItems: ViewToken<ExploreItem>[] }) => {
+        const viewablePosts = viewableItems.flatMap(({ item, isViewable }) =>
+          isViewable && item.kind === "post" ? [item.post] : []
+        );
+        visiblePosts.current = viewablePosts;
+        autoplayPost.current = selectExploreAutoplayPost(
+          viewablePosts,
+          autoplayPost.current
+        );
+        if (mediaActive.current) {
+          setVisiblePostIds(new Set(viewablePosts.map((post) => post.id)));
+          setAutoplayPostId(autoplayPost.current);
+        }
+      },
+      []
+    );
+    const resource = useSyncExternalStore(exploreCache.subscribe, () =>
+      exploreCache.read(cacheKey)
+    );
+    const { posts, users, gusts, nextCursor } = resource.data ?? EMPTY_DATA;
+    let status: "error" | "loading" | "success" = "loading";
+    if (resource.data) {
+      status = "success";
+    } else if (resource.error) {
+      status = "error";
+    }
+    const refreshing = resource.pending === "refresh";
+    const loadingMore = resource.pending === "append";
+    const [newItems, setNewItems] = useState<FeedPost[]>([]);
+    const scrollViewRef = useRef<FlashListRef<ExploreItem>>(null);
+    const [isScrolledDown, setIsScrolledDown] = useState(false);
+    const restoredKey = useRef<string | null>(null);
+    const initialOffset = useMemo(
+      () => exploreCache.scrollOffset(cacheKey),
+      [cacheKey]
+    );
 
-  const renderItem = useCallback(
-    ({ item, index }: { index: number; item: ExploreItem }) => {
-      if (activeTab === "gusts") {
-        if (item.kind !== "post") {
-          return null;
+    const load = useCallback(
+      async (cursor: string | null, append: boolean, refresh = false) => {
+        if (!viewerId && activeTab === "for-you") {
+          return;
+        }
+        const replacementMode = refresh ? "refresh" : "initial";
+        if (!append && !refresh && exploreCache.isFresh(cacheKey)) {
+          logInfo("explore.cache_hit", { tab: activeTab });
+        }
+        await exploreCache.load(
+          cacheKey,
+          async () => {
+            logInfo("explore.page_request", {
+              append,
+              refresh,
+              searching: Boolean(deferredSearch),
+              tab: activeTab,
+            });
+            const options = { apiBase, cookie: await authClient.getCookie() };
+            const [page, topGusts] = await Promise.all([
+              activeTab === "people"
+                ? fetchExplorePeople(
+                    deferredSearch,
+                    Boolean(viewerId),
+                    options,
+                    refresh
+                  )
+                : fetchExplorePage(activeTab, deferredSearch, cursor, options),
+              !append && (activeTab === "for-you" || activeTab === "trending")
+                ? fetchExploreTopGusts(options)
+                : Promise.resolve([]),
+            ]);
+            return { ...page, gusts: topGusts };
+          },
+          append ? "append" : replacementMode,
+          cursor ?? undefined
+        );
+      },
+      [activeTab, apiBase, cacheKey, deferredSearch, viewerId]
+    );
+
+    useEffect(() => {
+      if ((!enabled && !isActive) || (isPending && !viewerId)) {
+        return;
+      }
+      let cancelled = false;
+      void (async () => {
+        await hydrateExploreCache();
+        if (!cancelled) {
+          void load(null, false);
+        }
+      })();
+      return () => {
+        cancelled = true;
+      };
+    }, [enabled, isActive, isPending, load, viewerId]);
+
+    const handleFollow = useCallback(
+      async (userId: string, next: boolean) => {
+        if (!viewerId) {
+          router.push("/(auth)/login");
+          throw new Error("Sign in to follow people");
+        }
+        const cookie = await authClient.getCookie();
+        const result = await runWithInstallToken(
+          () =>
+            mutateExploreFollow(userId, next, {
+              apiBase: getApiBaseUrl(),
+              cookie,
+            }),
+          (value) => value instanceof ExploreApiError && value.status === 403
+        );
+        if (!result) {
+          throw new Error("Follow request cancelled");
+        }
+        exploreCache.updateFollow(apiBase, viewerId, userId, result);
+      },
+      [apiBase, router, runWithInstallToken, viewerId]
+    );
+
+    // Web polls each Explore feed every 45s and offers the new posts behind a
+    // pill, so a reader who has sat on the tab sees arrivals without pulling to
+    // refresh. The probe diffs the head against what is already on screen and
+    // never rewrites the list on its own; tapping the pill prepends and scrolls to top.
+    const knownIdsRef = useRef<Set<string>>(new Set());
+    const newestIdRef = useRef<string | null>(null);
+    const probeKeyRef = useRef("");
+    const probeTab = activeTab;
+    const probeSearch = deferredSearch;
+
+    useEffect(() => {
+      newestIdRef.current = posts.length > 0 ? posts[0].id : null;
+      knownIdsRef.current = new Set(posts.map((post) => post.id));
+    }, [posts]);
+
+    useEffect(() => {
+      if (
+        !isActive ||
+        (!viewerId && probeTab === "for-you") ||
+        status !== "success" ||
+        probeTab === "gusts" ||
+        probeTab === "people" ||
+        probeSearch
+      ) {
+        return;
+      }
+      let cancelled = false;
+      const key = cacheKey;
+      probeKeyRef.current = key;
+      const probe = async () => {
+        try {
+          const headPosts = await fetchExploreHeadPosts(
+            probeTab as "for-you" | "trending",
+            {
+              apiBase: getApiBaseUrl(),
+              cookie: await authClient.getCookie(),
+            }
+          );
+          if (
+            cancelled ||
+            probeKeyRef.current !== key ||
+            knownIdsRef.current.size === 0
+          ) {
+            return;
+          }
+          const newest = headPosts[0]?.id;
+          // If the newest post is unchanged, the head is unchanged - do not count
+          // shifts or re-rankings inside candidate sets as new arrivals.
+          if (!newest || newest === newestIdRef.current) {
+            return;
+          }
+          newestIdRef.current = newest;
+          const unseen = findUnseenItems(headPosts, knownIdsRef.current);
+          if (unseen.length > 0) {
+            setNewItems(unseen);
+          }
+        } catch (error) {
+          logWarn("explore.probe_failed", {
+            reason: error instanceof Error ? error.message : String(error),
+            tab: probeTab,
+          });
+        }
+      };
+      const poller = createExpoPoller({
+        intervalMs: PROBE_INTERVAL_MS,
+        onPoll: probe,
+        skipInitialPoll: true,
+      });
+      poller.start();
+      return () => {
+        cancelled = true;
+        poller.stop();
+      };
+    }, [cacheKey, isActive, probeTab, probeSearch, status, viewerId]);
+
+    const showNewItems = useCallback(() => {
+      if (newItems.length === 0) {
+        return;
+      }
+      logInfo("explore.new_shown", { count: newItems.length, tab: activeTab });
+      exploreCache.prepend(cacheKey, newItems);
+      setNewItems([]);
+      scrollViewRef.current?.scrollToOffset({ animated: true, offset: 0 });
+    }, [activeTab, cacheKey, newItems]);
+
+    const newItemAuthors: PillAuthor[] = [
+      ...new Map(
+        newItems.map((post) => [
+          post.userId,
+          {
+            avatarUrl: post.user?.avatarUrl,
+            id: post.userId,
+            username: post.user?.username,
+          },
+        ])
+      ).values(),
+    ];
+
+    const refresh = useCallback(() => {
+      void load(null, false, true);
+    }, [load]);
+
+    const handleCreateGust = () => {
+      router.push(
+        viewerId
+          ? { params: { create: "true" }, pathname: "/gusts" }
+          : "/(auth)/login"
+      );
+    };
+
+    const fetchMore = useCallback(() => {
+      if (
+        !isActive ||
+        resource.pending ||
+        resource.error ||
+        !nextCursor ||
+        activeTab === "people"
+      ) {
+        return;
+      }
+      void load(nextCursor, true);
+    }, [
+      activeTab,
+      isActive,
+      load,
+      nextCursor,
+      resource.error,
+      resource.pending,
+    ]);
+
+    const items = useMemo<ExploreItem[]>(() => {
+      const next: ExploreItem[] = [];
+      let userIndex = 0;
+      for (let index = 0; index < posts.length; index += 1) {
+        if (
+          activeTab !== "people" &&
+          userIndex < users.length &&
+          index > 0 &&
+          index % 6 === 0
+        ) {
+          const candidate = users[userIndex];
+          if (candidate) {
+            next.push({ kind: "user", user: candidate });
+            userIndex += 1;
+          }
+        }
+        const post = posts[index];
+        if (post) {
+          next.push({ kind: "post", post });
+        }
+      }
+      while (userIndex < users.length) {
+        const candidate = users[userIndex];
+        if (candidate) {
+          next.push({ kind: "user", user: candidate });
+        }
+        userIndex += 1;
+      }
+      return next;
+    }, [activeTab, posts, users]);
+
+    // The same 3D pull loader the feed uses, not the stock RefreshControl, so a
+    // refresh here reads identically to a refresh there. Placed before the
+    // loading early-return below, since a hook after one is conditional.
+    const pull = usePullToRefresh({
+      failed: Boolean(resource.error),
+      onRefresh: refresh,
+      refreshing,
+      updatedMessage: "Explore updated",
+    });
+
+    const { nativeScrollGesture } = pull;
+    const renderScrollComponent = useCallback(
+      (props: ScrollViewProps & { ref?: Ref<ScrollView> }) => (
+        <GestureDetector gesture={nativeScrollGesture}>
+          <ScrollView {...props} />
+        </GestureDetector>
+      ),
+      [nativeScrollGesture]
+    );
+
+    const scrollOffset = useSharedValue(initialOffset);
+    const scrolledDown = useSharedValue(initialOffset > 180);
+    const reportPullOffset = pull.onScrollOffset;
+    const endPull = pull.onScrollEndDrag;
+    const saveOffset = useCallback(
+      (offset: number) => {
+        exploreCache.setScrollOffset(cacheKey, offset);
+      },
+      [cacheKey]
+    );
+    // Only edge crossings and the end of a drag/fling need the RN thread.
+    const handleContentScroll = useAnimatedScrollHandler({
+      onEndDrag: (event) => {
+        scheduleOnRN(saveOffset, event.contentOffset.y);
+        scheduleOnRN(endPull);
+      },
+      onMomentumEnd: (event) => {
+        scheduleOnRN(saveOffset, event.contentOffset.y);
+      },
+      onScroll: (event) => {
+        const offset = event.contentOffset.y;
+        const previous = scrollOffset.get();
+        scrollOffset.set(offset);
+        const scrolled = offset > 180;
+        if (scrolled !== scrolledDown.get()) {
+          scrolledDown.set(scrolled);
+          scheduleOnRN(setIsScrolledDown, scrolled);
+        }
+        if (offset <= 0 || previous <= 0) {
+          scheduleOnRN(reportPullOffset, offset);
+        }
+      },
+    });
+
+    const renderItem = useCallback(
+      ({ item, index }: { index: number; item: ExploreItem }) => {
+        if (activeTab === "gusts") {
+          if (item.kind !== "post") {
+            return null;
+          }
+          return (
+            <ExploreGustTile
+              isGrid
+              onPress={() =>
+                // Web opens the reel positioned at this gust rather than the
+                // post page, so the tap lands on the video it came from.
+                router.push({
+                  params: { id: item.post.id },
+                  pathname: "/gusts",
+                })
+              }
+              post={item.post}
+            />
+          );
+        }
+        if (item.kind === "post") {
+          return (
+            <ExplorePostCard
+              onPress={() =>
+                router.push({
+                  params: { postId: item.post.id },
+                  pathname: "/posts/[postId]",
+                })
+              }
+              onRequireLogin={() => router.push("/(auth)/login")}
+              post={item.post}
+              viewerId={viewerId ?? null}
+            />
+          );
         }
         return (
-          <ExploreGustTile
-            isGrid
-            onPress={() =>
-              // Web opens the reel positioned at this gust rather than the
-              // post page, so the tap lands on the video it came from.
-              router.push({ params: { id: item.post.id }, pathname: "/gusts" })
+          <ExploreUserCard
+            canFollow={viewerId !== item.user.id}
+            highlight={
+              Boolean(viewerId) &&
+              activeTab === "people" &&
+              !deferredSearch &&
+              index < 5
             }
-            post={item.post}
-          />
-        );
-      }
-      if (item.kind === "post") {
-        return (
-          <ExplorePostCard
-            key={item.post.id}
+            onFollow={(next) => handleFollow(item.user.id, next)}
             onPress={() =>
               router.push({
-                params: { postId: item.post.id },
-                pathname: "/posts/[postId]",
+                params: { username: item.user.username },
+                pathname: "/users/[username]",
               })
             }
-            onRequireLogin={() => router.push("/(auth)/login")}
-            post={item.post}
-            viewerId={viewerId ?? null}
+            reason={item.user.reason ?? item.user.reasons?.[0]}
+            user={item.user}
           />
         );
-      }
-      return (
-        <ExploreUserCard
-          key={item.user.id}
-          canFollow={viewerId !== item.user.id}
-          highlight={
-            Boolean(viewerId) &&
-            activeTab === "people" &&
-            !deferredSearch &&
-            index < 5
-          }
-          onFollow={(next) => handleFollow(item.user.id, next)}
-          onPress={() =>
-            router.push({
-              params: { username: item.user.username },
-              pathname: "/users/[username]",
-            })
-          }
-          reason={item.user.reason ?? item.user.reasons?.[0]}
-          user={item.user}
-        />
-      );
-    },
-    [activeTab, deferredSearch, handleFollow, router, viewerId]
-  );
-
-  const showPill =
-    newItems.length > 0 &&
-    activeTab !== "gusts" &&
-    activeTab !== "people" &&
-    !deferredSearch;
-
-  const header = (
-    <View style={{ marginHorizontal: activeTab === "people" ? -16 : -8 }}>
-      {showPill && !isScrolledDown ? (
-        <View style={styles.pillRow}>
-          <NewContentPill
-            authors={newItemAuthors}
-            count={newItems.length}
-            floating={false}
-            onPress={showNewItems}
-          />
-        </View>
-      ) : null}
-      {activeTab === "people" ? (
-        <ExplorePeopleHeader loggedIn={Boolean(viewerId)} onRefresh={refresh} />
-      ) : null}
-      {gusts.length > 0 && activeTab !== "gusts" && activeTab !== "people" ? (
-        <View style={styles.gustRail} testID="explore-gusts-rail">
-          <View style={styles.railHeading}>
-            <View style={styles.railTitleGroup}>
-              <View style={styles.railTitleRow}>
-                <Clapperboard color="#f97316" size={16} />
-                <Text style={[styles.sectionTitle, { color: theme.inputText }]}>
-                  Trending Gusts
-                </Text>
-              </View>
-              <Text style={[styles.railSubtitle, { color: theme.dividerText }]}>
-                Short-form clips taking off right now
-              </Text>
-            </View>
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => selectTab("gusts")}
-            >
-              <View style={styles.seeAllRow}>
-                <Text style={[styles.seeAll, { color: "#f97316" }]}>
-                  See all
-                </Text>
-                <ChevronRight color="#f97316" size={14} />
-              </View>
-            </Pressable>
-          </View>
-          <ScrollView
-            contentContainerStyle={styles.gustRow}
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
-          >
-            {gusts.map((post) => (
-              <ExploreGustTile
-                key={post.id}
-                onPress={() =>
-                  router.push({ params: { id: post.id }, pathname: "/gusts" })
-                }
-                post={post}
-              />
-            ))}
-          </ScrollView>
-        </View>
-      ) : null}
-    </View>
-  );
-
-  let empty: React.ReactNode = null;
-  if (activeTab === "for-you" && !viewerId && !isPending) {
-    empty = <ExploreAuthPrompt onLogin={() => router.push("/(auth)/login")} />;
-  } else if (status === "loading") {
-    empty = <ExploreLoadingSkeleton tab={activeTab} />;
-  } else if (status === "error") {
-    const message = errorMessageFor(activeTab);
-    empty = (
-      <View style={styles.errorState}>
-        <Text style={[styles.errorText, { color: theme.errorBannerText }]}>
-          {message}
-        </Text>
-        <Pressable
-          accessibilityRole="button"
-          onPress={refresh}
-          style={styles.refreshButton}
-        >
-          <Text style={styles.refreshText}>Retry</Text>
-        </Pressable>
-      </View>
+      },
+      [activeTab, deferredSearch, handleFollow, router, viewerId]
     );
-  } else if (items.length === 0) {
-    empty = (
-      <ExploreEmptyState
-        activeTab={activeTab}
-        onCreate={handleCreateGust}
-        search={deferredSearch}
-      />
-    );
-  }
 
-  let footer: React.ReactNode = null;
-  if (resource.error && resource.data) {
-    footer = (
-      <View style={styles.errorState}>
-        <Text style={[styles.errorText, { color: theme.errorBannerText }]}>
-          Could not update Explore. Your saved items are still available.
-        </Text>
-        <Pressable
-          accessibilityRole="button"
-          onPress={refresh}
-          style={styles.refreshButton}
-        >
-          <Text style={styles.refreshText}>Retry</Text>
-        </Pressable>
-      </View>
-    );
-  } else if (loadingMore) {
-    footer = <ExploreLoadingSkeleton continuation tab={activeTab} />;
-  }
+    const showPill =
+      newItems.length > 0 &&
+      activeTab !== "gusts" &&
+      activeTab !== "people" &&
+      !deferredSearch;
 
-  return (
-    <GestureDetector gesture={pull.gesture}>
-      <View style={styles.listWrap}>
-        <Animated.View
-          style={[
-            styles.listShift,
-            { transform: [{ translateY: pull.pullShift }] },
-          ]}
-        >
-          <FlashList
-            key={cacheKey}
-            ref={scrollViewRef}
-            renderScrollComponent={renderScrollComponent}
-            data={empty ? [] : items}
-            masonry={activeTab !== "people"}
-            numColumns={activeTab === "people" ? 1 : 2}
-            optimizeItemArrangement={false}
-            getItemType={(item) => item.kind}
-            keyExtractor={itemKey}
-            contentContainerStyle={{
-              paddingBottom: bottomInset,
-              paddingHorizontal: activeTab === "people" ? 16 : 8,
-              paddingTop: activeTab === "gusts" ? 16 : 0,
-            }}
-            keyboardShouldPersistTaps="handled"
-            maintainVisibleContentPosition={{ disabled: true }}
-            onLoad={() => {
-              if (restoredKey.current === cacheKey) {
-                return;
-              }
-              restoredKey.current = cacheKey;
-              const offset = initialOffset;
-              if (offset > 0) {
-                scrollViewRef.current?.scrollToOffset({
-                  animated: false,
-                  offset,
-                });
-              }
-            }}
-            onEndReached={fetchMore}
-            onEndReachedThreshold={0.5}
-            onScroll={handleContentScroll}
-            onScrollEndDrag={() => pull.onScrollEndDrag()}
-            scrollEventThrottle={32}
-            showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
-            ListHeaderComponent={header}
-            ListEmptyComponent={empty}
-            ListFooterComponent={footer}
-            renderItem={({ item, index }) => (
-              <View
-                style={activeTab === "people" ? undefined : styles.gridCell}
-              >
-                {renderItem({ index, item })}
-              </View>
-            )}
-          />
-        </Animated.View>
-        {pull.loader}
-        {showPill && isScrolledDown ? (
-          <View
-            pointerEvents="box-none"
-            style={[styles.floatingPillWrap, { top: 8 }]}
-          >
+    const header = (
+      <View style={{ marginHorizontal: activeTab === "people" ? -16 : -8 }}>
+        {showPill && !isScrolledDown ? (
+          <View style={styles.pillRow}>
             <NewContentPill
               authors={newItemAuthors}
               count={newItems.length}
@@ -814,10 +745,197 @@ function ExploreTabContent({
             />
           </View>
         ) : null}
+        {activeTab === "people" ? (
+          <ExplorePeopleHeader
+            loggedIn={Boolean(viewerId)}
+            onRefresh={refresh}
+          />
+        ) : null}
+        {gusts.length > 0 && activeTab !== "gusts" && activeTab !== "people" ? (
+          <View style={styles.gustRail} testID="explore-gusts-rail">
+            <View style={styles.railHeading}>
+              <View style={styles.railTitleGroup}>
+                <View style={styles.railTitleRow}>
+                  <Clapperboard color="#f97316" size={16} />
+                  <Text
+                    style={[styles.sectionTitle, { color: theme.inputText }]}
+                  >
+                    Trending Gusts
+                  </Text>
+                </View>
+                <Text
+                  style={[styles.railSubtitle, { color: theme.dividerText }]}
+                >
+                  Short-form clips taking off right now
+                </Text>
+              </View>
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => selectTab("gusts")}
+              >
+                <View style={styles.seeAllRow}>
+                  <Text style={[styles.seeAll, { color: "#f97316" }]}>
+                    See all
+                  </Text>
+                  <ChevronRight color="#f97316" size={14} />
+                </View>
+              </Pressable>
+            </View>
+            <ScrollView
+              contentContainerStyle={styles.gustRow}
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
+            >
+              {gusts.map((post) => (
+                <ExploreGustTile
+                  key={post.id}
+                  onPress={() =>
+                    router.push({ params: { id: post.id }, pathname: "/gusts" })
+                  }
+                  post={post}
+                />
+              ))}
+            </ScrollView>
+          </View>
+        ) : null}
       </View>
-    </GestureDetector>
-  );
-}
+    );
+
+    let empty: React.ReactNode = null;
+    if (activeTab === "for-you" && !viewerId && !isPending) {
+      empty = (
+        <ExploreAuthPrompt onLogin={() => router.push("/(auth)/login")} />
+      );
+    } else if (status === "loading") {
+      empty = <ExploreLoadingSkeleton tab={activeTab} />;
+    } else if (status === "error") {
+      const message = errorMessageFor(activeTab);
+      empty = (
+        <View style={styles.errorState}>
+          <Text style={[styles.errorText, { color: theme.errorBannerText }]}>
+            {message}
+          </Text>
+          <Pressable
+            accessibilityRole="button"
+            onPress={refresh}
+            style={styles.refreshButton}
+          >
+            <Text style={styles.refreshText}>Retry</Text>
+          </Pressable>
+        </View>
+      );
+    } else if (items.length === 0) {
+      empty = (
+        <ExploreEmptyState
+          activeTab={activeTab}
+          onCreate={handleCreateGust}
+          search={deferredSearch}
+        />
+      );
+    }
+
+    let footer: React.ReactNode = null;
+    if (resource.error && resource.data) {
+      footer = (
+        <View style={styles.errorState}>
+          <Text style={[styles.errorText, { color: theme.errorBannerText }]}>
+            Could not update Explore. Your saved items are still available.
+          </Text>
+          <Pressable
+            accessibilityRole="button"
+            onPress={refresh}
+            style={styles.refreshButton}
+          >
+            <Text style={styles.refreshText}>Retry</Text>
+          </Pressable>
+        </View>
+      );
+    } else if (loadingMore) {
+      footer = <ExploreLoadingSkeleton continuation tab={activeTab} />;
+    }
+
+    return (
+      <FeedMediaScope.Provider value={mediaScope}>
+        <GestureDetector gesture={pull.gesture}>
+          <View style={styles.listWrap}>
+            <Animated.View
+              style={[
+                styles.listShift,
+                { transform: [{ translateY: pull.pullShift }] },
+              ]}
+            >
+              <AnimatedExploreList
+                key={cacheKey}
+                ref={scrollViewRef}
+                renderScrollComponent={renderScrollComponent}
+                data={empty ? [] : items}
+                masonry={activeTab !== "people"}
+                numColumns={activeTab === "people" ? 1 : 2}
+                optimizeItemArrangement={false}
+                getItemType={itemType}
+                keyExtractor={itemKey}
+                contentContainerStyle={{
+                  paddingBottom: bottomInset,
+                  paddingHorizontal: activeTab === "people" ? 16 : 8,
+                  paddingTop: activeTab === "gusts" ? 16 : 0,
+                }}
+                keyboardShouldPersistTaps="handled"
+                maintainVisibleContentPosition={MAINTAIN_POSITION}
+                onLoad={() => {
+                  if (restoredKey.current === cacheKey) {
+                    return;
+                  }
+                  restoredKey.current = cacheKey;
+                  const offset = initialOffset;
+                  if (offset > 0) {
+                    scrollViewRef.current?.scrollToOffset({
+                      animated: false,
+                      offset,
+                    });
+                  }
+                }}
+                onViewableItemsChanged={handleViewableItemsChanged}
+                viewabilityConfig={VIDEO_VIEWABILITY}
+                onEndReached={fetchMore}
+                onEndReachedThreshold={0.5}
+                onScroll={handleContentScroll}
+                scrollEventThrottle={16}
+                showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
+                ListHeaderComponent={header}
+                ListEmptyComponent={empty}
+                ListFooterComponent={footer}
+                renderItem={({ item, index }) => (
+                  <View
+                    style={activeTab === "people" ? undefined : styles.gridCell}
+                  >
+                    {renderItem({ index, item })}
+                  </View>
+                )}
+              />
+            </Animated.View>
+            {pull.loader}
+            {showPill && isScrolledDown ? (
+              <View
+                pointerEvents="box-none"
+                style={[styles.floatingPillWrap, { top: 8 }]}
+              >
+                <NewContentPill
+                  authors={newItemAuthors}
+                  count={newItems.length}
+                  floating={false}
+                  onPress={showNewItems}
+                />
+              </View>
+            ) : null}
+          </View>
+        </GestureDetector>
+      </FeedMediaScope.Provider>
+    );
+  }
+);
+
+ExploreTabContent.displayName = "ExploreTabContent";
 
 function ExploreGustTile({
   isGrid,
@@ -852,12 +970,20 @@ function ExploreGustTile({
         },
       ]}
     >
-      <Image
-        cachePolicy="memory-disk"
-        contentFit="cover"
-        source={{ uri: imageUrl }}
-        style={styles.gustImage}
-      />
+      {post.explicitContent ? (
+        <ConcealedMediaCover
+          accessibilityLabel="Blurred explicit media preview"
+          apiBase={getApiBaseUrl()}
+          media={media}
+        />
+      ) : (
+        <Image
+          cachePolicy="memory-disk"
+          contentFit="cover"
+          source={{ uri: imageUrl }}
+          style={styles.gustImage}
+        />
+      )}
       <ExploreBadge kind="gust" style={styles.gustBadge} />
       <LinearGradient
         colors={["transparent", "rgba(0,0,0,0.92)"]}

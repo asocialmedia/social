@@ -45,16 +45,6 @@
 | `revert`   | Revert changes                       |
 | `wip`      | Work in progress                     |
 
-## Message encryption
-
-Messages use **server-recoverable encryption, not end-to-end encryption**. The backup key is derived from the identity row the server stores, so anyone who can read the database can read every message. This is a deliberate product decision, following Telegram's cloud semantics. Messages are encrypted in transit and at rest, and access is gated by session plus membership, which protects against everyone who is not the database operator. Do not re-label it as "end-to-end" in the UI or in docs, and do not harden it back into a scheme where recovery breaks for real users.
-
-Anything that changes how message keys are derived, stored, wrapped, or recovered must keep all three of these true in the same PR:
-
-1. **Recovery is automatic, and the stored row is the source.** The master key is derived with PBKDF2 from a random seed hash persisted with the identity, so a fresh device with no local storage and no user input must always recover. See `apps/web/src/lib/messages/crypto.ts` and the provider's `unlockIdentity`. Guarded by "the stored row alone derives the backup key" in `crypto.test.ts` and by the invariants in `recovery-invariants.test.ts`.
-2. **Abandoned verifier rows still unlock where possible.** That is the short-lived scheme derived from a raw secret held on a single device. Keep the device-secret attempt in `unlockIdentity` so those rows are not stranded, since a reset clears them otherwise. Never re-introduce a user-facing secret or a passkey or PRF credential. Neither is needed once recovery is server-side.
-3. **A lost key degrades, it never bricks.** When a row cannot be read, there must be a self-scoped reset path that loses only the resetting account's own history and leaves the peer's intact. See `DELETE /api/messages/identity` and the versioned wraps in `MessageConversationKey`. Bump the conversation-key `version` rather than overwriting a wrap, so the peer's older epochs stay readable.
-
 ## UI
 
 Every raised surface in this app is the same construction: a hairline outer edge, a bright inner lip that catches light, on a surface one step above the page. These recipes live in `packages/ui/styles/globals.css` inside `@layer components`.

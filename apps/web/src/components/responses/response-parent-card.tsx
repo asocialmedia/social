@@ -188,6 +188,7 @@ export function ResponseParentRow({
                 alt=""
                 className={cn(
                   "object-contain",
+                  parent.explicitContent && "opacity-60 blur-lg saturate-50",
                   portrait
                     ? "h-72 w-auto max-w-full sm:h-80"
                     : "h-auto max-h-80 w-auto max-w-full"
@@ -213,7 +214,13 @@ export function ResponseParentRow({
             </div>
           ) : null}
           {embeds.length > 0 ? (
-            <div className="max-w-md sm:max-w-lg">
+            <div
+              className={cn(
+                "max-w-md sm:max-w-lg",
+                parent.explicitContent &&
+                  "pointer-events-none opacity-60 blur-lg saturate-50"
+              )}
+            >
               <PostLinkEmbeds embeds={embeds} />
             </div>
           ) : null}
@@ -289,7 +296,10 @@ export default function ResponseParentCard({
           <span className="border-border/60 relative block h-12 w-12 shrink-0 overflow-hidden rounded-lg border">
             <Image
               alt=""
-              className="object-cover"
+              className={cn(
+                "object-cover",
+                parent.explicitContent && "opacity-60 blur-lg saturate-50"
+              )}
               fill
               sizes="48px"
               src={getMediaProxyUrl({

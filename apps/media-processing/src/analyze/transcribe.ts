@@ -10,6 +10,11 @@
 import { workerEnv } from "../env";
 import { mediaLogger, withSpan } from "../log";
 import { getS3 } from "../s3";
+import { runFfmpeg } from "../transcode/ffmpeg";
+import {
+  reserveProviderRequest,
+  ProviderBudgetDeferredError,
+} from "./provider-budget";
 
 export interface CaptionSegment {
   end: number;
@@ -123,46 +128,42 @@ export function splitTranscriptToCues(
   });
 }
 
-// Extracts a 16kHz mono WAV audio track from any video or audio file using FFmpeg.
+// Extracts a compact 16kHz mono Opus audio track from any video or audio file using FFmpeg.
 // Returns null if the source contains no audio stream.
 export async function extractAudioTrack(
   sourcePath: string,
   outputPath: string
 ): Promise<boolean> {
   try {
-    const proc = Bun.spawn(
+    await runFfmpeg(
       [
-        "ffmpeg",
-        "-hide_banner",
-        "-loglevel",
-        "error",
-        "-protocol_whitelist",
-        "file,crypto,data",
-        "-y",
         "-i",
         sourcePath,
+        "-map",
+        "0:a:0",
         "-vn",
-        "-acodec",
-        "pcm_s16le",
+        "-c:a",
+        "libopus",
+        "-b:a",
+        "48k",
         "-ac",
         "1",
         "-ar",
         "16000",
         "-f",
-        "wav",
+        "ogg",
         outputPath,
       ],
-      { stderr: "pipe", stdout: "pipe" }
+      workerEnv.TRANSCRIBE_TIMEOUT_MS
     );
-    const exitCode = await proc.exited;
-    if (exitCode !== 0) {
-      return false;
-    }
     const file = Bun.file(outputPath);
     const { size } = file;
-    // An empty WAV header is 44 bytes; genuine audio will be larger
+    // Empty audio output is not submitted to the transcription provider.
     return size > 1000;
   } catch (error) {
+    if (error instanceof ProviderBudgetDeferredError) {
+      throw error;
+    }
     mediaLogger.warn({ error: String(error) }, "ffmpeg audio extract failed");
     return false;
   }
@@ -172,14 +173,8 @@ export async function extractAudioTrack(
 // Returns false if the audio track is silent or near-silence (< -55dB).
 export async function detectAudioActivity(audioPath: string): Promise<boolean> {
   try {
-    const proc = Bun.spawn(
+    const stderrText = await runFfmpeg(
       [
-        "ffmpeg",
-        "-hide_banner",
-        "-loglevel",
-        "error",
-        "-protocol_whitelist",
-        "file,crypto,data",
         "-i",
         audioPath,
         "-af",
@@ -191,11 +186,9 @@ export async function detectAudioActivity(audioPath: string): Promise<boolean> {
         "null",
         "/dev/null",
       ],
-      { stderr: "pipe", stdout: "pipe" }
+      workerEnv.TRANSCRIBE_TIMEOUT_MS,
+      "info"
     );
-    const stderrText = await new Response(proc.stderr).text();
-    await proc.exited;
-
     const meanMatch = /mean_volume:\s*(?<mean>-?[\d.]+)\s*dB/i.exec(stderrText);
     if (meanMatch && meanMatch.groups?.mean) {
       const meanDb = Number(meanMatch.groups.mean);
@@ -219,7 +212,7 @@ interface GeminiTranscriptionOutput {
 }
 
 // Transcribes audio via Gemini Multimodal API if GEMINI_API_KEY is present.
-async function transcribeViaGemini(
+export async function transcribeViaGemini(
   audioPath: string
 ): Promise<GeminiTranscriptionOutput> {
   const apiKey = workerEnv.GEMINI_API_KEY;
@@ -231,34 +224,10 @@ async function transcribeViaGemini(
       transcript: "",
     };
   }
-  const tempMp3Path = `${audioPath}-gemini.mp3`;
   try {
-    // Transcode to compact 32kbps mono MP3 for fast upload to Gemini
-    const proc = Bun.spawn(
-      [
-        "ffmpeg",
-        "-hide_banner",
-        "-loglevel",
-        "error",
-        "-protocol_whitelist",
-        "file,crypto,data",
-        "-y",
-        "-i",
-        audioPath,
-        "-vn",
-        "-ac",
-        "1",
-        "-ar",
-        "16000",
-        "-b:a",
-        "32k",
-        tempMp3Path,
-      ],
-      { stderr: "pipe", stdout: "pipe" }
-    );
-    await proc.exited;
-
-    const audioFile = Bun.file(tempMp3Path);
+    // Reuse the compact Opus extraction; avoid a WAV intermediate and a
+    // second full decode/encode before the network request.
+    const audioFile = Bun.file(audioPath);
     const audioBytes = await audioFile.arrayBuffer();
     if (audioBytes.byteLength < 500) {
       return {
@@ -321,6 +290,7 @@ If there is no speech or only background music/silence, return: { "transcript": 
         await Bun.sleep(delay);
       }
 
+      await reserveProviderRequest("gemini");
       response = await fetch(url, {
         body: JSON.stringify({
           contents: [
@@ -329,7 +299,7 @@ If there is no speech or only background music/silence, return: { "transcript": 
                 {
                   inlineData: {
                     data: audioBase64,
-                    mimeType: "audio/mp3",
+                    mimeType: "audio/ogg",
                   },
                 },
                 { text: prompt },
@@ -444,6 +414,9 @@ If there is no speech or only background music/silence, return: { "transcript": 
 
     return { segments, status: "completed", transcript };
   } catch (error) {
+    if (error instanceof ProviderBudgetDeferredError) {
+      throw error;
+    }
     mediaLogger.warn(
       { error: String(error) },
       "Gemini audio transcription error"
@@ -454,10 +427,6 @@ If there is no speech or only background music/silence, return: { "transcript": 
       status: "failed",
       transcript: "",
     };
-  } finally {
-    await Bun.file(tempMp3Path)
-      .delete()
-      .catch(() => null);
   }
 }
 
@@ -506,7 +475,7 @@ export function transcribeMediaAudio(
         };
       }
 
-      const tempAudioPath = `/tmp/asm-audio-${mediaId}-${crypto.randomUUID()}.wav`;
+      const tempAudioPath = `/tmp/asm-audio-${mediaId}-${crypto.randomUUID()}.ogg`;
       try {
         // 1. Local CPU check: Extract audio track via FFmpeg
         const hasAudio = await extractAudioTrack(sourcePath, tempAudioPath);
@@ -577,14 +546,16 @@ export function transcribeMediaAudio(
           segments = splitTranscriptToCues(transcript, null);
         }
         const webvtt = generateWebVtt(segments);
-        const captionsKey = `captions/${mediaId}.vtt`;
+        let captionsKey: string | null = null;
+        const targetKey = `captions/${mediaId}.vtt`;
 
         // Upload WebVTT subtitles file to S3
         if (webvtt.includes("-->")) {
           try {
-            await getS3().file(captionsKey).write(webvtt, {
+            await getS3().file(targetKey).write(webvtt, {
               type: "text/vtt; charset=utf-8",
             });
+            captionsKey = targetKey;
             mediaLogger.info(
               { captionsKey, chars: transcript.length, mediaId },
               "transcription & captions generated"
@@ -598,13 +569,16 @@ export function transcribeMediaAudio(
         }
 
         return {
-          captionsKey: webvtt.includes("-->") ? captionsKey : null,
+          captionsKey,
           segments,
           status: "completed",
           transcript,
           webvtt,
         };
       } catch (error) {
+        if (error instanceof ProviderBudgetDeferredError) {
+          throw error;
+        }
         mediaLogger.error(
           { error: String(error), mediaId },
           "transcription error"

@@ -2,18 +2,18 @@ import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  FlatList,
-  Pressable,
-  RefreshControl,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
+import { Animated, Pressable, StyleSheet, Text, View } from "react-native";
 import type { ViewToken } from "react-native";
+import { GestureDetector } from "react-native-gesture-handler";
+import Reanimated, {
+  useAnimatedScrollHandler,
+  useSharedValue,
+} from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { scheduleOnRN } from "react-native-worklets";
 
 import { StatusActionButton } from "@/components/feedback/status-action-button";
+import { usePullToRefresh } from "@/components/feedback/use-pull-to-refresh";
 import { authClient } from "@/features/auth/lib/auth-client";
 import { useSessionContext } from "@/features/auth/state/session";
 import {
@@ -256,6 +256,26 @@ export function CommunityDetailScreen() {
     setRefreshing(true);
     handleRetry();
   };
+  const pull = usePullToRefresh({
+    failed: feedError || detailError,
+    onRefresh: handleRefresh,
+    refreshing,
+    updatedMessage: "Community updated",
+  });
+  const scrollOffset = useSharedValue(0);
+  const reportPullOffset = pull.onScrollOffset;
+  const endPull = pull.onScrollEndDrag;
+  const handleScroll = useAnimatedScrollHandler({
+    onEndDrag: () => scheduleOnRN(endPull),
+    onScroll: (event) => {
+      const offset = event.contentOffset.y;
+      const previous = scrollOffset.get();
+      scrollOffset.set(offset);
+      if (offset <= 0 || previous <= 0) {
+        scheduleOnRN(reportPullOffset, offset);
+      }
+    },
+  });
   const handleMore = async () => {
     if (!cursor || paging.current || loading || feedError) {
       return;
@@ -375,146 +395,162 @@ export function CommunityDetailScreen() {
   return (
     <View style={[styles.root, { backgroundColor: theme.containerBg }]}>
       <MobileHeader user={headerUser} unreadCount={unreadNotifications} />
-      <View
-        style={{
-          backgroundColor: `${resolveCommunityAccentColor(community.accentColor, isDark)}38`,
-          height: 144,
-          overflow: "hidden",
-        }}
-      >
-        {banner ? (
-          <Image
-            source={{ uri: banner }}
-            contentFit="cover"
-            style={StyleSheet.absoluteFill}
-          />
-        ) : null}
-        <LinearGradient
-          colors={["transparent", theme.containerBg]}
-          style={{
-            bottom: 0,
-            height: 64,
-            left: 0,
-            position: "absolute",
-            right: 0,
-          }}
-        />
-      </View>
-      <View style={{ paddingBottom: 16, paddingHorizontal: 16 }}>
-        <View
-          style={{
-            alignItems: "flex-end",
-            flexDirection: "row",
-            gap: 12,
-            justifyContent: "space-between",
-            marginTop: -32,
-          }}
-        >
-          <CommunityAvatar community={community} size={64} />
-          <View
-            style={{
-              alignItems: "center",
-              flexDirection: "row",
-              gap: 8,
-              paddingBottom: 4,
-            }}
+      <GestureDetector gesture={pull.gesture}>
+        <View style={styles.listWrap}>
+          <Animated.View
+            style={[
+              styles.root,
+              { transform: [{ translateY: pull.pullShift }] },
+            ]}
           >
-            <CommunityJoinButton
-              isLoggedIn={Boolean(user)}
-              membershipState={membership}
-              onRequireLogin={handleRequireLogin}
-            />
-            <CommunityNotifyButton
-              isLoggedIn={Boolean(user)}
-              membershipState={membership}
-              onRequireLogin={handleRequireLogin}
-            />
-          </View>
+            <GestureDetector gesture={pull.nativeScrollGesture}>
+              <Reanimated.FlatList
+                {...LIST_VIRTUALIZATION_PROPS}
+                style={{ flex: 1 }}
+                contentContainerStyle={{
+                  flexGrow: posts.length ? 0 : 1,
+                  paddingBottom: bottomDockPadding({
+                    bottomInset: insets.bottom,
+                    dockHeight,
+                  }),
+                }}
+                data={rows}
+                keyExtractor={(row) => row.post.id}
+                ListHeaderComponent={
+                  <>
+                    <View
+                      style={{
+                        backgroundColor: `${resolveCommunityAccentColor(community.accentColor, isDark)}38`,
+                        height: 144,
+                        overflow: "hidden",
+                      }}
+                    >
+                      {banner ? (
+                        <Image
+                          source={{ uri: banner }}
+                          contentFit="cover"
+                          style={StyleSheet.absoluteFill}
+                        />
+                      ) : null}
+                      <LinearGradient
+                        colors={["transparent", theme.containerBg]}
+                        style={{
+                          bottom: 0,
+                          height: 64,
+                          left: 0,
+                          position: "absolute",
+                          right: 0,
+                        }}
+                      />
+                    </View>
+                    <View style={{ paddingBottom: 16, paddingHorizontal: 16 }}>
+                      <View
+                        style={{
+                          alignItems: "flex-end",
+                          flexDirection: "row",
+                          gap: 12,
+                          justifyContent: "space-between",
+                          marginTop: -32,
+                        }}
+                      >
+                        <CommunityAvatar community={community} size={64} />
+                        <View
+                          style={{
+                            alignItems: "center",
+                            flexDirection: "row",
+                            gap: 8,
+                            paddingBottom: 4,
+                          }}
+                        >
+                          <CommunityJoinButton
+                            isLoggedIn={Boolean(user)}
+                            membershipState={membership}
+                            onRequireLogin={handleRequireLogin}
+                          />
+                          <CommunityNotifyButton
+                            isLoggedIn={Boolean(user)}
+                            membershipState={membership}
+                            onRequireLogin={handleRequireLogin}
+                          />
+                        </View>
+                      </View>
+                      <Text
+                        style={{
+                          color: theme.inputText,
+                          fontFamily: "SofiaProBold",
+                          fontSize: 20,
+                          marginTop: 12,
+                        }}
+                      >
+                        {community.name}
+                      </Text>
+                      <Text
+                        style={{
+                          color: theme.dividerText,
+                          fontFamily: "SofiaProReg",
+                          fontSize: 14,
+                        }}
+                      >
+                        a/{community.slug} ·{" "}
+                        {formatNumber(detail.stats.members)}{" "}
+                        {detail.stats.members === 1 ? "member" : "members"}
+                      </Text>
+                    </View>
+                    <FeedTabs
+                      alignment="start"
+                      active={sort}
+                      tabs={[
+                        { label: "New", value: "new" },
+                        { label: "Top", value: "top" },
+                      ]}
+                      onChange={(value) =>
+                        setSort(value === "top" ? "top" : "new")
+                      }
+                    />
+                    {feedError && posts.length > 0 ? (
+                      <Pressable onPress={handleRefresh}>
+                        <Text style={{ color: theme.dividerText, padding: 12 }}>
+                          Couldn't load more posts. Tap to retry.
+                        </Text>
+                      </Pressable>
+                    ) : null}
+                  </>
+                }
+                ListEmptyComponent={empty}
+                ListFooterComponent={loadingMore ? <FeedSkeletonCard /> : null}
+                onScroll={handleScroll}
+                scrollEventThrottle={16}
+                onEndReached={() => {
+                  void handleMore();
+                }}
+                onEndReachedThreshold={0.6}
+                viewabilityConfig={COMMUNITY_VIEWABILITY}
+                onViewableItemsChanged={handleViewable}
+                renderItem={({ item }) => (
+                  <PostCard
+                    active={
+                      visiblePostIds.has(item.post.id) &&
+                      (!detail?.community.mature || matureAccepted)
+                    }
+                    hasThreadChild={item.hasThreadChild}
+                    hasThreadParent={item.hasThreadParent}
+                    showCommunity={false}
+                    post={item.post}
+                    viewerId={user?.id}
+                    onMore={(post, anchor) => {
+                      setMenuPost(post);
+                      setMenuAnchor(anchor);
+                    }}
+                    onShare={setSharePost}
+                  />
+                )}
+                showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
+              />
+            </GestureDetector>
+          </Animated.View>
+          {pull.loader}
         </View>
-        <Text
-          style={{
-            color: theme.inputText,
-            fontFamily: "SofiaProBold",
-            fontSize: 20,
-            marginTop: 12,
-          }}
-        >
-          {community.name}
-        </Text>
-        <Text
-          style={{
-            color: theme.dividerText,
-            fontFamily: "SofiaProReg",
-            fontSize: 14,
-          }}
-        >
-          a/{community.slug} · {formatNumber(detail.stats.members)}{" "}
-          {detail.stats.members === 1 ? "member" : "members"}
-        </Text>
-      </View>
-      <FeedTabs
-        alignment="start"
-        active={sort}
-        tabs={[
-          { label: "New", value: "new" },
-          { label: "Top", value: "top" },
-        ]}
-        onChange={(value) => setSort(value === "top" ? "top" : "new")}
-      />
-      {feedError && posts.length > 0 ? (
-        <Pressable onPress={handleRefresh}>
-          <Text style={{ color: theme.dividerText, padding: 12 }}>
-            Couldn't load more posts. Tap to retry.
-          </Text>
-        </Pressable>
-      ) : null}
-      <FlatList
-        {...LIST_VIRTUALIZATION_PROPS}
-        style={{ flex: 1 }}
-        contentContainerStyle={{
-          flexGrow: posts.length ? 0 : 1,
-          paddingBottom: bottomDockPadding({
-            bottomInset: insets.bottom,
-            dockHeight,
-          }),
-        }}
-        data={rows}
-        keyExtractor={(row) => row.post.id}
-        ListEmptyComponent={empty}
-        ListFooterComponent={loadingMore ? <FeedSkeletonCard /> : null}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={handleRefresh}
-            tintColor={theme.dividerText}
-          />
-        }
-        onEndReached={() => {
-          void handleMore();
-        }}
-        onEndReachedThreshold={0.6}
-        viewabilityConfig={COMMUNITY_VIEWABILITY}
-        onViewableItemsChanged={handleViewable}
-        renderItem={({ item }) => (
-          <PostCard
-            active={
-              visiblePostIds.has(item.post.id) &&
-              (!detail?.community.mature || matureAccepted)
-            }
-            hasThreadChild={item.hasThreadChild}
-            hasThreadParent={item.hasThreadParent}
-            showCommunity={false}
-            post={item.post}
-            viewerId={user?.id}
-            onMore={(post, anchor) => {
-              setMenuPost(post);
-              setMenuAnchor(anchor);
-            }}
-            onShare={setSharePost}
-          />
-        )}
-        showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
-      />
+      </GestureDetector>
       <MobileBottomNav onHeightChange={setDockHeight} />
       <MoreMenu
         anchor={menuAnchor}
@@ -545,6 +581,7 @@ export function CommunityDetailScreen() {
   );
 }
 const styles = StyleSheet.create({
+  listWrap: { flex: 1, position: "relative" },
   root: { flex: 1 },
   state: {
     alignItems: "center",

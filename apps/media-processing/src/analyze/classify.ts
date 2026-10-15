@@ -1,12 +1,14 @@
 // Dynamic Multimodal Entity Classifier & Knowledge Graph Ingestion.
 // Extracts open-ended entities, proper nouns, and relationships dynamically from
-// visual media (Gemini Multimodal Vision), OCR scene text, and speech transcripts.
-// Feeds the Dynamic Knowledge Graph without any hardcoded category dictionaries.
+// visual media (Clef Flash decisions), OCR scene text, and speech transcripts.
+// Clef supplies stable topic labels; lexical extraction retains specific entities.
 
-import { globalKnowledgeGraph, redis } from "@asm/db";
+import { recordSharedTopicRelations, redis } from "@asm/db";
+import type { SafetyVerdict } from "@asm/media";
 
 import { workerEnv } from "../env";
 import { mediaLogger, withSpan } from "../log";
+import { clefSafetyVerdict, evaluateClef } from "./clef";
 
 export { SEMANTIC_CLASSIFICATION_VERSION } from "./semantic-version";
 
@@ -32,9 +34,10 @@ interface CorpusStatistics {
 
 function normalizeTag(raw: string): string {
   return raw
+    .normalize("NFKC")
     .toLowerCase()
     .trim()
-    .replaceAll(/[^a-z0-9-_]/g, "-")
+    .replaceAll(/[^\p{L}\p{N}\p{M}_-]/gu, "-")
     .replaceAll(/-+/g, "-")
     .replaceAll(/^[-#@]+|[-]+$/g, "");
 }
@@ -184,7 +187,9 @@ function extractTextTopicsWithCorpus(
   };
 
   // 1. Dynamic hashtag extraction (#astrophotography, #vintagetypewriter, #leicam6)
-  const hashtagMatches = combinedText.matchAll(/#(?<tag>[a-zA-Z0-9_-]{2,32})/g);
+  const hashtagMatches = combinedText.matchAll(
+    /#(?<tag>[\p{L}\p{N}\p{M}_-]{2,32})/gu
+  );
   for (const match of hashtagMatches) {
     const tag = match.groups?.tag;
     if (tag) {
@@ -223,10 +228,18 @@ function extractTextTopicsWithCorpus(
   // 4. Dynamic salient term and phrase extraction. The worker learns inverse
   // document frequency from the media corpus instead of deleting a fixed list
   // of English words. Explicit entities above always outrank ordinary terms.
-  const sourceWords = combinedText.match(/[A-Za-z0-9][A-Za-z0-9_-]*/g) ?? [];
+  const sourceWords = [
+    ...new Intl.Segmenter(undefined, { granularity: "word" }).segment(
+      combinedText
+    ),
+  ]
+    .filter((segment) => segment.isWordLike)
+    .map((segment) => segment.segment);
   const words = sourceWords.map((word) => word.toLowerCase());
   const lexicalWords = words.filter(
-    (word) => word.length >= 4 && !/^\d+$/.test(word)
+    (word) =>
+      (word.length >= 4 || /[^\p{Script=Latin}\p{N}_-]/u.test(word)) &&
+      !/^\p{N}+$/u.test(word)
   );
   const corpusStatistics = corpus ?? getLocalCorpusStatistics(lexicalWords);
 
@@ -293,141 +306,26 @@ export async function extractTextTopicsWithSharedStatistics(
     return [];
   }
 
-  const words = combinedText.match(/[A-Za-z0-9][A-Za-z0-9_-]*/g) ?? [];
+  const words = [
+    ...new Intl.Segmenter(undefined, { granularity: "word" }).segment(
+      combinedText
+    ),
+  ]
+    .filter((segment) => segment.isWordLike)
+    .map((segment) => segment.segment);
   const lexicalWords = words
     .map((word) => word.toLowerCase())
-    .filter((word) => word.length >= 4 && !/^\d+$/.test(word));
+    .filter(
+      (word) =>
+        (word.length >= 4 || /[^\p{Script=Latin}\p{N}_-]/u.test(word)) &&
+        !/^\p{N}+$/u.test(word)
+    );
   const corpus = await getSharedCorpusStatistics(lexicalWords);
   return extractTextTopicsWithCorpus(combinedText, corpus);
 }
 
-// Multimodal visual entity and scene classifier powered by Google Gemini Vision.
-// Inspects pixel rasters for open-ended deep entity recognition without category restrictions.
-async function classifyRasterWithVision(
-  imagePath: string,
-  mediaId: string
-): Promise<{ semantics?: Record<string, unknown>; tags: string[] }> {
-  const apiKey = workerEnv.GEMINI_API_KEY;
-  if (!apiKey) {
-    return { tags: [] };
-  }
-
-  try {
-    const file = Bun.file(imagePath);
-    if (!(await file.exists())) {
-      return { tags: [] };
-    }
-
-    const { size } = file;
-    // Skip tiny or oversized files (>8MB) to keep latency tight
-    if (size < 100 || size > 8 * 1024 * 1024) {
-      return { tags: [] };
-    }
-
-    const buffer = await file.arrayBuffer();
-    const base64 = Buffer.from(buffer).toString("base64");
-    const mime = file.type || "image/jpeg";
-
-    const model =
-      workerEnv.GEMINI_TRANSCRIBE_MODEL || "gemini-flash-lite-latest";
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
-
-    const prompt =
-      "Analyze this social media image/frame and extract deep hierarchical taxonomy entities for an open-ended recommendation graph.\n" +
-      "You are NOT limited to any predefined list of categories. Dynamically discover and identify whatever is present in the image:\n" +
-      "- domain: Any macro domain (e.g. automotive, anime, nature, aviation, horology, woodworking, astronomy, architecture, fashion, coffee, sports, tech, etc.)\n" +
-      "- category: The specific category or sub-genre (e.g. jdm_sports_car, deep_sky_nebula, brutalist_architecture, specialty_espresso, mechanical_watch, shonen_anime, etc.)\n" +
-      "- entities: Specific names, models, species, series, characters, locations, tools, or brands (e.g. 'Porsche 911 GT3', 'Matterhorn', 'Gojo Satoru', 'James Webb Space Telescope', 'La Marzocco', 'Rolex Submariner')\n" +
-      "- setting: The physical setting or environment (e.g. racetrack, mountain_pass, coffee_shop, server_room, neon_street)\n" +
-      "- aesthetic: Visual style, vibe, mood, and photo technique (e.g. cinematic, cyberpunk, minimalist, 90s_retro, macro_photo, dark_moody, vibrant_sunset)\n" +
-      "Output valid JSON only matching this schema:\n" +
-      '{"domain":"string","category":"string","entities":["string"],"setting":"string","aesthetic":["string"],"vibe":"string"}';
-
-    const response = await fetch(url, {
-      body: JSON.stringify({
-        contents: [
-          {
-            parts: [
-              { text: prompt },
-              {
-                inlineData: {
-                  data: base64,
-                  mimeType: mime,
-                },
-              },
-            ],
-          },
-        ],
-        generationConfig: {
-          maxOutputTokens: 256,
-          responseMimeType: "application/json",
-          temperature: 0.2,
-        },
-      }),
-      headers: {
-        "Content-Type": "application/json",
-        "x-goog-api-key": apiKey,
-      },
-      method: "POST",
-      signal: AbortSignal.timeout(6000),
-    });
-
-    if (!response.ok) {
-      return { tags: [] };
-    }
-
-    const data = (await response.json()) as {
-      candidates?: {
-        content?: {
-          parts?: { text?: string }[];
-        };
-      }[];
-    };
-
-    const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!text) {
-      return { tags: [] };
-    }
-
-    const parsed = JSON.parse(text) as {
-      aesthetic?: string[];
-      category?: string;
-      domain?: string;
-      entities?: string[];
-      vibe?: string;
-    };
-
-    const extracted: string[] = [];
-    if (parsed.domain) {
-      extracted.push(parsed.domain);
-    }
-    if (parsed.category) {
-      extracted.push(parsed.category);
-    }
-    if (Array.isArray(parsed.entities)) {
-      extracted.push(...parsed.entities);
-    }
-    if (Array.isArray(parsed.aesthetic)) {
-      extracted.push(...parsed.aesthetic);
-    }
-    if (parsed.vibe) {
-      extracted.push(parsed.vibe);
-    }
-
-    return {
-      semantics: parsed,
-      tags: sanitizeTags(extracted),
-    };
-  } catch (error) {
-    mediaLogger.debug(
-      { error: String(error), mediaId },
-      "gemini vision classification skipped"
-    );
-    return { tags: [] };
-  }
-}
-
 export interface MediaClassificationResult {
+  safety?: SafetyVerdict;
   semantics?: Record<string, unknown>;
   tags: string[];
 }
@@ -436,6 +334,7 @@ export interface MediaClassificationResult {
 // Combines multimodal vision analysis, OCR text, and speech transcripts into rich topic tags.
 export function classifyMediaConcepts(input: {
   imagePath?: string | null;
+  imagePaths?: readonly string[];
   mediaId: string;
   ocrText?: string | null;
   transcript?: string | null;
@@ -448,22 +347,20 @@ export function classifyMediaConcepts(input: {
       }
 
       const tags = new Set<string>();
-      let semantics: Record<string, unknown> | undefined;
 
-      // 1. Multimodal visual entity classification from image raster or video keyframe
-      if (input.imagePath) {
-        const { semantics: visionSemantics, tags: visionTags } =
-          await classifyRasterWithVision(input.imagePath, input.mediaId);
-        for (const t of visionTags) {
-          tags.add(t);
-        }
-        semantics = visionSemantics;
-      }
-
-      // 2. Dynamic text-based semantic classification from transcript and OCR
       const textToAnalyze = [input.transcript, input.ocrText]
         .filter(Boolean)
         .join(" ");
+      const decision = await evaluateClef({
+        imagePath: input.imagePath,
+        imagePaths: input.imagePaths,
+        text: textToAnalyze,
+      });
+      for (const tag of decision.tags) {
+        tags.add(tag);
+      }
+      const semantics = decision;
+
       const textTopics =
         await extractTextTopicsWithSharedStatistics(textToAnalyze);
       for (const t of textTopics) {
@@ -473,14 +370,23 @@ export function classifyMediaConcepts(input: {
       const result = sanitizeTags([...tags]);
       if (result.length > 0) {
         // Record all co-occurring entities in the Dynamic Knowledge Graph
-        globalKnowledgeGraph.recordCoOccurrence(result);
+        try {
+          await recordSharedTopicRelations(result, input.mediaId);
+        } catch (error) {
+          mediaLogger.warn(
+            { error: String(error) },
+            "shared topic graph update deferred"
+          );
+          // Do not mark classification complete until its shared relations are saved.
+          throw error;
+        }
 
         mediaLogger.info(
           { mediaId: input.mediaId, tags: result },
           "semantic entities ingested into dynamic knowledge graph"
         );
       }
-      return { semantics, tags: result };
+      return { safety: clefSafetyVerdict(decision), semantics, tags: result };
     },
     { "media.id": input.mediaId }
   );

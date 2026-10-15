@@ -3,8 +3,7 @@ import { describe, expect, test } from "bun:test";
 // Opt-in integration test for the Gemini embedding branch: runs only when
 // GEMINI_API_KEY is set in the environment (local dev), skipped in CI where
 // the env is clean. Asserts the contract the recommendation engine depends
-// on - exactly EMBEDDING_DIMENSION values, normalized - so Gemini vectors and
-// local hash vectors remain one comparable space.
+// on: exactly EMBEDDING_DIMENSION normalized values from the named model.
 const REAL_GEMINI_KEY = process.env.GEMINI_API_KEY;
 
 const { EMBEDDING_DIMENSION, generateTextEmbedding } =
@@ -18,7 +17,7 @@ describe.skipIf(
     async () => {
       // Spy on fetch without intercepting: the real request must go out and
       // the implementation must consume the API response. A silent fallback
-      // to the local hash embedder (timeout, auth failure, malformed body)
+      // to an empty pending result (timeout, auth failure, malformed body)
       // makes these assertions fail even though the vector shape is valid.
       const geminiCalls: { ok: boolean; url: string }[] = [];
       const realFetch = globalThis.fetch;
@@ -79,7 +78,7 @@ describe.skipIf(
 });
 
 // Placeholder describe keeps the file meaningful when skipped: the contract
-// (dimension + normalization) is enforced for the local path in
+// (dimension + normalization) is enforced with provider responses in
 // embedding.test.ts.
 describe("embedding module contract", () => {
   test("EMBEDDING_DIMENSION is 384", () => {
