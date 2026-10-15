@@ -66,6 +66,29 @@ describe("response source community rail", () => {
     );
   });
 
+  test("blurs explicit source media while keeping an ordinary source clear", () => {
+    const source = {
+      ...parent,
+      attachments: [
+        { height: 480, id: "media", type: "IMAGE" as const, width: 640 },
+      ],
+    };
+    const hidden = renderSource(
+      <ResponseParentRow
+        parent={{ ...source, explicitContent: true }}
+        parentPostId={source.id}
+      />
+    );
+    const normal = renderSource(
+      <ResponseParentRow
+        parent={{ ...source, explicitContent: false }}
+        parentPostId={source.id}
+      />
+    );
+    expect(hidden).toContain("opacity-60 blur-lg saturate-50");
+    expect(normal).not.toContain("blur-lg");
+  });
+
   test("a global source has a thread connector without a community rail", () => {
     const html = renderSource(
       <ResponseParentRow

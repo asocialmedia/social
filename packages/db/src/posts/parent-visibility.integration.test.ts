@@ -72,6 +72,7 @@ beforeAll(async () => {
   const parent = await prisma.orm.public.Posts.create({
     communityId: community.id,
     content: SECRET_CONTENT,
+    explicitContent: true,
     id: randomUUID(),
     userId: OWNER_ID,
   });
@@ -141,6 +142,7 @@ describe("embedded parent visibility", () => {
       throw new Error("reply missing");
     }
     const mapped = mapPostData(reply);
+    expect(mapped.parentPost?.explicitContent).toBe(true);
     expect(mapped.parentPost?.attachments[0]).toMatchObject({
       height: 1280,
       mimeType: "image/png",

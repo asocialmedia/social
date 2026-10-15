@@ -85,6 +85,7 @@ export interface FeedParentPost {
   content?: string | null;
   createdAt: string;
   embeds?: string | null;
+  explicitContent?: boolean;
   id?: string;
   isGust?: boolean;
   moderated?: boolean;

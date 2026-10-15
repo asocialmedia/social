@@ -21,6 +21,7 @@ import type { GestureResponderEvent } from "react-native";
 import { UserAvatar } from "@/components/avatar/user-avatar";
 import { CommunityAvatar } from "@/features/communities/components/community-avatar";
 import { resolveCommunityAccentColor } from "@/features/communities/lib/community-accents";
+import { ConcealedMediaCover } from "@/features/feed/components/concealed-media-cover";
 import { UserBadge } from "@/features/home/components/user-badge";
 import { getApiBaseUrl } from "@/lib/api-env";
 import { useAppTheme } from "@/theme";
@@ -234,23 +235,7 @@ export function ResponseParentRow({ post }: { post: FeedPost }) {
             </View>
           ) : null}
           {firstMedia && firstMedia.type !== "AUDIO" ? (
-            <Image
-              contentFit="contain"
-              accessibilityLabel="Parent post media"
-              source={{
-                uri:
-                  firstMedia.type === "VIDEO"
-                    ? mediaPosterUrl(apiBase, firstMedia.id)
-                    : mediaImageUrl(apiBase, firstMedia),
-              }}
-              onLoad={(event) => {
-                if (event.source.width > 0 && event.source.height > 0) {
-                  setNatural({
-                    height: event.source.height,
-                    width: event.source.width,
-                  });
-                }
-              }}
+            <View
               style={[
                 styles.parentThumb,
                 { aspectRatio: ratio },
@@ -258,7 +243,35 @@ export function ResponseParentRow({ post }: { post: FeedPost }) {
                   ? { alignSelf: "flex-start", height: 320, maxWidth: "100%" }
                   : { maxHeight: 320, width: "100%" },
               ]}
-            />
+            >
+              {parent.explicitContent ? (
+                <ConcealedMediaCover
+                  accessibilityLabel="Blurred explicit media preview"
+                  apiBase={apiBase}
+                  media={firstMedia}
+                />
+              ) : (
+                <Image
+                  contentFit="contain"
+                  accessibilityLabel="Parent post media"
+                  source={{
+                    uri:
+                      firstMedia.type === "VIDEO"
+                        ? mediaPosterUrl(apiBase, firstMedia.id)
+                        : mediaImageUrl(apiBase, firstMedia),
+                  }}
+                  onLoad={(event) => {
+                    if (event.source.width > 0 && event.source.height > 0) {
+                      setNatural({
+                        height: event.source.height,
+                        width: event.source.width,
+                      });
+                    }
+                  }}
+                  style={StyleSheet.absoluteFill}
+                />
+              )}
+            </View>
           ) : null}
           {!parent.content && !firstMedia ? (
             <Text style={[styles.parentEmpty, { color: theme.dividerText }]}>
@@ -800,6 +813,7 @@ const styles = StyleSheet.create({
   parentThumb: {
     borderRadius: 12,
     marginTop: 8,
+    overflow: "hidden",
   },
   shareBar: {
     borderRadius: 9999,

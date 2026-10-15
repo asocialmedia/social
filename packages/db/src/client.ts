@@ -202,6 +202,7 @@ export function getPostDataQuery(orm: PrismaOrm, loggedInUserId: string) {
           "content",
           "createdAt",
           "embeds",
+          "explicitContent",
           "id",
           "isGust",
           "moderated",
@@ -259,6 +260,7 @@ export interface PostParentData {
   content: string;
   createdAt: Date;
   embeds: unknown;
+  explicitContent?: boolean;
   id: string;
   isGust: boolean;
   moderated: boolean;

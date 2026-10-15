@@ -54,6 +54,7 @@ import type {
 import { MoreButton } from "@/features/feed/components/post-actions";
 import { PostCard } from "@/features/feed/components/post-card";
 import { PostLinkEmbeds } from "@/features/feed/components/post-link-embeds";
+import { ExplicitGate } from "@/features/feed/components/post-media";
 import {
   ShareSheet,
   getSharePostUrl,
@@ -266,6 +267,28 @@ const GustGridTile = memo(
     } else if (image) {
       source = { uri: mediaImageUrl(apiBase, image) };
     }
+    const previewMedia = video ?? image;
+    let preview = (
+      <View style={[styles.gustGridImage, styles.gustGridFallback]} />
+    );
+    if (source) {
+      preview = (
+        <Image
+          contentFit="cover"
+          source={source}
+          style={styles.gustGridImage}
+        />
+      );
+    }
+    if (post.explicitContent && previewMedia) {
+      preview = (
+        <ConcealedMediaCover
+          accessibilityLabel="Blurred explicit media preview"
+          apiBase={apiBase}
+          media={previewMedia}
+        />
+      );
+    }
     return (
       <Pressable
         accessibilityLabel={`Open Gust by ${author}`}
@@ -273,18 +296,7 @@ const GustGridTile = memo(
         onPress={() => onOpen(post)}
         style={styles.gustGridTile}
       >
-        {source ? (
-          <Image
-            contentFit="cover"
-            source={source}
-            style={[
-              styles.gustGridImage,
-              post.explicitContent ? styles.mediaBlurred : null,
-            ]}
-          />
-        ) : (
-          <View style={[styles.gustGridImage, styles.gustGridFallback]} />
-        )}
+        {preview}
         <ExploreBadge kind="gust" style={styles.gustGridChip} />
         <LinearGradient
           colors={["transparent", "rgba(0,0,0,0.45)", "rgba(0,0,0,0.85)"]}
@@ -326,7 +338,6 @@ function renderMediaContent({
   fallbackText,
   isAudio,
   isGenericFile,
-  item,
   moderated,
   showFallback,
   source,
@@ -335,7 +346,6 @@ function renderMediaContent({
   fallbackText: string;
   isAudio: boolean;
   isGenericFile: boolean;
-  item: ProfileMedia;
   moderated: boolean;
   showFallback: boolean;
   source: { uri: string } | null;
@@ -396,16 +406,7 @@ function renderMediaContent({
     );
   }
 
-  return (
-    <Image
-      contentFit="cover"
-      source={source}
-      style={[
-        styles.mediaImage,
-        item.post?.explicitContent ? styles.mediaBlurred : null,
-      ]}
-    />
-  );
+  return <Image contentFit="cover" source={source} style={styles.mediaImage} />;
 }
 
 // Media tile with 1:1 parity with web's media-gallery. Video items display the
@@ -511,13 +512,16 @@ const MediaTile = memo(
           ]}
         >
           {item.post?.explicitContent && !moderated ? (
-            <ConcealedMediaCover apiBase={apiBase} media={item} />
+            <ConcealedMediaCover
+              accessibilityLabel="Blurred explicit media preview"
+              apiBase={apiBase}
+              media={item}
+            />
           ) : (
             renderMediaContent({
               fallbackText,
               isAudio,
               isGenericFile,
-              item,
               moderated,
               showFallback,
               source,
@@ -619,6 +623,29 @@ const ReplyRow = memo(
       });
     };
 
+    const mediaAndEmbeds = (
+      <>
+        {item.attachments.length > 0 ? (
+          <View style={styles.replyAttachments}>
+            {item.attachments.map((attachment) => (
+              <Image
+                contentFit="cover"
+                key={attachment.id}
+                source={{ uri: mediaImageUrl(getApiBaseUrl(), attachment) }}
+                style={styles.replyAttachment}
+              />
+            ))}
+          </View>
+        ) : null}
+
+        {embeds.length > 0 ? (
+          <View style={styles.replyEmbeds}>
+            <PostLinkEmbeds apiBase={getApiBaseUrl()} embeds={embeds} />
+          </View>
+        ) : null}
+      </>
+    );
+
     return (
       <View style={[styles.replyRow, { borderBottomColor: theme.cardBorder }]}>
         {/* Left: author avatar */}
@@ -685,24 +712,18 @@ const ReplyRow = memo(
               />
             ) : null}
 
-            {item.attachments.length > 0 ? (
-              <View style={styles.replyAttachments}>
-                {item.attachments.map((attachment) => (
-                  <Image
-                    contentFit="cover"
-                    key={attachment.id}
-                    source={{ uri: mediaImageUrl(getApiBaseUrl(), attachment) }}
-                    style={styles.replyAttachment}
-                  />
-                ))}
-              </View>
-            ) : null}
-
-            {embeds.length > 0 ? (
-              <View style={styles.replyEmbeds}>
-                <PostLinkEmbeds apiBase={getApiBaseUrl()} embeds={embeds} />
-              </View>
-            ) : null}
+            {item.post.explicitContent &&
+            (item.attachments.length > 0 || embeds.length > 0) ? (
+              <ExplicitGate
+                apiBase={getApiBaseUrl()}
+                attachments={item.attachments}
+                revealKey={item.post.id}
+              >
+                {mediaAndEmbeds}
+              </ExplicitGate>
+            ) : (
+              mediaAndEmbeds
+            )}
           </Pressable>
           {/* Actions: Aura indicator and Reply button */}
           <View style={styles.replyActionsRow}>
@@ -1443,9 +1464,6 @@ const styles = StyleSheet.create({
     height: 24,
     justifyContent: "center",
     width: 24,
-  },
-  mediaBlurred: {
-    opacity: 0.5,
   },
   mediaFallback: {
     alignItems: "center",
