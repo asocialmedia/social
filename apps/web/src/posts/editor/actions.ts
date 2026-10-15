@@ -11,6 +11,7 @@ import {
   cancelMediaCleanup,
   COMMENT_RECEIVED_AURA,
   enqueueMediaAnalyze,
+  enqueuePostAnalyze,
   enqueueNotificationCreated,
   enqueueShitposterCheck,
   generateLocalEmbedding,
@@ -719,6 +720,12 @@ export async function submitPost(input: CreatePostInput) {
     }
 
     // The media is now attached to a post, so the abandoned-upload cleanup jobs must not delete it.
+    try {
+      await enqueuePostAnalyze(newPost.id);
+    } catch (error) {
+      console.error("Failed to enqueue post classification", error);
+    }
+
     // Enqueue media analyze only AFTER the transaction commits so a rollback does not leave an orphan job.
     for (const mediaId of validatedInput.mediaIds) {
       // oxlint-disable-next-line promise/prefer-await-to-then, promise/prefer-await-to-callbacks

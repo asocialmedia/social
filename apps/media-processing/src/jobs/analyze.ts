@@ -1,7 +1,7 @@
 // Stage 3: semantic analysis & enrichment.
 // Runs asynchronously on published assets without blocking upload or serving.
 // Performs:
-// 1. NSFW Safety classification (falconsai ONNX model)
+// 1. Clef Flash safety and topic decisions
 // 2. Scene-text OCR (PP-OCRv4 ONNX model)
 // 3. Speech-to-Text Whisper transcription & WebVTT closed-caption generation
 // 4. Multi-label semantic topic/concept classification
@@ -12,9 +12,10 @@
 
 import { and, prisma } from "@asm/db";
 import type { Models } from "@asm/db";
-import type { MediaAnalyzeJobData } from "@asm/media";
+import type { MediaAnalyzeJobData, SafetyVerdict } from "@asm/media";
 
 import { classifyMediaConcepts } from "../analyze/classify";
+import { ClefDeferredError } from "../analyze/clef";
 import { generateTextEmbedding } from "../analyze/embedding";
 import { extractImageText } from "../analyze/ocr";
 import { SEMANTIC_CLASSIFICATION_VERSION } from "../analyze/semantic-version";
@@ -22,7 +23,6 @@ import { transcribeMediaAudio } from "../analyze/transcribe";
 import { workerEnv } from "../env";
 import { mediaLogger, withSpan } from "../log";
 import { getS3 } from "../s3";
-import { classifyImageSafety } from "../scan/safety";
 
 // Only these types ever reach an analysis run
 const ANALYZABLE_TYPES = new Set(["AUDIO", "IMAGE", "VIDEO"]);
@@ -104,6 +104,8 @@ async function resolveAnalysisSource(
   const preferredRaster =
     media.postMediaDerivatives.find((d) => d.kind === "poster") ??
     media.postMediaDerivatives.find((d) => d.kind === "cover") ??
+    media.postMediaDerivatives.find((d) => d.kind === "md") ??
+    media.postMediaDerivatives.find((d) => d.kind === "sm") ??
     media.postMediaDerivatives.find((d) => d.kind === "thumb");
 
   const rasterKey =
@@ -119,7 +121,13 @@ async function resolveAnalysisSource(
       // image through an ArrayBuffer first.
       await Bun.write(rasterLocalPath, getS3().file(rasterKey));
     } catch {
-      rasterLocalPath = null;
+      await Bun.file(rasterLocalPath)
+        .delete()
+        .catch(() => null);
+      throw new ClefDeferredError(
+        "Media raster is temporarily unavailable",
+        Date.now() + 60_000
+      );
     }
   }
 
@@ -177,19 +185,6 @@ export function processMediaAnalyze(
 
       const { avLocalPath, rasterLocalPath } = source;
       try {
-        // Stage 1: NSFW Safety classification
-        let verdict = null;
-        if (!semanticRefresh && source.isRaster && rasterLocalPath) {
-          try {
-            verdict = await classifyImageSafety(rasterLocalPath);
-          } catch (error) {
-            mediaLogger.warn(
-              { error: String(error) },
-              "safety classification failed"
-            );
-          }
-        }
-
         // Stage 2: Scene-text OCR
         let ocr = null;
         const wantsOcr = source.type === "IMAGE" || source.type === "VIDEO";
@@ -234,24 +229,18 @@ export function processMediaAnalyze(
         let semanticTags: string[] = [];
         let semantics: MediaJson | null = null;
         let classificationSucceeded = false;
-        try {
-          const classification = await classifyMediaConcepts({
-            imagePath: rasterLocalPath,
-            mediaId: jobData.mediaId,
-            ocrText: ocrTextForClassification,
-            transcript: transcriptForClassification,
-          });
-          semanticTags = classification.tags;
-          semantics = isMediaJson(classification.semantics)
-            ? classification.semantics
-            : null;
-          classificationSucceeded = true;
-        } catch (error) {
-          mediaLogger.warn(
-            { error: String(error) },
-            "concept classification failed"
-          );
-        }
+        const classification = await classifyMediaConcepts({
+          imagePath: rasterLocalPath,
+          mediaId: jobData.mediaId,
+          ocrText: ocrTextForClassification,
+          transcript: transcriptForClassification,
+        });
+        const verdict: SafetyVerdict | undefined = classification.safety;
+        semanticTags = classification.tags;
+        semantics = isMediaJson(classification.semantics)
+          ? classification.semantics
+          : null;
+        classificationSucceeded = Boolean(classification.semantics);
 
         // Stage 5: Update Media database row — re-read fresh techMetadata to avoid clobbering concurrent updates
         const freshMediaForTech = await prisma.orm.public.PostMedia.select(
@@ -452,14 +441,21 @@ export function processMediaAnalyze(
               { postId },
               "another analyze job holds the post aggregate lock; skipping Stage 6"
             );
-            return { outcome: "analyzed" as const };
+            throw new ClefDeferredError(
+              "Post aggregation is busy",
+              Date.now() + 15_000
+            );
           }
 
           try {
             // Re-read the post and every sibling attachment while holding
             // the lock so the aggregate below includes results already
             // written by sibling jobs that finished ahead of this one.
-            const post = await prisma.orm.public.Posts.select("content", "id")
+            const post = await prisma.orm.public.Posts.select(
+              "content",
+              "id",
+              "semanticTags"
+            )
               .include("postMedias", (attachment) =>
                 attachment.select("id", "ocrText", "semanticTags", "transcript")
               )
@@ -485,6 +481,7 @@ export function processMediaAnalyze(
               .join(" ");
             const allSemanticTags = [
               ...new Set([
+                ...(post.semanticTags ?? []),
                 ...post.postToTags.flatMap((postTag) =>
                   postTag.tag ? [postTag.tag.name] : []
                 ),
