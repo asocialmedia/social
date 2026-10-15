@@ -68,7 +68,9 @@ function LinkChip({ title, url }: { title?: string; url: string }) {
     <Pressable
       accessibilityLabel={`${label}, ${url}`}
       accessibilityRole="link"
-      onPress={() => {
+      style={styles.chipPressable}
+      onPress={(event) => {
+        event.stopPropagation();
         const safe = safeLinkUrl(url);
         if (safe) {
           void Linking.openURL(safe);
@@ -118,7 +120,9 @@ export function MentionChip({
     <Pressable
       accessibilityLabel={`Mentioned user ${username}`}
       accessibilityRole="link"
-      onPress={() => {
+      style={styles.chipPressable}
+      onPress={(event) => {
+        event.stopPropagation();
         router.push({ params: { username }, pathname: "/users/[username]" });
       }}
     >
@@ -148,7 +152,9 @@ export function TagChip({ tag }: { tag: string }) {
     <Pressable
       accessibilityLabel={`Hashtag ${tag}`}
       accessibilityRole="link"
-      onPress={() => {
+      style={styles.chipPressable}
+      onPress={(event) => {
+        event.stopPropagation();
         router.push({ params: { tag }, pathname: "/hashtag/[tag]" });
       }}
     >
@@ -296,7 +302,13 @@ export function BioContent({
         ))}
       </View>
       {clampLength !== undefined && (clamped || expanded) ? (
-        <Pressable hitSlop={4} onPress={() => setExpanded((value) => !value)}>
+        <Pressable
+          hitSlop={4}
+          onPress={(event) => {
+            event.stopPropagation();
+            setExpanded((value) => !value);
+          }}
+        >
           <Text style={[styles.expand, { color: theme.auxLink }]}>
             {expanded ? "Show less" : "Show more"}
           </Text>
@@ -314,8 +326,10 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 6,
     height: 26,
+    maxWidth: "100%",
     paddingHorizontal: 10,
   },
+  chipPressable: { maxWidth: "100%" },
   chipText: {
     flexShrink: 1,
     fontFamily: "SofiaProMed",

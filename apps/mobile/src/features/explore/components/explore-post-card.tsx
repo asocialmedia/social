@@ -5,7 +5,12 @@ import { useMemo } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { UserAvatar } from "@/components/avatar/user-avatar";
+import {
+  ConcealedImageCover,
+  ConcealedMediaCover,
+} from "@/features/feed/components/concealed-media-cover";
 import { VoteCluster } from "@/features/feed/components/post-actions";
+import { extractInlineMeta } from "@/features/feed/lib/feed-types";
 import type { FeedMedia, FeedPost } from "@/features/feed/lib/feed-types";
 import {
   embedImageUrl,
@@ -14,6 +19,12 @@ import {
 } from "@/features/feed/lib/link-embeds";
 import type { LinkEmbed } from "@/features/feed/lib/link-embeds";
 import { mediaGridImageUrl } from "@/features/feed/lib/media-url";
+import {
+  BioContent,
+  MentionChip,
+  TagChip,
+} from "@/features/home/components/bio-content";
+import { resolveAvatarWithFallback } from "@/features/home/components/profile-utils";
 import { UserBadge } from "@/features/home/components/user-badge";
 import { getApiBaseUrl } from "@/lib/api-env";
 import { SURFACE_SHADOWS, SURFACE_SHADOWS_DARK, useAppTheme } from "@/theme";
@@ -80,6 +91,31 @@ export function ExplorePostCard({
   const imageUrl = previewUrl(apiBase, media, embed);
   const isVideo = media?.type === "VIDEO";
   const aspectRatio = previewAspect(post, media, embed);
+  const inline = useMemo(
+    () => extractInlineMeta(post.content ?? ""),
+    [post.content]
+  );
+  const extraTags = (post.tags ?? []).filter(
+    (tag) => !inline.tags.has(tag.name.toLowerCase())
+  );
+  const extraMentions = (post.mentions ?? []).filter(
+    (mention) =>
+      mention.user?.username &&
+      !inline.usernames.has(mention.user.username.toLowerCase())
+  );
+
+  const concealedPreview = media ? (
+    <ConcealedMediaCover
+      accessibilityLabel="Blurred explicit media preview"
+      apiBase={apiBase}
+      media={media}
+    />
+  ) : (
+    <ConcealedImageCover
+      accessibilityLabel="Blurred explicit media preview"
+      uri={imageUrl}
+    />
+  );
 
   return (
     <Pressable
@@ -106,15 +142,19 @@ export function ExplorePostCard({
         <>
           {imageUrl ? (
             <View style={[styles.visual, { aspectRatio }]}>
-              <Image
-                recyclingKey={imageUrl}
-                accessibilityLabel="Post media"
-                cachePolicy="memory-disk"
-                contentFit="cover"
-                onError={() => setImageFailed(true)}
-                source={{ uri: imageUrl }}
-                style={[styles.image, post.explicitContent && styles.explicit]}
-              />
+              {post.explicitContent ? (
+                concealedPreview
+              ) : (
+                <Image
+                  recyclingKey={imageUrl}
+                  accessibilityLabel="Post media"
+                  cachePolicy="memory-disk"
+                  contentFit="cover"
+                  onError={() => setImageFailed(true)}
+                  source={{ uri: imageUrl }}
+                  style={styles.image}
+                />
+              )}
               {isVideo ? (
                 <View style={styles.videoOverlay}>
                   <View style={styles.playButton}>
@@ -137,12 +177,31 @@ export function ExplorePostCard({
           ) : null}
           <View style={styles.body}>
             {post.content ? (
-              <Text
-                numberOfLines={4}
-                style={[styles.content, { color: theme.inputText }]}
-              >
-                {post.content}
-              </Text>
+              <BioContent
+                key={post.id}
+                apiBase={apiBase}
+                bio={post.content}
+                clampLength={180}
+                textSize={styles.content}
+              />
+            ) : null}
+            {extraTags.length > 0 || extraMentions.length > 0 ? (
+              <View style={styles.meta}>
+                {extraTags.map((tag) => (
+                  <TagChip key={tag.id} tag={tag.name} />
+                ))}
+                {extraMentions.map((mention) => (
+                  <MentionChip
+                    key={mention.user.id}
+                    avatarUrl={resolveAvatarWithFallback(
+                      mention.user.avatarUrl,
+                      apiBase,
+                      mention.user.username || mention.user.id
+                    )}
+                    username={mention.user.username ?? "unknown"}
+                  />
+                ))}
+              </View>
             ) : null}
             <View style={styles.authorRow}>
               <UserAvatar size={32} url={post.user?.avatarUrl} />
@@ -214,7 +273,6 @@ const styles = StyleSheet.create({
     width: "100%",
   },
   content: { fontFamily: "SofiaProReg", fontSize: 13, lineHeight: 18 },
-  explicit: { opacity: 0.6 },
   footer: {
     alignItems: "center",
     flexDirection: "row",
@@ -225,6 +283,7 @@ const styles = StyleSheet.create({
   gustBadge: { left: 8, position: "absolute", top: 8 },
   image: { height: "100%", width: "100%" },
   imageFallback: { bottom: 0, left: 0, position: "absolute", right: 0, top: 0 },
+  meta: { flexDirection: "row", flexWrap: "wrap", gap: 4 },
   muted: {
     alignItems: "center",
     justifyContent: "center",

@@ -47,6 +47,7 @@ import { Gradient3D } from "@/components/surface/gradient-3d";
 import { authClient } from "@/features/auth/lib/auth-client";
 import { useInstall } from "@/features/auth/state/install";
 import { useSessionContext } from "@/features/auth/state/session";
+import { ConcealedMediaCover } from "@/features/feed/components/concealed-media-cover";
 import { FeedPager } from "@/features/feed/components/feed-pager";
 import { NewContentPill } from "@/features/feed/components/new-content-pill";
 import type { PillAuthor } from "@/features/feed/components/new-content-pill";
@@ -918,12 +919,20 @@ function ExploreGustTile({
         },
       ]}
     >
-      <Image
-        cachePolicy="memory-disk"
-        contentFit="cover"
-        source={{ uri: imageUrl }}
-        style={styles.gustImage}
-      />
+      {post.explicitContent ? (
+        <ConcealedMediaCover
+          accessibilityLabel="Blurred explicit media preview"
+          apiBase={getApiBaseUrl()}
+          media={media}
+        />
+      ) : (
+        <Image
+          cachePolicy="memory-disk"
+          contentFit="cover"
+          source={{ uri: imageUrl }}
+          style={styles.gustImage}
+        />
+      )}
       <ExploreBadge kind="gust" style={styles.gustBadge} />
       <LinearGradient
         colors={["transparent", "rgba(0,0,0,0.92)"]}
