@@ -228,7 +228,24 @@ if (restoreMute) {
   await tap(restoreMute);
 }
 const beforePause = await snapshot();
-const pause = beforePause.find((node) => node.label === "Pause");
+let pause = beforePause.find((node) => node.label === "Pause");
+if (!pause) {
+  // A short clip can end while the mute checks run; replay it before pausing.
+  const replay = beforePause.find(
+    (node) =>
+      node.label === "Play" &&
+      node.bounds[0] === playing.bounds[0] &&
+      node.bounds[1] === playing.bounds[1]
+  );
+  if (replay) {
+    await tap(replay);
+    const replaying = await waitFor(
+      (nodes) => nodes.some((node) => node.label === "Pause"),
+      "replayed short preview"
+    );
+    pause = replaying.find((node) => node.label === "Pause");
+  }
+}
 if (!pause) {
   throw new Error("Custom pause control is absent");
 }
