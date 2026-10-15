@@ -1,6 +1,11 @@
 "use server";
 
-import { and, invalidateFypProfile, prisma } from "@asm/db";
+import {
+  and,
+  invalidateFypProfile,
+  prisma,
+  resolveLastRankingContext,
+} from "@asm/db";
 import { createLogger } from "@asm/logger";
 
 import { getSessionFromApi } from "@/lib/auth/session";
@@ -38,10 +43,19 @@ export async function hideRecommendationPost(postId: string): Promise<void> {
   // two rows (or a duplicate-key ERROR in the DB log). `dedupeKey` is the
   // table's existing unique column, so an upsert on it is atomic - the second
   // writer hits ON CONFLICT and becomes a no-op instead of an error.
+  const rankingContext = await resolveLastRankingContext(userId, postId);
   const dedupeKey = `not_interested:${userId}:${postId}`;
   await prisma.orm.public.RecommendationEvents.upsert({
     conflictOn: { dedupeKey },
     create: {
+      ...(rankingContext
+        ? {
+            rankingContext: {
+              ...rankingContext,
+              attribution: "last_impression",
+            },
+          }
+        : {}),
       dedupeKey,
       eventType: "NOT_INTERESTED",
       postId,

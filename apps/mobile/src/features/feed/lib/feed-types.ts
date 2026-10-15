@@ -97,6 +97,7 @@ export interface FeedParentPost {
 }
 
 export interface FeedPost {
+  recommendation?: { requestId: string };
   followingSources?: {
     avatarUrl: string | null;
     id: string;

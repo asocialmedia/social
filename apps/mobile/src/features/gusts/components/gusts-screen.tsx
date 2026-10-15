@@ -586,7 +586,13 @@ export function GustsScreen() {
           apiBase={apiBase}
           captionsOn={captionsOn}
           onRecommendationEvent={(event) =>
-            queueRef.current?.push(event.eventType, item.id, event.durationMs)
+            queueRef.current?.push(
+              event.eventType,
+              item.id,
+              event.durationMs,
+              undefined,
+              item.recommendation?.requestId
+            )
           }
           eddiesOpen={eddiesPostId === item.id}
           previewProgress={eddiePreviewProgress}

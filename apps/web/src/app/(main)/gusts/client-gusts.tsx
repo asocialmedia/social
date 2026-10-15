@@ -706,6 +706,7 @@ export const ClientGusts: React.FC<ClientGustsProps> = () => {
                   <RecommendationTracker
                     className="h-full w-full"
                     postId={post.id}
+                    requestId={post.recommendation?.requestId}
                   >
                     <GustCard
                       commentsOpen={

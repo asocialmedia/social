@@ -10,6 +10,8 @@ import { useSession } from "@/app/(main)/session-provider";
 type RecommendationEventType = EngagementEventType | "NOT_INTERESTED";
 
 interface RecommendationEvent {
+  eventId?: string;
+  requestId?: string;
   durationMs?: number;
   eventType: RecommendationEventType;
   postId: string;
@@ -58,7 +60,7 @@ function scheduleFlush(): void {
 }
 
 export function trackRecommendationEvent(event: RecommendationEvent): void {
-  eventQueue.push(event);
+  eventQueue.push({ ...event, eventId: event.eventId ?? crypto.randomUUID() });
   if (eventQueue.length >= MAX_QUEUE_SIZE) {
     void flushEvents();
   } else {
@@ -106,12 +108,14 @@ interface RecommendationTrackerProps {
   // instead of its own video's intrinsic dimensions.
   className?: string;
   postId: string;
+  requestId?: string;
 }
 
 export function RecommendationTracker({
   children,
   className,
   postId,
+  requestId,
 }: RecommendationTrackerProps) {
   const { user } = useSession();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -124,7 +128,7 @@ export function RecommendationTracker({
     let visible = false;
     let timer: ReturnType<typeof setInterval> | null = null;
     const session = new EngagementSession((event) =>
-      trackRecommendationEvent({ ...event, postId })
+      trackRecommendationEvent({ ...event, postId, requestId })
     );
     const sample = () => {
       const video = element.querySelector("video");
@@ -182,7 +186,7 @@ export function RecommendationTracker({
       document.removeEventListener("visibilitychange", visibilityChanged);
       stop(true);
     };
-  }, [postId, user]);
+  }, [postId, requestId, user]);
 
   return (
     <div className={className} ref={containerRef}>

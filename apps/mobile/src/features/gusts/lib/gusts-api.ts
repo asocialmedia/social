@@ -226,6 +226,8 @@ export type RecommendationEventType =
   | "VIEW_START";
 
 export interface RecommendationEvent {
+  eventId?: string;
+  requestId?: string;
   durationMs?: number;
   eventType: RecommendationEventType;
   postId: string;
