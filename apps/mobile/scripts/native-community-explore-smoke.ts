@@ -165,7 +165,7 @@ async function checkPullRefresh(
     "input",
     "swipe",
     String(width * 0.5),
-    String(height * 0.32),
+    String(height * 0.24),
     String(width * 0.5),
     String(height * 0.8),
     "900"

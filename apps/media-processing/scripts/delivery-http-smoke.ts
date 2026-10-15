@@ -22,8 +22,7 @@ const artifactDir =
   process.env.ASM_MEDIA_ARTIFACTS ?? "/tmp/asm-media-http-smoke";
 await mkdir(artifactDir, { recursive: true });
 const sourceDir =
-  process.env.ASM_MEDIA_SOURCE_DIR ??
-  "../../build-artifacts/media-delivery-2026-10-15";
+  process.env.ASM_MEDIA_SOURCE_DIR ?? "/tmp/asm-media-delivery-smoke";
 const userId = crypto.randomUUID();
 const postId = crypto.randomUUID();
 const ids = [crypto.randomUUID(), crypto.randomUUID(), crypto.randomUUID()];
