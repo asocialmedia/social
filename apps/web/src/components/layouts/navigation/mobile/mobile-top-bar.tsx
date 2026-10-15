@@ -7,6 +7,7 @@ import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft, Bell, Search } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import type React from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
@@ -21,6 +22,9 @@ const MobileTopBar: React.FC<{ backHref?: string }> = ({ backHref }) => {
   const { user } = useSession();
   const { openSpotlight } = useSpotlight();
   const { data: notificationData } = useUnreadNotificationCount();
+
+  const pathname = usePathname();
+  const isNotifications = pathname.startsWith("/notifications");
 
   const unreadCount = notificationData?.unreadCount ?? 0;
 
@@ -95,11 +99,19 @@ const MobileTopBar: React.FC<{ backHref?: string }> = ({ backHref }) => {
           <>
             <Link
               aria-label="Notifications"
-              className="icon-btn-3d flex h-9 w-9 items-center justify-center rounded-full transition-all! duration-300! ease-out! hover:scale-105 active:scale-95"
+              className={cn(
+                "icon-btn-3d flex h-9 w-9 items-center justify-center rounded-full transition-all! duration-300! ease-out! hover:scale-105 active:scale-95",
+                isNotifications && "pill-nav-active"
+              )}
               href="/notifications"
             >
               <span className="relative">
-                <Bell className="size-5" />
+                <Bell
+                  className={cn(
+                    "size-5",
+                    isNotifications ? "text-primary fill-current" : ""
+                  )}
+                />
                 {unreadCount > 0 ? (
                   <span className="absolute -top-1.5 -right-2.5 flex h-4 min-w-4 items-center justify-center rounded-full border border-[hsl(var(--background-alt))] bg-gradient-to-b from-[#ff9500] to-[#e65500] px-1 text-[9px] font-semibold text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),0_1px_2px_rgba(0,0,0,0.2)]">
                     {unreadCount > 99 ? "99+" : unreadCount}

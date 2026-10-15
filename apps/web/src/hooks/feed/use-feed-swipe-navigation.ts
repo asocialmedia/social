@@ -21,9 +21,14 @@ const FLICK_VELOCITY = 0.6;
 // vertical; whichever axis is ahead wins.
 const DIRECTION_LOCK = 10;
 
+export interface SwipeNavigationOptions {
+  enableDesktop?: boolean;
+}
+
 export function useFeedSwipeNavigation(
   containerRef: RefObject<HTMLElement | null>,
-  onNavigate: (direction: -1 | 1) => void
+  onNavigate: (direction: -1 | 1) => void,
+  options?: SwipeNavigationOptions
 ) {
   useEffect(() => {
     const container = containerRef.current;
@@ -31,10 +36,12 @@ export function useFeedSwipeNavigation(
       return;
     }
 
+    const enableDesktop = options?.enableDesktop ?? false;
+
     let startX = 0;
     let startY = 0;
     let startTime = 0;
-    // Whether a single-finger touch is being tracked, and once decided,
+    // Whether a single touch or drag is being tracked, and once decided,
     // whether it locked as a horizontal gesture.
     let tracking = false;
     let horizontal: boolean | null = null;
@@ -64,30 +71,33 @@ export function useFeedSwipeNavigation(
       return false;
     };
 
-    const onTouchStart = (event: TouchEvent) => {
-      if (event.touches.length !== 1) {
-        reset();
-        return;
-      }
-      const [touch] = event.touches;
-      if (startsInHorizontalScroller(touch.target)) {
+    const handleStart = (
+      clientX: number,
+      clientY: number,
+      target: EventTarget | null
+    ) => {
+      if (startsInHorizontalScroller(target)) {
         return;
       }
       tracking = true;
       horizontal = null;
       dx = 0;
-      startX = touch.clientX;
-      startY = touch.clientY;
+      startX = clientX;
+      startY = clientY;
       startTime = performance.now();
     };
 
-    const onTouchMove = (event: TouchEvent) => {
-      if (!tracking || event.touches.length !== 1) {
+    const handleMove = (
+      clientX: number,
+      clientY: number,
+      cancelable: boolean,
+      preventDefault: () => void
+    ) => {
+      if (!tracking) {
         return;
       }
-      const [touch] = event.touches;
-      const currentDx = touch.clientX - startX;
-      const dy = touch.clientY - startY;
+      const currentDx = clientX - startX;
+      const dy = clientY - startY;
       if (horizontal === null) {
         if (
           Math.abs(currentDx) < DIRECTION_LOCK &&
@@ -105,12 +115,12 @@ export function useFeedSwipeNavigation(
       dx = currentDx;
       // The horizontal swipe belongs to tab navigation; keep the browser from
       // also interpreting it (e.g. rubber banding or text selection).
-      if (event.cancelable) {
-        event.preventDefault();
+      if (cancelable) {
+        preventDefault();
       }
     };
 
-    const onTouchEnd = () => {
+    const handleEnd = () => {
       if (!tracking || horizontal !== true) {
         reset();
         return;
@@ -123,14 +133,84 @@ export function useFeedSwipeNavigation(
       const finalDx = dx;
       reset();
       if (committed) {
-        // Dragging content with the finger: a left-to-right drag pulls the
+        // Dragging content with the finger or pointer: a left-to-right drag pulls the
         // left-hand tab into view, a right-to-left drag the right-hand one.
         onNavigate(finalDx > 0 ? -1 : 1);
       }
     };
 
-    const mobileQuery = window.matchMedia(MOBILE_QUERY);
-    const bind = () => {
+    const onTouchStart = (event: TouchEvent) => {
+      if (event.touches.length !== 1) {
+        reset();
+        return;
+      }
+      const [touch] = event.touches;
+      handleStart(touch.clientX, touch.clientY, touch.target);
+    };
+
+    const onTouchMove = (event: TouchEvent) => {
+      if (!tracking || event.touches.length !== 1) {
+        return;
+      }
+      const [touch] = event.touches;
+      handleMove(touch.clientX, touch.clientY, event.cancelable, () =>
+        event.preventDefault()
+      );
+    };
+
+    const onTouchEnd = () => {
+      handleEnd();
+    };
+
+    // Pointer events for desktop drag gestures (mouse / pen)
+    const onPointerDown = (event: PointerEvent) => {
+      if (event.pointerType === "touch" || event.button !== 0) {
+        return;
+      }
+      handleStart(event.clientX, event.clientY, event.target);
+    };
+
+    const onPointerMove = (event: PointerEvent) => {
+      if (event.pointerType === "touch") {
+        return;
+      }
+      handleMove(event.clientX, event.clientY, event.cancelable, () => {
+        if (event.cancelable) {
+          event.preventDefault();
+        }
+      });
+    };
+
+    const onPointerUp = (event: PointerEvent) => {
+      if (event.pointerType === "touch") {
+        return;
+      }
+      handleEnd();
+    };
+
+    // Trackpad horizontal swipe
+    let wheelTimer: number | null = null;
+    let wheelAccumX = 0;
+    const onWheel = (event: WheelEvent) => {
+      if (
+        Math.abs(event.deltaX) > Math.abs(event.deltaY) * 1.5 &&
+        Math.abs(event.deltaX) > 15
+      ) {
+        wheelAccumX += event.deltaX;
+        if (wheelTimer !== null) {
+          window.clearTimeout(wheelTimer);
+        }
+        wheelTimer = window.setTimeout(() => {
+          if (Math.abs(wheelAccumX) > 40) {
+            onNavigate(wheelAccumX > 0 ? 1 : -1);
+          }
+          wheelAccumX = 0;
+          wheelTimer = null;
+        }, 60);
+      }
+    };
+
+    const bindTouch = () => {
       container.addEventListener("touchstart", onTouchStart, {
         passive: true,
       });
@@ -138,22 +218,55 @@ export function useFeedSwipeNavigation(
       container.addEventListener("touchend", onTouchEnd);
       container.addEventListener("touchcancel", reset);
     };
-    const unbind = () => {
+
+    const unbindTouch = () => {
       container.removeEventListener("touchstart", onTouchStart);
       container.removeEventListener("touchmove", onTouchMove);
       container.removeEventListener("touchend", onTouchEnd);
       container.removeEventListener("touchcancel", reset);
       reset();
     };
-    const handleChange = () => (mobileQuery.matches ? bind() : unbind());
+
+    const bindDesktop = () => {
+      container.addEventListener("pointerdown", onPointerDown);
+      container.addEventListener("pointermove", onPointerMove);
+      container.addEventListener("pointerup", onPointerUp);
+      container.addEventListener("pointercancel", reset);
+      container.addEventListener("wheel", onWheel, { passive: true });
+    };
+
+    const unbindDesktop = () => {
+      container.removeEventListener("pointerdown", onPointerDown);
+      container.removeEventListener("pointermove", onPointerMove);
+      container.removeEventListener("pointerup", onPointerUp);
+      container.removeEventListener("pointercancel", reset);
+      container.removeEventListener("wheel", onWheel);
+      if (wheelTimer !== null) {
+        window.clearTimeout(wheelTimer);
+        wheelTimer = null;
+      }
+    };
+
+    if (enableDesktop) {
+      bindTouch();
+      bindDesktop();
+      return () => {
+        unbindTouch();
+        unbindDesktop();
+      };
+    }
+
+    const mobileQuery = window.matchMedia(MOBILE_QUERY);
+    const handleChange = () =>
+      mobileQuery.matches ? bindTouch() : unbindTouch();
 
     if (mobileQuery.matches) {
-      bind();
+      bindTouch();
     }
     mobileQuery.addEventListener("change", handleChange);
     return () => {
-      unbind();
+      unbindTouch();
       mobileQuery.removeEventListener("change", handleChange);
     };
-  }, [containerRef, onNavigate]);
+  }, [containerRef, onNavigate, options?.enableDesktop]);
 }
