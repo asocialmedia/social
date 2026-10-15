@@ -27,6 +27,8 @@ export const keys = createEnv({
     ASMOB_ROOT_USER: process.env.ASMOB_ROOT_USER,
     CLAMAV_HOST: process.env.CLAMAV_HOST,
     CLAMAV_PORT: process.env.CLAMAV_PORT,
+    CLOUDFLARE_ACCOUNT_ID: process.env.CLOUDFLARE_ACCOUNT_ID,
+    CLOUDFLARE_API_TOKEN: process.env.CLOUDFLARE_API_TOKEN,
     DATABASE_URL: process.env.DATABASE_URL,
     GEMINI_API_KEY: process.env.GEMINI_API_KEY,
     GEMINI_EMBEDDING_MODEL: process.env.GEMINI_EMBEDDING_MODEL,
@@ -34,6 +36,7 @@ export const keys = createEnv({
     LOG_LEVEL: process.env.LOG_LEVEL,
     MEDIA_AUDIO_WATERMARK_TIMEOUT_MS:
       process.env.MEDIA_AUDIO_WATERMARK_TIMEOUT_MS,
+    MEDIA_AV1_ENABLED: process.env.MEDIA_AV1_ENABLED,
     MEDIA_BACKFILL_ENABLED: process.env.MEDIA_BACKFILL_ENABLED,
     MEDIA_C2PA_CERT_PATH: process.env.MEDIA_C2PA_CERT_PATH,
     MEDIA_C2PA_KEY_PATH: process.env.MEDIA_C2PA_KEY_PATH,
@@ -41,6 +44,7 @@ export const keys = createEnv({
     MEDIA_C2PA_STAMP_TIMEOUT_MS: process.env.MEDIA_C2PA_STAMP_TIMEOUT_MS,
     MEDIA_C2PA_TSA_URL: process.env.MEDIA_C2PA_TSA_URL,
     MEDIA_CLASSIFY_ENABLED: process.env.MEDIA_CLASSIFY_ENABLED,
+    MEDIA_CLEF_DAILY_NEURONS: process.env.MEDIA_CLEF_DAILY_NEURONS,
     MEDIA_CONCURRENT_PROCESSING_PER_USER:
       process.env.MEDIA_CONCURRENT_PROCESSING_PER_USER,
     MEDIA_EMBEDDING_ENABLED: process.env.MEDIA_EMBEDDING_ENABLED,
@@ -59,6 +63,7 @@ export const keys = createEnv({
     MEDIA_MAX_VIDEO_BYTES: process.env.MEDIA_MAX_VIDEO_BYTES,
     MEDIA_OCR_ENABLED: process.env.MEDIA_OCR_ENABLED,
     MEDIA_ORIGINAL_RETENTION_DAYS: process.env.MEDIA_ORIGINAL_RETENTION_DAYS,
+    MEDIA_PRESERVE_ORIGINALS: process.env.MEDIA_PRESERVE_ORIGINALS,
     MEDIA_PROCESSING_TIMEOUT_MS: process.env.MEDIA_PROCESSING_TIMEOUT_MS,
     MEDIA_PROCESS_CONCURRENCY: process.env.MEDIA_PROCESS_CONCURRENCY,
     MEDIA_REQUIRE_CLAMAV: process.env.MEDIA_REQUIRE_CLAMAV,
@@ -92,6 +97,11 @@ export const keys = createEnv({
     // MEDIA_REQUIRE_CLAMAV=0 turns that warning off entirely.
     CLAMAV_HOST: z.string().optional(),
     CLAMAV_PORT: z.coerce.number().int().positive().default(3310),
+    CLOUDFLARE_ACCOUNT_ID: z
+      .string()
+      .regex(/^[a-f0-9]{32}$/)
+      .optional(),
+    CLOUDFLARE_API_TOKEN: z.string().min(1).optional(),
     // Provenance stamping identity. Unset (the default) disables embedding
     // signed C2PA manifests - AI detection still records to the database.
     // Generate a dev pair via `bun scripts/local-setup/generate-c2pa-cert.ts`.
@@ -115,6 +125,7 @@ export const keys = createEnv({
     // deletes superseded raw objects and is therefore opt-in - flip it on
     // only after the migration has been verified in production.
     MEDIA_AUDIO_WATERMARK_TIMEOUT_MS: numericOverride,
+    MEDIA_AV1_ENABLED: z.enum(["0", "1"]).default("1"),
     MEDIA_BACKFILL_ENABLED: z.enum(["0", "1"]).default("1"),
     MEDIA_C2PA_CERT_PATH: z.string().min(1).optional(),
     MEDIA_C2PA_KEY_PATH: z.string().min(1).optional(),
@@ -125,6 +136,12 @@ export const keys = createEnv({
     // valid after expiry - without one every historical stamp ages badly.
     MEDIA_C2PA_TSA_URL: z.url().optional(),
     MEDIA_CLASSIFY_ENABLED: z.enum(["0", "1"]).default("1"),
+    MEDIA_CLEF_DAILY_NEURONS: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(10_000)
+      .default(9000),
     MEDIA_CONCURRENT_PROCESSING_PER_USER: numericOverride,
     MEDIA_EMBEDDING_ENABLED: z.enum(["0", "1"]).default("1"),
     MEDIA_EMBEDDING_TIMEOUT_MS: numericOverride,
@@ -145,6 +162,7 @@ export const keys = createEnv({
     // window). 0 deletes the quarantine copy at publish instead. Default 30
     // lives in packages/media/src/limits.ts.
     MEDIA_ORIGINAL_RETENTION_DAYS: numericOverride,
+    MEDIA_PRESERVE_ORIGINALS: z.enum(["0", "1"]).default("1"),
     MEDIA_PROCESSING_TIMEOUT_MS: numericOverride,
     MEDIA_PROCESS_CONCURRENCY: z.coerce.number().int().positive().default(2),
     MEDIA_REQUIRE_CLAMAV: z.enum(["0", "1"]).default("1"),
@@ -185,6 +203,9 @@ export const workerEnv = {
   get ASMOB_ENDPOINT() {
     return keys.ASMOB_ENDPOINT;
   },
+  get AV1_ENABLED() {
+    return keys.MEDIA_AV1_ENABLED !== "0";
+  },
   get BACKFILL_ENABLED() {
     return keys.MEDIA_BACKFILL_ENABLED === "1";
   },
@@ -212,6 +233,18 @@ export const workerEnv = {
   },
   get CLASSIFY_ENABLED() {
     return keys.MEDIA_CLASSIFY_ENABLED !== "0";
+  },
+  get CLEF_DAILY_NEURONS() {
+    const value = Number(keys.MEDIA_CLEF_DAILY_NEURONS);
+    return Number.isFinite(value) && value >= 1
+      ? Math.min(10_000, value)
+      : 9000;
+  },
+  get CLOUDFLARE_ACCOUNT_ID() {
+    return keys.CLOUDFLARE_ACCOUNT_ID;
+  },
+  get CLOUDFLARE_API_TOKEN() {
+    return keys.CLOUDFLARE_API_TOKEN;
   },
   get EMBEDDING_ENABLED() {
     return keys.MEDIA_EMBEDDING_ENABLED !== "0";
@@ -266,6 +299,9 @@ export const workerEnv = {
   // Fail-closed when a scanner is configured: if clamd is unreachable, scans
   // fail and retry instead of publishing unscanned bytes. With no host set
   // (development), scanning is skipped loudly.
+  get PRESERVE_ORIGINALS() {
+    return keys.MEDIA_PRESERVE_ORIGINALS !== "0";
+  },
   get PROCESS_CONCURRENCY() {
     // t3-env skipValidation (NODE_ENV=production) bypasses z.coerce, so the
     // raw value arrives as the env string; BullMQ demands a real number.

@@ -29,7 +29,7 @@ export type RejectionReason =
 
 export type MediaVisibility = "PUBLIC" | "UNLISTED" | "PRIVATE";
 
-export const MEDIA_PIPELINE_VERSION = "3";
+export const MEDIA_PIPELINE_VERSION = "4";
 
 // Bumped when encoder settings change materially; recorded per derivative
 // and on the Media row's encoderVersion. enc-2026-10 adds watermark +
@@ -223,7 +223,14 @@ export function isAudioTechMetadata(
 // NSFW / moderation verdicts stored on Media.safety.
 export interface SafetyVerdict {
   nsfwScore: number;
-  nsfwLabel: "neutral" | "sexy" | "porn" | "hentai" | "drawings" | "unknown";
+  nsfwLabel:
+    | "neutral"
+    | "sexy"
+    | "porn"
+    | "hentai"
+    | "drawings"
+    | "nsfw"
+    | "unknown";
   explicit: boolean;
   modelVersion: string;
   evaluatedAt: string;

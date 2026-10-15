@@ -2,17 +2,13 @@
 // properties, produce exactly the derivatives worth generating (never upscale,
 // never generate sizes the source cannot justify).
 //
-// Codec reality (verified against Bun docs): the media-processing worker runs
-// on Linux where Bun.Image encodes JPEG/PNG/WebP only - AVIF/HEIC/TIFF are
-// OS-backends that do not exist on Linux. Delivery format is therefore
-// WebP (universally supported in browsers since Safari 14 / 2020) with JPEG
-// fallback copies for small preview sizes on non-transparent images; AVIF
-// would slot ahead of WebP once the worker gains a libavif encoder.
+// The worker uses libvips for portable AVIF, WebP, and JPEG encoding.
+// Lossy outputs pass a perceptual guard; lossless WebP preserves graphics.
 
 import type { DerivativeKind } from "./types";
 
 export type ImageClass = "photo" | "graphic" | "animated" | "alpha";
-export type ImageFormat = "webp" | "png" | "jpeg";
+export type ImageFormat = "webp" | "avif" | "png" | "jpeg";
 
 export interface ImagePlanInput {
   width: number;
@@ -107,11 +103,21 @@ export function planImageDerivatives(
     plan.push({
       height,
       kind: rung.kind,
+      lossless: input.isLosslessSource && imageClass !== "photo",
       palette: settings.palette,
       quality: settings.quality,
       variant: "webp",
       width: rung.width,
     });
+    if (!input.isAnimated && imageClass === "photo") {
+      plan.push({
+        height,
+        kind: rung.kind,
+        quality: 65,
+        variant: "avif",
+        width: rung.width,
+      });
+    }
     // JPEG has no alpha channel: transparent sources must not get a
     // JPEG fallback that would composite against black. Ancient clients
     // on those images just get the WebP ladder rung at the same width.
@@ -164,7 +170,7 @@ export interface VideoLadderRung {
   audioKbps: number;
 }
 
-const HLS_THRESHOLD_SEC = 90;
+const HLS_THRESHOLD_SEC = 15;
 
 const FULL_LADDER: VideoLadderRung[] = [
   { audioKbps: 64, height: 360, variant: "360p", videoKbps: 800 },
@@ -183,16 +189,24 @@ export interface VideoPlan {
 export function planVideoOutputs(input: {
   durationSec: number;
   srcHeight: number;
+  srcWidth?: number;
 }): VideoPlan {
   const needsHls =
     input.durationSec > HLS_THRESHOLD_SEC || input.srcHeight > 1080;
+  const shortEdge = Math.min(
+    input.srcWidth ?? input.srcHeight,
+    input.srcHeight
+  );
   const hlsLadder = needsHls
-    ? FULL_LADDER.filter((rung) => rung.height <= input.srcHeight)
+    ? FULL_LADDER.filter((rung) => rung.height <= shortEdge)
     : [];
   // Fall back to the lowest rung so very short/small sources still stream if
   // HLS was demanded by duration.
   if (needsHls && hlsLadder.length === 0 && FULL_LADDER[0]) {
-    hlsLadder.push(FULL_LADDER[0]);
+    hlsLadder.push({
+      ...FULL_LADDER[0],
+      height: Math.max(2, Math.floor(shortEdge / 2) * 2),
+    });
   }
   return {
     hls: needsHls,

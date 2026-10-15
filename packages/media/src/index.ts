@@ -2,6 +2,19 @@
 // dependencies, safe for client bundles and workers alike.
 
 export {
+  mediaIdentityXmp,
+  readMediaIdentityXmp,
+  mediaReshareLabel,
+} from "./media-identity";
+
+export {
+  acceptsAvif,
+  imageVariantForWidth,
+  IMAGE_DELIVERY_WIDTHS,
+  selectImageDerivative,
+} from "./delivery";
+
+export {
   MEDIA_ENCODER_VERSION,
   MEDIA_PIPELINE_VERSION,
   MEDIA_JOB_NAMES,
@@ -81,6 +94,7 @@ export {
   PLATFORM_PROVENANCE_LABEL,
   SYNTHETIC_DIGITAL_SOURCE_TYPES,
   detectAiFromManifestStore,
+  detectAiFromXmp,
   isStampableForC2Pa,
 } from "./provenance";
 export type {

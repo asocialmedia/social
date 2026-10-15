@@ -180,7 +180,7 @@ describe("image derivative planning", () => {
 
 describe("video output planning", () => {
   test("short clips are progressive-only, no HLS overhead", () => {
-    const plan = planVideoOutputs({ durationSec: 30, srcHeight: 1080 });
+    const plan = planVideoOutputs({ durationSec: 10, srcHeight: 1080 });
     expect(plan.progressiveMp4).toBe(true);
     expect(plan.hls).toBe(false);
     expect(plan.hlsLadder).toEqual([]);
@@ -210,7 +210,7 @@ describe("video output planning", () => {
   test("tiny-but-long sources still stream at the lowest rung", () => {
     const plan = planVideoOutputs({ durationSec: 300, srcHeight: 144 });
     expect(plan.hls).toBe(true);
-    expect(plan.hlsLadder.map((r) => r.variant)).toEqual(["360p"]);
+    expect(plan.hlsLadder.map((r) => r.height)).toEqual([144]);
   });
 });
 

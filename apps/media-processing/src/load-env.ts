@@ -24,7 +24,7 @@ function findRootEnvFile(): string | null {
 export function loadRootEnv(): void {
   const rootEnv = findRootEnvFile();
   if (rootEnv) {
-    loadEnv({ override: true, path: rootEnv, quiet: true });
+    loadEnv({ override: false, path: rootEnv, quiet: true });
   }
 
   const nodeEnv = process.env.NODE_ENV ?? "development";
