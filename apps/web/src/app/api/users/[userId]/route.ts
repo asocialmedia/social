@@ -1,6 +1,6 @@
 import {
   getUserDataQuery,
-  getUserProfileCounts,
+  getUserProfileSummary,
   mapUserData,
   prisma,
 } from "@asm/db";
@@ -36,8 +36,8 @@ export async function GET(
       return NextResponse.json({ message: "User not found" }, { status: 404 });
     }
 
-    const counts = await getUserProfileCounts(prisma.orm, userId);
-    return NextResponse.json({ ...user, _count: counts });
+    const summary = await getUserProfileSummary(prisma.orm, userId, viewerId);
+    return NextResponse.json({ ...user, ...summary });
   } catch (error) {
     console.error("Error fetching user:", error);
     return NextResponse.json(

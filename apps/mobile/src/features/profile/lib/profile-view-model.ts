@@ -1,3 +1,5 @@
+import type { ProfileMutuals } from "@asm/ui/lib/profile-mutuals";
+
 import type {
   FeedMedia,
   FeedPost,
@@ -21,6 +23,7 @@ export interface ProfileHeaderProfile {
   customDomain: string | null;
   displayName: string | null;
   followers: { followerId: string }[];
+  mutuals?: ProfileMutuals;
   githubUsername: string | null;
   id: string;
   isFollowing: boolean;

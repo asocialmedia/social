@@ -1,3 +1,5 @@
+import { profileMutualLabel } from "@asm/ui/lib/profile-mutuals";
+import type { UserListMutual } from "@asm/ui/lib/user-list";
 import { FontAwesome6 } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
@@ -44,6 +46,7 @@ import {
 } from "@/theme";
 
 import type { ProfileHeaderProfile } from "../lib/profile-view-model";
+import { ProfileMutualAvatars } from "./profile-mutual-avatars";
 
 function BannerContent({
   avatar,
@@ -358,6 +361,9 @@ export function ProfileHeader({
         <View style={styles.stats}>
           <InlineStat
             label="Following"
+            mutuals={profile.mutuals?.following}
+            mutualCount={profile.mutuals?.counts.following}
+            kind="following"
             onPress={() =>
               router.push({
                 params: { username: profile.username },
@@ -368,6 +374,9 @@ export function ProfileHeader({
           />
           <InlineStat
             label="Followers"
+            mutuals={profile.mutuals?.followers}
+            mutualCount={profile.mutuals?.counts.followers}
+            kind="followers"
             onPress={() =>
               router.push({
                 params: { username: profile.username },
@@ -405,27 +414,36 @@ export function ProfileHeader({
 
 function InlineStat({
   label,
+  kind,
+  mutuals,
+  mutualCount,
   onPress,
   value,
 }: {
   label: string;
+  kind: "followers" | "following";
+  mutuals: UserListMutual[] | undefined;
+  mutualCount: number | undefined;
   onPress: () => void;
   value: string;
 }) {
   const { theme } = useAppTheme();
   return (
     <Pressable
-      accessibilityLabel={`View ${label.toLowerCase()}`}
+      accessibilityLabel={`View ${value} ${label.toLowerCase()}${mutuals?.length ? `. ${profileMutualLabel(kind, mutuals, mutualCount)}` : ""}`}
       accessibilityRole="button"
       onPress={onPress}
       style={styles.inlineStat}
     >
-      <Text style={[styles.inlineValue, { color: theme.inputText }]}>
-        {value}
-      </Text>
-      <Text style={[styles.inlineLabel, { color: theme.dividerText }]}>
-        {label}
-      </Text>
+      <View style={{ alignItems: "center", flexDirection: "row", gap: 4 }}>
+        <Text style={[styles.inlineValue, { color: theme.inputText }]}>
+          {value}
+        </Text>
+        <Text style={[styles.inlineLabel, { color: theme.dividerText }]}>
+          {label}
+        </Text>
+      </View>
+      <ProfileMutualAvatars kind={kind} users={mutuals} total={mutualCount} />
     </Pressable>
   );
 }
@@ -530,6 +548,7 @@ const styles = StyleSheet.create({
   stats: {
     alignItems: "center",
     flexDirection: "row",
+    flexWrap: "wrap",
     gap: 12,
     marginTop: 10,
     paddingBottom: 16,

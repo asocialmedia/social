@@ -24,6 +24,8 @@ export interface UserData extends Omit<
   communityMemberships: CommunityRoleRow[];
   createdAt: Date;
   followers: { followerId: string }[];
+  _count?: Awaited<ReturnType<typeof getUserProfileCounts>>;
+  mutuals?: Awaited<ReturnType<typeof getUserProfileMutuals>>;
 }
 
 export function mapUserData(user: UserQueryData): UserData {
@@ -104,6 +106,69 @@ export async function getUserProfileCounts(orm: PrismaOrm, userId: string) {
     following: following.count,
     posts: posts.count,
   };
+}
+
+export async function getUserProfileMutuals(
+  orm: PrismaOrm,
+  userId: string,
+  viewerId: string
+) {
+  const users = (kind: "followers" | "following") =>
+    orm.public.Users.select("id", "username", "displayName", "avatarUrl")
+      .where((user) =>
+        and(
+          user.id.notIn([userId, viewerId]),
+          user.username.isNotNull(),
+          user.username.neq(""),
+          user.followsFollows.some((follow) => follow.followerId.eq(viewerId)),
+          kind === "followers"
+            ? user.follows.some((follow) => follow.followingId.eq(userId))
+            : user.followsFollows.some((follow) =>
+                follow.followerId.eq(userId)
+              ),
+          user.blocks.none((block) => block.blockerId.in([userId, viewerId])),
+          user.blocksBlocks.none((block) =>
+            block.blockedId.in([userId, viewerId])
+          )
+        )
+      )
+      .orderBy((user) => user.id.asc());
+  const preview = async (kind: "followers" | "following") => {
+    const query = users(kind);
+    const [rows, total] = await Promise.all([
+      query.limit(3).all(),
+      query.aggregate((aggregate) => ({ count: aggregate.count() })),
+    ]);
+    return { count: total.count, users: rows };
+  };
+  const [followers, following] =
+    viewerId && viewerId !== userId
+      ? await Promise.all([preview("followers"), preview("following")])
+      : [
+          { count: 0, users: [] },
+          { count: 0, users: [] },
+        ];
+  return {
+    counts: { followers: followers.count, following: following.count },
+    followers: followers.users.flatMap((user) =>
+      user.username ? [{ ...user, username: user.username }] : []
+    ),
+    following: following.users.flatMap((user) =>
+      user.username ? [{ ...user, username: user.username }] : []
+    ),
+  };
+}
+
+export async function getUserProfileSummary(
+  orm: PrismaOrm,
+  userId: string,
+  viewerId: string
+) {
+  const [_count, mutuals] = await Promise.all([
+    getUserProfileCounts(orm, userId),
+    getUserProfileMutuals(orm, userId, viewerId),
+  ]);
+  return { _count, mutuals };
 }
 
 export function getPrivateUserQuery(orm: PrismaOrm, loggedInUserId: string) {

@@ -1,3 +1,4 @@
+import { parseProfileMutuals } from "@asm/ui/lib/profile-mutuals";
 import type {
   ProfileUserListData,
   UserListMutual,
@@ -201,6 +202,7 @@ export function parseProfileHeader(
         ? user.isFollowing
         : followers.length > 0,
     linkedinUsername: textOf(user.linkedinUsername),
+    mutuals: parseProfileMutuals(user.mutuals),
     redditUsername: textOf(user.redditUsername),
     twitterUsername: textOf(user.twitterUsername),
     username: user.username,

@@ -5,6 +5,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 
 import type { PrivateUserData } from "@/hooks/users/use-user-data";
+import kyInstance from "@/lib/ky";
 
 // Subscribes a server-fetched UserData to the [\"user\", id] query cache so that
 // avatar/profile mutations (which setQueryData into that key) re-render every
@@ -13,9 +14,8 @@ import type { PrivateUserData } from "@/hooks/users/use-user-data";
 // - initialData supplies the prop for the first render.
 // - The effect re-syncs the fresh server prop into the cache on mount and on
 //   navigation, so revisiting a previously cached profile never shows stale data.
-// - The queryFn returns the prop so external invalidations of this key (e.g. the
-//   follow/unfollow mutations in user-mutations.ts) can safely refetch without
-//   erroring on a queryFn-less query.
+// - Refetches merge public profile totals and mutuals into the cached identity,
+//   preserving the owner's private fields needed by the edit dialog.
 export function useUserDataQuery<T extends UserData | PrivateUserData>(
   userData: T
 ) {
@@ -28,13 +28,18 @@ export function useUserDataQuery<T extends UserData | PrivateUserData>(
 
   const query = useQuery<T>({
     initialData: userData,
-    // Mutations update this key directly (setQueryData) and then invalidate it.
-    // The refetch must NOT clobber that fresher value with the captured server
-    // prop, or the sidebars only update after a manual refresh - prefer the
-    // live cache, falling back to the prop only when the cache is empty.
-    queryFn: () => queryClient.getQueryData<T>(["user", userId]) ?? userData,
+    queryFn: async ({ signal }) => {
+      const fresh = await kyInstance
+        .get(`/api/users/${encodeURIComponent(userId)}`, { signal })
+        .json<UserData>();
+      return {
+        ...(queryClient.getQueryData<T>(["user", userId]) ?? userData),
+        ...fresh,
+        createdAt: new Date(fresh.createdAt),
+      };
+    },
     queryKey: ["user", userId],
-    staleTime: Number.POSITIVE_INFINITY,
+    staleTime: 30_000,
   });
 
   return { ...query, data: query.data ?? userData };

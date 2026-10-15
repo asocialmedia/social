@@ -2,23 +2,15 @@ import type { UserData } from "@asm/db";
 
 export type MediaType = "AUDIO" | "DOCUMENT" | "IMAGE" | "VIDEO";
 
-type UserWithCounts = UserData & {
-  _count?: {
-    followers: number;
-    following: number;
-    posts: number;
-  };
-};
-
 export function getUserCount(
   user: UserData,
   key: "followers" | "following"
 ): number {
-  return (user as UserWithCounts)._count?.[key] ?? 0;
+  return user._count?.[key] ?? 0;
 }
 
 export function getUserPostCount(user: UserData): number {
-  return (user as UserWithCounts)._count?.posts ?? 0;
+  return user._count?.posts ?? 0;
 }
 
 export interface Media {
