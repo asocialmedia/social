@@ -52,7 +52,7 @@ export function UserAvatar({
         accessibilityLabel=""
         cachePolicy="memory-disk"
         contentFit="cover"
-        key={resolved}
+        recyclingKey={resolved ?? "avatar-placeholder"}
         onError={() => setFailedUrl(resolved)}
         source={showImage ? { uri: resolved } : avatarPlaceholder}
         style={{ borderRadius: cornerRadius, height: size, width: size }}

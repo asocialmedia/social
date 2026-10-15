@@ -1,8 +1,9 @@
+import { useRecyclingState } from "@shopify/flash-list";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { Flame, Users } from "lucide-react-native";
-import { useState } from "react";
 import type { ReactNode } from "react";
+import { useLayoutEffect, useRef } from "react";
 import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
 
 import { UserAvatar } from "@/components/avatar/user-avatar";
@@ -63,12 +64,19 @@ export function ExploreUserCard({
   user: ExploreUser;
 }) {
   const { isDark, theme } = useAppTheme();
-  const [optimisticFollowing, setOptimisticFollowing] = useState<
+  const followScope = useRef({ userId: user.id });
+  useLayoutEffect(() => {
+    followScope.current = { userId: user.id };
+  }, [user.id]);
+  const [optimisticFollowing, setOptimisticFollowing] = useRecyclingState<
     boolean | null
-  >(null);
+  >(null, [user.id, user.isFollowing]);
   const following = optimisticFollowing ?? user.isFollowing;
-  const [pending, setPending] = useState(false);
-  const [bannerFailed, setBannerFailed] = useState(false);
+  const [pending, setPending] = useRecyclingState(false, [user.id]);
+  const [bannerFailed, setBannerFailed] = useRecyclingState(false, [
+    user.id,
+    user.bannerUrl,
+  ]);
   const apiBase = getApiBaseUrl();
   const bannerUrl = bannerFor(user.bannerUrl, apiBase);
   const avatarUrl = bannerFor(user.avatarUrl, apiBase);
@@ -131,13 +139,17 @@ export function ExploreUserCard({
       return;
     }
     setPending(true);
+    const scope = followScope.current;
     const next = !following;
     setOptimisticFollowing(next);
     void (async () => {
       try {
         await onFollow(next);
       } catch {
-        setOptimisticFollowing(null);
+        // Rejected follows roll back below if this is still the same card.
+      }
+      if (followScope.current !== scope) {
+        return;
       }
       setPending(false);
       setOptimisticFollowing(null);

@@ -1,6 +1,7 @@
+import { useRecyclingState } from "@shopify/flash-list";
 import { Image } from "expo-image";
 import { Play } from "lucide-react-native";
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { UserAvatar } from "@/components/avatar/user-avatar";
@@ -71,7 +72,7 @@ export function ExplorePostCard({
 }) {
   const { isDark, theme } = useAppTheme();
   const apiBase = getApiBaseUrl();
-  const [imageFailed, setImageFailed] = useState(false);
+  const [imageFailed, setImageFailed] = useRecyclingState(false, [post.id]);
   const media = post.attachments?.find(
     (attachment) => attachment.type === "IMAGE" || attachment.type === "VIDEO"
   );
@@ -106,6 +107,7 @@ export function ExplorePostCard({
           {imageUrl ? (
             <View style={[styles.visual, { aspectRatio }]}>
               <Image
+                recyclingKey={imageUrl}
                 accessibilityLabel="Post media"
                 cachePolicy="memory-disk"
                 contentFit="cover"
