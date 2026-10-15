@@ -111,6 +111,32 @@ describe("profile parsing", () => {
     ]);
   });
 
+  test("keeps explicit flags for profile posts, response parents, media and reply context", () => {
+    const marked = post({
+      explicitContent: true,
+      parentPost: { explicitContent: true, id: "source" },
+    });
+    const pages = [
+      parseProfileFeedPage({ posts: [marked] }, "posts"),
+      parseProfileFeedPage(
+        { media: [{ id: "media", post: marked, type: "IMAGE" }] },
+        "media"
+      ),
+      parseProfileFeedPage(
+        { replies: [{ attachments: [], id: "reply", post: marked }] },
+        "replies"
+      ),
+    ];
+    for (const page of pages) {
+      if (page.kind === "posts") {
+        expect(page.items[0]?.explicitContent).toBe(true);
+        expect(page.items[0]?.parentPost?.explicitContent).toBe(true);
+      } else {
+        expect(page.items[0]?.post?.explicitContent).toBe(true);
+      }
+    }
+  });
+
   test("normalizes post, media, and reply cursor pages", () => {
     const posts = parseProfileFeedPage(
       { nextCursor: "post-next", posts: [post()] },
