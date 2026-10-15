@@ -1,139 +1,128 @@
-// Image watermark embed — tiled LSB on the green channel (closest to Y).
-// Pixels are perturbed +-1 where a deterministic payload-derived pattern is 1,
-// keeping density low so WebP Q75 preserves it and a 20% crop still contains
-// multiple tiles. When sharp is unavailable (CI without native dep), returns
-// null and scan publishes clean (DB authoritative).
-
+// Portable opaque identity without another lossy pixel encode. Attribution
+// still requires a matching public asset in the database; metadata is a hint.
 import type { WatermarkPayload } from "@asm/media";
-import { buildWatermarkPattern } from "@asm/media";
+import { mediaIdentityXmp } from "@asm/media";
+import sharp from "sharp";
+
+function pngCrc(bytes: Uint8Array): number {
+  let crc = 0xff_ff_ff_ff;
+  for (const value of bytes) {
+    crc ^= value;
+    for (let bit = 0; bit < 8; bit += 1) {
+      crc = (crc >>> 1) ^ (crc & 1 ? 0xed_b8_83_20 : 0);
+    }
+  }
+  return (crc ^ 0xff_ff_ff_ff) >>> 0;
+}
+
+function riffChunk(name: string, payload: Buffer): Buffer {
+  const header = Buffer.alloc(8);
+  header.write(name, 0, "ascii");
+  header.writeUInt32LE(payload.length, 4);
+  return Buffer.concat([
+    header,
+    payload,
+    ...(payload.length % 2 ? [Buffer.alloc(1)] : []),
+  ]);
+}
 
 export async function watermarkImageBuffer(
   input: Buffer,
   payload: WatermarkPayload,
-  maxPixels: number
+  maxPixels: number,
+  aiGenerated = false
 ): Promise<Buffer | null> {
-  try {
-    // Prefer sharp when available — native libvips, fastest.
-    // sharp is an optional peer dep; missing type is handled at runtime.
-    // oxlint-disable-next-line typescript/no-unsafe-assignment -- dynamic optional import
-    const sharpModule: unknown =
-      await // oxlint-disable-next-line typescript/no-unsafe-call -- dynamic optional import
-      (import("sharp" as string).catch(() => null) as Promise<unknown>);
-    if (sharpModule) {
-      const mod = sharpModule as Record<string, unknown>;
-      const sharpFactory = (mod.default ?? mod) as unknown as (
-        input: Buffer | { create: unknown } | Uint8Array,
-        options?: Record<string, unknown>
-      ) => {
-        // oxlint-disable typescript/method-signature-style -- sharp interface uses method signatures
-        metadata(): Promise<{
-          width?: number;
-          height?: number;
-          channels?: number;
-        }>;
-        ensureAlpha(): unknown;
-        raw(): {
-          toBuffer(opts: unknown): Promise<{
-            data: Buffer;
-            info: { channels?: number; width?: number; height?: number };
-          }>;
-        };
-        png(): { toBuffer(): Promise<Buffer> };
-        jpeg(opts: unknown): { toBuffer(): Promise<Buffer> };
-        toBuffer(): Promise<Buffer>;
-      };
-
-      const factoryAsProbe = sharpFactory as unknown as (input: Buffer) => {
-        // oxlint-disable typescript/method-signature-style -- sharp
-        metadata(): Promise<{
-          width?: number;
-          height?: number;
-          channels?: number;
-        }>;
-        ensureAlpha(): unknown;
-        raw(): {
-          toBuffer(opts: unknown): Promise<{
-            data: Buffer;
-            info: { channels?: number; width?: number; height?: number };
-          }>;
-        };
-        png(): { toBuffer(): Promise<Buffer> };
-        jpeg(opts: unknown): { toBuffer(): Promise<Buffer> };
-        toBuffer(): Promise<Buffer>;
-      };
-      // oxlint-disable-next-line typescript/no-unsafe-call -- sharp factory
-      const probe = factoryAsProbe(input);
-      const meta = await probe.metadata();
-      const width = meta.width ?? 0;
-      const height = meta.height ?? 0;
-      if (!width || !height || width * height > maxPixels * 2) {
-        return null;
-      }
-
-      const pattern = buildWatermarkPattern(payload, width, height);
-      // oxlint-disable-next-line typescript/no-unsafe-call -- sharp
-      const rawResult = await (
-        sharpFactory(input) as unknown as {
-          ensureAlpha(): {
-            raw(): {
-              toBuffer(
-                opts: unknown
-              ): Promise<{ data: Buffer; info: { channels?: number } }>;
-            };
-          };
-        }
-      )
-        .ensureAlpha()
-        .raw()
-        .toBuffer({ resolveWithObject: true } as unknown as never);
-
-      const data = rawResult.data as Buffer;
-      const channels = rawResult.info.channels ?? 4;
-
-      for (let y = 0; y < height; y += 1) {
-        const rowBase = y * width;
-        for (let x = 0; x < width; x += 1) {
-          const patternBit = pattern[rowBase + x] ?? 0;
-          if (patternBit !== 1 || (x + y) % 2 !== 0) {
-            continue;
-          }
-          const gOffset = (rowBase + x) * channels + 1;
-          const current = data[gOffset] ?? 0;
-          const delta = (x * 31 + y * 17) % 2 === 0 ? 1 : -1;
-          data[gOffset] = Math.min(255, Math.max(0, current + delta));
-        }
-      }
-
-      const hasAlpha =
-        channels === 4 &&
-        data.some((value, index) => index % 4 === 3 && value < 255);
-
-      const rawOpts = {
-        raw: { channels, height, width },
-      } as unknown as Parameters<typeof sharpFactory>[1];
-      const out = hasAlpha
-        ? await (
-            sharpFactory(data as unknown as Buffer, rawOpts) as unknown as {
-              png(): { toBuffer(): Promise<Buffer> };
-            }
-          )
-            .png()
-            .toBuffer()
-        : await (
-            sharpFactory(data as unknown as Buffer, rawOpts) as unknown as {
-              jpeg(opts: unknown): { toBuffer(): Promise<Buffer> };
-            }
-          )
-            .jpeg({ quality: 92 })
-            .toBuffer();
-
-      return out as Buffer;
-    }
-
-    return null;
-  } catch {
+  const metadata = await sharp(input, {
+    limitInputPixels: maxPixels,
+  }).metadata();
+  const { height, width } = metadata;
+  if (!width || !height) {
     return null;
   }
+  const xmp = Buffer.from(mediaIdentityXmp(payload.mediaId, aiGenerated));
+  if (metadata.format === "jpeg") {
+    const body = Buffer.concat([
+      Buffer.from("http://ns.adobe.com/xap/1.0/\0"),
+      xmp,
+    ]);
+    const header = Buffer.alloc(4);
+    header.writeUInt16BE(0xff_e1, 0);
+    header.writeUInt16BE(body.length + 2, 2);
+    return Buffer.concat([
+      input.subarray(0, 2),
+      header,
+      body,
+      input.subarray(2),
+    ]);
+  }
+  if (metadata.format === "png") {
+    let offset = 8;
+    while (offset + 12 <= input.length) {
+      const length = input.readUInt32BE(offset);
+      if (offset + 12 + length > input.length) {
+        throw new Error("Invalid PNG chunk");
+      }
+      const name = input.toString("ascii", offset + 4, offset + 8);
+      if (name === "IDAT" || name === "IEND") {
+        const data = Buffer.concat([
+          Buffer.from("XML:com.adobe.xmp\0\0\0\0\0"),
+          xmp,
+        ]);
+        const nameAndData = Buffer.concat([Buffer.from("iTXt"), data]);
+        const chunk = Buffer.alloc(data.length + 12);
+        chunk.writeUInt32BE(data.length, 0);
+        nameAndData.copy(chunk, 4);
+        chunk.writeUInt32BE(pngCrc(nameAndData), data.length + 8);
+        return Buffer.concat([
+          input.subarray(0, offset),
+          chunk,
+          input.subarray(offset),
+        ]);
+      }
+      offset += length + 12;
+    }
+    throw new Error("PNG has no end chunk");
+  }
+  if (metadata.format === "webp") {
+    const chunks: Buffer[] = [];
+    let extended = false;
+    let offset = 12;
+    while (offset + 8 <= input.length) {
+      const length = input.readUInt32LE(offset + 4);
+      const end = offset + 8 + length + (length % 2);
+      if (end > input.length) {
+        throw new Error("Invalid WebP chunk");
+      }
+      const name = input.toString("ascii", offset, offset + 4);
+      if (name !== "XMP ") {
+        const chunk = Buffer.from(input.subarray(offset, end));
+        if (name === "VP8X") {
+          if (length !== 10) {
+            throw new Error("Invalid WebP extended header");
+          }
+          chunk[8] = (chunk[8] ?? 0) | 0x04;
+          extended = true;
+        }
+        chunks.push(chunk);
+      }
+      offset = end;
+    }
+    if (!extended) {
+      const header = Buffer.alloc(10);
+      header[0] = 0x04 | (metadata.hasAlpha ? 0x10 : 0);
+      header.writeUIntLE(width - 1, 4, 3);
+      header.writeUIntLE(height - 1, 7, 3);
+      chunks.unshift(riffChunk("VP8X", header));
+    }
+    chunks.push(riffChunk("XMP ", xmp));
+    const header = Buffer.from(input.subarray(0, 12));
+    header.writeUInt32LE(
+      4 + chunks.reduce((sum, chunk) => sum + chunk.length, 0),
+      4
+    );
+    return Buffer.concat([header, ...chunks]);
+  }
+  return null;
 }
 
 export function watermarkPayloadFingerprint(payload: WatermarkPayload): string {
