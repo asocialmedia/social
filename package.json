@@ -1,6 +1,6 @@
 {
   "name": "@asocialmedia/social",
-  "version": "1.10.41",
+  "version": "1.10.42",
   "private": true,
   "homepage": "https://asocialmedia.cc",
   "license": "AGPL-3.0",
@@ -67,6 +67,7 @@
   },
   "packageManager": "bun@1.4.0",
   "patchedDependencies": {
-    "expo-web-browser@57.0.3": "patches/expo-web-browser@57.0.3.patch"
+    "expo-web-browser@57.0.3": "patches/expo-web-browser@57.0.3.patch",
+    "react-native-reanimated@4.5.1": "patches/react-native-reanimated@4.5.1.patch"
   }
 }
