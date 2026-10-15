@@ -300,12 +300,16 @@ describe("scoreCandidate", () => {
 
     const profile: UserProfile = {
       authorWeights: {},
+      embeddingModel: "test:v1",
       tagWeights: {},
       tasteVector: v1,
     };
 
-    const matchingPost = post({ embedding: v2 });
-    const differentPost = post({ embedding: vDifferent });
+    const matchingPost = post({ embedding: v2, embeddingModel: "test:v1" });
+    const differentPost = post({
+      embedding: vDifferent,
+      embeddingModel: "test:v1",
+    });
 
     const scoreMatch = scoreCandidate(matchingPost, profile, { now: NOW });
     const scoreDiff = scoreCandidate(differentPost, profile, { now: NOW });

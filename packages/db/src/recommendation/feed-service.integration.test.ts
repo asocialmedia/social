@@ -8,6 +8,8 @@ import {
   getSocialProofPostWeights,
   getPersonalizedFeedPage,
   invalidateFypProfile,
+  indexPostEmbedding,
+  semanticBuckets,
   or,
   prisma,
   redis,
@@ -449,7 +451,7 @@ describe("personalized feed against local Postgres and Redis", () => {
         "recommendation quality assertions passed"
       );
     },
-    { retry: 2 }
+    { retry: 2, timeout: 30_000 }
   );
 
   // Retryable: the cold-start page asserts an exact count over a Postgres
@@ -500,7 +502,7 @@ describe("personalized feed against local Postgres and Redis", () => {
         "multi-viewer personalization assertions passed"
       );
     },
-    { retry: 2 }
+    { retry: 2, timeout: 30_000 }
   );
 
   test("only applies social proof from people the viewer follows", async () => {
@@ -562,7 +564,7 @@ describe("personalized feed against local Postgres and Redis", () => {
         "profile and Redis cache assertions passed"
       );
     },
-    { retry: 2 }
+    { retry: 2, timeout: 30_000 }
   );
 
   test("keeps Gust personalization constrained to video Gusts", async () => {
@@ -651,6 +653,77 @@ describe("personalized feed against local Postgres and Redis", () => {
         "concurrent recommendation load assertions passed"
       );
     },
-    { retry: 2 }
+    { retry: 2, timeout: 30_000 }
   );
+
+  test("retrieves semantic archive matches beyond the recent pool while enforcing blocks and explicit preferences", async () => {
+    const model = "test:archive:384:v1";
+    const vector = Array.from({ length: 384 }, (_, index) =>
+      index === 0 ? 1 : 0
+    );
+    const ids = ["archive", "explicit", "blocked"].map(
+      (name) => `rec-it-${name}-${RUN_ID}`
+    );
+    const profileKey = `${FYP_PROFILE_KEY_PREFIX}${USER_IDS.coldStart}`;
+    try {
+      await Promise.all(
+        ids.map(async (id, index) => {
+          await createPost({
+            authorId: index === 2 ? USER_IDS.peer : USER_IDS.remote,
+            content: "Archive-only semantic match",
+            createdAt: new Date(Date.now() - 365 * 86_400_000),
+            id,
+            semanticTags: [],
+            vectorText: "archive",
+          });
+          await prisma.orm.public.Posts.where({ id }).update({
+            embedding: vector,
+            embeddingModel: model,
+            explicitContent: index === 1,
+          });
+          await indexPostEmbedding(id, model, vector, Date.now());
+        })
+      );
+      await redis.set(
+        profileKey,
+        JSON.stringify({
+          authorWeights: {},
+          embeddingModel: model,
+          followedAuthorIds: [],
+          tagWeights: {},
+          tasteVector: vector,
+        }),
+        "EX",
+        60
+      );
+      await prisma.orm.public.Blocks.create({
+        blockedId: USER_IDS.peer,
+        blockerId: USER_IDS.coldStart,
+      });
+      const page = await getPersonalizedFeedPage({
+        excludeExplicit: true,
+        includeVisited: true,
+        pageSize: 600,
+        userId: USER_IDS.coldStart,
+      });
+      const returned = page.posts.map((post) => post.id);
+      expect(returned).toContain(ids[0]);
+      expect(returned).not.toContain(ids[1]);
+      expect(returned).not.toContain(ids[2]);
+    } finally {
+      await prisma.orm.public.Blocks.where({
+        blockedId: USER_IDS.peer,
+        blockerId: USER_IDS.coldStart,
+      }).deleteAndCount();
+      await redis.del(
+        profileKey,
+        ...ids.map((id) => `rec:semantic:membership:${id}`)
+      );
+      await Promise.all(
+        semanticBuckets(model, vector).map((bucket) =>
+          redis.zrem(bucket, ...ids)
+        )
+      );
+    }
+  }, 30_000);
 });

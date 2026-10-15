@@ -304,7 +304,7 @@
     },
     "packages/db": {
       "name": "@asm/db",
-      "version": "1.2.67",
+      "version": "1.2.68",
       "dependencies": {
         "@asm/config": "workspace:*",
         "@asm/logger": "workspace:*",
