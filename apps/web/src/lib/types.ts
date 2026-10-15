@@ -22,9 +22,11 @@ export function getUserPostCount(user: UserData): number {
 }
 
 export interface Media {
+  attributionPublic?: boolean;
   aiGenerated?: boolean | null;
   altText?: string | null;
   generatedAltText?: string | null;
+  originalProvenanceId?: string | null;
   hasHls?: boolean;
   height?: number | null;
   id: string;

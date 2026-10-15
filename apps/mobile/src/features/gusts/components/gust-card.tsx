@@ -166,12 +166,19 @@ export function GustCard({
   const insets = useSafeAreaInsets();
   const window = useWindowDimensions();
   const video = gustVideo(post);
-  const source = mountVideo && video ? gustVideoUrl(apiBase, video.id) : null;
+  const source =
+    mountVideo && video ? gustVideoUrl(apiBase, video.id, video.hasHls) : null;
   const isMuted = useGustMuteStore((state) => state.isMuted);
   const toggleMuted = useGustMuteStore((state) => state.toggleMuted);
   const player = useVideoPlayer(source, (created) => {
     // oxlint-disable-next-line react/immutability -- expo-video's documented player API; no setter exists
     created.loop = true;
+    // oxlint-disable-next-line react/immutability -- configure native buffering as one object
+    created.bufferOptions = {
+      maxBufferBytes: 8 * 1024 * 1024,
+      minBufferForPlayback: 1.5,
+      preferredForwardBufferDuration: 8,
+    };
     // oxlint-disable-next-line react/immutability -- expo-video's documented player API; no setter exists
     created.muted = useGustMuteStore.getState().isMuted;
     // oxlint-disable-next-line react/immutability -- expo-video's documented player API; no setter exists

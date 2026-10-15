@@ -249,6 +249,10 @@ export function gustShareUrl(origin: string, postId: string): string {
 
 // Web streams the published original on the gusts page (Range support), not
 // the HLS ladder or the mp4 derivative the feed tiles use.
-export function gustVideoUrl(apiBase: string, mediaId: string): string {
-  return `${apiBase.replace(/\/+$/, "")}/api/media/${mediaId}`;
+export function gustVideoUrl(
+  apiBase: string,
+  mediaId: string,
+  hasHls = false
+): string {
+  return `${apiBase.replace(/\/+$/, "")}/api/media/${mediaId}/v/${hasHls ? "hls/master.m3u8" : "mp4-h264.mp4"}?d=4`;
 }

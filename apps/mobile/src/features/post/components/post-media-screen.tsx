@@ -256,12 +256,15 @@ function VideoSurface({
   const isMuted = useVideoMuteStore((state) => state.isMuted);
   const setMuted = useVideoMuteStore((state) => state.setMuted);
   const viewRef = useRef<VideoViewType>(null);
-  const player = useVideoPlayer(mediaVideoUrl(apiBase, media.id), (created) => {
-    // oxlint-disable-next-line react/immutability -- expo-video's documented player API; no setter exists
-    created.muted = useVideoMuteStore.getState().isMuted;
-    // oxlint-disable-next-line react/immutability -- expo-video's documented player API; no setter exists
-    created.timeUpdateEventInterval = 0.25;
-  });
+  const player = useVideoPlayer(
+    mediaVideoUrl(apiBase, media.id, media.hasHls),
+    (created) => {
+      // oxlint-disable-next-line react/immutability -- expo-video's documented player API; no setter exists
+      created.muted = useVideoMuteStore.getState().isMuted;
+      // oxlint-disable-next-line react/immutability -- expo-video's documented player API; no setter exists
+      created.timeUpdateEventInterval = 0.25;
+    }
+  );
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(() => player.duration);
   const [playing, setPlaying] = useState(false);

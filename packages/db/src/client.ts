@@ -176,7 +176,24 @@ export function getPostDataQuery(orm: PrismaOrm, loggedInUserId: string) {
       )
     )
     .include("postMedias", (media) =>
-      media.select("id", "_type", "thumbnailKey").limit(1)
+      media
+        .select(
+          "id",
+          "_type",
+          "thumbnailKey",
+          "hasHls",
+          "width",
+          "height",
+          "mimeType",
+          "techMetadata",
+          "aiGenerated",
+          "altText",
+          "generatedAltText",
+          "originalProvenanceId",
+          "blurDataUrl",
+          "transcript"
+        )
+        .limit(1)
     )
     .include("posts", (responses) => responses.count())
     .include("postToTags", (postTags) =>
@@ -202,6 +219,7 @@ export function getPostDataQuery(orm: PrismaOrm, loggedInUserId: string) {
           "content",
           "createdAt",
           "embeds",
+          "explicitContent",
           "id",
           "isGust",
           "moderated",
@@ -259,6 +277,7 @@ export interface PostParentData {
   content: string;
   createdAt: Date;
   embeds: unknown;
+  explicitContent?: boolean;
   id: string;
   isGust: boolean;
   moderated: boolean;
@@ -289,6 +308,17 @@ export interface PostData extends Omit<
   attachments: {
     id: string;
     thumbnailKey: string | null;
+    attributionPublic?: boolean;
+    aiGenerated?: boolean | null;
+    altText?: string | null;
+    generatedAltText?: string | null;
+    originalProvenanceId?: string | null;
+    blurDataUrl?: string | null;
+    transcript?: string | null;
+    hasHls?: boolean;
+    width?: number | null;
+    height?: number | null;
+    mimeType?: string;
     type: "AUDIO" | "DOCUMENT" | "IMAGE" | "VIDEO";
   }[];
   bookmarks: { userId: string }[];
@@ -339,9 +369,25 @@ export function mapPostData(post: PostQueryData): PostData {
       vote: votes.length,
     },
     attachments: postMedias.map((media) => ({
+      aiGenerated: media.aiGenerated,
+      altText: media.altText,
+      attributionPublic:
+        media.techMetadata !== null &&
+        typeof media.techMetadata === "object" &&
+        !Array.isArray(media.techMetadata) &&
+        "attributionPublic" in media.techMetadata &&
+        media.techMetadata.attributionPublic === true,
+      blurDataUrl: media.blurDataUrl,
+      generatedAltText: media.generatedAltText,
+      hasHls: media.hasHls,
+      height: media.height,
       id: media.id,
+      mimeType: media.mimeType,
+      originalProvenanceId: media.originalProvenanceId,
       thumbnailKey: media.thumbnailKey,
+      transcript: media.transcript,
       type: media._type,
+      width: media.width,
     })),
     bookmarks: bookmarks.viewer,
     communityShare:

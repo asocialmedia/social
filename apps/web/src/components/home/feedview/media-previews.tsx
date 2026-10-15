@@ -27,6 +27,7 @@ import {
   splitTranscriptIntoTimedLines,
 } from "@/components/media/video-transcript-drawer";
 import type { TranscriptCue } from "@/components/media/video-transcript-drawer";
+import { useVideoDelivery } from "@/lib/media/use-video-delivery";
 import { getPostMediaPath, getPostPath } from "@/lib/seo/seo";
 import { useAltRevealed } from "@/lib/stores/alt-reveal-store";
 import { useVideoCaptionsStore } from "@/lib/stores/video-captions-store";
@@ -274,6 +275,7 @@ export const VideoPreview = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const hoverTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isHoveredRef = useRef(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
   const previewStartedRef = useRef(false);
   const storedW =
     typeof media.width === "number" && media.width > 0 ? media.width : null;
@@ -286,6 +288,13 @@ export const VideoPreview = ({
   const [isHovered, setIsHovered] = useState(false);
   // Set when the poster or the video itself fails to load, so a broken clip
   // shows the nomedia placeholder instead of an empty black tile.
+  useVideoDelivery(
+    videoRef,
+    media.id,
+    isHovered || isVideoActive,
+    media.hasHls
+  );
+
   const [isFailed, setIsFailed] = useState(false);
   // Minimal hover controls: playback state, current time and clip duration.
   const [isPlaying, setIsPlaying] = useState(false);
@@ -635,6 +644,7 @@ export const VideoPreview = ({
       {/* eslint-disable-next-line jsx-a11y/media-has-caption -- feed previews have no caption tracks; captions exist on the media page player */}
       <video
         className="absolute inset-0 h-full w-full rounded-lg object-cover"
+        ref={videoRef}
         muted={isMuted}
         onDurationChange={handleDurationChange}
         onError={handleVideoError}

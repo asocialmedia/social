@@ -13,7 +13,7 @@ test("explicit GIFs use a still derivative rather than the animated original", (
       mimeType: "image/gif",
       type: "IMAGE",
     })
-  ).toBe("https://example.test/api/media/gif/v/md-webp.webp");
+  ).toBe("https://example.test/api/media/gif/v/md-webp.webp?d=4");
   expect(
     explicitCoverUrl("https://example.test", { id: "video", type: "VIDEO" })
   ).toBe("https://example.test/api/media/video?thumb=1");
