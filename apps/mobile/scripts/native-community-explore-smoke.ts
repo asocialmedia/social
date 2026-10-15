@@ -282,18 +282,32 @@ for (
   if (link && !found.has("link")) {
     await snapshot("explore-link");
     await tap(link);
-    const foreground = await adb("shell", "dumpsys", "activity", "activities");
-    const resumed = foreground
-      .split("\n")
-      .filter(
-        (line) =>
-          line.includes("topResumedActivity") ||
-          line.includes("mResumedActivity")
+    const deadline = Date.now() + 5000;
+    let openedExternal = false;
+    while (Date.now() < deadline) {
+      const foreground = await adb(
+        "shell",
+        "dumpsys",
+        "activity",
+        "activities"
       );
-    if (
-      !resumed.length ||
-      resumed.some((line) => line.includes("cc.asocialmedia.mobile/"))
-    ) {
+      const resumed = foreground
+        .split("\n")
+        .filter(
+          (line) =>
+            line.includes("topResumedActivity") ||
+            line.includes("mResumedActivity")
+        );
+      if (
+        resumed.length > 0 &&
+        resumed.every((line) => !line.includes("cc.asocialmedia.mobile/"))
+      ) {
+        openedExternal = true;
+        break;
+      }
+      await Bun.sleep(200);
+    }
+    if (!openedExternal) {
       throw new Error("Link badge did not open its external destination");
     }
     await adb("shell", "input", "keyevent", "KEYCODE_BACK");
