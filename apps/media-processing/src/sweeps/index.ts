@@ -889,7 +889,7 @@ export async function transcriptionBackfillSweep(): Promise<{
     }
 
     try {
-      await enqueueMediaAnalyze(candidate.id);
+      await enqueueMediaAnalyze(candidate.id, { semanticRefresh: true });
       enqueued += 1;
       mediaLogger.info(
         { mediaId: candidate.id },
@@ -999,6 +999,9 @@ export async function registerSweepSchedulers(connectionOptions: {
   const daily = 24 * 60 * 60 * 1000;
   const thirtyMinutes = 30 * 60 * 1000;
   await queue.upsertJobScheduler("media-delivery-upgrade", { every: 60_000 });
+  await queue.upsertJobScheduler("media-enrichment-reconcile", {
+    every: 60_000,
+  });
   await queue.upsertJobScheduler("post-clef-backfill", { every: 60_000 });
   await queue.upsertJobScheduler("media-legacy-migration", { every: daily });
   await queue.upsertJobScheduler("media-legacy-gc", { every: daily });
@@ -1017,6 +1020,11 @@ export async function registerSweepSchedulers(connectionOptions: {
     "media-sweeps",
     async (job) => {
       switch (job.name) {
+        case "media-enrichment-reconcile": {
+          const { enrichmentReconciliationSweep } =
+            await import("./enrichment");
+          return await enrichmentReconciliationSweep();
+        }
         case "post-clef-backfill": {
           const { postClassificationSweep } =
             await import("./post-classification");
@@ -1065,6 +1073,8 @@ export async function registerSweepSchedulers(connectionOptions: {
   // Run an initial pass on worker boot so existing uncaptioned videos start processing immediately
   void (async () => {
     try {
+      const { enrichmentReconciliationSweep } = await import("./enrichment");
+      await enrichmentReconciliationSweep();
       await transcriptionBackfillSweep();
       await semanticClassificationBackfillSweep();
     } catch (error) {

@@ -418,3 +418,24 @@ describe("scoreCandidate", () => {
     ).toBeLessThanOrEqual(100);
   });
 });
+
+test("having OCR or a transcript alone never increases relevance", () => {
+  const profile = { authorWeights: {}, tagWeights: {} };
+  const candidate = {
+    aura: 0,
+    authorId: "author",
+    bookmarkCount: 0,
+    commentCount: 0,
+    createdAt: new Date(0),
+    id: "post",
+    tags: [],
+  };
+  const baseline = scoreCandidate(candidate, profile, { now: new Date(0) });
+  expect(
+    scoreCandidate(
+      { ...candidate, hasOcr: true, hasTranscript: true },
+      profile,
+      { now: new Date(0) }
+    )
+  ).toBe(baseline);
+});

@@ -608,7 +608,7 @@ export async function enqueueMediaAnalyze(
     { mediaId, semanticRefresh: options?.semanticRefresh ?? false },
     {
       ...mediaJobOptions("analyze", jobKey),
-      priority: 1,
+      priority: options?.semanticRefresh ? 10 : 1,
     }
   );
 }
@@ -624,7 +624,7 @@ export async function enqueuePostAnalyze(
     { backfill: options?.backfill ?? false, postId },
     {
       ...mediaJobOptions("analyze", postId),
-      priority: 1,
+      priority: options?.backfill ? 10 : 1,
     }
   );
 }

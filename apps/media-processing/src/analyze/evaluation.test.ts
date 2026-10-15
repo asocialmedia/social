@@ -31,3 +31,15 @@ describe("model evaluation", () => {
     });
   });
 });
+
+test("extraction evaluation measures Unicode errors and rejects synthetic evidence for rollout", async () => {
+  const { textErrorRates, datasetReadiness } = await import("./evaluation");
+  expect(textErrorRates("日本語", "日本語").characterErrorRate).toBe(0);
+  expect(textErrorRates("one two", "one three").wordErrorRate).toBe(0.5);
+  expect(textErrorRates("", "invented").characterErrorRate).toBeGreaterThan(0);
+  expect(
+    datasetReadiness([
+      { category: "anime", reviewed: true, source: "synthetic" },
+    ]).coverageGatePassed
+  ).toBe(false);
+});

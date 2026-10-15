@@ -1043,6 +1043,7 @@ namespace public {
   }
 
   model RecommendationEvents {
+    rankingContext Json?
     id         String       @id(map: "recommendation_events_pkey") @default(uuid())
     userId     String
     postId     String

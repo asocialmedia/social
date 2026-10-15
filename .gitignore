@@ -48,3 +48,4 @@ re/
 *serviceAccount*.json
 google-services.json
 .agents/
+*.bun-build

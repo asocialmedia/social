@@ -3,7 +3,7 @@
 // visual media (Clef Flash decisions), OCR scene text, and speech transcripts.
 // Clef supplies stable topic labels; lexical extraction retains specific entities.
 
-import { globalKnowledgeGraph, redis } from "@asm/db";
+import { recordSharedTopicRelations, redis } from "@asm/db";
 import type { SafetyVerdict } from "@asm/media";
 
 import { workerEnv } from "../env";
@@ -34,9 +34,10 @@ interface CorpusStatistics {
 
 function normalizeTag(raw: string): string {
   return raw
+    .normalize("NFKC")
     .toLowerCase()
     .trim()
-    .replaceAll(/[^a-z0-9-_]/g, "-")
+    .replaceAll(/[^\p{L}\p{N}\p{M}_-]/gu, "-")
     .replaceAll(/-+/g, "-")
     .replaceAll(/^[-#@]+|[-]+$/g, "");
 }
@@ -186,7 +187,9 @@ function extractTextTopicsWithCorpus(
   };
 
   // 1. Dynamic hashtag extraction (#astrophotography, #vintagetypewriter, #leicam6)
-  const hashtagMatches = combinedText.matchAll(/#(?<tag>[a-zA-Z0-9_-]{2,32})/g);
+  const hashtagMatches = combinedText.matchAll(
+    /#(?<tag>[\p{L}\p{N}\p{M}_-]{2,32})/gu
+  );
   for (const match of hashtagMatches) {
     const tag = match.groups?.tag;
     if (tag) {
@@ -225,10 +228,18 @@ function extractTextTopicsWithCorpus(
   // 4. Dynamic salient term and phrase extraction. The worker learns inverse
   // document frequency from the media corpus instead of deleting a fixed list
   // of English words. Explicit entities above always outrank ordinary terms.
-  const sourceWords = combinedText.match(/[A-Za-z0-9][A-Za-z0-9_-]*/g) ?? [];
+  const sourceWords = [
+    ...new Intl.Segmenter(undefined, { granularity: "word" }).segment(
+      combinedText
+    ),
+  ]
+    .filter((segment) => segment.isWordLike)
+    .map((segment) => segment.segment);
   const words = sourceWords.map((word) => word.toLowerCase());
   const lexicalWords = words.filter(
-    (word) => word.length >= 4 && !/^\d+$/.test(word)
+    (word) =>
+      (word.length >= 4 || /[^\p{Script=Latin}\p{N}_-]/u.test(word)) &&
+      !/^\p{N}+$/u.test(word)
   );
   const corpusStatistics = corpus ?? getLocalCorpusStatistics(lexicalWords);
 
@@ -295,10 +306,20 @@ export async function extractTextTopicsWithSharedStatistics(
     return [];
   }
 
-  const words = combinedText.match(/[A-Za-z0-9][A-Za-z0-9_-]*/g) ?? [];
+  const words = [
+    ...new Intl.Segmenter(undefined, { granularity: "word" }).segment(
+      combinedText
+    ),
+  ]
+    .filter((segment) => segment.isWordLike)
+    .map((segment) => segment.segment);
   const lexicalWords = words
     .map((word) => word.toLowerCase())
-    .filter((word) => word.length >= 4 && !/^\d+$/.test(word));
+    .filter(
+      (word) =>
+        (word.length >= 4 || /[^\p{Script=Latin}\p{N}_-]/u.test(word)) &&
+        !/^\p{N}+$/u.test(word)
+    );
   const corpus = await getSharedCorpusStatistics(lexicalWords);
   return extractTextTopicsWithCorpus(combinedText, corpus);
 }
@@ -349,7 +370,16 @@ export function classifyMediaConcepts(input: {
       const result = sanitizeTags([...tags]);
       if (result.length > 0) {
         // Record all co-occurring entities in the Dynamic Knowledge Graph
-        globalKnowledgeGraph.recordCoOccurrence(result);
+        try {
+          await recordSharedTopicRelations(result, input.mediaId);
+        } catch (error) {
+          mediaLogger.warn(
+            { error: String(error) },
+            "shared topic graph update deferred"
+          );
+          // Do not mark classification complete until its shared relations are saved.
+          throw error;
+        }
 
         mediaLogger.info(
           { mediaId: input.mediaId, tags: result },

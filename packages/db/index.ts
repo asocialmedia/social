@@ -206,3 +206,9 @@ export type { MessageSearchEpochProof } from "./src/messages/epochs/epoch-readab
 export * from "./src/media-analysis";
 
 export * from "./src/recommendation/semantic-index";
+
+export * from "./src/recommendation/shared-topic-graph";
+
+export * from "./src/recommendation/attribution";
+export * from "./src/recommendation/retrieval-benchmark";
+export * from "./src/recommendation/experiment-report";

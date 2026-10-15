@@ -1,4 +1,3 @@
-import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash } from "node:crypto";
 
 import { redis } from "@asm/db";
@@ -8,6 +7,7 @@ import { z } from "zod";
 
 import { workerEnv } from "../env";
 import { mediaLogger } from "../log";
+import { isBackgroundAnalysis } from "./analysis-context";
 
 export const CLEF_POLICY_VERSION = "clef-flash-v1";
 const CONTEXT_TOKENS = 24_576;
@@ -16,11 +16,8 @@ const RESERVATION = Math.ceil(CONTEXT_TOKENS * NEURONS_PER_TOKEN);
 const CACHE_SECONDS = 30 * 24 * 60 * 60;
 const probability = z.number().finite().min(0).max(1);
 const answer = z.object({ noul: probability, type: z.literal("noul") });
-const analysisLane = new AsyncLocalStorage<boolean>();
-export const withAnalysisLane = <T>(
-  background: boolean,
-  run: () => Promise<T>
-): Promise<T> => analysisLane.run(background, run);
+
+export { withAnalysisLane } from "./analysis-context";
 
 const resultSchema = z.object({
   answers: z.record(z.string(), answer),
@@ -243,7 +240,7 @@ export async function evaluateClef(input: {
       reservation,
       workerEnv.CLEF_DAILY_NEURONS,
       172_800,
-      analysisLane.getStore() ? 1 : 0
+      isBackgroundAnalysis() ? 1 : 0
     );
     if (Number(reserved) !== 1) {
       throw new ClefDeferredError("Clef daily budget exhausted", nextUtcDay());
@@ -314,7 +311,7 @@ export async function evaluateClef(input: {
       budgetKey,
       -(reservation - envelope.result.usage.input_tokens * rate)
     );
-    if (analysisLane.getStore()) {
+    if (isBackgroundAnalysis()) {
       await redis.incrbyfloat(
         `${budgetKey}:backfill`,
         -(reservation - envelope.result.usage.input_tokens * rate)
@@ -322,7 +319,7 @@ export async function evaluateClef(input: {
     }
     mediaLogger.info(
       {
-        background: analysisLane.getStore() ?? false,
+        background: isBackgroundAnalysis() ?? false,
         inputTokens: envelope.result.usage.input_tokens,
         model,
         neurons: envelope.result.usage.input_tokens * rate,

@@ -57,6 +57,8 @@ mock.module("@asm/db", () => ({
       public: { PostMedia: { select: () => builder, where: () => builder } },
     },
   },
+  recordSharedTopicRelations: () => Promise.resolve(),
+  redis: {},
 }));
 mock.module("../env", () => ({
   workerEnv: {

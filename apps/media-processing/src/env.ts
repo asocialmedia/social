@@ -33,6 +33,7 @@ export const keys = createEnv({
     GEMINI_API_KEY: process.env.GEMINI_API_KEY,
     GEMINI_EMBEDDING_MODEL: process.env.GEMINI_EMBEDDING_MODEL,
     GEMINI_TRANSCRIBE_MODEL: process.env.GEMINI_TRANSCRIBE_MODEL,
+    GOOGLE_CLOUD_VISION_API_KEY: process.env.GOOGLE_CLOUD_VISION_API_KEY,
     LOG_LEVEL: process.env.LOG_LEVEL,
     MEDIA_AUDIO_WATERMARK_TIMEOUT_MS:
       process.env.MEDIA_AUDIO_WATERMARK_TIMEOUT_MS,
@@ -49,6 +50,8 @@ export const keys = createEnv({
       process.env.MEDIA_CONCURRENT_PROCESSING_PER_USER,
     MEDIA_EMBEDDING_ENABLED: process.env.MEDIA_EMBEDDING_ENABLED,
     MEDIA_EMBEDDING_TIMEOUT_MS: process.env.MEDIA_EMBEDDING_TIMEOUT_MS,
+    MEDIA_GEMINI_DAILY_REQUESTS: process.env.MEDIA_GEMINI_DAILY_REQUESTS,
+    MEDIA_GEMINI_MONTHLY_REQUESTS: process.env.MEDIA_GEMINI_MONTHLY_REQUESTS,
     MEDIA_HEALTH_PORT: process.env.MEDIA_HEALTH_PORT,
     MEDIA_IMAGE_WATERMARK_TIMEOUT_MS:
       process.env.MEDIA_IMAGE_WATERMARK_TIMEOUT_MS,
@@ -64,15 +67,20 @@ export const keys = createEnv({
     MEDIA_MULTIMODAL_EMBEDDING_ENABLED:
       process.env.MEDIA_MULTIMODAL_EMBEDDING_ENABLED,
     MEDIA_OCR_ENABLED: process.env.MEDIA_OCR_ENABLED,
+    MEDIA_OCR_TIMEOUT_MS: process.env.MEDIA_OCR_TIMEOUT_MS,
     MEDIA_ORIGINAL_RETENTION_DAYS: process.env.MEDIA_ORIGINAL_RETENTION_DAYS,
     MEDIA_PRESERVE_ORIGINALS: process.env.MEDIA_PRESERVE_ORIGINALS,
     MEDIA_PROCESSING_TIMEOUT_MS: process.env.MEDIA_PROCESSING_TIMEOUT_MS,
     MEDIA_PROCESS_CONCURRENCY: process.env.MEDIA_PROCESS_CONCURRENCY,
+    MEDIA_PROVIDER_BUDGET_ENABLED: process.env.MEDIA_PROVIDER_BUDGET_ENABLED,
     MEDIA_REQUIRE_CLAMAV: process.env.MEDIA_REQUIRE_CLAMAV,
     MEDIA_SCAN_CONCURRENCY: process.env.MEDIA_SCAN_CONCURRENCY,
     MEDIA_SCAN_TIMEOUT_MS: process.env.MEDIA_SCAN_TIMEOUT_MS,
     MEDIA_TRANSCRIBE_TIMEOUT_MS: process.env.MEDIA_TRANSCRIBE_TIMEOUT_MS,
     MEDIA_UPLOADS_PER_DAY: process.env.MEDIA_UPLOADS_PER_DAY,
+    MEDIA_VIDEO_OCR_FRAMES: process.env.MEDIA_VIDEO_OCR_FRAMES,
+    MEDIA_VISION_DAILY_IMAGES: process.env.MEDIA_VISION_DAILY_IMAGES,
+    MEDIA_VISION_MONTHLY_IMAGES: process.env.MEDIA_VISION_MONTHLY_IMAGES,
     MEDIA_WATERMARK_PEPPER: process.env.MEDIA_WATERMARK_PEPPER,
     MEDIA_WHISPER_ENABLED: process.env.MEDIA_WHISPER_ENABLED,
     // Same public origin the web app publishes; the worker needs it to write
@@ -119,6 +127,7 @@ export const keys = createEnv({
     // models/{id}:generateContent; "gemini-flash-lite-latest" is the
     // maintained alias for the Flash Lite family.
     GEMINI_TRANSCRIBE_MODEL: z.string().default("gemini-flash-lite-latest"),
+    GOOGLE_CLOUD_VISION_API_KEY: z.string().min(1).optional(),
     LOG_LEVEL: z
       .enum(["trace", "debug", "info", "warn", "error", "fatal"])
       .default("info"),
@@ -147,6 +156,8 @@ export const keys = createEnv({
     MEDIA_CONCURRENT_PROCESSING_PER_USER: numericOverride,
     MEDIA_EMBEDDING_ENABLED: z.enum(["0", "1"]).default("1"),
     MEDIA_EMBEDDING_TIMEOUT_MS: numericOverride,
+    MEDIA_GEMINI_DAILY_REQUESTS: numericOverride,
+    MEDIA_GEMINI_MONTHLY_REQUESTS: numericOverride,
     MEDIA_HEALTH_PORT: z.coerce.number().int().default(3010),
     MEDIA_IMAGE_WATERMARK_TIMEOUT_MS: numericOverride,
     MEDIA_LEGACY_GC_ENABLED: z.enum(["0", "1"]).default("0"),
@@ -155,11 +166,10 @@ export const keys = createEnv({
     MEDIA_MAX_REQUEST_BYTES: numericOverride,
     MEDIA_MAX_TRANSCRIBE_AUDIO_BYTES: numericOverride,
     MEDIA_MAX_VIDEO_BYTES: numericOverride,
-    // Scene-text OCR in the analyze stage (PP-OCRv4 via onnxruntime-node).
-    // Models ship inside the @gutenye/ocr-node dependency - no external
-    // download - so this is a plain on/off switch.
     MEDIA_MULTIMODAL_EMBEDDING_ENABLED: z.enum(["0", "1"]).default("0"),
+    // Cloud Vision scene-text OCR; no local model fallback.
     MEDIA_OCR_ENABLED: z.enum(["0", "1"]).default("1"),
+    MEDIA_OCR_TIMEOUT_MS: numericOverride,
     // Days a published row's exact uploaded bytes stay under quarantine/
     // before the retention sweep deletes them (forensics / re-processing
     // window). 0 deletes the quarantine copy at publish instead. Default 30
@@ -168,6 +178,7 @@ export const keys = createEnv({
     MEDIA_PRESERVE_ORIGINALS: z.enum(["0", "1"]).default("1"),
     MEDIA_PROCESSING_TIMEOUT_MS: numericOverride,
     MEDIA_PROCESS_CONCURRENCY: z.coerce.number().int().positive().default(2),
+    MEDIA_PROVIDER_BUDGET_ENABLED: z.enum(["0", "1"]).default("1"),
     MEDIA_REQUIRE_CLAMAV: z.enum(["0", "1"]).default("1"),
     MEDIA_SCAN_CONCURRENCY: z.coerce.number().int().positive().default(4),
     MEDIA_SCAN_TIMEOUT_MS: numericOverride,
@@ -175,6 +186,9 @@ export const keys = createEnv({
     // aborts past it and transcribeMediaAudio returns no transcript.
     MEDIA_TRANSCRIBE_TIMEOUT_MS: numericOverride,
     MEDIA_UPLOADS_PER_DAY: numericOverride,
+    MEDIA_VIDEO_OCR_FRAMES: numericOverride,
+    MEDIA_VISION_DAILY_IMAGES: numericOverride,
+    MEDIA_VISION_MONTHLY_IMAGES: numericOverride,
     MEDIA_WATERMARK_PEPPER: z.string().min(16).optional(),
     MEDIA_WHISPER_ENABLED: z.enum(["0", "1"]).default("1"),
     NEXT_PUBLIC_URL: z.url().default("http://localhost:3000"),
@@ -252,8 +266,7 @@ export const workerEnv = {
   get EMBEDDING_ENABLED() {
     return keys.MEDIA_EMBEDDING_ENABLED !== "0";
   },
-  // Gemini Embedding API budget. Default 15s: embedding requests are small
-  // (2048 chars) and the caller degrades to the local hash embedder.
+  // Gemini Embedding API budget. Failed requests leave embeddings pending.
   get EMBEDDING_TIMEOUT_MS() {
     const parsed = Number(keys.MEDIA_EMBEDDING_TIMEOUT_MS);
     return Number.isFinite(parsed) && parsed > 0 ? parsed : 15_000;
@@ -261,11 +274,22 @@ export const workerEnv = {
   get GEMINI_API_KEY() {
     return keys.GEMINI_API_KEY;
   },
+  get GEMINI_DAILY_REQUESTS() {
+    const value = Number(keys.MEDIA_GEMINI_DAILY_REQUESTS);
+    return Number.isSafeInteger(value) && value > 0 ? value : 500;
+  },
   get GEMINI_EMBEDDING_MODEL() {
     return keys.GEMINI_EMBEDDING_MODEL;
   },
+  get GEMINI_MONTHLY_REQUESTS() {
+    const value = Number(keys.MEDIA_GEMINI_MONTHLY_REQUESTS);
+    return Number.isSafeInteger(value) && value > 0 ? value : 10_000;
+  },
   get GEMINI_TRANSCRIBE_MODEL() {
     return keys.GEMINI_TRANSCRIBE_MODEL;
+  },
+  get GOOGLE_CLOUD_VISION_API_KEY() {
+    return keys.GOOGLE_CLOUD_VISION_API_KEY;
   },
   get HEALTH_PORT() {
     // An injected PORT (from the container runtime) wins; dev and prod both
@@ -299,6 +323,10 @@ export const workerEnv = {
     // "0" turns OCR off.
     return keys.MEDIA_OCR_ENABLED !== "0";
   },
+  get OCR_TIMEOUT_MS() {
+    const parsed = Number(keys.MEDIA_OCR_TIMEOUT_MS);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 30_000;
+  },
   get PHASH_ATTRIBUTION_ENABLED() {
     return true;
   },
@@ -313,6 +341,9 @@ export const workerEnv = {
     // raw value arrives as the env string; BullMQ demands a real number.
     const parsed = Number(keys.MEDIA_PROCESS_CONCURRENCY);
     return Number.isInteger(parsed) && parsed > 0 ? parsed : 2;
+  },
+  get PROVIDER_BUDGET_ENABLED() {
+    return keys.MEDIA_PROVIDER_BUDGET_ENABLED !== "0";
   },
   get PUBLIC_BASE_URL() {
     return keys.NEXT_PUBLIC_URL;
@@ -333,6 +364,18 @@ export const workerEnv = {
   get TRANSCRIBE_TIMEOUT_MS() {
     const parsed = Number(keys.MEDIA_TRANSCRIBE_TIMEOUT_MS);
     return Number.isFinite(parsed) && parsed > 0 ? parsed : 120_000;
+  },
+  get VIDEO_OCR_FRAMES() {
+    const value = Number(keys.MEDIA_VIDEO_OCR_FRAMES);
+    return Number.isSafeInteger(value) && value > 0 ? value : 1;
+  },
+  get VISION_DAILY_IMAGES() {
+    const value = Number(keys.MEDIA_VISION_DAILY_IMAGES);
+    return Number.isSafeInteger(value) && value > 0 ? value : 100;
+  },
+  get VISION_MONTHLY_IMAGES() {
+    const value = Number(keys.MEDIA_VISION_MONTHLY_IMAGES);
+    return Number.isSafeInteger(value) && value > 0 ? value : 900;
   },
   get WATERMARK_ENABLED() {
     return true;

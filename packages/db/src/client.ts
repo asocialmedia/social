@@ -299,6 +299,7 @@ export interface PostData extends Omit<
   | "user"
   | "votes"
 > {
+  recommendation?: { requestId: string };
   _count: {
     bookmarks: number;
     comments: number;

@@ -6,16 +6,25 @@ import { z } from "zod";
 
 import {
   classificationReport,
+  datasetReadiness,
+  textErrorRates,
   retrievalReport,
 } from "../src/analyze/evaluation";
 import { loadRootEnv } from "../src/load-env";
 
 const itemSchema = z.object({
   category: z.string(),
+  expectedOcr: z.string().optional(),
+  expectedTranscript: z.string().optional(),
   explicit: z.boolean(),
   id: z.string(),
   kind: z.enum(["text", "image", "audio", "video"]),
+  language: z.string().default("unknown"),
   path: z.string().optional(),
+  reviewed: z.boolean().default(false),
+  source: z
+    .enum(["synthetic", "production", "unverified"])
+    .default("synthetic"),
   text: z.string().default(""),
 });
 const manifestSchema = z.object({
@@ -65,15 +74,34 @@ async function main() {
         items: manifest.items.length,
         mode: "validated-only",
         queries: manifest.queries.length,
+        readiness: datasetReadiness(manifest.items),
       })
     );
     return;
+  }
+  if (
+    flags.includes("--require-reviewed") &&
+    !datasetReadiness(manifest.items).coverageGatePassed
+  ) {
+    throw new Error(
+      "Dataset lacks reviewed production coverage; no provider calls made"
+    );
   }
   loadRootEnv();
   const { evaluateClef, clefSafetyVerdict, prepareClefImage } =
     await import("../src/analyze/clef");
   const { generateTextEmbedding, cosineSimilarity } =
     await import("../src/analyze/embedding");
+  const { extractImageText } = await import("../src/analyze/ocr");
+  const { transcribeViaGemini, extractAudioTrack } =
+    await import("../src/analyze/transcribe");
+  const extractionResults: {
+    id: string;
+    language: string;
+    kind: string;
+    latencyMs: number;
+    metrics: ReturnType<typeof textErrorRates>;
+  }[] = [];
   const { extractVideoSamples } = await import("../src/analyze/video-samples");
   const { runFfmpeg } = await import("../src/transcode/ffmpeg");
   const { closePrisma, closeQueueConnections, redis } = await import("@asm/db");
@@ -157,6 +185,53 @@ async function main() {
       }
       const imagePaths =
         item.kind === "image" && assetPath ? [assetPath] : frames;
+      if (
+        flags.includes("--extraction") &&
+        item.expectedOcr !== undefined &&
+        imagePaths[0]
+      ) {
+        const started = performance.now();
+        const ocr = await extractImageText(imagePaths[0]);
+        if (!ocr) {
+          throw new Error(`OCR unavailable for ${item.id}`);
+        }
+        extractionResults.push({
+          id: item.id,
+          kind: "ocr",
+          language: item.language,
+          latencyMs: performance.now() - started,
+          metrics: textErrorRates(item.expectedOcr, ocr.text),
+        });
+      }
+      if (
+        flags.includes("--extraction") &&
+        item.expectedTranscript !== undefined &&
+        assetPath &&
+        ["audio", "video"].includes(item.kind)
+      ) {
+        const started = performance.now();
+        const track = path.join(
+          directory,
+          `${item.id.replaceAll(/[^a-zA-Z0-9_-]/g, "-")}.ogg`
+        );
+        if (!(await extractAudioTrack(assetPath, track))) {
+          throw new Error(`Missing evaluation audio for ${item.id}`);
+        }
+        const transcript = await transcribeViaGemini(track);
+        if (transcript.status !== "completed") {
+          throw new Error(`Transcription unavailable for ${item.id}`);
+        }
+        extractionResults.push({
+          id: item.id,
+          kind: "transcript",
+          language: item.language,
+          latencyMs: performance.now() - started,
+          metrics: textErrorRates(
+            item.expectedTranscript,
+            transcript.transcript
+          ),
+        });
+      }
       for (const model of ["clef-flash", "clef-omni"] as const) {
         let inputTokens = 0;
         let neurons = 0;
@@ -232,6 +307,8 @@ async function main() {
         ])
       ),
       createdAt: new Date().toISOString(),
+      dataset: datasetReadiness(manifest.items),
+      extractionResults,
       note: "Cached calls consume zero new neurons. Synthetic fixtures verify integration, not representative accuracy. AV comparisons use at most 20 seconds; Flash uses the supplied transcript and sampled frames.",
       retrieval,
       rows,

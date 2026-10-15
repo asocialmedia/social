@@ -14,7 +14,6 @@ import {
   enqueuePostAnalyze,
   enqueueNotificationCreated,
   enqueueShitposterCheck,
-  generateLocalEmbedding,
   getPostDataQuery,
   HN_SHARE_BONUS_AURA,
   invalidateAuraSignals,
@@ -415,14 +414,11 @@ export async function submitPost(input: CreatePostInput) {
       // another transaction won the race and this post creation aborts (the
       // claim rolls back with the transaction).
       const postId = crypto.randomUUID();
-      const initialEmbedding = generateLocalEmbedding(
-        `${validatedInput.content} ${validatedInput.tags.join(" ")}`
-      );
       const post = await tx.orm.public.Posts.create({
         aura: 0,
         communityId,
         content: validatedInput.content,
-        embedding: initialEmbedding,
+        embedding: [],
         embeds: embedsJson,
         id: postId,
         isGust: validatedInput.isGust ?? false,

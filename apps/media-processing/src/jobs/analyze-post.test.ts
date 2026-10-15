@@ -13,16 +13,22 @@ let lockAvailable = true;
 let updateCount = 1;
 const updates: Record<string, unknown>[] = [];
 const markers = new Map<string, string>();
-mock.module("../env", () => ({ workerEnv: { CLASSIFY_ENABLED: true } }));
+const settings = { CLASSIFY_ENABLED: true, EMBEDDING_ENABLED: true };
+let embeddingFailure = false;
+const classify = mock(() => ({ tags: ["anime"] }));
+mock.module("../env", () => ({ workerEnv: settings }));
 mock.module("../analyze/embedding", () => ({
   embeddingModelId: () => "google:gemini-embedding-2:384:v2",
-  generateTextEmbedding: () => [0.5, 0.5],
+  generateTextEmbedding: () =>
+    embeddingFailure
+      ? Promise.reject(new Error("Gemini budget pending"))
+      : Promise.resolve([0.5, 0.5]),
 }));
 mock.module("../analyze/clef", () => ({
   CLEF_POLICY_VERSION: "clef-flash-v1",
   ClefDeferredError: class extends Error {},
   clefSafetyVerdict: () => ({ explicit }),
-  evaluateClef: () => ({ tags: ["anime"] }),
+  evaluateClef: classify,
 }));
 const builder = {
   first: () => storedPost,
@@ -47,6 +53,7 @@ mock.module("@asm/db", () => ({
       },
     },
   },
+  recordSharedTopicRelations: () => Promise.resolve(),
   redis: {
     eval: () => 1,
     get: (key: string) => markers.get(key) ?? null,
@@ -59,7 +66,8 @@ mock.module("@asm/db", () => ({
     },
   },
 }));
-const { processPostAnalyze } = await import("./analyze-post");
+const { processPostAnalyze, postAnalysisFingerprint } =
+  await import("./analyze-post");
 beforeEach(() => {
   updates.length = 0;
   markers.clear();
@@ -67,8 +75,30 @@ beforeEach(() => {
   lockAvailable = true;
   updateCount = 1;
   storedPost.moderated = false;
+  embeddingFailure = false;
+  classify.mockClear();
 });
 describe("Clef post enrichment policy", () => {
+  test("embedding quota preserves classification, and a stale completion marker cannot hide missing vectors", async () => {
+    embeddingFailure = true;
+    await expect(processPostAnalyze({ postId: storedPost.id })).rejects.toThrow(
+      "Gemini budget pending"
+    );
+    expect(updates[0]).toMatchObject({
+      explicitContent: true,
+      semanticTags: ["anime"],
+    });
+    expect(markers.size).toBe(0);
+    embeddingFailure = false;
+    markers.set(
+      `media:clef:post:${storedPost.id}`,
+      postAnalysisFingerprint(storedPost.content)
+    );
+    classify.mockClear();
+    await processPostAnalyze({ postId: storedPost.id });
+    expect(updates.at(-1)).toHaveProperty("embedding", [0.5, 0.5]);
+    expect(classify).not.toHaveBeenCalled();
+  });
   test("NSFW is labeled explicit without moderation or a penalty", async () => {
     await processPostAnalyze({ postId: storedPost.id });
     expect(updates).toHaveLength(1);

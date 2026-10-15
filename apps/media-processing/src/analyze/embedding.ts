@@ -6,6 +6,10 @@
 
 import { workerEnv } from "../env";
 import { mediaLogger } from "../log";
+import {
+  reserveProviderRequest,
+  ProviderBudgetDeferredError,
+} from "./provider-budget";
 
 export const EMBEDDING_DIMENSION = 384;
 
@@ -68,6 +72,7 @@ export async function generateTextEmbedding(
   const modelName = workerEnv.GEMINI_EMBEDDING_MODEL || "gemini-embedding-2";
   if (apiKey) {
     try {
+      await reserveProviderRequest("gemini");
       const response = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:embedContent`,
         {
@@ -123,6 +128,9 @@ export async function generateTextEmbedding(
         );
       }
     } catch (error) {
+      if (error instanceof ProviderBudgetDeferredError) {
+        throw error;
+      }
       mediaLogger.warn(
         { error: String(error) },
         "Gemini embedding unavailable; leaving embedding pending"

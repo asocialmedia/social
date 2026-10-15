@@ -42,6 +42,9 @@ if (import.meta.main) {
   const { Worker, DelayedError } = await import("bullmq");
   const { ClefDeferredError, withAnalysisLane } =
     await import("./analyze/clef");
+  const { ProviderBudgetDeferredError, providerBudgetSnapshot } =
+    await import("./analyze/provider-budget");
+  const { OcrDeferredError } = await import("./analyze/ocr");
   const { processPostAnalyze } = await import("./jobs/analyze-post");
   const { processMediaScan } = await import("./jobs/scan");
   const { processMedia } = await import("./jobs/process");
@@ -99,9 +102,22 @@ if (import.meta.main) {
           return await processMedia(job.data as { mediaId: string });
         }
         case MEDIA_JOB_NAMES.analyze: {
-          return await withAnalysisLane(Boolean(job.data.semanticRefresh), () =>
-            processMediaAnalyze(job.data as MediaAnalyzeJobData)
-          );
+          try {
+            return await withAnalysisLane(
+              Boolean(job.data.semanticRefresh),
+              () => processMediaAnalyze(job.data as MediaAnalyzeJobData)
+            );
+          } catch (error) {
+            if (
+              error instanceof ClefDeferredError ||
+              error instanceof OcrDeferredError ||
+              error instanceof ProviderBudgetDeferredError
+            ) {
+              await job.moveToDelayed(error.retryAt, job.token);
+              throw new DelayedError();
+            }
+            throw error;
+          }
         }
         default: {
           throw new Error(`Unknown media job: ${job.name}`);
@@ -136,11 +152,15 @@ if (import.meta.main) {
           processMediaAnalyze(job.data as MediaAnalyzeJobData)
         );
       } catch (error) {
-        if (error instanceof ClefDeferredError) {
+        if (
+          error instanceof ClefDeferredError ||
+          error instanceof OcrDeferredError ||
+          error instanceof ProviderBudgetDeferredError
+        ) {
           await job.moveToDelayed(error.retryAt, job.token);
           mediaLogger.warn(
             { jobId: job.id, reason: error.message, retryAt: error.retryAt },
-            "Clef analysis deferred"
+            "Media analysis deferred"
           );
           throw new DelayedError();
         }
@@ -317,6 +337,7 @@ if (import.meta.main) {
             queues,
             quota: {
               dailyLimitNeurons: workerEnv.CLEF_DAILY_NEURONS,
+              providers: await providerBudgetSnapshot(),
               reservedOrUsedNeurons: Number(
                 await redis.get(
                   `media:clef:${workerEnv.CLOUDFLARE_ACCOUNT_ID}:neurons:${new Date().toISOString().slice(0, 10)}`

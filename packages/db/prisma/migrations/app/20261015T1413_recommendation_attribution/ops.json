@@ -1,0 +1,36 @@
+[
+  {
+    "id": "column.public.recommendation_events.rankingContext",
+    "label": "Add column \"rankingContext\" to \"recommendation_events\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "column",
+        "name": "rankingContext",
+        "table": "recommendation_events"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure column \"rankingContext\" is missing",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": ["public", "recommendation_events", "rankingContext"]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add column \"rankingContext\"",
+        "sql": "ALTER TABLE \"public\".\"recommendation_events\" ADD COLUMN \"rankingContext\" json"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify column \"rankingContext\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": ["public", "recommendation_events", "rankingContext"]
+      }
+    ]
+  }
+]

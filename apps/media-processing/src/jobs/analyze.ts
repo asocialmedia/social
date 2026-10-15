@@ -2,13 +2,15 @@
 // Runs asynchronously on published assets without blocking upload or serving.
 // Performs:
 // 1. Clef Flash safety and topic decisions
-// 2. Scene-text OCR (PP-OCRv4 ONNX model)
-// 3. Speech-to-Text Whisper transcription & WebVTT closed-caption generation
+// 2. Scene-text OCR (Google Cloud Vision API)
+// 3. Gemini speech transcription & WebVTT closed-caption generation
 // 4. Multi-label semantic topic/concept classification
 // 5. Post-level aggregation & 384-dimensional vector embedding for recommendations.
 //
 // All stages degrade independently with try/catch and timeout guards so a failure
 // in any one stage never cascades or impacts published post availability.
+
+import { createHash } from "node:crypto";
 
 import {
   and,
@@ -23,7 +25,9 @@ import type { MediaAnalyzeJobData } from "@asm/media";
 import {
   analysisStageComplete,
   classificationFingerprint,
+  mediaEmbeddingComplete,
   transcriptionComplete,
+  transcriptionRetryEligible,
 } from "../analyze/checkpoints";
 import { classifyMediaConcepts } from "../analyze/classify";
 import { prepareClefImage, ClefDeferredError } from "../analyze/clef";
@@ -33,6 +37,7 @@ import {
   embeddingModelId,
 } from "../analyze/embedding";
 import { extractImageText } from "../analyze/ocr";
+import { ProviderBudgetDeferredError } from "../analyze/provider-budget";
 import { SEMANTIC_CLASSIFICATION_VERSION } from "../analyze/semantic-version";
 import { transcribeMediaAudio } from "../analyze/transcribe";
 import { extractVideoSamples } from "../analyze/video-samples";
@@ -131,15 +136,22 @@ async function resolveAnalysisSource(
       classificationFingerprint(media.ocrText, media.transcript);
   const needsVisual =
     !classificationComplete ||
+    (media._type === "VIDEO" &&
+      workerEnv.OCR_ENABLED &&
+      (workerEnv.VIDEO_OCR_FRAMES ?? 1) > 1 &&
+      !media.ocrText &&
+      !analysisStageComplete(media.techMetadata, "ocr")) ||
     (workerEnv.MULTIMODAL_EMBEDDING_ENABLED &&
-      !analysisStageComplete(
+      !mediaEmbeddingComplete(
         media.techMetadata,
-        "mediaEmbedding",
-        embeddingModelId()
+        embeddingModelId(),
+        media.ocrText,
+        media.transcript
       ));
   const needsTranscription =
     !media.transcript &&
     !transcriptionComplete(media.techMetadata) &&
+    transcriptionRetryEligible(media.techMetadata) &&
     workerEnv.WHISPER_ENABLED;
 
   const preferredRaster =
@@ -177,7 +189,7 @@ async function resolveAnalysisSource(
 
   let avLocalPath: string | null = null;
   // Download AV bytes only when transcription can actually run: with
-  // Whisper disabled the multi-hundred-MB fetch would be pure waste.
+  // transcription disabled the multi-hundred-MB fetch would be pure waste.
   if (
     (media._type === "VIDEO" && needsVisual) ||
     ((media._type === "AUDIO" || media._type === "VIDEO") && needsTranscription)
@@ -246,43 +258,97 @@ export function processMediaAnalyze(
         if (avLocalPath && source.type === "VIDEO") {
           await extractVideoSamples(avLocalPath, samplePaths);
         }
-        // Stage 2: Scene-text OCR
-        let ocr = null;
+        // Stage 2: Scene-text OCR. Each paid frame is checkpointed separately.
+        let ocr: { text: string; modelVersion: string } | null = null;
+        let ocrError: unknown = null;
         const wantsOcr = source.type === "IMAGE" || source.type === "VIDEO";
+        const ocrPaths = [rasterLocalPath, ...samplePaths]
+          .filter((path): path is string => path !== null)
+          .slice(
+            0,
+            source.type === "VIDEO"
+              ? Math.min(4, workerEnv.VIDEO_OCR_FRAMES ?? 1)
+              : 1
+          );
         if (
           !source.ocrText &&
           !analysisStageComplete(source.techMetadata, "ocr") &&
           wantsOcr &&
-          source.isRaster &&
-          rasterLocalPath
+          ocrPaths.length
         ) {
           try {
-            ocr = await extractImageText(rasterLocalPath);
-            if (ocr) {
+            const results: { text: string; modelVersion: string }[] = [];
+            for (const path of ocrPaths) {
+              const fingerprint = createHash("sha256")
+                .update(await Bun.file(path).bytes())
+                .digest("hex")
+                .slice(0, 24);
+              const stage = `ocrFrame-${fingerprint}`;
+              const saved = asMediaJsonObject(
+                asMediaJsonObject(source.techMetadata)?.analysisStages
+              )?.[stage];
+              const cached = asMediaJsonObject(saved);
+              if (
+                cached?.status === "completed" &&
+                typeof cached.text === "string" &&
+                typeof cached.model === "string"
+              ) {
+                results.push({ modelVersion: cached.model, text: cached.text });
+                continue;
+              }
+              const result = await extractImageText(path);
+              if (result) {
+                await patchMediaAnalysisStage(jobData.mediaId, stage, {
+                  model: result.modelVersion,
+                  status: "completed",
+                  text: result.text,
+                  version: 1,
+                });
+                results.push(result);
+              }
+            }
+            if (results.length === ocrPaths.length) {
+              ocr = {
+                modelVersion: results[0]?.modelVersion ?? "vision",
+                text: [
+                  ...new Set(
+                    results.flatMap((result) => result.text.split("\n"))
+                  ),
+                ]
+                  .join("\n")
+                  .trim(),
+              };
               await prisma.orm.public.PostMedia.where({
                 id: jobData.mediaId,
               }).update({ ocrText: ocr.text || null });
-            }
-            if (ocr) {
               await patchMediaAnalysisStage(jobData.mediaId, "ocr", {
+                model: ocr.modelVersion,
                 status: "completed",
                 version: 1,
               });
             }
           } catch (error) {
-            mediaLogger.warn({ error: String(error) }, "OCR extraction failed");
+            ocrError = error;
+            mediaLogger.warn(
+              { error: String(error) },
+              "OCR extraction pending retry"
+            );
           }
         }
 
-        // Stage 3: Speech-to-text Whisper transcription & WebVTT generation
+        // Stage 3: Gemini speech transcription & WebVTT generation
         let transcription = null;
+        let transcriptionError: unknown = null;
+        let transcriptionAttempted = false;
         if (
           !source.transcript &&
           !transcriptionComplete(source.techMetadata) &&
+          transcriptionRetryEligible(source.techMetadata) &&
           workerEnv.WHISPER_ENABLED &&
           avLocalPath &&
           (source.type === "VIDEO" || source.type === "AUDIO")
         ) {
+          transcriptionAttempted = true;
           try {
             transcription = await transcribeMediaAudio(
               avLocalPath,
@@ -305,6 +371,7 @@ export function processMediaAnalyze(
               });
             }
           } catch (error) {
+            transcriptionError = error;
             mediaLogger.warn({ error: String(error) }, "transcription failed");
           }
         }
@@ -313,15 +380,17 @@ export function processMediaAnalyze(
         const transcriptForClassification =
           transcription?.transcript ?? source.transcript;
 
+        let embeddingError: unknown = null;
         const visualPaths = samplePaths.length
           ? samplePaths
           : [rasterLocalPath].filter((path): path is string => path !== null);
         if (
           workerEnv.MULTIMODAL_EMBEDDING_ENABLED &&
-          !analysisStageComplete(
+          !mediaEmbeddingComplete(
             source.techMetadata,
-            "mediaEmbedding",
-            embeddingModelId()
+            embeddingModelId(),
+            ocrTextForClassification,
+            transcriptForClassification
           )
         ) {
           const images = await Promise.all(
@@ -336,14 +405,23 @@ export function processMediaAnalyze(
                 .filter(Boolean)
                 .join("\n"),
               images
-            );
+            ).catch((error: unknown) => {
+              embeddingError = error;
+              return [];
+            });
             if (vector.length) {
               await patchMediaAnalysisStage(jobData.mediaId, "mediaEmbedding", {
+                fingerprint: classificationFingerprint(
+                  ocrTextForClassification,
+                  transcriptForClassification
+                ),
                 model: embeddingModelId(),
                 status: "completed",
                 vector,
                 version: 1,
               });
+            } else if (!embeddingError) {
+              embeddingError = new Error("Multimodal embedding pending");
             }
           }
         }
@@ -415,7 +493,8 @@ export function processMediaAnalyze(
           };
         } else if (
           isAudioVideo &&
-          !semanticRefresh &&
+          transcriptionAttempted &&
+          !(transcriptionError instanceof ProviderBudgetDeferredError) &&
           !source.transcript &&
           !transcriptionComplete(source.techMetadata)
         ) {
@@ -630,6 +709,15 @@ export function processMediaAnalyze(
               .where({ id: postId })
               .first();
             if (!post) {
+              if (ocrError) {
+                throw ocrError;
+              }
+              if (embeddingError) {
+                throw embeddingError;
+              }
+              if (transcriptionError instanceof ProviderBudgetDeferredError) {
+                throw transcriptionError;
+              }
               return { outcome: "analyzed" as const };
             }
 
@@ -701,6 +789,7 @@ export function processMediaAnalyze(
                 );
               }
             } catch (error) {
+              embeddingError = error;
               mediaLogger.warn(
                 { error: String(error) },
                 "embedding generation failed"
@@ -732,6 +821,9 @@ export function processMediaAnalyze(
               combinedText.trim() &&
               workerEnv.EMBEDDING_ENABLED
             ) {
+              if (embeddingError) {
+                throw embeddingError;
+              }
               throw new Error(
                 "Gemini embedding pending; published labels and media remain available"
               );
@@ -765,6 +857,16 @@ export function processMediaAnalyze(
           }
         }
 
+        // Retry OCR after saving independent labels/transcription/embeddings.
+        if (ocrError) {
+          throw ocrError;
+        }
+        if (embeddingError) {
+          throw embeddingError;
+        }
+        if (transcriptionError instanceof ProviderBudgetDeferredError) {
+          throw transcriptionError;
+        }
         return { outcome: "analyzed" as const };
       } finally {
         await Promise.all(

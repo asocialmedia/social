@@ -74,7 +74,12 @@ export async function postClassificationSweep(): Promise<{ enqueued: number }> {
             Date.now()
           );
         }
-        continue;
+        if (
+          !workerEnv.EMBEDDING_ENABLED ||
+          (post.embeddingModel === embeddingModelId() && post.embedding?.length)
+        ) {
+          continue;
+        }
       }
       await enqueuePostAnalyze(post.id, { backfill: true });
       enqueued += 1;

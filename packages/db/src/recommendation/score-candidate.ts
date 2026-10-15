@@ -192,9 +192,6 @@ export function scoreCandidateComponents(
       mediaFit += 0.1;
     }
   }
-  if (post.hasTranscript || post.hasOcr) {
-    mediaFit += 0.05; // Quality bonus for rich verified media
-  }
 
   // 7. Visited Soft Multiplier (instead of deleting/hiding visited posts)
   const visitedMultiplier = post.isVisited ? 0.35 : 1;

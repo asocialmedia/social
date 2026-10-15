@@ -100,3 +100,15 @@ describe("extractTextTopics", () => {
     expect(topics).toContain("rolex-submariner");
   });
 });
+
+test("preserves Unicode topics, hashtags, and composed forms", () => {
+  expect(
+    sanitizeTags(["#हिन्दी", "日本語", "العربية", "cafe\u0301", "CAFÉ"])
+  ).toEqual(["हिन्दी", "日本語", "العربية", "café"]);
+  expect(
+    extractTextTopics("#日本語 #हिन्दी العربية برمجة التكنولوجيا")
+  ).toContain("日本語");
+  expect(
+    extractTextTopics("#日本語 #हिन्दी العربية برمجة التكنولوجيا")
+  ).toContain("हिन्दी");
+});

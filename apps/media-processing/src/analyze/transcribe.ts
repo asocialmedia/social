@@ -11,6 +11,10 @@ import { workerEnv } from "../env";
 import { mediaLogger, withSpan } from "../log";
 import { getS3 } from "../s3";
 import { runFfmpeg } from "../transcode/ffmpeg";
+import {
+  reserveProviderRequest,
+  ProviderBudgetDeferredError,
+} from "./provider-budget";
 
 export interface CaptionSegment {
   end: number;
@@ -157,6 +161,9 @@ export async function extractAudioTrack(
     // Empty audio output is not submitted to the transcription provider.
     return size > 1000;
   } catch (error) {
+    if (error instanceof ProviderBudgetDeferredError) {
+      throw error;
+    }
     mediaLogger.warn({ error: String(error) }, "ffmpeg audio extract failed");
     return false;
   }
@@ -205,7 +212,7 @@ interface GeminiTranscriptionOutput {
 }
 
 // Transcribes audio via Gemini Multimodal API if GEMINI_API_KEY is present.
-async function transcribeViaGemini(
+export async function transcribeViaGemini(
   audioPath: string
 ): Promise<GeminiTranscriptionOutput> {
   const apiKey = workerEnv.GEMINI_API_KEY;
@@ -283,6 +290,7 @@ If there is no speech or only background music/silence, return: { "transcript": 
         await Bun.sleep(delay);
       }
 
+      await reserveProviderRequest("gemini");
       response = await fetch(url, {
         body: JSON.stringify({
           contents: [
@@ -406,6 +414,9 @@ If there is no speech or only background music/silence, return: { "transcript": 
 
     return { segments, status: "completed", transcript };
   } catch (error) {
+    if (error instanceof ProviderBudgetDeferredError) {
+      throw error;
+    }
     mediaLogger.warn(
       { error: String(error) },
       "Gemini audio transcription error"
@@ -565,6 +576,9 @@ export function transcribeMediaAudio(
           webvtt,
         };
       } catch (error) {
+        if (error instanceof ProviderBudgetDeferredError) {
+          throw error;
+        }
         mediaLogger.error(
           { error: String(error), mediaId },
           "transcription error"

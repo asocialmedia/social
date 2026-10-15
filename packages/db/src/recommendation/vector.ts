@@ -7,8 +7,8 @@ export const EMBEDDING_DIMENSION = 384;
 // Computes cosine similarity between two float vectors (-1.0 .. 1.0).
 // For unit vectors, this is simply the dot product.
 export function cosineSimilarity(
-  a: number[] | null | undefined,
-  b: number[] | null | undefined
+  a: readonly number[] | null | undefined,
+  b: readonly number[] | null | undefined
 ): number {
   if (!a || !b || a.length === 0 || b.length === 0 || a.length !== b.length) {
     return 0;

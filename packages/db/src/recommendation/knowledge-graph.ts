@@ -31,9 +31,10 @@ export interface ActivationOptions {
 
 function normalizeEntityId(label: string): string {
   return label
+    .normalize("NFKC")
     .toLowerCase()
     .trim()
-    .replaceAll(/[^a-z0-9]+/g, "-")
+    .replaceAll(/[^\p{L}\p{N}\p{M}_-]+/gu, "-")
     .replaceAll(/-+/g, "-")
     .replaceAll(/^-|-$/g, "");
 }

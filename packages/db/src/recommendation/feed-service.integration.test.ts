@@ -13,6 +13,7 @@ import {
   or,
   prisma,
   redis,
+  resolveRankingContext,
   toPrismaDateTime,
 } from "@asm/db";
 import { createLogger } from "@asm/logger";
@@ -426,6 +427,25 @@ describe("personalized feed against local Postgres and Redis", () => {
       const indexOf = (id: string) => ids.indexOf(id);
 
       expect(ids.length).toBe(20);
+      const [served] = page.posts;
+      expect(served?.recommendation?.requestId).toBeTruthy();
+      const context = await resolveRankingContext(
+        USER_IDS.viewer,
+        served?.id ?? "",
+        served?.recommendation?.requestId
+      );
+      expect(context).toMatchObject({
+        position: 0,
+        rankerVersion: "heuristic-v3",
+        variant: "control",
+      });
+      expect(
+        await resolveRankingContext(
+          USER_IDS.viewerB,
+          served?.id ?? "",
+          served?.recommendation?.requestId
+        )
+      ).toBeNull();
       expect(new Set(ids).size).toBe(ids.length);
       expect(ids).not.toContain(USER_IDS.viewer);
       expect(indexOf(collaborativePostId)).toBeGreaterThanOrEqual(0);

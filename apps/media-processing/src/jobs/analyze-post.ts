@@ -1,6 +1,12 @@
 import { createHash } from "node:crypto";
 
-import { and, prisma, redis, indexPostEmbedding } from "@asm/db";
+import {
+  and,
+  prisma,
+  redis,
+  indexPostEmbedding,
+  recordSharedTopicRelations,
+} from "@asm/db";
 
 import {
   clefSafetyVerdict,
@@ -9,11 +15,13 @@ import {
   evaluateClef,
 } from "../analyze/clef";
 import { generateTextEmbedding, embeddingModelId } from "../analyze/embedding";
+import { SEMANTIC_CLASSIFICATION_VERSION } from "../analyze/semantic-version";
 import { workerEnv } from "../env";
 
 export function postAnalysisFingerprint(content: string): string {
   return createHash("sha256")
     .update(CLEF_POLICY_VERSION)
+    .update(SEMANTIC_CLASSIFICATION_VERSION)
     .update(embeddingModelId())
     .update(content)
     .digest("hex");
@@ -57,7 +65,12 @@ export async function processPostAnalyze({
     }
     const fingerprint = postAnalysisFingerprint(post.content);
     const markerKey = `media:clef:post:${postId}`;
-    if ((await redis.get(markerKey)) === fingerprint) {
+    const complete = (await redis.get(markerKey)) === fingerprint;
+    if (
+      complete &&
+      (!workerEnv.EMBEDDING_ENABLED ||
+        (post.embeddingModel === embeddingModelId() && post.embedding?.length))
+    ) {
       if (
         post.embeddingModel === embeddingModelId() &&
         post.embedding?.length
@@ -75,11 +88,13 @@ export async function processPostAnalyze({
       await redis.set(markerKey, fingerprint, "EX", 30 * 24 * 60 * 60);
       return;
     }
-    const decision = post.content.trim()
-      ? await evaluateClef({ text: post.content })
-      : null;
+    const decision =
+      post.content.trim() && !complete
+        ? await evaluateClef({ text: post.content })
+        : null;
     const tags = [
       ...new Set([
+        ...(complete ? (post.semanticTags ?? []) : []),
         ...(decision?.tags ?? []),
         ...post.postToTags.flatMap((item) =>
           item.tag ? [item.tag.name.toLowerCase()] : []
@@ -94,7 +109,14 @@ export async function processPostAnalyze({
     ]
       .filter(Boolean)
       .join("\n");
-    const embedding = await generateTextEmbedding(text);
+    await recordSharedTopicRelations(tags, `post:${postId}`);
+    let embeddingError: unknown = null;
+    const embedding = await generateTextEmbedding(text).catch(
+      (error: unknown) => {
+        embeddingError = error;
+        return [];
+      }
+    );
     // A user edit during inference wins. A fresh queued job will evaluate it.
     const updated = await prisma.orm.public.Posts.where((item) =>
       and(item.id.eq(postId), item.content.eq(post.content))
@@ -120,6 +142,9 @@ export async function processPostAnalyze({
       );
     }
     if (updated > 0 && !embedding.length && workerEnv.EMBEDDING_ENABLED) {
+      if (embeddingError) {
+        throw embeddingError;
+      }
       throw new Error("Gemini embedding pending; classification saved");
     }
     if (updated > 0) {

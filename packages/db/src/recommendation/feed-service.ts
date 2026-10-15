@@ -16,6 +16,7 @@ import { rawQuery } from "../messages/infrastructure/raw-sql";
 import { readSqlBundle } from "../messages/infrastructure/sql-template";
 import prisma, { toPrismaDateTime, fromPrismaDateTime } from "../prisma";
 import { redis } from "../redis";
+import { attributeFeedPage, rankingAssignment } from "./attribution";
 import { buildUserProfile } from "./profile";
 import type { ProfileSignal, UserProfile } from "./profile";
 import { rankFeed } from "./rank-feed";
@@ -23,6 +24,7 @@ import type { ScoredCandidate } from "./rank-feed";
 import { scoreCandidate } from "./score-candidate";
 import type { CandidatePost } from "./score-candidate";
 import { retrieveSemanticCandidates } from "./semantic-index";
+import { loadSharedTopicGraph } from "./shared-topic-graph";
 
 const { retrieval } = readSqlBundle(sqlSource, {
   retrieval: ["topics", "collaborative"],
@@ -65,7 +67,7 @@ const POSITIVE_RECOMMENDATION_EVENTS = [
   "SHARE",
 ] as const;
 
-export const FYP_PROFILE_KEY_PREFIX = "fyp-profile:v2:";
+export const FYP_PROFILE_KEY_PREFIX = "fyp-profile:v3:";
 
 interface CachedProfile extends UserProfile {
   followedAuthorIds: string[];
@@ -663,7 +665,14 @@ export async function buildAndCacheProfile(
   }
 
   const profile: CachedProfile = {
-    ...buildUserProfile(signals),
+    ...buildUserProfile(signals, {
+      knowledgeGraph:
+        (await loadSharedTopicGraph(
+          signals.flatMap((signal) => signal.tags)
+        ).catch(() => {
+          /* empty */
+        })) ?? undefined,
+    }),
     followedAuthorIds,
   };
 
@@ -841,7 +850,7 @@ export async function getPersonalizedFeedPage(
         }
         return and(...predicates);
       });
-  const snapshotKey = `rec:fyp:v2:${userId}:${contentKind}:${timestamp}:${excludeModerated}:${Boolean(options.excludeExplicit)}:${includeVisited}`;
+  const snapshotKey = `rec:fyp:v3:${rankingAssignment(userId).variant}:${userId}:${contentKind}:${timestamp}:${excludeModerated}:${Boolean(options.excludeExplicit)}:${includeVisited}`;
   if (cursor) {
     const cached = await redis.get(snapshotKey).catch(() => null);
     if (cached) {
@@ -879,10 +888,27 @@ export async function getPersonalizedFeedPage(
               nextOffset < ids.length
                 ? `fyp.${contentKind}.${nextOffset}.${timestamp}`
                 : `exp.${snapshot.anchor}`,
-            posts: pageIds.flatMap((id) => {
-              const post = byId.get(id);
-              return post ? [post] : [];
-            }),
+            posts: await attributeFeedPage(
+              userId,
+              pageIds.flatMap((id) => {
+                const post = byId.get(id);
+                return post ? [post] : [];
+              }),
+              new Map(
+                "sources" in snapshot && Array.isArray(snapshot.sources)
+                  ? snapshot.sources.filter(
+                      (entry): entry is [string, string[]] =>
+                        Array.isArray(entry) &&
+                        typeof entry[0] === "string" &&
+                        Array.isArray(entry[1]) &&
+                        entry[1].every(
+                          (source: unknown) => typeof source === "string"
+                        )
+                    )
+                  : []
+              ),
+              offset
+            ),
           };
         }
       } catch (error) {
@@ -951,6 +977,22 @@ export async function getPersonalizedFeedPage(
             .all()
         : [],
     ]);
+  const candidateSources = new Map<string, string[]>();
+  for (const [source, candidates] of Object.entries({
+    collaborative,
+    exploration,
+    followed,
+    recent,
+    semantic,
+    topical,
+  })) {
+    for (const post of candidates) {
+      candidateSources.set(post.id, [
+        ...(candidateSources.get(post.id) ?? []),
+        source,
+      ]);
+    }
+  }
   const pool = [
     ...new Map(
       [
@@ -1039,7 +1081,11 @@ export async function getPersonalizedFeedPage(
   const ranked: CandidatePost[] = [];
   let remaining = scored;
   while (remaining.length) {
-    const page = rankFeed(remaining, { pageSize });
+    const page = rankFeed(remaining, {
+      maxSingleTopicShare:
+        rankingAssignment(userId).variant === "balanced" ? 0.45 : 0.6,
+      pageSize,
+    });
     if (!page.length) {
       break;
     }
@@ -1054,6 +1100,7 @@ export async function getPersonalizedFeedPage(
         JSON.stringify({
           anchor: recent.at(-1)?.id ?? "",
           ids: ranked.map((post) => post.id),
+          sources: [...candidateSources],
         }),
         "EX",
         1800
@@ -1115,6 +1162,11 @@ export async function getPersonalizedFeedPage(
   return {
     anchorCursor: recent.at(-1)?.id ?? null,
     nextCursor,
-    posts: orderedPosts,
+    posts: await attributeFeedPage(
+      userId,
+      orderedPosts,
+      candidateSources,
+      offset
+    ),
   };
 }

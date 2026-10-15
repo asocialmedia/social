@@ -54,3 +54,61 @@ export function classificationFingerprint(
     .update(JSON.stringify([ocr ?? "", transcript ?? ""]))
     .digest("hex");
 }
+
+export function mediaEmbeddingComplete(
+  metadata: unknown,
+  model: string,
+  ocr: string | null | undefined,
+  transcript: string | null | undefined
+): boolean {
+  if (
+    !analysisStageComplete(metadata, "mediaEmbedding", model) ||
+    !metadata ||
+    typeof metadata !== "object" ||
+    !("analysisStages" in metadata)
+  ) {
+    return false;
+  }
+  const stages = metadata.analysisStages;
+  if (!stages || typeof stages !== "object" || !("mediaEmbedding" in stages)) {
+    return false;
+  }
+  const cached = stages.mediaEmbedding;
+  return Boolean(
+    cached &&
+    typeof cached === "object" &&
+    "fingerprint" in cached &&
+    cached.fingerprint === classificationFingerprint(ocr, transcript)
+  );
+}
+
+export function transcriptionRetryEligible(
+  metadata: unknown,
+  now = Date.now()
+): boolean {
+  if (
+    !metadata ||
+    typeof metadata !== "object" ||
+    !("transcription" in metadata)
+  ) {
+    return true;
+  }
+  const stage = metadata.transcription;
+  if (!stage || typeof stage !== "object") {
+    return true;
+  }
+  if (
+    "attempts" in stage &&
+    typeof stage.attempts === "number" &&
+    stage.attempts >= 3
+  ) {
+    return false;
+  }
+  const attemptedAt =
+    "attemptedAt" in stage && typeof stage.attemptedAt === "string"
+      ? Date.parse(stage.attemptedAt)
+      : Number.NaN;
+  return (
+    !Number.isFinite(attemptedAt) || now - attemptedAt >= 6 * 60 * 60 * 1000
+  );
+}
