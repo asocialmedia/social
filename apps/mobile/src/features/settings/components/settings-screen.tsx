@@ -4,7 +4,7 @@
 // mobile search row, then the active tab's scroll content and the bottom dock.
 //
 // The tab strip is the same `FeedTabs` every other tabbed page uses (so its
-// height matches), and the three tabs live inside a `FeedPager`, so a tab
+// height matches), and the five tabs live inside a retained pager, so a tab
 // change or a horizontal swipe swaps only the content. The route param is kept
 // in sync with `router.setParams`, which updates in place and never remounts
 // the screen, so switching tabs no longer refreshes the header, search or data.
@@ -15,7 +15,6 @@ import type { ScrollView as ScrollViewType } from "react-native";
 
 import { authClient } from "@/features/auth/lib/auth-client";
 import { useSessionContext } from "@/features/auth/state/session";
-import { FeedPager } from "@/features/feed/components/feed-pager";
 import { FeedTabs } from "@/features/feed/components/feed-tabs";
 import { MobileBottomNav } from "@/features/home/components/mobile-bottom-nav";
 import { MobileHeader } from "@/features/home/components/mobile-header";
@@ -37,6 +36,7 @@ import { PersonalizationTab } from "./personalization-tab";
 import { PrivacyTab } from "./privacy-tab";
 import { ProfileTab } from "./profile-tab";
 import { SecurityTab } from "./security-tab";
+import { SettingsPager } from "./settings-pager";
 import { SettingsSearch } from "./settings-search";
 import {
   SettingsCardSkeleton,
@@ -191,12 +191,9 @@ export function SettingsScreen() {
         </View>
       </View>
 
-      <FeedPager
+      <SettingsPager
         activeIndex={activeIndex}
         onIndexChange={handleIndexChange}
-        preloadAll
-        publishOnSettle
-        rasterizePages
       >
         <MemoProfileTab
           onChanged={onChanged}
@@ -231,7 +228,7 @@ export function SettingsScreen() {
           </ScrollView>
         )}
         <MemoPersonalizationTab scrollRef={scrollRefs.personalization} />
-      </FeedPager>
+      </SettingsPager>
 
       <MobileBottomNav />
     </View>
