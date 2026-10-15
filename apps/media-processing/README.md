@@ -1,6 +1,6 @@
 # Media processing and delivery
 
-The worker scans uploads before publication, creates delivery derivatives, and analyzes content asynchronously. Deploy it alongside the web application; native clients use the same authenticated media routes. These changes do not require a database migration.
+The worker scans uploads before publication, creates delivery derivatives, and analyzes content asynchronously. Deploy it alongside the web application; native clients use the same authenticated media routes. Recommendation provenance requires the additive `20261015T0901_media_embedding_provenance` migration before deploying this revision.
 
 ## Delivery
 
@@ -47,3 +47,44 @@ From the repository root, run `bun run check`, `bun run check-types`, and `bun r
 Local checks cannot establish a 99.9999% production availability SLO. Deployment, capacity/load testing, a representative moderation evaluation set, and sustained production metrics are still required.
 
 References: [Clef Flash API](https://developers.cloudflare.com/workers-ai/models/clef-flash/), [Workers AI pricing](https://developers.cloudflare.com/workers-ai/platform/pricing/), [token setup](https://developers.cloudflare.com/workers-ai/get-started/rest-api/), [Sharp encoders](https://sharp.pixelplumbing.com/api-output/), and [C2PA specification](https://spec.c2pa.org/specifications/specifications/2.4/specs/C2PA_Specification.html).
+
+## Recoverable enrichment and recommendation retrieval
+
+OCR text, transcripts, caption keys, and terminal silent/no-audio results are saved before classification. Classification also survives later embedding failures. Atomic JSON patches preserve encoder metadata. Published media remains available while quota or provider failures delay enrichment; scanner failures still fail closed before publication. The failed-job CLI below replays a specific job without changing the publication policy.
+
+Gemini vectors carry `embeddingModel` and `embeddingFingerprint`. Unknown historical vectors and vectors from other models never contribute to semantic similarity. Failed Gemini requests leave embeddings pending; topic, freshness, and social signals remain available. Existing content is revisited by the bounded sweeps. Video classification samples four positions across each clip rather than only its poster.
+
+The feed merges bounded pools from recent content, followed creators, semantic buckets, archive topic matches, collaborative activity, and exploration. Every source passes the same database checks for community visibility, blocks, explicit-content preferences, visits, and dismissals. Ranked IDs are cached for pagination, and eligibility is checked again when reading each page. The semantic buckets are approximate and bounded; their quality must be evaluated on the actual corpus.
+
+Web and native Gust playback share foreground/visibility and advancing-playback rules. Buffering, paused playback, seeks, errors, and background time cannot earn completion. Playback failures and buffering are operational events rather than negative interests. Recent session topics supplement longer-term interests; author, topic, and duplicate-media diversity are applied during ranking.
+
+### Deployment
+
+1. Review the additive provenance migration with `bun run --cwd packages/db --env-file=../../.env.test prisma db migrate --show` against the intended environment, then apply the reviewed migration through the normal deployment migration command. Do not schema-push production.
+2. Deploy the web application and media worker together, then ship the updated native build for the new playback telemetry.
+3. Keep the existing Cloudflare/Gemini credentials, scanner configuration, and backfill switches. `MEDIA_MULTIMODAL_EMBEDDING_ENABLED=1` optionally adds image/frame embeddings; it defaults off so evaluation can precede the added inference cost. It introduces no new secret.
+
+Backfill requests share FIFO analysis service and may consume at most 25% of the configured daily Clef allowance, reserving the remainder for fresh uploads. This quota partition is not a worker-throughput guarantee. Jobs delayed by Clef quota do not consume ordinary retry attempts. Non-quota failures use bounded BullMQ retries and remain inspectable afterward.
+
+### Operations
+
+The worker's internal `/metrics` endpoint reports queue counts, a bounded sample's oldest pending age, p50/p95/p99 stage and upload latencies, labeling coverage, daily Clef reservations/usage, origin delivery payload bytes, and 24-hour playback startup/buffering/error aggregates. The pending age is a lower bound when more jobs exist than the sample. Delivery bytes describe payload offered by origin responses, excluding CDN hits and without measuring bytes actually received after cancellation. Use CDN analytics for end-user data usage.
+
+```sh
+bun --env-file=.env apps/media-processing/scripts/queue-ops.ts inspect analyze
+bun --env-file=.env apps/media-processing/scripts/queue-ops.ts inspect scan
+bun --env-file=.env apps/media-processing/scripts/queue-ops.ts retry analyze <failed-job-id>
+```
+
+Keep health/metrics endpoints on the internal service network. Inspection includes failure reasons and attempt counts; replay requires an explicit existing failed job ID.
+
+### Model evaluation
+
+```sh
+bun apps/media-processing/scripts/evaluate-models.ts apps/media-processing/scripts/evaluation.example.json
+bun --env-file=.env apps/media-processing/scripts/evaluate-models.ts manifest.json /tmp/model-report.json --live
+```
+
+The first command only validates the manifest. `--live` uses the configured inference providers and the shared Clef quota. Each manifest item has an ID, category, expected sexual-explicit label, kind (`text`, `image`, `audio`, or `video`), optional local path, and reference text/transcript. Queries contain text and relevant item IDs. Use consented local assets and manually reviewed labels across anime, adult content, ordinary skin exposure, and graphic violence. Graphic violence is evaluated separately from sexual explicitness; neither result changes moderation.
+
+The runner compares Flash with sampled frames/transcripts against Omni with direct audio/video (bounded to a 20-second test clip), and text-only Gemini retrieval against multimodal retrieval. It emits false-positive/false-negative rates by category, per-call latency and charged neurons, plus precision/recall/NDCG for labeled queries. Cached calls consume zero new neurons. The shipped synthetic text fixture validates plumbing; it cannot establish model accuracy or justify switching production models. Longer clips require an evaluation dataset that covers their full duration. Gemini text inference remains the default until representative evaluation supports enabling multimodal embeddings.
