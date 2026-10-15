@@ -28,6 +28,27 @@ function FilledSparkles(props: LucideProps) {
   return <Sparkles {...props} fill={props.color ?? "currentColor"} />;
 }
 
+function GustFeedIndicator({ x, width }: { x: number; width: number }) {
+  // Mount with measured coordinates so the initial animated style is already valid.
+  const indicatorX = useSharedValue(x);
+  const indicatorWidth = useSharedValue(width);
+  useEffect(() => {
+    indicatorX.set(withTiming(x, { duration: 220 }));
+    indicatorWidth.set(withTiming(width, { duration: 220 }));
+  }, [indicatorWidth, indicatorX, width, x]);
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: indicatorX.get() }],
+    width: indicatorWidth.get(),
+  }));
+  return (
+    <Animated.View
+      pointerEvents="none"
+      style={[styles.underline, animatedStyle]}
+      testID="gust-feed-indicator"
+    />
+  );
+}
+
 export function GustFeedControls({
   active,
   avatars,
@@ -57,10 +78,6 @@ export function GustFeedControls({
   const [labelLayouts, setLabelLayouts] = useState<
     Partial<Record<"discovery" | "following", { x: number; width: number }>>
   >({});
-  const firstPlacement = useRef(true);
-  const indicatorX = useSharedValue(0);
-  const indicatorWidth = useSharedValue(24);
-  const indicatorReady = useSharedValue(0);
   const following = active === "following";
   const target = layouts[following ? "following" : "discovery"];
   const labelLayout = labelLayouts[following ? "following" : "discovery"];
@@ -72,33 +89,6 @@ export function GustFeedControls({
     measuredLabel ?? { width: 0, x: 0 },
     following
   );
-  const hasMeasuredLabel = measuredLabel !== null;
-  useEffect(() => {
-    if (!hasMeasuredLabel) {
-      return;
-    }
-    if (firstPlacement.current) {
-      firstPlacement.current = false;
-      indicatorX.set(targetX);
-      indicatorWidth.set(barWidth);
-      indicatorReady.set(1);
-    } else {
-      indicatorX.set(withTiming(targetX, { duration: 220 }));
-      indicatorWidth.set(withTiming(barWidth, { duration: 220 }));
-    }
-  }, [
-    barWidth,
-    indicatorReady,
-    indicatorWidth,
-    indicatorX,
-    hasMeasuredLabel,
-    targetX,
-  ]);
-  const indicatorStyle = useAnimatedStyle(() => ({
-    opacity: indicatorReady.get(),
-    transform: [{ translateX: indicatorX.get() }],
-    width: indicatorWidth.get(),
-  }));
   return (
     <View style={styles.row} testID="gust-feed-controls">
       <Pressable
@@ -226,12 +216,8 @@ export function GustFeedControls({
           </View>
         ) : null}
       </Pressable>
-      {target ? (
-        <Animated.View
-          pointerEvents="none"
-          style={[styles.underline, indicatorStyle]}
-          testID="gust-feed-indicator"
-        />
+      {measuredLabel ? (
+        <GustFeedIndicator width={barWidth} x={targetX} />
       ) : null}
     </View>
   );
