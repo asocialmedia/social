@@ -738,7 +738,7 @@ export const ClientGusts: React.FC<ClientGustsProps> = () => {
         </div>
 
         {isCommentsOpen && posts[activeIndex] ? (
-          <div className="hidden h-full max-h-[calc(100dvh-5rem)] w-[420px] shrink-0 md:block">
+          <div className="hidden h-full max-h-[calc(100dvh-5rem)] w-105 shrink-0 md:block">
             <div className="reels-panel flex h-full w-full flex-col overflow-hidden rounded-3xl">
               <GustsCommentsDrawer
                 onClose={() => setIsCommentsOpen(false)}
