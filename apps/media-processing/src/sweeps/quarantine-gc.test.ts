@@ -7,11 +7,16 @@ import type { MediaLimits } from "@asm/media";
 // registry per process across test files, so env evaluated for a sibling
 // file would freeze the value here too.
 let retentionDays = 30;
+let preserveOriginals = false;
 
 mock.module("../env", () => ({
   resolveWorkerMediaLimits: () =>
     ({ originalRetentionDays: retentionDays }) as unknown as MediaLimits,
-  workerEnv: {},
+  workerEnv: {
+    get PRESERVE_ORIGINALS() {
+      return preserveOriginals;
+    },
+  },
 }));
 
 type QueryFilter =
@@ -200,12 +205,24 @@ const { quarantineGcSweep } = await import("./index");
 describe("quarantine retention sweep", () => {
   beforeEach(() => {
     retentionDays = 30;
+    preserveOriginals = false;
     prismaDisabled = false;
     findManyArgs.length = 0;
     deletedKeys.length = 0;
     updatedIds.length = 0;
     sweepRows = [];
     failDeleteForKey = null;
+  });
+
+  test("preserved originals never enter retention cleanup", async () => {
+    preserveOriginals = true;
+    prismaDisabled = true;
+    expect(await quarantineGcSweep()).toEqual({
+      deletedObjects: 0,
+      reclaimedBytes: 0,
+    });
+    expect(deletedKeys).toEqual([]);
+    expect(findManyArgs).toEqual([]);
   });
 
   test("queries only true quarantine originals of published pipeline rows past the window", async () => {

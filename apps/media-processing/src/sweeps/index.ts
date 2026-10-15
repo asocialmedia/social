@@ -101,7 +101,7 @@ export async function legacyGcSweep(): Promise<{ deletedObjects: number }> {
   // any object is deleted, and the retention window must be positive. This
   // keeps a fresh production deployment read-only until the migration has
   // been verified and retention is chosen deliberately.
-  if (!workerEnv.LEGACY_GC_ENABLED) {
+  if (workerEnv.PRESERVE_ORIGINALS || !workerEnv.LEGACY_GC_ENABLED) {
     return { deletedObjects: 0 };
   }
   const limits = resolveWorkerMediaLimits();
@@ -169,6 +169,9 @@ export async function quarantineGcSweep(): Promise<{
   deletedObjects: number;
   reclaimedBytes: number;
 }> {
+  if (workerEnv.PRESERVE_ORIGINALS) {
+    return { deletedObjects: 0, reclaimedBytes: 0 };
+  }
   const limits = resolveWorkerMediaLimits();
   if (limits.originalRetentionDays <= 0) {
     return { deletedObjects: 0, reclaimedBytes: 0 };
@@ -907,9 +910,11 @@ export async function transcriptionBackfillSweep(): Promise<{
 }
 
 // Semantic classification backfill: re-runs only the recommendation metadata
-// stage for READY media produced by an older classifier. The analyze job keeps
-// existing OCR/transcripts and skips safety/transcription during this refresh.
+// stage for READY media produced by an older classifier. Clef re-evaluates
+// safety and topics while preserving existing OCR and transcripts.
 // The version marker makes this bounded and safe to run on every deployment.
+let semanticClassificationCursor: string | undefined;
+
 export async function semanticClassificationBackfillSweep(): Promise<{
   enqueued: number;
 }> {
@@ -922,10 +927,18 @@ export async function semanticClassificationBackfillSweep(): Promise<{
     "techMetadata"
   )
     .where((media) =>
-      and(media.status.eq("READY"), media._type.in(["AUDIO", "IMAGE", "VIDEO"]))
+      and(
+        media.status.eq("READY"),
+        media._type.in(["AUDIO", "IMAGE", "VIDEO"]),
+        ...(semanticClassificationCursor
+          ? [media.id.gt(semanticClassificationCursor)]
+          : [])
+      )
     )
-    .orderBy((media) => media.createdAt.asc())
+    .orderBy((media) => media.id.asc())
+    .limit(SWEEP_BATCH)
     .all();
+  semanticClassificationCursor = candidateRows.at(-1)?.id;
   const candidates = candidateRows
     .filter((candidate) => {
       const metadata =
@@ -982,6 +995,8 @@ export async function registerSweepSchedulers(connectionOptions: {
   const queue = new Queue("media-sweeps", { connection: connectionOptions });
   const daily = 24 * 60 * 60 * 1000;
   const thirtyMinutes = 30 * 60 * 1000;
+  await queue.upsertJobScheduler("media-delivery-upgrade", { every: 60_000 });
+  await queue.upsertJobScheduler("post-clef-backfill", { every: 60_000 });
   await queue.upsertJobScheduler("media-legacy-migration", { every: daily });
   await queue.upsertJobScheduler("media-legacy-gc", { every: daily });
   await queue.upsertJobScheduler("media-quarantine-gc", { every: daily });
@@ -999,6 +1014,15 @@ export async function registerSweepSchedulers(connectionOptions: {
     "media-sweeps",
     async (job) => {
       switch (job.name) {
+        case "post-clef-backfill": {
+          const { postClassificationSweep } =
+            await import("./post-classification");
+          return await postClassificationSweep();
+        }
+        case "media-delivery-upgrade": {
+          const { deliveryUpgradeSweep } = await import("./delivery-upgrade");
+          return await deliveryUpgradeSweep();
+        }
         case "media-legacy-migration":
         case "media-backfill-sweep": {
           return await legacyMigrationSweep();

@@ -49,6 +49,7 @@ export const asmDbMockBase = {
   enqueueMediaAnalyze: () => Promise.resolve(),
   enqueueNotificationCreated: () => Promise.resolve(),
   enqueueNotificationDeleted: () => Promise.resolve(),
+  enqueuePostAnalyze: () => Promise.resolve(),
   enqueuePostDeleted: () => Promise.resolve(),
   enqueueShitposterCheck: () => Promise.resolve(),
   fromPrismaDateTime: (value: Date): Date => value,
