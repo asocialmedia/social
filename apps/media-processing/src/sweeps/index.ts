@@ -1,3 +1,12 @@
+import {
+  and,
+  enqueueMediaAnalyze,
+  enqueueMediaProcess,
+  enqueueMediaScan,
+  or,
+  prisma,
+  toPrismaDateTime,
+} from "@asm/db";
 // Backfill watchdog: converts pre-pipeline media (legacy rows with a storage
 // key but no lifecycle) into the controlled pipeline, and garbage-collects
 // legacy raw objects once derivatives fully supersede them.
@@ -10,19 +19,10 @@
 // Safety: live posts keep serving the legacy object until the scan publishes
 // derivatives; the row flips atomically at READY. Nothing is deleted unless a
 // derivative supersedes it and the retention window has passed.
-
-import {
-  and,
-  enqueueMediaAnalyze,
-  enqueueMediaProcess,
-  enqueueMediaScan,
-  or,
-  prisma,
-  toPrismaDateTime,
-} from "@asm/db";
 import { MEDIA_PIPELINE_VERSION } from "@asm/media";
 import { Worker } from "bullmq";
 
+import { transcriptionComplete } from "../analyze/checkpoints";
 import { SEMANTIC_CLASSIFICATION_VERSION } from "../analyze/semantic-version";
 import { resolveWorkerMediaLimits, workerEnv } from "../env";
 import { mediaLogger } from "../log";
@@ -853,6 +853,9 @@ export async function transcriptionBackfillSweep(): Promise<{
   let enqueued = 0;
   const now = Date.now();
   for (const candidate of candidates) {
+    if (transcriptionComplete(candidate.techMetadata)) {
+      continue;
+    }
     const tech =
       candidate.techMetadata && typeof candidate.techMetadata === "object"
         ? (candidate.techMetadata as Record<string, unknown>)

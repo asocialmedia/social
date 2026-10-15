@@ -21,6 +21,7 @@ import sharp from "sharp";
 
 import { resolveWorkerMediaLimits, workerEnv } from "../env";
 import { mediaLogger, withSpan } from "../log";
+import { recordMediaMetric } from "../metrics";
 import { inspectAssetProvenance } from "../provenance/reader";
 import { stampAiGenerated } from "../provenance/stamp";
 import { getS3 } from "../s3";
@@ -689,6 +690,10 @@ export function processMediaScan(
         });
 
         if (secondFlip > 0) {
+          void recordMediaMetric(
+            "upload.playable",
+            Date.now() - new Date(String(media.createdAt)).getTime()
+          );
           // Dual-write legacy columns so today's serving route renders this
           // media immediately; variant serving supersedes in phase 2 without
           // touching this contract.

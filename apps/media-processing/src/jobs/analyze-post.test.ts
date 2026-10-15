@@ -15,6 +15,7 @@ const updates: Record<string, unknown>[] = [];
 const markers = new Map<string, string>();
 mock.module("../env", () => ({ workerEnv: { CLASSIFY_ENABLED: true } }));
 mock.module("../analyze/embedding", () => ({
+  embeddingModelId: () => "google:gemini-embedding-2:384:v2",
   generateTextEmbedding: () => [0.5, 0.5],
 }));
 mock.module("../analyze/clef", () => ({
@@ -35,6 +36,7 @@ const builder = {
 mock.module("@asm/db", () => ({
   and: (...args: unknown[]) => args,
   generateLocalEmbedding: () => [1, 0],
+  indexPostEmbedding: () => Promise.resolve(),
   prisma: {
     orm: {
       public: {
@@ -72,6 +74,8 @@ describe("Clef post enrichment policy", () => {
     expect(updates).toHaveLength(1);
     expect(updates[0]).toEqual({
       embedding: [0.5, 0.5],
+      embeddingFingerprint: expect.any(String),
+      embeddingModel: "google:gemini-embedding-2:384:v2",
       explicitContent: true,
       semanticTags: ["anime"],
     });

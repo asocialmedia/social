@@ -55,7 +55,7 @@ export async function closeQueueConnections(): Promise<void> {
   await Promise.all(queues.map((queue) => queue.close()));
 }
 
-function getQueue(name: string): Queue {
+export function getQueue(name: string): Queue {
   let queue = queueInstances.get(name);
   if (!queue) {
     queue = new Queue(name, { connection: bullConnection() });
@@ -608,7 +608,7 @@ export async function enqueueMediaAnalyze(
     { mediaId, semanticRefresh: options?.semanticRefresh ?? false },
     {
       ...mediaJobOptions("analyze", jobKey),
-      ...(options?.semanticRefresh ? { priority: 10 } : {}),
+      priority: 1,
     }
   );
 }
@@ -621,10 +621,10 @@ export async function enqueuePostAnalyze(
     getQueue(MEDIA_ANALYZE_QUEUE),
     "post-analyze",
     `post-analyze-${postId}`,
-    { postId },
+    { backfill: options?.backfill ?? false, postId },
     {
       ...mediaJobOptions("analyze", postId),
-      ...(options?.backfill ? { priority: 10 } : {}),
+      priority: 1,
     }
   );
 }

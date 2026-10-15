@@ -131,6 +131,18 @@ describe("transcriptionBackfillSweep loop prevention", () => {
     expect(enqueuedIds).toHaveLength(0);
   });
 
+  test("does not repeat checkpointed silence while classification is delayed", async () => {
+    candidateRows = [
+      {
+        id: "checkpointed",
+        techMetadata: {
+          analysisStages: { transcription: { status: "silent", version: 1 } },
+        },
+      },
+    ];
+    expect(await transcriptionBackfillSweep()).toEqual({ enqueued: 0 });
+  });
+
   test("skips failed media when attempts have reached MAX_TRANSCRIPTION_BACKFILL_ATTEMPTS", async () => {
     candidateRows = [
       {
@@ -208,7 +220,7 @@ describe("transcriptionBackfillSweep loop prevention", () => {
       { id: "legacy-image", techMetadata: null },
       {
         id: "current-image",
-        techMetadata: { semanticClassificationVersion: "clef-flash-v1" },
+        techMetadata: { semanticClassificationVersion: "clef-flash-v2" },
       },
     ];
 

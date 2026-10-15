@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-import { and, generateLocalEmbedding, prisma, redis } from "@asm/db";
+import { and, prisma, redis, indexPostEmbedding } from "@asm/db";
 
 import {
   clefSafetyVerdict,
@@ -8,12 +8,13 @@ import {
   ClefDeferredError,
   evaluateClef,
 } from "../analyze/clef";
-import { generateTextEmbedding } from "../analyze/embedding";
+import { generateTextEmbedding, embeddingModelId } from "../analyze/embedding";
 import { workerEnv } from "../env";
 
 export function postAnalysisFingerprint(content: string): string {
   return createHash("sha256")
     .update(CLEF_POLICY_VERSION)
+    .update(embeddingModelId())
     .update(content)
     .digest("hex");
 }
@@ -37,6 +38,8 @@ export async function processPostAnalyze({
   try {
     const post = await prisma.orm.public.Posts.select(
       "id",
+      "embeddingModel",
+      "embedding",
       "content",
       "moderated",
       "semanticTags"
@@ -55,16 +58,29 @@ export async function processPostAnalyze({
     const fingerprint = postAnalysisFingerprint(post.content);
     const markerKey = `media:clef:post:${postId}`;
     if ((await redis.get(markerKey)) === fingerprint) {
+      if (
+        post.embeddingModel === embeddingModelId() &&
+        post.embedding?.length
+      ) {
+        await indexPostEmbedding(
+          postId,
+          embeddingModelId(),
+          [...post.embedding],
+          Date.now()
+        );
+      }
       return;
     }
-    if (!post.content.trim()) {
+    if (!post.content.trim() && !post.postMedias.length) {
       await redis.set(markerKey, fingerprint, "EX", 30 * 24 * 60 * 60);
       return;
     }
-    const decision = await evaluateClef({ text: post.content });
+    const decision = post.content.trim()
+      ? await evaluateClef({ text: post.content })
+      : null;
     const tags = [
       ...new Set([
-        ...decision.tags,
+        ...(decision?.tags ?? []),
         ...post.postToTags.flatMap((item) =>
           item.tag ? [item.tag.name.toLowerCase()] : []
         ),
@@ -83,14 +99,29 @@ export async function processPostAnalyze({
     const updated = await prisma.orm.public.Posts.where((item) =>
       and(item.id.eq(postId), item.content.eq(post.content))
     ).updateAndCount({
-      ...(clefSafetyVerdict(decision).explicit
+      ...(decision && clefSafetyVerdict(decision).explicit
         ? { explicitContent: true }
         : {}),
       ...(embedding.length
-        ? { embedding }
-        : { embedding: generateLocalEmbedding(text) }),
+        ? {
+            embedding,
+            embeddingFingerprint: fingerprint,
+            embeddingModel: embeddingModelId(),
+          }
+        : {}),
       semanticTags: tags,
     });
+    if (updated > 0 && embedding.length) {
+      await indexPostEmbedding(
+        postId,
+        embeddingModelId(),
+        embedding,
+        Date.now()
+      );
+    }
+    if (updated > 0 && !embedding.length && workerEnv.EMBEDDING_ENABLED) {
+      throw new Error("Gemini embedding pending; classification saved");
+    }
     if (updated > 0) {
       await redis.set(markerKey, fingerprint, "EX", 30 * 24 * 60 * 60);
     }

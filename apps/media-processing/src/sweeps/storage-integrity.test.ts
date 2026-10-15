@@ -292,6 +292,7 @@ mock.module("@asm/db", () => ({
       },
     },
   },
+  redis: {},
   toPrismaDateTime: (value: Date) => value,
 }));
 

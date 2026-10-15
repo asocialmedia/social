@@ -313,6 +313,7 @@ export interface MediaClassificationResult {
 // Combines multimodal vision analysis, OCR text, and speech transcripts into rich topic tags.
 export function classifyMediaConcepts(input: {
   imagePath?: string | null;
+  imagePaths?: readonly string[];
   mediaId: string;
   ocrText?: string | null;
   transcript?: string | null;
@@ -331,6 +332,7 @@ export function classifyMediaConcepts(input: {
         .join(" ");
       const decision = await evaluateClef({
         imagePath: input.imagePath,
+        imagePaths: input.imagePaths,
         text: textToAnalyze,
       });
       for (const tag of decision.tags) {

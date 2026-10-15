@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash } from "node:crypto";
 
 import { redis } from "@asm/db";
@@ -6,6 +7,7 @@ import sharp from "sharp";
 import { z } from "zod";
 
 import { workerEnv } from "../env";
+import { mediaLogger } from "../log";
 
 export const CLEF_POLICY_VERSION = "clef-flash-v1";
 const CONTEXT_TOKENS = 24_576;
@@ -14,16 +16,22 @@ const RESERVATION = Math.ceil(CONTEXT_TOKENS * NEURONS_PER_TOKEN);
 const CACHE_SECONDS = 30 * 24 * 60 * 60;
 const probability = z.number().finite().min(0).max(1);
 const answer = z.object({ noul: probability, type: z.literal("noul") });
+const analysisLane = new AsyncLocalStorage<boolean>();
+export const withAnalysisLane = <T>(
+  background: boolean,
+  run: () => Promise<T>
+): Promise<T> => analysisLane.run(background, run);
+
 const resultSchema = z.object({
   answers: z.record(z.string(), answer),
-  model: z.literal("clef-flash"),
+  model: z.enum(["clef-flash", "clef-omni"]),
   usage: z.object({
-    input_tokens: z.number().int().nonnegative().max(CONTEXT_TOKENS),
+    input_tokens: z.number().int().nonnegative().max(65_536),
   }),
 });
 const decisionSchema = z.object({
   evaluatedAt: z.string(),
-  policyVersion: z.literal(CLEF_POLICY_VERSION),
+  policyVersion: z.string(),
   probabilities: z.record(z.string(), probability),
   tags: z.array(z.string()),
 });
@@ -83,6 +91,9 @@ const RESERVE_SCRIPT = `
 local used = tonumber(redis.call('get', KEYS[1]) or '0')
 local amount = tonumber(ARGV[1])
 if used + amount > tonumber(ARGV[2]) then return 0 end
+local background = tonumber(ARGV[4] or '0')
+if background == 1 and tonumber(redis.call('get', KEYS[2]) or '0') + amount > tonumber(ARGV[2]) * 0.25 then return 0 end
+if background == 1 then redis.call('incrbyfloat', KEYS[2], amount); redis.call('expire', KEYS[2], ARGV[3]) end
 redis.call('incrbyfloat', KEYS[1], amount)
 redis.call('expire', KEYS[1], ARGV[3])
 return 1
@@ -131,7 +142,8 @@ export function parseClefResult(value: unknown): ClefDecision {
   }
   return {
     evaluatedAt: new Date().toISOString(),
-    policyVersion: CLEF_POLICY_VERSION,
+    policyVersion:
+      response.model === "clef-omni" ? "clef-omni-v1" : CLEF_POLICY_VERSION,
     probabilities,
     tags: Object.keys(LABELS).filter(
       (id) => (probabilities[`topic_${id}`] ?? 0) >= 0.7
@@ -154,6 +166,11 @@ export async function prepareClefImage(imagePath: string): Promise<Buffer> {
 export async function evaluateClef(input: {
   imagePath?: string | null;
   text?: string | null;
+  imagePaths?: readonly string[];
+  model?: "clef-flash" | "clef-omni";
+  onUsage?: (usage: { inputTokens: number; neurons: number }) => void;
+  audio?: { mimeType: "audio/mpeg" | "audio/wav"; data: Buffer };
+  video?: { mimeType: "video/mp4" | "video/webm"; data: Buffer };
 }): Promise<ClefDecision> {
   const accountId = workerEnv.CLOUDFLARE_ACCOUNT_ID;
   const apiToken = workerEnv.CLOUDFLARE_API_TOKEN;
@@ -163,14 +180,29 @@ export async function evaluateClef(input: {
       Date.now() + 5 * 60_000
     );
   }
-  const image = input.imagePath
-    ? await prepareClefImage(input.imagePath)
-    : null;
+  const model = input.model ?? "clef-flash";
+  if ((input.audio || input.video) && model !== "clef-omni") {
+    throw new Error("Direct AV input requires Clef-omni");
+  }
+  const paths = [
+    ...new Set([
+      ...(input.imagePath ? [input.imagePath] : []),
+      ...(input.imagePaths ?? []),
+    ]),
+  ].slice(0, 4);
+  const images = await Promise.all(paths.map(prepareClefImage));
+  const image = images[0] ?? null;
+  const rate = model === "clef-omni" ? 13_637 / 1_000_000 : NEURONS_PER_TOKEN;
+  const reservation =
+    model === "clef-omni" ? Math.ceil(65_536 * rate) : RESERVATION;
   const state = (input.text ?? "").slice(0, 8000);
   const digest = createHash("sha256")
     .update(CLEF_POLICY_VERSION)
+    .update(model)
     .update(state)
-    .update(image ?? "")
+    .update(Buffer.concat(images))
+    .update(input.audio?.data ?? "")
+    .update(input.video?.data ?? "")
     .digest("hex");
   const prefix = `media:clef:${accountId}`;
   const cacheKey = `${prefix}:result:${digest}`;
@@ -205,30 +237,44 @@ export async function evaluateClef(input: {
     // their reservation. This bounds our usage across replicas and restarts.
     const reserved = await redis.eval(
       RESERVE_SCRIPT,
-      1,
+      2,
       budgetKey,
-      RESERVATION,
+      `${budgetKey}:backfill`,
+      reservation,
       workerEnv.CLEF_DAILY_NEURONS,
-      172_800
+      172_800,
+      analysisLane.getStore() ? 1 : 0
     );
     if (Number(reserved) !== 1) {
       throw new ClefDeferredError("Clef daily budget exhausted", nextUtcDay());
     }
     const response = await fetch(
-      `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/@cf/cloudflare/clef-flash`,
+      `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/@cf/cloudflare/${model}`,
       {
         body: JSON.stringify({
           ...(image
             ? {
-                images: [
-                  {
-                    base64: image.toString("base64"),
-                    content_type: "image/jpeg",
-                  },
+                images: images.map((item) => ({
+                  base64: item.toString("base64"),
+                  content_type: "image/jpeg",
+                })),
+              }
+            : {}),
+          model,
+          ...(input.audio
+            ? {
+                audio: [
+                  `data:${input.audio.mimeType};base64,${input.audio.data.toString("base64")}`,
                 ],
               }
             : {}),
-          model: "clef-flash",
+          ...(input.video
+            ? {
+                videos: [
+                  `data:${input.video.mimeType};base64,${input.video.data.toString("base64")}`,
+                ],
+              }
+            : {}),
           questions,
           state: {
             content: state,
@@ -260,9 +306,28 @@ export async function evaluateClef(input: {
       .object({ result: resultSchema, success: z.literal(true) })
       .parse(await response.json());
     const decision = parseClefResult(envelope.result);
+    input.onUsage?.({
+      inputTokens: envelope.result.usage.input_tokens,
+      neurons: envelope.result.usage.input_tokens * rate,
+    });
     await redis.incrbyfloat(
       budgetKey,
-      -(RESERVATION - envelope.result.usage.input_tokens * NEURONS_PER_TOKEN)
+      -(reservation - envelope.result.usage.input_tokens * rate)
+    );
+    if (analysisLane.getStore()) {
+      await redis.incrbyfloat(
+        `${budgetKey}:backfill`,
+        -(reservation - envelope.result.usage.input_tokens * rate)
+      );
+    }
+    mediaLogger.info(
+      {
+        background: analysisLane.getStore() ?? false,
+        inputTokens: envelope.result.usage.input_tokens,
+        model,
+        neurons: envelope.result.usage.input_tokens * rate,
+      },
+      "media classification usage"
     );
     await redis.set(cacheKey, JSON.stringify(decision), "EX", CACHE_SECONDS);
     return decision;

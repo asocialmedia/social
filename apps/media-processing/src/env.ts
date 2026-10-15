@@ -61,6 +61,8 @@ export const keys = createEnv({
     MEDIA_MAX_TRANSCRIBE_AUDIO_BYTES:
       process.env.MEDIA_MAX_TRANSCRIBE_AUDIO_BYTES,
     MEDIA_MAX_VIDEO_BYTES: process.env.MEDIA_MAX_VIDEO_BYTES,
+    MEDIA_MULTIMODAL_EMBEDDING_ENABLED:
+      process.env.MEDIA_MULTIMODAL_EMBEDDING_ENABLED,
     MEDIA_OCR_ENABLED: process.env.MEDIA_OCR_ENABLED,
     MEDIA_ORIGINAL_RETENTION_DAYS: process.env.MEDIA_ORIGINAL_RETENTION_DAYS,
     MEDIA_PRESERVE_ORIGINALS: process.env.MEDIA_PRESERVE_ORIGINALS,
@@ -156,6 +158,7 @@ export const keys = createEnv({
     // Scene-text OCR in the analyze stage (PP-OCRv4 via onnxruntime-node).
     // Models ship inside the @gutenye/ocr-node dependency - no external
     // download - so this is a plain on/off switch.
+    MEDIA_MULTIMODAL_EMBEDDING_ENABLED: z.enum(["0", "1"]).default("0"),
     MEDIA_OCR_ENABLED: z.enum(["0", "1"]).default("1"),
     // Days a published row's exact uploaded bytes stay under quarantine/
     // before the retention sweep deletes them (forensics / re-processing
@@ -286,6 +289,9 @@ export const workerEnv = {
   get MAX_TRANSCRIBE_AUDIO_BYTES() {
     const parsed = Number(keys.MEDIA_MAX_TRANSCRIBE_AUDIO_BYTES);
     return Number.isFinite(parsed) && parsed > 0 ? parsed : 20_000_000;
+  },
+  get MULTIMODAL_EMBEDDING_ENABLED() {
+    return keys.MEDIA_MULTIMODAL_EMBEDDING_ENABLED === "1";
   },
   get OCR_ENABLED() {
     // Default-on: under NODE_ENV=production t3-env skipValidation bypasses

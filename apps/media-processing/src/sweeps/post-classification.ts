@@ -1,12 +1,14 @@
 import {
   and,
   enqueuePostAnalyze,
+  indexPostEmbedding,
   MEDIA_ANALYZE_QUEUE,
   prisma,
   redis,
 } from "@asm/db";
 import { Queue } from "bullmq";
 
+import { embeddingModelId } from "../analyze/embedding";
 import { workerEnv } from "../env";
 import { postAnalysisFingerprint } from "../jobs/analyze-post";
 
@@ -39,7 +41,12 @@ export async function postClassificationSweep(): Promise<{ enqueued: number }> {
     if (capacity === 0) {
       return { enqueued: 0 };
     }
-    const posts = await prisma.orm.public.Posts.select("id", "content")
+    const posts = await prisma.orm.public.Posts.select(
+      "id",
+      "content",
+      "embedding",
+      "embeddingModel"
+    )
       .where((post) =>
         and(post.moderated.eq(false), ...(cursor ? [post.id.gt(cursor)] : []))
       )
@@ -56,6 +63,17 @@ export async function postClassificationSweep(): Promise<{ enqueued: number }> {
         (await redis.get(`media:clef:post:${post.id}`)) ===
         postAnalysisFingerprint(post.content)
       ) {
+        if (
+          post.embeddingModel === embeddingModelId() &&
+          post.embedding?.length
+        ) {
+          await indexPostEmbedding(
+            post.id,
+            post.embeddingModel,
+            [...post.embedding],
+            Date.now()
+          );
+        }
         continue;
       }
       await enqueuePostAnalyze(post.id, { backfill: true });

@@ -28,6 +28,10 @@ if (import.meta.main) {
   const {
     and,
     closeQueueConnections,
+    getQueue,
+    getMediaAnalysisCoverage,
+    getMediaDeliveryMetrics,
+    getPlaybackMetrics,
     redis,
     MEDIA_PROCESS_QUEUE,
     MEDIA_ANALYZE_QUEUE,
@@ -36,7 +40,8 @@ if (import.meta.main) {
   } = await import("@asm/db");
   const { MEDIA_JOB_NAMES } = await import("@asm/media");
   const { Worker, DelayedError } = await import("bullmq");
-  const { ClefDeferredError } = await import("./analyze/clef");
+  const { ClefDeferredError, withAnalysisLane } =
+    await import("./analyze/clef");
   const { processPostAnalyze } = await import("./jobs/analyze-post");
   const { processMediaScan } = await import("./jobs/scan");
   const { processMedia } = await import("./jobs/process");
@@ -45,6 +50,7 @@ if (import.meta.main) {
   const { workerEnv } = await import("./env");
   const { getS3 } = await import("./s3");
   const { withTimeout } = await import("./transcode/ffmpeg");
+  const { mediaMetricSnapshot } = await import("./metrics");
   const { registerSweepSchedulers } = await import("./sweeps");
 
   let running = true;
@@ -93,7 +99,9 @@ if (import.meta.main) {
           return await processMedia(job.data as { mediaId: string });
         }
         case MEDIA_JOB_NAMES.analyze: {
-          return await processMediaAnalyze(job.data as MediaAnalyzeJobData);
+          return await withAnalysisLane(Boolean(job.data.semanticRefresh), () =>
+            processMediaAnalyze(job.data as MediaAnalyzeJobData)
+          );
         }
         default: {
           throw new Error(`Unknown media job: ${job.name}`);
@@ -117,12 +125,16 @@ if (import.meta.main) {
     async (job) => {
       try {
         if (job.name === "post-analyze") {
-          return await processPostAnalyze(job.data as { postId: string });
+          return await withAnalysisLane(Boolean(job.data.backfill), () =>
+            processPostAnalyze(job.data as { postId: string })
+          );
         }
         if (job.name !== MEDIA_JOB_NAMES.analyze) {
           throw new Error(`Unknown analyze job: ${job.name}`);
         }
-        return await processMediaAnalyze(job.data as MediaAnalyzeJobData);
+        return await withAnalysisLane(Boolean(job.data.semanticRefresh), () =>
+          processMediaAnalyze(job.data as MediaAnalyzeJobData)
+        );
       } catch (error) {
         if (error instanceof ClefDeferredError) {
           await job.moveToDelayed(error.retryAt, job.token);
@@ -266,6 +278,59 @@ if (import.meta.main) {
   // healthy or force a restart loop while Redis/database recover.
   const healthServer = Bun.serve({
     async fetch(request) {
+      if (new URL(request.url).pathname === "/metrics") {
+        try {
+          const queues = await Promise.all(
+            [MEDIA_SCAN_QUEUE, MEDIA_PROCESS_QUEUE, MEDIA_ANALYZE_QUEUE].map(
+              async (name) => {
+                const queue = getQueue(name);
+                const oldest = await queue.getJobs(
+                  ["wait", "prioritized", "delayed"],
+                  0,
+                  99,
+                  true
+                );
+                return {
+                  counts: await queue.getJobCounts(
+                    "wait",
+                    "prioritized",
+                    "delayed",
+                    "active",
+                    "failed"
+                  ),
+                  name,
+                  pendingSampleSize: oldest.length,
+                  sampledOldestPendingAgeMs: oldest.length
+                    ? Math.max(
+                        ...oldest.map((job) => Date.now() - job.timestamp)
+                      )
+                    : 0,
+                };
+              }
+            )
+          );
+          return Response.json({
+            coverage: await getMediaAnalysisCoverage(),
+            delivery: await getMediaDeliveryMetrics(),
+            latency: await mediaMetricSnapshot(),
+            playback: await getPlaybackMetrics(),
+            queues,
+            quota: {
+              dailyLimitNeurons: workerEnv.CLEF_DAILY_NEURONS,
+              reservedOrUsedNeurons: Number(
+                await redis.get(
+                  `media:clef:${workerEnv.CLOUDFLARE_ACCOUNT_ID}:neurons:${new Date().toISOString().slice(0, 10)}`
+                )
+              ),
+            },
+          });
+        } catch {
+          return Response.json(
+            { error: "Metrics unavailable" },
+            { status: 503 }
+          );
+        }
+      }
       if (new URL(request.url).pathname === "/ready") {
         try {
           await withTimeout(

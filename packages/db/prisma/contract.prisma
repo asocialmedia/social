@@ -57,6 +57,8 @@ namespace public {
     embeds                                 Jsonb?
     createdAt                              Timestamp(3)           @default(now())
     embedding                              Float[]?
+    embeddingModel                         String?
+    embeddingFingerprint                   String?
     semanticTags                           String[]?
     parentPostId                           String?
     rootPostId                             String?

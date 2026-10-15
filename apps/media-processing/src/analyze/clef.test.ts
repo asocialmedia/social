@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 const values = new Map<string, string>();
 let reserved = true;
 let budget = 0;
+let backgroundBudget = 0;
 const fetchRequests: { body: Record<string, unknown>; url: string }[] = [];
 const originalFetch = globalThis.fetch;
 mock.module("../env", () => ({
@@ -18,11 +19,21 @@ mock.module("@asm/db", () => ({
       script: string,
       _count: number,
       key: string,
-      amount: number | string
+      amountOrKey: number | string,
+      reservation?: number,
+      limit?: number,
+      _expiry?: number,
+      background?: number
     ) => {
       if (script.includes("incrbyfloat")) {
+        if (
+          background &&
+          backgroundBudget + Number(reservation) > Number(limit) * 0.25
+        ) {
+          return 0;
+        }
         if (reserved) {
-          budget += Number(amount);
+          budget += Number(reservation ?? amountOrKey);
         }
         return reserved ? 1 : 0;
       }
@@ -40,8 +51,13 @@ mock.module("@asm/db", () => ({
     },
   },
 }));
-const { clefSafetyVerdict, evaluateClef, parseClefResult, ClefDeferredError } =
-  await import("./clef");
+const {
+  clefSafetyVerdict,
+  evaluateClef,
+  parseClefResult,
+  ClefDeferredError,
+  withAnalysisLane,
+} = await import("./clef");
 
 function fakeResult(body: Record<string, unknown>) {
   const questions = body.questions as Record<string, unknown>;
@@ -60,6 +76,7 @@ function fakeResult(body: Record<string, unknown>) {
 beforeEach(() => {
   values.clear();
   budget = 0;
+  backgroundBudget = 0;
   reserved = true;
   fetchRequests.length = 0;
   globalThis.fetch = (async (
@@ -151,4 +168,15 @@ describe("Clef decisions and budget", () => {
     expect(verdict).not.toHaveProperty("moderated");
     expect(verdict).not.toHaveProperty("blocked");
   });
+});
+
+test("backfill budget exhaustion reserves capacity for fresh uploads", async () => {
+  backgroundBudget = 2240;
+  await expect(
+    withAnalysisLane(true, () => evaluateClef({ text: "old backfill" }))
+  ).rejects.toBeInstanceOf(ClefDeferredError);
+  const fresh = await withAnalysisLane(false, () =>
+    evaluateClef({ text: "fresh upload" })
+  );
+  expect(fresh.tags).toContain("anime");
 });
