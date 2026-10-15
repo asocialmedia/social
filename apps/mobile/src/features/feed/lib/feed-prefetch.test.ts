@@ -46,9 +46,9 @@ describe("feed image prefetch", () => {
         API
       )
     ).toEqual([
-      `${API}/api/media/image/v/lg-webp.webp`,
-      `${API}/api/media/grid-a/v/md-webp.webp`,
-      `${API}/api/media/grid-b/v/md-webp.webp`,
+      `${API}/api/media/image/v/lg-webp.webp?d=4&format=avif`,
+      `${API}/api/media/grid-a/v/md-webp.webp?d=4&format=avif`,
+      `${API}/api/media/grid-b/v/md-webp.webp?d=4&format=avif`,
       `${API}/api/media/clip?thumb=1`,
       `${API}/api/media/animated`,
     ]);

@@ -2,6 +2,7 @@
 // security-sensitive filename rules are unit-testable in isolation.
 
 export const DERIVATIVE_MIME_BY_EXT: Record<string, string> = {
+  avif: "image/avif",
   jpg: "image/jpeg",
   json: "application/json",
   m3u8: "application/vnd.apple.mpegurl",
@@ -16,6 +17,55 @@ export type VariantRequest =
   | { hlsFile: string }
   | { kind: string; variant: string };
 
+const HLS_GENERATION_RE =
+  /^v\d{1,3}\.[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
+
+export function hlsGeneration(masterKey: string): string | null {
+  const parts = masterKey.split("/");
+  const value = `${parts[1]}.${parts[3]}`;
+  return parts.length === 6 &&
+    parts[0] === "derived" &&
+    parts[4] === "hls" &&
+    HLS_GENERATION_RE.test(value)
+    ? value
+    : null;
+}
+
+export function hlsGenerationKey(
+  mediaId: string,
+  generation: string,
+  filename: string
+): string | null {
+  if (
+    !HLS_GENERATION_RE.test(generation) ||
+    !/^[A-Za-z0-9_-]+$/.test(mediaId) ||
+    !isSafeHlsFilename(filename)
+  ) {
+    return null;
+  }
+  const [version, id] = generation.split(".");
+  return `derived/${version}/${mediaId}/${id}/hls/${filename}`;
+}
+
+export function pinHlsManifest(manifest: string, generation: string): string {
+  if (!HLS_GENERATION_RE.test(generation)) {
+    throw new Error("Invalid HLS generation");
+  }
+  return manifest
+    .split("\n")
+    .map((line) => {
+      if (isSafeHlsFilename(line.trim())) {
+        return `${line.trim()}?g=${generation}`;
+      }
+      return line.replaceAll(
+        /URI="(?<file>[A-Za-z0-9._-]+)"/g,
+        (match: string, file: string) =>
+          isSafeHlsFilename(file) ? `URI="${file}?g=${generation}"` : match
+      );
+    })
+    .join("\n");
+}
+
 const HLS_PREFIX = "hls/";
 
 // Single-segment names without a variant suffix: poster.jpg, cover.jpg
@@ -24,7 +74,7 @@ const SIMPLE_NAME_RE = /^(?<kind>[a-z]+)\.(?<ext>jpg)$/;
 // kind-variant.ext where kind is lowercase-dash-digit (mp4), variant is
 // alphanumeric.
 const QUALIFIED_NAME_RE =
-  /^(?<kind>[a-z][a-z0-9-]*)-(?<variant>[a-z0-9]+)\.(?<ext>webp|jpg|json|mp4|m4a|webm)$/;
+  /^(?<kind>[a-z][a-z0-9-]*)-(?<variant>[a-z0-9]+)\.(?<ext>avif|webp|jpg|json|mp4|m4a|webm)$/;
 
 // HLS segment filenames must be flat, short, extension-restricted tokens so
 // the storage key can be rebuilt from the stored master key without trusting

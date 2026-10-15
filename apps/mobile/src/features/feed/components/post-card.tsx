@@ -8,6 +8,7 @@
 // Card taps open the post detail screen (/posts/[postId]), mirroring web's
 // card-wide navigation. Profile identity controls explicitly stop the press
 // event before routing to /users/[username], so they never open the post.
+import { mediaReshareLabel } from "@asm/media";
 import { useRouter } from "expo-router";
 import { memo, useMemo, useState } from "react";
 import type { GestureResponderEvent } from "react-native";
@@ -227,6 +228,9 @@ export const PostCard = memo(
     );
     const hasMeta = extraTags.length > 0 || extraMentions.length > 0;
     const attachments = Array.isArray(post.attachments) ? post.attachments : [];
+    const attribution = attachments
+      .map(mediaReshareLabel)
+      .find((label) => label !== null);
     // Stored link embeds (YouTube facade + OG cards) render below the media
     // in one gated column, like web's mediaAndEmbeds block.
     const linkEmbeds = useMemo(
@@ -486,6 +490,13 @@ export const PostCard = memo(
                           />
                         </View>
                       )}
+                      {attribution ? (
+                        <Text
+                          style={[styles.altText, { color: theme.dividerText }]}
+                        >
+                          {attribution}
+                        </Text>
+                      ) : null}
                       {showAlt
                         ? attachments
                             .filter((media) => media.altText)

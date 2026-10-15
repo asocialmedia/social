@@ -32,6 +32,7 @@ import {
   StyleSheet,
   Text,
   View,
+  useWindowDimensions,
 } from "react-native";
 import type { ViewStyle } from "react-native";
 
@@ -231,6 +232,12 @@ function SingleImage({
   onFailed: (id: string) => void;
   onPressMedia?: (index: number) => void;
 }) {
+  const viewport = useWindowDimensions();
+  const imageUri = mediaImageUrl(
+    apiBase,
+    media,
+    Math.min(viewport.width - 32, 640) * viewport.scale
+  );
   const stored =
     media.width && media.height && media.height > 0
       ? { h: media.height, w: media.width }
@@ -262,10 +269,7 @@ function SingleImage({
     >
       <ActivityFeedImage
         accessibilityLabel={media.altText ?? "Post image"}
-        cachePolicy={imageCachePolicy(
-          mediaImageUrl(apiBase, media),
-          isGifMedia(media)
-        )}
+        cachePolicy={imageCachePolicy(imageUri, isGifMedia(media))}
         contentFit="contain"
         placeholder={media.blurDataUrl ?? undefined}
         placeholderContentFit="contain"
@@ -286,7 +290,10 @@ function SingleImage({
             );
           }
         }}
-        source={{ uri: mediaImageUrl(apiBase, media) }}
+        source={{
+          headers: { Accept: "image/avif,image/webp,image/*" },
+          uri: imageUri,
+        }}
         style={
           portrait
             ? [styles.singlePortrait, { aspectRatio: ratio }]
@@ -519,10 +526,16 @@ function VideoTile({
     visible &&
     ((autoPlayEnabled === true && autoplayOwner) || engaged || hasPlayed);
   const player = useVideoPlayer(
-    prepareVideo ? mediaVideoUrl(apiBase, media.id) : null,
+    prepareVideo ? mediaVideoUrl(apiBase, media.id, media.hasHls) : null,
     (created) => {
       // oxlint-disable-next-line react/immutability -- muting is expo-video's documented player API; no setter exists
       created.muted = useVideoMuteStore.getState().isMuted;
+      // oxlint-disable-next-line react/immutability -- configure the native buffer as one object
+      created.bufferOptions = {
+        maxBufferBytes: 8 * 1024 * 1024,
+        minBufferForPlayback: 1.5,
+        preferredForwardBufferDuration: 8,
+      };
       // oxlint-disable-next-line react/immutability -- expo-video's documented player API; no setter exists
       created.timeUpdateEventInterval = 0.25;
     }

@@ -191,7 +191,7 @@ function MediaAction({
 function PreviewVideo({ request }: { request: MediaPreviewRequest }) {
   const [ready, setReady] = useState(false);
   const player = useVideoPlayer(
-    mediaVideoUrl(getApiBaseUrl(), request.media.id),
+    mediaVideoUrl(getApiBaseUrl(), request.media.id, request.media.hasHls),
     (instance) => {
       instance.muted = true;
       instance.loop = true;

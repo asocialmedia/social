@@ -8,6 +8,8 @@ export interface MediaDerivativeInsert {
   pipelineVersion: string;
   sizeBytes?: number;
   variant: string;
+  width?: number;
+  height?: number;
 }
 
 export async function persistMediaDerivatives(
@@ -23,6 +25,7 @@ export async function persistMediaDerivatives(
       .where({ variant: derivative.variant });
     const existing = await matching.first();
     if (existing) {
+      await matching.update(derivative);
       continue;
     }
     try {

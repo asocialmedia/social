@@ -8,10 +8,13 @@
 // calls neither.
 
 export interface FeedMedia {
+  attributionPublic?: boolean;
   aiGenerated?: boolean | null;
   altText?: string | null;
   blurDataUrl?: string | null;
   generatedAltText?: string | null;
+  originalProvenanceId?: string | null;
+  hasHls?: boolean;
   height?: number | null;
   id: string;
   key?: string | null;

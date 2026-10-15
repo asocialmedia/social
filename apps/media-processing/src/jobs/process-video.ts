@@ -13,6 +13,7 @@ import {
 } from "@asm/media";
 import type { MediaLimits } from "@asm/media";
 
+import { workerEnv } from "../env";
 import { mediaLogger, withSpan } from "../log";
 import { getS3 } from "../s3";
 import {
@@ -29,7 +30,8 @@ import { persistMediaDerivatives } from "./derivatives";
 const PROGRESSIVE_MAX_HEIGHT = 1080;
 
 export async function processMediaVideo(input: {
-  /** Receives every object key promoted to storage, for failure rollback. */
+  // Isolated output prefix for safe retries and upgrades.
+  storageId?: string;
   mediaId: string;
   sourcePath: string;
   uploadedKeys?: string[];
@@ -165,10 +167,18 @@ export async function processMediaVideo(input: {
         probe.video.rotation === 0
           ? []
           : [`-display_rotation`, String(-probe.video.rotation)];
+      const hdr = ["smpte2084", "arib-std-b67"].includes(
+        probe.video.colorTransfer ?? ""
+      );
+      const toneMap = hdr
+        ? "zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,tonemap=hable:desat=0,zscale=t=bt709:m=bt709:r=tv,"
+        : "";
+      const progressiveScale = `${toneMap}scale=w='if(gte(iw,ih),-2,min(iw,${PROGRESSIVE_MAX_HEIGHT}))':h='if(gte(iw,ih),min(ih,${PROGRESSIVE_MAX_HEIGHT}),-2)'`;
 
       const plan = planVideoOutputs({
         durationSec: probe.durationSec,
         srcHeight: probe.video.height,
+        srcWidth: probe.video.width,
       });
 
       const derivatives: PrismaDerivativeInsert[] = [];
@@ -193,6 +203,7 @@ export async function processMediaVideo(input: {
           input.sourcePath,
           "-frames:v",
           "1",
+          ...(hdr ? ["-vf", toneMap.slice(0, -1)] : []),
           "-map_metadata",
           "-1",
           "-q:v",
@@ -203,7 +214,7 @@ export async function processMediaVideo(input: {
       );
       const posterKey = derivativeKey(
         MEDIA_PIPELINE_VERSION,
-        input.mediaId,
+        input.storageId ?? input.mediaId,
         derivativeName("poster", "default", "jpg")
       );
       await s3.write(posterKey, Bun.file(posterPath));
@@ -224,7 +235,7 @@ export async function processMediaVideo(input: {
           "-i",
           posterPath,
           "-vf",
-          `scale=${thumbWidth}:-2`,
+          `scale=min(${thumbWidth}\\,iw):-2`,
           "-q:v",
           "2",
           "-map_metadata",
@@ -236,7 +247,7 @@ export async function processMediaVideo(input: {
       if (Bun.file(thumbPath).size > 0) {
         const thumbKey = derivativeKey(
           MEDIA_PIPELINE_VERSION,
-          input.mediaId,
+          input.storageId ?? input.mediaId,
           derivativeName("poster-thumb", "default", "jpg")
         );
         await s3.write(thumbKey, Bun.file(thumbPath));
@@ -287,27 +298,26 @@ export async function processMediaVideo(input: {
       // 2. Progressive MP4 (social clips): H.264 High + AAC, faststart.
       // CRF 20 keeps re-encoded clips visually transparent next to the
       // original upload; CRF 23 reads as noticeably softer on phones.
-      if (
-        plan.progressiveMp4 &&
-        probe.video.height <= PROGRESSIVE_MAX_HEIGHT &&
-        !plan.hls
-      ) {
+      let progressiveSize = Number.POSITIVE_INFINITY;
+      if (plan.progressiveMp4) {
         const mp4Path = `${input.sourcePath}.mp4`;
         await runFfmpeg(
           [
             ...rotationFilter,
             "-i",
             input.sourcePath,
+            "-map",
+            "0:v:0",
+            "-map",
+            "0:a:0?",
+            "-vf",
+            progressiveScale,
             "-c:v",
             "libx264",
             "-preset",
-            "veryfast",
+            "fast",
             "-crf",
             "20",
-            "-maxrate",
-            `${Math.min(probe.formatBitrateKbps || 5000, 6000)}k`,
-            "-bufsize",
-            "12000k",
             "-pix_fmt",
             "yuv420p",
             "-movflags",
@@ -324,7 +334,7 @@ export async function processMediaVideo(input: {
         );
         const mp4Key = derivativeKey(
           MEDIA_PIPELINE_VERSION,
-          input.mediaId,
+          input.storageId ?? input.mediaId,
           derivativeName("mp4", "h264", "mp4")
         );
         await s3.write(mp4Key, Bun.file(mp4Path));
@@ -339,6 +349,11 @@ export async function processMediaVideo(input: {
           variant: "h264",
         });
       }
+
+      progressiveSize = Bun.file(`${input.sourcePath}.mp4`).size;
+      await prisma.transaction((transaction) =>
+        persistMediaDerivatives(transaction, input.mediaId, derivatives)
+      );
 
       // 3. HLS ladder for long-form: fMP4 segments per planned rung.
       if (plan.hls) {
@@ -359,13 +374,23 @@ export async function processMediaVideo(input: {
               "-i",
               input.sourcePath,
               "-vf",
-              `scale=-2:${rung.height}`,
+              `${toneMap}scale=w='if(gte(iw,ih),-2,${rung.height})':h='if(gte(iw,ih),${rung.height},-2)'`,
               "-c:v",
               "libx264",
               "-preset",
-              "veryfast",
+              "fast",
               "-crf",
-              "23",
+              "20",
+              "-maxrate",
+              `${rung.videoKbps}k`,
+              "-bufsize",
+              `${rung.videoKbps * 2}k`,
+              "-force_key_frames",
+              "expr:gte(t,n_forced*2)",
+              "-map",
+              "0:v:0",
+              "-map",
+              "0:a:0?",
               "-sc_threshold",
               "0",
               "-pix_fmt",
@@ -379,9 +404,11 @@ export async function processMediaVideo(input: {
               "-f",
               "hls",
               "-hls_time",
-              String(probe.durationSec <= 60 ? 2 : 6),
+              "2",
               "-hls_playlist_type",
               "vod",
+              "-hls_flags",
+              "independent_segments",
               "-hls_segment_type",
               "fmp4",
               "-hls_fmp4_init_filename",
@@ -401,19 +428,25 @@ export async function processMediaVideo(input: {
               probe.video.width > 0 && probe.video.height > 0
                 ? probe.video.width / probe.video.height
                 : 16 / 9;
-            // CODECS + FRAME-RATE let players select without probing segments.
-            // HLS spec: avc1.4d401f ~= H.264 High@3.1 yuv420p + mp4a.40.2 = AAC-LC.
+            // Advertise frame rate without claiming an unverified H.264 profile.
             const FRAME_RATE =
               Number.isFinite(probe.video.fps) && probe.video.fps > 0
                 ? probe.video.fps.toFixed(3).replace(/\.?0+$/, "")
                 : "30";
-            const CODECS = "avc1.4d401f,mp4a.40.2";
+
             const masterLines = [
               "#EXTM3U",
               "#EXT-X-VERSION:7",
               ...rungs.map((entry) => {
-                const width = Math.round((entry.height * aspect) / 2) * 2;
-                return `#EXT-X-STREAM-INF:BANDWIDTH=${(entry.videoKbps + entry.audioKbps) * 1000},RESOLUTION=${width}x${entry.height},CODECS="${CODECS}",FRAME-RATE=${FRAME_RATE}\n${entry.variant}.m3u8`;
+                const width =
+                  aspect >= 1
+                    ? Math.round((entry.height * aspect) / 2) * 2
+                    : entry.height;
+                const height =
+                  aspect >= 1
+                    ? entry.height
+                    : Math.round(entry.height / aspect / 2) * 2;
+                return `#EXT-X-STREAM-INF:BANDWIDTH=${Math.ceil((entry.videoKbps + (probe.audio ? entry.audioKbps : 0)) * 1100)},RESOLUTION=${width}x${height},FRAME-RATE=${FRAME_RATE}\n${entry.variant}.m3u8`;
               }),
             ].join("\n");
             await Bun.write(`${hlsDir}/master.m3u8`, `${masterLines}\n`);
@@ -427,7 +460,7 @@ export async function processMediaVideo(input: {
           const localPath = `${hlsDir}/${entry}`;
           const key = derivativeKey(
             MEDIA_PIPELINE_VERSION,
-            input.mediaId,
+            input.storageId ?? input.mediaId,
             `hls/${entry}`
           );
           await s3.write(key, Bun.file(localPath));
@@ -437,7 +470,7 @@ export async function processMediaVideo(input: {
               durationMs: Math.round(probe.durationSec * 1000),
               key: derivativeKey(
                 MEDIA_PIPELINE_VERSION,
-                input.mediaId,
+                input.storageId ?? input.mediaId,
                 "hls/master.m3u8"
               ),
               kind: "hls",
@@ -452,6 +485,77 @@ export async function processMediaVideo(input: {
       await prisma.transaction((transaction) =>
         persistMediaDerivatives(transaction, input.mediaId, derivatives)
       );
+
+      // AV1 + Opus is served only to clients declaring decoder support.
+      // Keep the H.264/HLS result live if the optional encoder is unavailable.
+      if (
+        workerEnv.AV1_ENABLED &&
+        probe.durationSec <= 90 &&
+        !["smpte2084", "arib-std-b67"].includes(probe.video.colorTransfer ?? "")
+      ) {
+        const modernPath = `${input.sourcePath}-av1.webm`;
+        try {
+          await runFfmpeg(
+            [
+              ...rotationFilter,
+              "-i",
+              input.sourcePath,
+              "-map",
+              "0:v:0",
+              "-map",
+              "0:a:0?",
+              "-vf",
+              progressiveScale,
+              "-c:v",
+              "libsvtav1",
+              "-preset",
+              "8",
+              "-crf",
+              "24",
+              "-svtav1-params",
+              "lp=2",
+              "-pix_fmt",
+              "yuv420p",
+              "-c:a",
+              "libopus",
+              "-b:a",
+              "128k",
+              "-map_metadata",
+              "-1",
+              modernPath,
+            ],
+            input.limits.processingTimeoutMs
+          );
+          const sizeBytes = Bun.file(modernPath).size;
+          if (sizeBytes > 0 && sizeBytes < progressiveSize) {
+            const key = derivativeKey(
+              MEDIA_PIPELINE_VERSION,
+              input.storageId ?? input.mediaId,
+              "webm-av1.webm"
+            );
+            await s3.write(key, Bun.file(modernPath));
+            input.uploadedKeys?.push(key);
+            await prisma.transaction((transaction) =>
+              persistMediaDerivatives(transaction, input.mediaId, [
+                {
+                  durationMs: Math.round(probe.durationSec * 1000),
+                  key,
+                  kind: "webm",
+                  mimeType: "video/webm",
+                  pipelineVersion: MEDIA_PIPELINE_VERSION,
+                  sizeBytes,
+                  variant: "av1",
+                },
+              ])
+            );
+          }
+        } catch (error) {
+          mediaLogger.warn(
+            { error: String(error), mediaId: input.mediaId },
+            "optional AV1 encode failed; compatible video remains available"
+          );
+        }
+      }
 
       const existing = await prisma.orm.public.PostMedia.select("techMetadata")
         .where({ id: input.mediaId })
