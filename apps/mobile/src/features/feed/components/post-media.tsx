@@ -87,6 +87,7 @@ import {
   isFeedMediaActive,
   subscribeFeedMediaActivity,
   isAutoplayPost,
+  setAutoplayPostId,
   isPostVisible,
   subscribeAutoplayPost,
   subscribePostVisibility,
@@ -495,9 +496,10 @@ function useFade(on: boolean, duration: number, easing: (t: number) => number) {
 // preference. Web's tile opens the post page on tap and plays on hover;
 // native has neither, so a lone video autoplays muted in the viewport (web's
 // autoPlay arrangement, all pills visible) and a tap toggles playback.
-function VideoTile({
+export function VideoTile({
   apiBase,
   autoPlayEnabled,
+  exclusiveAutoplay = false,
   media,
   onPressPreview,
   postId,
@@ -507,6 +509,8 @@ function VideoTile({
   // Only a lone video autoplays in the viewport; grid tiles stay
   // tap-to-play so a multi-video post does not blast them all at once.
   autoPlayEnabled?: boolean;
+  // Explore releases the previous decoder as soon as another preview owns playback.
+  exclusiveAutoplay?: boolean;
   media: FeedMedia;
   onPressPreview?: () => void;
   postId: string;
@@ -524,6 +528,7 @@ function VideoTile({
   const [hasPlayed, setHasPlayed] = useState(false);
   const prepareVideo =
     visible &&
+    (!exclusiveAutoplay || autoplayOwner) &&
     ((autoPlayEnabled === true && autoplayOwner) || engaged || hasPlayed);
   const player = useVideoPlayer(
     prepareVideo ? mediaVideoUrl(apiBase, media.id, media.hasHls) : null,
@@ -622,7 +627,7 @@ function VideoTile({
   // A paused native player still buffers and owns a decoder. Off-screen
   // cards use a null source; visible paused frames retain their loaded source.
   useEffect(() => {
-    if (!visible) {
+    if (!visible || (exclusiveAutoplay && !autoplayOwner)) {
       manualPausedRef.current = false;
       // oxlint-disable-next-line react/set-state-in-effect -- reset the frame latch when the external viewport releases this native source
       setFirstFrame(false);
@@ -645,7 +650,15 @@ function VideoTile({
     } else {
       player.pause();
     }
-  }, [autoPlayEnabled, autoplayOwner, engaged, player, prepareVideo, visible]);
+  }, [
+    autoPlayEnabled,
+    autoplayOwner,
+    engaged,
+    exclusiveAutoplay,
+    player,
+    prepareVideo,
+    visible,
+  ]);
 
   // Web fetches the WebVTT track once the preview is live; an empty track
   // falls back to spreading the transcript across the clip.
@@ -694,6 +707,9 @@ function VideoTile({
   const controlsOpacity = useFade(controlsVisible, 200, CSS_EASE);
 
   const togglePlayback = () => {
+    if (exclusiveAutoplay && visible && !autoplayOwner) {
+      setAutoplayPostId(postId);
+    }
     setEngaged(true);
     if (!prepareVideo) {
       // The source-bearing player is created on the next render. Its effect
@@ -840,7 +856,10 @@ function VideoTile({
           accessibilityLabel={isMuted ? "Unmute" : "Mute"}
           accessibilityRole="button"
           hitSlop={6}
-          onPress={toggleMute}
+          onPress={(event) => {
+            event.stopPropagation();
+            toggleMute();
+          }}
           style={({ pressed }) => [
             styles.mutePill,
             pressed && styles.pressedNudge,
@@ -863,7 +882,10 @@ function VideoTile({
           accessibilityLabel={isPlaying ? "Pause" : "Play"}
           accessibilityRole="button"
           hitSlop={6}
-          onPress={togglePlayback}
+          onPress={(event) => {
+            event.stopPropagation();
+            togglePlayback();
+          }}
           style={({ pressed }) => [
             styles.playToggle,
             pressed && styles.pressedNudge,

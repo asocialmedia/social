@@ -1,6 +1,5 @@
 import { useRecyclingState } from "@shopify/flash-list";
 import { Image } from "expo-image";
-import { Play } from "lucide-react-native";
 import { useMemo } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
@@ -10,6 +9,7 @@ import {
   ConcealedMediaCover,
 } from "@/features/feed/components/concealed-media-cover";
 import { VoteCluster } from "@/features/feed/components/post-actions";
+import { VideoTile } from "@/features/feed/components/post-media";
 import { extractInlineMeta } from "@/features/feed/lib/feed-types";
 import type { FeedMedia, FeedPost } from "@/features/feed/lib/feed-types";
 import {
@@ -89,7 +89,6 @@ export function ExplorePostCard({
   );
   const embed = useMemo(() => parseStoredEmbeds(post.embeds)[0], [post.embeds]);
   const imageUrl = previewUrl(apiBase, media, embed);
-  const isVideo = media?.type === "VIDEO";
   const aspectRatio = previewAspect(post, media, embed);
   const inline = useMemo(
     () => extractInlineMeta(post.content ?? ""),
@@ -117,6 +116,34 @@ export function ExplorePostCard({
     />
   );
 
+  let visual = (
+    <Image
+      recyclingKey={imageUrl}
+      accessibilityLabel="Post media"
+      cachePolicy="memory-disk"
+      contentFit="cover"
+      onError={() => setImageFailed(true)}
+      source={{ uri: imageUrl ?? undefined }}
+      style={styles.image}
+    />
+  );
+  if (post.explicitContent) {
+    visual = concealedPreview;
+  } else if (media?.type === "VIDEO") {
+    visual = (
+      <VideoTile
+        key={media.id}
+        apiBase={apiBase}
+        autoPlayEnabled
+        exclusiveAutoplay
+        media={media}
+        onPressPreview={onPress}
+        postId={post.id}
+        tile
+      />
+    );
+  }
+
   return (
     <Pressable
       accessibilityLabel={`Open post by ${post.user?.displayName ?? post.user?.username ?? "user"}`}
@@ -142,26 +169,7 @@ export function ExplorePostCard({
         <>
           {imageUrl ? (
             <View style={[styles.visual, { aspectRatio }]}>
-              {post.explicitContent ? (
-                concealedPreview
-              ) : (
-                <Image
-                  recyclingKey={imageUrl}
-                  accessibilityLabel="Post media"
-                  cachePolicy="memory-disk"
-                  contentFit="cover"
-                  onError={() => setImageFailed(true)}
-                  source={{ uri: imageUrl }}
-                  style={styles.image}
-                />
-              )}
-              {isVideo ? (
-                <View style={styles.videoOverlay}>
-                  <View style={styles.playButton}>
-                    <Play color="#ffffff" fill="#ffffff" size={18} />
-                  </View>
-                </View>
-              ) : null}
+              {visual}
               {post.isGust ? (
                 <ExploreBadge kind="gust" style={styles.gustBadge} />
               ) : null}
@@ -291,26 +299,7 @@ const styles = StyleSheet.create({
     padding: 16,
   },
   mutedText: { fontFamily: "SofiaProReg", fontSize: 13, textAlign: "center" },
-  playButton: {
-    alignItems: "center",
-    backgroundColor: "rgba(0,0,0,0.62)",
-    borderRadius: 20,
-    boxShadow: "0 2px 4px rgba(0, 0, 0, 0.24)",
-    height: 40,
-    justifyContent: "center",
-    width: 40,
-  },
   username: { fontFamily: "SofiaProReg", fontSize: 11, marginTop: 2 },
-  videoOverlay: {
-    alignItems: "center",
-    backgroundColor: "rgba(0,0,0,0.18)",
-    bottom: 0,
-    justifyContent: "center",
-    left: 0,
-    position: "absolute",
-    right: 0,
-    top: 0,
-  },
   visual: {
     backgroundColor: "rgba(128,128,128,0.15)",
     overflow: "hidden",

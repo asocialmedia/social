@@ -1,5 +1,5 @@
 import { FlashList } from "@shopify/flash-list";
-import type { FlashListRef } from "@shopify/flash-list";
+import type { FlashListRef, ViewToken } from "@shopify/flash-list";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { useIsFocused, useLocalSearchParams, useRouter } from "expo-router";
@@ -51,9 +51,15 @@ import { ConcealedMediaCover } from "@/features/feed/components/concealed-media-
 import { FeedPager } from "@/features/feed/components/feed-pager";
 import { NewContentPill } from "@/features/feed/components/new-content-pill";
 import type { PillAuthor } from "@/features/feed/components/new-content-pill";
+import { FeedMediaScope } from "@/features/feed/components/post-media";
 import { findUnseenItems } from "@/features/feed/lib/feed-types";
 import type { FeedPost } from "@/features/feed/lib/feed-types";
 import { mediaGridImageUrl } from "@/features/feed/lib/media-url";
+import {
+  setAutoplayPostId,
+  setFeedMediaActive,
+  setVisiblePostIds,
+} from "@/features/feed/lib/visible-posts";
 import {
   EXPLORE_TABS,
   resolveExploreTab,
@@ -89,6 +95,7 @@ import {
   mutateExploreFollow,
 } from "../lib/explore-api";
 import type { ExploreUser } from "../lib/explore-api";
+import { selectExploreAutoplayPost } from "../lib/explore-autoplay";
 import { exploreCache, exploreCacheKey } from "../lib/explore-cache";
 import type { ExploreData } from "../lib/explore-cache";
 import { hydrateExploreCache } from "../lib/explore-cache-native";
@@ -109,6 +116,10 @@ type ExploreItem =
 
 const AnimatedExploreList = createAnimatedComponent(FlashList<ExploreItem>);
 const MAINTAIN_POSITION = { disabled: true };
+const VIDEO_VIEWABILITY = {
+  itemVisiblePercentThreshold: 70,
+  minimumViewTime: 300,
+};
 
 function itemType(item: ExploreItem): ExploreItem["kind"] {
   return item.kind;
@@ -303,6 +314,42 @@ const ExploreTabContent = memo(
       viewerId,
       activeTab,
       deferredSearch
+    );
+    const mediaScope = `explore:${cacheKey}`;
+    const mediaActive = useRef(isActive);
+    const visiblePosts = useRef<FeedPost[]>([]);
+    const autoplayPost = useRef<string | null>(null);
+    useEffect(() => {
+      mediaActive.current = isActive;
+      setFeedMediaActive(mediaScope, isActive);
+      if (!isActive) {
+        return;
+      }
+      setVisiblePostIds(new Set(visiblePosts.current.map((post) => post.id)));
+      setAutoplayPostId(autoplayPost.current);
+      return () => {
+        mediaActive.current = false;
+        setFeedMediaActive(mediaScope, false);
+        setVisiblePostIds(new Set());
+        setAutoplayPostId(null);
+      };
+    }, [isActive, mediaScope]);
+    const handleViewableItemsChanged = useCallback(
+      ({ viewableItems }: { viewableItems: ViewToken<ExploreItem>[] }) => {
+        const viewablePosts = viewableItems.flatMap(({ item, isViewable }) =>
+          isViewable && item.kind === "post" ? [item.post] : []
+        );
+        visiblePosts.current = viewablePosts;
+        autoplayPost.current = selectExploreAutoplayPost(
+          viewablePosts,
+          autoplayPost.current
+        );
+        if (mediaActive.current) {
+          setVisiblePostIds(new Set(viewablePosts.map((post) => post.id)));
+          setAutoplayPostId(autoplayPost.current);
+        }
+      },
+      []
     );
     const resource = useSyncExternalStore(exploreCache.subscribe, () =>
       exploreCache.read(cacheKey)
@@ -809,77 +856,81 @@ const ExploreTabContent = memo(
     }
 
     return (
-      <GestureDetector gesture={pull.gesture}>
-        <View style={styles.listWrap}>
-          <Animated.View
-            style={[
-              styles.listShift,
-              { transform: [{ translateY: pull.pullShift }] },
-            ]}
-          >
-            <AnimatedExploreList
-              key={cacheKey}
-              ref={scrollViewRef}
-              renderScrollComponent={renderScrollComponent}
-              data={empty ? [] : items}
-              masonry={activeTab !== "people"}
-              numColumns={activeTab === "people" ? 1 : 2}
-              optimizeItemArrangement={false}
-              getItemType={itemType}
-              keyExtractor={itemKey}
-              contentContainerStyle={{
-                paddingBottom: bottomInset,
-                paddingHorizontal: activeTab === "people" ? 16 : 8,
-                paddingTop: activeTab === "gusts" ? 16 : 0,
-              }}
-              keyboardShouldPersistTaps="handled"
-              maintainVisibleContentPosition={MAINTAIN_POSITION}
-              onLoad={() => {
-                if (restoredKey.current === cacheKey) {
-                  return;
-                }
-                restoredKey.current = cacheKey;
-                const offset = initialOffset;
-                if (offset > 0) {
-                  scrollViewRef.current?.scrollToOffset({
-                    animated: false,
-                    offset,
-                  });
-                }
-              }}
-              onEndReached={fetchMore}
-              onEndReachedThreshold={0.5}
-              onScroll={handleContentScroll}
-              scrollEventThrottle={16}
-              showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
-              ListHeaderComponent={header}
-              ListEmptyComponent={empty}
-              ListFooterComponent={footer}
-              renderItem={({ item, index }) => (
-                <View
-                  style={activeTab === "people" ? undefined : styles.gridCell}
-                >
-                  {renderItem({ index, item })}
-                </View>
-              )}
-            />
-          </Animated.View>
-          {pull.loader}
-          {showPill && isScrolledDown ? (
-            <View
-              pointerEvents="box-none"
-              style={[styles.floatingPillWrap, { top: 8 }]}
+      <FeedMediaScope.Provider value={mediaScope}>
+        <GestureDetector gesture={pull.gesture}>
+          <View style={styles.listWrap}>
+            <Animated.View
+              style={[
+                styles.listShift,
+                { transform: [{ translateY: pull.pullShift }] },
+              ]}
             >
-              <NewContentPill
-                authors={newItemAuthors}
-                count={newItems.length}
-                floating={false}
-                onPress={showNewItems}
+              <AnimatedExploreList
+                key={cacheKey}
+                ref={scrollViewRef}
+                renderScrollComponent={renderScrollComponent}
+                data={empty ? [] : items}
+                masonry={activeTab !== "people"}
+                numColumns={activeTab === "people" ? 1 : 2}
+                optimizeItemArrangement={false}
+                getItemType={itemType}
+                keyExtractor={itemKey}
+                contentContainerStyle={{
+                  paddingBottom: bottomInset,
+                  paddingHorizontal: activeTab === "people" ? 16 : 8,
+                  paddingTop: activeTab === "gusts" ? 16 : 0,
+                }}
+                keyboardShouldPersistTaps="handled"
+                maintainVisibleContentPosition={MAINTAIN_POSITION}
+                onLoad={() => {
+                  if (restoredKey.current === cacheKey) {
+                    return;
+                  }
+                  restoredKey.current = cacheKey;
+                  const offset = initialOffset;
+                  if (offset > 0) {
+                    scrollViewRef.current?.scrollToOffset({
+                      animated: false,
+                      offset,
+                    });
+                  }
+                }}
+                onViewableItemsChanged={handleViewableItemsChanged}
+                viewabilityConfig={VIDEO_VIEWABILITY}
+                onEndReached={fetchMore}
+                onEndReachedThreshold={0.5}
+                onScroll={handleContentScroll}
+                scrollEventThrottle={16}
+                showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
+                ListHeaderComponent={header}
+                ListEmptyComponent={empty}
+                ListFooterComponent={footer}
+                renderItem={({ item, index }) => (
+                  <View
+                    style={activeTab === "people" ? undefined : styles.gridCell}
+                  >
+                    {renderItem({ index, item })}
+                  </View>
+                )}
               />
-            </View>
-          ) : null}
-        </View>
-      </GestureDetector>
+            </Animated.View>
+            {pull.loader}
+            {showPill && isScrolledDown ? (
+              <View
+                pointerEvents="box-none"
+                style={[styles.floatingPillWrap, { top: 8 }]}
+              >
+                <NewContentPill
+                  authors={newItemAuthors}
+                  count={newItems.length}
+                  floating={false}
+                  onPress={showNewItems}
+                />
+              </View>
+            ) : null}
+          </View>
+        </GestureDetector>
+      </FeedMediaScope.Provider>
     );
   }
 );
