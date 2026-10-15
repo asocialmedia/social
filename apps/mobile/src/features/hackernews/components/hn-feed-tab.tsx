@@ -8,10 +8,11 @@ import type { FlashListRef } from "@shopify/flash-list";
 import { Image } from "expo-image";
 import * as Linking from "expo-linking";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ReactNode } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import type { ReactNode, Ref } from "react";
+import { Animated, ScrollView, StyleSheet, Text, View } from "react-native";
+import type { ScrollViewProps } from "react-native";
 import { GestureDetector } from "react-native-gesture-handler";
-import Reanimated, {
+import {
   createAnimatedComponent,
   useAnimatedScrollHandler,
   useSharedValue,
@@ -149,6 +150,17 @@ export const HnFeedTab = memo(
       refreshing,
     });
     const reportPullOffset = pull.onScrollOffset;
+    const endPull = pull.onScrollEndDrag;
+    const { nativeScrollGesture } = pull;
+    // Attach Native to the actual ScrollView, not FlashList's outer View.
+    const renderScrollComponent = useCallback(
+      (props: ScrollViewProps & { ref?: Ref<ScrollView> }) => (
+        <GestureDetector gesture={nativeScrollGesture}>
+          <ScrollView {...props} />
+        </GestureDetector>
+      ),
+      [nativeScrollGesture]
+    );
 
     // Hide-on-scroll runs on the UI thread like the home feed: ordinary scrolling
     // never crosses to JS, only the hide flips and the top-edge crossings the pull
@@ -160,6 +172,7 @@ export const HnFeedTab = memo(
       onEndDrag: (event) => {
         userScrolling.set(false);
         scheduleOnRN(saveOffset, event.contentOffset.y);
+        scheduleOnRN(endPull);
       },
       onMomentumBegin: () => {
         userScrolling.set(true);
@@ -336,33 +349,32 @@ export const HnFeedTab = memo(
             setViewportHeight(event.nativeEvent.layout.height)
           }
         >
-          <Reanimated.View
+          <Animated.View
             style={[
               styles.listShift,
               { transform: [{ translateY: pull.pullShift }] },
             ]}
           >
-            <GestureDetector gesture={pull.nativeScrollGesture}>
-              <AnimatedHnList
-                contentContainerStyle={{
-                  flexGrow: 1,
-                  paddingBottom: contentBottom,
-                }}
-                data={stories}
-                keyExtractor={hnStoryKey}
-                ListEmptyComponent={empty}
-                ListFooterComponent={footer}
-                onEndReached={fetchNext}
-                onEndReachedThreshold={0.5}
-                onScroll={handleScroll}
-                ref={listRef}
-                renderItem={renderItem}
-                scrollEventThrottle={16}
-                showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
-                maintainVisibleContentPosition={MAINTAIN_POSITION}
-              />
-            </GestureDetector>
-          </Reanimated.View>
+            <AnimatedHnList
+              renderScrollComponent={renderScrollComponent}
+              contentContainerStyle={{
+                flexGrow: 1,
+                paddingBottom: contentBottom,
+              }}
+              data={stories}
+              keyExtractor={hnStoryKey}
+              ListEmptyComponent={empty}
+              ListFooterComponent={footer}
+              onEndReached={fetchNext}
+              onEndReachedThreshold={0.5}
+              onScroll={handleScroll}
+              ref={listRef}
+              renderItem={renderItem}
+              scrollEventThrottle={16}
+              showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
+              maintainVisibleContentPosition={MAINTAIN_POSITION}
+            />
+          </Animated.View>
           {pull.loader}
         </View>
       </GestureDetector>

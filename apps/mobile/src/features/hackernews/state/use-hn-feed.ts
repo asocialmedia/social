@@ -159,6 +159,9 @@ export function useHnFeed({
   }, [runLoad]);
 
   const fetchNext = useCallback(() => {
+    if (!activeRef.current) {
+      return;
+    }
     const current = hnCache.read(cacheKey);
     if (current.status !== "success" || !current.hasMore) {
       return;
