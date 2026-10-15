@@ -907,6 +907,7 @@ export function VideoTile({
       </Animated.View>
       {media.aiGenerated ? <AiBadge bottom={44} /> : null}
       <VideoCaptions
+        compact={tile}
         cues={cues}
         enabled={showCaptions && (isVideoActive || isPlaying || engaged)}
         player={player}
@@ -959,10 +960,12 @@ function VideoTimePill({ player }: { player: VideoPlayer }) {
 }
 
 function VideoCaptions({
+  compact = false,
   cues,
   enabled,
   player,
 }: {
+  compact?: boolean;
   cues: TranscriptCue[];
   enabled: boolean;
   player: VideoPlayer;
@@ -993,7 +996,10 @@ function VideoCaptions({
     return null;
   }
   return (
-    <View pointerEvents="none" style={styles.captionRow}>
+    <View
+      pointerEvents="none"
+      style={[styles.captionRow, compact && styles.compactCaptionRow]}
+    >
       <View style={styles.captionBox}>
         <Text numberOfLines={2} style={styles.captionText}>
           {text}
@@ -1921,6 +1927,7 @@ const styles = StyleSheet.create({
     lineHeight: 15,
     textAlign: "center",
   },
+  compactCaptionRow: { bottom: 72 },
   fill: {
     bottom: 0,
     height: "100%",

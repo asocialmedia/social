@@ -199,7 +199,9 @@ if (
   throw new Error("The autoplay clock did not advance");
 }
 const mute = after.find(
-  (node) => node.label === "Unmute" || node.label === "Mute"
+  (node) =>
+    (node.label === "Unmute" || node.label === "Mute") &&
+    node.bounds[1] === playing.bounds[1]
 );
 if (!mute) {
   throw new Error("Custom mute control is absent");
@@ -208,13 +210,19 @@ await tap(mute);
 let screen = await snapshot("mute-toggled");
 if (
   !screen.some(
-    (node) => node.label === (mute.label === "Unmute" ? "Mute" : "Unmute")
+    (node) =>
+      node.label === (mute.label === "Unmute" ? "Mute" : "Unmute") &&
+      node.bounds[0] === mute.bounds[0] &&
+      node.bounds[1] === mute.bounds[1]
   )
 ) {
   throw new Error("Mute did not toggle within Explore");
 }
 const restoreMute = screen.find(
-  (node) => node.label === (mute.label === "Unmute" ? "Mute" : "Unmute")
+  (node) =>
+    node.label === (mute.label === "Unmute" ? "Mute" : "Unmute") &&
+    node.bounds[0] === mute.bounds[0] &&
+    node.bounds[1] === mute.bounds[1]
 );
 if (restoreMute) {
   await tap(restoreMute);
