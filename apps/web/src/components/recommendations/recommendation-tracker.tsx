@@ -1,17 +1,13 @@
 "use client";
 
+import { EngagementSession } from "@asm/media";
+import type { EngagementEventType } from "@asm/media";
 import type React from "react";
 import { useEffect, useRef } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
 
-type RecommendationEventType =
-  | "DWELL"
-  | "IMPRESSION"
-  | "NOT_INTERESTED"
-  | "SKIP"
-  | "VIEW_COMPLETE"
-  | "VIEW_START";
+type RecommendationEventType = EngagementEventType | "NOT_INTERESTED";
 
 interface RecommendationEvent {
   durationMs?: number;
@@ -119,52 +115,72 @@ export function RecommendationTracker({
 }: RecommendationTrackerProps) {
   const { user } = useSession();
   const containerRef = useRef<HTMLDivElement>(null);
-  const startedAtRef = useRef<number | null>(null);
-  const completedRef = useRef(false);
-  const completionTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (!user || !containerRef.current || typeof window === "undefined") {
       return;
     }
     const element = containerRef.current;
+    let visible = false;
+    let timer: ReturnType<typeof setInterval> | null = null;
+    const session = new EngagementSession((event) =>
+      trackRecommendationEvent({ ...event, postId })
+    );
+    const sample = () => {
+      const video = element.querySelector("video");
+      session.sample(
+        {
+          buffering: video ? video.readyState < 3 : undefined,
+          duration: video?.duration,
+          failed: Boolean(video?.error),
+          foreground: document.visibilityState === "visible",
+          playing: video ? !video.paused : undefined,
+          position: video?.currentTime,
+          video: Boolean(video),
+          visible,
+        },
+        performance.now()
+      );
+    };
+    const stop = (leaving: boolean) => {
+      sample();
+      session.stop(leaving);
+      if (timer !== null) {
+        clearInterval(timer);
+      }
+      timer = null;
+    };
+    const visibilityChanged = () => {
+      stop(false);
+      if (visible && document.visibilityState === "visible") {
+        sample();
+        timer = setInterval(sample, 250);
+      }
+    };
     const observer = new IntersectionObserver(
-      (entries) => {
-        const [entry] = entries;
-        if (!entry?.isIntersecting || startedAtRef.current !== null) {
+      ([entry]) => {
+        const next = Boolean(
+          entry?.isIntersecting && entry.intersectionRatio >= 0.6
+        );
+        if (next === visible) {
           return;
         }
-        startedAtRef.current = Date.now();
-        trackRecommendationEvent({ eventType: "IMPRESSION", postId });
-        trackRecommendationEvent({ eventType: "VIEW_START", postId });
-        completionTimerRef.current = window.setTimeout(() => {
-          if (startedAtRef.current !== null && !completedRef.current) {
-            completedRef.current = true;
-            trackRecommendationEvent({
-              durationMs: Date.now() - startedAtRef.current,
-              eventType: "VIEW_COMPLETE",
-              postId,
-            });
-          }
-        }, 8000);
+        if (!next) {
+          stop(true);
+        }
+        visible = next;
+        if (next) {
+          visibilityChanged();
+        }
       },
       { threshold: 0.6 }
     );
     observer.observe(element);
-
+    document.addEventListener("visibilitychange", visibilityChanged);
     return () => {
       observer.disconnect();
-      if (completionTimerRef.current !== null) {
-        window.clearTimeout(completionTimerRef.current);
-        completionTimerRef.current = null;
-      }
-      if (startedAtRef.current !== null) {
-        trackRecommendationEvent({
-          durationMs: Date.now() - startedAtRef.current,
-          eventType: "DWELL",
-          postId,
-        });
-      }
+      document.removeEventListener("visibilitychange", visibilityChanged);
+      stop(true);
     };
   }, [postId, user]);
 

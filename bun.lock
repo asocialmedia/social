@@ -88,7 +88,7 @@
     },
     "apps/mobile": {
       "name": "@asocialmedia/mobile",
-      "version": "0.2.14",
+      "version": "0.2.15",
       "dependencies": {
         "@asm/auth": "workspace:*",
         "@asm/db": "workspace:*",
@@ -177,7 +177,7 @@
     },
     "apps/web": {
       "name": "@asm/web",
-      "version": "1.7.32",
+      "version": "1.7.33",
       "dependencies": {
         "@asm/aggregator": "workspace:*",
         "@asm/auth": "workspace:*",
@@ -358,7 +358,7 @@
     },
     "packages/media": {
       "name": "@asm/media",
-      "version": "1.0.41",
+      "version": "1.0.42",
       "dependencies": {
         "gifenc": "^1.0.3",
         "gifuct-js": "^2.1.2",

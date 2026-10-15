@@ -216,6 +216,10 @@ export async function setNotInterested(
 }
 
 export type RecommendationEventType =
+  | "BUFFER"
+  | "PLAYBACK_ERROR"
+  | "PLAYBACK_STARTUP"
+  | "SKIP"
   | "DWELL"
   | "IMPRESSION"
   | "VIEW_COMPLETE"

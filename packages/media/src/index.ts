@@ -132,3 +132,10 @@ export type {
   VideoLadderRung,
   VideoPlan,
 } from "./format-policy";
+
+export { EngagementSession } from "./engagement";
+export type {
+  EngagementEvent,
+  EngagementEventType,
+  EngagementSample,
+} from "./engagement";

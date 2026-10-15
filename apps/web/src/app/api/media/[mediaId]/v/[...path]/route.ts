@@ -11,6 +11,7 @@ import { GetObjectCommand, S3ServiceException } from "@aws-sdk/client-s3";
 import { NextResponse } from "next/server";
 
 import { getSessionFromApi } from "@/lib/auth/session";
+import { recordDeliveryPayload } from "@/lib/media/delivery-metrics";
 import {
   decideMediaAccess,
   resolveOwningCommunity,
@@ -402,8 +403,12 @@ export async function GET(
         "Content-Length",
         String(new TextEncoder().encode(playlist).byteLength)
       );
+      void recordDeliveryPayload(new TextEncoder().encode(playlist).byteLength);
       return new NextResponse(playlist, { headers, status });
     }
+    void recordDeliveryPayload(
+      Number(headers.get("Content-Length")) || undefined
+    );
     return new NextResponse(body, { headers, status });
   } catch (error) {
     // Client disconnected mid-stream (seek, scroll away, close): the request

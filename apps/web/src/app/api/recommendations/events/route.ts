@@ -8,6 +8,9 @@ const MAX_DURATION_MS = 30 * 60 * 1000;
 const logger = createLogger({ serviceName: "api-recommendation-events" });
 const EVENT_TYPES = new Set([
   "IMPRESSION",
+  "BUFFER",
+  "PLAYBACK_ERROR",
+  "PLAYBACK_STARTUP",
   "VIEW_START",
   "VIEW_COMPLETE",
   "DWELL",
@@ -229,7 +232,13 @@ export async function POST(request: Request) {
     },
     "recommendation events accepted"
   );
-  if (acceptedEvents.some((event) => event.eventType === "NOT_INTERESTED")) {
+  if (
+    acceptedEvents.some((event) =>
+      ["NOT_INTERESTED", "DWELL", "VIEW_COMPLETE", "SKIP", "SHARE"].includes(
+        event.eventType
+      )
+    )
+  ) {
     void invalidateFypProfile(userId);
   }
 
