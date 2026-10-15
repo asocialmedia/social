@@ -54,6 +54,7 @@ export async function attributeReshare(
       "originalProvenanceId",
       "phash",
       "uploaderDisplayName",
+      "uploaderUsername",
       "userId"
     )
       .where((candidate) =>
@@ -147,12 +148,15 @@ export async function attributeReshare(
       "generatedAltText",
       "techMetadata",
       "uploaderDisplayName",
+      "uploaderUsername",
       "userId"
     )
       .where({ id: mediaId })
       .first(),
     prisma.orm.public.PostMedia.select(
       "uploaderDisplayName",
+      "uploaderUsername",
+      "userId",
       "postId",
       "messageConversationId",
       "visibility",
@@ -169,7 +173,7 @@ export async function attributeReshare(
 
   if (
     !fresh ||
-    !root?.uploaderDisplayName ||
+    !root ||
     !root.postId ||
     root.messageConversationId ||
     root.visibility !== "PUBLIC" ||
@@ -182,11 +186,24 @@ export async function attributeReshare(
   if (fresh.generatedAltText) {
     return;
   }
-  if (!fresh.uploaderDisplayName) {
+  const [originalUser, resharingUser] = await Promise.all([
+    root.userId
+      ? prisma.orm.public.Users.select("username")
+          .where({ id: root.userId })
+          .first()
+      : null,
+    fresh.userId
+      ? prisma.orm.public.Users.select("username")
+          .where({ id: fresh.userId })
+          .first()
+      : null,
+  ]);
+  const originalUsername = originalUser?.username ?? root.uploaderUsername;
+  const resharingUsername = resharingUser?.username ?? fresh.uploaderUsername;
+  if (!originalUsername || !resharingUsername) {
     return;
   }
-
-  const alt = `originally from @${root.uploaderDisplayName} reshared via @${fresh.uploaderDisplayName}`;
+  const alt = `originally from @${originalUsername} reshared via @${resharingUsername}`;
 
   const metadata =
     fresh.techMetadata &&
