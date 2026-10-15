@@ -270,14 +270,14 @@ describe("stripImageMetadata: PNG", () => {
 });
 
 describe("stripImageMetadata: WebP", () => {
-  // VP8X flags byte: I(ICC)=0x20 L(alpha)=0x10 E(EXIF)=0x08 A(anim)=0x04 X(XMP)=0x02
+  // VP8X flags byte: ICC=0x20, alpha=0x10, EXIF=0x08, XMP=0x04, animation=0x02.
   function vp8x(flags: number): Uint8Array {
     return u8(flags, 0, 0, 0, 1, 0, 0, 1, 0, 0); // flags + reserved + canvas 1x1
   }
 
   test("drops EXIF/XMP chunks, clears their VP8X bits, keeps ICCP", () => {
     const source = buildWebp([
-      riffChunk("VP8X", vp8x(0x20 | 0x08 | 0x02)),
+      riffChunk("VP8X", vp8x(0x20 | 0x08 | 0x04)),
       riffChunk("ICCP", ascii("icc-data")),
       riffChunk("EXIF", ascii("II*\0gps")),
       riffChunk("XMP ", ascii("<x:xmp/>")),
@@ -298,16 +298,24 @@ describe("stripImageMetadata: WebP", () => {
     const vp8xIndex = text.indexOf("VP8X");
     const flags = result?.bytes[vp8xIndex + 8] ?? -1;
     expect(flags & 0x20).toBe(0x20);
-    expect(flags & 0x0a).toBe(0);
+    expect(flags & 0x0c).toBe(0);
   });
 
-  test("animated WebP refuses to be stripped", () => {
+  test("animated WebP retains its compressed frames while metadata is stripped", () => {
     const source = buildWebp([
-      riffChunk("VP8X", vp8x(0x04)),
+      riffChunk("VP8X", vp8x(0x0e)),
+      riffChunk("XMP ", ascii("private metadata")),
       riffChunk("ANIM", u8(0)),
       riffChunk("ANMF", u8(0, 1, 2, 3)),
     ]);
-    expect(stripImageMetadata(source)).toBeNull();
+    const result = stripImageMetadata(source);
+    expect(result).not.toBeNull();
+    const bytes = Buffer.from(result?.bytes ?? []);
+    expect(bytes.toString("ascii", 8, 12)).toBe("WEBP");
+    expect(bytes.readUInt32LE(4)).toBe(bytes.length - 8);
+    expect(bytes.toString("latin1")).toContain("ANMF");
+    expect(bytes.toString("latin1")).not.toContain("private metadata");
+    expect((bytes[20] ?? 0) & 0x02).toBe(0x02);
   });
 });
 
