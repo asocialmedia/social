@@ -5,6 +5,17 @@ const { withNativewind } = require("nativewind/metro");
 
 const config = getDefaultConfig(__dirname);
 
+// Evaluate screen dependencies when they are used, rather than evaluating
+// every route's editor, crypto and media modules before the first screen.
+const { getTransformOptions } = config.transformer;
+config.transformer.getTransformOptions = async (...args) => {
+  const options = await getTransformOptions(...args);
+  return {
+    ...options,
+    transform: { ...options.transform, inlineRequires: true },
+  };
+};
+
 // Bun can install multiple physical copies of react-native-css for different
 // peers. NativeWind must resolve every CSS import to the copy its Metro plugin
 // uses, or it rewrites another copy's internal React Native import to itself.

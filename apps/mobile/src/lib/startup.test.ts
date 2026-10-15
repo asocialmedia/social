@@ -1,6 +1,23 @@
 import { expect, test } from "bun:test";
 
-import { prepareStartup, resumeHref, startupDestination } from "./startup";
+import {
+  prepareStartup,
+  resumeHref,
+  shouldMountHome,
+  startupDestination,
+} from "./startup";
+
+test("restoring another route does not start Home's editor or neighbouring feeds", () => {
+  expect(shouldMountHome(false, true, false, "/discover")).toBe(false);
+  expect(shouldMountHome(false, false, true, "/discover")).toBe(false);
+  expect(shouldMountHome(false, true, true, "/discover")).toBe(true);
+});
+
+test("a visited Home stays mounted to retain its draft and scroll state", () => {
+  expect(shouldMountHome(true, false, true, "/discover")).toBe(true);
+  expect(shouldMountHome(false, true, false, "/")).toBe(true);
+  expect(shouldMountHome(false, true, false, null)).toBe(true);
+});
 
 test("launch waits for every local cache, tolerates failure and never waits on network", async () => {
   const { promise: pending, resolve: release } =

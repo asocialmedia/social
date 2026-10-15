@@ -35,17 +35,17 @@ export async function readSnapshot<T>(
           fileMod.Paths.cache,
           snapshotFileName(cacheName)
         );
-        // textSync throws when missing; text() rejects. Try sync first.
-        if (typeof file.textSync === "function") {
+        // Cache reads must yield while native IO runs, especially at startup.
+        if (typeof file.text === "function") {
           try {
-            return parseSnapshot<T>(file.textSync());
+            return parseSnapshot<T>(await file.text());
           } catch {
             return parseSnapshot<T>(null);
           }
         }
-        if (typeof file.text === "function") {
+        if (typeof file.textSync === "function") {
           try {
-            return parseSnapshot<T>(await file.text());
+            return parseSnapshot<T>(file.textSync());
           } catch {
             return parseSnapshot<T>(null);
           }
