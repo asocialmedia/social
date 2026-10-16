@@ -32,6 +32,7 @@ jobs:
     # so provision a throwaway instance matching the local dev default.
     env:
       REDIS_URL: redis://127.0.0.1:6379/0
+      PROTOCOLS_TEST_REDIS_URL: redis://127.0.0.1:6379/0
     services:
       redis:
         image: redis:7-alpine
@@ -249,9 +250,11 @@ jobs:
           DOKPLOY_WEB_APP_ID: ${{ secrets.DOKPLOY_WEB_APP_ID }}
           DOKPLOY_AUTH_APP_ID: ${{ secrets.DOKPLOY_AUTH_APP_ID }}
           DOKPLOY_MEDIA_APP_ID: ${{ secrets.DOKPLOY_MEDIA_APP_ID }}
+          DOKPLOY_PROTOCOLS_APP_ID: ${{ secrets.DOKPLOY_PROTOCOLS_APP_ID }}
           WEB_HEALTH_URL: ${{ secrets.WEB_HEALTH_URL }}
           AUTH_HEALTH_URL: ${{ secrets.AUTH_HEALTH_URL }}
           MEDIA_HEALTH_URL: ${{ secrets.MEDIA_HEALTH_URL }}
+          PROTOCOLS_HEALTH_URL: ${{ secrets.PROTOCOLS_HEALTH_URL }}
         run: bash scripts/ci/resolve-deploy-targets.sh "${{ matrix.app }}"
 
       - name: Trigger Dokploy deployment via API
