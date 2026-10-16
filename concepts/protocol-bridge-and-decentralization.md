@@ -2,7 +2,7 @@
 
 Recorded: 2026-10-16.
 
-Status: implementation started. The first backend milestone adds `@asm/protocols` and the Elysia-on-Bun service in `apps/protocols`. The full web/mobile and persistence roadmap below is not yet complete. No database contract or deployed infrastructure has changed.
+Status: implementation started. The first backend milestone adds `@asm/protocols` and the Elysia-on-Bun service in `apps/protocols`. Home feed reads are now connected on web and mobile with source filters and curated Bluesky cards. External profiles, personalized source selection, and persistence remain incomplete. No database contract or deployed infrastructure has changed.
 
 ## Purpose
 

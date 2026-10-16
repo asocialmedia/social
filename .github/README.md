@@ -44,7 +44,7 @@ The idea is simple: discover across networks, create on asocialmedia, and eventu
 
 <br>
 
-> [!NOTE] Still being built: Cross-network ingestion and interoperability are part of the roadmap that every pictured network is already integrated or officially partnered with us. What appears in asocialmedia will depend on protocol support, permissions, moderation, and compatibility.
+**Still being built**: Cross-network ingestion and interoperability are part of the roadmap that every pictured network is already integrated or officially partnered with us. What appears in asocialmedia will depend on protocol support, permissions, moderation, and compatibility.
 
 <br>
 
@@ -75,7 +75,7 @@ Think XP for being a worthwhile human on the internet. Without having to defeat 
 
 <br>
 
-> [!TIP] If an idea makes the internet less human, we're probably not interested. If it makes the internet feel a little smaller in the best possible way, we're listening.
+_If an idea makes the internet less human, we're probably not interested. If it makes the internet feel a little smaller in the best possible way, we're listening._
 
 <div align="center">
   <h2>some things are not up for debate.</h2>
@@ -120,7 +120,7 @@ Also: no pretending moderation doesn't matter. A welcoming internet needs spam c
 
 ### AI? Yeah, we use that.
 
-> [!NOTE] Some of our artwork, banners, icons, writing, and code are made with a little help from AI. We're not hiding it, and we're not ashamed of it.
+Some of our artwork, banners, icons, writing, and code are made with a little help from AI. We're not hiding it, and we're not ashamed of it.
 
 We welcome AI-assisted contributions, human-made designs, and everything in between. Just one rule: **understand what you're submitting, test your code, and don't make maintainers debug something you blindly copy-pasted from an LLM.**
 
@@ -176,4 +176,5 @@ made possible with Singularity Works (its us btw)
 <sub>© 2026 Singularity Works · asocialmedia is released under the <a href="https://github.com/asocialmedia/social/blob/main/LICENSE">AGPL-3.0 licence</a>. Read the licence and contribution terms before redistributing modified versions.</sub>
 
 less doomscrolling. more internet.
+
 </div>
