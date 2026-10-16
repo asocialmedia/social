@@ -9,7 +9,6 @@ import { useCallback, useState } from "react";
 import { FaGithub, FaLinkedin, FaReddit, FaXTwitter } from "react-icons/fa6";
 
 import { useSession } from "@/app/(main)/session-provider";
-import ShareButton from "@/components/home/feedview/share-button";
 import EditProfileButton from "@/components/layouts/user/edit-profile-button";
 import FollowButton from "@/components/layouts/user/follow-button";
 import UserAvatar from "@/components/layouts/user/user-avatar";
@@ -124,19 +123,24 @@ const ProfileHeader: React.FC<ProfileHeaderProps> = ({
   let profileActions: React.ReactNode = null;
   if (isOwnProfile) {
     if (ownUserData) {
-      profileActions = <EditProfileButton user={ownUserData} />;
+      profileActions = (
+        <EditProfileButton
+          className="text-[13px] sm:text-sm"
+          user={ownUserData}
+        />
+      );
     }
   } else {
     profileActions = (
       <div className="flex flex-col items-end gap-2">
         <FollowButton
-          className="h-9 px-4 text-sm"
+          className="h-9 px-4 text-[13px]! sm:text-sm!"
           initialState={followerInfo}
           userId={liveUserData.id}
         />
         <Link
           aria-label={`Message ${liveUserData.displayName || liveUserData.username}`}
-          className="btn-3d-gray flex h-9 shrink-0 items-center gap-1.5 rounded-full px-4 text-sm!"
+          className="btn-3d-gray flex h-9 shrink-0 items-center gap-1.5 rounded-full px-4 text-[13px]! sm:text-sm!"
           href={`/messages?dm=${liveUserData.id}`}
           onClick={handleMessageClick}
         >
@@ -189,32 +193,59 @@ const ProfileHeader: React.FC<ProfileHeaderProps> = ({
         <div className="absolute inset-0 bg-linear-to-t from-[hsl(var(--background-alt))] to-transparent" />
       </div>
 
-      {/* Avatar + actions */}
+      {/* Avatar + social links */}
       <div className="px-4">
-        <div className="-mt-14 flex items-end justify-between sm:-mt-16">
-          <div className="relative mb-8">
+        <div className="-mt-12 flex items-end justify-between sm:-mt-16">
+          <div className="relative shrink-0 self-start">
             <UserAvatar
               avatarUrl={avatarUrl}
-              className="ring-4 ring-[hsl(var(--background-alt))]"
+              className="size-24 ring-4 ring-[hsl(var(--background-alt))] sm:size-28"
               size={112}
               user={liveUserData}
             />
           </div>
-          <div className="mb-2 flex items-center gap-2">{profileActions}</div>
+          {/* Social links */}
+          {socialLinks.length > 0 ? (
+            <div className="relative mt-12 mb-2 flex min-w-0 flex-1 flex-wrap items-center justify-end gap-2 pl-3 sm:mt-16">
+              {socialLinks.map((link) => (
+                <a
+                  aria-label={link.label}
+                  className="pill-3d-hover text-muted-foreground hover:text-foreground inline-flex h-9 w-9 items-center justify-center rounded-full transition-colors duration-200"
+                  href={link.href}
+                  key={link.label}
+                  rel="noopener noreferrer"
+                  target="_blank"
+                >
+                  <link.icon className="h-4 w-4" />
+                </a>
+              ))}
+            </div>
+          ) : null}
         </div>
 
         {/* Identity */}
-        <div className="mt-3">
-          <h1 className="flex items-center gap-1.5 text-xl font-bold sm:text-2xl">
-            {liveUserData.displayName || liveUserData.username}
-            <UserBadge
-              badge={liveUserData.badge}
-              badges={liveUserData.badges}
-              className="h-8 w-24"
-              communityRoles={communityRoles}
-            />
-          </h1>
-          <p className="text-muted-foreground">@{liveUserData.username}</p>
+        <div className="mt-3 flex items-start justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <h1 className="flex flex-wrap items-center gap-1.5 text-base/5 font-bold wrap-anywhere sm:text-2xl">
+              {liveUserData.displayName || liveUserData.username}
+              <UserBadge
+                badge={liveUserData.badge}
+                badges={liveUserData.badges}
+                className="h-5 w-15 sm:h-8 sm:w-24"
+                communityRoles={communityRoles}
+              />
+            </h1>
+            <p className="text-muted-foreground text-[13px]/4.5 wrap-anywhere sm:text-base/6">
+              @{liveUserData.username}
+            </p>
+            <div className="text-muted-foreground mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[13px] sm:text-sm">
+              <span className="inline-flex items-center gap-1.5">
+                <CalendarDays className="size-4 shrink-0" />
+                Joined {joinedDate}
+              </span>
+            </div>
+          </div>
+          <div className="shrink-0">{profileActions}</div>
         </div>
 
         {/* Community roles: what this account does across the platform, one
@@ -225,40 +256,14 @@ const ProfileHeader: React.FC<ProfileHeaderProps> = ({
 
         {liveUserData.bio ? (
           <PostLinkedContent
-            className="mt-3 overflow-hidden"
+            className="mt-3 overflow-hidden text-sm/5.5 sm:text-[15px]/relaxed"
             content={liveUserData.bio}
             linkBadge="chip"
           />
         ) : null}
 
-        {/* Meta */}
-        <div className="text-muted-foreground mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
-          <span className="inline-flex items-center gap-1.5">
-            <CalendarDays className="size-4" />
-            Joined {joinedDate}
-          </span>
-        </div>
-
-        {/* Social links */}
-        {socialLinks.length > 0 ? (
-          <div className="mt-3 flex flex-wrap items-center gap-2">
-            {socialLinks.map((link) => (
-              <a
-                aria-label={link.label}
-                className="pill-3d-hover text-muted-foreground hover:text-foreground inline-flex h-9 w-9 items-center justify-center rounded-full transition-colors duration-200"
-                href={link.href}
-                key={link.label}
-                rel="noopener noreferrer"
-                target="_blank"
-              >
-                <link.icon className="h-4 w-4" />
-              </a>
-            ))}
-          </div>
-        ) : null}
-
-        {/* Stats + share, on the same row with the share pinned right */}
-        <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-2 pb-4 text-sm">
+        {/* Stats */}
+        <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-2 pb-4 text-[13px] sm:text-sm">
           <Link
             className="group hover:bg-accent/50 inline-flex items-center gap-1 rounded-md px-1 py-0.5 whitespace-nowrap transition-colors"
             href={`/users/${liveUserData.username}/following`}
@@ -296,36 +301,17 @@ const ProfileHeader: React.FC<ProfileHeaderProps> = ({
             title="Aura"
           >
             <Flame
-              className={["size-5", getAuraFlameClass(liveUserData.aura)].join(
-                " "
-              )}
+              className={[
+                "size-4 sm:size-5",
+                getAuraFlameClass(liveUserData.aura),
+              ].join(" ")}
             />
-            <span className="text-base tabular-nums">
+            <span className="text-sm tabular-nums sm:text-base">
               {formatNumber(liveUserData.aura)}
             </span>
-            <span className="text-muted-foreground text-sm font-semibold">
+            <span className="text-muted-foreground text-[13px] font-semibold sm:text-sm">
               Aura
             </span>
-          </span>
-
-          <span className="ml-auto">
-            <ShareButton
-              className="icon-btn-3d flex h-9! w-9! shrink-0 -translate-y-0.5 items-center justify-center rounded-full px-0!"
-              defaultTab="link"
-              description={
-                liveUserData.bio ||
-                `Check out @${liveUserData.username}'s profile on asocialmedia`
-              }
-              dialogDescription="Share this profile with your network"
-              dialogTitle="Share Profile"
-              shareUrl={
-                typeof window === "undefined"
-                  ? undefined
-                  : `${window.location.origin}/users/${liveUserData.username}`
-              }
-              thumbnail={avatarUrl || undefined}
-              title={`${liveUserData.displayName || liveUserData.username} (@${liveUserData.username}) on asocialmedia`}
-            />
           </span>
         </div>
       </div>

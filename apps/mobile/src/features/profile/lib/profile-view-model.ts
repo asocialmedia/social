@@ -5,6 +5,7 @@ import type {
   FeedPost,
   FeedUser,
 } from "@/features/feed/lib/feed-types";
+import type { CommunityRoleLike } from "@/features/home/components/profile-utils";
 
 import type { ProfileViewTab } from "./profile-tab-memory";
 
@@ -15,10 +16,7 @@ export interface ProfileHeaderProfile {
   badges: string[];
   bannerUrl: string | null;
   bio: string | null;
-  communityMemberships: {
-    community?: { slug?: string | null } | null;
-    role: string;
-  }[];
+  communityMemberships: CommunityRoleLike[];
   createdAt: string;
   customDomain: string | null;
   displayName: string | null;

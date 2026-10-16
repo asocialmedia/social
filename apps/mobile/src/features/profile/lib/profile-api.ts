@@ -168,7 +168,14 @@ export function parseProfileHeader(
         const community = objectOf(membership.community);
         return [
           {
-            community: community ? { slug: textOf(community.slug) } : null,
+            community: community
+              ? {
+                  accentColor: textOf(community.accentColor),
+                  avatarUrl: textOf(community.avatarUrl),
+                  name: textOf(community.name),
+                  slug: textOf(community.slug),
+                }
+              : null,
             role: membership.role,
           },
         ];

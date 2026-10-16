@@ -3,13 +3,10 @@
 // pass the stored cookie string (authClient.getCookie()) and the API base
 // (getApiBaseUrl(), which already selects the dev server or prod). Pure and
 // injectable for testing, same convention as lib/install-token.ts.
-import type { BioLinkPreview } from "./profile-utils";
+import type { BioLinkPreview, CommunityRoleLike } from "./profile-utils";
 import { parseLinkPreview } from "./profile-utils";
 
-export interface PopupCommunityRole {
-  community?: { slug?: string | null } | null;
-  role: string;
-}
+export type PopupCommunityRole = CommunityRoleLike;
 
 export interface PopupProfile {
   aura: number;

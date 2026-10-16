@@ -416,6 +416,13 @@ export function UserProfilePopup({ onClose, userId }: UserProfilePopupProps) {
                         badge={profile.badge}
                         badges={profile.badges}
                         communityRoles={profile.communityMemberships}
+                        onCommunityPress={(slug) => {
+                          onClose();
+                          router.push({
+                            params: { slug },
+                            pathname: "/a/[slug]",
+                          });
+                        }}
                       />
                     </View>
                   ) : null}
