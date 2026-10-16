@@ -53,6 +53,7 @@ export async function extractVideoSamples(
 ): Promise<void> {
   const probe = await probeMedia(inputPath);
   const thumbnails: Uint8Array[] = [];
+  let lastError: unknown = null;
   for (const [index, anchor] of sampleTimes(probe.durationSec).entries()) {
     let seek = anchor;
     const window = Math.min(4, Math.max(0.05, probe.durationSec - anchor));
@@ -85,35 +86,44 @@ export async function extractVideoSamples(
       }
     }
     const path = `${inputPath}-sample-${index}.jpg`;
-    // Register before extraction so the caller cleans partial output on any failure.
-    paths.push(path);
-    await runFfmpeg(
-      [
-        "-ss",
-        String(Math.min(seek, Math.max(0, probe.durationSec - 0.05))),
-        "-i",
-        inputPath,
-        "-frames:v",
-        "1",
-        "-vf",
-        "scale=768:768:force_original_aspect_ratio=decrease",
-        "-q:v",
-        "3",
-        "-y",
-        path,
-      ],
-      15_000
-    );
-    const thumbnail = await sharp(path)
-      .resize(16, 16, { fit: "fill" })
-      .removeAlpha()
-      .raw()
-      .toBuffer();
-    if (thumbnails.some((previous) => similarFrame(previous, thumbnail))) {
-      await Bun.file(path).delete();
-      paths.pop();
-    } else {
-      thumbnails.push(thumbnail);
+    // Keep only validated frames; a failed late sample must not discard earlier ones.
+    try {
+      await runFfmpeg(
+        [
+          "-ss",
+          String(Math.min(seek, Math.max(0, probe.durationSec - 0.05))),
+          "-i",
+          inputPath,
+          "-frames:v",
+          "1",
+          "-vf",
+          "scale=768:768:force_original_aspect_ratio=decrease",
+          "-q:v",
+          "3",
+          "-y",
+          path,
+        ],
+        15_000
+      );
+      const thumbnail = await sharp(path)
+        .resize(16, 16, { fit: "fill" })
+        .removeAlpha()
+        .raw()
+        .toBuffer();
+      if (thumbnails.some((previous) => similarFrame(previous, thumbnail))) {
+        await Bun.file(path).delete();
+      } else {
+        thumbnails.push(thumbnail);
+        paths.push(path);
+      }
+    } catch (error) {
+      lastError = error;
+      await Bun.file(path)
+        .delete()
+        .catch(() => null);
     }
+  }
+  if (!paths.length && lastError) {
+    throw lastError;
   }
 }

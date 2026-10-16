@@ -38,6 +38,7 @@ import {
 } from "../analyze/embedding";
 import { extractImageText } from "../analyze/ocr";
 import { ProviderBudgetDeferredError } from "../analyze/provider-budget";
+import { downloadAnalysisRaster } from "../analyze/raster-source";
 import { SEMANTIC_CLASSIFICATION_VERSION } from "../analyze/semantic-version";
 import { transcribeMediaAudio } from "../analyze/transcribe";
 import { extractVideoSamples } from "../analyze/video-samples";
@@ -138,7 +139,6 @@ async function resolveAnalysisSource(
     !classificationComplete ||
     (media._type === "VIDEO" &&
       workerEnv.OCR_ENABLED &&
-      (workerEnv.VIDEO_OCR_FRAMES ?? 1) > 1 &&
       !media.ocrText &&
       !analysisStageComplete(media.techMetadata, "ocr")) ||
     (workerEnv.MULTIMODAL_EMBEDDING_ENABLED &&
@@ -154,35 +154,39 @@ async function resolveAnalysisSource(
     transcriptionRetryEligible(media.techMetadata) &&
     workerEnv.WHISPER_ENABLED;
 
-  const preferredRaster =
-    media.postMediaDerivatives.find((d) => d.kind === "poster") ??
-    media.postMediaDerivatives.find((d) => d.kind === "cover") ??
-    media.postMediaDerivatives.find((d) => d.kind === "md") ??
-    media.postMediaDerivatives.find((d) => d.kind === "sm") ??
-    media.postMediaDerivatives.find((d) => d.kind === "thumb");
-
-  const rasterKey =
-    preferredRaster?.key ??
-    (media._type === "IMAGE" ? media.publishedKey : null) ??
-    null;
+  const rasterKeys = [
+    ...["poster", "cover", "md", "sm", "thumb"].flatMap((kind) =>
+      media.postMediaDerivatives
+        .filter((item) => item.kind === kind)
+        .map((item) => item.key)
+    ),
+    ...(media._type === "IMAGE"
+      ? [media.publishedKey, media.originalKey, media.key].filter(
+          (key): key is string => Boolean(key)
+        )
+      : []),
+  ];
 
   let rasterLocalPath: string | null = null;
   if (
-    rasterKey &&
+    rasterKeys.length &&
     (needsVisual || !analysisStageComplete(media.techMetadata, "ocr"))
   ) {
-    rasterLocalPath = `/tmp/asm-raster-${mediaId}-${crypto.randomUUID()}`;
     try {
-      // Stream the S3 object directly to disk instead of buffering the whole
-      // image through an ArrayBuffer first.
-      await Bun.write(rasterLocalPath, getS3().file(rasterKey));
-    } catch {
-      await Bun.file(rasterLocalPath)
-        .delete()
-        .catch(() => null);
-      throw new ClefDeferredError(
-        "Media raster is temporarily unavailable",
-        Date.now() + 60_000
+      rasterLocalPath = await downloadAnalysisRaster(
+        rasterKeys,
+        `/tmp/asm-raster-${mediaId}-${crypto.randomUUID()}.jpg`
+      );
+    } catch (error) {
+      if (media._type !== "VIDEO") {
+        throw new ClefDeferredError(
+          `Media raster unavailable: ${String(error)}`,
+          Date.now() + 5 * 60_000
+        );
+      }
+      mediaLogger.warn(
+        { error: String(error), mediaId },
+        "Poster unavailable; using video samples for analysis"
       );
     }
   }
@@ -225,7 +229,7 @@ async function resolveAnalysisSource(
   return {
     avLocalPath,
     createdAt: String(media.createdAt),
-    isRaster: Boolean(preferredRaster) || media._type === "IMAGE",
+    isRaster: Boolean(rasterLocalPath) || media._type === "IMAGE",
     ocrText: media.ocrText,
     rasterLocalPath,
     safety: media.safety,
@@ -256,7 +260,20 @@ export function processMediaAnalyze(
       const samplePaths: string[] = [];
       try {
         if (avLocalPath && source.type === "VIDEO") {
-          await extractVideoSamples(avLocalPath, samplePaths);
+          try {
+            await extractVideoSamples(avLocalPath, samplePaths);
+          } catch (error) {
+            if (!rasterLocalPath) {
+              throw new ClefDeferredError(
+                `Video sampling pending: ${String(error)}`,
+                Date.now() + 5 * 60_000
+              );
+            }
+            mediaLogger.warn(
+              { error: String(error), mediaId: jobData.mediaId },
+              "Video sampling failed; continuing with validated poster"
+            );
+          }
         }
         // Stage 2: Scene-text OCR. Each paid frame is checkpointed separately.
         let ocr: { text: string; modelVersion: string } | null = null;
@@ -329,10 +346,12 @@ export function processMediaAnalyze(
             }
           } catch (error) {
             ocrError = error;
-            mediaLogger.warn(
-              { error: String(error) },
-              "OCR extraction pending retry"
-            );
+            if (!(error instanceof ProviderBudgetDeferredError)) {
+              mediaLogger.warn(
+                { error: String(error), mediaId: jobData.mediaId },
+                "OCR extraction pending retry"
+              );
+            }
           }
         }
 
@@ -518,10 +537,9 @@ export function processMediaAnalyze(
               }
             : {}),
         };
-        const effectiveSemanticTags =
-          semanticRefresh && semanticTags.length === 0
-            ? source.semanticTags
-            : semanticTags;
+        const effectiveSemanticTags = classificationSucceeded
+          ? semanticTags
+          : source.semanticTags;
 
         await prisma.orm.public.PostMedia.where({ id: jobData.mediaId }).update(
           {
@@ -532,7 +550,7 @@ export function processMediaAnalyze(
             ...(verdict && isMediaJson(verdict)
               ? { safety: structuredClone(verdict) }
               : {}),
-            ...(effectiveSemanticTags.length > 0
+            ...(classificationSucceeded
               ? { semanticTags: effectiveSemanticTags }
               : {}),
             ...(semantics ? { semantics: structuredClone(semantics) } : {}),
@@ -734,7 +752,9 @@ export function processMediaAnalyze(
               .join(" ");
             const allSemanticTags = [
               ...new Set([
-                ...(post.semanticTags ?? []),
+                ...(post.semanticTags ?? []).filter(
+                  (tag) => !source.semanticTags.includes(tag)
+                ),
                 ...post.postToTags.flatMap((postTag) =>
                   postTag.tag ? [postTag.tag.name] : []
                 ),
@@ -803,9 +823,7 @@ export function processMediaAnalyze(
               ...(embedding.length > 0
                 ? { embedding, embeddingModel: embeddingModelId() }
                 : {}),
-              ...(allSemanticTags.length > 0
-                ? { semanticTags: allSemanticTags }
-                : {}),
+              semanticTags: allSemanticTags,
             });
 
             if (embedding.length > 0) {

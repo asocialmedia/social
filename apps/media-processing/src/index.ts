@@ -158,10 +158,28 @@ if (import.meta.main) {
           error instanceof ProviderBudgetDeferredError
         ) {
           await job.moveToDelayed(error.retryAt, job.token);
-          mediaLogger.warn(
-            { jobId: job.id, reason: error.message, retryAt: error.retryAt },
-            "Media analysis deferred"
-          );
+          const details = {
+            jobId: job.id,
+            reason: error.message,
+            retryAt: error.retryAt,
+          };
+          if (
+            error instanceof ProviderBudgetDeferredError &&
+            error.reason !== "storage-unavailable"
+          ) {
+            mediaLogger.info(
+              {
+                ...details,
+                budgetReason: error.reason,
+                limit: error.limit,
+                provider: error.provider,
+                used: error.used,
+              },
+              "Media analysis waiting for worker budget reset"
+            );
+          } else {
+            mediaLogger.warn(details, "Media analysis deferred");
+          }
           throw new DelayedError();
         }
         throw error;
