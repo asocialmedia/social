@@ -276,6 +276,7 @@ export function getPostDataQuery(orm: PrismaOrm, loggedInUserId: string) {
         .include("community", (community) => community.select("slug"))
     )
     .include("hnStoryShares")
+    .include("externalParent", (parent) => parent.select("uri"))
     .include("user", (_user) => getUserDataQuery(orm, loggedInUserId))
     .include("parentPost", (parent) =>
       parent

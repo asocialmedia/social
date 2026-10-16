@@ -1,0 +1,113 @@
+[
+  {
+    "id": "column.public.posts.externalParentId",
+    "label": "Add column \"externalParentId\" to \"posts\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "column",
+        "name": "externalParentId",
+        "table": "posts"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure column \"externalParentId\" is missing",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": ["public", "posts", "externalParentId"]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add column \"externalParentId\"",
+        "sql": "ALTER TABLE \"public\".\"posts\" ADD COLUMN \"externalParentId\" text"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify column \"externalParentId\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": ["public", "posts", "externalParentId"]
+      }
+    ]
+  },
+  {
+    "id": "index.posts.posts_externalParentId_idx_23c1048b",
+    "label": "Create index \"posts_externalParentId_idx_23c1048b\" on \"posts\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "posts_externalParentId_idx_23c1048b",
+        "table": "posts"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"posts_externalParentId_idx_23c1048b\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": ["\"public\".\"posts_externalParentId_idx_23c1048b\""]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"posts_externalParentId_idx_23c1048b\"",
+        "sql": "CREATE INDEX \"posts_externalParentId_idx_23c1048b\" ON \"public\".\"posts\" (\"externalParentId\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"posts_externalParentId_idx_23c1048b\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": ["\"public\".\"posts_externalParentId_idx_23c1048b\""]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.posts.posts_externalParentId_fkey",
+    "label": "Add foreign key \"posts_externalParentId_fkey\" on \"posts\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "posts_externalParentId_fkey",
+        "table": "posts"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"posts_externalParentId_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "posts_externalParentId_fkey",
+          "public",
+          "\"public\".\"posts\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"posts_externalParentId_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"posts\"\nADD CONSTRAINT \"posts_externalParentId_fkey\"\nFOREIGN KEY (\"externalParentId\")\nREFERENCES \"public\".\"external_posts\" (\"id\")\nON DELETE SET NULL"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"posts_externalParentId_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "posts_externalParentId_fkey",
+          "public",
+          "\"public\".\"posts\""
+        ]
+      }
+    ]
+  }
+]

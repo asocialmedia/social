@@ -1,4 +1,5 @@
 // oxlint-disable oxc/no-barrel-file
+export * from "./src/protocols/external-posts";
 export { and, or } from "@prisma/orm-postgres/orm-client";
 export * from "./cache/avatar-cache";
 export * from "./cache/followbutton-cache";
