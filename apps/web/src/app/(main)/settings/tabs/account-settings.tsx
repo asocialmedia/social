@@ -25,6 +25,7 @@ import type { ControllerRenderProps } from "react-hook-form";
 import { z } from "zod";
 
 import { LoadingButton } from "@/components/auth/fields/loading-button";
+import { AccountResolutionDialog } from "@/components/settings/account-resolution-dialog";
 import AddEmailBanner from "@/components/settings/add-email-banner";
 import LinkAccountAlert from "@/components/settings/link-account-alert";
 import LinkedAccounts from "@/components/settings/linked-accounts";
@@ -212,6 +213,8 @@ export default function AccountSettings({
   const currentEmail = recoveryEmail(user.email);
   const [emailStep, setEmailStep] = useState<EmailStep>("idle");
   const [pendingNewEmail, setPendingNewEmail] = useState<string | null>(null);
+  const [emailVerificationId, setEmailVerificationId] = useState<string>();
+  const [collisionId, setCollisionId] = useState<string>();
   const [isSettingPassword, setIsSettingPassword] = useState(false);
 
   const usernameForm = useForm<UsernameFormValues>({
@@ -295,6 +298,7 @@ export default function AccountSettings({
     }
 
     setPendingNewEmail(values.email);
+    setEmailVerificationId(undefined);
     emailVerifyForm.setValue("email", values.email);
     emailVerifyForm.setValue("otp", "");
 
@@ -309,7 +313,8 @@ export default function AccountSettings({
               variant: "destructive",
             });
           },
-          onSuccess: () => {
+          onSuccess: (result) => {
+            setEmailVerificationId(result.verificationId);
             setEmailStep("new");
             toast({
               description: `We sent a code to ${values.email} - enter it to confirm`,
@@ -373,7 +378,8 @@ export default function AccountSettings({
             variant: "destructive",
           });
         },
-        onSuccess: () => {
+        onSuccess: (result) => {
+          setEmailVerificationId(result.verificationId);
           emailForm.setValue("otp", "");
           setEmailStep("new");
           toast({
@@ -387,29 +393,40 @@ export default function AccountSettings({
 
   // Stage 3 - confirm the code sent to the new email address.
   function onVerifyNewEmail(values: EmailVerifyFormValues) {
-    emailVerifyMutation.mutate(values, {
-      onError: (error) => {
-        toast({
-          description: error.message || "That code didn't work, try again?",
-          title: "Couldn't Verify",
-          variant: "destructive",
-        });
-      },
-      onSuccess: () => {
-        setEmailStep("idle");
-        setPendingNewEmail(null);
-        emailForm.reset({ email: pendingNewEmail ?? "", otp: "" });
-        emailVerifyForm.reset({ email: pendingNewEmail ?? "", otp: "" });
-        router.refresh();
-        toast({
-          description: "Your email is updated and verified!",
-          title: "Email Updated",
-        });
-      },
-    });
+    emailVerifyMutation.mutate(
+      { ...values, verificationId: emailVerificationId },
+      {
+        onError: (error) => {
+          toast({
+            description: error.message || "That code didn't work, try again?",
+            title: "Couldn't Verify",
+            variant: "destructive",
+          });
+        },
+        onSuccess: (result) => {
+          setEmailStep("idle");
+          setPendingNewEmail(null);
+          setEmailVerificationId(undefined);
+          if (result.collisionId) {
+            setCollisionId(result.collisionId);
+            emailForm.reset({ email: currentEmail ?? "", otp: "" });
+            emailVerifyForm.reset({ email: "", otp: "" });
+            return;
+          }
+          emailForm.reset({ email: pendingNewEmail ?? "", otp: "" });
+          emailVerifyForm.reset({ email: pendingNewEmail ?? "", otp: "" });
+          router.refresh();
+          toast({
+            description: "Your email is updated and verified!",
+            title: "Email Updated",
+          });
+        },
+      }
+    );
   }
 
   function onCancelEmailChange() {
+    setEmailVerificationId(undefined);
     setEmailStep("idle");
     setPendingNewEmail(null);
     emailForm.setValue("email", currentEmail || "");
@@ -459,6 +476,15 @@ export default function AccountSettings({
       <LinkAccountAlert
         linkedProviders={accountLinkingReadiness.linkedProviders}
       />
+      {collisionId && (
+        <AccountResolutionDialog
+          id={collisionId}
+          onClose={() => {
+            setCollisionId(undefined);
+            router.refresh();
+          }}
+        />
+      )}
 
       {/* Reddit never shares an email; accounts created through it have no
           recovery address, so prompt them to add one. */}

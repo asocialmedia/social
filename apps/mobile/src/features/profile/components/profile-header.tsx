@@ -11,7 +11,6 @@ import {
   Globe,
   MessageCircle,
   Pencil,
-  Share2,
   UserPlus,
 } from "lucide-react-native";
 import { useCallback } from "react";
@@ -20,7 +19,6 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { UserAvatar } from "@/components/avatar/user-avatar";
 import { Gradient3D } from "@/components/surface/gradient-3d";
-import { IconButton3D } from "@/components/surface/icon-button-3d";
 import { BioContent } from "@/features/home/components/bio-content";
 import {
   formatJoinedDate,
@@ -46,6 +44,7 @@ import {
 } from "@/theme";
 
 import type { ProfileHeaderProfile } from "../lib/profile-view-model";
+import { ProfileCommunityRoles } from "./profile-community-roles";
 import { ProfileMutualAvatars } from "./profile-mutual-avatars";
 
 function BannerContent({
@@ -149,7 +148,6 @@ export function ProfileHeader({
   onEdit,
   onFollow,
   onMessage,
-  onShare,
   profile,
 }: {
   canFollow: boolean;
@@ -159,7 +157,6 @@ export function ProfileHeader({
   onEdit: () => void;
   onFollow: () => void;
   onMessage: () => void;
-  onShare: () => void;
   profile: ProfileHeaderProfile;
 }) {
   const { theme, isDark } = useAppTheme();
@@ -171,7 +168,6 @@ export function ProfileHeader({
   const socials = getSocialLinks(profile);
   const flame = getAuraFlameStyle(profile.aura);
   const joined = formatJoinedDate(profile.createdAt);
-  const role = profile.communityMemberships?.[0];
   const followStyles = getFollowButtonStyles(isDark);
   const grayStyles = getGrayButtonStyles(isDark);
   const editStyles = getEditButtonStyles(isDark);
@@ -208,6 +204,50 @@ export function ProfileHeader({
               userId={profile.id}
               username={profile.username}
             />
+          </View>
+          {socials.length > 0 ? (
+            <View style={styles.socials}>
+              {socials.map((social) => {
+                const href = safeSocialUrl(social);
+                return href ? (
+                  <Pressable
+                    accessibilityLabel={social.label}
+                    accessibilityRole="link"
+                    key={social.href}
+                    onPress={() => openSocial(href)}
+                    style={({ pressed }) => [
+                      styles.social,
+                      {
+                        backgroundColor: isDark ? "#232323" : theme.cardBg,
+                        boxShadow: isDark
+                          ? ICON_BUTTON_SHADOWS_DARK
+                          : ICON_BUTTON_SHADOWS_LIGHT,
+                        transform: [{ translateY: pressed ? 1 : 0 }],
+                      },
+                    ]}
+                  >
+                    <SocialIcon color={theme.dividerText} kind={social.kind} />
+                  </Pressable>
+                ) : null;
+              })}
+            </View>
+          ) : null}
+        </View>
+        <View style={styles.identity}>
+          <View style={styles.identityText}>
+            <View style={styles.nameRow}>
+              <Text style={[styles.name, { color: theme.inputText }]}>
+                {profile.displayName || profile.username}
+              </Text>
+              <UserBadge
+                badge={profile.badge}
+                badges={profile.badges}
+                communityRoles={profile.communityMemberships}
+              />
+            </View>
+            <Text style={[styles.username, { color: theme.dividerText }]}>
+              @{profile.username}
+            </Text>
           </View>
           <View style={styles.actions}>
             {isOwnProfile ? (
@@ -293,22 +333,7 @@ export function ProfileHeader({
             )}
           </View>
         </View>
-        <View style={styles.identity}>
-          <View style={styles.nameRow}>
-            <Text style={[styles.name, { color: theme.inputText }]}>
-              {profile.displayName || profile.username}
-            </Text>
-            <UserBadge
-              badge={profile.badge}
-              badges={profile.badges}
-              communityRoles={profile.communityMemberships}
-              large
-            />
-          </View>
-          <Text style={[styles.username, { color: theme.dividerText }]}>
-            @{profile.username}
-          </Text>
-        </View>
+        <ProfileCommunityRoles roles={profile.communityMemberships} />
         {profile.bio ? (
           <View style={styles.bio}>
             <BioContent
@@ -324,38 +349,6 @@ export function ProfileHeader({
             <Text style={[styles.meta, { color: theme.dividerText }]}>
               Joined {joined}
             </Text>
-          </View>
-        ) : null}
-        {role?.community?.slug ? (
-          <Text style={[styles.role, { color: theme.dividerText }]}>
-            Community role · a/{role.community.slug}
-          </Text>
-        ) : null}
-        {socials.length > 0 ? (
-          <View style={styles.socials}>
-            {socials.map((social) => {
-              const href = safeSocialUrl(social);
-              return href ? (
-                <Pressable
-                  accessibilityLabel={social.label}
-                  accessibilityRole="link"
-                  key={social.href}
-                  onPress={() => openSocial(href)}
-                  style={({ pressed }) => [
-                    styles.social,
-                    {
-                      backgroundColor: isDark ? "#232323" : theme.cardBg,
-                      boxShadow: isDark
-                        ? ICON_BUTTON_SHADOWS_DARK
-                        : ICON_BUTTON_SHADOWS_LIGHT,
-                      transform: [{ translateY: pressed ? 1 : 0 }],
-                    },
-                  ]}
-                >
-                  <SocialIcon color={theme.dividerText} kind={social.kind} />
-                </Pressable>
-              ) : null;
-            })}
           </View>
         ) : null}
         <View style={styles.stats}>
@@ -397,14 +390,6 @@ export function ProfileHeader({
             <Text style={[styles.inlineLabel, { color: theme.dividerText }]}>
               Aura
             </Text>
-          </View>
-          <View style={styles.shareButton}>
-            <IconButton3D
-              accessibilityLabel="Share profile"
-              icon={Share2}
-              onPress={onShare}
-              size={36}
-            />
           </View>
         </View>
       </View>
@@ -453,7 +438,6 @@ const styles = StyleSheet.create({
     alignItems: "flex-end",
     flexDirection: "column",
     gap: 8,
-    paddingBottom: 8,
   },
   auraStat: {
     alignItems: "center",
@@ -461,6 +445,7 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   avatarOverlap: {
+    alignSelf: "flex-start",
     borderRadius: 20,
     borderWidth: 4,
     overflow: "hidden",
@@ -500,7 +485,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
   followText: { fontFamily: "SofiaProBold", fontSize: 14 },
-  identity: { marginTop: 12 },
+  identity: {
+    alignItems: "flex-start",
+    flexDirection: "row",
+    gap: 12,
+    justifyContent: "space-between",
+    marginTop: 12,
+  },
+  identityText: { flex: 1, minWidth: 0 },
   inlineLabel: { fontFamily: "SofiaProMed", fontSize: 14 },
   inlineStat: {
     alignItems: "center",
@@ -525,18 +517,19 @@ const styles = StyleSheet.create({
     gap: 6,
     marginTop: 12,
   },
-  name: { fontFamily: "SofiaProBold", fontSize: 24, lineHeight: 29 },
-  nameRow: { alignItems: "center", flexDirection: "row", gap: 6 },
-  role: { fontFamily: "SofiaProReg", fontSize: 13, marginTop: 8 },
-  root: { borderBottomColor: "rgba(128,128,128,0.25)", borderBottomWidth: 1 },
-  // Keeps the share button hard right in the aura row. The sizing and the 3D
-  // recipe itself now come from IconButton3D, so this wrapper only reserves the
-  // 36x36 footprint and carries the auto margin.
-  shareButton: {
-    height: 36,
-    marginLeft: "auto",
-    width: 36,
+  name: {
+    flexShrink: 1,
+    fontFamily: "SofiaProBold",
+    fontSize: 18,
+    lineHeight: 23,
   },
+  nameRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+  },
+  root: { borderBottomColor: "rgba(128,128,128,0.25)", borderBottomWidth: 1 },
   social: {
     alignItems: "center",
     borderRadius: 18,
@@ -544,7 +537,16 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     width: 36,
   },
-  socials: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 12 },
+  socials: {
+    flex: 1,
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    justifyContent: "flex-end",
+    marginTop: 64,
+    paddingBottom: 8,
+    paddingLeft: 12,
+  },
   stats: {
     alignItems: "center",
     flexDirection: "row",
@@ -553,5 +555,11 @@ const styles = StyleSheet.create({
     marginTop: 10,
     paddingBottom: 16,
   },
-  username: { fontFamily: "SofiaProReg", fontSize: 14, marginTop: 2 },
+  username: {
+    flexShrink: 1,
+    fontFamily: "SofiaProReg",
+    fontSize: 13,
+    lineHeight: 18,
+    marginTop: 2,
+  },
 });

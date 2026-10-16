@@ -72,6 +72,7 @@ interface ShareButtonProps {
   postId?: string;
   shareUrl?: string;
   thumbnail?: string;
+  triggerVariant?: "standalone" | "embedded";
   title?: string;
 }
 
@@ -84,6 +85,7 @@ interface ShareStats {
 const ShareButton = ({
   className,
   defaultTab = "social",
+  triggerVariant = "standalone",
   iconClassName,
   postId,
   shareUrl,
@@ -527,7 +529,10 @@ const ShareButton = ({
       <button
         aria-label="Share"
         className={cn(
-          "pill-3d-hover group text-muted-foreground inline-flex h-7 w-7 items-center justify-center rounded-full border-0 p-0 active:translate-y-px sm:h-7.5 sm:w-7.5",
+          "group inline-flex h-7 w-7 items-center justify-center rounded-full border-0 p-0 active:translate-y-px sm:h-7.5 sm:w-7.5",
+          triggerVariant === "embedded"
+            ? "focus-visible:outline-ring text-inherit focus-visible:outline-2 focus-visible:outline-offset-2"
+            : "pill-3d-hover text-muted-foreground",
           className
         )}
         onClick={handleOpen}

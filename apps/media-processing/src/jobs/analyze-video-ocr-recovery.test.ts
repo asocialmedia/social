@@ -3,9 +3,13 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
+import sharp from "sharp";
+
 const directory = await mkdtemp(path.join(tmpdir(), "asm-analysis-retry-"));
 const sourcePath = path.join(directory, "source.png");
-await Bun.write(sourcePath, "test raster bytes");
+await sharp({ create: { background: "red", channels: 3, height: 8, width: 8 } })
+  .png()
+  .toFile(sourcePath);
 const stages: Record<string, unknown> = {};
 const row = {
   _type: "VIDEO",
@@ -27,8 +31,10 @@ const row = {
 };
 let downloads = 0;
 let ocrAttempts = 0;
+let failSampling = false;
 
 let classificationAttempts = 0;
+let classificationTags = ["music"];
 const classificationInputs: { ocrText?: string | null }[] = [];
 const builder = {
   first: () => Promise.resolve(row),
@@ -108,6 +114,9 @@ mock.module("../analyze/ocr", () => ({
 }));
 mock.module("../analyze/video-samples", () => ({
   extractVideoSamples: async (input: string, paths: string[]) => {
+    if (failSampling) {
+      throw new Error("ffmpeg timed out after 15000ms");
+    }
     const scene = `${input}-scene.jpg`;
     paths.push(scene);
     await Bun.write(scene, "different scene raster");
@@ -123,7 +132,7 @@ mock.module("../analyze/classify", () => ({
     return Promise.resolve({
       safety: { explicit: false },
       semantics: { model: "test" },
-      tags: ["music"],
+      tags: classificationTags,
     });
   },
 }));
@@ -151,6 +160,19 @@ test("video OCR resumes after a partial quota failure without paying for the com
     expect(ocrAttempts).toBe(3);
     expect(classificationAttempts).toBe(2);
     expect(downloads).toBe(4);
+    failSampling = true;
+    Object.assign(row, { ocrText: null });
+    delete stages.ocr;
+    Object.assign(row.techMetadata, { semanticClassificationVersion: "old" });
+    await expect(processMediaAnalyze({ mediaId: row.id })).resolves.toEqual({
+      outcome: "analyzed",
+    });
+    expect(row.ocrText).toBe("Poster text");
+    expect(row.status).toBe("READY");
+    classificationTags = [];
+    Object.assign(row.techMetadata, { semanticClassificationVersion: "old" });
+    await processMediaAnalyze({ mediaId: row.id, semanticRefresh: true });
+    expect(row.semanticTags).toEqual([]);
   } finally {
     await rm(directory, { force: true, recursive: true });
   }

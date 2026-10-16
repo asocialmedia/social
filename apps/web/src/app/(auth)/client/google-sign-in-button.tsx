@@ -48,10 +48,10 @@ export default function GoogleSignInButton({
 
   return (
     <Button
-      className="btn-social h-auto w-full rounded-xl py-2.5 text-sm transition-all duration-300 hover:bg-transparent hover:text-inherit"
+      className="h-auto w-full rounded-xl! py-2.5 text-sm!"
       disabled={disabled}
       onClick={handleGoogleSignIn}
-      variant="ghost"
+      variant="premium-neutral"
     >
       <div className="flex items-center justify-center gap-2">
         {loading ? (

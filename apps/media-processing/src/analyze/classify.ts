@@ -1,7 +1,7 @@
 // Dynamic Multimodal Entity Classifier & Knowledge Graph Ingestion.
 // Extracts open-ended entities, proper nouns, and relationships dynamically from
 // visual media (Clef Flash decisions), OCR scene text, and speech transcripts.
-// Clef supplies stable topic labels; lexical extraction retains specific entities.
+// Clef supplies topic labels; full OCR and transcripts remain embedding inputs.
 
 import { recordSharedTopicRelations, redis } from "@asm/db";
 import type { SafetyVerdict } from "@asm/media";
@@ -361,11 +361,8 @@ export function classifyMediaConcepts(input: {
       }
       const semantics = decision;
 
-      const textTopics =
-        await extractTextTopicsWithSharedStatistics(textToAnalyze);
-      for (const t of textTopics) {
-        tags.add(t);
-      }
+      // Arbitrary subtitle n-grams and watermarks are not semantic entities.
+      // Keep them in OCR/transcripts for search and embeddings, outside the graph.
 
       const result = sanitizeTags([...tags]);
       if (result.length > 0) {

@@ -193,6 +193,8 @@ export * from "./src/recommendation/score-candidate";
 export * from "./src/recommendation/vector";
 export * from "./src/users/reserved-usernames";
 export * from "./src/users/username-aliases";
+export * from "./src/users/account-resolution-state";
+export * from "./src/users/account-resolution";
 export * from "./src/search";
 export * from "./src/storage";
 export * from "./src/recommendation/trending-score";

@@ -221,7 +221,7 @@ describe("transcriptionBackfillSweep loop prevention", () => {
       {
         id: "current-image",
         techMetadata: {
-          semanticClassificationVersion: "clef-flash-v3-shared-unicode",
+          semanticClassificationVersion: "clef-flash-v4-model-topics",
         },
       },
     ];

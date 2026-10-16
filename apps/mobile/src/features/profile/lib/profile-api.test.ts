@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  getBadgePanelItems,
+  groupCommunityRoleItems,
+} from "@/features/home/components/profile-utils";
+
+import {
   buildProfileFeedPath,
   buildProfilePostsPath,
   buildProfileUsernamePath,
@@ -38,6 +43,59 @@ test("profile headers preserve bounded mutual previews from the public API", () 
     counts: { followers: 0, following: 0 },
     followers: [],
     following: [],
+  });
+});
+
+test("profile community roles retain icons and names for summaries and badge details", () => {
+  const community = {
+    accentColor: "violet",
+    avatarUrl: "/api/communities/avatar.webp",
+    name: "Art club",
+    slug: "art",
+  };
+  const profile = parseProfileHeader({
+    communityMemberships: [
+      { community, role: "OWNER" },
+      { community: { slug: "older" }, role: "MEMBER" },
+      { community: null, role: "MODERATOR" },
+      { community: { slug: 42 }, role: "MEMBER" },
+      null,
+      { role: 42 },
+    ],
+    id: "artist",
+    username: "artist",
+  });
+  expect(profile?.communityMemberships).toEqual([
+    { community, role: "OWNER" },
+    {
+      community: {
+        accentColor: null,
+        avatarUrl: null,
+        name: null,
+        slug: "older",
+      },
+      role: "MEMBER",
+    },
+    { community: null, role: "MODERATOR" },
+    {
+      community: { accentColor: null, avatarUrl: null, name: null, slug: null },
+      role: "MEMBER",
+    },
+  ]);
+  const groups = groupCommunityRoleItems(profile?.communityMemberships);
+  expect(groups.map((group) => group.role)).toEqual(["OWNER", "MEMBER"]);
+  expect(groups[0]?.communities).toEqual([community]);
+  const badgeItems = getBadgePanelItems(
+    null,
+    [],
+    profile?.communityMemberships
+  );
+  expect(badgeItems[0]).toMatchObject({
+    communities: [community],
+    description: "Founded and runs a community",
+    kind: "role",
+    title: "Owner",
+    type: "OWNER",
   });
 });
 
@@ -135,7 +193,15 @@ describe("profile parsing", () => {
     expect(profile?.followers).toEqual([{ followerId: "viewer-1" }]);
     expect(profile?.isFollowing).toBe(true);
     expect(profile?.communityMemberships).toEqual([
-      { community: { slug: "general" }, role: "OWNER" },
+      {
+        community: {
+          accentColor: null,
+          avatarUrl: null,
+          name: null,
+          slug: "general",
+        },
+        role: "OWNER",
+      },
     ]);
   });
 

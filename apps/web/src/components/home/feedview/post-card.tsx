@@ -127,17 +127,17 @@ const PostHeader: React.FC<PostHeaderProps> = ({
           >
             <UserAvatar
               avatarUrl={authorAvatarUrl}
-              className="h-10 w-10 sm:h-12 sm:w-12"
+              className="h-9 w-9 sm:h-12 sm:w-12"
               priority
             />
           </Link>
         </UserTooltip>
 
-        <div className="min-w-0 flex-1 pr-19">
-          <div className="flex min-w-0 items-center gap-2">
+        <div className="min-w-0 flex-1 pr-9 sm:pr-19">
+          <div className="flex min-w-0 items-center gap-1.5 sm:gap-2">
             <UserTooltip user={post.user}>
               <Link
-                className="text-foreground truncate font-semibold hover:underline"
+                className="text-foreground truncate text-[13px]/4.5 font-semibold hover:underline sm:text-base/6"
                 href={authorProfileHref}
                 prefetch={false}
               >
@@ -148,9 +148,10 @@ const PostHeader: React.FC<PostHeaderProps> = ({
               badge={authorBadge}
               badges={authorBadges}
               communityRoles={authorCommunityRoles}
+              className="h-4 w-12 sm:h-5 sm:w-15"
             />
             <Link
-              className="text-muted-foreground shrink-0 hover:underline"
+              className="text-muted-foreground shrink-0 text-[11px]/4 hover:underline sm:text-base/6"
               href={getPostPath(post)}
               prefetch={false}
               suppressHydrationWarning
@@ -161,7 +162,7 @@ const PostHeader: React.FC<PostHeaderProps> = ({
           <div className="mt-0.5 flex min-w-0 items-center gap-2">
             <UserTooltip user={post.user}>
               <Link
-                className="text-muted-foreground truncate hover:underline"
+                className="text-muted-foreground truncate text-xs/4 hover:underline sm:text-base/6"
                 href={authorProfileHref}
                 prefetch={false}
               >
@@ -485,13 +486,21 @@ const PostContent: React.FC<PostContentProps> = ({
               <div
                 className={cn(
                   !isExpanded && "line-clamp-6",
-                  detail && !isThreadChild ? "mt-3.5" : "mt-1"
+                  detail && !isThreadChild ? "mt-3 sm:mt-3.5" : "mt-1"
                 )}
                 ref={contentRef}
               >
                 {/* URLs inside the content render as inline badges (platform
                   logo + resolved embed title) instead of raw URLs. */}
-                <PostLinkedContent content={post.content} embeds={postEmbeds} />
+                <PostLinkedContent
+                  className={
+                    detail && !isThreadChild
+                      ? "text-sm/5.5 sm:text-[15px]/relaxed"
+                      : undefined
+                  }
+                  content={post.content}
+                  embeds={postEmbeds}
+                />
               </div>
               {isOverflowing ? (
                 <button

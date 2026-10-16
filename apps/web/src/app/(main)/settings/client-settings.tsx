@@ -15,9 +15,11 @@ import SettingsSearch from "@/components/settings/settings-search";
 import type { SettingsTab } from "@/components/settings/settings-search";
 import SettingsSidebar from "@/components/settings/settings-sidebar";
 import {
+  adjacentSettingsTab,
   getSettingsTab,
   isSettingsTab,
 } from "@/components/settings/settings-tab-state";
+import { useFeedSwipeNavigation } from "@/hooks/feed/use-feed-swipe-navigation";
 import type { PrivateUserData } from "@/hooks/users/use-user-data";
 
 import AccountSettings from "./tabs/account-settings";
@@ -47,6 +49,16 @@ export default function ClientSettings({
   const [activeTab, setActiveTab] = useState<SettingsTab>(() =>
     getSettingsTab(searchParams)
   );
+
+  const [visitedTabs, setVisitedTabs] = useState(
+    () => new Set<SettingsTab>([getSettingsTab(searchParams)])
+  );
+  const activateTab = useCallback((tab: SettingsTab) => {
+    setActiveTab(tab);
+    setVisitedTabs((visited) =>
+      visited.has(tab) ? visited : new Set([...visited, tab])
+    );
+  }, []);
 
   const revealTab = useCallback((selected: HTMLElement) => {
     const tabs = tabsRef.current;
@@ -86,24 +98,41 @@ export default function ClientSettings({
 
   useEffect(() => {
     const restoreTabFromHistory = () => {
-      setActiveTab(getSettingsTab(new URLSearchParams(window.location.search)));
+      activateTab(getSettingsTab(new URLSearchParams(window.location.search)));
     };
     window.addEventListener("popstate", restoreTabFromHistory);
     return () => window.removeEventListener("popstate", restoreTabFromHistory);
-  }, []);
+  }, [activateTab]);
 
-  const setPersistedTab = useCallback((tab: SettingsTab) => {
-    setActiveTab(tab);
+  const setPersistedTab = useCallback(
+    (tab: SettingsTab) => {
+      activateTab(tab);
 
-    const nextSearchParams = new URLSearchParams(window.location.search);
-    nextSearchParams.set("tab", tab);
-    const query = nextSearchParams.toString();
-    window.history.replaceState(
-      window.history.state,
-      "",
-      `${window.location.pathname}${query ? `?${query}` : ""}`
-    );
-  }, []);
+      const nextSearchParams = new URLSearchParams(window.location.search);
+      nextSearchParams.set("tab", tab);
+      const query = nextSearchParams.toString();
+      window.history.replaceState(
+        window.history.state,
+        "",
+        `${window.location.pathname}${query ? `?${query}` : ""}`
+      );
+    },
+    [activateTab]
+  );
+
+  const handleSwipeNavigate = useCallback(
+    (direction: -1 | 1) => {
+      const nextTab = adjacentSettingsTab(activeTab, direction);
+      if (nextTab) {
+        setPersistedTab(nextTab);
+      }
+    },
+    [activeTab, setPersistedTab]
+  );
+  useFeedSwipeNavigation(feedScrollRef, handleSwipeNavigate, {
+    ignoreSelector:
+      'input, textarea, select, button, a, [contenteditable="true"], [role="slider"], [role="switch"]',
+  });
 
   const handleTabChange = useCallback(
     (value: string) => {
@@ -140,6 +169,7 @@ export default function ClientSettings({
             <MobileTopBar />
             <div className="border-border/60 relative flex items-center border-b py-1.5">
               <TabsList
+                aria-label="Settings sections"
                 ref={tabsRef}
                 className="hide-native-scrollbar flex h-full min-w-0 flex-1 items-center justify-start gap-0 overflow-x-auto bg-transparent p-0 md:justify-start [&>[role=tab]]:shrink-0"
               >
@@ -197,17 +227,20 @@ export default function ClientSettings({
 
           <div className="relative min-h-0 flex-1">
             <div
-              className="hide-native-scrollbar h-full overflow-x-hidden overflow-y-auto"
+              className="hide-native-scrollbar h-full touch-auto overflow-x-hidden overflow-y-auto"
+              data-settings-scroll
               ref={feedScrollRef}
             >
               <TabsContent
-                className="mt-0 pb-[calc(env(safe-area-inset-bottom)+6rem)] lg:pb-12"
+                className="mt-0 pb-[calc(env(safe-area-inset-bottom)+6rem)] data-[state=inactive]:hidden lg:pb-12"
+                forceMount={visitedTabs.has("personalization") || undefined}
                 value="personalization"
               >
                 <PersonalizationSettings />
               </TabsContent>
               <TabsContent
-                className="mt-0 pb-[calc(env(safe-area-inset-bottom)+6rem)] lg:pb-12"
+                className="mt-0 pb-[calc(env(safe-area-inset-bottom)+6rem)] data-[state=inactive]:hidden lg:pb-12"
+                forceMount={visitedTabs.has("profile") || undefined}
                 value="profile"
               >
                 <ProfileSettings
@@ -219,7 +252,8 @@ export default function ClientSettings({
               </TabsContent>
 
               <TabsContent
-                className="mt-0 pb-[calc(env(safe-area-inset-bottom)+6rem)] lg:pb-12"
+                className="mt-0 pb-[calc(env(safe-area-inset-bottom)+6rem)] data-[state=inactive]:hidden lg:pb-12"
+                forceMount={visitedTabs.has("account") || undefined}
                 value="account"
               >
                 <AccountSettings
@@ -229,14 +263,16 @@ export default function ClientSettings({
               </TabsContent>
 
               <TabsContent
-                className="mt-0 pb-[calc(env(safe-area-inset-bottom)+6rem)] lg:pb-12"
+                className="mt-0 pb-[calc(env(safe-area-inset-bottom)+6rem)] data-[state=inactive]:hidden lg:pb-12"
+                forceMount={visitedTabs.has("privacy") || undefined}
                 value="privacy"
               >
                 <PrivacySettings user={user} />
               </TabsContent>
 
               <TabsContent
-                className="mt-0 pb-[calc(env(safe-area-inset-bottom)+6rem)] lg:pb-12"
+                className="mt-0 pb-[calc(env(safe-area-inset-bottom)+6rem)] data-[state=inactive]:hidden lg:pb-12"
+                forceMount={visitedTabs.has("security") || undefined}
                 value="security"
               >
                 <SecuritySettings

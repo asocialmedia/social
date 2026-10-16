@@ -3,9 +3,13 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
+import sharp from "sharp";
+
 const directory = await mkdtemp(path.join(tmpdir(), "asm-analysis-retry-"));
 const sourcePath = path.join(directory, "source.png");
-await Bun.write(sourcePath, "test raster bytes");
+await sharp({ create: { background: "red", channels: 3, height: 8, width: 8 } })
+  .png()
+  .toFile(sourcePath);
 const stages: Record<string, unknown> = {};
 const row = {
   _type: "IMAGE",

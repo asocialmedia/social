@@ -28,11 +28,13 @@ import type {
 import { env } from "../../env";
 import { recoveryEmail } from "../validation/account-identity";
 import { validateEmailAdvanced } from "../validation/email-validator";
+import { accountCollisionProtection } from "./account-collision";
 import {
   ACCOUNT_LINKING_POLICY,
   protectLastSignInMethod,
-  validateOAuthIdentity,
 } from "./account-linking-policy";
+import { accountResolutionCodes } from "./account-resolution-codes";
+import { accountResolutionStore } from "./account-resolution-state";
 import { buildPasskeyOrigins } from "./passkey-origins";
 import { hashPasswordWithScrypt, verifyPasswordHash } from "./password";
 import { prismaAdapter } from "./prisma-adapter";
@@ -259,6 +261,7 @@ async function usernameExists(candidate: string): Promise<boolean> {
 }
 
 export function createAuthConfig(config: AuthConfig = {}) {
+  const collisionProtection = accountCollisionProtection();
   const {
     baseURL,
     emailService,
@@ -351,7 +354,7 @@ export function createAuthConfig(config: AuthConfig = {}) {
       fields: {
         name: "displayName",
       },
-      validateUserInfo: validateOAuthIdentity,
+      validateUserInfo: collisionProtection.validate,
     },
 
     plugins: [
@@ -359,6 +362,8 @@ export function createAuthConfig(config: AuthConfig = {}) {
       socialUsername({ isReserved: isReservedUsername }),
       username(),
       protectLastSignInMethod(),
+      collisionProtection.plugin,
+      accountResolutionCodes(sendVerificationOTP),
       // Native mobile app (Expo, scheme asocialmedia://). The after-hook only
       // rewrites OAuth magic-link/verify deep-link redirects, so email login
       // flows are unaffected; the scheme must stay in trustedOrigins below.
@@ -673,7 +678,24 @@ export function createAuthConfig(config: AuthConfig = {}) {
       },
       session: {
         create: {
-          after: async (session) => {
+          after: async (session, context) => {
+            const reviewId = context?.headers?.get("x-asm-account-resolution");
+            const secret = process.env.BETTER_AUTH_SECRET;
+            if (
+              reviewId &&
+              secret &&
+              context?.headers?.get("x-internal-secret") === secret
+            ) {
+              const review = await accountResolutionStore.read(reviewId);
+              if (
+                review?.state.identityVerified &&
+                [review.state.userId, review.state.otherUserId].includes(
+                  session.userId
+                )
+              ) {
+                return;
+              }
+            }
             await enforceAccountSessionLimit(session.userId);
           },
           before: async (session, context) => {

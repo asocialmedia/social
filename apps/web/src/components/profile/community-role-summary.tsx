@@ -4,6 +4,7 @@ import type { UserCommunityRole } from "@asm/db";
 import Link from "next/link";
 import type React from "react";
 
+import CommunityAvatar from "@/components/communities/card/community-avatar";
 import CommunityRoleBadge from "@/components/communities/card/community-role-badge";
 import type { CommunityBadgedRole } from "@/components/communities/card/community-role-badge";
 import { cn } from "@/lib/utils";
@@ -68,10 +69,18 @@ const CommunityRoleSummary: React.FC<{
               {named.map((entry, index) => (
                 <span key={entry.community.id}>
                   <Link
-                    className="text-foreground font-medium hover:underline"
+                    className="text-foreground inline-flex max-w-full items-center gap-1.5 align-bottom font-medium hover:underline"
                     href={`/a/${entry.community.slug}`}
                   >
-                    a/{entry.community.slug}
+                    <CommunityAvatar
+                      accentColor={entry.community.accentColor}
+                      avatarUrl={entry.community.avatarUrl}
+                      className="size-4.5 rounded-sm!"
+                      name={entry.community.name}
+                      size={18}
+                      slug={entry.community.slug}
+                    />
+                    <span className="truncate">a/{entry.community.slug}</span>
                   </Link>
                   {/* ", " between names, and " & " before the final one. With a
                       collapsed tail the last named entry is followed by the

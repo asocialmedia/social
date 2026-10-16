@@ -25,6 +25,7 @@ interface AuraVoteButtonProps {
   commentId?: string;
   expandable?: boolean;
   initialState: VoteInfo;
+  layout?: "inline" | "menu";
   postId: string;
 }
 
@@ -45,6 +46,7 @@ export default function AuraVoteButton({
   expandable = true,
   initialState,
   postId,
+  layout = "inline",
 }: AuraVoteButtonProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -70,7 +72,7 @@ export default function AuraVoteButton({
     staleTime: 5 * 60 * 1000,
   });
 
-  const { mutate } = useMutation<
+  const { mutate, isPending } = useMutation<
     { serverResponse: VoteInfo; voteAttempted: number },
     Error,
     number,
@@ -220,6 +222,59 @@ export default function AuraVoteButton({
   const downHoverClasses =
     "hover:bg-gradient-to-b hover:from-[#7c5cff] hover:to-[#5a3ae0] hover:text-white hover:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.4),inset_0_1.5px_2px_rgba(255,255,255,0.6),0_0_0_1px_rgba(70,40,170,0.45),0_1px_1px_rgba(0,0,0,0.08),0_2px_4px_rgba(0,0,0,0.1)] dark:hover:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(70,40,170,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]";
 
+  if (layout === "menu") {
+    return (
+      <div className="grid grid-cols-2" aria-label="Post votes">
+        {[
+          {
+            action: handleVoteUp,
+            icon: ArrowBigUp,
+            label: data.userVote === 1 ? "Amplified" : "Amplify",
+            tone: "vote-btn-up",
+            value: 1,
+          },
+          {
+            action: handleVoteDown,
+            icon: ArrowBigDown,
+            label: data.userVote === -1 ? "Muted" : "Mute",
+            tone: "vote-btn-down",
+            value: -1,
+          },
+        ].map(({ value, icon: Icon, label, action, tone }) => (
+          <button
+            aria-pressed={data.userVote === value}
+            className="focus-visible:ring-ring flex min-h-11 items-center justify-center rounded-xl px-3 outline-none focus-visible:ring-2 active:opacity-60 disabled:opacity-50"
+            disabled={isPending}
+            key={value}
+            onClick={action}
+            type="button"
+          >
+            <span
+              className={cn(
+                "text-muted-foreground inline-flex min-h-9.5 w-[90%] items-center justify-center gap-2 rounded-full text-[15px]/5.5 font-medium",
+                data.userVote === value && `${tone} text-white`
+              )}
+            >
+              <Icon
+                aria-hidden
+                className={cn(
+                  "size-5.5 shrink-0",
+                  data.userVote === value && "fill-white"
+                )}
+              />
+              <span
+                className={
+                  data.userVote === value ? "text-white" : "text-foreground"
+                }
+              >
+                {label}
+              </span>
+            </span>
+          </button>
+        ))}
+      </div>
+    );
+  }
   return (
     <div
       className={cn("contents sm:flex sm:items-center sm:gap-1.5", className)}

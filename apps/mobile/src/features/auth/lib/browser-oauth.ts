@@ -3,7 +3,7 @@ import { extractRedirectError } from "./auth-errors";
 export type BrowserOAuthResult =
   | { status: "cancelled" }
   | { status: "failed"; error: unknown }
-  | { status: "redirect-error"; code: string }
+  | { status: "redirect-error"; code: string; collisionId?: string }
   | { status: "missing-cookie" }
   | { status: "complete" };
 
@@ -80,7 +80,12 @@ export async function runBrowserOAuth({
   }
   const code = extractRedirectError(result.url);
   if (code) {
-    return { code, status: "redirect-error" };
+    const collisionId = returned.searchParams.get("account_collision");
+    return {
+      code,
+      status: "redirect-error",
+      ...(code === "account_collision" && collisionId ? { collisionId } : {}),
+    };
   }
   const cookie = returned.searchParams.get("cookie");
   if (!cookie && requireCookie) {

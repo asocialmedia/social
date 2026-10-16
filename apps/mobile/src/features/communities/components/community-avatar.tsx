@@ -16,10 +16,12 @@ export function CommunityAvatar({
   community,
   size = 48,
   imageHeaders,
+  apiBase = getApiBaseUrl(),
 }: {
   community: Pick<CommunityData, "accentColor" | "avatarUrl" | "name" | "slug">;
   size?: number;
   imageHeaders?: Record<string, string>;
+  apiBase?: string;
 }) {
   const { theme, isDark } = useAppTheme();
   const [failed, setFailed] = useState(false);
@@ -27,7 +29,7 @@ export function CommunityAvatar({
   const useDefault = failed || !community.avatarUrl;
   const uri = resolveProfileImageUrl(
     useDefault ? getDefaultAvatar(community.slug) : community.avatarUrl,
-    getApiBaseUrl()
+    apiBase
   );
   return (
     <View

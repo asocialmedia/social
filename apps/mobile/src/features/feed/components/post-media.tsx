@@ -1,3 +1,4 @@
+import { fitPreviewFrame, mediaAspect } from "@asm/ui/lib/post-preview-layout";
 import { useEventListener } from "expo";
 import { useAudioPlayer, useAudioPlayerStatus } from "expo-audio";
 // Post media gallery: single / 2-grid / 3-5 bento / 6+ overflow layouts,
@@ -519,6 +520,35 @@ export function VideoTile({
   tile?: boolean;
 }) {
   const { isDark } = useAppTheme();
+  const viewport = useWindowDimensions();
+  const [availableWidth, setAvailableWidth] = useState(viewport.width - 32);
+  const dimensionsKey = mediaDimensionsKey(apiBase, media.id);
+  const [naturalState, setNaturalState] = useState(() => ({
+    dimensions: mediaDimensionsCache.get(dimensionsKey),
+    key: dimensionsKey,
+  }));
+  const naturalDimensions =
+    naturalState.key === dimensionsKey
+      ? naturalState.dimensions
+      : mediaDimensionsCache.get(dimensionsKey);
+  const updateDimensions = (width: number, height: number) => {
+    if (
+      width > 0 &&
+      height > 0 &&
+      Number.isFinite(width) &&
+      Number.isFinite(height)
+    ) {
+      const dimensions = { height, width };
+      rememberMediaDimensions(dimensionsKey, dimensions);
+      setNaturalState((current) =>
+        current.key === dimensionsKey &&
+        current.dimensions?.width === width &&
+        current.dimensions.height === height
+          ? current
+          : { dimensions, key: dimensionsKey }
+      );
+    }
+  };
   const isMuted = useVideoMuteStore((state) => state.isMuted);
   // Shared captions preference, toggled from the post's More menu.
   const showCaptions = useVideoCaptionsStore((state) => state.showCaptions);
@@ -584,6 +614,12 @@ export function VideoTile({
     playbackTimeRef.current = event.currentTime;
   });
   useEventListener(player, "sourceLoad", (event) => {
+    const track = event.availableVideoTracks.find(
+      (entry) => entry.size.width > 0 && entry.size.height > 0
+    );
+    if (track) {
+      updateDimensions(track.size.width, track.size.height);
+    }
     loadedDurationRef.current = event.duration > 0 ? event.duration : null;
     if (playbackTimeRef.current > 0 && event.duration > 0) {
       // oxlint-disable-next-line react/immutability -- restore the playhead through expo-video's documented seek property
@@ -731,34 +767,25 @@ export function VideoTile({
     setMuted(!isMuted);
   };
 
-  // Lone videos keep their stored aspect (web's natural preview frame);
-  // grid cells force the frame instead. Lone radius is the feed rounded-xl.
   const videoRadius = tile ? 8 : 12;
-  const videoRatio =
-    media.width && media.height && media.height > 0
-      ? media.width / media.height
-      : 16 / 9;
-  // Lone portrait videos hug their width at the 380 cap and pin left, like
-  // web's h-[380px] w-auto portrait frame; squares count as portrait, like
-  // web's h >= w rule. Landscapes fill the column width.
-  const singlePortrait = !tile && videoRatio <= 1;
-  let videoFrameStyle: ViewStyle;
-  if (tile) {
-    videoFrameStyle = styles.tileFill;
-  } else if (singlePortrait) {
-    videoFrameStyle = {
-      alignSelf: "flex-start",
-      aspectRatio: videoRatio,
-      height: 380,
-      maxWidth: "100%",
-    };
-  } else {
-    videoFrameStyle = {
-      aspectRatio: videoRatio,
-      maxHeight: 380,
-      width: "100%",
-    };
-  }
+  const videoRatio = mediaAspect(naturalDimensions ?? media, 16 / 9);
+  const videoFrameStyle: ViewStyle = tile
+    ? styles.tileFill
+    : {
+        alignSelf: "flex-start",
+        ...fitPreviewFrame(availableWidth, videoRatio),
+      };
+  const wrapFrame = (content: ReactNode) =>
+    tile ? (
+      content
+    ) : (
+      <View
+        onLayout={(event) => setAvailableWidth(event.nativeEvent.layout.width)}
+        style={{ width: "100%" }}
+      >
+        {content}
+      </View>
+    );
   const frameStyle = [
     styles.videoFrame,
     {
@@ -769,7 +796,7 @@ export function VideoTile({
   ];
 
   if (isFailed) {
-    return (
+    return wrapFrame(
       <View style={[frameStyle, styles.videoFailed]}>
         <Image
           accessibilityLabel="Video unavailable"
@@ -783,11 +810,11 @@ export function VideoTile({
 
   const playbackLabel = isPlaying ? "Pause video" : "Play video";
   const previewLabel = onPressPreview ? "Open video" : playbackLabel;
-  return (
+  return wrapFrame(
     <MediaHold media={media} style={frameStyle}>
       {prepareVideo ? (
         <VideoView
-          contentFit="cover"
+          contentFit={tile ? "cover" : "contain"}
           nativeControls={false}
           onFirstFrameRender={() => setFirstFrame(true)}
           player={player}
@@ -807,6 +834,11 @@ export function VideoTile({
           placeholderContentFit="cover"
           recyclingKey={`poster-${media.id}`}
           transition={200}
+          onLoad={(event) => {
+            if (!media.width || !media.height) {
+              updateDimensions(event.source.width, event.source.height);
+            }
+          }}
           onError={() => setPosterFailed(true)}
           source={{ uri: mediaPosterUrl(apiBase, media.id) }}
           style={styles.fill}

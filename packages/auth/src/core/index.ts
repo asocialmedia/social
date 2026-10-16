@@ -17,3 +17,4 @@ export {
   verifyPasswordWithScrypt,
 } from "./password";
 export * from "./types";
+export * from "./account-resolution-state";

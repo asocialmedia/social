@@ -256,7 +256,9 @@ export async function runFfmpeg(
   timeoutMs: number,
   logLevel = "error"
 ): Promise<string> {
+  let timedOut = false;
   const timer = setTimeout(() => {
+    timedOut = true;
     try {
       proc.kill();
     } catch {
@@ -293,6 +295,11 @@ export async function runFfmpeg(
       new Response(proc.stderr).text(),
       proc.exited,
     ]);
+    if (timedOut) {
+      throw new FfmpegError(
+        `ffmpeg timed out after ${timeoutMs}ms${stderrText ? `: ${stderrText.slice(-400)}` : ""}`
+      );
+    }
     if (exitCode !== 0) {
       throw new FfmpegError(
         `ffmpeg failed (${exitCode}): ${stderrText.slice(-400)}`

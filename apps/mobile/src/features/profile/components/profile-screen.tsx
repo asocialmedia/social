@@ -1,6 +1,6 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
 import * as SecureStore from "expo-secure-store";
-import { ArrowLeft, Settings2 } from "lucide-react-native";
+import { ArrowLeft, Search, Settings, Share2 } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Animated,
@@ -15,10 +15,16 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Spinner3D } from "@/components/feedback/spinner-3d";
 import { toast } from "@/components/feedback/toast";
+import { RAIL_BUTTON } from "@/components/surface/recipes";
 import { authClient } from "@/features/auth/lib/auth-client";
 import { useSessionContext } from "@/features/auth/state/session";
+import {
+  RailButton,
+  RAIL_ICON_COLOR,
+} from "@/features/gusts/components/rail-button";
 import { createConversation } from "@/features/messages/lib/client";
 import { useProfile, useProfileFeed } from "@/features/profile";
+import { useSearchStore } from "@/features/search/state/search-store";
 import { PROD_API_URL } from "@/lib/api-base";
 import { getApiBaseUrl } from "@/lib/api-env";
 import { useAppTheme } from "@/theme";
@@ -207,7 +213,7 @@ export function ProfileScreen() {
     const url = `${PROD_API_URL}/users/${encodeURIComponent(profile.username)}`;
     try {
       await Share.share({
-        message: `Check out @${profile.username} on asocialmedia`,
+        message: `Check out @${profile.username} on asocialmedia: ${url}`,
         url,
       });
     } catch {
@@ -275,26 +281,6 @@ export function ProfileScreen() {
     }
   };
 
-  // The back and settings buttons live outside the scroll view entirely. They
-  // used to sit at the top of the header, which made them part of the list's
-  // content: a pull-to-refresh dragged them down with the banner, and they were
-  // useless the moment the header scrolled away. Rendered here as a fixed
-  // overlay, they stay put and stay reachable at every scroll position.
-  const settingsButton = (
-    <Pressable
-      accessibilityLabel="Edit profile"
-      accessibilityRole="button"
-      hitSlop={6}
-      onPress={() => setEditing(true)}
-      style={({ pressed }) => [
-        styles.topButton,
-        pressed && styles.topButtonPressed,
-      ]}
-    >
-      <Settings2 color="#fff" size={20} />
-    </Pressable>
-  );
-
   // The pinned strip sits directly under the status bar, in the same band as
   // these buttons rather than below them. Reserving a separate 40px row for the
   // buttons left roughly a hundred pixels of dead space above the tab labels on a
@@ -309,10 +295,9 @@ export function ProfileScreen() {
         pointerEvents={backVisible ? "auto" : "none"}
         style={{ opacity: backOpacity }}
       >
-        <Pressable
+        <RailButton
           accessibilityLabel="Go back"
-          accessibilityRole="button"
-          hitSlop={6}
+          size={40}
           onPress={() => {
             if (router.canGoBack()) {
               router.back();
@@ -320,19 +305,42 @@ export function ProfileScreen() {
             }
             router.replace("/");
           }}
-          style={({ pressed }) => [
-            styles.topButton,
-            pressed && styles.topButtonPressed,
-          ]}
         >
-          <ArrowLeft color="#fff" size={20} />
-        </Pressable>
+          <ArrowLeft color={RAIL_ICON_COLOR} size={20} />
+        </RailButton>
       </Animated.View>
       <Animated.View
         pointerEvents={backVisible ? "auto" : "none"}
         style={{ opacity: backOpacity }}
       >
-        {own ? settingsButton : <View style={styles.topButtonSpacer} />}
+        <View style={styles.actionPill} accessibilityLabel="Profile actions">
+          <Pressable
+            accessibilityLabel="Search"
+            accessibilityRole="button"
+            onPress={() => useSearchStore.getState().open()}
+            style={styles.pillButton}
+          >
+            <Search color={RAIL_ICON_COLOR} size={20} />
+          </Pressable>
+          <Pressable
+            accessibilityLabel="Share profile"
+            accessibilityRole="button"
+            onPress={() => {
+              void shareProfile();
+            }}
+            style={styles.pillButton}
+          >
+            <Share2 color={RAIL_ICON_COLOR} size={20} />
+          </Pressable>
+          <Pressable
+            accessibilityLabel="Settings"
+            accessibilityRole="button"
+            onPress={() => router.push(user ? "/settings" : "/(auth)/login")}
+            style={styles.pillButton}
+          >
+            <Settings color={RAIL_ICON_COLOR} size={20} />
+          </Pressable>
+        </View>
       </Animated.View>
     </View>
   );
@@ -350,9 +358,6 @@ export function ProfileScreen() {
         }}
         onMessage={() => {
           void handleMessage();
-        }}
-        onShare={() => {
-          void shareProfile();
         }}
         profile={profile}
       />
@@ -416,6 +421,14 @@ export function ProfileScreen() {
 }
 
 const styles = StyleSheet.create({
+  actionPill: {
+    alignItems: "center",
+    backgroundColor: RAIL_BUTTON.background,
+    borderRadius: 9999,
+    boxShadow: RAIL_BUTTON.shadows,
+    flexDirection: "row",
+    padding: 2,
+  },
   center: {
     alignItems: "center",
     flex: 1,
@@ -441,20 +454,24 @@ const styles = StyleSheet.create({
     paddingVertical: 11,
   },
   loginText: { color: "#fff", fontFamily: "SofiaProMed", fontSize: 14 },
+  pillButton: {
+    alignItems: "center",
+    borderRadius: 9999,
+    height: 40,
+    justifyContent: "center",
+    width: 40,
+  },
   retry: {
     borderRadius: 999,
     borderWidth: 1,
     paddingHorizontal: 20,
     paddingVertical: 10,
   },
-
   root: { flex: 1 },
   topBar: {
     alignItems: "center",
     flexDirection: "row",
-    height: 40,
-    // Back on the trailing edge, settings on the leading one, so the pair is
-    // spread the way it was before the back button was removed.
+    height: 44,
     justifyContent: "space-between",
     left: 0,
     paddingHorizontal: 12,
@@ -466,28 +483,4 @@ const styles = StyleSheet.create({
     // same band, so a lower bar would be hidden behind it once it fades in.
     zIndex: 30,
   },
-  topButton: {
-    alignItems: "center",
-    // Web: rounded-full bg-black/40 text-white backdrop-blur-md. The scrim is
-    // plain translucent black, not the blue-tinted near-black this used to use.
-    // No border, inset highlight, or drop shadow: the 3D ring is a profile-action
-    // recipe, and web's overlay buttons deliberately have none - a ring here read
-    // as a third styling language next to the Follow/Message buttons below.
-    // RN has no backdrop-blur and expo-blur is not a dependency, so the blur is
-    // approximated by the opacity alone, which is close over a photo banner.
-    backgroundColor: "rgba(0, 0, 0, 0.4)",
-    borderRadius: 9999,
-    height: 40,
-    justifyContent: "center",
-    width: 40,
-  },
-  // Web's active:translate-y-px, plus hover:bg-black/60 collapsed onto press
-  // since touch has no hover. Web also brightens on hover (hover:brightness-110),
-  // which needs a real brightness filter that RN StyleSheet cannot express
-  // without a bitmap filter, so the scrim does the work instead.
-  topButtonPressed: {
-    backgroundColor: "rgba(0, 0, 0, 0.6)",
-    transform: [{ translateY: 1 }],
-  },
-  topButtonSpacer: { height: 40, width: 40 },
 });
