@@ -22,6 +22,8 @@ const BROWSER_BLOCKED_PATHS = [
   "/api/auth/sign-up/email",
   "/api/auth/link-social",
   "/api/auth/unlink-account",
+  "/api/auth/email-otp/request-email-change",
+  "/api/auth/email-otp/change-email",
 ];
 
 function isBrowserBlockedPath(pathname: string): boolean {
@@ -95,6 +97,8 @@ function buildUpstreamHeaders(request: NextRequest) {
     headers.delete("cf-connecting-ip");
   }
   headers.delete("x-real-ip");
+  // Only the account-review server may create short-lived verification sessions.
+  headers.delete("x-asm-account-resolution");
 
   if (!headers.get("origin")) {
     headers.set("origin", forwardedOrigin);

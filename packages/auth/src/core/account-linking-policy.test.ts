@@ -4,16 +4,44 @@ import { betterAuth } from "better-auth";
 import { memoryAdapter } from "better-auth/adapters/memory";
 import { username } from "better-auth/plugins";
 
+import { accountCollisionProtection } from "./account-collision";
 import {
   ACCOUNT_LINKING_POLICY,
   protectLastSignInMethod,
-  validateOAuthIdentity,
 } from "./account-linking-policy";
+import { accountResolutionCodes } from "./account-resolution-codes";
+import { newAccountResolutionState } from "./account-resolution-state";
+import type {
+  AccountResolutionState,
+  AccountResolutionStore,
+} from "./account-resolution-state";
 import { socialUsername } from "./social-username";
 
 const baseURL = "http://localhost:3001";
 
 async function fixture() {
+  const intents = new Map<string, AccountResolutionState>();
+  const sentCodes = new Map<string, string>();
+  const store: AccountResolutionStore = {
+    create(id, state) {
+      intents.set(id, structuredClone(state));
+    },
+    read(id) {
+      const state = intents.get(id);
+      return state
+        ? { serialized: JSON.stringify(state), state: structuredClone(state) }
+        : null;
+    },
+    update(id, previous, state) {
+      const existing = intents.get(id);
+      if (!existing || JSON.stringify(existing) !== previous) {
+        return false;
+      }
+      intents.set(id, structuredClone(state));
+      return true;
+    },
+  };
+  const collision = accountCollisionProtection(store);
   const rows: Record<string, Record<string, unknown>[]> = {
     account: [],
     session: [],
@@ -35,6 +63,10 @@ async function fixture() {
       socialUsername({ isReserved: () => false }),
       username(),
       protectLastSignInMethod(),
+      collision.plugin,
+      accountResolutionCodes(({ email, otp }) => {
+        sentCodes.set(email, otp);
+      }, store),
     ],
     secret: "account-linking-policy-test-secret-at-least-32-characters",
     socialProviders: {
@@ -43,7 +75,7 @@ async function fixture() {
     },
     user: {
       additionalFields: { username: { required: true, type: "string" } },
-      validateUserInfo: validateOAuthIdentity,
+      validateUserInfo: collision.validate,
     },
   });
   const context = await auth.$context;
@@ -56,7 +88,15 @@ async function fixture() {
   };
   const getUserInfo = () => {
     const { id, ...user } = identity;
-    return Promise.resolve({ data: { id, sub: id }, user });
+    return Promise.resolve({
+      data: {
+        email: identity.email,
+        email_verified: identity.emailVerified,
+        id,
+        sub: id,
+      },
+      user,
+    });
   };
   for (const provider of context.socialProviders) {
     provider.validateAuthorizationCode = () =>
@@ -129,9 +169,11 @@ async function fixture() {
     context,
     cookieFor,
     credential,
+    intents,
     oauth,
     request,
     rows,
+    sentCodes,
     setIdentity: (value: typeof identity) => {
       identity = value;
     },
@@ -139,13 +181,20 @@ async function fixture() {
 }
 
 describe("account identity across password, Google and Reddit", () => {
-  test("verified Google email links to the existing verified password user without replacing their profile", async () => {
+  test("same-email OAuth requires an explicit link rather than combining accounts during sign-in", async () => {
     const f = await fixture();
     const userId = await f.credential();
     const callback = await f.oauth("google");
     expect(callback.status).toBe(302);
-    expect(callback.headers.get("location")).toBe(`${baseURL}/done`);
+    expect(callback.headers.get("location")).toContain(
+      "error=account_not_linked"
+    );
     expect(f.rows.user).toHaveLength(1);
+    expect(
+      f.rows.account?.find((row) => row.providerId === "google")
+    ).toBeUndefined();
+    const explicit = await f.oauth("google", await f.cookieFor(), true);
+    expect(explicit.headers.get("location")).toBe(`${baseURL}/done`);
     expect(
       f.rows.account?.find((row) => row.providerId === "google")
     ).toMatchObject({ userId });
@@ -183,7 +232,7 @@ describe("account identity across password, Google and Reddit", () => {
       name: "Unverified",
       username: "member",
     });
-    const callback = await f.oauth("google");
+    const callback = await f.oauth("google", await f.cookieFor(), true);
     expect(callback.headers.get("location")).toContain(
       "error=oauth_email_not_verified"
     );
@@ -262,8 +311,18 @@ describe("account identity across password, Google and Reddit", () => {
       true
     );
     expect(conflict.headers.get("location")).toContain(
-      "error=account_already_linked_to_different_user"
+      "error=account_collision"
     );
+    const id = new URL(conflict.headers.get("location") ?? "").searchParams.get(
+      "account_collision"
+    );
+    expect(id).toBeTruthy();
+    expect(f.intents.get(id ?? "")).toMatchObject({
+      identityVerified: true,
+      otherUserId: owner,
+      provider: "reddit",
+      providerAccountId: "reddit-1",
+    });
     expect(
       f.rows.account?.find((row) => row.providerId === "reddit")?.userId
     ).toBe(owner);
@@ -324,7 +383,7 @@ test("an existing provider identity wins over a changed email matching another A
   expect(f.rows.user).toHaveLength(2);
 });
 
-test("native Google ID-token sign-in links to the same verified password identity", async () => {
+test("native Google ID-token sign-in cannot implicitly take the same-email password identity", async () => {
   const f = await fixture();
   const owner = await f.credential();
   const google = f.context.socialProviders.find(
@@ -342,12 +401,12 @@ test("native Google ID-token sign-in links to the same verified password identit
     idToken: { token: "fixture-id-token" },
     provider: "google",
   });
-  expect(response.status).toBe(200);
-  expect(await response.json()).toMatchObject({ user: { id: owner } });
+  expect(response.ok).toBe(false);
   expect(f.rows.user).toHaveLength(1);
   expect(
     f.rows.account?.find((row) => row.providerId === "google")?.userId
-  ).toBe(owner);
+  ).toBeUndefined();
+  expect(f.rows.user?.[0]?.id).toBe(owner);
 });
 
 test("password signup cannot overwrite an existing OAuth account", async () => {
@@ -369,4 +428,194 @@ test("password signup cannot overwrite an existing OAuth account", async () => {
   expect(
     f.rows.account?.filter((account) => account.providerId === "credential")
   ).toHaveLength(0);
+});
+
+test("a newly connected Google identity matching another account's email requires review", async () => {
+  const f = await fixture();
+  const other = await f.credential("owner@example.com", "owner");
+  await f.credential("current@example.com", "current");
+  f.setIdentity({
+    email: "owner@example.com",
+    emailVerified: true,
+    id: "new-google",
+    name: "Owner",
+    username: "owner",
+  });
+  const result = await f.oauth(
+    "google",
+    await f.cookieFor("current@example.com"),
+    true
+  );
+  expect(result.headers.get("location")).toContain("error=account_collision");
+  const id =
+    new URL(result.headers.get("location") ?? "").searchParams.get(
+      "account_collision"
+    ) ?? "";
+  expect(f.intents.get(id)).toMatchObject({
+    identityVerified: true,
+    otherUserId: other,
+    providerAccountId: "new-google",
+    providerOwnerId: null,
+  });
+  expect(f.rows.user).toHaveLength(2);
+  expect(
+    f.rows.account?.find((row) => row.providerId === "google")
+  ).toBeUndefined();
+});
+
+test("a Reddit-only account can connect verified Google without a usable current email", async () => {
+  const f = await fixture();
+  f.setIdentity({
+    email: "reddit@reddit.placeholder.invalid",
+    emailVerified: true,
+    id: "reddit-only",
+    name: "Reddit",
+    username: "reddit",
+  });
+  const signup = await f.oauth("reddit");
+  const cookie = signup.headers
+    .getSetCookie()
+    .map((entry) => entry.split(";")[0])
+    .join("; ");
+  f.setIdentity({
+    email: "google@example.com",
+    emailVerified: true,
+    id: "google-new",
+    name: "Google",
+    username: "google",
+  });
+  const linked = await f.oauth("google", cookie, true);
+  expect(linked.headers.get("location")).toBe(`${baseURL}/done`);
+  expect(f.rows.user).toHaveLength(1);
+  expect(f.rows.account).toHaveLength(2);
+});
+
+test("collision email proofs are session-bound, consume their code, and never change an account email", async () => {
+  const f = await fixture();
+  const current = await f.credential();
+  const other = await f.credential("other@example.com", "other");
+  const cookie = await f.cookieFor();
+  const sessionResponse = await f.request("/get-session", undefined, cookie);
+  const session = (await sessionResponse.json()) as { session: { id: string } };
+  const id = crypto.randomUUID();
+  f.intents.set(
+    id,
+    newAccountResolutionState(current, session.session.id, {
+      email: "other@example.com",
+      kind: "email",
+      otherUserId: other,
+    })
+  );
+  const body = { email: "other@example.com", id, side: "collision" };
+  const unrelatedCookie = await f.cookieFor("other@example.com");
+  const unrelatedResponse = await f.request(
+    "/account-resolution/code",
+    body,
+    unrelatedCookie
+  );
+  expect(unrelatedResponse.status).toBe(401);
+  const codeResponse = await f.request(
+    "/account-resolution/code",
+    body,
+    cookie
+  );
+  expect(codeResponse.status).toBe(200);
+  const otp = f.sentCodes.get("other@example.com");
+  expect(otp).toMatch(/^\d{6}$/);
+  expect(f.intents.get(id)?.identityVerified).toBe(false);
+  const verificationResponse = await f.request(
+    "/account-resolution/code",
+    { ...body, otp },
+    cookie
+  );
+  expect(verificationResponse.status).toBe(200);
+  expect(f.intents.get(id)?.identityVerified).toBe(true);
+  expect(f.intents.get(id)?.codes.collision).toBeUndefined();
+  const replayResponse = await f.request(
+    "/account-resolution/code",
+    { ...body, otp },
+    cookie
+  );
+  expect(replayResponse.ok).toBe(false);
+  expect(f.rows.user?.find((row) => row.id === current)?.email).toBe(
+    "member@example.com"
+  );
+  expect(f.rows.user?.find((row) => row.id === other)?.email).toBe(
+    "other@example.com"
+  );
+});
+
+test("three incorrect merge email codes exhaust the challenge", async () => {
+  const f = await fixture();
+  const current = await f.credential();
+  const other = await f.credential("other@example.com", "other");
+  const cookie = await f.cookieFor();
+  const sessionResponse = await f.request("/get-session", undefined, cookie);
+  const session = (await sessionResponse.json()) as { session: { id: string } };
+  const id = crypto.randomUUID();
+  f.intents.set(
+    id,
+    newAccountResolutionState(current, session.session.id, {
+      email: "other@example.com",
+      kind: "email",
+      otherUserId: other,
+    })
+  );
+  const body = { email: "other@example.com", id, side: "collision" };
+  await f.request("/account-resolution/code", body, cookie);
+  const otp = f.sentCodes.get("other@example.com");
+  const wrong = otp === "000000" ? "111111" : "000000";
+  await f.request("/account-resolution/code", { ...body, otp: wrong }, cookie);
+  await f.request("/account-resolution/code", { ...body, otp: wrong }, cookie);
+  await f.request("/account-resolution/code", { ...body, otp: wrong }, cookie);
+  const replayResponse = await f.request(
+    "/account-resolution/code",
+    { ...body, otp },
+    cookie
+  );
+  expect(replayResponse.ok).toBe(false);
+  expect(f.intents.get(id)?.identityVerified).toBe(false);
+  expect(f.rows.user).toHaveLength(2);
+});
+
+test("missing-email setup only verifies an unused inbox for the intended profile", async () => {
+  const f = await fixture();
+  const current = await f.credential();
+  const other = await f.credential(
+    "placeholder@reddit.placeholder.invalid",
+    "reddit"
+  );
+  const cookie = await f.cookieFor();
+  const sessionResponse = await f.request("/get-session", undefined, cookie);
+  const session = (await sessionResponse.json()) as { session: { id: string } };
+  const id = crypto.randomUUID();
+  const state = newAccountResolutionState(current, session.session.id, {
+    kind: "oauth",
+    provider: "reddit",
+  });
+  f.intents.set(id, { ...state, identityVerified: true, otherUserId: other });
+  const occupiedResponse = await f.request(
+    "/account-resolution/code",
+    { email: "member@example.com", id, side: "other" },
+    cookie
+  );
+  expect(occupiedResponse.status).toBe(409);
+  const body = { email: "new@example.com", id, side: "other" };
+  const codeResponse = await f.request(
+    "/account-resolution/code",
+    body,
+    cookie
+  );
+  expect(codeResponse.status).toBe(200);
+  const otp = f.sentCodes.get("new@example.com");
+  const verificationResponse = await f.request(
+    "/account-resolution/code",
+    { ...body, otp },
+    cookie
+  );
+  expect(verificationResponse.status).toBe(200);
+  expect(f.intents.get(id)?.setupEmails.other).toBe("new@example.com");
+  expect(f.rows.user?.find((row) => row.id === other)?.email).toBe(
+    "placeholder@reddit.placeholder.invalid"
+  );
 });

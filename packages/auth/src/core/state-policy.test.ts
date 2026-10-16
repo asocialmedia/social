@@ -16,6 +16,7 @@ mock.module("../../env", () => ({
 // mock it before the module under test loads. Both providers use fixture credentials.
 mock.module("@asm/db", () => ({
   and: () => null,
+  createAccountResolutionState: () => Promise.resolve(),
   enforceAccountSessionLimit: () => Promise.resolve([]),
   exactInsensitivePattern: (value: string) =>
     value.replaceAll(/[\\%_]/g, "\\$&"),
@@ -25,7 +26,9 @@ mock.module("@asm/db", () => ({
     orm: { public: {} },
     transaction: () => Promise.resolve(),
   },
+  readAccountResolutionState: () => Promise.resolve(null),
   toPrismaDateTime: (value: Date) => value,
+  updateAccountResolutionState: () => Promise.resolve(false),
 }));
 mock.module("@better-auth/passkey", () => ({
   passkey: () => ({}),
@@ -40,7 +43,11 @@ mock.module("better-auth/api", () => ({
   APIError: class APIError extends Error {
     override name = "APIError";
   },
+  addOAuthServerContext: () => Promise.resolve(),
+  createAuthEndpoint: () => ({}),
   createAuthMiddleware: (fn: unknown) => fn,
+  getOAuthState: () => Promise.resolve(null),
+  getSessionFromCtx: () => Promise.resolve(null),
 }));
 
 // Capture the config better-auth receives so environment-dependent branches

@@ -188,12 +188,13 @@ export function requestEmailChange(
 export function verifyEmailChange(
   email: string,
   otp: string,
-  options: ApiCallOptions
+  options: ApiCallOptions,
+  verificationId?: string
 ): Promise<SettingsMutationResult> {
   return mutateSettings(
     "/api/users/email/verify",
     "POST",
-    { email, otp },
+    { email, otp, ...(verificationId ? { verificationId } : {}) },
     options,
     "Couldn't verify that code"
   );

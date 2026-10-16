@@ -12,6 +12,10 @@ const state = {
   authPath: null as string | null,
   authResponseBody: { success: true },
   authResponseStatus: 200,
+  owner: null as { id: string } | null,
+  pending: null as {
+    state: { userId: string; sessionId: string; kind: string; email: string };
+  } | null,
   session: { user: USER },
 };
 
@@ -21,7 +25,26 @@ function resetState() {
   state.authResponseStatus = 200;
   state.authResponseBody = { success: true };
   state.session = { user: USER };
+  state.owner = null;
+  state.pending = null;
 }
+
+mock.module("@asm/db", () => ({
+  prisma: {
+    orm: {
+      public: {
+        Users: {
+          select: () => ({
+            where: () => ({ first: () => Promise.resolve(state.owner) }),
+          }),
+        },
+      },
+    },
+  },
+}));
+mock.module("@asm/auth/core", () => ({
+  accountResolutionStore: { read: () => Promise.resolve(state.pending) },
+}));
 
 const mockGetSession = mock(() => state.session);
 

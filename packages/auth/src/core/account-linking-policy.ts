@@ -16,16 +16,21 @@ type UserValidation = NonNullable<
 export const ACCOUNT_LINKING_POLICY = {
   allowDifferentEmails: true,
   allowUnlinkingAll: false,
+  disableImplicitLinking: true,
   enabled: true,
   requireLocalEmailVerified: true,
   updateUserInfoOnLink: false,
 } satisfies AccountLinking;
 
 export const validateOAuthIdentity: UserValidation = ({ user, source }) => {
+  const email =
+    source.action === "link-account" && source.oauth?.providerId === "google"
+      ? source.oauth.profile?.email
+      : user.email;
   if (
     source.method === "oauth" &&
     source.oauth?.providerId === "google" &&
-    (!recoveryEmail(user.email) || !user.emailVerified)
+    (typeof email !== "string" || !recoveryEmail(email) || !user.emailVerified)
   ) {
     return {
       error: "oauth_email_not_verified",

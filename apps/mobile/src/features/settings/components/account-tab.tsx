@@ -35,6 +35,8 @@ import { useAppTheme } from "@/theme";
 import {
   changeUsername,
   parseUsernameChange,
+  objectOf,
+  textOf,
   requestEmailChange,
   sendCurrentEmailCode,
   setPassword as submitNewPassword,
@@ -44,6 +46,7 @@ import {
 import type { SettingsMutationResult } from "../lib/settings-api";
 import { SectionAnchor } from "../lib/settings-scroll";
 import type { AccountFacts } from "../lib/settings-view-model";
+import { AccountResolutionDialog } from "./account-resolution-dialog";
 import { SettingsBrandLogo } from "./settings-brand-logo";
 import {
   SettingsButton,
@@ -121,7 +124,18 @@ export function AccountTab({
     success?: string | string[];
     link_provider?: string;
     link_user?: string;
+    account_collision?: string;
   }>();
+  const [collisionId, setCollisionId] = useState<string>();
+  const [dismissedCollisionId, setDismissedCollisionId] = useState<string>();
+  const callbackCollisionId =
+    params.error === "account_collision" ? params.account_collision : undefined;
+  const activeCollisionId =
+    collisionId ??
+    (callbackCollisionId === dismissedCollisionId
+      ? undefined
+      : callbackCollisionId);
+  const [emailVerificationId, setEmailVerificationId] = useState<string>();
 
   const [linkingProvider, setLinkingProvider] = useState<SocialProvider | null>(
     null
@@ -135,7 +149,7 @@ export function AccountTab({
       Array.isArray(value) ? value[0] : value;
     const error = pick(params.error) ?? pick(params.account_error);
     const success = pick(params.account_success) ?? pick(params.success);
-    if (error) {
+    if (error && error !== "account_collision") {
       toast({
         description:
           LINK_ERROR_MESSAGES[error] ?? accountLinkErrorMessage(error),
@@ -236,7 +250,7 @@ export function AccountTab({
   const run = useCallback(
     async (
       action: () => Promise<SettingsMutationResult>,
-      onSuccess: () => void,
+      onSuccess: (data?: unknown) => void,
       failureTitle: string
     ) => {
       const result = await runWithInstallToken(action, (value) =>
@@ -255,7 +269,7 @@ export function AccountTab({
         }
         return;
       }
-      onSuccess();
+      onSuccess(result.data);
     },
     [runWithInstallToken]
   );
@@ -306,6 +320,7 @@ export function AccountTab({
       return;
     }
     setPendingNewEmail(next);
+    setEmailVerificationId(undefined);
     setEmailBusy(true);
     void (async () => {
       const options = {
@@ -315,7 +330,10 @@ export function AccountTab({
       if (!facts.email) {
         await run(
           () => requestEmailChange(next, "", options),
-          () => {
+          (data) => {
+            setEmailVerificationId(
+              textOf(objectOf(data)?.verificationId) ?? undefined
+            );
             setEmailStep("new");
             toast({
               description: `We sent a code to ${next} - enter it to confirm`,
@@ -376,7 +394,10 @@ export function AccountTab({
       };
       await run(
         () => requestEmailChange(pendingNewEmail, emailOtp, options),
-        () => {
+        (data) => {
+          setEmailVerificationId(
+            textOf(objectOf(data)?.verificationId) ?? undefined
+          );
           setEmailOtp("");
           setEmailStep("new");
           toast({
@@ -402,10 +423,24 @@ export function AccountTab({
         cookie: await authClient.getCookie(),
       };
       await run(
-        () => verifyEmailChange(pendingNewEmail, emailOtp, options),
-        () => {
+        () =>
+          verifyEmailChange(
+            pendingNewEmail,
+            emailOtp,
+            options,
+            emailVerificationId
+          ),
+        (data) => {
           setEmailStep("idle");
           setEmailOtp("");
+          setEmailVerificationId(undefined);
+          const collision = textOf(objectOf(data)?.collisionId);
+          if (collision) {
+            setCollisionId(collision);
+            setEmail(facts.email ?? "");
+            setPendingNewEmail(null);
+            return;
+          }
           setEmail(pendingNewEmail);
           setPendingNewEmail(null);
           toast({
@@ -421,6 +456,7 @@ export function AccountTab({
   };
 
   const cancelEmailChange = () => {
+    setEmailVerificationId(undefined);
     setEmailStep("idle");
     setPendingNewEmail(null);
     setEmailOtp("");
@@ -482,6 +518,12 @@ export function AccountTab({
           title: "Account Connected",
         });
         onChanged();
+      } else if (
+        result.status === "redirect-error" &&
+        result.code === "account_collision" &&
+        result.collisionId
+      ) {
+        setCollisionId(result.collisionId);
       } else if (result.status !== "cancelled") {
         toast({
           description:
@@ -543,6 +585,16 @@ export function AccountTab({
         icon={AtSign}
         title="Account"
       />
+      {activeCollisionId && (
+        <AccountResolutionDialog
+          id={activeCollisionId}
+          onClose={() => {
+            setCollisionId(undefined);
+            setDismissedCollisionId(activeCollisionId);
+            onChanged();
+          }}
+        />
+      )}
 
       {facts.hasReddit && !facts.email ? (
         <View

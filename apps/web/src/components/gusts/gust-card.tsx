@@ -9,7 +9,6 @@ import {
   Pause,
   Play,
   Speech,
-  Subtitles,
   Volume2,
   VolumeX,
 } from "lucide-react";
@@ -106,9 +105,6 @@ export const GustCard: React.FC<GustCardProps> = ({
   const altRevealed = useAltRevealed(post.id);
   const gustAltText = attachments.find((a) => a.altText)?.altText;
   const captionsEnabled = useVideoCaptionsStore((state) => state.showCaptions);
-  const toggleGlobalCaptions = useVideoCaptionsStore(
-    (state) => state.toggleCaptions
-  );
   const [cues, setCues] = useState<TranscriptCue[]>([]);
   const videoMediaId = videoMedia?.id;
 
@@ -177,14 +173,6 @@ export const GustCard: React.FC<GustCardProps> = ({
       cues.find((c) => currentTime >= c.start && currentTime <= c.end) ?? null
     );
   }, [captionsEnabled, cues, currentTime]);
-
-  const toggleCaptions = useCallback(
-    (e?: React.MouseEvent) => {
-      e?.stopPropagation();
-      toggleGlobalCaptions();
-    },
-    [toggleGlobalCaptions]
-  );
 
   const [showTranscript, setShowTranscript] = useState(false);
 
@@ -952,36 +940,20 @@ export const GustCard: React.FC<GustCardProps> = ({
           <PostMoreButton
             className="rail-3d-btn flex h-11! w-11! items-center justify-center rounded-full p-0 transition-transform hover:scale-105 active:scale-95"
             extraItems={
-              post.moderated ? null : (
-                <>
-                  <DropdownMenuItem
-                    className="pill-3d-hover rounded-md px-2 py-2"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      toggleCaptions();
-                    }}
-                  >
-                    <span className="flex items-center gap-3">
-                      <Subtitles className="size-4" />
-                      {captionsEnabled ? "Hide captions" : "Show captions"}
-                    </span>
-                  </DropdownMenuItem>
-                  {videoMedia ? (
-                    <DropdownMenuItem
-                      className="pill-3d-hover rounded-md px-2 py-2"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        toggleTranscript();
-                      }}
-                    >
-                      <span className="flex items-center gap-3">
-                        <Speech className="size-4" />
-                        {showTranscript ? "Hide transcript" : "View transcript"}
-                      </span>
-                    </DropdownMenuItem>
-                  ) : null}
-                </>
-              )
+              !post.moderated && videoMedia ? (
+                <DropdownMenuItem
+                  className="pill-3d-hover rounded-md px-2 py-2"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    toggleTranscript();
+                  }}
+                >
+                  <span className="flex items-center gap-3">
+                    <Speech className="size-4" />
+                    {showTranscript ? "Hide transcript" : "View transcript"}
+                  </span>
+                </DropdownMenuItem>
+              ) : null
             }
             iconClassName="size-5!"
             post={post}

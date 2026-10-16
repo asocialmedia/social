@@ -11,6 +11,8 @@ const state = {
   authCalls: [] as { body: unknown; path: string }[],
   changeResponseBody: { success: true },
   changeResponseStatus: 200,
+  intents: new Map<string, unknown>(),
+  owner: null as { id: string } | null,
   session: { user: USER },
   verifyResponseStatus: 200,
 };
@@ -21,7 +23,37 @@ function resetState() {
   state.changeResponseStatus = 200;
   state.session = { user: USER };
   state.verifyResponseStatus = 200;
+  state.owner = null;
+  state.intents.clear();
 }
+
+mock.module("@asm/db", () => ({
+  consumeRateLimit: () => Promise.resolve({ allowed: true }),
+  prisma: {
+    orm: {
+      public: {
+        Users: {
+          select: () => ({
+            where: () => ({ first: () => Promise.resolve(state.owner) }),
+          }),
+        },
+      },
+    },
+  },
+}));
+mock.module("@asm/auth/core", () => ({
+  accountResolutionStore: {
+    create: (id: string, value: unknown) => {
+      state.intents.set(id, value);
+      return Promise.resolve();
+    },
+  },
+  newAccountResolutionState: (
+    userId: string,
+    sessionId: string,
+    source: object
+  ) => ({ sessionId, userId, ...source }),
+}));
 
 const mockGetSession = mock(() => state.session);
 
@@ -131,7 +163,7 @@ describe("PATCH /api/users/email", () => {
     const res = await PATCH(patchRequest("old@example.com"));
     expect(res.status).toBe(400);
     const body = await res.json();
-    expect(body.error).toBe("Email is the same");
+    expect(body.error).toBe("This email already belongs to your account.");
   });
 
   test("rejects malformed JSON with 400 and does not call auth", async () => {
