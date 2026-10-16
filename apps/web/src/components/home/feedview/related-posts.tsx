@@ -11,19 +11,31 @@ import PostCard from "./post-card";
 
 interface RelatedPostsProps {
   excludePostId: string;
+  external?: boolean;
 }
 
 // Related-post list for the media viewer sidebar. Uses the same PostCard
 // component ranked semantically by topic tags and vector embeddings.
-export default function RelatedPosts({ excludePostId }: RelatedPostsProps) {
+export default function RelatedPosts({
+  excludePostId,
+  external = false,
+}: RelatedPostsProps) {
   const { data, status } = useQuery({
     queryFn: async () => {
       const result = await kyInstance
-        .get(`/api/posts/${excludePostId}/related`)
+        .get(
+          external
+            ? "/api/posts/for-you"
+            : `/api/posts/${excludePostId}/related`
+        )
         .json<{ posts: PostData[] }>();
       return result;
     },
-    queryKey: ["related-posts", excludePostId],
+    queryKey: [
+      "related-posts",
+      external ? "external" : "native",
+      excludePostId,
+    ],
     refetchOnMount: false,
     refetchOnReconnect: false,
     refetchOnWindowFocus: false,

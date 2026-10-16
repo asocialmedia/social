@@ -17,6 +17,11 @@ import {
 import { cn, formatNumber } from "@/lib/utils";
 
 interface AuraVoteButtonProps {
+  controller?: {
+    state: VoteInfo;
+    vote: (value: number) => void;
+    pending?: boolean;
+  };
   authorName: string;
   className?: string;
   // When set, the vote targets a comment eddie instead of a post. The rest of
@@ -41,6 +46,7 @@ function calculateVoteChange(oldVote: number, newVote: number): number {
 
 export default function AuraVoteButton({
   authorName,
+  controller,
   className,
   commentId,
   expandable = true,
@@ -60,7 +66,8 @@ export default function AuraVoteButton({
     ? `/api/comments/${commentId}/vote`
     : `/api/posts/${postId}/votes`;
 
-  const { data } = useQuery({
+  const { data: nativeData } = useQuery({
+    enabled: !controller,
     initialData: initialState,
     queryFn: () => kyInstance.get(voteEndpoint).json<VoteInfo>(),
     queryKey,
@@ -72,6 +79,7 @@ export default function AuraVoteButton({
     staleTime: 5 * 60 * 1000,
   });
 
+  const data = controller?.state ?? nativeData;
   const { mutate, isPending } = useMutation<
     { serverResponse: VoteInfo; voteAttempted: number },
     Error,
@@ -193,15 +201,23 @@ export default function AuraVoteButton({
       goToLogin();
       return;
     }
-    mutate(1);
-  }, [goToLogin, isLoggedIn, mutate]);
+    if (controller) {
+      controller.vote(1);
+    } else {
+      mutate(1);
+    }
+  }, [controller, goToLogin, isLoggedIn, mutate]);
   const handleVoteDown = useCallback(() => {
     if (!isLoggedIn) {
       goToLogin();
       return;
     }
-    mutate(-1);
-  }, [goToLogin, isLoggedIn, mutate]);
+    if (controller) {
+      controller.vote(-1);
+    } else {
+      mutate(-1);
+    }
+  }, [controller, goToLogin, isLoggedIn, mutate]);
 
   const baseButtonClasses =
     "group inline-flex h-7 sm:h-7.5 items-center justify-center rounded-full border-0 px-1.5 sm:px-2 font-medium text-xs sm:text-[13px] text-muted-foreground outline-none transition-all duration-200 ease-out active:translate-y-px";
@@ -244,7 +260,7 @@ export default function AuraVoteButton({
           <button
             aria-pressed={data.userVote === value}
             className="focus-visible:ring-ring flex min-h-11 items-center justify-center rounded-xl px-3 outline-none focus-visible:ring-2 active:opacity-60 disabled:opacity-50"
-            disabled={isPending}
+            disabled={isPending || controller?.pending}
             key={value}
             onClick={action}
             type="button"

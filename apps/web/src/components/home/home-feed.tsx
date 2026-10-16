@@ -1,6 +1,12 @@
 "use client";
 
 import type { PostsPage } from "@asm/db";
+import {
+  discoveryMode,
+  feedAvailability,
+  filterExternalRecommendations,
+} from "@asm/protocols/discovery";
+import { Button } from "@asm/ui/shadui/button";
 import noFeedImage from "@assets/general/nofeed.png";
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import Image from "next/image";
@@ -11,6 +17,7 @@ import { NewContentPill } from "@/components/feeds/new-content-pill";
 import InfiniteScrollContainer from "@/components/layouts/feed/infinite-scroll-container";
 import FeedViewSkeleton from "@/components/layouts/skeletons/feed-view-skeleton";
 import LoadMoreSkeleton from "@/components/layouts/skeletons/load-more-skeleton";
+import { useBlueskyFeed } from "@/components/protocols/use-bluesky-feed";
 import { useNewContentProbe } from "@/hooks/feed/use-new-content-probe";
 import kyInstance from "@/lib/ky";
 import {
@@ -22,6 +29,10 @@ import {
   prependPostsToFeedCache,
   scrollFeedToTop,
 } from "@/lib/posts/feed-cache";
+import {
+  useFeedSourceStore,
+  useExternalExclusions,
+} from "@/store/feed-source-store";
 
 import { FeedView } from "./feed-view";
 import FeedEnd from "./feedview/feed-end";
@@ -87,6 +98,24 @@ export default function HomeFeed({
   communitySlug,
 }: HomeFeedProps) {
   const { user } = useSession();
+  const selectedSource = useFeedSourceStore((state) => state.source);
+  const excluded = useExternalExclusions(user?.id ?? "guest");
+  const allowExternal = !communitySlug && !excludePostId;
+  const source = allowExternal ? selectedSource : "asm";
+  const includeBluesky = source !== "asm";
+  const external = useBlueskyFeed(
+    discoveryMode(variant),
+    allowExternal && includeBluesky,
+    user?.id ?? "guest"
+  );
+  const externalPosts = useMemo(
+    () =>
+      filterExternalRecommendations(
+        external.data?.pages.flatMap((page) => page.items) ?? [],
+        excluded
+      ),
+    [external.data, excluded]
+  );
   const isTrending = variant === "trending";
   const isLatest = variant === "latest";
   const isPersonalized = variant === "personalized" || variant === "global";
@@ -208,7 +237,11 @@ export default function HomeFeed({
   // pending page so the end-of-feed marker does not flash before it lands.
   const globalInitialLoading = globalEnabled && globalStatus === "pending";
   const hasNextPage =
-    communityStillLeading || globalInitialLoading || Boolean(globalHasNextPage);
+    (source !== "bluesky" &&
+      (communityStillLeading ||
+        globalInitialLoading ||
+        Boolean(globalHasNextPage))) ||
+    (allowExternal && source !== "asm" && Boolean(external.hasNextPage));
 
   const queryClient = useQueryClient();
   const feedRootRef = useRef<HTMLDivElement>(null);
@@ -244,6 +277,18 @@ export default function HomeFeed({
   });
 
   const handleBottomReached = useCallback(() => {
+    if (
+      allowExternal &&
+      source !== "asm" &&
+      external.hasNextPage &&
+      !external.isFetching &&
+      !external.isError
+    ) {
+      void external.fetchNextPage();
+    }
+    if (source === "bluesky") {
+      return;
+    }
     const segment = nextFeedSegment({
       communityExhausted,
       globalHasNextPage: Boolean(globalHasNextPage),
@@ -259,6 +304,9 @@ export default function HomeFeed({
       fetchNextPage();
     }
   }, [
+    allowExternal,
+    source,
+    external,
     communityExhausted,
     fetchNextCommunityPage,
     fetchNextPage,
@@ -284,12 +332,49 @@ export default function HomeFeed({
     Boolean(communitySlug) && communityStatus === "pending";
   const communityFailed = Boolean(communitySlug) && communityStatus === "error";
   const showCommunitySection = hasCommunityLead && !communityFailed;
-  const hasAnyPosts = showCommunitySection || visibleGlobalPosts.length > 0;
+  const hasAnyPosts =
+    showCommunitySection ||
+    (source !== "bluesky" && visibleGlobalPosts.length > 0) ||
+    (allowExternal && source !== "asm" && externalPosts.length > 0);
+
+  const availability = feedAvailability({
+    count: hasAnyPosts ? 1 : 0,
+    externalEnabled: allowExternal && includeBluesky,
+    externalError: external.isError,
+    externalLoading: external.isPending,
+    nativeEnabled: source !== "bluesky",
+    nativeError: communityFailed || globalStatus === "error",
+    nativeLoading: communityPending || globalStatus === "pending",
+  });
+  if (availability === "error") {
+    return (
+      <div
+        className="flex min-h-80 flex-col items-center justify-center gap-3 px-4 text-center"
+        aria-live="polite"
+      >
+        <p className="text-muted-foreground text-sm">
+          Couldn't load your feed.
+        </p>
+        <p className="text-muted-foreground/70 text-xs">
+          Your feed is temporarily unavailable. Try again shortly.
+        </p>
+        <Button
+          onClick={() => {
+            void external.refetch();
+            void queryClient.invalidateQueries({ queryKey });
+          }}
+          variant="premium"
+        >
+          Try again
+        </Button>
+      </div>
+    );
+  }
 
   // Block on a skeleton only while nothing at all can be shown yet: a resolved
   // community segment renders immediately even if the global feed is still in
   // flight behind it.
-  if (!hasAnyPosts && (communityPending || globalStatus === "pending")) {
+  if (availability === "loading") {
     return <FeedViewSkeleton />;
   }
 
@@ -345,11 +430,15 @@ export default function HomeFeed({
   const isFetchingNextPage =
     isFetchingNextCommunityPage ||
     isFetchingNextGlobalPage ||
-    globalInitialLoading;
+    globalInitialLoading ||
+    external.isFetchingNextPage;
 
   return (
     <div className="relative" ref={feedRootRef}>
-      {!excludePostId && !communitySlug && newPosts.length > 0 ? (
+      {source !== "bluesky" &&
+      !excludePostId &&
+      !communitySlug &&
+      newPosts.length > 0 ? (
         <div className="pointer-events-none sticky top-3 z-20 flex justify-center">
           <NewContentPill
             authors={[
@@ -389,8 +478,10 @@ export default function HomeFeed({
             More from asocialmedia
           </h3>
         ) : null}
-        {visibleGlobalPosts.length > 0 ? (
+        {hasAnyPosts ? (
           <FeedView
+            externalPosts={allowExternal ? externalPosts : []}
+            source={source}
             cacheKey={queryKey}
             excludeIds={communityIds}
             excludePostId={excludePostId}
@@ -400,6 +491,13 @@ export default function HomeFeed({
           />
         ) : null}
         {isFetchingNextPage ? <LoadMoreSkeleton /> : null}
+        {hasNextPage && !isFetchingNextPage ? (
+          <div className="flex justify-center p-4">
+            <Button onClick={handleBottomReached} variant="ghost">
+              Load more posts
+            </Button>
+          </div>
+        ) : null}
         {hasAnyPosts && !hasNextPage ? <FeedEnd /> : null}
       </InfiniteScrollContainer>
     </div>

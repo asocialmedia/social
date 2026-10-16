@@ -1,6 +1,6 @@
 "use client";
 
-import type { PostData } from "@asm/db";
+import { externalReplyTarget } from "@asm/protocols/discovery";
 import {
   Drawer,
   DrawerDescription,
@@ -28,10 +28,16 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useSession } from "@/app/(main)/session-provider";
 import AuraVoteButton from "@/components/posts/actions/aura-vote-button";
 import BookmarkButton from "@/components/posts/actions/bookmark-button";
+import {
+  ExternalBookmarkButton,
+  ExternalVoteButton,
+} from "@/components/protocols/external-post-controls";
 import { useToast } from "@/lib/gooey-toast";
 import kyInstance from "@/lib/ky";
+import { useVideoDelivery } from "@/lib/media/use-video-delivery";
 import { setPopupOpen } from "@/lib/popup-tracker";
 import { isBookmarkedByUser } from "@/lib/posts/post-normalize";
+import type { PresentedPost as PostData } from "@/lib/posts/presentation";
 import { getPostMediaPath, getPostPath } from "@/lib/seo/seo";
 import type { Media } from "@/lib/types";
 import { getMediaProxyUrl, getMediaVideoUrl } from "@/lib/utils/image-url";
@@ -110,6 +116,12 @@ export function MediaHoldPreview({
     return () => observer.disconnect();
   }, []);
   const video = useRef<HTMLVideoElement>(null);
+  useVideoDelivery(
+    video,
+    request.media.id,
+    open && request.media.type === "VIDEO",
+    request.media.hasHls
+  );
   const afterClose = useRef<(() => void) | null>(null);
   const closing = useRef(false);
   const abort = useRef<AbortController | null>(null);
@@ -201,7 +213,9 @@ export function MediaHoldPreview({
     const controller = new AbortController();
     abort.current = controller;
     try {
-      const copied = await shareHeldMedia(selected, controller.signal);
+      const copied = post?.external
+        ? (await navigator.clipboard.writeText(post.external.url), true)
+        : await shareHeldMedia(selected, controller.signal);
       if (copied) {
         toast({ title: "Media link copied" });
       }
@@ -320,20 +334,28 @@ export function MediaHoldPreview({
           <div className="hide-native-scrollbar min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-0.5">
             {post ? (
               <div className="flex flex-col gap-1">
-                <AuraVoteButton
-                  layout="menu"
-                  authorName={
-                    post.user?.displayName || post.user?.username || "Author"
-                  }
-                  initialState={{
-                    aura: post.aura ?? 0,
-                    userVote: post.vote?.[0]?.value ?? 0,
-                  }}
-                  postId={post.id}
-                />
+                {post.external ? (
+                  <ExternalVoteButton layout="menu" post={post.external} />
+                ) : (
+                  <AuraVoteButton
+                    layout="menu"
+                    authorName={
+                      post.user?.displayName || post.user?.username || "Author"
+                    }
+                    initialState={{
+                      aura: post.aura ?? 0,
+                      userVote: post.vote?.[0]?.value ?? 0,
+                    }}
+                    postId={post.id}
+                  />
+                )}
                 <a
                   className={MEDIA_MENU_ACTION_CLASS}
-                  href={`/api/media/download/${selected.id}`}
+                  href={
+                    post.external
+                      ? post.external.url
+                      : `/api/media/download/${selected.id}`
+                  }
                   download
                 >
                   <MediaMenuActionContent icon={Download} label="Save media" />
@@ -356,16 +378,22 @@ export function MediaHoldPreview({
                   onClick={() =>
                     requireUser(() =>
                       close(() =>
-                        useComposerStore.getState().openComposer("post", {
-                          attachments: post.attachments,
-                          avatarUrl: post.user?.avatarUrl ?? null,
-                          content: post.content,
-                          createdAt: post.createdAt,
-                          displayName: post.user?.displayName ?? undefined,
-                          id: post.id,
-                          isGust: post.isGust,
-                          username: post.user?.username ?? "unknown",
-                        })
+                        useComposerStore.getState().openComposer(
+                          "post",
+                          post.external
+                            ? externalReplyTarget(post.external)
+                            : {
+                                attachments: post.attachments,
+                                avatarUrl: post.user?.avatarUrl ?? null,
+                                content: post.content,
+                                createdAt: post.createdAt,
+                                displayName:
+                                  post.user?.displayName ?? undefined,
+                                id: post.id,
+                                isGust: post.isGust,
+                                username: post.user?.username ?? "unknown",
+                              }
+                        )
                       )
                     )
                   }
@@ -387,16 +415,20 @@ export function MediaHoldPreview({
                 >
                   <MediaMenuActionContent icon={MessageSquare} label="Eddie" />
                 </button>
-                <BookmarkButton
-                  layout="menu"
-                  initialState={{
-                    isBookmarkedByUser: isBookmarkedByUser(
-                      post,
-                      user?.id ?? ""
-                    ),
-                  }}
-                  postId={post.id}
-                />
+                {post.external ? (
+                  <ExternalBookmarkButton layout="menu" post={post.external} />
+                ) : (
+                  <BookmarkButton
+                    layout="menu"
+                    initialState={{
+                      isBookmarkedByUser: isBookmarkedByUser(
+                        post,
+                        user?.id ?? ""
+                      ),
+                    }}
+                    postId={post.id}
+                  />
+                )}
                 <button
                   className={MEDIA_MENU_ACTION_CLASS}
                   onClick={() =>

@@ -52,6 +52,7 @@ export function getPostSlug(content?: string | null): string {
 }
 
 export interface PostUrlTarget {
+  external?: { id: string };
   content?: string | null;
   // The owning community, when the post was published into one. Native
   // community posts live under the community's own namespace
@@ -81,6 +82,9 @@ function postPathPrefix(post: PostUrlTarget): string {
 
 // Default URL uses short post ID (8-char prefix) with human-readable content slug
 export function getPostPath(post: PostUrlTarget): string {
+  if (post.external) {
+    return `/network/bluesky?uri=${encodeURIComponent(post.external.id)}`;
+  }
   if (!post || !post.id) {
     return "/";
   }
@@ -104,6 +108,9 @@ export function getPostMediaPath(
   post: PostUrlTarget,
   index: number | string
 ): string {
+  if (post.external) {
+    return `/network/bluesky?uri=${encodeURIComponent(post.external.id)}&media=${index}`;
+  }
   if (!post || !post.id) {
     return "/";
   }
@@ -123,6 +130,9 @@ export const getShortPostUrl = getPostUrl;
 
 // Full-length ID path helper if exact unshortened UUID is needed
 export function getFullPostPath(post: PostUrlTarget): string {
+  if (post.external) {
+    return getPostPath(post);
+  }
   if (!post || !post.id) {
     return "/";
   }

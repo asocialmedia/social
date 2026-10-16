@@ -1,6 +1,6 @@
 "use client";
 
-import type { PostData, UserData } from "@asm/db";
+import type { UserData } from "@asm/db";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
@@ -13,10 +13,12 @@ import PostCard from "@/components/home/feedview/post-card";
 import HomeFeed from "@/components/home/home-feed";
 import { FeedScrollbar } from "@/components/layouts/feed/feed-scrollbar";
 import PostAuthorSidebar from "@/components/posts/views/post-author-sidebar";
+import { ExternalResponses } from "@/components/protocols/external-responses";
 import { useFeedScrollMemory } from "@/hooks/feed/use-feed-scroll-memory";
 import { useFeedSwipeNavigation } from "@/hooks/feed/use-feed-swipe-navigation";
 import kyInstance from "@/lib/ky";
 import { normalizePostData } from "@/lib/posts/post-normalize";
+import type { PresentedPost as PostData } from "@/lib/posts/presentation";
 import { withViewTransition } from "@/lib/view-transition";
 
 interface ClientPostProps {
@@ -43,6 +45,7 @@ const ClientPost: React.FC<ClientPostProps> = ({
     ancestors: PostData[];
     post: PostData;
   }>({
+    enabled: !initialPost.external,
     initialData: {
       ancestors: initialAncestors,
       post: initialPost,
@@ -112,7 +115,7 @@ const ClientPost: React.FC<ClientPostProps> = ({
   // refresh it right away so the list updates without a manual reload. Guests
   // don't have visit history, so skip the request entirely.
   useEffect(() => {
-    if (!isLoggedIn) {
+    if (!isLoggedIn || post.external) {
       return;
     }
     const recordVisit = async () => {
@@ -127,7 +130,7 @@ const ClientPost: React.FC<ClientPostProps> = ({
     };
 
     void recordVisit();
-  }, [post.id, queryClient, isLoggedIn]);
+  }, [post.id, post.external, queryClient, isLoggedIn]);
 
   const handleGoBack = useCallback(() => {
     // Go back in history when there's a prior entry, otherwise land on the
@@ -145,16 +148,20 @@ const ClientPost: React.FC<ClientPostProps> = ({
   // container, so swiping inside an open viewer never reaches this handler.
   const handleSwipeNavigate = useCallback(
     (direction: -1 | 1) => {
+      if (direction === 1 && post.external) {
+        window.location.assign(post.external.author.url);
+        return;
+      }
       if (direction === 1 && authorUsername) {
         withViewTransition(() => router.push(`/users/${authorUsername}`));
       }
     },
-    [authorUsername, router]
+    [authorUsername, router, post.external]
   );
   useFeedSwipeNavigation(scrollRef, handleSwipeNavigate);
 
   return (
-    <CommentsRealtimeProvider postId={post.id}>
+    <PostDiscussionProvider post={post}>
       <div className="border-border/60 mx-auto flex min-w-0 flex-1 flex-col bg-[hsl(var(--background-alt))] sm:border-x lg:max-w-5xl">
         <div className="relative min-h-0 flex-1">
           <div
@@ -262,6 +269,9 @@ const ClientPost: React.FC<ClientPostProps> = ({
                 );
               })()}
             </div>
+            {post.external ? (
+              <ExternalResponses uri={post.external.id} />
+            ) : null}
             <div>
               <div className="flex items-center justify-between px-4 py-2">
                 <span className="text-sm font-semibold">View more content</span>
@@ -288,8 +298,24 @@ const ClientPost: React.FC<ClientPostProps> = ({
       </div>
 
       <PostAuthorSidebar post={post} />
-    </CommentsRealtimeProvider>
+    </PostDiscussionProvider>
   );
 };
 
 export default ClientPost;
+
+function PostDiscussionProvider({
+  post,
+  children,
+}: {
+  post: PostData;
+  children: React.ReactNode;
+}) {
+  return post.external ? (
+    children
+  ) : (
+    <CommentsRealtimeProvider postId={post.id}>
+      {children}
+    </CommentsRealtimeProvider>
+  );
+}

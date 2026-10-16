@@ -1,5 +1,6 @@
 "use client";
 
+import type { TextSegment } from "@asm/protocols/contracts";
 import LinkifyIt from "linkify-it";
 import { Hash } from "lucide-react";
 import Link from "next/link";
@@ -103,7 +104,9 @@ export function PostInlineContent({
   embeds,
   linkBadge = "preview",
   renderMention,
+  sourceSegments,
 }: {
+  sourceSegments?: TextSegment[];
   className?: string;
   content: string;
   embeds?: LinkEmbed[];
@@ -114,7 +117,12 @@ export function PostInlineContent({
   // username and returns the node to render in its place.
   renderMention?: (username: string) => ReactNode;
 }) {
-  const segments = segmentContent(content);
+  const segments = sourceSegments
+    ? sourceSegments.map((segment) => ({
+        text: segment.text,
+        url: segment.href,
+      }))
+    : segmentContent(content);
   if (segments.length === 0) {
     segments.push({ text: content });
   }
@@ -128,25 +136,32 @@ export function PostInlineContent({
         className
       )}
     >
-      {segments.map((segment, index) =>
-        segment.url === undefined ? (
-          <InlineRichText
-            key={`text-${index}`}
-            renderMention={renderMention}
-            text={segment.text ?? ""}
-          />
-        ) : (
+      {segments.map((segment, index) => {
+        if (segment.url === undefined) {
+          return sourceSegments ? (
+            <span key={`text-${index}`}>{segment.text}</span>
+          ) : (
+            <InlineRichText
+              key={`text-${index}`}
+              renderMention={renderMention}
+              text={segment.text ?? ""}
+            />
+          );
+        }
+        let title = findEmbedForUrl(segment.url, embeds)?.title;
+        if (sourceSegments) {
+          title = segment.text;
+        } else if (linkBadge === "chip") {
+          title = hostLabel(segment.url);
+        }
+        return (
           <LinkBadge
             key={`${segment.url}-${index}`}
-            title={
-              linkBadge === "chip"
-                ? hostLabel(segment.url)
-                : findEmbedForUrl(segment.url, embeds)?.title
-            }
+            title={title}
             url={segment.url}
           />
-        )
-      )}
+        );
+      })}
     </p>
   );
 }

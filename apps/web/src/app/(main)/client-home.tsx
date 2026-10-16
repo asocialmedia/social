@@ -31,6 +31,7 @@ import MobileTopBar from "@/components/layouts/navigation/mobile/mobile-top-bar"
 import SearchField from "@/components/layouts/navigation/search-field";
 import { CollapsibleTopBar } from "@/components/layouts/shell/collapsible-top-bar";
 import PostEditor from "@/components/posts/editor/post-editor";
+import { FeedSourceMenu } from "@/components/protocols/feed-source-menu";
 import { useFeedScrollMemory } from "@/hooks/feed/use-feed-scroll-memory";
 import { useFeedSwipeNavigation } from "@/hooks/feed/use-feed-swipe-navigation";
 import { useHideOnScroll } from "@/hooks/use-hide-on-scroll";
@@ -175,6 +176,7 @@ const ClientHome: React.FC<ClientHomeProps> = () => {
                   Following
                 </AnimatedTabTrigger>
               </TabsList>
+              <FeedSourceMenu following={tab === "following"} />
               {/* xl:hidden: the right sidebar owns the search bar from xl up;
                   this header copy serves the md-xl gap. */}
               <div className="ml-auto hidden min-w-0 items-center gap-2 pr-1.5 md:flex xl:hidden">

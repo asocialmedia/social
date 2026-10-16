@@ -1,6 +1,6 @@
 "use client";
 
-import type { PostData, PostsPage } from "@asm/db";
+import type { PostsPage } from "@asm/db";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { Flame, MessageSquare, Newspaper, ShieldAlert } from "lucide-react";
 import Image from "next/image";
@@ -20,10 +20,12 @@ import {
   embedImageProxyUrl,
   useEmbedImageError,
 } from "@/components/posts/embeds/embed-utils";
+import { BlueskyIcon } from "@/components/protocols/bluesky-icon";
 import { useUserDataQuery } from "@/hooks/users/use-user-data-query";
 import { getAuraFlameClass } from "@/lib/aura/aura";
 import kyInstance from "@/lib/ky";
 import { parseStoredEmbeds } from "@/lib/link-embeds/shared";
+import type { PresentedPost as PostData } from "@/lib/posts/presentation";
 import { getPostPath } from "@/lib/seo/seo";
 import { getUserCount, getUserPostCount } from "@/lib/types";
 import { cn, formatNumber, formatRelativeDate } from "@/lib/utils";
@@ -171,11 +173,15 @@ const AuthorPostRow: React.FC<AuthorPostRowProps> = ({ post }) => {
           <span className="block truncate text-sm font-semibold">
             {post.user?.displayName || post.user?.username || "Anonymous"}
           </span>
-          <UserBadge
-            badge={post.user?.badge}
-            badges={post.user?.badges}
-            communityRoles={post.user?.communityMemberships}
-          />
+          {post.external ? (
+            <BlueskyIcon />
+          ) : (
+            <UserBadge
+              badge={post.user?.badge}
+              badges={post.user?.badges}
+              communityRoles={post.user?.communityMemberships}
+            />
+          )}
         </span>
         {post.moderated ? (
           <span className="text-muted-foreground mt-0.5 flex items-center gap-1.5 text-sm leading-snug font-medium">
@@ -217,13 +223,15 @@ const AuthorPostRow: React.FC<AuthorPostRowProps> = ({ post }) => {
 
 const PostAuthorSidebar: React.FC<PostAuthorSidebarProps> = ({ post }) => {
   const { user: currentUser } = useSession();
-  const { data: liveUser } = useUserDataQuery(post.user);
+  const { data: liveUser } = useUserDataQuery(post.user, !post.external);
 
   const author = liveUser;
   const isOwnProfile = author.id === currentUser?.id;
   const isFollowedByUser = Boolean(author.followers?.length);
   const followerInfo = {
-    followers: getUserCount(author, "followers"),
+    followers:
+      post.external?.author.upstreamCounts.followers ??
+      getUserCount(author, "followers"),
     isFollowedByUser,
   };
 
@@ -235,6 +243,7 @@ const PostAuthorSidebar: React.FC<PostAuthorSidebarProps> = ({ post }) => {
     isFetchingNextPage,
     status,
   } = useInfiniteQuery({
+    enabled: !post.external,
     getNextPageParam: (lastPage) => lastPage.nextCursor,
     initialPageParam: null as string | null,
     queryFn: ({ pageParam }: { pageParam: string | null }) =>
@@ -265,7 +274,16 @@ const PostAuthorSidebar: React.FC<PostAuthorSidebarProps> = ({ post }) => {
   }, [hasNextPage, isFetching, fetchNextPage]);
 
   let postsBody: React.ReactNode;
-  if (status === "pending") {
+  if (post.external) {
+    postsBody = (
+      <Link
+        className="text-primary block px-3 py-2 text-sm hover:underline"
+        href={post.external.author.url}
+      >
+        View posts on Bluesky
+      </Link>
+    );
+  } else if (status === "pending") {
     postsBody = (
       <div className="flex flex-col gap-0.5">
         <PostRowSkeleton />
@@ -314,7 +332,7 @@ const PostAuthorSidebar: React.FC<PostAuthorSidebarProps> = ({ post }) => {
               "group flex flex-col gap-2 rounded-xl px-2.5 py-2.5",
               ROW_HOVER_CLASS
             )}
-            href={`/users/${author.username}`}
+            href={post.external?.author.url ?? `/users/${author.username}`}
           >
             <div className="flex items-start gap-3">
               <UserAvatar avatarUrl={author.avatarUrl} className="h-11 w-11" />
@@ -323,11 +341,15 @@ const PostAuthorSidebar: React.FC<PostAuthorSidebarProps> = ({ post }) => {
                   <span className="block truncate font-bold group-hover:underline">
                     {author.displayName || author.username}
                   </span>
-                  <UserBadge
-                    badge={author.badge}
-                    badges={author.badges}
-                    communityRoles={author.communityMemberships}
-                  />
+                  {post.external ? (
+                    <BlueskyIcon />
+                  ) : (
+                    <UserBadge
+                      badge={author.badge}
+                      badges={author.badges}
+                      communityRoles={author.communityMemberships}
+                    />
+                  )}
                 </span>
                 <span className="text-muted-foreground block truncate text-xs transition-colors group-hover:text-inherit">
                   @{author.username}
@@ -342,7 +364,10 @@ const PostAuthorSidebar: React.FC<PostAuthorSidebarProps> = ({ post }) => {
             <div className="text-muted-foreground flex items-center gap-3 text-xs">
               <span>
                 <span className="text-foreground font-semibold">
-                  {formatNumber(getUserPostCount(author))}
+                  {formatNumber(
+                    post.external?.author.upstreamCounts.posts ??
+                      getUserPostCount(author)
+                  )}
                 </span>{" "}
                 Posts
               </span>
@@ -352,23 +377,28 @@ const PostAuthorSidebar: React.FC<PostAuthorSidebarProps> = ({ post }) => {
                 </span>{" "}
                 Followers
               </span>
-              <span className="flex items-center gap-1">
-                <Flame
-                  className={cn("h-3.5 w-3.5", getAuraFlameClass(author.aura))}
-                />
-                <span className="text-foreground font-semibold">
-                  {formatNumber(author.aura)}
-                </span>{" "}
-                Aura
-              </span>
+              {post.external ? null : (
+                <span className="flex items-center gap-1">
+                  <Flame
+                    className={cn(
+                      "h-3.5 w-3.5",
+                      getAuraFlameClass(author.aura)
+                    )}
+                  />
+                  <span className="text-foreground font-semibold">
+                    {formatNumber(author.aura)}
+                  </span>{" "}
+                  Aura
+                </span>
+              )}
             </div>
           </Link>
 
           <div className="px-2 pt-3 pb-1">
-            {isOwnProfile ? (
+            {isOwnProfile || post.external ? (
               <Link
                 className="follow-btn-3d flex h-8 w-full items-center justify-center rounded-md px-3 text-sm"
-                href={`/users/${author.username}`}
+                href={post.external?.author.url ?? `/users/${author.username}`}
               >
                 View profile
               </Link>
@@ -398,7 +428,7 @@ const PostAuthorSidebar: React.FC<PostAuthorSidebarProps> = ({ post }) => {
             </div>
             <Link
               className="text-muted-foreground hover:text-primary shrink-0 text-[11px] font-medium transition-colors"
-              href={`/users/${author.username}`}
+              href={post.external?.author.url ?? `/users/${author.username}`}
             >
               View all
             </Link>

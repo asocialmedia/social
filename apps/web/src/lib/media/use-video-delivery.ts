@@ -5,6 +5,8 @@ import type { RefObject } from "react";
 
 import { getMediaVariantUrl } from "@/lib/utils/image-url";
 
+import { hlsPlaybackMode } from "./hls-playback";
+
 async function resumeVideo(video: HTMLVideoElement) {
   try {
     await video.play();
@@ -33,11 +35,22 @@ export function useVideoDelivery(
     const fallback = getMediaVariantUrl(mediaId, "mp4-h264.mp4");
     let destroyed = false;
     let hls: { destroy: () => void } | undefined;
-    if (hasHls && !video.canPlayType("application/vnd.apple.mpegurl")) {
+    if (hasHls) {
       void (async () => {
         try {
           const { default: Hls } = await loadHls();
-          if (destroyed || !Hls.isSupported()) {
+          if (destroyed) {
+            return;
+          }
+          const mode = hlsPlaybackMode(
+            Hls.isSupported(),
+            Boolean(video.canPlayType("application/vnd.apple.mpegurl"))
+          );
+          if (mode === "native") {
+            video.src = getMediaVariantUrl(mediaId, "hls/master.m3u8");
+            return;
+          }
+          if (mode === "unsupported") {
             return;
           }
           const instance = new Hls({
@@ -71,8 +84,6 @@ export function useVideoDelivery(
           // The progressive source stays available if loading HLS fails.
         }
       })();
-    } else if (hasHls) {
-      video.src = getMediaVariantUrl(mediaId, "hls/master.m3u8");
     } else if (video.canPlayType('video/webm; codecs="av01.0.08M.08,opus"')) {
       video.src = getMediaVariantUrl(mediaId, "webm-av1.webm");
     }

@@ -202,3 +202,15 @@ describe("postIdFromUrl", () => {
     ).toBeNull();
   });
 });
+
+test("external detail and media URLs preserve the full canonical URI and selected attachment", () => {
+  const uri = "at://did:plc:alice/app.bsky.feed.post/example";
+  const post = { external: { id: uri }, id: uri };
+  expect(getPostPath(post)).toBe(
+    `/network/bluesky?uri=${encodeURIComponent(uri)}`
+  );
+  expect(getPostMediaPath(post, 2)).toBe(
+    `/network/bluesky?uri=${encodeURIComponent(uri)}&media=2`
+  );
+  expect(getFullPostPath(post)).toBe(getPostPath(post));
+});

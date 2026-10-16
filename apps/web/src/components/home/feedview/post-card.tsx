@@ -1,10 +1,9 @@
 "use client";
 
-import type { PostData, UserData } from "@asm/db";
+import type { UserData } from "@asm/db";
 import { mediaReshareLabel } from "@asm/media";
 import { Button } from "@asm/ui/shadui/button";
-import { Card, CardContent } from "@asm/ui/shadui/card";
-import { CornerDownRight, Eye, MessageSquare } from "lucide-react";
+import { Eye, MessageSquare } from "lucide-react";
 import { motion } from "motion/react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -30,11 +29,20 @@ import UserTooltip from "@/components/layouts/user/user-tooltip";
 import AuraVoteButton from "@/components/posts/actions/aura-vote-button";
 import BookmarkButton from "@/components/posts/actions/bookmark-button";
 import PostMoreButton from "@/components/posts/actions/post-more-button";
+import { RespondAction } from "@/components/posts/actions/respond-action";
 import ExplicitContentGate from "@/components/posts/content/explicit-content-gate";
 import ModeratedNotice from "@/components/posts/content/moderated-notice";
 import PostLinkedContent from "@/components/posts/content/post-linked-content";
 import ViewTracker from "@/components/posts/effects/view-counter";
 import PostLinkEmbeds from "@/components/posts/embeds/link-embeds";
+import { BlueskyIcon } from "@/components/protocols/bluesky-icon";
+import { ExternalDiscussion } from "@/components/protocols/external-discussion";
+import {
+  ExternalBookmarkButton,
+  ExternalRespondButton,
+  ExternalShareButton,
+  ExternalVoteButton,
+} from "@/components/protocols/external-post-controls";
 import { ResponseParentRow } from "@/components/responses/response-parent-card";
 import { PostMeta } from "@/components/tags/post-meta";
 import { communityAccentStyle } from "@/lib/communities/accent";
@@ -45,12 +53,15 @@ import {
   isBookmarkedByUser,
   normalizePostData,
 } from "@/lib/posts/post-normalize";
+import { externalPostView } from "@/lib/posts/presentation";
+import type { PresentedPost as PostData } from "@/lib/posts/presentation";
 import { getPostPath } from "@/lib/seo/seo";
 import { cn, formatNumber, formatRelativeDate } from "@/lib/utils";
 import { getMediaProxyUrl } from "@/lib/utils/image-url";
 import { withViewTransition } from "@/lib/view-transition";
 import { useComposerStore } from "@/store/composer-store";
 
+import { FeedPostSurface } from "./feed-post-surface";
 import { HNStoryCard } from "./hn-story-card";
 // eslint-disable-next-line import/no-cycle -- post-card renders media-previews, whose viewer surfaces related posts via post-card
 import { MediaPreviews } from "./media-previews";
@@ -69,6 +80,20 @@ type ExtendedPostData = PostData & {
     descendants: number;
   } | null;
 };
+
+function PostAuthorTooltip({
+  post,
+  children,
+}: {
+  post: PostData;
+  children: React.ReactNode;
+}) {
+  return post.external ? (
+    children
+  ) : (
+    <UserTooltip user={post.user}>{children}</UserTooltip>
+  );
+}
 
 interface PostCardProps {
   detail?: boolean;
@@ -119,7 +144,7 @@ const PostHeader: React.FC<PostHeaderProps> = ({
   if (detail && !isThreadChild) {
     return (
       <div className="relative flex items-start gap-2 sm:gap-3">
-        <UserTooltip user={post.user}>
+        <PostAuthorTooltip post={post}>
           <Link
             className="shrink-0 self-start"
             href={authorProfileHref}
@@ -131,11 +156,11 @@ const PostHeader: React.FC<PostHeaderProps> = ({
               priority
             />
           </Link>
-        </UserTooltip>
+        </PostAuthorTooltip>
 
         <div className="min-w-0 flex-1 pr-9 sm:pr-19">
           <div className="flex min-w-0 items-center gap-1.5 sm:gap-2">
-            <UserTooltip user={post.user}>
+            <PostAuthorTooltip post={post}>
               <Link
                 className="text-foreground truncate text-[13px]/4.5 font-semibold hover:underline sm:text-base/6"
                 href={authorProfileHref}
@@ -143,13 +168,17 @@ const PostHeader: React.FC<PostHeaderProps> = ({
               >
                 {authorDisplayName}
               </Link>
-            </UserTooltip>
-            <UserBadge
-              badge={authorBadge}
-              badges={authorBadges}
-              communityRoles={authorCommunityRoles}
-              className="h-4 w-12 sm:h-5 sm:w-15"
-            />
+            </PostAuthorTooltip>
+            {post.external ? (
+              <BlueskyIcon />
+            ) : (
+              <UserBadge
+                badge={authorBadge}
+                badges={authorBadges}
+                communityRoles={authorCommunityRoles}
+                className="h-4 w-12 sm:h-5 sm:w-15"
+              />
+            )}
             <Link
               className="text-muted-foreground shrink-0 text-[11px]/4 hover:underline sm:text-base/6"
               href={getPostPath(post)}
@@ -160,7 +189,7 @@ const PostHeader: React.FC<PostHeaderProps> = ({
             </Link>
           </div>
           <div className="mt-0.5 flex min-w-0 items-center gap-2">
-            <UserTooltip user={post.user}>
+            <PostAuthorTooltip post={post}>
               <Link
                 className="text-muted-foreground truncate text-xs/4 hover:underline sm:text-base/6"
                 href={authorProfileHref}
@@ -168,8 +197,10 @@ const PostHeader: React.FC<PostHeaderProps> = ({
               >
                 @{authorUsername}
               </Link>
-            </UserTooltip>
-            {!post.user || post.user.id === currentUserId ? null : (
+            </PostAuthorTooltip>
+            {post.external ||
+            !post.user ||
+            post.user.id === currentUserId ? null : (
               <FollowButton
                 className="h-7 px-3 text-xs"
                 initialState={{
@@ -187,13 +218,20 @@ const PostHeader: React.FC<PostHeaderProps> = ({
             className="h-7 w-7 p-0 sm:h-7.5 sm:w-7.5"
             post={post}
           />
-          <BookmarkButton
-            className="hidden h-7 w-7 p-0 sm:inline-flex sm:h-7.5 sm:w-7.5"
-            initialState={{
-              isBookmarkedByUser: isBookmarkedByUser(post, currentUserId),
-            }}
-            postId={post.id}
-          />
+          {post.external ? (
+            <ExternalBookmarkButton
+              post={post.external}
+              className="hidden h-7 w-7 p-0 sm:inline-flex sm:h-7.5 sm:w-7.5"
+            />
+          ) : (
+            <BookmarkButton
+              className="hidden h-7 w-7 p-0 sm:inline-flex sm:h-7.5 sm:w-7.5"
+              initialState={{
+                isBookmarkedByUser: isBookmarkedByUser(post, currentUserId),
+              }}
+              postId={post.id}
+            />
+          )}
         </div>
       </div>
     );
@@ -202,7 +240,7 @@ const PostHeader: React.FC<PostHeaderProps> = ({
   return (
     <div className="relative z-10 flex items-center justify-between gap-2">
       <div className="flex min-w-0 flex-1 items-center gap-1.5 text-xs sm:gap-2 sm:text-sm">
-        <UserTooltip user={post.user}>
+        <PostAuthorTooltip post={post}>
           <Link
             className="text-foreground truncate font-semibold hover:underline"
             href={authorProfileHref}
@@ -210,13 +248,17 @@ const PostHeader: React.FC<PostHeaderProps> = ({
           >
             {authorDisplayName}
           </Link>
-        </UserTooltip>
-        <UserBadge
-          badge={authorBadge}
-          badges={authorBadges}
-          communityRoles={authorCommunityRoles}
-        />
-        <UserTooltip user={post.user}>
+        </PostAuthorTooltip>
+        {post.external ? (
+          <BlueskyIcon />
+        ) : (
+          <UserBadge
+            badge={authorBadge}
+            badges={authorBadges}
+            communityRoles={authorCommunityRoles}
+          />
+        )}
+        <PostAuthorTooltip post={post}>
           <Link
             className="text-muted-foreground truncate hover:underline"
             href={authorProfileHref}
@@ -224,7 +266,7 @@ const PostHeader: React.FC<PostHeaderProps> = ({
           >
             @{authorUsername}
           </Link>
-        </UserTooltip>
+        </PostAuthorTooltip>
         <span className="text-muted-foreground shrink-0">·</span>
         <Link
           className="text-muted-foreground shrink-0 hover:underline"
@@ -238,13 +280,20 @@ const PostHeader: React.FC<PostHeaderProps> = ({
 
       <div className="-my-1 flex shrink-0 items-center gap-1 sm:gap-1.5">
         <PostMoreButton className="h-7 w-7 p-0 sm:h-7.5 sm:w-7.5" post={post} />
-        <BookmarkButton
-          className="hidden h-7 w-7 p-0 sm:inline-flex sm:h-7.5 sm:w-7.5"
-          initialState={{
-            isBookmarkedByUser: isBookmarkedByUser(post, currentUserId),
-          }}
-          postId={post.id}
-        />
+        {post.external ? (
+          <ExternalBookmarkButton
+            post={post.external}
+            className="hidden h-7 w-7 p-0 sm:inline-flex sm:h-7.5 sm:w-7.5"
+          />
+        ) : (
+          <BookmarkButton
+            className="hidden h-7 w-7 p-0 sm:inline-flex sm:h-7.5 sm:w-7.5"
+            initialState={{
+              isBookmarkedByUser: isBookmarkedByUser(post, currentUserId),
+            }}
+            postId={post.id}
+          />
+        )}
       </div>
     </div>
   );
@@ -366,9 +415,9 @@ const PostContent: React.FC<PostContentProps> = ({
   const authorBadge = post.user?.badge;
   const authorBadges = post.user?.badges;
   const authorCommunityRoles = post.user?.communityMemberships;
-  const authorProfileHref = post.user?.username
-    ? `/users/${post.user.username}`
-    : "#";
+  const authorProfileHref =
+    post.external?.author.url ??
+    (post.user?.username ? `/users/${post.user.username}` : "#");
 
   // A response shown in a feed or detail view: render the post it
   // replies to as the top node of a mini-thread, connected by a rail,
@@ -415,6 +464,14 @@ const PostContent: React.FC<PostContentProps> = ({
 
   return (
     <div>
+      {post.externalParent ? (
+        <Link
+          className="text-muted-foreground mb-3 block text-xs hover:underline"
+          href={`/network/bluesky?uri=${encodeURIComponent(post.externalParent.uri)}`}
+        >
+          Responding to a Bluesky post ↗
+        </Link>
+      ) : null}
       {showParentRow ? (
         <ResponseParentRow
           parent={post.parentPost}
@@ -449,7 +506,7 @@ const PostContent: React.FC<PostContentProps> = ({
               hasThreadParent={hasThreadParent}
               showParentRow={showParentRow}
             />
-            <UserTooltip user={post.user}>
+            <PostAuthorTooltip post={post}>
               <Link
                 className="relative z-10 shrink-0 self-start"
                 href={authorProfileHref}
@@ -460,7 +517,7 @@ const PostContent: React.FC<PostContentProps> = ({
                   priority
                 />
               </Link>
-            </UserTooltip>
+            </PostAuthorTooltip>
           </div>
         )}
 
@@ -493,6 +550,7 @@ const PostContent: React.FC<PostContentProps> = ({
                 {/* URLs inside the content render as inline badges (platform
                   logo + resolved embed title) instead of raw URLs. */}
                 <PostLinkedContent
+                  sourceSegments={post.external?.segments}
                   className={
                     detail && !isThreadChild
                       ? "text-sm/5.5 sm:text-[15px]/relaxed"
@@ -559,6 +617,25 @@ const PostContent: React.FC<PostContentProps> = ({
                 </div>
               ) : null}
 
+              {post.external?.quote ? (
+                <div
+                  className="border-border/60 mt-3 overflow-hidden rounded-2xl border"
+                  data-card-interactive
+                >
+                  <PostCard
+                    post={externalPostView({
+                      ...post.external.quote,
+                      quote: undefined,
+                    })}
+                    showCommunity={false}
+                  />
+                </div>
+              ) : null}
+              {post.external?.unavailableQuote ? (
+                <p className="text-muted-foreground mt-3 text-sm">
+                  Quoted post unavailable
+                </p>
+              ) : null}
               {post.tags?.length || post.mentions?.length ? (
                 <PostMeta
                   content={post.content}
@@ -575,56 +652,9 @@ const PostContent: React.FC<PostContentProps> = ({
 
           {/* Mobile bottom action bar: full-width justified with equal spacing across all buttons (Twitter style) */}
           <div className="mt-3 flex w-full items-center justify-between sm:hidden">
-            <AuraVoteButton
-              authorName={post.user?.displayName || post.user?.username}
-              initialState={{
-                aura: post.aura ?? 0,
-                userVote: post.vote?.[0]?.value ?? 0,
-              }}
-              postId={post.id}
-            />
-            <CommentButton onClick={onToggleComments} post={post} />
-            <RespondButton post={post} />
-            <span
-              className="text-muted-foreground flex h-7 cursor-default items-center gap-1 rounded-full px-1"
-              title="Views"
-            >
-              <Eye className="size-4" />
-              <span className="text-xs tabular-nums">
-                {formatNumber(post.viewCount ?? 0)}
-              </span>
-            </span>
-            <div className="flex items-center gap-1">
-              <ShareButton
-                defaultTab="link"
-                description={post.moderated ? "" : post.content}
-                dialogDescription="Share this post with your network"
-                dialogTitle="Share Post"
-                postId={post.id}
-                thumbnail={
-                  post.moderated || !firstMedia
-                    ? `/posts/${post.id}/opengraph-image`
-                    : getMediaProxyUrl(firstMedia)
-                }
-                title={
-                  post.moderated
-                    ? `Post on asocialmedia`
-                    : `${authorDisplayName} (@${authorUsername}) on asocialmedia`
-                }
-              />
-              <BookmarkButton
-                className="h-7 w-7 p-0"
-                initialState={{
-                  isBookmarkedByUser: isBookmarkedByUser(post, currentUserId),
-                }}
-                postId={post.id}
-              />
-            </div>
-          </div>
-
-          {/* Desktop bottom action bar: classic layout with left and right groups, sized 1pt smaller */}
-          <div className="mt-3 hidden sm:flex sm:items-center sm:justify-between sm:gap-2">
-            <div className="flex items-center gap-1.5">
+            {post.external ? (
+              <ExternalVoteButton post={post.external} />
+            ) : (
               <AuraVoteButton
                 authorName={post.user?.displayName || post.user?.username}
                 initialState={{
@@ -633,37 +663,116 @@ const PostContent: React.FC<PostContentProps> = ({
                 }}
                 postId={post.id}
               />
-              <CommentButton onClick={onToggleComments} post={post} />
+            )}
+            <CommentButton onClick={onToggleComments} post={post} />
+            {post.external ? (
+              <ExternalRespondButton post={post.external} />
+            ) : (
               <RespondButton post={post} />
+            )}
+            {post.external ? null : (
+              <span
+                className="text-muted-foreground flex h-7 cursor-default items-center gap-1 rounded-full px-1"
+                title="Views"
+              >
+                <Eye className="size-4" />
+                <span className="text-xs tabular-nums">
+                  {formatNumber(post.viewCount ?? 0)}
+                </span>
+              </span>
+            )}
+            <div className="flex items-center gap-1">
+              {post.external ? (
+                <ExternalShareButton post={post.external} />
+              ) : (
+                <ShareButton
+                  defaultTab="link"
+                  description={post.moderated ? "" : post.content}
+                  dialogDescription="Share this post with your network"
+                  dialogTitle="Share Post"
+                  postId={post.id}
+                  thumbnail={
+                    post.moderated || !firstMedia
+                      ? `/posts/${post.id}/opengraph-image`
+                      : getMediaProxyUrl(firstMedia)
+                  }
+                  title={
+                    post.moderated
+                      ? `Post on asocialmedia`
+                      : `${authorDisplayName} (@${authorUsername}) on asocialmedia`
+                  }
+                />
+              )}
+              {post.external ? (
+                <ExternalBookmarkButton post={post.external} />
+              ) : (
+                <BookmarkButton
+                  className="h-7 w-7 p-0"
+                  initialState={{
+                    isBookmarkedByUser: isBookmarkedByUser(post, currentUserId),
+                  }}
+                  postId={post.id}
+                />
+              )}
+            </div>
+          </div>
+
+          {/* Desktop bottom action bar: classic layout with left and right groups, sized 1pt smaller */}
+          <div className="mt-3 hidden sm:flex sm:items-center sm:justify-between sm:gap-2">
+            <div className="flex items-center gap-1.5">
+              {post.external ? (
+                <ExternalVoteButton post={post.external} />
+              ) : (
+                <AuraVoteButton
+                  authorName={post.user?.displayName || post.user?.username}
+                  initialState={{
+                    aura: post.aura ?? 0,
+                    userVote: post.vote?.[0]?.value ?? 0,
+                  }}
+                  postId={post.id}
+                />
+              )}
+              <CommentButton onClick={onToggleComments} post={post} />
+              {post.external ? (
+                <ExternalRespondButton post={post.external} />
+              ) : (
+                <RespondButton post={post} />
+              )}
             </div>
 
             <div className="flex items-center gap-1.5">
-              <span
-                className="text-muted-foreground flex h-7.5 cursor-default items-center gap-1.5 rounded-full px-2"
-                title="Views"
-              >
-                <Eye className="size-4.5" />
-                <span className="text-[13px] tabular-nums">
-                  {formatNumber(post.viewCount)}
+              {post.external ? null : (
+                <span
+                  className="text-muted-foreground flex h-7.5 cursor-default items-center gap-1.5 rounded-full px-2"
+                  title="Views"
+                >
+                  <Eye className="size-4.5" />
+                  <span className="text-[13px] tabular-nums">
+                    {formatNumber(post.viewCount)}
+                  </span>
                 </span>
-              </span>
-              <ShareButton
-                defaultTab="link"
-                description={post.moderated ? "" : post.content}
-                dialogDescription="Share this post with your network"
-                dialogTitle="Share Post"
-                postId={post.id}
-                thumbnail={
-                  post.moderated || !firstMedia
-                    ? `/posts/${post.id}/opengraph-image`
-                    : getMediaProxyUrl(firstMedia)
-                }
-                title={
-                  post.moderated
-                    ? `Post on asocialmedia`
-                    : `${authorDisplayName} (@${authorUsername}) on asocialmedia`
-                }
-              />
+              )}
+              {post.external ? (
+                <ExternalShareButton post={post.external} />
+              ) : (
+                <ShareButton
+                  defaultTab="link"
+                  description={post.moderated ? "" : post.content}
+                  dialogDescription="Share this post with your network"
+                  dialogTitle="Share Post"
+                  postId={post.id}
+                  thumbnail={
+                    post.moderated || !firstMedia
+                      ? `/posts/${post.id}/opengraph-image`
+                      : getMediaProxyUrl(firstMedia)
+                  }
+                  title={
+                    post.moderated
+                      ? `Post on asocialmedia`
+                      : `${authorDisplayName} (@${authorUsername}) on asocialmedia`
+                  }
+                />
+              )}
             </div>
           </div>
         </div>
@@ -769,12 +878,9 @@ interface RespondButtonProps {
 // responses (threaded post-to-post replies), separate from eddies.
 const RespondButton = ({ post }: RespondButtonProps) => {
   const openComposer = useComposerStore((state) => state.openComposer);
-  const responseCount = post._count?.responses ?? 0;
-  const hasResponses = responseCount > 0;
   return (
-    <button
-      aria-label="Respond to this post"
-      className="pill-3d-hover group text-muted-foreground inline-flex h-7 items-center justify-center gap-1 rounded-full border-0 px-1.5 text-xs font-medium active:translate-y-px sm:h-7.5 sm:px-2 sm:text-[13px]"
+    <RespondAction
+      count={post._count?.responses ?? 0}
       onClick={() =>
         openComposer("post", {
           attachments: post.attachments,
@@ -791,18 +897,7 @@ const RespondButton = ({ post }: RespondButtonProps) => {
           username: post.user?.username ?? "unknown",
         })
       }
-      type="button"
-    >
-      <CornerDownRight
-        className={cn(
-          "size-4 sm:size-4.5",
-          hasResponses && "text-foreground stroke-[2.25px]"
-        )}
-      />
-      <span className="text-xs font-medium tabular-nums sm:text-[13px]">
-        {responseCount}
-      </span>
-    </button>
+    />
   );
 };
 
@@ -929,16 +1024,20 @@ const PostCard: React.FC<PostCardProps> = ({
 
   let commentsSection: React.ReactNode = null;
   if (showComments) {
-    commentsSection = detail ? (
-      <div
-        className="border-border/60 border-t px-4 pt-3.5 pb-4"
-        data-card-interactive
-      >
-        <Comments post={post} />
-      </div>
-    ) : (
-      <FeedComments post={post} />
-    );
+    if (post.external) {
+      commentsSection = <ExternalDiscussion post={post.external} />;
+    } else if (detail) {
+      commentsSection = (
+        <div
+          className="border-border/60 border-t px-4 pt-3.5 pb-4"
+          data-card-interactive
+        >
+          <Comments post={post} />
+        </div>
+      );
+    } else {
+      commentsSection = <FeedComments post={post} />;
+    }
   }
 
   const { hasHnIndicator, threadPaddingClass } = getPostCardBorderAndPadding({
@@ -977,7 +1076,7 @@ const PostCard: React.FC<PostCardProps> = ({
       tabIndex={detail ? -1 : 0}
       transition={{ duration: 0.3, ease: "easeOut" }}
     >
-      <ViewTracker postId={post.id} />
+      {post.external ? null : <ViewTracker postId={post.id} />}
       {isJoined ? (
         <div className="group/post relative rounded-none bg-[hsl(var(--background-alt))]">
           {showRail ? (
@@ -998,29 +1097,22 @@ const PostCard: React.FC<PostCardProps> = ({
           {commentsSection}
         </div>
       ) : (
-        <Card
-          className={cn(
-            "group/post relative rounded-none bg-[hsl(var(--background-alt))] shadow-none",
-            detail ? "border-x-0 border-b-0" : ""
-          )}
+        <FeedPostSurface
+          className={detail ? "border-x-0 border-b-0" : undefined}
+          contentClassName={threadPaddingClass}
+          footer={commentsSection}
+          rail={
+            showRail ? (
+              <span
+                aria-hidden="true"
+                className={railClassName}
+                style={railStyle}
+              />
+            ) : null
+          }
         >
-          {showRail ? (
-            <span
-              aria-hidden="true"
-              className={railClassName}
-              style={railStyle}
-            />
-          ) : null}
-          <CardContent
-            className={cn(
-              "transition-colors duration-150 hover:bg-[hsl(var(--muted))]",
-              threadPaddingClass
-            )}
-          >
-            {body}
-          </CardContent>
-          {commentsSection}
-        </Card>
+          {body}
+        </FeedPostSurface>
       )}
     </motion.article>
   );

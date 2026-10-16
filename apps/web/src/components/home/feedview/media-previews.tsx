@@ -2,7 +2,6 @@
 // Compiler would otherwise try to memoize across parent renders
 // oxlint-disable react/exhaustive-effect-dependencies -- cached image checks use media.id intentionally
 
-import type { PostData } from "@asm/db";
 import { mediaAspect } from "@asm/ui/lib/post-preview-layout";
 import noMediaImage from "@assets/general/nomedia.png";
 import {
@@ -29,6 +28,7 @@ import {
 } from "@/components/media/video-transcript-drawer";
 import type { TranscriptCue } from "@/components/media/video-transcript-drawer";
 import { useVideoDelivery } from "@/lib/media/use-video-delivery";
+import type { PresentedPost as PostData } from "@/lib/posts/presentation";
 import { getPostMediaPath, getPostPath } from "@/lib/seo/seo";
 import { useAltRevealed } from "@/lib/stores/alt-reveal-store";
 import { useVideoCaptionsStore } from "@/lib/stores/video-captions-store";
@@ -338,6 +338,7 @@ export const VideoPreview = ({
 
   useEffect(() => {
     if (
+      !media.id.startsWith("https://") &&
       showCaptions &&
       (isHovered || autoPlay || isVideoActive) &&
       fetchedCues.length === 0

@@ -1,12 +1,16 @@
 "use client";
 
 import type { PostData } from "@asm/db";
+import type { ExternalPost } from "@asm/protocols/contracts";
+import { mixFeedItems } from "@asm/protocols/discovery";
+import type { FeedSource } from "@asm/protocols/discovery";
 import { Separator } from "@asm/ui/shadui/separator";
 import { useQueryClient } from "@tanstack/react-query";
 import type { QueryKey } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 
+import { BlueskyPostCard } from "@/components/protocols/bluesky-post-card";
 import { RecommendationTracker } from "@/components/recommendations/recommendation-tracker";
 import {
   forceInvalidatePostFeeds,
@@ -18,9 +22,12 @@ import { normalizePostsData } from "@/lib/posts/post-normalize";
 import { groupPostsIntoThreads } from "./feed-thread-group";
 import PostCard from "./feedview/post-card";
 
+const EMPTY_EXTERNAL_POSTS: ExternalPost[] = [];
 const DEFAULT_FEED_CACHE_KEY: QueryKey = ["post-feed", "for-you"];
 
 interface FeedViewProps {
+  externalPosts?: ExternalPost[];
+  source?: FeedSource;
   cacheKey?: QueryKey;
   // Extra ids to drop from the rendered feed, applied to both the server list
   // and every cache-synced update. Used when a leading segment already shows a
@@ -39,6 +46,8 @@ interface FeedViewProps {
 
 export const FeedView: React.FC<FeedViewProps> = ({
   posts: initialPosts,
+  externalPosts = EMPTY_EXTERNAL_POSTS,
+  source = "all",
   cacheKey = DEFAULT_FEED_CACHE_KEY,
   excludeIds,
   excludePostId,
@@ -262,37 +271,62 @@ export const FeedView: React.FC<FeedViewProps> = ({
     [sortedPosts]
   );
 
+  const mixedGroups = useMemo(
+    () =>
+      mixFeedItems(threadGroups, externalPosts, {
+        createdAt: (group) => {
+          let latest = "";
+          for (const post of group.posts) {
+            const createdAt = new Date(post.createdAt).toISOString();
+            if (createdAt > latest) {
+              latest = createdAt;
+            }
+          }
+          return latest;
+        },
+        id: (group) => group.id,
+        latest: sortBy === "newest",
+        source,
+      }),
+    [externalPosts, sortBy, source, threadGroups]
+  );
   return (
     <div className="flex flex-col">
-      {threadGroups.map((group) => (
-        <div className="flex flex-col" key={group.id}>
-          {group.posts.map((post, index) => {
-            const isFirst = index === 0;
-            const isLast = index === group.posts.length - 1;
-            const hasThreadParent = !isFirst;
-            const hasThreadChild = !isLast;
+      {mixedGroups.map((entry) => {
+        if (entry.kind === "bluesky") {
+          return <BlueskyPostCard key={entry.id} post={entry.value} />;
+        }
+        const group = entry.value;
+        return (
+          <div className="flex flex-col" key={group.id}>
+            {group.posts.map((post, index) => {
+              const isFirst = index === 0;
+              const isLast = index === group.posts.length - 1;
+              const hasThreadParent = !isFirst;
+              const hasThreadChild = !isLast;
 
-            return (
-              <RecommendationTracker
-                key={post.id}
-                postId={post.id}
-                requestId={post.recommendation?.requestId}
-              >
-                <MemoizedPostCard
-                  hasThreadChild={hasThreadChild}
-                  hasThreadParent={hasThreadParent}
-                  isJoined={true}
-                  post={post}
-                  showCommunity={showCommunity}
-                  showCommunityReason={showCommunityReason}
-                />
-              </RecommendationTracker>
-            );
-          })}
-          <Separator className="bg-border/60" />
-        </div>
-      ))}
-      {threadGroups.length === 0 && (
+              return (
+                <RecommendationTracker
+                  key={post.id}
+                  postId={post.id}
+                  requestId={post.recommendation?.requestId}
+                >
+                  <MemoizedPostCard
+                    hasThreadChild={hasThreadChild}
+                    hasThreadParent={hasThreadParent}
+                    isJoined={true}
+                    post={post}
+                    showCommunity={showCommunity}
+                    showCommunityReason={showCommunityReason}
+                  />
+                </RecommendationTracker>
+              );
+            })}
+            <Separator className="bg-border/60" />
+          </div>
+        );
+      })}
+      {mixedGroups.length === 0 && (
         <div className="flex flex-col items-center justify-center py-6 sm:py-8">
           <p className="text-muted-foreground text-center text-sm sm:text-base">
             No posts to show here. Follow someone or create your first post.

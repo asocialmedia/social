@@ -32,6 +32,7 @@ interface PostInput {
   mentions: string[];
   // When set, this post is a response to that post.
   parentPostId?: string;
+  externalParentUri?: string;
   tags: string[];
 }
 
@@ -45,6 +46,7 @@ export function useSubmitPostMutation() {
         communityId: input.communityId,
         communitySharePostId: input.communitySharePostId,
         content: input.content,
+        externalParentUri: input.externalParentUri,
         hnStory: input.hnStory,
         isGust: input.isGust ?? false,
         mediaIds: input.mediaIds,
@@ -69,6 +71,17 @@ export function useSubmitPostMutation() {
       });
     },
     onSuccess: async (newPost, input) => {
+      if (input.externalParentUri) {
+        await queryClient.invalidateQueries({
+          queryKey: ["external-responses", input.externalParentUri],
+        });
+        await queryClient.invalidateQueries({
+          queryKey: ["external-post", input.externalParentUri],
+        });
+        await queryClient.invalidateQueries({
+          queryKey: ["bluesky-discovery"],
+        });
+      }
       // A response is a first-class post: it lands in its parent's thread and
       // in the timeline feeds (home + profile Posts), so refresh those caches.
       if (newPost.parentPostId) {

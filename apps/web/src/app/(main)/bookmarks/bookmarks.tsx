@@ -24,6 +24,7 @@ import MobileTopBar from "@/components/layouts/navigation/mobile/mobile-top-bar"
 import SearchField from "@/components/layouts/navigation/search-field";
 import FeedViewSkeleton from "@/components/layouts/skeletons/feed-view-skeleton";
 import LoadMoreSkeleton from "@/components/layouts/skeletons/load-more-skeleton";
+import { ExternalLibrary } from "@/components/protocols/external-library";
 import { useFeedSwipeNavigation } from "@/hooks/feed/use-feed-swipe-navigation";
 import { useBookmarkCount } from "@/hooks/posts/use-bookmark-count";
 import kyInstance from "@/lib/ky";
@@ -44,7 +45,7 @@ interface BookmarksProps {
 }
 
 // Swipe order mirrors the rendered tab strip order.
-const TAB_ORDER = ["posts", "gusts", "hackernews", "likes"];
+const TAB_ORDER = ["posts", "gusts", "hackernews", "bluesky", "likes"];
 
 const Bookmarks: React.FC<BookmarksProps> = ({
   gustBookmarkCount,
@@ -218,6 +219,9 @@ const Bookmarks: React.FC<BookmarksProps> = ({
         <TabsContent className="mt-0 pb-12" value="likes">
           <LikedPosts />
         </TabsContent>
+        <TabsContent className="mt-0 pb-12" value="bluesky">
+          <ExternalLibrary />
+        </TabsContent>
       </>
     );
   }
@@ -234,6 +238,13 @@ const Bookmarks: React.FC<BookmarksProps> = ({
             <MobileTopBar />
             <div className="border-border/60 relative flex items-center border-b py-1.5">
               <TabsList className="flex h-full flex-1 items-center justify-center gap-0 bg-transparent p-0 md:justify-start">
+                <AnimatedTabTrigger
+                  active={activeTab === "bluesky"}
+                  layoutId="bookmarks-tab-indicator"
+                  value="bluesky"
+                >
+                  Bluesky
+                </AnimatedTabTrigger>
                 <AnimatedTabTrigger
                   active={activeTab === "posts"}
                   layoutId="bookmarks-tab-indicator"

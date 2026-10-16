@@ -3,7 +3,7 @@
 import { Button } from "@asm/ui/shadui/button";
 import { motion, useReducedMotion } from "motion/react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import type React from "react";
 import { useEffect, useState } from "react";
 
@@ -16,6 +16,9 @@ import { cn } from "@/lib/utils";
 // always docks to the bottom edge.
 export const GuestAuthBar: React.FC = () => {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const externalMedia =
+    pathname === "/network/bluesky" && searchParams.has("media");
   const [navHeight, setNavHeight] = useState(0);
   // Same scroll signal as the bottom nav (same event, threshold, and rule),
   // so the banner slides away and back in lockstep with it instead of
@@ -48,7 +51,11 @@ export const GuestAuthBar: React.FC = () => {
   // would cover the feed there, so hide it on that route. The post media page
   // is a full-viewport media viewer with its own bottom chrome, so the fixed
   // banner would sit on top of the controls there too.
-  if (pathname === "/gusts" || /^\/posts\/[^/]+\/media\//.test(pathname)) {
+  if (
+    externalMedia ||
+    pathname === "/gusts" ||
+    /^\/posts\/[^/]+\/media\//.test(pathname)
+  ) {
     return null;
   }
 

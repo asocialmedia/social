@@ -76,6 +76,10 @@ mock.module("@/components/posts/actions/aura-vote-button", () => ({
 mock.module("@/components/posts/actions/bookmark-button", () => ({
   default: () => <button type="button">Bookmark</button>,
 }));
+mock.module("@/components/protocols/external-post-controls", () => ({
+  ExternalBookmarkButton: () => <button type="button">Bookmark</button>,
+  ExternalVoteButton: () => <button type="button">Amplify</button>,
+}));
 mock.module("@/lib/gooey-toast", () => ({ useToast: () => ({ toast: noop }) }));
 mock.module("@/store/composer-store", () => ({
   useComposerStore: { getState: () => ({ openComposer: respond }) },

@@ -122,6 +122,9 @@ export function getMediaProxyUrl(media: {
   mimeType?: string;
   thumbnailKey?: string | null;
 }): string {
+  if (media.id.startsWith("https://")) {
+    return media.thumbnailKey ?? media.id;
+  }
   if (media.type === "VIDEO") {
     return `/api/media/${media.id}?thumb=1`;
   }
@@ -137,6 +140,9 @@ export function getMediaImageUrl(
   media: { id: string; mimeType?: string | null },
   variant: string
 ): string {
+  if (media.id.startsWith("https://")) {
+    return media.id;
+  }
   if (media.mimeType === "image/gif") {
     return `/api/media/${media.id}`;
   }
@@ -146,6 +152,9 @@ export function getMediaImageUrl(
 // Optimized derivative URL. The serving route falls back to the published
 // original when the derivative does not exist, so this is always safe.
 export function getMediaVariantUrl(mediaId: string, variant: string): string {
+  if (mediaId.startsWith("https://")) {
+    return mediaId;
+  }
   return `/api/media/${mediaId}/v/${variant}?d=4`;
 }
 
@@ -173,6 +182,12 @@ export function getMediaImageSrcSet(media: {
   id: string;
   mimeType?: string | null;
 }): string | undefined {
+  if (media.id.startsWith("https://")) {
+    return undefined;
+  }
+  if (media.id.startsWith("https://")) {
+    return media.id;
+  }
   if (media.mimeType === "image/gif") {
     return undefined;
   }
