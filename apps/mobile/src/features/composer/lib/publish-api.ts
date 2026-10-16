@@ -37,6 +37,7 @@ export interface CreatePostPayload {
   mediaIds: string[];
   mentions: string[];
   parentPostId?: string;
+  externalParentUri?: string;
   tags: string[];
 }
 

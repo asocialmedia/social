@@ -700,7 +700,11 @@ export function VideoTile({
   // falls back to spreading the transcript across the clip.
   const wantsCaptions = showCaptions && prepareVideo;
   useEffect(() => {
-    if (!wantsCaptions || fetchedCues.length > 0) {
+    if (
+      media.id.startsWith("https://") ||
+      !wantsCaptions ||
+      fetchedCues.length > 0
+    ) {
       return;
     }
     let cancelled = false;
@@ -840,7 +844,9 @@ export function VideoTile({
             }
           }}
           onError={() => setPosterFailed(true)}
-          source={{ uri: mediaPosterUrl(apiBase, media.id) }}
+          source={{
+            uri: mediaPosterUrl(apiBase, media.id, media.thumbnailKey),
+          }}
           style={styles.fill}
         />
       </Animated.View>

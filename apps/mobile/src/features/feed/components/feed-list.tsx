@@ -1,3 +1,8 @@
+import {
+  discoveryMode,
+  feedAvailability,
+  filterExternalRecommendations,
+} from "@asm/protocols/discovery";
 // One tab's feed list: thread-grouped post cards in a FlatList with
 // pull-refresh, infinite scroll, per-tab scroll memory (restores position
 // when switching tabs, like web's useFeedScrollMemory), the new-content
@@ -38,7 +43,6 @@ import { useAppTheme } from "@/theme";
 import type { FeedVariant } from "../lib/feed-api";
 import { feedPrefetchUrls } from "../lib/feed-prefetch";
 import { incomingFeedRows } from "../lib/feed-rows";
-import type { FeedRow } from "../lib/feed-rows";
 import { orderByIndex } from "../lib/feed-types";
 import type { FeedPost } from "../lib/feed-types";
 import {
@@ -48,16 +52,24 @@ import {
   resetHeaderScroll,
 } from "../lib/header-visibility";
 import { hasVideoAttachment } from "../lib/media-kind";
+import { mixedFeedRows, nativePostForRow } from "../lib/mixed-feed-rows";
+import type { TimelineRow } from "../lib/mixed-feed-rows";
 import { viewBatcher } from "../lib/view-batcher";
 import {
   setAutoplayPostId,
   setVisiblePostIds,
   setFeedMediaActive,
 } from "../lib/visible-posts";
+import {
+  useFeedSourceStore,
+  useExternalExclusions,
+} from "../state/feed-source-store";
 import { consumeFeedTop, feedCache } from "../state/feed-store";
+import { useBlueskyFeed } from "../state/use-bluesky-feed";
 import { useFeedTab } from "../state/use-feed";
 import { useFeedImpressions } from "../state/use-feed-impressions";
 import { useVideoCaptionsStore } from "../state/video-captions-store";
+import { BlueskyPostCard } from "./bluesky-post-card";
 import { FeedSkeleton, FeedSkeletonCard } from "./feed-skeleton";
 import { buildMoreEntries, MoreMenu } from "./more-menu";
 import type { MenuAnchor, MoreAction } from "./more-menu";
@@ -90,8 +102,8 @@ const STABLE_VIEWABILITY = {
   minimumViewTime: 300,
   viewAreaCoveragePercentThreshold: 50,
 };
-function feedRowKey(row: FeedRow): string {
-  return row.post.id;
+function feedRowKey(row: TimelineRow): string {
+  return row.id;
 }
 
 const EMPTY_COPY: Record<FeedVariant, { description: string; title: string }> =
@@ -153,7 +165,32 @@ export const FeedList = memo(
     const isActive = active ?? enabled;
     const { theme } = useAppTheme();
     const { user } = useSessionContext();
-    const listRef = useRef<FlatList<FeedRow>>(null);
+    const selectedSource = useFeedSourceStore((state) => state.source);
+    const source = variant === "following" ? "asm" : selectedSource;
+    const excluded = useExternalExclusions(userId ?? "guest");
+    const includeBluesky = source !== "asm";
+    const showSources = variant !== "following";
+    const external = useBlueskyFeed(
+      discoveryMode(variant),
+      enabled && showSources && includeBluesky,
+      userId
+    );
+    const externalPosts = useMemo(
+      () =>
+        filterExternalRecommendations(
+          external.pages.flatMap((page) => page.items),
+          excluded
+        ),
+      [external.pages, excluded]
+    );
+    const listRef = useRef<FlatList<TimelineRow>>(null);
+    const previousSource = useRef(source);
+    useEffect(() => {
+      if (previousSource.current !== source) {
+        previousSource.current = source;
+        listRef.current?.scrollToOffset({ animated: false, offset: 0 });
+      }
+    }, [source]);
     const scrollOffset = useSharedValue(
       scrollMemory.get(`home:${variant}:${userId ?? "guest"}`) ?? 0
     );
@@ -282,7 +319,14 @@ export const FeedList = memo(
     }, [isActive, memoryKey, variant, scrollOffset, headerScrollOffset]);
 
     useEffect(() => {
-      if (status !== "success" || posts.length === 0) {
+      const hasVisiblePosts =
+        (source !== "bluesky" && posts.length > 0) ||
+        (source !== "asm" && externalPosts.length > 0);
+      if (!hasVisiblePosts) {
+        restoredScroll.current = false;
+        return;
+      }
+      if (status !== "success" && external.status !== "success") {
         return;
       }
       if (jumpedToTop.current || restoredScroll.current) {
@@ -301,7 +345,16 @@ export const FeedList = memo(
       restoredScroll.current = true;
       // Restore once after content arrives, never on pagination or refresh.
       // oxlint-disable-next-line react/exhaustive-effect-dependencies -- one-shot restore on content arrival, not a subscription
-    }, [memoryKey, posts.length, status, scrollVisibility, scrollOffset]);
+    }, [
+      memoryKey,
+      posts.length,
+      externalPosts.length,
+      external.status,
+      source,
+      status,
+      scrollVisibility,
+      scrollOffset,
+    ]);
 
     // The undo banner auto-dismisses like web's toast.
     useEffect(() => {
@@ -370,12 +423,12 @@ export const FeedList = memo(
     );
 
     const handleViewableItemsChanged = useCallback(
-      ({ viewableItems }: { viewableItems: ViewToken<FeedRow>[] }) => {
+      ({ viewableItems }: { viewableItems: ViewToken<TimelineRow>[] }) => {
         const ids = new Set<string>();
         let autoplayPostId: string | null = null;
         const ordered = orderByIndex(viewableItems);
         for (const item of ordered) {
-          const post = (item.item as FeedRow | undefined)?.post;
+          const post = nativePostForRow(item.item);
           if (post) {
             ids.add(post.id);
             if (!autoplayPostId && hasVideoAttachment(post)) {
@@ -392,7 +445,10 @@ export const FeedList = memo(
     const refreshing = status === "refreshing";
     const pull = usePullToRefresh({
       failed: status === "error",
-      onRefresh: refresh,
+      onRefresh: () => {
+        refresh();
+        external.refresh();
+      },
       refreshing,
     });
     const saveOffset = useCallback(
@@ -460,29 +516,35 @@ export const FeedList = memo(
     const showCommunityReason =
       variant === "trending" || variant === "personalized";
     const renderRow = useCallback(
-      ({ item: row }: { item: FeedRow }) => (
-        <View
-          style={[
-            styles.group,
-            {
-              borderBottomColor: theme.cardBorder,
-              borderBottomWidth: row.hasThreadChild ? 0 : 1,
-            },
-          ]}
-        >
-          <PostCard
-            active
-            hasThreadChild={row.hasThreadChild}
-            hasThreadParent={row.hasThreadParent}
-            onMore={handleOpenMore}
-            onShare={handleShare}
-            post={row.post}
-            showAlt={altVisibleIds.has(row.post.id)}
-            showCommunityReason={showCommunityReason}
-            viewerId={userId}
-          />
-        </View>
-      ),
+      ({ item }: { item: TimelineRow }) => {
+        if (item.kind === "bluesky") {
+          return <BlueskyPostCard post={item.value} />;
+        }
+        const row = item.value;
+        return (
+          <View
+            style={[
+              styles.group,
+              {
+                borderBottomColor: theme.cardBorder,
+                borderBottomWidth: row.hasThreadChild ? 0 : 1,
+              },
+            ]}
+          >
+            <PostCard
+              active
+              hasThreadChild={row.hasThreadChild}
+              hasThreadParent={row.hasThreadParent}
+              onMore={handleOpenMore}
+              onShare={handleShare}
+              post={row.post}
+              showAlt={altVisibleIds.has(row.post.id)}
+              showCommunityReason={showCommunityReason}
+              viewerId={userId}
+            />
+          </View>
+        );
+      },
       [
         altVisibleIds,
         handleOpenMore,
@@ -508,17 +570,33 @@ export const FeedList = memo(
       return () => clearTimeout(timer);
     }, [enabled, prefetchKey]);
 
-    const listHeader = useMemo(
-      () => <View style={{ height: headerHeight }} />,
-      [headerHeight]
-    );
-
-    // Memoized above every early return: without this every parent render
-    // handed FlatList a new data array identity, re-rendering every row.
+    const listHeader = <View style={{ height: headerHeight }} />;
     const rows = useMemo(
-      () => incomingFeedRows(posts, incomingIds),
-      [incomingIds, posts]
+      () =>
+        mixedFeedRows(
+          incomingFeedRows(posts, incomingIds),
+          externalPosts,
+          variant === "following" ? "asm" : source,
+          variant === "latest"
+        ),
+      [externalPosts, incomingIds, posts, source, variant]
     );
+    const externalPending =
+      variant !== "following" &&
+      source !== "asm" &&
+      external.status === "loading";
+    const availability = feedAvailability({
+      count: rows.length,
+      externalEnabled: variant !== "following" && source !== "asm",
+      externalError: external.status === "error",
+      externalLoading: externalPending,
+      nativeEnabled: variant === "following" || source !== "bluesky",
+      nativeError: status === "error",
+      nativeLoading: status === "loading" || (status === "idle" && enabled),
+    });
+    const combinedHasMore =
+      (source !== "bluesky" && hasMore) ||
+      (variant !== "following" && source !== "asm" && external.hasMore);
 
     // Account-only tabs. For you is ranked from the viewer's own signals and
     // Following is their people, so neither means anything without an account;
@@ -547,7 +625,7 @@ export const FeedList = memo(
     }
 
     // The shared editor stays above loading and empty feeds as well as populated lists.
-    if (status === "loading" || (status === "idle" && enabled)) {
+    if (availability === "loading") {
       return (
         <FeedState>
           {listHeader}
@@ -556,7 +634,7 @@ export const FeedList = memo(
       );
     }
 
-    if (status === "error" && posts.length === 0) {
+    if (availability === "error") {
       return (
         <FeedState>
           {listHeader}
@@ -576,21 +654,32 @@ export const FeedList = memo(
                 selectable
                 style={[styles.errorTitle, { color: theme.errorBannerText }]}
               >
-                An error occurred while loading posts.
+                Couldn't load your feed.
               </Text>
               <Text
                 selectable
                 style={[styles.errorBody, { color: theme.dividerText }]}
               >
-                Please try refreshing the page.
+                Your feed is temporarily unavailable.
               </Text>
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => {
+                  void refresh();
+                  void external.refresh();
+                }}
+              >
+                <Text style={{ color: theme.inputText, padding: 12 }}>
+                  Try again
+                </Text>
+              </Pressable>
             </View>
           </View>
         </FeedState>
       );
     }
 
-    if (status === "success" && posts.length === 0 && !hasMore) {
+    if (availability === "empty" && !combinedHasMore && !externalPending) {
       const copy = EMPTY_COPY[variant];
       return (
         <FeedState>
@@ -630,8 +719,8 @@ export const FeedList = memo(
       ).values(),
     ];
 
-    const showLoader = status === "loading-more";
-    const showEnd = status === "success" && !hasMore && posts.length > 0;
+    const showLoader = status === "loading-more" || external.loadingMore;
+    const showEnd = status === "success" && !combinedHasMore && rows.length > 0;
     let footer: ReactNode = null;
     if (showLoader) {
       // Post skeletons while paginating, like web's LoadMoreSkeleton (two
@@ -663,6 +752,30 @@ export const FeedList = memo(
       );
     }
 
+    if (!showLoader && combinedHasMore) {
+      footer = (
+        <Pressable
+          accessibilityRole="button"
+          className="items-center py-5"
+          onPress={() => {
+            if (source !== "bluesky") {
+              fetchNext();
+            }
+            if (variant !== "following" && source !== "asm") {
+              void external.fetchNext();
+            }
+          }}
+        >
+          <Text
+            className="text-sm font-semibold"
+            style={{ color: theme.dividerText }}
+          >
+            Load more posts
+          </Text>
+        </Pressable>
+      );
+    }
+
     return (
       <FeedMediaScope.Provider value={memoryKey}>
         <GestureDetector gesture={pull.gesture}>
@@ -682,7 +795,14 @@ export const FeedList = memo(
                   maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
                   keyExtractor={feedRowKey}
                   {...LIST_VIRTUALIZATION_PROPS}
-                  onEndReached={fetchNext}
+                  onEndReached={() => {
+                    if (source !== "bluesky") {
+                      fetchNext();
+                    }
+                    if (variant !== "following" && source !== "asm") {
+                      external.fetchNext();
+                    }
+                  }}
                   onEndReachedThreshold={0.5}
                   onScroll={handleScroll}
                   onViewableItemsChanged={handleViewableItemsChanged}
@@ -702,7 +822,7 @@ export const FeedList = memo(
               </GestureDetector>
             </Animated.View>
             {pull.loader}
-            {newItems.length > 0 ? (
+            {source !== "bluesky" && newItems.length > 0 ? (
               <NewContentPill
                 authors={authors}
                 count={newItems.length}

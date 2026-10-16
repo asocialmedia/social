@@ -2,7 +2,7 @@ import { Image } from "expo-image";
 import { useRouter } from "expo-router";
 import { Clapperboard, Heart, Newspaper, Terminal } from "lucide-react-native";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { FlatList, StyleSheet, Text, View } from "react-native";
+import { FlatList, Pressable, StyleSheet, Text, View } from "react-native";
 import { GestureDetector } from "react-native-gesture-handler";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -311,6 +311,15 @@ export function BookmarksScreen() {
         hideOnScroll={false}
         user={user ? { ...user, username: user.username ?? user.name } : null}
       />
+      <Pressable
+        accessibilityRole="button"
+        onPress={() => router.push("/external-library")}
+        className="px-4 py-3"
+      >
+        <Text style={{ color: theme.inputText }}>
+          Bluesky · saved &amp; amplified
+        </Text>
+      </Pressable>
       <FeedTabs
         active={tab}
         tabs={TABS}

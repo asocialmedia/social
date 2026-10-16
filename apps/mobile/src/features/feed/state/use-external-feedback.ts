@@ -1,0 +1,78 @@
+import type { ExternalPost } from "@asm/protocols/contracts";
+import { externalFeedbackKey } from "@asm/protocols/discovery";
+import type { ExternalFeedback } from "@asm/protocols/discovery";
+import { useRef } from "react";
+
+import { toast } from "@/components/feedback/toast";
+import { authClient } from "@/features/auth/lib/auth-client";
+import { useSessionContext } from "@/features/auth/state/session";
+import { getApiBaseUrl } from "@/lib/api-env";
+
+import { useFeedSourceStore } from "./feed-source-store";
+
+export function useExternalFeedback(
+  post: Pick<ExternalPost, "id"> & {
+    author: Pick<ExternalPost["author"], "id">;
+  }
+) {
+  const { user } = useSessionContext();
+  const pending = useRef(false);
+  return async (scope: ExternalFeedback["scope"]) => {
+    if (pending.current) {
+      return;
+    }
+    pending.current = true;
+    const viewer = user?.id ?? "guest";
+    const feedback = { authorId: post.author.id, postId: post.id, scope };
+    const key = externalFeedbackKey(feedback);
+    const update = async (remove: boolean) => {
+      if (user) {
+        const cookie = await authClient.getCookie();
+        const response = await fetch(
+          `${getApiBaseUrl()}/api/protocols/bluesky/feedback`,
+          {
+            body: JSON.stringify(feedback),
+            headers: {
+              "content-type": "application/json",
+              "x-asm-client": "mobile",
+              ...(cookie ? { cookie } : {}),
+            },
+            method: remove ? "DELETE" : "POST",
+          }
+        );
+        if (!response.ok) {
+          throw new Error("Couldn't save preference. Please try again.");
+        }
+      }
+      useFeedSourceStore.getState().exclude(viewer, key, !remove);
+    };
+    try {
+      await update(false);
+      toast({
+        button: {
+          onClick: async () => {
+            try {
+              await update(true);
+            } catch {
+              toast({
+                title: "Couldn't undo. Please try again.",
+                variant: "destructive",
+              });
+            }
+          },
+          title: "Undo",
+        },
+        description: user
+          ? "Saved to your ASM feed preferences."
+          : "Saved for this session.",
+        title: scope === "author" ? "Author muted in ASM" : "Not interested",
+      });
+    } catch {
+      toast({
+        title: "Couldn't save preference. Please try again.",
+        variant: "destructive",
+      });
+    }
+    pending.current = false;
+  };
+}

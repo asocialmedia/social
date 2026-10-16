@@ -60,6 +60,31 @@ export function ResponseParentRow({ post }: { post: FeedPost }) {
     height: number;
   } | null>(null);
 
+  if (post.externalParent) {
+    const { uri } = post.externalParent;
+    return (
+      <Pressable
+        accessibilityRole="link"
+        accessibilityLabel="View the Bluesky post being responded to"
+        className="mb-3 px-4 py-2"
+        onPress={(event) => {
+          event.stopPropagation();
+          router.push({ params: { uri }, pathname: "/external-post" });
+        }}
+      >
+        <Text
+          style={{
+            color: theme.dividerText,
+            fontFamily: "SofiaProMed",
+            fontSize: 12,
+          }}
+        >
+          Responding to a Bluesky post ↗
+        </Text>
+      </Pressable>
+    );
+  }
+
   if (post.parentPostId && !parent) {
     return (
       <View style={styles.parentRow}>

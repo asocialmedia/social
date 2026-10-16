@@ -482,7 +482,7 @@ export function hostLabel(url: string): string {
 
 export type BioSegment =
   | { type: "text"; text: string }
-  | { type: "url"; url: string }
+  | { type: "url"; url: string; label?: string }
   | { type: "mention"; username: string }
   | { type: "tag"; tag: string };
 

@@ -31,6 +31,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   FlatList,
+  Share,
   Pressable,
   StyleSheet,
   Text,
@@ -55,6 +56,11 @@ import {
 } from "@/components/surface/recipes";
 import { authClient } from "@/features/auth/lib/auth-client";
 import { useSessionContext } from "@/features/auth/state/session";
+import { BlueskyIcon } from "@/features/feed/components/bluesky-icon";
+import {
+  ExternalBookmarkAction,
+  ExternalVoteAction,
+} from "@/features/feed/components/external-post-actions";
 import {
   BookmarkToggle,
   VoteCluster,
@@ -377,7 +383,9 @@ function VideoSurface({
     void (async () => {
       try {
         const cookie = await authClient.getCookie();
-        const vtt = await fetchCaptionsVtt(media.id, { apiBase, cookie });
+        const vtt = media.id.startsWith("https://")
+          ? ""
+          : await fetchCaptionsVtt(media.id, { apiBase, cookie });
         if (cancelled || !vtt) {
           return;
         }
@@ -449,6 +457,7 @@ function VideoSurface({
 // through its handle; every press guards on null (gated or unmounted).
 function VideoControlsRow({
   captionsEnabled,
+  showTextControls = true,
   onToggleCaptions,
   onToggleTranscript,
   showTranscript,
@@ -456,6 +465,7 @@ function VideoControlsRow({
   video,
 }: {
   captionsEnabled: boolean;
+  showTextControls?: boolean;
   onToggleCaptions: () => void;
   onToggleTranscript: () => void;
   showTranscript: boolean;
@@ -513,23 +523,30 @@ function VideoControlsRow({
         >
           <Text style={styles.speedText}>{snapshot.rate}x</Text>
         </ChipButton>
-        <ChipButton
-          active={captionsEnabled}
-          label={captionsEnabled ? "Disable captions" : "Enable captions"}
-          onPress={onToggleCaptions}
-        >
-          <Subtitles
-            color={captionsEnabled ? "#ff9500" : "#ffffff"}
-            size={20}
-          />
-        </ChipButton>
-        <ChipButton
-          active={showTranscript}
-          label={showTranscript ? "Hide transcript" : "Transcript"}
-          onPress={onToggleTranscript}
-        >
-          <Speech color={showTranscript ? "#ff9500" : "#ffffff"} size={20} />
-        </ChipButton>
+        {showTextControls ? (
+          <>
+            <ChipButton
+              active={captionsEnabled}
+              label={captionsEnabled ? "Disable captions" : "Enable captions"}
+              onPress={onToggleCaptions}
+            >
+              <Subtitles
+                color={captionsEnabled ? "#ff9500" : "#ffffff"}
+                size={20}
+              />
+            </ChipButton>
+            <ChipButton
+              active={showTranscript}
+              label={showTranscript ? "Hide transcript" : "Transcript"}
+              onPress={onToggleTranscript}
+            >
+              <Speech
+                color={showTranscript ? "#ff9500" : "#ffffff"}
+                size={20}
+              />
+            </ChipButton>
+          </>
+        ) : null}
         <ChipButton label="Fullscreen" onPress={() => video?.enterFullscreen()}>
           <Maximize color="#ffffff" size={20} />
         </ChipButton>
@@ -573,9 +590,11 @@ function Page({
 
 export function PostMediaScreen({
   initialIndex,
+  initialPost,
   postId,
 }: {
   initialIndex: number;
+  initialPost?: FeedPost;
   postId: string;
 }) {
   const { theme } = useAppTheme();
@@ -593,7 +612,7 @@ export function PostMediaScreen({
       postDetailCache.seed(cacheKey, preview);
     }
   }
-  const cachedPost = postDetailCache.read(cacheKey)?.post;
+  const cachedPost = initialPost ?? postDetailCache.read(cacheKey)?.post;
   const cachedIndex = resolvePostMediaIndex(
     cachedPost?.attachments,
     initialIndex,
@@ -647,6 +666,9 @@ export function PostMediaScreen({
   );
 
   useEffect(() => {
+    if (initialPost?.external) {
+      return;
+    }
     let cancelled = false;
     const cached = postDetailCache.read(cacheKey)?.post;
     const index = resolvePostMediaIndex(
@@ -708,7 +730,7 @@ export function PostMediaScreen({
       cancelled = true;
     };
     // Initial load only; index changes stay local (no remount, like web).
-  }, [cacheKey, postId, params.mediaId, initialIndex]);
+  }, [cacheKey, postId, params.mediaId, initialIndex, initialPost]);
 
   const apiBase = getApiBaseUrl();
   const media = useMemo(
@@ -726,8 +748,15 @@ export function PostMediaScreen({
       router.back();
       return;
     }
+    if (initialPost?.external) {
+      router.replace({
+        params: { uri: initialPost.external.id },
+        pathname: "/external-post",
+      });
+      return;
+    }
     router.replace({ params: { postId }, pathname: "/posts/[postId]" });
-  }, [postId, router]);
+  }, [postId, router, initialPost]);
 
   const goTo = useCallback(
     (index: number) => {
@@ -838,9 +867,13 @@ export function PostMediaScreen({
         if (!active) {
           return (
             <Image
-              cachePolicy={imageCachePolicy(mediaPosterUrl(apiBase, item.id))}
+              cachePolicy={imageCachePolicy(
+                mediaPosterUrl(apiBase, item.id, item.thumbnailKey)
+              )}
               contentFit="contain"
-              source={{ uri: mediaPosterUrl(apiBase, item.id) }}
+              source={{
+                uri: mediaPosterUrl(apiBase, item.id, item.thumbnailKey),
+              }}
               style={styles.media}
             />
           );
@@ -953,7 +986,15 @@ export function PostMediaScreen({
           <Pressable
             accessibilityLabel="Share this media"
             accessibilityRole="button"
-            onPress={() => setShareOpen(true)}
+            onPress={() => {
+              if (post.external) {
+                void Share.share({
+                  message: `${post.content}\n${post.external.url}`,
+                });
+              } else {
+                setShareOpen(true);
+              }
+            }}
             style={({ pressed }) => [
               styles.moreBtn,
               { top: insets.top + 12 },
@@ -1041,11 +1082,15 @@ export function PostMediaScreen({
                   <Text numberOfLines={1} style={styles.name}>
                     {displayName}
                   </Text>
-                  <UserBadge
-                    badge={author?.badge}
-                    badges={author?.badges}
-                    communityRoles={author?.communityMemberships}
-                  />
+                  {post.external ? (
+                    <BlueskyIcon />
+                  ) : (
+                    <UserBadge
+                      badge={author?.badge}
+                      badges={author?.badges}
+                      communityRoles={author?.communityMemberships}
+                    />
+                  )}
                 </View>
                 <Text numberOfLines={1} style={styles.handle}>
                   @{username}
@@ -1056,6 +1101,7 @@ export function PostMediaScreen({
             {post.content ? (
               <View style={styles.contentWrap}>
                 <BioContent
+                  sourceSegments={post.external?.segments}
                   apiBase={apiBase}
                   bio={post.content}
                   textColor="rgba(255, 255, 255, 0.9)"
@@ -1085,7 +1131,14 @@ export function PostMediaScreen({
                   accessibilityLabel="View eddies"
                   accessibilityRole="button"
                   onPress={() => {
-                    setShowEddies(true);
+                    if (post.external) {
+                      router.push({
+                        params: { uri: post.external.id },
+                        pathname: "/external-post",
+                      });
+                    } else {
+                      setShowEddies(true);
+                    }
                   }}
                   style={styles.eddiesBtn}
                 >
@@ -1107,40 +1160,66 @@ export function PostMediaScreen({
                     </Text>
                   </Gradient3D>
                 </Pressable>
-                <VoteCluster
-                  aura={post.aura ?? 0}
-                  authorName={displayName}
-                  inactiveColor="#ffffff"
-                  labelColor="#ffffff"
-                  onRequireLogin={requireLogin}
-                  postId={post.id}
-                  size={MEDIA_ICON_SIZE}
-                  userVote={getUserVote(post)}
-                  viewerId={viewerId ?? null}
-                />
+                {post.external ? (
+                  <ExternalVoteAction
+                    inactiveColor="#ffffff"
+                    labelColor="#ffffff"
+                    size={MEDIA_ICON_SIZE}
+                    post={post.external}
+                  />
+                ) : (
+                  <VoteCluster
+                    aura={post.aura ?? 0}
+                    authorName={displayName}
+                    inactiveColor="#ffffff"
+                    labelColor="#ffffff"
+                    onRequireLogin={requireLogin}
+                    postId={post.id}
+                    size={MEDIA_ICON_SIZE}
+                    userVote={getUserVote(post)}
+                    viewerId={viewerId ?? null}
+                  />
+                )}
               </View>
               <View style={styles.actionsRight}>
                 <Pressable
                   accessibilityLabel="Share this media"
                   accessibilityRole="button"
                   hitSlop={6}
-                  onPress={() => setShareOpen(true)}
+                  onPress={() => {
+                    if (post.external) {
+                      void Share.share({
+                        message: `${post.content}\n${post.external.url}`,
+                      });
+                    } else {
+                      setShareOpen(true);
+                    }
+                  }}
                   style={styles.mediaActionHit}
                 >
                   <Share2 color="#ffffff" size={MEDIA_ACTION_GLYPH} />
                 </Pressable>
-                <BookmarkToggle
-                  inactiveColor="#ffffff"
-                  initialBookmarked={isBookmarkedByUser(post, viewerId)}
-                  onRequireLogin={requireLogin}
-                  postId={post.id}
-                  size={MEDIA_ICON_SIZE}
-                  viewerId={viewerId ?? null}
-                />
+                {post.external ? (
+                  <ExternalBookmarkAction
+                    inactiveColor="#ffffff"
+                    size={MEDIA_ICON_SIZE}
+                    post={post.external}
+                  />
+                ) : (
+                  <BookmarkToggle
+                    inactiveColor="#ffffff"
+                    initialBookmarked={isBookmarkedByUser(post, viewerId)}
+                    onRequireLogin={requireLogin}
+                    postId={post.id}
+                    size={MEDIA_ICON_SIZE}
+                    viewerId={viewerId ?? null}
+                  />
+                )}
               </View>
             </View>
             {currentMedia && isVideoMedia(currentMedia) && !post.moderated ? (
               <VideoControlsRow
+                showTextControls={!post.external}
                 captionsEnabled={captionsEnabled}
                 onToggleCaptions={() => setCaptionsEnabled((value) => !value)}
                 onToggleTranscript={() => setShowTranscript((value) => !value)}
@@ -1172,7 +1251,7 @@ export function PostMediaScreen({
         // The page had a bare title over plain text lines: no grab handle, no
         // Zeph header, no copy, no search, no cue timestamps and no tap to
         // seek. Reusing the shared drawer is what keeps the two in parity.
-        showTranscript && isVideoMedia(currentMedia) ? (
+        showTranscript && !post.external && isVideoMedia(currentMedia) ? (
           <TranscriptDrawer
             cues={transcriptCues}
             currentTime={videoSnap.currentTime}

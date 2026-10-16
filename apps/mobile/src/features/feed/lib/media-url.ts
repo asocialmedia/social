@@ -12,6 +12,9 @@ export function mediaVariantUrl(
   mediaId: string,
   variant: string
 ): string {
+  if (mediaId.startsWith("https://")) {
+    return mediaId;
+  }
   return `${apiBase.replace(/\/+$/, "")}/api/media/${mediaId}/v/${variant}?d=4`;
 }
 
@@ -20,6 +23,9 @@ export function mediaImageUrl(
   media: FeedMedia,
   pixelWidth = 1200
 ): string {
+  if (media.id.startsWith("https://")) {
+    return media.id;
+  }
   if (media.mimeType === "image/gif") {
     return `${apiBase.replace(/\/+$/, "")}/api/media/${media.id}`;
   }
@@ -35,6 +41,9 @@ export function mediaGridImageUrl(
   media: FeedMedia,
   pixelWidth = 800
 ): string {
+  if (media.id.startsWith("https://")) {
+    return media.id;
+  }
   if (media.mimeType === "image/gif") {
     return `${apiBase.replace(/\/+$/, "")}/api/media/${media.id}`;
   }
@@ -45,7 +54,14 @@ export function mediaGridImageUrl(
   )}&format=avif`;
 }
 
-export function mediaPosterUrl(apiBase: string, mediaId: string): string {
+export function mediaPosterUrl(
+  apiBase: string,
+  mediaId: string,
+  thumbnail?: string | null
+): string {
+  if (mediaId.startsWith("https://")) {
+    return thumbnail ?? mediaId;
+  }
   return `${apiBase.replace(/\/+$/, "")}/api/media/${mediaId}?thumb=1`;
 }
 

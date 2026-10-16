@@ -11,11 +11,13 @@
 import { mediaReshareLabel } from "@asm/media";
 import { useRouter } from "expo-router";
 import { memo, useMemo, useState } from "react";
+import { Linking, Pressable, StyleSheet, Text, View } from "react-native";
 import type { GestureResponderEvent } from "react-native";
-import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import avatarPlaceholder from "@/assets/images/avatar-placeholder.png";
 import { authClient } from "@/features/auth/lib/auth-client";
+import { BlueskyIcon } from "@/features/feed/components/bluesky-icon";
+import { ExternalPostActions } from "@/features/feed/components/external-post-actions";
 import { fetchPostDetail } from "@/features/post/lib/post-api";
 import { postDetailCache, postDetailKey } from "@/features/post/lib/post-cache";
 import { usePrefetchProfile } from "@/features/profile";
@@ -33,6 +35,7 @@ import {
 } from "../../home/components/bio-content";
 import { resolveAvatarWithFallback } from "../../home/components/profile-utils";
 import { UserBadge } from "../../home/components/user-badge";
+import { externalPostView } from "../lib/external-post-view";
 import { getPostRailColor } from "../lib/feed-rail";
 import type { FeedPost } from "../lib/feed-types";
 import {
@@ -175,6 +178,13 @@ export const PostCard = memo(
       if (useMediaPreviewStore.getState().request) {
         return;
       }
+      if (post.external) {
+        router.push({
+          params: { uri: post.external.id },
+          pathname: "/external-post",
+        });
+        return;
+      }
       if (onOpenDetail) {
         onOpenDetail(post);
         return;
@@ -198,6 +208,10 @@ export const PostCard = memo(
     };
     const openAuthor = (event: GestureResponderEvent) => {
       event.stopPropagation();
+      if (post.external) {
+        void Linking.openURL(post.external.author.url);
+        return;
+      }
       if (!author?.username) {
         return;
       }
@@ -211,7 +225,9 @@ export const PostCard = memo(
     // already in flight, which is what lets it paint content instead of a
     // skeleton. Cheap when the profile is cached: the hook returns immediately.
     const prefetchAuthor = () => {
-      prefetchProfile(author?.username);
+      if (!post.external) {
+        prefetchProfile(author?.username);
+      }
     };
 
     const inline = useMemo(
@@ -281,7 +297,7 @@ export const PostCard = memo(
           onPress={openDetail}
           style={({ pressed }) => (pressed ? styles.cardPressed : undefined)}
         >
-          {!hasThreadParent && post.parentPostId ? (
+          {!hasThreadParent && (post.parentPostId || post.externalParent) ? (
             <ResponseParentRow post={post} />
           ) : null}
 
@@ -363,11 +379,15 @@ export const PostCard = memo(
                       >
                         {displayName}
                       </Text>
-                      <UserBadge
-                        badge={author?.badge}
-                        badges={author?.badges}
-                        communityRoles={author?.communityMemberships}
-                      />
+                      {post.external ? (
+                        <BlueskyIcon />
+                      ) : (
+                        <UserBadge
+                          badge={author?.badge}
+                          badges={author?.badges}
+                          communityRoles={author?.communityMemberships}
+                        />
+                      )}
                       <Text
                         numberOfLines={1}
                         style={[styles.handle, { color: theme.dividerText }]}
@@ -385,7 +405,7 @@ export const PostCard = memo(
                   {/* Web's header buttons carry -my-1 so the text row sets the row
                 height and the name stays top-aligned with the avatar. */}
                   <View style={styles.moreFix}>
-                    {hasOverflow ? (
+                    {post.external || hasOverflow ? (
                       <MoreButton onPress={(anchor) => onMore(post, anchor)} />
                     ) : (
                       <View
@@ -405,6 +425,7 @@ export const PostCard = memo(
                   {post.content ? (
                     <View style={styles.body}>
                       <BioContent
+                        sourceSegments={post.external?.segments}
                         apiBase={apiBase}
                         bio={post.content}
                         clampLength={CONTENT_CLAMP_LENGTH}
@@ -435,6 +456,26 @@ export const PostCard = memo(
                     </View>
                   ) : null}
 
+                  {post.external?.quote ? (
+                    <View className="border-border/60 mt-3 overflow-hidden rounded-2xl border">
+                      <PostCard
+                        hasThreadChild={false}
+                        hasThreadParent={false}
+                        post={externalPostView({
+                          ...post.external.quote,
+                          quote: undefined,
+                        })}
+                        viewerId={viewerId}
+                        onMore={onMore}
+                        onShare={onShare}
+                      />
+                    </View>
+                  ) : null}
+                  {post.external?.unavailableQuote ? (
+                    <Text style={{ color: theme.dividerText }}>
+                      Quoted post unavailable
+                    </Text>
+                  ) : null}
                   {post.hnStoryShare ? <HNStoryCard post={post} /> : null}
                   {post.communityShare ? (
                     <CommunityShareCard post={post} />
@@ -521,31 +562,38 @@ export const PostCard = memo(
                 renderToHardwareTextureAndroid={chromeActive}
                 style={styles.chromeTexture}
               >
-                <View style={styles.actions}>
-                  <VoteCluster
-                    aura={post.aura ?? 0}
-                    authorName={displayName}
-                    onRequireLogin={requireLogin}
-                    postId={post.id}
-                    userVote={getUserVote(post)}
-                    viewerId={viewerId ?? null}
+                {post.external ? (
+                  <ExternalPostActions
+                    post={post.external}
+                    onDiscussion={openDetail}
                   />
-                  <CommentButton
-                    count={commentCount}
-                    onPress={() => setShowComments((value) => !value)}
-                  />
-                  <RespondButton count={responseCount} post={post} />
-                  <ViewsBadge count={post.viewCount ?? 0} postId={post.id} />
-                  <View style={styles.actionCluster}>
-                    <ShareButton onPress={() => onShare(post)} />
-                    <BookmarkToggle
-                      initialBookmarked={isBookmarkedByUser(post, viewerId)}
+                ) : (
+                  <View style={styles.actions}>
+                    <VoteCluster
+                      aura={post.aura ?? 0}
+                      authorName={displayName}
                       onRequireLogin={requireLogin}
                       postId={post.id}
+                      userVote={getUserVote(post)}
                       viewerId={viewerId ?? null}
                     />
+                    <CommentButton
+                      count={commentCount}
+                      onPress={() => setShowComments((value) => !value)}
+                    />
+                    <RespondButton count={responseCount} post={post} />
+                    <ViewsBadge count={post.viewCount ?? 0} postId={post.id} />
+                    <View style={styles.actionCluster}>
+                      <ShareButton onPress={() => onShare(post)} />
+                      <BookmarkToggle
+                        initialBookmarked={isBookmarkedByUser(post, viewerId)}
+                        onRequireLogin={requireLogin}
+                        postId={post.id}
+                        viewerId={viewerId ?? null}
+                      />
+                    </View>
                   </View>
-                </View>
+                )}
               </View>
             </View>
           </View>
@@ -734,3 +782,5 @@ const styles = StyleSheet.create({
     width: 2,
   },
 });
+
+export { styles as postCardStyles };
