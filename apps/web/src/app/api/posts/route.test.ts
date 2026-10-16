@@ -24,7 +24,13 @@ let submit: (input: unknown) => Promise<unknown> = () =>
   Promise.resolve({ id: "post-1" });
 const submitPost = mock((input: unknown) => submit(input));
 
+class ExternalInteractionError extends Error {
+  override name = "ExternalInteractionError";
+  readonly status = 409;
+}
+
 mock.module("@asm/db", () => ({
+  ExternalInteractionError,
   // Named-export stub for the linker: sibling route tests in the same
   // process mock @asm/db with only prisma, and vice versa.
   prisma: {},

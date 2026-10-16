@@ -91,6 +91,7 @@ export const asmDbMockBase = {
   rememberRankingImpression: () => Promise.resolve(),
   resolveLastRankingContext: () => Promise.resolve(null),
   resolveRankingContext: () => Promise.resolve(null),
+  retainExternalResponse: () => Promise.resolve("external-source-id"),
   reverseExactAura: () => Promise.resolve(),
   revokeBadge: () => Promise.resolve(true),
   schedulePublishedNotificationCleanup: () => Promise.resolve(),

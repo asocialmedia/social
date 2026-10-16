@@ -32,9 +32,11 @@ import {
   RESPONSE_RECEIVED_POST_AURA,
   schedulePublishedNotificationCleanup,
   tagCache,
+  retainExternalResponse,
 } from "@asm/db";
 import type { PrismaTransaction } from "@asm/db";
 import { CLAIMABLE_STATUSES, MAX_POST_ATTACHMENTS } from "@asm/media";
+import type { ExternalPost } from "@asm/protocols/contracts";
 import { siteConfig } from "@asm/ui/meta/site";
 import { revalidateTag } from "next/cache";
 
@@ -175,7 +177,7 @@ export async function submitPost(input: CreatePostInput) {
     }
     console.log("Session validated, proceeding with post submission");
 
-    const isResponse = Boolean(input.parentPostId);
+    const isResponse = Boolean(input.parentPostId || input.externalParentUri);
     // Responses are always fleets: a gust carries a single vertical video,
     // which has no thread meaning. A crafted isGust+parentPostId payload is
     // coerced to a fleet rather than trusted.
@@ -186,6 +188,7 @@ export async function submitPost(input: CreatePostInput) {
       communitySharePostId: input.communitySharePostId,
       content: input.content,
       dismissedEmbedUrls: input.dismissedEmbedUrls ?? [],
+      externalParentUri: input.externalParentUri,
       hnStory: input.hnStory,
       isGust: isResponse ? false : (input.isGust ?? false),
       mediaIds: input.mediaIds || [],
@@ -194,6 +197,37 @@ export async function submitPost(input: CreatePostInput) {
       tags: input.tags || [],
     });
     const validatedInput: CreatePostInput = parsed;
+    if (
+      validatedInput.externalParentUri &&
+      (validatedInput.parentPostId ||
+        validatedInput.communityId ||
+        validatedInput.communitySharePostId ||
+        validatedInput.hnStory)
+    ) {
+      throw new Error("A response can only have one source post");
+    }
+    let externalParent: ExternalPost | undefined;
+    if (validatedInput.externalParentUri) {
+      const { consumeProtocolBudget } = await import("@/lib/protocols/gateway");
+      const { consumeExternalCreationBudget } =
+        await import("@/lib/protocols/budget");
+      const { readBlueskyPosts } = await import("@/lib/protocols/service");
+      await consumeProtocolBudget(sessionData.user.id, "feedback", true);
+      await consumeExternalCreationBudget(sessionData.user.id);
+      const posts = await readBlueskyPosts(
+        [validatedInput.externalParentUri],
+        AbortSignal.timeout(15_000),
+        randomUUID()
+      );
+      externalParent = posts.find(
+        (post) => post.id === validatedInput.externalParentUri
+      );
+      if (!externalParent) {
+        throw new Error(
+          "The Bluesky post is unavailable. Your draft has been kept."
+        );
+      }
+    }
 
     // Community authorization is checked BEFORE the transaction: publishing
     // into a community requires an ACTIVE membership (owner/moderator/member),
@@ -414,12 +448,16 @@ export async function submitPost(input: CreatePostInput) {
       // another transaction won the race and this post creation aborts (the
       // claim rolls back with the transaction).
       const postId = crypto.randomUUID();
+      const externalParentId = externalParent
+        ? await retainExternalResponse(tx, externalParent, sessionData.user.id)
+        : null;
       const post = await tx.orm.public.Posts.create({
         aura: 0,
         communityId,
         content: validatedInput.content,
         embedding: [],
         embeds: embedsJson,
+        externalParentId,
         id: postId,
         isGust: validatedInput.isGust ?? false,
         parentPostId: parentPost?.id ?? null,

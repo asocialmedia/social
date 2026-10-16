@@ -1,0 +1,125 @@
+import "server-only";
+import {
+  abortable,
+  discoveryPageSchema,
+  externalPostSchema,
+  readJsonBounded,
+  retryAfterMs,
+} from "@asm/protocols/discovery";
+import type { DiscoveryMode } from "@asm/protocols/discovery";
+import { context, propagation } from "@opentelemetry/api";
+import { z } from "zod";
+
+import { ProtocolGatewayError } from "./gateway";
+
+export async function readBlueskyDiscovery(
+  mode: DiscoveryMode,
+  cursor?: string,
+  signal?: AbortSignal,
+  requestId?: string
+) {
+  const service = process.env.PROTOCOLS_SERVICE_URL;
+  const token = process.env.PROTOCOLS_INTERNAL_TOKEN;
+  if (!service || !token) {
+    throw new ProtocolGatewayError(503, "not_configured", 30);
+  }
+  const url = new URL("/v1/bluesky/discover", service);
+  if (
+    !["http:", "https:"].includes(url.protocol) ||
+    url.username ||
+    url.password
+  ) {
+    throw new ProtocolGatewayError(503, "invalid_configuration", 30);
+  }
+  url.searchParams.set("mode", mode);
+  if (cursor) {
+    url.searchParams.set("cursor", cursor);
+  }
+  const boundedSignal = signal
+    ? AbortSignal.any([signal, AbortSignal.timeout(15_000)])
+    : AbortSignal.timeout(15_000);
+  const traceHeaders: Record<string, string> = {};
+  propagation.inject(context.active(), traceHeaders);
+  const response = await abortable(
+    fetch(url, {
+      cache: "no-store",
+      headers: {
+        ...traceHeaders,
+        authorization: `Bearer ${token}`,
+        ...(requestId ? { "x-request-id": requestId } : {}),
+      },
+      redirect: "error",
+      signal: boundedSignal,
+    }),
+    boundedSignal
+  );
+  if (!response.ok) {
+    await response.body?.cancel();
+    if (response.status === 400 && cursor) {
+      throw new ProtocolGatewayError(410, "expired_cursor");
+    }
+    const retry = Math.ceil(
+      (retryAfterMs(response.headers.get("retry-after")) ?? 2000) / 1000
+    );
+    throw new ProtocolGatewayError(
+      response.status === 429 ? 429 : 503,
+      response.status === 401
+        ? "internal_auth_rejected"
+        : "upstream_unavailable",
+      retry
+    );
+  }
+  const page = discoveryPageSchema.safeParse(
+    await readJsonBounded(response, 2 * 1024 * 1024, boundedSignal)
+  );
+  if (!page.success) {
+    throw new ProtocolGatewayError(503, "invalid_upstream_response");
+  }
+  return page.data;
+}
+
+export async function readBlueskyPosts(
+  uris: string[],
+  signal?: AbortSignal,
+  requestId?: string
+) {
+  const service = process.env.PROTOCOLS_SERVICE_URL;
+  const token = process.env.PROTOCOLS_INTERNAL_TOKEN;
+  if (!service || !token) {
+    throw new ProtocolGatewayError(503, "not_configured");
+  }
+  const url = new URL("/v1/bluesky/posts", service);
+  if (
+    !["http:", "https:"].includes(url.protocol) ||
+    url.username ||
+    url.password
+  ) {
+    throw new ProtocolGatewayError(503, "invalid_configuration");
+  }
+  for (const uri of uris) {
+    url.searchParams.append("uri", uri);
+  }
+  const boundedSignal = signal
+    ? AbortSignal.any([signal, AbortSignal.timeout(12_000)])
+    : AbortSignal.timeout(12_000);
+  const response = await abortable(
+    fetch(url, {
+      cache: "no-store",
+      headers: {
+        authorization: `Bearer ${token}`,
+        ...(requestId ? { "x-request-id": requestId } : {}),
+      },
+      redirect: "error",
+      signal: boundedSignal,
+    }),
+    boundedSignal
+  );
+  if (!response.ok) {
+    await response.body?.cancel();
+    throw new ProtocolGatewayError(503, "upstream_unavailable");
+  }
+  return z
+    .array(externalPostSchema)
+    .max(25)
+    .parse(await readJsonBounded(response, 2 * 1024 * 1024, boundedSignal));
+}

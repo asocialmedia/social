@@ -8,7 +8,7 @@
 // Retries are made safe by an optional `Idempotency-Key` header (see
 // lib/posts/idempotency.ts): a retry of a create that already succeeded
 // gets `409 { error: "duplicate", postId }` instead of a second post.
-import { redis } from "@asm/db";
+import { redis, ExternalInteractionError } from "@asm/db";
 import { ZodError } from "zod";
 
 import { getSessionFromApi } from "@/lib/auth/session";
@@ -19,6 +19,7 @@ import {
   idempotencyRedisKey,
   parseIdempotencyKey,
 } from "@/lib/posts/idempotency";
+import { ProtocolBudgetError } from "@/lib/protocols/budget";
 import { submitPost } from "@/posts/editor/actions";
 
 type SubmitPostInput = Parameters<typeof submitPost>[0];
@@ -92,6 +93,18 @@ export async function POST(request: Request) {
   } catch (error) {
     if (redisKey) {
       await redis.del(redisKey);
+    }
+    if (error instanceof ProtocolBudgetError) {
+      return Response.json(
+        { error: "Please wait a moment before trying again." },
+        { headers: { "retry-after": String(error.retryAfter) }, status: 429 }
+      );
+    }
+    if (error instanceof ExternalInteractionError) {
+      return Response.json(
+        { error: "Couldn't respond to this post." },
+        { status: error.status }
+      );
     }
     if (error instanceof ZodError) {
       return Response.json(
