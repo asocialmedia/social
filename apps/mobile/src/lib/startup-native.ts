@@ -7,6 +7,7 @@ import { hydrateFeedCache } from "@/features/feed/state/feed-store";
 import { hydrateHomeTabMemory } from "@/features/feed/state/tab-store-native";
 import { hydratePopupCache } from "@/features/home/components/profile-cache";
 import { hydratePostDetailCache } from "@/features/post/lib/post-cache";
+import { hydrateThemePreference } from "@/theme/theme-preference-native";
 
 import { loadLaunchResumeRoute } from "./app-resume";
 import { prepareStartup } from "./startup";
@@ -37,16 +38,24 @@ async function hydrateSession(): Promise<void> {
   }
 }
 
-let preparation: Promise<void> | undefined;
-export function prepareNativeStartup(): Promise<void> {
-  preparation ??= prepareStartup([
-    hydrateSession,
-    hydrateFeedCache,
-    hydrateMediaDimensions,
-    hydrateHomeTabMemory,
-    hydratePopupCache,
-    hydratePostDetailCache,
-    loadLaunchResumeRoute,
-  ]);
+let preparation: Promise<string | null> | undefined;
+export function prepareNativeStartup(): Promise<string | null> {
+  preparation ??= (async () => {
+    let resumePath: string | null = null;
+    await prepareStartup([
+      hydrateThemePreference,
+      hydrateSession,
+      hydrateFeedCache,
+      hydrateMediaDimensions,
+      hydrateHomeTabMemory,
+      hydratePopupCache,
+      hydratePostDetailCache,
+      async () => {
+        const resume = await loadLaunchResumeRoute();
+        resumePath = resume?.pathname ?? "/";
+      },
+    ]);
+    return resumePath;
+  })();
   return preparation;
 }

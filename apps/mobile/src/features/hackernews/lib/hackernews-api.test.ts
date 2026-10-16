@@ -26,16 +26,12 @@ describe("domainOf", () => {
 
 describe("buildHnPath", () => {
   test("defaults to the first page of score-sorted stories", () => {
-    expect(buildHnPath()).toBe(
-      "/api/hackernews?limit=20&page=1&sort=score&type=all"
-    );
+    expect(buildHnPath()).toBe("/api/hackernews?limit=20&page=1&sort=score");
   });
 
-  test("passes sort, filter and search through", () => {
-    expect(
-      buildHnPath({ page: 3, search: "rust", sort: "comments", type: "show" })
-    ).toBe(
-      "/api/hackernews?limit=20&page=3&sort=comments&type=show&search=rust"
+  test("passes sort and search through", () => {
+    expect(buildHnPath({ page: 3, search: "rust", sort: "comments" })).toBe(
+      "/api/hackernews?limit=20&page=3&sort=comments&search=rust"
     );
   });
 
@@ -113,7 +109,7 @@ describe("fetchHnPage", () => {
         new Response("{}", { headers: { "retry-after": "60" }, status: 429 })
       )) as unknown as typeof fetch;
     const page = await fetchHnPage({}, { ...options, baseFetch: limited });
-    expect(page).toEqual({ rateLimited: true, stories: [] });
+    expect(page).toEqual({ hasMore: false, rateLimited: true, stories: [] });
   });
 
   test("throws a typed error for any other failure", async () => {
@@ -130,6 +126,7 @@ describe("fetchHnPage", () => {
     const ok = (() =>
       Promise.resolve(
         Response.json({
+          hasMore: true,
           stories: [
             {
               by: "ada",
@@ -144,6 +141,7 @@ describe("fetchHnPage", () => {
       )) as unknown as typeof fetch;
     const page = await fetchHnPage({}, { ...options, baseFetch: ok });
     expect(page.rateLimited).toBe(false);
+    expect(page.hasMore).toBe(true);
     expect(page.stories).toHaveLength(1);
   });
 });

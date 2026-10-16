@@ -19,12 +19,14 @@ interface AnimatedTabTriggerProps extends Omit<
   active: boolean;
   className?: string;
   layoutId: string;
+  indicatorClassName?: string;
 }
 
 export function AnimatedTabTrigger({
   active,
   className,
   layoutId,
+  indicatorClassName,
   children,
   ...props
 }: AnimatedTabTriggerProps) {
@@ -41,7 +43,12 @@ export function AnimatedTabTrigger({
             type: "spring",
           }}
         >
-          <span className="h-1 w-6 rounded-full bg-linear-to-b from-[#ff9500] to-[#e65500]" />
+          <span
+            className={cn(
+              "h-1 w-6 rounded-full bg-linear-to-b from-[#ff9500] to-[#e65500]",
+              indicatorClassName
+            )}
+          />
         </motion.span>
       ) : null}
       <span className="relative z-10 flex items-center gap-1.5">

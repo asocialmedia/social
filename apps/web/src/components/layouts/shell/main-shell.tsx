@@ -7,12 +7,21 @@ import type React from "react";
 import LeftSidebar from "@/components/home/sidebars/left-side-bar";
 import { PostCacheRepair } from "@/components/posts/effects/post-cache-repair";
 
-// Media routes (/posts/[postId]/media/[index]) are standalone fullscreen pages
-// and must NOT mount the app chrome (left sidebar + bounded feed column) behind
-// the viewer — otherwise a direct visit flashes the post page layout first.
-// Detect those paths and render the page bare, full-viewport, instead.
+// Media routes (/posts/[postId]/media/[index]) and the camera are standalone
+// fullscreen pages and must NOT mount the app chrome (left sidebar + bounded
+// feed column) behind the viewer — otherwise a direct visit flashes the post
+// page layout first. Detect those paths and render the page bare,
+// full-viewport, instead.
 function isMediaRoute(pathname: string): boolean {
   return /^\/posts\/[^/]+\/media\/\d+\/?$/.test(pathname);
+}
+
+function isBareRoute(pathname: string): boolean {
+  return (
+    isMediaRoute(pathname) ||
+    pathname === "/camera" ||
+    pathname.startsWith("/camera/")
+  );
 }
 
 export function MainShell({
@@ -23,7 +32,7 @@ export function MainShell({
   userData: UserData | null;
 }) {
   const pathname = usePathname();
-  const bare = isMediaRoute(pathname);
+  const bare = isBareRoute(pathname);
 
   if (bare) {
     return (

@@ -917,6 +917,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 10,
     paddingBottom: 6,
+    paddingLeft: 16,
     paddingTop: 10,
     position: "relative",
   },
@@ -1111,6 +1112,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     flexDirection: "row",
     gap: 10,
+    paddingHorizontal: 16,
     paddingVertical: 10,
   },
   stateText: {

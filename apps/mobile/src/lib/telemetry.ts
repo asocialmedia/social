@@ -7,11 +7,12 @@
 // public ingestion token goes in EXPO_PUBLIC_OTEL_TOKEN, and even that is
 // optional (self-hosted collectors often need no auth on a private net).
 import Constants from "expo-constants";
-import { OtlpHttpLogExporter, otel } from "react-native-otel";
+import type { otel } from "react-native-otel";
 
 type LogAttributes = Record<string, string | number | boolean>;
 
 let telemetryStarted = false;
+let logger: ReturnType<typeof otel.getLogger> | null = null;
 
 export function initTelemetry(): void {
   if (telemetryStarted) {
@@ -22,21 +23,29 @@ export function initTelemetry(): void {
   if (!endpoint || __DEV__) {
     return;
   }
-  try {
-    const token = process.env.EXPO_PUBLIC_OTEL_TOKEN?.trim();
-    otel.init({
-      environment: "production",
-      logExporter: new OtlpHttpLogExporter({
-        endpoint,
-        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-      }),
-      sensitiveKeys: ["header.authorization", "header.cookie", "body.password"],
-      serviceName: "asocialmedia-mobile",
-      serviceVersion: Constants.expoConfig?.version ?? "0.0.0",
-    });
-  } catch {
-    // Telemetry must never break the app.
-  }
+  void (async () => {
+    try {
+      const { OtlpHttpLogExporter, otel } = await import("react-native-otel");
+      const token = process.env.EXPO_PUBLIC_OTEL_TOKEN?.trim();
+      otel.init({
+        environment: "production",
+        logExporter: new OtlpHttpLogExporter({
+          endpoint,
+          headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+        }),
+        sensitiveKeys: [
+          "header.authorization",
+          "header.cookie",
+          "body.password",
+        ],
+        serviceName: "asocialmedia-mobile",
+        serviceVersion: Constants.expoConfig?.version ?? "0.0.0",
+      });
+      logger = otel.getLogger();
+    } catch {
+      // Telemetry must never break the app.
+    }
+  })();
 }
 
 function emit(
@@ -50,7 +59,7 @@ function emit(
     return;
   }
   try {
-    otel.getLogger()[severity](message, attributes);
+    logger?.[severity](message, attributes);
   } catch {
     // Telemetry must never break the app.
   }

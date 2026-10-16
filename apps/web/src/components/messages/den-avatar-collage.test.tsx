@@ -79,6 +79,9 @@ describe("DenAvatarCollage", () => {
     expect(html).toContain("width:31px");
     expect(html).toContain("left:0;");
     expect(html).toContain("left:13px");
+    expect(html).toContain("rounded-[30%]");
+    expect(html).toContain("rounded-[inherit]!");
+    expect(html).not.toContain("rounded-full");
     // Face order is DOM order, and later siblings paint on top - so the second
     // face's URL comes after the first's, which is what makes the overlap
     // sequential rather than noise.

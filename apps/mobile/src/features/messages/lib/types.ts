@@ -35,6 +35,10 @@ export interface MessageSender {
 
 export interface MessageConversationMember {
   conversationId: string;
+  createdAt?: string;
+  leftAt?: string | null;
+  role?: "OWNER" | "ADMIN" | "MEMBER";
+  membershipWindows?: { after: string | null; before: string | null }[];
   lastDeliveredAt?: string | null;
   lastReadAt: string | null;
   mutedAt?: string | null;
@@ -56,9 +60,17 @@ export interface MessageConversationKey {
   // Root-key epoch. A member holds one wrap per epoch; older ones stay readable
   // so a reset never costs the peer its history.
   version: number;
+  wrapperPublicKey?: string | null;
+  wrapperUserId?: string | null;
 }
 
 export interface MessageConversationData {
+  type?: "DM" | "DEN";
+  membershipSeq?: number;
+  avatarMediaId?: string | null;
+  name?: string | null;
+  description?: string | null;
+  ownerId?: string | null;
   createdAt: string;
   id: string;
   keys: MessageConversationKey[];
@@ -68,6 +80,8 @@ export interface MessageConversationData {
 }
 
 export interface MessageData {
+  revision?: number;
+  keyEpoch?: number | null;
   ciphertext: string;
   conversationId: string;
   createdAt: string;

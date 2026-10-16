@@ -1,0 +1,14 @@
+diff --git a/android/src/main/java/expo/modules/webbrowser/BrowserProxyActivity.kt b/android/src/main/java/expo/modules/webbrowser/BrowserProxyActivity.kt
+index c30da173b7daade75e7f69a38fd98edd7d0cc454..f2a4d6365d3f90313ae083096977260c91189e2d 100644
+--- a/android/src/main/java/expo/modules/webbrowser/BrowserProxyActivity.kt
++++ b/android/src/main/java/expo/modules/webbrowser/BrowserProxyActivity.kt
+@@ -47,6 +47,9 @@ class BrowserProxyActivity : Activity() {
+     customTabsIntentData.extras?.let { customTabsIntent.intent.putExtras(it) }
+     customTabsIntentData.`package`?.let { customTabsIntent.intent.`package` = it }
+ 
++    // Keep the initiating app identifiable across the separate-task browser handoff.
++    customTabsIntent.intent.putExtra(Intent.EXTRA_REFERRER, "android-app://$packageName/".toUri())
++
+     customTabsIntent.launchUrl(this, url.toUri())
+ 
+     instance = WeakReference(this)

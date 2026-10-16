@@ -32,17 +32,17 @@ describe("pickMessageImageVariant", () => {
 describe("getMessageMediaVariantUrl", () => {
   test("rewrites our proxy paths to a sized derivative", () => {
     expect(getMessageMediaVariantUrl("/api/media/cm123abc", 704)).toBe(
-      "/api/media/cm123abc/v/sm-webp.webp"
+      "/api/media/cm123abc/v/sm-webp.webp?d=4"
     );
     expect(getMessageMediaVariantUrl("/api/media/cm123abc", null)).toBe(
-      "/api/media/cm123abc/v/thumb-webp.webp"
+      "/api/media/cm123abc/v/thumb-webp.webp?d=4"
     );
   });
 
   test("tolerates a query string on the original path", () => {
     expect(
       getMessageMediaVariantUrl("/api/media/cm123abc?download=true", 800)
-    ).toBe("/api/media/cm123abc/v/md-webp.webp");
+    ).toBe("/api/media/cm123abc/v/md-webp.webp?d=4");
   });
 
   test("returns null for external or malformed urls", () => {
@@ -174,7 +174,7 @@ describe("getSecureImageUrl & toAppProxyUrl", () => {
         thumbnailKey: null,
         type: "IMAGE",
       })
-    ).toBe("/api/media/media456/v/md-webp.webp");
+    ).toBe("/api/media/media456/v/md-webp.webp?d=4");
 
     expect(
       getMediaProxyUrl({
@@ -183,7 +183,7 @@ describe("getSecureImageUrl & toAppProxyUrl", () => {
         thumbnailKey: null,
         type: "IMAGE",
       })
-    ).toBe("/api/media/media789/v/md-webp.webp");
+    ).toBe("/api/media/media789/v/md-webp.webp?d=4");
   });
 
   test("animated GIFs bypass the variant route so their animation survives", () => {
@@ -199,25 +199,25 @@ describe("getSecureImageUrl & toAppProxyUrl", () => {
 
   test("video playback prefers the progressive MP4 derivative", () => {
     expect(getMediaVideoUrl("mediaVid")).toBe(
-      "/api/media/mediaVid/v/mp4-h264.mp4"
+      "/api/media/mediaVid/v/mp4-h264.mp4?d=4"
     );
     // Variant URLs are always safe: the route falls back to the published
     // original when the derivative has not been generated.
     expect(getMediaVariantUrl("mediaX", "lg-webp.webp")).toBe(
-      "/api/media/mediaX/v/lg-webp.webp"
+      "/api/media/mediaX/v/lg-webp.webp?d=4"
     );
   });
 
   test("getMediaImageUrl requests any derivative size with GIF passthrough", () => {
     expect(
       getMediaImageUrl({ id: "m1", mimeType: "image/jpeg" }, "lg-webp.webp")
-    ).toBe("/api/media/m1/v/lg-webp.webp");
+    ).toBe("/api/media/m1/v/lg-webp.webp?d=4");
     expect(
       getMediaImageUrl(
         { id: "m2", mimeType: "image/png" },
         "orig-img-webp.webp"
       )
-    ).toBe("/api/media/m2/v/orig-img-webp.webp");
+    ).toBe("/api/media/m2/v/orig-img-webp.webp?d=4");
     // Animated GIFs keep their original bytes at every requested size.
     expect(
       getMediaImageUrl(

@@ -52,6 +52,34 @@ describe("resolveRequestUrl", () => {
   });
 });
 
+test("device model metadata travels only to the application's API", async () => {
+  const requests: Headers[] = [];
+  const baseFetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+    requests.push(
+      input instanceof Request ? input.headers : new Headers(init?.headers)
+    );
+    return Promise.resolve(Response.json({}));
+  }) as typeof fetch;
+  const wrapped = createInstallFetch({
+    baseFetch,
+    getToken: () => null,
+    origin: ORIGIN,
+    userAgent: "Asocialmedia/1 (Android 16; Pixel 9)",
+  });
+  await wrapped(`${ORIGIN}/api/security/sessions`);
+  await wrapped(
+    new Request(`${ORIGIN}/api/auth/get-session`, {
+      headers: { cookie: "session=own" },
+    })
+  );
+  await wrapped("https://storage.example/image.jpg");
+  expect(requests[0]?.get("user-agent")).toContain("Pixel 9");
+  expect(requests[1]?.get("user-agent")).toContain("Pixel 9");
+  expect(requests[1]?.get("cookie")).toBe("session=own");
+  expect(requests[2]?.get("user-agent")).toBeNull();
+  expect(requests[2]?.get("x-asm-client")).toBeNull();
+});
+
 describe("isSameOrigin", () => {
   test("accepts the origin and its subpaths", () => {
     expect(isSameOrigin(`${ORIGIN}/api/auth`, ORIGIN)).toBe(true);

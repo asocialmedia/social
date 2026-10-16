@@ -23,7 +23,9 @@ import { haptic } from "@/lib/haptics";
 export function StatusActionButton({
   label,
   onPress,
+  disabled = false,
 }: {
+  disabled?: boolean;
   label: string;
   onPress: () => void;
 }) {
@@ -31,11 +33,13 @@ export function StatusActionButton({
     <Pressable
       accessibilityLabel={label}
       accessibilityRole="button"
+      accessibilityState={{ disabled }}
+      disabled={disabled}
       onPress={() => {
         haptic();
         onPress();
       }}
-      style={styles.ring}
+      style={[styles.ring, disabled && { opacity: 0.45 }]}
     >
       {({ pressed }) => (
         <Gradient3D

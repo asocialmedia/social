@@ -8,7 +8,28 @@ import {
   parseRate,
   ResourceLimitError,
   withTimeout,
+  runFfmpeg,
 } from "./ffmpeg";
+
+test("FFmpeg wall-clock expiry reports a timeout even with empty stderr", async () => {
+  await expect(
+    runFfmpeg(
+      [
+        "-re",
+        "-f",
+        "lavfi",
+        "-i",
+        "color=c=red:s=16x16:r=1",
+        "-t",
+        "60",
+        "-f",
+        "null",
+        "-",
+      ],
+      200
+    )
+  ).rejects.toThrow("ffmpeg timed out after 200ms");
+});
 
 describe("dHash64 perceptual hashing", () => {
   test("uniform pixels hash to zero (no horizontal gradients)", () => {

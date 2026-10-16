@@ -8,7 +8,7 @@ export const UserCardSkeleton: React.FC<{ highlight?: boolean }> = ({
   highlight = false,
 }) => (
   <div
-    className={`mb-4 flex flex-col overflow-hidden rounded-2xl ${
+    className={`flex flex-col overflow-hidden rounded-2xl ${
       highlight ? "hn-story-solid" : "sidebar-subcard"
     }`}
   >
@@ -48,20 +48,23 @@ const STREAM_KEYS = [
   "people-skel-8",
 ];
 
-const ExplorePeopleSkeleton: React.FC<{ variant?: "discovery" | "search" }> = ({
-  variant = "discovery",
-}) => (
-  <div className="p-4">
-    <div className="relative mb-4">
-      <Skeleton className="h-10 w-full rounded-xl" />
-    </div>
+const ExplorePeopleSkeleton: React.FC<{
+  showSearch?: boolean;
+  variant?: "discovery" | "search";
+}> = ({ showSearch = true, variant = "discovery" }) => (
+  <div>
+    {showSearch ? (
+      <div className="relative mb-4 hidden md:block">
+        <Skeleton className="h-10 w-full rounded-xl" />
+      </div>
+    ) : null}
     {variant === "discovery" ? (
       <div className="mb-3 flex items-center justify-between">
         <Skeleton className="h-4 w-40 rounded-md" />
         <Skeleton className="rail-3d-btn h-9 w-28 rounded-full" />
       </div>
     ) : null}
-    <div className="columns-1 gap-4 sm:columns-2 lg:columns-3 xl:columns-4">
+    <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,12rem),1fr))] items-start gap-4">
       {STREAM_KEYS.map((key, index) => (
         <UserCardSkeleton
           highlight={variant === "discovery" && index < 5}

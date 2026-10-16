@@ -26,7 +26,7 @@ export interface CreatePostPayload {
     by?: string | null;
     descendants?: number | null;
     score?: number | null;
-    storyId: string;
+    storyId: number;
     time?: number | null;
     title: string;
     url?: string | null;

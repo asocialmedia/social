@@ -23,7 +23,9 @@ class MockQueue {
     data: Record<string, unknown>,
     opts?: Record<string, unknown>
   ) {
-    mockJobs.get(this.name)?.push({ data, name, opts });
+    const jobs = mockJobs.get(this.name) ?? [];
+    jobs.push({ data, name, opts });
+    mockJobs.set(this.name, jobs);
     return Promise.resolve({ id: opts?.jobId ?? "job-id" });
   }
 
@@ -46,6 +48,24 @@ describe("queue notification cleanup jobs and schedulers", () => {
   beforeEach(() => {
     mockJobs.clear();
     mockSchedulers.clear();
+  });
+
+  test("DM pushes use a stable message-recipient job ID with retries", async () => {
+    const { enqueueMessagePush } = await import("./queue");
+    await enqueueMessagePush("message-1", "user-1");
+    expect(mockJobs.get("notifications")).toEqual([
+      {
+        data: { messageId: "message-1", recipientId: "user-1" },
+        name: "message-push",
+        opts: {
+          attempts: 5,
+          backoff: { delay: 1000, type: "exponential" },
+          jobId: "message-push-message-1-user-1",
+          removeOnComplete: 1000,
+          removeOnFail: 5000,
+        },
+      },
+    ]);
   });
 
   test("enqueueNotificationCreated uses the isolated retrying queue", async () => {

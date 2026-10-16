@@ -13,6 +13,7 @@ import { useMediaQuery } from "usehooks-ts";
 
 import MediaViewer from "@/components/home/feedview/media-viewer";
 import InfiniteScrollContainer from "@/components/layouts/feed/infinite-scroll-container";
+import { MediaHoldDrawer } from "@/components/media/media-hold-drawer";
 import ModeratedNotice from "@/components/posts/content/moderated-notice";
 import { useUserMediaQuery } from "@/hooks/users/use-user-media-query";
 import type { UserMediaItem } from "@/hooks/users/use-user-media-query";
@@ -674,16 +675,18 @@ const MediaGalleryContent: React.FC<MediaGalleryContentProps> = ({
   } else {
     body = (
       <InfiniteScrollContainer onBottomReached={handleBottomReached}>
-        <div className="columns-2 gap-2 px-1">
-          {media.map((item, index) => (
-            <MediaTile
-              index={index}
-              item={item}
-              key={item.id}
-              onSelect={handleSelect}
-            />
-          ))}
-        </div>
+        <MediaHoldDrawer media={media}>
+          <div className="columns-2 gap-2 px-1">
+            {media.map((item, index) => (
+              <MediaTile
+                index={index}
+                item={item}
+                key={item.id}
+                onSelect={handleSelect}
+              />
+            ))}
+          </div>
+        </MediaHoldDrawer>
         {isFetchingNextPage ? (
           <div className="flex justify-center py-3">
             <Loader2 className="text-primary h-4 w-4 animate-spin" />
@@ -716,7 +719,9 @@ const MediaGallery: React.FC<MediaGalleryProps> = ({
   locked = false,
   userId,
 }) => {
-  const isXl = useMediaQuery("(min-width: 1280px)");
+  const isXl = useMediaQuery("(min-width: 1280px)", {
+    initializeWithValue: false,
+  });
 
   // Guests see a locked sidebar: a full-height skeleton grid with the login
   // prompt centered on top of it.

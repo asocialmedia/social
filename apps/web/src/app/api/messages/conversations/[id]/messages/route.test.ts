@@ -47,6 +47,15 @@ const mockIncrementMany = mock((_userIds: readonly string[]) =>
 function unreadRecipients(): string[] {
   return mockIncrementMany.mock.calls.flatMap((call) => [...call[0]]);
 }
+// Every push the send queued, as `[messageId, recipientId]` pairs. The route
+// pushes exactly the members the counter moved, so this is the push half of the
+// same "who does this reach" question `unreadRecipients` answers for the badge.
+const mockMessagePush = mock((_messageId: string, _recipientId: string) =>
+  Promise.resolve()
+);
+function pushedRecipients(): string[] {
+  return mockMessagePush.mock.calls.map((call) => call[1]);
+}
 const mockPublishCreated = mock(() => Promise.resolve());
 const mockPublishActivity = mock(() => Promise.resolve());
 // The newest epoch's row, version included: the CAS pins the version it read, so
@@ -91,7 +100,7 @@ let enqueueFailure: Error | null = null;
 let transactionFailure: Error | null = null;
 let denFanOutFailure: Error | null = null;
 // The den fan-out's own reads, its mute filter and its fold are covered against
-// a live database in packages/db/src/messages/den-notifications.integration.test.ts.
+// a live database in packages/db/src/messages/notifications/den-notifications.integration.test.ts.
 // Here it stands in for the layer that decides the audience, so these tests can
 // pin the route's half: that the route enqueues exactly what the fan-out
 // reported, and that a member the fan-out skipped is skipped by the enqueue too.
@@ -396,6 +405,7 @@ mock.module("@asm/db", () => ({
   },
   consumeRateLimit: mockConsumeRateLimit,
   createDenMessageNotifications: mockCreateDenMessageNotifications,
+  enqueueMessagePush: mockMessagePush,
   enqueueMessageSearchOutbox: mockEnqueueMessageSearchOutbox,
   enqueueNotificationCreated: mockEnqueueNotificationCreated,
   enqueueNotificationDeleted: mock(() => Promise.resolve()),
@@ -475,6 +485,7 @@ describe("POST /api/messages/conversations/:id/messages", () => {
     mockIncrement.mockClear();
     mockIncrementMany.mockClear();
     mockIncrementMany.mockImplementation(() => Promise.resolve());
+    mockMessagePush.mockClear();
     mockPublishCreated.mockClear();
     mockPublishActivity.mockClear();
     mockEnqueueNotificationCreated.mockClear();
@@ -559,6 +570,7 @@ describe("POST /api/messages/conversations/:id/messages", () => {
     });
     expect(res.status).toBe(201);
     expect(unreadRecipients()).toEqual([]);
+    expect(pushedRecipients()).toEqual([]);
   });
 
   test("still accrues unread for a peer who has not muted", async () => {
@@ -570,6 +582,16 @@ describe("POST /api/messages/conversations/:id/messages", () => {
     // read route's decrement counts only peer-authored rows, so the two halves
     // have to agree about who that is.
     expect(unreadRecipients()).toEqual(["user2"]);
+    expect(mockMessagePush).toHaveBeenCalledWith("msg-1", "user2");
+  });
+
+  test("a push queue outage does not fail a committed message", async () => {
+    mockMessagePush.mockRejectedValueOnce(new Error("Queue unavailable"));
+    const res = await POST(validPostRequest(), {
+      params: Promise.resolve({ id: "convo-1" }),
+    });
+    expect(res.status).toBe(201);
+    expect(mockCreate).toHaveBeenCalledTimes(1);
   });
 
   test("increments an initialized member counter inside the send transaction", async () => {

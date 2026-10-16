@@ -8,7 +8,7 @@ const redisHmget = mock<(key: string, ...terms: string[]) => string[]>(
 );
 
 mock.module("@asm/db", () => ({
-  globalKnowledgeGraph: {},
+  recordSharedTopicRelations: () => Promise.resolve(),
   redis: {
     eval: redisEval,
     hmget: redisHmget,

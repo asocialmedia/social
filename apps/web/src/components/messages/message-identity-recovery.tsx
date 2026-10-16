@@ -11,10 +11,11 @@ import {
   AlertDialogTitle,
 } from "@asm/ui/shadui/alert-dialog";
 import { Button } from "@asm/ui/shadui/button";
-import { ShieldAlert } from "lucide-react";
 import { useCallback, useState } from "react";
 
 import { toast } from "@/lib/gooey-toast";
+
+import { MessagesErrorState } from "./messages-error-state";
 
 // Confirmation for the destructive "start over" path. Shared by the locked
 // screen and the settings recovery card so the warning copy cannot drift
@@ -93,28 +94,18 @@ export function MessageIdentityLocked({
 
   return (
     <div className="border-border/60 flex min-w-0 flex-1 flex-col bg-[hsl(var(--background-alt))] sm:border-x">
-      <div className="flex flex-1 items-center justify-center p-6">
-        <div className="panel-3d w-full max-w-sm rounded-2xl p-5">
-          <div className="flex items-center gap-2">
-            <ShieldAlert className="h-4 w-4 text-[#ff9500]" />
-            <h2 className="text-sm font-semibold">Messages can&apos;t open</h2>
-          </div>
-          <p className="text-muted-foreground mt-2 text-xs">
-            This device couldn&apos;t read your messages key. This is usually a
-            stale or corrupted key. Starting over creates a new key — messages
-            from before will no longer be readable to you, but they stay on the
-            other person&apos;s device.
-          </p>
+      <MessagesErrorState
+        message="This device couldn't read your messages key. Starting over creates a new key — messages from before will no longer be readable to you, but they remain readable to the other person."
+        action={
           <Button
-            className="mt-4 w-full"
             onClick={() => setResetOpen(true)}
             type="button"
             variant="premium"
           >
             Start over
           </Button>
-        </div>
-      </div>
+        }
+      />
 
       <ResetIdentityDialog
         onConfirm={onReset}

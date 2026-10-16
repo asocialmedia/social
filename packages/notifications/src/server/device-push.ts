@@ -9,10 +9,10 @@
 // build (so the device can mint a registration token) and a service-account
 // key on the server (so the worker can send). See ./fcm.ts for the sender.
 
-import type { NotificationRecord } from "../shared/types";
 import type { FcmAccessTokenCache } from "./fcm";
 import { resolveFcmServiceAccount, sendFcmPush } from "./fcm";
 import type { PushLogger } from "./log";
+import type { PushDelivery } from "./payload";
 
 export {
   buildFcmMessage,
@@ -36,6 +36,7 @@ export interface DeviceTarget {
 }
 
 export interface DevicePushResult {
+  retryable?: boolean;
   failed: number;
   sent: number;
   // Tokens FCM reported as gone; the caller prunes these.
@@ -55,7 +56,7 @@ export interface SendDevicePushOptions {
 // transport failure is counted so the worker job cannot be poisoned by a push
 // outage.
 export async function sendDevicePush(
-  notification: NotificationRecord,
+  notification: PushDelivery,
   targets: DeviceTarget[],
   options: SendDevicePushOptions = {}
 ): Promise<DevicePushResult> {

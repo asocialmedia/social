@@ -1,21 +1,40 @@
-// Native share sheet for a post, mirroring web ShareButton's link tab
-// (share-button.tsx): title, description, share stats, and a system share
-// action that records the share server-side. The shared URL is the canonical
-// short post path on the production origin, like web's getPostUrl.
-import { Link2 } from "lucide-react-native";
+// Post sharing mirrors web's Social, Link, QR and Messages tabs.
+import * as Clipboard from "expo-clipboard";
+import * as Linking from "expo-linking";
+import { useRouter } from "expo-router";
 import { useEffect, useState } from "react";
-import { Modal, Pressable, Share, StyleSheet, Text, View } from "react-native";
+import {
+  Pressable,
+  ScrollView,
+  Share,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
+import QRCode from "react-native-qrcode-svg";
 
+import { UserAvatar } from "@/components/avatar/user-avatar";
+import { Spinner3D } from "@/components/feedback/spinner-3d";
+import { toast } from "@/components/feedback/toast";
+import { DialogPanel } from "@/components/surface/dialog-panel";
 import { authClient } from "@/features/auth/lib/auth-client";
+import { useSessionContext } from "@/features/auth/state/session";
+import { fetchConversationList } from "@/features/messages/lib/client";
+import type { ConversationListItem } from "@/features/messages/lib/client";
+import { useSharedPostDraft } from "@/features/messages/state/shared-post-draft";
+import {
+  SettingsButton,
+  SettingsInput,
+} from "@/features/settings/components/settings-ui";
 import { PROD_API_URL } from "@/lib/api-base";
 import { getApiBaseUrl } from "@/lib/api-env";
-import { haptic } from "@/lib/haptics";
 import { logWarn } from "@/lib/telemetry";
-import { SURFACE_SHADOWS, SURFACE_SHADOWS_DARK, useAppTheme } from "@/theme";
+import { useAppTheme } from "@/theme";
 
 import { fetchShareStats, submitShare } from "../lib/feed-api";
 import type { ShareStats } from "../lib/feed-api";
 import type { FeedPost } from "../lib/feed-types";
+import { socialShareTargets } from "../lib/share-targets";
 
 export function getSharePostUrl(post: FeedPost): string {
   const shortId = post.id.length > 8 ? post.id.slice(0, 8) : post.id;
@@ -35,177 +54,341 @@ interface ShareSheetProps {
   title?: string;
 }
 
-export function ShareSheet({
+export function ShareSheet(props: ShareSheetProps) {
+  return props.post ? (
+    <ShareDialog key={props.post.id} {...props} post={props.post} />
+  ) : null;
+}
+
+function ShareDialog({
   description = "Share this post with your network",
   onClose,
   post,
   shareUrl = getSharePostUrl,
   title = "Share Post",
-}: ShareSheetProps) {
-  const { isDark, theme } = useAppTheme();
+}: ShareSheetProps & { post: FeedPost }) {
+  const { theme } = useAppTheme();
+  const { user } = useSessionContext();
+  const router = useRouter();
+  const [tab, setTab] = useState<"social" | "link" | "qr" | "messages">("link");
   const [stats, setStats] = useState<ShareStats[]>([]);
-  const [shared, setShared] = useState(false);
-
+  const [copied, setCopied] = useState(false);
+  const [conversations, setConversations] = useState<ConversationListItem[]>(
+    []
+  );
+  const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const url = shareUrl(post);
+  const caption = post.content?.slice(0, 160) || "Post on asocialmedia";
   useEffect(() => {
-    if (!post) {
-      return;
-    }
-    let cancelled = false;
-    // oxlint-disable-next-line react/set-state-in-effect -- stats load when the sheet opens for a post; nothing to derive during render
-    setStats([]);
-    // oxlint-disable-next-line react/set-state-in-effect -- a fresh post resets the shared flag
-    setShared(false);
+    let active = true;
     void (async () => {
       try {
-        const apiBase = getApiBaseUrl();
-        const cookie = await authClient.getCookie();
-        const rows = await fetchShareStats(post.id, { apiBase, cookie });
-        if (!cancelled) {
-          // oxlint-disable-next-line react/set-state-in-effect -- settling the stats load above
+        const rows = await fetchShareStats(post.id, {
+          apiBase: getApiBaseUrl(),
+          cookie: await authClient.getCookie(),
+        });
+        if (active) {
           setStats(rows);
         }
       } catch {
-        // Stats are decorative; a failure just hides the row.
+        // Decorative statistics must not block sharing.
       }
     })();
     return () => {
-      cancelled = true;
+      active = false;
     };
-  }, [post]);
-
-  const totalShares = stats.reduce((sum, row) => sum + row.shares, 0);
-  const totalClicks = stats.reduce((sum, row) => sum + row.clicks, 0);
-
-  const share = () => {
-    if (!post) {
-      return;
+  }, [post.id]);
+  const loadMessages = async (cursor?: string) => {
+    setLoading(true);
+    setLoadError(null);
+    try {
+      const result = await fetchConversationList(
+        { apiBase: getApiBaseUrl(), cookie: await authClient.getCookie() },
+        cursor
+      );
+      setConversations((current) =>
+        cursor ? [...current, ...result.items] : result.items
+      );
+      setNextCursor(result.nextCursor);
+    } catch (error) {
+      setLoadError(
+        error instanceof Error ? error.message : "Couldn't load conversations"
+      );
     }
-    haptic();
-    void (async () => {
-      const url = shareUrl(post);
-      try {
-        const apiBase = getApiBaseUrl();
-        const cookie = await authClient.getCookie();
-        await submitShare(post.id, "system", { apiBase, cookie });
-        setShared(true);
-      } catch (error) {
-        logWarn("feed.share_failed", {
-          reason: error instanceof Error ? error.message : String(error),
-        });
-      }
-      try {
-        await Share.share({ message: url, url });
-      } catch {
-        // Dismissing the system sheet throws; not an error.
-      }
-    })();
+    setLoading(false);
   };
-
+  const recordShare = async (platform: string) => {
+    try {
+      await submitShare(post.id, platform, {
+        apiBase: getApiBaseUrl(),
+        cookie: await authClient.getCookie(),
+      });
+    } catch (error) {
+      logWarn("feed.share_failed", {
+        reason: error instanceof Error ? error.message : String(error),
+      });
+    }
+  };
+  const copy = async () => {
+    await Clipboard.setStringAsync(url);
+    setCopied(true);
+    await recordShare("link");
+  };
+  const share = async () => {
+    try {
+      const result = await Share.share({ message: url, url });
+      if (result.action === Share.sharedAction) {
+        await recordShare("system");
+      }
+    } catch {
+      toast({ description: "Try copying the link.", title: "Couldn't share" });
+    }
+  };
+  const shareToPlatform = async (target: { platform: string; url: string }) => {
+    try {
+      await Linking.openURL(target.url);
+      await recordShare(target.platform);
+    } catch {
+      toast({
+        description: "Try copying the link.",
+        title: "Couldn't open sharing",
+      });
+    }
+  };
+  const totalShares = stats.reduce((sum, row) => sum + row.shares, 0);
   return (
-    <Modal
-      animationType="slide"
-      onRequestClose={onClose}
-      transparent
-      visible={post !== null}
-    >
-      <Pressable onPress={onClose} style={styles.backdrop}>
-        <Pressable
-          onPress={() => {
-            // Taps on the sheet must not bubble to the backdrop.
-          }}
-          style={[
-            styles.sheet,
-            {
-              backgroundColor: theme.cardBg,
-              borderColor: theme.cardBorder,
-              boxShadow: isDark ? SURFACE_SHADOWS_DARK : SURFACE_SHADOWS,
-            },
-          ]}
-        >
-          <View style={styles.handle} />
-          <Text style={[styles.title, { color: theme.inputText }]}>
-            {title}
-          </Text>
-          <Text style={[styles.description, { color: theme.dividerText }]}>
-            {description}
-          </Text>
-          {totalShares > 0 || totalClicks > 0 ? (
-            <Text style={[styles.stats, { color: theme.dividerText }]}>
-              {totalShares} {totalShares === 1 ? "share" : "shares"} ·{" "}
-              {totalClicks} {totalClicks === 1 ? "click" : "clicks"}
-            </Text>
-          ) : null}
+    <DialogPanel title={title} description={description} onClose={onClose}>
+      <View style={styles.tabs}>
+        {(["social", "link", "qr", "messages"] as const).map((value) => (
           <Pressable
-            accessibilityLabel="Share this post"
-            accessibilityRole="button"
-            onPress={share}
-            style={styles.shareBtn}
+            accessibilityRole="tab"
+            accessibilityState={{ selected: tab === value }}
+            key={value}
+            onPress={() => {
+              setTab(value);
+              if (value === "messages" && user) {
+                void loadMessages();
+              }
+            }}
+            style={[
+              styles.tab,
+              {
+                backgroundColor:
+                  tab === value ? theme.passkeyBg : "transparent",
+              },
+            ]}
           >
-            <Link2 color="#ffffff" size={16} />
-            <Text style={styles.shareText}>{shared ? "Shared!" : "Share"}</Text>
+            <Text
+              style={{
+                color: tab === value ? theme.inputText : theme.dividerText,
+                fontFamily: "SofiaProMed",
+                fontSize: 12,
+              }}
+            >
+              {value === "qr"
+                ? "QR code"
+                : value[0].toUpperCase() + value.slice(1)}
+            </Text>
           </Pressable>
-        </Pressable>
-      </Pressable>
-    </Modal>
+        ))}
+      </View>
+      {tab === "link" ? (
+        <View style={styles.body}>
+          <SettingsInput label="Post link" value={url} editable={false} />
+          <View style={styles.actions}>
+            <SettingsButton
+              label={copied ? "Copied!" : "Copy link"}
+              onPress={() => {
+                void copy();
+              }}
+            />
+            <SettingsButton
+              label="Share…"
+              tone="gray"
+              onPress={() => {
+                void share();
+              }}
+            />
+          </View>
+        </View>
+      ) : null}
+      {tab === "social" ? (
+        <View style={styles.targets}>
+          {socialShareTargets(url, caption).map((target) => (
+            <SettingsButton
+              key={target.platform}
+              label={target.label}
+              tone="gray"
+              onPress={() => {
+                void shareToPlatform(target);
+              }}
+            />
+          ))}
+          <SettingsButton
+            label="More apps…"
+            onPress={() => {
+              void share();
+            }}
+          />
+        </View>
+      ) : null}
+      {tab === "qr" ? (
+        <View style={styles.qr}>
+          <View style={styles.qrCode}>
+            <QRCode
+              value={url}
+              size={210}
+              backgroundColor="white"
+              color="black"
+            />
+          </View>
+          <Text style={[styles.hint, { color: theme.dividerText }]}>
+            Scan to open this post
+          </Text>
+          <SettingsButton
+            label="Copy link"
+            tone="gray"
+            onPress={() => {
+              void copy();
+            }}
+          />
+        </View>
+      ) : null}
+      {tab === "messages" ? (
+        <View style={styles.body}>
+          {user ? (
+            <>
+              <SettingsInput
+                label="Find a conversation"
+                value={query}
+                onChangeText={setQuery}
+                placeholder="Search conversations…"
+              />
+              <ScrollView
+                style={{ maxHeight: 240 }}
+                keyboardShouldPersistTaps="handled"
+              >
+                {conversations
+                  .filter((item) =>
+                    conversationName(item, user.id)
+                      .toLowerCase()
+                      .includes(query.toLowerCase())
+                  )
+                  .map((item) => (
+                    <Pressable
+                      key={item.conversation.id}
+                      accessibilityLabel={`Share to ${conversationName(item, user.id)}`}
+                      onPress={() => {
+                        useSharedPostDraft
+                          .getState()
+                          .attach(item.conversation.id, post.id);
+                        onClose();
+                        router.push(`/messages/${item.conversation.id}`);
+                      }}
+                      style={styles.conversation}
+                    >
+                      <UserAvatar
+                        size={36}
+                        url={
+                          item.conversation.members.find(
+                            (member) => member.userId !== user.id
+                          )?.user.avatarUrl
+                        }
+                      />
+                      <Text
+                        numberOfLines={1}
+                        style={{
+                          color: theme.inputText,
+                          flex: 1,
+                          fontFamily: "SofiaProMed",
+                        }}
+                      >
+                        {conversationName(item, user.id)}
+                      </Text>
+                      <Text style={{ color: "#f97316" }}>Attach</Text>
+                    </Pressable>
+                  ))}
+              </ScrollView>
+              {loading ? <Spinner3D size={24} /> : null}
+              {loadError ? (
+                <Text style={{ color: theme.dividerText }}>{loadError}</Text>
+              ) : null}
+              {!loading && !loadError && !conversations.length ? (
+                <Text style={{ color: theme.dividerText }}>
+                  No conversations yet. Start one in Messages.
+                </Text>
+              ) : null}
+              {nextCursor ? (
+                <SettingsButton
+                  label="Load more"
+                  tone="gray"
+                  disabled={loading}
+                  onPress={() => {
+                    void loadMessages(nextCursor);
+                  }}
+                />
+              ) : null}
+              <Text style={[styles.hint, { color: theme.dividerText }]}>
+                Choose a conversation to attach this post. You can add a message
+                before sending.
+              </Text>
+            </>
+          ) : (
+            <>
+              <Text style={{ color: theme.dividerText }}>
+                Sign in to share this post in Messages.
+              </Text>
+              <SettingsButton
+                label="Log in"
+                onPress={() => {
+                  onClose();
+                  router.push("/(auth)/login");
+                }}
+              />
+            </>
+          )}
+        </View>
+      ) : null}
+      {totalShares > 0 ? (
+        <Text
+          style={[styles.hint, { color: theme.dividerText, marginTop: 18 }]}
+        >
+          {totalShares} {totalShares === 1 ? "share" : "shares"}
+        </Text>
+      ) : null}
+    </DialogPanel>
   );
 }
 
+function conversationName(
+  item: ConversationListItem,
+  viewerId: string
+): string {
+  if (item.conversation.type === "DEN") {
+    return item.conversation.name || "Den";
+  }
+  const peer = item.conversation.members.find(
+    (member) => member.userId !== viewerId
+  )?.user;
+  return peer?.displayName || peer?.username || "Conversation";
+}
+
 const styles = StyleSheet.create({
-  backdrop: {
-    backgroundColor: "rgba(0, 0, 0, 0.5)",
-    flex: 1,
-    justifyContent: "flex-end",
-  },
-  description: {
-    fontFamily: "SofiaProReg",
-    fontSize: 12,
-    fontWeight: "normal",
-    marginTop: 4,
-    textAlign: "center",
-  },
-  handle: {
-    alignSelf: "center",
-    backgroundColor: "rgba(128, 128, 128, 0.5)",
-    borderRadius: 9999,
-    height: 4,
-    marginBottom: 12,
-    width: 40,
-  },
-  shareBtn: {
+  actions: { flexDirection: "row", gap: 8, justifyContent: "flex-end" },
+  body: { gap: 12 },
+  conversation: {
     alignItems: "center",
-    backgroundColor: "#ff9500",
-    borderRadius: 9999,
     flexDirection: "row",
-    gap: 8,
-    justifyContent: "center",
-    marginTop: 16,
-    paddingVertical: 12,
+    gap: 10,
+    paddingVertical: 10,
   },
-  shareText: {
-    color: "#ffffff",
-    fontFamily: "SofiaProBold",
-    fontSize: 14,
-    fontWeight: "normal",
-  },
-  sheet: {
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    borderWidth: 1,
-    paddingBottom: 32,
-    paddingHorizontal: 20,
-    paddingTop: 12,
-  },
-  stats: {
-    fontFamily: "SofiaProReg",
-    fontSize: 12,
-    fontWeight: "normal",
-    marginTop: 8,
-    textAlign: "center",
-  },
-  title: {
-    fontFamily: "SofiaProBold",
-    fontSize: 16,
-    fontWeight: "normal",
-    textAlign: "center",
-  },
+  hint: { fontFamily: "SofiaProReg", fontSize: 12, textAlign: "center" },
+  qr: { alignItems: "center", gap: 14 },
+  qrCode: { backgroundColor: "white", borderRadius: 16, padding: 16 },
+  tab: { alignItems: "center", borderRadius: 10, flex: 1, paddingVertical: 10 },
+  tabs: { flexDirection: "row", gap: 4, marginBottom: 18 },
+  targets: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
 });

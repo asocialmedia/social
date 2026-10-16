@@ -78,7 +78,7 @@ export function AiGeneratedBadge({ className, media }: AiGeneratedBadgeProps) {
               width={1536}
             />
             <span className="text-xs leading-snug">
-              Heads up! This was made with AI, not captured on camera.
+              This media’s provenance declares AI generation or AI editing.
             </span>
           </span>
         </TooltipContent>

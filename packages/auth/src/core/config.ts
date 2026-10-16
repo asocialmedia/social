@@ -1,4 +1,9 @@
-import { fromPrismaDateTime, isReservedUsername, prisma } from "@asm/db";
+import {
+  enforceAccountSessionLimit,
+  fromPrismaDateTime,
+  isReservedUsername,
+  prisma,
+} from "@asm/db";
 import { createLogger } from "@asm/logger";
 import { expo } from "@better-auth/expo";
 import { passkey } from "@better-auth/passkey";
@@ -21,10 +26,20 @@ import type {
 } from "better-auth/social-providers";
 
 import { env } from "../../env";
+import { recoveryEmail } from "../validation/account-identity";
 import { validateEmailAdvanced } from "../validation/email-validator";
+import { accountCollisionProtection } from "./account-collision";
+import {
+  ACCOUNT_LINKING_POLICY,
+  protectLastSignInMethod,
+} from "./account-linking-policy";
+import { accountResolutionCodes } from "./account-resolution-codes";
+import { accountResolutionStore } from "./account-resolution-state";
 import { buildPasskeyOrigins } from "./passkey-origins";
 import { hashPasswordWithScrypt, verifyPasswordHash } from "./password";
 import { prismaAdapter } from "./prisma-adapter";
+import { sessionMetadata } from "./session-metadata";
+import { socialUsername } from "./social-username";
 
 const DEFAULT_AVATARS = ["/avatars/default-1.png", "/avatars/default-2.png"];
 
@@ -190,7 +205,7 @@ function buildSocialProviderConfig(authBaseUrl: string | undefined): {
         const email =
           typeof profile.email === "string" ? profile.email : undefined;
         return {
-          emailVerified: Boolean(email),
+          emailVerified: Boolean(email) && profile.email_verified === true,
           name: derivedUsername,
           username: derivedUsername,
         };
@@ -211,14 +226,16 @@ function buildSocialProviderConfig(authBaseUrl: string | undefined): {
       clientId: env.REDDIT_CLIENT_ID,
       clientSecret: env.REDDIT_CLIENT_SECRET,
       mapProfileToUser(profile: RedditProfile): SocialUserMapping {
-        const derivedUsername = deriveUsernameFromProfile(profile);
+        const derivedUsername = deriveUsernameFromProfile({
+          username: profile.name,
+        });
         return {
           // Reddit's OAuth does not expose the user's email; better-auth
           // synthesizes a placeholder. The OAuth handshake already proves
-          // identity, so mark it verified rather than forcing a re-verify of a
-          // fake address.
+          // identity, so permit OAuth sign-in. recoveryEmail explicitly excludes
+          // this placeholder from mail delivery and password setup.
           emailVerified: true,
-          name: derivedUsername,
+          name: profile.name || derivedUsername,
           username: derivedUsername,
         };
       },
@@ -244,6 +261,7 @@ async function usernameExists(candidate: string): Promise<boolean> {
 }
 
 export function createAuthConfig(config: AuthConfig = {}) {
+  const collisionProtection = accountCollisionProtection();
   const {
     baseURL,
     emailService,
@@ -275,57 +293,7 @@ export function createAuthConfig(config: AuthConfig = {}) {
   const { socialProviders, trustedProviders } =
     buildSocialProviderConfig(authBaseUrl);
 
-  // Resilient adapter that resolves legacy accounts (stored with empty/fallback
-  // issuer strings) and prevents duplicate key errors on account linking.
-  const basePrismaAdapterFactory = prismaAdapter(prisma);
-
-  const resilientPrismaAdapter = (
-    adapterOptions: Parameters<typeof basePrismaAdapterFactory>[0]
-  ) => {
-    const adapter = basePrismaAdapterFactory(adapterOptions);
-    const originalCreate = adapter.create.bind(adapter);
-
-    // NOTE: there used to be a findOne override here that retried account
-    // lookups across legacy `issuer` values ("" / "google" / "reddit"). It was
-    // dead: better-auth 1.7 resolves accounts by (providerId, accountId) and
-    // never queries the `issuer` column. Credential resolution and any legacy
-    // issuer repair are handled by account-heal.ts instead.
-    adapter.create = async <T extends Record<string, unknown>, R = T>(args: {
-      model: string;
-      data: Omit<T, "id">;
-      select?: string[];
-      forceAllowId?: boolean;
-    }): Promise<R> => {
-      if (args.model === "account" && args.data) {
-        const data = args.data as {
-          providerId?: string;
-          accountId?: string;
-          userId?: string;
-          issuer?: string;
-          id?: string;
-        };
-        if (data.providerId && data.accountId) {
-          const existing = await prisma.orm.public.Accounts.where({
-            accountId: data.accountId,
-            providerId: data.providerId,
-          }).first();
-          if (existing) {
-            // Update existing account with latest token/issuer info instead of crashing on duplicate key
-            const updated = await prisma.orm.public.Accounts.where({
-              id: existing.id,
-            }).update({
-              ...(data.issuer ? { issuer: data.issuer } : {}),
-              ...(data.userId ? { userId: data.userId } : {}),
-            });
-            return updated as unknown as R;
-          }
-        }
-      }
-      return await originalCreate<T, R>(args);
-    };
-
-    return adapter;
-  };
+  const database = prismaAdapter(prisma);
 
   // Structured logger for better-auth's own diagnostics (OAuth state
   // failures, provider errors) so they land in the same pino stream with
@@ -335,7 +303,7 @@ export function createAuthConfig(config: AuthConfig = {}) {
   // eslint-disable-next-line sort-keys
   return betterAuth({
     baseURL: authBaseUrl,
-    database: resilientPrismaAdapter,
+    database,
 
     // Pipe better-auth's internal logs (OAuth state failures, provider
     // errors) into the service's structured pino output so they carry the
@@ -386,10 +354,16 @@ export function createAuthConfig(config: AuthConfig = {}) {
       fields: {
         name: "displayName",
       },
+      validateUserInfo: collisionProtection.validate,
     },
 
     plugins: [
+      // Resolve new OAuth handles before the username plugin rejects collisions.
+      socialUsername({ isReserved: isReservedUsername }),
       username(),
+      protectLastSignInMethod(),
+      collisionProtection.plugin,
+      accountResolutionCodes(sendVerificationOTP),
       // Native mobile app (Expo, scheme asocialmedia://). The after-hook only
       // rewrites OAuth magic-link/verify deep-link redirects, so email login
       // flows are unaffected; the scheme must stay in trustedOrigins below.
@@ -494,8 +468,12 @@ export function createAuthConfig(config: AuthConfig = {}) {
       revokeSessionsOnPasswordReset: true,
       sendResetPassword: emailService?.sendPasswordResetEmail
         ? async ({ user, url }) => {
+            const email = recoveryEmail(user.email);
+            if (!email) {
+              return;
+            }
             const token = extractTokenFromUrl(url);
-            await emailService.sendPasswordResetEmail?.(user.email, token);
+            await emailService.sendPasswordResetEmail?.(email, token);
           }
         : ({ user, url }) => {
             if (environment === "development") {
@@ -511,7 +489,7 @@ export function createAuthConfig(config: AuthConfig = {}) {
 
     account: {
       accountLinking: {
-        allowDifferentEmails: true,
+        ...ACCOUNT_LINKING_POLICY,
         enabled: trustedProviders.length > 0,
         trustedProviders,
       },
@@ -637,6 +615,13 @@ export function createAuthConfig(config: AuthConfig = {}) {
                 await prisma.orm.public.Users.where({
                   id: account.userId,
                 }).update({ redditId: account.accountId });
+              } else if (
+                account.providerId === "credential" &&
+                account.password
+              ) {
+                await prisma.orm.public.Users.where({
+                  id: account.userId,
+                }).update({ passwordHash: account.password });
               }
             } catch (error) {
               console.error(
@@ -644,6 +629,26 @@ export function createAuthConfig(config: AuthConfig = {}) {
                 error instanceof Error ? error.message : error
               );
             }
+          },
+        },
+        delete: {
+          after: async (account) => {
+            if (
+              account.providerId !== "google" &&
+              account.providerId !== "reddit"
+            ) {
+              return;
+            }
+            const remaining = await prisma.orm.public.Accounts.select(
+              "accountId"
+            )
+              .where({ providerId: account.providerId, userId: account.userId })
+              .first();
+            await prisma.orm.public.Users.where({ id: account.userId }).update(
+              account.providerId === "google"
+                ? { googleId: remaining?.accountId ?? null }
+                : { redditId: remaining?.accountId ?? null }
+            );
           },
         },
         update: {
@@ -673,6 +678,26 @@ export function createAuthConfig(config: AuthConfig = {}) {
       },
       session: {
         create: {
+          after: async (session, context) => {
+            const reviewId = context?.headers?.get("x-asm-account-resolution");
+            const secret = process.env.BETTER_AUTH_SECRET;
+            if (
+              reviewId &&
+              secret &&
+              context?.headers?.get("x-internal-secret") === secret
+            ) {
+              const review = await accountResolutionStore.read(reviewId);
+              if (
+                review?.state.identityVerified &&
+                [review.state.userId, review.state.otherUserId].includes(
+                  session.userId
+                )
+              ) {
+                return;
+              }
+            }
+            await enforceAccountSessionLimit(session.userId);
+          },
           before: async (session, context) => {
             const user = await prisma.orm.public.Users.select(
               "banExpires",
@@ -704,13 +729,15 @@ export function createAuthConfig(config: AuthConfig = {}) {
               }
             }
 
-            const country = context?.request?.headers
-              .get("cf-ipcountry")
-              ?.trim()
-              .toUpperCase();
-            if (country && /^[A-Z]{2}$/.test(country)) {
-              return { data: { country } };
-            }
+            return {
+              data: {
+                ...session,
+                ...sessionMetadata(
+                  session,
+                  context?.headers ?? context?.request?.headers
+                ),
+              },
+            };
           },
         },
       },

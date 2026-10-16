@@ -6,6 +6,7 @@ const mockGetSession = mock();
 const mockSessionFindFirst = mock();
 const mockSessionFindMany = mock();
 const mockPublishSessionRevocation = mock();
+const mockEnforceAccountSessionLimit = mock();
 const fetchMock = mock();
 
 interface SessionWhereCall {
@@ -15,6 +16,10 @@ interface SessionWhereCall {
 }
 
 const sessionWhereCalls: SessionWhereCall[] = [];
+
+mock.module("@/lib/security/session-location", () => ({
+  getSessionLocation: () => null,
+}));
 
 mock.module("@/lib/auth/session", () => ({
   getSessionFromApi: mockGetSession,
@@ -27,6 +32,7 @@ mock.module("@/lib/auth/auth-internal", () => ({
 
 mock.module("@asm/db", () => ({
   ...asmDbMockBase,
+  enforceAccountSessionLimit: mockEnforceAccountSessionLimit,
   prisma: {
     orm: {
       public: {
@@ -91,6 +97,8 @@ function revokeRequest(body: unknown): Request {
 
 describe("/api/security/sessions", () => {
   beforeEach(() => {
+    mockEnforceAccountSessionLimit.mockReset();
+    mockEnforceAccountSessionLimit.mockResolvedValue([]);
     mockGetSession.mockReset();
     mockSessionFindFirst.mockReset();
     mockSessionFindMany.mockReset();
@@ -127,8 +135,10 @@ describe("/api/security/sessions", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual([
       {
+        city: null,
         country: "IN",
         createdAt: "2026-09-10T00:00:00.000Z",
+        current: true,
         expiresAt: "2026-09-17T00:00:00.000Z",
         id: "current-session",
         ipAddress: "203.0.113.10",
@@ -143,6 +153,13 @@ describe("/api/security/sessions", () => {
     expect(sessionWhereCalls[0]?.expiresAt.getTime()).toBeGreaterThan(
       Date.now() - 1000
     );
+  });
+
+  test("rejects an older current session when the account limit prunes it", async () => {
+    mockEnforceAccountSessionLimit.mockResolvedValue(["current-session"]);
+    const response = await GET();
+    expect(response.status).toBe(401);
+    expect(mockSessionFindMany).not.toHaveBeenCalled();
   });
 
   test("uses a server-side token lookup before revoking one session", async () => {

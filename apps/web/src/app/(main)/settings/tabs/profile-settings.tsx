@@ -115,7 +115,7 @@ const BioFieldRenderer = ({
       <div className="space-y-1">
         <InlineRichEditor
           className="premium-input rounded-xl"
-          editorClassName="max-h-40 min-h-20 overflow-y-auto px-3 py-2 text-sm leading-relaxed"
+          editorClassName="max-h-40 min-h-24 overflow-y-auto px-3 py-3 text-sm leading-relaxed"
           enableLinks
           initialContent={field.value}
           onChange={(value) => field.onChange(value)}

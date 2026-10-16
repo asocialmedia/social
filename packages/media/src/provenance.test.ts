@@ -108,7 +108,7 @@ describe("detectAiFromManifestStore", () => {
     expect(verdict.generators.some((g) => /midjourney/i.test(g))).toBe(true);
   });
 
-  test("non-learning algorithmic sources still count as synthetic", () => {
+  test("non-learning algorithmic sources do not imply AI generation", () => {
     const verdict = detectAiFromManifestStore({
       manifests: {
         m1: {
@@ -129,7 +129,7 @@ describe("detectAiFromManifestStore", () => {
         },
       },
     });
-    expect(verdict.aiGenerated).toBe(true);
+    expect(verdict.aiGenerated).toBe(false);
   });
 
   test("malformed manifests never throw", () => {

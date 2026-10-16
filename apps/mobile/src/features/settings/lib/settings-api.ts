@@ -188,12 +188,13 @@ export function requestEmailChange(
 export function verifyEmailChange(
   email: string,
   otp: string,
-  options: ApiCallOptions
+  options: ApiCallOptions,
+  verificationId?: string
 ): Promise<SettingsMutationResult> {
   return mutateSettings(
     "/api/users/email/verify",
     "POST",
-    { email, otp },
+    { email, otp, ...(verificationId ? { verificationId } : {}) },
     options,
     "Couldn't verify that code"
   );
@@ -229,6 +230,7 @@ export function unlinkProvider(
 // --- Security ----------------------------------------------------------------
 
 export interface SecuritySession {
+  city?: string | null;
   country: string | null;
   createdAt: string;
   current: boolean;
@@ -257,6 +259,7 @@ export function parseSecuritySessions(payload: unknown): SecuritySession[] {
     }
     return [
       {
+        city: textOf(body.city),
         country: textOf(body.country),
         createdAt: textOf(body.createdAt) ?? "",
         current: boolOf(body.current),

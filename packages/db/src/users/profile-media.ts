@@ -188,27 +188,6 @@ export async function promoteProfileDerivative(
     }
   }
 
-  const stale = media.postMediaDerivatives.filter(
-    (derivative) => derivative.key !== chosen.key
-  );
-  await Promise.allSettled(
-    stale.map((derivative) =>
-      deleteObject(derivative.key).catch((error: unknown) => {
-        console.error("Failed to delete stale profile derivative:", error);
-      })
-    )
-  );
-  if (stale.length > 0) {
-    await prisma.orm.public.PostMediaDerivatives.where((derivative) =>
-      derivative.key.in(stale.map((entry) => entry.key))
-    ).deleteAndCount();
-  }
-
-  try {
-    await deleteObject(media.publishedKey);
-  } catch (error) {
-    console.error("Failed to delete promoted profile original:", error);
-  }
-
+  // Keep originals and other responsive variants available for recovery and delivery.
   return { servingKey: chosen.key };
 }

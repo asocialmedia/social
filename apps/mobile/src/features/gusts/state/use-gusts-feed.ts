@@ -70,6 +70,7 @@ export function useGustsFeed(options: {
 }) {
   const { enabled, initialId, tab, userId } = options;
   const personalized = tab === "personalized" && !initialId;
+  const following = tab === "following" && !initialId;
   const feedKey = `${tab}:${initialId ?? ""}:${userId ?? "guest"}`;
   const [pages, setPages] = useState<PostsPage[]>([]);
   const [status, setStatus] = useState<Status>("loading");
@@ -94,7 +95,7 @@ export function useGustsFeed(options: {
       const key = feedKey;
       const startedAt = Date.now();
       try {
-        const page = await loadPage({ initialId, personalized });
+        const page = await loadPage({ following, initialId, personalized });
         if (keyRef.current !== key) {
           return;
         }
@@ -117,7 +118,7 @@ export function useGustsFeed(options: {
         }
       }
     },
-    [feedKey, initialId, personalized]
+    [feedKey, following, initialId, personalized]
   );
 
   // A new tab, deep link or identity starts over from the first page.
@@ -148,6 +149,7 @@ export function useGustsFeed(options: {
     try {
       const page = await loadPage({
         cursor: nextCursor,
+        following,
         initialId,
         personalized,
       });
@@ -163,7 +165,7 @@ export function useGustsFeed(options: {
         setFetchingNext(false);
       }
     }
-  }, [feedKey, initialId, nextCursor, personalized]);
+  }, [feedKey, following, initialId, nextCursor, personalized]);
 
   // Web keeps paging while the list is empty but more exist (a page of
   // only moderated or video-less posts).
@@ -202,7 +204,7 @@ export function useGustsFeed(options: {
     const probe = async () => {
       try {
         const head = await fetchGustsPage(
-          { personalized },
+          { following, personalized },
           { apiBase: getApiBaseUrl(), cookie: await authClient.getCookie() }
         );
         if (keyRef.current !== key || knownRef.current.size === 0) {
@@ -223,7 +225,7 @@ export function useGustsFeed(options: {
     });
     poller.start();
     return () => poller.stop();
-  }, [feedKey, initialId, personalized, status]);
+  }, [feedKey, following, initialId, personalized, status]);
 
   const showNewItems = useCallback(() => {
     if (newItems.length === 0) {

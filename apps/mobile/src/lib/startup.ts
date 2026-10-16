@@ -1,5 +1,17 @@
 import type { ResumeState } from "./app-resume";
 
+export function shouldMountHome(
+  visited: boolean,
+  focused: boolean,
+  presented: boolean,
+  resumePath: string | null
+): boolean {
+  if (visited) {
+    return true;
+  }
+  return focused && (presented || resumePath === null || resumePath === "/");
+}
+
 // Launch waits for local state only. A broken storage bridge must not hold
 // the splash indefinitely, and a late read must never navigate over the user.
 export async function prepareStartup(

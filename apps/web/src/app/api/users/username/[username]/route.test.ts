@@ -3,6 +3,8 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 import type { UserData } from "@asm/db";
 
 const state = {
+  countUserIds: [] as string[],
+  mutualViewerIds: [] as string[],
   resolved: { id: "user-1", username: "canonical" } as {
     id: string;
     username: string;
@@ -34,6 +36,14 @@ mock.module("@asm/db", () => ({
       }),
     };
   },
+  getUserProfileSummary: (_orm: unknown, userId: string, viewerId: string) => {
+    state.countUserIds.push(userId);
+    state.mutualViewerIds.push(viewerId);
+    return Promise.resolve({
+      _count: { followers: 2, following: 3, posts: 4 },
+      mutuals: { followers: [], following: [] },
+    });
+  },
   mapUserData: (value: UserData) => value,
   prisma: { orm: {} },
   resolveUsername: () => Promise.resolve(state.resolved),
@@ -52,6 +62,8 @@ describe("GET /api/users/username/[username]", () => {
     state.resolved = { id: "user-1", username: "canonical" };
     state.session = { user: { id: "viewer-1" } };
     state.viewerIds = [];
+    state.countUserIds = [];
+    state.mutualViewerIds = [];
   });
 
   test("returns the public profile to guests", async () => {
@@ -63,7 +75,10 @@ describe("GET /api/users/username/[username]", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual(user);
+    expect(await response.json()).toEqual({
+      ...user,
+      mutuals: { followers: [], following: [] },
+    });
     expect(state.viewerIds).toEqual([""]);
   });
 
@@ -75,6 +90,8 @@ describe("GET /api/users/username/[username]", () => {
 
     expect(response.status).toBe(200);
     expect(state.viewerIds).toEqual(["viewer-1"]);
+    expect(state.countUserIds).toEqual(["user-1"]);
+    expect(state.mutualViewerIds).toEqual(["viewer-1"]);
   });
 
   test("returns 404 when the username cannot resolve", async () => {
@@ -86,5 +103,20 @@ describe("GET /api/users/username/[username]", () => {
     );
 
     expect(response.status).toBe(404);
+  });
+});
+
+test("the ID lookup also returns explicit totals rather than viewer-filtered relation lengths", async () => {
+  const { GET: getById } = await import("../../[userId]/route");
+  const response = await getById(
+    new Request("http://localhost/api/users/user-1"),
+    { params: Promise.resolve({ userId: "user-1" }) }
+  );
+  expect(response.status).toBe(200);
+  const body = await response.json();
+  expect(body._count).toEqual({
+    followers: 2,
+    following: 3,
+    posts: 4,
   });
 });

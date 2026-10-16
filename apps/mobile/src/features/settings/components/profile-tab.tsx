@@ -8,17 +8,20 @@
 // PATCH /api/users/[userId]/profile, exactly like web.
 import { updateUserProfileSchema } from "@asm/auth/validation";
 import type { UpdateUserProfileValues } from "@asm/auth/validation";
-import { useRouter } from "expo-router";
 import { Link2, UserRound } from "lucide-react-native";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { RefObject } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ScrollView, StyleSheet, Text, View } from "react-native";
 
-import { AnimatedWordCounter } from "@/components/feedback/animated-word-counter";
 import { toast } from "@/components/feedback/toast";
 import { authClient } from "@/features/auth/lib/auth-client";
 import { useInstall } from "@/features/auth/state/install";
 import type { SessionUser } from "@/features/auth/state/session";
+import {
+  popupCache,
+  popupProfileKey,
+} from "@/features/home/components/profile-cache";
+import { ProfileBioEditor } from "@/features/profile/components/profile-bio-editor";
 import { fetchProfileByUsername } from "@/features/profile/lib/profile-api";
 import type { ProfileHeaderProfile } from "@/features/profile/lib/profile-view-model";
 import { getApiBaseUrl } from "@/lib/api-env";
@@ -35,8 +38,6 @@ import {
   SettingsInput,
   SettingsSectionHeader,
 } from "./settings-ui";
-
-const whitespaceRegex = /\s+/;
 
 type SocialFieldName =
   | "githubUsername"
@@ -124,37 +125,6 @@ function errorMessageOf(body: unknown, fallback: string): string {
   return fallback;
 }
 
-function LegalSettingsLinks() {
-  const router = useRouter();
-  const { theme } = useAppTheme();
-  const openDocument = (document: "privacy" | "terms") => {
-    router.push({ params: { document }, pathname: "/legal/[document]" });
-  };
-
-  return (
-    <SettingsCard>
-      <Text style={[styles.legalTitle, { color: theme.inputText }]}>Legal</Text>
-      <Text style={[styles.note, { color: theme.dividerText }]}>
-        The Terms and Privacy Policy you accepted when you signed up.
-      </Text>
-      <Pressable
-        accessibilityRole="link"
-        onPress={() => openDocument("terms")}
-        style={styles.legalLink}
-      >
-        <Text style={styles.heroLink}>Terms &amp; Conditions</Text>
-      </Pressable>
-      <Pressable
-        accessibilityRole="link"
-        onPress={() => openDocument("privacy")}
-        style={styles.legalLink}
-      >
-        <Text style={styles.heroLink}>Privacy Policy</Text>
-      </Pressable>
-    </SettingsCard>
-  );
-}
-
 export function ProfileTab({
   onChanged,
   onNavigateToAccount,
@@ -181,6 +151,13 @@ export function ProfileTab({
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [bannerUrl, setBannerUrl] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const bioOffset = useRef(0);
+  const focusBio = useCallback(() => {
+    scrollRef.current?.scrollTo({
+      animated: true,
+      y: Math.max(0, bioOffset.current - 12),
+    });
+  }, [scrollRef]);
 
   const load = useCallback(async () => {
     if (!user) {
@@ -333,7 +310,6 @@ export function ProfileTab({
             Sign in to edit your profile.
           </Text>
         </SettingsCard>
-        <LegalSettingsLinks />
       </ScrollView>
     );
   }
@@ -369,7 +345,22 @@ export function ProfileTab({
                 <View style={styles.avatarSlot}>
                   <SettingsAvatarInput
                     canDelete={Boolean(avatarUrl)}
-                    onChanged={setAvatarUrl}
+                    onChanged={(nextAvatarUrl) => {
+                      setAvatarUrl(nextAvatarUrl);
+                      if (profile) {
+                        const key = popupProfileKey(
+                          getApiBaseUrl(),
+                          profile.id
+                        );
+                        const cached = popupCache.getStaleProfile(key);
+                        if (cached) {
+                          popupCache.setProfile(key, {
+                            ...cached,
+                            avatarUrl: nextAvatarUrl,
+                          });
+                        }
+                      }
+                    }}
                     src={avatarUrl}
                   />
                 </View>
@@ -391,54 +382,48 @@ export function ProfileTab({
             </SettingsCard>
           </SectionAnchor>
 
-          <SettingsCard>
-            <View style={styles.bioBlock}>
-              <SettingsInput
-                label="Bio"
-                maxLength={2000}
-                multiline
-                onChangeText={(value) => setField("bio", value)}
-                placeholder="Tell us a little bit about yourself - @mention, #tag or drop a link"
+          <View
+            onLayout={(event) => {
+              bioOffset.current = event.nativeEvent.layout.y;
+            }}
+          >
+            <SettingsCard>
+              <ProfileBioEditor
+                onFocus={focusBio}
                 value={draft.bio}
+                onChangeText={(value) => setField("bio", value)}
               />
-              <View style={styles.counterRow}>
-                <AnimatedWordCounter
-                  current={
-                    draft.bio.trim().split(whitespaceRegex).filter(Boolean)
-                      .length
-                  }
-                  max={400}
-                />
-              </View>
-            </View>
 
-            <View style={styles.socialBlock}>
-              <View style={styles.socialTitleRow}>
-                <Link2 color={theme.dividerText} size={16} />
-                <Text style={[styles.socialTitle, { color: theme.inputText }]}>
-                  Social links
-                </Text>
+              <View style={styles.socialBlock}>
+                <View style={styles.socialTitleRow}>
+                  <Link2 color={theme.dividerText} size={16} />
+                  <Text
+                    style={[styles.socialTitle, { color: theme.inputText }]}
+                  >
+                    Social links
+                  </Text>
+                </View>
+                <View style={styles.socialGrid}>
+                  {SOCIAL_FIELDS.map((item) => (
+                    <SettingsInput
+                      key={item.name}
+                      label={item.label}
+                      leading={
+                        <SocialBrandIcon
+                          color={theme.dividerText}
+                          name={item.brand}
+                          size={16}
+                        />
+                      }
+                      onChangeText={(value) => setField(item.name, value)}
+                      placeholder={item.placeholder}
+                      value={draft[item.name]}
+                    />
+                  ))}
+                </View>
               </View>
-              <View style={styles.socialGrid}>
-                {SOCIAL_FIELDS.map((item) => (
-                  <SettingsInput
-                    key={item.name}
-                    label={item.label}
-                    leading={
-                      <SocialBrandIcon
-                        color={theme.dividerText}
-                        name={item.brand}
-                        size={16}
-                      />
-                    }
-                    onChangeText={(value) => setField(item.name, value)}
-                    placeholder={item.placeholder}
-                    value={draft[item.name]}
-                  />
-                ))}
-              </View>
-            </View>
-          </SettingsCard>
+            </SettingsCard>
+          </View>
 
           <View style={styles.saveRow}>
             <SettingsButton
@@ -451,7 +436,6 @@ export function ProfileTab({
           </View>
         </>
       )}
-      <LegalSettingsLinks />
     </ScrollView>
   );
 }

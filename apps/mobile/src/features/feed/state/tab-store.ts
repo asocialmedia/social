@@ -10,6 +10,7 @@ import { createJSONStorage, persist } from "zustand/middleware";
 import type { StateStorage } from "zustand/middleware";
 
 export type HomeTab = "following" | "latest" | "personalized" | "trending";
+export type ExploreDiscoveryTab = "for-you" | "trending";
 export type ExploreTab = "for-you" | "gusts" | "people" | "trending";
 export type ProfileTab =
   | "amplified"
@@ -18,7 +19,7 @@ export type ProfileTab =
   | "posts"
   | "replies"
   | "responses";
-export type GustResumeTab = "latest" | "personalized";
+export type GustResumeTab = "following" | "latest" | "personalized";
 
 // Remembered tabs expire after 7 days of being set, like web.
 export const TAB_MEMORY_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -30,8 +31,14 @@ export const HOME_TABS: ReadonlySet<HomeTab> = new Set([
   "trending",
 ]);
 export const GUST_RESUME_TABS: ReadonlySet<GustResumeTab> = new Set([
+  "following",
   "latest",
   "personalized",
+]);
+
+const EXPLORE_DISCOVERY_TABS: ReadonlySet<ExploreDiscoveryTab> = new Set([
+  "for-you",
+  "trending",
 ]);
 
 export const EXPLORE_TABS: ReadonlySet<ExploreTab> = new Set([
@@ -75,6 +82,7 @@ export interface TimestampedTab<T> {
 
 interface TabMemorySnapshot {
   explore: TimestampedTab<ExploreTab> | null;
+  exploreDiscovery: TimestampedTab<ExploreDiscoveryTab> | null;
   gustByUserId: Record<string, TimestampedTab<GustResumeTab>>;
   home: TimestampedTab<HomeTab> | null;
   homeByUserId: Record<string, TimestampedTab<HomeTab>>;
@@ -94,6 +102,7 @@ interface TabMemoryState extends TabMemorySnapshot {
 
 const EMPTY_SNAPSHOT: TabMemorySnapshot = {
   explore: null,
+  exploreDiscovery: null,
   gustByUserId: {},
   home: null,
   homeByUserId: {},
@@ -135,8 +144,14 @@ function sanitizeSnapshot(persisted: unknown, now: number): TabMemorySnapshot {
   if (typeof persisted !== "object" || persisted === null) {
     return { ...EMPTY_SNAPSHOT, profileByUserId: {} };
   }
-  const { explore, gustByUserId, home, homeByUserId, profileByUserId } =
-    persisted as Partial<Record<keyof TabMemorySnapshot, unknown>>;
+  const {
+    explore,
+    exploreDiscovery,
+    gustByUserId,
+    home,
+    homeByUserId,
+    profileByUserId,
+  } = persisted as Partial<Record<keyof TabMemorySnapshot, unknown>>;
   const cleanProfiles: Record<string, TimestampedTab<ProfileTab>> = {};
   const cleanHomes: Record<string, TimestampedTab<HomeTab>> = {};
   const cleanGusts: Record<string, TimestampedTab<GustResumeTab>> = {};
@@ -166,6 +181,9 @@ function sanitizeSnapshot(persisted: unknown, now: number): TabMemorySnapshot {
   }
   return {
     explore: asFreshTab(explore, EXPLORE_TABS, now),
+    exploreDiscovery:
+      asFreshTab(exploreDiscovery, EXPLORE_DISCOVERY_TABS, now) ??
+      asFreshTab(explore, EXPLORE_DISCOVERY_TABS, now),
     gustByUserId: cleanGusts,
     home: asFreshTab(home, HOME_TABS, now),
     homeByUserId: cleanHomes,
@@ -241,12 +259,18 @@ export function createTabMemoryStore(
               state.explore && isFresh(state.explore.updatedAt, now)
                 ? state.explore
                 : null;
+            const exploreDiscovery = asFreshTab(
+              state.exploreDiscovery,
+              EXPLORE_DISCOVERY_TABS,
+              now
+            );
             const homeByUserId = fresh(state.homeByUserId, HOME_TABS);
             const gustByUserId = fresh(state.gustByUserId, GUST_RESUME_TABS);
             const profileByUserId = fresh(state.profileByUserId, PROFILE_TABS);
             if (
               home === state.home &&
               explore === state.explore &&
+              exploreDiscovery?.value === state.exploreDiscovery?.value &&
               JSON.stringify(homeByUserId) ===
                 JSON.stringify(state.homeByUserId) &&
               JSON.stringify(gustByUserId) ===
@@ -258,6 +282,7 @@ export function createTabMemoryStore(
             }
             return {
               explore,
+              exploreDiscovery,
               gustByUserId,
               home,
               homeByUserId,
@@ -268,7 +293,13 @@ export function createTabMemoryStore(
         resetTabMemory: () => set({ ...EMPTY_SNAPSHOT }),
 
         setExploreTab: (tab) =>
-          set({ explore: { updatedAt: Date.now(), value: tab } }),
+          set((state) => ({
+            explore: { updatedAt: Date.now(), value: tab },
+            exploreDiscovery:
+              tab === "for-you" || tab === "trending"
+                ? { updatedAt: Date.now(), value: tab }
+                : state.exploreDiscovery,
+          })),
 
         setGustTab: (userId, tab) =>
           set((state) => ({
@@ -316,6 +347,7 @@ export function createTabMemoryStore(
         },
         partialize: (state) => ({
           explore: state.explore,
+          exploreDiscovery: state.exploreDiscovery,
           gustByUserId: state.gustByUserId,
           home: state.home,
           homeByUserId: state.homeByUserId,
@@ -421,4 +453,19 @@ export function resolveProfileTab(
     return "posts";
   }
   return remembered;
+}
+
+export function resolveExploreDiscoveryTab(
+  active: ExploreTab,
+  isLoggedIn: boolean,
+  stored: TimestampedTab<ExploreDiscoveryTab> | null | undefined,
+  ready: boolean
+): ExploreDiscoveryTab {
+  if (active === "for-you" || active === "trending") {
+    return active;
+  }
+  return (
+    readStored(stored, EXPLORE_DISCOVERY_TABS, ready) ??
+    (isLoggedIn ? "for-you" : "trending")
+  );
 }

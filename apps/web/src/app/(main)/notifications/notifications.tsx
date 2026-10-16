@@ -9,6 +9,7 @@ import {
   useMutation,
   useQueryClient,
 } from "@tanstack/react-query";
+import { AnimatePresence, motion } from "motion/react";
 import Image from "next/image";
 import type React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -32,19 +33,35 @@ const TAB_ORDER: NotificationTab[] = ["all", "mentions"];
 export default function Notifications() {
   const feedScrollRef = useRef<HTMLDivElement>(null);
   const [activeTab, setActiveTab] = useState<NotificationTab>("all");
+  const [slideDirection, setSlideDirection] = useState<-1 | 1 | 0>(0);
 
-  // Mobile swipes drag the tab strip like a carousel (same mechanism as the
-  // home feed).
+  const handleTabChange = useCallback(
+    (tab: NotificationTab) => {
+      if (tab === activeTab) {
+        return;
+      }
+      const currentIndex = TAB_ORDER.indexOf(activeTab);
+      const nextIndex = TAB_ORDER.indexOf(tab);
+      setSlideDirection(nextIndex > currentIndex ? 1 : -1);
+      setActiveTab(tab);
+    },
+    [activeTab]
+  );
+
+  // Swiping / sliding content navigates between tabs.
   const handleSwipeNavigate = useCallback(
     (direction: -1 | 1) => {
       const nextIndex = TAB_ORDER.indexOf(activeTab) + direction;
       if (nextIndex >= 0 && nextIndex < TAB_ORDER.length) {
+        setSlideDirection(direction);
         setActiveTab(TAB_ORDER[nextIndex]);
       }
     },
     [activeTab]
   );
-  useFeedSwipeNavigation(feedScrollRef, handleSwipeNavigate);
+  useFeedSwipeNavigation(feedScrollRef, handleSwipeNavigate, {
+    enableDesktop: true,
+  });
 
   const {
     data,
@@ -100,8 +117,14 @@ export default function Notifications() {
     }
   }, [fetchNextPage, hasNextPage, isFetching]);
 
-  const handleShowAll = useCallback(() => setActiveTab("all"), []);
-  const handleShowMentions = useCallback(() => setActiveTab("mentions"), []);
+  const handleShowAll = useCallback(
+    () => handleTabChange("all"),
+    [handleTabChange]
+  );
+  const handleShowMentions = useCallback(
+    () => handleTabChange("mentions"),
+    [handleTabChange]
+  );
 
   let feedBody: React.ReactNode;
   if (status === "pending") {
@@ -152,10 +175,10 @@ export default function Notifications() {
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="z-20 shrink-0 bg-[hsl(var(--background-alt))]/90 pt-2 backdrop-blur-md">
         <MobileTopBar />
-        <div className="border-border/60 flex items-center border-b">
+        <div className="border-border/60 flex items-center justify-center border-b">
           <AnimatedTabButton
             active={activeTab === "all"}
-            className="flex-1"
+            className="px-6 py-3 text-base data-[state=active]:px-6"
             layoutId="notifications-tab-indicator"
             onClick={handleShowAll}
           >
@@ -163,7 +186,7 @@ export default function Notifications() {
           </AnimatedTabButton>
           <AnimatedTabButton
             active={activeTab === "mentions"}
-            className="flex-1"
+            className="px-6 py-3 text-base data-[state=active]:px-6"
             layoutId="notifications-tab-indicator"
             onClick={handleShowMentions}
           >
@@ -177,7 +200,42 @@ export default function Notifications() {
           className="hide-native-scrollbar h-full touch-pan-y overflow-x-hidden overflow-y-auto"
           ref={feedScrollRef}
         >
-          {feedBody}
+          <AnimatePresence custom={slideDirection} initial={false} mode="wait">
+            <motion.div
+              animate="center"
+              custom={slideDirection}
+              exit="exit"
+              initial="enter"
+              key={activeTab}
+              transition={{ duration: 0.18, ease: "easeOut" }}
+              variants={{
+                center: {
+                  opacity: 1,
+                  x: 0,
+                },
+                enter: (dir: number) => {
+                  let x = 0;
+                  if (dir > 0) {
+                    x = 30;
+                  } else if (dir < 0) {
+                    x = -30;
+                  }
+                  return { opacity: 0, x };
+                },
+                exit: (dir: number) => {
+                  let x = 0;
+                  if (dir > 0) {
+                    x = -30;
+                  } else if (dir < 0) {
+                    x = 30;
+                  }
+                  return { opacity: 0, x };
+                },
+              }}
+            >
+              {feedBody}
+            </motion.div>
+          </AnimatePresence>
         </div>
         <FeedScrollbar containerRef={feedScrollRef} />
       </div>

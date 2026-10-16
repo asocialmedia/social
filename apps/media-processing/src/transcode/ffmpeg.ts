@@ -253,9 +253,12 @@ export async function probeMedia(inputPath: string): Promise<ProbeResult> {
 // killed and a typed error thrown so callers can fail the job cleanly.
 export async function runFfmpeg(
   args: string[],
-  timeoutMs: number
-): Promise<void> {
+  timeoutMs: number,
+  logLevel = "error"
+): Promise<string> {
+  let timedOut = false;
   const timer = setTimeout(() => {
+    timedOut = true;
     try {
       proc.kill();
     } catch {
@@ -268,11 +271,18 @@ export async function runFfmpeg(
       "ffmpeg",
       "-hide_banner",
       "-loglevel",
-      "error",
+      logLevel,
       "-protocol_whitelist",
       "file,crypto,data",
       "-y",
-      ...args,
+      "-threads",
+      "2",
+      "-filter_threads",
+      "2",
+      ...args.slice(0, -1),
+      "-threads",
+      "2",
+      ...args.slice(-1),
     ],
     {
       stderr: "pipe",
@@ -285,11 +295,17 @@ export async function runFfmpeg(
       new Response(proc.stderr).text(),
       proc.exited,
     ]);
+    if (timedOut) {
+      throw new FfmpegError(
+        `ffmpeg timed out after ${timeoutMs}ms${stderrText ? `: ${stderrText.slice(-400)}` : ""}`
+      );
+    }
     if (exitCode !== 0) {
       throw new FfmpegError(
         `ffmpeg failed (${exitCode}): ${stderrText.slice(-400)}`
       );
     }
+    return stderrText;
   } finally {
     clearTimeout(timer);
   }

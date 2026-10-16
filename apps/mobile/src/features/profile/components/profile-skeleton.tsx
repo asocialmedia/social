@@ -21,7 +21,7 @@ import type { ProfileViewTab } from "../lib/profile-tab-memory";
 // Tabs are inert while loading: switching one here would fight the real
 // screen's tab state the moment the profile resolves.
 function noop() {
-  /* empty */
+  // Tabs wait for the profile to load.
 }
 
 export function ProfileSkeleton({ activeTab }: { activeTab: ProfileViewTab }) {
@@ -52,14 +52,21 @@ export function ProfileSkeleton({ activeTab }: { activeTab: ProfileViewTab }) {
               >
                 <View style={[styles.avatar, block]} />
               </View>
-              <View style={styles.actions}>
-                <View style={[styles.actionPill, styles.wide, block]} />
-                <View style={[styles.actionPill, block]} />
+              <View style={styles.socials}>
+                <View style={[styles.social, block]} />
+                <View style={[styles.social, block]} />
+                <View style={[styles.social, block]} />
               </View>
             </View>
             <View style={styles.identity}>
-              <View style={[styles.name, block]} />
-              <View style={[styles.handle, block]} />
+              <View style={styles.identityText}>
+                <View style={[styles.name, block]} />
+                <View style={[styles.handle, block]} />
+              </View>
+              <View style={styles.actions}>
+                <View style={[styles.actionPill, block]} />
+                <View style={[styles.actionPill, block]} />
+              </View>
             </View>
             <View style={styles.bio}>
               <View style={[styles.bioLine, styles.bioFull, block]} />
@@ -87,7 +94,6 @@ const styles = StyleSheet.create({
     alignItems: "flex-end",
     flexDirection: "column",
     gap: 8,
-    paddingBottom: 8,
   },
   avatar: {
     borderRadius: 20,
@@ -95,6 +101,7 @@ const styles = StyleSheet.create({
     width: 112,
   },
   avatarOverlap: {
+    alignSelf: "flex-start",
     borderRadius: 20,
     borderWidth: 4,
     overflow: "hidden",
@@ -126,7 +133,13 @@ const styles = StyleSheet.create({
     width: 110,
   },
   header: { borderBottomWidth: 1 },
-  identity: { marginTop: 12 },
+  identity: {
+    alignItems: "flex-start",
+    flexDirection: "row",
+    gap: 12,
+    marginTop: 12,
+  },
+  identityText: { flex: 1, minWidth: 0 },
   meta: {
     borderRadius: 4,
     height: 10,
@@ -141,8 +154,9 @@ const styles = StyleSheet.create({
   name: {
     borderRadius: 5,
     height: 24,
-    width: 180,
+    width: "90%",
   },
   root: { flex: 1 },
-  wide: { width: 104 },
+  social: { borderRadius: 18, height: 36, width: 36 },
+  socials: { flexDirection: "row", gap: 8, marginTop: 64, paddingBottom: 8 },
 });

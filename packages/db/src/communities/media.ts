@@ -182,33 +182,6 @@ export async function promoteCommunityDerivative(
     return { servingKey: null };
   }
 
-  const stale = media.postMediaDerivatives.filter(
-    (derivative) => derivative.key !== chosen.key
-  );
-  await Promise.allSettled(
-    stale.map((derivative) =>
-      deleteObject(derivative.key).catch((error: unknown) => {
-        logger.warn(
-          { error: String(error), mediaId },
-          "failed to delete stale community derivative"
-        );
-      })
-    )
-  );
-  if (stale.length > 0) {
-    await prisma.orm.public.PostMediaDerivatives.where((derivative) =>
-      derivative.key.in(stale.map((entry) => entry.key))
-    ).deleteAndCount();
-  }
-
-  try {
-    await deleteObject(media.publishedKey);
-  } catch (error) {
-    logger.warn(
-      { error: String(error), mediaId },
-      "failed to delete promoted community original"
-    );
-  }
-
+  // Keep originals and other responsive variants available for recovery and delivery.
   return { servingKey: chosen.key };
 }

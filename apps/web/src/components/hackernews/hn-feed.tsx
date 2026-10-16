@@ -28,12 +28,11 @@ export type HNSortOption =
 const ITEMS_PER_PAGE = 20;
 
 interface HNFeedProps {
-  filter: string;
   search: string;
   sortBy: HNSortOption;
 }
 
-export const HNFeed = ({ filter, search, sortBy }: HNFeedProps) => {
+export const HNFeed = ({ search, sortBy }: HNFeedProps) => {
   const {
     data,
     error,
@@ -55,14 +54,11 @@ export const HNFeed = ({ filter, search, sortBy }: HNFeedProps) => {
       if (search.trim()) {
         params.search = search.trim();
       }
-      if (filter !== "all") {
-        params.type = filter;
-      }
       return kyInstance
         .get("/api/hackernews", { searchParams: params })
         .json<HNApiResponse>();
     },
-    queryKey: ["hackernews", search, sortBy, filter],
+    queryKey: ["hackernews", search, sortBy],
     staleTime: 1000 * 60 * 5,
   });
 
@@ -89,7 +85,7 @@ export const HNFeed = ({ filter, search, sortBy }: HNFeedProps) => {
       (error as { response?: { status?: number } } | null)?.response?.status ===
       429;
     return (
-      <div className="flex min-h-full flex-col items-center justify-end gap-3 px-4 pt-10 pb-16 text-center">
+      <div className="flex min-h-full flex-col items-center justify-center gap-3 px-4 py-16 text-center">
         <Image
           alt=""
           className="h-44 w-auto object-contain"
@@ -100,12 +96,12 @@ export const HNFeed = ({ filter, search, sortBy }: HNFeedProps) => {
         />
         <p className="text-destructive text-sm sm:text-base">
           {isRateLimited
-            ? "Rate limit exceeded. Please try again later."
-            : "An error occurred while loading stories."}
+            ? "Let’s give HackerNews a moment."
+            : "We couldn’t load the stories right now."}
         </p>
         <p className="text-muted-foreground/70 text-xs sm:text-sm">
           {isRateLimited
-            ? "You're moving too fast — take a breather and try again."
+            ? "Please wait a little, then try again."
             : "Please try refreshing the page."}
         </p>
       </div>

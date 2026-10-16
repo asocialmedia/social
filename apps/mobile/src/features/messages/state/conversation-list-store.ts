@@ -19,6 +19,10 @@ import type {
   SearchUserResult,
   PresenceUser,
 } from "@/features/messages/lib/client";
+import {
+  conversationName,
+  conversationPreview,
+} from "@/features/messages/lib/conversation-presentation";
 import type { MessagePayload } from "@/features/messages/lib/crypto";
 import { conversationPreviewText } from "@/features/messages/lib/message-preview";
 import type { MessageConversationData } from "@/features/messages/lib/types";
@@ -65,9 +69,12 @@ function toRow(
   return {
     ...item,
     avatarUrl: peer?.user.avatarUrl ?? null,
-    displayName: peer?.user.displayName || peer?.user.username || "Unknown",
+    displayName: conversationName(item.conversation, myUserId),
     mineUserId: myUserId,
-    muted: Boolean(peer?.mutedAt),
+    muted: Boolean(
+      item.conversation.members.find((member) => member.userId === myUserId)
+        ?.mutedAt
+    ),
     payload: undefined,
     peerId: peer?.userId ?? null,
     peerUsername: peer?.user.username ?? null,
@@ -80,6 +87,26 @@ export class ConversationListStore {
   #version = 0;
   readonly #listeners = new Set<() => void>();
   #searchCache = new Map<string, SearchUserResult[]>();
+  #updatedAt = 0;
+
+  getUpdatedAt = (): number => this.#updatedAt;
+
+  exportCiphertextResponse(): ConversationListResponse {
+    const items = this.#snapshot.rows.map(
+      ({ conversation, isNew, lastMessage, unreadCount }) => ({
+        conversation,
+        isNew,
+        lastMessage,
+        unreadCount,
+      })
+    );
+    return {
+      conversations: items.map((item) => item.conversation),
+      hasMore: this.#snapshot.hasMore,
+      items,
+      nextCursor: this.#snapshot.nextCursor,
+    };
+  }
 
   subscribe = (listener: () => void): (() => void) => {
     this.#listeners.add(listener);
@@ -102,15 +129,69 @@ export class ConversationListStore {
 
   replaceAll(
     response: ConversationListResponse,
-    myUserId: string | null
+    myUserId: string | null,
+    fetchedAt = Date.now(),
+    retainOlder = false
   ): void {
+    const previous = new Map(
+      this.#snapshot.rows.map((row) => [row.conversation.id, row])
+    );
+    const headIds = new Set(response.items.map((item) => item.conversation.id));
+    const older =
+      retainOlder && this.#snapshot.rows.length > response.items.length
+        ? this.#snapshot.rows.filter(
+            (row) =>
+              row.mineUserId === myUserId && !headIds.has(row.conversation.id)
+          )
+        : [];
+    const retainedPaging = older.length > 0;
+    this.#updatedAt = fetchedAt;
     this.setSnapshot({
       error: null,
-      hasMore: response.hasMore,
+      hasMore: retainedPaging ? this.#snapshot.hasMore : response.hasMore,
       loading: false,
-      nextCursor: response.nextCursor,
+      nextCursor: retainedPaging
+        ? this.#snapshot.nextCursor
+        : response.nextCursor,
       refreshing: false,
-      rows: response.items.map((item) => toRow(item, myUserId)),
+      rows: [
+        ...response.items.map((item) => {
+          const next = toRow(item, myUserId);
+          const old = previous.get(item.conversation.id);
+          if (
+            old?.mineUserId === myUserId &&
+            old.lastMessage?.id === item.lastMessage?.id &&
+            old.lastMessage?.ciphertext === item.lastMessage?.ciphertext &&
+            old.lastMessage?.iv === item.lastMessage?.iv &&
+            old.lastMessage?.deletedAt === item.lastMessage?.deletedAt &&
+            old.lastMessage?.ratchetIndex === item.lastMessage?.ratchetIndex
+          ) {
+            return {
+              ...next,
+              payload: old.payload,
+              preview: old.payload
+                ? conversationPreview(
+                    next.conversation,
+                    myUserId,
+                    item.lastMessage?.senderId ?? null,
+                    conversationPreviewText({
+                      deleted: Boolean(item.lastMessage?.deletedAt),
+                      mine: item.lastMessage?.senderId === myUserId,
+                      payload: old.payload,
+                    })
+                  )
+                : conversationPreview(
+                    next.conversation,
+                    myUserId,
+                    item.lastMessage?.senderId ?? null,
+                    old.preview
+                  ),
+            };
+          }
+          return next;
+        }),
+        ...older,
+      ],
     });
   }
 
@@ -175,11 +256,16 @@ export class ConversationListStore {
       return {
         ...row,
         payload,
-        preview: conversationPreviewText({
-          deleted: Boolean(last.deletedAt),
-          mine: last.senderId === row.mineUserId,
-          payload,
-        }),
+        preview: conversationPreview(
+          row.conversation,
+          row.mineUserId,
+          last.senderId,
+          conversationPreviewText({
+            deleted: Boolean(last.deletedAt),
+            mine: last.senderId === row.mineUserId,
+            payload,
+          })
+        ),
       };
     });
     // The decryptor re-reports rows it already holds on every version bump, so
@@ -206,10 +292,11 @@ export class ConversationListStore {
               ...row,
               conversation: {
                 ...row.conversation,
-                members: row.conversation.members.map((member) => ({
-                  ...member,
-                  themeKey,
-                })),
+                members: row.conversation.members.map((member) =>
+                  member.userId === row.mineUserId
+                    ? { ...member, themeKey }
+                    : member
+                ),
               },
             }
           : row
@@ -235,6 +322,7 @@ export class ConversationListStore {
   }
 
   reset(): void {
+    this.#updatedAt = 0;
     this.#snapshot = EMPTY;
     this.#searchCache.clear();
     this.#version += 1;
@@ -274,7 +362,12 @@ export function startPresenceHeartbeat(options: {
       void beat(options);
     }, 30_000);
   }
+  let stopped = false;
   return () => {
+    if (stopped) {
+      return;
+    }
+    stopped = true;
     presenceRefs -= 1;
     if (presenceRefs > 0 || !presenceTimer) {
       return;

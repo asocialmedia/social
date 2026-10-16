@@ -1037,6 +1037,7 @@ test("conversation recovery works when Hermes has no copying array methods", asy
       .map((wrap) => ({
         encryptedKey: wrap.encryptedKey,
         version: wrap.version ?? 1,
+        wrapperPublicKeyBase64: wrap.wrapperPublicKey,
       }));
     const recovered = await createRootKeyStore(alice.privateKey).getRootKeys(
       conversation.id,
@@ -1050,4 +1051,148 @@ test("conversation recovery works when Hermes has no copying array methods", asy
       Object.defineProperty(Array.prototype, "toSorted", descriptor);
     }
   }
+});
+
+describe("modern wrapper metadata", () => {
+  test("reads a self-wrapped web epoch instead of pairing it with the peer", async () => {
+    const alice = makeParty("modern-alice");
+    const bob = makeParty("modern-bob");
+    const root = generateRootKey();
+    const blob = await wrapRootKeyForPeer(
+      alice.privateKey,
+      alice.publicKeyBase64,
+      "modern-dm",
+      root
+    );
+    const store = createRootKeyStore(alice.privateKey);
+    const keys = await store.getRootKeys(
+      "modern-dm",
+      [
+        {
+          encryptedKey: blob,
+          version: 2,
+          wrapperPublicKeyBase64: alice.publicKeyBase64,
+        },
+      ],
+      bob.publicKeyBase64
+    );
+    expect(keys[0]).toEqual(root);
+  });
+
+  test("rotates a den after departure without handing the new epoch to the departed member", async () => {
+    const alice = makeParty("den-alice");
+    const bob = makeParty("den-bob");
+    const removed = makeParty("den-removed");
+    const conversation = conversationOf("modern-den", alice, bob);
+    conversation.type = "DEN";
+    conversation.members.push({
+      ...conversation.members[1],
+      leftAt: "2026-10-12T00:00:00Z",
+      user: {
+        ...conversation.members[1].user,
+        id: removed.userId,
+        messageIdentity: { publicKey: removed.publicKeyBase64 },
+      },
+      userId: removed.userId,
+    });
+    conversation.keys.push({
+      conversationId: conversation.id,
+      createdAt: "2026-01-01T00:00:00Z",
+      encryptedKey: "old",
+      id: "den-key",
+      iv: "old",
+      ownerUserId: removed.userId,
+      ratchetCounter: 0,
+      version: 1,
+    });
+    const posted: WrappedKeyPayload[] = [];
+    const root = await ensureConversationKeys(
+      conversation,
+      alice.privateKey,
+      alice.userId,
+      {
+        postKeys: (_id, keys) => {
+          posted.push(...keys);
+          return Promise.resolve();
+        },
+      }
+    );
+    expect(root?.length).toBe(32);
+    expect(posted.map((key) => key.ownerUserId).toSorted()).toEqual(
+      [alice.userId, bob.userId].toSorted()
+    );
+    expect(
+      posted.every(
+        (key) => key.version === 2 && key.wrapperUserId === alice.userId
+      )
+    ).toBe(true);
+    const bobWrap = posted.find((key) => key.ownerUserId === bob.userId);
+    expect(bobWrap).toBeDefined();
+    if (bobWrap && root) {
+      expect(
+        await unwrapBlobFor(
+          bob.privateKey,
+          alice.publicKeyBase64,
+          conversation.id,
+          bobWrap.encryptedKey
+        )
+      ).toEqual(root);
+    }
+  });
+});
+
+test("a lost concurrent key write re-reads the winning epoch rather than returning the discarded root", async () => {
+  const alice = makeParty("race-alice");
+  const bob = makeParty("race-bob");
+  const current = conversationOf("key-race", alice, bob);
+  const winning = generateRootKey();
+  const aliceWrap = await wrapRootKeyForPeer(
+    alice.privateKey,
+    alice.publicKeyBase64,
+    current.id,
+    winning
+  );
+  const bobWrap = await wrapRootKeyForPeer(
+    alice.privateKey,
+    bob.publicKeyBase64,
+    current.id,
+    winning
+  );
+  const fresh = conversationOf(
+    current.id,
+    alice,
+    bob,
+    [aliceWrap, bobWrap].map((wrap, index) => ({
+      conversationId: current.id,
+      createdAt: "2026-01-01T00:00:00Z",
+      encryptedKey: wrap.ciphertext,
+      id: `wrap-${index}`,
+      iv: wrap.iv,
+      ownerUserId: index === 0 ? alice.userId : bob.userId,
+      ratchetCounter: 0,
+      version: 1,
+      wrapperPublicKey: alice.publicKeyBase64,
+      wrapperUserId: alice.userId,
+    }))
+  );
+  let reads = 0;
+  let writes = 0;
+  const root = await ensureConversationKeys(
+    current,
+    alice.privateKey,
+    alice.userId,
+    {
+      postKeys: () => {
+        writes += 1;
+        return Promise.resolve({ applied: 0 });
+      },
+      refreshConversation: () => {
+        reads += 1;
+        return Promise.resolve(reads === 1 ? current : fresh);
+      },
+    }
+  );
+  expect(root).toEqual(winning);
+  expect(reads).toBe(2);
+  expect(writes).toBe(1);
 });

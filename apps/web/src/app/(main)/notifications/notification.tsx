@@ -6,7 +6,6 @@ import type {
   NotificationType,
 } from "@asm/db";
 import type { NotificationIssuer } from "@asm/notifications/shared";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   AtSign,
   Captions,
@@ -18,13 +17,11 @@ import {
   Sparkles,
   UserPlus,
   Users,
-  X,
 } from "lucide-react";
 import Link from "next/link";
 import type React from "react";
 
 import UserAvatar from "@/components/layouts/user/user-avatar";
-import kyInstance from "@/lib/ky";
 import { getPostPath } from "@/lib/seo/seo";
 import { cn, formatRelativeDate } from "@/lib/utils";
 
@@ -405,34 +402,10 @@ export default function Notification({ notification }: NotificationProps) {
   const Icon = config.icon;
   const href = config.href(notification);
   const action = config.action(notification);
-  const queryClient = useQueryClient();
-
   const issuers =
     "issuers" in notification && notification.issuers?.length
       ? notification.issuers
       : [notification.issuer];
-  const allIds =
-    "allNotificationIds" in notification &&
-    notification.allNotificationIds?.length
-      ? notification.allNotificationIds
-      : [notification.id];
-
-  const { mutate: dismiss } = useMutation({
-    mutationFn: () =>
-      kyInstance.delete(`/api/notifications/${allIds.join(",")}`),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["notifications"] });
-      queryClient.invalidateQueries({
-        queryKey: ["unread-notification-count"],
-      });
-    },
-  });
-
-  const handleDismiss = (event: React.MouseEvent<HTMLButtonElement>) => {
-    event.preventDefault();
-    event.stopPropagation();
-    dismiss();
-  };
 
   return (
     <div
@@ -476,17 +449,6 @@ export default function Notification({ notification }: NotificationProps) {
           </span>
         </div>
       </Link>
-
-      {/* Always visible: an opacity-0 affordance is unreachable on touch and
-          invisible at a glance. Hover/focus only deepens it, never reveals it. */}
-      <button
-        aria-label="Dismiss notification"
-        className="icon-btn-3d text-muted-foreground mt-1 flex h-7 w-7 shrink-0 items-center justify-center opacity-60 transition-opacity duration-150 outline-none group-hover:opacity-100 focus-visible:opacity-100"
-        onClick={handleDismiss}
-        type="button"
-      >
-        <X className="h-3.5 w-3.5" />
-      </button>
     </div>
   );
 }

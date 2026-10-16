@@ -212,7 +212,10 @@ export async function fetchExplorePage(
       options
     );
     requireOk(response, "Explore search");
-    return parseExplorePage(await readJson(response), "search");
+    return {
+      ...parseExplorePage(await readJson(response), "search"),
+      nextCursor: null,
+    };
   }
 
   if (tab === "gusts") {
@@ -224,6 +227,12 @@ export async function fetchExplorePage(
   if (tab === "people") {
     const response = await get("/api/users/trending", options);
     requireOk(response, "Explore people");
+    return parseExplorePage(await readJson(response), "posts");
+  }
+
+  if (cursor) {
+    const response = await get(buildExplorePostsPath(tab, cursor), options);
+    requireOk(response, "Explore posts");
     return parseExplorePage(await readJson(response), "posts");
   }
 

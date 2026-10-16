@@ -1,0 +1,36 @@
+{
+  "items": [
+    {
+      "category": "anime",
+      "explicit": false,
+      "id": "anime",
+      "kind": "text",
+      "text": "A fully clothed anime character in a space adventure, with no sexual activity or nudity."
+    },
+    {
+      "category": "ordinary-skin",
+      "explicit": false,
+      "id": "sports",
+      "kind": "text",
+      "text": "Athletes in shorts and sports bras competing in a track race."
+    },
+    {
+      "category": "adult",
+      "explicit": true,
+      "id": "adult",
+      "kind": "text",
+      "text": "Explicit adult pornography depicting sexual intercourse."
+    },
+    {
+      "category": "graphic-violence",
+      "explicit": false,
+      "id": "violence",
+      "kind": "text",
+      "text": "Graphic battlefield injuries and blood, without sexual content."
+    }
+  ],
+  "queries": [
+    { "relevantIds": ["anime"], "text": "Japanese animation space adventure" },
+    { "relevantIds": ["sports"], "text": "Running and athletics competition" }
+  ]
+}

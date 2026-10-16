@@ -20,9 +20,9 @@ import { setTimeout as sleep } from "node:timers/promises";
 
 import { SignJWT, importPKCS8 } from "jose";
 
-import type { NotificationRecord } from "../shared/types";
 import { describePushError } from "./log";
 import type { PushLogger } from "./log";
+import type { PushDelivery } from "./payload";
 import { buildPushPayload } from "./payload";
 
 export const FCM_OAUTH_ENDPOINT = "https://oauth2.googleapis.com/token";
@@ -50,6 +50,7 @@ export interface FcmTarget {
 }
 
 export interface FcmPushResult {
+  retryable?: boolean;
   failed: number;
   sent: number;
   // Tokens FCM reported as UNREGISTERED; the caller prunes these.
@@ -80,7 +81,32 @@ export function parseServiceAccount(
     return null;
   }
   try {
-    const parsed = JSON.parse(raw) as {
+    let normalized = raw.trim();
+    if (normalized.startsWith("'") && normalized.endsWith("'")) {
+      normalized = normalized.slice(1, -1);
+    }
+    // Container env parsers can expand PEM escapes inside an otherwise valid JSON object.
+    let inString = false;
+    let escaped = false;
+    let json = "";
+    for (const character of normalized) {
+      if (inString && !escaped && (character.codePointAt(0) ?? Infinity) < 32) {
+        json += JSON.stringify(character).slice(1, -1);
+        continue;
+      }
+      json += character;
+      if (escaped) {
+        escaped = false;
+      } else if (character === "\\" && inString) {
+        escaped = true;
+      } else if (character === '"') {
+        inString = !inString;
+      }
+    }
+    const decoded: unknown = JSON.parse(json);
+    const parsed = (
+      typeof decoded === "string" ? JSON.parse(decoded) : decoded
+    ) as {
       client_email?: unknown;
       private_key?: unknown;
       project_id?: unknown;
@@ -258,7 +284,7 @@ interface FcmMessage {
 
 // FCM's `data` payload is string-to-string only.
 export function buildFcmMessage(
-  notification: NotificationRecord,
+  notification: PushDelivery,
   token: string
 ): FcmMessage {
   const payload = buildPushPayload(notification);
@@ -323,7 +349,7 @@ type FcmSendOutcome =
 async function sendFcmMessage(
   endpoint: string,
   accessToken: string,
-  notification: NotificationRecord,
+  notification: PushDelivery,
   token: string,
   fetchImpl: typeof fetch
 ): Promise<FcmSendOutcome> {
@@ -374,7 +400,7 @@ function isRetryableFcmStatus(status: number | null): boolean {
 async function sendFcmMessageWithRetry(
   endpoint: string,
   accessToken: string,
-  notification: NotificationRecord,
+  notification: PushDelivery,
   token: string,
   fetchImpl: typeof fetch,
   attempt = 1
@@ -409,7 +435,7 @@ async function sendFcmMessageWithRetry(
 // Sends sequentially because each message is a separate HTTP call and a user
 // holds few devices; the access token is fetched once for the whole batch.
 export async function sendFcmPush(
-  notification: NotificationRecord,
+  notification: PushDelivery,
   targets: FcmTarget[],
   options: SendFcmOptions
 ): Promise<FcmPushResult> {
@@ -417,7 +443,14 @@ export async function sendFcmPush(
   const deliverable = targets
     .filter((target) => target.provider === "fcm" && isFcmToken(target.token))
     .slice(0, MAX_DEVICE_TARGETS_PER_USER);
-  if (deliverable.length === 0 || !options.serviceAccount) {
+  if (deliverable.length === 0) {
+    return result;
+  }
+  if (!options.serviceAccount) {
+    result.failed = deliverable.length;
+    options.logger?.error("push.fcm_configuration_invalid", {
+      devices: deliverable.length,
+    });
     return result;
   }
 
@@ -430,6 +463,7 @@ export async function sendFcmPush(
     // The credential is unusable (bad PEM, revoked key, Google unreachable).
     // Every device fails identically, so log once rather than per device.
     result.failed = deliverable.length;
+    result.retryable = true;
     options.logger?.error("push.fcm_auth_failed", {
       devices: deliverable.length,
       projectId: options.serviceAccount.projectId,
@@ -449,6 +483,7 @@ export async function sendFcmPush(
     const target = deliverable[index];
     if (!target || Date.now() >= deadline) {
       result.failed += deliverable.length - index;
+      result.retryable = true;
       options.logger?.warn("push.fcm_batch_budget_exhausted", {
         remaining: deliverable.length - index,
       });
@@ -467,6 +502,9 @@ export async function sendFcmPush(
       result.unregistered.push(target.token);
     } else {
       result.failed += 1;
+      if (isRetryableFcmStatus(outcome.detail.status)) {
+        result.retryable = true;
+      }
       // No token in the log: it is a capability to push to that device.
       options.logger?.warn("push.fcm_send_failed", {
         platform: target.platform,

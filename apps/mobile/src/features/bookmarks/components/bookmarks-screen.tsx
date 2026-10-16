@@ -1,340 +1,401 @@
-// oxlint-disable no-nested-ternary, no-void, react/todo, react/set-state-in-effect, promise/prefer-await-to-then, unicorn/no-useless-undefined
+import { Image } from "expo-image";
 import { useRouter } from "expo-router";
-import { Bookmark, Clapperboard, Heart, Terminal } from "lucide-react-native";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  ActivityIndicator,
-  Alert,
-  FlatList,
-  Pressable,
-  Share,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
+import { Clapperboard, Heart, Newspaper, Terminal } from "lucide-react-native";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { FlatList, StyleSheet, Text, View } from "react-native";
+import { GestureDetector } from "react-native-gesture-handler";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import noBookmarksImage from "@/assets/images/nonotibook.png";
+import { toast } from "@/components/feedback/toast";
 import { authClient } from "@/features/auth/lib/auth-client";
 import { useSessionContext } from "@/features/auth/state/session";
+import { useComposerStore } from "@/features/composer/state/composer-store";
+import {
+  FeedSkeleton,
+  FeedSkeletonCard,
+} from "@/features/feed/components/feed-skeleton";
 import { FeedTabs } from "@/features/feed/components/feed-tabs";
+import { MoreMenu } from "@/features/feed/components/more-menu";
+import type { MenuAnchor } from "@/features/feed/components/more-menu";
 import { PostCard } from "@/features/feed/components/post-card";
+import { ShareSheet } from "@/features/feed/components/share-sheet";
+import { usePostOverflow } from "@/features/feed/components/use-post-overflow";
 import type { FeedPost } from "@/features/feed/lib/feed-types";
-import { useSearchStore } from "@/features/search/state/search-store";
+import { GustRowCard } from "@/features/gusts/components/gust-row-card";
+import { HnFeedSkeleton } from "@/features/hackernews/components/hn-feed-skeleton";
+import { HnStoryCard } from "@/features/hackernews/components/hn-story-card";
+import { setHnBookmark } from "@/features/hackernews/lib/hackernews-api";
+import type { HnStory } from "@/features/hackernews/lib/hackernews-api";
+import { MobileBottomNav } from "@/features/home/components/mobile-bottom-nav";
+import { MobileHeader } from "@/features/home/components/mobile-header";
+import { SettingsButton } from "@/features/settings/components/settings-ui";
 import { getApiBaseUrl } from "@/lib/api-env";
 import { LIST_VIRTUALIZATION_PROPS } from "@/lib/list-virtualization";
+import { ResourceCache } from "@/lib/resource-cache";
 import { SHOWS_SCROLL_INDICATOR } from "@/lib/scroll-indicator";
+import { swipeTab } from "@/lib/tab-swipe";
+import { useCachedResource } from "@/lib/use-cached-resource";
+import { useTabSwipe } from "@/lib/use-tab-swipe";
 import { useAppTheme } from "@/theme";
 
-import { MobileBottomNav } from "../../home/components/mobile-bottom-nav";
-import { MobileHeader } from "../../home/components/mobile-header";
 import {
   fetchBookmarkedHn,
-  fetchBookmarkedPosts,
-  fetchLikedPosts,
+  fetchBookmarkedPage,
+  fetchLikedPage,
 } from "../lib/bookmarks-api";
-import type { HnStory } from "../lib/bookmarks-api";
 
 type BookmarkTab = "posts" | "gusts" | "hackernews" | "likes";
-type BookmarkData = (FeedPost | HnStory)[];
-
+type BookmarkItem = FeedPost | HnStory;
+interface BookmarkPage {
+  items: BookmarkItem[];
+  nextCursor: string | null;
+}
 const TABS = [
-  { label: "Posts", value: "posts" as const },
-  { label: "Gusts", value: "gusts" as const },
-  { label: "HackerNews", value: "hackernews" as const },
-  { label: "Likes", value: "likes" as const },
-];
+  { icon: Newspaper, label: "Posts", value: "posts" },
+  { icon: Clapperboard, label: "Gusts", value: "gusts" },
+  { icon: Terminal, label: "HackerNews", value: "hackernews" },
+  { icon: Heart, label: "Likes", value: "likes" },
+] as const;
+const TAB_ORDER = ["posts", "gusts", "hackernews", "likes"] as const;
+const cache = new ResourceCache<BookmarkPage>({
+  maxEntries: 20,
+  staleMs: 60_000,
+});
+const isHnStory = (item: BookmarkItem): item is HnStory => "title" in item;
 
-function isHnStory(value: FeedPost | HnStory): value is HnStory {
-  return "title" in value;
+async function loadPage(
+  tab: BookmarkTab,
+  cursor?: string
+): Promise<BookmarkPage> {
+  const options = {
+    apiBase: getApiBaseUrl(),
+    cookie: await authClient.getCookie(),
+  };
+  if (tab === "hackernews") {
+    return { items: await fetchBookmarkedHn(options), nextCursor: null };
+  }
+  const page =
+    tab === "likes"
+      ? await fetchLikedPage(options, cursor)
+      : await fetchBookmarkedPage(tab, options, cursor);
+  return { items: page.posts, nextCursor: page.nextCursor };
 }
 
-function HnRow({ story }: { story: HnStory }) {
-  const { theme } = useAppTheme();
-  return (
-    <View
-      style={[
-        styles.hnRow,
-        { backgroundColor: theme.cardBg, borderColor: theme.cardBorder },
-      ]}
-    >
-      <Text style={[styles.hnTitle, { color: theme.inputText }]}>
-        {story.title}
-      </Text>
-      <Text style={[styles.hnMeta, { color: theme.dividerText }]}>
-        {story.score} points · {story.descendants} comments · by {story.by}
-      </Text>
-      {story.url ? (
-        <Text
-          numberOfLines={1}
-          style={[styles.hnUrl, { color: theme.auxLink }]}
-        >
-          {story.url}
-        </Text>
-      ) : null}
-    </View>
-  );
-}
+const reshareHn = (story: HnStory) =>
+  useComposerStore.getState().openWithContext({
+    kind: "hn",
+    story: {
+      by: story.by,
+      descendants: story.comments,
+      score: story.score,
+      storyId: story.id,
+      time: story.time,
+      title: story.title,
+      url: story.url,
+    },
+  });
 
 export function BookmarksScreen() {
   const router = useRouter();
   const { theme } = useAppTheme();
-  const { isPending, user } = useSessionContext();
-  const [tab, setTab] = useState<BookmarkTab>("posts");
-  const [data, setData] = useState<BookmarkData>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const viewerId = user?.id ?? null;
-
+  const { user, isPending } = useSessionContext();
   const insets = useSafeAreaInsets();
+  const [tab, setTab] = useState<BookmarkTab>("posts");
   const [dockHeight, setDockHeight] = useState(56);
-
-  // Every request is numbered, and the view it was issued for is remembered.
-  // A response may only land if it is still the newest request *and* the tab
-  // and viewer it was asked for are the ones on screen: a tab switch starts
-  // another request, and without this a slow earlier one would replace the
-  // active tab's results - HackerNews rows rendered as posts, with a count
-  // counted from the other tab's list. The sign-out case matters too, since
-  // nothing starts a replacement request when the viewer goes away.
-  const latestRequestRef = useRef(0);
-  const currentViewRef = useRef({ tab, viewerId });
-  useEffect(() => {
-    currentViewRef.current = { tab, viewerId };
-  }, [tab, viewerId]);
-
-  const load = useCallback(async () => {
-    const requestId = latestRequestRef.current + 1;
-    latestRequestRef.current = requestId;
-    if (!user) {
-      router.replace("/(auth)/login");
-      return;
-    }
-    const requestedTab = tab;
-    const requestedViewer = viewerId;
-    const isCurrent = () =>
-      latestRequestRef.current === requestId &&
-      currentViewRef.current.tab === requestedTab &&
-      currentViewRef.current.viewerId === requestedViewer;
-    setLoading(true);
-    setError(null);
-    try {
-      const cookie = await authClient.getCookie();
-      const options = { apiBase: getApiBaseUrl(), cookie };
-      let next: BookmarkData;
-      if (requestedTab === "hackernews") {
-        next = await fetchBookmarkedHn(options);
-      } else if (requestedTab === "likes") {
-        next = await fetchLikedPosts(options);
-      } else {
-        next = await fetchBookmarkedPosts(requestedTab, options);
-      }
-      if (!isCurrent()) {
-        return;
-      }
-      setData(next);
-    } catch {
-      if (!isCurrent()) {
-        return;
-      }
-      setError("We couldn’t load your bookmarks.");
-      setLoading(false);
-      return;
-    }
-    setLoading(false);
-  }, [router, tab, user, viewerId]);
-
-  useEffect(() => {
-    if (!isPending) {
-      // oxlint-disable-next-line react/set-state-in-effect -- external bookmark request starts when auth resolves
-      load().catch(() => undefined);
-    }
-  }, [isPending, load]);
-
-  const counts = useMemo(() => ({ current: data.length }), [data.length]);
-  const header = (
-    <View>
-      <View style={styles.titleRow}>
-        <View>
-          <Text style={[styles.title, { color: theme.inputText }]}>
-            Bookmarks
-          </Text>
-          <Text style={[styles.subtitle, { color: theme.dividerText }]}>
-            Your saved posts and stories
-          </Text>
-        </View>
-        <Bookmark color="#ff9500" fill="#ff9500" size={25} />
-      </View>
-      <FeedTabs active={tab} fill onChange={setTab} tabs={TABS} />
-      <View style={styles.countRow}>
-        <Text style={[styles.countText, { color: theme.dividerText }]}>
-          {counts.current} saved
-        </Text>
-        <Pressable
-          onPress={() => {
-            load().catch(() => undefined);
-          }}
-        >
-          <Text style={[styles.refresh, { color: theme.auxLink }]}>
-            Refresh
-          </Text>
-        </Pressable>
-      </View>
-    </View>
+  const [loadingMoreKeys, setLoadingMoreKeys] = useState<Set<string>>(
+    () => new Set()
   );
-
-  if (isPending || (!user && !error)) {
-    return (
-      <View style={[styles.center, { backgroundColor: theme.containerBg }]}>
-        <ActivityIndicator color="#ff9500" />
+  const [now, setNow] = useState(Date.now);
+  const [menu, setMenu] = useState<{
+    anchor: MenuAnchor;
+    post: FeedPost;
+  } | null>(null);
+  const [sharePost, setSharePost] = useState<FeedPost | null>(null);
+  const listRef = useRef<FlatList<BookmarkItem>>(null);
+  const scrollOffsets = useRef(new Map<BookmarkTab, number>());
+  const pendingPages = useRef(new Set<string>());
+  const key = user ? `${getApiBaseUrl()}:${user.id}:${tab}` : null;
+  const loadingMore = key !== null && loadingMoreKeys.has(key);
+  const loader = useCallback(() => loadPage(tab), [tab]);
+  const resource = useCachedResource(cache, key, loader);
+  useEffect(() => {
+    if (!isPending && !user) {
+      router.replace("/(auth)/login");
+    }
+  }, [isPending, router, user]);
+  useEffect(() => {
+    listRef.current?.scrollToOffset({
+      animated: false,
+      offset: scrollOffsets.current.get(tab) ?? 0,
+    });
+  }, [tab]);
+  const navigateTab = useCallback(
+    (direction: -1 | 1) =>
+      setTab((current) => swipeTab(TAB_ORDER, current, direction)),
+    []
+  );
+  const swipe = useTabSwipe(navigateTab);
+  const updateRows = useCallback(
+    (id: string, changes?: Partial<FeedPost>) => {
+      if (!user) {
+        return;
+      }
+      for (const value of TAB_ORDER) {
+        const cacheKey = `${getApiBaseUrl()}:${user.id}:${value}`;
+        const page = cache.read(cacheKey).data;
+        if (page) {
+          cache.setData(cacheKey, {
+            ...page,
+            items: page.items.flatMap((item) => {
+              if (isHnStory(item) || item.id !== id) {
+                return [item];
+              }
+              return changes ? [{ ...item, ...changes }] : [];
+            }),
+          });
+        }
+      }
+    },
+    [user]
+  );
+  const overflow = usePostOverflow({
+    onDeleted: (id) => updateRows(id),
+    onHide: (post) => updateRows(post.id),
+    onModerated: (id, next) => updateRows(id, next),
+    onTagsSaved: () => {
+      void resource.reload();
+    },
+    viewerId: user?.id ?? null,
+  });
+  const more = useCallback(
+    (post: FeedPost, anchor: MenuAnchor) => setMenu({ anchor, post }),
+    []
+  );
+  const removeHn = async (story: HnStory) => {
+    if (!key) {
+      return;
+    }
+    const ok = await setHnBookmark(story.id, false, {
+      apiBase: getApiBaseUrl(),
+      cookie: await authClient.getCookie(),
+    });
+    const page = cache.read(key).data;
+    if (ok && page) {
+      cache.setData(key, {
+        ...page,
+        items: page.items.filter((item) => item.id !== story.id),
+      });
+    }
+    if (!ok) {
+      toast({
+        description: "Try again.",
+        title: "Couldn't remove bookmark",
+        variant: "destructive",
+      });
+    }
+  };
+  const loadMore = async () => {
+    const cursor = resource.data?.nextCursor;
+    if (!key || !cursor || pendingPages.current.has(key)) {
+      return;
+    }
+    const requestKey = key;
+    pendingPages.current.add(requestKey);
+    setLoadingMoreKeys((current) => new Set(current).add(requestKey));
+    try {
+      const next = await loadPage(tab, cursor);
+      const current = cache.read(requestKey).data;
+      if (current) {
+        const seen = new Set(current.items.map((item) => item.id));
+        cache.setData(requestKey, {
+          items: [
+            ...current.items,
+            ...next.items.filter((item) => !seen.has(item.id)),
+          ],
+          nextCursor: next.nextCursor,
+        });
+      }
+    } catch {
+      toast({
+        description: "Scroll again to retry.",
+        title: "Couldn't load more bookmarks",
+      });
+    }
+    pendingPages.current.delete(requestKey);
+    setLoadingMoreKeys(
+      (current) => new Set([...current].filter((value) => value !== requestKey))
+    );
+  };
+  let empty: React.ReactNode;
+  if (isPending || (resource.data === null && resource.status !== "error")) {
+    empty = tab === "hackernews" ? <HnFeedSkeleton /> : <FeedSkeleton />;
+  } else if (resource.error) {
+    empty = (
+      <View style={styles.empty}>
+        <Text style={[styles.emptyTitle, { color: theme.inputText }]}>
+          {resource.error}
+        </Text>
+        <SettingsButton
+          label="Try again"
+          tone="gray"
+          onPress={() => {
+            void resource.reload();
+          }}
+        />
+      </View>
+    );
+  } else {
+    const liked = tab === "likes";
+    empty = (
+      <View style={styles.empty}>
+        <Image
+          source={noBookmarksImage}
+          contentFit="contain"
+          style={{ height: 160, width: 240 }}
+        />
+        <Text style={[styles.emptyTitle, { color: theme.inputText }]}>
+          {liked ? "No liked posts yet" : "No bookmarks yet"}
+        </Text>
+        <Text style={[styles.emptyCopy, { color: theme.dividerText }]}>
+          {liked
+            ? "Posts you amplify will show up here."
+            : "Bookmark posts, gusts and stories to keep them here."}
+        </Text>
       </View>
     );
   }
-
+  const renderRow = ({ item }: { item: BookmarkItem }) => {
+    let content: React.ReactNode;
+    if (isHnStory(item)) {
+      content = (
+        <HnStoryCard
+          story={item}
+          now={now}
+          bookmarked
+          onReshare={reshareHn}
+          onToggleBookmark={(story) => {
+            void removeHn(story);
+          }}
+          onVisit={() => setNow(Date.now())}
+        />
+      );
+    } else if (item.isGust) {
+      content = <GustRowCard post={item} />;
+    } else {
+      content = (
+        <PostCard
+          post={item}
+          viewerId={user?.id}
+          hasThreadChild={false}
+          hasThreadParent={false}
+          onMore={more}
+          onShare={setSharePost}
+        />
+      );
+    }
+    return (
+      <View
+        style={{
+          borderBottomColor: theme.cardBorder,
+          borderBottomWidth: StyleSheet.hairlineWidth,
+        }}
+      >
+        {content}
+      </View>
+    );
+  };
   return (
     <View style={[styles.root, { backgroundColor: theme.containerBg }]}>
       <MobileHeader
-        onSearchPress={() => useSearchStore.getState().open()}
-        user={
-          user
-            ? {
-                id: user.id,
-                image: user.image,
-                username: user.username ?? user.name,
-              }
-            : null
-        }
+        hideOnScroll={false}
+        user={user ? { ...user, username: user.username ?? user.name } : null}
       />
-      {header}
-      {loading ? (
-        <View style={styles.loading}>
-          <ActivityIndicator color="#ff9500" />
-        </View>
-      ) : null}
-      {error ? (
-        <View
-          style={[
-            styles.state,
-            { paddingBottom: dockHeight + insets.bottom + 12 },
-          ]}
-        >
-          <Text style={[styles.stateTitle, { color: theme.inputText }]}>
-            {error}
-          </Text>
-          <Pressable
-            onPress={() => {
-              load().catch(() => undefined);
-            }}
-            style={styles.retry}
-          >
-            <Text style={styles.retryText}>Try again</Text>
-          </Pressable>
-        </View>
-      ) : !loading && data.length === 0 ? (
-        <View
-          style={[
-            styles.state,
-            { paddingBottom: dockHeight + insets.bottom + 12 },
-          ]}
-        >
-          {tab === "gusts" ? (
-            <Clapperboard color={theme.dividerText} size={34} />
-          ) : tab === "hackernews" ? (
-            <Terminal color={theme.dividerText} size={34} />
-          ) : tab === "likes" ? (
-            <Heart color={theme.dividerText} size={34} />
-          ) : (
-            <Bookmark color={theme.dividerText} size={34} />
-          )}
-          <Text style={[styles.stateTitle, { color: theme.inputText }]}>
-            Nothing saved here yet.
-          </Text>
-          <Text style={[styles.stateBody, { color: theme.dividerText }]}>
-            Tap the bookmark on a post to keep it here.
-          </Text>
-        </View>
-      ) : loading ? null : (
-        <FlatList<FeedPost | HnStory>
-          {...LIST_VIRTUALIZATION_PROPS}
-          contentContainerStyle={[
-            styles.list,
-            { paddingBottom: dockHeight + insets.bottom + 12 },
-          ]}
-          data={data}
-          keyExtractor={(item) =>
-            isHnStory(item) ? `hn-${item.id}` : `post-${item.id}`
-          }
-          renderItem={({ item }) =>
-            isHnStory(item) ? (
-              <HnRow story={item} />
-            ) : (
-              <PostCard
-                hasThreadChild={false}
-                hasThreadParent={false}
-                onMore={(post) =>
-                  Alert.alert(
-                    "Post options",
-                    post.content ?? "Open the post to see more options."
-                  )
-                }
-                onShare={(post) =>
-                  void Share.share({
-                    message: post.content ?? "Check this out on asocialmedia",
-                  })
-                }
-                post={item}
-                viewerId={user?.id}
+      <FeedTabs
+        active={tab}
+        tabs={TABS}
+        onChange={setTab}
+        alignment="center"
+        renderLabel={(definition, selected) => {
+          const Icon =
+            TABS.find((value) => value.value === definition.value)?.icon ??
+            Newspaper;
+          return (
+            <View style={styles.tabLabel}>
+              <Icon
+                size={16}
+                color={selected ? theme.inputText : theme.dividerText}
               />
-            )
-          }
-          showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
-        />
-      )}
+              {selected ? (
+                <Text style={[styles.tabText, { color: theme.inputText }]}>
+                  {definition.label}
+                </Text>
+              ) : null}
+            </View>
+          );
+        }}
+      />
+      <GestureDetector gesture={swipe}>
+        <View style={styles.root}>
+          <FlatList
+            ref={listRef}
+            onScroll={(event) =>
+              scrollOffsets.current.set(tab, event.nativeEvent.contentOffset.y)
+            }
+            scrollEventThrottle={16}
+            {...LIST_VIRTUALIZATION_PROPS}
+            data={resource.data?.items ?? []}
+            keyExtractor={(item) =>
+              `${isHnStory(item) ? "hn" : "post"}-${item.id}`
+            }
+            contentContainerStyle={{
+              paddingBottom: dockHeight + insets.bottom + 24,
+            }}
+            ListEmptyComponent={empty}
+            ListFooterComponent={loadingMore ? <FeedSkeletonCard /> : null}
+            showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
+            onEndReached={() => {
+              void loadMore();
+            }}
+            onEndReachedThreshold={0.5}
+            renderItem={renderRow}
+          />
+        </View>
+      </GestureDetector>
       <MobileBottomNav onHeightChange={setDockHeight} />
+      <ShareSheet
+        post={sharePost}
+        onClose={() => setSharePost(null)}
+        title="Share post"
+        description="Share this post with your network"
+      />
+      <MoreMenu
+        anchor={menu?.anchor ?? null}
+        entries={
+          menu
+            ? overflow.entriesFor(menu.post, {
+                showCaptions: false,
+                showingAlt: false,
+              })
+            : []
+        }
+        onAction={(action) => {
+          if (menu) {
+            overflow.onAction(action, menu.post);
+          }
+          setMenu(null);
+        }}
+        onClose={() => setMenu(null)}
+      />
+      {overflow.dialogs}
     </View>
   );
 }
-
 const styles = StyleSheet.create({
-  center: { alignItems: "center", flex: 1, justifyContent: "center" },
-  countRow: {
-    alignItems: "center",
-    flexDirection: "row",
-    justifyContent: "space-between",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-  },
-  countText: { fontFamily: "SofiaProReg", fontSize: 13 },
-  hnMeta: { fontFamily: "SofiaProReg", fontSize: 12, marginTop: 8 },
-  hnRow: { borderRadius: 14, borderWidth: 1, marginBottom: 8, padding: 14 },
-  hnTitle: { fontFamily: "SofiaProMed", fontSize: 15, lineHeight: 20 },
-  hnUrl: { fontFamily: "SofiaProReg", fontSize: 12, marginTop: 8 },
-  list: { paddingBottom: 110 },
-  loading: { paddingVertical: 20 },
-  refresh: { fontFamily: "SofiaProMed", fontSize: 13 },
-  retry: {
-    borderColor: "#ff9500",
-    borderRadius: 999,
-    borderWidth: 1,
-    paddingHorizontal: 18,
-    paddingVertical: 9,
-  },
-  retryText: { color: "#ff9500", fontFamily: "SofiaProMed", fontSize: 14 },
+  empty: { alignItems: "center", gap: 12, padding: 32, paddingVertical: 48 },
+  emptyCopy: { fontFamily: "SofiaProReg", fontSize: 13, textAlign: "center" },
+  emptyTitle: { fontFamily: "SofiaProMed", fontSize: 15 },
   root: { flex: 1 },
-  state: {
-    alignItems: "center",
-    flex: 1,
-    gap: 10,
-    justifyContent: "center",
-    padding: 32,
-  },
-  stateBody: { fontFamily: "SofiaProReg", fontSize: 14, textAlign: "center" },
-  stateTitle: { fontFamily: "SofiaProBold", fontSize: 18, textAlign: "center" },
-  subtitle: { fontFamily: "SofiaProReg", fontSize: 13, marginTop: 4 },
-  title: { fontFamily: "SofiaProBold", fontSize: 24 },
-  titleRow: {
-    alignItems: "center",
-    flexDirection: "row",
-    justifyContent: "space-between",
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-  },
+  tabLabel: { alignItems: "center", flexDirection: "row", gap: 6 },
+  tabText: { fontFamily: "SofiaProMed", fontSize: 14 },
 });

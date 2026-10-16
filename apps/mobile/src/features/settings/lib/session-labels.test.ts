@@ -20,7 +20,7 @@ describe("getSessionDevice", () => {
   test("reads the browser and the platform apart", () => {
     expect(getSessionDevice(CHROME_ANDROID)).toEqual({
       browser: "Chrome",
-      device: "Android device",
+      device: "Android",
     });
     expect(getSessionDevice(EDGE_WINDOWS)).toEqual({
       browser: "Microsoft Edge",
@@ -28,7 +28,7 @@ describe("getSessionDevice", () => {
     });
     expect(getSessionDevice(FIREFOX_LINUX)).toEqual({
       browser: "Firefox",
-      device: "Linux device",
+      device: "Linux",
     });
   });
 
@@ -60,7 +60,7 @@ describe("getSessionDevice", () => {
 
 describe("sessionDeviceLabel", () => {
   test("joins the two halves when both are known", () => {
-    expect(sessionDeviceLabel(CHROME_ANDROID)).toBe("Chrome on Android device");
+    expect(sessionDeviceLabel(CHROME_ANDROID)).toBe("Chrome on Android");
   });
 
   test("uses whichever half is known rather than printing Unknown", () => {
@@ -71,15 +71,20 @@ describe("sessionDeviceLabel", () => {
 });
 
 describe("getSessionLocation", () => {
+  test("keeps real city names consisting of hexadecimal letters", () => {
+    expect(getSessionLocation("US", " Ada ")).toBe("Ada, United States");
+    expect(getSessionLocation("DE", "2001:db8::1")).toBe("Germany");
+    expect(getSessionLocation("IN", " ")).toBe("India");
+  });
   test("joins the country name and the address when both are present", () => {
-    expect(getSessionLocation("DE", "203.0.113.7")).toBe(
-      "Germany · 203.0.113.7"
-    );
+    expect(getSessionLocation("DE", "203.0.113.7")).toBe("Germany");
   });
 
   test("falls back to whichever half exists", () => {
     expect(getSessionLocation("JP", null)).toBe("Japan");
-    expect(getSessionLocation(null, "198.51.100.4")).toBe("198.51.100.4");
+    expect(getSessionLocation(null, "198.51.100.4")).toBe(
+      "Location unavailable"
+    );
   });
 
   test("says so honestly when neither is available", () => {
@@ -114,4 +119,11 @@ describe("formatLastActive", () => {
   test("never reports a negative age for a clock skew", () => {
     expect(formatLastActive("2026-09-26T12:30:00.000Z", now)).toBe("just now");
   });
+});
+
+test("native sessions identify the actual model and show coarse city without an address", () => {
+  expect(sessionDeviceLabel("Asocialmedia/0.1.72 (Android 16; Pixel 9)")).toBe(
+    "asocialmedia app on Pixel 9"
+  );
+  expect(getSessionLocation("IN", "Betul")).toBe("Betul, India");
 });

@@ -14,6 +14,7 @@ export interface FeedDiversityConfig {
   maxConsecutivePerAuthor?: number;
   // No single author may fill more than this fraction of the page.
   maxSingleAuthorShare?: number;
+  maxSingleTopicShare?: number;
   pageSize: number;
 }
 
@@ -37,10 +38,14 @@ function compareCandidates<T extends { id: string }>(
 // sliding constraints may have relaxed. Guarantees min(pageSize,
 // candidates.length) results: if strict diversity cannot fill the page, a
 // final pass appends the leftovers in score order.
-export function rankFeed<T extends { authorId: string; id: string }>(
-  candidates: ScoredCandidate<T>[],
-  config: FeedDiversityConfig
-): T[] {
+export function rankFeed<
+  T extends {
+    authorId: string;
+    id: string;
+    semanticTags?: readonly string[];
+    mediaKeys?: readonly string[];
+  },
+>(candidates: ScoredCandidate<T>[], config: FeedDiversityConfig): T[] {
   const { maxSingleAuthorShare = DEFAULT_MAX_SINGLE_AUTHOR_SHARE, pageSize } =
     config;
   const maxConsecutivePerAuthor =
@@ -51,10 +56,27 @@ export function rankFeed<T extends { authorId: string; id: string }>(
 
   const selected: T[] = [];
   const perAuthorCount = new Map<string, number>();
+  const topicCounts = new Map<string, number>();
+  const mediaKeys = new Set<string>();
+  const topicCap = Math.max(
+    2,
+    Math.floor(pageSize * (config.maxSingleTopicShare ?? 0.6))
+  );
   let consecutiveRun = 0;
   let lastAuthor: string | null = null;
 
-  const canPlace = (authorId: string): boolean => {
+  const canPlace = (post: T): boolean => {
+    const { authorId } = post;
+    if (post.mediaKeys?.some((key) => mediaKeys.has(key))) {
+      return false;
+    }
+    if (
+      post.semanticTags
+        ?.slice(0, 2)
+        .some((tag) => (topicCounts.get(tag) ?? 0) >= topicCap)
+    ) {
+      return false;
+    }
     const placed = perAuthorCount.get(authorId) ?? 0;
     if (placed >= authorCap) {
       return false;
@@ -67,6 +89,12 @@ export function rankFeed<T extends { authorId: string; id: string }>(
 
   const place = (post: T): void => {
     selected.push(post);
+    for (const key of post.mediaKeys ?? []) {
+      mediaKeys.add(key);
+    }
+    for (const tag of post.semanticTags?.slice(0, 2) ?? []) {
+      topicCounts.set(tag, (topicCounts.get(tag) ?? 0) + 1);
+    }
     perAuthorCount.set(
       post.authorId,
       (perAuthorCount.get(post.authorId) ?? 0) + 1
@@ -87,7 +115,7 @@ export function rankFeed<T extends { authorId: string; id: string }>(
         stillDeferred.push(candidate);
         continue;
       }
-      if (canPlace(candidate.post.authorId)) {
+      if (canPlace(candidate.post)) {
         place(candidate.post);
         progress = true;
       } else {

@@ -1,8 +1,9 @@
+import { FlashList } from "@shopify/flash-list";
+import type { FlashListRef } from "@shopify/flash-list";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import {
-  Clapperboard,
   CornerDownRight,
   Eye,
   FileText,
@@ -12,10 +13,11 @@ import {
   Volume2,
 } from "lucide-react-native";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { ComponentProps } from "react";
 import {
   Animated,
-  FlatList,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -35,8 +37,11 @@ import { UserAvatar } from "@/components/avatar/user-avatar";
 import { Spinner3D } from "@/components/feedback/spinner-3d";
 import { toast } from "@/components/feedback/toast";
 import { usePullToRefresh } from "@/components/feedback/use-pull-to-refresh";
+import { authClient } from "@/features/auth/lib/auth-client";
 import { deleteEddie } from "@/features/composer/lib/publish-api";
 import { DeleteEddieDialog } from "@/features/eddies/components/delete-eddie-dialog";
+import { ExploreBadge } from "@/features/explore/components/explore-badge";
+import { ConcealedMediaCover } from "@/features/feed/components/concealed-media-cover";
 import {
   MoreMenu,
   buildMoreEntries,
@@ -49,6 +54,7 @@ import type {
 import { MoreButton } from "@/features/feed/components/post-actions";
 import { PostCard } from "@/features/feed/components/post-card";
 import { PostLinkEmbeds } from "@/features/feed/components/post-link-embeds";
+import { ExplicitGate } from "@/features/feed/components/post-media";
 import {
   ShareSheet,
   getSharePostUrl,
@@ -63,13 +69,14 @@ import {
   mediaPosterUrl,
 } from "@/features/feed/lib/media-url";
 import { useLinkPreviews } from "@/features/feed/lib/use-link-previews";
+import { useMediaPreviewStore } from "@/features/feed/state/media-preview-store";
 import { GustRowCard } from "@/features/gusts/components/gust-row-card";
 import { BioContent } from "@/features/home/components/bio-content";
 import { getAuraFlameStyle } from "@/features/home/components/profile-utils";
 import { UserBadge } from "@/features/home/components/user-badge";
+import { fetchPostDetail } from "@/features/post/lib/post-api";
 import { getApiBaseUrl } from "@/lib/api-env";
 import { formatNumber } from "@/lib/format-number";
-import { LIST_VIRTUALIZATION_PROPS } from "@/lib/list-virtualization";
 import { SHOWS_SCROLL_INDICATOR } from "@/lib/scroll-indicator";
 import { useAppTheme } from "@/theme";
 
@@ -260,6 +267,28 @@ const GustGridTile = memo(
     } else if (image) {
       source = { uri: mediaImageUrl(apiBase, image) };
     }
+    const previewMedia = video ?? image;
+    let preview = (
+      <View style={[styles.gustGridImage, styles.gustGridFallback]} />
+    );
+    if (source) {
+      preview = (
+        <Image
+          contentFit="cover"
+          source={source}
+          style={styles.gustGridImage}
+        />
+      );
+    }
+    if (post.explicitContent && previewMedia) {
+      preview = (
+        <ConcealedMediaCover
+          accessibilityLabel="Blurred explicit media preview"
+          apiBase={apiBase}
+          media={previewMedia}
+        />
+      );
+    }
     return (
       <Pressable
         accessibilityLabel={`Open Gust by ${author}`}
@@ -267,22 +296,8 @@ const GustGridTile = memo(
         onPress={() => onOpen(post)}
         style={styles.gustGridTile}
       >
-        {source ? (
-          <Image
-            contentFit="cover"
-            source={source}
-            style={[
-              styles.gustGridImage,
-              post.explicitContent ? styles.mediaBlurred : null,
-            ]}
-          />
-        ) : (
-          <View style={[styles.gustGridImage, styles.gustGridFallback]} />
-        )}
-        <View style={styles.gustGridChip}>
-          <Clapperboard color="#f97316" size={10} />
-          <Text style={styles.gustGridChipText}>Gust</Text>
-        </View>
+        {preview}
+        <ExploreBadge kind="gust" style={styles.gustGridChip} />
         <LinearGradient
           colors={["transparent", "rgba(0,0,0,0.45)", "rgba(0,0,0,0.85)"]}
           locations={[0, 0.4, 1]}
@@ -323,7 +338,6 @@ function renderMediaContent({
   fallbackText,
   isAudio,
   isGenericFile,
-  item,
   moderated,
   showFallback,
   source,
@@ -332,7 +346,6 @@ function renderMediaContent({
   fallbackText: string;
   isAudio: boolean;
   isGenericFile: boolean;
-  item: ProfileMedia;
   moderated: boolean;
   showFallback: boolean;
   source: { uri: string } | null;
@@ -393,16 +406,7 @@ function renderMediaContent({
     );
   }
 
-  return (
-    <Image
-      contentFit="cover"
-      source={source}
-      style={[
-        styles.mediaImage,
-        item.post?.explicitContent ? styles.mediaBlurred : null,
-      ]}
-    />
-  );
+  return <Image contentFit="cover" source={source} style={styles.mediaImage} />;
 }
 
 // Media tile with 1:1 parity with web's media-gallery. Video items display the
@@ -419,6 +423,9 @@ const MediaTile = memo(
   }) => {
     const { theme } = useAppTheme();
     const apiBase = getApiBaseUrl();
+    const tileRef = useRef<View>(null);
+    const router = useRouter();
+    const holdOpened = useRef(false);
     const aspectRatio = mediaTileAspect(item);
     const isImage = item.type === "IMAGE";
     const isVideo = isVideoMedia(item);
@@ -452,7 +459,49 @@ const MediaTile = memo(
         <Pressable
           accessibilityLabel={label}
           accessibilityRole="link"
-          onPress={() => onOpen(item)}
+          ref={tileRef}
+          delayLongPress={350}
+          onPressIn={() => {
+            holdOpened.current = false;
+          }}
+          onLongPress={() => {
+            if (
+              !item.post ||
+              item.post.explicitContent ||
+              item.post.moderated ||
+              isAudio ||
+              isGenericFile
+            ) {
+              return;
+            }
+            holdOpened.current = true;
+            const postId = item.post.id;
+            tileRef.current?.measureInWindow((x, y, width, height) => {
+              void (async () => {
+                try {
+                  const detail = await fetchPostDetail(postId, {
+                    apiBase,
+                    cookie: await authClient.getCookie(),
+                  });
+                  useMediaPreviewStore.getState().open({
+                    bounds: { height, width, x, y },
+                    media: item,
+                    post: detail.post,
+                  });
+                } catch {
+                  toast({
+                    description: "Try opening the post.",
+                    title: "Couldn't load media preview",
+                  });
+                }
+              })();
+            });
+          }}
+          onPress={() => {
+            if (!holdOpened.current) {
+              onOpen(item);
+            }
+          }}
           style={[
             styles.mediaTile,
             {
@@ -462,16 +511,23 @@ const MediaTile = memo(
             },
           ]}
         >
-          {renderMediaContent({
-            fallbackText,
-            isAudio,
-            isGenericFile,
-            item,
-            moderated,
-            showFallback,
-            source,
-            theme,
-          })}
+          {item.post?.explicitContent && !moderated ? (
+            <ConcealedMediaCover
+              accessibilityLabel="Blurred explicit media preview"
+              apiBase={apiBase}
+              media={item}
+            />
+          ) : (
+            renderMediaContent({
+              fallbackText,
+              isAudio,
+              isGenericFile,
+              moderated,
+              showFallback,
+              source,
+              theme,
+            })
+          )}
 
           {isVideo && !moderated ? (
             <View style={styles.mediaVideoBadge}>
@@ -492,12 +548,27 @@ const MediaTile = memo(
           ) : null}
         </Pressable>
 
-        <Text
-          numberOfLines={1}
-          style={[styles.mediaFooterLink, { color: theme.dividerText }]}
+        <Pressable
+          accessibilityRole="link"
+          accessibilityLabel={`View ${item.post?.isGust ? "gust" : "post"}`}
+          onPress={() => {
+            if (item.post?.isGust) {
+              onOpen(item);
+            } else if (item.post) {
+              router.push({
+                params: { postId: item.post.id },
+                pathname: "/posts/[postId]",
+              });
+            }
+          }}
         >
-          View {item.post?.isGust ? "gust" : "post"}
-        </Text>
+          <Text
+            numberOfLines={1}
+            style={[styles.mediaFooterLink, { color: theme.dividerText }]}
+          >
+            View {item.post?.isGust ? "gust" : "post"}
+          </Text>
+        </Pressable>
       </View>
     );
   }
@@ -551,6 +622,29 @@ const ReplyRow = memo(
         title: "Delete failed",
       });
     };
+
+    const mediaAndEmbeds = (
+      <>
+        {item.attachments.length > 0 ? (
+          <View style={styles.replyAttachments}>
+            {item.attachments.map((attachment) => (
+              <Image
+                contentFit="cover"
+                key={attachment.id}
+                source={{ uri: mediaImageUrl(getApiBaseUrl(), attachment) }}
+                style={styles.replyAttachment}
+              />
+            ))}
+          </View>
+        ) : null}
+
+        {embeds.length > 0 ? (
+          <View style={styles.replyEmbeds}>
+            <PostLinkEmbeds apiBase={getApiBaseUrl()} embeds={embeds} />
+          </View>
+        ) : null}
+      </>
+    );
 
     return (
       <View style={[styles.replyRow, { borderBottomColor: theme.cardBorder }]}>
@@ -618,24 +712,18 @@ const ReplyRow = memo(
               />
             ) : null}
 
-            {item.attachments.length > 0 ? (
-              <View style={styles.replyAttachments}>
-                {item.attachments.map((attachment) => (
-                  <Image
-                    contentFit="cover"
-                    key={attachment.id}
-                    source={{ uri: mediaImageUrl(getApiBaseUrl(), attachment) }}
-                    style={styles.replyAttachment}
-                  />
-                ))}
-              </View>
-            ) : null}
-
-            {embeds.length > 0 ? (
-              <View style={styles.replyEmbeds}>
-                <PostLinkEmbeds apiBase={getApiBaseUrl()} embeds={embeds} />
-              </View>
-            ) : null}
+            {item.post.explicitContent &&
+            (item.attachments.length > 0 || embeds.length > 0) ? (
+              <ExplicitGate
+                apiBase={getApiBaseUrl()}
+                attachments={item.attachments}
+                revealKey={item.post.id}
+              >
+                {mediaAndEmbeds}
+              </ExplicitGate>
+            ) : (
+              mediaAndEmbeds
+            )}
           </Pressable>
           {/* Actions: Aura indicator and Reply button */}
           <View style={styles.replyActionsRow}>
@@ -770,7 +858,7 @@ export function ProfileFeed({
   // rebuilt it (banner, avatar, bio) on every 1-column <-> 2-column switch.
   // Switching tabs now only swaps the rows; the header stays mounted and
   // still, and the tab area shows its own spinner while the tab loads.
-  const listRef = useRef<FlatList<ProfileFeedRow>>(null);
+  const listRef = useRef<FlashListRef<ProfileFeedRow>>(null);
   const previousTabRef = useRef(tab);
 
   useEffect(() => {
@@ -883,7 +971,7 @@ export function ProfileFeed({
         return;
       }
       router.push({
-        params: { index: "0", postId: item.post.id },
+        params: { index: "0", mediaId: item.id, postId: item.post.id },
         pathname: "/posts/[postId]/media/[index]",
       });
     },
@@ -1068,6 +1156,16 @@ export function ProfileFeed({
 
   const handleScrollEndDrag = useCallback(() => pull.onScrollEndDrag(), [pull]);
 
+  // Bind to the actual scroll view, since FlashList's outer view does not scroll.
+  const renderScrollComponent = useCallback(
+    (props: ComponentProps<typeof ScrollView>) => (
+      <GestureDetector gesture={pull.nativeScrollGesture}>
+        <ScrollView {...props} />
+      </GestureDetector>
+    ),
+    [pull.nativeScrollGesture]
+  );
+
   // The row carries its own `grid` flag, because "one cell" means two different
   // things: a whole row on a single-column tab (rendered bare, which is what
   // gives those tabs their exact previous layout) and the trailing remainder of
@@ -1111,7 +1209,7 @@ export function ProfileFeed({
   const keyExtractor = useCallback((item: ProfileFeedRow) => item.key, []);
 
   const items = useMemo(
-    () => chunkFeedRows(feedItems(feed), twoColumns),
+    () => chunkFeedRows(feedItems(feed), twoColumns && !isMediaFeed(feed)),
     [feed, twoColumns]
   );
   const handleRetry = useCallback(() => feed.fetchNext(), [feed]);
@@ -1143,41 +1241,39 @@ export function ProfileFeed({
   return (
     <GestureDetector gesture={outerGestures}>
       <View style={styles.rootContainer}>
-        <GestureDetector gesture={pull.nativeScrollGesture}>
-          <FlatList
-            ItemSeparatorComponent={renderSeparator}
-            ListEmptyComponent={
-              feed.status === "success" ? (
-                <EmptyProfileTab isOwnProfile={isOwnProfile} tab={tab} />
-              ) : null
-            }
-            ListFooterComponent={renderFooter}
-            ListHeaderComponent={
-              <View>
-                {header}
-                {locked ? null : (
-                  <ProfileTabState
-                    feed={feed}
-                    onRetry={handleRetry}
-                    tab={tab}
-                  />
-                )}
-              </View>
-            }
-            contentContainerStyle={styles.list}
-            data={items}
-            keyExtractor={keyExtractor}
-            {...LIST_VIRTUALIZATION_PROPS}
-            onEndReached={feed.hasMore ? feed.fetchNext : undefined}
-            onEndReachedThreshold={0.6}
-            onScroll={handleContentScroll}
-            onScrollEndDrag={handleScrollEndDrag}
-            ref={listRef}
-            renderItem={renderItem}
-            scrollEventThrottle={16}
-            showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
-          />
-        </GestureDetector>
+        <FlashList
+          ItemSeparatorComponent={renderSeparator}
+          ListEmptyComponent={
+            feed.status === "success" ? (
+              <EmptyProfileTab isOwnProfile={isOwnProfile} tab={tab} />
+            ) : null
+          }
+          ListFooterComponent={renderFooter}
+          ListHeaderComponent={
+            <View>
+              {header}
+              {locked ? null : (
+                <ProfileTabState feed={feed} onRetry={handleRetry} tab={tab} />
+              )}
+            </View>
+          }
+          contentContainerStyle={styles.list}
+          data={items}
+          keyExtractor={keyExtractor}
+          masonry={isMediaFeed(feed)}
+          numColumns={isMediaFeed(feed) ? 2 : 1}
+          getItemType={(item) => item.cells[0].kind}
+          maintainVisibleContentPosition={{ disabled: true }}
+          onEndReached={feed.hasMore ? feed.fetchNext : undefined}
+          onEndReachedThreshold={0.6}
+          onScroll={handleContentScroll}
+          onScrollEndDrag={handleScrollEndDrag}
+          ref={listRef}
+          renderItem={renderItem}
+          renderScrollComponent={renderScrollComponent}
+          scrollEventThrottle={16}
+          showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
+        />
 
         {pull.loader}
 
@@ -1292,23 +1388,7 @@ const styles = StyleSheet.create({
   },
   footer: { alignItems: "center", paddingVertical: 18 },
   gridCell: { flex: 1 },
-  gustGridChip: {
-    alignItems: "center",
-    backgroundColor: "rgba(0,0,0,0.55)",
-    borderRadius: 999,
-    flexDirection: "row",
-    gap: 4,
-    left: 8,
-    paddingHorizontal: 7,
-    paddingVertical: 2,
-    position: "absolute",
-    top: 8,
-  },
-  gustGridChipText: {
-    color: "#ffffff",
-    fontFamily: "SofiaProBold",
-    fontSize: 10,
-  },
+  gustGridChip: { left: 8, position: "absolute", top: 8 },
   gustGridContent: {
     color: "rgba(255,255,255,0.92)",
     fontFamily: "SofiaProMed",
@@ -1385,9 +1465,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     width: 24,
   },
-  mediaBlurred: {
-    opacity: 0.5,
-  },
   mediaFallback: {
     alignItems: "center",
     justifyContent: "center",
@@ -1428,7 +1505,8 @@ const styles = StyleSheet.create({
   },
   mediaTileWrap: {
     flex: 1,
-    marginBottom: 4,
+    marginBottom: 8,
+    marginHorizontal: 4,
   },
   mediaVideoBadge: {
     position: "absolute",

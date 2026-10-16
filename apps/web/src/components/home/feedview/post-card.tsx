@@ -1,6 +1,7 @@
 "use client";
 
 import type { PostData, UserData } from "@asm/db";
+import { mediaReshareLabel } from "@asm/media";
 import { Button } from "@asm/ui/shadui/button";
 import { Card, CardContent } from "@asm/ui/shadui/card";
 import { CornerDownRight, Eye, MessageSquare } from "lucide-react";
@@ -126,17 +127,17 @@ const PostHeader: React.FC<PostHeaderProps> = ({
           >
             <UserAvatar
               avatarUrl={authorAvatarUrl}
-              className="h-10 w-10 sm:h-12 sm:w-12"
+              className="h-9 w-9 sm:h-12 sm:w-12"
               priority
             />
           </Link>
         </UserTooltip>
 
-        <div className="min-w-0 flex-1 pr-19">
-          <div className="flex min-w-0 items-center gap-2">
+        <div className="min-w-0 flex-1 pr-9 sm:pr-19">
+          <div className="flex min-w-0 items-center gap-1.5 sm:gap-2">
             <UserTooltip user={post.user}>
               <Link
-                className="text-foreground truncate font-semibold hover:underline"
+                className="text-foreground truncate text-[13px]/4.5 font-semibold hover:underline sm:text-base/6"
                 href={authorProfileHref}
                 prefetch={false}
               >
@@ -147,9 +148,10 @@ const PostHeader: React.FC<PostHeaderProps> = ({
               badge={authorBadge}
               badges={authorBadges}
               communityRoles={authorCommunityRoles}
+              className="h-4 w-12 sm:h-5 sm:w-15"
             />
             <Link
-              className="text-muted-foreground shrink-0 hover:underline"
+              className="text-muted-foreground shrink-0 text-[11px]/4 hover:underline sm:text-base/6"
               href={getPostPath(post)}
               prefetch={false}
               suppressHydrationWarning
@@ -160,7 +162,7 @@ const PostHeader: React.FC<PostHeaderProps> = ({
           <div className="mt-0.5 flex min-w-0 items-center gap-2">
             <UserTooltip user={post.user}>
               <Link
-                className="text-muted-foreground truncate hover:underline"
+                className="text-muted-foreground truncate text-xs/4 hover:underline sm:text-base/6"
                 href={authorProfileHref}
                 prefetch={false}
               >
@@ -327,6 +329,7 @@ const PostContent: React.FC<PostContentProps> = ({
   const contentRef = useRef<HTMLDivElement>(null);
   const [isOverflowing, setIsOverflowing] = useState(false);
   const attachments = post.attachments ?? [];
+  const contextCommunity = post.community;
   const [firstMedia] = attachments;
   // Validated stored embed payloads drive both the inline link badges and
   // the preview cards below the post.
@@ -389,6 +392,20 @@ const PostContent: React.FC<PostContentProps> = ({
           post={post}
         />
       ) : null}
+      {[
+        ...new Set(
+          attachments
+            .map(mediaReshareLabel)
+            .filter((label): label is string => Boolean(label))
+        ),
+      ].map((label) => (
+        <span
+          key={label}
+          className="chip-3d text-muted-foreground w-fit px-2 py-1 text-xs"
+        >
+          {label}
+        </span>
+      ))}
       {postEmbeds.length > 0 ? (
         // Spacing comes from the column gap, not the embeds' own top margin.
         <PostLinkEmbeds className="" embeds={postEmbeds} />
@@ -408,12 +425,17 @@ const PostContent: React.FC<PostContentProps> = ({
           set above the avatar so the space it belongs to reads first, before
           the author. Suppressed inside that community's own feed, where the
           attribution is redundant; ranked feeds add the reason line. */}
-      {post.community && showCommunity ? (
+      {contextCommunity && showCommunity ? (
         <CommunityAttribution
           className="mb-2.5"
-          community={post.community}
+          community={{
+            accentColor: contextCommunity.accentColor ?? "ember",
+            id: contextCommunity.id ?? contextCommunity.slug,
+            name: contextCommunity.name ?? contextCommunity.slug,
+            slug: contextCommunity.slug,
+          }}
           reason={
-            showCommunityReason
+            post.community && showCommunityReason
               ? `Trending in a/${post.community.slug}`
               : undefined
           }
@@ -464,13 +486,21 @@ const PostContent: React.FC<PostContentProps> = ({
               <div
                 className={cn(
                   !isExpanded && "line-clamp-6",
-                  detail && !isThreadChild ? "mt-3.5" : "mt-1"
+                  detail && !isThreadChild ? "mt-3 sm:mt-3.5" : "mt-1"
                 )}
                 ref={contentRef}
               >
                 {/* URLs inside the content render as inline badges (platform
                   logo + resolved embed title) instead of raw URLs. */}
-                <PostLinkedContent content={post.content} embeds={postEmbeds} />
+                <PostLinkedContent
+                  className={
+                    detail && !isThreadChild
+                      ? "text-sm/5.5 sm:text-[15px]/relaxed"
+                      : undefined
+                  }
+                  content={post.content}
+                  embeds={postEmbeds}
+                />
               </div>
               {isOverflowing ? (
                 <button
@@ -922,16 +952,14 @@ const PostCard: React.FC<PostCardProps> = ({
   let railStyle: React.CSSProperties | undefined;
   let railClassName =
     "pointer-events-none absolute inset-y-0 left-0 z-10 w-0.5";
-  if (post.community) {
-    railStyle = communityAccentStyle(post.community.accentColor);
-    railClassName = cn(
-      railClassName,
-      "bg-[var(--community-accent)] dark:bg-[var(--community-accent-dark)]"
-    );
+  const railCommunity = post.community ?? post.communityShare?.community;
+  if (railCommunity) {
+    railStyle = communityAccentStyle(post.community?.accentColor ?? "ember");
+    railClassName = cn(railClassName, "community-accent-rail");
   } else if (hasHnIndicator) {
     railClassName = cn(railClassName, "bg-orange-500");
   }
-  const showRail = Boolean(post.community) || hasHnIndicator;
+  const showRail = Boolean(railCommunity) || hasHnIndicator;
 
   return (
     // oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- full card is clickable for post navigation while maintaining semantic article structure

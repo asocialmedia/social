@@ -2,23 +2,35 @@ import { Image } from "expo-image";
 import { useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
 
-import { resolveProfileImageUrl } from "@/features/home/components/profile-utils";
+import {
+  getDefaultAvatar,
+  resolveProfileImageUrl,
+} from "@/features/home/components/profile-utils";
 import { getApiBaseUrl } from "@/lib/api-env";
 import { useAppTheme } from "@/theme";
 
 import type { CommunityData } from "../lib/communities-api";
+import { resolveCommunityAccentColor } from "../lib/community-accents";
 
 export function CommunityAvatar({
   community,
   size = 48,
+  imageHeaders,
+  apiBase = getApiBaseUrl(),
 }: {
   community: Pick<CommunityData, "accentColor" | "avatarUrl" | "name" | "slug">;
   size?: number;
+  imageHeaders?: Record<string, string>;
+  apiBase?: string;
 }) {
-  const { theme } = useAppTheme();
+  const { theme, isDark } = useAppTheme();
   const [failed, setFailed] = useState(false);
-  const accent = community.accentColor ?? "#f97316";
-  const uri = resolveProfileImageUrl(community.avatarUrl, getApiBaseUrl());
+  const accent = resolveCommunityAccentColor(community.accentColor, isDark);
+  const useDefault = failed || !community.avatarUrl;
+  const uri = resolveProfileImageUrl(
+    useDefault ? getDefaultAvatar(community.slug) : community.avatarUrl,
+    apiBase
+  );
   return (
     <View
       style={[
@@ -26,22 +38,25 @@ export function CommunityAvatar({
         {
           backgroundColor: failed || !uri ? `${accent}33` : theme.cardBg,
           borderColor: accent,
+          borderRadius: Math.min(12, size / 4),
           height: size,
           width: size,
         },
       ]}
     >
-      {uri && !failed ? (
+      {uri ? (
         <Image
           accessibilityLabel={`${community.name} community`}
           cachePolicy="memory-disk"
           contentFit="cover"
           onError={() => setFailed(true)}
-          source={{ uri }}
+          source={{ headers: useDefault ? undefined : imageHeaders, uri }}
           style={styles.image}
         />
       ) : (
-        <Text style={[styles.initial, { color: accent }]}>
+        <Text
+          style={[styles.initial, { color: accent, fontSize: size * 0.375 }]}
+        >
           {(community.name[0] ?? "a").toUpperCase()}
         </Text>
       )}

@@ -30,8 +30,8 @@ export const SettingsSectionHeader = ({
       <Icon className="h-5 w-5" />
     </div>
     <div className="min-w-0">
-      <h2 className="truncate text-base font-semibold sm:text-lg">{title}</h2>
-      <p className="text-muted-foreground truncate text-sm">{description}</p>
+      <h2 className="text-base font-semibold sm:text-lg">{title}</h2>
+      <p className="text-muted-foreground text-sm">{description}</p>
     </div>
   </div>
 );
@@ -47,15 +47,7 @@ export const SettingsCard = ({
   className,
   id,
 }: SettingsCardProps) => (
-  <div
-    className={cn(
-      "border-border/60 rounded-2xl border bg-[hsl(var(--background))] p-5 sm:p-6",
-      "shadow-[inset_0_0_0_1px_rgba(255,255,255,0.7),inset_0_1px_2px_rgba(255,255,255,0.9),inset_0_-2px_4px_rgba(0,0,0,0.03),0_1px_3px_rgba(0,0,0,0.06)]",
-      "dark:border-white/10 dark:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06),inset_0_1px_2px_rgba(255,255,255,0.04),inset_0_-2px_4px_rgba(0,0,0,0.15),0_1px_3px_rgba(0,0,0,0.2)]",
-      className
-    )}
-    id={id}
-  >
+  <div className={cn("surface-3d rounded-2xl! p-5 sm:p-6", className)} id={id}>
     {children}
   </div>
 );
@@ -63,8 +55,7 @@ export const SettingsCard = ({
 // Tonal elevation for rows nested inside a SettingsCard: the same surface as
 // the card plus a self-colored edge and a top-lit inner highlight, so depth
 // reads without a contrasting outline or a drop shadow.
-export const SETTINGS_SUBCARD_CLASS =
-  "border-border/60 rounded-xl border bg-[hsl(var(--background))] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.7),inset_0_1px_2px_rgba(255,255,255,0.9),inset_0_-2px_4px_rgba(0,0,0,0.03),0_1px_3px_rgba(0,0,0,0.06)] dark:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06),inset_0_1px_2px_rgba(255,255,255,0.04),inset_0_-2px_4px_rgba(0,0,0,0.15),0_1px_3px_rgba(0,0,0,0.2)]";
+export const SETTINGS_SUBCARD_CLASS = "surface-3d rounded-xl!";
 
 interface SettingsCardHeadingProps {
   description: string;
@@ -90,7 +81,7 @@ export const SettingsCardHeading = ({
       <Icon className="h-3.5 w-3.5" />
     </div>
     <div className="min-w-0">
-      <h3 className="truncate font-medium">{title}</h3>
+      <h3 className="font-medium">{title}</h3>
       <p className="text-muted-foreground text-sm">{description}</p>
     </div>
   </div>

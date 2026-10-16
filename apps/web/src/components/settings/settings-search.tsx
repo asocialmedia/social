@@ -8,7 +8,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { cn } from "@/lib/utils";
 
-export type SettingsTab = "profile" | "account" | "privacy" | "security";
+export type SettingsTab =
+  | "profile"
+  | "account"
+  | "privacy"
+  | "security"
+  | "personalization";
 
 interface SettingsEntry {
   description: string;
@@ -20,6 +25,22 @@ interface SettingsEntry {
 }
 
 const SETTINGS_CATALOG: SettingsEntry[] = [
+  {
+    description: "Light, dark or your device appearance",
+    id: "appearance",
+    keywords: ["theme", "light", "dark", "system", "personalization"],
+    label: "Appearance",
+    sectionId: "settings-appearance",
+    tab: "personalization",
+  },
+  {
+    description: "Terms and Privacy Policy",
+    id: "legal",
+    keywords: ["legal", "terms", "privacy", "policy"],
+    label: "Legal",
+    sectionId: "settings-legal",
+    tab: "privacy",
+  },
   {
     description: "Change the name shown on your profile",
     id: "display-name",
@@ -173,6 +194,7 @@ const SETTINGS_CATALOG: SettingsEntry[] = [
 
 const TAB_LABELS: Record<SettingsTab, string> = {
   account: "Account",
+  personalization: "Personalization",
   privacy: "Privacy",
   profile: "Profile",
   security: "Security",

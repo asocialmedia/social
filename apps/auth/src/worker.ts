@@ -112,6 +112,7 @@ if (import.meta.main) {
     processPublishedNotificationsSweep,
   } = await import("./worker/jobs");
   const { healCredentialAccounts } = await import("./worker/account-heal");
+  const { processMessagePush } = await import("./worker/message-push");
   const {
     clearMessageSearchKeyCache,
     processMessageSearchBackfill,
@@ -397,6 +398,9 @@ if (import.meta.main) {
           async (job) => {
             if (job.name === "notification-created") {
               return await processNotificationCreated(job.data, logger);
+            }
+            if (job.name === "message-push") {
+              return await processMessagePush(job.data, logger);
             }
             throw new Error(`Unknown notification event: ${job.name}`);
           },

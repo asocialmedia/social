@@ -2,13 +2,14 @@
 
 import type { UserCommunityRole, UserData } from "@asm/db";
 import { Tabs, TabsContent, TabsList } from "@asm/ui/shadui/tabs";
-import { ArrowLeft, Settings } from "lucide-react";
+import { ArrowLeft, Search, Settings } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useMediaQuery } from "usehooks-ts";
 
 import { useSession } from "@/app/(main)/session-provider";
 import { AnimatedTabTrigger } from "@/components/home/feedview/animated-tab-trigger";
+import ShareButton from "@/components/home/feedview/share-button";
 import { FeedScrollbar } from "@/components/layouts/feed/feed-scrollbar";
 import MediaGallery, {
   MediaGalleryContent,
@@ -20,6 +21,7 @@ import UserGustsFeed from "@/components/profile/user-gusts-feed";
 import UserPostsFeed from "@/components/profile/user-posts-feed";
 import UserRepliesFeed from "@/components/profile/user-replies-feed";
 import UserResponsesFeed from "@/components/profile/user-responses-feed";
+import { useSpotlight } from "@/components/search/spotlight-provider";
 import { useRequireAuth } from "@/hooks/auth/use-require-auth";
 import { useFeedScrollMemory } from "@/hooks/feed/use-feed-scroll-memory";
 import { useFeedSwipeNavigation } from "@/hooks/feed/use-feed-swipe-navigation";
@@ -58,6 +60,7 @@ const ClientProfile: React.FC<ProfilePageProps> = ({
   const feedScrollRef = useRef<HTMLDivElement>(null);
   const isXl = useMediaQuery("(min-width: 1280px)");
   const router = useRouter();
+  const { openSpotlight } = useSpotlight();
   const { user } = useSession();
   const isLoggedIn = Boolean(user);
   const { goToLogin } = useRequireAuth();
@@ -159,7 +162,7 @@ const ClientProfile: React.FC<ProfilePageProps> = ({
           >
             <div className="relative min-h-0 flex-1">
               <div
-                className={`hide-native-scrollbar h-full touch-pan-y overflow-x-hidden overflow-y-auto ${
+                className={`hide-native-scrollbar h-full touch-auto overflow-x-hidden overflow-y-auto ${
                   isLoggedIn ? "pb-24 lg:pb-0" : "pb-44 lg:pb-20"
                 }`}
                 ref={feedScrollRef}
@@ -171,31 +174,69 @@ const ClientProfile: React.FC<ProfilePageProps> = ({
                     ownUserData={loggedInUserData}
                     userData={userData}
                   />
-                  <div className="absolute inset-x-0 top-0 z-20 flex items-center justify-between p-3 md:hidden">
+                  <div className="absolute inset-x-0 top-0 z-20 flex items-center justify-between p-3">
                     <button
                       aria-label="Go back"
-                      className="flex h-10 w-10 items-center justify-center rounded-full bg-black/40 text-white backdrop-blur-md transition-all hover:bg-black/60 hover:brightness-110 active:translate-y-px"
+                      className="rail-3d-btn flex size-10 items-center justify-center rounded-full active:scale-95"
                       onClick={handleGoBack}
                       type="button"
                     >
                       <ArrowLeft className="h-5 w-5" />
                     </button>
-                    <button
-                      aria-label="Settings"
-                      className="flex h-10 w-10 items-center justify-center rounded-full bg-black/40 text-white backdrop-blur-md transition-all hover:bg-black/60 hover:brightness-110 active:translate-y-px"
-                      onClick={handleOpenSettings}
-                      type="button"
+                    <fieldset
+                      className="rail-3d-btn flex items-center rounded-full p-0.5"
+                      aria-label="Profile actions"
                     >
-                      <Settings className="h-5 w-5" />
-                    </button>
+                      <button
+                        aria-label="Search"
+                        className="flex size-10 items-center justify-center rounded-full transition-transform hover:scale-105 active:scale-95"
+                        onClick={() => openSpotlight()}
+                        type="button"
+                      >
+                        <Search className="size-5" />
+                      </button>
+                      <ShareButton
+                        triggerVariant="embedded"
+                        className="h-10! w-10! text-white!"
+                        iconClassName="size-5!"
+                        defaultTab="link"
+                        description={
+                          userData.bio ||
+                          `Check out @${userData.username}'s profile on asocialmedia`
+                        }
+                        dialogDescription="Share this profile with your network"
+                        dialogTitle="Share Profile"
+                        shareUrl={
+                          typeof window === "undefined"
+                            ? undefined
+                            : `${window.location.origin}/users/${userData.username}`
+                        }
+                        thumbnail={userData.avatarUrl || undefined}
+                        title={`${userData.displayName || userData.username} (@${userData.username}) on asocialmedia`}
+                      />
+                      <button
+                        aria-label="Settings"
+                        className="flex size-10 items-center justify-center rounded-full transition-transform hover:scale-105 active:scale-95"
+                        onClick={handleOpenSettings}
+                        type="button"
+                      >
+                        <Settings className="size-5" />
+                      </button>
+                    </fieldset>
                   </div>
                 </div>
 
                 {/* z-30 keeps this sticky bar above later-painted content
                     overlays inside the scroller (e.g. the explicit-media
                     gate's z-10 blur/popup) instead of tying on z-index. */}
-                <div className="border-border/60 sticky top-0 z-30 flex items-center justify-center border-b bg-[hsl(var(--background-alt))]/95 py-1.5 backdrop-blur-md">
-                  <TabsList className="flex items-center justify-center gap-0 bg-transparent p-0">
+                <div
+                  className="border-border/60 hide-native-scrollbar sticky top-0 z-30 w-full overflow-x-auto overscroll-x-contain border-b bg-[hsl(var(--background-alt))]/95 py-1.5 backdrop-blur-md"
+                  data-profile-tabs-scroll
+                >
+                  <TabsList
+                    aria-label="Profile sections"
+                    className="mx-auto flex w-max min-w-full items-center justify-center gap-0 bg-transparent p-0 *:shrink-0"
+                  >
                     <AnimatedTabTrigger
                       active={activeTab === "posts"}
                       layoutId="profile-tab-indicator"

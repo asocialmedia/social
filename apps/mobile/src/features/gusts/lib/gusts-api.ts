@@ -12,7 +12,7 @@ import { normalizePostsData } from "@/features/feed/lib/feed-types";
 import { withAuthHeaders } from "@/lib/auth-headers";
 import { getWithTimeout } from "@/lib/http-get";
 
-export type GustTab = "latest" | "personalized";
+export type GustTab = "following" | "latest" | "personalized";
 
 // Web's default: For you when signed in, Latest for guests.
 export function defaultGustTab(isLoggedIn: boolean): GustTab {
@@ -20,10 +20,13 @@ export function defaultGustTab(isLoggedIn: boolean): GustTab {
 }
 
 export function parseGustTab(value: unknown = null): GustTab | null {
-  return value === "latest" || value === "personalized" ? value : null;
+  return value === "latest" || value === "personalized" || value === "following"
+    ? value
+    : null;
 }
 
 export interface GustsQuery {
+  following?: boolean;
   cursor?: string | null;
   // Deep link: the first page leads with this gust, chronological after.
   initialId?: string | null;
@@ -40,7 +43,9 @@ export function buildGustsPath(query: GustsQuery): string {
   } else if (query.initialId) {
     params.push(`initialId=${encodeURIComponent(query.initialId)}`);
   }
-  if (query.personalized && !query.initialId) {
+  if (query.following && !query.initialId) {
+    params.push("mode=following");
+  } else if (query.personalized && !query.initialId) {
     params.push("mode=personalized");
   }
   params.push("excludeModerated=1");
@@ -96,9 +101,16 @@ export async function fetchGustsPage(
   const response = await request(buildGustsPath(query), options);
   ensureOk(response, "Gusts request");
   const page = ((await readJson(response)) ?? {}) as {
+    mode?: unknown;
     nextCursor?: unknown;
     posts?: unknown;
   };
+  if (query.following && !query.initialId && page.mode !== "following") {
+    throw new FeedApiError(
+      "Following Gusts requires the updated web service.",
+      409
+    );
+  }
   return {
     nextCursor: typeof page.nextCursor === "string" ? page.nextCursor : null,
     posts: Array.isArray(page.posts)
@@ -204,12 +216,18 @@ export async function setNotInterested(
 }
 
 export type RecommendationEventType =
+  | "BUFFER"
+  | "PLAYBACK_ERROR"
+  | "PLAYBACK_STARTUP"
+  | "SKIP"
   | "DWELL"
   | "IMPRESSION"
   | "VIEW_COMPLETE"
   | "VIEW_START";
 
 export interface RecommendationEvent {
+  eventId?: string;
+  requestId?: string;
   durationMs?: number;
   eventType: RecommendationEventType;
   postId: string;
@@ -237,6 +255,10 @@ export function gustShareUrl(origin: string, postId: string): string {
 
 // Web streams the published original on the gusts page (Range support), not
 // the HLS ladder or the mp4 derivative the feed tiles use.
-export function gustVideoUrl(apiBase: string, mediaId: string): string {
-  return `${apiBase.replace(/\/+$/, "")}/api/media/${mediaId}`;
+export function gustVideoUrl(
+  apiBase: string,
+  mediaId: string,
+  hasHls = false
+): string {
+  return `${apiBase.replace(/\/+$/, "")}/api/media/${mediaId}/v/${hasHls ? "hls/master.m3u8" : "mp4-h264.mp4"}?d=4`;
 }

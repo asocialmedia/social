@@ -1,20 +1,14 @@
-// Home feed tab strip: For you / Latest / Trending / Following with the
-// sliding orange indicator from web's AnimatedTabTrigger (shared layoutId,
-// spring between tabs). The indicator is measured per trigger and animated
-// with the core Animated API: bar sits bottom-center under the active label
-// (h-1 w-6 rounded-full, orange gradient), labels are inactive-muted and
-// active semibold-ink.
+import { visibleTabScrollOffset } from "@asm/ui/lib/tab-scroll";
+// Place the orange indicator from the same measured layout as its label.
 import { LinearGradient } from "expo-linear-gradient";
-import { useEffect, useMemo, useRef, useState } from "react";
-import {
-  Animated,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
+import type { ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import Animated, {
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from "react-native-reanimated";
 
 import { haptic } from "@/lib/haptics";
 import { SHOWS_SCROLL_INDICATOR } from "@/lib/scroll-indicator";
@@ -36,11 +30,18 @@ export const HOME_TAB_DEFS: readonly FeedTabDef[] = [
 
 interface FeedTabsProps<T extends string = HomeTab> {
   active: T;
+  alignment?: "center" | "start";
   // Two-tab surfaces (notifications) stretch each trigger to half the width,
   // matching web's flex-1 tab buttons; the feed strip stays content-centered.
   fill?: boolean;
+  indicatorLabelLayout?: (
+    tab: FeedTabDef<T>
+  ) => TriggerLayout | null | undefined;
+  indicatorWidth?: (tab: FeedTabDef<T>, triggerWidth: number) => number;
   onChange: (tab: T) => void;
   scrollable?: boolean;
+  renderLabel?: (tab: FeedTabDef<T>, selected: boolean) => ReactNode;
+  onPressActive?: boolean;
   tabs?: readonly FeedTabDef<T>[];
 }
 
@@ -49,20 +50,50 @@ interface TriggerLayout {
   x: number;
 }
 
+function FeedTabIndicator({ x, width }: { x: number; width: number }) {
+  const indicatorX = useSharedValue(x);
+  const indicatorWidth = useSharedValue(width);
+  useEffect(() => {
+    indicatorX.set(withTiming(x, { duration: 180 }));
+    indicatorWidth.set(withTiming(width, { duration: 180 }));
+  }, [indicatorWidth, indicatorX, width, x]);
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: indicatorX.get() }],
+    width: indicatorWidth.get(),
+  }));
+  return (
+    <Animated.View
+      testID="feed-tab-indicator"
+      pointerEvents="none"
+      style={[styles.indicator, animatedStyle]}
+    >
+      <LinearGradient
+        colors={["#ff9500", "#e65500"]}
+        end={{ x: 0.5, y: 1 }}
+        start={{ x: 0.5, y: 0 }}
+        style={styles.indicatorBar}
+      />
+    </Animated.View>
+  );
+}
+
 export function FeedTabs<T extends string = HomeTab>({
   active,
+  alignment = "center",
   fill = false,
+  indicatorLabelLayout,
+  indicatorWidth,
   onChange,
   scrollable = false,
+  renderLabel,
+  onPressActive = false,
   tabs = HOME_TAB_DEFS as unknown as readonly FeedTabDef<T>[],
 }: FeedTabsProps<T>) {
   const { theme } = useAppTheme();
   const [layouts, setLayouts] = useState<Record<string, TriggerLayout>>({});
-  const indicatorX = useMemo(() => new Animated.Value(0), []);
-  // First placement is the mount, not a tab switch: set without animating
-  // so the bar never slides in from the left edge.
-  const firstPlaced = useRef(true);
   const scrollRef = useRef<ScrollView>(null);
+  const scrollOffset = useRef(0);
+  const [viewportWidth, setViewportWidth] = useState(0);
 
   const activeIndex = Math.max(
     0,
@@ -70,30 +101,34 @@ export function FeedTabs<T extends string = HomeTab>({
   );
   const activeDef = tabs[activeIndex];
   const layout = activeDef ? layouts[activeDef.value] : undefined;
+  const labelLayout = activeDef ? indicatorLabelLayout?.(activeDef) : undefined;
+  const labelWidth = labelLayout?.width ?? layout?.width ?? 0;
+  const barWidth =
+    layout && activeDef ? (indicatorWidth?.(activeDef, labelWidth) ?? 24) : 24;
+  const targetX =
+    (layout?.x ?? 0) + (labelLayout?.x ?? 0) + (labelWidth - barWidth) / 2;
+
+  const revealTab = useCallback(
+    (target: TriggerLayout) => {
+      // Scroll to reveal the active tab when scrollable is active.
+      if (scrollable && scrollRef.current) {
+        const scrollTargetX = visibleTabScrollOffset({
+          itemLeft: target.x,
+          itemWidth: target.width,
+          offset: scrollOffset.current,
+          viewportWidth,
+        });
+        scrollRef.current.scrollTo({ animated: true, x: scrollTargetX });
+      }
+    },
+    [scrollable, viewportWidth]
+  );
 
   useEffect(() => {
-    if (!layout) {
-      return;
+    if (layout) {
+      revealTab(layout);
     }
-    // Center the 24px bar under the active label, like web's justify-center.
-    const left = layout.x + (layout.width - 24) / 2;
-    if (firstPlaced.current) {
-      firstPlaced.current = false;
-      indicatorX.setValue(left);
-    } else {
-      Animated.timing(indicatorX, {
-        duration: 220,
-        toValue: left,
-        useNativeDriver: Platform.OS !== "web",
-      }).start();
-    }
-
-    // Scroll to reveal the active tab when scrollable is active.
-    if (scrollable && scrollRef.current) {
-      const targetX = Math.max(0, layout.x - 48);
-      scrollRef.current.scrollTo({ animated: true, x: targetX });
-    }
-  }, [indicatorX, layout, scrollable]);
+  }, [layout, revealTab]);
 
   const content = (
     <View
@@ -101,6 +136,7 @@ export function FeedTabs<T extends string = HomeTab>({
         styles.stripInner,
         scrollable ? styles.stripScrollableInner : null,
         fill ? styles.stripFill : null,
+        alignment === "start" ? { justifyContent: "flex-start" } : null,
       ]}
     >
       {tabs.map((tab) => {
@@ -122,7 +158,11 @@ export function FeedTabs<T extends string = HomeTab>({
               );
             }}
             onPress={() => {
-              if (!selected) {
+              const targetLayout = layouts[tab.value];
+              if (targetLayout) {
+                revealTab(targetLayout);
+              }
+              if (!selected || onPressActive) {
                 haptic();
                 onChange(tab.value);
               }
@@ -133,34 +173,26 @@ export function FeedTabs<T extends string = HomeTab>({
               fill ? styles.triggerFill : null,
             ]}
           >
-            <Text
-              style={[
-                styles.label,
-                {
-                  color: selected ? theme.inputText : theme.dividerText,
-                  fontFamily: selected ? "SofiaProBold" : "SofiaProMed",
-                },
-              ]}
-            >
-              {tab.label}
-            </Text>
+            {renderLabel ? (
+              renderLabel(tab, selected)
+            ) : (
+              <Text
+                style={[
+                  styles.label,
+                  {
+                    color: selected ? theme.inputText : theme.dividerText,
+                    fontFamily: selected ? "SofiaProBold" : "SofiaProMed",
+                  },
+                ]}
+              >
+                {tab.label}
+              </Text>
+            )}
           </Pressable>
         );
       })}
-      {layout ? (
-        <Animated.View
-          style={[
-            styles.indicator,
-            { pointerEvents: "none", transform: [{ translateX: indicatorX }] },
-          ]}
-        >
-          <LinearGradient
-            colors={["#ff9500", "#e65500"]}
-            end={{ x: 0.5, y: 1 }}
-            start={{ x: 0.5, y: 0 }}
-            style={styles.indicatorBar}
-          />
-        </Animated.View>
+      {layout && layout.width > 0 && labelWidth > 0 && labelLayout !== null ? (
+        <FeedTabIndicator x={targetX} width={barWidth} />
       ) : null}
     </View>
   );
@@ -181,6 +213,11 @@ export function FeedTabs<T extends string = HomeTab>({
           contentContainerStyle={styles.scrollContent}
           horizontal
           ref={scrollRef}
+          onLayout={(event) => setViewportWidth(event.nativeEvent.layout.width)}
+          onScroll={(event) => {
+            scrollOffset.current = event.nativeEvent.contentOffset.x;
+          }}
+          scrollEventThrottle={16}
           showsHorizontalScrollIndicator={false}
           showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
         >
@@ -196,6 +233,7 @@ export function FeedTabs<T extends string = HomeTab>({
       style={[
         styles.strip,
         fill ? styles.stripFill : null,
+        alignment === "start" ? { justifyContent: "flex-start" } : null,
         {
           backgroundColor: theme.containerBg,
           borderBottomColor: theme.cardBorder,

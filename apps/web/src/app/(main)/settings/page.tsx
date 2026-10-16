@@ -1,3 +1,4 @@
+import { recoveryEmail } from "@asm/auth/validation";
 import { and, fromPrismaDateTime, prisma } from "@asm/db";
 import { redirect } from "next/navigation";
 import { connection } from "next/server";
@@ -90,7 +91,9 @@ async function SettingsContent() {
     <ClientSettings
       accountLinkingReadiness={{
         hasPassword: Boolean(passwordAccount),
-        hasVerifiedEmail: Boolean(user.email && user.emailVerified),
+        hasVerifiedEmail: Boolean(
+          recoveryEmail(user.email) && user.emailVerified
+        ),
         linkedProviders: socialAccounts
           .map((account) => account.providerId)
           .filter(isSocialProvider),

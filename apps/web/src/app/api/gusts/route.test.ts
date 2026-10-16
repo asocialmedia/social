@@ -8,6 +8,13 @@ const mockGetSession = mock((): { user: { id: string } } | null => ({
   user: { id: "user1" },
 }));
 
+const mockFollowingGustsPage = mock(() =>
+  Promise.resolve({ nextCursor: null, posts: [] })
+);
+mock.module("@/lib/gusts/following", () => ({
+  followingGustsPage: mockFollowingGustsPage,
+}));
+
 const sampleGusts = [
   {
     attachments: [{ id: "m1", type: "VIDEO" }],
@@ -233,6 +240,32 @@ describe("GET /api/gusts", () => {
     expect(callArgs?.where?.rootPostId).toBeNull();
   });
 
+  test("Following requires authentication and never falls back to the global stream", async () => {
+    mockGetSession.mockImplementationOnce(() => null);
+    const denied = await GET(
+      new Request("http://localhost:3000/api/gusts?mode=following")
+    );
+    expect(denied.status).toBe(401);
+    const response = await GET(
+      new Request(
+        "http://localhost:3000/api/gusts?mode=following&excludeModerated=1&take=5"
+      )
+    );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      mode: "following",
+      nextCursor: null,
+      posts: [],
+    });
+    expect(response.headers.get("cache-control")).toBe("private, no-cache");
+    expect(mockFollowingGustsPage).toHaveBeenCalledWith({
+      cursor: undefined,
+      excludeModerated: true,
+      pageSize: 5,
+      userId: "user1",
+    });
+  });
+
   test("allows guests to browse gusts without authentication", async () => {
     mockGetSession.mockImplementationOnce(() => null);
 
@@ -269,7 +302,7 @@ describe("GET /api/gusts", () => {
 
     // Returns page size of 10 items
     expect(json.posts).toHaveLength(10);
-    expect(json.nextCursor).toBe("gust_11");
+    expect(json.nextCursor).toBe("gust_10");
 
     const callArgs = lastFindManyArgs as { cursor?: { id: string } };
     expect(callArgs?.cursor?.id).toBe("gust_0");
@@ -365,7 +398,7 @@ describe("GET /api/gusts", () => {
 
     expect(json1.posts).toHaveLength(5);
     expect(json1.posts[0].id).toBe("gust_14");
-    expect(json1.nextCursor).toBe("gust_4");
+    expect(json1.nextCursor).toBe("gust_3");
 
     // Request second page with returned cursor
     const req2 = new Request(
@@ -377,6 +410,7 @@ describe("GET /api/gusts", () => {
       posts: { id: string }[];
     };
 
+    expect(json2.posts[0]?.id).toBe("gust_4");
     const firstPageIds = new Set(json1.posts.map((p) => p.id));
     const secondPageIds = json2.posts.map((p) => p.id);
     for (const id of secondPageIds) {

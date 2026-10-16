@@ -146,7 +146,7 @@ export function getMediaImageUrl(
 // Optimized derivative URL. The serving route falls back to the published
 // original when the derivative does not exist, so this is always safe.
 export function getMediaVariantUrl(mediaId: string, variant: string): string {
-  return `/api/media/${mediaId}/v/${variant}`;
+  return `/api/media/${mediaId}/v/${variant}?d=4`;
 }
 
 // Playback URL for video: prefers the pipeline's progressive MP4 derivative

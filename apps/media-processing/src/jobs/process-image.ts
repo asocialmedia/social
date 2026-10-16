@@ -1,7 +1,5 @@
-// Image processing: decode with bomb guards, classify, generate WebP/JPEG
-// derivatives per the shared policy, and record a ThumbHash placeholder.
-// Engine is Bun.Image (built into Bun 1.4, zero npm deps); AVIF/HEIC are
-// OS-backends unavailable on Linux, so delivery formats are WebP + JPEG.
+// Image processing: guarded libvips decode and WebP/AVIF/JPEG delivery.
+// Originals remain the recovery and download source.
 
 import { prisma } from "@asm/db";
 import {
@@ -10,66 +8,15 @@ import {
   MEDIA_PIPELINE_VERSION,
   planImageDerivatives,
 } from "@asm/media";
-import type { MediaLimits, PlannedImageDerivative } from "@asm/media";
+import type { MediaLimits } from "@asm/media";
 
 import { mediaLogger, withSpan } from "../log";
 import { getS3 } from "../s3";
-import { computePerceptualHash, withTimeout } from "../transcode/ffmpeg";
+import { computePerceptualHash } from "../transcode/ffmpeg";
+import { inspectImage, encodeImageDerivative } from "../transcode/image";
 import { persistMediaDerivatives } from "./derivatives";
 
-interface DecodedInfo {
-  width: number;
-  height: number;
-  format: string;
-}
-
 const PLACEHOLDER_MAX_DIMENSION = 64;
-
-async function uniqueColorFraction(
-  image: InstanceType<(typeof Bun)["Image"]>,
-  limits: MediaLimits
-): Promise<number> {
-  // Downscale hard and count distinct colors; flat graphics collapse to a
-  // tiny fraction while photos stay near 1.
-  const sample = await image.resize(32, 32, { fit: "inside" }).png().buffer();
-  const seen = new Set<number>();
-  for (let i = 0; i < sample.length - 4; i += 4) {
-    const rgb = (sample[i] << 16) | (sample[i + 1] << 8) | (sample[i + 2] ?? 0);
-    if (rgb !== 0) {
-      seen.add(rgb);
-    }
-  }
-  void limits;
-  return Math.min(1, seen.size / 1024);
-}
-
-function hasAlphaChannel(buffer: Buffer, format: string): boolean {
-  // Cheap structural check: PNG color type 6/4 carry alpha; WebP ALPH chunk.
-  if (format === "png") {
-    return buffer[25] === 6 || buffer[25] === 4;
-  }
-  if (format === "webp") {
-    return buffer.includes(Buffer.from("ALPH"));
-  }
-  return false;
-}
-
-function countFrames(buffer: Buffer): number {
-  // GIF frame count via the 0x21F9 graphic-control extension; other formats
-  // are treated as single-frame for planning purposes.
-  let frames = 0;
-  let offset = 0;
-  while (
-    (offset = buffer.indexOf(Buffer.from([0x21, 0xf9, 0x04]), offset)) !== -1
-  ) {
-    frames += 1;
-    offset += 3;
-    if (frames > 512) {
-      break;
-    }
-  }
-  return Math.max(frames, 1);
-}
 
 // True when the uploaded bytes are themselves a lossless encoding, so an
 // original-resolution derivative can stay bit-exact instead of inheriting a
@@ -88,7 +35,8 @@ function isLosslessSourceFormat(buffer: Buffer, format: string): boolean {
 }
 
 export async function processMediaImage(input: {
-  /** Receives every object key promoted to storage, for failure rollback. */
+  // Isolated output prefix; a failed upgrade cannot overwrite live derivatives.
+  storageId?: string;
   mediaId: string;
   sourcePath: string;
   uploadedKeys?: string[];
@@ -106,39 +54,48 @@ export async function processMediaImage(input: {
         const s3 = getS3();
         const file = Bun.file(input.sourcePath);
         const bytes = Buffer.from(await file.arrayBuffer());
+        const provenance = await prisma.orm.public.PostMedia.select(
+          "aiGenerated",
+          "detectedMime",
+          "mimeType",
+          "techMetadata"
+        )
+          .where({ id: input.mediaId })
+          .first();
 
-        // Header-only metadata first; maxPixels guards the actual decode.
-        const probeImage = new Bun.Image(bytes, {
-          maxPixels: input.limits.maxPixelCount,
-        });
-        const meta = (await probeImage.metadata()) as DecodedInfo;
+        const meta = await inspectImage(bytes, input.limits);
+        const { animated } = meta;
+        const alpha = meta.hasAlpha;
+        const { entropy } = meta;
 
-        const decodeImage = new Bun.Image(bytes, {
-          autoOrient: true,
-          maxPixels: input.limits.maxPixelCount,
-        });
-
-        const animated = meta.format === "gif" && countFrames(bytes) > 1;
-        const alpha = hasAlphaChannel(bytes, meta.format);
-
-        // Animated sources keep their original bytes in motion; static posters
-        // below still come out of the same decode.
-        const entropy = animated
-          ? 0.9
-          : await uniqueColorFraction(decodeImage, input.limits);
-
-        const plan = planImageDerivatives({
-          colorEntropy: entropy,
-          hasAlpha: alpha,
-          height: meta.height,
-          isAnimated: animated,
-          isLosslessSource:
-            !animated && isLosslessSourceFormat(bytes, meta.format),
-          width: meta.width,
-        });
+        const plan = animated
+          ? []
+          : planImageDerivatives({
+              colorEntropy: entropy,
+              hasAlpha: alpha,
+              height: meta.height,
+              isAnimated: animated,
+              isLosslessSource:
+                !animated && isLosslessSourceFormat(bytes, meta.format),
+              width: meta.width,
+            });
 
         // ThumbHash LQIP stored on the row (~500 bytes, no extra object).
-        const blurDataUrl = await new Bun.Image(bytes, {
+        const placeholder = await encodeImageDerivative(
+          bytes,
+          {
+            height: Math.min(meta.height, PLACEHOLDER_MAX_DIMENSION),
+            kind: "thumb",
+            quality: 80,
+            variant: "webp",
+            width: Math.min(meta.width, PLACEHOLDER_MAX_DIMENSION),
+          },
+          input.limits
+        );
+        if (!placeholder) {
+          throw new Error("Image placeholder encode failed");
+        }
+        const blurDataUrl = await new Bun.Image(placeholder.bytes, {
           maxPixels: input.limits.maxPixelCount,
         })
           .resize(
@@ -155,16 +112,30 @@ export async function processMediaImage(input: {
           pipelineVersion: string;
           sizeBytes: number;
           variant: string;
+          width: number;
+          height: number;
         }[] = [];
 
-        for (const item of plan) {
+        const orderedPlan = [
+          ...plan.filter((item) => item.variant !== "avif"),
+          ...plan.filter((item) => item.variant === "avif"),
+        ];
+        for (const item of orderedPlan) {
           const encodeStart = performance.now();
-          const encoded = await encodeDerivative(
-            decodeImage,
+          const encoded = await encodeImageDerivative(
+            bytes,
             item,
-            input.limits.processingTimeoutMs
+            input.limits,
+            input.mediaId,
+            provenance?.aiGenerated === true
           );
           if (!encoded) {
+            continue;
+          }
+          if (
+            item.variant === "avif" &&
+            encoded.bytes.byteLength >= bytes.byteLength
+          ) {
             continue;
           }
           const name = derivativeName(
@@ -174,19 +145,35 @@ export async function processMediaImage(input: {
           );
           const key = derivativeKey(
             MEDIA_PIPELINE_VERSION,
-            input.mediaId,
+            input.storageId ?? input.mediaId,
             name
           );
-          await s3.write(key, encoded.bytes);
-          input.uploadedKeys?.push(key);
-          derivativesToInsert.push({
-            key,
+          const smaller = encoded.bytes.byteLength < bytes.byteLength;
+          if (smaller) {
+            await s3.write(key, encoded.bytes);
+            input.uploadedKeys?.push(key);
+          }
+          // A difficult source can beat even a resized encode. Reuse its
+          // already-scrubbed bytes rather than transfer a larger derivative.
+          const derivative = {
+            height: smaller ? item.height : meta.height,
+            key: smaller ? key : input.publishedKey,
             kind: item.kind,
-            mimeType: encoded.mimeType,
+            mimeType: smaller
+              ? encoded.mimeType
+              : (provenance?.detectedMime ??
+                provenance?.mimeType ??
+                encoded.mimeType),
             pipelineVersion: MEDIA_PIPELINE_VERSION,
-            sizeBytes: encoded.bytes.byteLength,
+            sizeBytes: smaller ? encoded.bytes.byteLength : bytes.byteLength,
             variant: item.variant,
-          });
+            width: smaller ? item.width : meta.width,
+          };
+          derivativesToInsert.push(derivative);
+          // Make compatible rungs usable before the heavier modern encodes.
+          await prisma.transaction((transaction) =>
+            persistMediaDerivatives(transaction, input.mediaId, [derivative])
+          );
           const encodeMs = Math.round(performance.now() - encodeStart);
           if (encodeMs > 5000) {
             mediaLogger.warn(
@@ -248,7 +235,7 @@ export async function processMediaImage(input: {
             colorEntropy: Number(entropy.toFixed(3)),
             ...(meta.format === "png" ? { colorSpace: "sRGB" } : {}),
             format: meta.format,
-            frameCount: animated ? countFrames(bytes) : 1,
+            frameCount: meta.frames,
             hasAlpha: alpha,
             hasIccProfile,
             height: meta.height,
@@ -269,7 +256,14 @@ export async function processMediaImage(input: {
             await attributeReshare(
               input.mediaId,
               computedPhash,
-              mediaOwner?.userId ?? null
+              mediaOwner?.userId ?? null,
+              meta.sourceMediaId ??
+                (provenance?.techMetadata &&
+                typeof provenance.techMetadata === "object" &&
+                "sourceMediaId" in provenance.techMetadata &&
+                typeof provenance.techMetadata.sourceMediaId === "string"
+                  ? provenance.techMetadata.sourceMediaId
+                  : undefined)
             );
           } catch (error) {
             mediaLogger.warn(
@@ -281,7 +275,7 @@ export async function processMediaImage(input: {
 
         // Profile media (avatar/banner) promotion: once derivatives are
         // committed, a linked static image swaps its serving key to the best
-        // derivative and the published original is deleted. Animated GIFs are
+        // derivative while preserving the published original. Animated GIFs are
         // skipped inside the helper — motion lives only in the original.
         // Best-effort: promotion failure must not fail the process job.
         if (derivativesToInsert.length > 0) {
@@ -320,78 +314,4 @@ export async function processMediaImage(input: {
     },
     { "media.id": input.mediaId }
   );
-}
-
-interface EncodedDerivative {
-  bytes: Buffer;
-  extension: string;
-  mimeType: string;
-}
-
-type BunImagePipeline = ReturnType<
-  InstanceType<(typeof Bun)["Image"]>["resize"]
->;
-
-async function encodeDerivative(
-  source: BunImagePipeline,
-  item: PlannedImageDerivative,
-  timeoutMs: number
-): Promise<EncodedDerivative | null> {
-  const scaled = source.resize(item.width, item.height, {
-    filter: "lanczos3",
-    fit: "fill",
-    withoutEnlargement: true,
-  });
-
-  // Bounded encode: Bun.Image has no native deadline, so a pathological
-  // source that slips past the pixel guards must not pin the worker slot.
-  // On timeout the encode is abandoned and the derivative skipped - the
-  // serving route falls back to the published original.
-  if (item.variant === "webp") {
-    const bytes = await withTimeout(
-      scaled
-        .webp({ lossless: item.lossless === true, quality: item.quality })
-        .buffer(),
-      timeoutMs,
-      `webp encode timed out (${item.kind}/${item.variant})`
-    );
-    return {
-      bytes: Buffer.from(bytes),
-      extension: "webp",
-      mimeType: "image/webp",
-    };
-  }
-  if (item.variant === "jpeg") {
-    const bytes = await withTimeout(
-      scaled.jpeg({ progressive: true, quality: item.quality }).buffer(),
-      timeoutMs,
-      `jpeg encode timed out (${item.kind}/${item.variant})`
-    );
-    return {
-      bytes: Buffer.from(bytes),
-      extension: "jpg",
-      mimeType: "image/jpeg",
-    };
-  }
-  // Palette PNG for flat graphics/screenshots: 3-5x smaller than WebP for
-  // low-color content, and indexed mode preserves sharp edges. Only wired
-  // when the planner sets palette:true (graphic q88).
-  if ((item as { palette?: boolean }).palette) {
-    try {
-      const bytes = await withTimeout(
-        scaled.png({ palette: true }).buffer(),
-        timeoutMs,
-        `png palette encode timed out (${item.kind}/${item.variant})`
-      );
-      return {
-        bytes: Buffer.from(bytes as unknown as Uint8Array),
-        extension: "png",
-        mimeType: "image/png",
-      };
-    } catch {
-      // fall through to WebP already emitted for this rung — palette is
-      // bonus, not required, so a missing codec just skips the PNG copy.
-    }
-  }
-  return null;
 }

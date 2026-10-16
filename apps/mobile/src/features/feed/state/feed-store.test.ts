@@ -3,6 +3,9 @@ import { describe, expect, test } from "bun:test";
 import type { FeedPost } from "../lib/feed-types";
 import {
   FeedCache,
+  FEED_CACHE_RETENTION_MS,
+  reconcileFeedHead,
+  feedFetchStatus,
   clearFeedTopRequest,
   consumeFeedTop,
   flattenUniquePosts,
@@ -201,6 +204,39 @@ describe("FeedCache", () => {
     cache.invalidateAll();
     expect(cache.get("b").stale).toBe(true);
     cache.clear();
+    expect(cache.get("a").status).toBe("idle");
+  });
+
+  test("an idle mounted feed keeps its posts and cursor while unused tabs expire", () => {
+    let now = 0;
+    const cache = new FeedCache(() => now);
+    const release = cache.retain("reading");
+    cache.applyPage("reading", [post("visible")], "next", {}, false);
+    cache.applyPage("unused", [post("old")], null, {}, false);
+    now = FEED_CACHE_RETENTION_MS * 2;
+    expect(cache.keys()).toEqual(["reading"]);
+    expect(cache.get("reading").status).toBe("success");
+    expect(cache.get("reading").pages[0]?.[0]?.id).toBe("visible");
+    expect(cache.get("reading").cursor).toBe("next");
+    release();
+    now += FEED_CACHE_RETENTION_MS;
+    expect(cache.get("reading").status).toBe("success");
+    now += 1;
+    expect(cache.get("reading").status).toBe("idle");
+  });
+
+  test("retention waits for every reader and release is idempotent", () => {
+    let now = 0;
+    const cache = new FeedCache(() => now);
+    const releaseFirst = cache.retain("a");
+    const releaseSecond = cache.retain("a");
+    cache.applyPage("a", [post("visible")], null, {}, false);
+    releaseFirst();
+    releaseFirst();
+    now = FEED_CACHE_RETENTION_MS * 2;
+    expect(cache.get("a").status).toBe("success");
+    releaseSecond();
+    now += FEED_CACHE_RETENTION_MS + 1;
     expect(cache.get("a").status).toBe("idle");
   });
 });
@@ -412,4 +448,32 @@ test("next-day launch paints stale disk rows with their original age until refre
     restoreFeedCache({ future: { ...saved, fetchedAt: Date.now() + 60_000 } })
   ).toBe(0);
   feedCache.clear();
+});
+
+test("silent startup revalidation updates counts and retains deep feed history", () => {
+  const old = post("old");
+  const updated = { ...old, _count: { ...old._count, vote: 9 } };
+  const cache = new FeedCache();
+  cache.applyPage("feed", [old], "older-page", {}, false);
+  cache.applyPage("feed", [post("deep")], "next-page", {}, true);
+  cache.patch("feed", {
+    pages: reconcileFeedHead(cache.get("feed").pages, [
+      post("arrival"),
+      updated,
+    ]),
+    status: "success",
+  });
+  expect(
+    flattenUniquePosts(cache.get("feed").pages).map((item) => item.id)
+  ).toEqual(["arrival", "old", "deep"]);
+  expect(flattenUniquePosts(cache.get("feed").pages)[1]?._count?.vote).toBe(9);
+  expect(cache.get("feed").cursor).toBe("next-page");
+  expect(cache.get("feed").status).toBe("success");
+});
+
+test("only an explicit pull refresh drives the refresh indicator", () => {
+  expect(feedFetchStatus("replace", true, false)).toBe("success");
+  expect(feedFetchStatus("replace", true, true)).toBe("refreshing");
+  expect(feedFetchStatus("replace", false, false)).toBe("loading");
+  expect(feedFetchStatus("append", true, false)).toBe("loading-more");
 });

@@ -5,6 +5,7 @@ import {
   EMAIL_REGEX,
   newPasswordSchema,
   USERNAME_REGEX,
+  recoveryEmail,
 } from "@asm/auth/validation";
 import { debugLog } from "@asm/config/debug";
 import { exactInsensitivePattern, prisma } from "@asm/db";
@@ -141,6 +142,7 @@ export async function requestPasswordReset(
       email = user?.email || null;
     }
 
+    email = recoveryEmail(email);
     if (!(user && email)) {
       return { success: true };
     }

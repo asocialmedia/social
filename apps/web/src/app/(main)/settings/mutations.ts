@@ -22,6 +22,7 @@ const emailSchema = z.object({
 const verifyEmailSchema = z.object({
   email: z.string().email("Please enter a valid email address"),
   otp: z.string().min(4, "Please enter the verification code"),
+  verificationId: z.uuid().optional(),
 });
 
 interface UsernameChangeResponse {
@@ -87,7 +88,9 @@ export function useUpdateEmail() {
 
       if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.message || "Failed to update email");
+        throw new Error(
+          error.error || error.message || "Failed to update email"
+        );
       }
 
       return response.json();
@@ -115,7 +118,7 @@ export function useVerifyEmailChange() {
 
       if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.message || "Verification failed");
+        throw new Error(error.error || error.message || "Verification failed");
       }
 
       return response.json();

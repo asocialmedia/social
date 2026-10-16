@@ -26,11 +26,11 @@ describe("mediaTileAspect", () => {
     );
   });
 
-  test("falls back to square when the upload recorded no dimensions", () => {
-    expect(mediaTileAspect(media())).toBe(1);
-    expect(mediaTileAspect(media({ height: 0, width: 0 }))).toBe(1);
+  test("matches web's portrait fallback when the upload recorded no dimensions", () => {
+    expect(mediaTileAspect(media())).toBe(4 / 5);
+    expect(mediaTileAspect(media({ height: 0, width: 0 }))).toBe(4 / 5);
     // A zero width with a real height would divide to zero and collapse the
     // tile, so the fallback has to catch the falsy width too.
-    expect(mediaTileAspect(media({ height: 900, width: 0 }))).toBe(1);
+    expect(mediaTileAspect(media({ height: 900, width: 0 }))).toBe(4 / 5);
   });
 });

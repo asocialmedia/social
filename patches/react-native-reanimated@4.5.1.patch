@@ -1,0 +1,19 @@
+diff --git a/android/src/main/java/com/swmansion/reanimated/NativeProxy.kt b/android/src/main/java/com/swmansion/reanimated/NativeProxy.kt
+index 48e37714232d5ccf74d99d61cb2fac56314087aa..963ae5a048a964819865846e8214ef695854b74c 100644
+--- a/android/src/main/java/com/swmansion/reanimated/NativeProxy.kt
++++ b/android/src/main/java/com/swmansion/reanimated/NativeProxy.kt
+@@ -253,7 +253,13 @@ open class NativeProxy {
+         SynchronousPropsBufferParser.parse(intBuffer, doubleBuffer) { viewTag, props ->
+             if (BuildConfig.IS_REACT_NATIVE_86_OR_NEWER) {
+                 try {
+-                    updatePropsSynchronouslyMethod.invoke(mountingManager, viewTag, props)
++                    // Events can arrive during preallocation or after a view is removed.
++                    // Match preserveMountedTags instead of updating an absent target.
++                    if (mFabricUIManager.resolveView(viewTag) != null) {
++                        updatePropsSynchronouslyMethod.invoke(mountingManager, viewTag, props)
++                    }
++                } catch (_: IllegalViewOperationException) {
++                    // The ViewState can exist before its Android view is created.
+                 } catch (e: Exception) {
+                     Log.w("Reanimated", "synchronouslyUpdateUIProps failed for tag $viewTag", e)
+                 }

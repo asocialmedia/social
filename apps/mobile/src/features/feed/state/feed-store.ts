@@ -26,6 +26,20 @@ export interface TabFeed {
     | "success";
 }
 
+export function feedFetchStatus(
+  mode: "append" | "replace",
+  hasPages: boolean,
+  manual: boolean
+): TabFeed["status"] {
+  if (mode === "append") {
+    return "loading-more";
+  }
+  if (!hasPages) {
+    return "loading";
+  }
+  return manual ? "refreshing" : "success";
+}
+
 function emptyFeed(): TabFeed {
   return {
     cursor: null,
@@ -43,6 +57,22 @@ function emptyFeed(): TabFeed {
 export function flattenUniquePosts(pages: FeedPost[][]): FeedPost[] {
   const list = pages.flat().filter(Boolean);
   return [...new Map(list.map((post) => [post.id, post])).values()];
+}
+
+// Silent revalidation keeps the reader's older pages and pagination cursor.
+export function reconcileFeedHead(
+  pages: FeedPost[][],
+  head: FeedPost[]
+): FeedPost[][] {
+  const fresh = new Map(head.map((post) => [post.id, post]));
+  const retained = pages.map((page) =>
+    page.map((post) => fresh.get(post.id) ?? post)
+  );
+  const first = retained[0] ?? [];
+  return [
+    [...head, ...first.filter((post) => !fresh.has(post.id))],
+    ...retained.slice(1),
+  ];
 }
 
 // A published post belongs at the head of the Latest tab, and the reader should
@@ -125,6 +155,7 @@ export class FeedCache {
   private now: () => number;
   private tabs = new Map<string, TabFeed>();
   private residentAt = new Map<string, number>();
+  private readers = new Map<string, Set<symbol>>();
 
   constructor(now: () => number = Date.now) {
     this.now = now;
@@ -147,8 +178,8 @@ export class FeedCache {
   private prune(): void {
     for (const key of this.tabs.keys()) {
       if (
-        this.now() - (this.residentAt.get(key) ?? 0) >
-        FEED_CACHE_RETENTION_MS
+        !this.readers.has(key) &&
+        this.now() - (this.residentAt.get(key) ?? 0) > FEED_CACHE_RETENTION_MS
       ) {
         this.tabs.delete(key);
         this.residentAt.delete(key);
@@ -159,6 +190,23 @@ export class FeedCache {
   get(key: string): TabFeed {
     this.prune();
     return this.tabs.get(key) ?? emptyFeed();
+  }
+
+  // Mounted feeds own their rows; retention begins after the last reader leaves.
+  retain(key: string): () => void {
+    const reader = Symbol(key);
+    const readers = this.readers.get(key) ?? new Set<symbol>();
+    readers.add(reader);
+    this.readers.set(key, readers);
+    return () => {
+      if (!readers.delete(reader) || readers.size > 0) {
+        return;
+      }
+      this.readers.delete(key);
+      if (this.tabs.has(key)) {
+        this.residentAt.set(key, this.now());
+      }
+    };
   }
 
   // Live keys for snapshotting. Prunes first so expired tabs never persist.

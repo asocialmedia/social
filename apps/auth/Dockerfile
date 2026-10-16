@@ -7,6 +7,7 @@ LABEL org.opencontainers.image.title="Asocialmedia Auth Service" \
 WORKDIR /app
 ENV NODE_ENV=production
 COPY package.json bun.lock ./
+COPY patches/ ./patches/
 COPY packages/ ./packages/
 COPY apps/auth/ ./apps/auth/
 RUN bun install

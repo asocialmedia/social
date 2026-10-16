@@ -256,12 +256,15 @@ function VideoSurface({
   const isMuted = useVideoMuteStore((state) => state.isMuted);
   const setMuted = useVideoMuteStore((state) => state.setMuted);
   const viewRef = useRef<VideoViewType>(null);
-  const player = useVideoPlayer(mediaVideoUrl(apiBase, media.id), (created) => {
-    // oxlint-disable-next-line react/immutability -- expo-video's documented player API; no setter exists
-    created.muted = useVideoMuteStore.getState().isMuted;
-    // oxlint-disable-next-line react/immutability -- expo-video's documented player API; no setter exists
-    created.timeUpdateEventInterval = 0.25;
-  });
+  const player = useVideoPlayer(
+    mediaVideoUrl(apiBase, media.id, media.hasHls),
+    (created) => {
+      // oxlint-disable-next-line react/immutability -- expo-video's documented player API; no setter exists
+      created.muted = useVideoMuteStore.getState().isMuted;
+      // oxlint-disable-next-line react/immutability -- expo-video's documented player API; no setter exists
+      created.timeUpdateEventInterval = 0.25;
+    }
+  );
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(() => player.duration);
   const [playing, setPlaying] = useState(false);
@@ -903,6 +906,7 @@ export function PostMediaScreen({
     // status bar.
     <View style={styles.root}>
       <FlatList
+        key={`${postId}:${params.mediaId ?? initialIndex}`}
         data={media}
         getItemLayout={(_, index) => ({
           index,
@@ -910,7 +914,7 @@ export function PostMediaScreen({
           offset: width * index,
         })}
         horizontal
-        initialScrollIndex={Math.min(initialIndex, media.length - 1)}
+        initialScrollIndex={Math.min(currentIndex, media.length - 1)}
         keyExtractor={(item) => item.id}
         onMomentumScrollEnd={(event) => {
           const next = Math.round(event.nativeEvent.contentOffset.x / width);

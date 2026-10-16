@@ -15,9 +15,11 @@ export interface CandidatePost {
   createdAt: Date;
   id: string;
   semanticTags?: string[];
+  mediaKeys?: string[];
   tags: string[];
   // Enhanced media & semantic features
   embedding?: number[];
+  embeddingModel?: string | null;
   hasAiBadge?: boolean;
   hasAudio?: boolean;
   hasImage?: boolean;
@@ -125,7 +127,11 @@ export function scoreCandidateComponents(
   let tagMass = 0;
   let negativeTagMass = 0;
   for (const tag of distinctTags) {
-    const direct = tagWeights[tag] ?? 0;
+    const direct =
+      profile.sessionTagWeights && Object.keys(profile.sessionTagWeights).length
+        ? (tagWeights[tag] ?? 0) * 0.75 +
+          (profile.sessionTagWeights[tag] ?? 0) * 0.25
+        : (tagWeights[tag] ?? 0);
     const graph = profile.expandedEntityWeights?.[tag]
       ? profile.expandedEntityWeights[tag] * 0.7
       : 0;
@@ -140,6 +146,8 @@ export function scoreCandidateComponents(
   // 3. Semantic Vector Similarity (384-dimensional cosine similarity)
   let semanticSimilarity = 0;
   if (
+    post.embeddingModel &&
+    post.embeddingModel === profile.embeddingModel &&
     post.embedding &&
     post.embedding.length > 0 &&
     profile.tasteVector &&
@@ -183,9 +191,6 @@ export function scoreCandidateComponents(
     } else if (post.hasAudio && profile.formatAffinities.audio > 0.3) {
       mediaFit += 0.1;
     }
-  }
-  if (post.hasTranscript || post.hasOcr) {
-    mediaFit += 0.05; // Quality bonus for rich verified media
   }
 
   // 7. Visited Soft Multiplier (instead of deleting/hiding visited posts)

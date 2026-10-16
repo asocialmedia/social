@@ -11,6 +11,8 @@ const state = {
   authCalls: [] as { body: unknown; path: string }[],
   changeResponseBody: { success: true },
   changeResponseStatus: 200,
+  intents: new Map<string, unknown>(),
+  owner: null as { id: string } | null,
   session: { user: USER },
   verifyResponseStatus: 200,
 };
@@ -21,7 +23,37 @@ function resetState() {
   state.changeResponseStatus = 200;
   state.session = { user: USER };
   state.verifyResponseStatus = 200;
+  state.owner = null;
+  state.intents.clear();
 }
+
+mock.module("@asm/db", () => ({
+  consumeRateLimit: () => Promise.resolve({ allowed: true }),
+  prisma: {
+    orm: {
+      public: {
+        Users: {
+          select: () => ({
+            where: () => ({ first: () => Promise.resolve(state.owner) }),
+          }),
+        },
+      },
+    },
+  },
+}));
+mock.module("@asm/auth/core", () => ({
+  accountResolutionStore: {
+    create: (id: string, value: unknown) => {
+      state.intents.set(id, value);
+      return Promise.resolve();
+    },
+  },
+  newAccountResolutionState: (
+    userId: string,
+    sessionId: string,
+    source: object
+  ) => ({ sessionId, userId, ...source }),
+}));
 
 const mockGetSession = mock(() => state.session);
 
@@ -131,7 +163,7 @@ describe("PATCH /api/users/email", () => {
     const res = await PATCH(patchRequest("old@example.com"));
     expect(res.status).toBe(400);
     const body = await res.json();
-    expect(body.error).toBe("Email is the same");
+    expect(body.error).toBe("This email already belongs to your account.");
   });
 
   test("rejects malformed JSON with 400 and does not call auth", async () => {
@@ -166,4 +198,21 @@ describe("PATCH /api/users/email", () => {
     expect(res.status).toBe(400);
     expect(state.authCalls.length).toBe(0);
   });
+});
+
+test("a Reddit placeholder skips current-mail OTP and still requires verification of the new email", async () => {
+  resetState();
+  state.session = {
+    user: { ...USER, email: "reddit-id@reddit.placeholder.invalid" },
+  };
+  const response = await PATCH(
+    new Request("http://localhost/api/users/email", {
+      body: JSON.stringify({ email: "real@example.com" }),
+      headers: { "content-type": "application/json" },
+      method: "PATCH",
+    })
+  );
+  expect(response.status).toBe(200);
+  expect(state.authCalls).toHaveLength(1);
+  expect(state.authCalls[0]?.path).toContain("request-email-change");
 });

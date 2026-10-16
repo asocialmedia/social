@@ -1,3 +1,4 @@
+import { fitPreviewFrame, mediaAspect } from "@asm/ui/lib/post-preview-layout";
 import { useEventListener } from "expo";
 import { useAudioPlayer, useAudioPlayerStatus } from "expo-audio";
 // Post media gallery: single / 2-grid / 3-5 bento / 6+ overflow layouts,
@@ -11,14 +12,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { useIsFocused } from "expo-router";
 import { useVideoPlayer, VideoView } from "expo-video";
 import type { VideoPlayer } from "expo-video";
-import {
-  Pause,
-  Play,
-  ShieldAlert,
-  Sparkles,
-  Volume2,
-  VolumeX,
-} from "lucide-react-native";
+import { Pause, Play, Sparkles, Volume2, VolumeX } from "lucide-react-native";
 import {
   createContext,
   useCallback,
@@ -39,9 +33,11 @@ import {
   StyleSheet,
   Text,
   View,
+  useWindowDimensions,
 } from "react-native";
 import type { ViewStyle } from "react-native";
 
+import errorImage from "@/assets/images/error.png";
 import noMediaImage from "@/assets/images/nomedia.png";
 import nosearchImage from "@/assets/images/nosearch.png";
 import { Gradient3D } from "@/components/surface/gradient-3d";
@@ -57,6 +53,7 @@ import {
   useAppTheme,
 } from "@/theme";
 
+import { supportsExplicitBlur } from "../lib/explicit-cover";
 import { fetchCaptionsVtt, fetchWavePeaks } from "../lib/feed-api";
 import type { FeedMedia, FeedPost } from "../lib/feed-types";
 import { isMediaActivityVisible } from "../lib/media-activity";
@@ -91,6 +88,7 @@ import {
   isFeedMediaActive,
   subscribeFeedMediaActivity,
   isAutoplayPost,
+  setAutoplayPostId,
   isPostVisible,
   subscribeAutoplayPost,
   subscribePostVisibility,
@@ -105,6 +103,7 @@ import {
 import { useMediaPreviewStore } from "../state/media-preview-store";
 import { useVideoCaptionsStore } from "../state/video-captions-store";
 import { useVideoMuteStore } from "../state/video-mute-store";
+import { ConcealedMediaCover } from "./concealed-media-cover";
 import { MediaHold, MediaPostContext } from "./media-hold";
 
 // Feed cards keep their complete poster/chrome while native media resources
@@ -235,6 +234,12 @@ function SingleImage({
   onFailed: (id: string) => void;
   onPressMedia?: (index: number) => void;
 }) {
+  const viewport = useWindowDimensions();
+  const imageUri = mediaImageUrl(
+    apiBase,
+    media,
+    Math.min(viewport.width - 32, 640) * viewport.scale
+  );
   const stored =
     media.width && media.height && media.height > 0
       ? { h: media.height, w: media.width }
@@ -266,10 +271,7 @@ function SingleImage({
     >
       <ActivityFeedImage
         accessibilityLabel={media.altText ?? "Post image"}
-        cachePolicy={imageCachePolicy(
-          mediaImageUrl(apiBase, media),
-          isGifMedia(media)
-        )}
+        cachePolicy={imageCachePolicy(imageUri, isGifMedia(media))}
         contentFit="contain"
         placeholder={media.blurDataUrl ?? undefined}
         placeholderContentFit="contain"
@@ -290,7 +292,10 @@ function SingleImage({
             );
           }
         }}
-        source={{ uri: mediaImageUrl(apiBase, media) }}
+        source={{
+          headers: { Accept: "image/avif,image/webp,image/*" },
+          uri: imageUri,
+        }}
         style={
           portrait
             ? [styles.singlePortrait, { aspectRatio: ratio }]
@@ -318,7 +323,8 @@ function SingleImage({
       <Pressable
         accessibilityLabel={media.altText ?? "Open post media"}
         accessibilityRole="link"
-        onPress={() => {
+        onPress={(event) => {
+          event.stopPropagation();
           if (!useMediaPreviewStore.getState().request) {
             onPressMedia(index);
           }
@@ -381,7 +387,8 @@ function GridImage({
       <Pressable
         accessibilityLabel={media.altText ?? "Open post media"}
         accessibilityRole="link"
-        onPress={() => {
+        onPress={(event) => {
+          event.stopPropagation();
           if (!useMediaPreviewStore.getState().request) {
             onPressMedia(index);
           }
@@ -490,9 +497,10 @@ function useFade(on: boolean, duration: number, easing: (t: number) => number) {
 // preference. Web's tile opens the post page on tap and plays on hover;
 // native has neither, so a lone video autoplays muted in the viewport (web's
 // autoPlay arrangement, all pills visible) and a tap toggles playback.
-function VideoTile({
+export function VideoTile({
   apiBase,
   autoPlayEnabled,
+  exclusiveAutoplay = false,
   media,
   onPressPreview,
   postId,
@@ -502,6 +510,8 @@ function VideoTile({
   // Only a lone video autoplays in the viewport; grid tiles stay
   // tap-to-play so a multi-video post does not blast them all at once.
   autoPlayEnabled?: boolean;
+  // Explore releases the previous decoder as soon as another preview owns playback.
+  exclusiveAutoplay?: boolean;
   media: FeedMedia;
   onPressPreview?: () => void;
   postId: string;
@@ -510,6 +520,35 @@ function VideoTile({
   tile?: boolean;
 }) {
   const { isDark } = useAppTheme();
+  const viewport = useWindowDimensions();
+  const [availableWidth, setAvailableWidth] = useState(viewport.width - 32);
+  const dimensionsKey = mediaDimensionsKey(apiBase, media.id);
+  const [naturalState, setNaturalState] = useState(() => ({
+    dimensions: mediaDimensionsCache.get(dimensionsKey),
+    key: dimensionsKey,
+  }));
+  const naturalDimensions =
+    naturalState.key === dimensionsKey
+      ? naturalState.dimensions
+      : mediaDimensionsCache.get(dimensionsKey);
+  const updateDimensions = (width: number, height: number) => {
+    if (
+      width > 0 &&
+      height > 0 &&
+      Number.isFinite(width) &&
+      Number.isFinite(height)
+    ) {
+      const dimensions = { height, width };
+      rememberMediaDimensions(dimensionsKey, dimensions);
+      setNaturalState((current) =>
+        current.key === dimensionsKey &&
+        current.dimensions?.width === width &&
+        current.dimensions.height === height
+          ? current
+          : { dimensions, key: dimensionsKey }
+      );
+    }
+  };
   const isMuted = useVideoMuteStore((state) => state.isMuted);
   // Shared captions preference, toggled from the post's More menu.
   const showCaptions = useVideoCaptionsStore((state) => state.showCaptions);
@@ -519,12 +558,19 @@ function VideoTile({
   const [hasPlayed, setHasPlayed] = useState(false);
   const prepareVideo =
     visible &&
+    (!exclusiveAutoplay || autoplayOwner) &&
     ((autoPlayEnabled === true && autoplayOwner) || engaged || hasPlayed);
   const player = useVideoPlayer(
-    prepareVideo ? mediaVideoUrl(apiBase, media.id) : null,
+    prepareVideo ? mediaVideoUrl(apiBase, media.id, media.hasHls) : null,
     (created) => {
       // oxlint-disable-next-line react/immutability -- muting is expo-video's documented player API; no setter exists
       created.muted = useVideoMuteStore.getState().isMuted;
+      // oxlint-disable-next-line react/immutability -- configure the native buffer as one object
+      created.bufferOptions = {
+        maxBufferBytes: 8 * 1024 * 1024,
+        minBufferForPlayback: 1.5,
+        preferredForwardBufferDuration: 8,
+      };
       // oxlint-disable-next-line react/immutability -- expo-video's documented player API; no setter exists
       created.timeUpdateEventInterval = 0.25;
     }
@@ -568,6 +614,12 @@ function VideoTile({
     playbackTimeRef.current = event.currentTime;
   });
   useEventListener(player, "sourceLoad", (event) => {
+    const track = event.availableVideoTracks.find(
+      (entry) => entry.size.width > 0 && entry.size.height > 0
+    );
+    if (track) {
+      updateDimensions(track.size.width, track.size.height);
+    }
     loadedDurationRef.current = event.duration > 0 ? event.duration : null;
     if (playbackTimeRef.current > 0 && event.duration > 0) {
       // oxlint-disable-next-line react/immutability -- restore the playhead through expo-video's documented seek property
@@ -611,7 +663,7 @@ function VideoTile({
   // A paused native player still buffers and owns a decoder. Off-screen
   // cards use a null source; visible paused frames retain their loaded source.
   useEffect(() => {
-    if (!visible) {
+    if (!visible || (exclusiveAutoplay && !autoplayOwner)) {
       manualPausedRef.current = false;
       // oxlint-disable-next-line react/set-state-in-effect -- reset the frame latch when the external viewport releases this native source
       setFirstFrame(false);
@@ -634,7 +686,15 @@ function VideoTile({
     } else {
       player.pause();
     }
-  }, [autoPlayEnabled, autoplayOwner, engaged, player, prepareVideo, visible]);
+  }, [
+    autoPlayEnabled,
+    autoplayOwner,
+    engaged,
+    exclusiveAutoplay,
+    player,
+    prepareVideo,
+    visible,
+  ]);
 
   // Web fetches the WebVTT track once the preview is live; an empty track
   // falls back to spreading the transcript across the clip.
@@ -683,6 +743,9 @@ function VideoTile({
   const controlsOpacity = useFade(controlsVisible, 200, CSS_EASE);
 
   const togglePlayback = () => {
+    if (exclusiveAutoplay && visible && !autoplayOwner) {
+      setAutoplayPostId(postId);
+    }
     setEngaged(true);
     if (!prepareVideo) {
       // The source-bearing player is created on the next render. Its effect
@@ -704,34 +767,25 @@ function VideoTile({
     setMuted(!isMuted);
   };
 
-  // Lone videos keep their stored aspect (web's natural preview frame);
-  // grid cells force the frame instead. Lone radius is the feed rounded-xl.
   const videoRadius = tile ? 8 : 12;
-  const videoRatio =
-    media.width && media.height && media.height > 0
-      ? media.width / media.height
-      : 16 / 9;
-  // Lone portrait videos hug their width at the 380 cap and pin left, like
-  // web's h-[380px] w-auto portrait frame; squares count as portrait, like
-  // web's h >= w rule. Landscapes fill the column width.
-  const singlePortrait = !tile && videoRatio <= 1;
-  let videoFrameStyle: ViewStyle;
-  if (tile) {
-    videoFrameStyle = styles.tileFill;
-  } else if (singlePortrait) {
-    videoFrameStyle = {
-      alignSelf: "flex-start",
-      aspectRatio: videoRatio,
-      height: 380,
-      maxWidth: "100%",
-    };
-  } else {
-    videoFrameStyle = {
-      aspectRatio: videoRatio,
-      maxHeight: 380,
-      width: "100%",
-    };
-  }
+  const videoRatio = mediaAspect(naturalDimensions ?? media, 16 / 9);
+  const videoFrameStyle: ViewStyle = tile
+    ? styles.tileFill
+    : {
+        alignSelf: "flex-start",
+        ...fitPreviewFrame(availableWidth, videoRatio),
+      };
+  const wrapFrame = (content: ReactNode) =>
+    tile ? (
+      content
+    ) : (
+      <View
+        onLayout={(event) => setAvailableWidth(event.nativeEvent.layout.width)}
+        style={{ width: "100%" }}
+      >
+        {content}
+      </View>
+    );
   const frameStyle = [
     styles.videoFrame,
     {
@@ -742,7 +796,7 @@ function VideoTile({
   ];
 
   if (isFailed) {
-    return (
+    return wrapFrame(
       <View style={[frameStyle, styles.videoFailed]}>
         <Image
           accessibilityLabel="Video unavailable"
@@ -756,11 +810,11 @@ function VideoTile({
 
   const playbackLabel = isPlaying ? "Pause video" : "Play video";
   const previewLabel = onPressPreview ? "Open video" : playbackLabel;
-  return (
+  return wrapFrame(
     <MediaHold media={media} style={frameStyle}>
       {prepareVideo ? (
         <VideoView
-          contentFit="cover"
+          contentFit={tile ? "cover" : "contain"}
           nativeControls={false}
           onFirstFrameRender={() => setFirstFrame(true)}
           player={player}
@@ -780,6 +834,11 @@ function VideoTile({
           placeholderContentFit="cover"
           recyclingKey={`poster-${media.id}`}
           transition={200}
+          onLoad={(event) => {
+            if (!media.width || !media.height) {
+              updateDimensions(event.source.width, event.source.height);
+            }
+          }}
           onError={() => setPosterFailed(true)}
           source={{ uri: mediaPosterUrl(apiBase, media.id) }}
           style={styles.fill}
@@ -796,7 +855,8 @@ function VideoTile({
       <Pressable
         accessibilityLabel={media.altText ?? previewLabel}
         accessibilityRole={onPressPreview ? "link" : "button"}
-        onPress={() => {
+        onPress={(event) => {
+          event.stopPropagation();
           if (!useMediaPreviewStore.getState().request) {
             (onPressPreview ?? togglePlayback)();
           }
@@ -828,7 +888,10 @@ function VideoTile({
           accessibilityLabel={isMuted ? "Unmute" : "Mute"}
           accessibilityRole="button"
           hitSlop={6}
-          onPress={toggleMute}
+          onPress={(event) => {
+            event.stopPropagation();
+            toggleMute();
+          }}
           style={({ pressed }) => [
             styles.mutePill,
             pressed && styles.pressedNudge,
@@ -851,7 +914,10 @@ function VideoTile({
           accessibilityLabel={isPlaying ? "Pause" : "Play"}
           accessibilityRole="button"
           hitSlop={6}
-          onPress={togglePlayback}
+          onPress={(event) => {
+            event.stopPropagation();
+            togglePlayback();
+          }}
           style={({ pressed }) => [
             styles.playToggle,
             pressed && styles.pressedNudge,
@@ -873,6 +939,7 @@ function VideoTile({
       </Animated.View>
       {media.aiGenerated ? <AiBadge bottom={44} /> : null}
       <VideoCaptions
+        compact={tile}
         cues={cues}
         enabled={showCaptions && (isVideoActive || isPlaying || engaged)}
         player={player}
@@ -925,10 +992,12 @@ function VideoTimePill({ player }: { player: VideoPlayer }) {
 }
 
 function VideoCaptions({
+  compact = false,
   cues,
   enabled,
   player,
 }: {
+  compact?: boolean;
   cues: TranscriptCue[];
   enabled: boolean;
   player: VideoPlayer;
@@ -959,7 +1028,10 @@ function VideoCaptions({
     return null;
   }
   return (
-    <View pointerEvents="none" style={styles.captionRow}>
+    <View
+      pointerEvents="none"
+      style={[styles.captionRow, compact && styles.compactCaptionRow]}
+    >
       <View style={styles.captionBox}>
         <Text numberOfLines={2} style={styles.captionText}>
           {text}
@@ -1310,22 +1382,34 @@ function OverflowTile({
 }
 
 export function ModeratedNotice() {
-  const { theme } = useAppTheme();
+  const { isDark, theme } = useAppTheme();
   return (
     <View
       style={[
         styles.moderated,
         {
-          backgroundColor: theme.errorBannerBg,
-          borderColor: theme.errorBannerBorder,
+          backgroundColor: theme.cardBg,
+          borderColor: theme.cardBorder,
+          boxShadow: isDark
+            ? "inset 0 0 0 1px rgba(255, 255, 255, 0.05), inset 0 1px 2px rgba(255, 255, 255, 0.04)"
+            : "inset 0 0 0 1px rgba(255, 255, 255, 0.06), inset 0 1px 2px rgba(255, 255, 255, 0.05)",
         },
       ]}
     >
-      <ShieldAlert color={theme.errorBannerText} size={24} />
-      <Text style={[styles.moderatedText, { color: theme.errorBannerText }]}>
-        This post seemed harmful, so it&apos;s been tucked away while it&apos;s
-        reviewed.
-      </Text>
+      <Image
+        contentFit="contain"
+        source={errorImage}
+        style={styles.moderatedIcon}
+      />
+      <View style={styles.moderatedContent}>
+        <Text style={[styles.moderatedTitle, { color: theme.inputText }]}>
+          This post seemed harmful
+        </Text>
+        <Text style={[styles.moderatedBody, { color: theme.dividerText }]}>
+          So it&apos;s been tucked away to keep the feed a good place. No harm
+          meant, and everyone&apos;s welcome back.
+        </Text>
+      </View>
     </View>
   );
 }
@@ -1342,18 +1426,10 @@ export function markExplicitRevealed(revealKey: string): void {
   revealedExplicitIds.add(revealKey);
 }
 
-// expo-image blurRadius renders through RenderEffect, which needs Android 14
-// (API 34+ for the framework path expo-image uses) — older devices show the
-// still sharp. Those fall back to a fully opaque veil so nothing leaks.
+// Android's view filter blurs animated covers on API 31 and above.
+// Older devices keep an opaque cover until the viewer chooses Continue.
 export function explicitBlurSupported(): boolean {
-  if (Platform.OS === "ios" || Platform.OS === "web") {
-    return true;
-  }
-  if (Platform.OS === "android") {
-    const version = typeof Platform.Version === "number" ? Platform.Version : 0;
-    return version >= 34;
-  }
-  return false;
+  return supportsExplicitBlur(Platform.OS, Platform.Version);
 }
 
 export function ExplicitGate({
@@ -1378,17 +1454,10 @@ export function ExplicitGate({
   // NOT mounted until consent - so nothing protected is legible beforehand
   // and reveal needs no refetch. The veil below only styles the cover still.
   const cover = attachments.find((media) => !isAudioMedia(media));
-  let coverUri: string | null = null;
-  if (cover) {
-    coverUri = isVideoMedia(cover)
-      ? mediaPosterUrl(apiBase, cover.id)
-      : mediaGridImageUrl(apiBase, cover);
-  }
   const coverAspect =
     cover && cover.width && cover.height && cover.height > 0
       ? cover.width / cover.height
       : 16 / 10;
-  const blurSupported = explicitBlurSupported();
   // The gate panel is web's `apple-panel` on hsl(var(--background-alt)).
   const panel = isDark ? APPLE_PANEL_DARK : APPLE_PANEL_LIGHT;
 
@@ -1401,17 +1470,8 @@ export function ExplicitGate({
 
   return (
     <View style={[styles.gateWrap, { aspectRatio: coverAspect }]}>
-      {coverUri ? (
-        <Image
-          accessibilityLabel=""
-          blurRadius={blurSupported ? 24 : 0}
-          contentFit="cover"
-          source={{ uri: coverUri }}
-          style={[
-            styles.gateBackdrop,
-            { opacity: 0.6, transform: [{ scale: 1.05 }] },
-          ]}
-        />
+      {cover ? (
+        <ConcealedMediaCover apiBase={apiBase} media={cover} />
       ) : (
         <LinearGradient
           colors={["#2a2d34", "#17181c"]}
@@ -1420,17 +1480,6 @@ export function ExplicitGate({
           style={styles.gateBackdrop}
         />
       )}
-      <View
-        pointerEvents="none"
-        style={[
-          styles.gateMask,
-          {
-            backgroundColor: blurSupported
-              ? "rgba(0, 0, 0, 0.4)"
-              : theme.containerBg,
-          },
-        ]}
-      />
       <View style={styles.gateOverlay}>
         <View
           style={[
@@ -1910,6 +1959,7 @@ const styles = StyleSheet.create({
     lineHeight: 15,
     textAlign: "center",
   },
+  compactCaptionRow: { bottom: 72 },
   fill: {
     bottom: 0,
     height: "100%",
@@ -2040,16 +2090,31 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     borderWidth: 1,
     flexDirection: "row",
-    gap: 10,
-    marginTop: 10,
+    gap: 12,
+    marginTop: 5,
     paddingHorizontal: 16,
     paddingVertical: 10,
   },
-  moderatedText: {
-    flex: 1,
+  moderatedBody: {
     fontFamily: "SofiaProReg",
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: "normal",
+    lineHeight: 16,
+    marginTop: 2,
+  },
+  moderatedContent: {
+    flex: 1,
+    minWidth: 0,
+  },
+  moderatedIcon: {
+    height: 48,
+    width: 48,
+  },
+  moderatedTitle: {
+    fontFamily: "SofiaProBold",
+    fontSize: 14,
+    fontWeight: "normal",
+    lineHeight: 16,
   },
   muteGradient: {
     alignItems: "center",

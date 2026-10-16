@@ -300,12 +300,16 @@ describe("scoreCandidate", () => {
 
     const profile: UserProfile = {
       authorWeights: {},
+      embeddingModel: "test:v1",
       tagWeights: {},
       tasteVector: v1,
     };
 
-    const matchingPost = post({ embedding: v2 });
-    const differentPost = post({ embedding: vDifferent });
+    const matchingPost = post({ embedding: v2, embeddingModel: "test:v1" });
+    const differentPost = post({
+      embedding: vDifferent,
+      embeddingModel: "test:v1",
+    });
 
     const scoreMatch = scoreCandidate(matchingPost, profile, { now: NOW });
     const scoreDiff = scoreCandidate(differentPost, profile, { now: NOW });
@@ -413,4 +417,25 @@ describe("scoreCandidate", () => {
       })
     ).toBeLessThanOrEqual(100);
   });
+});
+
+test("having OCR or a transcript alone never increases relevance", () => {
+  const profile = { authorWeights: {}, tagWeights: {} };
+  const candidate = {
+    aura: 0,
+    authorId: "author",
+    bookmarkCount: 0,
+    commentCount: 0,
+    createdAt: new Date(0),
+    id: "post",
+    tags: [],
+  };
+  const baseline = scoreCandidate(candidate, profile, { now: new Date(0) });
+  expect(
+    scoreCandidate(
+      { ...candidate, hasOcr: true, hasTranscript: true },
+      profile,
+      { now: new Date(0) }
+    )
+  ).toBe(baseline);
 });

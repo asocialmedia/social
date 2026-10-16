@@ -34,6 +34,7 @@ import {
   pushFailureStatus,
   pushSetupPrecheck,
 } from "./push-setup";
+import { createPushTokenObserver } from "./push-token-observer";
 
 export { pathToNativeRoute } from "./push-path";
 
@@ -432,7 +433,13 @@ export function subscribeToPushTokenChanges(
     if (!active) {
       return;
     }
-    const subscription = notifications.addPushTokenListener(listener);
+    const onToken = createPushTokenObserver(
+      () => lastRegisteredToken,
+      listener
+    );
+    const subscription = notifications.addPushTokenListener((token) =>
+      onToken(token.data)
+    );
     removeSubscription = () => subscription.remove();
   });
   return {

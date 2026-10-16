@@ -10,7 +10,7 @@ import {
 } from "@asm/ui/shadui/dialog";
 import { Link2 } from "lucide-react";
 import Image from "next/image";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { LoadingButton } from "@/components/auth/fields/loading-button";
 import {
@@ -32,7 +32,7 @@ export interface AccountLinkingReadiness {
 interface LinkedAccountsProps {
   accountLinkingReadiness: AccountLinkingReadiness;
   onLink: (provider: string) => void;
-  user: PrivateUserData;
+  user: Pick<PrivateUserData, "email">;
 }
 
 function providerLabel(provider: SocialProvider): string {
@@ -114,9 +114,15 @@ export default function LinkedAccounts({
   const [providerToConfirm, setProviderToConfirm] =
     useState<SocialProvider | null>(null);
 
-  const isLinkingReady =
-    accountLinkingReadiness.hasVerifiedEmail &&
-    accountLinkingReadiness.hasPassword;
+  const isLinkingReady = true;
+  useEffect(() => {
+    const resetPendingLink = () => {
+      setLoadingProvider(null);
+      setProviderToConfirm(null);
+    };
+    window.addEventListener("pageshow", resetPendingLink);
+    return () => window.removeEventListener("pageshow", resetPendingLink);
+  }, []);
 
   const handleLinkRequest = useCallback((provider: string) => {
     if (provider === "google" || provider === "reddit") {
@@ -166,12 +172,10 @@ export default function LinkedAccounts({
 
   return (
     <div className="space-y-3">
-      {isLinkingReady ? null : (
-        <p className="text-muted-foreground text-sm">
-          Verify an email address and add a password before connecting another
-          sign-in method.
-        </p>
-      )}
+      <p className="text-muted-foreground text-sm">
+        Connect another provider to sign in to this same ASM account. Your posts
+        and messages stay here.
+      </p>
 
       <div className="grid grid-cols-2 gap-4">
         <ProviderCard
@@ -209,7 +213,7 @@ export default function LinkedAccounts({
         <DialogContent className="w-[calc(100%-2rem)] max-w-[440px] gap-0 overflow-hidden rounded-2xl! p-0">
           <DialogHeader className="border-border/60 gap-0 border-b px-4 pt-4 pb-4 text-left">
             <DialogTitle className="flex items-center gap-2 text-base font-semibold">
-              <div className="flex size-8 items-center justify-center rounded-lg bg-linear-to-b from-[#ff9500] to-[#e65500] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]">
+              <div className="btn-3d flex size-8 items-center justify-center rounded-lg! text-white">
                 <Link2 className="size-4" />
               </div>
               Connect{" "}

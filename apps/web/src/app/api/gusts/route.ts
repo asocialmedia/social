@@ -9,6 +9,7 @@ import {
 import type { PostsPage } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/auth/session";
+import { followingGustsPage } from "@/lib/gusts/following";
 
 const TAKE_PATTERN = /^[1-9]\d*$/;
 
@@ -65,6 +66,24 @@ export async function GET(request: Request) {
       ? Math.trunc(Number(takeValue))
       : 0;
   const pageSize = requestedTake > 0 ? Math.min(requestedTake, 20) : 10;
+
+  if (url.searchParams.get("mode") === "following" && !initialId) {
+    if (!userId) {
+      return Response.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    const data = await followingGustsPage({
+      cursor,
+      excludeModerated,
+      pageSize,
+      userId,
+    });
+    return Response.json(
+      { ...data, mode: "following" },
+      {
+        headers: { "cache-control": "private, no-cache", vary: "Cookie" },
+      }
+    );
+  }
 
   // Personalized Gusts use the same user persona as fleet recommendations,
   // but the candidate set is constrained to video Gusts. Deep links with an
@@ -131,7 +150,7 @@ export async function GET(request: Request) {
     const combined = initialPost ? [initialPost, ...otherPosts] : otherPosts;
     const hydrated = await hydrateViewCounts(combined.slice(0, pageSize));
     const nextCursor =
-      combined.length > pageSize ? combined[pageSize].id : null;
+      combined.length > pageSize ? combined[pageSize - 1].id : null;
 
     const data: PostsPage = {
       nextCursor,
@@ -167,7 +186,7 @@ export async function GET(request: Request) {
     [];
 
   const hydrated = await hydrateViewCounts(posts.slice(0, pageSize));
-  const nextCursor = posts.length > pageSize ? posts[pageSize].id : null;
+  const nextCursor = posts.length > pageSize ? posts[pageSize - 1].id : null;
   const data: PostsPage = {
     nextCursor,
     posts: hydrated,

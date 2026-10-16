@@ -14,6 +14,7 @@ import { iconButton, pressedDanger, pressedPill } from "./recipes";
 export function IconButton3D({
   accessibilityLabel,
   danger = false,
+  disabled = false,
   icon: Icon,
   iconSize = 16,
   onPress,
@@ -21,6 +22,7 @@ export function IconButton3D({
 }: {
   accessibilityLabel: string;
   danger?: boolean;
+  disabled?: boolean;
   icon: ComponentType<{ color?: string; size?: number }>;
   iconSize?: number;
   onPress: () => void;
@@ -31,6 +33,8 @@ export function IconButton3D({
   const pressedTone = danger ? pressedDanger(isDark) : pressedPill(isDark);
   return (
     <Pressable
+      disabled={disabled}
+      accessibilityState={{ disabled }}
       accessibilityLabel={accessibilityLabel}
       accessibilityRole="button"
       hitSlop={6}

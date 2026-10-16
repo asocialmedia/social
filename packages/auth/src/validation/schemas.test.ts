@@ -119,6 +119,44 @@ describe("schemas", () => {
   });
 
   describe("createPostSchema", () => {
+    test("a Hacker News attachment can be shared without a caption and normalizes native metadata", () => {
+      const result = createPostSchema.parse({
+        content: "",
+        hnStory: { storyId: "123", title: "Story", url: null },
+        mediaIds: [],
+        tags: [],
+      });
+      expect(result.hnStory).toEqual({
+        by: "",
+        descendants: 0,
+        score: 0,
+        storyId: 123,
+        time: 0,
+        title: "Story",
+        url: undefined,
+      });
+    });
+
+    test("an invalid story cannot bypass the empty-post validation", () => {
+      for (const hnStory of [
+        { storyId: "no-id", title: "Story" },
+        { storyId: 123, title: " " },
+        {},
+      ]) {
+        expect(
+          createPostSchema.safeParse({
+            content: "",
+            hnStory,
+            mediaIds: [],
+            tags: [],
+          }).success
+        ).toBe(false);
+      }
+      expect(
+        createPostSchema.safeParse({ content: " ", mediaIds: [], tags: [] })
+          .success
+      ).toBe(false);
+    });
     test("validates valid post", () => {
       expect(
         createPostSchema.safeParse({
@@ -143,6 +181,17 @@ describe("schemas", () => {
   });
 
   describe("createGustSchema", () => {
+    test("a Hacker News share stays a fleet", () => {
+      expect(
+        createGustSchema.safeParse({
+          content: "",
+          hnStory: { storyId: 123, title: "Story" },
+          isGust: true,
+          mediaIds: ["video"],
+          tags: [],
+        }).success
+      ).toBe(false);
+    });
     test("validates a gust with one video", () => {
       expect(
         createGustSchema.safeParse({

@@ -5,10 +5,10 @@
 // the services report as dead. The transports are injectable so this is
 // unit-testable without network or a database.
 
-import type { NotificationRecord } from "../shared/types";
 import { isDevicePushConfigured, sendDevicePush } from "./device-push";
 import type { DevicePushResult, DeviceTarget } from "./device-push";
 import type { PushLogger } from "./log";
+import type { PushDelivery } from "./payload";
 import { resolveVapidConfig, sendWebPush } from "./web-push";
 import type {
   StoredSubscription,
@@ -52,7 +52,7 @@ let warnedUnconfigured = false;
 // Best-effort by contract: the caller (the unread-count job) must succeed even
 // when push is down, so every failure here is logged and swallowed.
 export async function dispatchNotificationPush(
-  notification: NotificationRecord,
+  notification: PushDelivery,
   deps: DispatchDeps
 ): Promise<PushDispatchResult> {
   const log = deps.logger;
@@ -104,7 +104,7 @@ export async function dispatchNotificationPush(
       webSent: web.sent,
     });
 
-    return { device, web };
+    return { device, web, ...(device.retryable ? { retryable: true } : {}) };
   } catch (error) {
     log?.error("push.dispatch_failed", {
       error: String(error),

@@ -5,7 +5,7 @@ import { denAvatarFaces } from "@/lib/messages/den-label";
 import type { DenLabelMember } from "@/lib/messages/den-label";
 import { cn } from "@/lib/utils";
 
-// A den's face, as a pile of circles inside one square frame.
+// A den's face, as a pile of squircles inside one square frame.
 //
 // A den has no single person, so it cannot have a single avatar. Two shapes, in
 // this order: an image the den picked, drawn full-bleed like any other; or a
@@ -24,10 +24,10 @@ import { cn } from "@/lib/utils";
 //
 //   2 faces: diagonal, the second lapping over the first;
 //   3 faces: one on top, two on the bottom, a chain of 1 -> 2 -> 3;
-//   4 faces: a 2x2 circle grid, adjacent laps only;
-//   5 or more: the grid's first three cells, then a "+N" circle in the last.
+//   4 faces: a 2x2 squircle grid, adjacent laps only;
+//   5 or more: the grid's first three cells, then a "+N" squircle in the last.
 //
-// Each circle keeps a ring in the tile-background colour. That ring is what
+// Each squircle keeps a ring in the tile-background colour. That ring is what
 // makes an overlap read as layering: without it two faces merge into one shape.
 // The tile itself carries the `avatar-ring` edge, so the frame reads as one
 // object rather than four images nailed together.
@@ -50,7 +50,7 @@ interface CollageSlot {
   d: number;
 }
 
-// The geometry, keyed by how many circles the tile holds. Fractions of `size`,
+// The geometry, keyed by how many squircles the tile holds. Fractions of `size`,
 // so the same table serves the 32px thread header and the 96px details hero.
 function collageSlots(count: 2 | 3 | 4): CollageSlot[] {
   if (count === 2) {
@@ -122,7 +122,7 @@ export function DenAvatarCollage({
   const count = faces.length >= 4 ? 4 : (faces.length as 2 | 3);
   const slots = collageSlots(count);
   // Past four the tile stops growing faces and starts counting: the last slot is
-  // the tally, so a 100-member den is still four circles and an honest number.
+  // the tally, so a 100-member den is still four squircles and an honest number.
   //
   // Gated on the total member count (including the viewer), not on the faces:
   // `denAvatarFaces` caps at four, so with exactly four members `faces.length` is
@@ -136,10 +136,10 @@ export function DenAvatarCollage({
       // `flex shrink-0 items-center justify-center` keeps the box strictly square
       // and centered without the baseline strut or descender shift of `inline-block`.
       // Deliberately NO frame: no `overflow-hidden`, no rounded rect, no edge. The
-      // circles are free to overflow the nominal box rather than being clipped to
+      // squircles are free to overflow the nominal box rather than being clipped to
       // it, so the pile reads as faces spilling out instead of pictures nailed
       // inside a tile. The box still reserves exactly `size` by `size` for layout,
-      // so rows never shift; only paint may exceed it, and only by the circles'
+      // so rows never shift; only paint may exceed it, and only by the squircles'
       // own bleed.
       className={cn(
         "relative flex shrink-0 items-center justify-center",
@@ -154,7 +154,7 @@ export function DenAvatarCollage({
         if (index === 3 && overflow > 0) {
           return (
             <span
-              className="bg-muted text-muted-foreground absolute flex items-center justify-center rounded-full font-semibold tabular-nums ring-[hsl(var(--background))]"
+              className="bg-muted text-muted-foreground absolute flex items-center justify-center rounded-[30%] font-semibold tabular-nums ring-[hsl(var(--background))]"
               key="overflow"
               style={{
                 fontSize: Math.max(9, Math.round(size * 0.2)),
@@ -174,11 +174,11 @@ export function DenAvatarCollage({
             // Later siblings paint on top, so DOM order IS the z-order and the
             // overlaps run face 1 -> 2 -> 3 in sequence.
             //
-            // `overflow-hidden` clips the square image to the circle. Without it the
-            // image's corners escape the round frame and four "circles" read as four
+            // `overflow-hidden` clips the square image to the squircle. Without it the
+            // image's corners escape the round frame and four "squircles" read as four
             // overlapping squares.
             className={cn(
-              "absolute overflow-hidden rounded-full ring-[hsl(var(--background))]",
+              "absolute overflow-hidden rounded-[30%] ring-[hsl(var(--background))]",
               faceRing
             )}
             key={`${face.id}-${index}`}
@@ -186,6 +186,7 @@ export function DenAvatarCollage({
           >
             <UserAvatar
               avatarUrl={face.avatarUrl}
+              className="rounded-[inherit]!"
               seed={face.id}
               size={diameter}
             />

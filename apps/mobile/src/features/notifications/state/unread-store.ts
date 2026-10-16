@@ -27,6 +27,8 @@ class UnreadCountStore {
   // A session change (sign in / out) must stop a poll loop that was started
   // for the previous identity.
   private identity: string | null = null;
+  private generation = 0;
+  private refreshFlight: Promise<void> | null = null;
 
   get(): number {
     return this.count;
@@ -58,10 +60,29 @@ class UnreadCountStore {
 
   // One fetch of the authoritative count. Swallows failures (stale is fine).
   async refresh(): Promise<void> {
+    if (!this.identity || this.identity === "guest") {
+      return;
+    }
+    if (this.refreshFlight) {
+      return this.refreshFlight;
+    }
+    const { generation } = this;
+    const flight = this.loadCount(generation);
+    this.refreshFlight = flight;
+    await flight;
+    if (this.refreshFlight === flight) {
+      this.refreshFlight = null;
+    }
+  }
+
+  private async loadCount(generation: number): Promise<void> {
     try {
       const apiBase = getApiBaseUrl();
       const cookie = await authClient.getCookie();
-      this.set(await fetchUnreadCount({ apiBase, cookie }));
+      const count = await fetchUnreadCount({ apiBase, cookie });
+      if (generation === this.generation) {
+        this.set(count);
+      }
     } catch {
       // Badge freshness is not worth surfacing an error for.
     }
@@ -75,6 +96,11 @@ class UnreadCountStore {
     }
     this.poller?.stop();
     this.poller = null;
+    if (this.identity !== identity) {
+      this.generation += 1;
+      this.refreshFlight = null;
+      this.set(0);
+    }
     this.identity = identity;
     // Guests have no notifications; skip the initial fetch and timer until a
     // signed-in identity arrives.
@@ -94,18 +120,35 @@ class UnreadCountStore {
     this.poller?.stop();
     this.poller = null;
     this.identity = null;
+    this.generation += 1;
+    this.refreshFlight = null;
   }
 
   // Marks everything read and zeroes the badge in one call.
-  async markAllRead(): Promise<void> {
+  async markAllRead(): Promise<boolean> {
+    const { identity } = this;
+    if (!identity || identity === "guest") {
+      return false;
+    }
+    this.generation += 1;
+    this.refreshFlight = null;
+    const { generation } = this;
     try {
       const apiBase = getApiBaseUrl();
       const cookie = await authClient.getCookie();
       await markAllNotificationsRead({ apiBase, cookie });
     } catch {
-      // The optimistic zero below is still correct enough; the next poll heals.
+      // Keep the unread state when the server has not acknowledged the read.
+      return false;
     }
-    this.set(0);
+    if (generation === this.generation && identity === this.identity) {
+      this.generation += 1;
+      this.refreshFlight = null;
+      this.set(0);
+      void this.refresh();
+      return true;
+    }
+    return false;
   }
 }
 

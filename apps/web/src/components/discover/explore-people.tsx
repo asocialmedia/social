@@ -121,7 +121,10 @@ const ExplorePeople: React.FC = () => {
   const body: React.ReactNode = (() => {
     if (status === "pending") {
       return (
-        <ExplorePeopleSkeleton variant={isSearching ? "search" : "discovery"} />
+        <ExplorePeopleSkeleton
+          showSearch={isLoggedIn}
+          variant={isSearching ? "search" : "discovery"}
+        />
       );
     }
     if (status === "error") {
@@ -190,10 +193,9 @@ const ExplorePeople: React.FC = () => {
           </div>
         ) : null}
 
-        <div className="columns-1 gap-4 sm:columns-2 lg:columns-3 xl:columns-4">
+        <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,12rem),1fr))] items-start gap-4">
           {list.map((entry, index) => (
             <ExploreUserCard
-              className="mb-4"
               highlight={index < recommendedCount}
               key={entry.id}
               mutualFollowers={entry.mutualFollowers}
@@ -215,34 +217,35 @@ const ExplorePeople: React.FC = () => {
         key={isSearching ? "people-search" : "people-discovery"}
         transition={{ duration: 0.18, ease: "easeOut" }}
       >
-        {/* People search bar: same recipe as the app's other search fields
-            (shadui Input + icon slot), scoped to this tab, guests included. */}
-        <div className="relative mb-4">
-          {isFetching && isSearching ? (
-            <span className="border-primary/30 border-t-primary absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 animate-spin rounded-full border-2" />
-          ) : (
-            <Search className="text-muted-foreground absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2" />
-          )}
-          <Input
-            aria-label="Search people"
-            autoComplete="off"
-            className="focus-visible:ring-primary h-10 py-2.5 pr-9 pl-9 transition-all duration-300 ease-in-out focus-visible:ring-2"
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search people by name or @username"
-            type="text"
-            value={search}
-          />
-          {search ? (
-            <button
-              aria-label="Clear people search"
-              className="text-muted-foreground hover:text-foreground absolute top-1/2 right-2 -translate-y-1/2 rounded-full p-0.5 transition-colors"
-              onClick={() => setSearch("")}
-              type="button"
-            >
-              <X className="h-3.5 w-3.5" />
-            </button>
-          ) : null}
-        </div>
+        {/* Desktop people search complements the header search button. */}
+        {isLoggedIn ? (
+          <div className="relative mb-4 hidden md:block">
+            {isFetching && isSearching ? (
+              <span className="border-primary/30 border-t-primary absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 animate-spin rounded-full border-2" />
+            ) : (
+              <Search className="text-muted-foreground absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2" />
+            )}
+            <Input
+              aria-label="Search people"
+              autoComplete="off"
+              className="focus-visible:ring-primary h-10 py-2.5 pr-9 pl-9 transition-all duration-300 ease-in-out focus-visible:ring-2"
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Search people by name or @username"
+              type="text"
+              value={search}
+            />
+            {search ? (
+              <button
+                aria-label="Clear people search"
+                className="text-muted-foreground hover:text-foreground absolute top-1/2 right-2 -translate-y-1/2 rounded-full p-0.5 transition-colors"
+                onClick={() => setSearch("")}
+                type="button"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            ) : null}
+          </div>
+        ) : null}
 
         {body}
       </motion.div>

@@ -4,16 +4,11 @@
 // produces it. Both the worker (scan stage) and the web app import from here.
 
 // IPTC NewsCodes digitalSourceType URIs that indicate machine-generated
-// content. The "trained" variants mean a learned model produced (or is part
-// of) the asset; the others cover non-learning algorithmic synthesis, which
-// platforms still owe their users an AI label for.
+// content. Conventional CGI and mathematical renders are synthetic too, but
+// they must not receive an AI-generated badge without an AI signal.
 export const SYNTHETIC_DIGITAL_SOURCE_TYPES = [
   "trainedAlgorithmicMedia",
   "compositeWithTrainedAlgorithmicMedia",
-  "algorithmicMedia",
-  "algorithmicConfigurator",
-  "dataDrivenMedia",
-  "virtualRecording",
 ] as const;
 
 // Substring matchers (lowercased) against claim_generator /
@@ -112,7 +107,7 @@ function collectActions(assertions: unknown[]): UnknownRecord[] {
       continue;
     }
     const label = asString(assertion.label);
-    if (!label || !label.toLowerCase().endsWith(".actions")) {
+    if (!label || !/\.actions(?:\.v\d+)?$/.test(label.toLowerCase())) {
       continue;
     }
     const data = asRecord(assertion.data);
@@ -130,10 +125,34 @@ function collectActions(assertions: unknown[]): UnknownRecord[] {
 }
 
 function classifyDigitalSourceType(value: string): AiEvidence["kind"] | null {
-  const matches = SYNTHETIC_DIGITAL_SOURCE_TYPES.some((type) =>
-    value.includes(type)
+  const matches = SYNTHETIC_DIGITAL_SOURCE_TYPES.some(
+    (type) =>
+      value === `http://cv.iptc.org/newscodes/digitalsourcetype/${type}` ||
+      value === `https://cv.iptc.org/newscodes/digitalsourcetype/${type}`
   );
   return matches ? "digitalSourceType" : null;
+}
+
+export function detectAiFromXmp(xmp?: string): AiProvenanceVerdict {
+  const evidence: AiEvidence[] = [];
+  for (const match of (xmp ?? "").matchAll(
+    /(?:[A-Za-z_][\w.-]*:)?DigitalSourceType(?:\s*=\s*["']|\s*>\s*)(?<source>https?:\/\/cv\.iptc\.org\/newscodes\/digitalsourcetype\/[A-Za-z]+)(?=["'<\s])/g
+  )) {
+    const source = match.groups?.source;
+    if (source && classifyDigitalSourceType(source)) {
+      evidence.push({
+        detail: "XMP DigitalSourceType declaration",
+        kind: "digitalSourceType",
+        source,
+      });
+    }
+  }
+  return {
+    aiGenerated: evidence.length > 0,
+    c2paPresent: false,
+    evidence,
+    generators: [],
+  };
 }
 
 function classifyGeneratorText(value: string): string | null {
@@ -211,7 +230,9 @@ export function detectAiFromManifestStore(
           source: dst,
         });
       }
-      const softwareAgent = asString(action.softwareAgent);
+      const softwareAgent =
+        asString(action.softwareAgent) ??
+        asString(asRecord(action.softwareAgent)?.name);
       if (softwareAgent) {
         const needle = classifyGeneratorText(softwareAgent);
         if (needle) {

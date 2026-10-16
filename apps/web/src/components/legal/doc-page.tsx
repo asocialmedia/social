@@ -124,6 +124,7 @@ export function DocPage({
   children,
   crossLink,
   effectiveDate,
+  embedded = false,
   sections,
   summary,
   title,
@@ -132,6 +133,7 @@ export function DocPage({
   children: React.ReactNode;
   crossLink: { href: string; label: string };
   effectiveDate: string;
+  embedded?: boolean;
   sections: readonly DocSectionMeta[];
   summary: React.ReactNode;
   title: string;
@@ -143,70 +145,86 @@ export function DocPage({
 
   return (
     <SectionIndexContext.Provider value={sectionList}>
-      <div className="min-h-screen w-full">
-        <div className="mx-auto w-full max-w-6xl px-5 pt-6 pb-24 sm:px-8">
+      <div className={embedded ? "w-full" : "min-h-screen w-full"}>
+        <div
+          className={
+            embedded
+              ? "mx-auto w-full px-5 py-6 sm:px-8"
+              : "mx-auto w-full max-w-6xl px-5 pt-6 pb-24 sm:px-8"
+          }
+        >
           {/* Slim chrome: leave the document, or cross to the other one. Both
               are plain links, so nothing here competes with the document. */}
-          <nav className="flex items-center justify-between gap-4">
-            <Link
-              className="text-muted-foreground hover:text-foreground group inline-flex items-center gap-2 text-sm font-medium transition-colors"
-              href="/"
-            >
-              <ArrowLeft className="size-4 transition-transform duration-200 group-hover:-translate-x-0.5" />
-              Back to feed
-            </Link>
-            <Link
-              className="text-muted-foreground hover:text-foreground group inline-flex items-center gap-1.5 text-sm font-medium transition-colors"
-              href={crossLink.href}
-            >
-              {crossLink.label}
-              <ArrowUpRight className="size-4 transition-transform duration-200 group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
-            </Link>
-          </nav>
+          {embedded ? null : (
+            <nav className="flex items-center justify-between gap-4">
+              <Link
+                className="text-muted-foreground hover:text-foreground group inline-flex items-center gap-2 text-sm font-medium transition-colors"
+                href="/"
+              >
+                <ArrowLeft className="size-4 transition-transform duration-200 group-hover:-translate-x-0.5" />
+                Back to feed
+              </Link>
+              <Link
+                className="text-muted-foreground hover:text-foreground group inline-flex items-center gap-1.5 text-sm font-medium transition-colors"
+                href={crossLink.href}
+              >
+                {crossLink.label}
+                <ArrowUpRight className="size-4 transition-transform duration-200 group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
+              </Link>
+            </nav>
+          )}
 
-          <div className="mt-10 lg:grid lg:grid-cols-[14.5rem_minmax(0,1fr)] lg:gap-14 xl:gap-16">
+          <div
+            className={
+              embedded
+                ? ""
+                : "mt-10 lg:grid lg:grid-cols-[14.5rem_minmax(0,1fr)] lg:gap-14 xl:gap-16"
+            }
+          >
             {/* Contents. A sticky rail beside the document on wide screens, and
                 a native disclosure above it on narrow ones, where a rail would
                 eat the reading width. */}
-            <div className="mb-10 lg:mb-0">
-              <details className="panel-3d group rounded-2xl p-3 lg:hidden">
-                <summary className="text-foreground cursor-pointer list-none px-1 py-1 text-sm font-semibold select-none">
-                  Contents
-                  <span className="text-muted-foreground ml-2 text-xs font-normal">
-                    {sections.length} sections
-                  </span>
-                </summary>
-                <ul className="mt-2 flex flex-col gap-0.5">
-                  {sections.map((section, index) => (
-                    <ContentsEntry
-                      active={section.id === activeId}
-                      index={index}
-                      key={section.id}
-                      section={section}
-                    />
-                  ))}
-                </ul>
-              </details>
+            {embedded ? null : (
+              <div className="mb-10 lg:mb-0">
+                <details className="panel-3d group rounded-2xl p-3 lg:hidden">
+                  <summary className="text-foreground cursor-pointer list-none px-1 py-1 text-sm font-semibold select-none">
+                    Contents
+                    <span className="text-muted-foreground ml-2 text-xs font-normal">
+                      {sections.length} sections
+                    </span>
+                  </summary>
+                  <ul className="mt-2 flex flex-col gap-0.5">
+                    {sections.map((section, index) => (
+                      <ContentsEntry
+                        active={section.id === activeId}
+                        index={index}
+                        key={section.id}
+                        section={section}
+                      />
+                    ))}
+                  </ul>
+                </details>
 
-              <nav
-                aria-label={`${title} contents`}
-                className="panel-3d sticky top-6 hidden rounded-2xl p-3 lg:block"
-              >
-                <p className="text-muted-foreground px-2.5 pt-1 pb-2 text-xs font-semibold">
-                  Contents
-                </p>
-                <ul className="flex max-h-[min(34rem,70vh)] flex-col gap-0.5 overflow-y-auto">
-                  {sections.map((section, index) => (
-                    <ContentsEntry
-                      active={section.id === activeId}
-                      index={index}
-                      key={section.id}
-                      section={section}
-                    />
-                  ))}
-                </ul>
-              </nav>
-            </div>
+                <nav
+                  aria-label={`${title} contents`}
+                  className="panel-3d sticky top-6 hidden rounded-2xl p-3 lg:block"
+                >
+                  <p className="text-muted-foreground px-2.5 pt-1 pb-2 text-xs font-semibold">
+                    Contents
+                  </p>
+                  <ul className="flex max-h-[min(34rem,70vh)] flex-col gap-0.5 overflow-y-auto">
+                    {sections.map((section, index) => (
+                      <ContentsEntry
+                        active={section.id === activeId}
+                        index={index}
+                        key={section.id}
+                        section={section}
+                      />
+                    ))}
+                  </ul>
+                </nav>
+              </div>
+            )}
 
             {/* The document. */}
             <main className="min-w-0">
@@ -244,7 +262,7 @@ export function DocPage({
           </div>
         </div>
 
-        <ScrollUpButton isVisible={scrolled} />
+        {embedded ? null : <ScrollUpButton isVisible={scrolled} />}
       </div>
     </SectionIndexContext.Provider>
   );

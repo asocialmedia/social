@@ -1,6 +1,7 @@
 import {
   getUserCommunityRoles,
   getUserDataQuery,
+  getUserProfileSummary,
   mapUserData,
   prisma,
   resolveUsername,
@@ -46,7 +47,15 @@ const getUser = cache(async (username: string, loggedInUserId: string) => {
     notFound();
   }
 
-  return { redirectToCurrentUsername: resolvedUsername.isAlias, user };
+  const summary = await getUserProfileSummary(
+    prisma.orm,
+    user.id,
+    loggedInUserId
+  );
+  return {
+    redirectToCurrentUsername: resolvedUsername.isAlias,
+    user: { ...user, ...summary },
+  };
 });
 
 // Metadata never varies by viewer, so it reads through a cached scope instead

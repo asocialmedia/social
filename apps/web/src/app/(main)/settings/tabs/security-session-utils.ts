@@ -1,4 +1,14 @@
+export {
+  getSessionDevice,
+  getSessionLocation,
+  hasSessionRefresh,
+  sessionClientLabel,
+  sessionDeviceLabel,
+} from "@asm/ui/lib/session-details";
+
 export interface SecuritySession {
+  city?: string | null;
+  current?: boolean;
   country: string | null;
   createdAt: string;
   expiresAt: string;
@@ -18,6 +28,10 @@ export function isSecuritySession(value: unknown): value is SecuritySession {
     typeof session.createdAt === "string" &&
     typeof session.updatedAt === "string" &&
     typeof session.expiresAt === "string" &&
+    (session.current === undefined || typeof session.current === "boolean") &&
+    (session.city === undefined ||
+      session.city === null ||
+      typeof session.city === "string") &&
     (typeof session.country === "string" ||
       session.country === null ||
       session.country === undefined) &&
@@ -28,54 +42,4 @@ export function isSecuritySession(value: unknown): value is SecuritySession {
       session.userAgent === null ||
       session.userAgent === undefined)
   );
-}
-
-export function getSessionDevice(agent: string | null): {
-  browser: string;
-  device: string;
-} {
-  const userAgentString = agent === null ? "" : agent;
-  let browser = "Unknown browser";
-  if (userAgentString.includes("Edg/")) {
-    browser = "Microsoft Edge";
-  } else if (userAgentString.includes("Firefox/")) {
-    browser = "Firefox";
-  } else if (
-    userAgentString.includes("Chrome/") ||
-    userAgentString.includes("CriOS/")
-  ) {
-    browser = "Chrome";
-  } else if (userAgentString.includes("Safari/")) {
-    browser = "Safari";
-  }
-
-  let device = "Unknown device";
-  if (userAgentString.includes("iPhone")) {
-    device = "iPhone";
-  } else if (userAgentString.includes("iPad")) {
-    device = "iPad";
-  } else if (userAgentString.includes("Android")) {
-    device = "Android device";
-  } else if (userAgentString.includes("Windows")) {
-    device = "Windows";
-  } else if (userAgentString.includes("Mac OS X")) {
-    device = "Mac";
-  } else if (userAgentString.includes("Linux")) {
-    device = "Linux device";
-  }
-
-  return { browser, device };
-}
-
-export function getSessionLocation(
-  country: string | null,
-  ipAddress: string | null
-): string {
-  const countryName = country
-    ? new Intl.DisplayNames(["en"], { type: "region" }).of(country)
-    : undefined;
-  if (countryName && ipAddress) {
-    return `${countryName} · ${ipAddress}`;
-  }
-  return countryName || ipAddress || "Location unavailable";
 }

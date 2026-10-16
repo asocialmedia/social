@@ -183,7 +183,7 @@ export const ExplorePostEmbed: React.FC<{ embed: LinkEmbed }> = ({ embed }) => {
         src={embedImageProxyUrl(rawImage)}
       />
       {/* Platform mark, mirroring the "Gust" chip's placement on a gust tile. */}
-      <div className="absolute top-2 left-2 z-10 flex items-center gap-1 rounded-full bg-black/50 px-2 py-0.5 text-white backdrop-blur-md">
+      <div className="chip-3d explore-gust-chip absolute top-2 left-2 z-10 flex items-center gap-1 rounded-full px-2 py-0.5 text-white">
         <EmbedSiteBadge siteName={embed.siteName} url={embed.url} />
         <span className="text-[10px] font-semibold">
           {embed.siteName ?? "Link"}
@@ -256,7 +256,7 @@ const ExplorePostCard: React.FC<ExplorePostCardProps> = ({ post }) => {
             style={{ aspectRatio }}
           >
             {isGustPost ? (
-              <div className="absolute top-2 left-2 z-10 flex items-center gap-1 rounded-full bg-black/50 px-2 py-0.5 text-xs text-white backdrop-blur-md">
+              <div className="chip-3d explore-gust-chip absolute top-2 left-2 z-10 flex items-center gap-1 rounded-full px-2 py-0.5 text-xs text-white">
                 <Clapperboard className="text-primary size-3" />
                 <span className="text-[10px] font-semibold">Gust</span>
               </div>

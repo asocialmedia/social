@@ -128,7 +128,7 @@ const ExploreUserCard: React.FC<ExploreUserCardProps> = ({
           <div className="absolute inset-0 bg-gradient-to-b from-transparent to-[#ffedd5] dark:to-[#3a1a0c]" />
         ) : null}
         {highlight ? (
-          <span className="bg-primary/10 text-primary border-primary/20 absolute top-2.5 left-2.5 flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold backdrop-blur-sm">
+          <span className="chip-3d explore-recommended-chip absolute top-2.5 left-2.5 flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold">
             <Sparkles className="h-2.5 w-2.5 fill-current" />
             Recommended
           </span>

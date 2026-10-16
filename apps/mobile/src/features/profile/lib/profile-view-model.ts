@@ -1,8 +1,11 @@
+import type { ProfileMutuals } from "@asm/ui/lib/profile-mutuals";
+
 import type {
   FeedMedia,
   FeedPost,
   FeedUser,
 } from "@/features/feed/lib/feed-types";
+import type { CommunityRoleLike } from "@/features/home/components/profile-utils";
 
 import type { ProfileViewTab } from "./profile-tab-memory";
 
@@ -13,14 +16,12 @@ export interface ProfileHeaderProfile {
   badges: string[];
   bannerUrl: string | null;
   bio: string | null;
-  communityMemberships: {
-    community?: { slug?: string | null } | null;
-    role: string;
-  }[];
+  communityMemberships: CommunityRoleLike[];
   createdAt: string;
   customDomain: string | null;
   displayName: string | null;
   followers: { followerId: string }[];
+  mutuals?: ProfileMutuals;
   githubUsername: string | null;
   id: string;
   isFollowing: boolean;
@@ -43,10 +44,10 @@ export interface ProfileMedia extends FeedMedia {
 }
 
 // Web sizes each media tile by the item's real dimensions so the tab reads as
-// a masonry wall rather than a uniform checkerboard, falling back to square
+// a masonry wall rather than a uniform checkerboard, falling back to portrait
 // when an upload never recorded them. A falsy width is caught by the same
 // check, because zero would otherwise divide the tile away to nothing.
-const DEFAULT_MEDIA_ASPECT = 1;
+const DEFAULT_MEDIA_ASPECT = 4 / 5;
 
 export function mediaTileAspect(item: ProfileMedia): number {
   return item.width && item.height

@@ -8,6 +8,7 @@
 // family with the feed and profile surfaces.
 import type { ComponentType, ReactNode } from "react";
 import { useState } from "react";
+import type { GestureResponderEvent } from "react-native";
 import {
   ActivityIndicator,
   Pressable,
@@ -47,6 +48,20 @@ type IconComponent = ComponentType<{ color?: string; size?: number }>;
 // Web's `ORANGE_GRADIENT_CLASS`: the brand tile every section and card head
 // wears, so one orange appears across the whole screen.
 const ORANGE_TILE_GRADIENT = ORANGE_GRADIENT;
+
+export function SettingsDialogIcon({ icon: Icon }: { icon: IconComponent }) {
+  const { isDark } = useAppTheme();
+  return (
+    <Gradient3D
+      colors={ORANGE_TILE_GRADIENT}
+      radius={8}
+      shadows={isDark ? LOGIN_BUTTON_SHADOWS : LOGIN_BUTTON_SHADOWS_LIGHT}
+      style={{ height: 32, width: 32 }}
+    >
+      <Icon color="#ffffff" size={16} />
+    </Gradient3D>
+  );
+}
 
 // Web's `SettingsSectionHeader`: the orange tile plus title and description.
 export function SettingsSectionHeader({
@@ -226,14 +241,20 @@ export function SettingsButton({
   onPress,
   size = "md",
   tone = "primary",
+  radius = 9999,
+  leadingIcon: LeadingIcon,
+  trailingIcon: TrailingIcon,
 }: {
   block?: boolean;
   disabled?: boolean;
   label: string;
   loading?: boolean;
-  onPress: () => void;
+  onPress: (event: GestureResponderEvent) => void;
   size?: "md" | "sm";
   tone?: SettingsButtonTone;
+  radius?: number;
+  leadingIcon?: IconComponent;
+  trailingIcon?: IconComponent;
 }) {
   const { isDark } = useAppTheme();
   const gated = Boolean(disabled) || Boolean(loading);
@@ -245,11 +266,12 @@ export function SettingsButton({
       accessibilityRole="button"
       accessibilityState={{ disabled: gated }}
       disabled={gated}
-      onPress={() => {
+      onPress={(event) => {
         haptic();
-        onPress();
+        onPress(event);
       }}
       style={[
+        styles.buttonBounds,
         block ? styles.buttonBlock : null,
         gated ? styles.buttonGated : null,
       ]}
@@ -257,7 +279,7 @@ export function SettingsButton({
       {({ pressed }) => (
         <Gradient3D
           colors={pressed && !gated ? recipe.pressedColors : recipe.colors}
-          radius={9999}
+          radius={radius}
           shadows={pressed && !gated ? recipe.pressedShadows : recipe.shadows}
           style={[
             styles.button,
@@ -267,12 +289,18 @@ export function SettingsButton({
           ]}
         >
           <View style={styles.buttonContent}>
+            {LeadingIcon ? (
+              <LeadingIcon color={recipe.textColor} size={16} />
+            ) : null}
             {loading ? (
               <ActivityIndicator color={recipe.textColor} size="small" />
             ) : null}
             <Text style={[styles.buttonText, { color: recipe.textColor }]}>
               {label}
             </Text>
+            {TrailingIcon ? (
+              <TrailingIcon color={recipe.textColor} size={16} />
+            ) : null}
           </View>
         </Gradient3D>
       )}
@@ -393,6 +421,7 @@ function iconButtonColor(
 export function SettingsInput({
   autoCapitalize = "none",
   editable = true,
+  hideLabel = false,
   keyboardType,
   label,
   leading,
@@ -407,6 +436,7 @@ export function SettingsInput({
 }: {
   autoCapitalize?: "none" | "sentences" | "words";
   editable?: boolean;
+  hideLabel?: boolean;
   keyboardType?: "default" | "email-address" | "numeric";
   label: string;
   leading?: ReactNode;
@@ -414,7 +444,7 @@ export function SettingsInput({
   leadingText?: string;
   maxLength?: number;
   multiline?: boolean;
-  onChangeText: (value: string) => void;
+  onChangeText?: (value: string) => void;
   placeholder?: string;
   secureTextEntry?: boolean;
   value: string;
@@ -424,9 +454,11 @@ export function SettingsInput({
   const field = premiumInput(isDark, focused);
   return (
     <View style={styles.field}>
-      <Text style={[styles.fieldLabel, { color: theme.dividerText }]}>
-        {label}
-      </Text>
+      {hideLabel ? null : (
+        <Text style={[styles.fieldLabel, { color: theme.dividerText }]}>
+          {label}
+        </Text>
+      )}
       {/* Android does not paint an inset box-shadow on a TextInput itself, so
           the premium-input recipe rides a wrapper View and the field inside
           stays transparent, exactly like web's `.premium-input` on a div. */}
@@ -450,6 +482,8 @@ export function SettingsInput({
           </Text>
         ) : null}
         <TextInput
+          accessibilityLabel={label}
+          textAlignVertical={multiline ? "top" : "center"}
           autoCapitalize={autoCapitalize}
           autoCorrect={false}
           editable={editable}
@@ -536,22 +570,28 @@ const styles = StyleSheet.create({
   button: {
     alignItems: "center",
     justifyContent: "center",
+    maxWidth: "100%",
   },
   buttonBlock: { alignSelf: "stretch", width: "100%" },
   buttonBlockInner: { width: "100%" },
+  buttonBounds: { maxWidth: "100%" },
   buttonContent: {
     alignItems: "center",
     flexDirection: "row",
+    flexShrink: 1,
     gap: 8,
+    maxWidth: "100%",
   },
   buttonGated: { opacity: 0.5 },
-  buttonMd: { height: 40, paddingHorizontal: 22 },
+  buttonMd: { minHeight: 40, paddingHorizontal: 22, paddingVertical: 8 },
   buttonPressed: { transform: [{ translateY: 1 }] },
-  buttonSm: { height: 36, paddingHorizontal: 18 },
+  buttonSm: { minHeight: 36, paddingHorizontal: 18, paddingVertical: 8 },
   buttonText: {
+    flexShrink: 1,
     fontFamily: "SofiaProBold",
     fontSize: 14,
     fontWeight: "normal",
+    textAlign: "center",
   },
   card: {
     borderCurve: "continuous",
@@ -561,7 +601,9 @@ const styles = StyleSheet.create({
   cardHeading: {
     alignItems: "center",
     flexDirection: "row",
+    flexShrink: 1,
     gap: 8,
+    minWidth: 0,
   },
   cardHeadingAction: { marginLeft: "auto" },
   cardHeadingDesc: { fontFamily: "SofiaProReg", fontSize: 13 },
@@ -569,7 +611,9 @@ const styles = StyleSheet.create({
   cardHeadingTitle: { fontFamily: "SofiaProMed", fontSize: 15 },
   cardPadded: { gap: 12, padding: 20 },
   chip: {
+    alignSelf: "flex-start",
     borderRadius: 9999,
+    maxWidth: "100%",
     paddingHorizontal: 10,
     paddingVertical: 4,
   },
@@ -597,13 +641,21 @@ const styles = StyleSheet.create({
     minHeight: 44,
     paddingHorizontal: 16,
   },
-  inputFieldMultiline: { alignItems: "flex-start", minHeight: 88 },
+  inputFieldMultiline: {
+    alignItems: "flex-start",
+    minHeight: 112,
+    paddingVertical: 12,
+  },
   inputLeadingText: {
     fontFamily: "SofiaProMed",
     fontSize: 15,
   },
-  inputMultilineText: { paddingVertical: 0, textAlignVertical: "top" },
-  minWidthZero: { flexShrink: 1, minWidth: 0 },
+  inputMultilineText: {
+    minHeight: 88,
+    paddingVertical: 0,
+    textAlignVertical: "top",
+  },
+  minWidthZero: { flex: 1, minWidth: 0 },
   sectionHeader: { alignItems: "center", flexDirection: "row", gap: 12 },
   sectionHeaderDesc: { fontFamily: "SofiaProReg", fontSize: 13 },
   sectionHeaderTile: { height: 40, width: 40 },

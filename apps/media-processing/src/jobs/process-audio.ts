@@ -25,7 +25,8 @@ import { persistMediaDerivatives } from "./derivatives";
 const WAVEFORM_POINTS = 200;
 
 export async function processMediaAudio(input: {
-  /** Receives every object key promoted to storage, for failure rollback. */
+  // Isolated output prefix for safe retries and upgrades.
+  storageId?: string;
   mediaId: string;
   sourcePath: string;
   uploadedKeys?: string[];
@@ -87,7 +88,7 @@ export async function processMediaAudio(input: {
       );
       const opusKey = derivativeKey(
         MEDIA_PIPELINE_VERSION,
-        input.mediaId,
+        input.storageId ?? input.mediaId,
         derivativeName("audio", "opus", "webm")
       );
       await s3.write(opusKey, Bun.file(opusPath));
@@ -122,7 +123,7 @@ export async function processMediaAudio(input: {
       );
       const aacKey = derivativeKey(
         MEDIA_PIPELINE_VERSION,
-        input.mediaId,
+        input.storageId ?? input.mediaId,
         derivativeName("audio", "aac", "m4a")
       );
       await s3.write(aacKey, Bun.file(aacPath));
@@ -161,7 +162,7 @@ export async function processMediaAudio(input: {
         if (extractedCover) {
           const coverKey = derivativeKey(
             MEDIA_PIPELINE_VERSION,
-            input.mediaId,
+            input.storageId ?? input.mediaId,
             derivativeName("cover", "default", "jpg")
           );
           await s3.write(coverKey, Bun.file(coverPath));
@@ -185,7 +186,7 @@ export async function processMediaAudio(input: {
       );
       const waveKey = derivativeKey(
         MEDIA_PIPELINE_VERSION,
-        input.mediaId,
+        input.storageId ?? input.mediaId,
         derivativeName("wave", "peaks", "json")
       );
       const waveLocalPath = `${input.sourcePath}-peaks.json`;

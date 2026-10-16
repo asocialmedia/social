@@ -3,6 +3,8 @@
 // srcset on native): feed singles use the lg rung, grids the md rung, GIFs
 // bypass variants to preserve animation, videos use poster + progressive MP4.
 
+import { imageVariantForWidth } from "@asm/media";
+
 import type { FeedMedia } from "./feed-types";
 
 export function mediaVariantUrl(
@@ -10,29 +12,53 @@ export function mediaVariantUrl(
   mediaId: string,
   variant: string
 ): string {
-  return `${apiBase.replace(/\/+$/, "")}/api/media/${mediaId}/v/${variant}`;
+  return `${apiBase.replace(/\/+$/, "")}/api/media/${mediaId}/v/${variant}?d=4`;
 }
 
-export function mediaImageUrl(apiBase: string, media: FeedMedia): string {
+export function mediaImageUrl(
+  apiBase: string,
+  media: FeedMedia,
+  pixelWidth = 1200
+): string {
   if (media.mimeType === "image/gif") {
     return `${apiBase.replace(/\/+$/, "")}/api/media/${media.id}`;
   }
-  return mediaVariantUrl(apiBase, media.id, "lg-webp.webp");
+  return `${mediaVariantUrl(
+    apiBase,
+    media.id,
+    imageVariantForWidth(pixelWidth, media.width)
+  )}&format=avif`;
 }
 
-export function mediaGridImageUrl(apiBase: string, media: FeedMedia): string {
+export function mediaGridImageUrl(
+  apiBase: string,
+  media: FeedMedia,
+  pixelWidth = 800
+): string {
   if (media.mimeType === "image/gif") {
     return `${apiBase.replace(/\/+$/, "")}/api/media/${media.id}`;
   }
-  return mediaVariantUrl(apiBase, media.id, "md-webp.webp");
+  return `${mediaVariantUrl(
+    apiBase,
+    media.id,
+    imageVariantForWidth(pixelWidth, media.width)
+  )}&format=avif`;
 }
 
 export function mediaPosterUrl(apiBase: string, mediaId: string): string {
   return `${apiBase.replace(/\/+$/, "")}/api/media/${mediaId}?thumb=1`;
 }
 
-export function mediaVideoUrl(apiBase: string, mediaId: string): string {
-  return mediaVariantUrl(apiBase, mediaId, "mp4-h264.mp4");
+export function mediaVideoUrl(
+  apiBase: string,
+  mediaId: string,
+  hasHls = false
+): string {
+  return mediaVariantUrl(
+    apiBase,
+    mediaId,
+    hasHls ? "hls/master.m3u8" : "mp4-h264.mp4"
+  );
 }
 
 // Audio streams the published original like web's AudioPreview (no

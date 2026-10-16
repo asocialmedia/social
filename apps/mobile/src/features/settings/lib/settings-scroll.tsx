@@ -97,6 +97,30 @@ export interface SettingsSearchEntry {
 
 export const SETTINGS_CATALOG: SettingsSearchEntry[] = [
   {
+    description: "Light, dark or your device appearance",
+    id: "appearance",
+    keywords: ["theme", "light", "dark", "system", "personalization"],
+    label: "Appearance",
+    sectionId: "settings-appearance",
+    tab: "personalization",
+  },
+  {
+    description: "Terms and Privacy Policy",
+    id: "legal",
+    keywords: ["legal", "terms", "privacy", "policy"],
+    label: "Legal",
+    sectionId: "settings-legal",
+    tab: "privacy",
+  },
+  {
+    description: "Choose who can add you to a group",
+    id: "group-adds",
+    keywords: ["groups", "privacy", "invite"],
+    label: "Who can add me to a group",
+    sectionId: "settings-group-adds",
+    tab: "privacy",
+  },
+  {
     description: "Change the name shown on your profile",
     id: "display-name",
     keywords: ["name", "displayname", "display name", "nickname", "handle"],
@@ -231,6 +255,7 @@ export const SETTINGS_CATALOG: SettingsSearchEntry[] = [
 
 export const TAB_LABELS: Record<SettingsTab, string> = {
   account: "Account",
+  personalization: "Personalization",
   privacy: "Privacy",
   profile: "Profile",
   security: "Security",

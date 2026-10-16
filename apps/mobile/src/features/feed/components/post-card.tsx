@@ -8,6 +8,7 @@
 // Card taps open the post detail screen (/posts/[postId]), mirroring web's
 // card-wide navigation. Profile identity controls explicitly stop the press
 // event before routing to /users/[username], so they never open the post.
+import { mediaReshareLabel } from "@asm/media";
 import { useRouter } from "expo-router";
 import { memo, useMemo, useState } from "react";
 import type { GestureResponderEvent } from "react-native";
@@ -15,7 +16,6 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import avatarPlaceholder from "@/assets/images/avatar-placeholder.png";
 import { authClient } from "@/features/auth/lib/auth-client";
-import { resolveCommunityAccentColor } from "@/features/communities/lib/community-accents";
 import { fetchPostDetail } from "@/features/post/lib/post-api";
 import { postDetailCache, postDetailKey } from "@/features/post/lib/post-cache";
 import { usePrefetchProfile } from "@/features/profile";
@@ -43,7 +43,9 @@ import {
 } from "../lib/feed-types";
 import { parseStoredEmbeds } from "../lib/link-embeds";
 import { buildMoreEntries } from "../lib/more-entries";
+import { useMediaPreviewStore } from "../state/media-preview-store";
 import { useVideoCaptionsStore } from "../state/video-captions-store";
+import { CommunityAttribution } from "./community-attribution";
 import type { MenuAnchor } from "./more-menu";
 import {
   BookmarkToggle,
@@ -72,48 +74,6 @@ import {
 // Content past this length collapses behind Show more, mirroring web's
 // ~6-line clamp. BioContent cuts at segment boundaries so pills never split.
 const CONTENT_CLAMP_LENGTH = 400;
-
-function CommunityAttribution({
-  accentColor,
-  reason,
-  slug,
-}: {
-  accentColor?: string | null;
-  reason: boolean;
-  slug: string;
-}) {
-  const { theme, isDark } = useAppTheme();
-  const router = useRouter();
-  const resolvedColor = resolveCommunityAccentColor(accentColor, isDark);
-  return (
-    <Pressable
-      accessibilityLabel={`Community a/${slug}`}
-      accessibilityRole="link"
-      onPress={(event) => {
-        event.stopPropagation();
-        router.push({ params: { slug }, pathname: "/a/[slug]" });
-      }}
-      style={styles.attribution}
-    >
-      <View
-        style={[styles.attributionBar, { backgroundColor: resolvedColor }]}
-      />
-      <Text
-        numberOfLines={1}
-        style={[styles.attributionText, { color: theme.dividerText }]}
-      >
-        <Text style={{ color: theme.inputText, fontFamily: "SofiaProMed" }}>
-          a/{slug}
-        </Text>
-        {reason ? (
-          <Text style={{ color: theme.dividerText, fontFamily: "SofiaProReg" }}>
-            {" · "}Trending in a/{slug}
-          </Text>
-        ) : null}
-      </Text>
-    </Pressable>
-  );
-}
 
 function ThreadRail({
   hasThreadChild,
@@ -194,6 +154,7 @@ export const PostCard = memo(
 
     const apiBase = getApiBaseUrl();
     const author = post.user;
+    const contextCommunity = post.community;
     const displayName = author?.displayName || author?.username || "unknown";
     const username = author?.username ?? "unknown";
     const authorSeed = author?.username || author?.id || null;
@@ -210,6 +171,10 @@ export const PostCard = memo(
     // Card-wide navigation, mirroring web's handleCardClick (interactive
     // targets opt out by living outside the Pressable below).
     const openDetail = () => {
+      // The release of a media hold must never navigate the card behind its drawer.
+      if (useMediaPreviewStore.getState().request) {
+        return;
+      }
       if (onOpenDetail) {
         onOpenDetail(post);
         return;
@@ -263,6 +228,9 @@ export const PostCard = memo(
     );
     const hasMeta = extraTags.length > 0 || extraMentions.length > 0;
     const attachments = Array.isArray(post.attachments) ? post.attachments : [];
+    const attribution = attachments
+      .map(mediaReshareLabel)
+      .find((label) => label !== null);
     // Stored link embeds (YouTube facade + OG cards) render below the media
     // in one gated column, like web's mediaAndEmbeds block.
     const linkEmbeds = useMemo(
@@ -317,11 +285,13 @@ export const PostCard = memo(
             <ResponseParentRow post={post} />
           ) : null}
 
-          {post.community && showCommunity ? (
+          {contextCommunity && showCommunity ? (
             <CommunityAttribution
-              accentColor={post.community.accentColor}
-              reason={showCommunityReason}
-              slug={post.community.slug}
+              accentColor={contextCommunity.accentColor}
+              id={contextCommunity.id}
+              name={contextCommunity.name}
+              reason={Boolean(post.community) && showCommunityReason}
+              slug={contextCommunity.slug}
             />
           ) : null}
 
@@ -520,6 +490,13 @@ export const PostCard = memo(
                           />
                         </View>
                       )}
+                      {attribution ? (
+                        <Text
+                          style={[styles.altText, { color: theme.dividerText }]}
+                        >
+                          {attribution}
+                        </Text>
+                      ) : null}
                       {showAlt
                         ? attachments
                             .filter((media) => media.altText)
@@ -558,7 +535,7 @@ export const PostCard = memo(
                     onPress={() => setShowComments((value) => !value)}
                   />
                   <RespondButton count={responseCount} post={post} />
-                  <ViewsBadge count={post.viewCount ?? 0} />
+                  <ViewsBadge count={post.viewCount ?? 0} postId={post.id} />
                   <View style={styles.actionCluster}>
                     <ShareButton onPress={() => onShare(post)} />
                     <BookmarkToggle
@@ -607,24 +584,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "normal",
     marginTop: 6,
-  },
-  attribution: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 8,
-    marginBottom: 10,
-  },
-  attributionBar: {
-    borderRadius: 9999,
-    height: 14,
-    width: 2,
-  },
-  attributionText: {
-    flex: 1,
-    fontFamily: "SofiaProMed",
-    fontSize: 12,
-    fontWeight: "normal",
-    minWidth: 0,
   },
   authorIdentity: {
     alignItems: "center",
@@ -751,23 +710,23 @@ const styles = StyleSheet.create({
     width: 36,
   },
   railFull: {
-    bottom: -9,
+    bottom: -8,
     left: "50%",
     marginLeft: -1,
     position: "absolute",
-    top: -9,
+    top: -8,
     width: 2,
   },
   railStub: {
-    height: 27,
+    height: 26,
     left: "50%",
     marginLeft: -1,
     position: "absolute",
-    top: -9,
+    top: -8,
     width: 2,
   },
   railTail: {
-    bottom: -9,
+    bottom: -8,
     left: "50%",
     marginLeft: -1,
     position: "absolute",

@@ -53,7 +53,7 @@ export default function UserAvatar({
     <Image
       alt="User avatar"
       className={cn(
-        "avatar-ring aspect-square h-fit flex-none rounded-xl",
+        "avatar-ring aspect-square h-fit flex-none rounded-[30%]",
         "bg-gradient-to-b from-[hsl(var(--muted))] to-[hsl(var(--background-alt))]",
         transparent ? "object-contain" : "object-cover",
         className

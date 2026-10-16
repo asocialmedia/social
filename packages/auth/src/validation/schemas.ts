@@ -97,6 +97,39 @@ const createPostShape = z.object({
   // Links the author dismissed in the composer's live preview; the publish
   // path excludes them from the stored embed set. Capped like MAX_POST_EMBEDS.
   dismissedEmbedUrls: z.array(z.string().max(2048)).max(5).optional(),
+  hnStory: z
+    .object({
+      by: z
+        .string()
+        .nullish()
+        .transform((value) => value ?? ""),
+      descendants: z
+        .number()
+        .int()
+        .nonnegative()
+        .nullish()
+        .transform((value) => value ?? 0),
+      score: z
+        .number()
+        .int()
+        .nonnegative()
+        .nullish()
+        .transform((value) => value ?? 0),
+      storyId: z.coerce.number().int().positive(),
+      time: z
+        .number()
+        .int()
+        .nonnegative()
+        .nullish()
+        .transform((value) => value ?? 0),
+      title: z.string().trim().min(1, "A Hacker News attachment needs a title"),
+      url: z
+        .string()
+        .nullish()
+        .transform((value) => value || undefined)
+        .optional(),
+    })
+    .optional(),
   isGust: z.boolean().optional().default(false),
   // Mirrors MAX_POST_ATTACHMENTS in @asm/media (kept literal here so the
   // validation package stays dependency-free).
@@ -115,7 +148,7 @@ export const createPostSchema = createPostShape.refine(
     (input.content ?? "").trim().length > 0 ||
     // A pure community reshare carries no caption of its own; the source card
     // supplies the content.
-    Boolean(input.communitySharePostId),
+    Boolean(input.communitySharePostId || input.hnStory),
   "A post needs either a caption or an attachment"
 );
 
@@ -145,6 +178,7 @@ export const createGustSchema = createPostShape
       )
       .optional()
       .default(""),
+    hnStory: z.undefined().optional(),
   })
   .refine(
     (input) => input.mediaIds.length === 1,

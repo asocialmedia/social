@@ -2,6 +2,7 @@ import {
   and,
   consumeRateLimit,
   createDenMessageNotifications,
+  enqueueMessagePush,
   enqueueMessageSearchOutbox,
   fromPrismaDateTime,
   getMessageDataQuery,
@@ -816,6 +817,21 @@ export async function POST(
     await unreadMessageCache.incrementMany(unreadRecipientIds);
   } catch (error) {
     console.error("Failed to increment unread message count:", error);
+  }
+  // Best-effort like the counter above: a queue hiccup costs a push, never the
+  // send the caller already committed. The recipients are exactly the members
+  // the counter just moved, so a muted or departed reader gets no push either.
+  const pushMessageId = createdMessageId;
+  if (pushMessageId) {
+    try {
+      await Promise.all(
+        unreadRecipientIds.map((recipientId) =>
+          enqueueMessagePush(pushMessageId, recipientId)
+        )
+      );
+    } catch (error) {
+      console.error("Failed to queue message push:", error);
+    }
   }
   try {
     // The message is guaranteed present after a committed transaction.

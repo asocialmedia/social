@@ -36,7 +36,7 @@ export {
   normalizeDenShortCode,
   validateDenDescription,
   validateDenName,
-} from "./src/messages/dens";
+} from "./src/messages/dens/policies";
 export type {
   ConversationType,
   DenInviteDurationDays,
@@ -45,20 +45,20 @@ export type {
   DenRole,
   GroupAddPolicy,
   GroupAddRefusal,
-} from "./src/messages/dens";
+} from "./src/messages/dens/policies";
 export {
   groupAddEligibility,
   groupAddRefusalError,
   groupAddRefusalFor,
-} from "./src/messages/den-group-add";
+} from "./src/messages/dens/den-group-add";
 export {
   DEN_BAN_REASON_MAX,
   filterBannedUserIds,
   isDenBanned,
   listDenBans,
   normalizeDenBanReason,
-} from "./src/messages/den-bans";
-export type { DenBan } from "./src/messages/den-bans";
+} from "./src/messages/dens/den-bans";
+export type { DenBan } from "./src/messages/dens/den-bans";
 export {
   DenError,
   addDenMembers,
@@ -85,7 +85,7 @@ export {
   transferDenOwnership,
   unbanDenMember,
   updateDenDetails,
-} from "./src/messages/den-service";
+} from "./src/messages/dens/den-service";
 export type {
   CreateDenInput,
   DenInvitePreview,
@@ -93,13 +93,13 @@ export type {
   DenMembershipEvent,
   JoinDenResult,
   LeaveDenResult,
-} from "./src/messages/den-service";
+} from "./src/messages/dens/den-service";
 export {
   visibleToUser,
   unreadMessagesWhere,
   unreadMessageWhere,
-} from "./src/messages/visibility";
-export { prebuildDmIndexes } from "./src/messages/prebuild-indexes";
+} from "./src/messages/access/visibility";
+export { prebuildDmIndexes } from "./src/messages/infrastructure/prebuild-indexes";
 export {
   commitMessageSearchBackfillBatch,
   commitMessageHides,
@@ -129,14 +129,14 @@ export {
   requestMessageSearchCount,
   searchMessageCandidates,
   startMessageSearchBackfill,
-} from "./src/messages/search-index";
+} from "./src/messages/search/search-index";
 export type {
   MessageIdentityBackupRefreshInput,
   MessageIdentityBackupRefreshResult,
   MessageConversationChange,
   MessageHideCommitResult,
   MessageReadCommitResult,
-} from "./src/messages/search-index";
+} from "./src/messages/search/search-index";
 export type {
   MessageSearchCountRequest,
   MessageSearchCountRequestInput,
@@ -160,15 +160,15 @@ export type {
   SearchMessageWindow,
   SearchTermArtifact,
   MessageUnreadCounterMember,
-} from "./src/messages/search-index";
+} from "./src/messages/search/search-index";
 export { keys } from "./keys";
-export { createDenMessageNotifications } from "./src/messages/den-notifications";
-export type { DenMessageNotification } from "./src/messages/den-notifications";
-export { createDenMembershipEndedNotifications } from "./src/messages/den-membership-notifications";
+export { createDenMessageNotifications } from "./src/messages/notifications/den-notifications";
+export type { DenMessageNotification } from "./src/messages/notifications/den-notifications";
+export { createDenMembershipEndedNotifications } from "./src/messages/notifications/den-membership-notifications";
 export type {
   DenMembershipEndedNotification,
   DenMembershipEndedReason,
-} from "./src/messages/den-membership-notifications";
+} from "./src/messages/notifications/den-membership-notifications";
 export * from "./src/users/badges";
 export * from "./queue";
 export * from "./src/client";
@@ -183,6 +183,7 @@ export type { Contract, Models, TypeMaps } from "./generated/prisma/contract";
 export * from "./src/notification-type";
 export * from "./src/rate-limit";
 export * from "./src/redis";
+export * from "./src/session-limit";
 export * from "./src/users/profile-media";
 export * from "./src/recommendation/feed-service";
 export * from "./src/recommendation/profile";
@@ -192,6 +193,8 @@ export * from "./src/recommendation/score-candidate";
 export * from "./src/recommendation/vector";
 export * from "./src/users/reserved-usernames";
 export * from "./src/users/username-aliases";
+export * from "./src/users/account-resolution-state";
+export * from "./src/users/account-resolution";
 export * from "./src/search";
 export * from "./src/storage";
 export * from "./src/recommendation/trending-score";
@@ -199,5 +202,15 @@ export * from "./src/notifications";
 export * from "./src/posts/ancestors";
 export * from "./src/posts/visible";
 
-export { messageSearchEpochFingerprint } from "./src/messages/epoch-readability";
-export type { MessageSearchEpochProof } from "./src/messages/epoch-readability";
+export { messageSearchEpochFingerprint } from "./src/messages/epochs/epoch-readability";
+export type { MessageSearchEpochProof } from "./src/messages/epochs/epoch-readability";
+
+export * from "./src/media-analysis";
+
+export * from "./src/recommendation/semantic-index";
+
+export * from "./src/recommendation/shared-topic-graph";
+
+export * from "./src/recommendation/attribution";
+export * from "./src/recommendation/retrieval-benchmark";
+export * from "./src/recommendation/experiment-report";

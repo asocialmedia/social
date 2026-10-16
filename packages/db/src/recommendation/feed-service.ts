@@ -1,23 +1,34 @@
+import { createLogger } from "@asm/logger";
+import { and, or } from "@prisma/orm-postgres/orm-client";
 // For-You feed service: fetches a fresh candidate pool, builds (and caches)
 // the user's taste persona, ranks candidates using semantic embeddings and
 // media features, and returns diverse pages with continuous pagination.
 
-import { createLogger } from "@asm/logger";
-import { and } from "@prisma/orm-postgres/orm-client";
-
 import { searchCache } from "../../cache/search-cache";
+// oxlint-disable-next-line typescript/triple-slash-reference -- Workspace consumers need the SQL text module declaration.
+/// <reference path="../../sql.d.ts" />
+import sqlSource from "../../sql/recommendation-retrieval.sql" with { type: "text" };
 import { getAuraSignalsForUsers } from "../aura/signals";
 import { getPostDataQuery, mapPostData } from "../client";
 import type { PostData } from "../client";
 import { communityVisibilityWhere } from "../communities/service";
+import { rawQuery } from "../messages/infrastructure/raw-sql";
+import { readSqlBundle } from "../messages/infrastructure/sql-template";
 import prisma, { toPrismaDateTime, fromPrismaDateTime } from "../prisma";
 import { redis } from "../redis";
+import { attributeFeedPage, rankingAssignment } from "./attribution";
 import { buildUserProfile } from "./profile";
 import type { ProfileSignal, UserProfile } from "./profile";
 import { rankFeed } from "./rank-feed";
 import type { ScoredCandidate } from "./rank-feed";
 import { scoreCandidate } from "./score-candidate";
 import type { CandidatePost } from "./score-candidate";
+import { retrieveSemanticCandidates } from "./semantic-index";
+import { loadSharedTopicGraph } from "./shared-topic-graph";
+
+const { retrieval } = readSqlBundle(sqlSource, {
+  retrieval: ["topics", "collaborative"],
+} as const);
 
 const logger = createLogger({ serviceName: "fyp-feed" });
 
@@ -56,7 +67,7 @@ const POSITIVE_RECOMMENDATION_EVENTS = [
   "SHARE",
 ] as const;
 
-export const FYP_PROFILE_KEY_PREFIX = "fyp-profile:";
+export const FYP_PROFILE_KEY_PREFIX = "fyp-profile:v3:";
 
 interface CachedProfile extends UserProfile {
   followedAuthorIds: string[];
@@ -66,6 +77,7 @@ function getAuthorTagsQuery() {
   return prisma.orm.public.Posts.select(
     "createdAt",
     "embedding",
+    "embeddingModel",
     "isGust",
     "semanticTags",
     "userId"
@@ -112,6 +124,7 @@ export interface GetPersonalizedFeedOptions {
   includeVisited?: boolean;
   pageSize: number;
   userId: string;
+  excludeExplicit?: boolean;
 }
 
 function fypProfileKey(userId: string): string {
@@ -321,6 +334,7 @@ function toSignal(
   post: {
     attachments?: readonly { type: string }[];
     embedding?: readonly number[];
+    embeddingModel?: string | null;
     semanticTags?: readonly string[] | null;
     tags: readonly { name: string }[];
     userId: string;
@@ -332,6 +346,7 @@ function toSignal(
     authorId: post.userId,
     createdAt,
     embedding: post.embedding ? [...post.embedding] : undefined,
+    embeddingModel: post.embeddingModel,
     hasAudio: post.attachments?.some((a) => a.type === "AUDIO"),
     hasImage: post.attachments?.some((a) => a.type === "IMAGE"),
     hasVideo: post.attachments?.some((a) => a.type === "VIDEO"),
@@ -507,7 +522,11 @@ export async function buildAndCacheProfile(
       .orderBy((post) => post.createdAt.desc())
       .limit(PROFILE_EMBEDDING_TAKE)
       .all(),
-    prisma.orm.public.RecommendationEvents.select("createdAt", "eventType")
+    prisma.orm.public.RecommendationEvents.select(
+      "createdAt",
+      "eventType",
+      "durationMs"
+    )
       .include("post", (_post) => getAuthorTagsQuery())
       .where((event) =>
         and(
@@ -580,6 +599,12 @@ export async function buildAndCacheProfile(
   }
   for (const event of recommendationEvents) {
     const eventKind = getRecommendationEventKind(event.eventType);
+    if (
+      (event.eventType === "DWELL" && (event.durationMs ?? 0) < 1000) ||
+      (event.eventType === "SKIP" && (event.durationMs ?? 0) > 3000)
+    ) {
+      continue;
+    }
     if (eventKind && event.post) {
       signals.push(
         toSignal(
@@ -640,7 +665,14 @@ export async function buildAndCacheProfile(
   }
 
   const profile: CachedProfile = {
-    ...buildUserProfile(signals),
+    ...buildUserProfile(signals, {
+      knowledgeGraph:
+        (await loadSharedTopicGraph(
+          signals.flatMap((signal) => signal.tags)
+        ).catch(() => {
+          /* empty */
+        })) ?? undefined,
+    }),
     followedAuthorIds,
   };
 
@@ -717,7 +749,7 @@ export async function getPersonalizedFeedPage(
       Math.trunc(Number(parts[cursorOffsetIndex + 1] ?? `${Date.now()}`)) ||
       Date.now();
     // Clamp offset to valid bounds and timestamp to supported range
-    offset = Math.max(0, Math.min(rawOffset, CANDIDATE_POOL_SIZE));
+    offset = Math.max(0, Math.min(rawOffset, 1200));
     const maxTimestamp = Date.now() + 60_000;
     const minTimestamp = Date.now() - 30 * 24 * 60 * 60 * 1000;
     timestamp = Math.min(Math.max(rawTimestamp, minTimestamp), maxTimestamp);
@@ -732,11 +764,24 @@ export async function getPersonalizedFeedPage(
 
   const contentKind = options.contentKind ?? "post";
   const visibilityPredicate = communityVisibilityWhere(userId);
-  const [pool, profile, viewerSession] = await Promise.all([
+  const [profile, viewerSession, blocks] = await Promise.all([
+    getProfile(userId),
+    prisma.orm.public.Sessions.select("country")
+      .where({ userId })
+      .orderBy((session) => session.updatedAt.desc())
+      .first(),
+    prisma.orm.public.Blocks.select("blockerId", "blockedId")
+      .where((block) =>
+        or(block.blockerId.eq(userId), block.blockedId.eq(userId))
+      )
+      .all(),
+  ]);
+  const candidateQuery = () =>
     prisma.orm.public.Posts.select(
       "aura",
       "createdAt",
       "embedding",
+      "embeddingModel",
       "id",
       "semanticTags",
       "userId",
@@ -747,7 +792,7 @@ export async function getPersonalizedFeedPage(
       )
       .include("comments", (comments) => comments.count())
       .include("postMedias", (media) =>
-        media.select("_type", "ocrText", "transcript")
+        media.select("id", "duplicateOf", "_type", "ocrText", "transcript")
       )
       .include("postToTags", (postTags) =>
         postTags.include("tag", (tag) => tag.select("name"))
@@ -772,7 +817,21 @@ export async function getPersonalizedFeedPage(
           post.isGust.eq(contentKind === "gust"),
           post.userId.neq(userId),
           visibilityPredicate(post),
+          ...(blocks.length
+            ? [
+                post.userId.notIn(
+                  blocks.map((block) =>
+                    block.blockerId === userId
+                      ? block.blockedId
+                      : block.blockerId
+                  )
+                ),
+              ]
+            : []),
         ];
+        if (options.excludeExplicit) {
+          predicates.push(post.explicitContent.eq(false));
+        }
         if (excludeModerated) {
           predicates.push(post.moderated.eq(false));
         }
@@ -790,16 +849,162 @@ export async function getPersonalizedFeedPage(
           predicates.push(post.id.notIn(notInterestedPostIds));
         }
         return and(...predicates);
-      })
-      .orderBy([(post) => post.createdAt.desc(), (post) => post.id.desc()])
-      .limit(CANDIDATE_POOL_SIZE)
-      .all(),
-    getProfile(userId),
-    prisma.orm.public.Sessions.select("country")
-      .where({ userId })
-      .orderBy((session) => session.updatedAt.desc())
-      .first(),
-  ]);
+      });
+  const snapshotKey = `rec:fyp:v3:${rankingAssignment(userId).variant}:${userId}:${contentKind}:${timestamp}:${excludeModerated}:${Boolean(options.excludeExplicit)}:${includeVisited}`;
+  if (cursor) {
+    const cached = await redis.get(snapshotKey).catch(() => null);
+    if (cached) {
+      try {
+        const snapshot: unknown = JSON.parse(cached);
+        if (
+          snapshot &&
+          typeof snapshot === "object" &&
+          "ids" in snapshot &&
+          Array.isArray(snapshot.ids) &&
+          snapshot.ids.length <= 1200 &&
+          snapshot.ids.every((id) => typeof id === "string") &&
+          "anchor" in snapshot &&
+          typeof snapshot.anchor === "string"
+        ) {
+          const ids: string[] = snapshot.ids;
+          const visible = await candidateQuery()
+            .where((post) => post.id.in(ids.slice(offset)))
+            .limit(1200)
+            .all();
+          const eligible = new Set(visible.map((post) => post.id));
+          const remaining = ids.slice(offset).filter((id) => eligible.has(id));
+          const pageIds = remaining.slice(0, pageSize);
+          const rows = await getPostDataQuery(prisma.orm, userId)
+            .where((post) => post.id.in(pageIds))
+            .all();
+          const byId = new Map(
+            rows.map((post) => [post.id, mapPostData(post)])
+          );
+          const last = pageIds.at(-1);
+          const nextOffset = last ? ids.indexOf(last) + 1 : ids.length;
+          return {
+            anchorCursor: snapshot.anchor,
+            nextCursor:
+              nextOffset < ids.length
+                ? `fyp.${contentKind}.${nextOffset}.${timestamp}`
+                : `exp.${snapshot.anchor}`,
+            posts: await attributeFeedPage(
+              userId,
+              pageIds.flatMap((id) => {
+                const post = byId.get(id);
+                return post ? [post] : [];
+              }),
+              new Map(
+                "sources" in snapshot && Array.isArray(snapshot.sources)
+                  ? snapshot.sources.filter(
+                      (entry): entry is [string, string[]] =>
+                        Array.isArray(entry) &&
+                        typeof entry[0] === "string" &&
+                        Array.isArray(entry[1]) &&
+                        entry[1].every(
+                          (source: unknown) => typeof source === "string"
+                        )
+                    )
+                  : []
+              ),
+              offset
+            ),
+          };
+        }
+      } catch (error) {
+        logger.warn({ error }, "ranked snapshot unavailable; rebuilding");
+      }
+    }
+  }
+  const semanticIds = await retrieveSemanticCandidates(
+    profile.embeddingModel,
+    profile.tasteVector
+  ).catch(() => []);
+  const topTags = Object.entries({
+    ...profile.tagWeights,
+    ...profile.sessionTagWeights,
+  })
+    .toSorted((a, b) => b[1] - a[1])
+    .slice(0, 8)
+    .map(([tag]) => tag);
+  const topicResult = topTags.length
+    ? await rawQuery<{ id: string }>(
+        retrieval.topics,
+        [topTags, contentKind === "gust"],
+        { id: "pg/text@1" }
+      )
+    : { rows: [] };
+  const topicIds = topicResult.rows.map((row) => row.id);
+  const collaborativeResult = await rawQuery<{ id: string }>(
+    retrieval.collaborative,
+    [userId],
+    { id: "pg/text@1" }
+  );
+  const collaborativeIds = collaborativeResult.rows.map((row) => row.id);
+  const [recent, followed, semantic, topical, exploration, collaborative] =
+    await Promise.all([
+      candidateQuery()
+        .orderBy([(post) => post.createdAt.desc(), (post) => post.id.desc()])
+        .limit(CANDIDATE_POOL_SIZE)
+        .all(),
+      profile.followedAuthorIds.length
+        ? candidateQuery()
+            .where((post) => post.userId.in(profile.followedAuthorIds))
+            .orderBy((post) => post.createdAt.desc())
+            .limit(100)
+            .all()
+        : [],
+      semanticIds.length
+        ? candidateQuery()
+            .where((post) => post.id.in(semanticIds))
+            .limit(200)
+            .all()
+        : [],
+      topicIds.length
+        ? candidateQuery()
+            .where((post) => post.id.in(topicIds))
+            .limit(150)
+            .all()
+        : [],
+      candidateQuery()
+        .orderBy([(post) => post.trendingScore.desc(), (post) => post.id.asc()])
+        .limit(50)
+        .all(),
+      collaborativeIds.length
+        ? candidateQuery()
+            .where((post) => post.id.in(collaborativeIds))
+            .limit(100)
+            .all()
+        : [],
+    ]);
+  const candidateSources = new Map<string, string[]>();
+  for (const [source, candidates] of Object.entries({
+    collaborative,
+    exploration,
+    followed,
+    recent,
+    semantic,
+    topical,
+  })) {
+    for (const post of candidates) {
+      candidateSources.set(post.id, [
+        ...(candidateSources.get(post.id) ?? []),
+        source,
+      ]);
+    }
+  }
+  const pool = [
+    ...new Map(
+      [
+        ...recent,
+        ...followed,
+        ...semantic,
+        ...topical,
+        ...exploration,
+        ...collaborative,
+      ].map((post) => [post.id, post])
+    ).values(),
+  ];
 
   if (pool.length === 0) {
     return { anchorCursor: null, nextCursor: null, posts: [] };
@@ -838,6 +1043,7 @@ export async function getPersonalizedFeedPage(
       commentCount: post.comments,
       createdAt: fromPrismaDateTime(post.createdAt),
       embedding: post.embedding ? [...post.embedding] : [],
+      embeddingModel: post.embeddingModel,
       hasAudio: attachments.some((attachment) => attachment._type === "AUDIO"),
       hasImage: attachments.some((attachment) => attachment._type === "IMAGE"),
       hasOcr: attachments.some((attachment) =>
@@ -849,6 +1055,9 @@ export async function getPersonalizedFeedPage(
       hasVideo: attachments.some((attachment) => attachment._type === "VIDEO"),
       id: post.id,
       isVisited: post.postVisits.length > 0,
+      mediaKeys: attachments.map(
+        (attachment) => attachment.duplicateOf ?? attachment.id
+      ),
       semanticTags: post.semanticTags ? [...post.semanticTags] : undefined,
       tags: post.postToTags.flatMap((postTag) =>
         postTag.tag ? [postTag.tag.name] : []
@@ -869,7 +1078,35 @@ export async function getPersonalizedFeedPage(
     };
   });
 
-  const ranked = rankFeed(scored, { pageSize: offset + pageSize });
+  const ranked: CandidatePost[] = [];
+  let remaining = scored;
+  while (remaining.length) {
+    const page = rankFeed(remaining, {
+      maxSingleTopicShare:
+        rankingAssignment(userId).variant === "balanced" ? 0.45 : 0.6,
+      pageSize,
+    });
+    if (!page.length) {
+      break;
+    }
+    ranked.push(...page);
+    const chosen = new Set(page.map((post) => post.id));
+    remaining = remaining.filter((item) => !chosen.has(item.post.id));
+  }
+  if (!cursor) {
+    await redis
+      .set(
+        snapshotKey,
+        JSON.stringify({
+          anchor: recent.at(-1)?.id ?? "",
+          ids: ranked.map((post) => post.id),
+          sources: [...candidateSources],
+        }),
+        "EX",
+        1800
+      )
+      .catch(() => null);
+  }
   const sliceStart = offset;
   const sliceEnd = offset + pageSize;
   let pageRanked = ranked.slice(sliceStart, sliceEnd);
@@ -898,6 +1135,14 @@ export async function getPersonalizedFeedPage(
       candidateCount: pool.length,
       contentKind,
       profileSignalCount: profile.signalCount ?? 0,
+      retrievalSources: {
+        collaborative: collaborative.length,
+        exploration: exploration.length,
+        followed: followed.length,
+        recent: recent.length,
+        semantic: semantic.length,
+        topical: topical.length,
+      },
       returnedCount: orderedPosts.length,
       socialProofPostCount: socialProofWeights.size,
       topPostIds: orderedPosts.slice(0, 5).map((post) => post.id),
@@ -911,12 +1156,17 @@ export async function getPersonalizedFeedPage(
     nextCursor = `fyp.${contentKind}.${sliceEnd}.${timestamp}`;
   } else if (pool.length > 0) {
     // Candidates exhausted: transition smoothly to expired posts at bottom
-    nextCursor = `exp.${pool.at(-1)?.id ?? ""}`;
+    nextCursor = `exp.${recent.at(-1)?.id ?? ""}`;
   }
 
   return {
-    anchorCursor: pool.at(-1)?.id ?? null,
+    anchorCursor: recent.at(-1)?.id ?? null,
     nextCursor,
-    posts: orderedPosts,
+    posts: await attributeFeedPage(
+      userId,
+      orderedPosts,
+      candidateSources,
+      offset
+    ),
   };
 }

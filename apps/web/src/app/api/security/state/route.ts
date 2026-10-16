@@ -1,3 +1,4 @@
+import { hasCredentialPassword } from "@asm/auth/validation";
 import { prisma } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/auth/session";
@@ -23,7 +24,9 @@ export async function GET(): Promise<Response> {
   const userId = session.user.id;
   const [twoFactor, accounts] = await Promise.all([
     prisma.orm.public.TwoFactor.select("verified").where({ userId }).first(),
-    prisma.orm.public.Accounts.select("providerId").where({ userId }).all(),
+    prisma.orm.public.Accounts.select("providerId", "accountId", "password")
+      .where({ userId })
+      .all(),
   ]);
 
   const providers = accounts
@@ -35,9 +38,7 @@ export async function GET(): Promise<Response> {
 
   return noStoreJson({
     hasAuthenticatorApp: Boolean(twoFactor?.verified),
-    hasPassword: accounts.some(
-      (account) => account.providerId === "credential"
-    ),
+    hasPassword: hasCredentialPassword(userId, accounts),
     linkedProviders: providers,
   });
 }

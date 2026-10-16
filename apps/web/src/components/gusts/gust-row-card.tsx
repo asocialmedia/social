@@ -11,8 +11,9 @@ import UserBadge from "@/components/layouts/user/user-badge";
 import ExplicitContentGate from "@/components/posts/content/explicit-content-gate";
 import ModeratedNotice from "@/components/posts/content/moderated-notice";
 import { getAuraFlameClass } from "@/lib/aura/aura";
+import { useVideoDelivery } from "@/lib/media/use-video-delivery";
 import { cn, formatNumber } from "@/lib/utils";
-import { getMediaProxyUrl } from "@/lib/utils/image-url";
+import { getMediaVideoUrl, getMediaProxyUrl } from "@/lib/utils/image-url";
 
 // Compact gust card used in feeds that mix gusts and regular posts (profile
 // amplified, bookmarks): a 9:16 preview that plays on hover, with the author,
@@ -63,12 +64,14 @@ const GustRowCard: React.FC<{
     }
   }, []);
 
+  useVideoDelivery(videoRef, videoMedia?.id, isHovered, videoMedia?.hasHls);
+
   if (!videoMedia) {
     return null;
   }
 
   const thumbUrl = getMediaProxyUrl(videoMedia);
-  const videoUrl = `/api/media/${videoMedia.id}`;
+  const videoUrl = getMediaVideoUrl(videoMedia.id);
 
   // A moderated gust shows the notice instead of the clip.
   if (post.moderated) {
@@ -131,7 +134,7 @@ const GustRowCard: React.FC<{
             src={videoUrl}
           />
         )}
-        <div className="absolute top-1.5 left-1.5 z-10 flex items-center gap-1 rounded-full bg-black/50 px-2 py-0.5 text-white backdrop-blur-md">
+        <div className="chip-3d explore-gust-chip absolute top-1.5 left-1.5 z-10 flex items-center gap-1 rounded-full px-2 py-0.5 text-white">
           <Clapperboard className="text-primary size-3" />
           <span className="text-[10px] font-bold">Gust</span>
         </div>

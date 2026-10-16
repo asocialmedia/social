@@ -19,6 +19,7 @@ import type { ServerMediaStatus } from "./upload-status";
 // which left avatar and banner uploads impossible to express even though the
 // API has always accepted them.
 export type UploadPurpose =
+  | "wallpaper"
   | "avatar"
   | "banner"
   | "comment"
@@ -26,6 +27,7 @@ export type UploadPurpose =
   | "post";
 
 export interface InitiateRequest {
+  audioOverlayId?: string;
   // Binds the row to a DM thread. The server REQUIRES this for
   // `purpose: "message"`: the serving route admits a peer only through this
   // binding, so an attachment uploaded without it 404s for the recipient. Every

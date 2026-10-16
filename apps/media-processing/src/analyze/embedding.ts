@@ -2,14 +2,14 @@
 // Embeddings encode post content, spoken transcripts, and OCR text into
 // 384-dimensional unit vectors used by the recommendation engine.
 //
-// Dual-mode:
-// 1. Pluggable Gemini embedding API (configurable via GEMINI_EMBEDDING_MODEL)
-//    when GEMINI_API_KEY is configured.
-// 2. High-speed local hash-vector embedding engine (zero dependencies, 0ms latency,
-//    deterministic 384-dimensional unit vector).
+// Only verified Gemini vectors enter recommendations. Empty results stay pending.
 
 import { workerEnv } from "../env";
 import { mediaLogger } from "../log";
+import {
+  reserveProviderRequest,
+  ProviderBudgetDeferredError,
+} from "./provider-budget";
 
 export const EMBEDDING_DIMENSION = 384;
 
@@ -54,64 +54,17 @@ export function normalizeVector(vector: number[]): number[] {
   return vector.map((v) => v / magnitude);
 }
 
-// Fast deterministic token hash mapping for 384-dimensional bag-of-words
-// and n-gram representations with term frequency and subword hashing.
-function localHashEmbedding(text: string): number[] {
-  const vector = Array.from({ length: EMBEDDING_DIMENSION }).fill(
-    0
-  ) as number[];
-  const clean = text.toLowerCase().replaceAll(/[^\w\s#@]/g, " ");
-  const tokens = clean.split(/\s+/).filter((t) => t.length > 1);
-
-  if (tokens.length === 0) {
-    return vector;
-  }
-
-  // Count term frequency
-  const tf = new Map<string, number>();
-  for (const t of tokens) {
-    tf.set(t, (tf.get(t) ?? 0) + 1);
-  }
-
-  for (const [token, count] of tf) {
-    const weight = 1 + Math.log(count);
-    // Word hash
-    let hash = 2_166_136_261;
-    for (let c = 0; c < token.length; c += 1) {
-      hash ^= token.codePointAt(c) ?? 0;
-      hash = Math.imul(hash, 16_777_619);
-    }
-    const idx = Math.abs(hash) % EMBEDDING_DIMENSION;
-    vector[idx] = (vector[idx] ?? 0) + weight;
-
-    // Character 3-grams for subword similarity
-    if (token.length >= 3) {
-      for (let i = 0; i <= token.length - 3; i += 1) {
-        const tri = token.slice(i, i + 3);
-        let triHash = 2_166_136_261;
-        for (let c = 0; c < 3; c += 1) {
-          triHash ^= tri.codePointAt(c) ?? 0;
-          triHash = Math.imul(triHash, 16_777_619);
-        }
-        const triIdx = Math.abs(triHash) % EMBEDDING_DIMENSION;
-        vector[triIdx] = (vector[triIdx] ?? 0) + weight * 0.3;
-      }
-    }
-  }
-
-  return normalizeVector(vector);
-}
-
 // Generates an embedding vector for a given text.
-export async function generateTextEmbedding(text: string): Promise<number[]> {
-  if (!text || text.trim().length === 0) {
-    return Array.from({ length: EMBEDDING_DIMENSION }).fill(0) as number[];
+export async function generateTextEmbedding(
+  text: string,
+  mediaParts: readonly EmbeddingMediaPart[] = []
+): Promise<number[]> {
+  if ((!text || text.trim().length === 0) && mediaParts.length === 0) {
+    return [];
   }
 
-  // The whole workflow is switchable: when embedding is disabled the local
-  // hash embedder still runs so rankings keep a same-space signal.
   if (!workerEnv.EMBEDDING_ENABLED) {
-    return localHashEmbedding(text);
+    return [];
   }
 
   // Cloud Gemini Embedding API if GEMINI_API_KEY is configured
@@ -119,13 +72,24 @@ export async function generateTextEmbedding(text: string): Promise<number[]> {
   const modelName = workerEnv.GEMINI_EMBEDDING_MODEL || "gemini-embedding-2";
   if (apiKey) {
     try {
+      await reserveProviderRequest("gemini");
       const response = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:embedContent`,
         {
           // AbortSignal timeout keeps a stalled API call from holding an
-          // analyze worker slot; the catch below degrades to local hashing.
+          // analyze worker slot; the job can retry without losing its labels.
           body: JSON.stringify({
-            content: { parts: [{ text: text.slice(0, 2048) }] },
+            content: {
+              parts: [
+                ...(text.trim() ? [{ text: text.slice(0, 8192) }] : []),
+                ...mediaParts.slice(0, 4).map((part) => ({
+                  inlineData: {
+                    data: part.data.toString("base64"),
+                    mimeType: part.mimeType,
+                  },
+                })),
+              ],
+            },
             // Top-level REST field (verified against the live API): requests
             // the model's native output at our dimension instead of receiving
             // the full 3072d vector and slicing it.
@@ -149,27 +113,39 @@ export async function generateTextEmbedding(text: string): Promise<number[]> {
         const values = data.embedding?.values;
         // Accept only exact-dimension vectors: a sliced or short vector would
         // normalize into a different space than every stored embedding, so a
-        // mismatched response falls back to the local embedder instead.
+        // mismatched response stays pending instead.
         if (
           Array.isArray(values) &&
           values.length === EMBEDDING_DIMENSION &&
-          values.every((v) => Number.isFinite(v))
+          values.every((v) => Number.isFinite(v)) &&
+          values.some((v) => v !== 0)
         ) {
           return normalizeVector(values);
         }
         mediaLogger.warn(
           { actual: Array.isArray(values) ? values.length : "missing" },
-          "Gemini embedding dimension mismatch; falling back to local"
+          "Gemini embedding invalid; leaving embedding pending"
         );
       }
     } catch (error) {
+      if (error instanceof ProviderBudgetDeferredError) {
+        throw error;
+      }
       mediaLogger.warn(
         { error: String(error) },
-        "Gemini embedding fallback to local"
+        "Gemini embedding unavailable; leaving embedding pending"
       );
     }
   }
 
-  // Fast local deterministic vectorizer
-  return localHashEmbedding(text);
+  return [];
+}
+
+export interface EmbeddingMediaPart {
+  mimeType: "image/jpeg" | "image/png" | "audio/mpeg" | "audio/wav";
+  data: Buffer;
+}
+
+export function embeddingModelId(): string {
+  return `google:${workerEnv.GEMINI_EMBEDDING_MODEL || "gemini-embedding-2"}:384:v2`;
 }

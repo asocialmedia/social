@@ -1,18 +1,3 @@
-// Native counterpart of web's `profile-media-inputs.tsx` (AvatarInput /
-// BannerInput).
-//
-// Web resizes with react-image-file-resizer and crops with cropperjs, because a
-// browser can do both cheaply. Native has no equivalent that ships without a new
-// native module: expo-image-manipulator would work but requires a full native
-// rebuild to add, which is not a trade worth making for a profile picture. So
-// the crop is delegated to the platform's own image editor, which
-// expo-image-picker exposes as `allowsEditing`, and the resize is left to the
-// media pipeline that already derives every size server-side.
-//
-// The one honest difference: a banner is not destructively cropped to 3:1 on
-// native. It is not letterboxed either, because every banner surface renders
-// with contentFit cover, so the framing is identical - only the stored bytes
-// carry more than the visible window.
 import { Directory, File, Paths } from "expo-file-system";
 import * as ImagePicker from "expo-image-picker";
 
@@ -21,7 +6,6 @@ import type { UploadSource } from "@/features/media-upload/lib/upload-client";
 import { logInfo, logWarn } from "@/lib/telemetry";
 
 import {
-  isAnimatedImage,
   isTooLarge,
   PROFILE_IMAGE_MAX_BYTES,
   ProfileImageError,
@@ -75,14 +59,13 @@ export async function pickProfileImage(
   kind: ProfileImageKind
 ): Promise<PickedProfileImage | null> {
   const result = await ImagePicker.launchImageLibraryAsync({
-    // The platform editor is the crop step. iOS squares the result, which is
-    // exactly right for an avatar; a banner keeps the framed window the user
-    // chose, and contentFit cover presents it identically either way.
-    allowsEditing: true,
+    // Preserve original bytes, including animated GIFs, for the custom cropper.
+    allowsEditing: false,
     mediaTypes: ["images"],
-    // The server strips metadata and builds every derivative, so there is no
-    // reason to ship a larger original than the editor already produced.
-    quality: 0.9,
+    preferredAssetRepresentationMode:
+      ImagePicker.UIImagePickerPreferredAssetRepresentationMode.Current,
+
+    quality: 1,
   });
   if (result.canceled) {
     return null;
@@ -103,14 +86,13 @@ export async function pickProfileImage(
 
   const name =
     asset.fileName ?? (kind === "avatar" ? "avatar.jpg" : "banner.jpg");
-  if (isAnimatedImage(asset.mimeType, name)) {
-    logWarn("profile.image_animated_unsupported", { kind });
+
+  if (!dimensionsOf(asset.width, asset.height)) {
     throw new ProfileImageError(
       "unusable",
-      "Animated images can't be used here, try a still one"
+      "This image has no usable dimensions"
     );
   }
-
   const source: UploadSource = {
     height: asset.height || undefined,
     mimeType: asset.mimeType || "image/jpeg",
@@ -146,11 +128,9 @@ export async function pickProfileImage(
   return { purpose: PURPOSE[kind], source };
 }
 
-/**
- * Best-effort cache copy of a picked image, so the upload reads from a stable
- * path rather than a provider-backed temporary URI that can be revoked
- * mid-transfer. Returns the original URI when the copy is not possible.
- */
+// Best-effort cache copy of a picked image, so the upload reads from a stable
+// path rather than a provider-backed temporary URI that can be revoked
+// mid-transfer. Returns the original URI when the copy is not possible.
 export function stabilizePickedImage(
   picked: PickedProfileImage
 ): PickedProfileImage {

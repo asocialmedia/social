@@ -2,6 +2,11 @@
 
 import type { UserData } from "@asm/db";
 import {
+  discoveryFleetFeed,
+  homeFeedTabs,
+} from "@asm/ui/lib/home-feed-controls";
+import type { DiscoveryFleetFeed } from "@asm/ui/lib/home-feed-controls";
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -11,13 +16,14 @@ import { Tabs, TabsContent, TabsList } from "@asm/ui/shadui/tabs";
 import { ListPlus, Plus } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type React from "react";
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
 import { AuthPromptCard } from "@/components/auth/shell/auth-prompt-card";
 import { AnimatedTabTrigger } from "@/components/home/feedview/animated-tab-trigger";
 import FollowingFeed from "@/components/home/feedview/following";
 import HomeFeed from "@/components/home/home-feed";
+import { HomeFeedControls } from "@/components/home/home-feed-controls";
 import RightSideBar from "@/components/home/sidebars/right-side-bar";
 import { FeedScrollbar } from "@/components/layouts/feed/feed-scrollbar";
 import MobileBottomNav from "@/components/layouts/navigation/mobile/mobile-bottom-nav";
@@ -43,13 +49,6 @@ interface ClientHomeProps {
 
 type FeedTab = HomeTab;
 
-const HOME_TAB_VALUES: readonly FeedTab[] = [
-  "personalized",
-  "latest",
-  "trending",
-  "following",
-];
-
 const ClientHome: React.FC<ClientHomeProps> = () => {
   const pathname = usePathname();
   const router = useRouter();
@@ -70,6 +69,12 @@ const ClientHome: React.FC<ClientHomeProps> = () => {
     storedHome,
     memoryReady
   );
+  const [rememberedDiscovery, setRememberedDiscovery] =
+    useState<DiscoveryFleetFeed>("personalized");
+  const discovery = discoveryFleetFeed(tab, rememberedDiscovery);
+  if (discovery !== rememberedDiscovery) {
+    setRememberedDiscovery(discovery);
+  }
 
   // Adopt shared links (?tab=...) into memory so they survive navigation too.
   useEffect(() => {
@@ -106,16 +111,18 @@ const ClientHome: React.FC<ClientHomeProps> = () => {
     memoryKey: `home:${tab}`,
   });
 
-  // Mobile swipes drag the tab strip like a carousel from personalized to
-  // latest, trending, and finally following.
+  // Swipe through visible tabs; the remembered discovery feed occupies one slot.
   const handleSwipeNavigate = useCallback(
     (direction: -1 | 1) => {
-      const nextIndex = HOME_TAB_VALUES.indexOf(tab) + direction;
-      if (nextIndex >= 0 && nextIndex < HOME_TAB_VALUES.length) {
-        handleTabChange(HOME_TAB_VALUES[nextIndex]);
+      const tabs = homeFeedTabs(discovery);
+      const nextIndex =
+        tabs.findIndex((entry) => entry.value === tab) + direction;
+      const next = tabs[nextIndex];
+      if (next) {
+        handleTabChange(next.value);
       }
     },
-    [handleTabChange, tab]
+    [discovery, handleTabChange, tab]
   );
   useFeedSwipeNavigation(feedScrollRef, handleSwipeNavigate);
 
@@ -132,7 +139,13 @@ const ClientHome: React.FC<ClientHomeProps> = () => {
               <MobileTopBar />
             </CollapsibleTopBar>
             <div className="border-border/60 relative flex items-center border-b py-1.5">
-              <TabsList className="flex h-full flex-1 items-center justify-center gap-0 bg-transparent p-0 md:justify-start">
+              <HomeFeedControls
+                active={tab}
+                discovery={discovery}
+                onChange={handleTabChange}
+                userId={user?.id}
+              />
+              <TabsList className="hidden h-full flex-1 items-center justify-center gap-0 bg-transparent p-0 md:flex md:justify-start">
                 <AnimatedTabTrigger
                   active={tab === "personalized"}
                   layoutId="home-tab-indicator"

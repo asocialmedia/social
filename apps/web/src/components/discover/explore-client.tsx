@@ -38,6 +38,7 @@ import {
 } from "@/store/tab-store";
 import type { ExploreTab } from "@/store/tab-store";
 
+import { ExploreGuestSearch } from "./explore-guest-search";
 import { ExploreGustsGrid } from "./explore-gusts-grid";
 import { ExploreGustsRail } from "./explore-gusts-rail";
 import ExploreMasonrySkeleton from "./explore-masonry-skeleton";
@@ -467,43 +468,46 @@ const ExploreClient: React.FC = () => {
               {/* xl:hidden: the right rail owns the search input from xl up;
                   this header copy serves the md-xl gap. Hidden (kept in flow)
                   on tabs where search does not apply, matching the rail. */}
-              <div
-                className={`relative ml-auto hidden min-w-0 items-center gap-2 md:flex xl:hidden ${
-                  activeTab === "gusts" || activeTab === "people"
-                    ? "invisible"
-                    : ""
-                }`}
-              >
-                <div className="w-full max-w-60">
-                  <div className="relative">
-                    {isFetching && debouncedSearch.trim() ? (
-                      <span className="border-primary/30 border-t-primary absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 animate-spin rounded-full border-2" />
-                    ) : (
-                      <Search className="text-muted-foreground absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2" />
-                    )}
-                    <Input
-                      aria-label="Search explore"
-                      autoComplete="off"
-                      className="focus-visible:ring-primary h-10 py-2.5 pr-4 pl-9 transition-all duration-300 ease-in-out focus-visible:ring-2"
-                      onChange={handleSearchChange}
-                      placeholder="Search explore"
-                      type="text"
-                      value={search}
-                    />
-                    {search ? (
-                      <button
-                        aria-label="Clear search"
-                        className="text-muted-foreground hover:text-foreground absolute top-1/2 right-2 -translate-y-1/2 rounded-full p-0.5 transition-colors"
-                        onClick={handleClearSearch}
-                        type="button"
-                      >
-                        <X className="h-3.5 w-3.5" />
-                      </button>
-                    ) : null}
+              {isLoggedIn ? (
+                <div
+                  className={`relative ml-auto hidden min-w-0 items-center gap-2 md:flex xl:hidden ${
+                    activeTab === "gusts" || activeTab === "people"
+                      ? "invisible"
+                      : ""
+                  }`}
+                >
+                  <div className="w-full max-w-60">
+                    <div className="relative">
+                      {isFetching && debouncedSearch.trim() ? (
+                        <span className="border-primary/30 border-t-primary absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 animate-spin rounded-full border-2" />
+                      ) : (
+                        <Search className="text-muted-foreground absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2" />
+                      )}
+                      <Input
+                        aria-label="Search explore"
+                        autoComplete="off"
+                        className="focus-visible:ring-primary h-10 py-2.5 pr-4 pl-9 transition-all duration-300 ease-in-out focus-visible:ring-2"
+                        onChange={handleSearchChange}
+                        placeholder="Search explore"
+                        type="text"
+                        value={search}
+                      />
+                      {search ? (
+                        <button
+                          aria-label="Clear search"
+                          className="text-muted-foreground hover:text-foreground absolute top-1/2 right-2 -translate-y-1/2 rounded-full p-0.5 transition-colors"
+                          onClick={handleClearSearch}
+                          type="button"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      ) : null}
+                    </div>
                   </div>
                 </div>
-              </div>
+              ) : null}
             </div>
+            {isLoggedIn ? null : <ExploreGuestSearch />}
           </div>
 
           <div className="relative min-h-0 flex-1">
@@ -560,41 +564,43 @@ const ExploreClient: React.FC = () => {
       </div>
 
       <aside className="bg-background border-border/60 sticky top-0 z-30 hidden h-screen w-72 shrink-0 flex-col overflow-visible border-l px-2.5 pt-2.5 pb-6 xl:flex">
-        <div className="shrink-0 pb-4">
-          <div
-            className={cn(
-              "relative",
-              (activeTab === "gusts" || activeTab === "people") && "invisible"
-            )}
-          >
-            <div className="relative">
-              {isFetching && debouncedSearch.trim() ? (
-                <span className="border-primary/30 border-t-primary absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 animate-spin rounded-full border-2" />
-              ) : (
-                <Search className="text-muted-foreground absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2" />
+        {isLoggedIn ? (
+          <div className="shrink-0 pb-4">
+            <div
+              className={cn(
+                "relative",
+                (activeTab === "gusts" || activeTab === "people") && "invisible"
               )}
-              <Input
-                aria-label="Search explore"
-                autoComplete="off"
-                className="focus-visible:ring-primary h-10 !bg-[hsl(var(--background-alt))] py-2.5 pr-4 pl-9 transition-all duration-300 ease-in-out focus-visible:ring-2"
-                onChange={handleSearchChange}
-                placeholder="Search explore"
-                type="text"
-                value={search}
-              />
-              {search ? (
-                <button
-                  aria-label="Clear search"
-                  className="text-muted-foreground hover:text-foreground absolute top-1/2 right-2 -translate-y-1/2 rounded-full p-0.5 transition-colors"
-                  onClick={handleClearSearch}
-                  type="button"
-                >
-                  <X className="h-3.5 w-3.5" />
-                </button>
-              ) : null}
+            >
+              <div className="relative">
+                {isFetching && debouncedSearch.trim() ? (
+                  <span className="border-primary/30 border-t-primary absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 animate-spin rounded-full border-2" />
+                ) : (
+                  <Search className="text-muted-foreground absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2" />
+                )}
+                <Input
+                  aria-label="Search explore"
+                  autoComplete="off"
+                  className="focus-visible:ring-primary h-10 !bg-[hsl(var(--background-alt))] py-2.5 pr-4 pl-9 transition-all duration-300 ease-in-out focus-visible:ring-2"
+                  onChange={handleSearchChange}
+                  placeholder="Search explore"
+                  type="text"
+                  value={search}
+                />
+                {search ? (
+                  <button
+                    aria-label="Clear search"
+                    className="text-muted-foreground hover:text-foreground absolute top-1/2 right-2 -translate-y-1/2 rounded-full p-0.5 transition-colors"
+                    onClick={handleClearSearch}
+                    type="button"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                ) : null}
+              </div>
             </div>
           </div>
-        </div>
+        ) : null}
         <div className="hide-native-scrollbar flex flex-1 flex-col gap-4 overflow-y-auto">
           {isLoggedIn ? <PostHistoryCard /> : null}
           <TrendingTopics />

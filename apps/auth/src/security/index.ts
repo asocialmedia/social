@@ -192,6 +192,9 @@ const SIGNUP_TRPC_PREFIXES = [
   // never calls it (signup goes through pendingSignupStart), so browsers
   // must not be able to reach it with an Origin alone.
   "/api/auth/sign-up/email",
+  // Email changes must pass the application route's current-inbox proof and collision review.
+  "/api/auth/email-otp/request-email-change",
+  "/api/auth/email-otp/change-email",
 ];
 
 function isSignupProcedure(pathname: string): boolean {
@@ -201,7 +204,11 @@ function isSignupProcedure(pathname: string): boolean {
 // Better-auth's email-OTP endpoints are brute-forceable when limits key on
 // source IP alone: each re-minted code gives a fresh 6-digit space, and IP
 // rotation resets per-IP buckets. A per-email budget survives IP rotation.
-const OTP_PATHS = ["/api/auth/email-otp/", "/api/auth/sign-in/email-otp"];
+const OTP_PATHS = [
+  "/api/auth/email-otp/",
+  "/api/auth/sign-in/email-otp",
+  "/api/auth/account-resolution/code",
+];
 
 function isOtpPath(pathname: string): boolean {
   return OTP_PATHS.some((prefix) => pathname.startsWith(prefix));

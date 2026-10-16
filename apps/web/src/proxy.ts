@@ -242,7 +242,8 @@ function securityHeaders(): Record<string, string> {
   const headers: Record<string, string> = {
     "content-security-policy":
       "base-uri 'self'; frame-ancestors 'self'; object-src 'none'; form-action 'self'",
-    "permissions-policy": "camera=(), microphone=(), geolocation=()",
+    // The camera is a client navigation, so its document policy must permit same-origin capture.
+    "permissions-policy": "camera=(self), microphone=(self), geolocation=()",
     "referrer-policy": "strict-origin-when-cross-origin",
     "x-content-type-options": "nosniff",
     "x-frame-options": "SAMEORIGIN",

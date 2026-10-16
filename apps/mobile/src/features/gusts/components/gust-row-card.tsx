@@ -1,15 +1,11 @@
 import { Image } from "expo-image";
 import { useRouter } from "expo-router";
-import {
-  Clapperboard,
-  Eye,
-  Flame,
-  MessageSquare,
-  Play,
-} from "lucide-react-native";
+import { Eye, Flame, MessageSquare, Play } from "lucide-react-native";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { UserAvatar } from "@/components/avatar/user-avatar";
+import { ExploreBadge } from "@/features/explore/components/explore-badge";
+import { ConcealedMediaCover } from "@/features/feed/components/concealed-media-cover";
 import type { FeedPost } from "@/features/feed/lib/feed-types";
 import { mediaImageUrl, mediaPosterUrl } from "@/features/feed/lib/media-url";
 import { getAuraFlameStyle } from "@/features/home/components/profile-utils";
@@ -45,6 +41,27 @@ export function GustRowCard({
     posterUri = mediaImageUrl(apiBase, image);
   }
 
+  const previewMedia = video ?? image;
+  let preview = <View style={[styles.thumbnail, styles.fallbackThumbnail]} />;
+  if (posterUri) {
+    preview = (
+      <Image
+        contentFit="cover"
+        source={{ uri: posterUri }}
+        style={styles.thumbnail}
+      />
+    );
+  }
+  if (post.explicitContent && previewMedia) {
+    preview = (
+      <ConcealedMediaCover
+        accessibilityLabel="Blurred explicit media preview"
+        apiBase={apiBase}
+        media={previewMedia}
+      />
+    );
+  }
+
   const handlePress = () => {
     if (onOpen) {
       onOpen(post);
@@ -68,22 +85,8 @@ export function GustRowCard({
     >
       {/* 9:16 thumbnail poster with Gust badge and play indicator */}
       <View style={styles.thumbnailWrap}>
-        {posterUri ? (
-          <Image
-            contentFit="cover"
-            source={{ uri: posterUri }}
-            style={[
-              styles.thumbnail,
-              post.explicitContent ? styles.blurred : null,
-            ]}
-          />
-        ) : (
-          <View style={[styles.thumbnail, styles.fallbackThumbnail]} />
-        )}
-        <View style={styles.chip}>
-          <Clapperboard color="#f97316" size={10} />
-          <Text style={styles.chipText}>Gust</Text>
-        </View>
+        {preview}
+        <ExploreBadge kind="gust" style={styles.chip} />
         <View pointerEvents="none" style={styles.playBadge}>
           <Play color="#ffffff" fill="#ffffff" size={14} />
         </View>
@@ -170,9 +173,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 8,
   },
-  blurred: {
-    opacity: 0.5,
-  },
   card: {
     borderRadius: 16,
     borderWidth: 1,
@@ -182,23 +182,7 @@ const styles = StyleSheet.create({
     marginVertical: 6,
     padding: 10,
   },
-  chip: {
-    alignItems: "center",
-    backgroundColor: "rgba(0,0,0,0.55)",
-    borderRadius: 999,
-    flexDirection: "row",
-    gap: 4,
-    left: 6,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    position: "absolute",
-    top: 6,
-  },
-  chipText: {
-    color: "#ffffff",
-    fontFamily: "SofiaProBold",
-    fontSize: 10,
-  },
+  chip: { left: 8, position: "absolute", top: 8 },
   content: {
     fontFamily: "SofiaProReg",
     fontSize: 13,

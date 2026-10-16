@@ -1,5 +1,6 @@
 import {
   getUserDataQuery,
+  getUserProfileSummary,
   mapUserData,
   prisma,
   resolveUsername,
@@ -33,7 +34,12 @@ export async function GET(
       return Response.json({ error: "User not found" }, { status: 404 });
     }
 
-    return Response.json(user);
+    const summary = await getUserProfileSummary(
+      prisma.orm,
+      resolvedUsername.id,
+      viewerId
+    );
+    return Response.json({ ...user, ...summary });
   } catch (error) {
     console.error(error);
     return Response.json({ error: "Internal server error" }, { status: 500 });

@@ -1,10 +1,7 @@
-import { and, prisma } from "@asm/db";
 import type { NextRequest } from "next/server";
 
+import { authInternalHeaders, getAuthBaseUrl } from "@/lib/auth/auth-internal";
 import { getSessionFromApi } from "@/lib/auth/session";
-
-const AUTH_BASE = process.env.NEXT_PUBLIC_AUTH_URL || "http://localhost:3001";
-const INTERNAL_SECRET = process.env.BETTER_AUTH_SECRET;
 
 // Cookie domain rewrite mirrors the /api/auth proxy so state cookies set by
 // the auth subdomain reach the browser under the web host and survive the OAuth
@@ -54,45 +51,52 @@ async function handleLink(request: NextRequest, provider: string) {
     return redirectToSettingsError("unauthorized");
   }
 
-  const [user, credentialAccount] = await Promise.all([
-    prisma.orm.public.Users.select("email", "emailVerified")
-      .where({ id: session.user.id })
-      .first(),
-    // Canonical credential selector (accountId=userId), matching sign-in and
-    // the password writers. A (providerId, userId)-only match could report the
-    // user has a password based on a legacy email-keyed row.
-    prisma.orm.public.Accounts.select("password")
-      .where((account) =>
-        and(
-          account.providerId.eq("credential"),
-          account.accountId.eq(session.user.id),
-          account.userId.eq(session.user.id)
-        )
-      )
-      .first(),
-  ]);
-  if (!user?.email || !user.emailVerified) {
-    return redirectToSettingsError("link_requires_verified_email");
-  }
-  if (!credentialAccount?.password) {
-    return redirectToSettingsError("link_requires_password");
-  }
-
-  const cookie = request.headers.get("cookie") || "";
-  const headers = new Headers({ "Content-Type": "application/json" });
-  if (cookie) {
-    headers.set("cookie", cookie);
-  }
-  if (INTERNAL_SECRET) {
-    headers.set("x-internal-secret", INTERNAL_SECRET);
-  }
+  const headers = new Headers(
+    authInternalHeaders({
+      "Content-Type": "application/json",
+      cookie: request.headers.get("cookie") || "",
+    })
+  );
 
   const webOrigin = request.nextUrl.origin;
+  let nativeCallback: string | null = null;
+  if (request.method === "POST") {
+    const body: unknown = await request.json().catch(() => null);
+    if (body && typeof body === "object" && "callbackURL" in body) {
+      if (
+        typeof body.callbackURL !== "string" ||
+        body.callbackURL.length > 2048
+      ) {
+        return Response.json({ error: "Invalid callback" }, { status: 400 });
+      }
+      try {
+        const callback = new URL(body.callbackURL);
+        if (
+          callback.protocol !== "asocialmedia:" ||
+          callback.host ||
+          callback.pathname !== "/settings"
+        ) {
+          return Response.json({ error: "Invalid callback" }, { status: 400 });
+        }
+        callback.search = "";
+        callback.searchParams.set("tab", "account");
+        callback.searchParams.set("link_provider", provider);
+        callback.searchParams.set("link_user", session.user.id);
+        nativeCallback = callback.toString();
+      } catch {
+        return Response.json({ error: "Invalid callback" }, { status: 400 });
+      }
+    }
+  }
 
-  const response = await fetch(`${AUTH_BASE}/api/auth/link-social`, {
+  const response = await fetch(`${getAuthBaseUrl()}/api/auth/link-social`, {
     body: JSON.stringify({
-      callbackURL: `${webOrigin}/settings?account_success=${provider}`,
-      errorCallbackURL: `${webOrigin}/settings?account_error=provider_flow_failed`,
+      callbackURL:
+        nativeCallback ?? `${webOrigin}/settings?account_success=${provider}`,
+      disableRedirect: Boolean(nativeCallback),
+      errorCallbackURL:
+        nativeCallback ??
+        `${webOrigin}/settings?account_error=provider_flow_failed`,
       provider,
     }),
     headers,
@@ -140,18 +144,33 @@ async function handleLink(request: NextRequest, provider: string) {
     url?: string;
   };
 
-  if (body.redirect && body.url) {
-    return new Response(null, {
-      headers: { location: body.url },
-      status: 307,
-    });
+  if (nativeCallback && response.ok && body.url) {
+    const result = Response.json({ url: body.url });
+    for (const cookie of response.headers.getSetCookie()) {
+      result.headers.append(
+        "set-cookie",
+        rewriteCookieDomain(cookie, request.nextUrl.hostname)
+      );
+    }
+    return result;
+  }
+
+  if (response.ok && body.url) {
+    const responseHeaders = new Headers({ location: body.url });
+    for (const cookie of response.headers.getSetCookie()) {
+      responseHeaders.append(
+        "set-cookie",
+        rewriteCookieDomain(cookie, request.nextUrl.hostname)
+      );
+    }
+    return new Response(null, { headers: responseHeaders, status: 307 });
   }
 
   return Response.json(
     {
       error: body.message || "Failed to start account linking",
     },
-    { status: response.status || 400 }
+    { status: response.ok ? 400 : response.status }
   );
 }
 

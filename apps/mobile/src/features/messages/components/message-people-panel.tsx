@@ -29,15 +29,18 @@ interface Person {
 export function MessagePeoplePanel({
   mode,
   onClose,
+  searchQuery,
 }: {
   mode: "online" | "search";
   onClose: () => void;
+  searchQuery?: string;
 }) {
   const { isDark, theme } = useAppTheme();
   const router = useRouter();
   const surface = panel3d(isDark);
   const input = reelsInput(isDark);
-  const [query, setQuery] = useState("");
+  const [localQuery, setLocalQuery] = useState("");
+  const query = searchQuery ?? localQuery;
   const [people, setPeople] = useState<Person[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
@@ -95,7 +98,9 @@ export function MessagePeoplePanel({
     try {
       const existing = conversationListStore
         .getSnapshot()
-        .rows.find((row) => row.peerId === person.id);
+        .rows.find(
+          (row) => row.conversation.type !== "DEN" && row.peerId === person.id
+        );
       let id = existing?.conversation.id;
       if (!id) {
         const created = await createConversation(person.id, {
@@ -126,15 +131,15 @@ export function MessagePeoplePanel({
         borderRadius: 16,
         borderWidth: 1,
         boxShadow: surface.shadows,
-        margin: 12,
+        margin: searchQuery === undefined ? 12 : 0,
         padding: 12,
       }}
     >
-      {mode === "search" ? (
+      {mode === "search" && searchQuery === undefined ? (
         <TextInput
           accessibilityLabel="Search people"
           autoFocus
-          onChangeText={setQuery}
+          onChangeText={setLocalQuery}
           placeholder="Search people…"
           placeholderTextColor={theme.dividerText}
           value={query}
@@ -150,7 +155,8 @@ export function MessagePeoplePanel({
             padding: 12,
           }}
         />
-      ) : (
+      ) : null}
+      {mode === "online" ? (
         <Text
           style={{
             color: isDark ? "#eeeeee" : "#202020",
@@ -160,7 +166,7 @@ export function MessagePeoplePanel({
         >
           Online friends
         </Text>
-      )}
+      ) : null}
       <ScrollView
         keyboardShouldPersistTaps="handled"
         style={{ maxHeight: 256 }}

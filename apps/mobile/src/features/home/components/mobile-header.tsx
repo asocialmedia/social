@@ -10,7 +10,7 @@
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { usePathname, useRouter } from "expo-router";
-import { Bell, Search, X } from "lucide-react-native";
+import { ArrowLeft, Bell, Search, X } from "lucide-react-native";
 import { useEffect, useState } from "react";
 import {
   Animated,
@@ -29,6 +29,7 @@ import {
 import asmLogo from "@/assets/images/asm.png";
 import avatarPlaceholder from "@/assets/images/avatar-placeholder.png";
 import { Gradient3D } from "@/components/surface/gradient-3d";
+import { IconButton3D } from "@/components/surface/icon-button-3d";
 import {
   ORANGE_GRADIENT,
   ORANGE_PRESSED_GRADIENT,
@@ -62,6 +63,9 @@ import { UserProfilePopup } from "./user-profile-popup";
 export const headerSlide = new Animated.Value(0);
 
 interface MobileHeaderProps {
+  onBack?: () => void;
+  backLabel?: string;
+  hideOnScroll?: boolean;
   onSearchPress?: () => void;
   searchOpen?: boolean;
   searchLabel?: string;
@@ -75,6 +79,9 @@ interface MobileHeaderProps {
 }
 
 export function MobileHeader({
+  onBack,
+  backLabel = "Back to profile",
+  hideOnScroll = true,
   onSearchPress,
   searchOpen = false,
   searchLabel = "Search",
@@ -138,14 +145,10 @@ export function MobileHeader({
   // in avatarUrl while the session's image only covers OAuth providers. The
   // popup profile (cache-first, shared with the popup itself) carries the
   // DB avatarUrl, so the header resolves the same precedence.
-  const { hydrated: profileHydrated, state: popupState } = usePopupProfile(
-    user?.id ?? null
-  );
+  const { state: popupState } = usePopupProfile(user?.id ?? null);
   const profileAvatar =
     popupState.status === "ready" ? popupState.profile.avatarUrl : null;
-  const rawAvatar = profileHydrated
-    ? (profileAvatar ?? user?.avatarUrl ?? user?.image ?? null)
-    : null;
+  const rawAvatar = profileAvatar ?? user?.avatarUrl ?? user?.image ?? null;
   const avatarUri = rawAvatar
     ? resolveProfileImageUrl(rawAvatar, getApiBaseUrl())
     : null;
@@ -157,7 +160,7 @@ export function MobileHeader({
     >
       <Animated.View
         style={{
-          transform: [{ translateY: translateUp }],
+          transform: [{ translateY: hideOnScroll ? translateUp : 0 }],
         }}
       >
         <View
@@ -169,7 +172,17 @@ export function MobileHeader({
             },
           ]}
         >
-          <View style={styles.sideLeft}>
+          <View
+            style={[styles.sideLeft, onBack ? { gap: 8, width: 84 } : null]}
+          >
+            {onBack ? (
+              <IconButton3D
+                accessibilityLabel={backLabel}
+                icon={ArrowLeft}
+                onPress={onBack}
+                size={32}
+              />
+            ) : null}
             {user ? (
               <Pressable
                 accessibilityLabel={`Open profile menu for ${user.username}`}

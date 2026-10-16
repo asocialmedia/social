@@ -2,6 +2,8 @@ import { createLogger, getTelemetryApi } from "@asm/logger";
 import { SpanStatusCode } from "@opentelemetry/api";
 import type { Attributes } from "@opentelemetry/api";
 
+import { recordMediaMetric } from "./metrics";
+
 // Structured logger + OTel span helper for the media worker, mirroring the
 // apps/auth worker conventions. Safe before initTelemetry: an unregistered
 // tracer records spans to a no-op provider.
@@ -16,9 +18,11 @@ export async function withSpan<T>(
   attributes: Attributes = {}
 ): Promise<T> {
   const span = tracer.startSpan(name, { attributes });
+  const started = performance.now();
   try {
     const result = await fn();
     span.end();
+    void recordMediaMetric(name, performance.now() - started);
     return result;
   } catch (error) {
     span.recordException(

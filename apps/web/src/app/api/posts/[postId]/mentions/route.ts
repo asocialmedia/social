@@ -53,7 +53,7 @@ export async function POST(
 
     const notificationEvents = newNotificationEvents();
     await prisma.transaction(async (tx) => {
-      await tx.orm.public.Mentions.where({ postId }).delete();
+      await tx.orm.public.Mentions.where({ postId }).deleteAndCount();
 
       const mentionPromises = filteredUserIds.map((userId: string) =>
         tx.orm.public.Mentions.create({ postId, userId })

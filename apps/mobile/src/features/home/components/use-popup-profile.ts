@@ -1,5 +1,5 @@
 // Share profile metadata across consumers and cold starts before revalidation.
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 
 import { authClient } from "@/features/auth/lib/auth-client";
 import { getApiBaseUrl } from "@/lib/api-env";
@@ -39,6 +39,9 @@ export function usePopupProfile(userId: string | null): {
 } {
   const apiBase = getApiBaseUrl();
   const cacheKey = userId ? popupProfileKey(apiBase, userId) : null;
+  const cachedProfile = useSyncExternalStore(popupCache.subscribe, () =>
+    cacheKey ? popupCache.getStaleProfile(cacheKey) : null
+  );
   const [result, setResult] = useState(() => ({
     key: cacheKey,
     state: cachedState(cacheKey),
@@ -108,9 +111,17 @@ export function usePopupProfile(userId: string | null): {
     // oxlint-disable-next-line react/exhaustive-effect-dependencies -- reloadToken explicitly repeats the invalidated lookup
   }, [apiBase, cacheKey, userId, reloadToken]);
 
+  let state = result.key === cacheKey ? result.state : cachedState(cacheKey);
+  if (cachedProfile && cacheKey) {
+    state = {
+      bookmarkTotal: popupCache.getStaleBookmarkTotal(cacheKey),
+      profile: cachedProfile,
+      status: "ready",
+    };
+  }
   return {
     hydrated: !cacheKey || hydratedKey === cacheKey,
     reload,
-    state: result.key === cacheKey ? result.state : cachedState(cacheKey),
+    state,
   };
 }

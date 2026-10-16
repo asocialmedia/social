@@ -68,8 +68,12 @@ export interface MenuAnchor {
   y: number;
 }
 
-/** A lib entry with the glyph the panel draws it with. */
-export interface MoreMenuEntry extends MoreMenuEntryData {
+// A lib entry with the glyph the panel draws it with.
+export interface MoreMenuEntry<Action = MoreAction> extends Omit<
+  MoreMenuEntryData,
+  "action"
+> {
+  action: Action;
   icon: ComponentType<{ color?: string; size?: number }>;
 }
 
@@ -90,7 +94,7 @@ export const ACTION_ICONS: Record<
   "toggle-transcript": Captions,
 };
 
-/** The lib's entry list with a glyph attached to each one. */
+// The lib's entry list with a glyph attached to each one.
 export function buildMoreEntries(options: {
   post: FeedPost;
   showCaptions: boolean;
@@ -146,12 +150,12 @@ const EDGE_MARGIN = 8;
 const ANIM_MS = 150;
 const CSS_EASE = Easing.bezier(0.25, 0.1, 0.25, 1);
 
-function MenuItem({
+function MenuItem<Action>({
   entry,
   isDark,
   onSelect,
 }: {
-  entry: MoreMenuEntry;
+  entry: MoreMenuEntry<Action>;
   isDark: boolean;
   onSelect: () => void;
 }) {
@@ -195,16 +199,20 @@ function MenuItem({
   );
 }
 
-export function MoreMenu({
+export function MoreMenu<Action extends { type: string } = MoreAction>({
+  align = "end",
   anchor,
   entries,
   onAction,
   onClose,
+  minWidth = 128,
 }: {
+  align?: "end" | "start";
   anchor: MenuAnchor | null;
-  entries: MoreMenuEntry[];
-  onAction: (action: MoreAction) => void;
+  entries: MoreMenuEntry<Action>[];
+  onAction: (action: Action) => void;
   onClose: () => void;
+  minWidth?: number;
 }) {
   const { isDark } = useAppTheme();
   const window = useWindowDimensions();
@@ -265,8 +273,20 @@ export function MoreMenu({
           insets.top + EDGE_MARGIN,
           anchor.y - SIDE_OFFSET - panelHeight
         );
-  // align="end": the panel's right edge sits on the trigger's right edge.
-  const right = Math.max(EDGE_MARGIN, window.width - (anchor.x + anchor.width));
+  const horizontalPosition =
+    align === "start"
+      ? {
+          left: Math.max(
+            EDGE_MARGIN,
+            Math.min(anchor.x, window.width - EDGE_MARGIN - minWidth)
+          ),
+        }
+      : {
+          right: Math.max(
+            EDGE_MARGIN,
+            window.width - (anchor.x + anchor.width)
+          ),
+        };
   // slide-in-from-top-2 (bottom side) / slide-in-from-bottom-2 (top side);
   // the exit only fades and zooms, so the slide is tied to the entrance.
   const slideFrom = side === "bottom" ? -8 : 8;
@@ -293,8 +313,9 @@ export function MoreMenu({
             backgroundColor: panel.background,
             borderColor: panel.border,
             boxShadow: panel.shadows,
+            minWidth,
             opacity: progress,
-            right,
+            ...horizontalPosition,
             top,
             transform: [
               {
@@ -312,7 +333,7 @@ export function MoreMenu({
                 }),
               },
             ],
-            transformOrigin: side === "bottom" ? "top right" : "bottom right",
+            transformOrigin: `${side === "bottom" ? "top" : "bottom"} ${align === "start" ? "left" : "right"}`,
           },
         ]}
       >

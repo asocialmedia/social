@@ -1,4 +1,9 @@
-import { fromPrismaDateTime, getPrivateUserQuery, prisma } from "@asm/db";
+import {
+  fromPrismaDateTime,
+  getPrivateUserQuery,
+  getUserProfileSummary,
+  prisma,
+} from "@asm/db";
 import type {
   CommunityRoleRow,
   PrivateUserData as DatabasePrivateUserData,
@@ -18,6 +23,8 @@ export type PrivateUserData = Omit<
   communityMemberships: CommunityRoleRow[];
   createdAt: Date;
   followers: { followerId: string }[];
+  _count?: Awaited<ReturnType<typeof getUserProfileSummary>>["_count"];
+  mutuals?: Awaited<ReturnType<typeof getUserProfileSummary>>["mutuals"];
 };
 
 export const getUserData = cache(async (userId: string) => {
@@ -35,8 +42,10 @@ export const getUserData = cache(async (userId: string) => {
   }
 
   const { communityMembers, createdAt, followsFollows, ...scalars } = userData;
+  const summary = await getUserProfileSummary(prisma.orm, userId, userId);
   return {
     ...scalars,
+    ...summary,
     communityMemberships: communityMembers.flatMap((membership) =>
       membership.community
         ? [

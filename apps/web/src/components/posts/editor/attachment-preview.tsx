@@ -1,8 +1,10 @@
+import { toast } from "@asm/ui/lib/gooey-toast";
 import noMediaImage from "@assets/general/nomedia.png";
 import {
   FileIcon,
   FilmIcon,
   Pause,
+  Pencil,
   Play,
   RefreshCw,
   Volume2,
@@ -11,11 +13,13 @@ import {
 } from "lucide-react";
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 
+import MessageImageEditDialog from "@/components/messages/message-image-edit-dialog";
 import { formatFileName } from "@/lib/format-file-name";
 import type { UploadStage } from "@/lib/media/media-upload-client";
 import { getUploadProgressInfo } from "@/lib/media/upload-progress";
 import { cn } from "@/lib/utils";
 
+import { useComposerAttachmentStore } from "./attachment-store";
 import { EQ_BAR_COUNT, EQ_FALLBACK_HEIGHTS, extractWaveform } from "./waveform";
 
 export { getUploadProgressInfo } from "@/lib/media/upload-progress";
@@ -37,7 +41,7 @@ interface AttachmentPreviewProps {
   };
   isGust?: boolean;
   onCancelClick?: () => void;
-  /** Gust only: tapping the preview body swaps the clip. */
+  // Gust only: tapping the preview body swaps the clip.
   onChangeMediaClick?: () => void;
   onEditAltClick?: () => void;
   onRemoveClick: () => void;
@@ -47,7 +51,7 @@ interface AttachmentPreviewProps {
 const PROGRESS_BAR_3D =
   "shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.5),0_1px_2px_rgba(0,0,0,0.25)]";
 
-/** m:ss clock used by the composer's compact video controls. */
+// m:ss clock used by the composer's compact video controls.
 function formatVideoTime(seconds: number): string {
   if (!Number.isFinite(seconds) || seconds < 0) {
     return "0:00";
@@ -79,6 +83,8 @@ const AttachmentPreviewInner = ({
   onRemoveClick,
   onRetryClick,
 }: AttachmentPreviewProps) => {
+  const [editingFile, setEditingFile] = useState<File | null>(null);
+  const [openingEditor, setOpeningEditor] = useState(false);
   const [objectUrl, setObjectUrl] = useState<string>(
     existingPreviewUrl || mediaUrl || ""
   );
@@ -93,6 +99,40 @@ const AttachmentPreviewInner = ({
   // Flips once the <video> paints real pixels; the film-icon placeholder
   // underneath shows through until then (no black-void flash).
   const [hasFirstFrame, setHasFirstFrame] = useState(false);
+
+  const openMediaEditor = async () => {
+    if (openingEditor) {
+      return;
+    }
+    setOpeningEditor(true);
+    try {
+      let editorFile = file;
+      if (!editorFile) {
+        const response = await fetch(mediaUrl || `/api/media/${mediaId}`);
+        if (!response.ok) {
+          toast({
+            description: "Wait for processing to finish, then try again.",
+            title: "Image unavailable",
+            variant: "destructive",
+          });
+          setOpeningEditor(false);
+          return;
+        }
+        const blob = await response.blob();
+        editorFile = new File([blob], name || "image", {
+          type: fileType || blob.type,
+        });
+      }
+      setEditingFile(editorFile);
+    } catch {
+      toast({
+        description: "Check your connection and try again.",
+        title: "Couldn't open image",
+        variant: "destructive",
+      });
+    }
+    setOpeningEditor(false);
+  };
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
@@ -307,20 +347,12 @@ const AttachmentPreviewInner = ({
 
     if (mimeType.startsWith("image")) {
       const isGif = mimeType === "image/gif";
-      let imageSizeClass = "max-h-[380px] w-full sm:max-h-[480px]";
-      if (isPortrait) {
-        imageSizeClass =
-          "h-[320px] max-h-[380px] w-auto max-w-full sm:h-[400px] sm:max-h-[480px]";
-      } else if (isGif) {
-        imageSizeClass = "max-h-[280px] w-auto max-w-full sm:max-h-[340px]";
-      } else if (!dimensions) {
-        imageSizeClass = "h-44 max-h-52 w-auto max-w-full sm:h-52";
-      }
+      const imageSizeClass = dimensions ? "w-full" : "h-44 w-full";
 
       return (
         <div
           className={cn(
-            "apple-panel relative flex items-center justify-center overflow-hidden rounded-2xl shadow-xs transition-shadow duration-300 hover:shadow-md",
+            "surface-3d relative flex items-center justify-center overflow-hidden rounded-2xl",
             imageSizeClass
           )}
           style={dimensions ? { aspectRatio: aspect } : undefined}
@@ -764,12 +796,14 @@ const AttachmentPreviewInner = ({
 
   return (
     <div
-      className={cn(
-        "relative",
-        (isPortrait || mimeType === "image/gif") && !isGust
-          ? "w-fit max-w-full"
-          : "w-full"
-      )}
+      className={cn("relative w-full max-w-full")}
+      style={
+        dimensions && mimeType.startsWith("image/")
+          ? {
+              width: `${((mimeType === "image/gif" ? 280 : 320) * dimensions.w) / dimensions.h}px`,
+            }
+          : undefined
+      }
     >
       {/* oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- see above; a semantic button cannot wrap media controls */}
       <div
@@ -786,6 +820,33 @@ const AttachmentPreviewInner = ({
       </div>
       {/* The ALT chip is a post-mode affordance: gust's alt field is docked
           under the caption input, so the video tile stays clean of badges. */}
+      {(file || mediaId) && mimeType.startsWith("image/") ? (
+        <button
+          aria-label={mimeType === "image/gif" ? "Edit GIF" : "Edit image"}
+          className="icon-btn-3d absolute top-2 left-2 z-20 flex size-7 items-center justify-center"
+          type="button"
+          disabled={openingEditor}
+          onClick={(event) => {
+            event.stopPropagation();
+            void openMediaEditor();
+          }}
+        >
+          <Pencil className="size-3.5" />
+        </button>
+      ) : null}
+      {editingFile ? (
+        <MessageImageEditDialog
+          file={editingFile}
+          kind={mimeType === "image/gif" ? "gif" : "image"}
+          objectUrl={objectUrl}
+          onClose={() => setEditingFile(null)}
+          onSave={(edited) => {
+            void useComposerAttachmentStore
+              .getState()
+              .replaceAttachment(fileName, edited);
+          }}
+        />
+      ) : null}
       {onEditAltClick && !isGust && !isUploading && !hasError ? (
         <button
           aria-label={altText ? "Edit alt text" : "Add alt text to this media"}

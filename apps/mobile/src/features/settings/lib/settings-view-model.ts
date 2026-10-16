@@ -1,3 +1,5 @@
+import { recoveryEmail } from "@asm/auth/validation";
+
 // The facts the settings tabs read, derived from the session user rather than
 // fetched separately, so the tabs cannot disagree with the signed-in identity
 // the rest of the app already has.
@@ -35,16 +37,11 @@ function providerIds(user: SessionUserLike): string[] {
   });
 }
 
-// Web gates connecting another provider on a verified email AND a password, so
-// a newly linked provider can never become the only way back in. The password
-// itself is never exposed, so its presence is inferred from a credential entry
-// rather than a boolean on the user.
+// Session account summaries are provisional until security state is loaded.
 function hasPassword(user: SessionUserLike): boolean {
   if (!Array.isArray(user.accounts)) {
-    // With no account list to inspect, assume a password exists: a false
-    // negative would show a redundant "add a password" form, while a false
-    // positive only hides it.
-    return true;
+    // The security-state endpoint supplies the authoritative password status.
+    return false;
   }
   return user.accounts.some((account) => {
     if (typeof account !== "object" || account === null) {
@@ -56,12 +53,12 @@ function hasPassword(user: SessionUserLike): boolean {
 }
 
 export function accountFactsFrom(user: SessionUserLike | null): AccountFacts {
-  const email = user?.email ?? null;
-  const emailVerified = user?.emailVerified === true;
+  const email = recoveryEmail(user?.email);
+  const emailVerified = Boolean(email) && user?.emailVerified === true;
   const password = hasPassword(user ?? { id: "" });
   const providers = providerIds(user ?? { id: "" });
   return {
-    canLinkProviders: emailVerified && password,
+    canLinkProviders: Boolean(user),
     email,
     emailVerified,
     hasPassword: password,
@@ -90,7 +87,7 @@ export function withLinkedAccounts(
 ): AccountFacts {
   return {
     ...facts,
-    canLinkProviders: facts.emailVerified && accounts.hasPassword,
+    canLinkProviders: facts.canLinkProviders,
     hasPassword: accounts.hasPassword,
     hasReddit: accounts.linkedProviders.includes("reddit"),
     linkedProviders: accounts.linkedProviders,

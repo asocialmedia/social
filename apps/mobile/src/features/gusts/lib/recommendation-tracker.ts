@@ -47,7 +47,8 @@ export class RecommendationQueue {
     eventType: RecommendationEventType,
     postId: string,
     durationMsOrSecondType?: number | RecommendationEventType,
-    secondPostId?: string
+    secondPostId?: string,
+    requestId?: string
   ) {
     this.pending.push(
       typeof durationMsOrSecondType === "number"
@@ -55,9 +56,16 @@ export class RecommendationQueue {
             durationMs: Math.max(0, Math.round(durationMsOrSecondType)),
             eventType,
             postId,
+            requestId,
           }
-        : { eventType, postId }
+        : { eventType, postId, ...(requestId ? { requestId } : {}) }
     );
+    if (requestId) {
+      const event = this.pending.at(-1);
+      if (event) {
+        event.eventId = `${this.clock.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+      }
+    }
     if (
       typeof durationMsOrSecondType === "string" &&
       typeof secondPostId === "string"

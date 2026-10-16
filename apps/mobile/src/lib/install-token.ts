@@ -154,6 +154,7 @@ export function createInstallFetch(options: {
   baseFetch: FetchLike;
   origin: string;
   getToken: () => string | null;
+  userAgent?: string;
 }): FetchLike {
   return (input, init) => {
     const url = resolveRequestUrl(input);
@@ -167,10 +168,16 @@ export function createInstallFetch(options: {
       // headers) instead of dropping it, with the token merged into the
       // combined headers. An explicit token in either place still wins.
       const merged = withClientHeader(mergeRequestHeaders(input, init));
+      if (options.userAgent) {
+        merged.set("user-agent", options.userAgent);
+      }
       const headers = token ? withTokenHeader(merged, token) : merged;
       return options.baseFetch(new Request(input, { ...init, headers }));
     }
     const merged = withClientHeader(new Headers(init?.headers));
+    if (options.userAgent) {
+      merged.set("user-agent", options.userAgent);
+    }
     const headers = token ? withTokenHeader(merged, token) : merged;
     return options.baseFetch(input, { ...init, headers });
   };

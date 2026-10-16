@@ -20,6 +20,7 @@ const state = {
   committed: false,
   createdPostData: null as Record<string, unknown> | null,
   createdPostId: null as string | null,
+  createdTags: [] as { id: string; name: string }[],
   enqueuedNotifications: [] as {
     notificationId: string;
     recipientId: string;
@@ -46,6 +47,7 @@ function resetState() {
   state.postUpdates = [];
   state.postsById = {};
   state.scheduledCleanups = [];
+  state.createdTags = [];
 }
 
 const mockTx = {
@@ -223,8 +225,10 @@ const mockOrm = {
       }),
     },
     Tag: {
-      create: (data: { name: string }) =>
-        Promise.resolve({ id: `tag-${data.name}`, ...data }),
+      create: (data: { id: string; name: string }) => {
+        state.createdTags.push(data);
+        return Promise.resolve(data);
+      },
       select: () => ({
         where: () => ({ first: () => Promise.resolve(null) }),
       }),
@@ -418,6 +422,21 @@ describe("submitPost attachment claiming", () => {
   beforeEach(() => {
     resetState();
     mockGetSession.mockClear();
+  });
+
+  test("publishing a new tag supplies its schema-required ID", async () => {
+    const { submitPost } = await import("./actions");
+    await submitPost({
+      content: "New tag",
+      mediaIds: [],
+      mentions: [],
+      tags: ["newtag"],
+    } as Parameters<typeof submitPost>[0]);
+    expect(state.createdTags).toHaveLength(1);
+    expect(state.createdTags[0]?.name).toBe("newtag");
+    expect(state.createdTags[0]?.id).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+    );
   });
 
   test("a successful claim assigns the created post id to the attachments", async () => {

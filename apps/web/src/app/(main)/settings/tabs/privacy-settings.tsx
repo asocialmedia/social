@@ -5,10 +5,10 @@ import { Label } from "@asm/ui/shadui/label";
 import { RadioGroup, RadioGroupItem } from "@asm/ui/shadui/radio-group";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ShieldCheck, Users } from "lucide-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 
+import { LegalSettingsCard } from "@/components/settings/legal-settings-card";
 import {
-  SETTINGS_SUBCARD_CLASS,
   SettingsCard,
   SettingsCardHeading,
   SettingsSectionHeader,
@@ -60,6 +60,7 @@ export default function PrivacySettings({ user }: PrivacySettingsProps) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const initial = user.groupAddPolicy;
+  const confirmed = useRef(initial);
   // Optimistic local state, because a radio group that snaps back to the old value
   // for the length of a round trip reads as the click being rejected. The
   // mutation below rolls it back if the save fails.
@@ -82,7 +83,7 @@ export default function PrivacySettings({ user }: PrivacySettingsProps) {
       return (await response.json()) as { groupAddPolicy: GroupAddPolicy };
     },
     onError: (error, policy) => {
-      setSelected(initial);
+      setSelected(confirmed.current);
       toast({
         description:
           error instanceof Error ? error.message : "Couldn't save that setting",
@@ -93,6 +94,7 @@ export default function PrivacySettings({ user }: PrivacySettingsProps) {
       void policy;
     },
     onSuccess: (data) => {
+      confirmed.current = data.groupAddPolicy;
       setSelected(data.groupAddPolicy);
       void queryClient.invalidateQueries({ queryKey: ["user", user.id] });
       void queryClient.invalidateQueries({ queryKey: ["userData"] });
@@ -116,7 +118,8 @@ export default function PrivacySettings({ user }: PrivacySettingsProps) {
         />
 
         <RadioGroup
-          className="gap-2"
+          className="gap-3"
+          disabled={save.isPending}
           onValueChange={(value) => {
             const policy = value as GroupAddPolicy;
             setSelected(policy);
@@ -130,15 +133,20 @@ export default function PrivacySettings({ user }: PrivacySettingsProps) {
               // A div, not a label: the text is associated with the radio by
               // htmlFor rather than by wrapping it, so clicking the description
               // still selects text instead of swallowing the click.
-              <div className={SETTINGS_SUBCARD_CLASS} key={option.value}>
+              <div
+                className="settings-choice surface-3d rounded-xl!"
+                data-selected={selected === option.value}
+                key={option.value}
+              >
                 <div className="flex items-start gap-3 p-4">
                   <RadioGroupItem
+                    aria-label={option.label}
                     className="mt-0.5"
                     id={optionId}
                     value={option.value}
                   />
                   <Label
-                    className="min-w-0 flex-1 cursor-pointer"
+                    className="block min-w-0 flex-1 cursor-pointer"
                     htmlFor={optionId}
                   >
                     <span className="block text-sm font-medium">
@@ -160,6 +168,7 @@ export default function PrivacySettings({ user }: PrivacySettingsProps) {
           theirs.
         </p>
       </SettingsCard>
+      <LegalSettingsCard />
     </div>
   );
 }

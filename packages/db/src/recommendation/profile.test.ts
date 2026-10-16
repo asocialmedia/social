@@ -3,6 +3,31 @@ import { describe, expect, test } from "bun:test";
 import { buildUserProfile } from "./profile";
 import type { ProfileSignal } from "./profile";
 
+test("taste vectors exclude unknown embeddings and isolate the dominant model", () => {
+  const a = Array.from({ length: 384 }, (_, index) => (index === 0 ? 1 : 0));
+  const b = Array.from({ length: 384 }, (_, index) => (index === 1 ? 1 : 0));
+  const profile = buildUserProfile([
+    {
+      authorId: "a",
+      embedding: a,
+      embeddingModel: "model-a",
+      kind: "bookmark",
+      tags: [],
+    },
+    {
+      authorId: "b",
+      embedding: b,
+      embeddingModel: "model-b",
+      kind: "view",
+      tags: [],
+    },
+    { authorId: "c", embedding: b, kind: "bookmark", tags: [] },
+  ]);
+  expect(profile.embeddingModel).toBe("model-a");
+  expect(profile.tasteVector?.[0]).toBeCloseTo(1);
+  expect(profile.tasteVector?.[1]).toBe(0);
+});
+
 function signal(patch: Partial<ProfileSignal>): ProfileSignal {
   return { authorId: "author-1", kind: "amplify", tags: [], ...patch };
 }

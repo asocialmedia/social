@@ -1,9 +1,15 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  getBadgePanelItems,
+  groupCommunityRoleItems,
+} from "@/features/home/components/profile-utils";
+
+import {
   buildProfileFeedPath,
   buildProfilePostsPath,
   buildProfileUsernamePath,
+  fetchProfileUserList,
   mutateFollow,
   parseFollowInfo,
   parseProfileFeedPage,
@@ -11,6 +17,87 @@ import {
 } from "./profile-api";
 
 const API = "https://api.test";
+
+test("profile headers preserve bounded mutual previews from the public API", () => {
+  const users = Array.from({ length: 7 }, (_, index) => ({
+    avatarUrl: null,
+    id: `mutual-${index}`,
+    username: `mutual${index}`,
+  }));
+  const profile = parseProfileHeader({
+    _count: { followers: 18, following: 27, posts: 9 },
+    id: "profile",
+    mutuals: { followers: users, following: users.slice(1, 3) },
+    username: "profile",
+  });
+  expect(profile?._count).toEqual({ followers: 18, following: 27, posts: 9 });
+  expect(profile?.mutuals?.followers).toHaveLength(3);
+  expect(profile?.mutuals?.counts).toEqual({ followers: 7, following: 2 });
+  expect(profile?.mutuals?.following.map((user) => user.id)).toEqual([
+    "mutual-1",
+    "mutual-2",
+  ]);
+  expect(
+    parseProfileHeader({ id: "older", username: "older" })?.mutuals
+  ).toEqual({
+    counts: { followers: 0, following: 0 },
+    followers: [],
+    following: [],
+  });
+});
+
+test("profile community roles retain icons and names for summaries and badge details", () => {
+  const community = {
+    accentColor: "violet",
+    avatarUrl: "/api/communities/avatar.webp",
+    name: "Art club",
+    slug: "art",
+  };
+  const profile = parseProfileHeader({
+    communityMemberships: [
+      { community, role: "OWNER" },
+      { community: { slug: "older" }, role: "MEMBER" },
+      { community: null, role: "MODERATOR" },
+      { community: { slug: 42 }, role: "MEMBER" },
+      null,
+      { role: 42 },
+    ],
+    id: "artist",
+    username: "artist",
+  });
+  expect(profile?.communityMemberships).toEqual([
+    { community, role: "OWNER" },
+    {
+      community: {
+        accentColor: null,
+        avatarUrl: null,
+        name: null,
+        slug: "older",
+      },
+      role: "MEMBER",
+    },
+    { community: null, role: "MODERATOR" },
+    {
+      community: { accentColor: null, avatarUrl: null, name: null, slug: null },
+      role: "MEMBER",
+    },
+  ]);
+  const groups = groupCommunityRoleItems(profile?.communityMemberships);
+  expect(groups.map((group) => group.role)).toEqual(["OWNER", "MEMBER"]);
+  expect(groups[0]?.communities).toEqual([community]);
+  const badgeItems = getBadgePanelItems(
+    null,
+    [],
+    profile?.communityMemberships
+  );
+  expect(badgeItems[0]).toMatchObject({
+    communities: [community],
+    description: "Founded and runs a community",
+    kind: "role",
+    title: "Owner",
+    type: "OWNER",
+  });
+});
 
 function post(
   overrides: Record<string, unknown> = {}
@@ -57,6 +144,40 @@ describe("profile paths", () => {
 });
 
 describe("profile parsing", () => {
+  test("user lists tolerate older responses and bound validated mutual avatars", async () => {
+    const baseFetch = (() =>
+      Promise.resolve(
+        Response.json([
+          { id: "old", isFollowing: true, username: "older" },
+          {
+            id: "new",
+            mutualCount: 4,
+            mutualFollowers: [
+              null,
+              { id: "invalid" },
+              ...[1, 2, 3, 4].map((index) => ({
+                id: `mutual-${index}`,
+                username: `friend${index}`,
+              })),
+            ],
+            username: "newer",
+          },
+        ])
+      )) as unknown as typeof fetch;
+    const users = await fetchProfileUserList("owner", "followers", {
+      apiBase: API,
+      baseFetch,
+    });
+    expect(users[0]?.mutualFollowers).toEqual([]);
+    expect(users[0]?.mutualCount).toBe(0);
+    expect(users[1]?.mutualCount).toBe(4);
+    expect(users[1]?.mutualFollowers.map((user) => user.id)).toEqual([
+      "mutual-1",
+      "mutual-2",
+      "mutual-3",
+    ]);
+  });
+
   test("parses public UserData and viewer follow projection", () => {
     const profile = parseProfileHeader({
       aura: 12,
@@ -72,8 +193,42 @@ describe("profile parsing", () => {
     expect(profile?.followers).toEqual([{ followerId: "viewer-1" }]);
     expect(profile?.isFollowing).toBe(true);
     expect(profile?.communityMemberships).toEqual([
-      { community: { slug: "general" }, role: "OWNER" },
+      {
+        community: {
+          accentColor: null,
+          avatarUrl: null,
+          name: null,
+          slug: "general",
+        },
+        role: "OWNER",
+      },
     ]);
+  });
+
+  test("keeps explicit flags for profile posts, response parents, media and reply context", () => {
+    const marked = post({
+      explicitContent: true,
+      parentPost: { explicitContent: true, id: "source" },
+    });
+    const pages = [
+      parseProfileFeedPage({ posts: [marked] }, "posts"),
+      parseProfileFeedPage(
+        { media: [{ id: "media", post: marked, type: "IMAGE" }] },
+        "media"
+      ),
+      parseProfileFeedPage(
+        { replies: [{ attachments: [], id: "reply", post: marked }] },
+        "replies"
+      ),
+    ];
+    for (const page of pages) {
+      if (page.kind === "posts") {
+        expect(page.items[0]?.explicitContent).toBe(true);
+        expect(page.items[0]?.parentPost?.explicitContent).toBe(true);
+      } else {
+        expect(page.items[0]?.post?.explicitContent).toBe(true);
+      }
+    }
   });
 
   test("normalizes post, media, and reply cursor pages", () => {

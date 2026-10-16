@@ -1,4 +1,5 @@
 import type { NotificationTarget } from "@asm/notifications/shared";
+import type { Href } from "expo-router";
 
 // What tapping a notification should do on this platform, decided in one place.
 //
@@ -25,8 +26,10 @@ import type { NotificationTarget } from "@asm/notifications/shared";
 // app is broken rather than that the feature is elsewhere.
 
 export interface NativeNotificationAction {
-  // Where to go, when there is somewhere to go.
-  path?: string;
+  // Where to go, when there is somewhere to go. Typed as `Href` rather than a
+  // bare string because typed routes are on: `router.push` accepts only a known
+  // route, and every path this function returns is one.
+  path?: Href;
   // Shown as a toast when the target cannot be opened here. `title` is the
   // headline, `description` the sentence under it.
   notice?: { description: string; title: string };

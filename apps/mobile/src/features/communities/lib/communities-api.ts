@@ -4,21 +4,9 @@ import { normalizePostsData } from "@/features/feed/lib/feed-types";
 import { withAuthHeaders } from "@/lib/auth-headers";
 import { getWithTimeout } from "@/lib/http-get";
 
-export const COMMUNITY_DISCOVERY_CATEGORIES = [
-  { key: "all", label: "All" },
-  { key: "gaming", label: "Gaming" },
-  { key: "entertainment", label: "Entertainment" },
-  { key: "music", label: "Music" },
-  { key: "education", label: "Education" },
-  { key: "science_tech", label: "Science & Tech" },
-  { key: "art_design", label: "Art & Design" },
-  { key: "lifestyle", label: "Lifestyle" },
-  { key: "sports", label: "Sports" },
-  { key: "society", label: "Society" },
-] as const;
+export { COMMUNITY_DISCOVERY_CATEGORIES } from "@asm/db/communities";
 
-export type CommunityCategory =
-  (typeof COMMUNITY_DISCOVERY_CATEGORIES)[number]["key"];
+export type CommunityCategory = string;
 
 export interface CommunityData {
   _count: { members: number; posts: number };

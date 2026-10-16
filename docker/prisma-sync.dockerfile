@@ -4,6 +4,7 @@ FROM oven/bun:1.4 AS build
 WORKDIR /app
 
 COPY package.json bun.lock ./
+COPY patches/ ./patches/
 COPY apps/auth/package.json ./apps/auth/package.json
 COPY apps/web/package.json ./apps/web/package.json
 COPY packages/aggregator/package.json ./packages/aggregator/package.json

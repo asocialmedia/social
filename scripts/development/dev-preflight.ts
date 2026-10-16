@@ -29,6 +29,7 @@ import type {
   PreflightCheckState,
   ServiceSnapshot,
 } from "./dev-preflight-lib";
+import { postgresInspectionQuery } from "./postgres-inspection";
 
 const CACHE_FILE = path.join(process.cwd(), ".cache", "dev-preflight.json");
 const CACHE_TTL_MS = 20_000;
@@ -234,7 +235,7 @@ async function assertPostgresSchemaReady() {
     "asocialmedia",
     "-At",
     "-c",
-    "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE');",
+    postgresInspectionQuery("schemaReady"),
   ]);
 
   if (validate.exitCode !== 0) {

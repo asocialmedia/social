@@ -1,4 +1,4 @@
-// Private message media uses authenticated, account-scoped memory caching.
+// Private message media uses authenticated, account-scoped persistent caching.
 // Peer-controlled external URLs must never receive the session credentials.
 import { withAuthHeaders } from "@/lib/auth-headers";
 
@@ -35,3 +35,7 @@ export function messageImageSource(
     },
   };
 }
+
+// Message attachments are immutable uploads; keep their originals across app restarts.
+// This also covers GIFs, which the public feed deliberately caches only in memory.
+export const MESSAGE_IMAGE_CACHE_POLICY = "memory-disk";

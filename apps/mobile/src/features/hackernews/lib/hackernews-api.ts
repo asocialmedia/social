@@ -15,19 +15,6 @@ export const HN_SORT_OPTIONS = [
 
 export type HnSort = (typeof HN_SORT_OPTIONS)[number]["value"];
 
-// Web's HN_FILTER_OPTIONS, in web's order and with web's labels. The glyph
-// each entry draws is a react-native concern, so it lives with the filter menu
-// rather than here, which keeps this list free of any UI import.
-export const HN_FILTER_OPTIONS = [
-  { label: "All Stories", value: "all" },
-  { label: "News", value: "story" },
-  { label: "Jobs", value: "job" },
-  { label: "Show HN", value: "show" },
-  { label: "Ask HN", value: "ask" },
-] as const;
-
-export type HnFilter = (typeof HN_FILTER_OPTIONS)[number]["value"];
-
 export interface HnStory {
   by: string;
   comments: number;
@@ -118,18 +105,15 @@ export function buildHnPath({
   page = 1,
   search = "",
   sort = "score",
-  type = "all",
 }: {
   page?: number;
   search?: string;
   sort?: HnSort;
-  type?: HnFilter;
 } = {}): string {
   const params = new URLSearchParams({
     limit: "20",
     page: String(Math.max(1, page)),
     sort,
-    type,
   });
   const trimmed = search.trim();
   if (trimmed) {
@@ -147,6 +131,7 @@ function get(path: string, options: ApiCallOptions): Promise<Response> {
 }
 
 export interface HnPage {
+  hasMore: boolean;
   rateLimited: boolean;
   stories: HnStory[];
 }
@@ -159,7 +144,7 @@ export async function fetchHnPage(
   if (response.status === 429) {
     // Web renders its own art for this rather than an error, and the feed is
     // still usable once the window passes, so it is a state and not a throw.
-    return { rateLimited: true, stories: [] };
+    return { hasMore: false, rateLimited: true, stories: [] };
   }
   if (!response.ok) {
     throw new HnApiError(
@@ -168,7 +153,12 @@ export async function fetchHnPage(
     );
   }
   const payload = (await response.json().catch(() => null)) as unknown;
-  return { rateLimited: false, stories: parseHnStories(payload) };
+  const body = objectOf(payload);
+  return {
+    hasMore: typeof body?.hasMore === "boolean" ? body.hasMore : true,
+    rateLimited: false,
+    stories: parseHnStories(payload),
+  };
 }
 
 export async function fetchBookmarkedHn(

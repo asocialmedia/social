@@ -26,6 +26,7 @@ export interface ProfileSignal {
   authorId: string;
   createdAt?: Date;
   embedding?: number[];
+  embeddingModel?: string | null;
   hasAudio?: boolean;
   hasImage?: boolean;
   hasVideo?: boolean;
@@ -56,6 +57,8 @@ export interface UserProfile {
     video: number;
   };
   tasteVector?: number[];
+  embeddingModel?: string;
+  sessionTagWeights?: Record<string, number>;
   signalCount?: number;
   summary?: UserPersonaSummary;
 }
@@ -151,6 +154,22 @@ export function buildUserProfile(
   const formatCounts = { audio: 0, image: 0, text: 0, video: 0 };
   const topicCounts: Record<string, number> = {};
 
+  const modelMass = new Map<string, number>();
+  for (const signal of signals) {
+    if (
+      signal.embeddingModel &&
+      signal.embedding?.length === EMBEDDING_DIMENSION &&
+      SIGNAL_WEIGHTS[signal.kind] > 0
+    ) {
+      modelMass.set(
+        signal.embeddingModel,
+        (modelMass.get(signal.embeddingModel) ?? 0) +
+          SIGNAL_WEIGHTS[signal.kind]
+      );
+    }
+  }
+  const embeddingModel = [...modelMass].toSorted((a, b) => b[1] - a[1])[0]?.[0];
+  const sessionTagWeights: Record<string, number> = {};
   const tasteVectors: number[][] = [];
   const tasteWeights: number[] = [];
   let positiveSignalCount = 0;
@@ -216,7 +235,20 @@ export function buildUserProfile(
     }
 
     // Accumulate taste vector for high-intent signals (bookmark, amplify, comment, upvote)
-    if (signal.embedding && signal.embedding.length === EMBEDDING_DIMENSION) {
+    if (
+      signal.createdAt &&
+      now.getTime() - signal.createdAt.getTime() < 30 * 60_000
+    ) {
+      for (const tag of distinctTags) {
+        addWeight(sessionTagWeights, tag, magnitude);
+      }
+    }
+    if (
+      embeddingModel &&
+      signal.embeddingModel === embeddingModel &&
+      signal.embedding &&
+      signal.embedding.length === EMBEDDING_DIMENSION
+    ) {
       tasteVectors.push(signal.embedding);
       tasteWeights.push(magnitude);
     }
@@ -282,10 +314,12 @@ export function buildUserProfile(
 
   return {
     authorWeights: normalize(authorWeights),
+    embeddingModel,
     expandedEntityWeights,
     formatAffinities,
     negativeAuthorWeights: saturateNegative(negativeAuthorWeights),
     negativeTagWeights: saturateNegative(negativeTagWeights),
+    sessionTagWeights: normalize(sessionTagWeights),
     signalCount: positiveSignalCount,
     summary: {
       dominantTopic,

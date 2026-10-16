@@ -7,8 +7,8 @@
 //
 // By default it targets every READY row whose pipelineVersion trails the
 // code's MEDIA_PIPELINE_VERSION; pass --all to ignore the version check.
-// Each match has its derivative rows + objects removed and a process job
-// re-enqueued purely from the stored publishedKey (no source re-upload).
+// Each match queues a replacement generation from publishedKey without
+// deleting the current derivatives or requiring a source re-upload.
 
 import { loadRootEnv } from "./load-env";
 
@@ -44,7 +44,7 @@ if (import.meta.main) {
     }
   }
 
-  const { and, prisma } = await import("@asm/db");
+  const { and, or, prisma } = await import("@asm/db");
   const { MEDIA_PIPELINE_VERSION } = await import("@asm/media");
   const { enqueueMediaProcess } = await import("@asm/db");
 
@@ -59,7 +59,10 @@ if (import.meta.main) {
     }
     if (!includeCurrent) {
       dryRunQuery = dryRunQuery.where((media) =>
-        media.pipelineVersion.neq(MEDIA_PIPELINE_VERSION)
+        or(
+          media.pipelineVersion.isNull(),
+          media.pipelineVersion.neq(MEDIA_PIPELINE_VERSION)
+        )
       );
     }
   }
@@ -91,21 +94,9 @@ if (import.meta.main) {
     process.exit(0);
   }
 
-  const { getS3 } = await import("./s3");
-  const s3 = getS3();
-
   let requeued = 0;
   for (const row of rows) {
-    const derivatives = await prisma.orm.public.PostMediaDerivatives.select(
-      "key"
-    )
-      .where({ mediaId: row.id })
-      .all();
-    await Promise.allSettled(derivatives.map((d) => s3.delete(d.key)));
-    await prisma.orm.public.PostMediaDerivatives.where({
-      mediaId: row.id,
-    }).deleteAndCount();
-    await enqueueMediaProcess(row.id);
+    await enqueueMediaProcess(row.id, { backfill: true });
     requeued += 1;
     console.log(
       `  ${row._type} ${row.id} (was v${row.pipelineVersion}) → requeued`

@@ -1,21 +1,29 @@
 "use client";
 
-import { useSearchParams } from "next/navigation";
+import { accountLinkErrorMessage } from "@asm/auth/validation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect } from "react";
 
 import { useToast } from "@/lib/gooey-toast";
 
-export default function LinkAccountAlert() {
+import { AccountResolutionDialog } from "./account-resolution-dialog";
+
+export default function LinkAccountAlert({
+  linkedProviders,
+}: {
+  linkedProviders: readonly string[];
+}) {
   const searchParams = useSearchParams();
+  const router = useRouter();
   const { toast } = useToast();
 
   useEffect(() => {
     const error =
-      searchParams.get("account_error") || searchParams.get("error");
+      searchParams.get("error") || searchParams.get("account_error");
     const success =
       searchParams.get("account_success") || searchParams.get("success");
 
-    if (error) {
+    if (error && error !== "account_collision") {
       const errorMessages: Record<string, string> = {
         account_ownership_conflict:
           "That provider account is already linked to another user",
@@ -43,13 +51,13 @@ export default function LinkAccountAlert() {
       };
 
       toast({
-        description: errorMessages[error] || "An error occurred",
+        description: errorMessages[error] || accountLinkErrorMessage(error),
         title: "Link Failed",
         variant: "destructive",
       });
     }
 
-    if (success) {
+    if (success && !error && linkedProviders.includes(success)) {
       const successMessages: Record<string, string> = {
         google: "Your Google account is now connected",
         google_linked: "Your Google account is now connected",
@@ -63,7 +71,27 @@ export default function LinkAccountAlert() {
           success === "google_unlinked" ? "Account Unlinked" : "Account Linked",
       });
     }
-  }, [searchParams, toast]);
+  }, [searchParams, toast, linkedProviders]);
 
+  const collisionId = searchParams.get("account_collision");
+  if (searchParams.get("error") === "account_collision" && collisionId) {
+    return (
+      <AccountResolutionDialog
+        id={collisionId}
+        onClose={() => {
+          const params = new URLSearchParams(searchParams.toString());
+          for (const name of [
+            "account_collision",
+            "error",
+            "error_description",
+            "account_error",
+          ]) {
+            params.delete(name);
+          }
+          router.replace(`/settings?${params.toString()}`, { scroll: false });
+        }}
+      />
+    );
+  }
   return null;
 }

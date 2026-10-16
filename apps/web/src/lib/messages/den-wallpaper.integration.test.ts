@@ -103,11 +103,25 @@ test.skipIf(process.env.RUN_DEN_WALLPAPER_INTEGRATION !== "1")(
           .first()
       ).toMatchObject({ wallpaperKey: "personal-dm" });
     } finally {
-      await prisma.orm.public.MessageConversations.where((row) =>
-        row.id.in([denId, dmId])
-      ).delete();
-      await prisma.orm.public.PostMedia.where({ id: mediaId }).delete();
-      await prisma.orm.public.Users.where((row) => row.id.in(ids)).delete();
+      await prisma.transaction(async (tx) => {
+        await tx.orm.public.MessageConversations.where((row) =>
+          row.id.in([denId, dmId])
+        ).deleteAndCount();
+        await tx.orm.public.PostMedia.where({ id: mediaId }).deleteAndCount();
+        await tx.orm.public.Users.where((row) =>
+          row.id.in(ids)
+        ).deleteAndCount();
+      });
+      const remainingFixtures = await Promise.all([
+        prisma.orm.public.MessageConversations.select("id")
+          .where((row) => row.id.in([denId, dmId]))
+          .all(),
+        prisma.orm.public.PostMedia.select("id").where({ id: mediaId }).all(),
+        prisma.orm.public.Users.select("id")
+          .where((row) => row.id.in(ids))
+          .all(),
+      ]);
+      expect(remainingFixtures).toEqual([[], [], []]);
     }
   }
 );

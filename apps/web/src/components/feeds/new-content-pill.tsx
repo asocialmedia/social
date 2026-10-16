@@ -41,7 +41,7 @@ export function NewContentPill({
         {visibleAuthors.map((author) => (
           <UserAvatar
             avatarUrl={author.avatarUrl}
-            className="h-6 w-6 rounded-full border-2 border-[hsl(var(--background-alt))]"
+            className="h-6 w-6 border-2 border-[hsl(var(--background-alt))]"
             key={author.id}
             seed={author.id}
           />

@@ -1,9 +1,9 @@
 // Stage 2 orchestrator: generates derivatives per media type, then leaves the
-// row READY. Idempotent by construction — derivative keys are deterministic
-// and DB inserts use skipDuplicates.
+// row READY. Isolated storage generations keep existing pointers live while
+// replacements are encoded and published.
 
 import { enqueueMediaAnalyze, prisma } from "@asm/db";
-import { isTerminalStatus } from "@asm/media";
+import { isTerminalStatus, MEDIA_PIPELINE_VERSION } from "@asm/media";
 
 import { resolveWorkerMediaLimits } from "../env";
 import { mediaLogger, withSpan } from "../log";
@@ -12,17 +12,29 @@ import { processMediaAudio } from "./process-audio";
 import { processMediaImage } from "./process-image";
 import { processMediaVideo } from "./process-video";
 
-// Best-effort rollback of one failed process attempt's partial output:
-// removes the storage objects it uploaded before the crash point. A later
-// retry (or the derived-heal sweep) rebuilds everything deterministically,
-// so over-deletion here is safe by design - while leftover partial bytes
-// would 404/500 on the variant route forever.
+// Delete only unreferenced objects from the failed generation. Published
+// partial results and earlier generations remain readable during retries.
 async function removePartialDerivatives(
   mediaId: string,
   uploadedKeys: string[]
 ): Promise<void> {
   const s3 = getS3();
   for (const key of uploadedKeys) {
+    let referenced;
+    try {
+      referenced = await prisma.orm.public.PostMediaDerivatives.where({
+        key,
+      }).first();
+    } catch (error) {
+      mediaLogger.warn(
+        { error: String(error), key },
+        "Skipping cleanup because live references could not be checked"
+      );
+      continue;
+    }
+    if (referenced) {
+      continue;
+    }
     // oxlint-disable-next-line no-await-in-loop -- bounded sequential deletes
     try {
       await s3.delete(key);
@@ -79,6 +91,7 @@ export function processMedia(jobData: {
       // write rejected) would otherwise strand those partial derivative
       // objects under derived/ forever - no sweep knows about them.
       const uploadedKeys: string[] = [];
+      const storageId = `${media.id}/${crypto.randomUUID()}`;
 
       try {
         switch (media._type) {
@@ -87,6 +100,7 @@ export function processMedia(jobData: {
               limits,
               mediaId: media.id,
               sourcePath,
+              storageId,
               uploadedKeys,
             });
             break;
@@ -97,6 +111,7 @@ export function processMedia(jobData: {
               mediaId: media.id,
               publishedKey: media.publishedKey,
               sourcePath,
+              storageId,
               uploadedKeys,
             });
             break;
@@ -106,6 +121,7 @@ export function processMedia(jobData: {
               limits,
               mediaId: media.id,
               sourcePath,
+              storageId,
               uploadedKeys,
             });
             break;
@@ -116,6 +132,27 @@ export function processMedia(jobData: {
             return { outcome: "skipped" as const };
           }
         }
+
+        const completed = await prisma.orm.public.PostMedia.select(
+          "techMetadata"
+        )
+          .where({ id: media.id })
+          .first();
+        const metadata =
+          completed?.techMetadata &&
+          typeof completed.techMetadata === "object" &&
+          !Array.isArray(completed.techMetadata)
+            ? completed.techMetadata
+            : {};
+        await prisma.orm.public.PostMedia.where({ id: media.id }).update({
+          failureCode: null,
+          failureDetail: null,
+          pipelineVersion: MEDIA_PIPELINE_VERSION,
+          techMetadata: {
+            ...metadata,
+            deliveryVersion: MEDIA_PIPELINE_VERSION,
+          },
+        });
 
         // Semantic analysis trails derivative generation: it consumes the
         // poster/cover/first-derivative output. Enqueue is awaited for the
@@ -132,11 +169,7 @@ export function processMedia(jobData: {
 
         return { outcome: "processed" as const };
       } catch (error) {
-        // Roll back this attempt's partial output before propagating.
-        // Objects first (best-effort, list order irrelevant), then any
-        // derivative rows from a prior run that died between createMany and
-        // completion - serving must fall back to the original, never render
-        // 500s on deleted bytes.
+        // Keep published partial results while the next attempt repairs them.
         await removePartialDerivatives(media.id, uploadedKeys);
         throw error;
       } finally {

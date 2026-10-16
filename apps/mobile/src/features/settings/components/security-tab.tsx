@@ -17,7 +17,7 @@ import {
   ShieldCheck,
   Trash2,
 } from "lucide-react-native";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { ReactNode, RefObject } from "react";
 import {
   Modal,
@@ -56,6 +56,8 @@ import type { PasskeyEntry } from "../lib/security-api";
 import {
   formatLastActive,
   getSessionLocation,
+  hasSessionRefresh,
+  sessionClientLabel,
   sessionDeviceLabel,
 } from "../lib/session-labels";
 import {
@@ -172,12 +174,14 @@ function isFreshSession(error: { message?: string; status?: number }): boolean {
 }
 
 export function SecurityTab({
+  active,
   email,
   emailVerified,
   hasAuthenticatorApp: initialHasAuthenticator,
   scrollRef,
   twoFactorEnabled: initialTwoFactorEnabled,
 }: {
+  active: boolean;
   email: string | null;
   emailVerified: boolean;
   hasAuthenticatorApp: boolean;
@@ -197,6 +201,9 @@ export function SecurityTab({
   );
   const [passkeys, setPasskeys] = useState<PasskeyEntry[]>([]);
   const [passkeysLoaded, setPasskeysLoaded] = useState(false);
+  const [passkeysError, setPasskeysError] = useState(false);
+  const [passkeysPending, setPasskeysPending] = useState(false);
+  const passkeysInFlight = useRef(false);
   const [twoFactorAction, setTwoFactorAction] =
     useState<TwoFactorAction | null>(null);
   const [totpSetup, setTotpSetup] = useState<TotpSetup | null>(null);
@@ -229,23 +236,34 @@ export function SecurityTab({
   );
 
   const refreshPasskeys = useCallback(async () => {
-    const result = await fetchPasskeys(await options());
-    if (result === null) {
-      toast({
-        description: "Please reload and try again.",
-        title: "Couldn't refresh passkeys",
-        variant: "destructive",
-      });
+    if (!user?.id || passkeysInFlight.current) {
       return;
     }
-    setPasskeys(result);
-    setPasskeysLoaded(true);
-  }, [options]);
+    passkeysInFlight.current = true;
+    setPasskeysPending(true);
+    setPasskeysError(false);
+    try {
+      const result = await fetchPasskeys(await options());
+      if (result === null) {
+        setPasskeysError(true);
+      } else {
+        setPasskeys(result);
+        setPasskeysLoaded(true);
+      }
+    } catch {
+      setPasskeysError(true);
+    }
+    passkeysInFlight.current = false;
+    setPasskeysPending(false);
+  }, [options, user?.id]);
 
   useEffect(() => {
-    // oxlint-disable-next-line react/set-state-in-effect -- refreshPasskeys awaits the fetch before touching state
+    if (!active || passkeysLoaded) {
+      return;
+    }
+    // oxlint-disable-next-line react/set-state-in-effect -- start the guarded asynchronous load when Security becomes visible
     void refreshPasskeys();
-  }, [refreshPasskeys]);
+  }, [active, passkeysLoaded, refreshPasskeys]);
 
   const onPasswordResetSubmit = async () => {
     const value = identifier.trim();
@@ -678,6 +696,23 @@ export function SecurityTab({
               size="sm"
             />
           </View>
+          {passkeysError ? (
+            <View style={styles.passkeyLoadError}>
+              <Text
+                style={[styles.passkeyErrorText, { color: theme.dividerText }]}
+              >
+                Couldn't load passkeys. You can try again here.
+              </Text>
+              <SettingsButton
+                label="Retry passkeys"
+                loading={passkeysPending}
+                onPress={() => {
+                  void refreshPasskeys();
+                }}
+                size="sm"
+              />
+            </View>
+          ) : null}
           {passkeysLoaded ? (
             <PasskeysList
               onRemove={(id) => {
@@ -685,8 +720,16 @@ export function SecurityTab({
               }}
               passkeys={passkeys}
             />
-          ) : (
+          ) : null}
+          {!passkeysLoaded && user && !passkeysError ? (
             <SettingsRowsSkeleton rows={1} />
+          ) : null}
+          {user ? null : (
+            <Text
+              style={[styles.passkeyErrorText, { color: theme.dividerText }]}
+            >
+              Sign in to manage your passkeys.
+            </Text>
           )}
         </SettingsCard>
       </SectionAnchor>
@@ -897,19 +940,32 @@ function SessionsBody({
                 {sessionDeviceLabel(session.userAgent)}
               </Text>
               {session.current ? (
-                <SettingsStatusChip label="Current device" on />
+                <SettingsStatusChip label="Current session" on />
               ) : null}
             </View>
             <Text style={[styles.methodDesc, { color: theme.dividerText }]}>
-              {getSessionLocation(session.country, session.ipAddress)}
+              {sessionClientLabel(session.userAgent)}
             </Text>
             <Text style={[styles.methodDesc, { color: theme.dividerText }]}>
-              Last active {formatLastActive(session.updatedAt, currentTimeMs())}
+              {getSessionLocation(session.country, session.city ?? null)}
             </Text>
+            <Text style={[styles.methodDesc, { color: theme.dividerText }]}>
+              Signed in{" "}
+              {new Date(session.createdAt).toLocaleString(undefined, {
+                dateStyle: "medium",
+                timeStyle: "short",
+              })}
+            </Text>
+            {hasSessionRefresh(session.createdAt, session.updatedAt) ? (
+              <Text style={[styles.methodDesc, { color: theme.dividerText }]}>
+                Session refreshed{" "}
+                {formatLastActive(session.updatedAt, currentTimeMs())}
+              </Text>
+            ) : null}
           </View>
           <SettingsButton
             disabled={revoking === session.id}
-            label={session.current ? "Sign out" : "End"}
+            label={session.current ? "Sign out" : "End session"}
             onPress={() => onRevoke(session)}
             size="sm"
             tone="danger"
@@ -1121,7 +1177,13 @@ function MessageRecoveryCard({
         <>
           <View style={styles.recoveryRow}>
             <ShieldCheck color="#10b981" size={16} />
-            <Text style={[styles.note, { color: theme.dividerText }]}>
+            <Text
+              style={[
+                styles.note,
+                styles.recoveryCopy,
+                { color: theme.dividerText },
+              ]}
+            >
               Your messages are encrypted, and a new device restores access
               automatically: there is nothing to save or remember.
             </Text>
@@ -1242,7 +1304,7 @@ function SecuritySessionsCard({
     <SettingsCard>
       <View style={styles.headRow}>
         <SettingsCardHeading
-          description="Devices currently signed in to your account"
+          description="Up to four sign-ins across browsers and apps. A new sign-in ends the oldest session when the limit is reached."
           icon={MonitorSmartphone}
           title="Active sessions"
         />
@@ -1267,7 +1329,7 @@ function SecuritySessionsCard({
         <View style={styles.bulkActions}>
           <SettingsButton
             disabled={revoking !== null || sessions.length < 2}
-            label="Sign out other devices"
+            label="Sign out other sessions"
             onPress={() => setPendingRevoke({ action: "other-sessions" })}
             size="sm"
             tone="gray"
@@ -1328,17 +1390,17 @@ function revokeCopy(action?: "all" | "other-sessions" | "single"): {
   }
   if (action === "other-sessions") {
     return {
-      confirm: "Sign out other devices",
+      confirm: "Sign out other sessions",
       description:
-        "This ends all other active sessions and keeps this device signed in.",
-      title: "Sign out other devices?",
+        "This ends all other browser and app sessions and keeps this session signed in.",
+      title: "Sign out other sessions?",
     };
   }
   return {
     confirm: "Sign out session",
     description:
-      "This device will need to sign in again to access your account.",
-    title: "Sign out this device?",
+      "This sign-in will end. Other browser profiles and app sign-ins stay active.",
+    title: "Sign out this session?",
   };
 }
 
@@ -1521,6 +1583,7 @@ const styles = StyleSheet.create({
   },
   dialogActions: {
     flexDirection: "row",
+    flexWrap: "wrap",
     gap: 8,
     justifyContent: "flex-end",
     marginTop: 4,
@@ -1563,6 +1626,8 @@ const styles = StyleSheet.create({
   },
   minWidthZero: { flexShrink: 1, minWidth: 0 },
   note: { fontFamily: "SofiaProReg", fontSize: 12, lineHeight: 17 },
+  passkeyErrorText: { fontFamily: "SofiaProReg", fontSize: 13 },
+  passkeyLoadError: { alignItems: "flex-start", gap: 10 },
   passkeyName: { fontFamily: "SofiaProMed", fontSize: 14 },
   passkeyRow: {
     alignItems: "center",
@@ -1587,6 +1652,7 @@ const styles = StyleSheet.create({
     padding: 12,
   },
   qrWrap: { alignItems: "center" },
+  recoveryCopy: { flex: 1, minWidth: 0 },
   recoveryRow: { alignItems: "flex-start", flexDirection: "row", gap: 8 },
   sessionCopy: { flex: 1, gap: 3, minWidth: 0 },
   sessionName: { fontFamily: "SofiaProMed", fontSize: 14 },

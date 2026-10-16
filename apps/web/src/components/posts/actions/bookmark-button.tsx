@@ -5,6 +5,10 @@ import type { QueryKey } from "@tanstack/react-query";
 import { Bookmark, BookmarkCheck, BookmarkX } from "lucide-react";
 import { useCallback } from "react";
 
+import {
+  MEDIA_MENU_ACTION_CLASS,
+  MediaMenuActionContent,
+} from "@/components/media/media-menu-action";
 import { useRequireAuth } from "@/hooks/auth/use-require-auth";
 import { adjustBookmarkCount } from "@/hooks/posts/use-bookmark-count";
 import { useToast } from "@/lib/gooey-toast";
@@ -21,6 +25,7 @@ interface BookmarkButtonProps {
   iconClassName?: string;
   initialState: BookmarkInfo;
   kind?: "post" | "gust";
+  layout?: "inline" | "menu";
   postId: string;
 }
 
@@ -33,6 +38,7 @@ export default function BookmarkButton({
   kind = "post",
   postId,
   initialState,
+  layout = "inline",
 }: BookmarkButtonProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -46,7 +52,7 @@ export default function BookmarkButton({
     staleTime: Number.POSITIVE_INFINITY,
   });
 
-  const { mutate } = useMutation({
+  const { mutate, isPending } = useMutation({
     mutationFn: () =>
       data.isBookmarkedByUser
         ? kyInstance.delete(`/api/posts/${postId}/bookmark`)
@@ -97,6 +103,23 @@ export default function BookmarkButton({
     mutate();
   }, [goToLogin, isLoggedIn, mutate]);
 
+  if (layout === "menu") {
+    return (
+      <button
+        aria-pressed={data.isBookmarkedByUser}
+        className={MEDIA_MENU_ACTION_CLASS}
+        disabled={isPending}
+        onClick={handleBookmark}
+        type="button"
+      >
+        <MediaMenuActionContent
+          icon={Bookmark}
+          label={data.isBookmarkedByUser ? "Bookmarked" : "Bookmark"}
+          selected={data.isBookmarkedByUser}
+        />
+      </button>
+    );
+  }
   return (
     <button
       aria-label={data.isBookmarkedByUser ? "Remove bookmark" : "Bookmark post"}

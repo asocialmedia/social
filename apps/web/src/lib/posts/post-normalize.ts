@@ -7,7 +7,16 @@ export type PostAttachment = Pick<Media, "id" | "type"> & {
 } & Partial<
     Pick<
       Media,
-      "aiGenerated" | "altText" | "height" | "mimeType" | "transcript" | "width"
+      | "attributionPublic"
+      | "aiGenerated"
+      | "altText"
+      | "generatedAltText"
+      | "originalProvenanceId"
+      | "hasHls"
+      | "height"
+      | "mimeType"
+      | "transcript"
+      | "width"
     >
   >;
 

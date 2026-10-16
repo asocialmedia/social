@@ -92,3 +92,18 @@ export function retainPagerPages(
   }
   return { first, last };
 }
+
+// React may receive the selected tab after release; it must not replace the spring already settling there.
+export function shouldSyncPagerTarget(
+  selectedIndex: number,
+  pageWidth: number,
+  motionIndex: number,
+  motionTarget: number,
+  dragging: boolean
+): boolean {
+  return (
+    !dragging &&
+    (selectedIndex !== motionIndex ||
+      motionTarget !== -selectedIndex * pageWidth)
+  );
+}

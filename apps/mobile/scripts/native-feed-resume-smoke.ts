@@ -152,6 +152,7 @@ for (let step = 0; step < scrollSteps; step += 1) {
 await screenshot("hidden");
 // Let the last fling reach idle before measuring a deliberate direction change.
 await snapshot();
+await Bun.sleep(1200);
 // A small slow reverse drag must reveal the dock while still deep in the feed.
 await adb(
   "shell",
@@ -163,6 +164,7 @@ await adb(
   String(Math.round(height * 0.48)),
   "1000"
 );
+await Bun.sleep(400);
 home = await snapshot();
 const dock = home.find(
   (node) => node.label === "Home" && (node.bounds[1] ?? height) < height - 160
@@ -186,14 +188,15 @@ if (!anchor) {
     `${feedTab} needs a visible real post row for the navigation test`
   );
 }
-// Tap the card rail below its avatar, away from links and action controls.
+// Tap the lower card rail outside the avatar, media, and action columns.
 await adb(
   "shell",
   "input",
   "tap",
-  String(Math.round(width * 0.08)),
-  String(Math.round((anchor.bounds[1] ?? 0) + 170))
+  String(Math.round((anchor.bounds[0] ?? 0) + width * 0.005)),
+  String(Math.round(Math.min((anchor.bounds[3] ?? 0) - 50, height * 0.8)))
 );
+await Bun.sleep(600);
 const detail = await snapshot();
 if (!detail.some((node) => node.label === "Go back" || node.text === "Post")) {
   throw new Error("Post tap did not reach detail");
@@ -204,8 +207,20 @@ assertAnchor(home, anchor, "Detail Back");
 console.log("PASS post detail Back preserves the feed row position");
 
 for (const tab of ["Trending", "For you", "Following", "Latest", feedTab]) {
-  // oxlint-disable-next-line no-await-in-loop -- inspect and tap the current page in order
-  await tap(home.find((node) => node.label === tab));
+  // Horizontal tab strips may clip a label; exercise the route that each tab selects.
+  // oxlint-disable-next-line no-await-in-loop -- visit each feed in order before checking the retained anchor
+  await adb(
+    "shell",
+    "am",
+    "start",
+    "-W",
+    "-n",
+    `${packageName}/.MainActivity`,
+    "-a",
+    "android.intent.action.VIEW",
+    "-d",
+    `asocialmedia://?tab=${tab.toLowerCase().replaceAll(" ", "-")}`
+  );
   // oxlint-disable-next-line no-await-in-loop -- wait for the native accessibility tree to settle
   home = await snapshot();
 }

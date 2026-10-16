@@ -1,10 +1,5 @@
-// Badge rail + dropdown panel for the profile popup. The rail mirrors web's
-// static rail (top banner 60x20, extras behind a "+N" chip); tapping it
-// toggles the panel web shows on click: every badge with its title and
-// description, and each community role with its communities. Community and
-// profile screens do not exist on mobile yet, so community rows are static
-// (same as the popup's other disabled stubs).
 import { Image } from "expo-image";
+import { useRouter } from "expo-router";
 import { useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
@@ -16,19 +11,16 @@ import modRoleBadge from "@/assets/images/roles/mod.png";
 import ownerRoleBadge from "@/assets/images/roles/owner.png";
 import shitposterBadge from "@/assets/images/roles/shitposter.png";
 import trendingBadge from "@/assets/images/roles/trending.png";
-import { resolveCommunityAccentColor } from "@/features/communities/lib/community-accents";
-import { logWarn } from "@/lib/telemetry";
+import { DialogPanel } from "@/components/surface/dialog-panel";
+import { CommunityAvatar } from "@/features/communities/components/community-avatar";
+import { getApiBaseUrl } from "@/lib/api-env";
 import {
   PROFILE_STATS_SHADOWS,
   PROFILE_STATS_SHADOWS_DARK,
   useAppTheme,
 } from "@/theme";
 
-import {
-  getBadgePanelItems,
-  rankBadges,
-  resolveProfileImageUrl,
-} from "./profile-utils";
+import { getBadgePanelItems, rankBadges } from "./profile-utils";
 import type {
   BadgePanelItem,
   CommunityRoleBadgeType,
@@ -59,49 +51,42 @@ function badgeArt(item: BadgePanelItem): number {
 }
 
 function CommunityMark({
-  accentColor,
   apiBase,
-  avatarUrl,
-  slug,
+  community,
+  onPress,
 }: {
-  accentColor?: string | null;
   apiBase: string;
-  avatarUrl?: string | null;
-  slug: string;
+  community: Extract<BadgePanelItem, { kind: "role" }>["communities"][number];
+  onPress: () => void;
 }) {
-  const { theme, isDark } = useAppTheme();
-  const [failed, setFailed] = useState(false);
-  const uri = avatarUrl ? resolveProfileImageUrl(avatarUrl, apiBase) : null;
-  const resolvedColor = resolveCommunityAccentColor(accentColor, isDark);
+  const { theme } = useAppTheme();
   return (
-    <View style={styles.communityRow}>
-      <View
-        style={[
-          styles.communityAvatar,
-          {
-            backgroundColor: resolvedColor,
-          },
-        ]}
+    <Pressable
+      accessibilityLabel={`Open a/${community.slug}`}
+      accessibilityRole="link"
+      onPress={(event) => {
+        event.stopPropagation();
+        onPress();
+      }}
+      style={styles.communityRow}
+    >
+      <CommunityAvatar
+        apiBase={apiBase}
+        community={{
+          accentColor: community.accentColor ?? "ember",
+          avatarUrl: community.avatarUrl ?? null,
+          name: community.name ?? community.slug,
+          slug: community.slug,
+        }}
+        size={20}
+      />
+      <Text
+        numberOfLines={1}
+        style={[styles.communitySlug, { color: theme.inputText }]}
       >
-        <Text style={styles.communityInitial}>
-          {(slug[0] ?? "a").toUpperCase()}
-        </Text>
-        {uri && !failed ? (
-          <Image
-            contentFit="cover"
-            onError={() => {
-              logWarn("profile.community_avatar_failed", {});
-              setFailed(true);
-            }}
-            source={{ uri }}
-            style={styles.communityImage}
-          />
-        ) : null}
-      </View>
-      <Text style={[styles.communitySlug, { color: theme.inputText }]}>
-        a/{slug}
+        a/{community.slug}
       </Text>
-    </View>
+    </Pressable>
   );
 }
 
@@ -130,9 +115,11 @@ function PanelRow({ item }: { item: BadgePanelItem }) {
 function RolePanelRow({
   apiBase,
   item,
+  onCommunityPress,
 }: {
   apiBase: string;
   item: Extract<BadgePanelItem, { kind: "role" }>;
+  onCommunityPress: (slug: string) => void;
 }) {
   const { theme } = useAppTheme();
   return (
@@ -159,10 +146,9 @@ function RolePanelRow({
                 </Text>
               ) : null}
               <CommunityMark
-                accentColor={community.accentColor}
                 apiBase={apiBase}
-                avatarUrl={community.avatarUrl}
-                slug={community.slug}
+                community={community}
+                onPress={() => onCommunityPress(community.slug)}
               />
             </View>
           ))}
@@ -177,13 +163,20 @@ export function BadgePanel({
   badge,
   badges,
   communityRoles,
+  onCommunityPress,
 }: {
   apiBase: string;
   badge?: string | null;
   badges?: (string | null)[] | null;
   communityRoles?: readonly CommunityRoleLike[] | null;
+  onCommunityPress?: (slug: string) => void;
 }) {
   const { isDark, theme } = useAppTheme();
+  const router = useRouter();
+  const openCommunity =
+    onCommunityPress ??
+    ((slug: string) =>
+      router.push({ params: { slug }, pathname: "/a/[slug]" }));
   const items = getBadgePanelItems(badge, badges, communityRoles);
   if (items.length === 0) {
     return null;
@@ -205,7 +198,12 @@ export function BadgePanel({
         item.kind === "platform" ? (
           <PanelRow item={item} key={item.type} />
         ) : (
-          <RolePanelRow apiBase={apiBase} item={item} key={item.type} />
+          <RolePanelRow
+            apiBase={apiBase}
+            item={item}
+            key={item.type}
+            onCommunityPress={openCommunity}
+          />
         )
       )}
     </View>
@@ -239,6 +237,9 @@ export function UserBadge({
   open = false,
 }: UserBadgeProps) {
   const { theme } = useAppTheme();
+  const router = useRouter();
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const expanded = onToggle ? open : detailsOpen;
   const ranked = rankBadges(badge, badges, communityRoles);
   const [primary, ...rest] = ranked;
   if (!primary) {
@@ -266,17 +267,43 @@ export function UserBadge({
       ) : null}
     </View>
   );
-  if (!onToggle) {
-    return rail;
-  }
   return (
-    <Pressable
-      accessibilityLabel={open ? "Hide badges" : "Show all badges"}
-      accessibilityRole="button"
-      onPress={onToggle}
-    >
-      {rail}
-    </Pressable>
+    <>
+      <Pressable
+        accessibilityLabel={expanded ? "Hide badges" : "Show all badges"}
+        accessibilityRole="button"
+        accessibilityState={{ expanded }}
+        hitSlop={4}
+        onPress={(event) => {
+          event.stopPropagation();
+          if (onToggle) {
+            onToggle();
+          } else {
+            setDetailsOpen(true);
+          }
+        }}
+      >
+        {rail}
+      </Pressable>
+      {!onToggle && detailsOpen ? (
+        <DialogPanel
+          description="Account badges and community roles."
+          onClose={() => setDetailsOpen(false)}
+          title="Badges"
+        >
+          <BadgePanel
+            apiBase={getApiBaseUrl()}
+            badge={badge}
+            badges={badges}
+            communityRoles={communityRoles}
+            onCommunityPress={(slug) => {
+              setDetailsOpen(false);
+              router.push({ params: { slug }, pathname: "/a/[slug]" });
+            }}
+          />
+        </DialogPanel>
+      ) : null}
+    </>
   );
 }
 
@@ -285,33 +312,15 @@ const styles = StyleSheet.create({
     height: 20,
     width: 60,
   },
-  communityAvatar: {
-    alignItems: "center",
-    borderRadius: 9999,
-    height: 20,
-    justifyContent: "center",
-    overflow: "hidden",
-    width: 20,
-  },
-  communityImage: {
-    bottom: 0,
-    left: 0,
-    position: "absolute",
-    right: 0,
-    top: 0,
-  },
-  communityInitial: {
-    color: "#ffffff",
-    fontFamily: "SofiaProBold",
-    fontSize: 10,
-    fontWeight: "normal",
-  },
   communityRow: {
     alignItems: "center",
     flexDirection: "row",
+    flexShrink: 1,
     gap: 6,
+    maxWidth: "100%",
   },
   communitySlug: {
+    flexShrink: 1,
     fontFamily: "SofiaProMed",
     fontSize: 12,
     fontWeight: "normal",
@@ -381,6 +390,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     flexDirection: "row",
     gap: 6,
+    maxWidth: "100%",
   },
   separator: {
     fontFamily: "SofiaProReg",

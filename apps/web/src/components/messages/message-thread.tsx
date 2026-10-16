@@ -5461,9 +5461,7 @@ function VirtualRowInner({
     let peerAvatarSkeleton: React.ReactNode = null;
     if (showPeerAvatar) {
       peerAvatarSkeleton = (
-        <div
-          className={cn("bg-muted/40 h-7 w-7 shrink-0 rounded-full", pulse)}
-        />
+        <div className={cn("bg-muted/40 h-7 w-7 shrink-0 rounded-lg", pulse)} />
       );
     } else {
       peerAvatarSkeleton = mine ? null : (

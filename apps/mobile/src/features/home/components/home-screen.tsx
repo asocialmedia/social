@@ -1,7 +1,12 @@
+import {
+  discoveryFleetFeed,
+  homeFeedTabs,
+} from "@asm/ui/lib/home-feed-controls";
+import type { DiscoveryFleetFeed } from "@asm/ui/lib/home-feed-controls";
 import { useIsFocused } from "expo-router";
-import { useCallback, useEffect, useMemo, useState } from "react";
-// Root home page: mobile header, the four-tab feed (For you / Latest /
-// Trending / Following) with swipe navigation, and the guest auth bar docked
+import { useCallback, useEffect, useState } from "react";
+// Root home page: mobile header, three visible feed slots (discovery / Latest /
+// Following) with swipe navigation, and the guest auth bar docked
 // at the bottom. Ports web ClientHome's tab mechanics: the remembered tab
 // restores from SecureStore-backed memory (logged-in users default to For
 // you, guests to Latest), Following prompts guests to log in, and every tab
@@ -14,13 +19,17 @@ import {
   StyleSheet,
   View,
 } from "react-native";
+import Reanimated, {
+  useAnimatedStyle,
+  useSharedValue,
+} from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useSessionContext } from "@/features/auth/state/session";
 import { PostEditor } from "@/features/composer/components/post-editor";
+import { useComposerStore } from "@/features/composer/state/composer-store";
 import { FeedList } from "@/features/feed/components/feed-list";
 import { FeedPager } from "@/features/feed/components/feed-pager";
-import { FeedTabs, HOME_TAB_DEFS } from "@/features/feed/components/feed-tabs";
 import { HEADER_BAR_HEIGHT } from "@/features/feed/lib/header-visibility";
 import type { HomeTab } from "@/features/feed/state/tab-store";
 import { resolveHomeTab } from "@/features/feed/state/tab-store";
@@ -34,6 +43,7 @@ import { haptic } from "@/lib/haptics";
 import { useAppTheme } from "@/theme";
 
 import { GuestAuthBar } from "./guest-auth-bar";
+import { HomeFeedControls } from "./home-feed-controls";
 import { MobileBottomNav } from "./mobile-bottom-nav";
 import { headerSlide, MobileHeader } from "./mobile-header";
 
@@ -54,6 +64,13 @@ export default function HomeScreen() {
   // surface); the notifications screen reads the same store.
   const unreadCount = useUnreadNotificationCount(user?.id ?? null, showUser);
   const tab = resolveHomeTab(null, isLoggedIn, storedHome, memoryReady);
+  const [rememberedDiscovery, setRememberedDiscovery] =
+    useState<DiscoveryFleetFeed>("personalized");
+  const discovery = discoveryFleetFeed(tab, rememberedDiscovery);
+  if (discovery !== rememberedDiscovery) {
+    setRememberedDiscovery(discovery);
+  }
+  const tabs = homeFeedTabs(discovery);
   // Web fixes both the guest banner and the bottom nav over the feed (the
   // feed pads its tail instead), so the dock floats over content on a
   // transparent backdrop rather than sitting in a solid band. Same here:
@@ -63,6 +80,11 @@ export default function HomeScreen() {
   const [dockHeight, setDockHeight] = useState(56);
   const [dockHidden, setDockHidden] = useState(false);
   const [composerHeight, setComposerHeight] = useState(0);
+  const composerScrollOffset = useSharedValue(0);
+  const composerStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: -composerScrollOffset.get() }],
+  }));
+  const composerOpen = useComposerStore((state) => state.isOpen);
   const [bannerHeight, setBannerHeight] = useState(90);
   const showGuestBar = !isPending && !user;
   const dockLift = dockHeight + insets.bottom + 20;
@@ -95,7 +117,7 @@ export default function HomeScreen() {
   const feedBottomPad = showGuestBar ? bannerHeight + dockLift + 12 : dockLift;
   const activeIndex = Math.max(
     0,
-    HOME_TAB_DEFS.findIndex((entry) => entry.value === tab)
+    tabs.findIndex((entry) => entry.value === tab)
   );
 
   const handleTabChange = useCallback(
@@ -107,13 +129,13 @@ export default function HomeScreen() {
 
   const handleIndexChange = useCallback(
     (index: number) => {
-      const def = HOME_TAB_DEFS[index];
+      const def = homeFeedTabs(discovery)[index];
       if (def && def.value !== tab) {
         haptic();
         setHomeTab(def.value, user?.id);
       }
     },
-    [setHomeTab, tab, user?.id]
+    [discovery, setHomeTab, tab, user?.id]
   );
 
   // Hide-on-scroll follow: tabs + feed translate by the bar height on the
@@ -127,20 +149,8 @@ export default function HomeScreen() {
     inputRange: [0, 1],
     outputRange: [0, -HEADER_BAR_HEIGHT],
   });
-  // The inline composer is the active tab's list header, so it sits at the top
-  // of the feed's content and scrolls away with the first post - the list's own
-  // scroll carries it, which is why it needs no overlay, no clipping and no
-  // per-frame work of its own.
-  //
-  // Only the visible tab is handed one. A header on all four would mount four
-  // composers (a TextInput, an avatar and 3D surfaces each) and swap one for
-  // another on every tab switch; this way exactly one exists at a time.
-  // Memoized so the element is stable across renders and the list is not asked
-  // to re-render its header on every parent update.
-  const composerHeader = useMemo(
-    () => (isLoggedIn ? <PostEditor variant="feed" /> : null),
-    [isLoggedIn]
-  );
+  // One editor survives every feed switch. Lists reserve its measured space;
+  // the active list moves it on the UI thread, independently of horizontal paging.
 
   // Wait for tab memory before mounting the pager: mounting on the default
   // tab and then jumping to the remembered one slides the whole pager over,
@@ -185,36 +195,79 @@ export default function HomeScreen() {
           },
         ]}
       >
-        <FeedTabs active={tab} onChange={handleTabChange} />
-        <FeedPager activeIndex={activeIndex} onIndexChange={handleIndexChange}>
-          {HOME_TAB_DEFS.map((def, index) => (
+        <HomeFeedControls
+          active={tab}
+          discovery={discovery}
+          onChange={handleTabChange}
+          userId={user?.id}
+        />
+        <FeedPager
+          activeIndex={activeIndex}
+          onIndexChange={handleIndexChange}
+          overlay={
+            isLoggedIn && !composerOpen ? (
+              <Reanimated.View
+                collapsable={false}
+                onLayout={(event) =>
+                  setComposerHeight(event.nativeEvent.layout.height)
+                }
+                style={[styles.composer, composerStyle]}
+              >
+                <PostEditor key={user?.id} variant="feed" />
+              </Reanimated.View>
+            ) : null
+          }
+        >
+          {tabs.map((def, index) => (
             // Neighbour tabs preload their data in the background so
             // switching lands on cached rows instead of a skeleton; only
             // the visible tab autoplays video and publishes viewability.
             // Public tabs fetch immediately as guest instead of waiting for
             // the session: first paint wins, and the session upgrade
             // re-keys (guest to user) and refetches with identity.
-            <FeedList
-              active={isFocused && index === activeIndex}
-              bottomInset={feedBottomPad}
-              enabled={
-                isFocused &&
-                Math.abs(index - activeIndex) <= 1 &&
-                // For you and Following are account-only; a guest sees the
-                // sign-in prompt in FeedList instead, and nothing is fetched.
-                (def.value === "following" || def.value === "personalized"
-                  ? isLoggedIn
-                  : true)
-              }
-              // Only the visible tab carries the composer, so exactly one is
-              // ever mounted.
-              header={index === activeIndex ? composerHeader : undefined}
-              headerHeight={isLoggedIn ? composerHeight : 0}
-              onHeaderHeight={setComposerHeight}
-              key={`${def.value}:${user?.id ?? "guest"}`}
-              userId={user?.id}
-              variant={def.value}
-            />
+            <View
+              key={index === 0 ? "discovery" : def.value}
+              style={styles.content}
+            >
+              {(index === 0
+                ? (["personalized", "trending"] as const)
+                : [def.value]
+              ).map((variant) => (
+                <View
+                  key={variant}
+                  style={[
+                    styles.content,
+                    variant !== def.value && styles.hiddenFeed,
+                  ]}
+                >
+                  {isLoggedIn && composerHeight === 0 ? null : (
+                    <FeedList
+                      active={
+                        isFocused &&
+                        index === activeIndex &&
+                        variant === def.value
+                      }
+                      bottomInset={feedBottomPad}
+                      enabled={
+                        isFocused &&
+                        variant === def.value &&
+                        Math.abs(index - activeIndex) <= 1 &&
+                        // For you and Following are account-only; a guest sees the
+                        // sign-in prompt in FeedList instead, and nothing is fetched.
+                        (variant === "following" || variant === "personalized"
+                          ? isLoggedIn
+                          : true)
+                      }
+                      headerHeight={isLoggedIn ? composerHeight : 0}
+                      headerScrollOffset={composerScrollOffset}
+                      key={`${variant}:${user?.id ?? "guest"}`}
+                      userId={user?.id}
+                      variant={variant}
+                    />
+                  )}
+                </View>
+              ))}
+            </View>
           ))}
         </FeedPager>
       </Animated.View>
@@ -246,9 +299,17 @@ export default function HomeScreen() {
 }
 
 const styles = StyleSheet.create({
+  composer: {
+    left: 0,
+    position: "absolute",
+    right: 0,
+    top: 0,
+    zIndex: 1,
+  },
   content: {
     flex: 1,
   },
+  hiddenFeed: { display: "none" },
   memoryWait: {
     alignItems: "center",
     flex: 1,

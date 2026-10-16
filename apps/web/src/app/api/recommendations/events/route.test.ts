@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, jest, mock, test } from "bun:test";
 
+import type { RankingContext } from "@asm/db";
+
 import { asmDbMockBase } from "@/posts/test-support/asm-db-mock";
 
 import { POST } from "./route";
@@ -13,6 +15,12 @@ const mockGetSession = mock(() =>
 // post deleted while a viewer still had it on screen.
 let existingPosts = [{ id: "post-1" }];
 const findPosts = mock(() => Promise.resolve(existingPosts));
+let servedContext: RankingContext | null = null;
+const resolveContext = mock(
+  (_userId: string, _postId: string, _requestId?: string) =>
+    Promise.resolve(servedContext)
+);
+const rememberImpression = mock(() => Promise.resolve());
 
 mock.module("@asm/db", () => ({
   ...asmDbMockBase,
@@ -39,6 +47,8 @@ mock.module("@asm/db", () => ({
       },
     },
   },
+  rememberRankingImpression: rememberImpression,
+  resolveRankingContext: resolveContext,
 }));
 
 mock.module("@/lib/auth/session", () => ({
@@ -60,6 +70,9 @@ describe("POST /api/recommendations/events", () => {
     upsertEvent.mockClear();
     findPosts.mockClear();
     existingPosts = [{ id: "post-1" }];
+    servedContext = null;
+    resolveContext.mockClear();
+    rememberImpression.mockClear();
   });
 
   test("requires an authenticated viewer", async () => {
@@ -70,6 +83,76 @@ describe("POST /api/recommendations/events", () => {
     expect(response.status).toBe(401);
     expect(createEvent).not.toHaveBeenCalled();
     expect(upsertEvent).not.toHaveBeenCalled();
+  });
+
+  test("stores canonical served-page context, ignores forged ranking fields, and makes attributed retries idempotent", async () => {
+    const requestId = crypto.randomUUID();
+    servedContext = {
+      contentKind: "post",
+      experiment: "balanced-v1",
+      position: 3,
+      rankerVersion: "v3",
+      requestId,
+      sources: ["semantic"],
+      variant: "control",
+    };
+    const payload = {
+      events: [
+        {
+          eventType: "IMPRESSION",
+          postId: "post-1",
+          rankingContext: { variant: "forged" },
+          requestId,
+        },
+        {
+          durationMs: 3000,
+          eventId: "retry-test",
+          eventType: "DWELL",
+          position: 999,
+          postId: "post-1",
+          requestId,
+        },
+      ],
+    };
+    const initial = await POST(request(payload));
+    const retry = await POST(request(payload));
+    expect(initial.status).toBe(200);
+    expect(retry.status).toBe(200);
+    expect(resolveContext).toHaveBeenCalledWith("user-1", "post-1", requestId);
+    expect(rememberImpression).toHaveBeenCalledTimes(2);
+    expect(upsertEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        create: expect.objectContaining({
+          dedupeKey: `event:user-1:post-1:${requestId}:retry-test`,
+          rankingContext: servedContext,
+        }),
+      })
+    );
+    expect(createEvent).not.toHaveBeenCalled();
+  });
+
+  test("unserved request IDs never become ranking context", async () => {
+    const response = await POST(
+      request({
+        events: [
+          {
+            eventType: "IMPRESSION",
+            postId: "post-1",
+            rankingContext: { variant: "forged" },
+            requestId: crypto.randomUUID(),
+          },
+        ],
+      })
+    );
+    expect(response.status).toBe(200);
+    expect(upsertEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        create: expect.not.objectContaining({
+          rankingContext: expect.anything(),
+        }),
+      })
+    );
+    expect(rememberImpression).not.toHaveBeenCalled();
   });
 
   test("rejects malformed or unsupported events", async () => {

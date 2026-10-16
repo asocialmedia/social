@@ -143,7 +143,7 @@ const ExploreGustTile = ({ post }: { post: PostData }) => {
       )}
 
       {/* Top Clapperboard Badge */}
-      <div className="absolute top-2.5 left-2.5 z-10 flex items-center gap-1 rounded-full bg-black/60 px-2 py-0.5 text-white backdrop-blur-md">
+      <div className="chip-3d explore-gust-chip absolute top-2.5 left-2.5 z-10 flex items-center gap-1 rounded-full px-2 py-0.5 text-white">
         <Clapperboard className="text-primary size-3" />
         <span className="text-[10px] font-bold">Gust</span>
       </div>

@@ -17,9 +17,15 @@ import {
   pickProfileImage,
   stabilizePickedImage,
 } from "@/features/profile/lib/profile-media";
-import type { ProfileImageKind } from "@/features/profile/lib/profile-media";
+import type {
+  ProfileImageKind,
+  PickedProfileImage,
+} from "@/features/profile/lib/profile-media";
 import { uploadImage } from "@/features/profile/lib/profile-media-mutations";
-import type { UploadOutcome } from "@/features/profile/lib/profile-media-mutations";
+import type {
+  UploadOutcome,
+  ProfileMediaCallbacks,
+} from "@/features/profile/lib/profile-media-mutations";
 import { getApiBaseUrl } from "@/lib/api-env";
 import { logInfo, logWarn } from "@/lib/telemetry";
 
@@ -36,13 +42,13 @@ function isTokenRejected(_result: UploadOutcome): boolean {
   return false;
 }
 
-/**
- * Picks and uploads one community image, returning the media id to link after
- * the community exists. Returns null when the reader cancels the picker.
- */
+// Picks and uploads one community image, returning the media id to link after
+// the community exists. Returns null when the reader cancels the picker.
 export async function uploadCommunityMedia({
   runWithInstallToken,
   slot,
+  crop,
+  callbacks = {},
   ...options
 }: ApiCallOptions & {
   runWithInstallToken: <T>(
@@ -50,13 +56,19 @@ export async function uploadCommunityMedia({
     isTokenRejected: (result: T) => boolean
   ) => Promise<T | null>;
   slot: CommunityMediaSlot;
+  crop?: (
+    picked: PickedProfileImage,
+    kind: ProfileImageKind
+  ) => Promise<PickedProfileImage | null>;
+  callbacks?: ProfileMediaCallbacks;
 }): Promise<CommunityMediaUpload | null> {
   // The profile picker already encodes the per-slot crop and size rules, and
   // the community slots are the same two shapes.
   const kind = slot as ProfileImageKind;
   let picked: Awaited<ReturnType<typeof pickProfileImage>>;
   try {
-    picked = await pickProfileImage(kind);
+    const original = await pickProfileImage(kind);
+    picked = original && crop ? await crop(original, kind) : original;
   } catch (error) {
     logWarn("community_create.media_pick_failed", {
       reason: error instanceof Error ? error.message : "unknown",
@@ -72,7 +84,8 @@ export async function uploadCommunityMedia({
   const stable = stabilizePickedImage(picked);
 
   const outcome: UploadOutcome | null = await runWithInstallToken(
-    async () => await uploadImage(stable.source, stable.purpose, {}, options),
+    async () =>
+      await uploadImage(stable.source, stable.purpose, callbacks, options),
     isTokenRejected
   );
 
@@ -93,11 +106,9 @@ export async function uploadCommunityMedia({
   return { mediaId: outcome.mediaId, source: stable.source };
 }
 
-/**
- * Attaches an uploaded id to the freshly created community. A failure here is
- * reported, not thrown: the community already exists, so losing its imagery
- * must not read as losing the community.
- */
+// Attaches an uploaded id to the freshly created community. A failure here is
+// reported, not thrown: the community already exists, so losing its imagery
+// must not read as losing the community.
 export async function linkCommunityMedia({
   apiBase,
   baseFetch = fetch,
@@ -141,7 +152,7 @@ export async function linkCommunityMedia({
   }
 }
 
-/** Convenience for the wizard: the API base and session cookie together. */
+// Convenience for the wizard: the API base and session cookie together.
 export async function communityMediaAuth(): Promise<ApiCallOptions> {
   return { apiBase: getApiBaseUrl(), cookie: await authClient.getCookie() };
 }

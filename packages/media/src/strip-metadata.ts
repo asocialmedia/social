@@ -10,7 +10,7 @@
 //         everything from SOS onward. All other APPn/COM segments are stripped
 //         as potentially identifying (Adobe APP14, Photoshop APP13, etc.).
 //   PNG   iCCP, gAMA, sRGB, cHRM, pHYs and every non-text ancillary chunk
-//   WebP  ICCP chunks; animation (ANIM/ANMF) aborts stripping entirely
+//   WebP  ICCP profiles and compressed animation frames remain untouched.
 //
 // A lone EXIF Orientation tag survives as a rebuilt minimal APP1: photos
 // shot in portrait render rotated in every browser once full EXIF is gone,
@@ -342,11 +342,6 @@ function stripWebp(source: Uint8Array): StripOutcome | null {
       return null;
     }
 
-    if (fourCc === "ANIM" || fourCc === "ANMF") {
-      // Animated WebP frames must survive untouched - refuse the file.
-      return null;
-    }
-
     if (fourCc === "EXIF" || fourCc === "XMP ") {
       changed = true;
       pos = paddedEnd;
@@ -355,8 +350,8 @@ function stripWebp(source: Uint8Array): StripOutcome | null {
 
     if (fourCc === "VP8X") {
       const payload = source.slice(payloadStart, payloadStart + payloadLength);
-      // E (EXIF) = 0x08, X (XMP) = 0x02 in the flags byte.
-      patchVp8xFlags(payload, 0x08 | 0x02);
+      // EXIF = 0x08, XMP = 0x04; preserve animation = 0x02.
+      patchVp8xFlags(payload, 0x08 | 0x04);
       chunks.push(source.slice(pos, payloadStart), payload);
       changed = true;
     } else {
@@ -372,15 +367,16 @@ function stripWebp(source: Uint8Array): StripOutcome | null {
   }
 
   const body = concat(chunks);
-  const riffSize = body.length - 8;
+  const riffSize = body.length + 4;
   const bytes = concat([
-    source.slice(0, 8),
+    source.slice(0, 4),
     new Uint8Array([
       riffSize & 0xff,
       (riffSize >> 8) & 0xff,
       (riffSize >> 16) & 0xff,
       (riffSize >> 24) & 0xff,
     ]),
+    source.slice(8, 12),
     body,
   ]);
   if (bytes.length > source.length) {
@@ -390,8 +386,8 @@ function stripWebp(source: Uint8Array): StripOutcome | null {
 }
 
 // Entry point. Returns null whenever the bytes cannot be confidently
-// rewritten (unsupported type, animation, malformed structure) so callers
-// fall back to publishing the AV-scanned original unmodified.
+// rewritten (unsupported type or malformed structure). Callers decide whether
+// to retry or use another decoder; null never confirms a privacy scrub.
 export function stripImageMetadata(source: Uint8Array): StripOutcome | null {
   if (source.length === 0) {
     return null;

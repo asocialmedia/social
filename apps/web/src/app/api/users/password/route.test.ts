@@ -199,3 +199,21 @@ describe("POST /api/users/password", () => {
     expect(mockHashPasswordWithScrypt).not.toHaveBeenCalled();
   });
 });
+
+test("a verified OAuth placeholder cannot authorize password setup", async () => {
+  mockGetSession.mockResolvedValue({ user: { id: "user-1" } });
+  mockUserFindUnique.mockResolvedValue({
+    email: "reddit-id@reddit.placeholder.invalid",
+    emailVerified: true,
+  });
+  mockHashPasswordWithScrypt.mockClear();
+  const response = await POST(
+    new Request("http://localhost/api/users/password", {
+      body: JSON.stringify({ password: "Valid-fixture-pass123!" }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    })
+  );
+  expect(response.status).toBe(400);
+  expect(mockHashPasswordWithScrypt).not.toHaveBeenCalled();
+});

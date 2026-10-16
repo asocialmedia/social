@@ -5,6 +5,7 @@ import {
   canModeratePost,
   deletePost,
   updatePostModeration,
+  updatePostMentions,
   updatePostTags,
 } from "./post-mutations";
 
@@ -101,6 +102,21 @@ describe("updatePostTags", () => {
     expect(calls[0]?.url).toBe(`${API}/api/posts/post-1/tags`);
     expect(String(calls[0]?.init?.body)).toBe('{"tags":["rust","systems"]}');
   });
+});
+
+test("mention edits deduplicate IDs and allow clearing every mention", async () => {
+  const { baseFetch, calls } = recording(() => json({ ok: true }));
+  await updatePostMentions("a/b", ["user-1", "user-1", "user-2"], {
+    apiBase: API,
+    baseFetch,
+  });
+  await updatePostMentions("a/b", [], { apiBase: API, baseFetch });
+  expect(calls[0]?.url).toBe(`${API}/api/posts/a%2Fb/mentions`);
+  expect(calls[0]?.init?.method).toBe("POST");
+  expect(JSON.parse(String(calls[0]?.init?.body))).toEqual({
+    userIds: ["user-1", "user-2"],
+  });
+  expect(JSON.parse(String(calls[1]?.init?.body))).toEqual({ userIds: [] });
 });
 
 describe("canModeratePost", () => {

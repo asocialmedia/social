@@ -175,11 +175,9 @@ const SIGNUP_CODE_MESSAGES: Record<string, string> = {
   "user-exists": "That email or username is already taken.",
 };
 
-/**
- * Turns a signup route's `error` field into user copy. Those routes answer
- * either with a short code (mapped above) or with a full sentence written for
- * people (passed through). A code we do not know falls back.
- */
+// Turns a signup route's `error` field into user copy. Those routes answer
+// either with a short code (mapped above) or with a full sentence written for
+// people (passed through). A code we do not know falls back.
 export function describeSignupError(
   error: string | null | undefined,
   fallback: string
@@ -199,13 +197,16 @@ export function describeSignupError(
 // group mirrors the web error page (app/(auth)/login/error/page.tsx); the
 // rest are better-auth's own callback codes.
 const OAUTH_REDIRECT_MESSAGES: Record<string, string> = {
+  USERNAME_IS_ALREADY_TAKEN: "Sign in first, then connect in Settings.",
   access_denied: "Error connecting with social provider.",
   accountNotFound: "Account not found.",
   account_not_found: "Account not found.",
+  account_not_linked: "Sign in first, then connect in Settings.",
   emailExists: "This email is already registered.",
   email_doesnt_match: "That account uses a different email.",
   invalidCredentials: "Invalid email or password.",
   oauthError: "Error connecting with social provider.",
+  oauth_email_not_verified: "Verify your Google email, then try again.",
   please_restart_the_process: "That sign-in expired, try again.",
   serverError: "An unexpected error occurred.",
   signup_disabled: "Sign-ups are currently disabled.",
@@ -214,7 +215,7 @@ const OAUTH_REDIRECT_MESSAGES: Record<string, string> = {
   unauthorized: "Please log in to continue.",
 };
 
-/** Copy for an `?error=` code carried on an OAuth deep link, or null. */
+// Copy for an `?error=` code carried on an OAuth deep link, or null.
 export function describeOAuthRedirectError(
   code: string | null | undefined
 ): string | null {
@@ -228,12 +229,10 @@ export function describeOAuthRedirectError(
 
 const ERROR_PARAM = /[?&]error=(?<code>[^&#]*)/;
 
-/**
- * Pulls the `error` query value off a deep link. Works for both the release
- * scheme (`asocialmedia:///login?error=x`) and Expo Go (`exp://h:p/--/?error=x`)
- * without relying on the URL class, which rejects some custom schemes on
- * Hermes.
- */
+// Pulls the `error` query value off a deep link. Works for both the release
+// scheme (`asocialmedia:///login?error=x`) and Expo Go (`exp://h:p/--/?error=x`)
+// without relying on the URL class, which rejects some custom schemes on
+// Hermes.
 export function extractRedirectError(
   url: string | null | undefined
 ): string | null {

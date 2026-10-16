@@ -16,7 +16,7 @@ import { withAuthHeaders } from "@/lib/auth-headers";
 import { logInfo, logWarn } from "@/lib/telemetry";
 
 import { pickProfileImage, stabilizePickedImage } from "./profile-media";
-import type { ProfileImageKind } from "./profile-media";
+import type { PickedProfileImage, ProfileImageKind } from "./profile-media";
 
 export interface ProfileMediaCallbacks {
   onBytes?: (percent: number) => void;
@@ -101,15 +101,18 @@ async function linkMedia(
   };
 }
 
-/**
- * Picks, crops, uploads and links one profile image. `runWithInstallToken`
- * re-runs `attempt` after the Turnstile gate, so the pick is deliberately kept
- * outside it: re-opening a picker on retry would be jarring, and the picked
- * file is already on disk by then.
- */
+// Picks, crops, uploads and links one profile image. `runWithInstallToken`
+// re-runs `attempt` after the Turnstile gate, so the pick is deliberately kept
+// outside it: re-opening a picker on retry would be jarring, and the picked
+// file is already on disk by then.
 export async function updateProfileMedia(
   kind: ProfileImageKind,
-  callbacks: ProfileMediaCallbacks,
+  callbacks: ProfileMediaCallbacks & {
+    crop: (
+      picked: PickedProfileImage,
+      kind: ProfileImageKind
+    ) => Promise<PickedProfileImage | null>;
+  },
   runWithInstallToken: <T>(
     action: () => Promise<T>,
     isTokenRejected: (result: T) => boolean
@@ -117,7 +120,8 @@ export async function updateProfileMedia(
 ): Promise<ProfileMediaResult> {
   let picked: Awaited<ReturnType<typeof pickProfileImage>>;
   try {
-    picked = await pickProfileImage(kind);
+    const original = await pickProfileImage(kind);
+    picked = original ? await callbacks.crop(original, kind) : null;
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Couldn't process that image";

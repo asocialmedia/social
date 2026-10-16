@@ -10,6 +10,7 @@
 // browser: a titled bar with a working back control and an external-link
 // escape for the handful of links the documents contain.
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { FileText, Shield, X } from "lucide-react-native";
 import { useCallback, useState } from "react";
 import {
   ActivityIndicator,
@@ -19,8 +20,10 @@ import {
   Text,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { WebView } from "react-native-webview";
 
+import { IconButton3D } from "@/components/surface/icon-button-3d";
 import {
   legalDocumentPath,
   legalDocumentTitle,
@@ -32,6 +35,10 @@ import {
   decideLegalNavigation,
   parseLegalLinkMessage,
 } from "@/features/legal/lib/legal-navigation";
+import {
+  SettingsButton,
+  SettingsCard,
+} from "@/features/settings/components/settings-ui";
 import { getApiBaseUrl } from "@/lib/api-env";
 import { useAppTheme } from "@/theme";
 
@@ -43,7 +50,8 @@ export default function LegalDocumentRoute() {
 }
 
 function LegalDocumentScreen({ document }: { document: LegalDocument }) {
-  const { theme } = useAppTheme();
+  const { isDark, theme } = useAppTheme();
+  const insets = useSafeAreaInsets();
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
@@ -120,111 +128,164 @@ function LegalDocumentScreen({ document }: { document: LegalDocument }) {
   );
 
   return (
-    <View style={[styles.root, { backgroundColor: theme.containerBg }]}>
-      <View style={styles.bar}>
-        <Pressable
-          accessibilityLabel="Go back"
-          accessibilityRole="button"
-          hitSlop={8}
-          onPress={goBack}
-          style={styles.back}
+    <View
+      style={{
+        backgroundColor: "rgba(0,0,0,0.6)",
+        flex: 1,
+        justifyContent: "center",
+        paddingBottom: insets.bottom + 16,
+        paddingHorizontal: 16,
+        paddingTop: insets.top + 16,
+      }}
+    >
+      <SettingsCard
+        padded={false}
+        style={{
+          alignSelf: "center",
+          flex: 1,
+          maxHeight: "90%",
+          maxWidth: 640,
+          overflow: "hidden",
+          width: "100%",
+        }}
+      >
+        <View
+          style={{
+            alignItems: "center",
+            borderBottomWidth: 1,
+            borderColor: theme.cardBorder,
+            flexDirection: "row",
+            gap: 12,
+            padding: 16,
+          }}
         >
-          <Text style={[styles.backText, { color: theme.inputText }]}>
-            ‹ Back
-          </Text>
-        </Pressable>
-        <Text
-          numberOfLines={1}
-          style={[styles.title, { color: theme.inputText }]}
+          {document === "privacy" ? (
+            <Shield color={theme.auxLink} size={24} />
+          ) : (
+            <FileText color={theme.auxLink} size={24} />
+          )}
+          <View style={{ flex: 1 }}>
+            <Text
+              style={{
+                color: theme.inputText,
+                fontFamily: "SofiaProBold",
+                fontSize: 17,
+              }}
+            >
+              {title}
+            </Text>
+            <Text
+              style={{
+                color: theme.dividerText,
+                fontFamily: "SofiaProReg",
+                fontSize: 12,
+              }}
+            >
+              Your rights and responsibilities
+            </Text>
+          </View>
+          <IconButton3D
+            accessibilityLabel="Close legal document"
+            icon={X}
+            onPress={goBack}
+          />
+        </View>
+        <View style={{ flex: 1 }}>
+          {loading && !failed ? (
+            <View style={styles.overlay} pointerEvents="none">
+              <ActivityIndicator color="#ff9500" />
+            </View>
+          ) : null}
+          {failed ? (
+            <View style={[styles.overlay, styles.failedOverlay]}>
+              <Text style={[styles.failed, { color: theme.dividerText }]}>
+                That document could not be loaded.
+              </Text>
+              <Pressable
+                accessibilityLabel="Retry loading document"
+                accessibilityRole="button"
+                onPress={() => {
+                  setFailed(false);
+                  setLoading(true);
+                }}
+                style={styles.retry}
+              >
+                <Text style={styles.retryText}>Try again</Text>
+              </Pressable>
+              <Pressable
+                accessibilityLabel="Open in browser"
+                accessibilityRole="button"
+                onPress={async () => {
+                  try {
+                    await Linking.openURL(url);
+                  } catch {
+                    // Nothing sensible to do if the system browser also fails.
+                  }
+                }}
+                style={styles.retry}
+              >
+                <Text style={styles.retryText}>Open in browser</Text>
+              </Pressable>
+            </View>
+          ) : (
+            <WebView
+              // Claims the taps that would leave the document before the page acts
+              // on them. Without it the web app's own router takes over and renders
+              // the feed inside this screen, under a legal title bar.
+              injectedJavaScriptBeforeContentLoaded={`try { localStorage.setItem("theme", "${isDark ? "dark" : "light"}"); } catch {}\n${LEGAL_LINK_BRIDGE_SCRIPT}`}
+              onError={() => {
+                setFailed(true);
+                setLoading(false);
+              }}
+              onLoadEnd={() => {
+                setLoading(false);
+              }}
+              onMessage={(event) => {
+                const target = parseLegalLinkMessage(event.nativeEvent.data);
+                if (target) {
+                  followLink(target);
+                }
+              }}
+              onShouldStartLoadWithRequest={(request) => {
+                // The backstop for navigations the bridge never sees: a redirect, a
+                // form post, or a page rendered without the injected script. A
+                // subframe is a resource the document asked for, not a destination
+                // the reader chose, so an off-origin one is dropped silently.
+                const decision = decideLegalNavigation({
+                  apiBase,
+                  document,
+                  target: request.url,
+                });
+                if (decision.kind === "allow") {
+                  return true;
+                }
+                if (request.isTopFrame) {
+                  followLink(request.url);
+                }
+                return false;
+              }}
+              // The API base is plain http in development, so this cannot be
+              // narrowed to https. It is not the reader-facing gate either: every
+              // navigation is decided in onShouldStartLoadWithRequest and onMessage.
+              originWhitelist={["https://*", "http://*"]}
+              pullToRefreshEnabled
+              renderLoading={() => <View />}
+              source={{ uri: url }}
+              style={[styles.web, { backgroundColor: theme.containerBg }]}
+              startInLoadingState={false}
+            />
+          )}
+        </View>
+        <View
+          style={{
+            borderColor: theme.cardBorder,
+            borderTopWidth: 1,
+            padding: 12,
+          }}
         >
-          {title}
-        </Text>
-        <View style={styles.back} />
-      </View>
-      {loading && !failed ? (
-        <View style={styles.overlay} pointerEvents="none">
-          <ActivityIndicator color="#ff9500" />
+          <SettingsButton label="Done" onPress={goBack} />
         </View>
-      ) : null}
-      {failed ? (
-        <View style={[styles.overlay, styles.failedOverlay]}>
-          <Text style={[styles.failed, { color: theme.dividerText }]}>
-            That document could not be loaded.
-          </Text>
-          <Pressable
-            accessibilityLabel="Retry loading document"
-            accessibilityRole="button"
-            onPress={() => {
-              setFailed(false);
-              setLoading(true);
-            }}
-            style={styles.retry}
-          >
-            <Text style={styles.retryText}>Try again</Text>
-          </Pressable>
-          <Pressable
-            accessibilityLabel="Open in browser"
-            accessibilityRole="button"
-            onPress={async () => {
-              try {
-                await Linking.openURL(url);
-              } catch {
-                // Nothing sensible to do if the system browser also fails.
-              }
-            }}
-            style={styles.retry}
-          >
-            <Text style={styles.retryText}>Open in browser</Text>
-          </Pressable>
-        </View>
-      ) : (
-        <WebView
-          // Claims the taps that would leave the document before the page acts
-          // on them. Without it the web app's own router takes over and renders
-          // the feed inside this screen, under a legal title bar.
-          injectedJavaScriptBeforeContentLoaded={LEGAL_LINK_BRIDGE_SCRIPT}
-          onError={() => {
-            setFailed(true);
-            setLoading(false);
-          }}
-          onLoadEnd={() => {
-            setLoading(false);
-          }}
-          onMessage={(event) => {
-            const target = parseLegalLinkMessage(event.nativeEvent.data);
-            if (target) {
-              followLink(target);
-            }
-          }}
-          onShouldStartLoadWithRequest={(request) => {
-            // The backstop for navigations the bridge never sees: a redirect, a
-            // form post, or a page rendered without the injected script. A
-            // subframe is a resource the document asked for, not a destination
-            // the reader chose, so an off-origin one is dropped silently.
-            const decision = decideLegalNavigation({
-              apiBase,
-              document,
-              target: request.url,
-            });
-            if (decision.kind === "allow") {
-              return true;
-            }
-            if (request.isTopFrame) {
-              followLink(request.url);
-            }
-            return false;
-          }}
-          // The API base is plain http in development, so this cannot be
-          // narrowed to https. It is not the reader-facing gate either: every
-          // navigation is decided in onShouldStartLoadWithRequest and onMessage.
-          originWhitelist={["https://*", "http://*"]}
-          pullToRefreshEnabled
-          renderLoading={() => <View />}
-          source={{ uri: url }}
-          style={[styles.web, { backgroundColor: theme.containerBg }]}
-          startInLoadingState={false}
-        />
-      )}
+      </SettingsCard>
     </View>
   );
 }
@@ -258,7 +319,7 @@ const styles = StyleSheet.create({
     left: 0,
     position: "absolute",
     right: 0,
-    top: 52,
+    top: 0,
   },
   retry: {
     borderColor: "#ff9500",
