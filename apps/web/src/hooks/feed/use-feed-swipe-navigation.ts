@@ -23,6 +23,7 @@ const DIRECTION_LOCK = 10;
 
 export interface SwipeNavigationOptions {
   enableDesktop?: boolean;
+  ignoreSelector?: string;
 }
 
 export function useFeedSwipeNavigation(
@@ -76,7 +77,13 @@ export function useFeedSwipeNavigation(
       clientY: number,
       target: EventTarget | null
     ) => {
-      if (startsInHorizontalScroller(target)) {
+      const targetElement = target instanceof Element ? target : null;
+      if (
+        (options?.ignoreSelector &&
+          targetElement?.closest(options.ignoreSelector)) ||
+        startsInHorizontalScroller(target)
+      ) {
+        reset();
         return;
       }
       tracking = true;
@@ -268,5 +275,10 @@ export function useFeedSwipeNavigation(
       unbindTouch();
       mobileQuery.removeEventListener("change", handleChange);
     };
-  }, [containerRef, onNavigate, options?.enableDesktop]);
+  }, [
+    containerRef,
+    onNavigate,
+    options?.enableDesktop,
+    options?.ignoreSelector,
+  ]);
 }

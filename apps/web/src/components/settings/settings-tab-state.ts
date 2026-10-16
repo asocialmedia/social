@@ -2,13 +2,15 @@ import type { SettingsTab } from "./settings-search";
 
 type SettingsSearchParams = Pick<URLSearchParams, "get" | "has">;
 
-const SETTINGS_TABS = new Set<SettingsTab>([
+export const SETTINGS_TAB_ORDER: readonly SettingsTab[] = [
   "profile",
   "account",
   "privacy",
   "security",
   "personalization",
-]);
+];
+
+const SETTINGS_TABS = new Set<SettingsTab>(SETTINGS_TAB_ORDER);
 
 export function getSettingsTab(
   searchParams: SettingsSearchParams
@@ -32,4 +34,12 @@ export function getSettingsTab(
 
 export function isSettingsTab(value: string): value is SettingsTab {
   return SETTINGS_TABS.has(value as SettingsTab);
+}
+
+export function adjacentSettingsTab(
+  tab: SettingsTab,
+  direction: -1 | 1
+): SettingsTab | null {
+  const nextIndex = SETTINGS_TAB_ORDER.indexOf(tab) + direction;
+  return nextIndex >= 0 ? (SETTINGS_TAB_ORDER[nextIndex] ?? null) : null;
 }
