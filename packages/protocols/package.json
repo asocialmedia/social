@@ -1,0 +1,32 @@
+{
+  "name": "@asm/protocols",
+  "version": "0.1.1",
+  "private": true,
+  "description": "Protocol adapters and safe external-content contracts for asocialmedia",
+  "license": "AGPL-3.0",
+  "type": "module",
+  "main": "./src/contracts.ts",
+  "types": "./src/contracts.ts",
+  "exports": {
+    "./contracts": "./src/contracts.ts",
+    "./bluesky": "./src/bluesky/client.ts",
+    "./cache": "./src/cache.ts",
+    "./jetstream": "./src/atproto/jetstream.ts"
+  },
+  "scripts": {
+    "check-types": "tsc --noEmit",
+    "test": "bun test src"
+  },
+  "dependencies": {
+    "@atproto/lex": "^0.3.14",
+    "@atproto/syntax": "^0.7.7",
+    "@bsky/jetstream": "^1.0.0",
+    "@bsky/sdk": "^1.2.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@asm/config": "workspace:*",
+    "@types/bun": "^1.4.0",
+    "typescript": "^7.0.2"
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "name": "@asm/protocols-app",
+  "version": "0.1.1",
+  "private": true,
+  "description": "Elysia protocol service and live network consumers for asocialmedia",
+  "license": "AGPL-3.0",
+  "type": "module",
+  "scripts": {
+    "dev": "NODE_ENV=development bun --no-env-file --watch src/index.ts",
+    "start": "bun --no-env-file run src/index.ts",
+    "check-types": "tsc --noEmit",
+    "test": "bun test src"
+  },
+  "dependencies": {
+    "@asm/logger": "workspace:*",
+    "@asm/protocols": "workspace:*",
+    "@opentelemetry/api": "^1.9.1",
+    "@sinclair/typebox": "^0.34.0",
+    "dotenv": "^17.4.2",
+    "elysia": "^1.4.30",
+    "ioredis": "^6.0.0"
+  },
+  "devDependencies": {
+    "@asm/config": "workspace:*",
+    "@types/bun": "^1.4.0",
+    "typescript": "^7.0.2"
+  }
+}
