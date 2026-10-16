@@ -3,6 +3,7 @@
 // oxlint-disable react/exhaustive-effect-dependencies -- cached image checks use media.id intentionally
 
 import type { PostData } from "@asm/db";
+import { mediaAspect } from "@asm/ui/lib/post-preview-layout";
 import noMediaImage from "@assets/general/nomedia.png";
 import {
   ChevronDown,
@@ -315,12 +316,6 @@ export const VideoPreview = ({
     [onDimensionsChange]
   );
 
-  // Squares treated as portrait (full height, left-aligned) to avoid
-  // cropping top/bottom when fitting full width with object-cover.
-  const isPortrait = videoDims
-    ? videoDims.h >= videoDims.w
-    : Boolean(storedW && storedH && storedH >= storedW);
-
   const aspect = videoDims
     ? `${videoDims.w} / ${videoDims.h}`
     : mediaAspectRatio(media, "16 / 9");
@@ -593,18 +588,22 @@ export const VideoPreview = ({
     let failedSizeClasses = "max-h-[380px] w-full sm:max-h-[480px]";
     if (fill) {
       failedSizeClasses = "h-full w-full";
-    } else if (isPortrait) {
-      failedSizeClasses =
-        "h-[380px] max-h-[380px] w-auto max-w-full sm:h-[480px] sm:max-h-[480px]";
     }
 
     return (
       <div
         className={cn(
-          "bg-muted/20 relative overflow-hidden rounded-xl",
+          "bg-muted/20 relative overflow-hidden rounded-xl [--preview-max-height:380px] sm:[--preview-max-height:480px]",
           failedSizeClasses
         )}
-        style={fill ? undefined : { aspectRatio: aspect }}
+        style={
+          fill
+            ? undefined
+            : {
+                aspectRatio: aspect,
+                width: `min(100%, calc(var(--preview-max-height) * ${mediaAspect(videoDims ? { height: videoDims.h, width: videoDims.w } : media, 16 / 9)}))`,
+              }
+        }
       >
         <Image
           alt="Video unavailable"
@@ -623,14 +622,13 @@ export const VideoPreview = ({
   if (fill) {
     containerClassName = "group overflow-hidden absolute inset-0 h-full w-full";
     containerStyle = undefined;
-  } else if (isPortrait) {
-    containerClassName =
-      "group relative overflow-hidden rounded-xl shadow-xs transition-shadow duration-300 hover:shadow-md h-[380px] sm:h-[480px] max-h-[380px] sm:max-h-[480px] w-auto max-w-full";
-    containerStyle = { aspectRatio: aspect };
   } else {
     containerClassName =
-      "group relative w-full overflow-hidden rounded-xl shadow-xs transition-shadow duration-300 hover:shadow-md max-h-[380px] sm:max-h-[480px]";
-    containerStyle = { aspectRatio: aspect };
+      "group relative overflow-hidden rounded-xl shadow-xs transition-shadow duration-300 hover:shadow-md [--preview-max-height:380px] sm:[--preview-max-height:480px]";
+    containerStyle = {
+      aspectRatio: aspect,
+      width: `min(100%, calc(var(--preview-max-height) * ${mediaAspect(videoDims ? { height: videoDims.h, width: videoDims.w } : media, 16 / 9)}))`,
+    };
   }
 
   return (
@@ -643,7 +641,10 @@ export const VideoPreview = ({
     >
       {/* eslint-disable-next-line jsx-a11y/media-has-caption -- feed previews have no caption tracks; captions exist on the media page player */}
       <video
-        className="absolute inset-0 h-full w-full rounded-lg object-cover"
+        className={cn(
+          "absolute inset-0 h-full w-full rounded-lg",
+          fill ? "object-cover" : "object-contain"
+        )}
         ref={videoRef}
         muted={isMuted}
         onDurationChange={handleDurationChange}
@@ -666,6 +667,18 @@ export const VideoPreview = ({
         fill
         loading="eager"
         onError={handlePosterError}
+        onLoad={(event) => {
+          if (
+            (!storedW || !storedH) &&
+            event.currentTarget.naturalWidth > 0 &&
+            event.currentTarget.naturalHeight > 0
+          ) {
+            handleDimensionsUpdate({
+              h: event.currentTarget.naturalHeight,
+              w: event.currentTarget.naturalWidth,
+            });
+          }
+        }}
         sizes="(max-width: 768px) 100vw, 640px"
         src={getMediaProxyUrl(media)}
         unoptimized
@@ -795,6 +808,7 @@ const SingleImagePreview = ({
   const [natural, setNatural] = useState<{ w: number; h: number } | null>(
     hasStoredDims ? { h: storedH, w: storedW } : null
   );
+  const animated = media.mimeType === "image/gif";
   const singleImgRef = useRef<HTMLImageElement>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isFailed, setIsFailed] = useState(false);
@@ -858,8 +872,20 @@ const SingleImagePreview = ({
         // frame shrink-wraps to the image width. This prevents top/bottom
         // cropping (object-cover + w-full) and matches vertical post behaviour:
         // show full height, left-aligned, right gap is fine.
-        "w-fit max-w-full"
+        animated
+          ? "w-full max-sm:w-[min(100%,calc(380px*var(--media-aspect)))] sm:w-fit"
+          : "w-fit max-w-full"
       )}
+      style={
+        animated
+          ? ({
+              "--media-aspect": mediaAspect(
+                dims ? { height: dims.h, width: dims.w } : media,
+                1
+              ),
+            } as React.CSSProperties)
+          : undefined
+      }
     >
       {isLoading ? (
         <div className="bg-muted/40 absolute inset-0 animate-pulse rounded-xl" />
@@ -870,6 +896,8 @@ const SingleImagePreview = ({
         className={cn(
           "rounded-xl object-contain",
           "h-auto max-h-95 w-auto max-w-full sm:max-h-120",
+          animated &&
+            "max-sm:aspect-[var(--media-aspect)] max-sm:max-h-none max-sm:w-full",
           isLoading ? "opacity-0" : "asm-media-reveal"
         )}
         decoding="async"
@@ -904,7 +932,10 @@ const SingleImagePreview = ({
   return interactive ? (
     <button
       aria-label="View attachment"
-      className="block w-fit max-w-full cursor-pointer text-left"
+      className={cn(
+        "block max-w-full cursor-pointer text-left",
+        animated ? "w-full sm:w-fit" : "w-fit"
+      )}
       onClick={onSelect}
       type="button"
     >
@@ -926,50 +957,21 @@ const SingleVideoPreview = ({
   media: Media;
   onSelect: () => void;
 }) => {
-  const storedW =
-    typeof media.width === "number" && media.width > 0 ? media.width : null;
-  const storedH =
-    typeof media.height === "number" && media.height > 0 ? media.height : null;
-  const [videoDims, setVideoDims] = useState<{ w: number; h: number } | null>(
-    storedW && storedH ? { h: storedH, w: storedW } : null
-  );
-
-  // Squares treated as portrait (full height, left-aligned) to avoid
-  // cropping top/bottom when fitting full width with object-cover.
-  const isPortrait = videoDims
-    ? videoDims.h >= videoDims.w
-    : Boolean(storedW && storedH && storedH >= storedW);
-
-  const handleDimensionsChange = useCallback(
-    (dims: { h: number; w: number }) => {
-      setVideoDims(dims);
-    },
-    []
-  );
-
   const previewContent = (
     <div
       className={cn(
         "relative block overflow-hidden rounded-xl text-left",
-        isPortrait ? "w-fit max-w-full" : "w-full"
+        "w-full"
       )}
     >
-      <VideoPreview
-        autoPlay={autoPlay}
-        fill={false}
-        media={media}
-        onDimensionsChange={handleDimensionsChange}
-      />
+      <VideoPreview autoPlay={autoPlay} fill={false} media={media} />
     </div>
   );
 
   return interactive ? (
     <button
       aria-label="View attachment"
-      className={cn(
-        "block cursor-pointer text-left",
-        isPortrait ? "w-fit max-w-full" : "w-full"
-      )}
+      className={cn("block cursor-pointer text-left", "w-full")}
       onClick={onSelect}
       type="button"
     >

@@ -452,7 +452,7 @@ export function PostDetailScreen({ postId }: { postId: string }) {
   if (status === "loading") {
     return (
       <View style={[styles.root, { backgroundColor: theme.containerBg }]}>
-        <PostDetailSkeleton />
+        <PostDetailSkeleton post={post} />
       </View>
     );
   }

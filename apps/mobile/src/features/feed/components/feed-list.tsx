@@ -551,7 +551,7 @@ export const FeedList = memo(
       return (
         <FeedState>
           {listHeader}
-          <FeedSkeleton />
+          <FeedSkeleton posts={posts} />
         </FeedState>
       );
     }
