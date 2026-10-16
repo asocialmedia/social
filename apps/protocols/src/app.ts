@@ -10,6 +10,7 @@ import { observeRequest, requestId } from "./observability";
 import type { ProtocolLogger } from "./observability";
 
 export interface ProtocolsHealth {
+  storageReady?: boolean;
   draining: boolean;
   jetstreamEnabled: boolean;
   connected: boolean;
@@ -22,10 +23,15 @@ export interface ProtocolsAppOptions {
   client: Pick<
     BlueskyClient,
     "getProfile" | "getAuthorFeed" | "getFeed" | "getPost"
-  >;
+  > &
+    Partial<Pick<BlueskyClient, "getPosts">>;
   logger: ProtocolLogger;
   token?: string;
   health: () => ProtocolsHealth;
+  discover?: (
+    mode: "latest" | "personalized" | "trending",
+    cursor?: string
+  ) => Promise<unknown>;
 }
 
 function authorized(header: string | null, expected: string): boolean {
@@ -87,9 +93,7 @@ export function createProtocolsApp(options: ProtocolsAppOptions) {
     .get("/health", () => ({ service: "protocols", status: "ok", version }))
     .get("/ready", ({ set }) => {
       const health = options.health();
-      const ready =
-        !health.draining &&
-        (!health.jetstreamEnabled || (health.connected && health.leaseHeld));
+      const ready = !health.draining && health.storageReady !== false;
       if (!ready) {
         set.status = 503;
       }
@@ -100,7 +104,9 @@ export function createProtocolsApp(options: ProtocolsAppOptions) {
       return {
         service: "protocols",
         status: ready ? "ready" : "not_ready",
+        storage: health.storageReady === false ? "recovering" : "ready",
         stream,
+        worker: health.leaseHeld ? "leader" : "standby",
       };
     })
     .group("/v1", (app) =>
@@ -116,12 +122,75 @@ export function createProtocolsApp(options: ProtocolsAppOptions) {
             set.status = 401;
             return { error: "unauthorized" };
           }
+          if (options.health().storageReady === false) {
+            set.status = 503;
+            set.headers["retry-after"] = "2";
+            return { error: "storage_recovering" };
+          }
           if (options.health().draining) {
             set.status = 503;
             return { error: "draining" };
           }
         })
         .get("/capabilities", () => ({ protocols: [blueskyCapabilities] }))
+        .get(
+          "/bluesky/posts",
+          ({ query, request, set }) =>
+            observeRequest(
+              "bluesky.posts",
+              request,
+              String(set.headers["x-request-id"]),
+              options.logger,
+              () => {
+                if (!options.client.getPosts) {
+                  throw new ProtocolError(
+                    "unavailable",
+                    "Post reads unavailable"
+                  );
+                }
+                return options.client.getPosts(query.uri);
+              }
+            ),
+          {
+            query: t.Object({
+              uri: t.Array(t.String({ maxLength: 512 }), {
+                maxItems: 25,
+                minItems: 1,
+              }),
+            }),
+          }
+        )
+        .get(
+          "/bluesky/discover",
+          ({ query, request, set }) =>
+            observeRequest(
+              "bluesky.discover",
+              request,
+              String(set.headers["x-request-id"]),
+              options.logger,
+              () => {
+                if (!options.discover) {
+                  throw new ProtocolError(
+                    "unavailable",
+                    "Discovery is not configured"
+                  );
+                }
+                return options.discover(query.mode ?? "latest", query.cursor);
+              }
+            ),
+          {
+            query: t.Object({
+              cursor: t.Optional(t.String({ format: "uuid" })),
+              mode: t.Optional(
+                t.Union([
+                  t.Literal("latest"),
+                  t.Literal("personalized"),
+                  t.Literal("trending"),
+                ])
+              ),
+            }),
+          }
+        )
         .get(
           "/bluesky/profile",
           ({ query, request, set }) =>

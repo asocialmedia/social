@@ -53,6 +53,8 @@ export function requestId(request: Request): string {
     : crypto.randomUUID();
 }
 
+let successes = 0;
+
 export function observeRequest<T>(
   operation: string,
   request: Request,
@@ -86,7 +88,10 @@ export function observeRequest<T>(
       try {
         const result = await read();
         span.setStatus({ code: SpanStatusCode.OK });
-        logger.info(
+        successes += 1;
+        const log = successes % 100 === 1 ? logger.info : logger.debug;
+        log.call(
+          logger,
           { ...correlation, durationMs: performance.now() - startedAt },
           "Protocol request completed"
         );

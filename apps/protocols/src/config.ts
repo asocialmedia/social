@@ -63,6 +63,11 @@ export function readConfig(
     );
   }
   const redisUrl = env.REDIS_URL;
+  if (env.NODE_ENV === "production" && token && !redisUrl) {
+    throw new Error(
+      "Production discovery requires REDIS_URL for shared continuations"
+    );
+  }
   if (enabled === "true" && (!redisUrl || dids.length === 0)) {
     throw new Error("Jetstream requires REDIS_URL and PROTOCOLS_BLUESKY_DIDS");
   }

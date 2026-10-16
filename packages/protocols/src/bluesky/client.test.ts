@@ -13,6 +13,96 @@ import { normalizePost, normalizeSegments } from "./normalize";
 import { postViewSchema } from "./schemas";
 
 describe("Bluesky public read boundary", () => {
+  test("transient reads retry once while invalid responses never retry", async () => {
+    let calls = 0;
+    const waits: number[] = [];
+    const client = new BlueskyClient({
+      fetch: async () => {
+        calls += 1;
+        return calls === 1
+          ? new Response(null, { status: 503 })
+          : Response.json(profileFixture);
+      },
+      wait: async (milliseconds) => {
+        waits.push(milliseconds);
+      },
+    });
+    const profile = await client.getProfile("bsky.app");
+    expect(profile.id).toBe(authorDid);
+    expect(calls).toBe(2);
+    expect(waits).toHaveLength(1);
+    expect(waits[0]).toBeGreaterThanOrEqual(250);
+    expect(waits[0]).toBeLessThan(500);
+    client.invalidate();
+    const invalid = new BlueskyClient({
+      fetch: async () => {
+        calls += 1;
+        return Response.json({ invalid: true });
+      },
+      wait: async () => {
+        throw new Error("Invalid data must not retry");
+      },
+    });
+    await expect(invalid.getProfile("bsky.app")).rejects.toMatchObject({
+      code: "invalid_response",
+    });
+    expect(calls).toBe(3);
+  });
+
+  test("circuit opens after repeated failures and allows one recovery probe", async () => {
+    let now = 1000;
+    let calls = 0;
+    let recover: ((response: Response) => void) | undefined;
+    const client = new BlueskyClient({
+      fetch: async () => {
+        calls += 1;
+        return calls <= 5
+          ? new Response(null, { status: 503 })
+          : new Promise((resolve) => {
+              recover = resolve;
+            });
+      },
+      maxRetries: 0,
+      now: () => now,
+    });
+    for (let index = 0; index < 6; index += 1) {
+      // oxlint-disable-next-line no-await-in-loop -- sequential failures open the circuit.
+      await expect(
+        client.getProfile(`account${index}.test`)
+      ).rejects.toMatchObject({ code: "unavailable" });
+    }
+    expect(calls).toBe(5);
+    now += 30_001;
+    const probe = client.getProfile("bsky.app");
+    await expect(client.getProfile("other.test")).rejects.toMatchObject({
+      code: "unavailable",
+    });
+    expect(calls).toBe(6);
+    recover?.(Response.json(profileFixture));
+    await probe;
+    const next = client.getProfile("other.test");
+    recover?.(Response.json(profileFixture));
+    await next;
+    expect(calls).toBe(7);
+  });
+
+  test("shutdown releases a stalled read without requiring fetch to honor abort", async () => {
+    let calls = 0;
+    const client = new BlueskyClient({
+      fetch: () => {
+        calls += 1;
+        return new Promise(() => {});
+      },
+    });
+    const pending = client.getProfile("bsky.app");
+    client.close();
+    await expect(pending).rejects.toMatchObject({ code: "cancelled" });
+    await expect(client.getProfile("other.test")).rejects.toMatchObject({
+      code: "cancelled",
+    });
+    expect(calls).toBe(1);
+  });
+
   test("fetches and caches a profile without creating a native identity", async () => {
     const calls: { url: string; options: RequestInit }[] = [];
     const client = new BlueskyClient({
@@ -229,7 +319,7 @@ describe("Bluesky public read boundary", () => {
     await expect(client.getProfile("other.test")).rejects.toMatchObject({
       code: "unavailable",
     });
-    expect(diagnostics).toHaveLength(2);
+    expect(diagnostics).toHaveLength(4);
     expect(JSON.stringify(diagnostics)).not.toContain("sensitive");
     expect(JSON.stringify(diagnostics)).not.toContain("bsky.app");
   });

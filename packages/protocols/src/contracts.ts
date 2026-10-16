@@ -26,6 +26,13 @@ export interface ExternalMedia {
 }
 
 export interface ExternalPost {
+  asm?: {
+    amplified: boolean;
+    bookmarked: boolean;
+    amplifications: number;
+    comments: number;
+    responses?: number;
+  };
   id: string;
   revision: string;
   source: "bluesky";

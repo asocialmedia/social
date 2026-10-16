@@ -85,7 +85,7 @@ describe("Elysia protocol service", () => {
     const awaitedResponse4 = await app.handle(
       new Request("http://localhost/ready")
     );
-    expect(awaitedResponse4.status).toBe(503);
+    expect(awaitedResponse4.status).toBe(200);
     const awaitedResponse5 = await app.handle(
       new Request("http://localhost/health")
     );
@@ -225,4 +225,24 @@ describe("protocol configuration", () => {
     expect(() => readConfig({ PROTOCOLS_INTERNAL_TOKEN: "short" })).toThrow();
     expect(() => readConfig({ PROTOCOLS_PORT: "0" })).toThrow();
   });
+});
+
+test("storage loss removes readiness and reads recover without restarting the app", async () => {
+  const { request, health } = fixture();
+  health.storageReady = false;
+  const response1 = await request("/ready");
+  expect(response1.status).toBe(503);
+  const response2 = await request("/v1/capabilities");
+  expect(response2.status).toBe(503);
+  const response3 = await request("/health");
+  expect(response3.status).toBe(200);
+  health.storageReady = true;
+  const response4 = await request("/v1/capabilities");
+  expect(response4.status).toBe(200);
+});
+
+test("production read replicas require shared continuation storage", () => {
+  expect(() =>
+    readConfig({ NODE_ENV: "production", PROTOCOLS_INTERNAL_TOKEN: token })
+  ).toThrow("REDIS_URL");
 });

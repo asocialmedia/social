@@ -30,12 +30,16 @@ test("Pino stdout and OpenObserve OTLP exports share the HTTP trace", async () =
       const response = await fetch('http://127.0.0.1:' + app.server.port + '/v1/bluesky/profile?actor=example.test', {headers:{ authorization:'Bearer ' + process.env.PROTOCOLS_INTERNAL_TOKEN, traceparent:'00-11111111111111111111111111111111-2222222222222222-01', 'x-request-id':'telemetry-test' }});
       await response.arrayBuffer();
       if (response.status !== 200) process.exitCode = 1;
+      const second = await fetch('http://127.0.0.1:' + app.server.port + '/v1/bluesky/profile?actor=example.test', {headers:{ authorization:'Bearer ' + process.env.PROTOCOLS_INTERNAL_TOKEN, 'x-request-id':'telemetry-debug-test' }});
+      await second.arrayBuffer();
+      if (second.status !== 200) process.exitCode = 1;
     } finally { await app.stop(true); logger.flush(); await telemetry.shutdown(); }
   `;
   const child = Bun.spawn([process.execPath, "-e", script], {
     cwd: import.meta.dir,
     env: {
       ...process.env,
+      LOG_LEVEL: "debug",
       NODE_ENV: "test",
       OPENOBSERVE_ENABLED: "true",
       OPENOBSERVE_LOG_STREAM: "asm_protocols_test_logs",
@@ -63,6 +67,8 @@ test("Pino stdout and OpenObserve OTLP exports share the HTTP trace", async () =
     expect(stderr).not.toContain("failed to export");
     expect(exit).toBe(0);
     expect(stdout).toContain("Protocol request completed");
+    expect(stdout).toContain('"level":20');
+    expect(stdout).toContain("telemetry-debug-test");
     expect(stdout).toContain("11111111111111111111111111111111");
     expect(stdout).not.toContain("local_telemetry_test_token");
     expect(stdout).not.toContain("Private profile name");
@@ -72,6 +78,11 @@ test("Pino stdout and OpenObserve OTLP exports share the HTTP trace", async () =
           entry.path.endsWith("/v1/logs") &&
           entry.stream === "asm_protocols_test_logs"
       )
+    ).toBe(true);
+    expect(
+      received
+        .filter((entry) => entry.path.endsWith("/v1/logs"))
+        .some((entry) => entry.body.includes("telemetry-debug-test"))
     ).toBe(true);
     expect(
       received.some(

@@ -1,6 +1,6 @@
 {
   "name": "@asm/db",
-  "version": "1.2.71",
+  "version": "1.2.72",
   "private": true,
   "description": "asocialmedia database & cache package",
   "license": "AGPL-3.0",
@@ -40,6 +40,7 @@
     "@asm/config": "workspace:*",
     "@asm/logger": "workspace:*",
     "@asm/notifications": "workspace:*",
+    "@asm/protocols": "workspace:*",
     "@aws-sdk/client-s3": "^3.1109.0",
     "@prisma/orm-postgres": "8.0.0-rc.14",
     "@smithy/node-http-handler": "^4.10.0",

@@ -201,3 +201,50 @@ test("retry sleep is interrupted immediately on shutdown", async () => {
   await waiting;
   await waitForRetry(30_000, controller.signal);
 });
+
+test("lease renewal loss cancels the socket before another event is committed", async () => {
+  const { health, controller, logger } = fixture();
+  let renewals = 0;
+  let releases = 0;
+  let commits = 0;
+  await runJetstreamWorker({
+    health,
+    invalidate: () => {},
+    logger,
+    renewEveryMs: 1,
+    signal: controller.signal,
+    store: {
+      acquire: async () => true,
+      commit: async () => {
+        commits += 1;
+      },
+      load: async () => 10,
+      release: async () => {
+        releases += 1;
+      },
+      renew: async () => {
+        renewals += 1;
+        return false;
+      },
+    },
+    async *stream(options) {
+      options.onConnected?.();
+      // oxlint-disable-next-line promise/avoid-new -- the socket fixture waits for lease cancellation.
+      await new Promise<void>((resolve) => {
+        options.signal?.addEventListener("abort", () => resolve(), {
+          once: true,
+        });
+      });
+      yield event(11);
+    },
+    streamOptions: { dids: [did] },
+    wait: async () => {
+      controller.abort();
+    },
+  });
+  expect(renewals).toBe(1);
+  expect(commits).toBe(0);
+  expect(releases).toBe(1);
+  expect(health.connected).toBe(false);
+  expect(health.leaseHeld).toBe(false);
+});

@@ -1,6 +1,6 @@
 {
   "name": "@asm/protocols",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "description": "Protocol adapters and safe external-content contracts for asocialmedia",
   "license": "AGPL-3.0",
@@ -11,7 +11,8 @@
     "./contracts": "./src/contracts.ts",
     "./bluesky": "./src/bluesky/client.ts",
     "./cache": "./src/cache.ts",
-    "./jetstream": "./src/atproto/jetstream.ts"
+    "./jetstream": "./src/atproto/jetstream.ts",
+    "./discovery": "./src/discovery.ts"
   },
   "scripts": {
     "check-types": "tsc --noEmit",

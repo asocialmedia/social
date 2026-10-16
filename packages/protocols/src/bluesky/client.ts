@@ -1,7 +1,11 @@
 // Response chunks must be read in order and cancelled immediately when the byte budget is exceeded.
 // oxlint-disable no-await-in-loop
-import { Client, XrpcInvalidResponseError } from "@atproto/lex";
-import { app } from "@bsky/sdk/lexicons";
+import {
+  Client,
+  XrpcInvalidResponseError,
+  XrpcResponseError,
+} from "@atproto/lex";
+import { app, com } from "@bsky/sdk/lexicons";
 import { z } from "zod";
 
 import { BoundedCache } from "../cache";
@@ -14,6 +18,12 @@ import type {
   ProtocolCapabilities,
   ProtocolObserver,
 } from "../contracts";
+import {
+  abortable,
+  readJsonBounded,
+  retryAfterMs,
+  waitForReadRetry,
+} from "../transport";
 import { normalizeAuthor, normalizePost } from "./normalize";
 import {
   actorSchema,
@@ -46,6 +56,8 @@ export interface BlueskyClientOptions {
   maxResponseBytes?: number;
   maxConcurrentRequests?: number;
   now?: () => number;
+  maxRetries?: number;
+  wait?: typeof waitForReadRetry;
 }
 
 const pageOptionsSchema = z.object({
@@ -66,50 +78,16 @@ export type AuthorFeedTab = "posts" | "replies" | "media";
 
 async function boundedJson(
   response: Response,
-  maxBytes: number
+  maxBytes: number,
+  signal: AbortSignal
 ): Promise<unknown> {
-  if (Number(response.headers.get("content-length")) > maxBytes) {
-    await response.body?.cancel();
-    throw new ProtocolError(
-      "invalid_response",
-      "Upstream response exceeds the size limit"
-    );
-  }
-  const reader = response.body?.getReader();
-  if (!reader) {
-    throw new ProtocolError("invalid_response", "Upstream returned no data");
-  }
-  const decoder = new TextDecoder();
-  let total = 0;
-  let body = "";
   try {
-    for (;;) {
-      const chunk = await reader.read();
-      if (chunk.done) {
-        break;
-      }
-      total += chunk.value.byteLength;
-      if (total > maxBytes) {
-        await reader.cancel();
-        throw new ProtocolError(
-          "invalid_response",
-          "Upstream response exceeds the size limit"
-        );
-      }
-      body += decoder.decode(chunk.value, { stream: true });
-    }
-    body += decoder.decode();
-    return JSON.parse(body) as unknown;
-  } catch (error) {
-    if (error instanceof ProtocolError) {
-      throw error;
-    }
+    return await readJsonBounded(response, maxBytes, signal);
+  } catch {
     throw new ProtocolError(
-      "invalid_response",
+      signal.aborted ? "unavailable" : "invalid_response",
       "Upstream returned invalid data"
     );
-  } finally {
-    reader.releaseLock();
   }
 }
 
@@ -122,6 +100,8 @@ export class BlueskyClient {
       | "maxConcurrentRequests"
       | "now"
       | "fetch"
+      | "maxRetries"
+      | "wait"
     >
   >;
   private readonly cache: ProtocolCache;
@@ -131,14 +111,25 @@ export class BlueskyClient {
   private active = 0;
   private blockedUntil = 0;
   private generation = 0;
+  private failures = 0;
+  private circuitUntil = 0;
+  private probing = false;
+  private readonly shutdown = new AbortController();
+
+  close(): void {
+    this.shutdown.abort();
+    this.invalidate();
+  }
 
   constructor(options: BlueskyClientOptions = {}) {
     this.options = {
       fetch: options.fetch ?? fetch,
       maxConcurrentRequests: options.maxConcurrentRequests ?? 4,
       maxResponseBytes: options.maxResponseBytes ?? 2 * 1024 * 1024,
+      maxRetries: options.maxRetries ?? 1,
       now: options.now ?? Date.now,
       timeoutMs: options.timeoutMs ?? 5000,
+      wait: options.wait ?? waitForReadRetry,
     };
     for (const value of [
       this.options.timeoutMs,
@@ -148,6 +139,13 @@ export class BlueskyClient {
       if (!Number.isSafeInteger(value) || value <= 0) {
         throw new RangeError("Client limits must be positive safe integers");
       }
+    }
+    if (
+      !Number.isInteger(this.options.maxRetries) ||
+      this.options.maxRetries < 0 ||
+      this.options.maxRetries > 2
+    ) {
+      throw new RangeError("Read retries must be between zero and two");
     }
     this.cache = options.cache ?? new BoundedCache({ now: this.options.now });
     this.observe = options.observe;
@@ -160,6 +158,17 @@ export class BlueskyClient {
   invalidate(): void {
     this.generation += 1;
     this.cache.clear();
+  }
+
+  async allowsRecommendations(did: string): Promise<boolean> {
+    const actor = actorSchema.parse(did);
+    const result = await this.request(
+      "content_visibility",
+      { actor },
+      z.object({ allowed: z.boolean() }),
+      30_000
+    );
+    return result.allowed;
   }
 
   async getProfile(actor: string): Promise<ExternalAuthor> {
@@ -228,19 +237,36 @@ export class BlueskyClient {
     if (!parsed.success) {
       throw new ProtocolError("invalid_input", "Invalid Bluesky post");
     }
+    const posts = await this.getPosts([parsed.data]);
+    return posts.find((post) => post.id === uri) ?? null;
+  }
+
+  async getPosts(uris: string[]): Promise<ExternalPost[]> {
+    const parsed = z.array(postUriSchema).min(1).max(25).safeParse(uris);
+    if (!parsed.success) {
+      throw new ProtocolError("invalid_input", "Invalid Bluesky posts");
+    }
     const page = await this.request(
       "app.bsky.feed.getPosts",
-      { uris: parsed.data },
+      { uris: JSON.stringify([...new Set(parsed.data)].toSorted()) },
       postsSchema,
-      15_000
+      10_000
     );
-    const post = page.posts
-      .map((value) => postViewSchema.safeParse(value))
-      .find((value) => value.success && value.data.uri === uri);
-    if (!post?.success) {
-      return null;
+    const posts: ExternalPost[] = [];
+    for (const value of page.posts) {
+      const post = postViewSchema.safeParse(value);
+      if (!post.success || !parsed.data.includes(post.data.uri)) {
+        continue;
+      }
+      try {
+        posts.push(normalizePost(post.data));
+      } catch (error) {
+        if (!(error instanceof ProtocolError)) {
+          throw error;
+        }
+      }
     }
-    return normalizePost(post.data);
+    return posts;
   }
 
   private async feed(
@@ -308,7 +334,10 @@ export class BlueskyClient {
     }
     let pending = this.pending.get(key);
     if (!pending) {
-      if (this.active >= this.options.maxConcurrentRequests) {
+      if (
+        this.pending.size >= 64 ||
+        this.active >= this.options.maxConcurrentRequests
+      ) {
         throw new ProtocolError("capacity", "Protocol reader is busy", 1);
       }
       if (this.blockedUntil > this.options.now()) {
@@ -317,6 +346,26 @@ export class BlueskyClient {
           "Upstream is cooling down",
           Math.ceil((this.blockedUntil - this.options.now()) / 1000)
         );
+      }
+      if (this.shutdown.signal.aborted) {
+        throw new ProtocolError("cancelled", "Protocol reader is stopping");
+      }
+      if (
+        this.circuitUntil > this.options.now() ||
+        (this.circuitUntil > 0 && this.probing)
+      ) {
+        throw new ProtocolError(
+          "unavailable",
+          "Protocol reader is recovering",
+          Math.max(
+            1,
+            Math.ceil((this.circuitUntil - this.options.now()) / 1000)
+          )
+        );
+      }
+      const probe = this.circuitUntil > 0;
+      if (probe) {
+        this.probing = true;
       }
       const { generation } = this;
       pending = (async () => {
@@ -332,8 +381,24 @@ export class BlueskyClient {
           if (this.generation === generation) {
             this.cache.set(key, JSON.stringify(validated.data), ttlMs);
           }
+          this.failures = 0;
+          this.circuitUntil = 0;
           return validated.data;
+        } catch (error) {
+          if (
+            error instanceof ProtocolError &&
+            ["unavailable", "invalid_response"].includes(error.code)
+          ) {
+            this.failures += 1;
+            if (probe || this.failures >= 5) {
+              this.circuitUntil = this.options.now() + 30_000;
+            }
+          }
+          throw error;
         } finally {
+          if (probe) {
+            this.probing = false;
+          }
           this.pending.delete(key);
         }
       })();
@@ -375,6 +440,33 @@ export class BlueskyClient {
       maxRetries: 0,
     };
     try {
+      if (operation === "content_visibility") {
+        try {
+          const record = await this.rpc.call(
+            com.atproto.repo.getRecord,
+            {
+              collection: "app.bsky.actor.contentVisibilityDeclaration",
+              repo: actorSchema.parse(query.get("actor")),
+              rkey: "self",
+            },
+            options
+          );
+          const declaration = z
+            .object({
+              hideFromAlgorithmicRecommendations: z.boolean().default(false),
+            })
+            .parse(record.value);
+          return { allowed: !declaration.hideFromAlgorithmicRecommendations };
+        } catch (error) {
+          if (
+            error instanceof XrpcResponseError &&
+            error.error === "RecordNotFound"
+          ) {
+            return { allowed: true };
+          }
+          throw error;
+        }
+      }
       if (operation === "app.bsky.actor.getProfile") {
         return await this.rpc.call(
           app.bsky.actor.getProfile,
@@ -385,7 +477,13 @@ export class BlueskyClient {
       if (operation === "app.bsky.feed.getPosts") {
         return await this.rpc.call(
           app.bsky.feed.getPosts,
-          { uris: [postUriSchema.parse(query.get("uris"))] },
+          {
+            uris: z
+              .array(postUriSchema)
+              .min(1)
+              .max(25)
+              .parse(JSON.parse(query.get("uris") ?? "[]")),
+          },
           options
         );
       }
@@ -441,52 +539,100 @@ export class BlueskyClient {
   ): Promise<Response> {
     this.active += 1;
     try {
-      const response = await this.options.fetch(
-        `https://public.api.bsky.app${path}`,
-        {
-          ...init,
-          redirect: "error",
-          signal: AbortSignal.timeout(this.options.timeoutMs),
-        }
-      );
-      if (!response.ok) {
-        await response.body?.cancel();
-        if (response.status === 429) {
-          const header = response.headers.get("retry-after");
-          const numeric = Number(header);
-          const seconds =
-            header && !Number.isNaN(numeric)
-              ? numeric
-              : (Date.parse(header ?? "") - this.options.now()) / 1000;
-          const wait = Number.isFinite(seconds)
-            ? Math.max(1, Math.min(300, Math.ceil(seconds)))
-            : 30;
-          this.blockedUntil = this.options.now() + wait * 1000;
-          throw new ProtocolError(
-            "rate_limited",
-            "Bluesky requested a pause",
-            wait
+      for (let attempt = 0; ; attempt += 1) {
+        const signal = AbortSignal.any([
+          this.shutdown.signal,
+          AbortSignal.timeout(this.options.timeoutMs),
+        ]);
+        try {
+          const response = await abortable(
+            this.options.fetch(`https://public.api.bsky.app${path}`, {
+              ...init,
+              redirect: "error",
+              signal,
+            }),
+            signal
+          );
+          if (!response.ok) {
+            if (
+              response.status === 400 &&
+              path.startsWith("/xrpc/com.atproto.repo.getRecord?")
+            ) {
+              return Response.json(
+                await abortable(
+                  boundedJson(response, this.options.maxResponseBytes, signal),
+                  signal
+                ),
+                { status: 400 }
+              );
+            }
+            await response.body?.cancel();
+            if (response.status === 429) {
+              const wait = Math.ceil(
+                (retryAfterMs(
+                  response.headers.get("retry-after"),
+                  this.options.now()
+                ) ?? 30_000) / 1000
+              );
+              this.blockedUntil = Math.max(
+                this.blockedUntil,
+                this.options.now() + wait * 1000
+              );
+              throw new ProtocolError(
+                "rate_limited",
+                "Bluesky requested a pause",
+                wait
+              );
+            }
+            if (response.status === 401 || response.status === 403) {
+              throw new ProtocolError(
+                "restricted",
+                "Public access is unavailable"
+              );
+            }
+            throw new ProtocolError(
+              response.status >= 500 || response.status === 408
+                ? "unavailable"
+                : "invalid_input",
+              "Public read failed"
+            );
+          }
+          return Response.json(
+            await abortable(
+              boundedJson(response, this.options.maxResponseBytes, signal),
+              signal
+            )
+          );
+        } catch (error) {
+          if (this.shutdown.signal.aborted) {
+            throw new ProtocolError("cancelled", "Protocol reader is stopping");
+          }
+          const failure =
+            error instanceof ProtocolError
+              ? error
+              : new ProtocolError(
+                  "unavailable",
+                  "Bluesky is temporarily unavailable"
+                );
+          if (
+            failure.code !== "unavailable" ||
+            attempt >= this.options.maxRetries
+          ) {
+            throw failure;
+          }
+          this.report({
+            code: failure.code,
+            durationMs: 0,
+            operation: "read.retry",
+            outcome: "error",
+          });
+          await this.options.wait(
+            Math.min(1000, 250 * 2 ** attempt) +
+              Math.floor(Math.random() * 250),
+            this.shutdown.signal
           );
         }
-        if (response.status === 401 || response.status === 403) {
-          throw new ProtocolError("restricted", "Public access is unavailable");
-        }
-        throw new ProtocolError(
-          "unavailable",
-          "Bluesky is temporarily unavailable"
-        );
       }
-      return Response.json(
-        await boundedJson(response, this.options.maxResponseBytes)
-      );
-    } catch (error) {
-      if (error instanceof ProtocolError) {
-        throw error;
-      }
-      throw new ProtocolError(
-        "unavailable",
-        "Bluesky is temporarily unavailable"
-      );
     } finally {
       this.active -= 1;
     }
