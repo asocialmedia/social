@@ -123,6 +123,7 @@ import { MessagePresenceIndicator } from "./message-presence-indicator";
 import { MessageSearchBar } from "./message-search-bar";
 import { MessageSearchResults } from "./message-search-results";
 import { MessagesIconButton } from "./messages-primitives";
+import { ThreadSkeleton } from "./messages-skeleton";
 import { SelectableMessageRow } from "./selectable-message-row";
 import { TypingDots } from "./typing-dots";
 import { useTranscriptGestures } from "./use-transcript-gestures";
@@ -1056,7 +1057,8 @@ export function MessageThreadScreen({
             />
           </View>
         ) : null}
-        {transcript.snapshot.loading && messages.length === 0 ? (
+        {(status === "loading" || transcript.snapshot.loading) &&
+        messages.length === 0 ? (
           <ThreadSkeleton />
         ) : (
           <GestureDetector gesture={gesture}>
@@ -1351,27 +1353,6 @@ function ThreadHeader({
   );
 }
 
-function ThreadSkeleton() {
-  const { theme } = useAppTheme();
-  return (
-    <View style={styles.skeleton}>
-      {[false, true, false, true].map((mine, index) => (
-        <View
-          key={index}
-          style={[styles.skeletonRow, mine && styles.skeletonRowMine]}
-        >
-          <View
-            style={[
-              styles.skeletonBubble,
-              { backgroundColor: theme.dividerLine, width: 140 + index * 20 },
-            ]}
-          />
-        </View>
-      ))}
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
   dividerRow: {
     alignItems: "center",
@@ -1413,21 +1394,6 @@ const styles = StyleSheet.create({
   },
   selectionCount: {
     flex: 1,
-  },
-  skeleton: {
-    flex: 1,
-    gap: 14,
-    padding: 16,
-  },
-  skeletonBubble: {
-    borderRadius: 16,
-    height: 40,
-  },
-  skeletonRow: {
-    alignItems: "flex-start",
-  },
-  skeletonRowMine: {
-    alignItems: "flex-end",
   },
   unreadRow: {
     alignItems: "center",

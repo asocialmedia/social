@@ -111,7 +111,7 @@ function MessagesPanes() {
   if (status === "loading") {
     return (
       <div className="border-border/60 flex min-w-0 flex-1 flex-col bg-[hsl(var(--background-alt))] sm:border-x">
-        <MessagesSkeleton />
+        <MessagesSkeleton conversationOpen={Boolean(pendingConversation)} />
       </div>
     );
   }

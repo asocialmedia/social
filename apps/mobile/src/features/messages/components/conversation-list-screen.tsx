@@ -71,6 +71,7 @@ import {
   MutedGlyph,
   PressableRow,
 } from "./messages-primitives";
+import { ConversationListSkeleton } from "./messages-skeleton";
 
 export { conversationListStore } from "@/features/messages/state/conversation-list-store";
 
@@ -396,11 +397,14 @@ export function ConversationListScreen({
         {messageError && list.rows.length === 0 ? (
           <MessagesErrorState message={messageError} onRetry={retryMessages} />
         ) : null}
-        {!messageError && list.loading && list.rows.length === 0 ? (
+        {!messageError &&
+        (identity.status === "loading" || list.loading) &&
+        list.rows.length === 0 ? (
           <ConversationListSkeleton />
         ) : null}
         {(!messageError || list.rows.length > 0) &&
-        (!list.loading || list.rows.length > 0) ? (
+        ((identity.status !== "loading" && !list.loading) ||
+          list.rows.length > 0) ? (
           <FlatList
             contentContainerStyle={styles.listContent}
             data={rows}
@@ -616,38 +620,6 @@ function useDecryptPreviews(items: DecryptItem[]) {
   }, [getBaseKeys, items, status]);
 }
 
-function ConversationListSkeleton() {
-  const { theme } = useAppTheme();
-  return (
-    <View style={styles.skeleton}>
-      {Array.from({ length: 8 }, (_, index) => (
-        <View key={index} style={styles.skeletonRow}>
-          <View
-            style={[
-              styles.skeletonAvatar,
-              { backgroundColor: theme.dividerLine },
-            ]}
-          />
-          <View style={styles.skeletonBody}>
-            <View
-              style={[
-                styles.skeletonLine,
-                { backgroundColor: theme.dividerLine, width: "45%" },
-              ]}
-            />
-            <View
-              style={[
-                styles.skeletonLine,
-                { backgroundColor: theme.dividerLine, width: "75%" },
-              ]}
-            />
-          </View>
-        </View>
-      ))}
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
   avatarWrap: {
     height: 40,
@@ -698,28 +670,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     flexDirection: "row",
     gap: 8,
-  },
-  skeleton: {
-    gap: 18,
-    padding: 16,
-  },
-  skeletonAvatar: {
-    borderRadius: 14,
-    height: 40,
-    width: 40,
-  },
-  skeletonBody: {
-    flex: 1,
-    gap: 8,
-  },
-  skeletonLine: {
-    borderRadius: 4,
-    height: 12,
-  },
-  skeletonRow: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 12,
   },
   unreadPill: {
     alignItems: "center",
