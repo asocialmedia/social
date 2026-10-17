@@ -2,6 +2,7 @@ import {
   and,
   externalPostId,
   externalPostStates,
+  fromPrismaDateTime,
   getPostDataQuery,
   hydrateViewCounts,
   mapPostData,
@@ -40,29 +41,79 @@ export async function GET() {
     console.error("Error reading post visits from Redis:", error);
   }
 
-  // Fallback to PostVisits table in Postgres if Redis has no records for this user
+  // Fallback to PostgreSQL tables if Redis has no records for this user (e.g. after restart/flush)
   if (rawMembers.length === 0) {
-    const visits = await prisma.orm.public.PostVisits.select("postId")
-      .where({ userId })
-      .orderBy((visit) => visit.visitedAt.desc())
-      .limit(12)
-      .all();
+    const [asmVisits, bskyVisits] = await Promise.all([
+      (async () => {
+        try {
+          return await prisma.orm.public.PostVisits.select(
+            "postId",
+            "visitedAt"
+          )
+            .where({ userId })
+            .orderBy((visit) => visit.visitedAt.desc())
+            .limit(12)
+            .all();
+        } catch {
+          return [];
+        }
+      })(),
+      (async () => {
+        try {
+          return await prisma.orm.public.ExternalEngagements.where({ userId })
+            .select("externalPostId", "updatedAt")
+            .include("externalPost", (p) => p.select("uri", "available"))
+            .orderBy((e) => e.updatedAt.desc())
+            .limit(12)
+            .all();
+        } catch {
+          return [];
+        }
+      })(),
+    ]);
 
-    if (visits.length === 0) {
+    interface TimedVisit {
+      member: string;
+      time: number;
+    }
+    const combined: TimedVisit[] = [];
+
+    for (const v of asmVisits) {
+      combined.push({
+        member: `asm:${v.postId}`,
+        time: v.visitedAt
+          ? fromPrismaDateTime(v.visitedAt).getTime()
+          : Date.now(),
+      });
+    }
+
+    for (const v of bskyVisits) {
+      if (v.externalPost?.uri && v.externalPost.available !== false) {
+        combined.push({
+          member: `bsky:${v.externalPost.uri}`,
+          time: v.updatedAt
+            ? fromPrismaDateTime(v.updatedAt).getTime()
+            : Date.now(),
+        });
+      }
+    }
+
+    combined.sort((a, b) => b.time - a.time);
+
+    if (combined.length === 0) {
       return Response.json({ posts: [] });
     }
 
-    rawMembers = visits.map((v) => `asm:${v.postId}`);
+    rawMembers = combined.slice(0, 20).map((c) => c.member);
 
     // Backfill Redis so subsequent calls are fast and unified
     if (typeof redis.pipeline === "function") {
       try {
         const pipeline = redis.pipeline();
-      const now = Date.now();
-      for (let i = 0; i < visits.length; i += 1) {
-        pipeline.zadd(redisKey, now - i * 1000, `asm:${visits[i].postId}`);
-      }
-      await pipeline.exec();
+        for (const item of combined.slice(0, 50)) {
+          pipeline.zadd(redisKey, item.time, item.member);
+        }
+        await pipeline.exec();
       } catch (error) {
         console.error("Error backfilling Redis post visits:", error);
       }
@@ -174,24 +225,24 @@ export async function GET() {
 
       if (validUris.length > 0) {
         const states = await externalPostStates(validUris, userId);
-        await Promise.allSettled(
-          validUris.map(async (uri) => {
-            const post = liveMap.get(uri);
-            if (post) {
-              post.asm = states.get(uri);
-              await upsertExternalPostSnapshot(post);
-              bskyPostMap.set(uri, externalPostView(post));
-            }
-          })
-        );
+        const snapshotPromises: Promise<unknown>[] = [];
+        for (const uri of validUris) {
+          const post = liveMap.get(uri);
+          if (post) {
+            post.asm = states.get(uri);
+            snapshotPromises.push(upsertExternalPostSnapshot(post));
+            bskyPostMap.set(uri, externalPostView(post));
+          }
+        }
+        await Promise.allSettled(snapshotPromises);
       }
     }
   }
 
   const orderedPosts: (PostData | PresentedPost)[] = [];
   const seenIds = new Set<string>();
-  const staleVisitsToRemove: string[] = [];
 
+  const staleAsmMembers: string[] = [];
   for (const visit of parsedVisits) {
     if (orderedPosts.length >= 12) {
       break;
@@ -206,7 +257,7 @@ export async function GET() {
         seenIds.add(visit.id);
         orderedPosts.push(post);
       } else {
-        staleVisitsToRemove.push(visit.raw, `asm:${visit.id}`, visit.id);
+        staleAsmMembers.push(visit.raw, `asm:${visit.id}`, visit.id);
       }
     } else {
       const post = bskyPostMap.get(visit.id);
@@ -217,11 +268,11 @@ export async function GET() {
     }
   }
 
-  if (staleVisitsToRemove.length > 0) {
+  if (staleAsmMembers.length > 0) {
     try {
-      await redis.zrem(redisKey, ...staleVisitsToRemove);
+      await redis.zrem(redisKey, ...staleAsmMembers);
     } catch {
-      /* empty */
+      // Best-effort redis prune
     }
   }
 

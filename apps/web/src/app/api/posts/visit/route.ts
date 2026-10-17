@@ -1,9 +1,10 @@
 import {
+  externalPostId,
   findExternalPost,
   prisma,
+  recordExternalPostVisit,
   redis,
   toPrismaDateTime,
-  upsertExternalPostSnapshot,
 } from "@asm/db";
 import { BlueskyClient } from "@asm/protocols/bluesky";
 import { externalPostSchema } from "@asm/protocols/discovery";
@@ -48,9 +49,9 @@ export async function POST(request: Request) {
       const parsed = externalPostSchema.safeParse(body.externalPost);
       if (parsed.success) {
         try {
-          await upsertExternalPostSnapshot(parsed.data);
+          await recordExternalPostVisit(userId, parsed.data);
         } catch (error) {
-          console.error("Error saving external post snapshot:", error);
+          console.error("Error saving external post visit in DB:", error);
         }
       }
     } else {
@@ -58,7 +59,24 @@ export async function POST(request: Request) {
       if (cached && !cached.available) {
         return Response.json({ error: "Post deleted" }, { status: 404 });
       }
-      if (!cached) {
+      if (cached) {
+        const id = externalPostId(rawUri);
+        await prisma.orm.public.ExternalEngagements.upsert({
+          conflictOn: { externalPostId: id, userId },
+          create: {
+            amplified: false,
+            bookmarked: false,
+            externalPostId: id,
+            updatedAt: toPrismaDateTime(new Date()),
+            userId,
+          },
+          update: {
+            updatedAt: toPrismaDateTime(new Date()),
+          },
+        }).catch((error) =>
+          console.error("Error recording external engagement visit:", error)
+        );
+      } else {
         try {
           const client = new BlueskyClient();
           const posts = await client.getPosts([rawUri]);
@@ -66,7 +84,7 @@ export async function POST(request: Request) {
           if (!found) {
             return Response.json({ error: "Post not found" }, { status: 404 });
           }
-          await upsertExternalPostSnapshot(found);
+          await recordExternalPostVisit(userId, found);
         } catch {
           return Response.json({ error: "Post not found" }, { status: 404 });
         }

@@ -20,6 +20,9 @@ let mockCachedPost: { available: boolean } | null = null;
 const mockPrisma = {
   orm: {
     public: {
+      ExternalEngagements: {
+        upsert: () => ({}),
+      },
       PostVisits: {
         upsert: () => {
           upserted = true;
@@ -42,6 +45,10 @@ mock.module("@asm/db", () => ({
   ...asmDbMockBase,
   findExternalPost: () => Promise.resolve(mockCachedPost),
   prisma: mockPrisma,
+  recordExternalPostVisit: (_userId: string, post: unknown) => {
+    upsertedSnapshots.push(post);
+    return Promise.resolve("snapshot-id");
+  },
   redis: {
     ...asmDbMockBase.redis,
     zadd: (key: string, score: number, member: string) => {

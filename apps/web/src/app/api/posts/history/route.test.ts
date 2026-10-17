@@ -10,7 +10,11 @@ const mockGetSession = mock((): { user: { id: string } } | null => ({
   user: { id: USER_ID },
 }));
 
-const visits = [{ postId: "post2" }, { postId: "post1" }, { postId: "post3" }];
+const visits = [
+  { postId: "post2", visitedAt: new Date(3000) },
+  { postId: "post1", visitedAt: new Date(2000) },
+  { postId: "post3", visitedAt: new Date(1000) },
+];
 
 const posts = [
   { content: "one", id: "post1", moderated: false, user: { id: "author1" } },
@@ -23,9 +27,14 @@ let visitRows = [...visits];
 let mockRedisMembers: string[] = [];
 let redisZremCalls: [string, string[]][] = [];
 let refreshedPosts: [string, unknown][] = [];
+let mockEngagements: {
+  externalPost?: { available: boolean; uri: string };
+  externalPostId: string;
+  updatedAt: Date;
+}[] = [];
 
 interface VisitQuery {
-  all: () => Promise<{ postId: string }[]>;
+  all: () => Promise<{ postId: string; visitedAt?: Date }[]>;
   limit: (take: number) => VisitQuery;
   orderBy: () => VisitQuery;
   where: () => VisitQuery;
@@ -46,6 +55,19 @@ function createVisitQuery(_take?: number): VisitQuery {
 const mockPrisma = {
   orm: {
     public: {
+      ExternalEngagements: {
+        where: () => ({
+          select: () => ({
+            include: () => ({
+              orderBy: () => ({
+                limit: () => ({
+                  all: () => Promise.resolve([...mockEngagements]),
+                }),
+              }),
+            }),
+          }),
+        }),
+      },
       ExternalPosts: {
         where: () => ({
           all: () => Promise.resolve([]),
@@ -118,6 +140,16 @@ mock.module("@asm/db", () => ({
             responses: 0,
           },
         ],
+        [
+          "at://did:plc:123/app.bsky.feed.post/bsky-recent",
+          {
+            amplifications: 0,
+            amplified: false,
+            bookmarked: false,
+            comments: 0,
+            responses: 0,
+          },
+        ],
       ])
     ),
   getPostDataQuery: () => ({ where: () => ({ all: () => [...posts] }) }),
@@ -151,6 +183,7 @@ describe("GET /api/posts/history", () => {
     mockRedisMembers = [];
     redisZremCalls = [];
     refreshedPosts = [];
+    mockEngagements = [];
   });
 
   test("rejects unauthenticated requests", async () => {
@@ -254,5 +287,59 @@ describe("GET /api/posts/history", () => {
         call[1].some((m) => m.includes(bskyDeletedUri))
       )
     ).toBe(true);
+  });
+
+  test("recovers both ASM and Bluesky visits from Postgres when Redis is empty", async () => {
+    visitRows = [{ postId: "post1", visitedAt: new Date(1000) }];
+    mockEngagements = [
+      {
+        externalPost: {
+          available: true,
+          uri: "at://did:plc:123/app.bsky.feed.post/bsky-recent",
+        },
+        externalPostId: "ext1",
+        updatedAt: new Date(2000), // Visited more recently than post1
+      },
+    ];
+    mockRedisMembers = [];
+
+    mockGetPosts.mockResolvedValueOnce([
+      {
+        author: {
+          avatarUrl: "https://avatar.test/pic.jpg",
+          description: "Bio",
+          displayName: "Alice",
+          handle: "alice.bsky.social",
+          id: "did:plc:123",
+          labels: [],
+          source: "bluesky",
+          upstreamCounts: { followers: 1, following: 1, posts: 1 },
+          url: "https://bsky.app/profile/alice.bsky.social",
+        },
+        createdAt: "2026-10-17T20:00:00.000Z",
+        id: "at://did:plc:123/app.bsky.feed.post/bsky-recent",
+        indexedAt: "2026-10-17T20:00:00.000Z",
+        labels: [],
+        languages: ["en"],
+        media: [],
+        revision: "rev1",
+        segments: [{ text: "Recent Bluesky post" }],
+        source: "bluesky",
+        text: "Recent Bluesky post",
+        upstreamCounts: { likes: 10, quotes: 0, replies: 2, reposts: 3 },
+        url: "https://bsky.app/profile/alice.bsky.social/post/recent",
+      },
+    ]);
+
+    const res = await GET();
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.posts).toHaveLength(2);
+    // Bluesky post was visited at 2000 > post1 visited at 1000, so Bluesky comes first
+    expect(body.posts[0].id).toBe(
+      "at://did:plc:123/app.bsky.feed.post/bsky-recent"
+    );
+    expect(body.posts[1].id).toBe("post1");
   });
 });

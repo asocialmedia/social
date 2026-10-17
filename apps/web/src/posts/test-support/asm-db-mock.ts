@@ -14,8 +14,6 @@ export class BadgeLimitError extends Error {
 
 export const asmDbMockBase = {
   AMPLIFY_RECEIVE_AURA: 3,
-  // Mirrors packages/db/src/aura/config.ts so aura math over attachments
-  // behaves like production (calculateAuraReward reads base/perItem/max).
   ATTACHMENT_BONUSES: {
     AUDIO: { base: 25, max: 16, perItem: 8 },
     IMAGE: { base: 20, max: 25, perItem: 5 },
@@ -58,26 +56,36 @@ export const asmDbMockBase = {
   enqueueShitposterCheck: () => Promise.resolve(),
   externalComments: () => Promise.resolve({ cursor: null, items: [] }),
   externalLibrary: () => Promise.resolve({ cursor: null, items: [] }),
+  externalPostId: (uri: string) => `external-post-${uri}`,
   externalPostStates: () => Promise.resolve(new Map()),
   externalResponses: () => Promise.resolve({ cursor: null, items: [] }),
   findExternalPost: () => Promise.resolve(null),
+  findVisiblePost: () => Promise.resolve(null),
   fromPrismaDateTime: (value: Date): Date => value,
   generateLocalEmbedding: (): number[] =>
     Array.from({ length: EMBEDDING_DIMENSION ?? 384 }).fill(0) as number[],
   getCommentDataInclude: () => ({ user: true }),
+  getCommentDataQuery: () => ({
+    where: () => ({ all: () => Promise.resolve([]) }),
+  }),
   getCommunityRoleSelect: () => ({ select: { role: true } }),
+  getPersonalizedFeedPage: () =>
+    Promise.resolve({ items: [], nextCursor: null }),
   getPostDataInclude: () => ({ user: true }),
   getPostDataQuery: () => ({
     where: () => ({ first: () => Promise.resolve(null) }),
   }),
   getPrivateUserSelect: () => ({}),
   getPublicUserSelect: () => ({}),
+  getSubscribedCommunityIds: () => Promise.resolve([]),
   getUserDataSelect: () => ({}),
   grantBadge: () => Promise.resolve(true),
+  hydrateViewCounts: (items: unknown[]) => Promise.resolve(items),
   invalidateAuraSignals: () => Promise.resolve(),
   invalidateCommunityPostAggregates: () => Promise.resolve(),
   invalidateCommunityStats: () => Promise.resolve(),
   invalidateFypProfile: () => Promise.resolve(),
+  mapCommentData: (value: Record<string, unknown>) => value,
   mapPostData: (value: Record<string, unknown>) => value,
   markUserOnline: () => Promise.resolve(),
   messageConversationInclude: {},
@@ -101,6 +109,13 @@ export const asmDbMockBase = {
             updateAndCount: () => Promise.resolve({ count: 1 }),
           }),
         },
+        ExternalEngagements: {
+          upsert: () => Promise.resolve({}),
+          where: () => ({
+            all: () => Promise.resolve([]),
+            first: () => Promise.resolve(null),
+          }),
+        },
       },
     },
   },
@@ -112,6 +127,7 @@ export const asmDbMockBase = {
   publishResponseDeleted: () => Promise.resolve(),
   publishTrendingSnapshot: () => Promise.resolve(),
   publishTypingStarted: () => Promise.resolve(),
+  recordExternalPostVisit: () => Promise.resolve("snapshot-id"),
   redis: {
     del: () => Promise.resolve(),
     get: () => Promise.resolve(null),
@@ -149,5 +165,6 @@ export const asmDbMockBase = {
     increment: () => Promise.resolve(1),
     reset: () => Promise.resolve(),
   },
+  upsertExternalPostSnapshot: () => Promise.resolve("snapshot-id"),
   userCache: {},
 };

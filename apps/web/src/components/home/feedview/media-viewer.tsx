@@ -1,3 +1,4 @@
+// oxlint-disable eslint/no-nested-ternary, unicorn/no-nested-ternary
 "use client";
 
 import { clientLog } from "@asm/config/debug";
@@ -7,11 +8,13 @@ import { Slider } from "@asm/ui/shadui/slider";
 import { VisuallyHidden } from "@radix-ui/react-visually-hidden";
 import { formatDate } from "date-fns";
 import {
+  Check,
   ChevronLeft,
   ChevronRight,
   Download,
   Eye,
-  FileIcon,
+  Images,
+  Layers,
   Maximize,
   MessageSquare,
   Pause,
@@ -81,7 +84,6 @@ import {
 } from "./custom-video-player";
 import type { VideoPlaybackState } from "./custom-video-player";
 // eslint-disable-next-line import/no-cycle -- media-previews renders this viewer's dialog galleries, and the sidebar reuses its video preview; both are used at render time only
-import { VideoPreview } from "./media-previews";
 // eslint-disable-next-line import/no-cycle -- related posts reuse post-card which renders media-previews, which opens this viewer
 import RelatedPosts from "./related-posts";
 import ShareButton from "./share-button";
@@ -658,76 +660,245 @@ const MediaViewer = ({
     </div>
   );
 
-  // Grid of ALL the post's media in the sidebar's post section, so a
-  // multi-photo post shows every attachment next to the fullscreen view. The
-  // item being viewed is ringed; tapping any tile jumps to it. Video tiles
-  // reuse the feed's VideoPreview so they keep the feed's 16:9 proportions
-  // and hover controls (play/pause + mute).
-  const renderSidebarGridTileContent = (item: Media, index: number) => {
-    const alt = item.altText || `Media ${index + 1}`;
-    if (item.type === "IMAGE") {
-      if (item.mimeType === "image/svg+xml") {
-        return (
-          <object
-            aria-label={alt}
-            className="h-full w-full"
-            data={getMediaUrl(item.id)}
-            type="image/svg+xml"
-          />
-        );
-      }
+  // Revamped 3D dualborder media selector grid in the sidebar.
+  // Instead of a plain repeated image or white-ringed tiles, it renders tactile,
+  // 3D dual-bordered selector tiles with interactive indicators, corner badges,
+  // previous/next controls, and an inspector strip for the active asset.
+  const renderSidebarMediaGrid = () => {
+    if (media.length === 0) {
+      return null;
+    }
+
+    if (media.length === 1) {
+      const [single] = media;
+      const isVideo = single.type === "VIDEO";
+      const isSvg = single.mimeType === "image/svg+xml";
+      const isGif = single.mimeType === "image/gif";
+      const formatLabel = isVideo
+        ? "Video"
+        : isGif
+          ? "GIF"
+          : isSvg
+            ? "SVG Vector"
+            : "Image";
+
       return (
-        // eslint-disable-next-line @next/next/no-img-element -- sidebar grid thumb
-        <img
-          alt={alt}
-          className="h-full w-full object-cover"
-          decoding="async"
-          loading="lazy"
-          src={getMediaImageUrl(item, "md-webp.webp")}
-        />
+        <div className="rounded-2xl border border-white/10 bg-black/40 p-2.5 shadow-[inset_0_1px_1px_rgba(255,255,255,0.08),0_4px_12px_rgba(0,0,0,0.3)] backdrop-blur-md">
+          <div className="mb-2 flex items-center justify-between text-xs">
+            <span className="flex items-center gap-1.5 font-semibold text-zinc-300">
+              <Images className="size-3.5 text-[#ff9500]" />
+              Attached Media
+            </span>
+            <span className="rounded-full border border-white/15 bg-white/5 px-2 py-0.5 text-[10px] font-bold text-zinc-300 shadow-[inset_0_1px_1px_rgba(255,255,255,0.15)]">
+              {formatLabel}
+            </span>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <div
+              className={cn(
+                "relative h-20 w-24 shrink-0 overflow-hidden rounded-xl border border-white/20 bg-zinc-950",
+                "shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.4),0_0_0_1px_rgba(0,0,0,0.9),0_2px_8px_rgba(0,0,0,0.5)]"
+              )}
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element -- sidebar compact preview */}
+              <img
+                alt={single.altText || "Attached media"}
+                className="h-full w-full object-cover"
+                decoding="async"
+                loading="lazy"
+                src={
+                  isVideo
+                    ? getMediaProxyUrl(single)
+                    : getMediaImageUrl(single, "thumb-webp.webp")
+                }
+              />
+              <span className="absolute top-1 left-1 flex items-center gap-1 rounded-full bg-[#ff9500] px-1.5 py-0.5 text-[8px] font-black tracking-wider text-black shadow-[0_1px_2px_rgba(0,0,0,0.6)]">
+                <span className="size-1 animate-pulse rounded-full bg-black" />
+                ACTIVE
+              </span>
+              {isVideo ? (
+                <span className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/25">
+                  <span className="flex size-5 items-center justify-center rounded-full bg-white/90 text-zinc-900 shadow-md">
+                    <Play className="ml-0.5 size-2.5 fill-current" />
+                  </span>
+                </span>
+              ) : null}
+            </div>
+
+            <div className="min-w-0 flex-1 space-y-1">
+              <div className="flex items-center gap-1.5 text-xs font-semibold text-white">
+                <span className="truncate">
+                  {single.altText || `${formatLabel} Attachment`}
+                </span>
+              </div>
+              <div className="flex flex-wrap items-center gap-1 text-[11px] text-zinc-400">
+                {single.width && single.height ? (
+                  <span className="rounded-md border border-white/10 bg-zinc-900/80 px-1.5 py-0.5 text-[10px] tabular-nums">
+                    {single.width} × {single.height}
+                  </span>
+                ) : null}
+                {single.aiGenerated ? (
+                  <span className="rounded-md border border-violet-500/40 bg-violet-950/60 px-1.5 py-0.5 text-[10px] font-semibold text-violet-300">
+                    AI
+                  </span>
+                ) : null}
+              </div>
+              <p className="flex items-center gap-1 text-[11px] text-zinc-400">
+                <Check className="size-3 text-[#ff9500]" />
+                Viewing in main canvas
+              </p>
+            </div>
+          </div>
+        </div>
       );
     }
-    if (item.type === "VIDEO") {
-      return <VideoPreview media={item} />;
-    }
-    return (
-      <div className="flex h-full w-full items-center justify-center">
-        <FileIcon className="text-primary h-5 w-5" />
-      </div>
-    );
-  };
 
-  const renderSidebarMediaGrid = () => {
-    let cols = "grid-cols-3";
-    if (media.length === 1) {
-      cols = "grid-cols-1";
-    } else if (media.length === 2) {
-      cols = "grid-cols-2";
-    }
+    // Multiple media items (grid of small selectors with 3D dualborder design)
+    const cols =
+      media.length === 2
+        ? "grid-cols-2"
+        : (media.length === 3
+          ? "grid-cols-3"
+          : "grid-cols-4");
+
     return (
-      <div className={cn("grid gap-1.5", cols)}>
-        {media.map((item, index) => {
-          const isActive = index === currentIndex;
-          // Video tiles size themselves to the feed's 16:9 ratio; the rest
-          // stay square so mixed grids keep a tidy row height.
-          const isVideo = item.type === "VIDEO";
-          return (
-            <button
-              key={item.id}
-              aria-current={isActive}
-              aria-label={`Go to media ${index + 1} of ${media.length}`}
-              className={cn(
-                "relative overflow-hidden rounded-lg bg-zinc-900",
-                !isVideo && "aspect-square",
-                isActive ? "ring-2 ring-white" : "opacity-70 hover:opacity-100"
-              )}
-              onClick={() => handleSelectThumb(index)}
-              type="button"
-            >
-              {renderSidebarGridTileContent(item, index)}
-            </button>
-          );
-        })}
+      <div className="rounded-2xl border border-white/10 bg-black/40 p-2.5 shadow-[inset_0_1px_1px_rgba(255,255,255,0.08),0_4px_12px_rgba(0,0,0,0.3)] backdrop-blur-md">
+        {/* Header row with selector counter and step controls */}
+        <div className="mb-2.5 flex items-center justify-between">
+          <div className="flex items-center gap-1.5 text-xs font-semibold text-zinc-300">
+            <Layers className="size-3.5 text-[#ff9500]" />
+            <span>Media Selector</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="rounded-full border border-white/15 bg-white/5 px-2 py-0.5 text-[10px] font-bold text-zinc-300 tabular-nums shadow-[inset_0_1px_1px_rgba(255,255,255,0.15)]">
+              {currentIndex + 1} of {media.length}
+            </span>
+            <div className="flex items-center gap-1">
+              <button
+                aria-label="Previous media"
+                className="flex size-6 items-center justify-center rounded-full border border-white/10 bg-zinc-800/90 text-zinc-300 shadow-[inset_0_1px_1px_rgba(255,255,255,0.2),0_1px_2px_rgba(0,0,0,0.4)] transition-all hover:bg-zinc-700 hover:text-white active:translate-y-px"
+                onClick={handlePrevious}
+                type="button"
+              >
+                <ChevronLeft className="size-3" />
+              </button>
+              <button
+                aria-label="Next media"
+                className="flex size-6 items-center justify-center rounded-full border border-white/10 bg-zinc-800/90 text-zinc-300 shadow-[inset_0_1px_1px_rgba(255,255,255,0.2),0_1px_2px_rgba(0,0,0,0.4)] transition-all hover:bg-zinc-700 hover:text-white active:translate-y-px"
+                onClick={handleNext}
+                type="button"
+              >
+                <ChevronRight className="size-3" />
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Small 3D Dual-Border Selectors Grid */}
+        <div className={cn("grid gap-2", cols)}>
+          {media.map((item, index) => {
+            const isActive = index === currentIndex;
+            const isVideo = item.type === "VIDEO";
+            const isSvg = item.mimeType === "image/svg+xml";
+            const isGif = item.mimeType === "image/gif";
+
+            return (
+              <button
+                key={item.id}
+                aria-current={isActive}
+                aria-label={`Select media ${index + 1} of ${media.length}`}
+                className={cn(
+                  "group relative aspect-square cursor-pointer overflow-hidden rounded-xl transition-all duration-200",
+                  isActive
+                    ? [
+                        "scale-[1.02] ring-2 ring-[#ff9500] ring-offset-2 ring-offset-zinc-950",
+                        "border border-white/50 bg-zinc-900",
+                        "shadow-[inset_0_0_0_1px_rgba(255,255,255,0.4),inset_0_1.5px_2px_rgba(255,255,255,0.6),0_0_14px_rgba(255,149,0,0.35),0_4px_10px_rgba(0,0,0,0.7)]",
+                      ]
+                    : [
+                        "border border-white/15 bg-zinc-950/80 opacity-70",
+                        "shadow-[inset_0_0_0_1px_rgba(255,255,255,0.08),0_2px_5px_rgba(0,0,0,0.4)]",
+                        "hover:scale-[1.03] hover:border-white/30 hover:opacity-100",
+                      ]
+                )}
+                onClick={() => handleSelectThumb(index)}
+                type="button"
+              >
+                {/* Thumbnail image/preview */}
+                {/* eslint-disable-next-line @next/next/no-img-element -- sidebar compact thumb */}
+                <img
+                  alt={item.altText || `Thumbnail ${index + 1}`}
+                  className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+                  decoding="async"
+                  loading="lazy"
+                  src={
+                    isVideo
+                      ? getMediaProxyUrl(item)
+                      : getMediaImageUrl(item, "thumb-webp.webp")
+                  }
+                />
+
+                {/* Index Pill / Active Marker */}
+                {isActive ? (
+                  <span className="absolute top-1 left-1 z-10 flex items-center gap-1 rounded-full bg-[#ff9500] px-1.5 py-0.5 text-[8px] font-black tracking-wider text-black shadow-[0_1px_3px_rgba(0,0,0,0.6)]">
+                    <span className="size-1 animate-ping rounded-full bg-black" />
+                    #{index + 1}
+                  </span>
+                ) : (
+                  <span className="absolute top-1 left-1 z-10 rounded-md border border-white/15 bg-black/75 px-1.5 py-0.5 text-[9px] font-semibold text-zinc-300 shadow-xs backdrop-blur-md">
+                    #{index + 1}
+                  </span>
+                )}
+
+                {/* Bottom type badge */}
+                {isVideo ? (
+                  <span className="absolute right-1 bottom-1 z-10 flex items-center gap-0.5 rounded-md border border-white/20 bg-black/80 px-1 py-0.5 text-[8px] font-bold text-white shadow-xs backdrop-blur-md">
+                    <Play className="size-2 fill-current" />
+                  </span>
+                ) : isGif ? (
+                  <span className="absolute right-1 bottom-1 z-10 rounded-md border border-white/20 bg-black/80 px-1 py-0.5 text-[8px] font-bold text-white shadow-xs backdrop-blur-md">
+                    GIF
+                  </span>
+                ) : isSvg ? (
+                  <span className="absolute right-1 bottom-1 z-10 rounded-md border border-white/20 bg-black/80 px-1 py-0.5 text-[8px] font-bold text-white shadow-xs backdrop-blur-md">
+                    SVG
+                  </span>
+                ) : null}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Selected Media Inspector Strip */}
+        {currentMedia ? (
+          <div className="mt-2.5 flex items-center justify-between gap-2 rounded-xl border border-white/10 bg-black/30 px-2.5 py-1.5 text-xs shadow-[inset_0_1px_1px_rgba(255,255,255,0.06)]">
+            <span className="truncate text-[11px] font-medium text-zinc-400">
+              {currentMedia.type === "VIDEO"
+                ? "Video Asset"
+                : currentMedia.mimeType === "image/gif"
+                  ? "Animated GIF"
+                  : currentMedia.mimeType === "image/svg+xml"
+                    ? "Vector SVG"
+                    : "Image Asset"}
+              {currentMedia.width && currentMedia.height
+                ? ` · ${currentMedia.width} × ${currentMedia.height}`
+                : ""}
+            </span>
+            <div className="flex shrink-0 items-center gap-1">
+              {currentMedia.altText ? (
+                <span className="rounded-full border border-white/15 bg-white/10 px-1.5 py-0.5 text-[9px] font-bold text-zinc-300">
+                  ALT
+                </span>
+              ) : null}
+              {currentMedia.aiGenerated ? (
+                <span className="rounded-full border border-violet-500/40 bg-violet-950/60 px-1.5 py-0.5 text-[9px] font-bold text-violet-300">
+                  AI
+                </span>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
       </div>
     );
   };

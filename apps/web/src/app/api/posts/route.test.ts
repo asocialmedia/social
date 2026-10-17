@@ -36,7 +36,7 @@ mock.module("@asm/db", () => ({
   ExternalInteractionError,
   // Named-export stub for the linker: sibling route tests in the same
   // process mock @asm/db with only prisma, and vice versa.
-  prisma: {},
+  prisma: asmDbMockBase.prisma,
   redis,
 }));
 mock.module("@/lib/auth/session", () => ({

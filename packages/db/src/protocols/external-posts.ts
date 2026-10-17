@@ -422,3 +422,24 @@ export async function upsertExternalPostSnapshot(
   });
   return id;
 }
+
+export async function recordExternalPostVisit(
+  userId: string,
+  post: ExternalPost
+): Promise<string> {
+  const id = await upsertExternalPostSnapshot(post);
+  await prisma.orm.public.ExternalEngagements.upsert({
+    conflictOn: { externalPostId: id, userId },
+    create: {
+      amplified: false,
+      bookmarked: false,
+      externalPostId: id,
+      updatedAt: toPrismaDateTime(new Date()),
+      userId,
+    },
+    update: {
+      updatedAt: toPrismaDateTime(new Date()),
+    },
+  });
+  return id;
+}
