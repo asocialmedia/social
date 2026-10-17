@@ -38,7 +38,7 @@ export function ExternalPostActions({
       <CountButton
         count={interaction.state.comments}
         icon={<MessageSquare color={theme.dividerText} size={16} />}
-        label="Comments in ASM"
+        label="Comments in asocialmedia"
         onPress={onDiscussion}
       />
       <CountButton

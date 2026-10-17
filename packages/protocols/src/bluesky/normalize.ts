@@ -43,7 +43,7 @@ function publicLabels(labels: BlueskyProfile["labels"] = []): string[] {
       (labels ?? []).filter((label) => !label.neg).map((label) => label.val)
     ),
   ];
-  // Public reads use conservative defaults until ASM supplies a reviewed moderation policy.
+  // Public reads use conservative defaults until asocialmedia supplies a reviewed moderation policy.
   if (values.length > 0) {
     throw new ProtocolError(
       "restricted",

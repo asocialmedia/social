@@ -79,10 +79,10 @@ export function ExternalResponses({ uri }: { uri: string }) {
 
   return (
     <section
-      aria-label="Responses on ASM"
+      aria-label="Responses on asocialmedia"
       className="border-border/60 border-t pt-4"
     >
-      <h2 className="px-4 pb-3 font-semibold">Responses on ASM</h2>
+      <h2 className="px-4 pb-3 font-semibold">Responses on asocialmedia</h2>
       {query.isPending ? <LoadMoreSkeleton /> : null}
       {query.isError ? (
         <Button

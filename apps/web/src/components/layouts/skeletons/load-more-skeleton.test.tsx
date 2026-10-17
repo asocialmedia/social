@@ -70,10 +70,10 @@ describe("post skeletons", () => {
     }
   });
 
-  test("Bluesky post skeleton renders squircle avatar, butterfly icon, and matches ASM card structure", () => {
+  test("Bluesky post skeleton renders squircle avatar, butterfly icon, and matches asocialmedia card structure", () => {
     const html = renderToString(<PostCardSkeleton isBluesky />);
     expect(html).toContain('aria-label="Loading Bluesky post"');
-    // Squircle avatar matching ASM UserAvatar
+    // Squircle avatar matching asocialmedia UserAvatar
     expect(html).toContain("rounded-[30%]");
     expect(html).toContain("avatar-ring");
     // Bluesky butterfly icon SVG with sky color

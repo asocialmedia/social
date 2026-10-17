@@ -122,7 +122,8 @@ export function ExternalPostPage() {
       {query.isSuccess ? (
         <>
           <p className="text-muted-foreground p-4">
-            The source post is unavailable. ASM discussion is preserved.
+            The source post is unavailable. asocialmedia discussion is
+            preserved.
           </p>
           <ExternalDiscussion post={{ id: uri }} />
         </>

@@ -63,9 +63,12 @@ export function useExternalFeedback(
           title: "Undo",
         },
         description: user
-          ? "Saved to your ASM feed preferences."
+          ? "Saved to your asocialmedia feed preferences."
           : "Saved for this session.",
-        title: scope === "author" ? "Author muted in ASM" : "Not interested",
+        title:
+          scope === "author"
+            ? "Author muted in asocialmedia"
+            : "Not interested",
       });
     } catch {
       toast({

@@ -42,6 +42,9 @@ export const emailConfig = {
       warningBg: "rgba(255, 149, 0, 0.06)",
       warningBorder: "rgba(255, 149, 0, 0.18)",
     },
+    // The framing art: a warm scene above the card, a meadow below it. Both are
+    // full-width illustrations rather than marks.
+    emailFooter: "https://cdn.asocialmedia.cc/asm_email_footer.png",
     features: [
       {
         description:
@@ -85,6 +88,8 @@ export const emailConfig = {
       playStore: `${env.APP_URL}/brand/email/play-store.png`,
     },
     logoUrl: "https://zr2.asocialmedia.cc/Assets/zephyr-logo.png",
+    verificationHeader:
+      "https://cdn.asocialmedia.cc/asm_verification_header.png",
     welcomeHero: "https://cdn.asocialmedia.cc/asm-welcome-email.png",
   },
 

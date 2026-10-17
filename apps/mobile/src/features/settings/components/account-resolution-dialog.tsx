@@ -373,7 +373,7 @@ export function AccountResolutionDialog({
       description={
         complete
           ? "Sign in again with the profile you kept."
-          : "This sign-in method or email belongs to another ASM profile. Choose what happens to both accounts."
+          : "This sign-in method or email belongs to another asocialmedia profile. Choose what happens to both accounts."
       }
       busy={busy || complete}
       onClose={cancel}

@@ -1,11 +1,11 @@
-// oxlint-disable react/todo -- Async mutations release request guards in finally, including failed requests.
-import type { ExternalCommentPage } from "@asm/protocols/discovery";
 import { randomUUID } from "expo-crypto";
+import { Image } from "expo-image";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
+  Linking,
   Platform,
   Pressable,
   ScrollView,
@@ -15,24 +15,33 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { UserAvatar } from "@/components/avatar/user-avatar";
+import noCommentsImage from "@/assets/images/nocomments.png";
 import { StatusActionButton } from "@/components/feedback/status-action-button";
 import { premiumInput, themeText } from "@/components/surface/recipes";
 import { useSessionContext } from "@/features/auth/state/session";
 import { useComposerStore } from "@/features/composer/state/composer-store";
+import { DeleteEddieDialog } from "@/features/eddies/components/delete-eddie-dialog";
+import {
+  DELETE_ENTRY,
+  EddieRow,
+  eddieThreadStyles,
+} from "@/features/eddies/components/eddie-thread";
+import type { RowHandlers } from "@/features/eddies/components/eddie-thread";
+import { buildEddieTree } from "@/features/eddies/lib/eddie-tree";
+import type { FeedComment } from "@/features/feed/lib/feed-api";
 import { PostDetailHeader } from "@/features/post/components/post-detail-header";
+import { getApiBaseUrl } from "@/lib/api-env";
 import { useAppTheme } from "@/theme";
 
-import { externalRequest, readExternal } from "../lib/external-interactions";
-import { formatRelativeDate } from "../lib/feed-types";
-import type { FeedPost } from "../lib/feed-types";
+import { readExternal } from "../lib/external-interactions";
 import { useExternalInteractions } from "../state/use-external-interactions";
 import { BlueskyPostCard } from "./bluesky-post-card";
 import { MoreMenu } from "./more-menu";
 import type { MenuAnchor } from "./more-menu";
-import { PostCard } from "./post-card";
-import { ShareSheet } from "./share-sheet";
-import { usePostOverflow } from "./use-post-overflow";
+
+const noop = () => {
+  /* empty */
+};
 
 export function ExternalPostScreen() {
   const { uri: param } = useLocalSearchParams<{ uri: string }>();
@@ -45,55 +54,10 @@ export function ExternalPostScreen() {
   const scrollRef = useRef<ScrollView>(null);
   const inputRef = useRef<TextInput>(null);
   const discussionY = useRef(0);
-  const [responses, setResponses] = useState<{
-    items: FeedPost[];
-    cursor: { createdAt: string; id: string } | null;
-  }>({ cursor: null, items: [] });
-  const [sharePost, setSharePost] = useState<FeedPost | null>(null);
-  const [menuPost, setMenuPost] = useState<FeedPost | null>(null);
-  const [menuAnchor, setMenuAnchor] = useState<MenuAnchor | null>(null);
-  const [altIds, setAltIds] = useState<ReadonlySet<string>>(() => new Set());
-  const overflow = usePostOverflow({
-    onDeleted: (id) =>
-      setResponses((page) => ({
-        ...page,
-        items: page.items.filter((post) => post.id !== id),
-      })),
-    onHide: (target) =>
-      setResponses((page) => ({
-        ...page,
-        items: page.items.filter((post) => post.id !== target.id),
-      })),
-    onModerated: (id, next) =>
-      setResponses((page) => ({
-        ...page,
-        items: page.items.map((post) =>
-          post.id === id ? { ...post, ...next } : post
-        ),
-      })),
-    onTagsSaved: (id, tags) =>
-      setResponses((page) => ({
-        ...page,
-        items: page.items.map((post) =>
-          post.id === id
-            ? { ...post, tags: tags.map((name) => ({ id: name, name })) }
-            : post
-        ),
-      })),
-    onToggleAlt: (post) =>
-      setAltIds((current) => {
-        const next = new Set(current);
-        if (next.has(post.id)) {
-          next.delete(post.id);
-        } else {
-          next.add(post.id);
-        }
-        return next;
-      }),
-    viewerId: user?.id ?? null,
-  });
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const apiBase = getApiBaseUrl();
+
   const [data, setData] = useState<Awaited<
     ReturnType<typeof readExternal>
   > | null>(null);
@@ -105,6 +69,14 @@ export function ExternalPostScreen() {
     id: uri,
   });
   const [loadingMore, setLoadingMore] = useState(false);
+
+  const [menu, setMenu] = useState<{
+    anchor: MenuAnchor;
+    commentId: string;
+  } | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
   const load = useCallback(
     async (signal?: AbortSignal) => {
       try {
@@ -121,6 +93,7 @@ export function ExternalPostScreen() {
     },
     [uri]
   );
+
   useEffect(() => {
     const controller = new AbortController();
     if (composerOpen) {
@@ -134,29 +107,7 @@ export function ExternalPostScreen() {
     return () => controller.abort();
     // oxlint-disable-next-line react/exhaustive-effect-dependencies -- Session changes refresh viewer-specific engagement state.
   }, [load, composerOpen, user?.id]);
-  useEffect(() => {
-    const controller = new AbortController();
-    if (composerOpen) {
-      return () => controller.abort();
-    }
-    void (async () => {
-      try {
-        const page = await externalRequest(
-          new URLSearchParams({ kind: "responses", uri }),
-          { signal: controller.signal }
-        );
-        if (!controller.signal.aborted) {
-          setResponses(page as typeof responses);
-        }
-      } catch {
-        if (!controller.signal.aborted) {
-          setError(true);
-        }
-      }
-    })();
-    return () => controller.abort();
-    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- Response rows contain viewer-specific votes and bookmarks.
-  }, [uri, composerOpen, user?.id]);
+
   const more = async () => {
     if (!data?.comments.cursor || loadingMore) {
       return;
@@ -180,25 +131,74 @@ export function ExternalPostScreen() {
       );
     } catch {
       setError(true);
-    } finally {
-      setLoadingMore(false);
     }
+    setLoadingMore(false);
   };
-  const remove = async (comment: ExternalCommentPage["items"][number]) => {
-    if (
-      await interaction.mutate({
-        action: "delete_comment",
-        commentId: comment.id,
-        uri,
-      })
-    ) {
-      await load();
+
+  const confirmDelete = async () => {
+    if (!deleteTarget) {
+      return;
     }
+    setDeleting(true);
+    try {
+      if (
+        await interaction.mutate({
+          action: "delete_comment",
+          commentId: deleteTarget,
+          uri,
+        })
+      ) {
+        setDeleteTarget(null);
+        await load();
+      }
+    } catch {
+      // Best-effort
+    }
+    setDeleting(false);
   };
+
   const openDiscussion = () => {
     scrollRef.current?.scrollTo({ animated: true, y: discussionY.current });
     inputRef.current?.focus();
   };
+
+  const handlers: RowHandlers = {
+    onDelete: (commentId) => setDeleteTarget(commentId),
+    onLayoutRow: noop,
+    onMore: (commentId, anchor) => setMenu({ anchor, commentId }),
+    onOpenAuthor: (username) => {
+      if (username.startsWith("did:") || username.includes(".")) {
+        void Linking.openURL(`https://bsky.app/profile/${username}`);
+      } else {
+        router.push(`/users/${username}` as "/");
+      }
+    },
+    onReply: () => {
+      openDiscussion();
+    },
+    onRequireLogin: () => {
+      router.push("/(auth)/login");
+    },
+  };
+
+  const feedComments: FeedComment[] = (data?.comments.items ?? []).map(
+    (comment) => ({
+      content: comment.content,
+      createdAt: comment.createdAt,
+      deleted: comment.deleted,
+      id: comment.id,
+      parentId: comment.parentId ?? null,
+      source: comment.source,
+      user: {
+        avatarUrl: comment.user.avatarUrl,
+        displayName: comment.user.displayName,
+        id: comment.user.id,
+        username: comment.user.username,
+      },
+    })
+  );
+  const tree = buildEddieTree(feedComments);
+
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === "ios" ? "padding" : "height"}
@@ -243,7 +243,7 @@ export function ExternalPostScreen() {
         ) : null}
         {data && !data.post ? (
           <Text className="p-4" style={{ color: theme.dividerText }}>
-            Source post unavailable. ASM discussion is preserved.
+            Source post unavailable. asocialmedia discussion is preserved.
           </Text>
         ) : null}
         {data ? (
@@ -251,120 +251,13 @@ export function ExternalPostScreen() {
             onLayout={(event) => {
               discussionY.current = event.nativeEvent.layout.y;
             }}
-            className="border-t px-4 pt-4"
-            style={{ borderColor: theme.cardBorder }}
+            style={[
+              eddieThreadStyles.section,
+              { borderTopColor: theme.cardBorder, marginTop: 16 },
+            ]}
           >
-            <Text
-              style={{
-                color: theme.inputText,
-                fontFamily: "SofiaProBold",
-                fontSize: 16,
-              }}
-            >
-              Eddies
-            </Text>
-            <Text
-              className="mt-1 mb-4 text-xs"
-              style={{ color: theme.dividerText }}
-            >
-              Discussion on ASM · Replies stay on ASM
-            </Text>
-            {data.comments.items.length === 0 ? (
-              <Text
-                className="py-4 text-sm"
-                style={{ color: theme.dividerText }}
-              >
-                No eddies yet. Start the conversation.
-              </Text>
-            ) : null}
-            {data?.comments.items.map((comment) => {
-              const isBluesky =
-                comment.source === "bluesky" ||
-                comment.id.startsWith("at://") ||
-                comment.user.id.startsWith("did:");
-              return (
-                <View
-                  key={comment.id}
-                  className="flex-row gap-3 border-b py-3"
-                  style={{
-                    borderColor: theme.cardBorder,
-                    paddingLeft: comment.parentId ? 24 : 0,
-                  }}
-                >
-                  <UserAvatar
-                    size={32}
-                    url={comment.user.avatarUrl}
-                    username={comment.user.username}
-                  />
-                  <View className="min-w-0 flex-1 gap-1">
-                    <View className="flex-row items-center gap-2">
-                      <Text
-                        numberOfLines={1}
-                        style={{
-                          color: theme.inputText,
-                          flexShrink: 1,
-                          fontFamily: "SofiaProBold",
-                        }}
-                      >
-                        {comment.user.displayName}
-                      </Text>
-                      {isBluesky ? (
-                        <Text
-                          style={{
-                            color: "#0285FF",
-                            fontFamily: "SofiaProBold",
-                            fontSize: 11,
-                          }}
-                        >
-                          Bluesky
-                        </Text>
-                      ) : null}
-                      <Text
-                        style={{
-                          color: theme.dividerText,
-                          fontFamily: "SofiaProReg",
-                          fontSize: 12,
-                        }}
-                      >
-                        {formatRelativeDate(comment.createdAt)}
-                      </Text>
-                    </View>
-                    <Text selectable style={{ color: theme.inputText }}>
-                      {comment.deleted ? "Comment removed" : comment.content}
-                    </Text>
-                    {comment.userId === user?.id && !comment.deleted ? (
-                      <Pressable
-                        disabled={interaction.pending}
-                        onPress={() => {
-                          void remove(comment);
-                        }}
-                      >
-                        <Text
-                          className="py-2"
-                          style={{ color: theme.dividerText }}
-                        >
-                          Delete
-                        </Text>
-                      </Pressable>
-                    ) : null}
-                  </View>
-                </View>
-              );
-            })}
-            {data?.comments.cursor ? (
-              <Pressable
-                disabled={loadingMore}
-                onPress={() => {
-                  void more();
-                }}
-              >
-                <Text className="py-3" style={{ color: theme.dividerText }}>
-                  More comments
-                </Text>
-              </Pressable>
-            ) : null}
             {user ? (
-              <View className="gap-2 py-4">
+              <View className="gap-2 px-4 py-3">
                 <TextInput
                   accessibilityLabel="Write an eddy"
                   ref={inputRef}
@@ -411,110 +304,102 @@ export function ExternalPostScreen() {
                 </View>
               </View>
             ) : (
-              <Pressable onPress={() => router.push("/(auth)/login")}>
-                <Text className="py-4" style={{ color: theme.inputText }}>
+              <Pressable
+                className="px-4 py-3"
+                onPress={() => router.push("/(auth)/login")}
+              >
+                <Text style={{ color: theme.inputText }}>
                   Sign in to join the discussion
                 </Text>
               </Pressable>
             )}
-          </View>
-        ) : null}
-        {data ? (
-          <View
-            className="border-t pt-4"
-            style={{ borderColor: theme.cardBorder }}
-          >
-            <Text
-              className="px-4 pb-3"
-              style={{
-                color: theme.inputText,
-                fontFamily: "SofiaProBold",
-                fontSize: 16,
-              }}
-            >
-              Responses on ASM
-            </Text>
-            {responses.items.length === 0 ? (
-              <Text
-                className="px-4 pb-6 text-sm"
-                style={{ color: theme.dividerText }}
-              >
-                No responses yet. Use Respond to post a fleet.
-              </Text>
+
+            {tree.length === 0 ? (
+              <View style={eddieThreadStyles.stateWrap}>
+                <Image
+                  contentFit="contain"
+                  source={noCommentsImage}
+                  style={eddieThreadStyles.emptyArt}
+                />
+                <Text
+                  style={[
+                    eddieThreadStyles.stateText,
+                    { color: theme.dividerText },
+                  ]}
+                >
+                  No eddie yet.
+                </Text>
+              </View>
             ) : null}
-            {responses.items.map((post) => (
-              <PostCard
-                hasThreadChild={false}
-                hasThreadParent={false}
-                key={post.id}
-                post={post}
-                viewerId={user?.id}
-                showAlt={altIds.has(post.id)}
-                onMore={(target, anchor) => {
-                  setMenuPost(target);
-                  setMenuAnchor(anchor);
-                }}
-                onShare={setSharePost}
-              />
-            ))}
-            {responses.cursor ? (
+
+            <View style={eddieThreadStyles.listWrap}>
+              {tree.map((node, index) => (
+                <View
+                  key={node.comment.id}
+                  style={[
+                    index > 0 && eddieThreadStyles.divider,
+                    index > 0 && { borderTopColor: theme.cardBorder },
+                  ]}
+                >
+                  <EddieRow
+                    apiBase={apiBase}
+                    handlers={handlers}
+                    inlineReplyFor={null}
+                    isLast={false}
+                    node={node}
+                    onCloseInlineReply={noop}
+                    postId={uri}
+                    viewerId={user?.id}
+                  />
+                </View>
+              ))}
+            </View>
+
+            {data.comments.cursor ? (
               <Pressable
+                accessibilityRole="button"
                 disabled={loadingMore}
                 onPress={() => {
-                  if (!responses.cursor || loadingMore) {
-                    return;
-                  }
-                  setLoadingMore(true);
-                  void (async () => {
-                    try {
-                      const page = await externalRequest(
-                        new URLSearchParams({
-                          cursor: JSON.stringify(responses.cursor),
-                          kind: "responses",
-                          uri,
-                        })
-                      );
-                      const next = page as typeof responses;
-                      setResponses((current) => ({
-                        cursor: next.cursor,
-                        items: [...current.items, ...next.items],
-                      }));
-                    } catch {
-                      setError(true);
-                    } finally {
-                      setLoadingMore(false);
-                    }
-                  })();
+                  void more();
                 }}
+                style={eddieThreadStyles.previousLink}
               >
-                <Text className="p-4" style={{ color: theme.inputText }}>
-                  More responses
-                </Text>
+                {loadingMore ? (
+                  <ActivityIndicator color={theme.dividerText} size={14} />
+                ) : (
+                  <Text
+                    style={[
+                      eddieThreadStyles.previousText,
+                      { color: theme.dividerText },
+                    ]}
+                  >
+                    Load more eddies
+                  </Text>
+                )}
               </Pressable>
             ) : null}
           </View>
         ) : null}
       </ScrollView>
-      <ShareSheet onClose={() => setSharePost(null)} post={sharePost} />
+
       <MoreMenu
-        anchor={menuAnchor}
-        entries={
-          menuPost
-            ? overflow.entriesFor(menuPost, {
-                showCaptions: false,
-                showingAlt: altIds.has(menuPost.id),
-              })
-            : []
-        }
+        anchor={menu?.anchor ?? null}
+        entries={menu ? DELETE_ENTRY : []}
         onAction={(action) => {
-          if (menuPost) {
-            overflow.onAction(action, menuPost);
+          if (action.type === "delete" && menu) {
+            setDeleteTarget(menu.commentId);
           }
-          setMenuAnchor(null);
         }}
-        onClose={() => setMenuAnchor(null)}
+        onClose={() => setMenu(null)}
       />
-      {overflow.dialogs}
+      <DeleteEddieDialog
+        deleting={deleting}
+        onCancel={() => setDeleteTarget(null)}
+        onConfirm={() => {
+          void confirmDelete();
+        }}
+        open={deleteTarget !== null}
+      />
     </KeyboardAvoidingView>
   );
 }

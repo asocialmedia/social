@@ -70,7 +70,30 @@ describe("email templates", () => {
 
     expect(html).toContain("Your security code");
     expect(html).toContain("123456");
-    expect(html).toContain("complete your sign-in");
+    expect(html).toContain("finish signing in");
+  });
+
+  test("code emails use the card shell with a left brand lockup", async () => {
+    const otp = await getOTPVerificationEmailHtml("482913");
+    const twoFactor = await getTwoFactorOTPEmailHtml("913204");
+
+    for (const html of [otp, twoFactor]) {
+      // The framed card: header scene above, meadow below, no legacy banner.
+      expect(html).toContain("asm_verification_header.png");
+      expect(html).toContain("asm_email_footer.png");
+      expect(html).toContain("#f2efe9");
+      expect(html).not.toContain("zephyr-githubanner.jpg");
+      expect(html).not.toContain("<svg");
+      // Footer links are present so the code email is not a dead end.
+      expect(html).toContain("/privacy");
+      expect(html).toContain("/toc");
+      // A support route for "this was not me".
+      expect(html).toContain("mailto:hello@asocialmedia.cc");
+      // The code emails drop the app-download block and the Singularity Works
+      // colophon to stay short.
+      expect(html).not.toContain("Get it on");
+      expect(html).not.toContain("Singularity Works");
+    }
   });
 
   test("renders password reset email html", async () => {

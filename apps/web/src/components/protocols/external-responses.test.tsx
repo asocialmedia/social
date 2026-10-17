@@ -118,7 +118,7 @@ test("ExternalResponses renders responses using unified thread rows rather than 
     await Bun.sleep(50);
   });
 
-  expect(testHarness.host.textContent).toContain("Responses on ASM");
+  expect(testHarness.host.textContent).toContain("Responses on asocialmedia");
   expect(testHarness.host.textContent).toContain(
     "Thread response to Bluesky post"
   );

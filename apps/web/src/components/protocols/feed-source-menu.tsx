@@ -23,7 +23,7 @@ export function FeedSourceMenu({ following }: { following: boolean }) {
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <button
-          aria-label={`Feed sources: ${following ? "ASM" : feedSourceLabels[source]}`}
+          aria-label={`Feed sources: ${following ? "asocialmedia" : feedSourceLabels[source]}`}
           className="pill-3d-hover text-muted-foreground mx-1 flex size-9 shrink-0 items-center justify-center rounded-full"
           type="button"
         >
@@ -72,7 +72,7 @@ export function FeedSourceMenu({ following }: { following: boolean }) {
         <DropdownMenuSeparator />
         <p className="text-muted-foreground max-w-56 px-2 py-1.5 text-xs">
           {following
-            ? "Following shows the ASM people you follow."
+            ? "Following shows the asocialmedia people you follow."
             : "Public Bluesky posts, matched to your language and region."}
         </p>
       </DropdownMenuContent>

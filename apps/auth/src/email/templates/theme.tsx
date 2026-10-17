@@ -3,10 +3,6 @@ import type { CSSProperties, ReactNode } from "react";
 
 import { emailConfig } from "../config";
 
-// ---------------------------------------------------------------------------
-// Brand type
-// ---------------------------------------------------------------------------
-
 // Sofia Pro Soft is the face the app itself uses (see packages/ui fonts). It is
 // self-hosted by the web app and embedded below via @font-face, so clients that
 // honour webfonts (Apple Mail, iOS, Thunderbird) render the real brand type.
@@ -14,10 +10,6 @@ import { emailConfig } from "../config";
 // is ever loaded over the network from inside an email.
 export const EMAIL_FONT_STACK =
   "'SofiaProSoft', ui-rounded, 'SF Pro Rounded', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
-
-// ---------------------------------------------------------------------------
-// Palette
-// ---------------------------------------------------------------------------
 
 // One warm, coherent world: a cream canvas, a near-white card, warm near-black
 // ink and the single amber accent the app uses. Values are only ever these.
@@ -35,10 +27,6 @@ export const palette = {
   muted: "#6e6b65",
   store: "#141413",
 } as const;
-
-// ---------------------------------------------------------------------------
-// Legacy primitives
-// ---------------------------------------------------------------------------
 
 // Kept for the templates that have not been migrated to the card design yet
 // (OTP, two-factor, password reset). New templates should use the components
@@ -118,10 +106,6 @@ export const EmailBanner = () => (
   />
 );
 
-// ---------------------------------------------------------------------------
-// Document shell
-// ---------------------------------------------------------------------------
-
 function fontFaces(): string {
   const { fonts } = emailConfig.assets;
   return [
@@ -145,6 +129,9 @@ function emailStyles(): string {
     `.store-btn{background-color:${palette.store};color:#ffffff;border-radius:12px;padding:11px 16px;text-decoration:none;display:block;border-bottom:3px solid #000000;white-space:nowrap}`,
     ".store-btn:hover{background-color:#2b2a28}",
     ".step-link:hover span{text-decoration:underline!important}",
+    // The framed card: header and footer art run full-bleed, content sits in a
+    // padded band between them.
+    ".card-body{padding-left:26px!important;padding-right:26px!important}",
     // The store row is a two-cell table that shrink-wraps its buttons, so they
     // sit side by side packed to the left with a single gap and never stack.
     // No fixed column widths: a width:50% cell would strand them at the far
@@ -154,7 +141,12 @@ function emailStyles(): string {
     "@media screen and (max-width:520px){",
     ".outer-pad{padding:24px 12px 36px!important}",
     ".card-pad{padding:20px 20px 28px!important;border-radius:24px!important}",
+    ".card-frame{border-radius:22px!important}",
+    ".card-img-top{border-top-left-radius:22px!important;border-top-right-radius:22px!important}",
+    ".card-img-bottom{border-bottom-left-radius:22px!important;border-bottom-right-radius:22px!important}",
+    ".card-body{padding-left:18px!important;padding-right:18px!important}",
     ".hero-title{font-size:21px!important}",
+    ".code-value{font-size:26px!important;letter-spacing:5px!important}",
     ".store-btn{padding:9px 11px!important}",
     ".store-label{font-size:13px!important}",
     ".store-icon{height:22px!important}",
@@ -209,10 +201,6 @@ export const EmailDocument = ({
   </html>
 );
 
-// ---------------------------------------------------------------------------
-// Layout
-// ---------------------------------------------------------------------------
-
 export const EmailCanvas = ({ children }: { children: ReactNode }) => (
   <table
     border={0}
@@ -266,17 +254,54 @@ export const BrandHeader = () => (
   </tr>
 );
 
-export const EmailCard = ({ children }: { children: ReactNode }) => (
+// Left-aligned brand lockup. Used by the short transactional emails (codes,
+// reset) where the content is a single block and a centred masthead would just
+// add height.
+export const BrandHeaderLeft = () => (
+  <tr>
+    <td align="left" style={{ paddingBottom: "22px" }}>
+      <a
+        href={emailConfig.company.website}
+        style={{ display: "inline-block", textDecoration: "none" }}
+        rel="noreferrer"
+        target="_blank"
+      >
+        <img
+          alt={emailConfig.company.name}
+          height={56}
+          loading="lazy"
+          src={emailConfig.assets.headerLogo}
+          style={{ display: "block", height: "56px", width: "auto" }}
+        />
+      </a>
+    </td>
+  </tr>
+);
+
+interface EmailCardProps {
+  children: ReactNode;
+  footerImage?: string;
+  headerImage?: string;
+}
+
+// The card. When a header or footer image is passed it runs full-bleed across
+// that edge and carries the matching radius, so the art and the card read as
+// one object; the content sits in a padded band between them.
+export const EmailCard = ({
+  children,
+  footerImage,
+  headerImage,
+}: EmailCardProps) => (
   <tr>
     <td
-      className="card-pad"
+      className="card-frame"
       style={{
         backgroundColor: palette.card,
         border: "1px solid rgba(20, 20, 19, 0.05)",
         borderRadius: "28px",
         boxShadow:
           "0 2px 6px rgba(20, 20, 19, 0.02), 0 12px 28px rgba(20, 20, 19, 0.03)",
-        padding: "22px 24px 32px",
+        overflow: "hidden",
       }}
     >
       <table
@@ -286,15 +311,69 @@ export const EmailCard = ({ children }: { children: ReactNode }) => (
         role="presentation"
         width="100%"
       >
-        <tbody>{children}</tbody>
+        <tbody>
+          {headerImage ? (
+            <tr>
+              <td>
+                <img
+                  alt=""
+                  className="card-img-top"
+                  loading="lazy"
+                  src={headerImage}
+                  style={{
+                    borderTopLeftRadius: "28px",
+                    borderTopRightRadius: "28px",
+                    display: "block",
+                    height: "auto",
+                    width: "100%",
+                  }}
+                />
+              </td>
+            </tr>
+          ) : null}
+          <tr>
+            <td
+              className="card-body"
+              style={{
+                borderRadius: headerImage ? undefined : "28px 28px 0 0",
+                padding: "26px 26px 30px",
+              }}
+            >
+              <table
+                border={0}
+                cellPadding={0}
+                cellSpacing={0}
+                role="presentation"
+                width="100%"
+              >
+                <tbody>{children}</tbody>
+              </table>
+            </td>
+          </tr>
+          {footerImage ? (
+            <tr>
+              <td>
+                <img
+                  alt=""
+                  className="card-img-bottom"
+                  loading="lazy"
+                  src={footerImage}
+                  style={{
+                    borderBottomLeftRadius: "28px",
+                    borderBottomRightRadius: "28px",
+                    display: "block",
+                    height: "auto",
+                    width: "100%",
+                  }}
+                />
+              </td>
+            </tr>
+          ) : null}
+        </tbody>
       </table>
     </td>
   </tr>
 );
-
-// ---------------------------------------------------------------------------
-// Content
-// ---------------------------------------------------------------------------
 
 const primaryButtonStyle: CSSProperties = {
   border: `1px solid ${palette.accentBorder}`,
@@ -328,6 +407,29 @@ export const PrimaryButton = ({
   </a>
 );
 
+// The one-time code, set as data: monospace, wide tracking, in a tonal well
+// one step off the card so it reads as a value to copy, not decoration.
+export const CodeBlock = ({ code: value }: { code: string }) => (
+  <div
+    className="code-value"
+    style={{
+      backgroundColor: "#f4f1ea",
+      border: `1px solid ${palette.hairline}`,
+      borderRadius: "14px",
+      color: palette.ink,
+      fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
+      fontSize: "30px",
+      fontWeight: 700,
+      letterSpacing: "8px",
+      margin: "0 0 20px",
+      padding: "16px 20px",
+      textAlign: "center",
+    }}
+  >
+    {value}
+  </div>
+);
+
 interface StepProps {
   body: string;
   href: string;
@@ -335,7 +437,6 @@ interface StepProps {
   label: string;
   title: string;
 }
-
 export const Step = ({ body, href, icon, label, title }: StepProps) => (
   <table
     border={0}
@@ -439,10 +540,6 @@ export const HeroImage = ({ alt, src }: { alt: string; src: string }) => (
     </td>
   </tr>
 );
-
-// ---------------------------------------------------------------------------
-// App download
-// ---------------------------------------------------------------------------
 
 const storeButtonStyle: CSSProperties = {
   borderBottom: "3px solid #000000",
@@ -622,6 +719,83 @@ export const Colophon = () => (
       >
         {emailConfig.company.name} &middot; Singularity Works
         <br />
+        <a
+          href={emailConfig.company.website}
+          style={{ color: palette.faint, textDecoration: "underline" }}
+          rel="noreferrer"
+          target="_blank"
+        >
+          asocialmedia.cc
+        </a>
+        {" · "}
+        <a
+          href={emailConfig.legal.privacy.url}
+          style={{ color: palette.faint, textDecoration: "underline" }}
+          rel="noreferrer"
+          target="_blank"
+        >
+          {emailConfig.legal.privacy.text}
+        </a>
+        {" · "}
+        <a
+          href={emailConfig.legal.terms.url}
+          style={{ color: palette.faint, textDecoration: "underline" }}
+          rel="noreferrer"
+          target="_blank"
+        >
+          {emailConfig.legal.terms.text}
+        </a>
+      </p>
+      <p
+        style={{
+          color: palette.faint,
+          fontSize: "11.5px",
+          fontWeight: 500,
+          lineHeight: "1.6",
+          margin: "8px 0 0",
+        }}
+      >
+        {emailConfig.brandLine}
+      </p>
+    </td>
+  </tr>
+);
+
+// A short "if this was not you" line that points at support. Sits just above
+// the legal footer in the transactional code emails.
+export const SupportNote = ({ children }: { children: ReactNode }) => (
+  <tr>
+    <td style={{ paddingBottom: "20px" }}>
+      <p
+        style={{
+          color: palette.muted,
+          fontSize: "13px",
+          fontWeight: 500,
+          lineHeight: "1.55",
+          margin: 0,
+        }}
+      >
+        {children}
+      </p>
+    </td>
+  </tr>
+);
+
+// The lighter footer: legal links and the brand line, without the
+// "Singularity Works" colophon or the app-download block. Used by the code
+// emails, which should stay short.
+export const FooterLinks = () => (
+  <tr>
+    <td style={{ paddingTop: "20px" }}>
+      <p
+        style={{
+          color: palette.faint,
+          fontSize: "11.5px",
+          fontWeight: 500,
+          lineHeight: "1.6",
+          margin: 0,
+        }}
+      >
         <a
           href={emailConfig.company.website}
           style={{ color: palette.faint, textDecoration: "underline" }}

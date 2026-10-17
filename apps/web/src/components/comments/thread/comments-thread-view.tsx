@@ -28,7 +28,7 @@ export function CommentsThreadView({
     return <CommentsSkeleton />;
   }
   return (
-    <section className="space-y-4" aria-label="Eddies on ASM">
+    <section className="space-y-4" aria-label="Eddies on asocialmedia">
       {composer}
       {pagination}
       {empty ? <CommentsEmptyState /> : null}

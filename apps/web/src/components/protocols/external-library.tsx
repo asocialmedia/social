@@ -86,7 +86,7 @@ export function ExternalLibrary() {
               href={`/network/bluesky?uri=${encodeURIComponent(item.uri)}`}
               key={item.uri}
             >
-              Source post unavailable. Open ASM discussion.
+              Source post unavailable. Open asocialmedia discussion.
             </Link>
           )
         )}

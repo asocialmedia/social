@@ -366,9 +366,10 @@ const ProfileHeader: React.FC<ProfileHeaderProps> = ({
             <Info className="size-3.5 shrink-0" />
             <span
               className="truncate"
-              title="This profile is from Bluesky. Interactions here stay on ASM."
+              title="This profile is from Bluesky. Interactions here stay on asocialmedia."
             >
-              This profile is from Bluesky. Interactions here stay on ASM.
+              This profile is from Bluesky. Interactions here stay on
+              asocialmedia.
             </span>
           </p>
         ) : null}

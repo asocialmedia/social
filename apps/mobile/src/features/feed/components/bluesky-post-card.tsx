@@ -77,7 +77,7 @@ export const BlueskyPostCard = memo(
             {
               action: { type: "author" },
               icon: VolumeX,
-              label: "Mute author in ASM",
+              label: "Mute author in asocialmedia",
             },
             {
               action: { type: "open" },

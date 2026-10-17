@@ -3,12 +3,18 @@
 import type { PostsPage } from "@asm/db";
 import type { ExternalPost } from "@asm/protocols/contracts";
 import { useInfiniteQuery } from "@tanstack/react-query";
-import { Flame, MessageSquare, Newspaper } from "lucide-react";
+import {
+  Eye,
+  Flame,
+  MessageSquare,
+  Newspaper,
+  Play,
+  ShieldAlert,
+} from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import type React from "react";
 import { useCallback, useMemo } from "react";
-import { MdPlayArrow } from "react-icons/md";
 
 import { useSession } from "@/app/(main)/session-provider";
 import { ROW_HOVER_CLASS } from "@/components/home/sidebars/right/sidebar-styles";
@@ -50,35 +56,6 @@ const PostRowSkeleton: React.FC = () => (
   </div>
 );
 
-// Compact relative timestamp with an explicit "ago" suffix (e.g. "5m ago")
-const getRelativeAgo = (from: Date | string) => {
-  try {
-    const dateObj = typeof from === "string" ? new Date(from) : from;
-    if (Number.isNaN(dateObj.getTime())) {
-      return formatRelativeDate(from);
-    }
-    const diffMs = Date.now() - dateObj.getTime();
-    const diffMinutes = Math.max(0, Math.floor(diffMs / (60 * 1000)));
-    if (diffMinutes < 1) {
-      return "just now";
-    }
-    if (diffMinutes < 60) {
-      return `${diffMinutes}m ago`;
-    }
-    const diffHours = Math.floor(diffMinutes / 60);
-    if (diffHours < 24) {
-      return `${diffHours}h ago`;
-    }
-    const diffDays = Math.floor(diffHours / 24);
-    if (diffDays < 30) {
-      return `${diffDays}d ago`;
-    }
-    return formatRelativeDate(from);
-  } catch {
-    return formatRelativeDate(from);
-  }
-};
-
 interface AuthorPostRowProps {
   post: PostData;
 }
@@ -96,10 +73,10 @@ const AuthorPostRow: React.FC<AuthorPostRowProps> = ({ post }) => {
       <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-lg bg-black shadow-xs">
         {post.explicitContent ? (
           <ExplicitContentGate
-            revealKey={post.id}
             className="h-full w-full"
             compact
             label="Explicit"
+            revealKey={post.id}
           >
             <Image
               alt="Post media"
@@ -120,11 +97,11 @@ const AuthorPostRow: React.FC<AuthorPostRowProps> = ({ post }) => {
             unoptimized
           />
         )}
-        {firstMedia.type === "VIDEO" && (
-          <div className="bg-background/80 absolute inset-0 flex items-center justify-center">
-            <MdPlayArrow className="text-foreground h-5 w-5" />
-          </div>
-        )}
+        {firstMedia.type === "VIDEO" && !post.explicitContent ? (
+          <span className="absolute inset-0 m-auto flex size-5 items-center justify-center rounded-full bg-black/40 backdrop-blur-xs">
+            <Play className="h-3 w-3 fill-white text-white" />
+          </span>
+        ) : null}
       </div>
     );
   } else if (firstEmbedWithImage?.imageUrl && !embedImage.failed) {
@@ -154,17 +131,11 @@ const AuthorPostRow: React.FC<AuthorPostRowProps> = ({ post }) => {
         ) : (
           imgElement
         )}
-        {isYoutube && (
-          <div className="bg-background/80 absolute inset-0 flex items-center justify-center">
-            <MdPlayArrow className="text-foreground h-5 w-5" />
-          </div>
-        )}
-      </div>
-    );
-  } else {
-    thumbnail = (
-      <div className="bg-muted text-muted-foreground flex h-12 w-12 shrink-0 items-center justify-center rounded-lg">
-        <Newspaper className="h-5 w-5" />
+        {isYoutube && !post.explicitContent ? (
+          <span className="absolute inset-0 m-auto flex size-5 items-center justify-center rounded-full bg-black/40 backdrop-blur-xs">
+            <Play className="h-3 w-3 fill-white text-white" />
+          </span>
+        ) : null}
       </div>
     );
   }
@@ -178,19 +149,43 @@ const AuthorPostRow: React.FC<AuthorPostRowProps> = ({ post }) => {
   return (
     <Link
       className={cn(
-        "group flex items-center gap-2.5 rounded-xl px-2.5 py-2",
+        "group flex items-center gap-2.5 rounded-lg px-2.5 py-2",
         ROW_HOVER_CLASS
       )}
       href={destination}
     >
       {thumbnail}
-      <span className="min-w-0 flex-1 space-y-1">
-        <span className="text-foreground line-clamp-2 text-xs leading-snug font-medium">
-          {post.content || (post.attachments.length ? "Media post" : "Post")}
+      <span className="min-w-0 flex-1">
+        <span className="flex items-center gap-1.5">
+          <span className="block truncate text-sm font-semibold">
+            {post.user?.displayName || post.user?.username || "Anonymous"}
+          </span>
+          {post.external ? (
+            <BlueskyIcon />
+          ) : (
+            <UserBadge
+              badge={post.user?.badge}
+              badges={post.user?.badges}
+              communityRoles={post.user?.communityMemberships}
+            />
+          )}
         </span>
-        <span className="text-muted-foreground flex items-center gap-2 text-[10px]">
+
+        {post.moderated ? (
+          <span className="text-muted-foreground mt-0.5 flex items-center gap-1.5 text-sm leading-snug font-medium">
+            <ShieldAlert className="size-3.5 shrink-0" />
+            <span className="truncate">This post seemed harmful</span>
+          </span>
+        ) : (
+          <span className="text-muted-foreground mt-0.5 line-clamp-2 block max-h-10 overflow-hidden text-sm leading-snug font-medium">
+            {post.content ||
+              (post.attachments?.length ? "Media post" : "View post")}
+          </span>
+        )}
+
+        <span className="text-muted-foreground mt-1 flex items-center gap-2 text-xs transition-colors group-hover:text-inherit">
           <span className="shrink-0" suppressHydrationWarning>
-            {getRelativeAgo(post.createdAt)}
+            {formatRelativeDate(post.createdAt)}
           </span>
           <span className="flex shrink-0 items-center gap-0.5">
             <Flame
@@ -207,6 +202,12 @@ const AuthorPostRow: React.FC<AuthorPostRowProps> = ({ post }) => {
             />
             {formatNumber(commentsCount)}
           </span>
+          {post.viewCount !== undefined && post.viewCount > 0 ? (
+            <span className="flex shrink-0 items-center gap-0.5">
+              <Eye className="h-3 w-3" />
+              {formatNumber(post.viewCount)}
+            </span>
+          ) : null}
         </span>
       </span>
     </Link>
@@ -468,8 +469,15 @@ const PostAuthorSidebar: React.FC<PostAuthorSidebarProps> = ({ post }) => {
           // More from the author
         }
         <div className="sidebar-subcard rounded-2xl p-2">
-          <div className="flex items-center gap-2 px-2 pt-0.5 pb-2">
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-linear-to-b from-[#ff9500] to-[#e65500] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]">
+          <div className="flex items-center gap-2 px-2 pt-0.5 pb-1">
+            <div
+              className={cn(
+                "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-white",
+                post.external
+                  ? "bg-linear-to-b from-[#1185fe] to-[#0060df] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(0,80,200,0.45),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)] dark:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(0,80,200,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]"
+                  : "bg-linear-to-b from-[#ff9500] to-[#e65500] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.45),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)] dark:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]"
+              )}
+            >
               {post.external ? (
                 <BlueskyIcon className="h-4 w-4 fill-white text-white" />
               ) : (
@@ -493,7 +501,7 @@ const PostAuthorSidebar: React.FC<PostAuthorSidebarProps> = ({ post }) => {
               View all
             </Link>
           </div>
-          <div className="pt-2 pb-1">{postsBody}</div>
+          <div className="pb-1">{postsBody}</div>
         </div>
       </div>
     </aside>

@@ -31,7 +31,7 @@ const options = {
   source: "all" as const,
 };
 
-test("Latest merges source timestamps without manufacturing ASM identities", () => {
+test("Latest merges source timestamps without manufacturing asocialmedia identities", () => {
   const native = [{ createdAt: "2026-10-15T00:00:00.000Z", id: "local" }];
   const items = mixFeedItems(native, [external], options);
   expect(items.map((item) => item.kind)).toEqual(["bluesky", "asm"]);
@@ -127,7 +127,7 @@ test("muting an external author filters their future posts across modes", () => 
   ]);
 });
 
-test("feedback cannot target ASM IDs or unsupported feedback types", () => {
+test("feedback cannot target asocialmedia IDs or unsupported feedback types", () => {
   expect(
     externalFeedbackSchema.safeParse({
       authorId: "did:plc:alice",

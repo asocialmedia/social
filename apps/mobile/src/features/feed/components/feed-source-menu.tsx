@@ -19,7 +19,7 @@ export function FeedSourceMenu({ following }: { following: boolean }) {
   return (
     <View>
       <Pressable
-        accessibilityLabel={`Feed sources: ${following ? "ASM" : feedSourceLabels[source]}`}
+        accessibilityLabel={`Feed sources: ${following ? "asocialmedia" : feedSourceLabels[source]}`}
         accessibilityRole="button"
         onPress={() =>
           trigger.current?.measureInWindow((x, y, width, height) =>

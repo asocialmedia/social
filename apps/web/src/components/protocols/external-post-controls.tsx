@@ -161,7 +161,7 @@ export function ExternalPostMenu({
           }}
         >
           <VolumeX className="size-4" />
-          Mute author in ASM
+          Mute author in asocialmedia
         </DropdownMenuItem>
         <DropdownMenuItem asChild>
           <a href={post.url} rel="noopener noreferrer" target="_blank">

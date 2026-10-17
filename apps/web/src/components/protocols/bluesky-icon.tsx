@@ -32,8 +32,8 @@ export function BlueskyIcon({
           </span>
         </TooltipTrigger>
         <TooltipContent>
-          This person and their posts come from Bluesky. ASM interactions stay
-          on ASM.
+          This person and their posts come from Bluesky. asocialmedia
+          interactions stay on asocialmedia.
         </TooltipContent>
       </Tooltip>
     </TooltipProvider>

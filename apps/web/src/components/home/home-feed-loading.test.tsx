@@ -38,7 +38,7 @@ const source: ExternalPost = {
   url: "https://bsky.app/profile/did:plc:author/post/example",
 };
 
-test("a cold mixed feed keeps a full-height skeleton after an empty ASM response", () => {
+test("a cold mixed feed keeps a full-height skeleton after an empty asocialmedia response", () => {
   const client = new QueryClient();
   client.setQueryData(["post-feed", "latest", "guest"], {
     pageParams: [null],
@@ -55,7 +55,7 @@ test("a cold mixed feed keeps a full-height skeleton after an empty ASM response
   client.clear();
 });
 
-test("a pending Bluesky source retains visible post placeholders alongside loaded ASM posts", () => {
+test("a pending Bluesky source retains visible post placeholders alongside loaded asocialmedia posts", () => {
   const client = new QueryClient();
   const native = {
     ...externalPostView(source),

@@ -510,7 +510,7 @@ export class BlueskyDiscovery {
         }
       }
     });
-    // Public generators are algorithmic even when ASM displays their candidates by date.
+    // Public generators are algorithmic even when asocialmedia displays their candidates by date.
     const authors = [
       ...new Set(
         snapshot.sources.flatMap((source) =>

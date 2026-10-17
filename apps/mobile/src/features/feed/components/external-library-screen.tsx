@@ -145,7 +145,7 @@ export function ExternalLibraryScreen() {
               }
             >
               <Text className="p-4" style={{ color: theme.dividerText }}>
-                Source post unavailable. Open ASM discussion.
+                Source post unavailable. Open asocialmedia discussion.
               </Text>
             </Pressable>
           )

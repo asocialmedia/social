@@ -5,21 +5,18 @@ import { emailConfig } from "../config";
 import {
   AppDownload,
   BrandHeader,
+  CodeBlock,
   Colophon,
-  EmailBanner,
   EmailCanvas,
   EmailCard,
   EmailDocument,
+  FooterLinks,
   HeroImage,
   PrimaryButton,
   SignOff,
   Step,
-  bannerUrl,
-  code,
-  container,
-  heading,
-  main,
-  paragraph,
+  SupportNote,
+  palette,
 } from "./theme";
 
 interface VerificationEmailProps {
@@ -42,7 +39,7 @@ export const VerificationEmail = ({
     >
       <EmailCanvas>
         <BrandHeader />
-        <EmailCard>
+        <EmailCard footerImage={assets.emailFooter}>
           <HeroImage alt={company.name} src={assets.welcomeHero} />
 
           <tr>
@@ -184,80 +181,213 @@ interface OTPVerificationEmailProps {
   otp: string;
 }
 
-export const OTPVerificationEmail = ({ otp }: OTPVerificationEmailProps) => (
-  <html lang="en">
-    <head />
-    <body style={main}>
-      <div style={container}>
-        <EmailBanner />
-        <h1 style={heading}>Your verification code</h1>
-        <p style={code}>{otp}</p>
-        <p style={paragraph}>
-          Use this code to verify your email address and complete your
-          registration. It will expire in 5 minutes.
-        </p>
-        <p style={paragraph}>
-          If you didn't request this code, you can safely ignore this email.
-        </p>
-      </div>
-    </body>
-  </html>
-);
+// The signup verification code. Short by design: the header scene frames the
+// card, the code is the single focal value, then the footer links.
+export const OTPVerificationEmail = ({ otp }: OTPVerificationEmailProps) => {
+  const { company } = emailConfig;
 
-export const getOTPVerificationEmailHtml = (otp: string): Promise<string> => {
-  const safeOtp = escapeHtml(otp);
-  const companyName = escapeHtml(emailConfig.company.name);
+  return (
+    <EmailDocument
+      preheader={`Your ${company.name} verification code. It expires in 5 minutes.`}
+      title="Your verification code"
+    >
+      <EmailCanvas>
+        <BrandHeader />
+        <EmailCard
+          footerImage={emailConfig.assets.emailFooter}
+          headerImage={emailConfig.assets.verificationHeader}
+        >
+          <tr>
+            <td style={{ paddingBottom: "18px" }}>
+              <h1
+                className="hero-title"
+                style={{
+                  color: "#141413",
+                  fontSize: "21px",
+                  fontWeight: 700,
+                  letterSpacing: "-0.4px",
+                  lineHeight: "1.25",
+                  margin: "0 0 8px",
+                }}
+              >
+                Your verification code
+              </h1>
+              <p
+                style={{
+                  color: "#3d3c39",
+                  fontSize: "14px",
+                  fontWeight: 500,
+                  lineHeight: "1.5",
+                  margin: 0,
+                }}
+              >
+                Enter this code to finish setting up your {company.name}{" "}
+                account.
+              </p>
+            </td>
+          </tr>
 
-  return Promise.resolve(`<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
-<html dir="ltr" lang="en">
-  <head>
-    <meta content="text/html; charset=UTF-8" http-equiv="Content-Type" />
-    <meta name="x-apple-disable-message-reformatting" />
-    <title>Your verification code</title>
-  </head>
-  <body style="background-color:#ffffff;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;margin:0;padding:0">
-    <table align="center" width="100%" border="0" cellPadding="0" cellSpacing="0" role="presentation" style="max-width:600px;margin:0 auto;padding:24px 0 48px">
-      <tbody>
-        <tr style="width:100%">
-          <td>
-            <img alt="${companyName} banner" height="252" src="${bannerUrl}" style="display:block;height:auto;width:100%;border:0" width="600" />
-            <h1 style="color:#111111;font-size:22px;font-weight:700;margin:24px 0 12px;line-height:1.3">Your verification code</h1>
-            <p style="color:#111111;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;font-size:30px;font-weight:700;letter-spacing:6px;margin:0 0 16px">${safeOtp}</p>
-            <p style="color:#444444;font-size:15px;line-height:24px;margin:0 0 16px">Use this code to verify your email address and complete your registration. It will expire in 5 minutes.</p>
-            <p style="color:#444444;font-size:15px;line-height:24px;margin:0 0 16px">If you didn't request this code, you can safely ignore this email.</p>
-          </td>
-        </tr>
-      </tbody>
-    </table>
-  </body>
-</html>`);
+          <tr>
+            <td>
+              <CodeBlock code={otp} />
+            </td>
+          </tr>
+
+          <tr>
+            <td style={{ paddingBottom: "24px" }}>
+              <p
+                style={{
+                  color: "#6e6b65",
+                  fontSize: "13px",
+                  fontWeight: 500,
+                  lineHeight: "1.55",
+                  margin: 0,
+                }}
+              >
+                This code expires in 5 minutes.
+              </p>
+            </td>
+          </tr>
+
+          <SignOff>
+            See you out there,
+            <br />
+            The {company.name} team
+          </SignOff>
+
+          <SupportNote>
+            If you did not request this code, contact us at{" "}
+            <a
+              href={`mailto:${emailConfig.company.supportEmail}`}
+              style={{
+                color: palette.accent,
+                fontWeight: 700,
+                textDecoration: "none",
+              }}
+            >
+              {emailConfig.company.supportEmail}
+            </a>{" "}
+            and we will help you secure your account.
+          </SupportNote>
+
+          <FooterLinks />
+        </EmailCard>
+      </EmailCanvas>
+    </EmailDocument>
+  );
 };
 
-export const getTwoFactorOTPEmailHtml = (otp: string): Promise<string> => {
-  const safeOtp = escapeHtml(otp);
-  const companyName = escapeHtml(emailConfig.company.name);
+export const getOTPVerificationEmailHtml = (otp: string): Promise<string> =>
+  Promise.resolve(
+    `${DOCTYPE}\n${renderToStaticMarkup(
+      <OTPVerificationEmail otp={escapeHtml(otp)} />
+    )}`
+  );
 
-  return Promise.resolve(`<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
-<html dir="ltr" lang="en">
-  <head>
-    <meta content="text/html; charset=UTF-8" http-equiv="Content-Type" />
-    <meta name="x-apple-disable-message-reformatting" />
-    <title>Your security code</title>
-  </head>
-  <body style="background-color:#ffffff;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;margin:0;padding:0">
-    <table align="center" width="100%" border="0" cellPadding="0" cellSpacing="0" role="presentation" style="max-width:600px;margin:0 auto;padding:24px 0 48px">
-      <tbody>
-        <tr style="width:100%">
-          <td>
-            <img alt="${companyName} banner" height="252" src="${bannerUrl}" style="display:block;height:auto;width:100%;border:0" width="600" />
-            <h1 style="color:#111111;font-size:22px;font-weight:700;margin:24px 0 12px;line-height:1.3">Your security code</h1>
-            <p style="color:#111111;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;font-size:30px;font-weight:700;letter-spacing:6px;margin:0 0 16px">${safeOtp}</p>
-            <p style="color:#444444;font-size:15px;line-height:24px;margin:0 0 16px">Use this code to complete your sign-in. It expires in 5 minutes.</p>
-            <p style="color:#444444;font-size:15px;line-height:24px;margin:0 0 16px">If you didn't try to sign in, change your password and review your account security.</p>
-          </td>
-        </tr>
-      </tbody>
-    </table>
-  </body>
-</html>`);
+interface TwoFactorOTPEmailProps {
+  otp: string;
+}
+
+// The sign-in security code. Same shape as the verification code, different
+// stake: the copy tells the reader what to do if it was not them.
+export const TwoFactorOTPEmail = ({ otp }: TwoFactorOTPEmailProps) => {
+  const { company } = emailConfig;
+
+  return (
+    <EmailDocument
+      preheader={`Your ${company.name} security code. It expires in 5 minutes.`}
+      title="Your security code"
+    >
+      <EmailCanvas>
+        <BrandHeader />
+        <EmailCard
+          footerImage={emailConfig.assets.emailFooter}
+          headerImage={emailConfig.assets.verificationHeader}
+        >
+          <tr>
+            <td style={{ paddingBottom: "18px" }}>
+              <h1
+                className="hero-title"
+                style={{
+                  color: "#141413",
+                  fontSize: "21px",
+                  fontWeight: 700,
+                  letterSpacing: "-0.4px",
+                  lineHeight: "1.25",
+                  margin: "0 0 8px",
+                }}
+              >
+                Your security code
+              </h1>
+              <p
+                style={{
+                  color: "#3d3c39",
+                  fontSize: "14px",
+                  fontWeight: 500,
+                  lineHeight: "1.5",
+                  margin: 0,
+                }}
+              >
+                Enter this code to finish signing in to your {company.name}{" "}
+                account.
+              </p>
+            </td>
+          </tr>
+
+          <tr>
+            <td>
+              <CodeBlock code={otp} />
+            </td>
+          </tr>
+
+          <tr>
+            <td style={{ paddingBottom: "24px" }}>
+              <p
+                style={{
+                  color: "#6e6b65",
+                  fontSize: "13px",
+                  fontWeight: 500,
+                  lineHeight: "1.55",
+                  margin: 0,
+                }}
+              >
+                This code expires in 5 minutes.
+              </p>
+            </td>
+          </tr>
+
+          <SignOff>
+            See you out there,
+            <br />
+            The {company.name} team
+          </SignOff>
+
+          <SupportNote>
+            If you did not try to sign in, change your password and contact us
+            at{" "}
+            <a
+              href={`mailto:${emailConfig.company.supportEmail}`}
+              style={{
+                color: palette.accent,
+                fontWeight: 700,
+                textDecoration: "none",
+              }}
+            >
+              {emailConfig.company.supportEmail}
+            </a>{" "}
+            to secure your account.
+          </SupportNote>
+
+          <FooterLinks />
+        </EmailCard>
+      </EmailCanvas>
+    </EmailDocument>
+  );
 };
+
+export const getTwoFactorOTPEmailHtml = (otp: string): Promise<string> =>
+  Promise.resolve(
+    `${DOCTYPE}\n${renderToStaticMarkup(
+      <TwoFactorOTPEmail otp={escapeHtml(otp)} />
+    )}`
+  );
