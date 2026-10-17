@@ -277,60 +277,80 @@ export function ExternalPostScreen() {
                 No eddies yet. Start the conversation.
               </Text>
             ) : null}
-            {data?.comments.items.map((comment) => (
-              <View
-                key={comment.id}
-                className="flex-row gap-3 border-b py-3"
-                style={{ borderColor: theme.cardBorder }}
-              >
-                <UserAvatar
-                  size={32}
-                  url={comment.user.avatarUrl}
-                  username={comment.user.username}
-                />
-                <View className="min-w-0 flex-1 gap-1">
-                  <View className="flex-row items-center gap-2">
-                    <Text
-                      numberOfLines={1}
-                      style={{
-                        color: theme.inputText,
-                        flexShrink: 1,
-                        fontFamily: "SofiaProBold",
-                      }}
-                    >
-                      {comment.user.displayName}
-                    </Text>
-                    <Text
-                      style={{
-                        color: theme.dividerText,
-                        fontFamily: "SofiaProReg",
-                        fontSize: 12,
-                      }}
-                    >
-                      {formatRelativeDate(comment.createdAt)}
-                    </Text>
-                  </View>
-                  <Text selectable style={{ color: theme.inputText }}>
-                    {comment.deleted ? "Comment removed" : comment.content}
-                  </Text>
-                  {comment.userId === user?.id && !comment.deleted ? (
-                    <Pressable
-                      disabled={interaction.pending}
-                      onPress={() => {
-                        void remove(comment);
-                      }}
-                    >
+            {data?.comments.items.map((comment) => {
+              const isBluesky =
+                comment.source === "bluesky" ||
+                comment.id.startsWith("at://") ||
+                comment.user.id.startsWith("did:");
+              return (
+                <View
+                  key={comment.id}
+                  className="flex-row gap-3 border-b py-3"
+                  style={{
+                    borderColor: theme.cardBorder,
+                    paddingLeft: comment.parentId ? 24 : 0,
+                  }}
+                >
+                  <UserAvatar
+                    size={32}
+                    url={comment.user.avatarUrl}
+                    username={comment.user.username}
+                  />
+                  <View className="min-w-0 flex-1 gap-1">
+                    <View className="flex-row items-center gap-2">
                       <Text
-                        className="py-2"
-                        style={{ color: theme.dividerText }}
+                        numberOfLines={1}
+                        style={{
+                          color: theme.inputText,
+                          flexShrink: 1,
+                          fontFamily: "SofiaProBold",
+                        }}
                       >
-                        Delete
+                        {comment.user.displayName}
                       </Text>
-                    </Pressable>
-                  ) : null}
+                      {isBluesky ? (
+                        <Text
+                          style={{
+                            color: "#0285FF",
+                            fontFamily: "SofiaProBold",
+                            fontSize: 11,
+                          }}
+                        >
+                          Bluesky
+                        </Text>
+                      ) : null}
+                      <Text
+                        style={{
+                          color: theme.dividerText,
+                          fontFamily: "SofiaProReg",
+                          fontSize: 12,
+                        }}
+                      >
+                        {formatRelativeDate(comment.createdAt)}
+                      </Text>
+                    </View>
+                    <Text selectable style={{ color: theme.inputText }}>
+                      {comment.deleted ? "Comment removed" : comment.content}
+                    </Text>
+                    {comment.userId === user?.id && !comment.deleted ? (
+                      <Pressable
+                        disabled={interaction.pending}
+                        onPress={() => {
+                          void remove(comment);
+                        }}
+                      >
+                        <Text
+                          className="py-2"
+                          style={{ color: theme.dividerText }}
+                        >
+                          Delete
+                        </Text>
+                      </Pressable>
+                    ) : null}
+                  </View>
                 </View>
-              </View>
-            ))}
+              );
+            })}
             {data?.comments.cursor ? (
               <Pressable
                 disabled={loadingMore}

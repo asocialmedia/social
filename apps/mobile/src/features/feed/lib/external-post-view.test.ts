@@ -34,7 +34,7 @@ const post: ExternalPost = {
   url: "https://bsky.app/profile/did:plc:alice/post/example",
 };
 
-test("external cards retain source identity and local interaction counts without invented views", () => {
+test("external cards retain source identity and combine local comments with upstream replies", () => {
   const source = {
     ...post,
     asm: {
@@ -49,7 +49,7 @@ test("external cards retain source identity and local interaction counts without
   expect(view.external).toBe(source);
   expect(view.id).toBe(post.id);
   expect(view.user?.id).toBe(post.author.id);
-  expect(view._count?.comments).toBe(4);
+  expect(view._count?.comments).toBe(5);
   expect(view._count?.responses).toBe(5);
   expect(view.viewCount).toBeUndefined();
 });
