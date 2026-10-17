@@ -25,7 +25,7 @@ export class ProtocolGatewayError extends Error {
 
 let active = 0;
 
-export { consumeProtocolBudget } from "./budget";
+export { consumeProtocolBudget };
 
 export async function protocolJsonBody(
   request: Request,
