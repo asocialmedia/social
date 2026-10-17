@@ -135,6 +135,19 @@ describe("message event (de)serialization", () => {
     });
   });
 
+  test("keeps the incognito session on a reaction event", () => {
+    const raw = serializeMessageEvent({
+      conversationId: "convo-1",
+      kind: "message.reacted",
+      messageId: "m1",
+      sessionId: "00000000-0000-4000-8000-000000000001",
+      userId: "u1",
+    });
+    expect(parseMessageEvent(raw)?.sessionId).toBe(
+      "00000000-0000-4000-8000-000000000001"
+    );
+  });
+
   test("round-trips a media.viewOnce.revoked event", () => {
     const raw = serializeMessageEvent({
       conversationId: "convo-1",

@@ -3,6 +3,7 @@ import {
   ChatLifecycleError,
   guardNormalChatSend,
   linkLifecycleMedia,
+  listMessageReactionSummaries,
   consumeRateLimit,
   createDenMessageNotifications,
   enqueueMessagePush,
@@ -171,6 +172,7 @@ function mapMessage(message: MessageQueryData): MessageData {
     iv: message.iv ?? "",
     keyEpoch: message.keyEpoch ?? null,
     ratchetIndex: message.ratchetIndex ?? 0,
+    reactions: [],
     revision: message.revision ?? 1,
     sender: message.sender
       ? {
@@ -185,6 +187,22 @@ function mapMessage(message: MessageQueryData): MessageData {
       : null,
     senderId: message.senderId ?? "",
   };
+}
+
+async function addReactionSummaries(
+  conversationId: string,
+  userId: string,
+  messages: MessageData[]
+): Promise<MessageData[]> {
+  const summaries = await listMessageReactionSummaries(
+    conversationId,
+    userId,
+    messages.map((message) => message.id)
+  );
+  return messages.map((message) => ({
+    ...message,
+    reactions: summaries.get(message.id) ?? [],
+  }));
 }
 
 // The position a cursor names: the id the client holds, plus the timestamp the
@@ -430,7 +448,11 @@ export async function GET(
     const newerPage = hasNewer ? newer.slice(0, newerCount) : newer;
     // Oldest-first, the one order the transcript renders in: the older half read
     // newest-first is reversed, then the newer half appends in ascending order.
-    const messages = [...olderPage.toReversed(), ...newerPage].map(mapMessage);
+    const messages = await addReactionSummaries(
+      id,
+      user.id,
+      [...olderPage.toReversed(), ...newerPage].map(mapMessage)
+    );
     const oldest = messages.at(0);
     const newest = messages.at(-1);
     const response: MessagePage = {
@@ -463,7 +485,11 @@ export async function GET(
       });
     }
     const rows = await rowsQuery.limit(pageSize + 1).all();
-    const messages = rows.map(mapMessage);
+    const messages = await addReactionSummaries(
+      id,
+      user.id,
+      rows.map(mapMessage)
+    );
 
     const hasMore = messages.length > pageSize;
     const page = hasMore ? messages.slice(0, pageSize) : messages;
@@ -520,7 +546,11 @@ export async function GET(
     }
   }
   const messageRows = await messageQuery.limit(pageSize + 1).all();
-  const messages = messageRows.map(mapMessage);
+  const messages = await addReactionSummaries(
+    id,
+    user.id,
+    messageRows.map(mapMessage)
+  );
 
   const hasMore = messages.length > pageSize;
   const page = hasMore ? messages.slice(0, pageSize) : messages;

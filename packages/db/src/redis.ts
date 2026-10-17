@@ -603,6 +603,8 @@ export interface MessageStreamEvent {
   readAt?: string;
   // The reacted-to message id. Present only on `message.reacted`.
   messageId?: string;
+  // Incognito source session, present only for a reaction in that session.
+  sessionId?: string;
   // The view-once media id whose grant was revoked. Present only on
   // `media.viewOnce.revoked`. Opaque by contract: not a URL and not fetchable.
   mediaId?: string;
@@ -750,6 +752,13 @@ export function parseMessageEvent(raw: string): MessageStreamEvent | null {
     ) {
       return null;
     }
+    if (
+      parsed.kind === "message.reacted" &&
+      parsed.sessionId !== undefined &&
+      typeof parsed.sessionId !== "string"
+    ) {
+      return null;
+    }
     // A revoke notice without a media id is meaningless on the wire.
     if (
       parsed.kind === "media.viewOnce.revoked" &&
@@ -782,6 +791,7 @@ export function parseMessageEvent(raw: string): MessageStreamEvent | null {
       membershipSeq: readMembershipSeq(parsed.membershipSeq),
       message: parsed.message,
       messageId: parsed.messageId,
+      ...(parsed.sessionId ? { sessionId: parsed.sessionId } : {}),
       readAt: parsed.readAt,
       userId: parsed.userId,
     };
@@ -884,12 +894,14 @@ export async function publishTypingStarted(
 export async function publishMessageReacted(
   conversationId: string,
   messageId: string,
-  userId: string
+  userId: string,
+  sessionId?: string
 ): Promise<void> {
   await publishMessageEvent({
     conversationId,
     kind: "message.reacted",
     messageId,
+    ...(sessionId ? { sessionId } : {}),
     userId,
   });
 }

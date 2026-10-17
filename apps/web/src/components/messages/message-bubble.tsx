@@ -1,5 +1,6 @@
 "use client";
 
+import type { MessageReactionSummary } from "@asm/messages";
 import {
   Tooltip,
   TooltipContent,
@@ -36,6 +37,7 @@ interface MessageBubbleProps {
     editedAt: Date | string | null;
     id: string;
     iv: string;
+    reactions?: MessageReactionSummary[];
     ratchetIndex: number;
     sender?: {
       id: string;
@@ -47,6 +49,8 @@ interface MessageBubbleProps {
   };
   myUserId: string;
   onEdit?: () => void;
+  onReact?: (emoji: string) => void;
+  reactionPending?: boolean;
   onReply: () => void;
   quote: { senderName: string; content: string } | null;
   quotePending: boolean;
@@ -76,6 +80,8 @@ export function MessageBubble({
   message,
   myUserId,
   onEdit,
+  onReact,
+  reactionPending = false,
   onReply,
   quote,
   quotePending,
@@ -415,6 +421,33 @@ export function MessageBubble({
             ) : null}
           </div>
         </div>
+        {message.reactions?.length && onReact ? (
+          <div
+            aria-label="Message reactions"
+            className={cn(
+              "mt-1 flex max-w-full flex-wrap gap-1",
+              mine ? "justify-end" : "justify-start"
+            )}
+          >
+            {message.reactions.map((reaction) => (
+              <button
+                aria-label={`${reaction.emoji}, ${reaction.count}${reaction.count === 1 ? " reaction" : " reactions"}${reaction.reactedByMe ? ", remove mine" : ""}`}
+                aria-pressed={reaction.reactedByMe}
+                className={cn(
+                  "chip-3d inline-flex min-h-7 items-center gap-1 rounded-full px-2 text-xs transition-transform duration-150 active:scale-95",
+                  reaction.reactedByMe && "text-primary ring-primary/40 ring-1"
+                )}
+                key={reaction.emoji}
+                disabled={reactionPending}
+                onClick={() => onReact(reaction.emoji)}
+                type="button"
+              >
+                <span aria-hidden="true">{reaction.emoji}</span>
+                <span className="tabular-nums">{reaction.count}</span>
+              </button>
+            ))}
+          </div>
+        ) : null}
       </div>
     </div>
   );

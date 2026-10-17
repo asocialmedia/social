@@ -19,11 +19,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
 import { useMessagesIdentity } from "@/components/messages/message-identity-provider";
+import { toast } from "@/lib/gooey-toast";
 import {
   createRootKeyStore,
   ensureConversationKeys,
   fetchConversationDetail,
   resolveMyConversationWraps,
+  toggleMessageReaction,
 } from "@/lib/messages/client";
 import { decryptMessage, encryptMessage } from "@/lib/messages/crypto";
 import type { MessagePayload } from "@/lib/messages/crypto";
@@ -95,6 +97,7 @@ export function IncognitoThread({
   const [clockOffset] = useState(() => Date.parse(serverNow) - Date.now());
   const scrollRef = useRef<HTMLDivElement>(null);
   const pending = useRef<Pending | null>(null);
+  const reactionLocks = useRef(new Set<string>());
   const mounted = useRef(true);
   const readGeneration = useRef(0);
   const canView = fresh && foreground && !session.endedAt;
@@ -222,6 +225,41 @@ export function IncognitoThread({
       }
     },
     [privateKey, user, conversationId, session.id]
+  );
+
+  const reactToMessage = useCallback(
+    async (messageId: string, emoji: string) => {
+      if (reactionLocks.current.has(messageId)) {
+        return;
+      }
+      reactionLocks.current.add(messageId);
+      try {
+        const reactions = await toggleMessageReaction(
+          conversationId,
+          messageId,
+          emoji,
+          session.id
+        );
+        setRows((current) =>
+          current.map((row) =>
+            row.message.id === messageId
+              ? { ...row, message: { ...row.message, reactions } }
+              : row
+          )
+        );
+      } catch (error) {
+        toast({
+          description:
+            error instanceof Error
+              ? error.message
+              : "Couldn't update reaction.",
+          title: "Reaction failed",
+          variant: "destructive",
+        });
+      }
+      reactionLocks.current.delete(messageId);
+    },
+    [conversationId, session.id]
   );
   useEffect(() => {
     if (!canView) {
@@ -462,6 +500,17 @@ export function IncognitoThread({
                       id={`incognito-message-${message.id}`}
                       key={message.id}
                       className={group.isFirstInGroup ? "pt-3" : ""}
+                      onDoubleClick={(event) => {
+                        if (
+                          event.target instanceof Element &&
+                          event.target.closest(
+                            "button, a, video, audio, [role=button]"
+                          )
+                        ) {
+                          return;
+                        }
+                        void reactToMessage(message.id, "❤️");
+                      }}
                     >
                       {group.showTimeDivider ? (
                         <p className="text-muted-foreground py-3 text-center text-[11px]">
@@ -481,6 +530,9 @@ export function IncognitoThread({
                           )?.user,
                         }}
                         myUserId={user?.id ?? ""}
+                        onReact={(emoji) => {
+                          void reactToMessage(message.id, emoji);
+                        }}
                         onReply={() =>
                           setReplyTarget({
                             content: payload?.content ?? "Attachment",

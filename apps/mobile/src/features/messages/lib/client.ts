@@ -1,4 +1,5 @@
 import { extractMessageReferences, LIFECYCLE_CAPABILITY } from "@asm/messages";
+import type { MessageReactionSummary } from "@asm/messages";
 // Typed wrappers around the messages API plus the client-side crypto
 // orchestration (unwrap a conversation key, encrypt a message), ported from
 // apps/web/src/lib/messages/client.ts.
@@ -99,6 +100,38 @@ export interface ConversationListResponse {
   hasMore: boolean;
   items: ConversationListItem[];
   nextCursor: string | null;
+}
+
+export async function toggleMessageReaction(
+  conversationId: string,
+  messageId: string,
+  emoji: string,
+  options: ApiCallOptions,
+  sessionId?: string
+): Promise<MessageReactionSummary[]> {
+  const result = await request<{ reactions: MessageReactionSummary[] }>(
+    `/api/messages/conversations/${conversationId}/reactions/${messageId}`,
+    options,
+    {
+      body: JSON.stringify({ emoji, ...(sessionId ? { sessionId } : {}) }),
+      method: "POST",
+    }
+  );
+  return result.reactions;
+}
+
+export async function fetchMessageReactions(
+  conversationId: string,
+  messageId: string,
+  options: ApiCallOptions,
+  sessionId?: string
+): Promise<MessageReactionSummary[]> {
+  const query = sessionId ? `?sessionId=${encodeURIComponent(sessionId)}` : "";
+  const result = await request<{ reactions: MessageReactionSummary[] }>(
+    `/api/messages/conversations/${conversationId}/reactions/${messageId}${query}`,
+    options
+  );
+  return result.reactions;
 }
 
 export interface SearchUserResult {

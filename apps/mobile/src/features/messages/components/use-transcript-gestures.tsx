@@ -38,10 +38,12 @@ type CellProps = ComponentProps<
 export function useTranscriptGestures({
   messages,
   onReply,
+  onReact,
   onLiveEndChange,
 }: {
   messages: MessageData[];
   onReply: (id: string) => void;
+  onReact: (id: string) => void;
   onLiveEndChange: (atLatest: boolean) => void;
 }) {
   const listRef = useAnimatedRef<FlatList<TranscriptItem>>();
@@ -267,7 +269,32 @@ export function useTranscriptGestures({
           );
         }
       });
-    return raceGestures(selection, swipe);
+    // oxlint-disable-next-line react/capitalized-calls -- Gesture.Tap is a gesture-handler builder, not a React component.
+    const doubleTap = Gesture.Tap()
+      .numberOfTaps(2)
+      .maxDelay(260)
+      .maxDuration(240)
+      .maxDistance(18)
+      .onEnd((event, success) => {
+        "worklet";
+        if (!success || selectionMode.get()) {
+          return;
+        }
+        const bounds = viewport.get();
+        const id = messageAtPoint(
+          frames.get(),
+          invertedContentY(
+            event.absoluteY,
+            bounds.top,
+            bounds.height,
+            offset.get()
+          )
+        );
+        if (id) {
+          scheduleOnRN(onReact, id);
+        }
+      });
+    return raceGestures(selection, swipe, doubleTap);
   }, [
     beginSelection,
     dragging,
@@ -276,6 +303,7 @@ export function useTranscriptGestures({
     frames,
     nativeScroll,
     offset,
+    onReact,
     onReply,
     reduceMotion,
     selectionMode,

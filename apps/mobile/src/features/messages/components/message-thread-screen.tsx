@@ -1,4 +1,5 @@
 import { messageIsRetained } from "@asm/messages";
+import { MenuView } from "@expo/ui/community/menu";
 import * as Clipboard from "expo-clipboard";
 // The message thread: a scrolling transcript, the header, and the composer.
 //
@@ -29,6 +30,7 @@ import {
   Reply,
   Search,
   Shield,
+  Smile,
   X,
 } from "lucide-react-native";
 import {
@@ -58,6 +60,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import chatDoodle from "@/assets/images/chat-doodle.webp";
 import { UserAvatar } from "@/components/avatar/user-avatar";
+import { toast } from "@/components/feedback/toast";
 import { authClient } from "@/features/auth/lib/auth-client";
 import { useInstall } from "@/features/auth/state/install";
 import { useSessionContext } from "@/features/auth/state/session";
@@ -68,6 +71,7 @@ import {
   ensureConversationKeys,
   fetchConversationDetail,
   markConversationRead,
+  toggleMessageReaction,
   postConversationKeys,
   sendEncryptedMessage,
   sendTypingIndicator,
@@ -151,6 +155,14 @@ const SELF_GROUP = {
   isLastInGroup: true,
   showTimeDivider: false,
 };
+const REACTION_OPTIONS = [
+  { emoji: "❤️", label: "Love" },
+  { emoji: "👍", label: "Like" },
+  { emoji: "😂", label: "Laugh" },
+  { emoji: "😮", label: "Wow" },
+  { emoji: "😢", label: "Sad" },
+  { emoji: "🔥", label: "Fire" },
+] as const;
 
 export function MessageThreadScreen(props: {
   conversationId: string;
@@ -267,6 +279,10 @@ function NormalMessageThreadScreen({
   });
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [replyTo, setReplyTo] = useState<ComposerTarget | null>(null);
+  const [reactionPendingIds, setReactionPendingIds] = useState<
+    ReadonlySet<string>
+  >(new Set());
+  const reactionLocks = useRef(new Set<string>());
   const [editing, setEditing] = useState<ComposerTarget | null>(null);
   const [viewer, setViewer] = useState<{
     images: string[];
@@ -729,6 +745,52 @@ function NormalMessageThreadScreen({
     },
     [conversationId]
   );
+  const handleMessageReaction = useCallback(
+    async (messageId: string, emoji: string) => {
+      if (reactionLocks.current.has(messageId)) {
+        return;
+      }
+      reactionLocks.current.add(messageId);
+      setReactionPendingIds((current) => new Set(current).add(messageId));
+      try {
+        const options = await apiOptions();
+        const reactions = await toggleMessageReaction(
+          conversationId,
+          messageId,
+          emoji,
+          options
+        );
+        transcriptStore.applyMessageReactions(
+          conversationId,
+          messageId,
+          reactions
+        );
+        haptic();
+      } catch (error) {
+        toast({
+          description:
+            error instanceof Error
+              ? error.message
+              : "Couldn't update reaction.",
+          title: "Reaction failed",
+          variant: "destructive",
+        });
+      }
+      reactionLocks.current.delete(messageId);
+      setReactionPendingIds((current) => {
+        const next = new Set(current);
+        next.delete(messageId);
+        return next;
+      });
+    },
+    [apiOptions, conversationId]
+  );
+  const handleDefaultReaction = useCallback(
+    (messageId: string) => {
+      void handleMessageReaction(messageId, "❤️");
+    },
+    [handleMessageReaction]
+  );
   const onLiveEndChange = useCallback(
     (atLatest: boolean) => {
       if (atLatest && !atLiveEnd.current && foreground && !searchOpen) {
@@ -756,6 +818,7 @@ function NormalMessageThreadScreen({
   } = useTranscriptGestures({
     messages,
     onLiveEndChange,
+    onReact: handleDefaultReaction,
     onReply: handleReply,
   });
   const selectionActive = selectedIds.size > 0;
@@ -911,7 +974,12 @@ function NormalMessageThreadScreen({
                   : openViewer(message, entry, index)
               }
               onRetry={() => retryRow(message)}
+              onReact={(emoji) => {
+                void handleMessageReaction(message.id, emoji);
+              }}
+              reactionPending={reactionPendingIds.has(message.id)}
               payload={isPayload(entry) ? entry : null}
+              reactions={message.reactions ?? []}
               peerAvatarUrl={
                 isDen
                   ? (message.sender?.avatarUrl ??
@@ -947,12 +1015,14 @@ function NormalMessageThreadScreen({
       width,
       decrypted,
       groupMetaFor,
+      handleMessageReaction,
       openViewer,
       retryRow,
       theme.dividerText,
       transcript.snapshot.peerWatermarks,
       userId,
       selectedIds,
+      reactionPendingIds,
       selectionActive,
       toggleSelected,
       swipeId,
@@ -1006,18 +1076,49 @@ function NormalMessageThreadScreen({
               {selectedIds.size} selected
             </Text>
             {selectedIds.size === 1 ? (
-              <MessagesIconButton
-                icon={Reply}
-                label="Reply to selected message"
-                onPress={() => {
-                  const [id] = selectedIds;
-                  clearSelection();
-                  if (id) {
-                    handleReply(id);
-                  }
-                }}
-                size={32}
-              />
+              <>
+                <MessagesIconButton
+                  icon={Reply}
+                  label="Reply to selected message"
+                  onPress={() => {
+                    const [id] = selectedIds;
+                    clearSelection();
+                    if (id) {
+                      handleReply(id);
+                    }
+                  }}
+                  size={32}
+                />
+                <MenuView
+                  actions={REACTION_OPTIONS.map(({ emoji, label }) => ({
+                    id: emoji,
+                    title: `${emoji} ${label}`,
+                  }))}
+                  onPressAction={({ nativeEvent }) => {
+                    const [id] = selectedIds;
+                    if (
+                      id &&
+                      REACTION_OPTIONS.some(
+                        ({ emoji }) => emoji === nativeEvent.event
+                      )
+                    ) {
+                      clearSelection();
+                      void handleMessageReaction(id, nativeEvent.event);
+                    }
+                  }}
+                >
+                  <View>
+                    <MessagesIconButton
+                      icon={Smile}
+                      label="React to selected message"
+                      onPress={() => {
+                        /* empty */
+                      }}
+                      size={32}
+                    />
+                  </View>
+                </MenuView>
+              </>
             ) : null}
             <MessagesIconButton
               icon={Copy}

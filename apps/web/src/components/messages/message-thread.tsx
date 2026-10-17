@@ -95,6 +95,7 @@ import {
   deleteMessage,
   editMessage,
   fetchConversationDetail,
+  fetchMessageReactions,
   fetchDenMembershipEvents,
   fetchMessages,
   hideMessages,
@@ -104,6 +105,7 @@ import {
   reencryptMessageForEdit,
   removeMessagesFromPages,
   updateMessageInPages,
+  toggleMessageReaction,
 } from "@/lib/messages/client";
 import type {
   ConversationDetailResponse,
@@ -790,6 +792,10 @@ function NormalMessageThread({
     preferEnd: boolean;
     rect: PaneRect;
   } | null>(null);
+  const reactionLocks = useRef(new Set<string>());
+  const [reactionPendingIds, setReactionPendingIds] = useState<
+    ReadonlySet<string>
+  >(new Set());
   // The conversation's contact card (avatar, actions, shared media/posts/links).
   // Below `lg` this is a sheet the user opens; from `lg` up it is a pane beside
   // the transcript, shown without being asked for. Mounted only while one of those
@@ -1496,6 +1502,57 @@ function NormalMessageThread({
     [closeOptions]
   );
 
+  const handleMessageReaction = useCallback(
+    async (message: MessageData, emoji: string) => {
+      if (message.deletedAt || reactionLocks.current.has(message.id)) {
+        return;
+      }
+      reactionLocks.current.add(message.id);
+      setReactionPendingIds((current) => new Set(current).add(message.id));
+      try {
+        const reactions = await toggleMessageReaction(
+          conversationId,
+          message.id,
+          emoji
+        );
+        queryClient.setQueryData<MessagesInfiniteData>(
+          ["messages", conversationId],
+          (old) => {
+            if (!old) {
+              return old;
+            }
+            return {
+              ...old,
+              pages: old.pages.map((page) => ({
+                ...page,
+                messages: page.messages.map((row) =>
+                  row.id === message.id ? { ...row, reactions } : row
+                ),
+              })),
+            };
+          }
+        );
+      } catch (error) {
+        toast({
+          description:
+            error instanceof Error
+              ? error.message
+              : "Couldn't update reaction.",
+          title: "Reaction failed",
+          variant: "destructive",
+        });
+      } finally {
+        reactionLocks.current.delete(message.id);
+        setReactionPendingIds((current) => {
+          const next = new Set(current);
+          next.delete(message.id);
+          return next;
+        });
+      }
+    },
+    [conversationId, queryClient]
+  );
+
   // Runs the confirmed delete and dismisses the dialog. The handlers surface
   // their own failures as toasts, so this only owns the busy/dismiss lifecycle.
   // `pendingDelete` is intentionally not cleared: the dialog stays mounted with
@@ -1566,7 +1623,7 @@ function NormalMessageThread({
     [openOptionsFor, resolveMessageFromEvent, selectionActive, toggleSelected]
   );
 
-  // Desktop only: double click replies.
+  // Double-click adds or removes the default heart reaction.
   const handleTranscriptDoubleClick = useCallback(
     (event: React.MouseEvent<HTMLDivElement>) => {
       if (!finePointerRef.current || selectionActive) {
@@ -1577,9 +1634,9 @@ function NormalMessageThread({
         return;
       }
       event.preventDefault();
-      handleReply(hit.message);
+      void handleMessageReaction(hit.message, "❤️");
     },
-    [handleReply, resolveMessageFromEvent, selectionActive]
+    [handleMessageReaction, resolveMessageFromEvent, selectionActive]
   );
 
   // Desktop only: right click opens the pane beside the message and suppresses
@@ -3919,10 +3976,8 @@ function NormalMessageThread({
         | "conversation.read"
         | "conversation.delivered"
         | "typing.started"
-        // Reaction and view-once revoke frames carry no message row, so they
-        // fall through the `!message` guard below until the reaction UI and
-        // the view-once player land. Accepting the kinds now keeps this
-        // handler structurally compatible with the stream's event set.
+        // Reaction and view-once revoke frames carry no message row and are
+        // handled before the ordinary message event path below.
         | "message.reacted"
         | "media.viewOnce.revoked"
         | "conversation.appearance.changed"
@@ -3934,6 +3989,7 @@ function NormalMessageThread({
       membershipSeq?: number;
       message?: MessageData;
       messageId?: string;
+      sessionId?: string;
       readAt?: string;
       userId?: string;
     }) => {
@@ -4070,6 +4126,44 @@ function NormalMessageThread({
         });
         return;
       }
+      if (event.kind === "message.reacted") {
+        if (!event.messageId) {
+          return;
+        }
+        if (event.sessionId) {
+          refreshLifecycle();
+          return;
+        }
+        const {messageId} = event;
+        void (async () => {
+          try {
+            const reactions = await fetchMessageReactions(
+              conversationId,
+              messageId
+            );
+            queryClient.setQueryData<MessagesInfiniteData>(
+              ["messages", conversationId],
+              (old) => {
+                if (!old) {
+                  return old;
+                }
+                return {
+                  ...old,
+                  pages: old.pages.map((page) => ({
+                    ...page,
+                    messages: page.messages.map((row) =>
+                      row.id === messageId ? { ...row, reactions } : row
+                    ),
+                  })),
+                };
+              }
+            );
+          } catch {
+            // The next page read reconciles missed reaction frames.
+          }
+        })();
+        return;
+      }
       if (event.kind === "keys.rotated") {
         // A member rotated the conversation keys (first send, heal, or an
         // identity reset). Our cached detail holds the old wraps and possibly a
@@ -4183,7 +4277,7 @@ function NormalMessageThread({
         }
       }
     },
-    [conversationId, queryClient, scheduleRead, user?.id]
+    [conversationId, queryClient, refreshLifecycle, scheduleRead, user?.id]
   );
 
   // Whether the loaded roster says this reader has left this den.
@@ -5009,12 +5103,16 @@ function NormalMessageThread({
                               messagesById={messagesById}
                               myUserId={userId ?? ""}
                               onEdit={handleEdit}
+                              onReact={handleMessageReaction}
                               onReply={handleReply}
                               onRequest={requestDecrypt}
                               onRetry={retryDecrypt}
                               peerName={peer?.displayName ?? "them"}
                               scrolling={scrolling}
                               selected={selectedIds.has(message.id)}
+                              reactionPending={reactionPendingIds.has(
+                                message.id
+                              )}
                               selectionActive={selectionActive}
                             />
                           </div>
@@ -5079,6 +5177,11 @@ function NormalMessageThread({
                   }
                   onDeleteForMe={() => requestDeleteForMe(optionsMessage)}
                   onEdit={() => handleEdit(optionsMessage)}
+                  onReact={(emoji) => {
+                    closeOptions();
+                    void handleMessageReaction(optionsMessage, emoji);
+                  }}
+                  reactionPending={reactionPendingIds.has(optionsMessage.id)}
                   onReply={() => handleReply(optionsMessage)}
                   onSelect={() => handleOptionsSelect(optionsMessage)}
                   preferEnd={optionsTarget.preferEnd}
@@ -5356,6 +5459,8 @@ interface VirtualRowProps {
   messagesById: Map<string, MessageData>;
   myUserId: string;
   onEdit: (message: MessageData) => void;
+  onReact: (message: MessageData, emoji: string) => void;
+  reactionPending: boolean;
   onReply: (message: MessageData) => void;
   onRequest: (message: MessageData | undefined) => void;
   onRetry: (message: MessageData) => void;
@@ -5447,12 +5552,14 @@ function VirtualRowInner({
   messagesById,
   myUserId,
   onEdit,
+  onReact,
   onReply,
   onRequest,
   onRetry,
   peerName,
   scrolling,
   selected,
+  reactionPending,
   selectionActive,
   unreadDivider,
 }: VirtualRowProps) {
@@ -5708,10 +5815,12 @@ function VirtualRowInner({
         message={message}
         myUserId={myUserId}
         onEdit={() => onEdit(message)}
+        onReact={(emoji) => onReact(message, emoji)}
         onReply={() => onReply(message)}
         position={position}
         quote={quote}
         quotePending={quotePending}
+        reactionPending={reactionPending}
         selectionActive={selectionActive}
         showSenderName={showSenderName}
         unknownSenderName={DEN_UNKNOWN_SENDER_NAME}
@@ -5749,6 +5858,8 @@ const VirtualRow = memo(
     prev.selectionActive === next.selectionActive &&
     prev.unreadDivider === next.unreadDivider &&
     prev.onEdit === next.onEdit &&
+    prev.onReact === next.onReact &&
+    prev.reactionPending === next.reactionPending &&
     prev.onReply === next.onReply &&
     prev.onRequest === next.onRequest &&
     prev.onRetry === next.onRetry

@@ -12,6 +12,7 @@
 // until the photo reports its intrinsic size, so the row reports it through
 // onLayout. Without that a long album scrolls to the wrong place.
 
+import type { MessageReactionSummary } from "@asm/messages";
 import { File, Directory, Paths } from "expo-file-system";
 import * as Sharing from "expo-sharing";
 import { VideoView, useVideoPlayer } from "expo-video";
@@ -65,6 +66,7 @@ import {
 // itself is the cap, and this is the ceiling inside it.
 const ALBUM_MAX_WIDTH = 384;
 const MAX_BUBBLE_WIDTH_RATIO = 0.85;
+const EMPTY_REACTIONS: MessageReactionSummary[] = [];
 
 export interface MessageBubbleProps {
   ephemeral?: boolean;
@@ -79,6 +81,9 @@ export interface MessageBubbleProps {
   failed: boolean;
   onRetry?: () => void;
   onPressImage?: (index: number) => void;
+  onReact?: (emoji: string) => void;
+  reactionPending?: boolean;
+  reactions?: MessageReactionSummary[];
   /** The message this one replies to, if it is loaded. */
   replyPreview?: { senderId: string; text: string } | null;
   peerAvatarUrl?: string | null;
@@ -99,11 +104,14 @@ function MessageBubbleInner({
   maxBubbleWidth,
   mine,
   onPressImage,
+  onReact,
+  reactionPending = false,
   onRetry,
   peerAvatarUrl,
   payload,
   receipt,
   replyPreview,
+  reactions = EMPTY_REACTIONS,
   showReceipt,
   theme,
 }: MessageBubbleProps) {
@@ -256,6 +264,12 @@ function MessageBubbleInner({
                 {payload.content}
               </Text>
             ) : null}
+            <ReactionPills
+              disabled={reactionPending}
+              mine={mine}
+              onReact={onReact}
+              reactions={reactions}
+            />
           </View>
           {showReceipt && mine && receipt ? (
             <ReceiptLine
@@ -335,6 +349,12 @@ function MessageBubbleInner({
               {payload.content}
             </Text>
           ) : null}
+          <ReactionPills
+            disabled={reactionPending}
+            mine={mine}
+            onReact={onReact}
+            reactions={reactions}
+          />
         </View>
         {showReceipt && mine && receipt ? (
           <ReceiptLine
@@ -366,6 +386,12 @@ function MessageBubbleInner({
             <Text style={styles.sharedLabel}>{payload.content.trim()}</Text>
           ) : null}
           <MessagePostPreview key={payload.postId} postId={payload.postId} />
+          <ReactionPills
+            disabled={reactionPending}
+            mine={mine}
+            onReact={onReact}
+            reactions={reactions}
+          />
         </SentOrReceived>
         {showReceipt && mine && receipt ? (
           <ReceiptLine
@@ -426,6 +452,12 @@ function MessageBubbleInner({
         {edited ? (
           <Text style={[styles.edited, mine && styles.editedMine]}>edited</Text>
         ) : null}
+        <ReactionPills
+          disabled={reactionPending}
+          mine={mine}
+          onReact={onReact}
+          reactions={reactions}
+        />
       </SentOrReceived>
       {showReceipt && mine && receipt ? (
         <ReceiptLine
@@ -433,6 +465,46 @@ function MessageBubbleInner({
           label={receipt.status}
         />
       ) : null}
+    </View>
+  );
+}
+
+function ReactionPills({
+  mine,
+  disabled = false,
+  onReact,
+  reactions,
+}: {
+  mine: boolean;
+  disabled?: boolean;
+  onReact?: (emoji: string) => void;
+  reactions: MessageReactionSummary[];
+}) {
+  if (!onReact || reactions.length === 0) {
+    return null;
+  }
+  return (
+    <View
+      style={[styles.reactionRow, mine ? styles.alignEnd : styles.alignStart]}
+    >
+      {reactions.map((reaction) => (
+        <Pressable
+          accessibilityLabel={`${reaction.emoji}, ${reaction.count} reactions${reaction.reactedByMe ? ", selected" : ""}`}
+          accessibilityRole="button"
+          accessibilityState={{ selected: reaction.reactedByMe }}
+          key={reaction.emoji}
+          disabled={disabled}
+          onPress={() => onReact(reaction.emoji)}
+          style={[
+            styles.reactionChip,
+            reaction.reactedByMe && styles.reactionChipSelected,
+          ]}
+        >
+          <Text style={styles.reactionText}>
+            {reaction.emoji} {reaction.count}
+          </Text>
+        </Pressable>
+      ))}
     </View>
   );
 }
@@ -802,6 +874,31 @@ const styles = StyleSheet.create({
   },
   quoteTheirs: {
     backgroundColor: "#8e8e931f",
+  },
+  reactionChip: {
+    alignItems: "center",
+    backgroundColor: "rgba(127, 127, 127, 0.10)",
+    borderColor: "rgba(127, 127, 127, 0.24)",
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
+    justifyContent: "center",
+    minHeight: 28,
+    paddingHorizontal: 8,
+  },
+  reactionChipSelected: {
+    backgroundColor: "rgba(88, 140, 220, 0.18)",
+    borderColor: "rgba(88, 140, 220, 0.6)",
+  },
+  reactionRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 5,
+    marginTop: 5,
+  },
+  reactionText: {
+    color: "#85858b",
+    fontFamily: "SofiaProMed",
+    fontSize: 12,
   },
   retry: {
     color: "#f66b15",

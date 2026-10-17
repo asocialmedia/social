@@ -16,6 +16,7 @@ import type { PrismaTransaction } from "../prisma";
 import { listDenMembershipEvents } from "./dens/den-service";
 import { readableMessageKeyEpochsSql } from "./epochs/epoch-readability";
 import { rawExecute, rawQuery } from "./infrastructure/raw-sql";
+import { listMessageReactionSummaries } from "./reactions";
 
 export class ChatLifecycleError extends Error {
   readonly code: string;
@@ -475,9 +476,19 @@ export async function listIncognitoMessages(
     keptNewestFirst.push(message);
   }
   const truncated = keptNewestFirst.length < newestFirst.length;
+  const messages = keptNewestFirst.toReversed();
+  const reactions = await listMessageReactionSummaries(
+    conversationId,
+    userId,
+    [],
+    messages.map((message) => message.id)
+  );
   return {
     hasMore: rows.length > 50 || truncated,
-    messages: keptNewestFirst.toReversed(),
+    messages: messages.map((message) => ({
+      ...message,
+      reactions: reactions.get(message.id) ?? [],
+    })),
   };
 }
 

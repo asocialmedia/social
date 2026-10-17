@@ -4,6 +4,7 @@ import type {
   GroupAddRefusal,
 } from "@asm/db/messages/dens";
 import type { MessageAttachmentKind } from "@asm/media";
+import type { MessageReactionSummary } from "@asm/messages";
 import { extractMessageReferences } from "@asm/messages";
 
 import { uploadMediaFile } from "@/lib/media/media-upload-client";
@@ -1319,6 +1320,49 @@ export async function fetchMessages(
     ...body,
     messages: body.messages.map((message) => toCachedMessage(message)),
   };
+}
+
+export async function toggleMessageReaction(
+  conversationId: string,
+  messageId: string,
+  emoji: string,
+  sessionId?: string
+): Promise<MessageReactionSummary[]> {
+  const response = await fetchChatApi(
+    `/api/messages/conversations/${conversationId}/reactions/${messageId}`,
+    {
+      body: JSON.stringify({ emoji, ...(sessionId ? { sessionId } : {}) }),
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+    }
+  );
+  if (!response.ok) {
+    throw await parseError(response);
+  }
+  const result = (await response.json()) as {
+    reactions: MessageReactionSummary[];
+  };
+  return result.reactions;
+}
+
+export async function fetchMessageReactions(
+  conversationId: string,
+  messageId: string,
+  sessionId?: string
+): Promise<MessageReactionSummary[]> {
+  const query = sessionId ? `?sessionId=${encodeURIComponent(sessionId)}` : "";
+  const response = await fetchChatApi(
+    `/api/messages/conversations/${conversationId}/reactions/${messageId}${query}`,
+    { credentials: "same-origin" }
+  );
+  if (!response.ok) {
+    throw await parseError(response);
+  }
+  const result = (await response.json()) as {
+    reactions: MessageReactionSummary[];
+  };
+  return result.reactions;
 }
 
 export interface MessageMediaUpload {

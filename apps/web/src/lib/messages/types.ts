@@ -4,6 +4,7 @@ import type {
   DenMembershipEventAction,
   DenRole,
 } from "@asm/db";
+import type { MessageReactionSummary } from "@asm/messages";
 
 // One durable line in a den's membership log, as the events route returns it.
 //
@@ -157,6 +158,7 @@ export interface MessageData {
   id: string;
   iv: string;
   keyEpoch?: number | null;
+  reactions?: MessageReactionSummary[];
   ratchetIndex: number;
   revision?: number;
   sender?: MessageSender | null;

@@ -31,6 +31,7 @@ import {
   ackMessageDelivered,
   fetchConversationDetail,
   fetchConversationList,
+  fetchMessageReactions,
   fetchMessages,
 } from "@/features/messages/lib/client";
 import { messageDecryptor } from "@/features/messages/lib/decryptor";
@@ -581,6 +582,34 @@ export function useTranscript(
             return;
           }
           transcriptStore.setPeerTyping(conversationId, true);
+          return;
+        }
+        case "message.reacted": {
+          if (!event.messageId) {
+            return;
+          }
+          const {messageId} = event;
+          void (async () => {
+            try {
+              const reactions = await fetchMessageReactions(
+                conversationId,
+                messageId,
+                {
+                  apiBase,
+                  baseFetch: fetch,
+                  cookie,
+                },
+                event.sessionId
+              );
+              transcriptStore.applyMessageReactions(
+                conversationId,
+                messageId,
+                reactions
+              );
+            } catch {
+              // A later transcript read reconciles a missed reaction frame.
+            }
+          })();
           return;
         }
         case "den.membership.changed":

@@ -7,6 +7,7 @@ import {
 } from "@asm/messages";
 import type { IncognitoMessage, IncognitoSession } from "@asm/messages";
 // oxlint-disable no-await-in-loop -- Sequential cryptography, database mutations and bounded streams preserve ordering and memory limits.
+import { MenuView } from "@expo/ui/community/menu";
 import { randomUUID } from "expo-crypto";
 import { Shield } from "lucide-react-native";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -19,12 +20,14 @@ import {
   useWindowDimensions,
 } from "react-native";
 
+import { toast } from "@/components/feedback/toast";
 import { useSessionContext } from "@/features/auth/state/session";
 import type { ApiCallOptions } from "@/features/feed/lib/feed-api";
 import {
   ensureConversationKeys,
   fetchConversationDetail,
   postConversationKeys,
+  toggleMessageReaction,
 } from "@/features/messages/lib/client";
 import { decryptMessage, encryptMessage } from "@/features/messages/lib/crypto";
 import type { MessagePayload } from "@/features/messages/lib/crypto";
@@ -101,8 +104,44 @@ export function NativeIncognitoThread({
   const mounted = useRef(true);
   const generation = useRef(0);
   const pending = useRef<{ id: string; signature: string } | null>(null);
+  const reactionLocks = useRef(new Set<string>());
   const list = useRef<FlatList<Row>>(null);
   const canView = fresh && !session.endedAt;
+  const reactToMessage = useCallback(
+    async (messageId: string, emoji: string) => {
+      if (reactionLocks.current.has(messageId)) {
+        return;
+      }
+      reactionLocks.current.add(messageId);
+      try {
+        const reactions = await toggleMessageReaction(
+          conversationId,
+          messageId,
+          emoji,
+          options,
+          session.id
+        );
+        setRows((current) =>
+          current.map((row) =>
+            row.message.id === messageId
+              ? { ...row, message: { ...row.message, reactions } }
+              : row
+          )
+        );
+      } catch (error) {
+        toast({
+          description:
+            error instanceof Error
+              ? error.message
+              : "Couldn't update reaction.",
+          title: "Reaction failed",
+          variant: "destructive",
+        });
+      }
+      reactionLocks.current.delete(messageId);
+    },
+    [conversationId, options, session.id]
+  );
   useEffect(() => {
     const expired = rows.filter(
       ({ message }) =>
@@ -429,28 +468,53 @@ export function NativeIncognitoThread({
                         {formatTimeDivider(message.createdAt)}
                       </Text>
                     ) : null}
-                    <MessageBubble
-                      ephemeral
-                      deleted={false}
-                      edited={false}
-                      group={group}
-                      mine={message.senderId === user?.id}
-                      payload={payload}
-                      failed={!payload}
-                      peerAvatarUrl={peer?.avatarUrl}
-                      theme={{
-                        from: "#71717a",
-                        key: "incognito",
-                        label: "Incognito",
-                        ring: "#a1a1aa",
-                        to: "#52525b",
+                    <MenuView
+                      shouldOpenOnLongPress
+                      actions={["❤️", "👍", "😂", "😮", "😢", "🔥"].map(
+                        (emoji) => ({ id: emoji, title: emoji })
+                      )}
+                      onPressAction={({ nativeEvent }) => {
+                        if (
+                          ["❤️", "👍", "😂", "😮", "😢", "🔥"].includes(
+                            nativeEvent.event
+                          )
+                        ) {
+                          void reactToMessage(message.id, nativeEvent.event);
+                        }
                       }}
-                      maxBubbleWidth={width - 32}
-                      showReceipt={false}
-                      onPressImage={(imageIndex) =>
-                        setViewer({ index: imageIndex, messageId: message.id })
-                      }
-                    />
+                    >
+                      <View>
+                        <MessageBubble
+                          ephemeral
+                          deleted={false}
+                          edited={false}
+                          group={group}
+                          mine={message.senderId === user?.id}
+                          payload={payload}
+                          failed={!payload}
+                          peerAvatarUrl={peer?.avatarUrl}
+                          theme={{
+                            from: "#71717a",
+                            key: "incognito",
+                            label: "Incognito",
+                            ring: "#a1a1aa",
+                            to: "#52525b",
+                          }}
+                          maxBubbleWidth={width - 32}
+                          showReceipt={false}
+                          onPressImage={(imageIndex) =>
+                            setViewer({
+                              index: imageIndex,
+                              messageId: message.id,
+                            })
+                          }
+                          onReact={(emoji) => {
+                            void reactToMessage(message.id, emoji);
+                          }}
+                          reactions={message.reactions ?? []}
+                        />
+                      </View>
+                    </MenuView>
                   </View>
                 );
               }}

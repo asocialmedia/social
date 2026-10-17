@@ -31,6 +31,7 @@ interface MessageStreamEvent {
   mediaId?: string;
   membershipAction?: string;
   messageId?: string;
+  sessionId?: string;
   // The den's post-increment roster counter. Optional because the server may not
   // have one to give (a dissolve, a deployment that predates the column), and an
   // unreadable value is dropped rather than guessed at, so `undefined` here means
@@ -111,6 +112,13 @@ export function parseMessageEvent(raw: string): MessageStreamEvent | null {
       return null;
     }
     if (
+      parsed.kind === "message.reacted" &&
+      parsed.sessionId !== undefined &&
+      typeof parsed.sessionId !== "string"
+    ) {
+      return null;
+    }
+    if (
       parsed.kind === "media.viewOnce.revoked" &&
       typeof parsed.mediaId !== "string"
     ) {
@@ -136,6 +144,7 @@ export function parseMessageEvent(raw: string): MessageStreamEvent | null {
       membershipSeq: readMembershipSeq(parsed.membershipSeq) ?? undefined,
       message: parsed.message,
       messageId: parsed.messageId,
+      ...(parsed.sessionId ? { sessionId: parsed.sessionId } : {}),
       readAt: parsed.readAt,
       userId: parsed.userId,
     };

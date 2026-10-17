@@ -44,6 +44,7 @@ export interface MessageStreamEvent {
   message?: unknown;
   // The reacted-to message id, on `message.reacted` only.
   messageId?: string;
+  sessionId?: string;
   readAt?: string;
   userId?: string;
 }
@@ -104,6 +105,13 @@ export function parseMessageEvent(raw: string): MessageStreamEvent | null {
       return null;
     }
     if (
+      parsed.kind === "message.reacted" &&
+      parsed.sessionId !== undefined &&
+      typeof parsed.sessionId !== "string"
+    ) {
+      return null;
+    }
+    if (
       parsed.kind === "media.viewOnce.revoked" &&
       typeof parsed.mediaId !== "string"
     ) {
@@ -116,6 +124,7 @@ export function parseMessageEvent(raw: string): MessageStreamEvent | null {
       mediaId: parsed.mediaId,
       message: parsed.message,
       messageId: parsed.messageId,
+      ...(parsed.sessionId ? { sessionId: parsed.sessionId } : {}),
       readAt: parsed.readAt,
       userId: parsed.userId,
     };

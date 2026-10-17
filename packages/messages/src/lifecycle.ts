@@ -27,6 +27,13 @@ export interface IncognitoMessage {
   ratchetIndex: number;
   sequence: number;
   createdAt: string;
+  reactions?: MessageReactionSummary[];
+}
+
+export interface MessageReactionSummary {
+  count: number;
+  emoji: string;
+  reactedByMe: boolean;
 }
 
 export interface ChatLifecycleSnapshot {

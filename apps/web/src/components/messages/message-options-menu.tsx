@@ -49,6 +49,8 @@ export interface MessageOptionsMenuProps {
   onDeleteForMe: () => void;
   onEdit: () => void;
   onReply: () => void;
+  onReact: (emoji: string) => void;
+  reactionPending?: boolean;
   onSelect: () => void;
   /** Own-message delivery state; null for received messages. */
   receipt: MessageReceiptInfo | null;
@@ -66,6 +68,8 @@ export function MessageOptionsMenu({
   onDeleteForMe,
   onEdit,
   onReply,
+  onReact,
+  reactionPending = false,
   onSelect,
   preferEnd,
   presentation,
@@ -191,6 +195,29 @@ export function MessageOptionsMenu({
 
   const actions = (
     <>
+      <div className="border-border/40 border-b px-2 py-2">
+        <p className="text-muted-foreground mb-1.5 px-1 text-[11px] font-medium">
+          React
+        </p>
+        <fieldset
+          aria-label="Choose a reaction"
+          className="flex gap-1 border-0 p-0"
+        >
+          <legend className="sr-only">Choose a reaction</legend>
+          {["❤️", "👍", "😂", "😮", "😢", "🔥"].map((emoji) => (
+            <button
+              aria-label={`React with ${emoji}`}
+              className="hover:bg-muted/70 focus-visible:ring-primary/50 flex size-9 items-center justify-center rounded-xl text-lg transition-transform duration-150 hover:scale-110 focus-visible:ring-2 active:scale-95"
+              disabled={reactionPending}
+              key={emoji}
+              onClick={() => onReact(emoji)}
+              type="button"
+            >
+              {emoji}
+            </button>
+          ))}
+        </fieldset>
+      </div>
       <MenuRow
         icon={<Copy className="size-4" />}
         label="Copy"

@@ -6,6 +6,8 @@
 // it. The shape is identical, so a member object produced by either client
 // serialises the same.
 
+import type { MessageReactionSummary } from "@asm/messages";
+
 export interface CommunityRoleRow {
   community: {
     accentColor: string;
@@ -83,6 +85,7 @@ export interface MessageData {
   expiresAt?: Date | string | null;
   revision?: number;
   keyEpoch?: number | null;
+  reactions?: MessageReactionSummary[];
   ciphertext: string;
   conversationId: string;
   createdAt: string;

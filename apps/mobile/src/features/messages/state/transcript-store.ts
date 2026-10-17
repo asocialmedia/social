@@ -8,6 +8,8 @@
 // together. That split is what lets a thread render its skeleton instantly and fill
 // in plaintext as rows land, instead of blocking on a key derivation per row.
 
+import type { MessageReactionSummary } from "@asm/messages";
+
 import {
   appendMessageToLastPage,
   markMessagesDeletedInPages,
@@ -345,6 +347,33 @@ export class TranscriptStore {
     }
     entry.pages = pages;
     this.#patch(conversationId, { messages: this.#flatten(conversationId) });
+  }
+
+  applyMessageReactions(
+    conversationId: string,
+    messageId: string,
+    reactions: MessageReactionSummary[]
+  ): void {
+    const entry = this.#entries.get(conversationId);
+    if (!entry) {
+      return;
+    }
+    let changed = false;
+    entry.pages = entry.pages.map((page) => {
+      let pageChanged = false;
+      const messages = page.messages.map((message) => {
+        if (message.id !== messageId) {
+          return message;
+        }
+        changed = true;
+        pageChanged = true;
+        return { ...message, reactions };
+      });
+      return pageChanged ? { ...page, messages } : page;
+    });
+    if (changed) {
+      this.#patch(conversationId, { messages: this.#flatten(conversationId) });
+    }
   }
 
   applyMessageDeleted(
