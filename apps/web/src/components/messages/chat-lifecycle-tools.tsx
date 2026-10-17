@@ -11,24 +11,19 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@asm/ui/shadui/dialog";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@asm/ui/shadui/dropdown-menu";
 import { Input } from "@asm/ui/shadui/input";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   Clock3,
   Download,
-  Ellipsis,
+  ChevronRight,
   History,
   Loader2,
   Shield,
   Trash2,
 } from "lucide-react";
 import { useEffect, useId, useState } from "react";
+import type React from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
 import type { ConversationDetailResponse } from "@/lib/messages/client";
@@ -38,10 +33,8 @@ import {
 } from "@/lib/messages/lifecycle-client";
 import type { ChatExportStatus } from "@/lib/messages/lifecycle-client";
 
-import {
-  IncognitoUsageNotice,
-  useChatLifecycle,
-} from "./chat-lifecycle-context";
+import { useChatLifecycle } from "./chat-lifecycle-state";
+import { IncognitoUsageNotice } from "./incognito-usage-notice";
 
 export function ChatLifecycleTools({
   detail,
@@ -49,6 +42,7 @@ export function ChatLifecycleTools({
   detail: ConversationDetailResponse;
 }) {
   const { user } = useSession();
+  const queryClient = useQueryClient();
   const {
     snapshot,
     error: lifecycleError,
@@ -57,14 +51,28 @@ export function ChatLifecycleTools({
     mutate,
     loadEarlierNotices,
     dismiss,
+    requestIncognito,
   } = useChatLifecycle();
   const [dialog, setDialog] = useState<
-    "clear" | "start" | "retention" | "export" | "sessions" | null
+    "clear" | "end" | "retention" | "export" | "sessions" | null
   >(null);
   const [includeMedia, setIncludeMedia] = useState(false);
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
-  const [job, setJob] = useState<ChatExportStatus | null>(null);
+  const [job, setJob] = useState<ChatExportStatus | null>(
+    () =>
+      queryClient.getQueryData<ChatExportStatus>([
+        "chat-export-job",
+        user?.id,
+        detail.conversation.id,
+      ]) ?? null
+  );
+  useEffect(() => {
+    queryClient.setQueryData(
+      ["chat-export-job", user?.id, detail.conversation.id],
+      job
+    );
+  }, [queryClient, user?.id, detail.conversation.id, job]);
   const [exportBusy, setExportBusy] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
   const id = useId();
@@ -174,8 +182,11 @@ export function ChatLifecycleTools({
   };
   const confirm = async () => {
     const body = (() => {
-      if (dialog === "start") {
-        return { action: "start-incognito", actionId: crypto.randomUUID() };
+      if (dialog === "end") {
+        return {
+          action: "end-incognito",
+          sessionId: snapshot?.activeSession?.id,
+        };
       }
       if (dialog === "clear") {
         return { action: "clear", throughSequence: snapshot?.changeSeq };
@@ -213,57 +224,45 @@ export function ChatLifecycleTools({
   };
   return (
     <>
-      <div className="flex shrink-0 items-center justify-between gap-2 border-b px-4 py-1.5 text-xs">
-        <span className="text-muted-foreground flex items-center gap-1.5">
-          <Clock3 className="size-3.5" />
-          {snapshot?.retentionSeconds
-            ? "New messages disappear 24h after sending"
-            : "Messages stay until deleted"}
-        </span>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button aria-label="Chat actions" size="sm" variant="ghost">
-              <Ellipsis className="size-4" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            {isDen ? null : (
-              <DropdownMenuItem
-                disabled={busy}
-                onSelect={() => setOpen("start")}
-              >
-                <Shield className="mr-2 size-4" />
-                Start incognito
-              </DropdownMenuItem>
-            )}
-            <DropdownMenuItem
-              disabled={busy || !canManage}
-              onSelect={() => setOpen("retention")}
-            >
-              <Clock3 className="mr-2 size-4" />
-              Auto-delete · {snapshot?.retentionSeconds ? "24 hours" : "Off"}
-            </DropdownMenuItem>
-            <DropdownMenuItem onSelect={() => setOpen("export")}>
-              <Download className="mr-2 size-4" />
-              Export chat
-            </DropdownMenuItem>
-            {!isDen && snapshot?.notices.length ? (
-              <DropdownMenuItem onSelect={() => setOpen("sessions")}>
-                <History className="mr-2 size-4" />
-                Incognito session history
-              </DropdownMenuItem>
-            ) : null}
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              className="text-destructive"
-              disabled={busy}
-              onSelect={() => setOpen("clear")}
-            >
-              <Trash2 className="mr-2 size-4" />
-              Delete chat for me
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+      <div className="divide-border/60 divide-y">
+        {isDen ? null : (
+          <LifecycleAction
+            icon={<Shield className="size-4" />}
+            label={
+              snapshot?.activeSession ? "End incognito" : "Start incognito"
+            }
+            disabled={busy}
+            onClick={() =>
+              snapshot?.activeSession ? setOpen("end") : requestIncognito()
+            }
+          />
+        )}
+        <LifecycleAction
+          icon={<Clock3 className="size-4" />}
+          label="Auto-delete messages"
+          value={snapshot?.retentionSeconds ? "24 hours" : "Off"}
+          disabled={busy || !canManage || Boolean(snapshot?.activeSession)}
+          onClick={() => setOpen("retention")}
+        />
+        <LifecycleAction
+          icon={<Download className="size-4" />}
+          label="Export chat"
+          onClick={() => setOpen("export")}
+        />
+        {!isDen && snapshot?.notices.length ? (
+          <LifecycleAction
+            icon={<History className="size-4" />}
+            label="Incognito history"
+            onClick={() => setOpen("sessions")}
+          />
+        ) : null}
+        <LifecycleAction
+          icon={<Trash2 className="size-4" />}
+          label="Delete chat for me"
+          destructive
+          disabled={busy || Boolean(snapshot?.activeSession)}
+          onClick={() => setOpen("clear")}
+        />
       </div>
       {lifecycleError ? (
         <div
@@ -288,8 +287,8 @@ export function ChatLifecycleTools({
           <DialogHeader>
             <DialogTitle>
               {(() => {
-                if (dialog === "start") {
-                  return "Start incognito?";
+                if (dialog === "end") {
+                  return "End incognito for both of you?";
                 }
                 if (dialog === "clear") {
                   return "Delete chat for me?";
@@ -308,19 +307,19 @@ export function ChatLifecycleTools({
             </DialogTitle>
             <DialogDescription>
               {(() => {
-                if (dialog === "start") {
-                  return "Both of you will use a separate incognito view. Either person can end it, and it ends automatically 24 hours after starting. All session messages are deleted together. A permanent usage notice stays in this chat.";
+                if (dialog === "end") {
+                  return "All messages and attachments in incognito will be deleted, including unread messages.";
                 }
                 if (dialog === "clear") {
-                  return "Your existing history will be cleared across your devices. Other members keep their copies. New messages bring the chat back. Permanent incognito notices remain.";
+                  return "Clear this chat from your devices. Other members keep their messages.";
                 }
                 if (dialog === "retention") {
-                  return "This setting applies to new normal messages for everyone. Existing history keeps its current lifetime. Downloaded copies can remain after a message expires.";
+                  return "New messages will disappear 24 hours after sending. Existing messages keep their current setting.";
                 }
                 if (dialog === "sessions") {
-                  return "These permanent notices record who used incognito and when. Session message content is never included.";
+                  return "Past incognito conversations.";
                 }
-                return "Download a ZIP with text and JSON copies of your readable history. Cleared, deleted, expired, and incognito messages are excluded. Downloads expire within one hour.";
+                return "Download your chat history and optional media as a ZIP file.";
               })()}
             </DialogDescription>
           </DialogHeader>
@@ -528,7 +527,11 @@ export function ChatLifecycleTools({
                   </Button>
                 )}
                 <Button
-                  variant={dialog === "clear" ? "destructive" : "premium"}
+                  variant={
+                    dialog === "clear" || dialog === "end"
+                      ? "destructive"
+                      : "premium"
+                  }
                   disabled={busy}
                   onClick={() => {
                     void confirm();
@@ -541,8 +544,8 @@ export function ChatLifecycleTools({
                     if (dialog === "clear") {
                       return "Delete for me";
                     }
-                    if (dialog === "start") {
-                      return "Start incognito";
+                    if (dialog === "end") {
+                      return "End and delete messages";
                     }
                     if (snapshot?.retentionSeconds) {
                       return "Turn off";
@@ -561,5 +564,45 @@ export function ChatLifecycleTools({
         </DialogContent>
       </Dialog>
     </>
+  );
+}
+
+function LifecycleAction({
+  icon,
+  label,
+  value,
+  disabled = false,
+  destructive = false,
+  onClick,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value?: string;
+  disabled?: boolean;
+  destructive?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      className="pill-3d-hover flex min-h-12 w-full items-center gap-3 px-2.5 py-2 text-left disabled:cursor-not-allowed disabled:opacity-45"
+    >
+      <span
+        className={`chip-3d flex size-8 shrink-0 items-center justify-center rounded-lg ${destructive ? "text-destructive" : ""}`}
+      >
+        {icon}
+      </span>
+      <span
+        className={`min-w-0 flex-1 text-sm font-medium ${destructive ? "text-destructive" : ""}`}
+      >
+        {label}
+      </span>
+      {value ? (
+        <span className="text-muted-foreground text-xs">{value}</span>
+      ) : null}
+      <ChevronRight className="text-muted-foreground size-3.5 shrink-0" />
+    </button>
   );
 }

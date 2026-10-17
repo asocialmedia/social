@@ -89,6 +89,7 @@ import type {
 import { cn, formatRelativeDate } from "@/lib/utils";
 import { getSecureImageUrl } from "@/lib/utils/image-url";
 
+import { ChatLifecycleTools } from "./chat-lifecycle-tools";
 import type { SharedContentMessage } from "./conversation-shared-content";
 import { ConversationSharedLinksTab } from "./conversation-shared-links-tab";
 import { ConversationSharedMediaTab } from "./conversation-shared-media-tab";
@@ -622,6 +623,8 @@ export function ConversationDetailsBody({
         />
       </div>
 
+      <ChatLifecycleTools detail={detail} />
+
       <ThemeRow onChange={handleThemeChange} selectedKey={prefs.themeKey} />
 
       <WallpaperRow
@@ -799,6 +802,8 @@ export function ConversationDetailsBody({
                 uploadProgress={uploadProgress}
                 uploadStage={uploadStage}
               />
+
+              <ChatLifecycleTools detail={detail} />
 
               {peer ? (
                 <>

@@ -36,9 +36,11 @@ const DialogContent = ({
   className,
   children,
   ref,
+  showCloseButton = true,
   ...props
 }: React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content> & {
   ref?: React.Ref<React.ElementRef<typeof DialogPrimitive.Content> | null>;
+  showCloseButton?: boolean;
 }) => (
   <DialogPortal>
     <DialogOverlay />
@@ -56,10 +58,12 @@ const DialogContent = ({
       {...props}
     >
       {children}
-      <DialogPrimitive.Close className="icon-btn-3d focus-visible:ring-ring absolute top-3 right-3 flex size-9 items-center justify-center rounded-full focus-visible:ring-2 focus-visible:outline-hidden disabled:pointer-events-none">
-        <Cross2Icon className="h-4 w-4" />
-        <span className="sr-only">Close</span>
-      </DialogPrimitive.Close>
+      {showCloseButton ? (
+        <DialogPrimitive.Close className="icon-btn-3d focus-visible:ring-ring absolute top-3 right-3 flex size-9 items-center justify-center rounded-full focus-visible:ring-2 focus-visible:outline-hidden disabled:pointer-events-none">
+          <Cross2Icon className="h-4 w-4" />
+          <span className="sr-only">Close</span>
+        </DialogPrimitive.Close>
+      ) : null}
     </DialogPrimitive.Content>
   </DialogPortal>
 );

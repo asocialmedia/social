@@ -254,6 +254,19 @@ function SingleImage({
   );
 }
 
+// One row carries one kind for the grid. Version-2 photos report their own
+// kinds, so a row that holds any GIF renders its GIF tiles as animated.
+function rowMediaKind(
+  content: Extract<MessagePayload, { type: "media" }>
+): "gif" | "image" {
+  if (!("attachments" in content)) {
+    return content.kind;
+  }
+  return content.attachments.some((attachment) => attachment.kind === "gif")
+    ? "gif"
+    : "image";
+}
+
 export function MessageMediaAlbum({
   content,
   messageId,
@@ -262,6 +275,7 @@ export function MessageMediaAlbum({
   messageId: string;
 }) {
   const images = getMediaImages(content);
+  const kind = rowMediaKind(content);
   const openConversationMedia = useOpenConversationMedia();
   const caption = content.content?.trim();
 
@@ -280,7 +294,7 @@ export function MessageMediaAlbum({
     <div className="flex min-w-0 flex-col gap-1.5">
       <AlbumGrid
         images={images}
-        kind={content.kind}
+        kind={kind}
         // Without the thread's viewer provider the grid is display-only, so a
         // tile can never be an interactive dead button.
         onOpen={openConversationMedia ? handleOpen : undefined}

@@ -19,6 +19,7 @@ import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { toast } from "@/lib/gooey-toast";
+import type { DecryptEntry } from "@/lib/messages/decryptor";
 import type { SharedRefsPage } from "@/lib/messages/shared-refs-format";
 import { cn } from "@/lib/utils";
 import {
@@ -333,6 +334,7 @@ function Filmstrip({
 }
 
 interface ConversationMediaViewerProps {
+  readPayload?: (id: string) => DecryptEntry | undefined;
   anchorKey: string;
   hasOlder: boolean;
   hasNewer: boolean;
@@ -362,6 +364,7 @@ interface ConversationMediaViewerProps {
 // It owns the media-index subscription itself: mounting only when open means a
 // decrypt completion re-renders this viewer, never the transcript behind it.
 export function ConversationMediaViewer({
+  readPayload,
   anchorKey,
   hasOlder,
   hasNewer,
@@ -376,7 +379,12 @@ export function ConversationMediaViewer({
   onPosition,
 }: ConversationMediaViewerProps) {
   const [activeKey, setActiveKey] = useState(anchorKey);
-  const localIndex = useConversationMediaWindow(messages, activeKey);
+  const localIndex = useConversationMediaWindow(
+    messages,
+    activeKey,
+    undefined,
+    readPayload
+  );
   const [serverWindow, setServerWindow] =
     useState<ServerMediaWindowState | null>(null);
   const serverWindowRef = useRef<ServerMediaWindowState | null>(null);

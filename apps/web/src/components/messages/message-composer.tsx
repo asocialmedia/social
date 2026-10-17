@@ -56,6 +56,10 @@ const MessageImageEditDialog = dynamic(
 const normalDrafts = new ChatDraftStore();
 
 interface MessageComposerProps {
+  incognito?: {
+    sessionId: string;
+    send: (payload: MessagePayload) => Promise<boolean>;
+  };
   // Set when the server told us this member is no longer inside the conversation.
   // The composer stays mounted and keeps its draft; only the controls go quiet, so
   // being removed from a den mid-sentence does not throw away what was being
@@ -118,6 +122,7 @@ async function sendWithRatchetRetry(
 }
 
 export function MessageComposer({
+  incognito,
   accessEnded = false,
   conversation,
   editTarget,
@@ -132,7 +137,9 @@ export function MessageComposer({
   const { privateKey } = useMessagesIdentity();
   const queryClient = useQueryClient();
   const [text, setText] = useState(() =>
-    normalDrafts.get(user?.id ?? "", conversation.conversation.id)
+    incognito
+      ? ""
+      : normalDrafts.get(user?.id ?? "", conversation.conversation.id)
   );
   const [savingEdit, setSavingEdit] = useState(false);
   const [sending, setSending] = useState(false);
@@ -178,10 +185,10 @@ export function MessageComposer({
     }
   }, [draftKey]);
   useEffect(() => {
-    if (!editing && user) {
+    if (!incognito && !editing && user) {
       normalDrafts.set(user.id, conversationId, text);
     }
-  }, [text, conversationId, user?.id, editing, user]);
+  }, [text, conversationId, user?.id, editing, user, incognito]);
 
   const {
     addFiles,
@@ -195,7 +202,7 @@ export function MessageComposer({
     replaceAttachmentFile,
     restoreAttachments,
     retryAttachment,
-  } = useMessageAttachments(conversationId);
+  } = useMessageAttachments(conversationId, incognito?.sessionId);
 
   const editingAttachment = attachments.find(
     (attachment) => attachment.id === editingId
@@ -262,6 +269,17 @@ export function MessageComposer({
         return false;
       }
       try {
+        if (incognito) {
+          const sent = await incognito.send(payload);
+          if (sent && !options?.preserveInput) {
+            setText("");
+            onReplyCancel();
+          }
+          if (sent) {
+            onSent();
+          }
+          return sent;
+        }
         // Unwrap the root key (cached per conversation). This also heals any
         // missing wrapped key rows from a conversation created before this
         // device had keys. The refresh callback guards the rotate path: if our
@@ -366,6 +384,7 @@ export function MessageComposer({
       privateKey,
       queryClient,
       user,
+      incognito,
     ]
   );
 
@@ -777,7 +796,7 @@ export function MessageComposer({
             }
             // Typing heartbeats are meaningless while editing an existing
             // message; skip them so an edit never pings the peer.
-            if (!editing && value.trim().length > 0) {
+            if (!incognito && !editing && value.trim().length > 0) {
               // Typing indicators are throttled to one heartbeat per 3s; the
               // peer's client auto-clears after a timeout.
               const now = Date.now();

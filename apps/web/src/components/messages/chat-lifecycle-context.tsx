@@ -2,25 +2,12 @@
 
 // oxlint-disable react/exhaustive-effect-dependencies -- Account, clear and retry revisions intentionally invalidate scoped effects even when they are not request payload fields.
 
-import {
-  runChatTask,
-  throwChatError,
-  incognitoIsActive,
-  incognitoNotice,
-} from "@asm/messages";
-import type { ChatLifecycleSnapshot, IncognitoSession } from "@asm/messages";
+import { runChatTask, throwChatError, incognitoIsActive } from "@asm/messages";
+import type { IncognitoSession } from "@asm/messages";
 import { Button } from "@asm/ui/shadui/button";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Clock3, Shield, RefreshCw } from "lucide-react";
-import {
-  useMemo,
-  createContext,
-  Fragment,
-  useCallback,
-  useContext,
-  useEffect,
-  useState,
-} from "react";
+import { Shield, RefreshCw } from "lucide-react";
+import { useMemo, Fragment, useCallback, useEffect, useState } from "react";
 import type { ReactNode } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
@@ -31,27 +18,12 @@ import {
 } from "@/lib/messages/lifecycle-client";
 import { offlineSearchWorkerClient } from "@/lib/messages/offline-search-worker-client";
 
-import { IncognitoThread } from "./incognito-thread";
-
-interface LifecycleContext {
-  snapshot: ChatLifecycleSnapshot | undefined;
-  error: string | null;
-  busy: boolean;
-  connected: boolean;
-  revision: number;
-  refresh: () => void;
-  loadEarlierNotices: () => Promise<void>;
-  mutate: (body: object) => Promise<boolean>;
-  dismiss: () => void;
-}
-const Context = createContext<LifecycleContext | null>(null);
-export function useChatLifecycle() {
-  const context = useContext(Context);
-  if (!context) {
-    throwChatError(new Error("Chat lifecycle provider required"));
-  }
-  return context;
-}
+import { ChatLifecycleContext } from "./chat-lifecycle-state";
+import {
+  IncognitoIntroduction,
+  hasSeenIncognitoIntroduction,
+  acknowledgeIncognitoIntroduction,
+} from "./incognito-introduction";
 
 export function ChatLifecycleBoundary({
   conversationId,
@@ -66,6 +38,21 @@ export function ChatLifecycleBoundary({
   const userId = user?.id;
   const { recoveryGeneration } = useMessagesIdentity();
   const queryClient = useQueryClient();
+  const [introPending, setIntroPending] = useState(false);
+  const [introAccount, setIntroAccount] = useState<{
+    id: string;
+    seen: boolean;
+  } | null>(null);
+  useEffect(() => {
+    if (userId) {
+      queueMicrotask(() =>
+        setIntroAccount({
+          id: userId,
+          seen: hasSeenIncognitoIntroduction(userId),
+        })
+      );
+    }
+  }, [userId]);
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [connected, setConnected] = useState(false);
@@ -177,8 +164,7 @@ export function ChatLifecycleBoundary({
       window.removeEventListener("online", onOnline);
     };
   }, [conversationId, refresh]);
-  // The one-second clock drives only the incognito remaining-time badge. It must not rerender
-  // the normal thread every second, so it runs only while a session is active.
+  // Poll freshness is checked only while incognito is active; normal history has no clock subscription.
   const activeSessionId =
     query.data?.activeSession && !query.data.activeSession.endedAt
       ? query.data.activeSession.id
@@ -305,12 +291,8 @@ export function ChatLifecycleBoundary({
       }
     );
   }, [olderCursor, query.data, busy, conversationId]);
-  const offset = query.data
-    ? Date.parse(query.data.serverNow) - query.dataUpdatedAt
-    : 0;
   const active =
-    snapshot?.activeSession &&
-    incognitoIsActive(snapshot.activeSession, clock + offset)
+    snapshot?.activeSession && incognitoIsActive(snapshot.activeSession)
       ? snapshot.activeSession
       : null;
   const lifecycleError =
@@ -323,123 +305,98 @@ export function ChatLifecycleBoundary({
     recoveryGeneration !== null &&
     snapshot.clearedAt !== cacheClearedAt
   );
+  const requestIncognito = useCallback(() => {
+    if (!userId || busy) {
+      return;
+    }
+    if (hasSeenIncognitoIntroduction(userId)) {
+      void mutate({ action: "start-incognito", actionId: crypto.randomUUID() });
+    } else {
+      setIntroPending(true);
+    }
+  }, [userId, busy, mutate]);
+  const fresh = clock - query.dataUpdatedAt < 7000;
   const lifecycleContextValue = useMemo(
     () => ({
       busy,
       connected,
       dismiss: () => setActionError(null),
       error: lifecycleError,
+      fresh,
       loadEarlierNotices,
       mutate,
       refresh,
+      requestIncognito,
       revision,
       snapshot,
     }),
     [
       busy,
       connected,
+      fresh,
       lifecycleError,
       loadEarlierNotices,
       mutate,
       refresh,
       revision,
       snapshot,
+      requestIncognito,
     ]
   );
   return (
-    <Context.Provider value={lifecycleContextValue}>
-      {(() => {
-        if (!snapshot || pendingClear) {
+    <ChatLifecycleContext.Provider value={lifecycleContextValue}>
+      <IncognitoIntroduction
+        open={Boolean(
+          userId &&
+          (introPending ||
+            (active && introAccount?.id === userId && !introAccount.seen))
+        )}
+        onAcknowledge={() => {
+          if (!userId) {
+            return;
+          }
+          acknowledgeIncognitoIntroduction(userId);
+          setIntroAccount({ id: userId, seen: true });
+          setIntroPending(false);
+          if (introPending && !active) {
+            void mutate({
+              action: "start-incognito",
+              actionId: crypto.randomUUID(),
+            });
+          }
+        }}
+      />
+      <div className="flex h-full min-h-0 min-w-0 flex-1">
+        {(() => {
+          if (!snapshot || pendingClear) {
+            return (
+              <div
+                className="flex h-full flex-1 flex-col items-center justify-center gap-3 p-6 text-center"
+                aria-live="polite"
+              >
+                <Shield className="text-muted-foreground size-7" />
+                <p>
+                  {lifecycleError ??
+                    (pendingClear
+                      ? "Clearing saved history…"
+                      : "Opening conversation…")}
+                </p>
+                {lifecycleError ? (
+                  <Button variant="premium" onClick={refresh}>
+                    <RefreshCw className="mr-2 size-4" />
+                    Retry
+                  </Button>
+                ) : null}
+              </div>
+            );
+          }
           return (
-            <div
-              className="flex h-full flex-1 flex-col items-center justify-center gap-3 p-6 text-center"
-              aria-live="polite"
-            >
-              <Shield className="text-muted-foreground size-7" />
-              <p>
-                {lifecycleError ??
-                  (pendingClear
-                    ? "Clearing saved history…"
-                    : "Opening conversation…")}
-              </p>
-              {lifecycleError ? (
-                <Button variant="premium" onClick={refresh}>
-                  <RefreshCw className="mr-2 size-4" />
-                  Retry
-                </Button>
-              ) : null}
-            </div>
+            <Fragment key={snapshot.clearedAt ?? "normal-history"}>
+              {children}
+            </Fragment>
           );
-        }
-        if (active) {
-          return (
-            <IncognitoThread
-              key={`${active.id}:${recoveryGeneration}`}
-              conversationId={conversationId}
-              session={active}
-              serverNow={snapshot.serverNow}
-              fresh={clock - query.dataUpdatedAt < 7000}
-              revision={revision}
-              onBack={onBack}
-              onRefresh={refresh}
-              onEnd={() =>
-                mutate({ action: "end-incognito", sessionId: active.id })
-              }
-              busy={busy}
-              error={lifecycleError}
-            />
-          );
-        }
-        return (
-          <Fragment key={snapshot.clearedAt ?? "normal-history"}>
-            {children}
-          </Fragment>
-        );
-      })()}
-    </Context.Provider>
-  );
-}
-
-export function IncognitoUsageNotice({
-  session,
-}: {
-  session: IncognitoSession;
-}) {
-  const ended = session.endedAt;
-  const effective =
-    ended && !session.endedAt
-      ? { ...session, endReason: "timeout", endedAt: ended }
-      : session;
-  return (
-    <div
-      className="mx-auto my-4 max-w-md px-4"
-      data-incognito-notice={session.id}
-    >
-      <div className="surface-3d rounded-2xl! px-4 py-3 text-center">
-        <div className="text-muted-foreground mb-1 flex items-center justify-center gap-1.5 text-[11px] font-medium tracking-widest uppercase">
-          <Shield className="size-3" />
-          Incognito session
-        </div>
-        <p className="text-sm">{incognitoNotice(effective)}</p>
-        <p className="text-muted-foreground mt-1 flex items-center justify-center gap-1 text-xs">
-          <Clock3 className="size-3" />
-          <time dateTime={session.startedAt}>
-            {new Date(session.startedAt).toLocaleString()}
-          </time>
-          {ended ? (
-            <>
-              {" "}
-              —{" "}
-              <time dateTime={ended}>
-                {new Date(ended).toLocaleTimeString()}
-              </time>
-            </>
-          ) : null}
-        </p>
-        <p className="text-muted-foreground mt-1 text-[11px]">
-          Permanent notice · Session messages are not retained after it ends
-        </p>
+        })()}
       </div>
-    </div>
+    </ChatLifecycleContext.Provider>
   );
 }

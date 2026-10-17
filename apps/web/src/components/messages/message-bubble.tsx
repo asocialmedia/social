@@ -46,7 +46,7 @@ interface MessageBubbleProps {
     senderId: string;
   };
   myUserId: string;
-  onEdit: () => void;
+  onEdit?: () => void;
   onReply: () => void;
   quote: { senderName: string; content: string } | null;
   quotePending: boolean;
@@ -93,7 +93,8 @@ export function MessageBubble({
   // Edit is a sender-only, time-boxed affordance. Computed at render so an
   // expired window stops offering an action the server would reject; a message
   // whose window lapses while mounted simply 409s and surfaces the error.
-  const canEdit = mine && isWithinEditWindow(message.createdAt);
+  const canEdit =
+    Boolean(onEdit) && mine && isWithinEditWindow(message.createdAt);
   // The peer avatar marks the end of a run, so it rides the last row (solo or
   // bottom); earlier rows reserve a same-width spacer to keep the column aligned.
   const showAvatar = !mine && (position === "solo" || position === "bottom");
@@ -368,7 +369,7 @@ export function MessageBubble({
                 icon={<MessageSquareQuote className="h-3.5 w-3.5" />}
                 onClick={onReply}
               />
-              {canEdit ? (
+              {canEdit && onEdit ? (
                 <BubbleAction
                   ariaLabel="Edit message"
                   icon={<Pencil className="h-3.5 w-3.5" />}
