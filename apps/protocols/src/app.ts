@@ -31,7 +31,8 @@ export interface ProtocolsAppOptions {
   discover?: (
     mode: "latest" | "personalized" | "trending",
     cursor?: string,
-    locale?: string
+    locale?: string,
+    topics?: string[]
   ) => Promise<unknown>;
 }
 
@@ -179,7 +180,8 @@ export function createProtocolsApp(options: ProtocolsAppOptions) {
                 return options.discover(
                   query.mode ?? "latest",
                   query.cursor,
-                  query.locale
+                  query.locale,
+                  query.topic
                 );
               }
             ),
@@ -198,6 +200,11 @@ export function createProtocolsApp(options: ProtocolsAppOptions) {
                   t.Literal("personalized"),
                   t.Literal("trending"),
                 ])
+              ),
+              topic: t.Optional(
+                t.Array(t.String({ maxLength: 80, minLength: 2 }), {
+                  maxItems: 5,
+                })
               ),
             }),
           }

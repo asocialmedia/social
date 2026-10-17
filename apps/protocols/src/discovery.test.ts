@@ -330,7 +330,7 @@ test("visibility lookup distinguishes no declaration from an outage", async () =
 const publicFeed =
   "at://did:plc:z72i7hdynmk6r22z27h6tvur/app.bsky.feed.generator/whats-hot";
 
-test("default discovery reads a public generator and does not restrict discovery to publishers", async () => {
+test("default discovery resolves live catalog feeds without restricting publishers", async () => {
   const requested: string[] = [];
   const discovery = new BlueskyDiscovery({
     allowsRecommendations: async () => true,
@@ -345,6 +345,10 @@ test("default discovery reads a public generator and does not restrict discovery
       };
     },
     getProfile: async () => profile,
+    getSuggestedFeeds: async () => ({
+      cursor: null,
+      items: [{ displayName: "Live feed", uri: publicFeed }],
+    }),
   });
   const page = await discovery.read("latest");
   expect(requested).toEqual([publicFeed]);
@@ -451,7 +455,7 @@ test("generator candidates respect recommendation opt-outs in every display mode
   expect(peak).toBe(6);
 });
 
-test("ranked generator order is retained among distinct authors", async () => {
+test("trending ranks fresh engagement among distinct authors", async () => {
   const items = [post(5, "did:web:first.test"), post(1, "did:web:second.test")];
   const discovery = new BlueskyDiscovery(
     {
@@ -464,6 +468,74 @@ test("ranked generator order is retained among distinct authors", async () => {
   );
   const page = await discovery.read("trending");
   expect(page.items.map((item) => item.id)).toEqual(
-    items.map((item) => item.id)
+    items.toReversed().map((item) => item.id)
   );
+});
+
+test("personalized sources search the live corpus and cursors stay bound to their interests", async () => {
+  const searches: string[] = [];
+  const discovery = new BlueskyDiscovery({
+    allowsRecommendations: async () => true,
+    getAuthorFeed: async () => ({ cursor: null, items: [] }),
+    getFeed: async () => ({
+      cursor: null,
+      items: [post(9, "did:web:general.test")],
+    }),
+    getProfile: async () => profile,
+    getSuggestedFeeds: async () => ({
+      cursor: "next-catalog",
+      items: [{ displayName: "Live channel", uri: publicFeed }],
+    }),
+    searchPosts: async (query) => {
+      searches.push(query);
+      return {
+        cursor: "next-search",
+        items: [
+          { ...post(1, "did:web:space.test"), text: "Astronomy discoveries" },
+        ],
+      };
+    },
+  });
+  const page = await discovery.read("personalized", undefined, "en", [
+    "astronomy",
+  ]);
+  expect(searches).toEqual(["astronomy"]);
+  expect(page.items[0]?.author.id).toBe("did:web:space.test");
+  expect(page.cursor).not.toBeNull();
+  await expect(
+    discovery.read("personalized", page.cursor ?? undefined, "en", [
+      "gardening",
+    ])
+  ).rejects.toMatchObject({ code: "invalid_input" });
+});
+
+test("discovery advances the live catalog after its source buffers drain", async () => {
+  const cursors: (string | undefined)[] = [];
+  const discovery = new BlueskyDiscovery({
+    allowsRecommendations: async () => true,
+    getAuthorFeed: async () => ({ cursor: null, items: [] }),
+    getFeed: async (uri) => ({
+      cursor: null,
+      items: [post(uri.endsWith("second") ? 2 : 1)],
+    }),
+    getProfile: async () => profile,
+    getSuggestedFeeds: async (options) => {
+      cursors.push(options?.cursor);
+      return {
+        cursor: options?.cursor ? null : "next-catalog",
+        items: [
+          {
+            displayName: "Dynamic",
+            uri: options?.cursor
+              ? publicFeed.replace("whats-hot", "second")
+              : publicFeed,
+          },
+        ],
+      };
+    },
+  });
+  const first = await discovery.read("latest");
+  const second = await discovery.read("latest", first.cursor ?? undefined);
+  expect(cursors).toEqual([undefined, "next-catalog"]);
+  expect(second.items[0]?.id).not.toBe(first.items[0]?.id);
 });

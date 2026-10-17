@@ -471,3 +471,39 @@ const abortingFetcher: ProtocolFetch = (_url, options) =>
       { once: true }
     );
   });
+
+test("live catalog queries use the bounded public transport with topic and continuation parameters", async () => {
+  const requests: string[] = [];
+  const catalog = {
+    feeds: [
+      {
+        cid: postFixture.cid,
+        creator: profileFixture,
+        did: authorDid,
+        displayName: "Astronomy",
+        indexedAt: postFixture.indexedAt,
+        uri: `at://${authorDid}/app.bsky.feed.generator/astronomy`,
+      },
+    ],
+  };
+  const client = new BlueskyClient({
+    fetch: async (url) => {
+      requests.push(url);
+      return Response.json(catalog);
+    },
+  });
+  const general = await client.getSuggestedFeeds({ limit: 4 });
+  const related = await client.getSuggestedFeeds({
+    limit: 5,
+    query: "astronomy",
+  });
+  expect(general.items[0]?.displayName).toBe("Astronomy");
+  expect(related.items[0]?.uri).toContain("/astronomy");
+  expect(requests[0]).toContain("app.bsky.feed.getSuggestedFeeds");
+  expect(new URL(requests[1] ?? "").searchParams.get("query")).toBe(
+    "astronomy"
+  );
+  expect(requests[1]).toContain("app.bsky.unspecced.getPopularFeedGenerators");
+  await client.getSuggestedFeeds({ limit: 5, query: "astronomy" });
+  expect(requests).toHaveLength(2);
+});

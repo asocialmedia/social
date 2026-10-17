@@ -1,4 +1,4 @@
-import { externalPostStates } from "@asm/db";
+import { externalPostStates, getRecommendationProfile } from "@asm/db";
 import {
   discoveryModeSchema,
   discoveryLocaleSchema,
@@ -13,6 +13,10 @@ import {
   ProtocolGatewayError,
   protocolRoute,
 } from "@/lib/protocols/gateway";
+import {
+  discoveryTopics,
+  rankExternalForViewer,
+} from "@/lib/protocols/recommendations";
 import { readBlueskyDiscovery } from "@/lib/protocols/service";
 
 export function GET(request: Request) {
@@ -31,13 +35,25 @@ export function GET(request: Request) {
     if (session?.user.id) {
       await consumeProtocolBudget(session.user.id, "read", true);
     }
+    const profile =
+      session?.user.id && mode.data === "personalized"
+        ? await getRecommendationProfile(session.user.id).catch(() => null)
+        : null;
     const [page, excluded] = await Promise.all([
-      readBlueskyDiscovery(mode.data, cursor, request.signal, id, locale.data),
+      readBlueskyDiscovery(
+        mode.data,
+        cursor,
+        request.signal,
+        id,
+        locale.data,
+        profile ? discoveryTopics(profile) : []
+      ),
       session?.user.id
         ? readExternalFeedback(session.user.id)
         : Promise.resolve(new Set<string>()),
     ]);
-    const items = filterExternalRecommendations(page.items, excluded);
+    const filtered = filterExternalRecommendations(page.items, excluded);
+    const items = profile ? rankExternalForViewer(filtered, profile) : filtered;
     const states = await externalPostStates(
       items.map((post) => post.id),
       session?.user.id

@@ -246,3 +246,26 @@ test("production read replicas require shared continuation storage", () => {
     readConfig({ NODE_ENV: "production", PROTOCOLS_INTERNAL_TOKEN: token })
   ).toThrow("REDIS_URL");
 });
+
+test("the internal discovery boundary preserves repeated interest terms and rejects oversized arrays", async () => {
+  const seen: unknown[] = [];
+  const { request } = fixture({
+    discover: async (...args) => {
+      seen.push(args);
+      return { cursor: null, items: [], partial: false };
+    },
+  });
+  const response = await request(
+    "/v1/bluesky/discover?mode=personalized&locale=en&topic=astronomy&topic=art"
+  );
+  expect(response.status).toBe(200);
+  expect(seen).toEqual([
+    ["personalized", undefined, "en", ["astronomy", "art"]],
+  ]);
+  const invalid = await request(
+    `/v1/bluesky/discover?${new URLSearchParams(
+      Array.from({ length: 6 }, (_, i) => ["topic", `topic${i}`])
+    )}`
+  );
+  expect(invalid.status).toBe(400);
+});

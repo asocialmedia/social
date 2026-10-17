@@ -66,7 +66,8 @@ export async function readBlueskyDiscovery(
   cursor?: string,
   signal?: AbortSignal,
   requestId?: string,
-  locale?: string
+  locale?: string,
+  topics: string[] = []
 ) {
   const service = process.env.PROTOCOLS_SERVICE_URL;
   const token = process.env.PROTOCOLS_INTERNAL_TOKEN;
@@ -82,6 +83,9 @@ export async function readBlueskyDiscovery(
     throw new ProtocolGatewayError(503, "invalid_configuration", 30);
   }
   url.searchParams.set("mode", mode);
+  for (const topic of topics) {
+    url.searchParams.append("topic", topic);
+  }
   if (locale) {
     url.searchParams.set("locale", locale);
   }

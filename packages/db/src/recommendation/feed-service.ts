@@ -698,7 +698,9 @@ export async function buildAndCacheProfile(
   return profile;
 }
 
-async function getProfile(userId: string): Promise<CachedProfile> {
+export async function getRecommendationProfile(
+  userId: string
+): Promise<CachedProfile> {
   try {
     const cached = await redis.get(fypProfileKey(userId));
     if (cached) {
@@ -765,7 +767,7 @@ export async function getPersonalizedFeedPage(
   const contentKind = options.contentKind ?? "post";
   const visibilityPredicate = communityVisibilityWhere(userId);
   const [profile, viewerSession, blocks] = await Promise.all([
-    getProfile(userId),
+    getRecommendationProfile(userId),
     prisma.orm.public.Sessions.select("country")
       .where({ userId })
       .orderBy((session) => session.updatedAt.desc())

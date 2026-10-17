@@ -27,6 +27,16 @@ export const discoveryLocaleSchema = z
   .regex(
     /^(?:all|(?:ar|bn|de|el|en|es|fr|hi|id|it|ja|ko|mr|nl|pl|pt|ru|sv|ta|te|tr|uk|ur|vi|zh)(?:-[A-Z]{2})?)$/
   );
+export const discoveryTopicsSchema = z
+  .array(
+    z
+      .string()
+      .trim()
+      .min(2)
+      .max(80)
+      .regex(/^[\p{L}\p{N} _-]+$/u)
+  )
+  .max(5);
 export type FeedSource = "all" | "asm" | "bluesky";
 
 export function externalReplyTarget(post: ExternalPost) {

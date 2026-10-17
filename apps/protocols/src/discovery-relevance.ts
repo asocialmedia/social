@@ -73,3 +73,36 @@ export function regionalRelevance(post: ExternalPost, locale: string) {
     ? 1
     : 0;
 }
+
+export function discoveryRelevance(
+  post: ExternalPost,
+  topics: string[],
+  locale: string,
+  mode: "personalized" | "trending" | "latest"
+) {
+  const hours = Math.max(
+    0,
+    (Date.now() - Date.parse(post.createdAt)) / 3_600_000
+  );
+  const engagement =
+    post.upstreamCounts.likes +
+    post.upstreamCounts.reposts * 2 +
+    post.upstreamCounts.replies +
+    post.upstreamCounts.quotes * 2;
+  const popularity = Math.log1p(engagement) / (1 + hours / 24);
+  const text =
+    `${post.text} ${post.author.description ?? ""} ${post.externalLink?.title ?? ""}`.toLocaleLowerCase();
+  const interest = topics.reduce(
+    (score, topic, index) =>
+      score +
+      (text.includes(topic.toLocaleLowerCase())
+        ? (topics.length - index) * 2
+        : 0),
+    0
+  );
+  return (
+    popularity +
+    regionalRelevance(post, locale) * 2 +
+    (mode === "personalized" ? interest : 0)
+  );
+}

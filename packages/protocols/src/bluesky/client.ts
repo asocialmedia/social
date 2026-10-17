@@ -2,6 +2,7 @@
 // oxlint-disable no-await-in-loop
 import {
   Client,
+  l,
   XrpcInvalidResponseError,
   XrpcResponseError,
 } from "@atproto/lex";
@@ -34,6 +35,16 @@ import {
   postViewSchema,
   profileSchema,
 } from "./schemas";
+
+const popularFeedsQuery = l.query(
+  "app.bsky.unspecced.getPopularFeedGenerators",
+  l.params({
+    cursor: l.optional(l.string()),
+    limit: l.optional(l.integer({ maximum: 100, minimum: 1 })),
+    query: l.string(),
+  }),
+  app.bsky.feed.getSuggestedFeeds.$output
+);
 
 export const blueskyCapabilities: ProtocolCapabilities = {
   authenticatedWrites: false,
@@ -230,6 +241,96 @@ export class BlueskyClient {
       options
     );
     return page;
+  }
+
+  async getSuggestedFeeds(
+    options: { query?: string; cursor?: string; limit?: number } = {}
+  ): Promise<{
+    cursor: string | null;
+    items: { uri: string; displayName: string; description?: string }[];
+  }> {
+    const parsed = z
+      .object({
+        cursor: z.string().min(1).max(4096).optional(),
+        limit: z.number().int().min(1).max(50).default(24),
+        query: z.string().trim().min(2).max(80).optional(),
+      })
+      .safeParse(options);
+    if (!parsed.success) {
+      throw new ProtocolError("invalid_input", "Invalid feed discovery");
+    }
+    const page = await this.request(
+      parsed.data.query
+        ? "app.bsky.unspecced.getPopularFeedGenerators"
+        : "app.bsky.feed.getSuggestedFeeds",
+      {
+        ...(parsed.data.query ? { query: parsed.data.query } : {}),
+        limit: String(parsed.data.limit),
+        ...(parsed.data.cursor ? { cursor: parsed.data.cursor } : {}),
+      },
+      z.object({
+        cursor: z.string().optional(),
+        feeds: z
+          .array(
+            z.object({
+              description: z.string().optional(),
+              displayName: z.string(),
+              uri: feedUriSchema,
+            })
+          )
+          .max(100),
+      }),
+      300_000
+    );
+    return { cursor: page.cursor ?? null, items: page.feeds };
+  }
+
+  async searchPosts(
+    query: string,
+    sort: "latest" | "top",
+    options: FeedReadOptions = {}
+  ): Promise<ExternalPage<ExternalPost>> {
+    const parsedQuery = z.string().trim().min(1).max(80).safeParse(query);
+    const parsed = pageOptionsSchema.safeParse(options);
+    if (
+      !parsedQuery.success ||
+      !parsed.success ||
+      !["latest", "top"].includes(sort)
+    ) {
+      throw new ProtocolError("invalid_input", "Invalid post search");
+    }
+    const page = await this.request(
+      "app.bsky.feed.searchPosts",
+      {
+        limit: String(parsed.data.limit),
+        q: parsedQuery.data,
+        sort,
+        ...(parsed.data.cursor ? { cursor: parsed.data.cursor } : {}),
+        ...(parsed.data.language
+          ? { lang: parsed.data.language.split("-")[0] ?? "en" }
+          : {}),
+      },
+      z.object({
+        cursor: z.string().optional(),
+        posts: z.array(z.unknown()).max(100),
+      }),
+      10_000
+    );
+    const items: ExternalPost[] = [];
+    for (const value of page.posts) {
+      const post = postViewSchema.safeParse(value);
+      if (!post.success) {
+        continue;
+      }
+      try {
+        items.push(normalizePost(post.data));
+      } catch (error) {
+        if (!(error instanceof ProtocolError)) {
+          throw error;
+        }
+      }
+    }
+    return { cursor: page.cursor ?? null, items };
   }
 
   async getPost(uri: string): Promise<ExternalPost | null> {
@@ -491,6 +592,32 @@ export class BlueskyClient {
         cursor: query.get("cursor") ?? undefined,
         limit: Number(query.get("limit")),
       };
+      if (operation === "app.bsky.unspecced.getPopularFeedGenerators") {
+        return await this.rpc.call(
+          popularFeedsQuery,
+          { ...page, query: query.get("query") ?? "" },
+          options
+        );
+      }
+      if (operation === "app.bsky.feed.getSuggestedFeeds") {
+        return await this.rpc.call(
+          app.bsky.feed.getSuggestedFeeds,
+          page,
+          options
+        );
+      }
+      if (operation === "app.bsky.feed.searchPosts") {
+        return await this.rpc.call(
+          app.bsky.feed.searchPosts,
+          {
+            ...page,
+            lang: query.get("lang") ?? undefined,
+            q: query.get("q") ?? "",
+            sort: query.get("sort") ?? "top",
+          },
+          options
+        );
+      }
       if (operation === "app.bsky.feed.getAuthorFeed") {
         return await this.rpc.call(
           app.bsky.feed.getAuthorFeed,

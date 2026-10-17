@@ -10,6 +10,7 @@ import {
   discoveryModeSchema,
   discoveryLocaleSchema,
   discoveryPageSchema,
+  discoveryTopicsSchema,
   externalPostSchema,
   waitForReadRetry,
 } from "@asm/protocols/discovery";
@@ -18,15 +19,18 @@ import { z } from "zod";
 
 import {
   matchesDiscoveryLanguage,
-  regionalRelevance,
+  discoveryRelevance,
 } from "./discovery-relevance";
 import { MemoryDiscoveryStore } from "./discovery-store";
 import type { DiscoveryLease, DiscoveryStore } from "./discovery-store";
 
 const snapshotSchema = z.object({
+  catalogCursor: z.string().max(4096).optional(),
+  catalogExhausted: z.boolean().default(false),
+  catalogFeeds: z.array(z.string().max(2048)).max(50).default([]),
   locale: z.string().default(""),
   mode: discoveryModeSchema,
-  page: z.number().int().min(0).max(20),
+  page: z.number().int().min(0).max(1000),
   seen: z.array(z.string().max(512)).max(400),
   sources: z
     .array(
@@ -38,17 +42,19 @@ const snapshotSchema = z.object({
       })
     )
     .max(10),
+  topics: discoveryTopicsSchema.default([]),
 });
 
 type DiscoveryClient = Pick<
   BlueskyClient,
   "getProfile" | "getAuthorFeed" | "allowsRecommendations"
 > &
-  Partial<Pick<BlueskyClient, "getPosts" | "getFeed">>;
-
-export const DEFAULT_DISCOVERY_SOURCES = [
-  "at://did:plc:z72i7hdynmk6r22z27h6tvur/app.bsky.feed.generator/whats-hot",
-];
+  Partial<
+    Pick<
+      BlueskyClient,
+      "getPosts" | "getFeed" | "getSuggestedFeeds" | "searchPosts"
+    >
+  >;
 
 async function mapBounded<Value, Result>(
   values: Value[],
@@ -72,27 +78,28 @@ export class BlueskyDiscovery {
   private readonly pending = new Map<string, Promise<DiscoveryPage>>();
   private activeLoads = 0;
   private readonly client: DiscoveryClient;
-  private readonly actors: string[];
+  private readonly actors?: string[];
   private readonly store: DiscoveryStore;
   private readonly scope: string;
   private readonly timeoutMs: number;
   constructor(
     client: DiscoveryClient,
-    actors = DEFAULT_DISCOVERY_SOURCES,
+    actors?: string[],
     options: { store?: DiscoveryStore; timeoutMs?: number } = {}
   ) {
     if (
-      actors.length === 0 ||
-      actors.length > 10 ||
-      new Set(actors).size !== actors.length
+      actors &&
+      (actors.length === 0 ||
+        actors.length > 10 ||
+        new Set(actors).size !== actors.length)
     ) {
       throw new RangeError("Discovery needs one to ten unique sources");
     }
     this.client = client;
-    this.actors = [...actors];
+    this.actors = actors ? [...actors] : undefined;
     this.store = options.store ?? new MemoryDiscoveryStore();
     this.scope = createHash("sha256")
-      .update(JSON.stringify(["diverse-v2", actors]))
+      .update(JSON.stringify(["dynamic-v3", actors]))
       .digest("hex")
       .slice(0, 16);
     this.timeoutMs = options.timeoutMs ?? 12_000;
@@ -108,16 +115,21 @@ export class BlueskyDiscovery {
   async read(
     mode: DiscoveryMode,
     cursor?: string,
-    locale = ""
+    locale = "",
+    topics: string[] = []
   ): Promise<DiscoveryPage> {
     if (
       !discoveryModeSchema.safeParse(mode).success ||
+      !discoveryTopicsSchema.safeParse(topics).success ||
       (locale !== "" && !discoveryLocaleSchema.safeParse(locale).success) ||
       (cursor && !z.uuid().safeParse(cursor).success)
     ) {
       throw new ProtocolError("invalid_input", "Invalid discovery request");
     }
-    const key = `${this.scope}:page:${locale}:${mode}:${cursor ?? "head"}`;
+    const key = `${this.scope}:page:${createHash("sha256")
+      .update(JSON.stringify([locale, mode, topics]))
+      .digest("hex")
+      .slice(0, 24)}:${cursor ?? "head"}`;
     const existing = this.pending.get(key);
     if (existing) {
       return discoveryPageSchema.parse(await existing);
@@ -126,7 +138,7 @@ export class BlueskyDiscovery {
       throw new ProtocolError("capacity", "Discovery is busy", 2);
     }
     const signal = AbortSignal.timeout(this.timeoutMs);
-    const request = this.readCached(mode, cursor, key, signal, locale);
+    const request = this.readCached(mode, cursor, key, signal, locale, topics);
     this.pending.set(key, request);
     try {
       return discoveryPageSchema.parse(await request);
@@ -178,7 +190,8 @@ export class BlueskyDiscovery {
     cursor: string | undefined,
     key: string,
     signal: AbortSignal,
-    locale: string
+    locale: string,
+    topics: string[]
   ): Promise<DiscoveryPage> {
     const cached = await this.cachedPage(key, signal);
     if (cached) {
@@ -213,7 +226,14 @@ export class BlueskyDiscovery {
       this.activeLoads += 1;
       try {
         signal.throwIfAborted();
-        const page = await this.load(mode, cursor, lease, signal, locale);
+        const page = await this.load(
+          mode,
+          cursor,
+          lease,
+          signal,
+          locale,
+          topics
+        );
         if (
           !(await abortable(
             this.store.set(
@@ -248,7 +268,8 @@ export class BlueskyDiscovery {
     cursor: string | undefined,
     lease: DiscoveryLease,
     signal: AbortSignal,
-    locale: string
+    locale: string,
+    topics: string[]
   ): Promise<DiscoveryPage> {
     const stored = cursor
       ? await abortable(this.store.get(this.snapshotKey(cursor)), signal)
@@ -268,21 +289,112 @@ export class BlueskyDiscovery {
       }
     }
     const snapshot: z.infer<typeof snapshotSchema> = saved ?? {
+      catalogExhausted: false,
+      catalogFeeds: [],
       locale,
       mode,
       page: 0,
       seen: [],
-      sources: this.actors.map((actor) => ({
+      sources: (this.actors ?? []).map((actor) => ({
         actor,
         cursor: undefined,
         exhausted: false,
         items: [],
       })),
+      topics,
     };
-    if (snapshot.mode !== mode || snapshot.locale !== locale) {
+    if (
+      snapshot.mode !== mode ||
+      snapshot.locale !== locale ||
+      JSON.stringify(snapshot.topics) !== JSON.stringify(topics)
+    ) {
       throw new ProtocolError(
         "invalid_input",
         "Discovery cursor belongs to another feed"
+      );
+    }
+    // Resolve sources from the live public catalog, then page that catalog as sources run out.
+    if (
+      !this.actors &&
+      this.client.getSuggestedFeeds &&
+      snapshot.catalogFeeds.length === 0 &&
+      (snapshot.sources.length === 0 ||
+        snapshot.sources.every(
+          (source) => source.exhausted && source.items.length === 0
+        ))
+    ) {
+      const catalog = await abortable(
+        this.client.getSuggestedFeeds({
+          cursor: snapshot.catalogCursor,
+          limit: 24,
+        }),
+        signal
+      );
+      snapshot.catalogCursor = catalog.cursor ?? undefined;
+      snapshot.catalogExhausted = !catalog.cursor;
+      const offset =
+        (Math.floor(Date.now() / 300_000) + (mode === "latest" ? 0 : 7)) %
+        Math.max(1, catalog.items.length);
+      const rotated = [
+        ...catalog.items.slice(offset),
+        ...catalog.items.slice(0, offset),
+      ];
+      const findFeeds = this.client.getSuggestedFeeds.bind(this.client);
+      const related = await mapBounded(topics.slice(0, 3), async (topic) => {
+        try {
+          const result = await abortable(
+            findFeeds({ limit: 5, query: topic }),
+            signal
+          );
+          return result.items;
+        } catch {
+          return [];
+        }
+      });
+      const feeds = [
+        ...new Map(
+          [
+            ...related.flatMap((matches) => matches.slice(0, 1)),
+            ...rotated,
+          ].map((feed) => [feed.uri, feed])
+        ).values(),
+      ];
+      snapshot.catalogFeeds = feeds.slice(4).map((feed) => feed.uri);
+      snapshot.sources = feeds.slice(0, 4).map((feed) => ({
+        actor: feed.uri,
+        cursor: undefined,
+        exhausted: false,
+        items: [],
+      }));
+      if (this.client.searchPosts) {
+        snapshot.sources.unshift(
+          ...topics.slice(0, 3).map((topic) => ({
+            actor: `search:${topic}`,
+            cursor: undefined,
+            exhausted: false,
+            items: [],
+          }))
+        );
+      }
+    }
+    if (
+      !this.actors &&
+      snapshot.catalogFeeds.length > 0 &&
+      snapshot.sources.every(
+        (source) => source.exhausted && source.items.length === 0
+      )
+    ) {
+      snapshot.sources = snapshot.catalogFeeds.splice(0, 4).map((actor) => ({
+        actor,
+        cursor: undefined,
+        exhausted: false,
+        items: [],
+      }));
+    }
+    if (snapshot.sources.length === 0) {
+      throw new ProtocolError(
+        "unavailable",
+        "No public discovery sources available"
       );
     }
     let partial = false;
@@ -298,9 +410,10 @@ export class BlueskyDiscovery {
           const options = {
             cursor: source.cursor,
             language: locale && locale !== "all" ? locale : undefined,
-            limit: 30,
+            limit: this.actors ? 30 : 16,
           };
-          const feed = source.actor.startsWith("at://");
+          const search = source.actor.startsWith("search:");
+          const feed = source.actor.startsWith("at://") || search;
           const profile = feed
             ? null
             : await abortable(this.client.getProfile(source.actor), signal);
@@ -310,12 +423,19 @@ export class BlueskyDiscovery {
               "Public feed reader is unavailable"
             );
           }
-          const page = await abortable(
-            feed && this.client.getFeed
-              ? this.client.getFeed(source.actor, options)
-              : this.client.getAuthorFeed(source.actor, "posts", options),
-            signal
-          );
+          let read;
+          if (search && this.client.searchPosts) {
+            read = this.client.searchPosts(
+              source.actor.slice(7),
+              mode === "latest" ? "latest" : "top",
+              options
+            );
+          } else if (feed && this.client.getFeed) {
+            read = this.client.getFeed(source.actor, options);
+          } else {
+            read = this.client.getAuthorFeed(source.actor, "posts", options);
+          }
+          const page = await abortable(read, signal);
           source.items = page.items.filter(
             (post) =>
               (!profile || post.author.id === profile.id) &&
@@ -342,7 +462,9 @@ export class BlueskyDiscovery {
       ...new Set(
         snapshot.sources.flatMap((source) =>
           !blocked.has(source.actor) &&
-          (mode !== "latest" || source.actor.startsWith("at://"))
+          (mode !== "latest" ||
+            source.actor.startsWith("at://") ||
+            source.actor.startsWith("search:"))
             ? source.items.map((post) => post.author.id)
             : []
         )
@@ -365,7 +487,11 @@ export class BlueskyDiscovery {
       6
     );
     for (const source of snapshot.sources) {
-      if (mode !== "latest" || source.actor.startsWith("at://")) {
+      if (
+        mode !== "latest" ||
+        source.actor.startsWith("at://") ||
+        source.actor.startsWith("search:")
+      ) {
         source.items = source.items.filter((post) =>
           allowed.has(post.author.id)
         );
@@ -393,11 +519,16 @@ export class BlueskyDiscovery {
         const selectedCount =
           authorCounts.get(selected?.post.author.id ?? "") ?? 0;
         if (
+          !selected ||
           count < selectedCount ||
           (count === selectedCount &&
             mode === "latest" &&
             Date.parse(candidate.post.createdAt) >
-              Date.parse(selected?.post.createdAt ?? ""))
+              Date.parse(selected?.post.createdAt ?? "")) ||
+          (count === selectedCount &&
+            mode !== "latest" &&
+            discoveryRelevance(candidate.post, topics, locale, mode) >
+              discoveryRelevance(selected.post, topics, locale, mode))
         ) {
           selected = candidate;
         }
@@ -415,24 +546,21 @@ export class BlueskyDiscovery {
         );
       }
     }
-    if (mode !== "latest" && locale) {
-      items.sort(
-        (first, second) =>
-          regionalRelevance(second, locale) - regionalRelevance(first, locale)
-      );
-    }
     if (mode === "latest") {
       items.sort(
         (first, second) =>
           Date.parse(second.createdAt) - Date.parse(first.createdAt)
       );
     }
+    snapshot.seen = snapshot.seen.slice(-400);
     snapshot.page += 1;
     const hasMore =
-      snapshot.page < 20 &&
-      snapshot.sources.some(
-        (source) => source.items.length > 0 || !source.exhausted
-      );
+      snapshot.page < 1000 &&
+      ((!this.actors &&
+        (!snapshot.catalogExhausted || snapshot.catalogFeeds.length > 0)) ||
+        snapshot.sources.some(
+          (source) => source.items.length > 0 || !source.exhausted
+        ));
     let next: string | null = null;
     if (hasMore) {
       next = crypto.randomUUID();
