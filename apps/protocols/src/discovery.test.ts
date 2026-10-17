@@ -39,6 +39,57 @@ function post(index: number, did = "did:web:example.test"): ExternalPost {
 }
 const profile = post(0).author;
 
+test("a stalled locale does not queue unrelated discovery", async () => {
+  const stalled = Promise.withResolvers<undefined>();
+  const started = Promise.withResolvers<undefined>();
+  const discovery = new BlueskyDiscovery(
+    {
+      allowsRecommendations: async () => true,
+      getAuthorFeed: async () => ({ cursor: null, items: [] }),
+      getFeed: async (_feed, options) => {
+        if (options?.language === "en-IN") {
+          started.resolve();
+          await stalled.promise;
+        }
+        return { cursor: null, items: [post(1)] };
+      },
+      getProfile: async () => profile,
+    },
+    ["at://did:plc:source/app.bsky.feed.generator/feed"]
+  );
+  const slow = discovery.read("latest", undefined, "en-IN");
+  await started.promise;
+  const fast = await discovery.read("latest", undefined, "en-GB");
+  expect(fast.items).toHaveLength(1);
+  stalled.resolve();
+  const recovered = await slow;
+  expect(recovered.items).toHaveLength(1);
+});
+
+test("fresh heads avoid a redundant post read but buffered continuations revalidate", async () => {
+  let reads = 0;
+  const items = Array.from({ length: 30 }, (_, index) => post(index));
+  const discovery = new BlueskyDiscovery(
+    {
+      allowsRecommendations: async () => true,
+      getAuthorFeed: async () => ({ cursor: null, items }),
+      getPosts: async (uris) => {
+        reads += 1;
+        return items.filter(
+          (item) => uris.includes(item.id) && item.id !== post(20).id
+        );
+      },
+      getProfile: async () => profile,
+    },
+    ["one"]
+  );
+  const head = await discovery.read("latest");
+  expect(reads).toBe(0);
+  const next = await discovery.read("latest", head.cursor ?? undefined);
+  expect(reads).toBe(1);
+  expect(next.items.some((item) => item.id === post(20).id)).toBe(false);
+});
+
 test("language matching trusts explicit tags and detects long untagged text", () => {
   expect(
     matchesDiscoveryLanguage(
@@ -397,7 +448,7 @@ test("generator candidates respect recommendation opt-outs in every display mode
     ).toBe(false);
     expect(page.partial).toBe(true);
   }
-  expect(peak).toBe(3);
+  expect(peak).toBe(6);
 });
 
 test("ranked generator order is retained among distinct authors", async () => {

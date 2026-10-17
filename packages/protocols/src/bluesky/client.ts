@@ -287,7 +287,7 @@ export class BlueskyClient {
       operation,
       params,
       feedPageSchema,
-      30_000,
+      parsed.data.cursor ? 30_000 : 10_000,
       parsed.data.language
     );
     const unique = new Map<string, ExternalPost>();

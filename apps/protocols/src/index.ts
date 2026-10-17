@@ -39,7 +39,10 @@ export async function startProtocols() {
     import("./observability"),
     import("@asm/protocols/bluesky"),
   ]);
-  const client = new BlueskyClient({ observe: createProtocolObserver(logger) });
+  const client = new BlueskyClient({
+    maxConcurrentRequests: 16,
+    observe: createProtocolObserver(logger),
+  });
   const health = {
     connected: false,
     draining: false,

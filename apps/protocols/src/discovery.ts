@@ -1,4 +1,4 @@
-// Coalesced cache misses enter the bounded upstream queue in order.
+// Coalesced cache misses share bounded discovery and upstream work.
 // oxlint-disable promise/prefer-await-to-then, no-await-in-loop
 import { createHash } from "node:crypto";
 
@@ -52,20 +52,25 @@ export const DEFAULT_DISCOVERY_SOURCES = [
 
 async function mapBounded<Value, Result>(
   values: Value[],
-  action: (value: Value) => Promise<Result>
+  action: (value: Value) => Promise<Result>,
+  concurrency = 3
 ): Promise<Result[]> {
   const results: Result[] = [];
-  for (let offset = 0; offset < values.length; offset += 3) {
-    results.push(
-      ...(await Promise.all(values.slice(offset, offset + 3).map(action)))
-    );
-  }
+  const entries = values.entries();
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, values.length) }, async () => {
+      for (let entry = entries.next(); !entry.done; entry = entries.next()) {
+        const [index, value] = entry.value;
+        results[index] = await action(value);
+      }
+    })
+  );
   return results;
 }
 
 export class BlueskyDiscovery {
   private readonly pending = new Map<string, Promise<DiscoveryPage>>();
-  private queue: Promise<null> = Promise.resolve(null);
+  private activeLoads = 0;
   private readonly client: DiscoveryClient;
   private readonly actors: string[];
   private readonly store: DiscoveryStore;
@@ -202,7 +207,11 @@ export class BlueskyDiscovery {
       if (completed) {
         return completed;
       }
-      const work = this.queue.then(async () => {
+      if (this.activeLoads >= 2) {
+        throw new ProtocolError("capacity", "Discovery is busy", 2);
+      }
+      this.activeLoads += 1;
+      try {
         signal.throwIfAborted();
         const page = await this.load(mode, cursor, lease, signal, locale);
         if (
@@ -219,12 +228,9 @@ export class BlueskyDiscovery {
           throw new ProtocolError("capacity", "Discovery cache is full", 2);
         }
         return page;
-      });
-      this.queue = work.then(
-        () => null,
-        () => null
-      );
-      return await abortable(work, signal);
+      } finally {
+        this.activeLoads -= 1;
+      }
     } finally {
       try {
         await abortable(
@@ -343,17 +349,21 @@ export class BlueskyDiscovery {
       ),
     ];
     const allowed = new Set<string>();
-    await mapBounded(authors, async (author) => {
-      try {
-        if (
-          await abortable(this.client.allowsRecommendations(author), signal)
-        ) {
-          allowed.add(author);
+    await mapBounded(
+      authors,
+      async (author) => {
+        try {
+          if (
+            await abortable(this.client.allowsRecommendations(author), signal)
+          ) {
+            allowed.add(author);
+          }
+        } catch {
+          partial = true;
         }
-      } catch {
-        partial = true;
-      }
-    });
+      },
+      6
+    );
     for (const source of snapshot.sources) {
       if (mode !== "latest" || source.actor.startsWith("at://")) {
         source.items = source.items.filter((post) =>
@@ -442,7 +452,7 @@ export class BlueskyDiscovery {
     }
     // Continuation buffers can outlive a source edit or deletion; resolve selected records again.
     const current =
-      this.client.getPosts && items.length > 0
+      cursor && this.client.getPosts && items.length > 0
         ? await abortable(
             this.client.getPosts(items.map((post) => post.id)),
             signal
@@ -453,7 +463,9 @@ export class BlueskyDiscovery {
       cursor: next,
       items: items.flatMap((post) => {
         const latest = byId.get(post.id);
-        return latest ? [latest] : [];
+        return latest && matchesDiscoveryLanguage(latest, locale)
+          ? [latest]
+          : [];
       }),
       partial,
     };
