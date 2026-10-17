@@ -3,9 +3,9 @@ import { useEffect, useMemo, useSyncExternalStore } from "react";
 
 import { authClient } from "@/features/auth/lib/auth-client";
 import { getApiBaseUrl } from "@/lib/api-env";
-import { createExpoPoller } from "@/lib/expo-poller";
 
 import { createBlueskyFeed } from "../lib/bluesky-feed";
+import { subscribeFeedReads } from "../lib/feed-events";
 
 export function useBlueskyFeed(
   mode: DiscoveryMode,
@@ -38,13 +38,16 @@ export function useBlueskyFeed(
     if (!enabled) {
       return;
     }
-    const poller = createExpoPoller({
-      intervalMs: 30_000,
-      onPoll: store.recover,
-    });
-    poller.start();
-    return () => poller.stop();
-  }, [enabled, store]);
+    return subscribeFeedReads(
+      viewer,
+      "bluesky",
+      async () => {
+        await store.recover();
+        await store.probe();
+      },
+      mode
+    );
+  }, [enabled, mode, store, viewer]);
   useEffect(() => store.dispose, [store]);
   return {
     ...state,

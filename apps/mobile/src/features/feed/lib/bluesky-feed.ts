@@ -2,6 +2,7 @@ import {
   canRetryRead,
   FeedReadError,
   readDiscoveryPage,
+  readDiscoveryWindow,
 } from "@asm/protocols/discovery";
 import type { DiscoveryMode, DiscoveryPage } from "@asm/protocols/discovery";
 
@@ -24,6 +25,7 @@ export function createBlueskyFeed(
     status: "loading",
   };
   let controller: AbortController | null = null;
+  let headController: AbortController | null = null;
   let generation = 0;
   let retryable = false;
   let retryAt = 0;
@@ -49,20 +51,28 @@ export function createBlueskyFeed(
       status: state.pages.length === 0 ? "loading" : state.status,
     });
     try {
-      const page = await readDiscoveryPage({
+      const options = {
         baseUrl: apiBase,
         cursor,
         fetch: baseFetch,
         mode,
         signal: current.signal,
-      });
+      };
+      const page = replace
+        ? await readDiscoveryPage(options)
+        : await readDiscoveryWindow(
+            options,
+            new Set(
+              state.pages.flatMap((entry) => entry.items.map((item) => item.id))
+            )
+          );
       if (generation !== requestGeneration || current.signal.aborted) {
         return;
       }
       failedRead = null;
       retryable = false;
       update({
-        pages: replace ? [page] : [...state.pages, page].slice(-20),
+        pages: replace ? [page] : [...state.pages, page],
         status: "success",
       });
     } catch (error) {
@@ -91,6 +101,46 @@ export function createBlueskyFeed(
     generation += 1;
     controller?.abort();
     controller = null;
+    headController?.abort();
+    headController = null;
+  };
+  const probe = async () => {
+    if (headController || controller) {
+      return;
+    }
+    if (state.pages.length === 0) {
+      return load(null, true);
+    }
+    const current = new AbortController();
+    headController = current;
+    try {
+      const page = await readDiscoveryPage({
+        baseUrl: apiBase,
+        cursor: null,
+        fetch: baseFetch,
+        mode,
+        signal: current.signal,
+      });
+      if (current.signal.aborted) {
+        return;
+      }
+      const known = new Set(
+        state.pages.flatMap((entry) => entry.items.map((item) => item.id))
+      );
+      const fresh = page.items.filter((item) => !known.has(item.id));
+      const [first, ...rest] = state.pages;
+      if (first && fresh.length) {
+        update({
+          pages: [{ ...first, items: [...fresh, ...first.items] }, ...rest],
+        });
+      }
+    } catch {
+      // A background failure retains both the visible content and continuation cursor.
+    } finally {
+      if (headController === current) {
+        headController = null;
+      }
+    }
   };
   return {
     activate: () => {
@@ -126,6 +176,7 @@ export function createBlueskyFeed(
       );
       expiry.unref?.();
     },
+    probe,
     recover: () => {
       if (failedRead && retryable && Date.now() >= retryAt) {
         return load(failedRead.cursor, failedRead.replace);
