@@ -112,6 +112,7 @@ export function useMessageAttachments(
   const startUpload = useCallback(
     async (draft: MessageAttachmentDraft) => {
       const controller = new AbortController();
+      let uploadedEntry: StagedMediaId | undefined;
       controllersRef.current.set(draft.id, controller);
       progressRef.current.set(draft.id, 0);
 
@@ -134,6 +135,16 @@ export function useMessageAttachments(
           {
             incognitoSessionId,
             onMediaId: (mediaId, meta) => {
+              uploadedEntry = { mediaId, owned: meta.owned };
+              if (
+                controller.signal.aborted ||
+                controllersRef.current.get(draft.id) !== controller
+              ) {
+                if (meta.owned) {
+                  void discardMessageMedia(mediaId);
+                }
+                return;
+              }
               mediaIdsRef.current.set(draft.id, {
                 mediaId,
                 owned: meta.owned,
@@ -145,6 +156,12 @@ export function useMessageAttachments(
               });
             },
             onProgress: (percent) => {
+              if (
+                controller.signal.aborted ||
+                controllersRef.current.get(draft.id) !== controller
+              ) {
+                return;
+              }
               // Progress events fire far more often than the UI needs; only
               // commit a render when the integer percentage actually moves.
               const rounded = Math.round(percent);
@@ -159,12 +176,27 @@ export function useMessageAttachments(
               });
             },
             onStage: (stage) => {
+              if (
+                controller.signal.aborted ||
+                controllersRef.current.get(draft.id) !== controller
+              ) {
+                return;
+              }
               dispatch({ id: draft.id, patch: { stage }, type: "update" });
             },
             signal: controller.signal,
             viewOnce: draft.viewOnce,
           }
         );
+        if (
+          controller.signal.aborted ||
+          controllersRef.current.get(draft.id) !== controller
+        ) {
+          if (uploadedEntry?.owned) {
+            void discardMessageMedia(uploadedEntry.mediaId);
+          }
+          return;
+        }
         controllersRef.current.delete(draft.id);
         progressRef.current.delete(draft.id);
         dispatch({
@@ -183,6 +215,9 @@ export function useMessageAttachments(
           type: "update",
         });
       } catch (error) {
+        if (controllersRef.current.get(draft.id) !== controller) {
+          return;
+        }
         controllersRef.current.delete(draft.id);
         progressRef.current.delete(draft.id);
         if (controller.signal.aborted) {
@@ -327,6 +362,9 @@ export function useMessageAttachments(
           URL.revokeObjectURL(attachment.objectUrl);
         }
       }
+      attachmentsRef.current = attachmentsRef.current.filter(
+        (attachment) => !idSet.has(attachment.id)
+      );
       for (const id of ids) {
         dispatch({ id, type: "remove" });
       }
@@ -366,7 +404,20 @@ export function useMessageAttachments(
   );
 
   const replaceAttachmentFile = useCallback(
-    (id: string, file: File) => {
+    (id: string, file: File, options: { viewOnce?: boolean } = {}) => {
+      const target = attachmentsRef.current.find(
+        (attachment) => attachment.id === id
+      );
+      if (!target) {
+        return;
+      }
+      const viewOnce = options.viewOnce ?? target.viewOnce ?? false;
+      if (
+        viewOnce &&
+        (attachmentsRef.current.length !== 1 || kindForFile(file) !== "image")
+      ) {
+        return;
+      }
       controllersRef.current.get(id)?.abort();
       controllersRef.current.delete(id);
       progressRef.current.delete(id);
@@ -383,12 +434,7 @@ export function useMessageAttachments(
         // The replaced upload is never sent; reclaim it instead of orphaning it.
         void discardMessageMedia(previousEntry.mediaId);
       }
-      const target = attachmentsRef.current.find(
-        (attachment) => attachment.id === id
-      );
-      if (target) {
-        URL.revokeObjectURL(target.objectUrl);
-      }
+      URL.revokeObjectURL(target.objectUrl);
       const draft: MessageAttachmentDraft = {
         bytes: file.size,
         durationSec: null,
@@ -402,8 +448,12 @@ export function useMessageAttachments(
         progress: 0,
         stage: "uploading",
         status: "uploading",
+        viewOnce,
         width: null,
       };
+      attachmentsRef.current = attachmentsRef.current.map((attachment) =>
+        attachment.id === id ? draft : attachment
+      );
       dispatch({ draft, id, type: "replace" });
       void startUpload(draft);
     },

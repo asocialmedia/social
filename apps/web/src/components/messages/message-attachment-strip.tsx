@@ -1,6 +1,6 @@
 "use client";
 
-import { Eye, FileText, Play, RefreshCw, X } from "lucide-react";
+import { Eye, FileText, Pencil, Play, RefreshCw, X } from "lucide-react";
 import Image from "next/image";
 
 import { getUploadProgressInfo } from "@/lib/media/upload-progress";
@@ -31,7 +31,8 @@ function AttachmentTile({
   return (
     <li
       className={cn(
-        "surface-3d group relative size-16 shrink-0 overflow-hidden rounded-xl",
+        "surface-3d group relative shrink-0 overflow-hidden rounded-xl",
+        isImage || isVideo ? "size-16" : "h-16 w-52",
         errored && "ring-1 ring-red-500/60"
       )}
     >
@@ -63,10 +64,17 @@ function AttachmentTile({
         </>
       ) : null}
       {!isImage && !isVideo ? (
-        <span className="text-muted-foreground bg-muted/60 absolute inset-0 flex flex-col items-center justify-center gap-1 px-1 text-center">
-          <FileText className="size-5" />
-          <span className="w-full truncate text-[8px]">
-            {attachment.filename}
+        <span className="text-muted-foreground absolute inset-0 flex items-center gap-3 px-3 pr-7">
+          <FileText className="size-5 shrink-0" />
+          <span className="min-w-0 flex-1">
+            <span className="text-foreground block truncate text-xs font-medium">
+              {attachment.filename}
+            </span>
+            <span className="mt-0.5 block text-[11px]">
+              {attachment.bytes >= 1024 * 1024
+                ? `${(attachment.bytes / (1024 * 1024)).toFixed(1)} MB`
+                : `${Math.max(1, Math.round(attachment.bytes / 1024))} KB`}
+            </span>
           </span>
         </span>
       ) : null}
@@ -94,9 +102,17 @@ function AttachmentTile({
       ) : null}
 
       {attachment.viewOnce ? (
-        <span className="chip-3d absolute bottom-1 left-1 z-20 flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[9px] font-medium text-white">
+        <span className="chip-3d text-foreground pointer-events-none absolute bottom-1 left-1 z-20 flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[9px] font-medium">
           <Eye className="size-2.5" />
           1×
+        </span>
+      ) : null}
+      {isImage && !errored ? (
+        <span
+          aria-hidden
+          className="pointer-events-none absolute right-1 bottom-1 z-20 rounded-md bg-black/45 p-1 text-white"
+        >
+          <Pencil className="size-3" />
         </span>
       ) : null}
 

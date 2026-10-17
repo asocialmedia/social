@@ -3,17 +3,24 @@
 // oxlint-disable react/exhaustive-effect-dependencies -- Account, clear and retry revisions intentionally invalidate scoped effects even when they are not request payload fields.
 
 import { ChatDraftStore } from "@asm/messages";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@asm/ui/shadui/dropdown-menu";
 import { useQueryClient } from "@tanstack/react-query";
 import type { InfiniteData } from "@tanstack/react-query";
 import {
   ArrowUp,
   Check,
   Clapperboard,
-  Eye,
+  FileText,
   ImagePlus,
   Loader2,
   MessageSquareQuote,
   Pencil,
+  Plus,
   X,
 } from "lucide-react";
 import dynamic from "next/dynamic";
@@ -145,7 +152,6 @@ export function MessageComposer({
   const [savingEdit, setSavingEdit] = useState(false);
   const [sending, setSending] = useState(false);
   const [gifPickerOpen, setGifPickerOpen] = useState(false);
-  const [viewOnceMode, setViewOnceMode] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [dragActive, setDragActive] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -205,6 +211,7 @@ export function MessageComposer({
     restoreAttachments,
     retryAttachment,
   } = useMessageAttachments(conversationId, incognito?.sessionId);
+  const viewOnceMode = attachments.some((attachment) => attachment.viewOnce);
 
   const editingAttachment = attachments.find(
     (attachment) => attachment.id === editingId
@@ -512,7 +519,6 @@ export function MessageComposer({
     // it, so the caret actually lands. preventScroll keeps the just-scrolled
     // transcript from being yanked by the browser focusing the composer.
     setSending(false);
-    setViewOnceMode(false);
     requestAnimationFrame(() => {
       textareaRef.current?.focus({ preventScroll: true });
     });
@@ -539,10 +545,10 @@ export function MessageComposer({
     (files: FileList | File[] | null) => {
       const list = files ? [...files] : [];
       if (list.length > 0) {
-        addFiles(list, { viewOnce: viewOnceMode });
+        addFiles(list);
       }
     },
-    [addFiles, viewOnceMode]
+    [addFiles]
   );
 
   const handleFileInputChange = useCallback(
@@ -776,27 +782,74 @@ export function MessageComposer({
         />
       )}
 
-      <div className="reels-input relative flex items-center gap-2 rounded-2xl! px-3 py-2">
+      <div className="reels-input relative flex items-end gap-1 rounded-3xl! px-2 py-1.5">
         {dragActive ? (
           <span className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-2xl border-2 border-dashed border-[#ff9500]/70 bg-black/5 text-xs font-medium text-[#ff9500]">
-            Drop images to attach
+            Drop files to attach
           </span>
         ) : null}
         <input
-          accept={
-            viewOnceMode
-              ? "image/jpeg,image/png,image/webp,image/avif"
-              : "image/*,video/*,audio/*,application/pdf,application/zip,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.openxmlformats-officedocument.presentationml.presentation"
-          }
+          accept="image/*,video/*,audio/*,application/pdf,application/zip,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.openxmlformats-officedocument.presentationml.presentation"
           className="hidden"
-          multiple={!viewOnceMode}
+          multiple
           onChange={handleFileInputChange}
           ref={fileInputRef}
           type="file"
         />
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              aria-label="Add attachment"
+              className="text-muted-foreground hover:bg-muted/60 hover:text-foreground focus-visible:ring-primary flex size-10 shrink-0 items-center justify-center rounded-full transition-colors focus-visible:ring-2 disabled:opacity-40"
+              disabled={writeBlocked || editing || viewOnceMode}
+              type="button"
+            >
+              <Plus className="size-5" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent
+            align="start"
+            className="w-52"
+            side="top"
+            sideOffset={12}
+          >
+            <DropdownMenuItem
+              className="gap-3"
+              onSelect={() => {
+                if (fileInputRef.current) {
+                  fileInputRef.current.accept = "image/*,video/*";
+                  fileInputRef.current.click();
+                }
+              }}
+            >
+              <ImagePlus className="size-4" />
+              Photos & videos
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              className="gap-3"
+              onSelect={() => {
+                if (fileInputRef.current) {
+                  fileInputRef.current.accept =
+                    "audio/*,application/pdf,application/zip,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.openxmlformats-officedocument.presentationml.presentation";
+                  fileInputRef.current.click();
+                }
+              }}
+            >
+              <FileText className="size-4" />
+              Files
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              className="gap-3"
+              onSelect={() => setGifPickerOpen((open) => !open)}
+            >
+              <Clapperboard className="size-4" />
+              GIF
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
         <textarea
           aria-label="Message"
-          className="placeholder:text-muted-foreground max-h-32 min-h-10 flex-1 resize-none bg-transparent py-1.5 text-sm outline-none disabled:opacity-60"
+          className="placeholder:text-muted-foreground max-h-32 min-h-10 min-w-0 flex-1 resize-none bg-transparent px-1 py-2.5 text-base outline-none disabled:opacity-60 sm:text-sm"
           disabled={writeBlocked || viewOnceMode}
           onChange={(event) => {
             const { value } = event.target;
@@ -820,74 +873,11 @@ export function MessageComposer({
           }}
           onKeyDown={handleKeyDown}
           onPaste={handlePaste}
-          placeholder={
-            viewOnceMode ? "Choose one photo to send once…" : placeholder
-          }
+          placeholder={viewOnceMode ? "View once photo" : placeholder}
           ref={textareaRef}
           rows={1}
           value={text}
         />
-        <button
-          aria-label="Add attachment"
-          className={cn(
-            "bg-muted/70 text-muted-foreground flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-all duration-200 active:translate-y-px",
-            "hover:bg-linear-to-b hover:from-[#ff9500] hover:to-[#e65500] hover:text-white hover:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)] hover:brightness-110",
-            (busy || editing) && "opacity-50"
-          )}
-          disabled={writeBlocked || editing}
-          onClick={() => fileInputRef.current?.click()}
-          type="button"
-        >
-          <ImagePlus className="size-4" />
-        </button>
-        <button
-          aria-label={
-            viewOnceMode ? "Turn off view once photo" : "Send a view once photo"
-          }
-          aria-pressed={viewOnceMode}
-          className={cn(
-            "bg-muted/70 text-muted-foreground flex h-8 shrink-0 items-center justify-center gap-1 rounded-full px-2 transition-all duration-200 active:translate-y-px",
-            viewOnceMode &&
-              "bg-[#ff9500]/15 text-[#d66b00] ring-1 ring-[#ff9500]/30",
-            (busy || editing || attachments.length > 0) && "opacity-50"
-          )}
-          disabled={writeBlocked || editing || attachments.length > 0}
-          onClick={() => {
-            if (viewOnceMode) {
-              setViewOnceMode(false);
-              return;
-            }
-            if (text.trim()) {
-              toast({
-                description: "Send your text first, then choose a photo.",
-                title: "View once photo",
-              });
-              return;
-            }
-            setGifPickerOpen(false);
-            setViewOnceMode(true);
-          }}
-          title="Send one photo that can be opened once"
-          type="button"
-        >
-          <Eye className="size-3.5" />
-          <span className="text-[10px] font-semibold">1×</span>
-        </button>
-        <button
-          aria-label="Search and add a GIF"
-          className={cn(
-            "bg-muted/70 text-muted-foreground flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-all duration-200 active:translate-y-px",
-            gifPickerOpen
-              ? "bg-linear-to-b from-[#7c5cff] to-[#5a3ae0] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(70,40,170,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]"
-              : "hover:bg-linear-to-b hover:from-[#ff9500] hover:to-[#e65500] hover:text-white hover:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)] hover:brightness-110",
-            (busy || editing) && "opacity-50"
-          )}
-          disabled={writeBlocked || editing || viewOnceMode}
-          onClick={() => setGifPickerOpen((prev) => !prev)}
-          type="button"
-        >
-          <Clapperboard className="size-4" />
-        </button>
         <button
           aria-label={editing ? "Save edit" : "Send message"}
           className="follow-btn-3d flex h-9 w-9 shrink-0 items-center justify-center rounded-full"
@@ -912,9 +902,14 @@ export function MessageComposer({
           file={editingAttachment.file}
           kind={editingAttachment.kind}
           objectUrl={editingAttachment.objectUrl}
+          viewOnce={editingAttachment.viewOnce}
+          canViewOnce={attachments.length === 1 && !text.trim()}
           onClose={() => setEditingId(null)}
-          onSave={(file) => {
-            replaceAttachmentFile(editingAttachment.id, file);
+          onSave={(file, viewOnce) => {
+            replaceAttachmentFile(editingAttachment.id, file, { viewOnce });
+            if (viewOnce) {
+              setGifPickerOpen(false);
+            }
           }}
         />
       ) : null}

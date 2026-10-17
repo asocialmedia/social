@@ -11,10 +11,11 @@ import {
   DialogDescription,
   DialogTitle,
 } from "@asm/ui/shadui/dialog";
+import { Switch } from "@asm/ui/shadui/switch";
 
 import "cropperjs/dist/cropper.css";
-import { RotateCcw, RotateCw, X } from "lucide-react";
-import { useCallback, useRef, useState } from "react";
+import { Eye, RotateCcw, RotateCw, X } from "lucide-react";
+import { useCallback, useId, useRef, useState } from "react";
 import { Cropper } from "react-cropper";
 import type { ReactCropperElement } from "react-cropper";
 
@@ -37,7 +38,9 @@ interface MessageImageEditDialogProps {
   kind: "gif" | "image";
   objectUrl: string;
   onClose: () => void;
-  onSave: (file: File) => void;
+  onSave: (file: File, viewOnce: boolean) => void;
+  viewOnce?: boolean;
+  canViewOnce?: boolean;
 }
 
 // Pre-send editor for a staged message image: free crop plus 90-degree
@@ -48,9 +51,13 @@ export default function MessageImageEditDialog({
   objectUrl,
   onClose,
   onSave,
+  viewOnce: initialViewOnce = false,
+  canViewOnce = false,
 }: MessageImageEditDialogProps) {
   const cropperRef = useRef<ReactCropperElement>(null);
+  const viewOnceId = useId();
   const [saving, setSaving] = useState(false);
+  const [viewOnce, setViewOnce] = useState(initialViewOnce);
 
   const rotate = useCallback((degrees: number) => {
     cropperRef.current?.cropper.rotate(degrees);
@@ -91,7 +98,7 @@ export default function MessageImageEditDialog({
           `${baseNameFor(file.name)}-edited-${Date.now()}`
         );
       }
-      onSave(result);
+      onSave(result, viewOnce);
       onClose();
     } catch (error) {
       setCropError(
@@ -100,7 +107,7 @@ export default function MessageImageEditDialog({
     } finally {
       setSaving(false);
     }
-  }, [file.name, kind, objectUrl, onClose, onSave, saving]);
+  }, [file.name, kind, objectUrl, onClose, onSave, saving, viewOnce]);
 
   return (
     <Dialog onOpenChange={onClose} open>
@@ -128,6 +135,7 @@ export default function MessageImageEditDialog({
           <div className="border-border/60 flex h-[min(50dvh,420px)] shrink-0 items-center justify-center overflow-hidden rounded-xl border bg-[hsl(var(--background))] shadow-[inset_0_1px_2px_rgba(0,0,0,0.04)]">
             <style>{CROPPER_ACCENT}</style>
             <Cropper
+              autoCropArea={1}
               className="asm-message-cropper h-full w-full object-contain"
               guides={false}
               ref={cropperRef}
@@ -136,7 +144,7 @@ export default function MessageImageEditDialog({
             />
           </div>
 
-          <div className="mt-3 flex items-center justify-center gap-2">
+          <div className="mt-3 flex items-center gap-2">
             <Button
               aria-label="Rotate left"
               className="rounded-xl"
@@ -155,6 +163,27 @@ export default function MessageImageEditDialog({
             >
               <RotateCw className="h-4 w-4" />
             </Button>
+            {kind === "image" ? (
+              <label
+                htmlFor={viewOnceId}
+                className="text-muted-foreground ml-auto flex min-h-11 cursor-pointer items-center gap-2.5 rounded-xl px-2 text-sm"
+                title={
+                  canViewOnce
+                    ? "Opens once, then disappears"
+                    : "Available for one photo without a caption"
+                }
+              >
+                <Eye className="size-4" />
+                <span>View once</span>
+                <Switch
+                  id={viewOnceId}
+                  aria-label="Send as a view once photo"
+                  checked={viewOnce}
+                  disabled={!canViewOnce || saving}
+                  onCheckedChange={setViewOnce}
+                />
+              </label>
+            ) : null}
           </div>
 
           {cropError ? (

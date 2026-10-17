@@ -9,8 +9,8 @@ import {
   Film,
   ArrowUp,
   Clapperboard,
-  Eye,
   ImagePlus,
+  Plus,
   Pencil,
   X,
 } from "lucide-react-native";
@@ -35,6 +35,7 @@ import {
   Keyboard,
   Modal,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -154,7 +155,7 @@ export function MessageComposer({
   const { crop, cropper } = useProfileMediaCropper();
   const [attachments, setAttachments] = useState<StagedAttachment[]>([]);
   const [sending, setSending] = useState(false);
-  const [viewOnceMode, setViewOnceMode] = useState(false);
+  const viewOnceMode = attachments.some((attachment) => attachment.viewOnce);
   const typingSent = useRef(false);
   const lastTypedAt = useRef(0);
   const foreground = useMessagesForeground();
@@ -345,9 +346,6 @@ export function MessageComposer({
         return;
       }
       attachmentsRef.current = [...attachmentsRef.current, ...staged];
-      if (viewOnce) {
-        setViewOnceMode(true);
-      }
       setAttachments(attachmentsRef.current);
       await uploadStagedAttachments(staged, {
         aborts,
@@ -375,22 +373,6 @@ export function MessageComposer({
     );
   }, [stagePickedFiles, viewOnceMode]);
 
-  const chooseViewOncePhoto = useCallback(() => {
-    setAttachmentMenuOpen(false);
-    if (draft.trim() || sharedPostId || attachmentsRef.current.length > 0) {
-      toast({
-        description: "Send your draft first, then choose a photo.",
-        title: "View once photo",
-      });
-      return;
-    }
-    runMessageAttachmentPicker(
-      () => pickPhotosAndVideos({ imagesOnly: true, remaining: 1 }),
-      (picked) => stagePickedFiles(picked, true),
-      "Couldn't open photos"
-    );
-  }, [draft, sharedPostId, stagePickedFiles]);
-
   const chooseFiles = useCallback(() => {
     setAttachmentMenuOpen(false);
     if (viewOnceMode) {
@@ -417,9 +399,19 @@ export function MessageComposer({
     try {
       const result = await crop(
         { purpose: "message", source: item.file },
-        "post"
+        "post",
+        {
+          canViewOnce:
+            attachmentsRef.current.length === 1 &&
+            !fieldValue.trim() &&
+            !sharedPostId,
+          viewOnce: item.viewOnce ?? false,
+        }
       );
-      if (!result) {
+      if (
+        !result ||
+        !attachmentsRef.current.some((entry) => entry.id === item.id)
+      ) {
         return;
       }
       const staged: StagedAttachment = {
@@ -429,11 +421,14 @@ export function MessageComposer({
         mediaId: null,
         owned: false,
         progress: 0,
-        viewOnce: item.viewOnce,
+        viewOnce: result.viewOnce ?? false,
       };
-      setAttachments((current) =>
-        current.map((entry) => (entry.id === item.id ? staged : entry))
+      aborts.current.get(item.id)?.abort();
+      aborts.current.delete(item.id);
+      attachmentsRef.current = attachmentsRef.current.map((entry) =>
+        entry.id === item.id ? staged : entry
       );
+      setAttachments(attachmentsRef.current);
       await uploadStagedAttachments([staged], {
         aborts,
         conversationId,
@@ -488,7 +483,6 @@ export function MessageComposer({
           useMessageTextDraft.getState().clear(draftKey);
         }
         setDraft("");
-        setViewOnceMode(false);
         setAttachments([]);
         onCancelEdit();
         onCancelReply();
@@ -564,7 +558,13 @@ export function MessageComposer({
         />
       ) : null}
       {attachments.length > 0 ? (
-        <View style={styles.strip}>
+        <ScrollView
+          contentContainerStyle={styles.strip}
+          horizontal
+          keyboardShouldPersistTaps="handled"
+          showsHorizontalScrollIndicator={false}
+          style={{ flexGrow: 0, height: 72 }}
+        >
           {attachments.map((item) => (
             <AttachmentTile
               attachment={item}
@@ -575,7 +575,7 @@ export function MessageComposer({
               }}
             />
           ))}
-        </View>
+        </ScrollView>
       ) : null}
       <View
         style={[
@@ -587,6 +587,22 @@ export function MessageComposer({
           },
         ]}
       >
+        <Pressable
+          accessibilityLabel="Add attachment"
+          accessibilityRole="button"
+          disabled={
+            disabled ||
+            atCapacity ||
+            Boolean(sharedPostId) ||
+            viewOnceMode ||
+            Boolean(editing)
+          }
+          hitSlop={6}
+          onPress={attach}
+          style={styles.attachButton}
+        >
+          <Plus color={theme.dividerText} size={21} />
+        </Pressable>
         <TextInput
           ref={fieldRef}
           accessibilityLabel="Message"
@@ -609,7 +625,7 @@ export function MessageComposer({
           }}
           placeholder={(() => {
             if (viewOnceMode) {
-              return "Choose one photo to send once…";
+              return "View once photo";
             }
             if (incognitoSessionId) {
               return "Message in incognito…";
@@ -626,34 +642,6 @@ export function MessageComposer({
           ]}
           value={fieldValue}
         />
-        <Pressable
-          accessibilityLabel="Add attachment"
-          accessibilityRole="button"
-          disabled={disabled || atCapacity || Boolean(sharedPostId)}
-          hitSlop={4}
-          onPress={attach}
-          style={styles.attachButton}
-        >
-          <ImagePlus color={theme.dividerText} size={16} />
-        </Pressable>
-        <Pressable
-          accessibilityLabel="Add GIF"
-          accessibilityRole="button"
-          disabled={
-            disabled || atCapacity || Boolean(sharedPostId) || viewOnceMode
-          }
-          hitSlop={4}
-          onPress={() => {
-            Keyboard.dismiss();
-            setGifOpen((open) => !open);
-          }}
-          style={styles.attachButton}
-        >
-          <Clapperboard
-            color={gifOpen ? "#a855f7" : theme.dividerText}
-            size={16}
-          />
-        </Pressable>
         <Pressable
           accessibilityLabel="Send"
           accessibilityRole="button"
@@ -763,31 +751,6 @@ export function MessageComposer({
             </Pressable>
             <Pressable
               accessibilityRole="button"
-              disabled={attachments.length > 0}
-              onPress={() => {
-                if (viewOnceMode) {
-                  setViewOnceMode(false);
-                } else {
-                  chooseViewOncePhoto();
-                }
-              }}
-              style={styles.attachmentSheetRow}
-            >
-              <Eye
-                color={viewOnceMode ? "#ff9500" : theme.dividerText}
-                size={19}
-              />
-              <Text
-                style={[
-                  styles.attachmentSheetLabel,
-                  { color: isDark ? "#f1f1f1" : "#202020" },
-                ]}
-              >
-                {viewOnceMode ? "Turn off view once" : "View once photo"}
-              </Text>
-            </Pressable>
-            <Pressable
-              accessibilityRole="button"
               disabled={viewOnceMode}
               onPress={chooseFiles}
               style={styles.attachmentSheetRow}
@@ -800,6 +763,25 @@ export function MessageComposer({
                 ]}
               >
                 Files
+              </Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              disabled={viewOnceMode}
+              onPress={() => {
+                setAttachmentMenuOpen(false);
+                setGifOpen((value) => !value);
+              }}
+              style={styles.attachmentSheetRow}
+            >
+              <Clapperboard color={theme.dividerText} size={19} />
+              <Text
+                style={[
+                  styles.attachmentSheetLabel,
+                  { color: theme.inputText },
+                ]}
+              >
+                GIF
               </Text>
             </Pressable>
           </Pressable>
@@ -953,7 +935,12 @@ function AttachmentTile({
   const isImage = attachment.file.mimeType.startsWith("image/");
   const isVideo = attachment.file.mimeType.startsWith("video/");
   return (
-    <View style={[styles.tile, { borderColor: theme.dividerLine }]}>
+    <View
+      style={[
+        styles.tile,
+        { borderColor: theme.dividerLine, width: isImage ? 64 : 208 },
+      ]}
+    >
       {isImage ? (
         <Image
           source={{ uri: attachment.file.uri }}
@@ -966,12 +953,24 @@ function AttachmentTile({
           ) : (
             <FileText color={theme.dividerText} size={22} />
           )}
-          <Text numberOfLines={2} style={styles.fileTileName}>
-            {attachment.file.name}
-          </Text>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Text
+              numberOfLines={1}
+              style={[styles.fileTileName, { color: theme.inputText }]}
+            >
+              {attachment.file.name}
+            </Text>
+            <Text
+              style={{ color: theme.dividerText, fontSize: 11, marginTop: 3 }}
+            >
+              {attachment.file.size >= 1024 * 1024
+                ? `${(attachment.file.size / (1024 * 1024)).toFixed(1)} MB`
+                : `${Math.max(1, Math.round(attachment.file.size / 1024))} KB`}
+            </Text>
+          </View>
         </View>
       )}
-      {isImage && attachment.progress === null ? (
+      {isImage ? (
         <View style={{ bottom: 4, left: 4, position: "absolute" }}>
           <IconButton3D
             accessibilityLabel={
@@ -983,6 +982,21 @@ function AttachmentTile({
             size={28}
             onPress={onEdit}
           />
+        </View>
+      ) : null}
+      {attachment.viewOnce ? (
+        <View
+          style={{
+            backgroundColor: theme.cardBg,
+            borderRadius: 10,
+            bottom: 6,
+            paddingHorizontal: 6,
+            paddingVertical: 3,
+            position: "absolute",
+            right: 6,
+          }}
+        >
+          <Text style={{ color: theme.inputText, fontSize: 10 }}>1×</Text>
         </View>
       ) : null}
       {attachment.progress === null ? null : (
@@ -1117,16 +1131,18 @@ const styles = StyleSheet.create({
   fileTileName: {
     color: "#76767b",
     fontFamily: "SofiaProReg",
-    fontSize: 9,
-    textAlign: "center",
+    fontSize: 12,
+    textAlign: "left",
   },
   fileTilePreview: {
     alignItems: "center",
     backgroundColor: "rgba(127,127,127,0.12)",
     flex: 1,
-    gap: 5,
+    flexDirection: "row",
+    gap: 10,
     justifyContent: "center",
-    padding: 5,
+    paddingHorizontal: 12,
+    paddingRight: 28,
   },
   inputRow: {
     alignItems: "flex-end",
@@ -1168,7 +1184,6 @@ const styles = StyleSheet.create({
   },
   strip: {
     flexDirection: "row",
-    flexWrap: "wrap",
     gap: 8,
     paddingBottom: 8,
     paddingHorizontal: 12,

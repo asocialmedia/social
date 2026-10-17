@@ -212,6 +212,7 @@ export default function ProfileCropEngine({
       <div className="native-crop-body">
         <div className="native-crop-preview">
           <Cropper
+            autoCropArea={kind === "post" ? 1 : 0.8}
             aspectRatio={aspectRatio}
             className="asm-cropper"
             guides={false}
