@@ -2,6 +2,7 @@ export interface ProtocolCache {
   get: (key: string) => string | null;
   set: (key: string, value: string, ttlMs: number) => void;
   clear: () => void;
+  deleteMatching?: (predicate: (key: string) => boolean) => void;
 }
 
 export class BoundedCache implements ProtocolCache {
@@ -70,6 +71,17 @@ export class BoundedCache implements ProtocolCache {
     }
     this.entries.set(key, { bytes, expiresAt: this.now() + ttlMs, value });
     this.bytes += bytes;
+  }
+  deleteMatching(predicate: (key: string) => boolean): void {
+    const targets: string[] = [];
+    for (const key of this.entries.keys()) {
+      if (predicate(key)) {
+        targets.push(key);
+      }
+    }
+    for (const key of targets) {
+      this.remove(key);
+    }
   }
   clear(): void {
     this.entries.clear();

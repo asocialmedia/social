@@ -41,7 +41,7 @@ export interface JetstreamWorkerOptions {
   signal: AbortSignal;
   health: ProtocolsHealth;
   logger: ProtocolLogger;
-  invalidate: () => void;
+  invalidate: (event?: JetstreamEvent) => void;
   stream?: (options: JetstreamOptions) => AsyncIterable<JetstreamEvent>;
   wait?: (milliseconds: number, signal: AbortSignal) => Promise<void>;
   renewEveryMs?: number;
@@ -112,7 +112,7 @@ export async function runJetstreamWorker(
             "Jetstream returned an untracked account"
           );
         }
-        options.invalidate();
+        options.invalidate(event);
         await options.store.commit(event);
         cursor = event.seq;
         options.health.processedEvents += 1;

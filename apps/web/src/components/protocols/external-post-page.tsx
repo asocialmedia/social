@@ -14,7 +14,6 @@ import { externalPostView } from "@/lib/posts/presentation";
 import { withViewTransition } from "@/lib/view-transition";
 
 import { ExternalDiscussion } from "./external-discussion";
-import { ExternalResponses } from "./external-responses";
 import { useExternalPost } from "./use-external-post";
 
 export function ExternalPostPage() {
@@ -94,7 +93,6 @@ export function ExternalPostPage() {
             The source post is unavailable. ASM discussion is preserved.
           </p>
           <ExternalDiscussion post={{ id: uri }} />
-          <ExternalResponses uri={uri} />
         </>
       ) : null}
     </main>

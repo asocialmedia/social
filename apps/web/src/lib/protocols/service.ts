@@ -158,8 +158,8 @@ export async function readBlueskyPosts(
     url.searchParams.append("uri", uri);
   }
   const boundedSignal = signal
-    ? AbortSignal.any([signal, AbortSignal.timeout(12_000)])
-    : AbortSignal.timeout(12_000);
+    ? AbortSignal.any([signal, AbortSignal.timeout(15_000)])
+    : AbortSignal.timeout(15_000);
   const response = await abortable(
     fetch(url, {
       cache: "no-store",

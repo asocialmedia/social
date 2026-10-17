@@ -43,6 +43,7 @@ export async function startProtocols() {
   const client = new BlueskyClient({
     maxConcurrentRequests: 16,
     observe: createProtocolObserver(logger),
+    timeoutMs: 10_000,
   });
   const health = {
     connected: false,
@@ -172,7 +173,7 @@ export async function startProtocols() {
         await Promise.all([import("./checkpoints"), import("./worker")]);
       worker = runJetstreamWorker({
         health,
-        invalidate: () => client.invalidate(),
+        invalidate: (event) => client.invalidate(event?.did),
         logger,
         signal: abort.signal,
         store: new RedisCheckpointStore(redis, {

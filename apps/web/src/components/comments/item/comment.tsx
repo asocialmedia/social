@@ -84,7 +84,6 @@ export default function CommentItem({
   const isBluesky =
     commentWithExtras.source === "bluesky" ||
     comment.id.startsWith("at://") ||
-    comment.postId?.startsWith("at://") ||
     (Boolean(comment.user?.id) && comment.user.id.startsWith("did:"));
   const commentUser = comment.user;
   const username = commentUser?.username ?? "unknown";
@@ -184,59 +183,61 @@ export default function CommentItem({
         hasRail && "pl-8"
       )}
     >
-      <div className="relative pt-1.5 pb-2.5">
-        {hasRail && (
-          <svg
-            aria-hidden="true"
-            className="pointer-events-none absolute top-0 left-0 overflow-visible"
-            style={{
-              height: isLast ? AVATAR_CENTER + 4 : "100%",
-              width: LEVEL_PAD + 4,
-            }}
-          >
-            {isLast ? (
+      {/* Rail connector: connects parent rail down to this reply's avatar.
+          Terminates at avatar center on the last sibling; runs to 100% when
+          more siblings follow below so they stay connected to the parent rail. */}
+      {hasRail && (
+        <svg
+          aria-hidden="true"
+          className="pointer-events-none absolute top-0 left-0 overflow-visible"
+          style={{
+            height: isLast ? AVATAR_CENTER + 4 : "100%",
+            width: LEVEL_PAD + 4,
+          }}
+        >
+          {isLast ? (
+            <path
+              d={`M ${RAIL_X} -1 V ${AVATAR_CENTER - CURVE_RADIUS} A ${CURVE_RADIUS} ${CURVE_RADIUS} 0 0 0 ${LEVEL_PAD} ${AVATAR_CENTER} H ${LEVEL_PAD + 2}`}
+              fill="none"
+              stroke="hsl(var(--border))"
+              strokeWidth="2"
+            />
+          ) : (
+            <>
+              <line
+                stroke="hsl(var(--border))"
+                strokeWidth="2"
+                x1={RAIL_X}
+                x2={RAIL_X}
+                y1="-1"
+                y2="100%"
+              />
               <path
-                d={`M ${RAIL_X} -1 V ${AVATAR_CENTER - CURVE_RADIUS} A ${CURVE_RADIUS} ${CURVE_RADIUS} 0 0 0 ${LEVEL_PAD} ${AVATAR_CENTER} H ${LEVEL_PAD + 2}`}
+                d={`M ${RAIL_X} ${AVATAR_CENTER - CURVE_RADIUS} A ${CURVE_RADIUS} ${CURVE_RADIUS} 0 0 0 ${LEVEL_PAD} ${AVATAR_CENTER} H ${LEVEL_PAD + 2}`}
                 fill="none"
                 stroke="hsl(var(--border))"
                 strokeWidth="2"
               />
-            ) : (
-              <>
-                <line
-                  stroke="hsl(var(--border))"
-                  strokeWidth="2"
-                  x1={RAIL_X}
-                  x2={RAIL_X}
-                  y1="-1"
-                  y2="100%"
-                />
-                <path
-                  d={`M ${RAIL_X} ${AVATAR_CENTER - CURVE_RADIUS} A ${CURVE_RADIUS} ${CURVE_RADIUS} 0 0 0 ${LEVEL_PAD} ${AVATAR_CENTER} H ${LEVEL_PAD + 2}`}
-                  fill="none"
-                  stroke="hsl(var(--border))"
-                  strokeWidth="2"
-                />
-              </>
-            )}
-          </svg>
-        )}
+            </>
+          )}
+        </svg>
+      )}
 
-        {children.length > 0 && (
+      {/* Stub: connects THIS comment's avatar down to its first reply's rail
+          segment, so the thread line reads as hanging off the parent avatar. */}
+      <div className="group/comment relative min-w-0 pt-2.5 pr-1 pb-2.5">
+        {(children.length > 0 || showReply) && (
           <svg
             aria-hidden="true"
-            className="pointer-events-none absolute top-0 left-0 overflow-visible"
-            style={{
-              height: "100%",
-              width: LEVEL_PAD + 4,
-            }}
+            className="pointer-events-none absolute top-6 bottom-0 left-0 overflow-visible"
+            style={{ height: "calc(100% - 24px + 2px)", width: RAIL_X + 4 }}
           >
             <line
               stroke="hsl(var(--border))"
               strokeWidth="2"
-              x1={LEVEL_PAD + RAIL_X}
-              x2={LEVEL_PAD + RAIL_X}
-              y1={AVATAR_CENTER + 20}
+              x1={RAIL_X}
+              x2={RAIL_X}
+              y1="0"
               y2="100%"
             />
           </svg>
@@ -305,11 +306,9 @@ export default function CommentItem({
               </p>
             ) : (
               <>
-                <div className="mt-1 text-[15px] break-words whitespace-pre-wrap">
-                  <PostLinkedContent content={comment.content} />
-                </div>
+                <PostLinkedContent content={comment.content} />
                 <CommentAttachments
-                  attachments={commentWithExtras.attachments}
+                  attachments={commentWithExtras.attachments ?? []}
                 />
                 <CommentLinkEmbeds content={comment.content} />
               </>
@@ -319,7 +318,8 @@ export default function CommentItem({
               <div className="mt-1 flex flex-wrap items-center gap-1">
                 {localActions ||
                 isBluesky ||
-                post.id.startsWith("at://") ? null : (
+                (typeof post?.id === "string" &&
+                  post.id.startsWith("at://")) ? null : (
                   <>
                     <AuraVoteButton
                       authorName={displayName}

@@ -15,8 +15,6 @@ import { externalCommentView } from "@/lib/posts/external-comment-view";
 
 import { useExternalInteractions } from "./use-external-interactions";
 
-const noop = () => null;
-
 export function ExternalDiscussion({
   post,
 }: {
@@ -47,6 +45,7 @@ export function ExternalDiscussion({
     },
     queryKey: ["external-discussion", post.id],
     retry: false,
+    staleTime: 30_000,
   });
   const items = [
     ...new Map(
@@ -58,12 +57,17 @@ export function ExternalDiscussion({
   const mapped = items.map((comment) => externalCommentView(comment, post.id));
   const tree = buildCommentTree(mapped);
   const localActions = {
-    delete: (commentId?: string) =>
-      interaction.mutate({
+    delete: async (commentId?: string) => {
+      const ok = await interaction.mutate({
         action: "delete_comment",
         commentId: commentId ?? "",
         uri: post.id,
-      }),
+      });
+      if (ok) {
+        await comments.refetch();
+      }
+      return ok;
+    },
     pending: interaction.pending,
   };
 
@@ -75,9 +79,25 @@ export function ExternalDiscussion({
       onRetry={() => {
         void comments.refetch();
       }}
+      pagination={
+        comments.hasNextPage ? (
+          <Button
+            className="mx-auto block"
+            disabled={comments.isFetchingNextPage}
+            variant="link"
+            onClick={() => {
+              void comments.fetchNextPage();
+            }}
+          >
+            Load more eddies
+          </Button>
+        ) : null
+      }
       composer={
         <CommentInput
-          applyCreated={noop}
+          applyCreated={() => {
+            void comments.refetch();
+          }}
           post={post}
           controller={{
             maxLength: 1500,
@@ -91,6 +111,7 @@ export function ExternalDiscussion({
               });
               if (saved) {
                 requestId.current = crypto.randomUUID();
+                await comments.refetch();
               }
               return saved;
             },
@@ -100,8 +121,12 @@ export function ExternalDiscussion({
     >
       {tree.map((node, index) => (
         <CommentItem
-          applyCreated={noop}
-          applyDeleted={noop}
+          applyCreated={() => {
+            void comments.refetch();
+          }}
+          applyDeleted={() => {
+            void comments.refetch();
+          }}
           isLast={index === tree.length - 1}
           key={node.comment.id}
           localActions={localActions}
@@ -109,18 +134,6 @@ export function ExternalDiscussion({
           post={post}
         />
       ))}
-      {comments.hasNextPage ? (
-        <Button
-          className="mx-auto block"
-          disabled={comments.isFetchingNextPage}
-          variant="link"
-          onClick={() => {
-            void comments.fetchNextPage();
-          }}
-        >
-          Load more eddies
-        </Button>
-      ) : null}
     </CommentsThreadView>
   );
 }

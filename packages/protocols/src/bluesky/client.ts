@@ -132,6 +132,7 @@ export class BlueskyClient {
   private blockedUntil = 0;
   private generation = 0;
   private failures = 0;
+  private lastFailureAt = 0;
   private circuitUntil = 0;
   private probing = false;
   private readonly shutdown = new AbortController();
@@ -148,7 +149,7 @@ export class BlueskyClient {
       maxResponseBytes: options.maxResponseBytes ?? 2 * 1024 * 1024,
       maxRetries: options.maxRetries ?? 1,
       now: options.now ?? Date.now,
-      timeoutMs: options.timeoutMs ?? 5000,
+      timeoutMs: options.timeoutMs ?? 10_000,
       wait: options.wait ?? waitForReadRetry,
     };
     for (const value of [
@@ -175,9 +176,16 @@ export class BlueskyClient {
     });
   }
 
-  invalidate(): void {
-    this.generation += 1;
-    this.cache.clear();
+  invalidate(target?: string): void {
+    if (!target) {
+      this.generation += 1;
+      this.cache.clear();
+      return;
+    }
+    const encoded = encodeURIComponent(target);
+    this.cache.deleteMatching?.(
+      (key) => key.includes(target) || key.includes(encoded)
+    );
   }
 
   async allowsRecommendations(did: string): Promise<boolean> {
@@ -525,10 +533,19 @@ export class BlueskyClient {
             error instanceof ProtocolError &&
             ["unavailable", "invalid_response"].includes(error.code)
           ) {
-            this.failures += 1;
-            if (probe || this.failures >= 5) {
-              this.circuitUntil = this.options.now() + 30_000;
+            const now = this.options.now();
+            if (now - this.lastFailureAt > 30_000) {
+              this.failures = 0;
             }
+            this.failures += 1;
+            this.lastFailureAt = now;
+            if (probe || this.failures >= 5) {
+              this.circuitUntil = now + 30_000;
+            }
+          } else if (probe) {
+            // A non-availability response (e.g. rate limit, input error, auth) proves upstream is reachable.
+            this.failures = 0;
+            this.circuitUntil = 0;
           }
           throw error;
         } finally {
@@ -624,15 +641,31 @@ export class BlueskyClient {
         );
       }
       if (operation === "app.bsky.feed.getPostThread") {
-        return await this.rpc.call(
-          app.bsky.feed.getPostThread,
-          {
-            depth: Number(query.get("depth") ?? "3"),
-            parentHeight: Number(query.get("parentHeight") ?? "0"),
-            uri: postUriSchema.parse(query.get("uri")),
-          },
-          options
-        );
+        try {
+          return await this.rpc.call(
+            app.bsky.feed.getPostThread,
+            {
+              depth: Number(query.get("depth") ?? "3"),
+              parentHeight: Number(query.get("parentHeight") ?? "0"),
+              uri: postUriSchema.parse(query.get("uri")),
+            },
+            options
+          );
+        } catch (error) {
+          if (
+            error instanceof XrpcResponseError &&
+            (error.error === "NotFound" || error.status === 404)
+          ) {
+            return {
+              thread: {
+                $type: "app.bsky.feed.defs#notFoundPost",
+                notFound: true,
+                uri: query.get("uri") ?? "",
+              },
+            };
+          }
+          throw error;
+        }
       }
       const page = {
         cursor: query.get("cursor") ?? undefined,
@@ -729,7 +762,8 @@ export class BlueskyClient {
           if (!response.ok) {
             if (
               response.status === 400 &&
-              path.startsWith("/xrpc/com.atproto.repo.getRecord?")
+              (path.startsWith("/xrpc/com.atproto.repo.getRecord?") ||
+                path.startsWith("/xrpc/app.bsky.feed.getPostThread?"))
             ) {
               return Response.json(
                 await abortable(

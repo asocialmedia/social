@@ -43,6 +43,19 @@ describe("bounded temporary protocol cache", () => {
     expect(cache.size).toBe(0);
   });
 
+  test("selectively deletes matching keys and adjusts byte tracking", () => {
+    const cache = new BoundedCache();
+    cache.set("user:123:profile", "one", 1000);
+    cache.set("user:456:profile", "two", 1000);
+    cache.set("user:123:feed", "three", 1000);
+    expect(cache.size).toBe(3);
+    cache.deleteMatching((key) => key.includes("123"));
+    expect(cache.size).toBe(1);
+    expect(cache.get("user:123:profile")).toBeNull();
+    expect(cache.get("user:123:feed")).toBeNull();
+    expect(cache.get("user:456:profile")).toBe("two");
+  });
+
   test("rejects unsafe limits and does not retain expired replacements", () => {
     expect(() => new BoundedCache({ maxEntries: 0 })).toThrow();
     expect(() => new BoundedCache({ maxBytes: Number.NaN })).toThrow();
