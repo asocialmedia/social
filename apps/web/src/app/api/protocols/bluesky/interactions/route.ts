@@ -114,6 +114,11 @@ export function GET(request: Request) {
         await externalResponses(uri.data, viewer, parsed?.data)
       );
     }
+    if (kind === "comments") {
+      return Response.json({
+        comments: await externalComments(uri.data, parsed?.data),
+      });
+    }
     const [posts, comments, retained] = await Promise.all([
       readCurrent([uri.data], request, requestId),
       externalComments(uri.data, parsed?.data),

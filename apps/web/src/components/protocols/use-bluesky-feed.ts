@@ -48,19 +48,21 @@ export function useBlueskyFeed(
   });
   const probe = useNewContentProbe({
     enabled: enabled && Boolean(query.data),
-    fetchHead: async () => {
+    fetchHead: async (signal) => {
       const head = await readDiscoveryPage({
         cursor: null,
         locale,
         mode,
-        signal: AbortSignal.timeout(18_000),
+        signal: AbortSignal.any([signal, AbortSignal.timeout(18_000)]),
       });
       return head.items;
     },
     filter: (post) =>
       !excluded.has(`post:${post.id}`) &&
       !excluded.has(`author:${post.author.id}`),
+    intervalMs: 15_000,
     order: "ranked",
+    probeOnMount: !query.isFetchedAfterMount,
     resetKey: `${mode}:${viewer}:${locale}`,
     visible: query.data?.pages.flatMap((page) => page.items) ?? [],
   });
@@ -84,5 +86,10 @@ export function useBlueskyFeed(
     );
     probe.clearNewItems();
   };
-  return { ...query, newItems: probe.newItems, showNewItems };
+  return {
+    ...query,
+    newItems: probe.newItems,
+    probeNow: probe.probeNow,
+    showNewItems,
+  };
 }

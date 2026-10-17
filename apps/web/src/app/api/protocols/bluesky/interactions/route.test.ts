@@ -135,3 +135,19 @@ test("a source outage keeps ASM discussions readable and does not declare a dele
   expect(result.post).toBeNull();
   expect(result.comments).toEqual({ cursor: null, items: [] });
 });
+
+test("discussion pagination never waits for or revalidates the upstream post", async () => {
+  offline = true;
+  session = null;
+  const response = await GET(
+    new Request(
+      `http://localhost/api/protocols/bluesky/interactions?${new URLSearchParams({ kind: "comments", uri })}`
+    )
+  );
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual({
+    comments: { cursor: null, items: [] },
+  });
+  expect(reads).toBe(0);
+  expect(writes).toEqual([]);
+});

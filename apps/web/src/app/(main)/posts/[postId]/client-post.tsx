@@ -289,6 +289,7 @@ const ClientPost: React.FC<ClientPostProps> = ({
               <HomeFeed
                 communitySlug={post.community?.slug}
                 excludePostId={post.id}
+                relatedExternal={Boolean(post.external)}
                 variant="global"
               />
               <div className="border-border/60 mt-4 border-t" />

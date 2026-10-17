@@ -5,9 +5,7 @@ import { useSyncExternalStore } from "react";
 import { resolveDiscoveryLocale } from "@/lib/protocols/discovery-locale";
 import { useFeedSourceStore } from "@/store/feed-source-store";
 
-const subscribe = () => () => {
-  /* empty */
-};
+const subscribe = () => () => null;
 
 export function useDiscoveryLocale() {
   const preference = useFeedSourceStore((state) => state.language);

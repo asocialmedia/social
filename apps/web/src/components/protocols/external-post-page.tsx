@@ -1,13 +1,10 @@
 "use client";
 
-import { externalPostSchema } from "@asm/protocols/discovery";
 import { Button } from "@asm/ui/shadui/button";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft } from "lucide-react";
 import { useSearchParams, useRouter } from "next/navigation";
 
 import ClientPost from "@/app/(main)/posts/[postId]/client-post";
-import { useSession } from "@/app/(main)/session-provider";
 import MediaViewer from "@/components/home/feedview/media-viewer";
 import MediaRouteSkeleton from "@/components/layouts/skeletons/media-route-skeleton";
 import PostDetailSkeleton from "@/components/layouts/skeletons/post-detail-skeleton";
@@ -17,49 +14,13 @@ import { externalPostView } from "@/lib/posts/presentation";
 
 import { ExternalDiscussion } from "./external-discussion";
 import { ExternalResponses } from "./external-responses";
+import { useExternalPost } from "./use-external-post";
 
 export function ExternalPostPage() {
   const params = useSearchParams();
   const uri = params.get("uri") ?? "";
-  const { user } = useSession();
   const router = useRouter();
-  const queryClient = useQueryClient();
-
-  const query = useQuery({
-    initialData: () => {
-      for (const entry of queryClient.getQueriesData<{
-        pages: { items: unknown[] }[];
-      }>({ queryKey: ["bluesky-discovery"] })) {
-        if (entry[0][2] !== (user?.id ?? "guest")) {
-          continue;
-        }
-        for (const page of entry[1]?.pages ?? []) {
-          for (const item of page.items) {
-            const result = externalPostSchema.safeParse(item);
-            if (result.success && result.data.id === uri) {
-              return result.data;
-            }
-          }
-        }
-      }
-    },
-    queryFn: async ({ signal }) => {
-      const response = await fetch(
-        `/api/protocols/bluesky/interactions?${new URLSearchParams({ uri })}`,
-        { signal }
-      );
-      if (!response.ok) {
-        throw new Error("Couldn't load post");
-      }
-      const result: { post: unknown } = await response.json();
-      return result.post === null
-        ? null
-        : externalPostSchema.parse(result.post);
-    },
-    queryKey: ["external-post", uri, user?.id ?? "guest"],
-    retry: false,
-    staleTime: 30_000,
-  });
+  const query = useExternalPost(uri);
 
   if (query.isPending) {
     return params.has("media") ? (

@@ -19,6 +19,7 @@ import FeedViewSkeleton from "@/components/layouts/skeletons/feed-view-skeleton"
 import LoadMoreSkeleton from "@/components/layouts/skeletons/load-more-skeleton";
 import { useBlueskyFeed } from "@/components/protocols/use-bluesky-feed";
 import { useNewContentProbe } from "@/hooks/feed/use-new-content-probe";
+import { useSeamlessFeedHead } from "@/hooks/feed/use-seamless-feed-head";
 import kyInstance from "@/lib/ky";
 import {
   nextFeedSegment,
@@ -44,6 +45,7 @@ interface HomeFeedProps {
   // before opening up to the wider platform.
   communitySlug?: string;
   excludePostId?: string;
+  relatedExternal?: boolean;
   variant?: "latest" | "personalized" | "trending" | "global";
 }
 
@@ -96,12 +98,16 @@ export default function HomeFeed({
   variant = "personalized",
   excludePostId,
   communitySlug,
+  relatedExternal = false,
 }: HomeFeedProps) {
   const { user } = useSession();
   const selectedSource = useFeedSourceStore((state) => state.source);
   const excluded = useExternalExclusions(user?.id ?? "guest");
-  const allowExternal = !communitySlug && !excludePostId;
-  const source = allowExternal ? selectedSource : "asm";
+  const allowExternal = !communitySlug && (!excludePostId || relatedExternal);
+  let source = allowExternal ? selectedSource : "asm";
+  if (relatedExternal) {
+    source = "all";
+  }
   const includeBluesky = source !== "asm";
   const external = useBlueskyFeed(
     discoveryMode(variant),
@@ -113,8 +119,8 @@ export default function HomeFeed({
       filterExternalRecommendations(
         external.data?.pages.flatMap((page) => page.items) ?? [],
         excluded
-      ),
-    [external.data, excluded]
+      ).filter((post) => post.id !== excludePostId),
+    [external.data, excluded, excludePostId]
   );
   const isTrending = variant === "trending";
   const isLatest = variant === "latest";
@@ -200,7 +206,7 @@ export default function HomeFeed({
     isFetchingNextPage: isFetchingNextGlobalPage,
     status: globalStatus,
   } = useInfiniteQuery({
-    enabled: globalEnabled,
+    enabled: globalEnabled && source !== "bluesky",
     getNextPageParam: (lastPage) => lastPage.nextCursor,
     initialPageParam: null as string | null,
     queryFn: async ({ pageParam }: { pageParam: string | null }) => {
@@ -248,10 +254,14 @@ export default function HomeFeed({
 
   // Head-only probe: new posts from other people collect in `newPosts` and are
   // surfaced as an avatar badge. The rendered feed and its scroll position stay
-  // exactly where they are until the viewer taps the badge. The probe is about
+  // exactly where they are until the viewer returns to the top or taps the badge. The probe is about
   // the global feed, so it stays off while a community segment leads.
-  const { clearNewItems, newItems: newPosts } = useNewContentProbe({
-    enabled: !excludePostId && !communitySlug,
+  const {
+    clearNewItems,
+    newItems: newPosts,
+    probeNow,
+  } = useNewContentProbe({
+    enabled: !excludePostId && !communitySlug && source !== "bluesky",
     fetchHead: async () => {
       // Cheap first, and only where it is sound: one row answers "did anything
       // arrive?" on a recency-ordered feed. The full head page - twenty
@@ -347,6 +357,20 @@ export default function HomeFeed({
     nativeError: communityFailed || globalStatus === "error",
     nativeLoading: communityPending || globalStatus === "pending",
   });
+  useSeamlessFeedHead({
+    count:
+      (source === "bluesky" ? 0 : newPosts.length) +
+      (source === "asm" ? 0 : external.newItems.length),
+    enabled: !excludePostId && !communitySlug && hasAnyPosts,
+    merge: showNewPosts,
+    probe: () =>
+      Promise.all([
+        probeNow(),
+        source === "asm" ? Promise.resolve() : external.probeNow(),
+      ]),
+    root: feedRootRef,
+  });
+
   if (availability === "error") {
     return (
       <div
@@ -499,6 +523,11 @@ export default function HomeFeed({
           <h3 className="text-muted-foreground border-border/60 border-t px-4 pt-4 pb-2 text-xs font-semibold tracking-wide uppercase">
             More from asocialmedia
           </h3>
+        ) : null}
+        {includeBluesky && external.isPending && hasAnyPosts ? (
+          <div aria-label="Loading Bluesky posts" aria-busy="true">
+            <LoadMoreSkeleton />
+          </div>
         ) : null}
         {hasAnyPosts ? (
           <FeedView

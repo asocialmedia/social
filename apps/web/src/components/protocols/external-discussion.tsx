@@ -9,15 +9,12 @@ import { useRef } from "react";
 
 import CommentInput from "@/components/comments/composer/comment-input";
 import CommentItem from "@/components/comments/item/comment";
-import { CommentsEmptyState } from "@/components/comments/thread/comments-empty-state";
-import CommentsSkeleton from "@/components/layouts/skeletons/comments-skeleton";
+import { CommentsThreadView } from "@/components/comments/thread/comments-thread-view";
 import { externalCommentView } from "@/lib/posts/external-comment-view";
 
 import { useExternalInteractions } from "./use-external-interactions";
 
-const noop = () => {
-  /* empty */
-};
+const noop = () => null;
 
 export function ExternalDiscussion({
   post,
@@ -31,7 +28,7 @@ export function ExternalDiscussion({
     initialPageParam: null as { createdAt: string; id: string } | null,
     maxPages: 20,
     queryFn: async ({ pageParam, signal }) => {
-      const query = new URLSearchParams({ uri: post.id });
+      const query = new URLSearchParams({ kind: "comments", uri: post.id });
       if (pageParam) {
         query.set("cursor", JSON.stringify(pageParam));
       }
@@ -58,63 +55,58 @@ export function ExternalDiscussion({
     ).values(),
   ];
   return (
-    <section className="space-y-4" aria-label="Eddies on ASM">
-      <CommentInput
-        applyCreated={noop}
-        post={post}
-        controller={{
-          maxLength: 1500,
-          pending: interaction.pending,
-          submit: async (content) => {
-            const saved = await interaction.mutate({
-              action: "comment",
-              content,
-              requestId: requestId.current,
-              uri: post.id,
-            });
-            if (saved) {
-              requestId.current = crypto.randomUUID();
-            }
-            return saved;
-          },
-        }}
-      />
-      {comments.isPending ? <CommentsSkeleton /> : null}
-      {comments.isSuccess && !items.length ? <CommentsEmptyState /> : null}
-      {comments.isError ? (
-        <Button
-          variant="ghost"
-          onClick={() => {
-            void comments.refetch();
+    <CommentsThreadView
+      loading={comments.isPending}
+      failed={comments.isError}
+      empty={comments.isSuccess && !items.length}
+      onRetry={() => {
+        void comments.refetch();
+      }}
+      composer={
+        <CommentInput
+          applyCreated={noop}
+          post={post}
+          controller={{
+            maxLength: 1500,
+            pending: interaction.pending,
+            submit: async (content) => {
+              const saved = await interaction.mutate({
+                action: "comment",
+                content,
+                requestId: requestId.current,
+                uri: post.id,
+              });
+              if (saved) {
+                requestId.current = crypto.randomUUID();
+              }
+              return saved;
+            },
           }}
-        >
-          Eddies hit a snag. Try again
-        </Button>
-      ) : null}
-      <div className="divide-border/40 divide-y pt-1">
-        {items.map((comment) => (
-          <CommentItem
-            applyCreated={noop}
-            applyDeleted={noop}
-            key={comment.id}
-            post={post}
-            node={{
-              children: [],
-              comment: externalCommentView(comment, post.id),
-              depth: 0,
-            }}
-            localActions={{
-              delete: () =>
-                interaction.mutate({
-                  action: "delete_comment",
-                  commentId: comment.id,
-                  uri: post.id,
-                }),
-              pending: interaction.pending,
-            }}
-          />
-        ))}
-      </div>
+        />
+      }
+    >
+      {items.map((comment) => (
+        <CommentItem
+          applyCreated={noop}
+          applyDeleted={noop}
+          key={comment.id}
+          post={post}
+          node={{
+            children: [],
+            comment: externalCommentView(comment, post.id),
+            depth: 0,
+          }}
+          localActions={{
+            delete: () =>
+              interaction.mutate({
+                action: "delete_comment",
+                commentId: comment.id,
+                uri: post.id,
+              }),
+            pending: interaction.pending,
+          }}
+        />
+      ))}
       {comments.hasNextPage ? (
         <Button
           className="mx-auto block"
@@ -127,6 +119,6 @@ export function ExternalDiscussion({
           Load more eddies
         </Button>
       ) : null}
-    </section>
+    </CommentsThreadView>
   );
 }

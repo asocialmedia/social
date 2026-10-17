@@ -2,19 +2,16 @@
 
 import type { CommentsPage, PostData } from "@asm/db";
 import { Button } from "@asm/ui/shadui/button";
-import noMediaImage from "@assets/general/nomedia.png";
 import { useInfiniteQuery } from "@tanstack/react-query";
-import Image from "next/image";
 import { useCallback, useRef } from "react";
 
-import CommentsSkeleton from "@/components/layouts/skeletons/comments-skeleton";
 import kyInstance from "@/lib/ky";
 
 import CommentInput from "../composer/comment-input";
 import CommentItem from "../item/comment";
 import { buildCommentTree, mergeCommentsWithLive } from "./comment-tree";
-import { CommentsEmptyState } from "./comments-empty-state";
 import { useCommentsRealtimeValue } from "./comments-realtime-context";
+import { CommentsThreadView } from "./comments-thread-view";
 import { useCommentsRealtime } from "./use-comments-realtime";
 import type { LiveCommentStore } from "./use-comments-realtime";
 
@@ -43,7 +40,7 @@ export default function Comments({
   const applyDeleted = shared?.applyDeleted ?? ownRealtime.applyDeleted;
   const liveStoreRef = shared?.liveStoreRef ?? ownStoreRef;
 
-  const { data, fetchNextPage, hasNextPage, isFetching, status } =
+  const { data, fetchNextPage, hasNextPage, isFetching, status, refetch } =
     useInfiniteQuery({
       getNextPageParam: (firstPage) => firstPage.previousCursor,
       initialPageParam: null as string | null,
@@ -71,55 +68,44 @@ export default function Comments({
     fetchNextPage();
   }, [fetchNextPage]);
 
-  if (status === "pending") {
-    return <CommentsSkeleton />;
-  }
-
   return (
-    <div className="space-y-4">
-      <CommentInput
-        applyCreated={applyCreated}
-        hideOnMobile={hideComposerOnMobile}
-        post={post}
-        reels={reels}
-      />
-      {hasNextPage ? (
-        <Button
-          className="mx-auto block"
-          disabled={isFetching}
-          onClick={handleLoadPrevious}
-          variant="link"
-        >
-          Load previous eddies
-        </Button>
-      ) : null}
-      {status === "success" && !tree.length && <CommentsEmptyState />}
-      {status === "error" && (
-        <div className="flex flex-col items-center justify-center gap-3 py-8 text-center">
-          <Image
-            alt=""
-            className="h-20 w-20 rounded-full object-contain opacity-70"
-            draggable={false}
-            height={80}
-            src={noMediaImage}
-            width={80}
-          />
-          <p className="text-muted-foreground text-sm">
-            Eddies hit a snag. Try reloading this post.
-          </p>
-        </div>
-      )}
-      <div className="divide-border/40 divide-y pt-1">
-        {tree.map((node) => (
-          <CommentItem
-            applyCreated={applyCreated}
-            applyDeleted={applyDeleted}
-            key={node.comment.id}
-            node={node}
-            post={post}
-          />
-        ))}
-      </div>
-    </div>
+    <CommentsThreadView
+      loading={status === "pending"}
+      failed={status === "error"}
+      empty={status === "success" && !tree.length}
+      onRetry={() => {
+        void refetch();
+      }}
+      composer={
+        <CommentInput
+          applyCreated={applyCreated}
+          hideOnMobile={hideComposerOnMobile}
+          post={post}
+          reels={reels}
+        />
+      }
+      pagination={
+        hasNextPage ? (
+          <Button
+            className="mx-auto block"
+            disabled={isFetching}
+            onClick={handleLoadPrevious}
+            variant="link"
+          >
+            Load previous eddies
+          </Button>
+        ) : null
+      }
+    >
+      {tree.map((node) => (
+        <CommentItem
+          applyCreated={applyCreated}
+          applyDeleted={applyDeleted}
+          key={node.comment.id}
+          node={node}
+          post={post}
+        />
+      ))}
+    </CommentsThreadView>
   );
 }

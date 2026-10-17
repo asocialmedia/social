@@ -43,6 +43,7 @@ import {
   ExternalShareButton,
   ExternalVoteButton,
 } from "@/components/protocols/external-post-controls";
+import { ExternalResponseParent } from "@/components/protocols/external-response-parent";
 import { ResponseParentRow } from "@/components/responses/response-parent-card";
 import { PostMeta } from "@/components/tags/post-meta";
 import { communityAccentStyle } from "@/lib/communities/accent";
@@ -423,7 +424,8 @@ const PostContent: React.FC<PostContentProps> = ({
   // A response shown in a feed or detail view: render the post it
   // replies to as the top node of a mini-thread, connected by a rail,
   // unless this post is already preceded by its parent in an ongoing thread.
-  const showParentRow = Boolean(post.parentPostId) && !hasThreadParent;
+  const showParentRow =
+    Boolean(post.parentPostId || post.externalParent) && !hasThreadParent;
   const isThreadChild = hasThreadParent || showParentRow;
 
   // Attachment media and link embeds render as one column, so a post with both
@@ -465,15 +467,10 @@ const PostContent: React.FC<PostContentProps> = ({
 
   return (
     <div>
-      {post.externalParent ? (
-        <Link
-          className="text-muted-foreground mb-3 block text-xs hover:underline"
-          href={`/network/bluesky?uri=${encodeURIComponent(post.externalParent.uri)}`}
-        >
-          Responding to a Bluesky post ↗
-        </Link>
+      {showParentRow && post.externalParent ? (
+        <ExternalResponseParent uri={post.externalParent.uri} />
       ) : null}
-      {showParentRow ? (
+      {showParentRow && !post.externalParent ? (
         <ResponseParentRow
           parent={post.parentPost}
           parentPostId={post.parentPostId as string}
@@ -830,7 +827,11 @@ const FeedComments: React.FC<{ post: ExtendedPostData }> = ({ post }) => {
         ref={containerRef}
         style={isClamped ? { maxHeight: COMMENTS_MAX_HEIGHT } : undefined}
       >
-        <Comments post={post} />
+        {post.external ? (
+          <ExternalDiscussion post={post.external} />
+        ) : (
+          <Comments post={post} />
+        )}
       </div>
       {isClamped ? (
         <div className="mt-2.5 flex justify-center">
@@ -1025,15 +1026,18 @@ const PostCard: React.FC<PostCardProps> = ({
 
   let commentsSection: React.ReactNode = null;
   if (showComments) {
-    if (post.external) {
-      commentsSection = <ExternalDiscussion post={post.external} />;
-    } else if (detail) {
+    // oxlint-disable-next-line unicorn/prefer-ternary -- The two layouts contain distinct JSX trees.
+    if (detail) {
       commentsSection = (
         <div
           className="border-border/60 border-t px-4 pt-3.5 pb-4"
           data-card-interactive
         >
-          <Comments post={post} />
+          {post.external ? (
+            <ExternalDiscussion post={post.external} />
+          ) : (
+            <Comments post={post} />
+          )}
         </div>
       );
     } else {

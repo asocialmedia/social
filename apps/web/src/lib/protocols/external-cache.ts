@@ -1,7 +1,50 @@
 import type { ExternalPost } from "@asm/protocols/contracts";
+import { externalPostSchema } from "@asm/protocols/discovery";
 import type { QueryClient } from "@tanstack/react-query";
 
 type ExternalState = NonNullable<ExternalPost["asm"]>;
+
+export function isExternalViewerQuery(key: readonly unknown[], viewer: string) {
+  if (key[0] === "bluesky-discovery" || key[0] === "external-post") {
+    return key[2] === viewer;
+  }
+  if (key[0] === "bluesky-author-feed") {
+    return key[3] === viewer;
+  }
+  return key[0] === "external-library" && key[1] === viewer;
+}
+
+export function cachedExternalPost(
+  data: unknown,
+  uri: string
+): ExternalPost | undefined {
+  if (!data || typeof data !== "object") {
+    return undefined;
+  }
+  if (Array.isArray(data)) {
+    for (const item of data) {
+      const found = cachedExternalPost(item, uri);
+      if (found) {
+        return found;
+      }
+    }
+    return undefined;
+  }
+  const record = data as Record<string, unknown>;
+  if (record.id === uri && record.source === "bluesky") {
+    const parsed = externalPostSchema.safeParse(data);
+    if (parsed.success) {
+      return parsed.data;
+    }
+  }
+  for (const key of ["pages", "items", "post", "external"]) {
+    const found = cachedExternalPost(record[key], uri);
+    if (found) {
+      return found;
+    }
+  }
+  return undefined;
+}
 
 export function patchExternalState(
   data: unknown,
@@ -41,18 +84,7 @@ export function applyExternalStateToCaches(
   queryClient.setQueryData(["external-interaction", viewer, uri], state);
   queryClient.setQueriesData(
     {
-      predicate: ({ queryKey }) => {
-        if (queryKey[0] === "bluesky-discovery") {
-          return queryKey[2] === viewer;
-        }
-        if (queryKey[0] === "bluesky-author-feed") {
-          return queryKey[3] === viewer;
-        }
-        if (queryKey[0] === "external-post") {
-          return queryKey[2] === viewer;
-        }
-        return queryKey[0] === "external-library" && queryKey[1] === viewer;
-      },
+      predicate: ({ queryKey }) => isExternalViewerQuery(queryKey, viewer),
     },
     (data: unknown) => patchExternalState(data, uri, state)
   );
