@@ -17,7 +17,7 @@
 
 import { extractMessageReferences } from "@asm/messages/crypto";
 
-import { getMediaImages } from "@/lib/messages/crypto";
+import { getMediaAttachments } from "@/lib/messages/crypto";
 import type { MessagePayload } from "@/lib/messages/crypto";
 
 // What one message contributes, grouped by the tab it belongs to.
@@ -55,7 +55,12 @@ export function extractSharedRefs(payload: MessagePayload): SharedRefs | null {
   const media: SharedMediaRef[] = [];
   const postIds: string[] = [];
   const links: string[] = [];
-  const images = payload.type === "media" ? getMediaImages(payload) : [];
+  // Pairing runs on the normalized attachment list, so a version-2 message that
+  // mixes kinds keeps every ordinal aligned with the row the reference names.
+  // Videos and files surface in a later tab; until then only photo rows are
+  // stored, and a view-once item never produces a reference at all.
+  const attachments =
+    payload.type === "media" ? getMediaAttachments(payload) : [];
 
   for (const reference of extractMessageReferences(payload)) {
     if (
@@ -63,14 +68,17 @@ export function extractSharedRefs(payload: MessagePayload): SharedRefs | null {
       reference.url &&
       payload.type === "media"
     ) {
-      const image = images[reference.ordinal];
-      if (image) {
+      const attachment = attachments[reference.ordinal];
+      if (
+        attachment &&
+        (attachment.kind === "gif" || attachment.kind === "image")
+      ) {
         media.push({
-          height: image.height,
+          height: attachment.height,
           imageIndex: reference.ordinal,
-          kind: payload.kind,
+          kind: attachment.kind,
           url: reference.url,
-          width: image.width,
+          width: attachment.width,
         });
       }
     } else if (reference.kind === "post" && reference.requiredId) {

@@ -1,4 +1,4 @@
-import { and, prisma, fromPrismaDateTime } from "@asm/db";
+import { and, prisma } from "@asm/db";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
@@ -121,10 +121,7 @@ export async function POST(request: Request) {
     })
       .where((s) => s.endedAt.isNull())
       .first();
-    const activeId =
-      active && fromPrismaDateTime(active.expiresAt).getTime() > Date.now()
-        ? active.id
-        : null;
+    const activeId = active?.id ?? null;
     if (
       (incognitoSessionId && incognitoSessionId !== activeId) ||
       (activeId && !incognitoSessionId)

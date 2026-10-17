@@ -32,11 +32,18 @@ export interface MessageStreamEvent {
     | "conversation.read"
     | "den.membership.changed"
     | "keys.rotated"
+    | "media.viewOnce.revoked"
     | "message.created"
     | "message.deleted"
     | "message.edited"
+    | "message.reacted"
     | "typing.started";
+  // The opaque id of a view-once attachment whose grant was revoked. Never a
+  // URL, so a stream can clear a tile but can never fetch protected bytes.
+  mediaId?: string;
   message?: unknown;
+  // The reacted-to message id, on `message.reacted` only.
+  messageId?: string;
   readAt?: string;
   userId?: string;
 }
@@ -55,6 +62,8 @@ export function parseMessageEvent(raw: string): MessageStreamEvent | null {
       parsed.kind !== "conversation.read" &&
       parsed.kind !== "conversation.delivered" &&
       parsed.kind !== "typing.started" &&
+      parsed.kind !== "message.reacted" &&
+      parsed.kind !== "media.viewOnce.revoked" &&
       parsed.kind !== "den.membership.changed" &&
       parsed.kind !== "keys.rotated"
     ) {
@@ -87,11 +96,26 @@ export function parseMessageEvent(raw: string): MessageStreamEvent | null {
     ) {
       return null;
     }
+    if (
+      parsed.kind === "message.reacted" &&
+      (typeof parsed.messageId !== "string" ||
+        typeof parsed.userId !== "string")
+    ) {
+      return null;
+    }
+    if (
+      parsed.kind === "media.viewOnce.revoked" &&
+      typeof parsed.mediaId !== "string"
+    ) {
+      return null;
+    }
     return {
       conversationId: parsed.conversationId,
       deliveredAt: parsed.deliveredAt,
       kind: parsed.kind,
+      mediaId: parsed.mediaId,
       message: parsed.message,
+      messageId: parsed.messageId,
       readAt: parsed.readAt,
       userId: parsed.userId,
     };

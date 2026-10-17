@@ -91,7 +91,22 @@ function payloadByteLength(payload: MessagePayload): number {
     characters += payload.postId.length;
   }
   if (payload.type === "media") {
-    if ("images" in payload) {
+    if ("attachments" in payload) {
+      for (const attachment of payload.attachments) {
+        objectOverhead += 96;
+        if (attachment.kind === "view-once") {
+          characters += attachment.ref.length;
+          continue;
+        }
+        characters += attachment.url.length;
+        if (attachment.kind === "file") {
+          characters += attachment.filename.length;
+        }
+        if (attachment.kind === "video" && attachment.posterUrl) {
+          characters += attachment.posterUrl.length;
+        }
+      }
+    } else if ("images" in payload) {
       characters += payload.images.reduce(
         (sum, image) => sum + image.url.length,
         0

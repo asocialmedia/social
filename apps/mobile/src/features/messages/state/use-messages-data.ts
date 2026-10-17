@@ -1,3 +1,4 @@
+import { LIFECYCLE_CAPABILITY } from "@asm/messages";
 import { fetch as streamingFetch } from "expo/fetch";
 // The React bindings for the messages realtime streams and the polling that backs
 // them up.
@@ -245,13 +246,17 @@ export interface TranscriptBinding {
   refresh: () => void;
 }
 
-export function useTranscript(conversationId: string): TranscriptBinding {
+export function useTranscript(
+  conversationId: string,
+  enabled = true
+): TranscriptBinding {
   const { invalidateKeys, identity } = useMessagesIdentity();
   const identityKey = identity?.publicKey ?? null;
   const { user } = useSessionContext();
   const { apiBase, cookie } = useMessagesApiContext();
   const userId = user?.id ?? null;
-  const foreground = useMessagesForeground();
+  const appForeground = useMessagesForeground();
+  const foreground = appForeground && enabled;
   const [nonce, setNonce] = useState(0);
   const [detailRevision, setDetailRevision] = useState(0);
   const [reload, setReload] = useState(0);
@@ -620,7 +625,7 @@ export function useTranscript(conversationId: string): TranscriptBinding {
           void authClient.signOut();
         },
         signal: controller.signal,
-        url: `${apiBase}/api/messages/conversations/${conversationId}/stream?capability=chat-lifecycle-v1`,
+        url: `${apiBase}/api/messages/conversations/${conversationId}/stream?capability=${LIFECYCLE_CAPABILITY}`,
       });
     })();
 

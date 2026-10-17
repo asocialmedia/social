@@ -19,7 +19,7 @@ export interface OfflineSearchReference {
   id?: string;
   index: number;
   kind: OfflineSearchReferenceKind;
-  mediaKind?: "gif" | "image";
+  mediaKind?: "file" | "gif" | "image" | "video";
 }
 
 export interface OfflineSearchCacheRecord {
@@ -91,15 +91,33 @@ function referencesForPayload(
     references.push({ id: payload.postId, index: 0, kind: "post" });
   }
   if (payload.type === "media") {
-    const images = "images" in payload ? payload.images : [payload];
-    for (const [index, image] of images.entries()) {
-      const id = getMessageMediaId(image.url);
-      references.push({
-        ...(id ? { id } : {}),
-        index,
-        kind: "media",
-        mediaKind: payload.kind,
-      });
+    // Version-2 attachments keep their own index and kind, so a hit still jumps
+    // to the right attachment. A view-once item stays out of offline storage
+    // entirely: it has no fetchable URL and no id that a device may persist.
+    if ("attachments" in payload) {
+      for (const [index, attachment] of payload.attachments.entries()) {
+        if (attachment.kind === "view-once") {
+          continue;
+        }
+        const id = getMessageMediaId(attachment.url);
+        references.push({
+          ...(id ? { id } : {}),
+          index,
+          kind: "media",
+          mediaKind: attachment.kind,
+        });
+      }
+    } else {
+      const images = "images" in payload ? payload.images : [payload];
+      for (const [index, image] of images.entries()) {
+        const id = getMessageMediaId(image.url);
+        references.push({
+          ...(id ? { id } : {}),
+          index,
+          kind: "media",
+          mediaKind: payload.kind,
+        });
+      }
     }
   }
   const content = typeof payload.content === "string" ? payload.content : "";

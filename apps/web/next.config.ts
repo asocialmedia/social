@@ -44,6 +44,7 @@ const nextConfig: NextConfig = withStreamConfig({
       },
     ];
   },
+  transpilePackages: [...(config.transpilePackages ?? []), "@asm/messages"],
 });
 
 export default nextConfig;

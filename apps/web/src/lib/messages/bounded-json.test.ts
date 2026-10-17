@@ -1,5 +1,7 @@
 import { expect, test } from "bun:test";
 
+import { LIFECYCLE_CAPABILITY } from "@asm/messages";
+
 import { parseBoundedJsonBody } from "./bounded-json";
 import { chatCapabilityError } from "./chat-capability";
 
@@ -35,7 +37,7 @@ test("timed history requires capability acknowledgement on reads and streams", (
   ).toBe(426);
   expect(
     chatCapabilityError(
-      new Request("https://example.test?capability=chat-lifecycle-v1"),
+      new Request(`https://example.test?capability=${LIFECYCLE_CAPABILITY}`),
       { retentionVersion: 1 }
     )
   ).toBeNull();

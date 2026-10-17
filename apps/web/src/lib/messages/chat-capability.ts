@@ -1,9 +1,19 @@
 import { LIFECYCLE_CAPABILITY } from "@asm/messages";
 
+// Both normal-chat versions enforce expiry. Incognito endpoints require the current version separately.
+const normalChatCapabilities = new Set([
+  "chat-lifecycle-v1",
+  LIFECYCLE_CAPABILITY,
+]);
+
 export function supportsChatLifecycle(request: Request): boolean {
   return (
-    request.headers.get("X-Chat-Capability") === LIFECYCLE_CAPABILITY ||
-    new URL(request.url).searchParams.get("capability") === LIFECYCLE_CAPABILITY
+    normalChatCapabilities.has(
+      request.headers.get("X-Chat-Capability") ?? ""
+    ) ||
+    normalChatCapabilities.has(
+      new URL(request.url).searchParams.get("capability") ?? ""
+    )
   );
 }
 
@@ -19,7 +29,13 @@ export function chatCapabilityError(
       code: "CHAT_UPDATE_REQUIRED",
       error: "Update the app to open this conversation safely.",
     },
-    { headers: { "Cache-Control": "private, no-store" }, status: 426 }
+    {
+      headers: {
+        "Cache-Control": "private, no-store",
+        "X-Chat-Capability": LIFECYCLE_CAPABILITY,
+      },
+      status: 426,
+    }
   );
 }
 

@@ -70,6 +70,36 @@ describe("messagePreviewText", () => {
     );
   });
 
+  test("version-2 attachments say what they are without inventing detail", () => {
+    expect(
+      messagePreviewText({
+        attachments: [{ kind: "image", url: "/a" }],
+        type: "media",
+      })
+    ).toBe("Shared an image");
+    expect(
+      messagePreviewText({
+        attachments: [
+          { kind: "image", url: "/a" },
+          { kind: "video", url: "/b" },
+        ],
+        type: "media",
+      })
+    ).toBe("Shared 2 attachments");
+    expect(
+      messagePreviewText({
+        attachments: [{ filename: "notes.pdf", kind: "file", url: "/c" }],
+        type: "media",
+      })
+    ).toBe("Shared a file");
+    expect(
+      messagePreviewText({
+        attachments: [{ kind: "view-once", ref: "media_abc" }],
+        type: "media",
+      })
+    ).toBe("Shared a photo");
+  });
+
   test("a shared post says post", () => {
     expect(messagePreviewText({ postId: "p1", type: "post" })).toBe(
       "Shared a post"
