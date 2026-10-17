@@ -588,7 +588,7 @@ export function useTranscript(
           if (!event.messageId) {
             return;
           }
-          const {messageId} = event;
+          const { messageId } = event;
           void (async () => {
             try {
               const reactions = await fetchMessageReactions(
