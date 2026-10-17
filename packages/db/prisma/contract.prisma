@@ -128,6 +128,10 @@ namespace public {
 
   model MessageConversations {
     id                                  String                                @id(map: "message_conversations_pkey") @default(uuid())
+    retentionSeconds                    Int                                   @default(0)
+    retentionVersion                    Int                                   @default(0)
+    incognitoSessions                   MessageIncognitoSessions[]
+    exportJobs                          MessageExportJobs[]
     pairKey                             String?
     _type                               pg.enum(ConversationType)             @default("DM") @map("type")
     name                                String?
@@ -178,6 +182,10 @@ namespace public {
     userId                     String?
     url                        String
     key                        String                       @default("")
+    incognitoSessionId         String?
+    incognitoSession           MessageIncognitoSessions? @relation(fields: [incognitoSessionId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+    messageLifecycleProtected  Boolean @default(false)
+    messageLifecycleLinks      MessageMediaLinks[]
     mimeType                   String                       @default("application/octet-stream")
     _type                      pg.enum(MediaType)           @default("IMAGE") @map("type")
     size                       Int                          @default(0)
@@ -251,6 +259,7 @@ namespace public {
     @@index([sha256], map: "post_media_sha256_idx")
     @@index([status], map: "post_media_status_idx")
     @@index([userId, createdAt], map: "post_media_userId_createdAt_idx")
+    @@index([id], where: "(\"failureCode\" = 'CHAT_LIFECYCLE_ERASURE')", name: "media_lifecycle_erasure_due")
     @@map("post_media")
   }
 
@@ -311,6 +320,10 @@ namespace public {
     messageConversationKeys           MessageConversationKeys[]    @relation(name: "message_conversation_keys_ownerUserId_fkey")
     messageConversationMembers        MessageConversationMembers[] @relation(name: "message_conversation_members_userId_fkey")
     messageHiddens                    MessageHiddens[]
+    incognitoMessages                 MessageIncognitoMessages[]
+    incognitoStarted                  MessageIncognitoSessions[] @relation(name: "incognito_started_by")
+    incognitoEnded                    MessageIncognitoSessions[] @relation(name: "incognito_ended_by")
+    messageExports                    MessageExportJobs[]
     messageIdentities                 MessageIdentities?
     messages                          Messages[]
     passkeys                          Passkey[]
@@ -679,6 +692,9 @@ namespace public {
     invitedById      String?
     leftAt           Timestamp(3)?
     lastReadAt       Timestamp(3)?
+    clearedAt        Timestamp(3)?
+    clearedThroughSequence Int @default(0)
+    inboxHiddenAt    Timestamp(3)?
     lastReadSequence Int?
     unreadCount      Int?
     lastDeliveredAt  Timestamp(3)?
@@ -728,6 +744,8 @@ namespace public {
     keyEpoch         Int?
     creationSequence Int                  @default(0)
     createdAt        Timestamp(3)         @default(now())
+    expiresAt        Timestamp(3)?
+    mediaLinks       MessageMediaLinks[]
     deletedAt        Timestamp(3)?
     editedAt         Timestamp(3)?
     conversation     MessageConversations @relation(fields: [conversationId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "messages_conversationId_fkey", index: false)
@@ -737,8 +755,98 @@ namespace public {
     @@index([conversationId, createdAt], map: "messages_conversationId_createdAt_idx")
     @@index([conversationId, id], map: "messages_conversationId_id_idx")
     @@unique([conversationId, senderId, ratchetIndex], map: "messages_conversationId_senderId_ratchetIndex_key")
+    @@index([expiresAt, id], where: "(\"expiresAt\" IS NOT NULL AND \"deletedAt\" IS NULL)", name: "messages_expiry_due_idx")
+    @@index([expiresAt, id], where: "(\"expiresAt\" IS NOT NULL AND ciphertext <> '')", name: "messages_lifecycle_erasure_due")
     @@index([senderId], map: "messages_senderId_idx")
     @@map("messages")
+  }
+
+  model MessageIncognitoSessions {
+    id String @id @default(uuid())
+    conversationId String
+    startedById String?
+    startedByName String
+    endedById String?
+    endedByName String?
+    startedAt Timestamp(3) @default(now())
+    expiresAt Timestamp(3)
+    endedAt Timestamp(3)?
+    endReason String?
+    purgedAt Timestamp(3)?
+    nextSequence Int @default(0)
+    conversation MessageConversations @relation(fields: [conversationId], references: [id], onDelete: Cascade, onUpdate: Cascade, index: false)
+    starter Users? @relation(name: "incognito_started_by", fields: [startedById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+    ender Users? @relation(name: "incognito_ended_by", fields: [endedById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+    messages MessageIncognitoMessages[]
+    stagedMedia PostMedia[]
+
+    @@index([conversationId], unique: true, where: "(\"endedAt\" IS NULL)", name: "message_incognito_one_active")
+    @@index([conversationId, startedAt, id], name: "incognito_conversation_started")
+    @@index([endedAt, id], where: "(\"endedAt\" IS NOT NULL AND \"purgedAt\" IS NULL)", name: "incognito_purge_due")
+    @@index([expiresAt], where: "(\"endedAt\" IS NULL)", name: "message_incognito_due")
+    @@map("message_incognito_sessions")
+  }
+
+  model MessageIncognitoMessages {
+    id String @id
+    sessionId String
+    senderId String
+    ciphertext String
+    iv String
+    keyEpoch Int
+    ratchetIndex Int
+    sequence Int
+    createdAt Timestamp(3) @default(now())
+    session MessageIncognitoSessions @relation(fields: [sessionId], references: [id], onDelete: Cascade, onUpdate: Cascade, index: false)
+    sender Users @relation(fields: [senderId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+    mediaLinks MessageMediaLinks[]
+
+    @@unique([sessionId, senderId, ratchetIndex], map: "incognito_message_sender_ratchet")
+    @@unique([sessionId, sequence])
+    @@map("message_incognito_messages")
+  }
+
+  model MessageMediaLinks {
+    id String @id @default(uuid())
+    messageId String?
+    incognitoMessageId String?
+    mediaId String
+    message Messages? @relation(fields: [messageId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+    incognitoMessage MessageIncognitoMessages? @relation(fields: [incognitoMessageId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+    media PostMedia @relation(fields: [mediaId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+    @@unique([messageId, mediaId])
+    @@unique([incognitoMessageId, mediaId], map: "message_media_incognito_unique")
+    @@index([mediaId])
+    @@check(expression: "(\"messageId\" IS NULL) <> (\"incognitoMessageId\" IS NULL)", name: "message_media_exact_source")
+    @@map("message_media_links")
+  }
+
+  model MessageExportJobs {
+    id String @id @default(uuid())
+    conversationId String
+    userId String
+    status String @default("pending")
+    includeMedia Boolean @default(false)
+    membershipSequence Int @default(0)
+    fromDate Timestamp(3)?
+    toDate Timestamp(3)?
+    snapshotSequence Int
+    clearedThroughSequence Int
+    recoveryGeneration Int
+    createdAt Timestamp(3) @default(now())
+    expiresAt Timestamp(3)
+    leaseUntil Timestamp(3)?
+    objectKey String?
+    artifactKey String?
+    errorCode String?
+    conversation MessageConversations @relation(fields: [conversationId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+    user Users @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+    @@index([status, createdAt])
+    @@index([userId, conversationId, createdAt], name: "message_export_user_conversation")
+    @@index([expiresAt])
+    @@map("message_export_jobs")
   }
 
   model MessageHiddens {

@@ -92,6 +92,7 @@
         "@asm/auth": "workspace:*",
         "@asm/db": "workspace:*",
         "@asm/media": "workspace:*",
+        "@asm/messages": "workspace:*",
         "@asm/notifications": "workspace:*",
         "@asm/ui": "workspace:*",
         "@better-auth/expo": "^1.7.5",
@@ -303,10 +304,11 @@
     },
     "packages/db": {
       "name": "@asm/db",
-      "version": "1.2.71",
+      "version": "1.2.73",
       "dependencies": {
         "@asm/config": "workspace:*",
         "@asm/logger": "workspace:*",
+        "@asm/messages": "workspace:*",
         "@asm/notifications": "workspace:*",
         "@aws-sdk/client-s3": "^3.1109.0",
         "@prisma/orm-postgres": "8.0.0-rc.14",
@@ -315,6 +317,7 @@
         "bullmq": "^6.1.0",
         "cross-env": "^10.1.0",
         "date-fns": "^4.4.0",
+        "fflate": "^0.8.3",
         "ioredis": "^6.0.0",
         "jose": "^6.2.8",
         "pg": "8.18.0",
@@ -371,7 +374,7 @@
     },
     "packages/messages": {
       "name": "@asm/messages",
-      "version": "1.0.10",
+      "version": "1.0.12",
       "dependencies": {
         "@asm/media": "workspace:*",
       },

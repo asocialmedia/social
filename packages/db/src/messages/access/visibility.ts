@@ -15,7 +15,30 @@ export function visibleToUser(
   userId: string
 ): (message: MessageAccessor) => AnyExpression {
   return (message) =>
-    message.hiddenFor.none((hidden) => hidden.userId.eq(userId));
+    and(
+      message.hiddenFor.none((hidden) => hidden.userId.eq(userId)),
+      or(
+        message.expiresAt.isNull(),
+        message.expiresAt.gt(toPrismaDateTime(new Date()))
+      ),
+      message.conversation.some((conversation) =>
+        conversation.messageConversationMembers.some((member) =>
+          and(
+            member.userId.eq(userId),
+            or(
+              member.clearedThroughSequence.lt(message.creationSequence),
+              and(
+                message.creationSequence.eq(0),
+                or(
+                  member.clearedAt.isNull(),
+                  member.clearedAt.lt(message.createdAt)
+                )
+              )
+            )
+          )
+        )
+      )
+    );
 }
 
 // The where clause shared by every unread-message count: the current user's own
@@ -110,7 +133,7 @@ export function unreadMessagesWhere(params: {
     return and(
       watermarkFilter,
       message.deletedAt.isNull(),
-      message.hiddenFor.none((hidden) => hidden.userId.eq(params.userId)),
+      visibleToUser(params.userId)(message),
       message.senderId.notIn([params.userId])
     );
   };

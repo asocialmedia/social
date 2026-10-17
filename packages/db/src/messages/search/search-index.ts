@@ -385,6 +385,7 @@ export interface MessageSearchCountRequestStatus {
 }
 
 export interface SearchCandidateRow {
+  expiresAt?: Date | null;
   ciphertext: string;
   createdAt: Date;
   id: string;
@@ -2618,6 +2619,7 @@ export async function searchMessageCandidates(
             {
               ciphertext: "pg/text@1",
               createdAt: "pg/timestamp-temporal@1",
+              expiresAt: { codecId: "pg/timestamp-temporal@1", nullable: true },
               id: "pg/text@1",
               iv: "pg/text@1",
               keyEpoch: "pg/int4@1",
@@ -2651,6 +2653,7 @@ export async function searchMessageCandidates(
       {
         ciphertext: "pg/text@1",
         createdAt: "pg/timestamp-temporal@1",
+        expiresAt: { codecId: "pg/timestamp-temporal@1", nullable: true },
         id: "pg/text@1",
         iv: "pg/text@1",
         keyEpoch: "pg/int4@1",
@@ -2751,6 +2754,7 @@ export async function hydrateSearchMessageCandidates(
     {
       ciphertext: "pg/text@1",
       createdAt: "pg/timestamp-temporal@1",
+      expiresAt: { codecId: "pg/timestamp-temporal@1", nullable: true },
       id: "pg/text@1",
       iv: "pg/text@1",
       keyEpoch: "pg/int4@1",

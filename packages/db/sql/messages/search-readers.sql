@@ -19,6 +19,7 @@ WITH query_fragments AS MATERIALIZED (
      )
      SELECT m.id,
             m."ciphertext",
+            m."expiresAt",
             m.iv,
             m."ratchetIndex",
             m."senderId",
@@ -35,6 +36,8 @@ WITH query_fragments AS MATERIALIZED (
         AND member."userId" = $2
       WHERE d."conversationId" = $1
         AND m."deletedAt" IS NULL
+        AND (m."expiresAt" IS NULL OR m."expiresAt">clock_timestamp())
+        AND (m."creationSequence">member."clearedThroughSequence" OR (m."creationSequence"=0 AND (member."clearedAt" IS NULL OR m."createdAt">member."clearedAt")))
         AND m."keyEpoch" IS NOT NULL
         AND m."creationSequence" <= $4
         AND (
@@ -121,6 +124,7 @@ WITH query_fragments AS MATERIALIZED (
      )
      SELECT m.id,
             m."ciphertext",
+            m."expiresAt",
             m.iv,
             m."ratchetIndex",
             m."senderId",
@@ -136,6 +140,8 @@ WITH query_fragments AS MATERIALIZED (
          ON member."conversationId" = d."conversationId"
         AND member."userId" = $2
       WHERE m."deletedAt" IS NULL
+        AND (m."expiresAt" IS NULL OR m."expiresAt">clock_timestamp())
+        AND (m."creationSequence">member."clearedThroughSequence" OR (m."creationSequence"=0 AND (member."clearedAt" IS NULL OR m."createdAt">member."clearedAt")))
         AND m."keyEpoch" IS NOT NULL
         AND m."creationSequence" <= $4
         AND m."keyEpoch" IN ({{readableEpochs}})
@@ -190,6 +196,8 @@ WITH query_fragments AS MATERIALIZED (
            WHERE NOT d."termIds" && matched_term.term_ids
         )
         AND m."deletedAt" IS NULL
+        AND (m."expiresAt" IS NULL OR m."expiresAt">clock_timestamp())
+        AND (m."creationSequence">member."clearedThroughSequence" OR (m."creationSequence"=0 AND (member."clearedAt" IS NULL OR m."createdAt">member."clearedAt")))
         AND m."keyEpoch" IS NOT NULL
         AND m."creationSequence" <= $4
         AND (
@@ -263,6 +271,7 @@ WITH query_fragments AS MATERIALIZED (
      )
      SELECT m.id,
             m."ciphertext",
+            m."expiresAt",
             m.iv,
             m."ratchetIndex",
             m."senderId",
@@ -278,6 +287,8 @@ WITH query_fragments AS MATERIALIZED (
          ON member."conversationId" = d."conversationId"
         AND member."userId" = $2
       WHERE m."deletedAt" IS NULL
+        AND (m."expiresAt" IS NULL OR m."expiresAt">clock_timestamp())
+        AND (m."creationSequence">member."clearedThroughSequence" OR (m."creationSequence"=0 AND (member."clearedAt" IS NULL OR m."createdAt">member."clearedAt")))
         AND m."keyEpoch" IS NOT NULL
         AND m."creationSequence" <= $4
         AND m."keyEpoch" IN ({{readableEpochs}})
@@ -329,6 +340,8 @@ WITH ordered_documents AS MATERIALIZED (
            ON member."conversationId" = d."conversationId"
           AND member."userId" = $5
         WHERE m."deletedAt" IS NULL
+        AND (m."expiresAt" IS NULL OR m."expiresAt">clock_timestamp())
+        AND (m."creationSequence">member."clearedThroughSequence" OR (m."creationSequence"=0 AND (member."clearedAt" IS NULL OR m."createdAt">member."clearedAt")))
           AND m."keyEpoch" IS NOT NULL
           AND m."creationSequence" <= $6
           AND (
@@ -377,6 +390,7 @@ WITH requested AS (
      )
      SELECT m.id,
             m."ciphertext",
+            m."expiresAt",
             m."createdAt",
             m.iv,
             m."keyEpoch",
@@ -392,6 +406,8 @@ WITH requested AS (
          ON member."conversationId" = m."conversationId"
         AND member."userId" = $2
       WHERE m."deletedAt" IS NULL
+        AND (m."expiresAt" IS NULL OR m."expiresAt">clock_timestamp())
+        AND (m."creationSequence">member."clearedThroughSequence" OR (m."creationSequence"=0 AND (member."clearedAt" IS NULL OR m."createdAt">member."clearedAt")))
         AND m."keyEpoch" IS NOT NULL
         AND m."keyEpoch" IN ({{readableEpochs}})
         AND NOT EXISTS (
@@ -449,6 +465,8 @@ SELECT reference."createdAt",
       WHERE reference."conversationId" = $1
         AND reference.kind = $3
         AND message."deletedAt" IS NULL
+        AND (message."expiresAt" IS NULL OR message."expiresAt">clock_timestamp())
+        AND (message."creationSequence">member."clearedThroughSequence" OR (message."creationSequence"=0 AND (member."clearedAt" IS NULL OR message."createdAt">member."clearedAt")))
         AND message."keyEpoch" IS NOT NULL
         AND message."creationSequence" <= $4
         AND (

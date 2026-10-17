@@ -9,6 +9,11 @@ SELECT COUNT(*)::text AS count
         WHERE message."conversationId" = $1
           AND message."senderId" <> $2
           AND message."deletedAt" IS NULL
+          AND (message."expiresAt" IS NULL OR message."expiresAt">clock_timestamp())
+          AND EXISTS (SELECT 1 FROM public.message_conversation_members visibility_member
+            WHERE visibility_member."conversationId"=message."conversationId" AND visibility_member."userId"=$2
+            AND (message."creationSequence">visibility_member."clearedThroughSequence" OR
+              (message."creationSequence"=0 AND (visibility_member."clearedAt" IS NULL OR message."createdAt">visibility_member."clearedAt"))))
           AND (
             ($4::integer IS NULL AND message."createdAt" > $3)
             OR ($4::integer IS NOT NULL AND (

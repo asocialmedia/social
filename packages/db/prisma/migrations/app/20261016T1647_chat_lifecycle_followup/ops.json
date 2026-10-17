@@ -1,0 +1,388 @@
+[
+  {
+    "id": "column.public.message_export_jobs.artifactKey",
+    "label": "Add column \"artifactKey\" to \"message_export_jobs\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "column",
+        "name": "artifactKey",
+        "table": "message_export_jobs"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure column \"artifactKey\" is missing",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": ["public", "message_export_jobs", "artifactKey"]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add column \"artifactKey\"",
+        "sql": "ALTER TABLE \"public\".\"message_export_jobs\" ADD COLUMN \"artifactKey\" text"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify column \"artifactKey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": ["public", "message_export_jobs", "artifactKey"]
+      }
+    ]
+  },
+  {
+    "id": "column.public.message_export_jobs.fromDate",
+    "label": "Add column \"fromDate\" to \"message_export_jobs\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "column",
+        "name": "fromDate",
+        "table": "message_export_jobs"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure column \"fromDate\" is missing",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": ["public", "message_export_jobs", "fromDate"]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add column \"fromDate\"",
+        "sql": "ALTER TABLE \"public\".\"message_export_jobs\" ADD COLUMN \"fromDate\" timestamp(3)"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify column \"fromDate\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": ["public", "message_export_jobs", "fromDate"]
+      }
+    ]
+  },
+  {
+    "id": "column.public.message_export_jobs.membershipSequence",
+    "label": "Add column \"membershipSequence\" to \"message_export_jobs\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "column",
+        "name": "membershipSequence",
+        "table": "message_export_jobs"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure column \"membershipSequence\" is missing",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": ["public", "message_export_jobs", "membershipSequence"]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add column \"membershipSequence\"",
+        "sql": "ALTER TABLE \"public\".\"message_export_jobs\" ADD COLUMN \"membershipSequence\" int4 DEFAULT 0 NOT NULL"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify column \"membershipSequence\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": ["public", "message_export_jobs", "membershipSequence"]
+      }
+    ]
+  },
+  {
+    "id": "column.public.message_export_jobs.toDate",
+    "label": "Add column \"toDate\" to \"message_export_jobs\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "column",
+        "name": "toDate",
+        "table": "message_export_jobs"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure column \"toDate\" is missing",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": ["public", "message_export_jobs", "toDate"]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add column \"toDate\"",
+        "sql": "ALTER TABLE \"public\".\"message_export_jobs\" ADD COLUMN \"toDate\" timestamp(3)"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify column \"toDate\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": ["public", "message_export_jobs", "toDate"]
+      }
+    ]
+  },
+  {
+    "id": "column.public.message_incognito_sessions.purgedAt",
+    "label": "Add column \"purgedAt\" to \"message_incognito_sessions\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "column",
+        "name": "purgedAt",
+        "table": "message_incognito_sessions"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure column \"purgedAt\" is missing",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": ["public", "message_incognito_sessions", "purgedAt"]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add column \"purgedAt\"",
+        "sql": "ALTER TABLE \"public\".\"message_incognito_sessions\" ADD COLUMN \"purgedAt\" timestamp(3)"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify column \"purgedAt\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": ["public", "message_incognito_sessions", "purgedAt"]
+      }
+    ]
+  },
+  {
+    "id": "column.public.post_media.incognitoSessionId",
+    "label": "Add column \"incognitoSessionId\" to \"post_media\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "column",
+        "name": "incognitoSessionId",
+        "table": "post_media"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure column \"incognitoSessionId\" is missing",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": ["public", "post_media", "incognitoSessionId"]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add column \"incognitoSessionId\"",
+        "sql": "ALTER TABLE \"public\".\"post_media\" ADD COLUMN \"incognitoSessionId\" text"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify column \"incognitoSessionId\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": ["public", "post_media", "incognitoSessionId"]
+      }
+    ]
+  },
+  {
+    "id": "index.message_incognito_sessions.incognito_purge_due_618ec377",
+    "label": "Create index \"incognito_purge_due_618ec377\" on \"message_incognito_sessions\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "incognito_purge_due_618ec377",
+        "table": "message_incognito_sessions"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"incognito_purge_due_618ec377\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": ["\"public\".\"incognito_purge_due_618ec377\""]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"incognito_purge_due_618ec377\"",
+        "sql": "CREATE INDEX \"incognito_purge_due_618ec377\" ON \"public\".\"message_incognito_sessions\" (\"endedAt\", \"id\") WHERE ((\"endedAt\" IS NOT NULL AND \"purgedAt\" IS NULL))",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"incognito_purge_due_618ec377\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": ["\"public\".\"incognito_purge_due_618ec377\""]
+      }
+    ]
+  },
+  {
+    "id": "index.messages.messages_lifecycle_erasure_due_7f300049",
+    "label": "Create index \"messages_lifecycle_erasure_due_7f300049\" on \"messages\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "messages_lifecycle_erasure_due_7f300049",
+        "table": "messages"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"messages_lifecycle_erasure_due_7f300049\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": ["\"public\".\"messages_lifecycle_erasure_due_7f300049\""]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"messages_lifecycle_erasure_due_7f300049\"",
+        "sql": "CREATE INDEX \"messages_lifecycle_erasure_due_7f300049\" ON \"public\".\"messages\" (\"expiresAt\", \"id\") WHERE ((\"expiresAt\" IS NOT NULL AND ciphertext <> ''))",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"messages_lifecycle_erasure_due_7f300049\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": ["\"public\".\"messages_lifecycle_erasure_due_7f300049\""]
+      }
+    ]
+  },
+  {
+    "id": "index.post_media.media_lifecycle_erasure_due_d202ba84",
+    "label": "Create index \"media_lifecycle_erasure_due_d202ba84\" on \"post_media\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "media_lifecycle_erasure_due_d202ba84",
+        "table": "post_media"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"media_lifecycle_erasure_due_d202ba84\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": ["\"public\".\"media_lifecycle_erasure_due_d202ba84\""]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"media_lifecycle_erasure_due_d202ba84\"",
+        "sql": "CREATE INDEX \"media_lifecycle_erasure_due_d202ba84\" ON \"public\".\"post_media\" (\"id\") WHERE ((\"failureCode\" = 'CHAT_LIFECYCLE_ERASURE'))",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"media_lifecycle_erasure_due_d202ba84\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": ["\"public\".\"media_lifecycle_erasure_due_d202ba84\""]
+      }
+    ]
+  },
+  {
+    "id": "index.post_media.post_media_incognitoSessionId_idx_e9d021b8",
+    "label": "Create index \"post_media_incognitoSessionId_idx_e9d021b8\" on \"post_media\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "post_media_incognitoSessionId_idx_e9d021b8",
+        "table": "post_media"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"post_media_incognitoSessionId_idx_e9d021b8\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": ["\"public\".\"post_media_incognitoSessionId_idx_e9d021b8\""]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"post_media_incognitoSessionId_idx_e9d021b8\"",
+        "sql": "CREATE INDEX \"post_media_incognitoSessionId_idx_e9d021b8\" ON \"public\".\"post_media\" (\"incognitoSessionId\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"post_media_incognitoSessionId_idx_e9d021b8\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": ["\"public\".\"post_media_incognitoSessionId_idx_e9d021b8\""]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.post_media.post_media_incognitoSessionId_fkey",
+    "label": "Add foreign key \"post_media_incognitoSessionId_fkey\" on \"post_media\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "post_media_incognitoSessionId_fkey",
+        "table": "post_media"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"post_media_incognitoSessionId_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "post_media_incognitoSessionId_fkey",
+          "public",
+          "\"public\".\"post_media\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"post_media_incognitoSessionId_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"post_media\"\nADD CONSTRAINT \"post_media_incognitoSessionId_fkey\"\nFOREIGN KEY (\"incognitoSessionId\")\nREFERENCES \"public\".\"message_incognito_sessions\" (\"id\")\nON DELETE CASCADE\nON UPDATE CASCADE"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"post_media_incognitoSessionId_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "post_media_incognitoSessionId_fkey",
+          "public",
+          "\"public\".\"post_media\""
+        ]
+      }
+    ]
+  }
+]

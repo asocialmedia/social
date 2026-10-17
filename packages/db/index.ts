@@ -214,3 +214,8 @@ export * from "./src/recommendation/shared-topic-graph";
 export * from "./src/recommendation/attribution";
 export * from "./src/recommendation/retrieval-benchmark";
 export * from "./src/recommendation/experiment-report";
+export * from "./src/messages/lifecycle";
+export * from "./src/messages/prebuild-lifecycle";
+export * from "./src/messages/lifecycle-cleanup";
+export * from "./src/messages/chat-export";
+export * from "./src/messages/chat-export-worker";
