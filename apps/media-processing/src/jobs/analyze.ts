@@ -14,6 +14,7 @@ import { createHash } from "node:crypto";
 
 import {
   and,
+  enqueueMediaDeleteCascade,
   prisma,
   patchMediaAnalysisMetadata,
   patchMediaAnalysisStage,
@@ -105,6 +106,7 @@ async function resolveAnalysisSource(
 ): Promise<AnalysisSource | null> {
   const media = await prisma.orm.public.PostMedia.select(
     "key",
+    "messageLifecycleProtected",
     "createdAt",
     "ocrText",
     "originalKey",
@@ -123,7 +125,7 @@ async function resolveAnalysisSource(
     .where({ id: mediaId })
     .first();
 
-  if (!media || media.status !== "READY") {
+  if (!media || media.status !== "READY" || media.messageLifecycleProtected) {
     return null;
   }
   if (!ANALYZABLE_TYPES.has(media._type)) {
@@ -887,6 +889,20 @@ export function processMediaAnalyze(
         }
         return { outcome: "analyzed" as const };
       } finally {
+        const ended = await prisma.orm.public.PostMedia.select(
+          "status",
+          "messageLifecycleProtected"
+        )
+          .where({ id: jobData.mediaId })
+          .first();
+        if (ended?.status === "DELETED" && ended.messageLifecycleProtected) {
+          await prisma.orm.public.PostMedia.where({
+            id: jobData.mediaId,
+            status: "DELETED",
+          }).update({ failureCode: "CHAT_LIFECYCLE_ERASURE" });
+          await enqueueMediaDeleteCascade(jobData.mediaId);
+        }
+
         await Promise.all(
           samplePaths.map((path) =>
             Bun.file(path)

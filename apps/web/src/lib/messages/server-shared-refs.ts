@@ -1,15 +1,16 @@
+import { fetchChatApi } from "@/lib/messages/chat-capability";
 import type { MessagePayload } from "@/lib/messages/crypto";
 import { extractSharedRefs } from "@/lib/messages/message-shared-refs";
+import { SHARED_REFS_FORMAT_VERSION } from "@/lib/messages/shared-refs-format";
 import type {
   SharedRefKind,
   SharedRefRecord,
+  SharedRefsPage,
 } from "@/lib/messages/shared-refs-format";
-import { SHARED_REFS_FORMAT_VERSION } from "@/lib/messages/shared-refs-format";
 import type { MessageData } from "@/lib/messages/types";
 
 import { hydrateSearchHits } from "./search-hydration";
 import type { SearchHydrationHit } from "./search-hydration";
-import type { SharedRefsPage } from "./shared-refs-format";
 
 export interface ServerSharedRefItem extends SearchHydrationHit {
   createdAt: string;
@@ -154,7 +155,7 @@ function parseServerPage(
 export async function resolveServerSharedRefsPage(
   input: ResolveServerSharedRefPageInput
 ): Promise<SharedRefsPage> {
-  const fetcher = input.fetcher ?? fetch;
+  const fetcher = input.fetcher ?? fetchChatApi;
   const query = new URLSearchParams({
     kind: input.kind,
     limit: String(Math.min(Math.max(input.limit ?? 60, 1), 100)),

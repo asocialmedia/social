@@ -479,6 +479,7 @@ export async function uploadMediaFile(
     // Conversation a message attachment belongs to. Required when purpose is
     // "message" so the peer can fetch the bytes back.
     messageConversationId?: string | null;
+    incognitoSessionId?: string;
     purpose?:
       | "avatar"
       | "banner"
@@ -508,12 +509,12 @@ export async function uploadMediaFile(
   const report =
     options.onProgress ??
     (() => {
-      /* empty */
+      // No action is required here.
     });
   const reportStage =
     options.onStage ??
     (() => {
-      /* empty */
+      // No action is required here.
     });
   const shouldWaitForProcessing = options.waitForProcessing ?? true;
   const contentType = file.type || "application/octet-stream";
@@ -541,6 +542,7 @@ export async function uploadMediaFile(
       audioOverlayId: options.audioOverlayId ?? undefined,
       conversationId: options.messageConversationId ?? undefined,
       height: options.height ?? undefined,
+      incognitoSessionId: options.incognitoSessionId,
       name: file.name || "attachment",
       purpose: options.purpose ?? "post",
       sha256: sha256 ?? undefined,
@@ -716,7 +718,7 @@ export async function watchMediaStatus(
   const reportStage =
     options.onStage ??
     (() => {
-      /* empty */
+      // No action is required here.
     });
   const deadline = Date.now() + POLL_TIMEOUT_MS;
   // oxlint-disable-next-line no-await-in-loop -- sequential status polling

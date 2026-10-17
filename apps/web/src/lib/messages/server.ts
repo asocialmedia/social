@@ -33,6 +33,8 @@ function loadConversationRow(conversationId: string) {
     // the list payload: the client compares it against the last value the server
     // reported and refetches when it is ahead.
     "membershipSeq",
+    "retentionVersion",
+    "retentionSeconds",
     "updatedAt"
   )
     .include("messageConversationMembers", (member) =>
@@ -322,6 +324,10 @@ export async function parseJsonBody(request: Request): Promise<unknown> {
     return null;
   }
 }
+// Bounded variant: rejects oversized bodies even when Content-Length is absent by
+// reading text with an explicit ceiling. Returns null on malformed JSON and throws
+// a 413-shaped error when the ceiling is exceeded so routes answer 413, not 500.
+export { parseBoundedJsonBody } from "./bounded-json";
 
 // Prisma surfaces unique constraint conflicts as P2002. Prisma 8 does not map
 // driver errors to Prisma codes: they bubble from the pg driver as the

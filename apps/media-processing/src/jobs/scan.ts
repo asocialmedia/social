@@ -689,6 +689,10 @@ export function processMediaScan(
           uploaderUsername,
         });
 
+        if (secondFlip === 0) {
+          await s3.delete(targetKey);
+          return { outcome: "skipped" };
+        }
         if (secondFlip > 0) {
           void recordMediaMetric(
             "upload.playable",

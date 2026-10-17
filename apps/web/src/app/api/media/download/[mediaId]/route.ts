@@ -81,7 +81,8 @@ export async function GET(
   const decision = decideMediaAccess(media, user, {
     isConversationMember: await resolveMessageMediaMembership(
       media.messageConversationId,
-      user.id
+      user.id,
+      mediaId
     ),
   });
   if (!decision.allowed) {

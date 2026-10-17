@@ -235,7 +235,8 @@ export async function GET(
   }
   const isConversationMember = await resolveMessageMediaMembership(
     ownership.messageConversationId,
-    viewer?.id
+    viewer?.id,
+    mediaId
   );
   const owningCommunity = resolveOwningCommunity(ownership);
   const isPrivateCommunityPost = owningCommunity?.type === "PRIVATE";
@@ -482,7 +483,7 @@ export async function GET(
       // all: access can be revoked (the member leaves), and a 24h-cached frame
       // would keep rendering after that. Public post media stays immutable, and
       // other private media (comment/message drafts) keeps its short cache.
-      let posterCacheControl = "private, max-age=86400";
+      let posterCacheControl = "private, no-store";
       if (ownership.postId && !isPrivateCommunityPost) {
         posterCacheControl = "public, max-age=31536000, immutable";
       } else if (isPrivateCommunityPost) {

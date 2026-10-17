@@ -145,6 +145,7 @@ export interface MessageConversationData {
 }
 
 export interface MessageData {
+  expiresAt?: Date | string | null;
   ciphertext: string;
   conversationId: string;
   createdAt: Date;

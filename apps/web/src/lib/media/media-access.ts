@@ -61,6 +61,10 @@ export function decideMediaAccess(
   viewer: MediaViewer | null,
   options: MediaAccessOptions = {}
 ): MediaAccessDecision {
+  // A lifecycle denial remains authoritative for orphaned or subsequently relinked assets.
+  if (options.isConversationMember === false) {
+    return { allowed: false, status: 404 };
+  }
   if (media.postId) {
     if (
       media.isPrivateCommunityPost &&

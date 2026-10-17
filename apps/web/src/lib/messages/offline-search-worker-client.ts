@@ -275,6 +275,10 @@ export function createOfflineSearchWorkerClient(input?: {
       return response?.type === "activate" && response.success;
     },
     async clearConversation(scope, conversationId) {
+      const activated = await send({ scope, type: "activate" });
+      if (activated?.type !== "activate" || !activated.success) {
+        return false;
+      }
       const response = await send({
         conversationId,
         scope,

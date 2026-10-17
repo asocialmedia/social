@@ -166,7 +166,8 @@ export async function GET(
   }
   const isConversationMember = await resolveMessageMediaMembership(
     mappedOwnership.messageConversationId,
-    viewer?.id
+    viewer?.id,
+    mediaId
   );
   const owningCommunity = resolveOwningCommunity(mappedOwnership);
   const isPrivateCommunityPost = owningCommunity?.type === "PRIVATE";

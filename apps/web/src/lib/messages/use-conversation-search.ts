@@ -1,5 +1,8 @@
 "use client";
 
+// oxlint-disable react/exhaustive-effect-dependencies -- Account, clear and retry revisions intentionally invalidate scoped effects even when they are not request payload fields.
+
+import { messageIsRetained } from "@asm/messages";
 import { normalizeMessageSearchQuery } from "@asm/messages/search";
 import {
   useCallback,
@@ -10,6 +13,7 @@ import {
   useSyncExternalStore,
 } from "react";
 
+import { fetchChatApi } from "@/lib/messages/chat-capability";
 import type { MessageData } from "@/lib/messages/types";
 
 import { coverageRetryDelay } from "./coverage-retry-delay";
@@ -335,7 +339,7 @@ export function useConversationSearch(
         const removals: string[] = [];
         const removalRules = [];
         for (const message of allMessages) {
-          if (message.deletedAt) {
+          if (message.deletedAt || message.expiresAt) {
             removals.push(message.id);
             removalRules.push({
               id: message.id,
@@ -399,6 +403,7 @@ export function useConversationSearch(
           }
         }
       } catch {
+        // Reconcile safely on the next request; do not expose source errors.
         // Offline cache failure must not affect transcript or online search.
       }
       for (const item of messages) {
@@ -624,7 +629,7 @@ export function useConversationSearch(
           pageIndex === 0 && requestGenerationChanged
             ? summary?.snapshotToken
             : undefined;
-        const response = await fetch(
+        const response = await fetchChatApi(
           `/api/messages/conversations/${encodeURIComponent(conversationId)}/search`,
           {
             body: JSON.stringify({
@@ -824,6 +829,22 @@ export function useConversationSearch(
     () => serverPages.flatMap((page) => page.hits),
     [serverPages]
   );
+  const [expiryClock, setExpiryClock] = useState(Date.now);
+  useEffect(() => {
+    const deadlines = serverMessages.flatMap((message) =>
+      message.expiresAt && messageIsRetained(message)
+        ? [new Date(message.expiresAt).getTime()]
+        : []
+    );
+    if (!deadlines.length) {
+      return;
+    }
+    const timer = setTimeout(
+      () => setExpiryClock(Date.now()),
+      Math.max(0, Math.min(...deadlines) - Date.now()) + 10
+    );
+    return () => clearTimeout(timer);
+  }, [serverMessages, expiryClock]);
   const serverSummary =
     serverPageState.key === serverSearchKey ? serverPageState.summary : null;
   const serverCountToken = serverSummary?.countToken ?? null;
@@ -847,7 +868,7 @@ export function useConversationSearch(
     const pollCount = async () => {
       controller = new AbortController();
       try {
-        const response = await fetch(
+        const response = await fetchChatApi(
           `/api/messages/conversations/${encodeURIComponent(conversationId)}/search/count`,
           {
             body: JSON.stringify({ token: serverCountToken }),
@@ -1007,10 +1028,12 @@ export function useConversationSearch(
     if (!serverPage) {
       return [];
     }
-    const candidates = serverPage.hits.flatMap((message) => {
-      const candidate = corpusById.get(message.id);
-      return candidate ? [candidate] : [];
-    });
+    const candidates = serverPage.hits
+      .filter((message) => messageIsRetained(message, expiryClock))
+      .flatMap((message) => {
+        const candidate = corpusById.get(message.id);
+        return candidate ? [candidate] : [];
+      });
     const rankedById = new Map(
       buildRankedResults(
         scoreSearchCandidates(candidates, debouncedQuery),
@@ -1021,7 +1044,7 @@ export function useConversationSearch(
       const result = rankedById.get(message.id);
       return result ? [result] : [];
     });
-  }, [corpusById, debouncedQuery, serverPage]);
+  }, [corpusById, debouncedQuery, serverPage, expiryClock]);
   const serverKnownHitCount =
     (serverPageState.key === serverSearchKey
       ? serverPageState.startPage * SEARCH_PAGE_SIZE

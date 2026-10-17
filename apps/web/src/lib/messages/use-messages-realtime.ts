@@ -3,6 +3,7 @@
 import { useEffect, useRef } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
+import { fetchChatApi } from "@/lib/messages/chat-capability";
 import { readMembershipSeq } from "@/lib/messages/membership-seq";
 import type { MessageData } from "@/lib/messages/types";
 
@@ -406,8 +407,8 @@ export function useMessagesRealtime(
     const connect = async () => {
       controller = new AbortController();
       try {
-        const response = await fetch(
-          `/api/messages/conversations/${conversationId}/stream`,
+        const response = await fetchChatApi(
+          `/api/messages/conversations/${conversationId}/stream?capability=chat-lifecycle-v1`,
           {
             credentials: "same-origin",
             signal: controller.signal,

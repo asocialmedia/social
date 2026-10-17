@@ -134,6 +134,8 @@ export async function createInitiatedUpload(input: {
   // "message" (the route verifies membership); stored on the row so the
   // serving route can admit the peer.
   messageConversationId?: string | null;
+  incognitoSessionId?: string;
+  messageLifecycleProtected?: boolean;
   purpose: string | null;
   sha256?: string | null;
   userId: string;
@@ -148,6 +150,8 @@ export async function createInitiatedUpload(input: {
     fileName,
     fileSize,
     messageConversationId,
+    incognitoSessionId,
+    messageLifecycleProtected,
     purpose,
     sha256,
     userId,
@@ -282,7 +286,7 @@ export async function createInitiatedUpload(input: {
   // file (matching SHA-256 and size) and it finished processing or is in-flight,
   // reuse the existing media row and storage artifacts to skip redundant uploads
   // and transcoding.
-  if (sha256) {
+  if (sha256 && !messageLifecycleProtected) {
     const existing = await prisma.orm.public.PostMedia.where((media) =>
       and(
         media.sha256.eq(sha256),
@@ -674,6 +678,8 @@ export async function createInitiatedUpload(input: {
       userId,
       ...(audioOverlayId ? { audioOverlayId } : {}),
       ...(messageConversationId ? { messageConversationId } : {}),
+      incognitoSessionId: incognitoSessionId ?? null,
+      messageLifecycleProtected: messageLifecycleProtected ?? false,
       ...(width ? { width } : {}),
       ...(height ? { height } : {}),
     });

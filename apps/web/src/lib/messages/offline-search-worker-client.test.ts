@@ -248,3 +248,18 @@ describe("offline search worker client", () => {
     client.dispose();
   });
 });
+
+test("a fresh worker activates the account before clearing saved conversation history", async () => {
+  const worker = new TestWorker();
+  const client = clientWithWorker(worker);
+  expect(await client.clearConversation(scope, "conversation-1")).toBe(true);
+  expect(worker.posted.map((message) => message.type)).toEqual([
+    "activate",
+    "clear-conversation",
+  ]);
+  expect(worker.posted[1]).toMatchObject({
+    conversationId: "conversation-1",
+    scope,
+  });
+  client.dispose();
+});

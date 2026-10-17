@@ -1,4 +1,5 @@
-import { and, prisma, redis } from "@asm/db";
+import { and, prisma, redis, lifecycleMediaAllowed } from "@asm/db";
+import { requireLifecycleValue } from "@asm/messages";
 
 import { isBlockPairRule } from "@/lib/messages/blocks";
 import { areBlocked } from "@/lib/messages/server";
@@ -36,6 +37,7 @@ export async function isMessageMediaViewer(
       return false;
     }
   } catch {
+    // Reconcile safely on the next request; do not expose source errors.
     // Redis unavailable: resolve from the database below.
   }
 
@@ -49,6 +51,7 @@ export async function isMessageMediaViewer(
       allowed ? ALLOW_TTL_SECONDS : DENY_TTL_SECONDS
     );
   } catch {
+    // Reconcile safely on the next request; do not expose source errors.
     // Cache write failures must not fail the request.
   }
 
@@ -59,10 +62,33 @@ export async function isMessageMediaViewer(
 // row's link: undefined when the media is not message-linked (other flavors
 // decide without it), false for guests, and the cached membership otherwise.
 // Shared by every serving route so the gate cannot drift between surfaces.
+// Protected lifecycle media never uses the membership cache: expiry and
+// session end must take effect immediately, not after the 5s TTL.
 export async function resolveMessageMediaMembership(
   messageConversationId: string | null | undefined,
-  viewerId: string | null | undefined
+  viewerId: string | null | undefined,
+  mediaId?: string,
+  options: { allowProcessing?: boolean } = {}
 ): Promise<boolean | undefined> {
+  if (mediaId) {
+    const early = await lifecycleMediaAllowed(mediaId, viewerId ?? "", options);
+    if (early !== null) {
+      if (!messageConversationId) {
+        return early;
+      }
+      if (!early) {
+        return false;
+      }
+      // Protected and source-live: still require fresh membership below, bypassing the cache.
+      const fresh =
+        Boolean(viewerId) &&
+        (await checkMembership(
+          messageConversationId,
+          requireLifecycleValue(viewerId)
+        ));
+      return fresh;
+    }
+  }
   if (!messageConversationId) {
     return undefined;
   }
@@ -72,7 +98,20 @@ export async function resolveMessageMediaMembership(
   // Awaited (not returned directly): the fixer strips bare `async` without
   // an await expression, which then fails type-checking against the Promise
   // return type.
-  return await isMessageMediaViewer(messageConversationId, viewerId);
+  const memberAllowed = await isMessageMediaViewer(
+    messageConversationId,
+    viewerId
+  );
+  if (!memberAllowed) {
+    return false;
+  }
+  if (mediaId) {
+    const sourceAllowed = await lifecycleMediaAllowed(mediaId, viewerId);
+    if (sourceAllowed !== null) {
+      return sourceAllowed;
+    }
+  }
+  return true;
 }
 
 async function checkMembership(

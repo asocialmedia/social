@@ -139,3 +139,21 @@ describe("decideMediaAccess", () => {
     expect(resolveOwningCommunity({})).toBeNull();
   });
 });
+
+// Lifecycle denial must win even when the row was detached or relinked after sending.
+test("a denied lifecycle source cannot fall through to owner or public access", () => {
+  expect(
+    decideMediaAccess(
+      { commentId: null, postId: null, userId: "owner" },
+      { id: "owner" },
+      { isConversationMember: false }
+    ).allowed
+  ).toBe(false);
+  expect(
+    decideMediaAccess(
+      { commentId: null, postId: "post", userId: "owner" },
+      null,
+      { isConversationMember: false }
+    ).allowed
+  ).toBe(false);
+});

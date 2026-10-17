@@ -1,4 +1,4 @@
-import { and, prisma } from "@asm/db";
+import { and, prisma, fromPrismaDateTime } from "@asm/db";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
@@ -21,6 +21,7 @@ const initiateSchema = z.object({
   // Natural image dimensions captured client-side; stored so receivers can
   // reserve the bubble box before the bytes arrive (no scroll jump).
   height: z.number().int().positive().max(16_384).nullish(),
+  incognitoSessionId: z.uuid().optional(),
   name: z.string().min(1).max(255),
   // Which surface the upload is for. Selects the byte cap (a wallpaper is far
   // tighter than a post image) and whether abandoned-upload cleanup is
@@ -66,6 +67,7 @@ export async function POST(request: Request) {
   const {
     audioOverlayId,
     conversationId,
+    incognitoSessionId,
     height,
     name,
     purpose,
@@ -109,6 +111,40 @@ export async function POST(request: Request) {
     }
   }
 
+  let lifecycleProtected = false;
+  if (purpose === "message" && conversationId) {
+    const conversation = await prisma.orm.public.MessageConversations.where({
+      id: conversationId,
+    }).first();
+    const active = await prisma.orm.public.MessageIncognitoSessions.where({
+      conversationId,
+    })
+      .where((s) => s.endedAt.isNull())
+      .first();
+    const activeId =
+      active && fromPrismaDateTime(active.expiresAt).getTime() > Date.now()
+        ? active.id
+        : null;
+    if (
+      (incognitoSessionId && incognitoSessionId !== activeId) ||
+      (activeId && !incognitoSessionId)
+    ) {
+      return Response.json(
+        {
+          error: "Chat mode changed. Reopen the conversation before uploading.",
+        },
+        { status: 409 }
+      );
+    }
+    lifecycleProtected = Boolean(
+      incognitoSessionId || conversation?.retentionSeconds
+    );
+  } else if (incognitoSessionId) {
+    return Response.json(
+      { error: "Incognito uploads require a direct message" },
+      { status: 400 }
+    );
+  }
   try {
     const upload = await createInitiatedUpload({
       audioOverlayId: audioOverlayId ?? null,
@@ -116,8 +152,10 @@ export async function POST(request: Request) {
       fileName: name,
       fileSize: size,
       height: height ?? null,
+      incognitoSessionId,
       messageConversationId:
         purpose === "message" ? (conversationId ?? null) : null,
+      messageLifecycleProtected: lifecycleProtected,
       purpose: purpose ?? null,
       sha256: sha256 ?? null,
       userId: user.id,
