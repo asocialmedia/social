@@ -53,10 +53,6 @@ import {
   pickMessageFiles,
   pickPhotosAndVideos,
 } from "@/features/composer/lib/pick-media";
-import {
-  UploadError,
-  uploadMedia,
-} from "@/features/media-upload/lib/upload-client";
 import type { PickedMedia } from "@/features/media-upload/state/attachment-store";
 import {
   discardMessageMedia,
@@ -64,6 +60,8 @@ import {
 } from "@/features/messages/lib/client";
 import type { MessagePayload } from "@/features/messages/lib/crypto";
 import { deliverMessages } from "@/features/messages/lib/deliver-messages";
+import { uploadStagedAttachments } from "@/features/messages/lib/message-attachment-upload";
+import type { StagedAttachment } from "@/features/messages/lib/message-attachment-upload";
 import {
   panel3d,
   reelsInput,
@@ -72,7 +70,6 @@ import {
 import { useMessagesForeground } from "@/features/messages/state/use-messages-foreground";
 import { useProfileMediaCropper } from "@/features/profile/components/profile-media-cropper";
 import { getApiBaseUrl } from "@/lib/api-env";
-import { logWarn } from "@/lib/telemetry";
 import { useAppTheme } from "@/theme";
 
 import { useMessageTextDraft } from "../state/message-text-draft";
@@ -84,18 +81,6 @@ const MAX_MESSAGE_ATTACHMENTS = 10;
 // Web's typing heartbeat. Matching it keeps an indicator from flickering on one
 // client and sticking on the other.
 const TYPING_HEARTBEAT_MS = 3000;
-
-export interface StagedAttachment {
-  error: string | null;
-  file: PickedMedia;
-  id: string;
-  mediaId: string | null;
-  /** False while uploading, null once READY. */
-  progress: number | null;
-  /** True only for a row this send created; a dedup hit must never be discarded. */
-  owned: boolean;
-  viewOnce?: boolean;
-}
 
 export interface ComposerTarget {
   id: string;
@@ -175,18 +160,20 @@ export function MessageComposer({
   const foreground = useMessagesForeground();
   const typingTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const aborts = useRef(new Map<string, AbortController>());
-  const [discardBase, setDiscardBase] = useState<{
+  const discardBaseRef = useRef<{
     apiBase: string;
     cookie?: string;
   } | null>(null);
 
   // The cookie is needed by the unmount sweep and by nothing else, so it is read
   // once on mount rather than threaded through every call site.
-  // oxlint-disable-next-line react/set-state-in-effect -- reading a stored credential is an external system, and the value cannot be derived during render
   useEffect(() => {
     void (async () => {
-      const cookie = await authClient.getCookie();
-      setDiscardBase({ apiBase: getApiBaseUrl(), cookie: cookie ?? undefined });
+      const cookie = await authClient.getCookie().catch(() => null);
+      discardBaseRef.current = {
+        apiBase: getApiBaseUrl(),
+        cookie: cookie ?? undefined,
+      };
     })();
   }, []);
 
@@ -205,6 +192,7 @@ export function MessageComposer({
         controller.abort();
       }
       aborts.current.clear();
+      const discardBase = discardBaseRef.current;
       if (!discardBase) {
         return;
       }
@@ -214,7 +202,7 @@ export function MessageComposer({
         }
       }
     },
-    [discardBase]
+    []
   );
 
   // While an edit is active and the user has not typed anything into it, the field
@@ -272,6 +260,9 @@ export function MessageComposer({
 
   const stagePickedFiles = useCallback(
     async (picked: PickedMedia[], viewOnce = false) => {
+      if (!viewOnce && attachmentsRef.current.some((item) => item.viewOnce)) {
+        return;
+      }
       if (
         viewOnce &&
         (attachmentsRef.current.length > 0 ||
@@ -354,6 +345,9 @@ export function MessageComposer({
         return;
       }
       attachmentsRef.current = [...attachmentsRef.current, ...staged];
+      if (viewOnce) {
+        setViewOnceMode(true);
+      }
       setAttachments(attachmentsRef.current);
       await uploadStagedAttachments(staged, {
         aborts,
@@ -367,6 +361,9 @@ export function MessageComposer({
 
   const choosePhotosAndVideos = useCallback(() => {
     setAttachmentMenuOpen(false);
+    if (viewOnceMode) {
+      return;
+    }
     const remaining = MAX_MESSAGE_ATTACHMENTS - attachmentsRef.current.length;
     if (remaining <= 0) {
       return;
@@ -376,7 +373,7 @@ export function MessageComposer({
       stagePickedFiles,
       "Couldn't open photos"
     );
-  }, [stagePickedFiles]);
+  }, [stagePickedFiles, viewOnceMode]);
 
   const chooseViewOncePhoto = useCallback(() => {
     setAttachmentMenuOpen(false);
@@ -387,9 +384,8 @@ export function MessageComposer({
       });
       return;
     }
-    setViewOnceMode(true);
     runMessageAttachmentPicker(
-      () => pickPhotosAndVideos({ remaining: 1 }),
+      () => pickPhotosAndVideos({ imagesOnly: true, remaining: 1 }),
       (picked) => stagePickedFiles(picked, true),
       "Couldn't open photos"
     );
@@ -397,6 +393,9 @@ export function MessageComposer({
 
   const chooseFiles = useCallback(() => {
     setAttachmentMenuOpen(false);
+    if (viewOnceMode) {
+      return;
+    }
     const remaining = MAX_MESSAGE_ATTACHMENTS - attachmentsRef.current.length;
     if (remaining <= 0) {
       return;
@@ -406,7 +405,7 @@ export function MessageComposer({
       stagePickedFiles,
       "Couldn't open files"
     );
-  }, [stagePickedFiles]);
+  }, [stagePickedFiles, viewOnceMode]);
 
   const attach = useCallback(() => {
     Keyboard.dismiss();
@@ -748,6 +747,7 @@ export function MessageComposer({
             </Text>
             <Pressable
               accessibilityRole="button"
+              disabled={viewOnceMode}
               onPress={choosePhotosAndVideos}
               style={styles.attachmentSheetRow}
             >
@@ -788,6 +788,7 @@ export function MessageComposer({
             </Pressable>
             <Pressable
               accessibilityRole="button"
+              disabled={viewOnceMode}
               onPress={chooseFiles}
               style={styles.attachmentSheetRow}
             >
@@ -824,95 +825,6 @@ function runMessageAttachmentPicker(
       });
     }
   })();
-}
-
-/**
- * Uploads the staged attachments, one at a time.
- *
- * Sequential on purpose: parallel presigned PUTs on a phone's connection make
- * every one of them slower and the tiles race each other for the same bandwidth.
- */
-async function uploadStagedAttachments(
-  staged: StagedAttachment[],
-  context: {
-    aborts: React.RefObject<Map<string, AbortController>>;
-    conversationId: string;
-    incognitoSessionId?: string;
-    onPatch: (id: string, patch: Partial<StagedAttachment>) => void;
-  }
-): Promise<void> {
-  for (const item of staged) {
-    // oxlint-disable-next-line no-await-in-loop -- see the note above
-    await stageOneAttachment(item, context);
-  }
-}
-
-/**
- * Uploads one staged attachment and folds its progress into the tile.
- *
- * Module scope, not a component body, for two reasons: React Compiler cannot lower
- * a `try`/`finally` inside a component, and the error path has to reach `discard`
- * and the store without closing over render state.
- */
-async function stageOneAttachment(
-  item: StagedAttachment,
-  context: {
-    aborts: React.RefObject<Map<string, AbortController>>;
-    conversationId: string;
-    incognitoSessionId?: string;
-    onPatch: (id: string, patch: Partial<StagedAttachment>) => void;
-  }
-): Promise<void> {
-  const controller = new AbortController();
-  context.aborts.current.set(item.id, controller);
-  const outcome = await uploadMedia(item.file, {
-    conversationId: context.conversationId,
-    incognitoSessionId: context.incognitoSessionId,
-    onBytes: (percent) => context.onPatch(item.id, { progress: percent }),
-    // A dedup hit reused bytes that belong to another message, so this row is not
-    // ours to discard later.
-    onDeduplicated: (deduplicated) =>
-      context.onPatch(item.id, { owned: !deduplicated }),
-    onMediaId: (mediaId) => context.onPatch(item.id, { mediaId }),
-    onStage: () => context.onPatch(item.id, { progress: null }),
-    purpose: "message",
-    signal: controller.signal,
-    viewOnce: item.viewOnce,
-    // The composer gates the send itself, so there is no need to block here on the
-    // pipeline; the tile's progress reflects the bytes.
-    waitForProcessing: false,
-  })
-    .then((result) => {
-      context.onPatch(item.id, { progress: null });
-      if (result.status !== "READY") {
-        context.onPatch(item.id, {
-          error: "Attachment was rejected by scanning",
-        });
-      }
-      return null;
-    })
-    .catch((error: unknown) => {
-      // A failed upload still leaves a server row this send created, so it is
-      // reclaimed rather than orphaned.
-      logWarn("message attachment upload failed", {
-        step: error instanceof UploadError ? error.step : "upload",
-      });
-      context.onPatch(item.id, {
-        error:
-          error instanceof UploadError ? error.userMessage : "Upload failed",
-        progress: null,
-      });
-      const mediaId = error instanceof UploadError ? error.mediaId : null;
-      if (mediaId && !item.owned) {
-        void discardMessageMedia(mediaId, {
-          apiBase: getApiBaseUrl(),
-          baseFetch: fetch,
-        });
-      }
-      return null;
-    });
-  context.aborts.current.delete(item.id);
-  return outcome ?? undefined;
 }
 
 /**

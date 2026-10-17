@@ -1,5 +1,5 @@
 import { LIFECYCLE_CAPABILITY } from "@asm/messages";
-import { File, Paths } from "expo-file-system";
+import { Directory, File, Paths } from "expo-file-system";
 
 import type { ApiCallOptions } from "@/features/feed/lib/feed-api";
 import { withAuthHeaders } from "@/lib/auth-headers";
@@ -16,6 +16,31 @@ export class ViewOnceMediaError extends Error {
 
 function viewOncePath(conversationId: string, mediaId: string): string {
   return `/api/messages/conversations/${conversationId}/media/${mediaId}/view-once`;
+}
+
+let cachePrepared = false;
+
+function viewOnceCache(): Directory {
+  const directory = new Directory(Paths.cache, "asm-view-once");
+  if (!cachePrepared) {
+    if (directory.exists) {
+      directory.delete();
+    }
+    directory.create({ idempotent: true, intermediates: true });
+    cachePrepared = true;
+  }
+  return directory;
+}
+
+export function deleteViewOncePhoto(uri: string): void {
+  try {
+    const file = new File(uri);
+    if (file.exists) {
+      file.delete();
+    }
+  } catch {
+    // A stale file is swept before the next app process can open a protected photo.
+  }
 }
 
 async function parseViewOnceError(
@@ -52,6 +77,7 @@ export async function closeViewOnceMedia(
         options.cookie
       ),
       method: "POST",
+      signal: AbortSignal.timeout(5000),
     }
   );
   if (!response.ok) {
@@ -84,18 +110,17 @@ export async function openViewOnceMedia(
     throw await parseViewOnceError(reservation);
   }
 
-  const destination = new File(Paths.cache, `view-once-${grantId}.image`);
+  const destination = new File(viewOnceCache(), `${grantId}.image`);
   try {
     const downloaded = await File.downloadFileAsync(
       `${options.apiBase}${path}/open`,
       destination,
       { headers, idempotent: true, signal }
     );
+    signal?.throwIfAborted();
     return downloaded.uri;
   } catch (error) {
-    if (destination.exists) {
-      destination.delete();
-    }
+    deleteViewOncePhoto(destination.uri);
     try {
       await closeViewOnceMedia(conversationId, mediaId, grantId, options);
     } catch {

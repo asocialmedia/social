@@ -217,6 +217,12 @@ export function useMessageAttachments(
 
   const addFiles = useCallback(
     (files: File[], options: { viewOnce?: boolean } = {}) => {
+      if (
+        !options.viewOnce &&
+        attachmentsRef.current.some((item) => item.viewOnce)
+      ) {
+        return;
+      }
       if (options.viewOnce) {
         const supported =
           files.length === 1 &&

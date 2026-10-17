@@ -15,11 +15,20 @@
 import type { MessageReactionSummary } from "@asm/messages";
 import { randomUUID } from "expo-crypto";
 import { File, Directory, Paths } from "expo-file-system";
+import { Image as ExpoImage } from "expo-image";
+import { useFocusEffect } from "expo-router";
 import * as Sharing from "expo-sharing";
 import { VideoView, useVideoPlayer } from "expo-video";
 import { Download, Eye, FileText, Loader2, X } from "lucide-react-native";
 import { memo, useCallback, useEffect, useRef, useState } from "react";
-import { Modal, Pressable, StyleSheet, Text, View } from "react-native";
+import {
+  AppState,
+  Modal,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { UserAvatar } from "@/components/avatar/user-avatar";
@@ -46,11 +55,14 @@ import {
 import type { BubbleCorners } from "@/features/messages/lib/message-bubble-shape";
 import type { MessageGroupMeta } from "@/features/messages/lib/message-grouping";
 import { formatReceiptStamp } from "@/features/messages/lib/message-grouping";
+import { messageImageSource } from "@/features/messages/lib/message-image-source";
 import type { MessageReceiptInfo } from "@/features/messages/lib/message-receipts";
 import {
   bubbleSentStops,
   panel3d,
 } from "@/features/messages/lib/message-recipes";
+import { deleteViewOncePhoto } from "@/features/messages/lib/view-once-client";
+import { useMessagesIdentity } from "@/features/messages/state/message-identity";
 import { getApiBaseUrl } from "@/lib/api-env";
 import { useAppTheme } from "@/theme";
 
@@ -115,12 +127,10 @@ function ViewOncePhoto({
     const currentUri = uriRef.current;
     uriRef.current = null;
     if (currentUri) {
-      const cached = new File(currentUri);
-      if (cached.exists) {
-        cached.delete();
-      }
+      deleteViewOncePhoto(currentUri);
     }
     setUri(null);
+    setBusy(false);
     const grantId = grantIdRef.current;
     grantIdRef.current = null;
     if (grantId && onClose) {
@@ -132,10 +142,7 @@ function ViewOncePhoto({
     () => () => {
       controllerRef.current?.abort();
       if (uriRef.current) {
-        const cached = new File(uriRef.current);
-        if (cached.exists) {
-          cached.delete();
-        }
+        deleteViewOncePhoto(uriRef.current);
       }
       const grantId = grantIdRef.current;
       if (grantId && onClose) {
@@ -145,8 +152,28 @@ function ViewOncePhoto({
     [mediaId, onClose]
   );
 
+  useFocusEffect(useCallback(() => () => close(), [close]));
+  useEffect(() => {
+    if (!busy && !uri) {
+      return;
+    }
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state !== "active") {
+        close();
+      }
+    });
+    return () => subscription.remove();
+  }, [busy, close, uri]);
+
   const open = useCallback(async () => {
-    if (!canOpen || !onOpen || busy || opened || unavailable) {
+    if (
+      !canOpen ||
+      !onOpen ||
+      controllerRef.current ||
+      busy ||
+      opened ||
+      unavailable
+    ) {
       return;
     }
     const grantId = randomUUID();
@@ -157,11 +184,20 @@ function ViewOncePhoto({
     setOpenError(null);
     try {
       const localUri = await onOpen(mediaId, grantId, controller.signal);
+      if (controller.signal.aborted || controllerRef.current !== controller) {
+        deleteViewOncePhoto(localUri);
+        if (onClose) {
+          closeViewOnceQuietly(onClose, mediaId, grantId);
+        }
+        return;
+      }
       uriRef.current = localUri;
       setUri(localUri);
       setOpened(true);
     } catch (error) {
-      grantIdRef.current = null;
+      if (grantIdRef.current === grantId) {
+        grantIdRef.current = null;
+      }
       const status =
         typeof error === "object" && error !== null && "status" in error
           ? error.status
@@ -177,8 +213,8 @@ function ViewOncePhoto({
     }
     if (controllerRef.current === controller) {
       controllerRef.current = null;
+      setBusy(false);
     }
-    setBusy(false);
   }, [busy, canOpen, mediaId, onClose, onOpen, opened, unavailable]);
 
   let label = "View once photo";
@@ -224,10 +260,10 @@ function ViewOncePhoto({
       >
         <View style={styles.viewOnceModal}>
           {uri ? (
-            <MessageImage
+            <ExpoImage
               cachePolicy="none"
               contentFit="contain"
-              source={uri}
+              source={{ uri }}
               style={styles.viewOnceImage}
             />
           ) : null}
@@ -706,7 +742,17 @@ function albumWidthForBubble(bubbleWidth: number): number {
 }
 
 function MessageVideoAttachment({ url }: { url: string }) {
-  const player = useVideoPlayer(url);
+  const { mediaCookie, userId } = useMessagesIdentity();
+  const request = messageImageSource(url, getApiBaseUrl(), userId, mediaCookie);
+  const player = useVideoPlayer(
+    request.source
+      ? {
+          headers: request.source.headers,
+          uri: request.source.uri,
+          useCaching: false,
+        }
+      : null
+  );
   return (
     <VideoView
       contentFit="contain"

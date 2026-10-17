@@ -79,12 +79,30 @@ function ViewOncePhoto({
     }
     setImageUrl(null);
     setDialogOpen(false);
+    setBusy(false);
     const grantId = grantIdRef.current;
     grantIdRef.current = null;
     if (grantId && conversationId) {
       closeViewOnceSilently(conversationId, mediaId, grantId);
     }
   }, [conversationId, mediaId]);
+
+  useEffect(() => {
+    if (!busy && !imageUrl) {
+      return;
+    }
+    const hide = () => {
+      if (document.visibilityState !== "visible") {
+        closeViewer();
+      }
+    };
+    document.addEventListener("visibilitychange", hide);
+    window.addEventListener("pagehide", closeViewer);
+    return () => {
+      document.removeEventListener("visibilitychange", hide);
+      window.removeEventListener("pagehide", closeViewer);
+    };
+  }, [busy, closeViewer, imageUrl]);
 
   useEffect(
     () => () => {
@@ -101,7 +119,14 @@ function ViewOncePhoto({
   );
 
   const openPhoto = useCallback(async () => {
-    if (!canOpen || !conversationId || busy || opened || unavailable) {
+    if (
+      !canOpen ||
+      !conversationId ||
+      controllerRef.current ||
+      busy ||
+      opened ||
+      unavailable
+    ) {
       return;
     }
     const grantId = crypto.randomUUID();
@@ -117,13 +142,19 @@ function ViewOncePhoto({
         grantId,
         controller.signal
       );
+      if (controller.signal.aborted || controllerRef.current !== controller) {
+        closeViewOnceSilently(conversationId, mediaId, grantId);
+        return;
+      }
       const url = URL.createObjectURL(blob);
       imageUrlRef.current = url;
       setImageUrl(url);
       setOpened(true);
       setDialogOpen(true);
     } catch (error) {
-      grantIdRef.current = null;
+      if (grantIdRef.current === grantId) {
+        grantIdRef.current = null;
+      }
       if (!controller.signal.aborted) {
         const status =
           typeof error === "object" && error !== null && "status" in error
@@ -139,8 +170,8 @@ function ViewOncePhoto({
     }
     if (controllerRef.current === controller) {
       controllerRef.current = null;
+      setBusy(false);
     }
-    setBusy(false);
   }, [busy, canOpen, conversationId, mediaId, opened, unavailable]);
 
   let label = "Open photo";

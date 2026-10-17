@@ -1696,10 +1696,12 @@ export async function openViewOnceMedia(
     if (!response.ok) {
       throw await parseError(response);
     }
-    return await response.blob();
+    const blob = await response.blob();
+    signal?.throwIfAborted();
+    return blob;
   } catch (error) {
     await closeViewOnceMedia(conversationId, mediaId, grantId).catch(() => {
-      /* empty */
+      // The cleanup worker releases abandoned grants if this request cannot reach the server.
     });
     throw error;
   }
@@ -1717,7 +1719,9 @@ export async function closeViewOnceMedia(
       cache: "no-store",
       credentials: "same-origin",
       headers: { "Content-Type": "application/json" },
+      keepalive: true,
       method: "POST",
+      signal: AbortSignal.timeout(5000),
     }
   );
   if (!response.ok) {
