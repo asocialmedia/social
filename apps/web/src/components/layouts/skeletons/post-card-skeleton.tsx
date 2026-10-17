@@ -1,7 +1,9 @@
+import type { FeedSource } from "@asm/protocols/discovery";
 import { postPreviewLayout } from "@asm/ui/lib/post-preview-layout";
 import type { PostPreviewSource } from "@asm/ui/lib/post-preview-layout";
 import { Skeleton } from "@asm/ui/shadui/skeleton";
 
+import { BlueskyIcon } from "@/components/protocols/bluesky-icon";
 import { cn } from "@/lib/utils";
 
 export function PostMediaSkeleton({
@@ -48,74 +50,169 @@ export function PostMediaSkeleton({
   );
 }
 
-export function PostCardSkeleton({
-  post,
-  detail = false,
-}: {
+export interface PostCardSkeletonProps {
+  className?: string;
   detail?: boolean;
+  index?: number;
+  isBluesky?: boolean;
   post?: PostPreviewSource | null;
-}) {
+  source?: FeedSource;
+}
+
+function getLineSkeletonWidth(lineIndex: number, lineCount: number): string {
+  if (lineIndex === lineCount - 1) {
+    return "w-3/4";
+  }
+  if (lineIndex % 2 === 1) {
+    return "w-11/12";
+  }
+  return "w-full";
+}
+
+export function PostCardSkeleton({
+  className,
+  detail = false,
+  index = 0,
+  isBluesky,
+  post,
+  source,
+}: PostCardSkeletonProps) {
   const layout = postPreviewLayout(post);
+  const isBsky =
+    isBluesky ??
+    (source === "bluesky" ||
+      Boolean(post && "external" in post && post.external));
+
+  let lineCount = index % 3 === 1 ? 3 : 2;
+  if (post && typeof post.content === "string") {
+    lineCount = layout.textLines;
+  }
+
   const content = (
     <div className={cn("space-y-2", detail ? "mt-3 sm:mt-3.5" : "mt-1")}>
-      {Array.from({ length: layout.textLines }, (_, index) => (
+      {Array.from({ length: lineCount }, (_, lineIndex) => (
         <Skeleton
-          className={
-            index === layout.textLines - 1 ? "h-4 w-3/4" : "h-4 w-full"
-          }
-          key={index}
+          className={cn("h-4", getLineSkeletonWidth(lineIndex, lineCount))}
+          key={lineIndex}
         />
       ))}
       <PostMediaSkeleton post={post} />
-      <div className="mt-3 flex items-center justify-between gap-2">
+      {/* Mobile action bar: full-width space-between matching PostCard */}
+      <div className="mt-3 flex w-full items-center justify-between sm:hidden">
+        <Skeleton className="h-7 w-12 rounded-full" />
+        <Skeleton className="h-7 w-10 rounded-full" />
+        <Skeleton className="h-7 w-10 rounded-full" />
+        {isBsky ? null : <Skeleton className="h-7 w-10 rounded-full" />}
+        <div className="flex items-center gap-1">
+          <Skeleton className="size-7 rounded-full" />
+          <Skeleton className="size-7 rounded-full" />
+        </div>
+      </div>
+      {/* Desktop action bar: left controls + right actions */}
+      <div className="mt-3 hidden sm:flex sm:items-center sm:justify-between sm:gap-2">
         <div className="flex items-center gap-1.5">
-          <Skeleton className="h-7 w-28 rounded-full" />
-          <Skeleton className="h-7 w-12 rounded-full" />
-          <Skeleton className="h-7 w-12 rounded-full" />
+          <div className="flex items-center gap-0.5">
+            <Skeleton className="size-7.5 rounded-full" />
+            <Skeleton className="size-7.5 rounded-full" />
+            <Skeleton className="h-7.5 w-10 rounded-full" />
+          </div>
+          <Skeleton className="h-7.5 w-12 rounded-full" />
+          <Skeleton className="h-7.5 w-12 rounded-full" />
         </div>
         <div className="flex items-center gap-1.5">
-          {post && "external" in post ? null : (
-            <Skeleton className="h-7 w-12 rounded-full" />
-          )}
-          <Skeleton className="size-7 rounded-full" />
+          {isBsky ? null : <Skeleton className="h-7.5 w-14 rounded-full" />}
+          <Skeleton className="size-7.5 rounded-full" />
         </div>
       </div>
     </div>
   );
-  const identity = (
-    <div className="flex min-h-4.5 items-center gap-2">
-      <Skeleton className="h-3.5 w-28 max-w-[45%]" />
-      <Skeleton className="h-3 w-16 max-w-[25%]" />
-      <Skeleton className="ml-auto size-6 shrink-0 rounded-full" />
-    </div>
-  );
+
   return (
     <div
-      aria-label="Loading post"
       aria-busy="true"
-      className="min-w-0 overflow-hidden p-4"
+      aria-label={isBsky ? "Loading Bluesky post" : "Loading post"}
+      className={cn(
+        "group/post relative min-w-0 overflow-hidden rounded-none bg-[hsl(var(--background-alt))] p-4",
+        className
+      )}
       data-post-skeleton={layout.kind}
     >
       {detail ? (
         <>
-          <div className="flex items-start gap-2 sm:gap-3">
-            <Skeleton className="size-9 shrink-0 rounded-xl sm:size-12" />
-            <div className="min-w-0 flex-1 space-y-2">
-              {identity}
-              <Skeleton className="h-3 w-32" />
+          <div className="relative flex items-start gap-2 sm:gap-3">
+            <div className="shrink-0 self-start">
+              <Skeleton className="avatar-ring aspect-square h-9 w-9 rounded-[30%] sm:h-12 sm:w-12" />
+            </div>
+            <div className="min-w-0 flex-1 pr-9 sm:pr-19">
+              <div className="flex min-w-0 items-center gap-1.5 sm:gap-2">
+                <Skeleton className="h-4 w-28 rounded-md sm:h-5 sm:w-36" />
+                {isBsky ? (
+                  <BlueskyIcon
+                    className="size-3.5 opacity-60 sm:size-4"
+                    tooltip={false}
+                  />
+                ) : (
+                  <Skeleton className="h-4 w-12 rounded-md sm:h-5 sm:w-15" />
+                )}
+                <Skeleton className="h-3.5 w-10 rounded-md sm:h-4 sm:w-14" />
+              </div>
+              <div className="mt-0.5 flex min-w-0 items-center gap-2">
+                <Skeleton
+                  className={cn(
+                    "h-3.5 rounded-md sm:h-4",
+                    isBsky ? "w-28 sm:w-36" : "w-20 sm:w-28"
+                  )}
+                />
+              </div>
+            </div>
+            <div className="absolute top-0 right-0 z-10 flex shrink-0 items-center gap-1 sm:gap-1.5">
+              <Skeleton className="size-7 rounded-full sm:size-7.5" />
+              <Skeleton className="hidden size-7 rounded-full sm:inline-flex sm:size-7.5" />
             </div>
           </div>
           {content}
         </>
       ) : (
         <div className="flex items-start gap-3">
-          <Skeleton className="size-9 shrink-0 rounded-xl sm:size-10" />
+          <div className="relative flex w-9 shrink-0 flex-col items-center self-stretch sm:w-10">
+            <Skeleton className="avatar-ring aspect-square h-9 w-9 rounded-[30%] sm:h-10 sm:w-10" />
+          </div>
           <div className="min-w-0 flex-1">
-            {identity}
+            <div className="relative z-10 flex items-center justify-between gap-2">
+              <div className="flex min-w-0 flex-1 items-center gap-1.5 text-xs sm:gap-2 sm:text-sm">
+                <Skeleton className="h-4 w-24 rounded-md sm:w-28" />
+                {isBsky ? (
+                  <BlueskyIcon
+                    className="size-3.5 opacity-60 sm:size-4"
+                    tooltip={false}
+                  />
+                ) : (
+                  <Skeleton className="h-4 w-10 rounded-md sm:w-12" />
+                )}
+                <Skeleton
+                  className={cn(
+                    "h-3.5 rounded-md",
+                    isBsky ? "w-24 sm:w-32" : "w-16 sm:w-20"
+                  )}
+                />
+                <span className="text-muted-foreground/40 shrink-0">·</span>
+                <Skeleton className="h-3 w-6 rounded-md sm:w-8" />
+              </div>
+              <div className="-my-1 flex shrink-0 items-center gap-1 sm:gap-1.5">
+                <Skeleton className="size-7 rounded-full sm:size-7.5" />
+                <Skeleton className="hidden size-7 rounded-full sm:inline-flex sm:size-7.5" />
+              </div>
+            </div>
             {content}
           </div>
         </div>
       )}
     </div>
   );
+}
+
+export function BlueskyPostSkeleton(
+  props: Omit<PostCardSkeletonProps, "isBluesky">
+) {
+  return <PostCardSkeleton {...props} isBluesky />;
 }

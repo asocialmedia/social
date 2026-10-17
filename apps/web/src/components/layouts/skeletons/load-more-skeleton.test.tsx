@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import { renderToString } from "react-dom/server";
 
+import FeedViewSkeleton from "./feed-view-skeleton";
 import LoadMoreSkeleton from "./load-more-skeleton";
 import { PostCardSkeleton } from "./post-card-skeleton";
 
@@ -46,5 +47,33 @@ describe("post skeletons", () => {
     for (const kind of ["audio", "album", "embed"]) {
       expect(html).toContain(`data-skeleton-media="${kind}"`);
     }
+  });
+
+  test("Bluesky post skeleton renders squircle avatar, butterfly icon, and matches ASM card structure", () => {
+    const html = renderToString(<PostCardSkeleton isBluesky />);
+    expect(html).toContain('aria-label="Loading Bluesky post"');
+    // Squircle avatar matching ASM UserAvatar
+    expect(html).toContain("rounded-[30%]");
+    expect(html).toContain("avatar-ring");
+    // Bluesky butterfly icon SVG with sky color
+    expect(html).toContain("text-sky-500");
+  });
+
+  test("FeedViewSkeleton with source=bluesky renders initial loading state with separators", () => {
+    const html = renderToString(
+      <FeedViewSkeleton count={4} source="bluesky" />
+    );
+    expect(html).toContain('aria-label="Loading feed"');
+    const matches = html.match(/aria-label="Loading Bluesky post"/g);
+    expect(matches).toHaveLength(4);
+  });
+
+  test("LoadMoreSkeleton with source=bluesky renders scroll loading state for Bluesky", () => {
+    const html = renderToString(
+      <LoadMoreSkeleton count={3} source="bluesky" />
+    );
+    expect(html).toContain('aria-label="Loading Bluesky posts"');
+    const matches = html.match(/aria-label="Loading Bluesky post"/g);
+    expect(matches).toHaveLength(3);
   });
 });
