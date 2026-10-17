@@ -2,7 +2,7 @@
 
 Recorded: 2026-10-16.
 
-Status: implementation started. The first backend milestone adds `@asm/protocols` and the Elysia-on-Bun service in `apps/protocols`. Home feed reads are now connected on web and mobile with source filters and curated Bluesky cards. External profiles, personalized source selection, and persistence remain incomplete. No database contract or deployed infrastructure has changed.
+Status: local implementation and web review, updated 2026-10-17. `@asm/protocols` and the Elysia-on-Bun service power mixed Home feeds on web and mobile. Selective external references and local interactions have an additive database migration. Web now includes ASM-hosted Bluesky profiles, shared cards/media/Eddies/loading states, stable Home cache restoration, explicit new-content merging, and language/region relevance. Full interest-based personalization, external follows, native profile parity, and reconciliation remain incomplete. These changes have not been deployed.
 
 ## Purpose
 
@@ -316,7 +316,7 @@ ASM still spends its own CPU, RAM, cache/database capacity, and bandwidth. Direc
 
 ## Delivery roadmap
 
-The first backend foundation is implemented. The remaining milestones are still pending; the order creates testable vertical slices while retaining the complete first-phase scope. See the implementation checkpoint below and the service README for current limitations.
+The roadmap below records the intended scope; several slices are now implemented locally. See the implementation checkpoints and service README for the current boundary. Web review precedes any further native parity work.
 
 ### 1. Contracts and live read foundation
 
@@ -381,7 +381,18 @@ Implemented in `packages/protocols` and `apps/protocols`:
 
 Live read checks succeeded through Elysia for a public Bluesky profile and a two-item media feed. The local OpenObserve-compatible collector test verified all three signal exports and trace correlation. The actual Docker/Redis deployment path must be verified in an environment with functioning container access and an explicitly isolated test Redis.
 
-Still pending: web/mobile screens, source filters/icons, shared user-facing API integration, stable mixed-feed sessions and interest-based candidate selection, persisted follows/bookmarks/reactions/discussions, database migrations, complete recommendation visibility handling, durable tombstones, and automatic recovery/reconciliation after a stream history gap. The service does not yet make Bluesky content appear in ASM's existing feed.
+Subsequent local implementation connects the service to ASM feeds and interaction surfaces, as recorded below. Complete recommendation visibility handling, durable tombstones, and automatic recovery/reconciliation after a stream history gap still need work.
+
+## Implementation checkpoint: web integration and selective retention
+
+- Web and mobile Home feeds support mixed sources and source filters. Web author links open live external profiles in the existing ASM profile layout with Posts, Replies, and Media tabs.
+- Browsing creates no durable source records. Authenticated bookmarks, amplifications, Eddies, and authored Responses retain a canonical external reference and bounded source snapshot; media stays upstream. The additive migration is `20261016T1137_external_post_interactions`.
+- Web external posts reuse ASM card surfaces, media previews/viewers, loading skeletons, the Eddie editor, comment rows, and deletion controls. External Eddies currently support local plain text with the existing 1,500-character limit.
+- Home caches are scoped by viewer, source, and locale. New candidates wait behind the shared badge; entering a detail/profile and returning preserves the list and reading position, including partially visible posts.
+- Discovery accepts coarse language/country hints from browser languages and timezone. Users can select device language, English, or all languages. Regional boosts and language filtering improve relevance without establishing a precise physical location or guaranteeing regional content.
+- Guest and authenticated reads use the existing bounded protocol gateway and shared budgets. Local interaction updates patch only that viewer's relevant query caches.
+
+Still pending: user approval of the web experience before further native work, full interest-based selection, local external follows and Following integration, complete native profile parity, stream-gap reconciliation, capacity measurement, and production deployment. Local checks and browser tests do not establish production rollout or thousand-user capacity.
 
 `@atproto/common-web` is a utility package rather than a synchronization requirement. `@atproto/tap` is a client for a separately running Tap service, which supports selective synchronization and verification. It remains a later evaluation rather than an unused dependency or an assumption that the entire network must be mirrored.
 

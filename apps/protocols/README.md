@@ -2,7 +2,9 @@
 
 Elysia on Bun, in the existing Bun workspace. This service runs the Bluesky read boundary and an optional Jetstream consumer. Shared network adapters live in `@asm/protocols`; they do not depend on Elysia, Next.js, React, or the database.
 
-Web and mobile Home feeds now render public Bluesky discovery alongside ASM posts, with an All sources / ASM / Bluesky dropdown beside the Home feed tabs. Durable external references, ASM comments, bookmarks, and amplifications are implemented. Cards share ASM surface and link-preview components. External profile screens and protocol-native writes remain separate work. Native federation is a later milestone. Starting this service does not import Bluesky history, create external ASM accounts, or enable remote writes.
+Web and mobile Home feeds now render public Bluesky discovery alongside ASM posts, with an All sources / ASM / Bluesky dropdown beside the Home feed tabs. Durable external references, ASM comments, bookmarks, amplifications, and authored responses are implemented. Web cards, media, loading states, and Eddies reuse ASM components. Web author links open ASM-hosted profiles with public Posts, Replies, and Media tabs. Native profile parity, protocol-native writes, and federation remain later work. Starting this service does not import Bluesky history, create external ASM accounts, or enable remote writes.
+
+Web discovery uses browser language and timezone-derived country as coarse relevance hints, with explicit device-language, English, and all-language choices. Locale is part of discovery cache and cursor identity. Declared languages and longer untagged text are filtered before recommendation-visibility reads; regional affinity boosts eligible candidates without guaranteeing nearby content. Cached Home pages survive detail/profile navigation, while new candidates wait behind the existing new-content badge until explicitly accepted.
 
 ## Packages
 
