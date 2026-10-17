@@ -31,3 +31,9 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS "message_search_terms_orphaned_f61e9e26"
 
 // query: prebuild.prebuildSearchOutboxIndexSql
 CREATE INDEX CONCURRENTLY IF NOT EXISTS "message_search_outbox_message_sequence_idx" ON "message_search_outbox" ("messageId", "changeSequence")
+
+// query: prebuild.prebuildViewOnceDueIndexSql
+CREATE INDEX CONCURRENTLY IF NOT EXISTS "message_media_viewonce_due_a36050d7" ON "message_media_links" ("deliveryExpiresAt", "id") WHERE ("viewOnce" AND "deliveryExpiresAt" IS NOT NULL)
+
+// query: prebuild.prebuildViewOnceUniqueIndexSql
+CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS "message_media_viewonce_media_unique_ff0d1126" ON "message_media_links" ("mediaId") WHERE ("viewOnce")
