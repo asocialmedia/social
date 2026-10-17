@@ -1,4 +1,5 @@
 import "server-only";
+import type { ExternalPost } from "@asm/protocols/contracts";
 import {
   abortable,
   discoveryPageSchema,
@@ -179,4 +180,58 @@ export async function readBlueskyPosts(
     .array(externalPostSchema)
     .max(25)
     .parse(await readJsonBounded(response, 2 * 1024 * 1024, boundedSignal));
+}
+
+export async function readBlueskyThread(
+  uri: string,
+  depth = 3,
+  signal?: AbortSignal,
+  requestId?: string
+): Promise<{ post: ExternalPost | null; replies: ExternalPost[] }> {
+  const service = process.env.PROTOCOLS_SERVICE_URL;
+  const token = process.env.PROTOCOLS_INTERNAL_TOKEN;
+  if (!service || !token) {
+    throw new ProtocolGatewayError(503, "not_configured");
+  }
+  const url = new URL("/v1/bluesky/thread", service);
+  if (
+    !["http:", "https:"].includes(url.protocol) ||
+    url.username ||
+    url.password
+  ) {
+    throw new ProtocolGatewayError(503, "invalid_configuration");
+  }
+  url.searchParams.set("uri", uri);
+  if (depth !== undefined) {
+    url.searchParams.set("depth", String(depth));
+  }
+  const boundedSignal = signal
+    ? AbortSignal.any([signal, AbortSignal.timeout(12_000)])
+    : AbortSignal.timeout(12_000);
+  const response = await abortable(
+    fetch(url, {
+      cache: "no-store",
+      headers: {
+        authorization: `Bearer ${token}`,
+        ...(requestId ? { "x-request-id": requestId } : {}),
+      },
+      redirect: "error",
+      signal: boundedSignal,
+    }),
+    boundedSignal
+  );
+  if (!response.ok) {
+    await response.body?.cancel();
+    throw new ProtocolGatewayError(503, "upstream_unavailable");
+  }
+  const parsed = z
+    .object({
+      post: externalPostSchema.nullable(),
+      replies: z.array(externalPostSchema),
+    })
+    .safeParse(await readJsonBounded(response, 2 * 1024 * 1024, boundedSignal));
+  if (!parsed.success) {
+    throw new ProtocolGatewayError(503, "invalid_upstream_response");
+  }
+  return parsed.data;
 }
