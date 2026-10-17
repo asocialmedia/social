@@ -79,6 +79,14 @@ export function useExternalInteractions(
         post.id,
         next
       );
+      if (input.action === "bookmark") {
+        await queryClient.invalidateQueries({
+          queryKey: ["post-feed", "bookmarks"],
+        });
+        await queryClient.invalidateQueries({
+          queryKey: ["bookmark-count"],
+        });
+      }
       await queryClient.invalidateQueries({ queryKey: ["external-library"] });
       await queryClient.invalidateQueries({
         queryKey: ["external-discussion", post.id],

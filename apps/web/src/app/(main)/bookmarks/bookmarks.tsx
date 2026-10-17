@@ -6,12 +6,9 @@ import { Separator } from "@asm/ui/shadui/separator";
 import { Tabs, TabsContent, TabsList } from "@asm/ui/shadui/tabs";
 import noBookmarksImage from "@assets/general/nonotibook.png";
 import { useInfiniteQuery } from "@tanstack/react-query";
-import { Clapperboard, Heart, Newspaper, Terminal } from "lucide-react";
-import { motion } from "motion/react";
 import Image from "next/image";
 import type React from "react";
 import { useCallback, useRef, useState } from "react";
-import { useMediaQuery } from "usehooks-ts";
 
 import BookmarksSidebar from "@/components/bookmarks/bookmarks-sidebar";
 import { HNStoryCard } from "@/components/hackernews/hn-story-card";
@@ -24,7 +21,6 @@ import MobileTopBar from "@/components/layouts/navigation/mobile/mobile-top-bar"
 import SearchField from "@/components/layouts/navigation/search-field";
 import FeedViewSkeleton from "@/components/layouts/skeletons/feed-view-skeleton";
 import LoadMoreSkeleton from "@/components/layouts/skeletons/load-more-skeleton";
-import { ExternalLibrary } from "@/components/protocols/external-library";
 import { useFeedSwipeNavigation } from "@/hooks/feed/use-feed-swipe-navigation";
 import { useBookmarkCount } from "@/hooks/posts/use-bookmark-count";
 import kyInstance from "@/lib/ky";
@@ -45,7 +41,7 @@ interface BookmarksProps {
 }
 
 // Swipe order mirrors the rendered tab strip order.
-const TAB_ORDER = ["posts", "gusts", "hackernews", "bluesky", "likes"];
+const TAB_ORDER = ["posts", "gusts", "hackernews", "likes"];
 
 const Bookmarks: React.FC<BookmarksProps> = ({
   gustBookmarkCount,
@@ -55,7 +51,6 @@ const Bookmarks: React.FC<BookmarksProps> = ({
 }) => {
   const feedScrollRef = useRef<HTMLDivElement>(null);
   const [activeTab, setActiveTab] = useState("posts");
-  const isDesktop = useMediaQuery("(min-width: 768px)");
 
   // Mobile swipes drag the tab strip like a carousel (same mechanism as the
   // home feed).
@@ -182,7 +177,7 @@ const Bookmarks: React.FC<BookmarksProps> = ({
         />
         <p className="font-medium">You don&apos;t have any bookmarks yet.</p>
         <p className="text-muted-foreground text-sm">
-          Bookmark posts and HackerNews stories to read them later.
+          Bookmark fleets and HackerNews stories to read them later.
         </p>
       </div>
     );
@@ -219,9 +214,6 @@ const Bookmarks: React.FC<BookmarksProps> = ({
         <TabsContent className="mt-0 pb-12" value="likes">
           <LikedPosts />
         </TabsContent>
-        <TabsContent className="mt-0 pb-12" value="bluesky">
-          <ExternalLibrary />
-        </TabsContent>
       </>
     );
   }
@@ -239,24 +231,11 @@ const Bookmarks: React.FC<BookmarksProps> = ({
             <div className="border-border/60 relative flex items-center border-b py-1.5">
               <TabsList className="flex h-full flex-1 items-center justify-center gap-0 bg-transparent p-0 md:justify-start">
                 <AnimatedTabTrigger
-                  active={activeTab === "bluesky"}
-                  layoutId="bookmarks-tab-indicator"
-                  value="bluesky"
-                >
-                  Bluesky
-                </AnimatedTabTrigger>
-                <AnimatedTabTrigger
                   active={activeTab === "posts"}
                   layoutId="bookmarks-tab-indicator"
                   value="posts"
                 >
-                  <Newspaper className="h-4 w-4 shrink-0" />
-                  <TabLabel
-                    active={activeTab === "posts"}
-                    alwaysExpanded={isDesktop}
-                  >
-                    Posts
-                  </TabLabel>
+                  <span className="whitespace-nowrap">Fleets</span>
                   {postsTabCount > 0 ? (
                     <span className="border-border/60 bg-muted/50 text-muted-foreground flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-[10px] font-semibold tabular-nums">
                       {postsTabCount}
@@ -268,13 +247,7 @@ const Bookmarks: React.FC<BookmarksProps> = ({
                   layoutId="bookmarks-tab-indicator"
                   value="gusts"
                 >
-                  <Clapperboard className="h-4 w-4 shrink-0" />
-                  <TabLabel
-                    active={activeTab === "gusts"}
-                    alwaysExpanded={isDesktop}
-                  >
-                    Gusts
-                  </TabLabel>
+                  <span className="whitespace-nowrap">Gusts</span>
                   {gustTabCount > 0 ? (
                     <span className="border-border/60 bg-muted/50 text-muted-foreground flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-[10px] font-semibold tabular-nums">
                       {gustTabCount}
@@ -286,13 +259,7 @@ const Bookmarks: React.FC<BookmarksProps> = ({
                   layoutId="bookmarks-tab-indicator"
                   value="hackernews"
                 >
-                  <Terminal className="h-4 w-4 shrink-0" />
-                  <TabLabel
-                    active={activeTab === "hackernews"}
-                    alwaysExpanded={isDesktop}
-                  >
-                    HackerNews
-                  </TabLabel>
+                  <span className="whitespace-nowrap">HackerNews</span>
                   {hnTabCount > 0 ? (
                     <span className="border-border/60 bg-muted/50 text-muted-foreground flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-[10px] font-semibold tabular-nums">
                       {hnTabCount}
@@ -304,13 +271,7 @@ const Bookmarks: React.FC<BookmarksProps> = ({
                   layoutId="bookmarks-tab-indicator"
                   value="likes"
                 >
-                  <Heart className="h-4 w-4 shrink-0" />
-                  <TabLabel
-                    active={activeTab === "likes"}
-                    alwaysExpanded={isDesktop}
-                  >
-                    Likes
-                  </TabLabel>
+                  <span className="whitespace-nowrap">Likes</span>
                 </AnimatedTabTrigger>
               </TabsList>
               {/* xl:hidden: the bookmarks sidebar owns the search bar from xl
@@ -346,29 +307,3 @@ const Bookmarks: React.FC<BookmarksProps> = ({
 };
 
 export default Bookmarks;
-
-// Keeps the four-tab strip compact on narrow screens: the active tab expands
-// its label while inactive tabs collapse to icon + count. Width animates via
-// inline styles (motion), so switching slides the previous label closed as the
-// next one opens. Desktop has room for every label, so it stays expanded.
-const TabLabel = ({
-  active,
-  alwaysExpanded,
-  children,
-}: {
-  active: boolean;
-  alwaysExpanded: boolean;
-  children: React.ReactNode;
-}) => {
-  const expanded = alwaysExpanded || active;
-  return (
-    <motion.span
-      animate={{ opacity: expanded ? 1 : 0, width: expanded ? "auto" : 0 }}
-      className="overflow-hidden text-left whitespace-nowrap"
-      initial={false}
-      transition={{ duration: 0.25, ease: "easeOut" }}
-    >
-      {children}
-    </motion.span>
-  );
-};

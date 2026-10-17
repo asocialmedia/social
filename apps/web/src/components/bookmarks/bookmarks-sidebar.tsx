@@ -58,7 +58,7 @@ const BookmarksSidebar: React.FC<BookmarksSidebarProps> = ({
           <div className="grid grid-cols-2 gap-2 px-1 pt-1">
             <StatTile
               icon={<Newspaper className="text-muted-foreground h-4 w-4" />}
-              label="Posts"
+              label="Fleets"
               value={postBookmarkCount}
             />
             <StatTile

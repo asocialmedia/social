@@ -303,16 +303,51 @@ export function POST(request: Request) {
     if (needsPost) {
       await consumeExternalCreationBudget(session.user.id);
     }
-    const posts = needsPost
-      ? await readBlueskyPosts([input.uri], request.signal, requestId)
-      : [];
-    const post = posts.find((entry) => entry.id === input.uri);
-    if (needsPost && !post) {
-      if (await findExternalPost(input.uri)) {
-        await refreshExternalPost(input.uri, null);
+
+    let post: ExternalPost | undefined;
+    if (needsPost) {
+      try {
+        const posts = await readBlueskyPosts(
+          [input.uri],
+          request.signal,
+          requestId
+        );
+        post = posts.find((entry) => entry.id === input.uri);
+      } catch {
+        // Fallback to local DB snapshot or thread read
       }
-      throw new ProtocolGatewayError(410, "source_unavailable");
+
+      if (!post) {
+        const existing = await findExternalPost(input.uri);
+        if (existing?.snapshot) {
+          post = existing.snapshot as unknown as ExternalPost;
+        }
+      }
+
+      if (!post) {
+        try {
+          const thread = await readBlueskyThread(
+            input.uri,
+            0,
+            request.signal,
+            requestId
+          );
+          if (thread.post) {
+            ({ post } = thread);
+          }
+        } catch {
+          // Best effort
+        }
+      }
+
+      if (!post) {
+        const existing = await findExternalPost(input.uri);
+        if (!existing) {
+          throw new ProtocolGatewayError(410, "source_unavailable");
+        }
+      }
     }
+
     try {
       const result = await mutateExternalPost({
         ...input,
@@ -321,9 +356,8 @@ export function POST(request: Request) {
       });
 
       if (
-        post &&
-        (input.action === "comment" ||
-          (input.action === "amplify" && input.active))
+        input.action === "comment" ||
+        (input.action === "amplify" && input.active)
       ) {
         void (async () => {
           try {
@@ -332,40 +366,47 @@ export function POST(request: Request) {
               userId: session.user.id,
             }).first();
 
-            if (blueskyAccount?.password || blueskyAccount?.accessToken) {
-              const {
-                createBlueskySession,
-                publishBlueskyLike,
-                publishBlueskyReply,
-              } = await import("@asm/protocols/bluesky");
+            // If the user has not linked their Bluesky account, do not attempt remote ATProto write;
+            // the local record is already durably saved in the database above.
+            if (!blueskyAccount?.password && !blueskyAccount?.accessToken) {
+              return;
+            }
 
-              let token = blueskyAccount.accessToken;
-              if (!token && blueskyAccount.password) {
-                const refreshed = await createBlueskySession({
-                  identifier: blueskyAccount.accountId,
-                  password: blueskyAccount.password,
-                });
-                token = refreshed.accessJwt;
-              }
+            const {
+              createBlueskySession,
+              publishBlueskyLike,
+              publishBlueskyReply,
+            } = await import("@asm/protocols/bluesky");
 
-              if (token) {
-                if (input.action === "comment" && input.content) {
-                  const rootUri = post.id;
-                  const rootCid = post.revision;
-                  await publishBlueskyReply(
-                    { accessJwt: token, did: blueskyAccount.accountId },
-                    {
-                      parentCid: rootCid,
-                      parentUri: rootUri,
-                      rootCid,
-                      rootUri,
-                      text: input.content,
-                    }
-                  );
-                } else if (input.action === "amplify" && post.revision) {
+            let token = blueskyAccount.accessToken;
+            if (!token && blueskyAccount.password) {
+              const refreshed = await createBlueskySession({
+                identifier: blueskyAccount.accountId,
+                password: blueskyAccount.password,
+              });
+              token = refreshed.accessJwt;
+            }
+
+            if (token) {
+              if (input.action === "comment" && input.content && post) {
+                const rootUri = post.id;
+                const rootCid = post.revision;
+                await publishBlueskyReply(
+                  { accessJwt: token, did: blueskyAccount.accountId },
+                  {
+                    parentCid: rootCid,
+                    parentUri: rootUri,
+                    rootCid,
+                    rootUri,
+                    text: input.content,
+                  }
+                );
+              } else if (input.action === "amplify") {
+                const targetCid = post?.revision;
+                if (targetCid) {
                   await publishBlueskyLike(
                     { accessJwt: token, did: blueskyAccount.accountId },
-                    { cid: post.revision, uri: post.id }
+                    { cid: targetCid, uri: input.uri }
                   );
                 }
               }

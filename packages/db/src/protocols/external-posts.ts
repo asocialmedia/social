@@ -231,10 +231,26 @@ export async function mutateExternalPost(input: {
         },
         update: data,
       });
-    } else if (
-      !(await tx.orm.public.ExternalPosts.select("id").where({ id }).first())
-    ) {
-      return;
+    } else {
+      const existing = await tx.orm.public.ExternalPosts.select("id")
+        .where({ id })
+        .first();
+      if (!existing) {
+        const authorDid = input.uri.replace("at://", "").split("/")[0] ?? "";
+        await tx.orm.public.ExternalPosts.upsert({
+          conflictOn: { id },
+          create: {
+            authorId: authorDid,
+            available: true,
+            checkedAt: toPrismaDateTime(new Date()),
+            id,
+            snapshot: null,
+            source: "bluesky",
+            uri: input.uri,
+          },
+          update: {},
+        });
+      }
     }
     if (input.action === "delete_comment") {
       await tx.orm.public.ExternalComments.where((comment) =>

@@ -60,6 +60,17 @@ mock.module("@asm/db", () => ({
       comments: 0,
     });
   },
+  prisma: {
+    orm: {
+      public: {
+        Accounts: {
+          where: () => ({
+            first: () => Promise.resolve(null),
+          }),
+        },
+      },
+    },
+  },
   refreshExternalPost: () => Promise.resolve(),
 }));
 const { GET, POST } = await import("./route");

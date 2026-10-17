@@ -10,34 +10,44 @@ export async function GET() {
   }
   const userId = session.user.id;
 
-  const [postBookmarks, gustBookmarks, hnBookmarks] = await Promise.all([
-    prisma.orm.public.Bookmarks.where((bookmark) =>
-      and(
-        bookmark.post.some((post) => post.isGust.eq(false)),
-        bookmark.userId.eq(userId)
+  const [postBookmarks, gustBookmarks, hnBookmarks, externalBookmarks] =
+    await Promise.all([
+      prisma.orm.public.Bookmarks.where((bookmark) =>
+        and(
+          bookmark.post.some((post) => post.isGust.eq(false)),
+          bookmark.userId.eq(userId)
+        )
       )
-    )
-      .aggregate((aggregate) => ({ count: aggregate.count() }))
-      .then((result) => result.count),
-    prisma.orm.public.Bookmarks.where((bookmark) =>
-      and(
-        bookmark.post.some((post) => post.isGust.eq(true)),
-        bookmark.userId.eq(userId)
+        .aggregate((aggregate) => ({ count: aggregate.count() }))
+        .then((result) => result.count),
+      prisma.orm.public.Bookmarks.where((bookmark) =>
+        and(
+          bookmark.post.some((post) => post.isGust.eq(true)),
+          bookmark.userId.eq(userId)
+        )
       )
-    )
-      .aggregate((aggregate) => ({ count: aggregate.count() }))
-      .then((result) => result.count),
-    prisma.orm.public.HNBookmark.where({ userId })
-      .aggregate((aggregate) => ({ count: aggregate.count() }))
-      .then((result) => result.count),
-  ]);
+        .aggregate((aggregate) => ({ count: aggregate.count() }))
+        .then((result) => result.count),
+      prisma.orm.public.HNBookmark.where({ userId })
+        .aggregate((aggregate) => ({ count: aggregate.count() }))
+        .then((result) => result.count),
+      prisma.orm.public.ExternalEngagements.where({
+        bookmarked: true,
+        userId,
+      })
+        .aggregate((aggregate) => ({ count: aggregate.count() }))
+        .then((result) => result.count)
+        .catch(() => 0),
+    ]);
+
+  const totalPostBookmarks = postBookmarks + externalBookmarks;
 
   return Response.json({
-    // Matches the sidebar's historical total: posts + HN (gusts are tracked
+    // Matches the sidebar's historical total: posts/fleets + HN (gusts are tracked
     // separately on the bookmarks page).
     gustCount: gustBookmarks,
     hnCount: hnBookmarks,
-    postCount: postBookmarks,
-    totalCount: postBookmarks + hnBookmarks,
+    postCount: totalPostBookmarks,
+    totalCount: totalPostBookmarks + hnBookmarks,
   } satisfies BookmarkCountInfo);
 }
