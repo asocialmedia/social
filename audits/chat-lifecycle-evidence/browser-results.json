@@ -1,0 +1,53 @@
+{
+  "incognito": {
+    "results": [
+      "Both participants entered incognito",
+      "Peer received encrypted incognito message",
+      "Navigation preserved session and deadline",
+      "Peer ended session; plaintext removed; notice permanent; normal draft restored"
+    ],
+    "errors": []
+  },
+  "retention_export_timeout_mobile": {
+    "results": [
+      "New normal message has a server-assigned 24-hour deadline",
+      "Older client is explicitly blocked after retention is enabled",
+      "Turning retention off preserves the existing fixed deadline",
+      "Export UI produced and downloaded a real ZIP through local object storage",
+      "Controlled fixture deadline expired for both participants and retained the timeout notice",
+      "390px mobile web keeps the normal and incognito composer visible"
+    ],
+    "errors": [
+      "Failed to execute 'measure' on 'Performance': '\u200bMessagesContent [Prerender]' cannot have a negative time stamp.",
+      "Failed to execute 'measure' on 'Performance': '\u200bLayout [Prerender]' cannot have a negative time stamp."
+    ]
+  },
+  "clear_and_new_activity": {
+    "results": [
+      "Owner history is empty and permanent usage records remain after clear",
+      "Peer history remains visible",
+      "New peer activity is visible to the owner and resurfaces the conversation"
+    ],
+    "errors": []
+  },
+  "normal_deadline": {
+    "normalDeadlineRemovesAlreadyVisibleMessage": true
+  },
+  "den": {
+    "denId": "327c12c8-f469-45f7-8d46-1a6d1e907cd0",
+    "results": [
+      "Den creator can enable retention and incognito is absent from den actions",
+      "Ordinary den member cannot change shared retention",
+      "Timed den message decrypts for the other member",
+      "Den member can prepare a readable private ZIP export",
+      "Den owner clear preserves the other member history"
+    ],
+    "errors": []
+  },
+  "notes": [
+    "The retention/export/timeout/mobile run passed its listed checks; it initially failed at clear/reopen. The separate clear run records the fixed fresh-browser result.",
+    "The first den attempt was rejected by the test peer group-add policy. Mutual follow was added only for the dedicated test accounts before rerunning.",
+    "Controlled expiry changes affected only the newly created acceptance session/message.",
+    "No production or physical-device result is implied."
+  ]
+}
