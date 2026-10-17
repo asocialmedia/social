@@ -21,11 +21,14 @@ import {
   useEmbedImageError,
 } from "@/components/posts/embeds/embed-utils";
 import { BlueskyIcon } from "@/components/protocols/bluesky-icon";
+import { useBlueskyProfile } from "@/components/protocols/use-bluesky-profile";
 import { useUserDataQuery } from "@/hooks/users/use-user-data-query";
 import { getAuraFlameClass } from "@/lib/aura/aura";
 import kyInstance from "@/lib/ky";
 import { parseStoredEmbeds } from "@/lib/link-embeds/shared";
+import { externalAuthorView } from "@/lib/posts/presentation";
 import type { PresentedPost as PostData } from "@/lib/posts/presentation";
+import { blueskyProfilePath } from "@/lib/protocols/paths";
 import { getPostPath } from "@/lib/seo/seo";
 import { getUserCount, getUserPostCount } from "@/lib/types";
 import { cn, formatNumber, formatRelativeDate } from "@/lib/utils";
@@ -224,13 +227,20 @@ const AuthorPostRow: React.FC<AuthorPostRowProps> = ({ post }) => {
 const PostAuthorSidebar: React.FC<PostAuthorSidebarProps> = ({ post }) => {
   const { user: currentUser } = useSession();
   const { data: liveUser } = useUserDataQuery(post.user, !post.external);
+  const { data: externalAuthor } = useBlueskyProfile(
+    post.external?.author.id ?? "",
+    post.external?.author
+  );
 
-  const author = liveUser;
+  const author =
+    post.external && externalAuthor
+      ? externalAuthorView(externalAuthor)
+      : liveUser;
   const isOwnProfile = author.id === currentUser?.id;
   const isFollowedByUser = Boolean(author.followers?.length);
   const followerInfo = {
     followers:
-      post.external?.author.upstreamCounts.followers ??
+      externalAuthor?.upstreamCounts.followers ??
       getUserCount(author, "followers"),
     isFollowedByUser,
   };
@@ -278,9 +288,9 @@ const PostAuthorSidebar: React.FC<PostAuthorSidebarProps> = ({ post }) => {
     postsBody = (
       <Link
         className="text-primary block px-3 py-2 text-sm hover:underline"
-        href={post.external.author.url}
+        href={blueskyProfilePath(post.external.author.id)}
       >
-        View posts on Bluesky
+        View posts
       </Link>
     );
   } else if (status === "pending") {
@@ -332,7 +342,11 @@ const PostAuthorSidebar: React.FC<PostAuthorSidebarProps> = ({ post }) => {
               "group flex flex-col gap-2 rounded-xl px-2.5 py-2.5",
               ROW_HOVER_CLASS
             )}
-            href={post.external?.author.url ?? `/users/${author.username}`}
+            href={
+              (post.external
+                ? blueskyProfilePath(post.external.author.id)
+                : undefined) ?? `/users/${author.username}`
+            }
           >
             <div className="flex items-start gap-3">
               <UserAvatar avatarUrl={author.avatarUrl} className="h-11 w-11" />
@@ -364,16 +378,22 @@ const PostAuthorSidebar: React.FC<PostAuthorSidebarProps> = ({ post }) => {
             <div className="text-muted-foreground flex items-center gap-3 text-xs">
               <span>
                 <span className="text-foreground font-semibold">
-                  {formatNumber(
-                    post.external?.author.upstreamCounts.posts ??
-                      getUserPostCount(author)
-                  )}
+                  {post.external &&
+                  externalAuthor?.upstreamCounts.posts === undefined
+                    ? "…"
+                    : formatNumber(
+                        externalAuthor?.upstreamCounts.posts ??
+                          getUserPostCount(author)
+                      )}
                 </span>{" "}
                 Posts
               </span>
               <span>
                 <span className="text-foreground font-semibold">
-                  {formatNumber(followerInfo.followers)}
+                  {post.external &&
+                  externalAuthor?.upstreamCounts.followers === undefined
+                    ? "…"
+                    : formatNumber(followerInfo.followers)}
                 </span>{" "}
                 Followers
               </span>
@@ -398,7 +418,11 @@ const PostAuthorSidebar: React.FC<PostAuthorSidebarProps> = ({ post }) => {
             {isOwnProfile || post.external ? (
               <Link
                 className="follow-btn-3d flex h-8 w-full items-center justify-center rounded-md px-3 text-sm"
-                href={post.external?.author.url ?? `/users/${author.username}`}
+                href={
+                  (post.external
+                    ? blueskyProfilePath(post.external.author.id)
+                    : undefined) ?? `/users/${author.username}`
+                }
               >
                 View profile
               </Link>
@@ -428,7 +452,11 @@ const PostAuthorSidebar: React.FC<PostAuthorSidebarProps> = ({ post }) => {
             </div>
             <Link
               className="text-muted-foreground hover:text-primary shrink-0 text-[11px] font-medium transition-colors"
-              href={post.external?.author.url ?? `/users/${author.username}`}
+              href={
+                (post.external
+                  ? blueskyProfilePath(post.external.author.id)
+                  : undefined) ?? `/users/${author.username}`
+              }
             >
               View all
             </Link>

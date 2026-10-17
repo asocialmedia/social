@@ -2,7 +2,6 @@
 
 import type { CommentsPage, PostData } from "@asm/db";
 import { Button } from "@asm/ui/shadui/button";
-import noCommentsImage from "@assets/general/nocomments.png";
 import noMediaImage from "@assets/general/nomedia.png";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import Image from "next/image";
@@ -14,6 +13,7 @@ import kyInstance from "@/lib/ky";
 import CommentInput from "../composer/comment-input";
 import CommentItem from "../item/comment";
 import { buildCommentTree, mergeCommentsWithLive } from "./comment-tree";
+import { CommentsEmptyState } from "./comments-empty-state";
 import { useCommentsRealtimeValue } from "./comments-realtime-context";
 import { useCommentsRealtime } from "./use-comments-realtime";
 import type { LiveCommentStore } from "./use-comments-realtime";
@@ -93,19 +93,7 @@ export default function Comments({
           Load previous eddies
         </Button>
       ) : null}
-      {status === "success" && !tree.length && (
-        <div className="flex flex-col items-center justify-center gap-3 py-8 text-center">
-          <Image
-            alt=""
-            className="h-40 w-auto object-contain"
-            draggable={false}
-            height={1024}
-            src={noCommentsImage}
-            width={1536}
-          />
-          <p className="text-muted-foreground text-sm">No eddie yet.</p>
-        </div>
-      )}
+      {status === "success" && !tree.length && <CommentsEmptyState />}
       {status === "error" && (
         <div className="flex flex-col items-center justify-center gap-3 py-8 text-center">
           <Image

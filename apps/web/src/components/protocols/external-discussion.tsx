@@ -4,24 +4,26 @@ import type { ExternalPost } from "@asm/protocols/contracts";
 import type { ExternalCommentPage } from "@asm/protocols/discovery";
 import { externalCommentPageSchema } from "@asm/protocols/discovery";
 import { Button } from "@asm/ui/shadui/button";
-import { Textarea } from "@asm/ui/shadui/textarea";
 import { useInfiniteQuery } from "@tanstack/react-query";
-import Link from "next/link";
-import { useRef, useState } from "react";
+import { useRef } from "react";
 
-import { useSession } from "@/app/(main)/session-provider";
-import UserAvatar from "@/components/layouts/user/user-avatar";
-import { formatRelativeDate } from "@/lib/utils";
+import CommentInput from "@/components/comments/composer/comment-input";
+import CommentItem from "@/components/comments/item/comment";
+import { CommentsEmptyState } from "@/components/comments/thread/comments-empty-state";
+import CommentsSkeleton from "@/components/layouts/skeletons/comments-skeleton";
+import { externalCommentView } from "@/lib/posts/external-comment-view";
 
 import { useExternalInteractions } from "./use-external-interactions";
+
+const noop = () => {
+  /* empty */
+};
 
 export function ExternalDiscussion({
   post,
 }: {
   post: Pick<ExternalPost, "id" | "asm">;
 }) {
-  const { user } = useSession();
-  const [content, setContent] = useState("");
   const requestId = useRef(crypto.randomUUID());
   const interaction = useExternalInteractions(post);
   const comments = useInfiniteQuery({
@@ -48,131 +50,83 @@ export function ExternalDiscussion({
     queryKey: ["external-discussion", post.id],
     retry: false,
   });
+  const items = [
+    ...new Map(
+      comments.data?.pages
+        .flatMap((page) => page.items)
+        .map((comment) => [comment.id, comment])
+    ).values(),
+  ];
   return (
-    <section
-      className="border-border/60 border-t px-4 py-4"
-      aria-label="ASM discussion"
-    >
-      <h2 className="font-semibold">Eddies</h2>
-      <p className="text-muted-foreground mt-1 mb-4 text-xs">
-        Discussion on ASM · Replies stay on ASM
-      </p>
-      {comments.isSuccess &&
-      comments.data.pages.every((page) => page.items.length === 0) ? (
-        <p className="text-muted-foreground py-4 text-sm">
-          No eddies yet. Start the conversation.
-        </p>
-      ) : null}
-      {comments.isPending ? (
-        <p className="text-muted-foreground text-sm">Loading discussion…</p>
-      ) : null}
+    <section className="space-y-4" aria-label="Eddies on ASM">
+      <CommentInput
+        applyCreated={noop}
+        post={post}
+        controller={{
+          maxLength: 1500,
+          pending: interaction.pending,
+          submit: async (content) => {
+            const saved = await interaction.mutate({
+              action: "comment",
+              content,
+              requestId: requestId.current,
+              uri: post.id,
+            });
+            if (saved) {
+              requestId.current = crypto.randomUUID();
+            }
+            return saved;
+          },
+        }}
+      />
+      {comments.isPending ? <CommentsSkeleton /> : null}
+      {comments.isSuccess && !items.length ? <CommentsEmptyState /> : null}
       {comments.isError ? (
         <Button
+          variant="ghost"
           onClick={() => {
             void comments.refetch();
           }}
-          variant="ghost"
         >
-          Couldn't load discussion. Retry
+          Eddies hit a snag. Try again
         </Button>
       ) : null}
-      {comments.data?.pages
-        .flatMap((page) => page.items)
-        .map((comment) => (
-          <div className="flex gap-3 py-3" key={comment.id}>
-            <UserAvatar
-              avatarUrl={comment.user?.avatarUrl}
-              className="size-8"
-            />
-            <div className="min-w-0 flex-1">
-              <Link
-                className="text-sm font-semibold"
-                href={`/users/${comment.user.username}`}
-              >
-                {comment.user.displayName}
-              </Link>
-              <time
-                className="text-muted-foreground ml-2 text-xs"
-                dateTime={comment.createdAt}
-                suppressHydrationWarning
-              >
-                {formatRelativeDate(comment.createdAt)}
-              </time>
-              <p className="text-sm wrap-break-word whitespace-pre-wrap">
-                {comment.deleted ? "Comment removed" : comment.content}
-              </p>
-            </div>
-            {comment.userId === user?.id && !comment.deleted ? (
-              <Button
-                disabled={interaction.pending}
-                onClick={() => {
-                  void interaction.mutate({
-                    action: "delete_comment",
-                    commentId: comment.id,
-                    uri: post.id,
-                  });
-                }}
-                size="sm"
-                variant="ghost"
-              >
-                Delete
-              </Button>
-            ) : null}
-          </div>
+      <div className="divide-border/40 divide-y pt-1">
+        {items.map((comment) => (
+          <CommentItem
+            applyCreated={noop}
+            applyDeleted={noop}
+            key={comment.id}
+            post={post}
+            node={{
+              children: [],
+              comment: externalCommentView(comment, post.id),
+              depth: 0,
+            }}
+            localActions={{
+              delete: () =>
+                interaction.mutate({
+                  action: "delete_comment",
+                  commentId: comment.id,
+                  uri: post.id,
+                }),
+              pending: interaction.pending,
+            }}
+          />
         ))}
+      </div>
       {comments.hasNextPage ? (
         <Button
+          className="mx-auto block"
           disabled={comments.isFetchingNextPage}
+          variant="link"
           onClick={() => {
             void comments.fetchNextPage();
           }}
-          variant="ghost"
         >
-          More comments
+          Load more eddies
         </Button>
       ) : null}
-      {user ? (
-        <form
-          className="mt-3 flex flex-col gap-2"
-          onSubmit={async (event) => {
-            event.preventDefault();
-            if (
-              await interaction.mutate({
-                action: "comment",
-                content,
-                requestId: requestId.current,
-                uri: post.id,
-              })
-            ) {
-              setContent("");
-              requestId.current = crypto.randomUUID();
-            }
-          }}
-        >
-          <Textarea
-            aria-label="Write an eddy"
-            maxLength={1500}
-            onChange={(event) => {
-              setContent(event.target.value);
-              requestId.current = crypto.randomUUID();
-            }}
-            placeholder="Write an eddy…"
-            value={content}
-          />
-          <Button
-            className="self-end"
-            disabled={interaction.pending || !content.trim()}
-            type="submit"
-            variant="premium"
-          >
-            Post eddy
-          </Button>
-        </form>
-      ) : (
-        <Link className="text-primary mt-3 block text-sm" href="/login">
-          Sign in to join the discussion
-        </Link>
-      )}
     </section>
   );
 }

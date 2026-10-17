@@ -8,6 +8,7 @@ import {
   getMediaProxyUrl,
   getMediaVideoUrl,
 } from "../utils/image-url";
+import { cachedPostPreview } from "./cached-post-preview";
 import { externalPostView } from "./presentation";
 
 const post: ExternalPost = {
@@ -33,6 +34,35 @@ const post: ExternalPost = {
   upstreamCounts: { likes: 2, quotes: 0, replies: 1, reposts: 0 },
   url: "https://bsky.app/profile/did:plc:alice/post/example",
 };
+
+test("external detail skeletons reuse the exact source media from paginated caches", () => {
+  const source = {
+    ...post,
+    media: [
+      {
+        alt: "Portrait clip",
+        height: 1920,
+        type: "video" as const,
+        url: "https://video.bsky.app/playlist.m3u8",
+        width: 1080,
+      },
+    ],
+  };
+  const cache = { pages: [{ items: [source] }] };
+  const preview = cachedPostPreview(cache, source.id);
+  expect(preview?.attachments).toEqual([
+    {
+      altText: "Portrait clip",
+      hasHls: true,
+      height: 1920,
+      id: source.media[0]?.url,
+      thumbnailKey: null,
+      type: "VIDEO",
+      width: 1080,
+    },
+  ]);
+  expect(cachedPostPreview(cache, source.id)).toBe(preview);
+});
 
 test("external cards retain source identity and local interaction counts without invented views", () => {
   const source = {

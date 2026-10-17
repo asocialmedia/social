@@ -1,5 +1,5 @@
-import type { PostData } from "@asm/db";
-import type { ExternalPost } from "@asm/protocols/contracts";
+import type { PostData, UserData } from "@asm/db";
+import type { ExternalPost, ExternalAuthor } from "@asm/protocols/contracts";
 
 export type PresentedPost = PostData & { external?: ExternalPost };
 
@@ -60,28 +60,32 @@ export function externalPostView(post: ExternalPost): PresentedPost {
     tags: [],
     threadTopId: null,
     trendingScore: 0,
-    user: {
-      aura: 0,
-      avatarUrl: post.author.avatarUrl ?? null,
-      badge: null,
-      badges: [],
-      bannerUrl: post.author.bannerUrl ?? null,
-      bio: post.author.description ?? null,
-      communityMemberships: [],
-      createdAt: new Date(post.createdAt),
-      customDomain: null,
-      displayName: post.author.displayName,
-      displayUsername: null,
-      followers: [],
-      githubUsername: null,
-      id: post.author.id,
-      linkedinUsername: null,
-      redditUsername: null,
-      twitterUsername: null,
-      username: post.author.handle,
-    },
+    user: externalAuthorView(post.author),
     userId: post.author.id,
     viewCount: 0,
     vote: [],
+  };
+}
+
+export function externalAuthorView(author: ExternalAuthor): UserData {
+  return {
+    aura: 0,
+    avatarUrl: author.avatarUrl ?? null,
+    badge: null,
+    badges: [],
+    bannerUrl: author.bannerUrl ?? null,
+    bio: author.description ?? null,
+    communityMemberships: [],
+    createdAt: new Date(0),
+    customDomain: null,
+    displayName: author.displayName,
+    displayUsername: null,
+    followers: [],
+    githubUsername: null,
+    id: author.id,
+    linkedinUsername: null,
+    redditUsername: null,
+    twitterUsername: null,
+    username: author.handle,
   };
 }

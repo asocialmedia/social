@@ -60,6 +60,7 @@ import {
   isBookmarkedByUser,
 } from "@/lib/posts/post-normalize";
 import type { PresentedPost as PostData } from "@/lib/posts/presentation";
+import { blueskyProfilePath } from "@/lib/protocols/paths";
 import { getPostMediaPath, getPostPath } from "@/lib/seo/seo";
 import { useExplicitRevealed } from "@/lib/stores/explicit-reveal-store";
 import { useVideoCaptionsStore } from "@/lib/stores/video-captions-store";
@@ -1001,7 +1002,9 @@ const MediaViewer = ({
                   aria-label="View profile"
                   className="shrink-0 rounded-full outline-hidden focus-visible:ring-2 focus-visible:ring-white/80"
                   href={
-                    post.external?.author.url ??
+                    (post.external
+                      ? blueskyProfilePath(post.external.author.id)
+                      : undefined) ??
                     (post.user?.username ? `/users/${post.user.username}` : "#")
                   }
                 >
@@ -1015,7 +1018,9 @@ const MediaViewer = ({
                     <Link
                       className="block truncate font-semibold text-white hover:underline"
                       href={
-                        post.external?.author.url ??
+                        (post.external
+                          ? blueskyProfilePath(post.external.author.id)
+                          : undefined) ??
                         (post.user?.username
                           ? `/users/${post.user.username}`
                           : "#")
@@ -1038,7 +1043,9 @@ const MediaViewer = ({
                   <Link
                     className="block truncate text-white/70 hover:underline"
                     href={
-                      post.external?.author.url ??
+                      (post.external
+                        ? blueskyProfilePath(post.external.author.id)
+                        : undefined) ??
                       (post.user?.username
                         ? `/users/${post.user.username}`
                         : "#")
@@ -1510,7 +1517,9 @@ const MediaViewer = ({
                   aria-label="View profile"
                   className="focus-visible:ring-ring shrink-0 rounded-xl outline-hidden focus-visible:ring-2 focus-visible:ring-offset-2"
                   href={
-                    post.external?.author.url ??
+                    (post.external
+                      ? blueskyProfilePath(post.external.author.id)
+                      : undefined) ??
                     (post.user?.username ? `/users/${post.user.username}` : "#")
                   }
                 >
@@ -1524,7 +1533,9 @@ const MediaViewer = ({
                     <Link
                       className="text-foreground block truncate font-semibold hover:underline"
                       href={
-                        post.external?.author.url ??
+                        (post.external
+                          ? blueskyProfilePath(post.external.author.id)
+                          : undefined) ??
                         (post.user?.username
                           ? `/users/${post.user.username}`
                           : "#")
@@ -1547,7 +1558,9 @@ const MediaViewer = ({
                   <Link
                     className="text-muted-foreground block truncate hover:underline"
                     href={
-                      post.external?.author.url ??
+                      (post.external
+                        ? blueskyProfilePath(post.external.author.id)
+                        : undefined) ??
                       (post.user?.username
                         ? `/users/${post.user.username}`
                         : "#")

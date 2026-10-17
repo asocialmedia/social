@@ -55,6 +55,7 @@ import {
 } from "@/lib/posts/post-normalize";
 import { externalPostView } from "@/lib/posts/presentation";
 import type { PresentedPost as PostData } from "@/lib/posts/presentation";
+import { blueskyProfilePath } from "@/lib/protocols/paths";
 import { getPostPath } from "@/lib/seo/seo";
 import { cn, formatNumber, formatRelativeDate } from "@/lib/utils";
 import { getMediaProxyUrl } from "@/lib/utils/image-url";
@@ -416,7 +417,7 @@ const PostContent: React.FC<PostContentProps> = ({
   const authorBadges = post.user?.badges;
   const authorCommunityRoles = post.user?.communityMemberships;
   const authorProfileHref =
-    post.external?.author.url ??
+    (post.external ? blueskyProfilePath(post.external.author.id) : undefined) ??
     (post.user?.username ? `/users/${post.user.username}` : "#");
 
   // A response shown in a feed or detail view: render the post it

@@ -1,6 +1,7 @@
 "use client";
 
 import type { UserCommunityRole, UserData } from "@asm/db";
+import type { ExternalAuthor } from "@asm/protocols/contracts";
 import { Tabs, TabsContent, TabsList } from "@asm/ui/shadui/tabs";
 import { ArrowLeft, Search, Settings } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -21,11 +22,13 @@ import UserGustsFeed from "@/components/profile/user-gusts-feed";
 import UserPostsFeed from "@/components/profile/user-posts-feed";
 import UserRepliesFeed from "@/components/profile/user-replies-feed";
 import UserResponsesFeed from "@/components/profile/user-responses-feed";
+import { ExternalAuthorFeed } from "@/components/protocols/external-author-feed";
 import { useSpotlight } from "@/components/search/spotlight-provider";
 import { useRequireAuth } from "@/hooks/auth/use-require-auth";
 import { useFeedScrollMemory } from "@/hooks/feed/use-feed-scroll-memory";
 import { useFeedSwipeNavigation } from "@/hooks/feed/use-feed-swipe-navigation";
 import type { PrivateUserData } from "@/hooks/users/use-user-data";
+import { blueskyProfilePath } from "@/lib/protocols/paths";
 import {
   resolveProfileTab,
   useTabMemoryReady,
@@ -34,6 +37,7 @@ import {
 import type { ProfileTab } from "@/store/tab-store";
 
 interface ProfilePageProps {
+  external?: ExternalAuthor;
   communityRoles: UserCommunityRole[];
   loggedInUserData: PrivateUserData | null;
   userData: UserData;
@@ -55,6 +59,7 @@ const ClientProfile: React.FC<ProfilePageProps> = ({
   userData,
   loggedInUserData,
   communityRoles,
+  external,
 }) => {
   const [activeTab, setActiveTab] = useState<ProfileTab>("posts");
   const feedScrollRef = useRef<HTMLDivElement>(null);
@@ -84,12 +89,12 @@ const ClientProfile: React.FC<ProfilePageProps> = ({
     setActiveTab(
       resolveProfileTab(
         useTabStore.getState().profileByUserId[profileUserId],
-        isLoggedIn,
-        isXl,
+        external ? true : isLoggedIn,
+        external ? false : isXl,
         memoryReady
       )
     );
-  }, [isLoggedIn, isXl, memoryReady, profileUserId]);
+  }, [isLoggedIn, isXl, memoryReady, profileUserId, external]);
 
   const handleGoBack = useCallback(() => {
     // Return to wherever the user came from (e.g. a post opened via a swipe);
@@ -115,6 +120,7 @@ const ClientProfile: React.FC<ProfilePageProps> = ({
   const handleTabChange = useCallback(
     (value: string) => {
       if (
+        !external &&
         !isLoggedIn &&
         value !== "posts" &&
         value !== "gusts" &&
@@ -126,20 +132,23 @@ const ClientProfile: React.FC<ProfilePageProps> = ({
       setActiveTab(value as ProfileTab);
       setProfileTab(profileUserId, value as ProfileTab);
     },
-    [goToLogin, isLoggedIn, profileUserId, setProfileTab]
+    [goToLogin, isLoggedIn, profileUserId, setProfileTab, external]
   );
 
   // Mobile swipes drag the tab strip like a carousel (same mechanism as the
   // home feed); guests swipe through their reduced tab set.
   const handleSwipeNavigate = useCallback(
     (direction: -1 | 1) => {
-      const tabOrder = isLoggedIn ? LOGGED_IN_TAB_ORDER : GUEST_TAB_ORDER;
+      let tabOrder = isLoggedIn ? LOGGED_IN_TAB_ORDER : GUEST_TAB_ORDER;
+      if (external) {
+        tabOrder = ["posts", "replies", "media"];
+      }
       const nextIndex = tabOrder.indexOf(activeTab) + direction;
       if (nextIndex >= 0 && nextIndex < tabOrder.length) {
         handleTabChange(tabOrder[nextIndex]);
       }
     },
-    [activeTab, handleTabChange, isLoggedIn]
+    [activeTab, handleTabChange, isLoggedIn, external]
   );
   useFeedSwipeNavigation(feedScrollRef, handleSwipeNavigate);
 
@@ -169,6 +178,7 @@ const ClientProfile: React.FC<ProfilePageProps> = ({
               >
                 <div className="relative">
                   <ProfileHeader
+                    external={external}
                     communityRoles={communityRoles}
                     isOwnProfile={isOwnProfile}
                     ownUserData={loggedInUserData}
@@ -209,7 +219,7 @@ const ClientProfile: React.FC<ProfilePageProps> = ({
                         shareUrl={
                           typeof window === "undefined"
                             ? undefined
-                            : `${window.location.origin}/users/${userData.username}`
+                            : `${window.location.origin}${external ? blueskyProfilePath(external.id) : `/users/${userData.username}`}`
                         }
                         thumbnail={userData.avatarUrl || undefined}
                         title={`${userData.displayName || userData.username} (@${userData.username}) on asocialmedia`}
@@ -244,37 +254,49 @@ const ClientProfile: React.FC<ProfilePageProps> = ({
                     >
                       Posts
                     </AnimatedTabTrigger>
-                    <AnimatedTabTrigger
-                      active={activeTab === "gusts"}
-                      layoutId="profile-tab-indicator"
-                      value="gusts"
-                    >
-                      Gusts
-                    </AnimatedTabTrigger>
-                    <AnimatedTabTrigger
-                      active={activeTab === "responses"}
-                      layoutId="profile-tab-indicator"
-                      value="responses"
-                    >
-                      Responses
-                    </AnimatedTabTrigger>
-                    <AnimatedTabTrigger
-                      active={activeTab === "replies"}
-                      layoutId="profile-tab-indicator"
-                      value="replies"
-                    >
-                      Eddies
-                    </AnimatedTabTrigger>
-                    <AnimatedTabTrigger
-                      active={activeTab === "amplified"}
-                      layoutId="profile-tab-indicator"
-                      value="amplified"
-                    >
-                      Amplified
-                    </AnimatedTabTrigger>
+                    {external ? (
+                      <AnimatedTabTrigger
+                        active={activeTab === "replies"}
+                        layoutId="profile-tab-indicator"
+                        value="replies"
+                      >
+                        Replies
+                      </AnimatedTabTrigger>
+                    ) : (
+                      <>
+                        <AnimatedTabTrigger
+                          active={activeTab === "gusts"}
+                          layoutId="profile-tab-indicator"
+                          value="gusts"
+                        >
+                          Gusts
+                        </AnimatedTabTrigger>
+                        <AnimatedTabTrigger
+                          active={activeTab === "responses"}
+                          layoutId="profile-tab-indicator"
+                          value="responses"
+                        >
+                          Responses
+                        </AnimatedTabTrigger>
+                        <AnimatedTabTrigger
+                          active={activeTab === "replies"}
+                          layoutId="profile-tab-indicator"
+                          value="replies"
+                        >
+                          Eddies
+                        </AnimatedTabTrigger>
+                        <AnimatedTabTrigger
+                          active={activeTab === "amplified"}
+                          layoutId="profile-tab-indicator"
+                          value="amplified"
+                        >
+                          Amplified
+                        </AnimatedTabTrigger>
+                      </>
+                    )}
                     <AnimatedTabTrigger
                       active={activeTab === "media"}
-                      className="xl:hidden"
+                      className={external ? undefined : "xl:hidden"}
                       layoutId="profile-tab-indicator"
                       value="media"
                     >
@@ -283,53 +305,65 @@ const ClientProfile: React.FC<ProfilePageProps> = ({
                   </TabsList>
                 </div>
 
-                <TabsContent className="mt-0 pb-12" value="posts">
-                  <UserPostsFeed
-                    isOwnProfile={isOwnProfile}
-                    userId={userData.id}
-                  />
-                </TabsContent>
-
-                <TabsContent className="mt-0 pb-12" value="gusts">
-                  <UserGustsFeed
-                    isOwnProfile={isOwnProfile}
-                    userId={userData.id}
-                  />
-                </TabsContent>
-
-                {isLoggedIn ? (
+                {external ? (
+                  (["posts", "replies", "media"] as const).map((tab) => (
+                    <TabsContent className="mt-0 pb-12" key={tab} value={tab}>
+                      <ExternalAuthorFeed actor={external.id} tab={tab} />
+                    </TabsContent>
+                  ))
+                ) : (
                   <>
-                    <TabsContent className="mt-0 pb-12" value="responses">
-                      <UserResponsesFeed
+                    <TabsContent className="mt-0 pb-12" value="posts">
+                      <UserPostsFeed
                         isOwnProfile={isOwnProfile}
                         userId={userData.id}
                       />
                     </TabsContent>
 
-                    <TabsContent className="mt-0 pb-12" value="replies">
-                      <UserRepliesFeed userId={userData.id} />
+                    <TabsContent className="mt-0 pb-12" value="gusts">
+                      <UserGustsFeed
+                        isOwnProfile={isOwnProfile}
+                        userId={userData.id}
+                      />
                     </TabsContent>
 
-                    <TabsContent className="mt-0 pb-12" value="amplified">
-                      <UserAmplifiedFeed userId={userData.id} />
+                    {isLoggedIn ? (
+                      <>
+                        <TabsContent className="mt-0 pb-12" value="responses">
+                          <UserResponsesFeed
+                            isOwnProfile={isOwnProfile}
+                            userId={userData.id}
+                          />
+                        </TabsContent>
+
+                        <TabsContent className="mt-0 pb-12" value="replies">
+                          <UserRepliesFeed userId={userData.id} />
+                        </TabsContent>
+
+                        <TabsContent className="mt-0 pb-12" value="amplified">
+                          <UserAmplifiedFeed userId={userData.id} />
+                        </TabsContent>
+                      </>
+                    ) : null}
+
+                    <TabsContent className="mt-0 pb-12 xl:hidden" value="media">
+                      {isLoggedIn ? (
+                        <MediaGalleryContent bare userId={userData.id} />
+                      ) : (
+                        <MediaGalleryLocked bare />
+                      )}
                     </TabsContent>
                   </>
-                ) : null}
-
-                <TabsContent className="mt-0 pb-12 xl:hidden" value="media">
-                  {isLoggedIn ? (
-                    <MediaGalleryContent bare userId={userData.id} />
-                  ) : (
-                    <MediaGalleryLocked bare />
-                  )}
-                </TabsContent>
+                )}
               </div>
               <FeedScrollbar containerRef={feedScrollRef} />
             </div>
           </Tabs>
         </div>
 
-        <MediaGallery locked={!isLoggedIn} userId={userData.id} />
+        {external ? null : (
+          <MediaGallery locked={!isLoggedIn} userId={userData.id} />
+        )}
       </div>
     </div>
   );

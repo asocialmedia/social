@@ -3,6 +3,7 @@ import {
   abortable,
   discoveryPageSchema,
   externalPostSchema,
+  externalAuthorSchema,
   readJsonBounded,
   retryAfterMs,
 } from "@asm/protocols/discovery";
@@ -12,11 +13,60 @@ import { z } from "zod";
 
 import { ProtocolGatewayError } from "./gateway";
 
+export async function readBlueskyProfileResource(
+  kind: "profile" | "author-feed",
+  query: URLSearchParams,
+  signal: AbortSignal,
+  requestId: string
+) {
+  const service = process.env.PROTOCOLS_SERVICE_URL;
+  const token = process.env.PROTOCOLS_INTERNAL_TOKEN;
+  if (!service || !token) {
+    throw new ProtocolGatewayError(503, "not_configured");
+  }
+  const url = new URL(`/v1/bluesky/${kind}`, service);
+  if (
+    !["http:", "https:"].includes(url.protocol) ||
+    url.username ||
+    url.password
+  ) {
+    throw new ProtocolGatewayError(503, "invalid_configuration");
+  }
+  url.search = query.toString();
+  const boundedSignal = AbortSignal.any([signal, AbortSignal.timeout(15_000)]);
+  const response = await abortable(
+    fetch(url, {
+      cache: "no-store",
+      headers: { authorization: `Bearer ${token}`, "x-request-id": requestId },
+      redirect: "error",
+      signal: boundedSignal,
+    }),
+    boundedSignal
+  );
+  if (!response.ok) {
+    await response.body?.cancel();
+    throw new ProtocolGatewayError(
+      [400, 403, 404, 429].includes(response.status) ? response.status : 503,
+      "profile_unavailable"
+    );
+  }
+  const data = await readJsonBounded(response, 2 * 1024 * 1024, boundedSignal);
+  return kind === "profile"
+    ? externalAuthorSchema.parse(data)
+    : z
+        .object({
+          cursor: z.string().nullable(),
+          items: z.array(externalPostSchema).max(50),
+        })
+        .parse(data);
+}
+
 export async function readBlueskyDiscovery(
   mode: DiscoveryMode,
   cursor?: string,
   signal?: AbortSignal,
-  requestId?: string
+  requestId?: string,
+  locale?: string
 ) {
   const service = process.env.PROTOCOLS_SERVICE_URL;
   const token = process.env.PROTOCOLS_INTERNAL_TOKEN;
@@ -32,6 +82,9 @@ export async function readBlueskyDiscovery(
     throw new ProtocolGatewayError(503, "invalid_configuration", 30);
   }
   url.searchParams.set("mode", mode);
+  if (locale) {
+    url.searchParams.set("locale", locale);
+  }
   if (cursor) {
     url.searchParams.set("cursor", cursor);
   }

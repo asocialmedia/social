@@ -19,6 +19,7 @@ import { useFeedSwipeNavigation } from "@/hooks/feed/use-feed-swipe-navigation";
 import kyInstance from "@/lib/ky";
 import { normalizePostData } from "@/lib/posts/post-normalize";
 import type { PresentedPost as PostData } from "@/lib/posts/presentation";
+import { blueskyProfilePath } from "@/lib/protocols/paths";
 import { withViewTransition } from "@/lib/view-transition";
 
 interface ClientPostProps {
@@ -149,7 +150,7 @@ const ClientPost: React.FC<ClientPostProps> = ({
   const handleSwipeNavigate = useCallback(
     (direction: -1 | 1) => {
       if (direction === 1 && post.external) {
-        window.location.assign(post.external.author.url);
+        router.push(blueskyProfilePath(post.external.author.id));
         return;
       }
       if (direction === 1 && authorUsername) {

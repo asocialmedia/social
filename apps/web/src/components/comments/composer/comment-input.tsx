@@ -44,6 +44,11 @@ const SEND_BTN_SHADOW =
   "shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]";
 
 interface CommentInputProps {
+  controller?: {
+    pending: boolean;
+    submit: (content: string) => Promise<boolean>;
+    maxLength: number;
+  };
   applyCreated: (comment: CommentData) => void;
   autoFocus?: boolean;
   className?: string;
@@ -54,7 +59,7 @@ interface CommentInputProps {
   onSubmitted?: () => void;
   parentId?: string;
   placeholder?: string;
-  post: PostData;
+  post: PostData | { id: string };
   reels?: boolean;
   replyingTo?: {
     commentId?: string;
@@ -77,6 +82,7 @@ export default function CommentInput({
   reels = false,
   replyingTo,
   submitLabel,
+  controller,
 }: CommentInputProps) {
   const { user } = useSession();
   const { goToLogin } = useRequireAuth();
@@ -94,6 +100,8 @@ export default function CommentInput({
   const { toast } = useToast();
 
   const mutation = useSubmitCommentMutation(post.id, applyCreated);
+  const pending = controller?.pending ?? mutation.isPending;
+  const maxChars = controller?.maxLength ?? MAX_COMMENT_CHARS;
 
   const {
     attachments,
@@ -113,10 +121,9 @@ export default function CommentInput({
 
   const wordCount = countWords(input);
   const isLengthExceeded =
-    wordCount > MAX_COMMENT_WORDS || input.length > MAX_COMMENT_CHARS;
+    wordCount > MAX_COMMENT_WORDS || input.length > maxChars;
   const isNearLengthLimit =
-    wordCount >= MAX_COMMENT_WORDS * 0.8 ||
-    input.length >= MAX_COMMENT_CHARS * 0.8;
+    wordCount >= MAX_COMMENT_WORDS * 0.8 || input.length >= maxChars * 0.8;
 
   const canSubmit =
     (input.trim().length > 0 ||
@@ -133,7 +140,7 @@ export default function CommentInput({
     });
   }, [input, parentId, post.id, replyingTo]);
 
-  function onSubmit(e?: React.FormEvent) {
+  async function onSubmit(e?: React.FormEvent) {
     e?.preventDefault();
 
     if (!user) {
@@ -141,10 +148,22 @@ export default function CommentInput({
       return;
     }
 
-    if (!canSubmit || mutation.isPending || isUploading) {
+    if (!canSubmit || pending || isUploading) {
       return;
     }
 
+    if (controller) {
+      if (await controller.submit(input.trim())) {
+        clearCommentDraft(post.id, parentId);
+        setInput("");
+        editorRef.current?.commands.clearContent();
+        onSubmitted?.();
+      }
+      return;
+    }
+    if (!("content" in post)) {
+      return;
+    }
     mutation.mutate(
       {
         content: input.trim(),
@@ -298,64 +317,69 @@ export default function CommentInput({
                         : "text-muted-foreground"
                     )}
                   >
-                    {wordCount}/{MAX_COMMENT_WORDS}w · {input.length}/
-                    {MAX_COMMENT_CHARS}c
+                    {wordCount}/{MAX_COMMENT_WORDS}w · {input.length}/{maxChars}
+                    c
                   </span>
                 ) : null}
                 <div className="ml-auto flex items-center gap-1.5">
-                  <button
-                    aria-label="Add image or GIF"
-                    className={cn(
-                      "pill-3d-hover group text-muted-foreground inline-flex h-8 items-center justify-center rounded-full border-0 px-2 text-sm font-medium active:translate-y-px",
-                      (isUploading || mutation.isPending) && "opacity-50"
-                    )}
-                    disabled={isUploading || mutation.isPending}
-                    onClick={() => fileInputRef.current?.click()}
-                    type="button"
-                  >
-                    <span className="flex items-center gap-1.5">
-                      <ImagePlus className="size-4" />
-                      <span className="max-w-0 overflow-hidden text-xs font-medium whitespace-nowrap transition-all duration-200 ease-in-out group-hover:max-w-32">
-                        Image
-                      </span>
-                    </span>
-                  </button>
-                  <button
-                    aria-label="Search and add a GIF"
-                    className={cn(
-                      "pill-3d-hover group text-muted-foreground inline-flex h-8 items-center justify-center rounded-full border-0 px-2 text-sm font-medium active:translate-y-px",
-                      gifPickerOpen &&
-                        "bg-linear-to-b from-[#7c5cff] to-[#5a3ae0] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(70,40,170,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]",
-                      (isUploading || mutation.isPending) && "opacity-50"
-                    )}
-                    disabled={isUploading || mutation.isPending}
-                    onClick={() => setGifPickerOpen((prev) => !prev)}
-                    type="button"
-                  >
-                    <span className="flex items-center gap-1.5">
-                      <Clapperboard className="size-4" />
-                      <span
+                  {controller ? null : (
+                    <>
+                      <button
+                        aria-label="Add image or GIF"
                         className={cn(
-                          "max-w-0 overflow-hidden text-xs font-medium whitespace-nowrap transition-all duration-200 ease-in-out",
-                          gifPickerOpen ? "max-w-32" : "group-hover:max-w-32"
+                          "pill-3d-hover group text-muted-foreground inline-flex h-8 items-center justify-center rounded-full border-0 px-2 text-sm font-medium active:translate-y-px",
+                          (isUploading || pending) && "opacity-50"
                         )}
+                        disabled={isUploading || pending}
+                        onClick={() => fileInputRef.current?.click()}
+                        type="button"
                       >
-                        GIFs
-                      </span>
-                    </span>
-                  </button>
+                        <span className="flex items-center gap-1.5">
+                          <ImagePlus className="size-4" />
+                          <span className="max-w-0 overflow-hidden text-xs font-medium whitespace-nowrap transition-all duration-200 ease-in-out group-hover:max-w-32">
+                            Image
+                          </span>
+                        </span>
+                      </button>
+                      <button
+                        aria-label="Search and add a GIF"
+                        className={cn(
+                          "pill-3d-hover group text-muted-foreground inline-flex h-8 items-center justify-center rounded-full border-0 px-2 text-sm font-medium active:translate-y-px",
+                          gifPickerOpen &&
+                            "bg-linear-to-b from-[#7c5cff] to-[#5a3ae0] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(70,40,170,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]",
+                          (isUploading || pending) && "opacity-50"
+                        )}
+                        disabled={isUploading || pending}
+                        onClick={() => setGifPickerOpen((prev) => !prev)}
+                        type="button"
+                      >
+                        <span className="flex items-center gap-1.5">
+                          <Clapperboard className="size-4" />
+                          <span
+                            className={cn(
+                              "max-w-0 overflow-hidden text-xs font-medium whitespace-nowrap transition-all duration-200 ease-in-out",
+                              gifPickerOpen
+                                ? "max-w-32"
+                                : "group-hover:max-w-32"
+                            )}
+                          >
+                            GIFs
+                          </span>
+                        </span>
+                      </button>
+                    </>
+                  )}
                   <button
                     aria-label={submitLabel ?? "Send eddie"}
                     className={cn(
                       "flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-xl bg-linear-to-b from-[#ff9500] to-[#e65500] px-4 text-sm font-semibold text-white transition-all duration-200 hover:brightness-110 active:translate-y-px",
                       SEND_BTN_SHADOW,
-                      (!canSubmit || mutation.isPending || isUploading) &&
-                        "opacity-50"
+                      (!canSubmit || pending || isUploading) && "opacity-50"
                     )}
-                    disabled={!canSubmit || mutation.isPending || isUploading}
+                    disabled={!canSubmit || pending || isUploading}
                     type="submit"
                   >
-                    {mutation.isPending ? (
+                    {pending ? (
                       <Loader2 className="size-4 animate-spin" />
                     ) : (
                       <>
@@ -423,7 +447,7 @@ export default function CommentInput({
                         )}
                       >
                         {wordCount}/{MAX_COMMENT_WORDS} words · {input.length}/
-                        {MAX_COMMENT_CHARS} chars
+                        {maxChars} chars
                       </span>
                     ) : null}
                   </div>
@@ -432,13 +456,12 @@ export default function CommentInput({
                     className={cn(
                       "flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-xl bg-linear-to-b from-[#ff9500] to-[#e65500] px-4 text-sm font-semibold text-white transition-all duration-200 hover:brightness-110 active:translate-y-px",
                       SEND_BTN_SHADOW,
-                      (!canSubmit || mutation.isPending || isUploading) &&
-                        "opacity-50"
+                      (!canSubmit || pending || isUploading) && "opacity-50"
                     )}
-                    disabled={!canSubmit || mutation.isPending || isUploading}
+                    disabled={!canSubmit || pending || isUploading}
                     type="submit"
                   >
-                    {mutation.isPending ? (
+                    {pending ? (
                       <Loader2 className="size-4 animate-spin" />
                     ) : (
                       <>

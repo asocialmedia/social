@@ -50,13 +50,14 @@ type CommentWithExtras = CommentData & {
 };
 
 interface CommentItemProps {
+  localActions?: { pending: boolean; delete: () => Promise<boolean> };
   applyCreated: (comment: CommentData) => void;
   applyDeleted: (comment: CommentData) => void;
   // Marks the last sibling so its rail segment terminates at the avatar center
   // (the connection point) instead of running the full height of the thread.
   isLast?: boolean;
   node: CommentNode;
-  post: PostData;
+  post: PostData | { id: string };
 }
 
 export default function CommentItem({
@@ -65,6 +66,7 @@ export default function CommentItem({
   isLast = false,
   node,
   post,
+  localActions,
 }: CommentItemProps) {
   const { comment, children, depth } = node;
   const { user } = useSession();
@@ -272,27 +274,39 @@ export default function CommentItem({
 
             {!isDeleted && (
               <div className="mt-1 flex flex-wrap items-center gap-1">
-                <AuraVoteButton
-                  authorName={displayName}
-                  commentId={comment.id}
-                  expandable={false}
-                  initialState={{
-                    aura: comment.aura ?? 0,
-                    userVote: commentWithExtras.votes?.[0]?.value ?? 0,
-                  }}
-                  postId={post.id}
-                />
-                <button
-                  aria-label="Reply to eddie"
-                  className="pill-3d-hover text-muted-foreground inline-flex h-8 items-center gap-1 rounded-full border-0 px-2 text-xs font-medium active:translate-y-px"
-                  onClick={handleReplyOpen}
-                  type="button"
-                >
-                  <CornerDownRight className="size-3.5" />
-                  Reply
-                </button>
+                {localActions ? null : (
+                  <>
+                    <AuraVoteButton
+                      authorName={displayName}
+                      commentId={comment.id}
+                      expandable={false}
+                      initialState={{
+                        aura: comment.aura ?? 0,
+                        userVote: commentWithExtras.votes?.[0]?.value ?? 0,
+                      }}
+                      postId={post.id}
+                    />
+                    <button
+                      aria-label="Reply to eddie"
+                      className="pill-3d-hover text-muted-foreground inline-flex h-8 items-center gap-1 rounded-full border-0 px-2 text-xs font-medium active:translate-y-px"
+                      onClick={handleReplyOpen}
+                      type="button"
+                    >
+                      <CornerDownRight className="size-3.5" />
+                      Reply
+                    </button>
+                  </>
+                )}
                 {isOwnComment && (
                   <CommentMoreButton
+                    controller={
+                      localActions
+                        ? {
+                            delete: localActions.delete,
+                            pending: localActions.pending,
+                          }
+                        : undefined
+                    }
                     applyDeleted={applyDeleted}
                     className="h-7 w-7 rounded-full opacity-0 transition-opacity group-hover/comment:opacity-100"
                     comment={comment}
