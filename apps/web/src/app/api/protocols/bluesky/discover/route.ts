@@ -1,8 +1,11 @@
-import { externalPostStates, getRecommendationProfile } from "@asm/db";
+// Watch registration is best-effort after the viewer's page has completed.
+// oxlint-disable promise/prefer-await-to-then
+import { externalPostStates, getRecommendationProfile, redis } from "@asm/db";
 import {
   discoveryModeSchema,
   discoveryLocaleSchema,
   filterExternalRecommendations,
+  DISCOVERY_WATCH_CHANNEL,
 } from "@asm/protocols/discovery";
 import { z } from "zod";
 
@@ -53,6 +56,18 @@ export function GET(request: Request) {
         : Promise.resolve(new Set<string>()),
     ]);
     const filtered = filterExternalRecommendations(page.items, excluded);
+    void redis
+      .publish(
+        DISCOVERY_WATCH_CHANNEL,
+        JSON.stringify({
+          locale: locale.data,
+          mode: mode.data,
+          topics: profile ? discoveryTopics(profile) : [],
+        })
+      )
+      .catch(() => {
+        // The completed page remains usable if watch registration is unavailable.
+      });
     const items = profile ? rankExternalForViewer(filtered, profile) : filtered;
     const states = await externalPostStates(
       items.map((post) => post.id),

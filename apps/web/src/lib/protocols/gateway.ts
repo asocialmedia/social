@@ -135,6 +135,13 @@ export async function protocolRoute(
     active -= 1;
   }
   for (const [key, value] of Object.entries(headers)) {
+    if (
+      key === "cache-control" &&
+      response.headers.get("content-type")?.startsWith("text/event-stream")
+    ) {
+      response.headers.set(key, "private, no-store, no-transform");
+      continue;
+    }
     response.headers.set(key, value);
   }
   if (guest.cookie) {

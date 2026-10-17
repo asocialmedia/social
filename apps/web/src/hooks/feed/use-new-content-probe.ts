@@ -1,7 +1,11 @@
 // oxlint-disable react/todo -- Polling releases its overlap guard after successful and failed reads.
 "use client";
 
+import { createFeedReadScheduler } from "@asm/protocols/discovery";
+import type { DiscoveryMode } from "@asm/protocols/discovery";
 import { useCallback, useEffect, useRef, useState } from "react";
+
+import { useFeedEvents } from "./use-feed-events";
 
 // Any feed item the hook can key on. PostData satisfies this.
 export interface NewContentItem {
@@ -40,6 +44,8 @@ export function findUnseenRankedItems<T extends NewContentItem>(
 }
 
 interface UseNewContentProbeOptions<T extends NewContentItem> {
+  eventSource?: "asm" | "bluesky";
+  eventMode?: DiscoveryMode;
   // Skip probing entirely (e.g. a deep-linked detail feed that is not the
   // active timeline).
   enabled?: boolean;
@@ -75,6 +81,8 @@ interface UseNewContentProbeResult<T> {
 // or when the reader returns to the top of the feed.
 export function useNewContentProbe<T extends NewContentItem>({
   enabled = true,
+  eventSource,
+  eventMode,
   fetchHead,
   filter,
   intervalMs = 45_000,
@@ -98,6 +106,18 @@ export function useNewContentProbe<T extends NewContentItem>({
   const filterRef = useRef(filter);
   const probeRef = useRef<() => Promise<void>>(() => Promise.resolve());
   const ranked = order === "ranked";
+  const scheduleRef = useRef<() => void>(() => {
+    /* empty */
+  });
+  useFeedEvents(enabled && Boolean(eventSource), (change) => {
+    if (
+      change.source === "connected" ||
+      (change.source === eventSource &&
+        (!change.mode || change.mode === eventMode))
+    ) {
+      scheduleRef.current();
+    }
+  });
 
   useEffect(() => {
     visibleRef.current = visible;
@@ -120,9 +140,6 @@ export function useNewContentProbe<T extends NewContentItem>({
         return;
       }
       const { current } = visibleRef;
-      if (current.length === 0) {
-        return;
-      }
       let fresh: T[];
       inFlight = true;
       try {
@@ -172,21 +189,29 @@ export function useNewContentProbe<T extends NewContentItem>({
       void probe();
     }
     probeRef.current = probe;
+    const scheduler = createFeedReadScheduler(probe);
+    scheduleRef.current = scheduler.schedule;
     const onVisible = () => {
       void probe();
     };
     document.addEventListener("visibilitychange", onVisible);
-    const interval = window.setInterval(() => {
-      void probe();
-    }, intervalMs);
+    const interval = eventSource
+      ? undefined
+      : window.setInterval(() => {
+          void probe();
+        }, intervalMs);
     return () => {
       active = false;
+      scheduler.stop();
+      scheduleRef.current = () => {
+        /* empty */
+      };
       controller.abort();
       probeRef.current = () => Promise.resolve();
       document.removeEventListener("visibilitychange", onVisible);
       window.clearInterval(interval);
     };
-  }, [enabled, intervalMs, probeOnMount, ranked, resetKey]);
+  }, [enabled, eventSource, intervalMs, probeOnMount, ranked, resetKey]);
 
   const clearNewItems = useCallback(() => {
     setBadge((previous) => ({ ...previous, items: [] }));

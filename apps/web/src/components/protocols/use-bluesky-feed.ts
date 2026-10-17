@@ -1,15 +1,15 @@
 "use client";
 
 import {
-  canRetryRead,
-  FeedReadError,
   readDiscoveryPage,
+  readDiscoveryWindow,
 } from "@asm/protocols/discovery";
 import type { DiscoveryMode, DiscoveryPage } from "@asm/protocols/discovery";
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import type { InfiniteData } from "@tanstack/react-query";
 
 import { useDiscoveryLocale } from "@/hooks/feed/use-discovery-locale";
+import { useFeedEvents } from "@/hooks/feed/use-feed-events";
 import { useNewContentProbe } from "@/hooks/feed/use-new-content-probe";
 import { FEED_QUERY_BEHAVIOR } from "@/lib/posts/feed-cache";
 import { useExternalExclusions } from "@/store/feed-source-store";
@@ -28,26 +28,34 @@ export function useBlueskyFeed(
     enabled: enabled && ready,
     getNextPageParam: (lastPage: DiscoveryPage) => lastPage.cursor ?? undefined,
     initialPageParam: null as string | null,
-    maxPages: 20,
-    queryFn: ({ pageParam, signal }): Promise<DiscoveryPage> =>
-      readDiscoveryPage({ cursor: pageParam, locale, mode, signal }),
+    queryFn: ({ pageParam, signal }): Promise<DiscoveryPage> => {
+      const options = { cursor: pageParam, locale, mode, signal };
+      if (!pageParam) {
+        return readDiscoveryPage(options);
+      }
+      const current =
+        queryClient.getQueryData<InfiniteData<DiscoveryPage>>(queryKey);
+      return readDiscoveryWindow(
+        options,
+        new Set(
+          current?.pages.flatMap((page) => page.items.map((item) => item.id))
+        )
+      );
+    },
     queryKey,
-    refetchInterval: (state) =>
-      enabled && canRetryRead(state.state.error)
-        ? Math.max(
-            30_000,
-            state.state.error instanceof FeedReadError
-              ? state.state.error.retryAfter
-              : 0
-          )
-        : false,
-    refetchIntervalInBackground: false,
-    refetchOnWindowFocus: (state) => Boolean(state.state.error),
+    refetchOnWindowFocus: false,
     retry: false,
     staleTime: Infinity,
   });
+  useFeedEvents(enabled && ready && !query.data, () => {
+    if (query.isError) {
+      void query.refetch();
+    }
+  });
   const probe = useNewContentProbe({
     enabled: enabled && Boolean(query.data),
+    eventMode: mode,
+    eventSource: "bluesky",
     fetchHead: async (signal) => {
       const head = await readDiscoveryPage({
         cursor: null,
@@ -60,8 +68,7 @@ export function useBlueskyFeed(
     filter: (post) =>
       !excluded.has(`post:${post.id}`) &&
       !excluded.has(`author:${post.author.id}`),
-    intervalMs: 15_000,
-    order: "ranked",
+    order: mode === "latest" ? "newest-first" : "ranked",
     probeOnMount: !query.isFetchedAfterMount,
     resetKey: `${mode}:${viewer}:${locale}`,
     visible: query.data?.pages.flatMap((page) => page.items) ?? [],

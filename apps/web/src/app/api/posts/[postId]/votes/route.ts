@@ -272,6 +272,9 @@ export async function POST(
       userVote: result.vote?.[0]?.value ?? 0,
     };
 
+    const { publishFeedChange } =
+      await import("@/lib/posts/publish-feed-change");
+    void publishFeedChange();
     return Response.json(voteInfo);
   } catch (error) {
     console.error(error);
@@ -400,6 +403,9 @@ export async function DELETE(
       userVote: 0,
     };
 
+    const { publishFeedChange } =
+      await import("@/lib/posts/publish-feed-change");
+    void publishFeedChange();
     return Response.json(voteInfo);
   } catch (error) {
     console.error(error);

@@ -59,6 +59,7 @@ export default function FollowingFeed() {
   // Head-only probe so cached pages stay visible while new follows arrive as an
   // avatar badge. Nothing moves until the badge is tapped.
   const { clearNewItems, newItems } = useNewContentProbe({
+    eventSource: "asm",
     fetchHead: async () => {
       const fresh = await kyInstance
         .get("/api/posts/following")

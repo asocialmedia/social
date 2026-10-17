@@ -263,7 +263,8 @@ export default function HomeFeed({
     probeNow,
   } = useNewContentProbe({
     enabled: !excludePostId && !communitySlug && source !== "bluesky",
-    fetchHead: async () => {
+    eventSource: "asm",
+    fetchHead: async (signal) => {
       // Cheap first, and only where it is sound: one row answers "did anything
       // arrive?" on a recency-ordered feed. The full head page - twenty
       // viewer-resolved posts, their vote and bookmark joins, and a view count
@@ -274,58 +275,64 @@ export default function HomeFeed({
       // be sitting at the top.
       if (probeSupportsSingleRow && globalPosts.length > 0) {
         const head = await kyInstance
-          .get(endpoint, { searchParams: { take: 1 } })
+          .get(endpoint, { searchParams: { take: 1 }, signal })
           .json<PostsPage>();
         if (globalPosts.some((post) => post.id === head.posts[0]?.id)) {
           return [];
         }
       }
-      const fresh = await kyInstance.get(endpoint).json<PostsPage>();
+      const fresh = await kyInstance
+        .get(endpoint, { signal })
+        .json<PostsPage>();
       return fresh.posts;
     },
     order: isRankedFeed ? "ranked" : "newest-first",
+    resetKey: `${feedKey}:${user?.id ?? "guest"}`,
     visible: globalPosts,
   });
 
-  const handleBottomReached = useCallback(() => {
-    if (
-      allowExternal &&
-      source !== "asm" &&
-      external.hasNextPage &&
-      !external.isFetching &&
-      !external.isError
-    ) {
-      void external.fetchNextPage();
-    }
-    if (source === "bluesky") {
-      return;
-    }
-    const segment = nextFeedSegment({
-      communityExhausted,
-      globalHasNextPage: Boolean(globalHasNextPage),
-      hasCommunityLead,
-    });
-    if (segment === "community") {
-      if (!isFetchingNextCommunityPage) {
-        fetchNextCommunityPage();
+  const handleBottomReached = useCallback(
+    (retry = false) => {
+      if (
+        allowExternal &&
+        source !== "asm" &&
+        external.hasNextPage &&
+        !external.isFetching &&
+        (!external.isError || retry)
+      ) {
+        void external.fetchNextPage();
       }
-      return;
-    }
-    if (segment === "global" && !isFetching) {
-      fetchNextPage();
-    }
-  }, [
-    allowExternal,
-    source,
-    external,
-    communityExhausted,
-    fetchNextCommunityPage,
-    fetchNextPage,
-    globalHasNextPage,
-    hasCommunityLead,
-    isFetching,
-    isFetchingNextCommunityPage,
-  ]);
+      if (source === "bluesky") {
+        return;
+      }
+      const segment = nextFeedSegment({
+        communityExhausted,
+        globalHasNextPage: Boolean(globalHasNextPage),
+        hasCommunityLead,
+      });
+      if (segment === "community") {
+        if (!isFetchingNextCommunityPage) {
+          fetchNextCommunityPage();
+        }
+        return;
+      }
+      if (segment === "global" && !isFetching) {
+        fetchNextPage();
+      }
+    },
+    [
+      allowExternal,
+      source,
+      external,
+      communityExhausted,
+      fetchNextCommunityPage,
+      fetchNextPage,
+      globalHasNextPage,
+      hasCommunityLead,
+      isFetching,
+      isFetchingNextCommunityPage,
+    ]
+  );
 
   // Merge the probed posts straight into the head of the cached feed, then
   // bring the viewer up to meet them. No refetch and no skeleton: the feed is
@@ -565,8 +572,8 @@ export default function HomeFeed({
         ) : null}
         {hasNextPage && !isFetchingNextPage ? (
           <div className="flex justify-center p-4">
-            <Button onClick={handleBottomReached} variant="ghost">
-              Load more posts
+            <Button onClick={() => handleBottomReached(true)} variant="ghost">
+              {external.isError ? "Retry loading posts" : "Load more posts"}
             </Button>
           </div>
         ) : null}

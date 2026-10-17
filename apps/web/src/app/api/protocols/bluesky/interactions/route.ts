@@ -82,6 +82,9 @@ export function GET(request: Request) {
         requestId
       );
       const current = source.posts;
+      if (!source.verified) {
+        throw new ProtocolGatewayError(503, "source_read_failed");
+      }
       const byUri = new Map(current.map((post) => [post.id, post]));
       if (source.verified) {
         await Promise.all(
@@ -124,6 +127,9 @@ export function GET(request: Request) {
       externalComments(uri.data, parsed?.data),
       findExternalPost(uri.data),
     ]);
+    if (!posts.verified) {
+      throw new ProtocolGatewayError(503, "source_read_failed");
+    }
     const post = posts.posts.find((entry) => entry.id === uri.data) ?? null;
     if (retained && posts.verified) {
       await refreshExternalPost(uri.data, post);

@@ -844,6 +844,11 @@ export async function submitPost(input: CreatePostInput) {
     // wrapper swallows enqueue failures so a Redis hiccup never fails the post.
     await enqueueShitposterCheckSafely(sessionData.user.id);
 
+    if (newPost) {
+      const { publishFeedChange } =
+        await import("@/lib/posts/publish-feed-change");
+      void publishFeedChange();
+    }
     return newPost;
   } catch (error) {
     console.error("Error in submitPost:", error);

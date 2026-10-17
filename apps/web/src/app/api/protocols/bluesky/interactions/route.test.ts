@@ -123,17 +123,29 @@ test("removing a bookmark remains possible without contacting the source", async
   expect(reads).toBe(0);
 });
 
-test("a source outage keeps ASM discussions readable and does not declare a deletion", async () => {
+test("a source outage returns a retryable failure instead of a successful deletion", async () => {
   offline = true;
   const response = await GET(
     new Request(
       `http://localhost/api/protocols/bluesky/interactions?${new URLSearchParams({ uri })}`
     )
   );
+  expect(response.status).toBe(503);
+  expect(response.headers.get("retry-after")).toBe("2");
+});
+
+test("a verified source absence still renders the preserved discussion", async () => {
+  available = false;
+  const response = await GET(
+    new Request(
+      `http://localhost/api/protocols/bluesky/interactions?${new URLSearchParams({ uri })}`
+    )
+  );
   expect(response.status).toBe(200);
-  const result = await response.json();
-  expect(result.post).toBeNull();
-  expect(result.comments).toEqual({ cursor: null, items: [] });
+  expect(await response.json()).toEqual({
+    comments: { cursor: null, items: [] },
+    post: null,
+  });
 });
 
 test("discussion pagination never waits for or revalidates the upstream post", async () => {

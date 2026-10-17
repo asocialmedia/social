@@ -397,5 +397,7 @@ export async function deletePost(id: string) {
     }
   }
 
+  const { publishFeedChange } = await import("@/lib/posts/publish-feed-change");
+  void publishFeedChange();
   return deletedPost;
 }
