@@ -4,9 +4,6 @@ let notify: ((_channel: string, raw: string) => void) | undefined;
 let unsubscribeCount = 0;
 const watches: unknown[] = [];
 let deferred: Promise<undefined> | undefined;
-class GatewayError extends Error {
-  override name = "GatewayError";
-}
 
 mock.module("@/lib/auth/session", () => ({
   getSessionFromApi: () => Promise.resolve(null),
@@ -14,16 +11,15 @@ mock.module("@/lib/auth/session", () => ({
 mock.module("@/lib/protocols/recommendations", () => ({
   discoveryTopics: () => [],
 }));
-mock.module("@/lib/protocols/gateway", () => ({
-  ProtocolGatewayError: GatewayError,
-  protocolRoute: (
-    _request: Request,
-    _kind: string,
-    run: () => Promise<Response>
-  ) => run(),
+mock.module("@/lib/protocols/budget", () => ({
+  ProtocolBudgetError: class extends Error {},
+  consumeProtocolBudget: () => Promise.resolve(),
 }));
 mock.module("@asm/db", () => ({
+  getClientIpFromHeaders: () => "127.0.0.1",
   getRecommendationProfile: () => Promise.resolve(null),
+  getTrustedIngressIp: () => "127.0.0.1",
+  hashViewerId: (value: string) => value,
   redis: {
     publish: (_channel: string, raw: string) => {
       watches.push(JSON.parse(raw));

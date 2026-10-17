@@ -10,6 +10,8 @@ import { getWebLogger } from "@/lib/otel";
 import { consumeProtocolBudget, ProtocolBudgetError } from "./budget";
 import { protocolGuest } from "./guest";
 
+export { consumeProtocolBudget } from "./budget";
+
 export class ProtocolGatewayError extends Error {
   readonly status: number;
   readonly code: string;
@@ -24,8 +26,6 @@ export class ProtocolGatewayError extends Error {
 }
 
 let active = 0;
-
-export { consumeProtocolBudget };
 
 export async function protocolJsonBody(
   request: Request,
