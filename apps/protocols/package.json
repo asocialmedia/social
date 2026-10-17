@@ -1,6 +1,6 @@
 {
   "name": "@asm/protocols-app",
-  "version": "0.1.13",
+  "version": "0.1.15",
   "private": true,
   "description": "Elysia protocol service and live network consumers for asocialmedia",
   "license": "AGPL-3.0",
