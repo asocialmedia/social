@@ -1,5 +1,4 @@
 import { messageIsRetained } from "@asm/messages";
-import { MenuView } from "@expo/ui/community/menu";
 import * as Clipboard from "expo-clipboard";
 // The message thread: a scrolling transcript, the header, and the composer.
 //
@@ -136,6 +135,7 @@ import type { ComposerTarget } from "./message-composer";
 import { MessageIdentityLocked } from "./message-identity-locked";
 import { MessageMediaViewer } from "./message-media-viewer";
 import { MessagePresenceIndicator } from "./message-presence-indicator";
+import { MessageReactionSheet } from "./message-reaction-sheet";
 import { MessageSearchBar } from "./message-search-bar";
 import { MessageSearchResults } from "./message-search-results";
 import { MessagesIconButton } from "./messages-primitives";
@@ -159,14 +159,6 @@ const SELF_GROUP = {
   isLastInGroup: true,
   showTimeDivider: false,
 };
-const REACTION_OPTIONS = [
-  { emoji: "❤️", label: "Love" },
-  { emoji: "👍", label: "Like" },
-  { emoji: "😂", label: "Laugh" },
-  { emoji: "😮", label: "Wow" },
-  { emoji: "😢", label: "Sad" },
-  { emoji: "🔥", label: "Fire" },
-] as const;
 
 export function MessageThreadScreen(props: {
   conversationId: string;
@@ -282,6 +274,7 @@ function NormalMessageThreadScreen({
     themeKey: null,
   });
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const [reactionTarget, setReactionTarget] = useState<string | null>(null);
   const [replyTo, setReplyTo] = useState<ComposerTarget | null>(null);
   const [reactionPendingIds, setReactionPendingIds] = useState<
     ReadonlySet<string>
@@ -1113,35 +1106,18 @@ function NormalMessageThreadScreen({
                   }}
                   size={32}
                 />
-                <MenuView
-                  actions={REACTION_OPTIONS.map(({ emoji, label }) => ({
-                    id: emoji,
-                    title: `${emoji} ${label}`,
-                  }))}
-                  onPressAction={({ nativeEvent }) => {
+                <MessagesIconButton
+                  icon={Smile}
+                  label="React to selected message"
+                  onPress={() => {
                     const [id] = selectedIds;
-                    if (
-                      id &&
-                      REACTION_OPTIONS.some(
-                        ({ emoji }) => emoji === nativeEvent.event
-                      )
-                    ) {
+                    if (id) {
                       clearSelection();
-                      void handleMessageReaction(id, nativeEvent.event);
+                      setReactionTarget(id);
                     }
                   }}
-                >
-                  <View>
-                    <MessagesIconButton
-                      icon={Smile}
-                      label="React to selected message"
-                      onPress={() => {
-                        /* empty */
-                      }}
-                      size={32}
-                    />
-                  </View>
-                </MenuView>
+                  size={32}
+                />
               </>
             ) : null}
             <MessagesIconButton
@@ -1406,6 +1382,16 @@ function NormalMessageThreadScreen({
           images={viewer.images}
           index={viewer.index}
           onClose={() => setViewer(null)}
+        />
+      ) : null}
+      {reactionTarget ? (
+        <MessageReactionSheet
+          onClose={() => setReactionTarget(null)}
+          onReact={(emoji) => {
+            const target = reactionTarget;
+            setReactionTarget(null);
+            void handleMessageReaction(target, emoji);
+          }}
         />
       ) : null}
     </View>

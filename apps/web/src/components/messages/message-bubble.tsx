@@ -51,6 +51,7 @@ interface MessageBubbleProps {
   onEdit?: () => void;
   onReact?: (emoji: string) => void;
   reactionPending?: boolean;
+  onMoreOptions?: (rect: DOMRect) => void;
   onReply: () => void;
   quote: { senderName: string; content: string } | null;
   quotePending: boolean;
@@ -82,6 +83,7 @@ export function MessageBubble({
   onEdit,
   onReact,
   reactionPending = false,
+  onMoreOptions,
   onReply,
   quote,
   quotePending,
@@ -92,6 +94,7 @@ export function MessageBubble({
   unknownSenderName,
 }: MessageBubbleProps) {
   const mine = message.senderId === myUserId;
+  const hasReactions = Boolean(message.reactions?.length && onReact);
   // Media albums render as bare collages (their own frames), unlike text/post
   // messages which sit in a tinted bubble.
   const isMedia = content?.type === "media";
@@ -112,7 +115,9 @@ export function MessageBubble({
   let avatarNode: React.ReactNode = null;
   if (showAvatar) {
     avatarNode = (
-      <UserAvatar avatarUrl={message.sender?.avatarUrl ?? null} size={28} />
+      <span className={cn("w-7 shrink-0", hasReactions && "mb-[22px]")}>
+        <UserAvatar avatarUrl={message.sender?.avatarUrl ?? null} size={28} />
+      </span>
     );
   } else if (!mine) {
     avatarNode = <span aria-hidden className="w-7 shrink-0" />;
@@ -392,6 +397,18 @@ export function MessageBubble({
                 aria-label="More options"
                 className="text-muted-foreground hover:bg-muted/60 flex h-6 w-6 items-center justify-center rounded-md transition-colors"
                 data-open-options=""
+                onClick={
+                  onMoreOptions
+                    ? (event) =>
+                        onMoreOptions(
+                          event.currentTarget
+                            .closest("[data-message-row]")
+                            ?.querySelector("[data-message-bubble]")
+                            ?.getBoundingClientRect() ??
+                            event.currentTarget.getBoundingClientRect()
+                        )
+                    : undefined
+                }
                 type="button"
               >
                 <MoreHorizontal className="h-3.5 w-3.5" />
@@ -403,57 +420,59 @@ export function MessageBubble({
               the colored bubble entirely: no background, border, shadow, or
               padding. Text/post messages keep the tinted bubble. The data
               attribute is the stable anchor for the options pane. */}
-          <div
-            className={cn(
-              "relative max-w-full min-w-0",
-              bubbleClass,
-              jumpShimmer && "msg-jump-shimmer"
-            )}
-            data-message-bubble=""
-          >
-            {quoteBlock}
+          <div className="flex max-w-full min-w-0 flex-col items-start">
+            <div
+              className={cn(
+                "relative max-w-full min-w-0",
+                bubbleClass,
+                jumpShimmer && "msg-jump-shimmer"
+              )}
+              data-message-bubble=""
+            >
+              {quoteBlock}
 
-            {renderContent()}
+              {renderContent()}
 
-            {/* Text messages place the marker inline next to the timestamp (see
+              {/* Text messages place the marker inline next to the timestamp (see
                 renderContent); media albums and post cards have no timestamp
                 row, so the marker sits just below the content instead. */}
-            {content && content.type !== "text" ? (
-              <EditedMarker
-                editedAt={message.editedAt}
-                mine={mine}
-                onColoredBubble={onColoredBubble}
-              />
+              {content && content.type !== "text" ? (
+                <EditedMarker
+                  editedAt={message.editedAt}
+                  mine={mine}
+                  onColoredBubble={onColoredBubble}
+                />
+              ) : null}
+            </div>
+            {message.reactions?.length && onReact ? (
+              <div
+                aria-label="Message reactions"
+                className="relative z-10 -mt-2.5 mr-1 flex max-w-full [scrollbar-width:none] gap-0.5 self-end overflow-x-auto"
+              >
+                {message.reactions.map((reaction) => (
+                  <button
+                    aria-label={`${reaction.emoji}, ${reaction.count}${reaction.count === 1 ? " reaction" : " reactions"}${reaction.reactedByMe ? ", remove mine" : ""}`}
+                    aria-pressed={reaction.reactedByMe}
+                    className={cn(
+                      "chip-3d inline-flex min-h-8 min-w-8 shrink-0 items-center justify-center gap-1 rounded-full px-2 text-xs transition-transform duration-150 disabled:opacity-50 motion-safe:active:scale-95",
+                      reaction.reactedByMe &&
+                        "text-primary ring-primary/40 ring-1"
+                    )}
+                    key={reaction.emoji}
+                    disabled={reactionPending}
+                    onClick={() => onReact(reaction.emoji)}
+                    type="button"
+                  >
+                    <span aria-hidden="true">{reaction.emoji}</span>
+                    {reaction.count > 1 ? (
+                      <span className="tabular-nums">{reaction.count}</span>
+                    ) : null}
+                  </button>
+                ))}
+              </div>
             ) : null}
           </div>
         </div>
-        {message.reactions?.length && onReact ? (
-          <div
-            aria-label="Message reactions"
-            className={cn(
-              "mt-1 flex max-w-full flex-wrap gap-1",
-              mine ? "justify-end" : "justify-start"
-            )}
-          >
-            {message.reactions.map((reaction) => (
-              <button
-                aria-label={`${reaction.emoji}, ${reaction.count}${reaction.count === 1 ? " reaction" : " reactions"}${reaction.reactedByMe ? ", remove mine" : ""}`}
-                aria-pressed={reaction.reactedByMe}
-                className={cn(
-                  "chip-3d inline-flex min-h-7 items-center gap-1 rounded-full px-2 text-xs transition-transform duration-150 active:scale-95",
-                  reaction.reactedByMe && "text-primary ring-primary/40 ring-1"
-                )}
-                key={reaction.emoji}
-                disabled={reactionPending}
-                onClick={() => onReact(reaction.emoji)}
-                type="button"
-              >
-                <span aria-hidden="true">{reaction.emoji}</span>
-                <span className="tabular-nums">{reaction.count}</span>
-              </button>
-            ))}
-          </div>
-        ) : null}
       </div>
     </div>
   );

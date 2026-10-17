@@ -1,5 +1,6 @@
 "use client";
 
+import { QUICK_MESSAGE_REACTIONS } from "@asm/messages";
 import {
   Check,
   Copy,
@@ -7,6 +8,7 @@ import {
   Pencil,
   Trash,
   Trash2,
+  Plus,
 } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -17,6 +19,8 @@ import type { MessageReceiptInfo } from "@/lib/messages/message-receipts";
 import { receiptLabel } from "@/lib/messages/message-receipts";
 import { setPopupOpen } from "@/lib/popup-tracker";
 import { cn, formatMessageDateTime } from "@/lib/utils";
+
+import { MessageReactionPicker } from "./message-reaction-picker";
 
 // The options surface for one message. Desktop (fine pointers) open it as a
 // popover beside the bubble; touch devices open it as a bottom sheet, where a
@@ -54,6 +58,7 @@ export interface MessageOptionsMenuProps {
   onSelect: () => void;
   /** Own-message delivery state; null for received messages. */
   receipt: MessageReceiptInfo | null;
+  reactionOnly?: boolean;
 }
 
 export function MessageOptionsMenu({
@@ -74,8 +79,40 @@ export function MessageOptionsMenu({
   preferEnd,
   presentation,
   receipt,
+  reactionOnly = false,
 }: MessageOptionsMenuProps) {
-  const panelRef = useRef<HTMLDivElement | null>(null);
+  const panelRef = useRef<HTMLDialogElement | null>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [keyboardViewport, setKeyboardViewport] = useState<{
+    bottom: number;
+    height: number;
+  } | null>(null);
+  useEffect(() => {
+    if (presentation !== "sheet") {
+      return;
+    }
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const viewport = window.visualViewport;
+    const place = () => {
+      if (viewport) {
+        setKeyboardViewport({
+          bottom: Math.max(
+            0,
+            window.innerHeight - viewport.height - viewport.offsetTop
+          ),
+          height: viewport.height,
+        });
+      }
+    };
+    viewport?.addEventListener("resize", place);
+    viewport?.addEventListener("scroll", place);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      viewport?.removeEventListener("resize", place);
+      viewport?.removeEventListener("scroll", place);
+    };
+  }, [presentation]);
   // The sheet variant is positioned by CSS against the viewport, so it needs no
   // measured placement; the popover starts at a best-effort point and is placed
   // after measuring.
@@ -96,27 +133,37 @@ export function MessageOptionsMenu({
     if (!panel) {
       return;
     }
-    const size = panel.getBoundingClientRect();
-    const next = placeOptionsPane({
-      preferEnd,
-      rect: anchorRect,
-      size: { height: size.height, width: size.width },
-      viewport: { height: window.innerHeight, width: window.innerWidth },
-    });
-    // Bail when unchanged: the parent re-renders often and a fresh position
-    // object each time would churn the panel needlessly.
-    setPosition((current) =>
-      current.x === next.x && current.y === next.y ? current : next
-    );
+    const place = () => {
+      const size = panel.getBoundingClientRect();
+      const next = placeOptionsPane({
+        preferEnd,
+        rect: anchorRect,
+        size: { height: size.height, width: size.width },
+        viewport: { height: window.innerHeight, width: window.innerWidth },
+      });
+      // Bail when unchanged: the parent re-renders often and a fresh position
+      // object each time would churn the panel needlessly.
+      setPosition((current) =>
+        current.x === next.x && current.y === next.y ? current : next
+      );
+    };
+    place();
+    const observer = new ResizeObserver(place);
+    observer.observe(panel);
+    return () => observer.disconnect();
   }, [anchorRect, preferEnd, presentation]);
 
   // Publish the open state so outside-click dismissal elsewhere in the app (the
   // post card's navigation guard) can tell a menu dismissal from a real click.
   useEffect(() => {
+    const previousFocus = document.activeElement;
     setPopupOpen(true);
     panelRef.current?.focus();
     return () => {
       setPopupOpen(false);
+      if (previousFocus instanceof HTMLElement && previousFocus.isConnected) {
+        previousFocus.focus({ preventScroll: true });
+      }
     };
   }, []);
 
@@ -131,8 +178,10 @@ export function MessageOptionsMenu({
       }
       document.addEventListener("pointerdown", handlePointerDown, true);
       document.addEventListener("keydown", handleKeyDown);
-      window.addEventListener("scroll", onClose, true);
-      window.addEventListener("resize", onClose);
+      window.addEventListener("scroll", handleScroll, true);
+      if (presentation === "popover") {
+        window.addEventListener("resize", onClose);
+      }
     });
 
     function handlePointerDown(event: PointerEvent) {
@@ -149,8 +198,48 @@ export function MessageOptionsMenu({
 
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
-        onClose();
+        event.preventDefault();
+        if (pickerOpen) {
+          setPickerOpen(false);
+          requestAnimationFrame(() =>
+            panelRef.current
+              ?.querySelector<HTMLButtonElement>("[data-more-reactions]")
+              ?.focus()
+          );
+        } else {
+          onClose();
+        }
       }
+      if (event.key === "Tab") {
+        const buttons = [
+          ...(panelRef.current?.querySelectorAll<HTMLElement>(
+            'button:not(:disabled),input,select,[tabindex="0"]'
+          ) ?? []),
+        ];
+        const first = buttons?.[0];
+        const last = buttons.at(-1);
+        if (
+          event.shiftKey &&
+          (document.activeElement === first ||
+            document.activeElement === panelRef.current)
+        ) {
+          event.preventDefault();
+          last?.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          first?.focus();
+        }
+      }
+    }
+
+    function handleScroll(event: Event) {
+      if (
+        event.target instanceof Node &&
+        panelRef.current?.contains(event.target)
+      ) {
+        return;
+      }
+      onClose();
     }
 
     return () => {
@@ -158,10 +247,10 @@ export function MessageOptionsMenu({
       cancelAnimationFrame(onFrame);
       document.removeEventListener("pointerdown", handlePointerDown, true);
       document.removeEventListener("keydown", handleKeyDown);
-      window.removeEventListener("scroll", onClose, true);
+      window.removeEventListener("scroll", handleScroll, true);
       window.removeEventListener("resize", onClose);
     };
-  }, [onClose]);
+  }, [onClose, pickerOpen, presentation]);
 
   const sentLabel = formatMessageDateTime(createdAt);
   const editedLabel = editedAt ? formatMessageDateTime(editedAt) : "";
@@ -195,19 +284,21 @@ export function MessageOptionsMenu({
 
   const actions = (
     <>
-      <div className="border-border/40 border-b px-2 py-2">
-        <p className="text-muted-foreground mb-1.5 px-1 text-[11px] font-medium">
-          React
-        </p>
+      <div
+        className={cn(
+          "px-1 py-1",
+          !reactionOnly && "border-border/40 mb-1 border-b pb-2"
+        )}
+      >
         <fieldset
           aria-label="Choose a reaction"
-          className="flex gap-1 border-0 p-0"
+          className="grid grid-cols-6 gap-1 border-0 p-0"
         >
           <legend className="sr-only">Choose a reaction</legend>
-          {["❤️", "👍", "😂", "😮", "😢", "🔥"].map((emoji) => (
+          {QUICK_MESSAGE_REACTIONS.map((emoji) => (
             <button
               aria-label={`React with ${emoji}`}
-              className="hover:bg-muted/70 focus-visible:ring-primary/50 flex size-9 items-center justify-center rounded-xl text-lg transition-transform duration-150 hover:scale-110 focus-visible:ring-2 active:scale-95"
+              className="hover:bg-muted/70 focus-visible:ring-primary/50 flex min-h-11 items-center justify-center rounded-xl text-2xl transition-[background-color,transform] duration-150 focus-visible:ring-2 motion-safe:active:scale-90"
               disabled={reactionPending}
               key={emoji}
               onClick={() => onReact(emoji)}
@@ -216,44 +307,72 @@ export function MessageOptionsMenu({
               {emoji}
             </button>
           ))}
+          <button
+            aria-label="More reactions"
+            className="text-muted-foreground hover:text-foreground focus-visible:ring-primary flex min-h-11 items-center justify-center rounded-xl focus-visible:ring-2"
+            data-more-reactions=""
+            onClick={() => setPickerOpen(true)}
+            type="button"
+          >
+            <span className="border-border/80 flex size-8 items-center justify-center rounded-full border border-dashed">
+              <Plus className="size-4" />
+            </span>
+          </button>
         </fieldset>
       </div>
-      <MenuRow
-        icon={<Copy className="size-4" />}
-        label="Copy"
-        onSelect={onCopy}
-      />
-      <MenuRow
-        icon={<MessageSquareQuote className="size-4" />}
-        label="Reply"
-        onSelect={onReply}
-      />
-      {canEdit ? (
-        <MenuRow
-          icon={<Pencil className="size-4" />}
-          label="Edit"
-          onSelect={onEdit}
-        />
-      ) : null}
-      <MenuRow
-        icon={<Check className="size-4" />}
-        label="Select"
-        onSelect={onSelect}
-      />
-      <MenuRow
-        destructive
-        icon={<Trash2 className="size-4" />}
-        label="Delete for me"
-        onSelect={onDeleteForMe}
-      />
-      {canDeleteForEveryone ? (
-        <MenuRow
-          destructive
-          icon={<Trash className="size-4" />}
-          label="Delete for everyone"
-          onSelect={onDeleteForEveryone}
-        />
-      ) : null}
+      {reactionOnly ? null : (
+        <>
+          <MenuRow
+            icon={<Copy className="size-4" />}
+            label="Copy"
+            onSelect={onCopy}
+          />
+          <MenuRow
+            icon={<MessageSquareQuote className="size-4" />}
+            label="Reply"
+            onSelect={onReply}
+          />
+          {canEdit ? (
+            <MenuRow
+              icon={<Pencil className="size-4" />}
+              label="Edit"
+              onSelect={onEdit}
+            />
+          ) : null}
+          <MenuRow
+            icon={<Check className="size-4" />}
+            label="Select"
+            onSelect={onSelect}
+          />
+          <MenuRow
+            destructive
+            icon={<Trash2 className="size-4" />}
+            label="Delete for me"
+            onSelect={onDeleteForMe}
+          />
+          {canDeleteForEveryone ? (
+            <MenuRow
+              destructive
+              icon={<Trash className="size-4" />}
+              label="Delete for everyone"
+              onSelect={onDeleteForEveryone}
+            />
+          ) : null}
+        </>
+      )}
+    </>
+  );
+
+  const content = pickerOpen ? (
+    <MessageReactionPicker
+      disabled={reactionPending}
+      onBack={() => setPickerOpen(false)}
+      onReact={onReact}
+    />
+  ) : (
+    <>
+      {reactionOnly ? null : details}
+      {actions}
     </>
   );
 
@@ -268,37 +387,40 @@ export function MessageOptionsMenu({
           className="motion-safe:animate-in motion-safe:fade-in fixed inset-0 z-40 bg-black/20"
           onClick={onClose}
         />
-        <div
+        <dialog
           aria-label="Message options"
-          className="panel-3d fixed inset-x-0 bottom-0 z-50 mx-2 mb-2 max-h-[80vh] overflow-y-auto rounded-2xl! p-2 text-sm outline-none"
+          className="panel-3d fixed inset-x-0 bottom-0 z-50 mx-auto mb-2 max-h-[calc(100dvh-1rem)] w-[calc(100%-1rem)] max-w-sm overflow-y-auto rounded-2xl! p-3 text-sm outline-none"
           ref={panelRef}
-          role="menu"
+          open
+          aria-modal="true"
           style={{
+            bottom: keyboardViewport?.bottom,
+            maxHeight: keyboardViewport
+              ? keyboardViewport.height - 16
+              : undefined,
             paddingBottom: "max(0.5rem, env(safe-area-inset-bottom))",
           }}
           tabIndex={-1}
         >
           <div className="bg-border/60 mx-auto mb-1.5 h-1 w-10 rounded-full" />
-          {details}
-          {actions}
-        </div>
+          {content}
+        </dialog>
       </>,
       document.body
     );
   }
 
   return createPortal(
-    <div
+    <dialog
       aria-label="Message options"
-      className="panel-3d fixed z-50 max-h-[calc(100vh-1rem)] w-56 max-w-[calc(100vw-1rem)] overflow-x-hidden overflow-y-auto rounded-2xl! p-2 text-sm outline-none"
+      className="panel-3d fixed z-50 m-0 max-h-[calc(100dvh-1rem)] w-80 max-w-[calc(100vw-1rem)] overflow-x-hidden overflow-y-auto rounded-2xl! p-2 text-sm outline-none"
       ref={panelRef}
-      role="menu"
+      open
       style={{ left: position.x, top: position.y }}
       tabIndex={-1}
     >
-      {details}
-      {actions}
-    </div>,
+      {content}
+    </dialog>,
     document.body
   );
 }
@@ -321,7 +443,6 @@ function MenuRow({
         destructive && "text-destructive"
       )}
       onClick={onSelect}
-      role="menuitem"
       type="button"
     >
       {icon}

@@ -34,6 +34,7 @@ import {
   chatControlRequest,
   fetchIncognitoPage,
 } from "@/lib/messages/lifecycle-client";
+import type { PaneRect } from "@/lib/messages/message-gestures";
 
 import { MessageBubble } from "./message-bubble";
 import { bubblePosition } from "./message-bubble-shape";
@@ -45,6 +46,7 @@ import {
   ConversationMediaViewerProvider,
   ConversationViewOnceProvider,
 } from "./message-media-viewer-context";
+import { MessageOptionsMenu } from "./message-options-menu";
 
 interface Row {
   message: IncognitoMessage;
@@ -77,6 +79,10 @@ export function IncognitoThread({
   const { privateKey } = useMessagesIdentity();
   const [rows, setRows] = useState<Row[]>([]);
   const [mediaAnchor, setMediaAnchor] = useState<string | null>(null);
+  const [reactionMenu, setReactionMenu] = useState<{
+    id: string;
+    anchor: PaneRect;
+  } | null>(null);
   const [replyTarget, setReplyTarget] = useState<{
     id: string;
     senderId: string;
@@ -509,9 +515,19 @@ export function IncognitoThread({
                       : null;
                     return (
                       <div
+                        data-message-row=""
                         id={`incognito-message-${message.id}`}
                         key={message.id}
                         className={group.isFirstInGroup ? "pt-3" : ""}
+                        onContextMenu={(event) => {
+                          event.preventDefault();
+                          const rect = event.currentTarget
+                            .querySelector("[data-message-bubble]")
+                            ?.getBoundingClientRect();
+                          if (rect) {
+                            setReactionMenu({ anchor: rect, id: message.id });
+                          }
+                        }}
                         onDoubleClick={(event) => {
                           if (
                             event.target instanceof Element &&
@@ -545,6 +561,9 @@ export function IncognitoThread({
                           onReact={(emoji) => {
                             void reactToMessage(message.id, emoji);
                           }}
+                          onMoreOptions={(rect) =>
+                            setReactionMenu({ anchor: rect, id: message.id })
+                          }
                           onReply={() =>
                             setReplyTarget({
                               content: payload?.content ?? "Attachment",
@@ -661,6 +680,40 @@ export function IncognitoThread({
               onPosition={() => {
                 // The viewer renders its own position.
               }}
+            />
+          ) : null}
+          {reactionMenu &&
+          visibleRows.some(({ message }) => message.id === reactionMenu.id) ? (
+            <MessageOptionsMenu
+              anchorRect={reactionMenu.anchor}
+              canDeleteForEveryone={false}
+              canEdit={false}
+              createdAt={session.startedAt}
+              editedAt={null}
+              onClose={() => setReactionMenu(null)}
+              onCopy={() => setReactionMenu(null)}
+              onDeleteForEveryone={() => setReactionMenu(null)}
+              onDeleteForMe={() => setReactionMenu(null)}
+              onEdit={() => setReactionMenu(null)}
+              onReply={() => setReactionMenu(null)}
+              onSelect={() => setReactionMenu(null)}
+              onReact={(emoji) => {
+                const { id } = reactionMenu;
+                setReactionMenu(null);
+                void reactToMessage(id, emoji);
+              }}
+              preferEnd={
+                visibleRows.find(
+                  ({ message }) => message.id === reactionMenu.id
+                )?.message.senderId === user?.id
+              }
+              presentation={
+                window.matchMedia("(pointer: coarse)").matches
+                  ? "sheet"
+                  : "popover"
+              }
+              reactionOnly
+              receipt={null}
             />
           ) : null}
         </section>

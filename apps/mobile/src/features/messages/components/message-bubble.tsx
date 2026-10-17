@@ -25,6 +25,7 @@ import {
   AppState,
   Modal,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -603,24 +604,26 @@ function MessageBubbleInner({
           { marginTop: group.isFirstInGroup ? 8 : 2 },
         ]}
       >
-        <SentOrReceived
-          searchJump={searchJump}
-          corners={corners}
-          maxWidth={bubbleWidth}
-          mine={mine}
-          theme={theme}
-        >
-          {payload.content?.trim() ? (
-            <Text style={styles.sharedLabel}>{payload.content.trim()}</Text>
-          ) : null}
-          <MessagePostPreview key={payload.postId} postId={payload.postId} />
+        <View style={{ maxWidth: bubbleWidth }}>
+          <SentOrReceived
+            searchJump={searchJump}
+            corners={corners}
+            maxWidth={bubbleWidth}
+            mine={mine}
+            theme={theme}
+          >
+            {payload.content?.trim() ? (
+              <Text style={styles.sharedLabel}>{payload.content.trim()}</Text>
+            ) : null}
+            <MessagePostPreview key={payload.postId} postId={payload.postId} />
+          </SentOrReceived>
           <ReactionPills
             disabled={reactionPending}
             mine={mine}
             onReact={onReact}
             reactions={reactions}
           />
-        </SentOrReceived>
+        </View>
         {showReceipt && mine && receipt ? (
           <ReceiptLine
             at={formatReceiptStamp(receipt.at)}
@@ -640,53 +643,62 @@ function MessageBubbleInner({
       ]}
     >
       {!mine && group.isLastInGroup ? (
-        <View style={styles.peerAvatar}>
+        <View
+          style={[styles.peerAvatar, reactions.length > 0 && { bottom: 21 }]}
+        >
           <UserAvatar size={28} url={peerAvatarUrl ?? null} />
         </View>
       ) : null}
-      <SentOrReceived
-        searchJump={searchJump}
-        corners={corners}
-        maxWidth={bubbleWidth}
-        mine={mine}
-        theme={theme}
-      >
-        {replyPreview ? (
-          <View
-            style={[styles.quote, mine ? styles.quoteMine : styles.quoteTheirs]}
-          >
+      <View style={{ maxWidth: bubbleWidth }}>
+        <SentOrReceived
+          searchJump={searchJump}
+          corners={corners}
+          maxWidth={bubbleWidth}
+          mine={mine}
+          theme={theme}
+        >
+          {replyPreview ? (
             <View
               style={[
-                styles.quoteBar,
-                { backgroundColor: mine ? "#ffffff88" : "#8e8e9380" },
+                styles.quote,
+                mine ? styles.quoteMine : styles.quoteTheirs,
               ]}
-            />
-            <Text
-              numberOfLines={2}
-              style={[styles.quoteText, mine && styles.quoteTextMine]}
             >
-              {replyPreview.text}
+              <View
+                style={[
+                  styles.quoteBar,
+                  { backgroundColor: mine ? "#ffffff88" : "#8e8e9380" },
+                ]}
+              />
+              <Text
+                numberOfLines={2}
+                style={[styles.quoteText, mine && styles.quoteTextMine]}
+              >
+                {replyPreview.text}
+              </Text>
+            </View>
+          ) : null}
+          <Text
+            style={[
+              mine ? styles.textMine : styles.textTheirs,
+              !mine && { color: isDark ? "#eeeeee" : "#202020" },
+            ]}
+          >
+            {payload.content}
+          </Text>
+          {edited ? (
+            <Text style={[styles.edited, mine && styles.editedMine]}>
+              edited
             </Text>
-          </View>
-        ) : null}
-        <Text
-          style={[
-            mine ? styles.textMine : styles.textTheirs,
-            !mine && { color: isDark ? "#eeeeee" : "#202020" },
-          ]}
-        >
-          {payload.content}
-        </Text>
-        {edited ? (
-          <Text style={[styles.edited, mine && styles.editedMine]}>edited</Text>
-        ) : null}
+          ) : null}
+        </SentOrReceived>
         <ReactionPills
           disabled={reactionPending}
           mine={mine}
           onReact={onReact}
           reactions={reactions}
         />
-      </SentOrReceived>
+      </View>
       {showReceipt && mine && receipt ? (
         <ReceiptLine
           at={formatReceiptStamp(receipt.at)}
@@ -698,7 +710,6 @@ function MessageBubbleInner({
 }
 
 function ReactionPills({
-  mine,
   disabled = false,
   onReact,
   reactions,
@@ -708,12 +719,30 @@ function ReactionPills({
   onReact?: (emoji: string) => void;
   reactions: MessageReactionSummary[];
 }) {
+  const { theme } = useAppTheme();
   if (!onReact || reactions.length === 0) {
     return null;
   }
+  const reactionWidth = Math.min(
+    240,
+    reactions.reduce(
+      (width, reaction) =>
+        width +
+        34 +
+        (reaction.count > 1 ? 8 + String(reaction.count).length * 7 : 0),
+      0
+    )
+  );
   return (
-    <View
-      style={[styles.reactionRow, mine ? styles.alignEnd : styles.alignStart]}
+    <ScrollView
+      contentContainerStyle={{
+        flexGrow: 1,
+        gap: 3,
+        justifyContent: "flex-end",
+      }}
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      style={[styles.reactionRow, { width: reactionWidth }]}
     >
       {reactions.map((reaction) => (
         <Pressable
@@ -722,18 +751,21 @@ function ReactionPills({
           accessibilityState={{ selected: reaction.reactedByMe }}
           key={reaction.emoji}
           disabled={disabled}
+          hitSlop={6}
           onPress={() => onReact(reaction.emoji)}
           style={[
             styles.reactionChip,
+            { backgroundColor: theme.cardBg, borderColor: theme.cardBorder },
             reaction.reactedByMe && styles.reactionChipSelected,
           ]}
         >
-          <Text style={styles.reactionText}>
-            {reaction.emoji} {reaction.count}
+          <Text style={[styles.reactionText, { color: theme.inputText }]}>
+            {reaction.emoji}
+            {reaction.count > 1 ? ` ${reaction.count}` : ""}
           </Text>
         </Pressable>
       ))}
-    </View>
+    </ScrollView>
   );
 }
 
@@ -1120,7 +1152,7 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     borderWidth: StyleSheet.hairlineWidth,
     justifyContent: "center",
-    minHeight: 28,
+    minHeight: 30,
     paddingHorizontal: 8,
   },
   reactionChipSelected: {
@@ -1128,10 +1160,13 @@ const styles = StyleSheet.create({
     borderColor: "rgba(88, 140, 220, 0.6)",
   },
   reactionRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 5,
-    marginTop: 5,
+    alignSelf: "flex-end",
+    flexGrow: 0,
+    height: 32,
+    marginRight: 4,
+    marginTop: -9,
+    maxWidth: "100%",
+    zIndex: 1,
   },
   reactionText: {
     color: "#85858b",

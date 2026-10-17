@@ -7,7 +7,6 @@ import {
 } from "@asm/messages";
 import type { IncognitoMessage, IncognitoSession } from "@asm/messages";
 // oxlint-disable no-await-in-loop -- Sequential cryptography, database mutations and bounded streams preserve ordering and memory limits.
-import { MenuView } from "@expo/ui/community/menu";
 import { randomUUID } from "expo-crypto";
 import { Shield } from "lucide-react-native";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -52,6 +51,7 @@ import type { MessageConversationData } from "../lib/types";
 import { MessageBubble } from "./message-bubble";
 import { MessageComposer } from "./message-composer";
 import { MessageMediaViewer } from "./message-media-viewer";
+import { MessageReactionSheet } from "./message-reaction-sheet";
 
 interface Row {
   message: IncognitoMessage;
@@ -109,6 +109,7 @@ export function NativeIncognitoThread({
   const generation = useRef(0);
   const pending = useRef<{ id: string; signature: string } | null>(null);
   const reactionLocks = useRef(new Set<string>());
+  const [reactionTarget, setReactionTarget] = useState<string | null>(null);
   const list = useRef<FlatList<Row>>(null);
   const canView = fresh && !session.endedAt;
   const openViewOnce = useCallback(
@@ -488,20 +489,8 @@ export function NativeIncognitoThread({
                         {formatTimeDivider(message.createdAt)}
                       </Text>
                     ) : null}
-                    <MenuView
-                      shouldOpenOnLongPress
-                      actions={["❤️", "👍", "😂", "😮", "😢", "🔥"].map(
-                        (emoji) => ({ id: emoji, title: emoji })
-                      )}
-                      onPressAction={({ nativeEvent }) => {
-                        if (
-                          ["❤️", "👍", "😂", "😮", "😢", "🔥"].includes(
-                            nativeEvent.event
-                          )
-                        ) {
-                          void reactToMessage(message.id, nativeEvent.event);
-                        }
-                      }}
+                    <Pressable
+                      onLongPress={() => setReactionTarget(message.id)}
                     >
                       <View>
                         <MessageBubble
@@ -536,7 +525,7 @@ export function NativeIncognitoThread({
                           reactions={message.reactions ?? []}
                         />
                       </View>
-                    </MenuView>
+                    </Pressable>
                   </View>
                 );
               }}
@@ -616,6 +605,16 @@ export function NativeIncognitoThread({
           images={viewedImages}
           index={viewer.index}
           onClose={() => setViewer(null)}
+        />
+      ) : null}
+      {reactionTarget ? (
+        <MessageReactionSheet
+          onClose={() => setReactionTarget(null)}
+          onReact={(emoji) => {
+            const target = reactionTarget;
+            setReactionTarget(null);
+            void reactToMessage(target, emoji);
+          }}
         />
       ) : null}
     </View>
