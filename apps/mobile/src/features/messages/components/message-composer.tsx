@@ -1,4 +1,12 @@
 import {
+  MAX_MESSAGE_ATTACHMENT_TOTAL_BYTES,
+  maxMessageAttachmentBytes,
+  messageAttachmentKind,
+  messageAttachmentMimeType,
+} from "@asm/media";
+import {
+  FileText,
+  Film,
   ArrowUp,
   Clapperboard,
   ImagePlus,
@@ -24,6 +32,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Image,
   Keyboard,
+  Modal,
   Pressable,
   StyleSheet,
   Text,
@@ -40,6 +49,7 @@ import { authClient } from "@/features/auth/lib/auth-client";
 import { useSessionContext } from "@/features/auth/state/session";
 import {
   downloadGif,
+  pickMessageFiles,
   pickPhotosAndVideos,
 } from "@/features/composer/lib/pick-media";
 import {
@@ -124,6 +134,7 @@ export function MessageComposer({
   }, [replyTo?.id]);
   const [keyboardVisible, setKeyboardVisible] = useState(Keyboard.isVisible());
   const [gifOpen, setGifOpen] = useState(false);
+  const [attachmentMenuOpen, setAttachmentMenuOpen] = useState(false);
   useEffect(() => {
     const show = Keyboard.addListener("keyboardDidShow", () =>
       setKeyboardVisible(true)
@@ -255,23 +266,63 @@ export function MessageComposer({
     );
   }, []);
 
-  const attach = useCallback(() => {
-    const remaining = MAX_MESSAGE_ATTACHMENTS - attachmentsRef.current.length;
-    if (remaining <= 0) {
-      return;
-    }
-    // Everything after the picker is module-level: React Compiler cannot lower a
-    // `try`/`finally` inside a component, and the upload loop has to reach the
-    // abort registry and the store without closing over render state.
-    void (async () => {
-      const picked = await pickPhotosAndVideos({
-        imagesOnly: true,
-        remaining,
-      });
-      if (picked.length === 0) {
-        return;
+  const stagePickedFiles = useCallback(
+    async (picked: PickedMedia[]) => {
+      let totalBytes = attachmentsRef.current.reduce(
+        (total, item) => total + item.file.size,
+        0
+      );
+      const accepted: PickedMedia[] = [];
+      let rejected = 0;
+      let tooLarge = 0;
+      for (const candidate of picked) {
+        const mimeType = messageAttachmentMimeType(
+          candidate.mimeType,
+          candidate.name
+        );
+        const { size } = candidate;
+        const typeLimit = maxMessageAttachmentBytes(mimeType);
+        if (!messageAttachmentKind(mimeType)) {
+          rejected += 1;
+          continue;
+        }
+        if (
+          size <= 0 ||
+          size > typeLimit ||
+          totalBytes + size > MAX_MESSAGE_ATTACHMENT_TOTAL_BYTES
+        ) {
+          tooLarge += 1;
+          continue;
+        }
+        totalBytes += size;
+        accepted.push({ ...candidate, mimeType, size });
       }
-      const staged = picked.map((file, index) => ({
+      if (rejected > 0) {
+        toast({
+          description: "Choose photos, videos, audio, PDF, or Office files.",
+          title: "Unsupported file",
+          variant: "destructive",
+        });
+      }
+      if (tooLarge > 0) {
+        toast({
+          description: "One or more files exceed the message size limit.",
+          title: "Attachment too large",
+          variant: "destructive",
+        });
+      }
+      const available = Math.max(
+        0,
+        MAX_MESSAGE_ATTACHMENTS - attachmentsRef.current.length
+      );
+      if (accepted.length > available) {
+        toast({
+          description: `You can send up to ${MAX_MESSAGE_ATTACHMENTS} attachments at a time.`,
+          title: "Attachment limit",
+          variant: "destructive",
+        });
+      }
+      const staged = accepted.slice(0, available).map((file, index) => ({
         error: null as string | null,
         file,
         id: `${file.uri}-${index}-${attachmentsRef.current.length}`,
@@ -279,15 +330,51 @@ export function MessageComposer({
         owned: false,
         progress: 0 as number | null,
       }));
-      setAttachments((current) => [...current, ...staged]);
+      if (staged.length === 0) {
+        return;
+      }
+      attachmentsRef.current = [...attachmentsRef.current, ...staged];
+      setAttachments(attachmentsRef.current);
       await uploadStagedAttachments(staged, {
         aborts,
         conversationId,
         incognitoSessionId,
         onPatch: update,
       });
-    })();
-  }, [conversationId, incognitoSessionId, update]);
+    },
+    [conversationId, incognitoSessionId, update]
+  );
+
+  const choosePhotosAndVideos = useCallback(() => {
+    setAttachmentMenuOpen(false);
+    const remaining = MAX_MESSAGE_ATTACHMENTS - attachmentsRef.current.length;
+    if (remaining <= 0) {
+      return;
+    }
+    runMessageAttachmentPicker(
+      () => pickPhotosAndVideos({ remaining }),
+      stagePickedFiles,
+      "Couldn't open photos"
+    );
+  }, [stagePickedFiles]);
+
+  const chooseFiles = useCallback(() => {
+    setAttachmentMenuOpen(false);
+    const remaining = MAX_MESSAGE_ATTACHMENTS - attachmentsRef.current.length;
+    if (remaining <= 0) {
+      return;
+    }
+    runMessageAttachmentPicker(
+      () => pickMessageFiles(remaining),
+      stagePickedFiles,
+      "Couldn't open files"
+    );
+  }, [stagePickedFiles]);
+
+  const attach = useCallback(() => {
+    Keyboard.dismiss();
+    setAttachmentMenuOpen(true);
+  }, []);
 
   const editAttachment = async (item: StagedAttachment) => {
     Keyboard.dismiss();
@@ -499,7 +586,7 @@ export function MessageComposer({
           value={fieldValue}
         />
         <Pressable
-          accessibilityLabel="Add photo"
+          accessibilityLabel="Add attachment"
           accessibilityRole="button"
           disabled={disabled || atCapacity || Boolean(sharedPostId)}
           hitSlop={4}
@@ -585,8 +672,89 @@ export function MessageComposer({
           />
         </View>
       ) : null}
+      <Modal
+        animationType="slide"
+        onRequestClose={() => setAttachmentMenuOpen(false)}
+        transparent
+        visible={attachmentMenuOpen}
+      >
+        <Pressable
+          accessibilityLabel="Close attachment menu"
+          onPress={() => setAttachmentMenuOpen(false)}
+          style={styles.attachmentScrim}
+        >
+          <Pressable
+            onPress={(event) => event.stopPropagation()}
+            style={[
+              styles.attachmentSheet,
+              {
+                backgroundColor: input.background,
+                borderColor: input.border,
+                paddingBottom: Math.max(insets.bottom, 16),
+              },
+            ]}
+          >
+            <Text
+              style={[
+                styles.attachmentSheetTitle,
+                { color: isDark ? "#a0a0a0" : "#646464" },
+              ]}
+            >
+              Add to your message
+            </Text>
+            <Pressable
+              accessibilityRole="button"
+              onPress={choosePhotosAndVideos}
+              style={styles.attachmentSheetRow}
+            >
+              <ImagePlus color={theme.dividerText} size={19} />
+              <Text
+                style={[
+                  styles.attachmentSheetLabel,
+                  { color: isDark ? "#f1f1f1" : "#202020" },
+                ]}
+              >
+                Photos & videos
+              </Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              onPress={chooseFiles}
+              style={styles.attachmentSheetRow}
+            >
+              <FileText color={theme.dividerText} size={19} />
+              <Text
+                style={[
+                  styles.attachmentSheetLabel,
+                  { color: isDark ? "#f1f1f1" : "#202020" },
+                ]}
+              >
+                Files
+              </Text>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   );
+}
+
+function runMessageAttachmentPicker(
+  pick: () => Promise<PickedMedia[]>,
+  stage: (files: PickedMedia[]) => Promise<void>,
+  title: string
+): void {
+  void (async () => {
+    try {
+      await stage(await pick());
+    } catch {
+      toast({
+        description: "Please try again.",
+        title,
+        variant: "destructive",
+      });
+    }
+  })();
 }
 
 /**
@@ -800,13 +968,28 @@ function AttachmentTile({
   onEdit: () => void;
 }) {
   const { theme } = useAppTheme();
+  const isImage = attachment.file.mimeType.startsWith("image/");
+  const isVideo = attachment.file.mimeType.startsWith("video/");
   return (
     <View style={[styles.tile, { borderColor: theme.dividerLine }]}>
-      <Image
-        source={{ uri: attachment.file.uri }}
-        style={StyleSheet.absoluteFill}
-      />
-      {attachment.progress === null ? (
+      {isImage ? (
+        <Image
+          source={{ uri: attachment.file.uri }}
+          style={StyleSheet.absoluteFill}
+        />
+      ) : (
+        <View style={styles.fileTilePreview}>
+          {isVideo ? (
+            <Film color={theme.dividerText} size={22} />
+          ) : (
+            <FileText color={theme.dividerText} size={22} />
+          )}
+          <Text numberOfLines={2} style={styles.fileTileName}>
+            {attachment.file.name}
+          </Text>
+        </View>
+      )}
+      {isImage && attachment.progress === null ? (
         <View style={{ bottom: 4, left: 4, position: "absolute" }}>
           <IconButton3D
             accessibilityLabel={
@@ -858,6 +1041,37 @@ const styles = StyleSheet.create({
     height: 32,
     justifyContent: "center",
     width: 32,
+  },
+  attachmentScrim: {
+    backgroundColor: "#00000055",
+    flex: 1,
+    justifyContent: "flex-end",
+  },
+  attachmentSheet: {
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    borderWidth: StyleSheet.hairlineWidth,
+    gap: 4,
+    paddingHorizontal: 18,
+    paddingTop: 18,
+  },
+  attachmentSheetLabel: {
+    fontFamily: "SofiaProMed",
+    fontSize: 15,
+  },
+  attachmentSheetRow: {
+    alignItems: "center",
+    borderRadius: 14,
+    flexDirection: "row",
+    gap: 14,
+    minHeight: 52,
+    paddingHorizontal: 12,
+  },
+  attachmentSheetTitle: {
+    fontFamily: "SofiaProMed",
+    fontSize: 12,
+    marginBottom: 4,
+    paddingHorizontal: 12,
   },
   contextBar: {
     alignItems: "center",
@@ -917,6 +1131,20 @@ const styles = StyleSheet.create({
     paddingHorizontal: 0,
     paddingVertical: 4,
     textAlignVertical: "center",
+  },
+  fileTileName: {
+    color: "#76767b",
+    fontFamily: "SofiaProReg",
+    fontSize: 9,
+    textAlign: "center",
+  },
+  fileTilePreview: {
+    alignItems: "center",
+    backgroundColor: "rgba(127,127,127,0.12)",
+    flex: 1,
+    gap: 5,
+    justifyContent: "center",
+    padding: 5,
   },
   inputRow: {
     alignItems: "flex-end",

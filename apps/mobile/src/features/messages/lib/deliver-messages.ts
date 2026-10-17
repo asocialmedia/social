@@ -1,15 +1,24 @@
+import { messageAttachmentKind } from "@asm/media";
+
 import type { MessagePayload } from "./crypto";
 
 interface ComposerAttachment {
-  file: { mimeType: string; width?: number; height?: number };
+  file: {
+    durationMs?: number | null;
+    height?: number;
+    mimeType: string;
+    name: string;
+    size: number;
+    width?: number;
+  };
   mediaId: string | null;
 }
+
 interface ReplyTarget {
   id: string;
   senderId: string;
 }
 
-// Deliver each media kind separately, with the caption only on the first message.
 export async function deliverMessages(input: {
   attachments: ComposerAttachment[];
   postId?: string;
@@ -39,43 +48,48 @@ export async function deliverMessages(input: {
     });
     return;
   }
-  const photos = attachments.filter(
-    (item) => item.file.mimeType !== "image/gif"
-  );
-  const gifs = attachments.filter((item) => item.file.mimeType === "image/gif");
-  if (photos.length > 0) {
-    await onSend(
-      buildMediaPayload(photos, "image", input.postId ? "" : caption, replyTo)
-    );
-  }
-  if (gifs.length > 0) {
-    await onSend(
-      buildMediaPayload(
-        gifs,
-        "gif",
-        input.postId || photos.length ? "" : caption,
-        replyTo
-      )
-    );
-  }
+  await onSend({
+    attachments: attachments.map(toMediaAttachment),
+    content: input.postId ? undefined : caption || undefined,
+    replyToId: input.postId ? undefined : replyTo?.id,
+    replyToSenderId: input.postId ? undefined : replyTo?.senderId,
+    type: "media",
+  });
 }
 
-function buildMediaPayload(
-  items: ComposerAttachment[],
-  kind: "gif" | "image",
-  caption: string,
-  replyTo: ReplyTarget | null
-): MessagePayload {
-  return {
-    content: caption || undefined,
-    images: items.map((item) => ({
+function toMediaAttachment(item: ComposerAttachment) {
+  if (!item.mediaId) {
+    throw new Error("Wait for uploads to finish before sending.");
+  }
+  const url = `/api/media/${item.mediaId}`;
+  const kind = messageAttachmentKind(item.file.mimeType);
+  if (kind === "video") {
+    return {
+      durationSec: item.file.durationMs
+        ? item.file.durationMs / 1000
+        : undefined,
       height: item.file.height,
-      url: `/api/media/${item.mediaId}`,
+      kind,
+      url,
       width: item.file.width,
-    })),
-    kind,
-    replyToId: replyTo?.id,
-    replyToSenderId: replyTo?.senderId,
-    type: "media",
-  };
+    };
+  }
+  if (kind === "file") {
+    return {
+      bytes: item.file.size,
+      filename: item.file.name,
+      kind,
+      mimeType: item.file.mimeType,
+      url,
+    };
+  }
+  if (kind === "image" || kind === "gif") {
+    return {
+      height: item.file.height,
+      kind,
+      url,
+      width: item.file.width,
+    };
+  }
+  throw new Error("This file type can't be sent in a message.");
 }

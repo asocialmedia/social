@@ -1,6 +1,6 @@
 "use client";
 
-import { RefreshCw, X } from "lucide-react";
+import { FileText, Play, RefreshCw, X } from "lucide-react";
 import Image from "next/image";
 
 import { getUploadProgressInfo } from "@/lib/media/upload-progress";
@@ -25,6 +25,8 @@ function AttachmentTile({
     uploading ? attachment.stage : undefined,
     attachment.progress
   );
+  const isImage = attachment.kind === "gif" || attachment.kind === "image";
+  const isVideo = attachment.kind === "video";
 
   return (
     <li
@@ -33,24 +35,48 @@ function AttachmentTile({
         errored && "ring-1 ring-red-500/60"
       )}
     >
-      <Image
-        alt=""
-        className={cn(
-          "object-cover transition-opacity duration-200",
-          errored ? "opacity-40" : "opacity-100"
-        )}
-        fill
-        sizes="64px"
-        src={attachment.objectUrl}
-        unoptimized
-      />
+      {isImage ? (
+        <Image
+          alt=""
+          className={cn(
+            "object-cover transition-opacity duration-200",
+            errored ? "opacity-40" : "opacity-100"
+          )}
+          fill
+          sizes="64px"
+          src={attachment.objectUrl}
+          unoptimized
+        />
+      ) : null}
+      {isVideo ? (
+        <>
+          <video
+            aria-hidden="true"
+            className="absolute inset-0 size-full object-cover"
+            muted
+            preload="metadata"
+            src={attachment.objectUrl}
+          />
+          <span className="absolute inset-0 flex items-center justify-center bg-black/20 text-white">
+            <Play className="size-5 fill-current" />
+          </span>
+        </>
+      ) : null}
+      {!isImage && !isVideo ? (
+        <span className="text-muted-foreground bg-muted/60 absolute inset-0 flex flex-col items-center justify-center gap-1 px-1 text-center">
+          <FileText className="size-5" />
+          <span className="w-full truncate text-[8px]">
+            {attachment.filename}
+          </span>
+        </span>
+      ) : null}
 
       {uploading ? (
         <>
           <span className="pointer-events-none absolute inset-0 bg-black/35" />
           {/* oxlint-disable jsx-a11y/prefer-tag-over-role -- thin gradient fill bar inside a 64px tile; native <progress> cannot render this shape */}
           <span
-            aria-label="Uploading image"
+            aria-label={`Uploading ${attachment.filename}`}
             aria-valuemax={100}
             aria-valuemin={0}
             aria-valuenow={percent}
@@ -79,15 +105,16 @@ function AttachmentTile({
         </button>
       ) : (
         <button
-          aria-label="Preview and edit image"
+          aria-label={`Preview ${attachment.filename}`}
           className="absolute inset-0 z-10 outline-hidden focus-visible:ring-2 focus-visible:ring-white/80"
-          onClick={onEdit}
+          onClick={isImage ? onEdit : undefined}
           type="button"
+          disabled={!isImage}
         />
       )}
 
       <button
-        aria-label="Remove image"
+        aria-label={`Remove ${attachment.filename}`}
         className="icon-btn-3d absolute top-0.5 right-0.5 z-30 flex size-5 items-center justify-center rounded-full"
         onClick={onRemove}
         type="button"
@@ -115,7 +142,7 @@ export function MessageAttachmentStrip({
 
   return (
     <ul
-      aria-label="Attached images"
+      aria-label="Attached files"
       className="mb-2 flex [scrollbar-width:none] list-none gap-2 overflow-x-auto overscroll-x-contain p-0 pb-0.5 [&::-webkit-scrollbar]:hidden"
     >
       {attachments.map((attachment) => (

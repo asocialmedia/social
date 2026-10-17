@@ -29,7 +29,11 @@
 import { parseMessagePayload } from "./payload";
 import type { MessagePayload } from "./payload";
 
-export type { MediaImageRef, MessagePayload } from "./payload";
+export type {
+  MediaAttachmentRef,
+  MediaImageRef,
+  MessagePayload,
+} from "./payload";
 
 export const KDF_ITERATIONS = 100_000;
 export const FINGERPRINT_GROUP_COUNT = 4;

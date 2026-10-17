@@ -437,9 +437,8 @@ export function MessageComposer({
         let first = true;
         for (const group of readyGroups) {
           const payload: MessagePayload = {
+            attachments: group.attachments,
             content: first && content ? content : undefined,
-            images: group.images,
-            kind: group.kind,
             type: "media",
             ...(first && replyTarget
               ? {
@@ -775,7 +774,7 @@ export function MessageComposer({
           </span>
         ) : null}
         <input
-          accept="image/*"
+          accept="image/*,video/*,audio/*,application/pdf,application/zip,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.openxmlformats-officedocument.presentationml.presentation"
           className="hidden"
           multiple
           onChange={handleFileInputChange}
@@ -814,7 +813,7 @@ export function MessageComposer({
           value={text}
         />
         <button
-          aria-label="Send image"
+          aria-label="Add attachment"
           className={cn(
             "bg-muted/70 text-muted-foreground flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-all duration-200 active:translate-y-px",
             "hover:bg-linear-to-b hover:from-[#ff9500] hover:to-[#e65500] hover:text-white hover:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)] hover:brightness-110",
@@ -858,7 +857,9 @@ export function MessageComposer({
         </button>
       </div>
 
-      {editingAttachment ? (
+      {editingAttachment &&
+      (editingAttachment.kind === "gif" ||
+        editingAttachment.kind === "image") ? (
         <MessageImageEditDialog
           file={editingAttachment.file}
           kind={editingAttachment.kind}

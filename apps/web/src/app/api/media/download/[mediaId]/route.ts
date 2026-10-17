@@ -1,4 +1,5 @@
 import { prisma } from "@asm/db";
+import { isMessageDocumentMime } from "@asm/media";
 import { GetObjectCommand, S3ServiceException } from "@aws-sdk/client-s3";
 import { NextResponse } from "next/server";
 
@@ -36,6 +37,8 @@ export async function GET(
     "key",
     "messageConversationId",
     "mimeType",
+    "_type",
+    "originalName",
     "postId",
     "publishedKey",
     "size",
@@ -92,9 +95,16 @@ export async function GET(
     );
   }
 
-  // SVG / PDF / code payloads have no support at any level - downloads are
-  // rejected too, not just inline rendering.
-  if (isBlockedMediaMime(media.mimeType)) {
+  const messageDocument =
+    media._type === "DOCUMENT" &&
+    Boolean(media.messageConversationId) &&
+    isMessageDocumentMime(media.mimeType);
+  // Documents are only supported as message attachments, and only through this
+  // forced-download route. Active content stays blocked everywhere else.
+  if (
+    (media._type === "DOCUMENT" && !messageDocument) ||
+    (isBlockedMediaMime(media.mimeType) && !messageDocument)
+  ) {
     return mediaError("Unsupported media type", 415);
   }
 
@@ -123,15 +133,17 @@ export async function GET(
           ).transformToWebStream()
         : (response.Body as ReadableStream);
 
-    const filename = objectKey.split("/").pop() || "file";
+    const filename = media.originalName || objectKey.split("/").pop() || "file";
     const headers = new Headers();
     headers.set(
       "Content-Type",
-      response.ContentType || media.mimeType || "application/octet-stream"
+      messageDocument
+        ? "application/octet-stream"
+        : response.ContentType || media.mimeType || "application/octet-stream"
     );
     // Downloads are always attachments; SVG/text payloads can never opt out.
     headers.set("Content-Disposition", getContentDisposition(filename, false));
-    if (shouldForceAttachment(media.mimeType)) {
+    if (messageDocument || shouldForceAttachment(media.mimeType)) {
       headers.set("X-Content-Type-Options", "nosniff");
     }
     if (response.ContentLength) {

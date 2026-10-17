@@ -1,3 +1,5 @@
+import { messageAttachmentMimeType } from "@asm/media";
+import * as DocumentPicker from "expo-document-picker";
 // Native equivalents of the web composer's file inputs:
 //   "Photos & Videos"  -> system photo library (multi-select, capped at the
 //                         remaining attachment slots)
@@ -110,6 +112,35 @@ export async function pickAudioFile(): Promise<PickedMedia[]> {
       uri: file.uri,
     },
   ];
+}
+
+export async function pickMessageFiles(
+  remaining: number
+): Promise<PickedMedia[]> {
+  if (remaining <= 0) {
+    return [];
+  }
+  const result = await DocumentPicker.getDocumentAsync({
+    copyToCacheDirectory: true,
+    multiple: remaining > 1,
+    type: [
+      "application/pdf",
+      "application/zip",
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+      "audio/*",
+    ],
+  });
+  if (result.canceled) {
+    return [];
+  }
+  return result.assets.slice(0, remaining).map((asset) => ({
+    mimeType: messageAttachmentMimeType(asset.mimeType, asset.name),
+    name: asset.name,
+    size: asset.size ?? sizeOf(asset.uri),
+    uri: asset.uri,
+  }));
 }
 
 export interface KlipyGif {

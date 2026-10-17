@@ -12,15 +12,24 @@
 // until the photo reports its intrinsic size, so the row reports it through
 // onLayout. Without that a long album scrolls to the wrong place.
 
-import { memo } from "react";
+import { File, Directory, Paths } from "expo-file-system";
+import * as Sharing from "expo-sharing";
+import { VideoView, useVideoPlayer } from "expo-video";
+import { Download, FileText, LockKeyhole } from "lucide-react-native";
+import { memo, useCallback, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { UserAvatar } from "@/components/avatar/user-avatar";
+import { toast } from "@/components/feedback/toast";
 import { Gradient3D } from "@/components/surface/gradient-3d";
+import { authClient } from "@/features/auth/lib/auth-client";
 import { sentBubbleShadows } from "@/features/messages/lib/conversation-theme";
 import type { ConversationTheme } from "@/features/messages/lib/conversation-theme";
 import type { MessagePayload } from "@/features/messages/lib/crypto";
-import { getMediaImages } from "@/features/messages/lib/crypto";
+import {
+  getMediaAttachments,
+  getMediaImages,
+} from "@/features/messages/lib/crypto";
 import {
   albumHeightForWidth,
   albumTileFrames,
@@ -39,6 +48,7 @@ import {
   bubbleSentStops,
   panel3d,
 } from "@/features/messages/lib/message-recipes";
+import { getApiBaseUrl } from "@/lib/api-env";
 import { useAppTheme } from "@/theme";
 
 import { MessagePostPreview } from "./message-post-preview";
@@ -161,7 +171,101 @@ function MessageBubbleInner({
   const bubbleWidth = Math.round(maxBubbleWidth * MAX_BUBBLE_WIDTH_RATIO);
 
   if (payload.type === "media") {
+    const attachments = getMediaAttachments(payload);
     const images = getMediaImages(payload);
+    const mixedPhotoKinds =
+      attachments.some((attachment) => attachment.kind === "image") &&
+      attachments.some((attachment) => attachment.kind === "gif");
+    if (
+      mixedPhotoKinds ||
+      attachments.some((attachment) =>
+        ["file", "video", "view-once"].includes(attachment.kind)
+      )
+    ) {
+      return (
+        <View
+          style={[
+            styles.row,
+            mine ? styles.rowMine : styles.rowTheirs,
+            { marginTop: group.isFirstInGroup ? 8 : 2 },
+          ]}
+        >
+          <View
+            style={[
+              styles.attachmentList,
+              { maxWidth: albumWidthForBubble(bubbleWidth) },
+            ]}
+          >
+            {attachments.map((attachment, index) => {
+              if (attachment.kind === "image" || attachment.kind === "gif") {
+                const currentImageIndex = attachments
+                  .slice(0, index)
+                  .filter(
+                    (previous) =>
+                      previous.kind === "image" || previous.kind === "gif"
+                  ).length;
+                return (
+                  <Pressable
+                    accessibilityLabel={
+                      attachment.kind === "gif" ? "Open GIF" : "Open image"
+                    }
+                    key={`${attachment.url}-${index}`}
+                    onPress={() => onPressImage?.(currentImageIndex)}
+                    style={styles.mixedImageFrame}
+                  >
+                    <MessageImage
+                      cachePolicy={ephemeral ? "none" : undefined}
+                      contentFit="contain"
+                      source={mediaUrl(attachment.url)}
+                      style={StyleSheet.absoluteFill}
+                    />
+                  </Pressable>
+                );
+              }
+              if (attachment.kind === "video") {
+                return (
+                  <MessageVideoAttachment
+                    key={attachment.url}
+                    url={mediaUrl(attachment.url)}
+                  />
+                );
+              }
+              if (attachment.kind === "file") {
+                return (
+                  <MessageFileAttachment
+                    attachment={attachment}
+                    key={attachment.url}
+                    mine={mine}
+                  />
+                );
+              }
+              return (
+                <View key={`view-once-${index}`} style={styles.fileCard}>
+                  <LockKeyhole color="#9a9a9a" size={20} />
+                  <Text style={styles.fileName}>View once photo</Text>
+                </View>
+              );
+            })}
+            {payload.content ? (
+              <Text
+                style={[
+                  styles.mediaCaption,
+                  { color: mine ? "#ffffff" : undefined },
+                ]}
+              >
+                {payload.content}
+              </Text>
+            ) : null}
+          </View>
+          {showReceipt && mine && receipt ? (
+            <ReceiptLine
+              at={formatReceiptStamp(receipt.at)}
+              label={receipt.status}
+            />
+          ) : null}
+        </View>
+      );
+    }
     const layout = getAlbumLayout(images.length);
     const albumWidth = Math.min(ALBUM_MAX_WIDTH, bubbleWidth);
     const albumHeight =
@@ -333,6 +437,122 @@ function MessageBubbleInner({
   );
 }
 
+function albumWidthForBubble(bubbleWidth: number): number {
+  return Math.min(ALBUM_MAX_WIDTH, bubbleWidth);
+}
+
+function MessageVideoAttachment({ url }: { url: string }) {
+  const player = useVideoPlayer(url);
+  return (
+    <VideoView
+      contentFit="contain"
+      nativeControls
+      player={player}
+      style={styles.videoAttachment}
+    />
+  );
+}
+
+function MessageFileAttachment({
+  attachment,
+  mine,
+}: {
+  attachment: Extract<
+    ReturnType<typeof getMediaAttachments>[number],
+    { kind: "file" }
+  >;
+  mine: boolean;
+}) {
+  const { isDark } = useAppTheme();
+  const [busy, setBusy] = useState(false);
+  const openFile = useCallback(async () => {
+    if (busy) {
+      return;
+    }
+    setBusy(true);
+    try {
+      await downloadAndShareMessageFile(attachment.url, attachment.filename);
+    } catch (error) {
+      toast({
+        description:
+          error instanceof Error ? error.message : "Please try again.",
+        title: "Couldn't open file",
+        variant: "destructive",
+      });
+    }
+    setBusy(false);
+  }, [attachment.filename, attachment.url, busy]);
+  return (
+    <Pressable
+      accessibilityLabel={`Open ${attachment.filename}`}
+      accessibilityRole="button"
+      disabled={busy}
+      onPress={openFile}
+      style={styles.fileCard}
+    >
+      <View style={styles.fileIcon}>
+        <FileText color="#85858b" size={20} />
+      </View>
+      <View style={styles.fileTextWrap}>
+        <Text
+          numberOfLines={1}
+          style={[
+            styles.fileName,
+            { color: mine || isDark ? "#ffffff" : "#2a2a2a" },
+          ]}
+        >
+          {attachment.filename}
+        </Text>
+        <Text style={styles.fileSize}>
+          {formatMessageFileSize(attachment.bytes)}
+        </Text>
+      </View>
+      <Download color="#85858b" size={17} />
+    </Pressable>
+  );
+}
+
+async function downloadAndShareMessageFile(
+  messageMediaUrl: string,
+  filename: string
+): Promise<void> {
+  const mediaId = /^\/api\/media\/(?<id>[A-Za-z0-9_-]+)(?:\/|$)/u.exec(
+    messageMediaUrl
+  )?.groups?.id;
+  if (!mediaId) {
+    throw new Error("This file is unavailable.");
+  }
+  if (!(await Sharing.isAvailableAsync())) {
+    throw new Error("File sharing is unavailable on this device.");
+  }
+  const directory = new Directory(Paths.cache, "message-attachments");
+  directory.create({ idempotent: true, intermediates: true });
+  const safeName = filename.replaceAll(/[^A-Za-z0-9._-]/g, "_").slice(0, 100);
+  const file = new File(directory, `${Date.now()}-${safeName || "attachment"}`);
+  const cookie = await authClient.getCookie();
+  await File.downloadFileAsync(
+    `${getApiBaseUrl()}/api/media/download/${mediaId}`,
+    file,
+    {
+      headers: cookie ? { Cookie: cookie } : undefined,
+      idempotent: true,
+    }
+  );
+  await Sharing.shareAsync(file.uri, {
+    dialogTitle: filename,
+    mimeType: "application/octet-stream",
+  });
+}
+
+function formatMessageFileSize(bytes?: number): string {
+  if (!bytes || bytes <= 0) {
+    return "File";
+  }
+  return bytes < 1024 * 1024
+    ? `${Math.max(1, Math.round(bytes / 1024))} KB`
+    : `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 // Memoized because a transcript re-renders as each decrypted row lands; without it
 // a 30-row page would re-render all 30 bubbles for every row that arrives.
 export const MessageBubble = memo(MessageBubbleInner);
@@ -457,6 +677,11 @@ const styles = StyleSheet.create({
   alignStart: {
     alignItems: "flex-start",
   },
+  attachmentList: {
+    alignItems: "stretch",
+    gap: 8,
+    width: "100%",
+  },
   bubbleContent: {
     paddingHorizontal: 14,
     paddingVertical: 8,
@@ -480,11 +705,55 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontStyle: "italic",
   },
+  fileCard: {
+    alignItems: "center",
+    backgroundColor: "rgba(127, 127, 127, 0.10)",
+    borderColor: "rgba(127, 127, 127, 0.18)",
+    borderRadius: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+    flexDirection: "row",
+    gap: 11,
+    minHeight: 62,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    width: "100%",
+  },
+  fileIcon: {
+    alignItems: "center",
+    backgroundColor: "rgba(127, 127, 127, 0.12)",
+    borderRadius: 10,
+    height: 38,
+    justifyContent: "center",
+    width: 38,
+  },
+  fileName: {
+    color: "#2a2a2a",
+    flexShrink: 1,
+    fontFamily: "SofiaProMed",
+    fontSize: 13,
+  },
+  fileSize: {
+    color: "#7b7b80",
+    fontFamily: "SofiaProReg",
+    fontSize: 11,
+    marginTop: 2,
+  },
+  fileTextWrap: {
+    flex: 1,
+    minWidth: 0,
+  },
   mediaCaption: {
     color: "#8e8e93",
     fontFamily: "SofiaProReg",
     fontSize: 14,
     marginTop: 4,
+  },
+  mixedImageFrame: {
+    aspectRatio: 1.25,
+    backgroundColor: "rgba(0,0,0,0.08)",
+    borderRadius: 14,
+    overflow: "hidden",
+    width: "100%",
   },
   peerAvatar: {
     bottom: 0,
@@ -565,5 +834,12 @@ const styles = StyleSheet.create({
     color: "#202020",
     fontFamily: "SofiaProReg",
     fontSize: 14,
+  },
+  videoAttachment: {
+    aspectRatio: 16 / 9,
+    backgroundColor: "#000",
+    borderRadius: 14,
+    overflow: "hidden",
+    width: "100%",
   },
 });

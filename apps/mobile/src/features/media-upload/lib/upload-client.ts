@@ -319,7 +319,9 @@ export async function uploadMedia(
   const startedAt = Date.now();
   let family: MediaFamily;
   try {
-    family = assertUploadable(source.mimeType, source.size);
+    family = assertUploadable(source.mimeType, source.size, {
+      messageAttachment: options.purpose === "message",
+    });
   } catch (error) {
     throw new UploadError(
       "initiate",

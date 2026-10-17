@@ -3,6 +3,7 @@ import type {
   DenRole,
   GroupAddRefusal,
 } from "@asm/db/messages/dens";
+import type { MessageAttachmentKind } from "@asm/media";
 import { extractMessageReferences } from "@asm/messages";
 
 import { uploadMediaFile } from "@/lib/media/media-upload-client";
@@ -1321,9 +1322,13 @@ export async function fetchMessages(
 }
 
 export interface MessageMediaUpload {
+  bytes: number;
+  durationSec: number | null;
   height: number | null;
-  kind: "gif" | "image";
+  kind: MessageAttachmentKind;
   mediaId: string;
+  mimeType: string;
+  filename: string;
   url: string;
   width: number | null;
 }
@@ -1345,7 +1350,7 @@ export interface MessageMediaUploadOptions {
 
 export async function uploadMessageMedia(
   file: File,
-  kind: "gif" | "image",
+  kind: MessageAttachmentKind,
   conversationId: string,
   options: MessageMediaUploadOptions = {}
 ): Promise<MessageMediaUpload> {
@@ -1357,7 +1362,8 @@ export async function uploadMessageMedia(
   // encrypted payload so receivers reserve the bubble box up front. The await
   // resolves only once the pipeline is READY: the serving route gates on that
   // status, so sending earlier would hand the peer a 404.
-  const dimensions = await readImageDimensions(file);
+  const dimensions =
+    kind === "gif" || kind === "image" ? await readImageDimensions(file) : null;
   const result = await uploadMediaFile(file, {
     height: dimensions?.height ?? null,
     incognitoSessionId: options.incognitoSessionId,
@@ -1373,9 +1379,13 @@ export async function uploadMessageMedia(
     throw new Error("Attachment was rejected by moderation scanning");
   }
   return {
+    bytes: file.size,
+    durationSec: null,
+    filename: file.name,
     height: dimensions?.height ?? null,
     kind,
     mediaId: result.mediaId,
+    mimeType: file.type,
     url: `/api/media/${result.mediaId}`,
     width: dimensions?.width ?? null,
   };

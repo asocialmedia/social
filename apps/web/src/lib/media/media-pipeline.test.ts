@@ -15,6 +15,7 @@ describe("mediaTypeFromMime", () => {
     expect(mediaTypeFromMime("video/mp4")).toBe("VIDEO");
     expect(mediaTypeFromMime("video/quicktime")).toBe("VIDEO");
     expect(mediaTypeFromMime("audio/mpeg")).toBe("AUDIO");
+    expect(mediaTypeFromMime("application/pdf")).toBe("DOCUMENT");
   });
 
   test("executable/script payloads are rejected outright", () => {
@@ -30,13 +31,7 @@ describe("mediaTypeFromMime", () => {
   });
 
   test("non-media families never become uploads", () => {
-    for (const mime of [
-      "application/pdf",
-      "application/zip",
-      "application/x-httpd-php",
-      "",
-      "weird",
-    ]) {
+    for (const mime of ["application/x-httpd-php", "", "weird"]) {
       expect(() => mediaTypeFromMime(mime)).toThrow(UploadPolicyError);
     }
   });

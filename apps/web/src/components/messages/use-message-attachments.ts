@@ -169,9 +169,12 @@ export function useMessageAttachments(
         dispatch({
           id: draft.id,
           patch: {
+            bytes: media.bytes,
+            durationSec: media.durationSec,
             error: undefined,
             height: media.height,
             mediaUrl: media.url,
+            mimeType: media.mimeType,
             progress: 100,
             status: "ready",
             width: media.width,
@@ -213,21 +216,32 @@ export function useMessageAttachments(
 
   const addFiles = useCallback(
     (files: File[]) => {
-      const { accepted, overflow, rejected } = selectAcceptedFiles(
+      const { accepted, overflow, rejected, tooLarge } = selectAcceptedFiles(
         attachmentsRef.current.length,
-        files
+        files,
+        attachmentsRef.current.reduce(
+          (total, attachment) => total + attachment.bytes,
+          0
+        )
       );
 
       if (rejected > 0) {
         toast({
-          description: "Messages support images and GIFs only.",
+          description: "Choose photos, videos, audio, PDF, or Office files.",
           title: "Unsupported File",
+          variant: "destructive",
+        });
+      }
+      if (tooLarge > 0) {
+        toast({
+          description: "One or more files exceed the message size limit.",
+          title: "Attachment Too Large",
           variant: "destructive",
         });
       }
       if (overflow > 0) {
         toast({
-          description: `You can send up to ${MAX_MESSAGE_ATTACHMENTS} images at a time.`,
+          description: `You can send up to ${MAX_MESSAGE_ATTACHMENTS} attachments at a time.`,
           title: "Attachment Limit",
           variant: "destructive",
         });
@@ -237,10 +251,14 @@ export function useMessageAttachments(
       }
 
       const drafts = accepted.map((file) => ({
+        bytes: file.size,
+        durationSec: null,
         file,
+        filename: file.name,
         height: null,
         id: nextDraftId(),
         kind: kindForFile(file),
+        mimeType: file.type,
         objectUrl: URL.createObjectURL(file),
         progress: 0,
         stage: "uploading" as const,
@@ -347,10 +365,14 @@ export function useMessageAttachments(
         URL.revokeObjectURL(target.objectUrl);
       }
       const draft: MessageAttachmentDraft = {
+        bytes: file.size,
+        durationSec: null,
         file,
+        filename: file.name,
         height: null,
         id,
         kind: kindForFile(file),
+        mimeType: file.type,
         objectUrl: URL.createObjectURL(file),
         progress: 0,
         stage: "uploading",

@@ -1,4 +1,8 @@
-import { DEFAULT_LIMITS, maxBytesForType } from "@asm/media";
+import {
+  DEFAULT_LIMITS,
+  maxBytesForType,
+  messageAttachmentMediaType,
+} from "@asm/media";
 
 import {
   multipartPartBounds,
@@ -143,21 +147,10 @@ export function rejectionCopy(reason?: string | null): string {
 const POLL_INTERVAL_MS = 1500;
 const POLL_TIMEOUT_MS = 5 * 60 * 1000;
 
-function categoryForMime(mime: string): "AUDIO" | "IMAGE" | "VIDEO" | null {
-  const family = mime.split("/")[0]?.toLowerCase();
-  if (family === "image") {
-    if (mime === "image/svg+xml" || mime.startsWith("text/")) {
-      return null;
-    }
-    return "IMAGE";
-  }
-  if (family === "video") {
-    return "VIDEO";
-  }
-  if (family === "audio") {
-    return "AUDIO";
-  }
-  return null;
+function categoryForMime(
+  mime: string
+): "AUDIO" | "DOCUMENT" | "IMAGE" | "VIDEO" | null {
+  return messageAttachmentMediaType(mime);
 }
 
 async function parseErrorMessage(response: Response): Promise<string> {

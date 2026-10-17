@@ -41,6 +41,8 @@ const ID3_HEAD = Buffer.from(
 const WAV_HEAD = Buffer.from(
   Buffer.from("RIFF\u0024\u0000\u0000\u0000WAVEfmt ", "latin1")
 );
+const PDF_HEAD = Buffer.from("%PDF-1.7", "latin1");
+const ZIP_HEAD = Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x14, 0x00]);
 
 describe("content detection from bytes", () => {
   test("detects common image formats", () => {
@@ -92,6 +94,29 @@ describe("content detection from bytes", () => {
       detectContent(Buffer.from([0x00, 0x00, 0x00, 0xff, 0xfa, 0x90, 0x00]))
         .detected?.mime
     ).toBe("audio/mpeg");
+  });
+
+  test("detects safe message document containers and validates declarations", () => {
+    expect(detectContent(PDF_HEAD).detected).toEqual({
+      container: "pdf",
+      family: "DOCUMENT",
+      mime: "application/pdf",
+    });
+    expect(verifyDeclaredMatchesContent(PDF_HEAD, "application/pdf").ok).toBe(
+      true
+    );
+    expect(verifyDeclaredMatchesContent(PDF_HEAD, "application/zip").ok).toBe(
+      false
+    );
+    expect(
+      verifyDeclaredMatchesContent(
+        ZIP_HEAD,
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+      ).ok
+    ).toBe(true);
+    expect(verifyDeclaredMatchesContent(ZIP_HEAD, "application/pdf").ok).toBe(
+      false
+    );
   });
 
   test("unknown bytes fail closed", () => {

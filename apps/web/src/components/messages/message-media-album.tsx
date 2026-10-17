@@ -1,12 +1,16 @@
 "use client";
 
-import { ImageOff } from "lucide-react";
+import { Download, FileText, ImageOff } from "lucide-react";
 import Image from "next/image";
 import type React from "react";
 import { useCallback, useState } from "react";
 
-import type { MediaImageRef, MessagePayload } from "@/lib/messages/crypto";
-import { getMediaImages } from "@/lib/messages/crypto";
+import type {
+  MediaAttachmentRef,
+  MediaImageRef,
+  MessagePayload,
+} from "@/lib/messages/crypto";
+import { getMediaAttachments, getMediaImages } from "@/lib/messages/crypto";
 import { cn } from "@/lib/utils";
 import { getMessageMediaVariantUrl } from "@/lib/utils/image-url";
 
@@ -275,9 +279,13 @@ export function MessageMediaAlbum({
   messageId: string;
 }) {
   const images = getMediaImages(content);
+  const attachments = getMediaAttachments(content);
   const kind = rowMediaKind(content);
   const openConversationMedia = useOpenConversationMedia();
   const caption = content.content?.trim();
+  const mixedPhotoKinds =
+    attachments.some((attachment) => attachment.kind === "image") &&
+    attachments.some((attachment) => attachment.kind === "gif");
 
   const handleOpen = useCallback(
     (imageIndex: number) => {
@@ -286,6 +294,65 @@ export function MessageMediaAlbum({
     [messageId, openConversationMedia]
   );
 
+  if (
+    mixedPhotoKinds ||
+    attachments.some((attachment) =>
+      ["file", "video", "view-once"].includes(attachment.kind)
+    )
+  ) {
+    return (
+      <div className="flex w-96 max-w-[80vw] min-w-0 flex-col gap-2">
+        {attachments.map((attachment, index) => {
+          if (attachment.kind === "image" || attachment.kind === "gif") {
+            const currentImageIndex = attachments
+              .slice(0, index)
+              .filter(
+                (previous) =>
+                  previous.kind === "image" || previous.kind === "gif"
+              ).length;
+            return (
+              <SingleImage
+                image={attachment}
+                key={`${attachment.url}-${index}`}
+                kind={attachment.kind}
+                onClick={
+                  openConversationMedia
+                    ? () => handleOpen(currentImageIndex)
+                    : undefined
+                }
+              />
+            );
+          }
+          if (attachment.kind === "video") {
+            return (
+              <VideoAttachment attachment={attachment} key={attachment.url} />
+            );
+          }
+          if (attachment.kind === "file") {
+            return (
+              <FileAttachment attachment={attachment} key={attachment.url} />
+            );
+          }
+          return (
+            <div
+              className="surface-3d text-muted-foreground flex items-center gap-3 rounded-2xl px-4 py-3 text-sm"
+              key={`view-once-${index}`}
+            >
+              <span className="bg-muted/70 flex size-10 shrink-0 items-center justify-center rounded-xl">
+                <ImageOff className="size-4" />
+              </span>
+              <span>View once photo</span>
+            </div>
+          );
+        })}
+        {caption ? (
+          <p className="min-w-0 px-0.5 text-sm break-words whitespace-pre-wrap">
+            {caption}
+          </p>
+        ) : null}
+      </div>
+    );
+  }
   if (images.length === 0) {
     return null;
   }
@@ -305,5 +372,103 @@ export function MessageMediaAlbum({
         </p>
       ) : null}
     </div>
+  );
+}
+
+function mediaIdFromUrl(url: string): string | null {
+  return (
+    /^\/api\/media\/(?<id>[A-Za-z0-9_-]+)(?:\/|$)/u.exec(url)?.groups?.id ??
+    null
+  );
+}
+
+function formatAttachmentSize(bytes?: number): string {
+  if (!bytes || bytes < 0) {
+    return "File";
+  }
+  if (bytes < 1024) {
+    return `${bytes} B`;
+  }
+  if (bytes < 1024 * 1024) {
+    return `${(bytes / 1024).toFixed(0)} KB`;
+  }
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function VideoAttachment({
+  attachment,
+}: {
+  attachment: Extract<MediaAttachmentRef, { kind: "video" }>;
+}) {
+  return (
+    <video
+      aria-label="Shared video"
+      className="max-h-80 w-full rounded-2xl bg-black object-contain"
+      controls
+      playsInline
+      preload="metadata"
+      src={attachment.url}
+    >
+      <track
+        default
+        kind="captions"
+        label="English"
+        src={`${attachment.url}?captions=1`}
+        srcLang="en"
+      />
+    </video>
+  );
+}
+
+function FileAttachment({
+  attachment,
+}: {
+  attachment: Extract<MediaAttachmentRef, { kind: "file" }>;
+}) {
+  if (attachment.mimeType?.startsWith("audio/")) {
+    return (
+      <audio
+        aria-label={attachment.filename}
+        className="w-full"
+        controls
+        preload="none"
+        src={attachment.url}
+      >
+        <track
+          default
+          kind="captions"
+          label="English"
+          src={`${attachment.url}?captions=1`}
+          srcLang="en"
+        />
+      </audio>
+    );
+  }
+  const mediaId = mediaIdFromUrl(attachment.url);
+  if (!mediaId) {
+    return null;
+  }
+  return (
+    <a
+      className="surface-3d hover:bg-muted/50 flex min-w-0 items-center gap-3 rounded-2xl px-3 py-2.5 transition-colors"
+      download={attachment.filename}
+      href={`/api/media/download/${mediaId}`}
+    >
+      <span className="bg-muted/70 flex size-10 shrink-0 items-center justify-center rounded-xl">
+        <FileText className="text-muted-foreground size-5" />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-sm font-medium">
+          {attachment.filename}
+        </span>
+        <span className="text-muted-foreground block text-xs">
+          {formatAttachmentSize(attachment.bytes)}
+        </span>
+      </span>
+      <Download
+        aria-hidden="true"
+        className="text-muted-foreground size-4 shrink-0"
+      />
+    </a>
   );
 }

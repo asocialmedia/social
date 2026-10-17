@@ -87,7 +87,7 @@
     },
     "apps/mobile": {
       "name": "@asocialmedia/mobile",
-      "version": "0.2.25",
+      "version": "0.2.26",
       "dependencies": {
         "@asm/auth": "workspace:*",
         "@asm/db": "workspace:*",
@@ -123,6 +123,7 @@
         "expo-crypto": "~57.0.3",
         "expo-dev-client": "~57.0.19",
         "expo-device": "^57.0.2",
+        "expo-document-picker": "~57.0.3",
         "expo-file-system": "^57.0.7",
         "expo-font": "~57.0.4",
         "expo-glass-effect": "~57.0.4",
@@ -177,7 +178,7 @@
     },
     "apps/web": {
       "name": "@asm/web",
-      "version": "1.7.51",
+      "version": "1.7.52",
       "dependencies": {
         "@asm/aggregator": "workspace:*",
         "@asm/auth": "workspace:*",
@@ -361,7 +362,7 @@
     },
     "packages/media": {
       "name": "@asm/media",
-      "version": "1.0.43",
+      "version": "1.0.44",
       "dependencies": {
         "gifenc": "^1.0.3",
         "gifuct-js": "^2.1.2",
@@ -375,7 +376,7 @@
     },
     "packages/messages": {
       "name": "@asm/messages",
-      "version": "1.0.13",
+      "version": "1.0.14",
       "dependencies": {
         "@asm/media": "workspace:*",
       },
@@ -2416,6 +2417,8 @@
     "expo-dev-menu-interface": ["expo-dev-menu-interface@57.0.0", "", { "peerDependencies": { "expo": "*" } }, "sha512-F47VdzOHYc19FhI/jBgctpO8a5UskTIxG6a1E5t3W5gF8VImuvBQffdXXfLHhsuCl7dS3v3U0R45cleeVXO1Zg=="],
 
     "expo-device": ["expo-device@57.0.2", "", { "dependencies": { "ua-parser-js": "^0.7.33" }, "peerDependencies": { "expo": "*" } }, "sha512-1A0/FICR3CgrH43FeiDQP3l5eHDmiMoh4EjXfhfoHHkMgdBQdyD0kwDWskiGZlQ3E0Nd0LHkCFH6vJ1ofm/jow=="],
+
+    "expo-document-picker": ["expo-document-picker@57.0.3", "", { "peerDependencies": { "expo": "*" } }, "sha512-XlxdZ0zzv44JRD8O15DISgIO8FTaZ581oc4kQp6MJoR7vdahjcY+2qCuDt5k1J8/lc0YR+bXon/v81norciuxw=="],
 
     "expo-file-system": ["expo-file-system@57.0.7", "", { "peerDependencies": { "expo": "*", "react-native": "*" } }, "sha512-1vkZRadOsIputFDBcclqBa1pO3iXOO6iIsdqJipQWw4V5TSnWgmRTuOF7ro8IzrVue+PHbum++KCG3Tawem4cg=="],
 

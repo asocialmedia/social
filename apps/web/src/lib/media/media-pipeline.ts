@@ -160,6 +160,12 @@ export async function createInitiatedUpload(input: {
   } = input;
 
   const mediaType = mediaTypeFromMime(declaredMime);
+  if (mediaType === "DOCUMENT" && purpose !== "message") {
+    throw new UploadPolicyError(
+      "Documents can only be shared in messages",
+      415
+    );
+  }
   // Purpose-aware: a wallpaper inherits the image cap unless a tighter
   // purpose-specific ceiling applies (see maxBytesForPurpose).
   const maxBytes = maxBytesForPurpose(MEDIA_LIMITS, purpose, mediaType);

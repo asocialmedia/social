@@ -75,6 +75,18 @@ export {
 } from "./state-machine";
 
 export { detectContent, verifyDeclaredMatchesContent } from "./magic";
+export {
+  MAX_MESSAGE_ATTACHMENT_TOTAL_BYTES,
+  isMessageDocumentMime,
+  maxMessageAttachmentBytes,
+  messageAttachmentKind,
+  messageAttachmentMediaType,
+  messageAttachmentMimeType,
+} from "./message-attachments";
+export type {
+  MessageAttachmentKind,
+  MessageAttachmentMediaType,
+} from "./message-attachments";
 export type { ContentDetection } from "./magic";
 
 export { readJpegExifOrientation, stripImageMetadata } from "./strip-metadata";

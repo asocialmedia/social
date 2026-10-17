@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 
-import { MAX_MESSAGE_ATTACHMENTS } from "@asm/media";
+import {
+  MAX_MESSAGE_ATTACHMENT_TOTAL_BYTES,
+  MAX_MESSAGE_ATTACHMENTS,
+} from "@asm/media";
 
 import type {
   MessageAttachmentDraft,
@@ -10,7 +13,7 @@ import {
   claimStagedMedia,
   groupReadyAttachments,
   hasUploading,
-  isAllowedMessageImage,
+  isAllowedMessageAttachment,
   isMediaReferenced,
   isReadyToSend,
   kindForFile,
@@ -26,9 +29,13 @@ function draft(
   overrides: Partial<MessageAttachmentDraft> & { id: string }
 ): MessageAttachmentDraft {
   return {
+    bytes: 1,
+    durationSec: null,
     file: file("a.png", "image/png"),
+    filename: "a.png",
     height: 100,
     kind: "image",
+    mimeType: "image/png",
     objectUrl: `blob:${overrides.id}`,
     progress: 100,
     stage: "processing",
@@ -44,17 +51,26 @@ function entries(
   return new Map(pairs);
 }
 
-describe("isAllowedMessageImage", () => {
-  test("accepts raster images and GIFs", () => {
-    expect(isAllowedMessageImage(file("a.png", "image/png"))).toBe(true);
-    expect(isAllowedMessageImage(file("a.jpg", "image/jpeg"))).toBe(true);
-    expect(isAllowedMessageImage(file("a.gif", "image/gif"))).toBe(true);
+describe("isAllowedMessageAttachment", () => {
+  test("accepts photos, GIFs, videos, audio and safe documents", () => {
+    expect(isAllowedMessageAttachment(file("a.png", "image/png"))).toBe(true);
+    expect(isAllowedMessageAttachment(file("a.jpg", "image/jpeg"))).toBe(true);
+    expect(isAllowedMessageAttachment(file("a.gif", "image/gif"))).toBe(true);
+    expect(isAllowedMessageAttachment(file("a.mp4", "video/mp4"))).toBe(true);
+    expect(isAllowedMessageAttachment(file("a.mp3", "audio/mpeg"))).toBe(true);
+    expect(isAllowedMessageAttachment(file("a.pdf", "application/pdf"))).toBe(
+      true
+    );
   });
 
-  test("rejects SVG and non-images", () => {
-    expect(isAllowedMessageImage(file("a.svg", "image/svg+xml"))).toBe(false);
-    expect(isAllowedMessageImage(file("a.pdf", "application/pdf"))).toBe(false);
-    expect(isAllowedMessageImage(file("a.txt", "text/plain"))).toBe(false);
+  test("rejects active and unsupported content", () => {
+    expect(isAllowedMessageAttachment(file("a.svg", "image/svg+xml"))).toBe(
+      false
+    );
+    expect(isAllowedMessageAttachment(file("a.html", "text/html"))).toBe(false);
+    expect(
+      isAllowedMessageAttachment(file("a.exe", "application/octet-stream"))
+    ).toBe(false);
   });
 });
 
@@ -63,6 +79,8 @@ describe("kindForFile", () => {
     expect(kindForFile(file("a.gif", "image/gif"))).toBe("gif");
     expect(kindForFile(file("a.png", "image/png"))).toBe("image");
     expect(kindForFile(file("a.webp", "image/webp"))).toBe("image");
+    expect(kindForFile(file("a.mp4", "video/mp4"))).toBe("video");
+    expect(kindForFile(file("a.pdf", "application/pdf"))).toBe("file");
   });
 });
 
@@ -85,15 +103,15 @@ describe("selectAcceptedFiles", () => {
     expect(result.rejected).toBe(0);
   });
 
-  test("separates rejected files from the cap math", () => {
+  test("separates unsupported files from the cap math", () => {
     const result = selectAcceptedFiles(0, [
       file("a.png", "image/png"),
       file("a.svg", "image/svg+xml"),
       file("a.pdf", "application/pdf"),
       file("b.gif", "image/gif"),
     ]);
-    expect(result.accepted).toHaveLength(2);
-    expect(result.rejected).toBe(2);
+    expect(result.accepted).toHaveLength(3);
+    expect(result.rejected).toBe(1);
     expect(result.overflow).toBe(0);
   });
 
@@ -129,25 +147,42 @@ describe("readiness", () => {
 });
 
 describe("groupReadyAttachments", () => {
-  test("groups by kind and preserves order", () => {
+  test("groups mixed media into one typed payload preserving the selected order", () => {
     const groups = groupReadyAttachments([
       draft({ id: "img1", kind: "image", mediaUrl: "/api/media/1" }),
       draft({ id: "gif1", kind: "gif", mediaUrl: "/api/media/2" }),
-      draft({ id: "img2", kind: "image", mediaUrl: "/api/media/3" }),
+      draft({
+        id: "video1",
+        kind: "video",
+        mediaUrl: "/api/media/3",
+        mimeType: "video/mp4",
+      }),
+      draft({
+        bytes: 120,
+        filename: "report.pdf",
+        id: "file1",
+        kind: "file",
+        mediaUrl: "/api/media/4",
+        mimeType: "application/pdf",
+      }),
+      draft({ id: "img2", kind: "image", mediaUrl: "/api/media/5" }),
     ]);
-    expect(groups).toHaveLength(2);
+    expect(groups).toHaveLength(1);
     expect(groups[0]).toEqual({
-      attachmentIds: ["img1", "img2"],
-      images: [
-        { height: 100, url: "/api/media/1", width: 100 },
-        { height: 100, url: "/api/media/3", width: 100 },
+      attachmentIds: ["img1", "gif1", "video1", "file1", "img2"],
+      attachments: [
+        { height: 100, kind: "image", url: "/api/media/1", width: 100 },
+        { height: 100, kind: "gif", url: "/api/media/2", width: 100 },
+        { height: 100, kind: "video", url: "/api/media/3", width: 100 },
+        {
+          bytes: 120,
+          filename: "report.pdf",
+          kind: "file",
+          mimeType: "application/pdf",
+          url: "/api/media/4",
+        },
+        { height: 100, kind: "image", url: "/api/media/5", width: 100 },
       ],
-      kind: "image",
-    });
-    expect(groups[1]).toEqual({
-      attachmentIds: ["gif1"],
-      images: [{ height: 100, url: "/api/media/2", width: 100 }],
-      kind: "gif",
     });
   });
 
@@ -164,7 +199,25 @@ describe("groupReadyAttachments", () => {
     const groups = groupReadyAttachments([
       draft({ height: null, id: "1", mediaUrl: "/api/media/1", width: null }),
     ]);
-    expect(groups[0].images[0]).toEqual({ url: "/api/media/1" });
+    expect(groups[0].attachments[0]).toEqual({
+      kind: "image",
+      url: "/api/media/1",
+    });
+  });
+
+  test("rejects per-file and aggregate size excess before upload", () => {
+    const result = selectAcceptedFiles(
+      0,
+      [
+        new File([new Uint8Array(26 * 1024 * 1024)], "large.png", {
+          type: "image/png",
+        }),
+        file("small.pdf", "application/pdf"),
+      ],
+      MAX_MESSAGE_ATTACHMENT_TOTAL_BYTES
+    );
+    expect(result.accepted).toHaveLength(0);
+    expect(result.tooLarge).toBe(2);
   });
 });
 

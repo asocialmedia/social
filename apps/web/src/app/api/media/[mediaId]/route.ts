@@ -90,6 +90,7 @@ async function getMediaOwnership(mediaId: string) {
     "commentId",
     "messageConversationId",
     "mimeType",
+    "_type",
     "postId",
     "userId"
   )
@@ -263,6 +264,10 @@ export async function GET(
       decision.status === 401 ? "Unauthorized" : "Media not found",
       decision.status
     );
+  }
+
+  if (ownership._type === "DOCUMENT") {
+    return mediaError("Use the download route for message files", 415);
   }
 
   // SVG / PDF / code payloads have no support at any level - not inline, not

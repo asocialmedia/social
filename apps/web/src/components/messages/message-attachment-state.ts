@@ -1,23 +1,33 @@
-import { MAX_MESSAGE_ATTACHMENTS } from "@asm/media";
+import {
+  MAX_MESSAGE_ATTACHMENT_TOTAL_BYTES,
+  MAX_MESSAGE_ATTACHMENTS,
+  maxMessageAttachmentBytes,
+  messageAttachmentKind,
+  messageAttachmentMimeType,
+} from "@asm/media";
 
 import type { UploadStage } from "@/lib/media/media-upload-client";
-import type { MediaImageRef } from "@/lib/messages/crypto";
+import type { MediaAttachmentRef } from "@/lib/messages/crypto";
 
 // Pure staging logic for the message composer, split out from the hook so the
 // filtering, capacity, and grouping rules can be unit-tested without a DOM.
 // `draft.file` is a browser File (non-serializable); everything else is plain
 // data.
 
-export type MessageAttachmentKind = "gif" | "image";
+export type MessageAttachmentKind = "file" | "gif" | "image" | "video";
 export type MessageAttachmentStatus = "error" | "ready" | "uploading";
 
 export interface MessageAttachmentDraft {
   error?: string;
   file: File;
+  bytes: number;
+  durationSec: number | null;
+  filename: string;
   height: number | null;
   id: string;
   kind: MessageAttachmentKind;
   mediaId?: string;
+  mimeType: string;
   mediaUrl?: string;
   objectUrl: string;
   progress: number;
@@ -30,25 +40,46 @@ export interface GroupedMessageAttachments {
   // Draft ids backing this group, so the composer can clear exactly the groups
   // that were sent if a later group in the batch fails.
   attachmentIds: string[];
-  images: MediaImageRef[];
-  kind: MessageAttachmentKind;
+  attachments: MediaAttachmentRef[];
 }
 
 // Messages carry images and GIFs only. SVG is excluded because it is blocked
 // by the upload policy (it can execute script when rendered inline).
-export function isAllowedMessageImage(file: File): boolean {
-  return file.type.startsWith("image/") && file.type !== "image/svg+xml";
+export function normalizedMessageFile(file: File): File | null {
+  const mimeType = messageAttachmentMimeType(file.type, file.name);
+  if (!messageAttachmentKind(mimeType)) {
+    return null;
+  }
+  if (mimeType === file.type) {
+    return file;
+  }
+  return new File([file], file.name, {
+    lastModified: file.lastModified,
+    type: mimeType,
+  });
+}
+
+export function isAllowedMessageAttachment(file: File): boolean {
+  const mimeType = messageAttachmentMimeType(file.type, file.name);
+  return messageAttachmentKind(mimeType) !== null;
 }
 
 export function kindForFile(file: File): MessageAttachmentKind {
-  return file.type === "image/gif" ? "gif" : "image";
+  const mimeType = messageAttachmentMimeType(file.type, file.name);
+  const kind = messageAttachmentKind(mimeType);
+  if (!kind) {
+    throw new Error("Unsupported message attachment");
+  }
+  return kind;
 }
 
 export interface SelectionResult {
   accepted: File[];
-  // Files that made it through the image filter but exceeded the cap.
+  // Supported files that exceeded the remaining attachment count.
   overflow: number;
-  // Files rejected outright (non-images, SVG).
+  // Files larger than their type cap or the aggregate message budget.
+  tooLarge: number;
+  // Files rejected outright (unsupported or active content types).
   rejected: number;
 }
 
@@ -57,15 +88,36 @@ export interface SelectionResult {
 // passed the filter, not the raw selection.
 export function selectAcceptedFiles(
   existingCount: number,
-  incoming: File[]
+  incoming: File[],
+  existingBytes = 0
 ): SelectionResult {
-  const allowed = incoming.filter(isAllowedMessageImage);
+  const allowed = incoming.flatMap((file) => {
+    const normalized = normalizedMessageFile(file);
+    return normalized ? [normalized] : [];
+  });
   const capacity = Math.max(0, MAX_MESSAGE_ATTACHMENTS - existingCount);
-  const accepted = allowed.slice(0, capacity);
+  let totalBytes = existingBytes;
+  let tooLarge = 0;
+  const withinLimits: File[] = [];
+  for (const file of allowed) {
+    const maxBytes = maxMessageAttachmentBytes(file.type);
+    if (
+      file.size <= 0 ||
+      file.size > maxBytes ||
+      totalBytes + file.size > MAX_MESSAGE_ATTACHMENT_TOTAL_BYTES
+    ) {
+      tooLarge += 1;
+      continue;
+    }
+    totalBytes += file.size;
+    withinLimits.push(file);
+  }
+  const accepted = withinLimits.slice(0, capacity);
   return {
     accepted,
-    overflow: allowed.length - accepted.length,
+    overflow: withinLimits.length - accepted.length,
     rejected: incoming.length - allowed.length,
+    tooLarge,
   };
 }
 
@@ -145,35 +197,49 @@ export function restoreStagedMedia(
   }
 }
 
-// Groups ready attachments by media kind, preserving order. A mixed batch (some
-// GIFs, some photos) becomes one album message per kind, because a single
-// encrypted media payload carries one `kind` for all of its images.
+// One typed payload keeps mixed attachments together in their selected order.
 export function groupReadyAttachments(
   attachments: MessageAttachmentDraft[]
 ): GroupedMessageAttachments[] {
-  const groups = new Map<
-    MessageAttachmentKind,
-    { attachmentIds: string[]; images: MediaImageRef[] }
-  >();
+  const ready: MessageAttachmentDraft[] = [];
   for (const attachment of attachments) {
     if (attachment.status !== "ready" || !attachment.mediaUrl) {
       continue;
     }
-    const group = groups.get(attachment.kind) ?? {
-      attachmentIds: [],
-      images: [],
-    };
-    group.images.push({
-      height: attachment.height ?? undefined,
-      url: attachment.mediaUrl,
-      width: attachment.width ?? undefined,
-    });
-    group.attachmentIds.push(attachment.id);
-    groups.set(attachment.kind, group);
+    ready.push(attachment);
   }
-  return [...groups.entries()].map(([kind, group]) => ({
-    attachmentIds: group.attachmentIds,
-    images: group.images,
-    kind,
-  }));
+  if (ready.length === 0) {
+    return [];
+  }
+  return [
+    {
+      attachmentIds: ready.map((attachment) => attachment.id),
+      attachments: ready.map((attachment) => {
+        if (attachment.kind === "file") {
+          return {
+            bytes: attachment.bytes,
+            filename: attachment.filename,
+            kind: "file" as const,
+            mimeType: attachment.mimeType,
+            url: attachment.mediaUrl as string,
+          };
+        }
+        if (attachment.kind === "video") {
+          return {
+            durationSec: attachment.durationSec ?? undefined,
+            height: attachment.height ?? undefined,
+            kind: "video" as const,
+            url: attachment.mediaUrl as string,
+            width: attachment.width ?? undefined,
+          };
+        }
+        return {
+          height: attachment.height ?? undefined,
+          kind: attachment.kind,
+          url: attachment.mediaUrl as string,
+          width: attachment.width ?? undefined,
+        };
+      }),
+    },
+  ];
 }

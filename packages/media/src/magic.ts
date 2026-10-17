@@ -105,6 +105,18 @@ function testMpegAudio(b: Buffer): boolean {
 
 const SIGNATURES: Signature[] = [
   {
+    container: "pdf",
+    family: "DOCUMENT",
+    mime: "application/pdf",
+    test: (b) => asciiAt(b, "%PDF-", 0),
+  },
+  {
+    container: "zip",
+    family: "DOCUMENT",
+    mime: "application/zip",
+    test: (b) => startsWith(b, [0x50, 0x4b, 0x03, 0x04]),
+  },
+  {
     container: "jpeg",
     family: "IMAGE",
     mime: "image/jpeg",
@@ -291,15 +303,35 @@ export function verifyDeclaredMatchesContent(
     return { ok: false, reason: "UNRECOGNIZED_CONTENT" };
   }
   const detectedFamily = detection.detected.family.toLowerCase();
-  const declaredFamily = declaredMime.split("/")[0]?.toLowerCase() ?? "";
+  const declaredMimeNormalized =
+    declaredMime.split(";")[0]?.trim().toLowerCase() ?? "";
+  const declaredFamily =
+    declaredMimeNormalized === "application/pdf" ||
+    declaredMimeNormalized === "application/zip" ||
+    declaredMimeNormalized.startsWith(
+      "application/vnd.openxmlformats-officedocument."
+    )
+      ? "document"
+      : (declaredMimeNormalized.split("/")[0] ?? "");
   const quicktimeAlias =
     declaredFamily === "video" && declaredMime.includes("quicktime");
   const matroskaAlias =
     declaredFamily === "video" && declaredMime.includes("matroska");
+  const documentMatch =
+    detectedFamily === "document" &&
+    ((detection.detected.container === "pdf" &&
+      declaredMimeNormalized === "application/pdf") ||
+      (detection.detected.container === "zip" &&
+        (declaredMimeNormalized === "application/zip" ||
+          declaredMimeNormalized.startsWith(
+            "application/vnd.openxmlformats-officedocument."
+          ))));
   const familyMatch =
-    detectedFamily === declaredFamily ||
-    (quicktimeAlias && detection.detected.container === "iso-bmff") ||
-    (matroskaAlias && detection.detected.container === "webm-mkv");
+    detectedFamily === "document"
+      ? documentMatch
+      : detectedFamily === declaredFamily ||
+        (quicktimeAlias && detection.detected.container === "iso-bmff") ||
+        (matroskaAlias && detection.detected.container === "webm-mkv");
   if (!familyMatch) {
     return {
       detected: detection.detected,

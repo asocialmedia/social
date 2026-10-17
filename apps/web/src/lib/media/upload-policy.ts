@@ -1,6 +1,8 @@
 // Pure upload-policy rules. Kept free of environment/database imports so
 // they are unit-testable in isolation and usable from any runtime.
 
+import { messageAttachmentMediaType } from "@asm/media";
+
 export type UploadPolicyStatus =
   | 400
   | 403
@@ -21,7 +23,10 @@ export class UploadPolicyError extends Error {
   }
 }
 
-const MIME_FAMILY_TO_TYPE: Record<string, "AUDIO" | "IMAGE" | "VIDEO"> = {
+const MIME_FAMILY_TO_TYPE: Record<
+  string,
+  "AUDIO" | "DOCUMENT" | "IMAGE" | "VIDEO"
+> = {
   audio: "AUDIO",
   image: "IMAGE",
   video: "VIDEO",
@@ -29,9 +34,10 @@ const MIME_FAMILY_TO_TYPE: Record<string, "AUDIO" | "IMAGE" | "VIDEO"> = {
 
 export function mediaTypeFromMime(
   declaredMime: string
-): "AUDIO" | "IMAGE" | "VIDEO" {
+): "AUDIO" | "DOCUMENT" | "IMAGE" | "VIDEO" {
   const family = declaredMime.split("/")[0]?.toLowerCase() ?? "";
-  const mapped = MIME_FAMILY_TO_TYPE[family];
+  const mapped =
+    MIME_FAMILY_TO_TYPE[family] ?? messageAttachmentMediaType(declaredMime);
   if (!mapped) {
     throw new UploadPolicyError(`Unsupported file type: ${declaredMime}`, 415);
   }
