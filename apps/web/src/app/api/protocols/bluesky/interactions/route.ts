@@ -8,6 +8,7 @@ import {
   refreshExternalPost,
   ExternalInteractionError,
 } from "@asm/db";
+import type { PostData } from "@asm/db";
 import type { ExternalPost } from "@asm/protocols/contracts";
 import {
   externalMutationSchema,
@@ -87,6 +88,25 @@ function mapLocalComments(
       username: comment.user?.username || "deleted",
     },
     userId: comment.userId,
+  }));
+}
+
+function mapResponsePosts(posts: PostData[]): ExternalComment[] {
+  return posts.map((post) => ({
+    content: post.content,
+    createdAt: post.createdAt.toISOString(),
+    deleted: false,
+    id: post.id,
+    parentId: null,
+    rootId: null,
+    source: "asm",
+    user: {
+      avatarUrl: post.user?.avatarUrl ?? null,
+      displayName: post.user?.displayName || post.user?.username || "Unknown",
+      id: post.user?.id ?? post.userId,
+      username: post.user?.username || "unknown",
+    },
+    userId: post.userId,
   }));
 }
 
@@ -180,20 +200,19 @@ export function GET(request: Request) {
     if (kind === "comments") {
       const local = await externalComments(uri.data, parsed?.data);
       let bskyReplies: ExternalPost[] = [];
+      let asmResponses: PostData[] = [];
       if (!parsed?.data) {
-        try {
-          const thread = await readBlueskyThread(
-            uri.data,
-            3,
-            request.signal,
-            requestId
-          );
-          bskyReplies = thread.replies;
-        } catch (error) {
-          if (request.signal.aborted) {
-            throw error;
-          }
-          // Resilient degradation: upstream failure preserves local discussion
+        const [threadResult, responsesResult] = await Promise.allSettled([
+          readBlueskyThread(uri.data, 3, request.signal, requestId),
+          externalResponses(uri.data, viewer),
+        ]);
+        if (threadResult.status === "fulfilled") {
+          bskyReplies = threadResult.value.replies;
+        } else if (request.signal.aborted) {
+          throw threadResult.reason;
+        }
+        if (responsesResult.status === "fulfilled") {
+          asmResponses = responsesResult.value.items;
         }
       }
       return Response.json({
@@ -202,27 +221,38 @@ export function GET(request: Request) {
           items: [
             ...mapBlueskyReplies(bskyReplies, uri.data),
             ...mapLocalComments(local.items),
+            ...mapResponsePosts(asmResponses),
           ],
         },
       });
     }
-    const [posts, local, retained, thread] = await Promise.all([
-      readCurrent([uri.data], request, requestId),
-      externalComments(uri.data, parsed?.data),
-      findExternalPost(uri.data),
-      readBlueskyThread(uri.data, 3, request.signal, requestId).catch(
-        (error) => {
-          if (request.signal.aborted) {
-            throw error;
+    const [posts, local, retained, thread, responsesResult] = await Promise.all(
+      [
+        readCurrent([uri.data], request, requestId),
+        externalComments(uri.data, parsed?.data),
+        findExternalPost(uri.data),
+        readBlueskyThread(uri.data, 3, request.signal, requestId).catch(
+          (error) => {
+            if (request.signal.aborted) {
+              throw error;
+            }
+            return null;
           }
-          return null;
-        }
-      ),
-    ]);
+        ),
+        parsed?.data
+          ? Promise.resolve({ items: [] as PostData[] })
+          : externalResponses(uri.data, viewer).catch(() => ({
+              items: [] as PostData[],
+            })),
+      ]
+    );
     if (!posts.verified) {
       throw new ProtocolGatewayError(503, "source_read_failed");
     }
-    let post = posts.posts.find((entry) => entry.id === uri.data) ?? null;
+    let post =
+      posts.posts.find((entry) => entry.id === uri.data) ??
+      thread?.post ??
+      null;
     if (post && thread?.post) {
       post = {
         ...post,
@@ -240,7 +270,11 @@ export function GET(request: Request) {
     return Response.json({
       comments: {
         cursor: local.cursor,
-        items: [...bskyComments, ...localComments],
+        items: [
+          ...bskyComments,
+          ...localComments,
+          ...mapResponsePosts(responsesResult.items),
+        ],
       },
       post: post ? { ...post, asm: states.get(uri.data) } : null,
     });

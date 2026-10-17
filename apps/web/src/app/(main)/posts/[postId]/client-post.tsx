@@ -14,13 +14,14 @@ import PostCard from "@/components/home/feedview/post-card";
 import HomeFeed from "@/components/home/home-feed";
 import { FeedScrollbar } from "@/components/layouts/feed/feed-scrollbar";
 import PostAuthorSidebar from "@/components/posts/views/post-author-sidebar";
-import { ExternalResponses } from "@/components/protocols/external-responses";
+import { useBlueskyProfile } from "@/components/protocols/use-bluesky-profile";
 import { useFeedScrollMemory } from "@/hooks/feed/use-feed-scroll-memory";
 import { useFeedSwipeNavigation } from "@/hooks/feed/use-feed-swipe-navigation";
 import kyInstance from "@/lib/ky";
 import { normalizePostData } from "@/lib/posts/post-normalize";
 import type { PresentedPost as PostData } from "@/lib/posts/presentation";
 import { blueskyProfilePath } from "@/lib/protocols/paths";
+import { cn } from "@/lib/utils";
 import { getSecureImageUrl } from "@/lib/utils/image-url";
 import { withViewTransition } from "@/lib/view-transition";
 
@@ -33,11 +34,23 @@ interface ClientPostProps {
 
 const EMPTY_ANCESTORS: PostData[] = [];
 
-function getHeaderTitles(post: PostData): {
+function getHeaderTitles(
+  post: PostData,
+  externalAuthor?: {
+    displayName?: string | null;
+    handle?: string | null;
+  } | null
+): {
   subtitle: string | null;
   title: string;
 } {
-  const authorName = post.user?.displayName || post.user?.username;
+  const authorName =
+    externalAuthor?.displayName ||
+    post.external?.author.displayName ||
+    post.user?.displayName ||
+    externalAuthor?.handle ||
+    post.external?.author.handle ||
+    post.user?.username;
 
   if (post.community) {
     return {
@@ -56,31 +69,41 @@ function getHeaderTitles(post: PostData): {
   ) {
     subtitle = `@${post.user.username}`;
   } else if (post.external) {
-    subtitle = "Bluesky";
+    const handle = externalAuthor?.handle || post.external.author.handle;
+    subtitle = handle ? `@${handle}` : "Bluesky";
   }
 
   const title = authorName ? `${authorName}'s Post` : "Post";
   return { subtitle, title };
 }
 
-function HeaderBannerWash({ bannerUrl }: { bannerUrl: string }) {
+export function HeaderBannerWash({
+  bannerUrl,
+  className,
+}: {
+  bannerUrl?: string | null;
+  className?: string;
+}) {
   const [failed, setFailed] = useState(false);
-  if (failed) {
+  if (!bannerUrl || failed) {
     return null;
   }
   return (
     <div
       aria-hidden
-      className="pointer-events-none absolute inset-0 overflow-hidden"
+      className={cn(
+        "pointer-events-none absolute inset-0 overflow-hidden",
+        className
+      )}
     >
       <div className="absolute inset-0">
         <Image
           alt=""
-          className="object-cover blur-[2px]"
+          className="scale-105 object-cover object-left-top blur-[2px]"
           fill
           onError={() => setFailed(true)}
           sizes="(max-width: 768px) 100vw, 420px"
-          src={bannerUrl}
+          src={getSecureImageUrl(bannerUrl)}
           unoptimized
         />
       </div>
@@ -141,11 +164,24 @@ const ClientPost: React.FC<ClientPostProps> = ({
     normalizePostData
   );
 
+  const { data: externalAuthor } = useBlueskyProfile(
+    post.external?.author.id ?? "",
+    post.external?.author
+  );
+
   const rawBannerUrl =
-    post.external?.author.bannerUrl || post.user?.bannerUrl || null;
+    externalAuthor?.bannerUrl ||
+    post.external?.author.bannerUrl ||
+    post.user?.bannerUrl ||
+    externalAuthor?.avatarUrl ||
+    post.external?.author.avatarUrl ||
+    post.user?.avatarUrl ||
+    null;
   const headerImageUrl = rawBannerUrl ? getSecureImageUrl(rawBannerUrl) : null;
-  const { title: headerTitle, subtitle: headerSubtitle } =
-    getHeaderTitles(post);
+  const { title: headerTitle, subtitle: headerSubtitle } = getHeaderTitles(
+    post,
+    externalAuthor
+  );
 
   const scrollRef = useRef<HTMLDivElement>(null);
   // Returning from the fullscreen media viewer restores the exact scroll
@@ -360,9 +396,6 @@ const ClientPost: React.FC<ClientPostProps> = ({
                 );
               })()}
             </div>
-            {post.external ? (
-              <ExternalResponses uri={post.external.id} />
-            ) : null}
             <div>
               <div className="flex items-center justify-between px-4 py-2">
                 <span className="text-sm font-semibold">View more content</span>

@@ -4,7 +4,9 @@ import { Button } from "@asm/ui/shadui/button";
 import { ArrowLeft } from "lucide-react";
 import { useSearchParams, useRouter } from "next/navigation";
 
-import ClientPost from "@/app/(main)/posts/[postId]/client-post";
+import ClientPost, {
+  HeaderBannerWash,
+} from "@/app/(main)/posts/[postId]/client-post";
 import MediaViewer from "@/components/home/feedview/media-viewer";
 import MediaRouteSkeleton from "@/components/layouts/skeletons/media-route-skeleton";
 import PostDetailSkeleton from "@/components/layouts/skeletons/post-detail-skeleton";
@@ -14,6 +16,7 @@ import { externalPostView } from "@/lib/posts/presentation";
 import { withViewTransition } from "@/lib/view-transition";
 
 import { ExternalDiscussion } from "./external-discussion";
+import { useBlueskyProfile } from "./use-bluesky-profile";
 import { useExternalPost } from "./use-external-post";
 
 export function ExternalPostPage() {
@@ -21,6 +24,20 @@ export function ExternalPostPage() {
   const uri = params.get("uri") ?? "";
   const router = useRouter();
   const query = useExternalPost(uri);
+
+  const uriActor = uri.startsWith("at://")
+    ? (uri.slice(5).split("/")[0] ?? "")
+    : "";
+  const { data: externalAuthor } = useBlueskyProfile(uriActor);
+
+  const fallbackBannerUrl =
+    externalAuthor?.bannerUrl || externalAuthor?.avatarUrl || null;
+  const fallbackTitle = externalAuthor?.displayName
+    ? `${externalAuthor.displayName}'s Post`
+    : "Post";
+  const fallbackSubtitle = externalAuthor?.handle
+    ? `@${externalAuthor.handle}`
+    : "Bluesky";
 
   if (query.isPending) {
     return params.has("media") ? (
@@ -62,10 +79,16 @@ export function ExternalPostPage() {
   }
   return (
     <main className="mx-auto w-full max-w-2xl">
-      <div className="border-border/60 flex items-center gap-2.5 border-b px-3 py-2">
+      <div className="border-border/60 relative flex items-center gap-2.5 overflow-hidden border-b px-3 py-2">
+        {fallbackBannerUrl ? (
+          <HeaderBannerWash
+            bannerUrl={fallbackBannerUrl}
+            key={fallbackBannerUrl}
+          />
+        ) : null}
         <button
           aria-label="Go back"
-          className="icon-btn-3d flex size-8 shrink-0 items-center justify-center rounded-full transition-all! duration-300! ease-out! hover:scale-105 active:scale-95"
+          className="icon-btn-3d relative z-10 flex size-8 shrink-0 items-center justify-center rounded-full transition-all! duration-300! ease-out! hover:scale-105 active:scale-95"
           onClick={() =>
             typeof window !== "undefined" && window.history.length > 1
               ? withViewTransition(() => router.back())
@@ -75,7 +98,16 @@ export function ExternalPostPage() {
         >
           <ArrowLeft className="size-4" />
         </button>
-        <h1 className="text-base font-semibold sm:text-lg">Post</h1>
+        <div className="relative z-10 min-w-0 flex-1">
+          <h1 className="truncate text-base leading-tight font-semibold sm:text-lg">
+            {fallbackTitle}
+          </h1>
+          {fallbackSubtitle ? (
+            <p className="text-muted-foreground truncate text-xs leading-tight font-normal">
+              {fallbackSubtitle}
+            </p>
+          ) : null}
+        </div>
       </div>
       {query.isError ? (
         <Button
