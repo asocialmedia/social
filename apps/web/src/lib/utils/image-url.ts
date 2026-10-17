@@ -137,10 +137,13 @@ export function getMediaProxyUrl(media: {
 // never produce larger ladder rungs - so any size request is safe. Animated
 // GIFs bypass variants entirely so their animation survives.
 export function getMediaImageUrl(
-  media: { id: string; mimeType?: string | null },
+  media: { id: string; mimeType?: string | null; thumbnailKey?: string | null },
   variant: string
 ): string {
   if (media.id.startsWith("https://")) {
+    if (variant.startsWith("thumb") && media.thumbnailKey) {
+      return media.thumbnailKey;
+    }
     return media.id;
   }
   if (media.mimeType === "image/gif") {

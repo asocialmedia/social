@@ -166,7 +166,7 @@ export class BlueskyDiscovery {
       .slice(0, 24)}:head`;
     const owner = crypto.randomUUID();
     const lease = { key, owner };
-    if (this.activeLoads >= 1 || !(await this.store.acquire(key, owner))) {
+    if (this.activeLoads >= 4 || !(await this.store.acquire(key, owner))) {
       throw new ProtocolError("capacity", "Discovery is being refreshed", 2);
     }
     this.activeLoads += 1;
@@ -262,7 +262,7 @@ export class BlueskyDiscovery {
       if (completed) {
         return completed;
       }
-      if (this.activeLoads >= 2) {
+      if (this.activeLoads >= 8) {
         throw new ProtocolError("capacity", "Discovery is busy", 2);
       }
       this.activeLoads += 1;

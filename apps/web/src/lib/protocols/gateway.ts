@@ -81,7 +81,7 @@ export async function protocolRoute(
     "x-content-type-options": "nosniff",
     "x-request-id": id,
   };
-  if (active >= 64) {
+  if (active >= 128) {
     return Response.json(
       { error: "Bluesky is busy. Try again shortly." },
       { headers: { ...headers, "retry-after": "2" }, status: 503 }

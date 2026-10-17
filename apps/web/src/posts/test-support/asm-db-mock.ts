@@ -90,6 +90,20 @@ export const asmDbMockBase = {
     }),
   notifyCommunitySubscribers: () => Promise.resolve([]),
   postViewsCache: {},
+  prisma: {
+    orm: {
+      public: {
+        Accounts: {
+          create: () => Promise.resolve({}),
+          where: () => ({
+            deleteAndCount: () => Promise.resolve({ count: 1 }),
+            first: () => Promise.resolve(null),
+            updateAndCount: () => Promise.resolve({ count: 1 }),
+          }),
+        },
+      },
+    },
+  },
   publishCommentCreated: () => Promise.resolve(),
   publishCommentDeleted: () => Promise.resolve(),
   publishConversationRead: () => Promise.resolve(),

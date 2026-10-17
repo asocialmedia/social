@@ -69,7 +69,7 @@ export function createMediaHoldGesture(
 
 export function findHeldMedia(
   target: Element,
-  media: readonly { id: string }[]
+  media: readonly { id: string; thumbnailKey?: string | null }[]
 ) {
   if (target.closest('[role="dialog"], [data-media-control]')) {
     return null;
@@ -86,7 +86,11 @@ export function findHeldMedia(
     element.querySelector("source")?.getAttribute("src"),
   ].filter(Boolean);
   const index = media.findIndex((item) =>
-    sources.some((source) => source?.includes(item.id))
+    sources.some(
+      (source) =>
+        source?.includes(item.id) ||
+        (item.thumbnailKey ? source?.includes(item.thumbnailKey) : false)
+    )
   );
   return index === -1 ? null : { element, index };
 }

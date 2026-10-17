@@ -41,7 +41,7 @@ export async function startProtocols() {
     import("@asm/protocols/bluesky"),
   ]);
   const client = new BlueskyClient({
-    maxConcurrentRequests: 16,
+    maxConcurrentRequests: 48,
     observe: createProtocolObserver(logger),
     timeoutMs: 10_000,
   });
@@ -99,7 +99,11 @@ export async function startProtocols() {
       // Ioredis reconnects in the background; readiness stays unavailable until it recovers.
     });
   }
-  const discovery = new BlueskyDiscovery(client, undefined, {
+  const { createCachedBlueskyClient } = await import("./cache-client");
+  const effectiveClient = redis
+    ? createCachedBlueskyClient(client, redis)
+    : client;
+  const discovery = new BlueskyDiscovery(effectiveClient, undefined, {
     store: redis ? new RedisDiscoveryStore(redis) : new MemoryDiscoveryStore(),
   });
   let stopLive: (() => void) | undefined;
@@ -156,7 +160,7 @@ export async function startProtocols() {
     };
   }
   const app = createProtocolsApp({
-    client,
+    client: effectiveClient,
     discover: (mode, cursor, locale, topics) =>
       discovery.read(mode, cursor, locale, topics),
     health: () => ({

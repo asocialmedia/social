@@ -20,6 +20,7 @@ export type PrivateUserData = Omit<
   DatabasePrivateUserData,
   "communityMembers" | "createdAt" | "followsFollows"
 > & {
+  blueskyHandle?: string | null;
   communityMemberships: CommunityRoleRow[];
   createdAt: Date;
   followers: { followerId: string }[];
@@ -33,9 +34,13 @@ export const getUserData = cache(async (userId: string) => {
     return null;
   }
 
-  const userData = await getPrivateUserQuery(prisma.orm, userId)
-    .where({ id: userId })
-    .first();
+  const [userData, blueskyAccount] = await Promise.all([
+    getPrivateUserQuery(prisma.orm, userId).where({ id: userId }).first(),
+    prisma.orm.public.Accounts.where({
+      providerId: "bluesky",
+      userId,
+    }).first(),
+  ]);
 
   if (!userData) {
     return null;
@@ -46,6 +51,7 @@ export const getUserData = cache(async (userId: string) => {
   return {
     ...scalars,
     ...summary,
+    blueskyHandle: blueskyAccount?.issuer || null,
     communityMemberships: communityMembers.flatMap((membership) =>
       membership.community
         ? [

@@ -42,7 +42,7 @@ export function mediaGridImageUrl(
   pixelWidth = 800
 ): string {
   if (media.id.startsWith("https://")) {
-    return media.id;
+    return media.thumbnailKey ?? media.id;
   }
   if (media.mimeType === "image/gif") {
     return `${apiBase.replace(/\/+$/, "")}/api/media/${media.id}`;

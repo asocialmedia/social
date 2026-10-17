@@ -44,6 +44,19 @@ export {
   isAuthFeedUri,
   isAuthenticationNotice,
 } from "./auth-feeds";
+export {
+  createAuthenticatedClient,
+  createBlueskySession,
+  publishBlueskyLike,
+  publishBlueskyReply,
+  publishBlueskyRepost,
+  resolveBlueskyHandle,
+} from "./authenticated";
+export type {
+  BlueskyAuthSession,
+  BlueskyCredentials,
+  BlueskyRecordResult,
+} from "./authenticated";
 
 const popularFeedsQuery = l.query(
   "app.bsky.unspecced.getPopularFeedGenerators",

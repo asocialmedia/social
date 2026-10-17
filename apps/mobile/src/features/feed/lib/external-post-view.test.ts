@@ -80,6 +80,22 @@ test("the shared gallery receives original remote images and HLS videos with the
   expect(image && mediaGridImageUrl("https://asm.example", image)).toBe(
     source.media[0]?.url
   );
+
+  const sourceWithThumb = {
+    ...post,
+    media: [
+      {
+        alt: "Thumbnail test",
+        thumbnailUrl: "https://cdn.bsky.app/thumb@jpeg",
+        type: "image" as const,
+        url: "https://cdn.bsky.app/original@jpeg",
+      },
+    ],
+  };
+  const [thumbImage] = externalPostView(sourceWithThumb).attachments ?? [];
+  expect(
+    thumbImage && mediaGridImageUrl("https://asm.example", thumbImage)
+  ).toBe("https://cdn.bsky.app/thumb@jpeg");
   expect(
     video && mediaVideoUrl("https://asm.example", video.id, video.hasHls)
   ).toBe(source.media[1]?.url);

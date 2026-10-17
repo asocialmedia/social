@@ -19,8 +19,9 @@ type UserQueryData = ResultType<ReturnType<typeof getUserDataQuery>>;
 
 export interface UserData extends Omit<
   UserQueryData,
-  "communityMembers" | "createdAt" | "followsFollows"
+  "accounts" | "communityMembers" | "createdAt" | "followsFollows"
 > {
+  blueskyHandle?: string | null;
   communityMemberships: CommunityRoleRow[];
   createdAt: Date;
   followers: { followerId: string }[];
@@ -29,8 +30,11 @@ export interface UserData extends Omit<
 }
 
 export function mapUserData(user: UserQueryData): UserData {
-  const { communityMembers, createdAt, followsFollows, ...scalars } = user;
+  const { accounts, communityMembers, createdAt, followsFollows, ...scalars } =
+    user;
+  const blueskyHandle = accounts?.[0]?.issuer || null;
   return {
+    blueskyHandle,
     ...scalars,
     communityMemberships: communityMembers.flatMap((membership) =>
       membership.community
@@ -66,6 +70,9 @@ export function getPublicUserQuery(orm: PrismaOrm, loggedInUserId: string) {
     "twitterUsername",
     "username"
   )
+    .include("accounts", (accounts) =>
+      accounts.where({ providerId: "bluesky" }).select("accountId", "issuer")
+    )
     .include("communityMembers", (memberships) =>
       memberships
         .where((member) =>

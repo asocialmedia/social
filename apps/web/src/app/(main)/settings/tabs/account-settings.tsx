@@ -27,6 +27,7 @@ import { z } from "zod";
 import { LoadingButton } from "@/components/auth/fields/loading-button";
 import { AccountResolutionDialog } from "@/components/settings/account-resolution-dialog";
 import AddEmailBanner from "@/components/settings/add-email-banner";
+import { BlueskyConnectCard } from "@/components/settings/bluesky-connect-card";
 import LinkAccountAlert from "@/components/settings/link-account-alert";
 import LinkedAccounts from "@/components/settings/linked-accounts";
 import type { AccountLinkingReadiness } from "@/components/settings/linked-accounts";
@@ -743,6 +744,11 @@ export default function AccountSettings({
           )}
         </SettingsCard>
       )}
+
+      <BlueskyConnectCard
+        blueskyHandle={user.blueskyHandle}
+        hasVerifiedEmail={accountLinkingReadiness.hasVerifiedEmail}
+      />
     </div>
   );
 }

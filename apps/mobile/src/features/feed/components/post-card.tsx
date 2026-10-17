@@ -456,26 +456,6 @@ export const PostCard = memo(
                     </View>
                   ) : null}
 
-                  {post.external?.quote ? (
-                    <View className="border-border/60 mt-3 overflow-hidden rounded-2xl border">
-                      <PostCard
-                        hasThreadChild={false}
-                        hasThreadParent={false}
-                        post={externalPostView({
-                          ...post.external.quote,
-                          quote: undefined,
-                        })}
-                        viewerId={viewerId}
-                        onMore={onMore}
-                        onShare={onShare}
-                      />
-                    </View>
-                  ) : null}
-                  {post.external?.unavailableQuote ? (
-                    <Text style={{ color: theme.dividerText }}>
-                      Quoted post unavailable
-                    </Text>
-                  ) : null}
                   {post.hnStoryShare ? <HNStoryCard post={post} /> : null}
                   {post.communityShare ? (
                     <CommunityShareCard post={post} />
@@ -554,6 +534,27 @@ export const PostCard = memo(
                             ))
                         : null}
                     </View>
+                  ) : null}
+
+                  {post.external?.quote ? (
+                    <View className="border-border/60 mt-3 overflow-hidden rounded-2xl border">
+                      <PostCard
+                        hasThreadChild={false}
+                        hasThreadParent={false}
+                        post={externalPostView({
+                          ...post.external.quote,
+                          quote: undefined,
+                        })}
+                        viewerId={viewerId}
+                        onMore={onMore}
+                        onShare={onShare}
+                      />
+                    </View>
+                  ) : null}
+                  {post.external?.unavailableQuote ? (
+                    <Text style={{ color: theme.dividerText }}>
+                      Quoted post unavailable
+                    </Text>
                   ) : null}
                 </>
               )}

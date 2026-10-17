@@ -7,6 +7,7 @@ import {
   mutateExternalPost,
   refreshExternalPost,
   ExternalInteractionError,
+  prisma,
 } from "@asm/db";
 import type { PostData } from "@asm/db";
 import type { ExternalPost } from "@asm/protocols/contracts";
@@ -313,9 +314,69 @@ export function POST(request: Request) {
       throw new ProtocolGatewayError(410, "source_unavailable");
     }
     try {
-      return Response.json(
-        await mutateExternalPost({ ...input, post, userId: session.user.id })
-      );
+      const result = await mutateExternalPost({
+        ...input,
+        post,
+        userId: session.user.id,
+      });
+
+      if (
+        post &&
+        (input.action === "comment" ||
+          (input.action === "amplify" && input.active))
+      ) {
+        void (async () => {
+          try {
+            const blueskyAccount = await prisma.orm.public.Accounts.where({
+              providerId: "bluesky",
+              userId: session.user.id,
+            }).first();
+
+            if (blueskyAccount?.password || blueskyAccount?.accessToken) {
+              const {
+                createBlueskySession,
+                publishBlueskyLike,
+                publishBlueskyReply,
+              } = await import("@asm/protocols/bluesky");
+
+              let token = blueskyAccount.accessToken;
+              if (!token && blueskyAccount.password) {
+                const refreshed = await createBlueskySession({
+                  identifier: blueskyAccount.accountId,
+                  password: blueskyAccount.password,
+                });
+                token = refreshed.accessJwt;
+              }
+
+              if (token) {
+                if (input.action === "comment" && input.content) {
+                  const rootUri = post.id;
+                  const rootCid = post.revision;
+                  await publishBlueskyReply(
+                    { accessJwt: token, did: blueskyAccount.accountId },
+                    {
+                      parentCid: rootCid,
+                      parentUri: rootUri,
+                      rootCid,
+                      rootUri,
+                      text: input.content,
+                    }
+                  );
+                } else if (input.action === "amplify" && post.revision) {
+                  await publishBlueskyLike(
+                    { accessJwt: token, did: blueskyAccount.accountId },
+                    { cid: post.revision, uri: post.id }
+                  );
+                }
+              }
+            }
+          } catch {
+            // Background ATProto cross-posting failure should never fail the local interaction
+          }
+        })();
+      }
+
+      return Response.json(result);
     } catch (error) {
       if (error instanceof ExternalInteractionError) {
         throw new ProtocolGatewayError(error.status, error.code);

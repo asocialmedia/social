@@ -7,7 +7,13 @@ import { CalendarDays, Flame, Globe, Info, MessageCircle } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import { useCallback, useState } from "react";
-import { FaGithub, FaLinkedin, FaReddit, FaXTwitter } from "react-icons/fa6";
+import {
+  FaBluesky,
+  FaGithub,
+  FaLinkedin,
+  FaReddit,
+  FaXTwitter,
+} from "react-icons/fa6";
 
 import { useSession } from "@/app/(main)/session-provider";
 import EditProfileButton from "@/components/layouts/user/edit-profile-button";
@@ -40,6 +46,14 @@ function getSocialLinks(user: UserData): SocialLink[] {
       href: `https://${domain}`,
       icon: Globe,
       label: `Website: ${domain}`,
+    });
+  }
+  if (user.blueskyHandle) {
+    const handle = user.blueskyHandle.replace(/^@/, "");
+    links.push({
+      href: `https://bsky.app/profile/${handle}`,
+      icon: FaBluesky,
+      label: `Bluesky: @${handle}`,
     });
   }
   if (user.githubUsername) {

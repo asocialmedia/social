@@ -78,6 +78,7 @@ const VIDEO_HOVER_DELAY = 350;
 // "Show all" collapse. The first attachment is always the tall left tile and
 // the rest fill the right side. 6+ keeps the collapsible uniform grid.
 const FEED_BENTO_LAYOUTS: Record<number, { cols: string; spans: string[] }> = {
+  2: { cols: "grid-cols-2", spans: ["", ""] },
   3: { cols: "grid-cols-2", spans: ["row-span-2", "", ""] },
   4: { cols: "grid-cols-3", spans: ["row-span-2", "col-span-2", "", ""] },
   5: { cols: "grid-cols-3", spans: ["row-span-2", "", "", "", ""] },
@@ -1102,10 +1103,10 @@ export const MediaPreviews = ({
   const initialCount = 3;
   // Post page (autoPlay/detail) should always show all media in bento, no collapse.
   const isDetailBento = (detail || autoPlayVideos) && attachments.length >= 5;
-  // Feed cards with 3-5 attachments show a composed bento (no "Show all"
+  // Feed cards with 2-5 attachments show a composed bento (no "Show all"
   // collapse); 6+ keeps the collapsible uniform grid.
   const isFeedBento =
-    !isDetailBento && attachments.length >= 3 && attachments.length <= 5;
+    !isDetailBento && attachments.length >= 2 && attachments.length <= 5;
   const visibleAttachments =
     isDetailBento || showAll ? attachments : attachments.slice(0, initialCount);
   const remainingAttachments = attachments.slice(initialCount);
@@ -1564,8 +1565,9 @@ export const MediaPreviews = ({
           <motion.div
             className={cn(
               "grid gap-2",
-              "auto-rows-32.5",
-              !isMobile && "sm:auto-rows-45",
+              attachments.length === 2
+                ? "auto-rows-42 sm:auto-rows-64"
+                : cn("auto-rows-32.5", !isMobile && "sm:auto-rows-45"),
               FEED_BENTO_LAYOUTS[attachments.length]?.cols
             )}
           >

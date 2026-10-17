@@ -87,7 +87,7 @@
     },
     "apps/mobile": {
       "name": "@asocialmedia/mobile",
-      "version": "0.2.28",
+      "version": "0.2.29",
       "dependencies": {
         "@asm/auth": "workspace:*",
         "@asm/db": "workspace:*",
@@ -178,7 +178,7 @@
     },
     "apps/protocols": {
       "name": "@asm/protocols-app",
-      "version": "0.1.15",
+      "version": "0.1.16",
       "dependencies": {
         "@asm/logger": "workspace:*",
         "@asm/protocols": "workspace:*",
@@ -198,7 +198,7 @@
     },
     "apps/web": {
       "name": "@asm/web",
-      "version": "1.7.81",
+      "version": "1.7.82",
       "dependencies": {
         "@asm/aggregator": "workspace:*",
         "@asm/auth": "workspace:*",
@@ -328,7 +328,7 @@
     },
     "packages/db": {
       "name": "@asm/db",
-      "version": "1.2.75",
+      "version": "1.2.76",
       "dependencies": {
         "@asm/config": "workspace:*",
         "@asm/logger": "workspace:*",
@@ -434,7 +434,7 @@
     },
     "packages/protocols": {
       "name": "@asm/protocols",
-      "version": "0.1.15",
+      "version": "0.1.16",
       "dependencies": {
         "@atproto/lex": "^0.3.14",
         "@atproto/syntax": "^0.7.7",
