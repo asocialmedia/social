@@ -99,7 +99,6 @@ export {
   unreadMessagesWhere,
   unreadMessageWhere,
 } from "./src/messages/access/visibility";
-export { prebuildDmIndexes } from "./src/messages/infrastructure/prebuild-indexes";
 export {
   commitMessageSearchBackfillBatch,
   commitMessageHides,
