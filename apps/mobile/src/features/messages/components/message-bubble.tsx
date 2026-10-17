@@ -57,6 +57,7 @@ const ALBUM_MAX_WIDTH = 384;
 const MAX_BUBBLE_WIDTH_RATIO = 0.85;
 
 export interface MessageBubbleProps {
+  ephemeral?: boolean;
   searchJump?: number;
   deleted: boolean;
   edited: boolean;
@@ -79,6 +80,7 @@ export interface MessageBubbleProps {
 }
 
 function MessageBubbleInner({
+  ephemeral = false,
   searchJump = 0,
   deleted,
   edited,
@@ -209,6 +211,7 @@ function MessageBubbleInner({
                   ]}
                 >
                   <MessageImage
+                    cachePolicy={ephemeral ? "none" : undefined}
                     contentFit={images.length === 1 ? "contain" : "cover"}
                     source={mediaUrl(image.url)}
                     style={StyleSheet.absoluteFill}

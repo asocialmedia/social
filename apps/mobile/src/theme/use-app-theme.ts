@@ -1,3 +1,4 @@
+import { createContext, useContext } from "react";
 import { useColorScheme } from "react-native";
 
 import { THEMES } from "./theme";
@@ -11,10 +12,15 @@ export interface UseAppThemeResult {
   theme: AppTheme;
 }
 
+const ThemeOverrideContext = createContext<"dark" | "light" | null>(null);
+export const AppThemeOverride = ThemeOverrideContext.Provider;
+
 export function useAppTheme(): UseAppThemeResult {
   const scheme = useColorScheme();
   const preference = useThemePreference((state) => state.preference);
-  const isDark = resolveThemePreference(preference, scheme) === "dark";
+  const override = useContext(ThemeOverrideContext);
+  const isDark =
+    (override ?? resolveThemePreference(preference, scheme)) === "dark";
   const theme = isDark ? THEMES.dark : THEMES.light;
   const colorScheme = isDark ? "dark" : "light";
 

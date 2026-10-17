@@ -2,27 +2,22 @@
 import {
   observeChatTask,
   throwChatError,
-  incognitoTimeRemaining,
+  incognitoMessageExpiresAt,
   extractMessageReferences,
 } from "@asm/messages";
 import type { IncognitoMessage, IncognitoSession } from "@asm/messages";
 // oxlint-disable no-await-in-loop -- Sequential cryptography, database mutations and bounded streams preserve ordering and memory limits.
 import { randomUUID } from "expo-crypto";
-import { Image } from "expo-image";
-import { ArrowLeft, Shield } from "lucide-react-native";
+import { Shield } from "lucide-react-native";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
-  BackHandler,
   FlatList,
-  KeyboardAvoidingView,
-  Platform,
   Pressable,
   Text,
   View,
+  useWindowDimensions,
 } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useSessionContext } from "@/features/auth/state/session";
 import type { ApiCallOptions } from "@/features/feed/lib/feed-api";
@@ -41,7 +36,15 @@ import {
 } from "@/features/messages/lib/lifecycle-client";
 import { useMessagesIdentity } from "@/features/messages/state/message-identity";
 
+import { getMediaImages } from "../lib/crypto";
+import {
+  getMessageGroupMeta,
+  formatTimeDivider,
+} from "../lib/message-grouping";
+import type { MessageConversationData } from "../lib/types";
+import { MessageBubble } from "./message-bubble";
 import { MessageComposer } from "./message-composer";
+import { MessageMediaViewer } from "./message-media-viewer";
 
 interface Row {
   message: IncognitoMessage;
@@ -55,8 +58,6 @@ export function NativeIncognitoThread({
   fresh,
   serverOffset,
   onRefresh,
-  onBack,
-  onEnd,
   busy,
   error: lifecycleError,
 }: {
@@ -67,16 +68,31 @@ export function NativeIncognitoThread({
   fresh: boolean;
   serverOffset: number;
   onRefresh: () => void;
-  onBack: () => void;
-  onEnd: () => Promise<boolean>;
   busy: boolean;
   error: string | null;
 }) {
   const { user } = useSessionContext();
-  const { privateKey, getBaseKeys, invalidateKeys, mediaCookie } =
-    useMessagesIdentity();
-  const insets = useSafeAreaInsets();
+  const { privateKey, getBaseKeys, invalidateKeys } = useMessagesIdentity();
   const [rows, setRows] = useState<Row[]>([]);
+  const [conversation, setConversation] =
+    useState<MessageConversationData | null>(null);
+  const [viewer, setViewer] = useState<{
+    messageId: string;
+    index: number;
+  } | null>(null);
+  const { width } = useWindowDimensions();
+  useEffect(() => {
+    const controller = new AbortController();
+    void observeChatTask(
+      fetchConversationDetail(conversationId, options),
+      (detail) => {
+        if (!controller.signal.aborted) {
+          setConversation(detail.conversation);
+        }
+      }
+    );
+    return () => controller.abort();
+  }, [conversationId, options]);
   const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(true);
   const [latest, setLatest] = useState(true);
@@ -86,21 +102,30 @@ export function NativeIncognitoThread({
   const generation = useRef(0);
   const pending = useRef<{ id: string; signature: string } | null>(null);
   const list = useRef<FlatList<Row>>(null);
-  const canView = fresh && Date.parse(session.expiresAt) > clock + serverOffset;
+  const canView = fresh && !session.endedAt;
+  useEffect(() => {
+    const expired = rows.filter(
+      ({ message }) =>
+        incognitoMessageExpiresAt(message) <= clock + serverOffset
+    );
+    if (expired.length) {
+      const ids = new Set(expired.map(({ message }) => message.id));
+      queueMicrotask(() =>
+        setRows((current) =>
+          current.filter(({ message }) => !ids.has(message.id))
+        )
+      );
+    }
+  }, [clock, serverOffset, rows]);
   useEffect(() => {
     mounted.current = true;
     const timer = setInterval(() => setClock(Date.now()), 1000);
-    const back = BackHandler.addEventListener("hardwareBackPress", () => {
-      onBack();
-      return true;
-    });
     return () => {
       mounted.current = false;
       generation.current += 1;
       clearInterval(timer);
-      back.remove();
     };
-  }, [onBack]);
+  }, []);
   const load = useCallback(
     async (signal: AbortSignal, before?: number) => {
       generation.current += 1;
@@ -295,21 +320,6 @@ export function NativeIncognitoThread({
       throwChatError(error);
     }
   };
-  const end = () =>
-    Alert.alert(
-      "End incognito for both of you?",
-      "All messages and attachments in this session will be deleted, including unread messages. A permanent usage notice remains.",
-      [
-        { style: "cancel", text: "Keep chatting" },
-        {
-          onPress: () => {
-            void onEnd();
-          },
-          style: "destructive",
-          text: "End and delete",
-        },
-      ]
-    );
   const loadEarlier = async () => {
     const before = rows[0]?.message.sequence;
     if (before === undefined) {
@@ -324,78 +334,23 @@ export function NativeIncognitoThread({
       setLoading(false);
     }
   };
+  const visibleRows = rows.filter(
+    ({ message }) => incognitoMessageExpiresAt(message) > clock + serverOffset
+  );
+  const messages = visibleRows.map(({ message }) => message);
+  const peer = conversation?.members.find(
+    (member) => member.userId !== user?.id
+  )?.user;
+  const viewed =
+    canView && viewer
+      ? visibleRows.find(({ message }) => message.id === viewer.messageId)
+      : null;
+  const viewedImages =
+    viewed?.payload?.type === "media"
+      ? getMediaImages(viewed.payload).map((image) => image.url)
+      : [];
   return (
-    <KeyboardAvoidingView
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
-      style={{
-        backgroundColor: "#09090b",
-        flex: 1,
-        paddingBottom: insets.bottom,
-        paddingLeft: insets.left,
-        paddingRight: insets.right,
-        paddingTop: insets.top,
-      }}
-    >
-      <View
-        style={{
-          alignItems: "center",
-          borderBottomColor: "#27272a",
-          borderBottomWidth: 1,
-          flexDirection: "row",
-          gap: 12,
-          minHeight: 64,
-          paddingHorizontal: 14,
-        }}
-      >
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Back to inbox; keep incognito active"
-          hitSlop={12}
-          onPress={onBack}
-        >
-          <ArrowLeft color="#f4f4f5" size={22} />
-        </Pressable>
-        <Shield color="#d4d4d8" size={24} />
-        <View style={{ flex: 1 }}>
-          <Text
-            style={{
-              color: "#f4f4f5",
-              fontFamily: "SofiaProBold",
-              fontSize: 16,
-            }}
-          >
-            Incognito
-          </Text>
-          <Text style={{ color: "#a1a1aa", fontSize: 12 }}>
-            {incognitoTimeRemaining(session.expiresAt, clock + serverOffset)}
-          </Text>
-        </View>
-        <Pressable
-          accessibilityRole="button"
-          disabled={busy}
-          onPress={end}
-          style={{
-            borderColor: "#3f3f46",
-            borderRadius: 16,
-            borderWidth: 1,
-            padding: 12,
-          }}
-        >
-          <Text style={{ color: "#f4f4f5", fontSize: 12 }}>End incognito</Text>
-        </Pressable>
-      </View>
-      <Text
-        style={{
-          color: "#a1a1aa",
-          fontSize: 11,
-          lineHeight: 16,
-          padding: 12,
-          textAlign: "center",
-        }}
-      >
-        Everything here is deleted when either person ends the session or the
-        timer runs out. A permanent usage notice stays in your normal chat.
-      </Text>
+    <View style={{ flex: 1 }}>
       {(() => {
         if (canView) {
           if (loading && !rows.length) {
@@ -411,7 +366,7 @@ export function NativeIncognitoThread({
           return (
             <FlatList
               ref={list}
-              data={rows}
+              data={visibleRows}
               keyExtractor={(row) => row.message.id}
               keyboardShouldPersistTaps="handled"
               maintainVisibleContentPosition={{ minIndexForVisible: 1 }}
@@ -454,85 +409,51 @@ export function NativeIncognitoThread({
                       fontSize: 18,
                     }}
                   >
-                    A conversation for the moment
-                  </Text>
-                  <Text style={{ color: "#a1a1aa", textAlign: "center" }}>
-                    Your normal history is waiting outside this session.
+                    No messages yet
                   </Text>
                 </View>
               }
-              renderItem={({ item: { message, payload } }) => (
-                <View
-                  style={{
-                    alignItems:
-                      message.senderId === user?.id ? "flex-end" : "flex-start",
-                  }}
-                >
-                  <View
-                    style={{
-                      backgroundColor:
-                        message.senderId === user?.id ? "#e4e4e7" : "#27272a",
-                      borderRadius: 18,
-                      maxWidth: "85%",
-                      padding: 12,
-                    }}
-                  >
-                    {payload?.type === "media"
-                      ? ("images" in payload
-                          ? payload.images
-                          : [{ url: payload.url }]
-                        ).map((image, index) => (
-                          <Image
-                            key={`${message.id}:${index}`}
-                            cachePolicy="none"
-                            source={{
-                              headers: mediaCookie
-                                ? { Cookie: mediaCookie }
-                                : undefined,
-                              uri: image.url.startsWith("/")
-                                ? `${options.apiBase}${image.url}`
-                                : image.url,
-                            }}
-                            style={{
-                              borderRadius: 12,
-                              height: 200,
-                              marginBottom: 6,
-                              width: 220,
-                            }}
-                            contentFit="contain"
-                          />
-                        ))
-                      : null}
-                    <Text
-                      style={{
-                        color:
-                          message.senderId === user?.id ? "#09090b" : "#f4f4f5",
-                        fontSize: 14,
-                        lineHeight: 20,
+              renderItem={({ item: { message, payload }, index }) => {
+                const group = getMessageGroupMeta(messages, index);
+                return (
+                  <View>
+                    {group.showTimeDivider ? (
+                      <Text
+                        style={{
+                          color: "#a1a1aa",
+                          fontSize: 11,
+                          paddingVertical: 12,
+                          textAlign: "center",
+                        }}
+                      >
+                        {formatTimeDivider(message.createdAt)}
+                      </Text>
+                    ) : null}
+                    <MessageBubble
+                      ephemeral
+                      deleted={false}
+                      edited={false}
+                      group={group}
+                      mine={message.senderId === user?.id}
+                      payload={payload}
+                      failed={!payload}
+                      peerAvatarUrl={peer?.avatarUrl}
+                      theme={{
+                        from: "#71717a",
+                        key: "incognito",
+                        label: "Incognito",
+                        ring: "#a1a1aa",
+                        to: "#52525b",
                       }}
-                    >
-                      {payload?.content ??
-                        (payload
-                          ? ""
-                          : "This message couldn't be decrypted on this account.")}
-                    </Text>
-                    <Text
-                      style={{
-                        color:
-                          message.senderId === user?.id ? "#52525b" : "#a1a1aa",
-                        fontSize: 10,
-                        marginTop: 4,
-                        textAlign: "right",
-                      }}
-                    >
-                      {new Date(message.createdAt).toLocaleTimeString([], {
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}
-                    </Text>
+                      maxBubbleWidth={width - 32}
+                      showReceipt={false}
+                      onPressImage={(imageIndex) =>
+                        setViewer({ index: imageIndex, messageId: message.id })
+                      }
+                    />
                   </View>
-                </View>
-              )}
+                );
+              }}
             />
           );
         }
@@ -548,7 +469,7 @@ export function NativeIncognitoThread({
           >
             <Shield color="#71717a" size={36} />
             <Text style={{ color: "#d4d4d8", textAlign: "center" }}>
-              Reconnect to view this session. The timer keeps running.
+              Reconnect to continue chatting.
             </Text>
             <Pressable accessibilityRole="button" onPress={onRefresh}>
               <Text style={{ color: "#fff", padding: 12 }}>
@@ -603,6 +524,14 @@ export function NativeIncognitoThread({
         replyTo={null}
         peerName="in incognito"
       />
-    </KeyboardAvoidingView>
+      {viewedImages.length && viewer ? (
+        <MessageMediaViewer
+          ephemeral
+          images={viewedImages}
+          index={viewer.index}
+          onClose={() => setViewer(null)}
+        />
+      ) : null}
+    </View>
   );
 }

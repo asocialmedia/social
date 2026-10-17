@@ -1,7 +1,7 @@
 import { observeChatTask, runChatTask, throwChatError } from "@asm/messages";
 import { File, Paths } from "expo-file-system";
 import * as Sharing from "expo-sharing";
-import { Clock3, Ellipsis, Shield, Trash2 } from "lucide-react-native";
+import { Clock3, Download, Shield, Trash2 } from "lucide-react-native";
 import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
@@ -22,10 +22,8 @@ import {
 import type { MessageConversationData } from "@/features/messages/lib/types";
 import { useAppTheme } from "@/theme";
 
-import {
-  NativeIncognitoUsageNotice,
-  useNativeChatLifecycle,
-} from "./chat-lifecycle-context";
+import { useNativeChatLifecycle } from "./chat-lifecycle-state";
+import { NativeIncognitoUsageNotice } from "./incognito-usage-notice";
 import { MessageSheet } from "./message-sheet";
 
 interface ExportStatus {
@@ -49,6 +47,7 @@ export function NativeChatLifecycleTools({
     mutate,
     refresh,
     loadEarlierNotices,
+    requestIncognito,
   } = useNativeChatLifecycle();
   const [open, setOpen] = useState(false);
   const [includeMedia, setIncludeMedia] = useState(false);
@@ -122,10 +121,10 @@ export function NativeChatLifecycleTools({
       controller.abort();
     };
   }, [job, conversationId, options, pollFailures]);
-  const confirm = (action: "start" | "clear" | "retention") => {
+  const confirm = (action: "end" | "clear" | "retention") => {
     const title = (() => {
-      if (action === "start") {
-        return "Start incognito?";
+      if (action === "end") {
+        return "End incognito for both of you?";
       }
       if (action === "clear") {
         return "Delete chat for me?";
@@ -136,13 +135,13 @@ export function NativeChatLifecycleTools({
       return "Auto-delete after 24 hours?";
     })();
     const description = (() => {
-      if (action === "start") {
-        return "Both of you will use a separate incognito view. The session ends when either person exits or 24 hours after starting. All session messages are deleted together. A permanent usage notice remains.";
+      if (action === "end") {
+        return "All messages and attachments in incognito will be deleted, including unread messages.";
       }
       if (action === "clear") {
-        return "Your existing history will be cleared across your devices. Other members keep their copies. New messages bring the chat back. Permanent incognito notices remain.";
+        return "Clear this chat from your devices. Other members keep their messages.";
       }
-      return "This applies to new normal messages for everyone. Existing history keeps its current lifetime. Downloaded copies can remain after expiry.";
+      return "New messages will disappear 24 hours after sending. Existing messages keep their current setting.";
     })();
     Alert.alert(title, description, [
       { style: "cancel", text: "Cancel" },
@@ -151,10 +150,10 @@ export function NativeChatLifecycleTools({
           void observeChatTask(
             mutate(
               (() => {
-                if (action === "start") {
+                if (action === "end") {
                   return {
-                    action: "start-incognito",
-                    actionId: crypto.randomUUID(),
+                    action: "end-incognito",
+                    sessionId: snapshot?.activeSession?.id,
                   };
                 }
                 if (action === "clear") {
@@ -182,8 +181,8 @@ export function NativeChatLifecycleTools({
           if (action === "clear") {
             return "Delete for me";
           }
-          if (action === "start") {
-            return "Start incognito";
+          if (action === "end") {
+            return "End and delete";
           }
           if (snapshot?.retentionSeconds) {
             return "Turn off";
@@ -324,33 +323,6 @@ export function NativeChatLifecycleTools({
   };
   return (
     <>
-      <View
-        style={{
-          alignItems: "center",
-          borderBottomColor: theme.dividerLine,
-          borderBottomWidth: 1,
-          flexDirection: "row",
-          gap: 8,
-          minHeight: 38,
-          paddingHorizontal: 16,
-        }}
-      >
-        <Clock3 size={13} color={theme.dividerText} />
-        <Text style={{ color: theme.dividerText, flex: 1, fontSize: 11 }}>
-          {snapshot?.retentionSeconds
-            ? "New messages disappear 24h after sending"
-            : "Messages stay until deleted"}
-        </Text>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Chat actions"
-          onPress={() => setOpen(true)}
-          hitSlop={12}
-          style={{ padding: 8 }}
-        >
-          <Ellipsis color={theme.inputText} size={20} />
-        </Pressable>
-      </View>
       {lifecycleError ? (
         <Pressable
           accessibilityRole="button"
@@ -362,9 +334,75 @@ export function NativeChatLifecycleTools({
           </Text>
         </Pressable>
       ) : null}
+      {conversation?.type === "DEN" ? null : (
+        <Pressable
+          accessibilityRole="button"
+          disabled={busy}
+          onPress={() =>
+            snapshot?.activeSession ? confirm("end") : requestIncognito()
+          }
+          style={{
+            alignItems: "center",
+            flexDirection: "row",
+            gap: 12,
+            paddingVertical: 10,
+          }}
+        >
+          <Shield color={theme.inputText} size={20} />
+          <Text style={{ color: theme.inputText }}>
+            {snapshot?.activeSession ? "End incognito" : "Start incognito"}
+          </Text>
+        </Pressable>
+      )}
+      <Pressable
+        accessibilityRole="button"
+        disabled={busy || !canManage || Boolean(snapshot?.activeSession)}
+        onPress={() => confirm("retention")}
+        style={{
+          alignItems: "center",
+          flexDirection: "row",
+          gap: 12,
+          opacity: canManage ? 1 : 0.5,
+          paddingVertical: 10,
+        }}
+      >
+        <Clock3 color={theme.inputText} size={20} />
+        <Text style={{ color: theme.inputText }}>
+          Auto-delete · {snapshot?.retentionSeconds ? "24 hours" : "Off"}
+        </Text>
+      </Pressable>
+      <Pressable
+        accessibilityRole="button"
+        onPress={() => setOpen(true)}
+        style={{
+          alignItems: "center",
+          flexDirection: "row",
+          gap: 12,
+          paddingVertical: 14,
+        }}
+      >
+        <Download color={theme.inputText} size={20} />
+        <Text style={{ color: theme.inputText }}>Export chat</Text>
+      </Pressable>
+      <Pressable
+        accessibilityRole="button"
+        disabled={busy || Boolean(snapshot?.activeSession)}
+        onPress={() => confirm("clear")}
+        style={{
+          alignItems: "center",
+          borderTopColor: theme.dividerLine,
+          borderTopWidth: 1,
+          flexDirection: "row",
+          gap: 12,
+          paddingVertical: 14,
+        }}
+      >
+        <Trash2 size={20} color="#dc2626" />
+        <Text style={{ color: "#dc2626" }}>Delete chat for me</Text>
+      </Pressable>
       <MessageSheet
         open={open}
-        title="Chat actions"
+        title="Export chat"
         onClose={() => {
           if (!busy && !exportBusy) {
             setOpen(false);
@@ -372,39 +410,6 @@ export function NativeChatLifecycleTools({
         }}
         busy={busy || exportBusy}
       >
-        {conversation?.type === "DEN" ? null : (
-          <Pressable
-            accessibilityRole="button"
-            disabled={busy}
-            onPress={() => confirm("start")}
-            style={{
-              alignItems: "center",
-              flexDirection: "row",
-              gap: 12,
-              paddingVertical: 10,
-            }}
-          >
-            <Shield color={theme.inputText} size={20} />
-            <Text style={{ color: theme.inputText }}>Start incognito</Text>
-          </Pressable>
-        )}
-        <Pressable
-          accessibilityRole="button"
-          disabled={busy || !canManage}
-          onPress={() => confirm("retention")}
-          style={{
-            alignItems: "center",
-            flexDirection: "row",
-            gap: 12,
-            opacity: canManage ? 1 : 0.5,
-            paddingVertical: 10,
-          }}
-        >
-          <Clock3 color={theme.inputText} size={20} />
-          <Text style={{ color: theme.inputText }}>
-            Auto-delete · {snapshot?.retentionSeconds ? "24 hours" : "Off"}
-          </Text>
-        </Pressable>
         <View
           style={{
             borderTopColor: theme.dividerLine,
@@ -419,9 +424,7 @@ export function NativeChatLifecycleTools({
           <Text
             style={{ color: theme.dividerText, fontSize: 12, lineHeight: 18 }}
           >
-            ZIP with text and JSON copies of your readable history. Incognito,
-            deleted, cleared, and expired messages are excluded. Permanent usage
-            notices are included.
+            Download your chat history and optional media as a ZIP file.
           </Text>
           {(() => {
             if (!job || job.status === "failed") {
@@ -594,22 +597,6 @@ export function NativeChatLifecycleTools({
             ) : null}
           </View>
         ) : null}
-        <Pressable
-          accessibilityRole="button"
-          disabled={busy}
-          onPress={() => confirm("clear")}
-          style={{
-            alignItems: "center",
-            borderTopColor: theme.dividerLine,
-            borderTopWidth: 1,
-            flexDirection: "row",
-            gap: 12,
-            paddingVertical: 14,
-          }}
-        >
-          <Trash2 size={20} color="#dc2626" />
-          <Text style={{ color: "#dc2626" }}>Delete chat for me</Text>
-        </Pressable>
         {busy ? <ActivityIndicator /> : null}
       </MessageSheet>
     </>

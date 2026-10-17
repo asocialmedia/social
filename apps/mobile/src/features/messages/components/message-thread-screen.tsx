@@ -28,6 +28,7 @@ import {
   ListChecks,
   Reply,
   Search,
+  Shield,
   X,
 } from "lucide-react-native";
 import {
@@ -39,6 +40,7 @@ import {
   useSyncExternalStore,
 } from "react";
 import {
+  Alert,
   BackHandler,
   Dimensions,
   FlatList,
@@ -111,16 +113,15 @@ import { haptic } from "@/lib/haptics";
 import { keyboardOverlap, keyboardScreenTop } from "@/lib/keyboard-overlap";
 import { SHOWS_SCROLL_INDICATOR } from "@/lib/scroll-indicator";
 import { logWarn } from "@/lib/telemetry";
-import { useAppTheme } from "@/theme";
+import { AppThemeOverride, useAppTheme } from "@/theme";
 
-import {
-  NativeChatLifecycleBoundary,
-  NativeIncognitoUsageNotice,
-  useNativeChatLifecycle,
-} from "./chat-lifecycle-context";
-import { NativeChatLifecycleTools } from "./chat-lifecycle-tools";
+import { NativeChatLifecycleBoundary } from "./chat-lifecycle-context";
+import { useNativeChatLifecycle } from "./chat-lifecycle-state";
+import { ChatModeTransition } from "./chat-mode-transition";
 import { ConversationDetails } from "./conversation-details";
 import { DenAvatar } from "./den-avatar";
+import { NativeIncognitoThread } from "./incognito-thread";
+import { NativeIncognitoUsageNotice } from "./incognito-usage-notice";
 import { MessageBubble } from "./message-bubble";
 import { MessageComposer, reclaimOwnMedia } from "./message-composer";
 import type { ComposerTarget } from "./message-composer";
@@ -173,7 +174,19 @@ function NormalMessageThreadScreen({
   conversationId: string;
   onBack: () => void;
 }) {
-  const { snapshot: lifecycle } = useNativeChatLifecycle();
+  const {
+    snapshot: lifecycle,
+    options: lifecycleOptions,
+    fresh: incognitoFresh,
+    revision: lifecycleRevision,
+    contentRevision,
+    serverOffset,
+    refresh: refreshLifecycle,
+    busy: lifecycleBusy,
+    error: lifecycleError,
+  } = useNativeChatLifecycle();
+  const activeIncognito =
+    lifecycle?.activeSession?.endedAt === null ? lifecycle.activeSession : null;
   const { theme } = useAppTheme();
   const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
@@ -233,7 +246,7 @@ function NormalMessageThreadScreen({
     status,
   } = useMessagesIdentity();
   const userId = user?.id ?? null;
-  const transcript = useTranscript(conversationId);
+  const transcript = useTranscript(conversationId, !activeIncognito);
   const presence = useMessagePresence();
 
   const [peer, setPeer] = useState<
@@ -581,6 +594,9 @@ function NormalMessageThreadScreen({
   // ---- read / delivered ------------------------------------------------------
 
   const scheduleRead = useCallback(() => {
+    if (activeIncognito) {
+      return;
+    }
     if (readTimer.current) {
       clearTimeout(readTimer.current);
     }
@@ -618,7 +634,7 @@ function NormalMessageThreadScreen({
         );
       })();
     }, 400);
-  }, [apiOptions, conversationId, userId]);
+  }, [apiOptions, conversationId, userId, activeIncognito]);
 
   useEffect(() => {
     if (messages.length > 0 && foreground && !searchOpen) {
@@ -744,7 +760,7 @@ function NormalMessageThreadScreen({
   });
   const selectionActive = selectedIds.size > 0;
   useEffect(() => {
-    if (!selectionActive) {
+    if (!selectionActive || activeIncognito) {
       return;
     }
     const listener = BackHandler.addEventListener("hardwareBackPress", () => {
@@ -752,7 +768,7 @@ function NormalMessageThreadScreen({
       return true;
     });
     return () => listener.remove();
-  }, [clearSelection, selectionActive]);
+  }, [clearSelection, selectionActive, activeIncognito]);
   const copySelected = useCallback(() => {
     const text = messages
       .filter((message) => selectedIds.has(message.id) && !message.deletedAt)
@@ -793,7 +809,7 @@ function NormalMessageThreadScreen({
       setSearchOpen(false);
       transcript.loadNewest();
     },
-    open: searchOpen,
+    open: searchOpen && !activeIncognito,
     scope: userId
       ? `${userId}:${identity?.publicKey ?? "pending"}:${conversationId}`
       : null,
@@ -969,252 +985,278 @@ function NormalMessageThreadScreen({
         },
       ]}
     >
-      {selectionActive ? (
-        <View style={[styles.header, { borderBottomColor: theme.dividerLine }]}>
-          <MessagesIconButton
-            icon={X}
-            label="Cancel selection"
-            onPress={clearSelection}
-            size={32}
-          />
-          <Text
-            style={[
-              styles.headerName,
-              styles.selectionCount,
-              { color: theme.dividerText },
-            ]}
+      <AppThemeOverride value={activeIncognito ? "dark" : null}>
+        {selectionActive && !activeIncognito ? (
+          <View
+            style={[styles.header, { borderBottomColor: theme.dividerLine }]}
           >
-            {selectedIds.size} selected
-          </Text>
-          {selectedIds.size === 1 ? (
             <MessagesIconButton
-              icon={Reply}
-              label="Reply to selected message"
-              onPress={() => {
-                const [id] = selectedIds;
-                clearSelection();
-                if (id) {
-                  handleReply(id);
-                }
-              }}
+              icon={X}
+              label="Cancel selection"
+              onPress={clearSelection}
               size={32}
             />
-          ) : null}
-          <MessagesIconButton
-            icon={Copy}
-            label="Copy selected messages"
-            onPress={copySelected}
-            size={32}
-          />
-          <MessagesIconButton
-            icon={ListChecks}
-            label="Select all loaded messages"
-            onPress={handleSelectAll}
-            size={32}
-          />
-        </View>
-      ) : (
-        <ThreadHeader
-          avatarUrl={peer?.avatarUrl ?? cachedPeer?.avatarUrl ?? null}
-          displayName={headerName}
-          username={peer?.username ?? cachedPeerUser?.username ?? null}
-          conversation={isDen ? currentConversation : null}
-          onDetails={() => setDetailsOpen(true)}
-          badge={peer?.badge ?? cachedPeerUser?.badge}
-          badges={peer?.badges ?? cachedPeerUser?.badges}
-          communityRoles={
-            peer?.communityMemberships ?? cachedPeerUser?.communityMemberships
-          }
-          onBack={onBack}
-          onSearch={() => {
-            if (searchOpen) {
-              search.handleClose();
-            } else {
-              setSearchOpen(true);
-            }
-          }}
-          presence={
-            presence.find(
-              (entry) => entry.id === (peer?.id ?? cachedPeer?.peerId)
-            )?.status ?? null
-          }
-          typing={transcript.snapshot.peerTyping}
-        />
-      )}
-      <NativeChatLifecycleTools conversation={currentConversation} />
-      {searchOpen ? (
-        <MessageSearchBar
-          query={search.query}
-          onQueryChange={(value) => search.setQuery(value)}
-          listView={search.listView}
-          onToggleView={() => search.setListView((value) => !value)}
-          onClose={search.handleClose}
-          onStep={search.handleStep}
-          onPage={(direction) =>
-            search.setRequestedPage(search.page.page + direction)
-          }
-          onIndexOlder={search.handleIndexOlder}
-          indexingOlder={search.indexingOlder}
-          indexedCount={search.indexedCount}
-          fullyCovered={search.fullyCovered}
-          canIndexOlder={search.canIndexOlder}
-          error={search.error}
-          statusLabel={search.statusLabel}
-          matchCount={search.matchCount}
-          activePosition={search.activePosition}
-          page={search.page}
-        />
-      ) : null}
-      {status === "error" ||
-      (detailError && !peer && !cachedPeer) ||
-      (transcript.snapshot.error && !transcript.snapshot.initialLoaded) ? (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Retry loading Messages"
-          onPress={() => {
-            if (status === "error") {
-              retry();
-            }
-            detailRetries.current = 0;
-            setDetailRevision((value) => value + 1);
-            transcript.refresh();
-          }}
-          style={{ paddingHorizontal: 16, paddingVertical: 12 }}
-        >
-          <Text style={{ color: theme.dividerText, fontFamily: "SofiaProReg" }}>
-            Couldn't connect to Messages. Tap to retry.
-          </Text>
-        </Pressable>
-      ) : null}
-      <View
-        ref={transcriptViewportRef}
-        onLayout={handleViewportLayout}
-        style={{ flex: 1 }}
-      >
-        {prefs.wallpaperKey === "doodle" || prefs.wallpaperMediaId ? (
-          <View style={StyleSheet.absoluteFill} pointerEvents="none">
-            <Image
-              source={
-                prefs.wallpaperMediaId
-                  ? {
-                      headers: mediaCookie ? { Cookie: mediaCookie } : {},
-                      uri: `${getApiBaseUrl()}/api/media/${prefs.wallpaperMediaId}/v/lg-webp.webp`,
-                    }
-                  : chatDoodle
-              }
-              contentFit="cover"
-              style={StyleSheet.absoluteFill}
-            />
-            <View
+            <Text
               style={[
-                StyleSheet.absoluteFill,
-                {
-                  backgroundColor: `rgba(0,0,0,${(prefs.wallpaperDim ?? 40) / 100})`,
-                },
+                styles.headerName,
+                styles.selectionCount,
+                { color: theme.dividerText },
               ]}
+            >
+              {selectedIds.size} selected
+            </Text>
+            {selectedIds.size === 1 ? (
+              <MessagesIconButton
+                icon={Reply}
+                label="Reply to selected message"
+                onPress={() => {
+                  const [id] = selectedIds;
+                  clearSelection();
+                  if (id) {
+                    handleReply(id);
+                  }
+                }}
+                size={32}
+              />
+            ) : null}
+            <MessagesIconButton
+              icon={Copy}
+              label="Copy selected messages"
+              onPress={copySelected}
+              size={32}
+            />
+            <MessagesIconButton
+              icon={ListChecks}
+              label="Select all loaded messages"
+              onPress={handleSelectAll}
+              size={32}
             />
           </View>
-        ) : null}
-        {(status === "loading" || transcript.snapshot.loading) &&
-        messages.length === 0 ? (
-          <ThreadSkeleton />
         ) : (
-          <GestureDetector gesture={gesture}>
-            <Animated.View style={{ flex: 1 }}>
-              <GestureDetector gesture={nativeScroll}>
-                <AnimatedTranscriptList
-                  contentContainerStyle={styles.listContent}
-                  ref={threadListRef}
-                  data={items}
-                  onScrollToIndexFailed={search.handleScrollToIndexFailed}
-                  style={{ flex: 1 }}
-                  inverted
-                  CellRendererComponent={CellRenderer}
-                  extraData={selectedIds}
-                  onContentSizeChange={handleContentSizeChange}
-                  scrollEventThrottle={16}
-                  onScroll={handleScroll}
-                  keyboardDismissMode="interactive"
-                  keyExtractor={(row) => row.key}
-                  // Inversion turns "keep loading as the reader scrolls back" into the same
-                  // endReached the list already knows about, with no scroll-position maths.
-                  onEndReached={searchOpen ? undefined : handleLoadOlder}
-                  onEndReachedThreshold={0.5}
-                  renderItem={renderItem}
-                  showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
-                />
-              </GestureDetector>
-            </Animated.View>
-          </GestureDetector>
-        )}
-        {transcript.snapshot.hasMoreNewer &&
-        !(searchOpen && search.listView) ? (
-          <Pressable
-            accessibilityLabel="Scroll to latest messages"
-            onPress={() => {
+          <ThreadHeader
+            avatarUrl={peer?.avatarUrl ?? cachedPeer?.avatarUrl ?? null}
+            displayName={headerName}
+            username={peer?.username ?? cachedPeerUser?.username ?? null}
+            conversation={isDen ? currentConversation : null}
+            onDetails={() => setDetailsOpen(true)}
+            badge={peer?.badge ?? cachedPeerUser?.badge}
+            badges={peer?.badges ?? cachedPeerUser?.badges}
+            communityRoles={
+              peer?.communityMemberships ?? cachedPeerUser?.communityMemberships
+            }
+            onBack={onBack}
+            onSearch={() => {
               if (searchOpen) {
                 search.handleClose();
               } else {
-                transcript.loadNewest();
+                setSearchOpen(true);
               }
             }}
-            style={{
-              backgroundColor: theme.cardBg,
-              borderColor: theme.dividerLine,
-              borderRadius: 24,
-              borderWidth: 1,
-              bottom: 12,
-              padding: 12,
-              position: "absolute",
-              right: 16,
-            }}
-          >
-            <Text style={{ color: theme.inputText, fontSize: 18 }}>↓</Text>
-          </Pressable>
-        ) : null}
-        {searchOpen && search.listView ? (
-          <MessageSearchResults
-            results={search.page.pageResults}
-            messages={search.resultMessages}
-            activeId={search.activeId}
-            userId={userId}
-            peerName={peer?.displayName ?? cachedPeer?.displayName ?? "them"}
-            onJump={search.handleJumpTo}
-            emptyLabel={search.emptyLabel}
+            presence={
+              presence.find(
+                (entry) => entry.id === (peer?.id ?? cachedPeer?.peerId)
+              )?.status ?? null
+            }
+            typing={transcript.snapshot.peerTyping}
+          />
+        )}
+      </AppThemeOverride>
+      <ChatModeTransition
+        sessionId={activeIncognito?.id ?? null}
+        incognito={
+          activeIncognito && lifecycleOptions ? (
+            <AppThemeOverride value="dark">
+              <NativeIncognitoThread
+                conversationId={conversationId}
+                session={activeIncognito}
+                options={lifecycleOptions}
+                revision={lifecycleRevision + contentRevision}
+                fresh={incognitoFresh}
+                serverOffset={serverOffset}
+                onRefresh={refreshLifecycle}
+                busy={lifecycleBusy}
+                error={lifecycleError}
+              />
+            </AppThemeOverride>
+          ) : null
+        }
+      >
+        {searchOpen ? (
+          <MessageSearchBar
+            query={search.query}
+            onQueryChange={(value) => search.setQuery(value)}
+            listView={search.listView}
+            onToggleView={() => search.setListView((value) => !value)}
+            onClose={search.handleClose}
+            onStep={search.handleStep}
+            onPage={(direction) =>
+              search.setRequestedPage(search.page.page + direction)
+            }
+            onIndexOlder={search.handleIndexOlder}
+            indexingOlder={search.indexingOlder}
+            indexedCount={search.indexedCount}
+            fullyCovered={search.fullyCovered}
+            canIndexOlder={search.canIndexOlder}
+            error={search.error}
+            statusLabel={search.statusLabel}
+            matchCount={search.matchCount}
+            activePosition={search.activePosition}
+            page={search.page}
           />
         ) : null}
-      </View>
-      {transcript.snapshot.peerTyping ? <TypingDots /> : null}
-      {hasLeft ? (
-        <View style={{ padding: 16 }}>
-          <Text
-            style={{
-              color: theme.dividerText,
-              fontFamily: "SofiaProReg",
-              textAlign: "center",
+        {status === "error" ||
+        (detailError && !peer && !cachedPeer) ||
+        (transcript.snapshot.error && !transcript.snapshot.initialLoaded) ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Retry loading Messages"
+            onPress={() => {
+              if (status === "error") {
+                retry();
+              }
+              detailRetries.current = 0;
+              setDetailRevision((value) => value + 1);
+              transcript.refresh();
             }}
+            style={{ paddingHorizontal: 16, paddingVertical: 12 }}
           >
-            You left this den. Your history remains available.
-          </Text>
+            <Text
+              style={{ color: theme.dividerText, fontFamily: "SofiaProReg" }}
+            >
+              Couldn't connect to Messages. Tap to retry.
+            </Text>
+          </Pressable>
+        ) : null}
+        <View
+          ref={transcriptViewportRef}
+          onLayout={handleViewportLayout}
+          style={{ flex: 1 }}
+        >
+          {prefs.wallpaperKey === "doodle" || prefs.wallpaperMediaId ? (
+            <View style={StyleSheet.absoluteFill} pointerEvents="none">
+              <Image
+                source={
+                  prefs.wallpaperMediaId
+                    ? {
+                        headers: mediaCookie ? { Cookie: mediaCookie } : {},
+                        uri: `${getApiBaseUrl()}/api/media/${prefs.wallpaperMediaId}/v/lg-webp.webp`,
+                      }
+                    : chatDoodle
+                }
+                contentFit="cover"
+                style={StyleSheet.absoluteFill}
+              />
+              <View
+                style={[
+                  StyleSheet.absoluteFill,
+                  {
+                    backgroundColor: `rgba(0,0,0,${(prefs.wallpaperDim ?? 40) / 100})`,
+                  },
+                ]}
+              />
+            </View>
+          ) : null}
+          {(status === "loading" || transcript.snapshot.loading) &&
+          messages.length === 0 ? (
+            <ThreadSkeleton />
+          ) : (
+            <GestureDetector gesture={gesture}>
+              <Animated.View style={{ flex: 1 }}>
+                <GestureDetector gesture={nativeScroll}>
+                  <AnimatedTranscriptList
+                    contentContainerStyle={styles.listContent}
+                    ref={threadListRef}
+                    data={items}
+                    onScrollToIndexFailed={search.handleScrollToIndexFailed}
+                    style={{ flex: 1 }}
+                    inverted
+                    CellRendererComponent={CellRenderer}
+                    extraData={selectedIds}
+                    onContentSizeChange={handleContentSizeChange}
+                    scrollEventThrottle={16}
+                    onScroll={handleScroll}
+                    keyboardDismissMode="interactive"
+                    keyExtractor={(row) => row.key}
+                    // Inversion turns "keep loading as the reader scrolls back" into the same
+                    // endReached the list already knows about, with no scroll-position maths.
+                    onEndReached={searchOpen ? undefined : handleLoadOlder}
+                    onEndReachedThreshold={0.5}
+                    renderItem={renderItem}
+                    showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
+                  />
+                </GestureDetector>
+              </Animated.View>
+            </GestureDetector>
+          )}
+          {transcript.snapshot.hasMoreNewer &&
+          !(searchOpen && search.listView) ? (
+            <Pressable
+              accessibilityLabel="Scroll to latest messages"
+              onPress={() => {
+                if (searchOpen) {
+                  search.handleClose();
+                } else {
+                  transcript.loadNewest();
+                }
+              }}
+              style={{
+                backgroundColor: theme.cardBg,
+                borderColor: theme.dividerLine,
+                borderRadius: 24,
+                borderWidth: 1,
+                bottom: 12,
+                padding: 12,
+                position: "absolute",
+                right: 16,
+              }}
+            >
+              <Text style={{ color: theme.inputText, fontSize: 18 }}>↓</Text>
+            </Pressable>
+          ) : null}
+          {searchOpen && search.listView ? (
+            <MessageSearchResults
+              results={search.page.pageResults}
+              messages={search.resultMessages}
+              activeId={search.activeId}
+              userId={userId}
+              peerName={peer?.displayName ?? cachedPeer?.displayName ?? "them"}
+              onJump={search.handleJumpTo}
+              emptyLabel={search.emptyLabel}
+            />
+          ) : null}
         </View>
-      ) : (
-        <MessageComposer
-          conversationId={conversationId}
-          peerName={headerName}
-          disabled={status !== "ready" || readyKey !== privateKey}
-          editing={editing}
-          onCancelEdit={() => setEditing(null)}
-          onCancelReply={() => setReplyTo(null)}
-          onSend={handleSend}
-          onTyping={() => {
-            void (async () => {
-              const options = await apiOptions();
-              await sendTypingIndicator(conversationId, options);
-            })();
-          }}
-          replyTo={replyTo}
-        />
-      )}
+        {transcript.snapshot.peerTyping ? <TypingDots /> : null}
+        {hasLeft ? (
+          <View style={{ padding: 16 }}>
+            <Text
+              style={{
+                color: theme.dividerText,
+                fontFamily: "SofiaProReg",
+                textAlign: "center",
+              }}
+            >
+              You left this den. Your history remains available.
+            </Text>
+          </View>
+        ) : (
+          <MessageComposer
+            conversationId={conversationId}
+            peerName={headerName}
+            disabled={status !== "ready" || readyKey !== privateKey}
+            editing={editing}
+            onCancelEdit={() => setEditing(null)}
+            onCancelReply={() => setReplyTo(null)}
+            onSend={handleSend}
+            onTyping={() => {
+              void (async () => {
+                const options = await apiOptions();
+                await sendTypingIndicator(conversationId, options);
+              })();
+            }}
+            replyTo={replyTo}
+          />
+        )}
+      </ChatModeTransition>
       {detailsOpen && currentConversation && userId ? (
         <ConversationDetails
           conversation={currentConversation}
@@ -1254,6 +1296,11 @@ function messageSummary(payload: MessagePayload): string {
     return payload.content;
   }
   if (payload.type === "media") {
+    if ("attachments" in payload) {
+      return payload.attachments.some((attachment) => attachment.kind === "gif")
+        ? "GIF"
+        : "Photo";
+    }
     return payload.kind === "gif" ? "GIF" : "Photo";
   }
   return "Shared a post";
@@ -1323,6 +1370,37 @@ function ThreadHeader({
   presence: "online" | "idle" | null;
 }) {
   const { isDark, theme } = useAppTheme();
+  const { snapshot: lifecycle, busy, mutate } = useNativeChatLifecycle();
+  const activeIncognito =
+    lifecycle?.activeSession?.endedAt === null ? lifecycle.activeSession : null;
+  const endIncognito = () => {
+    if (!activeIncognito || busy) {
+      return;
+    }
+    Alert.alert(
+      "End incognito for both of you?",
+      "All messages and attachments in this session will be deleted, including unread messages.",
+      [
+        { style: "cancel", text: "Keep chatting" },
+        {
+          onPress: async () => {
+            const ended = await mutate({
+              action: "end-incognito",
+              sessionId: activeIncognito.id,
+            });
+            if (!ended) {
+              Alert.alert(
+                "Couldn't end incognito",
+                "Check your connection and try again."
+              );
+            }
+          },
+          style: "destructive",
+          text: "End and delete",
+        },
+      ]
+    );
+  };
   let statusText = username ? `@${username}` : "";
   if (conversation) {
     statusText = `${conversation.members.filter((member) => !member.leftAt).length} members`;
@@ -1387,26 +1465,73 @@ function ThreadHeader({
               />
             )}
           </View>
-          {typing ? (
-            <Text style={[styles.headerSub, { color: theme.dividerText }]}>
-              typing...
-            </Text>
-          ) : (
-            <Text
-              numberOfLines={1}
-              style={[styles.headerSub, { color: theme.dividerText }]}
-            >
-              {statusText}
-            </Text>
-          )}
+          {(() => {
+            if (activeIncognito) {
+              return (
+                <View
+                  style={{ alignItems: "center", flexDirection: "row", gap: 4 }}
+                >
+                  <Shield size={11} color={theme.dividerText} />
+                  <Text
+                    style={[styles.headerSub, { color: theme.dividerText }]}
+                  >
+                    Incognito
+                  </Text>
+                </View>
+              );
+            }
+            if (typing) {
+              return (
+                <Text style={[styles.headerSub, { color: theme.dividerText }]}>
+                  typing...
+                </Text>
+              );
+            }
+            return (
+              <Text
+                numberOfLines={1}
+                style={[styles.headerSub, { color: theme.dividerText }]}
+              >
+                {statusText}
+              </Text>
+            );
+          })()}
         </View>
       </Pressable>
-      <MessagesIconButton
-        icon={Search}
-        label="Search in conversation"
-        onPress={onSearch}
-        size={32}
-      />
+      {activeIncognito ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityState={{ disabled: busy }}
+          disabled={busy}
+          onPress={endIncognito}
+          hitSlop={8}
+          style={({ pressed }) => ({
+            backgroundColor: pressed ? theme.cardBg : "transparent",
+            borderRadius: 20,
+            justifyContent: "center",
+            minHeight: 40,
+            opacity: busy ? 0.5 : 1,
+            paddingHorizontal: 12,
+          })}
+        >
+          <Text
+            style={{
+              color: theme.inputText,
+              fontFamily: "SofiaProMed",
+              fontSize: 12,
+            }}
+          >
+            End chat
+          </Text>
+        </Pressable>
+      ) : (
+        <MessagesIconButton
+          icon={Search}
+          label="Search in conversation"
+          onPress={onSearch}
+          size={32}
+        />
+      )}
     </View>
   );
 }

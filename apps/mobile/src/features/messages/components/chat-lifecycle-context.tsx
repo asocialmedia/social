@@ -1,19 +1,11 @@
-import {
-  observeChatTask,
-  runChatTask,
-  throwChatError,
-  incognitoIsActive,
-  incognitoNotice,
-} from "@asm/messages";
+import { observeChatTask, runChatTask, incognitoIsActive } from "@asm/messages";
 import type { ChatLifecycleSnapshot, IncognitoSession } from "@asm/messages";
 import { fetch as streamingFetch } from "expo/fetch";
 // oxlint-disable react/exhaustive-effect-dependencies -- Account, clear and retry revisions intentionally invalidate scoped effects even when they are not request payload fields.
 import {
   useMemo,
-  createContext,
   Fragment,
   useCallback,
-  useContext,
   useEffect,
   useRef,
   useState,
@@ -34,26 +26,9 @@ import { useMessagesForeground } from "@/features/messages/state/use-messages-fo
 import { getApiBaseUrl } from "@/lib/api-env";
 import { useAppTheme } from "@/theme";
 
-import { NativeIncognitoThread } from "./incognito-thread";
+import { acknowledgeNativeIncognitoIntroduction } from "../lib/incognito-introduction";
+import { ChatLifecycleContext } from "./chat-lifecycle-state";
 
-interface NativeLifecycleContext {
-  snapshot: ChatLifecycleSnapshot | null;
-  error: string | null;
-  busy: boolean;
-  revision: number;
-  options: ApiCallOptions | null;
-  refresh: () => void;
-  mutate: (body: object) => Promise<boolean>;
-  loadEarlierNotices: () => Promise<void>;
-}
-const Context = createContext<NativeLifecycleContext | null>(null);
-export function useNativeChatLifecycle() {
-  const value = useContext(Context);
-  if (!value) {
-    throwChatError(new Error("Chat lifecycle provider required"));
-  }
-  return value;
-}
 export function NativeChatLifecycleBoundary({
   conversationId,
   onBack,
@@ -64,6 +39,7 @@ export function NativeChatLifecycleBoundary({
   children: ReactNode;
 }) {
   const { user } = useSessionContext();
+  const userId = user?.id;
   const { theme } = useAppTheme();
   const foreground = useMessagesForeground();
   const [options, setOptions] = useState<ApiCallOptions | null>(null);
@@ -301,23 +277,44 @@ export function NativeChatLifecycleBoundary({
     );
   }, [options, busy, conversationId]);
   const active =
-    snapshot?.activeSession &&
-    incognitoIsActive(snapshot.activeSession, clock + offset)
+    snapshot?.activeSession && incognitoIsActive(snapshot.activeSession)
       ? snapshot.activeSession
       : null;
+  const requestIncognito = useCallback(() => {
+    if (!userId || busy) {
+      return;
+    }
+    void observeChatTask(acknowledgeNativeIncognitoIntroduction(userId), () => {
+      void mutate({ action: "start-incognito", actionId: crypto.randomUUID() });
+    });
+  }, [userId, busy, mutate]);
+  const introSessionId = active?.id;
+  useEffect(() => {
+    if (introSessionId && userId) {
+      void acknowledgeNativeIncognitoIntroduction(userId);
+    }
+  }, [introSessionId, userId]);
+  const fresh = foreground && clock - fetchedAt < 7000;
   const lifecycleContextValue = useMemo(
     () => ({
       busy,
+      contentRevision,
       error: lifecycleError,
+      fresh,
       loadEarlierNotices,
       mutate,
       options,
       refresh,
+      requestIncognito,
       revision,
+      serverOffset: offset,
       snapshot,
     }),
     [
       busy,
+      contentRevision,
+      fresh,
+      offset,
       lifecycleError,
       loadEarlierNotices,
       mutate,
@@ -325,125 +322,47 @@ export function NativeChatLifecycleBoundary({
       refresh,
       revision,
       snapshot,
+      requestIncognito,
     ]
   );
   return (
-    <Context.Provider value={lifecycleContextValue}>
-      {(() => {
-        if (!snapshot || !options) {
+    <ChatLifecycleContext.Provider value={lifecycleContextValue}>
+      <View style={{ flex: 1 }}>
+        {(() => {
+          if (!snapshot || !options) {
+            return (
+              <View
+                style={{
+                  alignItems: "center",
+                  backgroundColor: theme.containerBg,
+                  flex: 1,
+                  gap: 12,
+                  justifyContent: "center",
+                  padding: 24,
+                }}
+              >
+                {lifecycleError ? (
+                  <>
+                    <Text style={{ color: theme.inputText }}>
+                      {lifecycleError}
+                    </Text>
+                    <Pressable accessibilityRole="button" onPress={refresh}>
+                      <Text style={{ color: theme.inputText }}>Retry</Text>
+                    </Pressable>
+                  </>
+                ) : (
+                  <ActivityIndicator accessibilityLabel="Opening conversation" />
+                )}
+              </View>
+            );
+          }
           return (
-            <View
-              style={{
-                alignItems: "center",
-                backgroundColor: theme.containerBg,
-                flex: 1,
-                gap: 12,
-                justifyContent: "center",
-                padding: 24,
-              }}
-            >
-              {lifecycleError ? (
-                <>
-                  <Text style={{ color: theme.inputText }}>
-                    {lifecycleError}
-                  </Text>
-                  <Pressable accessibilityRole="button" onPress={refresh}>
-                    <Text style={{ color: theme.inputText }}>Retry</Text>
-                  </Pressable>
-                </>
-              ) : (
-                <ActivityIndicator accessibilityLabel="Opening conversation" />
-              )}
-            </View>
+            <Fragment key={snapshot.clearedAt ?? "normal-history"}>
+              {children}
+            </Fragment>
           );
-        }
-        if (active) {
-          return (
-            <NativeIncognitoThread
-              key={active.id}
-              conversationId={conversationId}
-              session={active}
-              options={options}
-              revision={revision + contentRevision}
-              fresh={foreground && clock - fetchedAt < 7000}
-              serverOffset={offset}
-              onRefresh={refresh}
-              onBack={onBack}
-              onEnd={() =>
-                mutate({ action: "end-incognito", sessionId: active.id })
-              }
-              busy={busy}
-              error={lifecycleError}
-            />
-          );
-        }
-        return (
-          <Fragment key={snapshot.clearedAt ?? "normal-history"}>
-            {children}
-          </Fragment>
-        );
-      })()}
-    </Context.Provider>
-  );
-}
-
-export function NativeIncognitoUsageNotice({
-  session,
-}: {
-  session: IncognitoSession;
-}) {
-  const { theme } = useAppTheme();
-  const ended =
-    session.endedAt ??
-    (session.endReason === "timeout" ? session.expiresAt : null);
-  const effective =
-    ended && !session.endedAt
-      ? { ...session, endReason: "timeout", endedAt: ended }
-      : session;
-  return (
-    <View
-      accessibilityLabel={incognitoNotice(effective)}
-      style={{
-        backgroundColor: theme.cardBg,
-        borderColor: theme.dividerLine,
-        borderRadius: 16,
-        borderWidth: 1,
-        marginHorizontal: 24,
-        marginVertical: 12,
-        padding: 14,
-      }}
-    >
-      <Text
-        style={{
-          color: theme.inputText,
-          fontFamily: "SofiaProBold",
-          fontSize: 13,
-          textAlign: "center",
-        }}
-      >
-        {incognitoNotice(effective)}
-      </Text>
-      <Text
-        style={{
-          color: theme.dividerText,
-          fontSize: 11,
-          marginTop: 5,
-          textAlign: "center",
-        }}
-      >
-        {new Date(session.startedAt).toLocaleString()}
-        {ended ? ` — ${new Date(ended).toLocaleTimeString()}` : ""}
-      </Text>
-      <Text
-        style={{
-          color: theme.dividerText,
-          fontSize: 10,
-          marginTop: 4,
-          textAlign: "center",
-        }}
-      >
-        Permanent usage notice
-      </Text>
-    </View>
+        })()}
+      </View>
+    </ChatLifecycleContext.Provider>
   );
 }
