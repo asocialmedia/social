@@ -35,6 +35,7 @@ export interface InitiateRequest {
   conversationId?: string;
   incognitoSessionId?: string;
   height?: number;
+  viewOnce?: boolean;
   name: string;
   purpose: UploadPurpose;
   size: number;

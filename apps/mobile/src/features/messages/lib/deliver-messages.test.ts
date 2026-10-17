@@ -87,6 +87,38 @@ test("a GIF-only message retains its caption", async () => {
   });
 });
 
+test("a view-once photo carries a protected reference without a caption", async () => {
+  const sent: MessagePayload[] = [];
+  await deliverMessages({
+    attachments: [
+      {
+        file: {
+          height: 640,
+          mimeType: "image/jpeg",
+          name: "photo.jpg",
+          size: 30,
+          width: 480,
+        },
+        mediaId: "protected-photo",
+        viewOnce: true,
+      },
+    ],
+    caption: "Private moment",
+    onSend: (payload) => {
+      sent.push(payload);
+      return Promise.resolve();
+    },
+    replyTo: null,
+  });
+
+  expect(sent).toEqual([
+    {
+      attachments: [{ height: 640, kind: "view-once", ref: "protected-photo" }],
+      type: "media",
+    },
+  ]);
+});
+
 test("failed post delivery stops the remaining attachments", async () => {
   let calls = 0;
   await expect(

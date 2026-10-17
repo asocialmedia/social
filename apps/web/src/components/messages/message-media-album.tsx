@@ -1,10 +1,17 @@
 "use client";
 
-import { Download, FileText, ImageOff } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from "@asm/ui/shadui/dialog";
+import { Download, Eye, FileText, ImageOff, Loader2, X } from "lucide-react";
 import Image from "next/image";
 import type React from "react";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
+import { closeViewOnceMedia, openViewOnceMedia } from "@/lib/messages/client";
 import type {
   MediaAttachmentRef,
   MediaImageRef,
@@ -15,7 +22,10 @@ import { cn } from "@/lib/utils";
 import { getMessageMediaVariantUrl } from "@/lib/utils/image-url";
 
 import { getAlbumLayout } from "./message-album-layout";
-import { useOpenConversationMedia } from "./message-media-viewer-context";
+import {
+  useOpenConversationMedia,
+  useViewOnceConversationId,
+} from "./message-media-viewer-context";
 
 // Bento layouts for grouped albums live in message-album-layout.ts (pure, so
 // the shapes are unit-tested). Each count from 2 to 10 has a bespoke layout;
@@ -26,6 +36,200 @@ import { useOpenConversationMedia } from "./message-media-viewer-context";
 // viewer at its own image, so users can page through every image in the thread.
 
 type LoadStatus = "error" | "loaded" | "loading";
+
+function closeViewOnceSilently(
+  conversationId: string,
+  mediaId: string,
+  grantId: string
+): void {
+  void (async () => {
+    try {
+      await closeViewOnceMedia(conversationId, mediaId, grantId);
+    } catch {
+      // The server expires abandoned grants if this best-effort close is offline.
+    }
+  })();
+}
+
+function ViewOncePhoto({
+  canOpen,
+  mediaId,
+}: {
+  canOpen: boolean;
+  mediaId: string;
+}) {
+  const conversationId = useViewOnceConversationId();
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [opened, setOpened] = useState(false);
+  const [unavailable, setUnavailable] = useState(false);
+  const [openError, setOpenError] = useState<string | null>(null);
+  const [imageUrl, setImageUrl] = useState<string | null>(null);
+  const imageUrlRef = useRef<string | null>(null);
+  const grantIdRef = useRef<string | null>(null);
+  const controllerRef = useRef<AbortController | null>(null);
+
+  const closeViewer = useCallback(() => {
+    controllerRef.current?.abort();
+    controllerRef.current = null;
+    const url = imageUrlRef.current;
+    imageUrlRef.current = null;
+    if (url) {
+      URL.revokeObjectURL(url);
+    }
+    setImageUrl(null);
+    setDialogOpen(false);
+    const grantId = grantIdRef.current;
+    grantIdRef.current = null;
+    if (grantId && conversationId) {
+      closeViewOnceSilently(conversationId, mediaId, grantId);
+    }
+  }, [conversationId, mediaId]);
+
+  useEffect(
+    () => () => {
+      controllerRef.current?.abort();
+      if (imageUrlRef.current) {
+        URL.revokeObjectURL(imageUrlRef.current);
+      }
+      const grantId = grantIdRef.current;
+      if (grantId && conversationId) {
+        closeViewOnceSilently(conversationId, mediaId, grantId);
+      }
+    },
+    [conversationId, mediaId]
+  );
+
+  const openPhoto = useCallback(async () => {
+    if (!canOpen || !conversationId || busy || opened || unavailable) {
+      return;
+    }
+    const grantId = crypto.randomUUID();
+    const controller = new AbortController();
+    grantIdRef.current = grantId;
+    controllerRef.current = controller;
+    setBusy(true);
+    setOpenError(null);
+    try {
+      const blob = await openViewOnceMedia(
+        conversationId,
+        mediaId,
+        grantId,
+        controller.signal
+      );
+      const url = URL.createObjectURL(blob);
+      imageUrlRef.current = url;
+      setImageUrl(url);
+      setOpened(true);
+      setDialogOpen(true);
+    } catch (error) {
+      grantIdRef.current = null;
+      if (!controller.signal.aborted) {
+        const status =
+          typeof error === "object" && error !== null && "status" in error
+            ? error.status
+            : null;
+        if (status === 410 || status === 404) {
+          setUnavailable(true);
+        } else {
+          setOpenError("This photo couldn't be opened. Try again.");
+        }
+      }
+      closeViewOnceSilently(conversationId, mediaId, grantId);
+    }
+    if (controllerRef.current === controller) {
+      controllerRef.current = null;
+    }
+    setBusy(false);
+  }, [busy, canOpen, conversationId, mediaId, opened, unavailable]);
+
+  let label = "Open photo";
+  if (opened) {
+    label = "Opened";
+  } else if (unavailable) {
+    label = "No longer available";
+  }
+  return (
+    <>
+      {canOpen && conversationId ? (
+        <button
+          aria-label={label}
+          className="surface-3d text-muted-foreground hover:bg-muted/70 flex min-h-16 w-full items-center gap-3 rounded-2xl px-4 py-3 text-left text-sm transition-colors disabled:cursor-default"
+          disabled={busy || opened || unavailable}
+          onClick={openPhoto}
+          type="button"
+        >
+          <span className="bg-muted/70 flex size-10 shrink-0 items-center justify-center rounded-xl">
+            {busy ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <Eye className="size-4" />
+            )}
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block font-medium">
+              {opened || unavailable ? label : "View once photo"}
+            </span>
+            {openError ? (
+              <span className="text-destructive mt-0.5 block text-xs">
+                {openError}
+              </span>
+            ) : null}
+          </span>
+          {!opened && !unavailable && !busy ? (
+            <span className="text-muted-foreground text-xs">Open</span>
+          ) : null}
+        </button>
+      ) : (
+        <div className="surface-3d text-muted-foreground flex min-h-16 items-center gap-3 rounded-2xl px-4 py-3 text-sm">
+          <span className="bg-muted/70 flex size-10 shrink-0 items-center justify-center rounded-xl">
+            <Eye className="size-4" />
+          </span>
+          <span>View once photo</span>
+        </div>
+      )}
+      <Dialog
+        onOpenChange={(nextOpen) => {
+          if (!nextOpen) {
+            closeViewer();
+          }
+        }}
+        open={dialogOpen}
+      >
+        <DialogContent
+          className="max-h-[92vh] max-w-[min(92vw,1000px)] overflow-hidden border-0 bg-black p-2 text-white shadow-none sm:rounded-2xl"
+          showCloseButton={false}
+        >
+          <DialogTitle className="sr-only">View once photo</DialogTitle>
+          <DialogDescription className="sr-only">
+            The photo closes when you dismiss the viewer.
+          </DialogDescription>
+          {imageUrl ? (
+            <div className="relative h-[min(86vh,800px)] w-full">
+              <Image
+                alt=""
+                className="rounded-xl object-contain"
+                draggable={false}
+                fill
+                sizes="92vw"
+                src={imageUrl}
+                unoptimized
+              />
+            </div>
+          ) : null}
+          <button
+            aria-label="Close photo"
+            className="icon-btn-3d absolute top-3 right-3 flex size-9 items-center justify-center rounded-full"
+            onClick={closeViewer}
+            type="button"
+          >
+            <X className="size-4" />
+          </button>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
 
 function useMediaSource(image: MediaImageRef, kind: "gif" | "image") {
   const variant =
@@ -273,9 +477,11 @@ function rowMediaKind(
 
 export function MessageMediaAlbum({
   content,
+  mine,
   messageId,
 }: {
   content: Extract<MessagePayload, { type: "media" }>;
+  mine: boolean;
   messageId: string;
 }) {
   const images = getMediaImages(content);
@@ -333,17 +539,16 @@ export function MessageMediaAlbum({
               <FileAttachment attachment={attachment} key={attachment.url} />
             );
           }
-          return (
-            <div
-              className="surface-3d text-muted-foreground flex items-center gap-3 rounded-2xl px-4 py-3 text-sm"
-              key={`view-once-${index}`}
-            >
-              <span className="bg-muted/70 flex size-10 shrink-0 items-center justify-center rounded-xl">
-                <ImageOff className="size-4" />
-              </span>
-              <span>View once photo</span>
-            </div>
-          );
+          if (attachment.kind === "view-once") {
+            return (
+              <ViewOncePhoto
+                canOpen={!mine}
+                key={`view-once-${attachment.ref}`}
+                mediaId={attachment.ref}
+              />
+            );
+          }
+          return null;
         })}
         {caption ? (
           <p className="min-w-0 px-0.5 text-sm break-words whitespace-pre-wrap">

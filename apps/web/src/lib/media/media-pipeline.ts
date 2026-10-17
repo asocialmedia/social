@@ -136,6 +136,7 @@ export async function createInitiatedUpload(input: {
   messageConversationId?: string | null;
   incognitoSessionId?: string;
   messageLifecycleProtected?: boolean;
+  messageViewOnce?: boolean;
   purpose: string | null;
   sha256?: string | null;
   userId: string;
@@ -152,6 +153,7 @@ export async function createInitiatedUpload(input: {
     messageConversationId,
     incognitoSessionId,
     messageLifecycleProtected,
+    messageViewOnce,
     purpose,
     sha256,
     userId,
@@ -160,6 +162,20 @@ export async function createInitiatedUpload(input: {
   } = input;
 
   const mediaType = mediaTypeFromMime(declaredMime);
+  if (
+    messageViewOnce &&
+    (purpose !== "message" ||
+      !messageConversationId ||
+      audioOverlayId ||
+      !["image/jpeg", "image/png", "image/webp", "image/avif"].includes(
+        declaredMime.toLowerCase()
+      ))
+  ) {
+    throw new UploadPolicyError(
+      "View-once attachments must be a single supported photo in a chat",
+      415
+    );
+  }
   if (mediaType === "DOCUMENT" && purpose !== "message") {
     throw new UploadPolicyError(
       "Documents can only be shared in messages",
@@ -677,7 +693,7 @@ export async function createInitiatedUpload(input: {
       key: "",
       mimeType: declaredMime.toLowerCase(),
       originalName: sanitizeDisplayName(fileName),
-      sha256: sha256 ?? null,
+      sha256: messageViewOnce ? null : (sha256 ?? null),
       size: fileSize,
       status: "UPLOADING",
       url: "",
@@ -685,7 +701,9 @@ export async function createInitiatedUpload(input: {
       ...(audioOverlayId ? { audioOverlayId } : {}),
       ...(messageConversationId ? { messageConversationId } : {}),
       incognitoSessionId: incognitoSessionId ?? null,
-      messageLifecycleProtected: messageLifecycleProtected ?? false,
+      messageLifecycleProtected:
+        Boolean(messageLifecycleProtected) || Boolean(messageViewOnce),
+      messageViewOnce: messageViewOnce ?? false,
       ...(width ? { width } : {}),
       ...(height ? { height } : {}),
     });

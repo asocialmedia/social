@@ -1,0 +1,75 @@
+[
+  {
+    "id": "column.public.post_media.messageViewOnce",
+    "label": "Add column \"messageViewOnce\" to \"post_media\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "column",
+        "name": "messageViewOnce",
+        "table": "post_media"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure column \"messageViewOnce\" is missing",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": ["public", "post_media", "messageViewOnce"]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add column \"messageViewOnce\"",
+        "sql": "ALTER TABLE \"public\".\"post_media\" ADD COLUMN \"messageViewOnce\" bool DEFAULT false NOT NULL"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify column \"messageViewOnce\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": ["public", "post_media", "messageViewOnce"]
+      }
+    ]
+  },
+  {
+    "id": "index.message_media_links.message_media_viewonce_media_unique_ff0d1126",
+    "label": "Create index \"message_media_viewonce_media_unique_ff0d1126\" on \"message_media_links\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "message_media_viewonce_media_unique_ff0d1126",
+        "table": "message_media_links"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"message_media_viewonce_media_unique_ff0d1126\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"message_media_viewonce_media_unique_ff0d1126\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"message_media_viewonce_media_unique_ff0d1126\"",
+        "sql": "CREATE UNIQUE INDEX \"message_media_viewonce_media_unique_ff0d1126\" ON \"public\".\"message_media_links\" (\"mediaId\") WHERE ((\"viewOnce\"))",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"message_media_viewonce_media_unique_ff0d1126\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"message_media_viewonce_media_unique_ff0d1126\""
+        ]
+      }
+    ]
+  }
+]

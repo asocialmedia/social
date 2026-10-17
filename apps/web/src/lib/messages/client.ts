@@ -1378,6 +1378,7 @@ export interface MessageMediaUpload {
 }
 
 export interface MessageMediaUploadOptions {
+  viewOnce?: boolean;
   incognitoSessionId?: string;
   // Fires as the bytes go up (0-100), letting the staging strip render a real
   // progress bar instead of a spinner.
@@ -1417,6 +1418,7 @@ export async function uploadMessageMedia(
     onStage: options.onStage,
     purpose: "message",
     signal: options.signal,
+    viewOnce: options.viewOnce,
     width: dimensions?.width ?? null,
   });
   if (result.status === "REJECTED") {
@@ -1597,6 +1599,12 @@ export async function sendEncryptedMessage(
   const mediaIds = extractMessageReferences(payload).flatMap((ref) =>
     ref.kind === "media" && ref.requiredId ? [ref.requiredId] : []
   );
+  const viewOnceMediaIds =
+    payload.type === "media" && "attachments" in payload
+      ? payload.attachments.flatMap((attachment) =>
+          attachment.kind === "view-once" ? [attachment.ref] : []
+        )
+      : [];
   const response = await fetchChatApi(
     `/api/messages/conversations/${conversationId}/messages`,
     {
@@ -1606,6 +1614,7 @@ export async function sendEncryptedMessage(
         mediaIds,
         ratchetIndex: encrypted.ratchetIndex,
         retentionVersion: lifecycle.retentionVersion,
+        viewOnceMediaIds,
       }),
       credentials: "same-origin",
       headers: { "Content-Type": "application/json" },
@@ -1654,6 +1663,63 @@ export async function deleteMessage(messageId: string): Promise<void> {
     credentials: "same-origin",
     method: "DELETE",
   });
+  if (!response.ok) {
+    throw await parseError(response);
+  }
+}
+
+export async function openViewOnceMedia(
+  conversationId: string,
+  mediaId: string,
+  grantId: string,
+  signal?: AbortSignal
+): Promise<Blob> {
+  const path = `/api/messages/conversations/${conversationId}/media/${mediaId}/view-once/open`;
+  const headers = { "X-View-Once-Grant": grantId };
+  const reservation = await fetchChatApi(path, {
+    cache: "no-store",
+    credentials: "same-origin",
+    headers,
+    method: "POST",
+    signal,
+  });
+  if (!reservation.ok) {
+    throw await parseError(reservation);
+  }
+  try {
+    const response = await fetchChatApi(path, {
+      cache: "no-store",
+      credentials: "same-origin",
+      headers,
+      signal,
+    });
+    if (!response.ok) {
+      throw await parseError(response);
+    }
+    return await response.blob();
+  } catch (error) {
+    await closeViewOnceMedia(conversationId, mediaId, grantId).catch(() => {
+      /* empty */
+    });
+    throw error;
+  }
+}
+
+export async function closeViewOnceMedia(
+  conversationId: string,
+  mediaId: string,
+  grantId: string
+): Promise<void> {
+  const response = await fetchChatApi(
+    `/api/messages/conversations/${conversationId}/media/${mediaId}/view-once/close`,
+    {
+      body: JSON.stringify({ grantId }),
+      cache: "no-store",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+    }
+  );
   if (!response.ok) {
     throw await parseError(response);
   }

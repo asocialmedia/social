@@ -10,7 +10,7 @@ import type {
   IncognitoSession,
 } from "@asm/messages";
 
-import { fromPrismaDateTime } from "../dates";
+import { fromPrismaDateTime, toPrismaDateTime } from "../dates";
 import prisma from "../prisma";
 import type { PrismaTransaction } from "../prisma";
 import { listDenMembershipEvents } from "./dens/den-service";
@@ -357,6 +357,7 @@ export async function sendIncognitoMessage(input: {
   ratchetIndex: number;
   keyEpoch: number;
   mediaIds: string[];
+  viewOnceMediaIds?: string[];
 }): Promise<void> {
   await prisma.transaction(async (tx) => {
     const access = await lockChatLifecycle(
@@ -428,6 +429,7 @@ export async function sendIncognitoMessage(input: {
         mediaIds: input.mediaIds,
         protect: true,
         userId: input.senderId,
+        viewOnceMediaIds: input.viewOnceMediaIds,
       },
       tx
     );
@@ -500,6 +502,7 @@ export async function linkLifecycleMedia(
     incognitoMessageId?: string;
     mediaIds: string[];
     protect: boolean;
+    viewOnceMediaIds?: string[];
   },
   tx: PrismaTransaction
 ): Promise<void> {
@@ -509,6 +512,8 @@ export async function linkLifecycleMedia(
     throw new ChatLifecycleError("INVALID_ATTACHMENT", 400);
   }
   let incognitoSessionId: string | null = null;
+  let messageCreatedAt: Date;
+  let messageExpiresAt: Date | null = null;
   if (hasIncognito) {
     const target = await tx.orm.public.MessageIncognitoMessages.where({
       id: requireLifecycleValue(input.incognitoMessageId),
@@ -523,6 +528,7 @@ export async function linkLifecycleMedia(
       throw new ChatLifecycleError("INVALID_ATTACHMENT", 400);
     }
     incognitoSessionId = session.id;
+    messageCreatedAt = fromPrismaDateTime(target.createdAt);
   } else {
     const target = await tx.orm.public.Messages.where({
       id: requireLifecycleValue(input.messageId),
@@ -530,6 +536,20 @@ export async function linkLifecycleMedia(
     if (!target || target.conversationId !== input.conversationId) {
       throw new ChatLifecycleError("INVALID_ATTACHMENT", 400);
     }
+    messageCreatedAt = fromPrismaDateTime(target.createdAt);
+    messageExpiresAt = target.expiresAt
+      ? fromPrismaDateTime(target.expiresAt)
+      : null;
+  }
+  const ordinaryIds = new Set(input.mediaIds);
+  const viewOnceIds = new Set(input.viewOnceMediaIds);
+  if (
+    viewOnceIds.size > 1 ||
+    ordinaryIds.size !== input.mediaIds.length ||
+    viewOnceIds.size !== (input.viewOnceMediaIds?.length ?? 0) ||
+    [...viewOnceIds].some((mediaId) => ordinaryIds.has(mediaId))
+  ) {
+    throw new ChatLifecycleError("INVALID_ATTACHMENT", 400);
   }
   for (const mediaId of new Set(input.mediaIds)) {
     const media = await tx.orm.public.PostMedia.where({ id: mediaId }).first();
@@ -544,6 +564,9 @@ export async function linkLifecycleMedia(
     }
     // Only scanned content may be attached; quarantined or uploading rows stay invisible until READY.
     if (media.status !== "READY") {
+      throw new ChatLifecycleError("INVALID_ATTACHMENT", 400);
+    }
+    if (media.messageViewOnce) {
       throw new ChatLifecycleError("INVALID_ATTACHMENT", 400);
     }
     if (hasIncognito) {
@@ -567,6 +590,253 @@ export async function linkLifecycleMedia(
       messageId: input.messageId ?? null,
     });
   }
+  if (viewOnceIds.size > 0) {
+    const { rows: recipientRows } = await rawQuery<{ userId: string }>(
+      `SELECT "userId" FROM public.message_conversation_members
+      WHERE "conversationId"=$1 AND "leftAt" IS NULL AND "userId"<>$2 ORDER BY "userId"`,
+      [input.conversationId, input.userId],
+      { userId: "pg/text@1" },
+      tx
+    );
+    if (recipientRows.length === 0) {
+      throw new ChatLifecycleError("INVALID_ATTACHMENT", 400);
+    }
+    const { rows: expiryRows } = await rawQuery<{
+      deliveryExpiresAt: Date;
+      live: boolean;
+    }>(
+      `SELECT LEAST($1::timestamp + interval '24 hours',
+        COALESCE($2::timestamp,$1::timestamp + interval '24 hours')) AS "deliveryExpiresAt",
+        LEAST($1::timestamp + interval '24 hours',
+          COALESCE($2::timestamp,$1::timestamp + interval '24 hours'))>clock_timestamp() AS live`,
+      [messageCreatedAt, messageExpiresAt],
+      {
+        deliveryExpiresAt: "pg/timestamp-temporal@1",
+        live: "pg/bool@1",
+      },
+      tx
+    );
+    const expiry = requireLifecycleValue(expiryRows[0]);
+    if (!expiry.live) {
+      throw new ChatLifecycleError("INVALID_ATTACHMENT", 400);
+    }
+    for (const mediaId of viewOnceIds) {
+      const media = await tx.orm.public.PostMedia.where({
+        id: mediaId,
+      }).first();
+      const detectedMime = media?.detectedMime?.toLowerCase() ?? "";
+      if (
+        !media ||
+        media.userId !== input.userId ||
+        media.messageConversationId !== input.conversationId ||
+        media.postId ||
+        media.commentId ||
+        media.status !== "READY" ||
+        media._type !== "IMAGE" ||
+        !media.messageViewOnce ||
+        !["image/jpeg", "image/png", "image/webp", "image/avif"].includes(
+          detectedMime
+        ) ||
+        (hasIncognito
+          ? media.incognitoSessionId !== incognitoSessionId
+          : media.incognitoSessionId !== null)
+      ) {
+        throw new ChatLifecycleError("INVALID_ATTACHMENT", 400);
+      }
+      await tx.orm.public.PostMedia.where({ id: mediaId }).update({
+        messageLifecycleProtected: true,
+      });
+      const link = await tx.orm.public.MessageMediaLinks.select("id").create({
+        deliveryExpiresAt: toPrismaDateTime(expiry.deliveryExpiresAt),
+        incognitoMessageId: input.incognitoMessageId ?? null,
+        mediaId,
+        messageId: input.messageId ?? null,
+        viewOnce: true,
+      });
+      await tx.orm.public.MessageViewOnceRecipients.createAll(
+        recipientRows.map((recipient) => ({
+          mediaLinkId: link.id,
+          userId: recipient.userId,
+        }))
+      );
+    }
+  }
+}
+
+interface ViewOnceGrantRow {
+  recipientId: string;
+  objectKey: string | null;
+  mimeType: string;
+  size: number;
+  live: boolean;
+  deliveryExpiresAt: Date | null;
+}
+
+const viewOnceGrantRowSpec = {
+  deliveryExpiresAt: { codecId: "pg/timestamp-temporal@1", nullable: true },
+  live: "pg/bool@1",
+  mimeType: "pg/text@1",
+  objectKey: { codecId: "pg/text@1", nullable: true },
+  recipientId: "pg/text@1",
+  size: "pg/int4@1",
+} as const;
+
+export async function reserveViewOnceMedia(
+  conversationId: string,
+  mediaId: string,
+  userId: string,
+  grantId: string
+): Promise<{ mimeType: string; objectKey: string; size: number }> {
+  try {
+    return await prisma.transaction(async (tx) => {
+      const access = await lockChatLifecycle(conversationId, userId, tx);
+      if (access.leftAt) {
+        throw new ChatLifecycleError("VIEW_ONCE_UNAVAILABLE", 404);
+      }
+      const { rows } = await rawQuery<ViewOnceGrantRow>(
+        `SELECT r.id AS "recipientId",COALESCE(p."publishedKey",NULLIF(p.key,'')) AS "objectKey",
+        p."mimeType",p.size,
+        (p."messageViewOnce" AND p."status"='READY' AND p.type='IMAGE' AND l."deliveryExpiresAt">clock_timestamp()
+          AND ((m.id IS NOT NULL AND m."conversationId"=$1 AND m."deletedAt" IS NULL
+            AND (m."expiresAt" IS NULL OR m."expiresAt">clock_timestamp()))
+            OR (i.id IS NOT NULL AND s."conversationId"=$1 AND s."endedAt" IS NULL
+              AND i."createdAt">clock_timestamp()-interval '24 hours'))) AS live,
+        l."deliveryExpiresAt"
+        FROM public.message_media_links l
+        JOIN public.post_media p ON p.id=l."mediaId"
+        JOIN public.message_view_once_recipients r ON r."mediaLinkId"=l.id AND r."userId"=$3
+        LEFT JOIN public.messages m ON m.id=l."messageId"
+        LEFT JOIN public.message_incognito_messages i ON i.id=l."incognitoMessageId"
+        LEFT JOIN public.message_incognito_sessions s ON s.id=i."sessionId"
+        WHERE l."mediaId"=$2 AND l."viewOnce"=true AND p."messageConversationId"=$1
+        FOR UPDATE OF l,r,p`,
+        [conversationId, mediaId, userId],
+        viewOnceGrantRowSpec,
+        tx
+      );
+      const [target] = rows;
+      if (!target || !target.live || !target.objectKey) {
+        throw new ChatLifecycleError("VIEW_ONCE_UNAVAILABLE", 410);
+      }
+      const existingGrant = await rawQuery<{
+        status: string;
+        available: boolean;
+      }>(
+        `SELECT g.status::text AS status,(g.status='RESERVED' AND g."expiresAt">clock_timestamp()) AS available
+        FROM public.message_view_once_grants g JOIN public.message_view_once_recipients r ON r.id=g."recipientId"
+        WHERE g.id=$1 AND r.id=$2 FOR UPDATE OF g`,
+        [grantId, target.recipientId],
+        { available: "pg/bool@1", status: "pg/text@1" },
+        tx
+      );
+      if (existingGrant.rows[0]) {
+        if (existingGrant.rows[0].available) {
+          return {
+            mimeType: target.mimeType,
+            objectKey: target.objectKey,
+            size: target.size,
+          };
+        }
+        throw new ChatLifecycleError("VIEW_ONCE_CONSUMED", 410);
+      }
+      await rawExecute(
+        `UPDATE public.message_view_once_grants SET status='EXPIRED'
+        WHERE "recipientId"=$1 AND status IN ('RESERVED','ACTIVE') AND "expiresAt"<=clock_timestamp()`,
+        [target.recipientId],
+        tx
+      );
+      const history = await rawQuery<{ consumed: boolean; opening: boolean }>(
+        `SELECT EXISTS(SELECT 1 FROM public.message_view_once_grants WHERE "recipientId"=$1
+          AND status IN ('CLOSED','EXPIRED','REVOKED')) AS consumed,
+          EXISTS(SELECT 1 FROM public.message_view_once_grants WHERE "recipientId"=$1
+          AND status IN ('RESERVED','ACTIVE') AND "expiresAt">clock_timestamp()) AS opening`,
+        [target.recipientId],
+        { consumed: "pg/bool@1", opening: "pg/bool@1" },
+        tx
+      );
+      if (history.rows[0]?.consumed) {
+        throw new ChatLifecycleError("VIEW_ONCE_CONSUMED", 410);
+      }
+      if (history.rows[0]?.opening) {
+        throw new ChatLifecycleError("VIEW_ONCE_OPENING", 409);
+      }
+      await rawExecute(
+        `INSERT INTO public.message_view_once_grants (id,"recipientId",status,"reservedAt","expiresAt")
+        VALUES ($1,$2,'RESERVED',clock_timestamp(),clock_timestamp()+interval '2 minutes')`,
+        [grantId, target.recipientId],
+        tx
+      );
+      return {
+        mimeType: target.mimeType,
+        objectKey: target.objectKey,
+        size: target.size,
+      };
+    });
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      "code" in error &&
+      (error.code === "23505" || error.code === "P2002")
+    ) {
+      throw new ChatLifecycleError("VIEW_ONCE_OPENING", 409);
+    }
+    throw error;
+  }
+}
+
+export function activateViewOnceGrant(
+  conversationId: string,
+  grantId: string,
+  userId: string
+): Promise<boolean> {
+  return prisma.transaction(async (tx) => {
+    const access = await lockChatLifecycle(conversationId, userId, tx);
+    if (access.leftAt) {
+      return false;
+    }
+    const result = await rawExecute(
+      `UPDATE public.message_view_once_grants g SET status='ACTIVE',"activatedAt"=clock_timestamp(),
+        "expiresAt"=clock_timestamp()+interval '2 minutes'
+      FROM public.message_view_once_recipients r,public.message_media_links l,public.post_media p
+      WHERE g.id=$1 AND g."recipientId"=r.id AND r."userId"=$2 AND l.id=r."mediaLinkId"
+        AND p.id=l."mediaId" AND l."viewOnce"=true AND l."deliveryExpiresAt">clock_timestamp()
+        AND p."messageViewOnce"=true AND p."status"='READY' AND p."messageConversationId"=$3
+        AND g.status='RESERVED' AND g."expiresAt">clock_timestamp()
+        AND ((l."messageId" IS NOT NULL AND EXISTS(SELECT 1 FROM public.messages m
+            WHERE m.id=l."messageId" AND m."deletedAt" IS NULL
+            AND (m."expiresAt" IS NULL OR m."expiresAt">clock_timestamp())))
+          OR (l."incognitoMessageId" IS NOT NULL AND EXISTS(SELECT 1 FROM public.message_incognito_messages i
+            JOIN public.message_incognito_sessions s ON s.id=i."sessionId"
+            WHERE i.id=l."incognitoMessageId" AND i."createdAt">clock_timestamp()-interval '24 hours'
+            AND s."conversationId"=$3 AND s."endedAt" IS NULL)))`,
+      [grantId, userId, conversationId],
+      tx
+    );
+    return result.affectedRows === 1;
+  });
+}
+
+export async function releaseViewOnceGrant(
+  grantId: string,
+  userId: string
+): Promise<void> {
+  await rawExecute(
+    `DELETE FROM public.message_view_once_grants g USING public.message_view_once_recipients r
+    WHERE g.id=$1 AND g."recipientId"=r.id AND r."userId"=$2 AND g.status='RESERVED'`,
+    [grantId, userId]
+  );
+}
+
+export async function closeViewOnceGrant(
+  grantId: string,
+  userId: string
+): Promise<void> {
+  await rawExecute(
+    `UPDATE public.message_view_once_grants g SET status='CLOSED',"closedAt"=clock_timestamp()
+    FROM public.message_view_once_recipients r WHERE g.id=$1 AND g."recipientId"=r.id
+      AND r."userId"=$2 AND g.status IN ('RESERVED','ACTIVE')`,
+    [grantId, userId]
+  );
 }
 
 export async function lifecycleMediaAllowed(
@@ -575,6 +845,7 @@ export async function lifecycleMediaAllowed(
   options: { allowProcessing?: boolean } = {}
 ): Promise<boolean | null> {
   const media = await prisma.orm.public.PostMedia.select(
+    "messageViewOnce",
     "messageLifecycleProtected",
     "status",
     "incognitoSessionId",
@@ -586,6 +857,9 @@ export async function lifecycleMediaAllowed(
     .first();
   if (!media) {
     return null;
+  }
+  if (media.messageViewOnce) {
+    return false;
   }
   if (!media.messageLifecycleProtected) {
     if (media.messageConversationId) {

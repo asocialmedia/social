@@ -205,6 +205,24 @@ describe("groupReadyAttachments", () => {
     });
   });
 
+  test("encodes a view-once photo as a protected media reference", () => {
+    const groups = groupReadyAttachments([
+      draft({
+        id: "once",
+        mediaId: "protected-media-id",
+        mediaUrl: "/api/media/protected-media-id",
+        viewOnce: true,
+      }),
+    ]);
+
+    expect(groups[0]).toEqual({
+      attachmentIds: ["once"],
+      attachments: [
+        { height: 100, kind: "view-once", ref: "protected-media-id" },
+      ],
+    });
+  });
+
   test("rejects per-file and aggregate size excess before upload", () => {
     const result = selectAcceptedFiles(
       0,

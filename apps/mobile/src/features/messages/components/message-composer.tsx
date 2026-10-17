@@ -9,6 +9,7 @@ import {
   Film,
   ArrowUp,
   Clapperboard,
+  Eye,
   ImagePlus,
   Pencil,
   X,
@@ -93,6 +94,7 @@ export interface StagedAttachment {
   progress: number | null;
   /** True only for a row this send created; a dedup hit must never be discarded. */
   owned: boolean;
+  viewOnce?: boolean;
 }
 
 export interface ComposerTarget {
@@ -167,6 +169,7 @@ export function MessageComposer({
   const { crop, cropper } = useProfileMediaCropper();
   const [attachments, setAttachments] = useState<StagedAttachment[]>([]);
   const [sending, setSending] = useState(false);
+  const [viewOnceMode, setViewOnceMode] = useState(false);
   const typingSent = useRef(false);
   const lastTypedAt = useRef(0);
   const foreground = useMessagesForeground();
@@ -224,6 +227,7 @@ export function MessageComposer({
     !disabled &&
     !sending &&
     !isUploading &&
+    (!viewOnceMode || attachments.length > 0) &&
     (fieldValue.trim().length > 0 ||
       attachments.length > 0 ||
       Boolean(sharedPostId)) &&
@@ -267,7 +271,22 @@ export function MessageComposer({
   }, []);
 
   const stagePickedFiles = useCallback(
-    async (picked: PickedMedia[]) => {
+    async (picked: PickedMedia[], viewOnce = false) => {
+      if (
+        viewOnce &&
+        (attachmentsRef.current.length > 0 ||
+          picked.length !== 1 ||
+          !["image/jpeg", "image/png", "image/webp", "image/avif"].includes(
+            picked[0]?.mimeType.toLowerCase() ?? ""
+          ))
+      ) {
+        toast({
+          description: "Choose one JPEG, PNG, WebP, or AVIF photo.",
+          title: "View once photo",
+          variant: "destructive",
+        });
+        return;
+      }
       let totalBytes = attachmentsRef.current.reduce(
         (total, item) => total + item.file.size,
         0
@@ -329,6 +348,7 @@ export function MessageComposer({
         mediaId: null as string | null,
         owned: false,
         progress: 0 as number | null,
+        viewOnce,
       }));
       if (staged.length === 0) {
         return;
@@ -357,6 +377,23 @@ export function MessageComposer({
       "Couldn't open photos"
     );
   }, [stagePickedFiles]);
+
+  const chooseViewOncePhoto = useCallback(() => {
+    setAttachmentMenuOpen(false);
+    if (draft.trim() || sharedPostId || attachmentsRef.current.length > 0) {
+      toast({
+        description: "Send your draft first, then choose a photo.",
+        title: "View once photo",
+      });
+      return;
+    }
+    setViewOnceMode(true);
+    runMessageAttachmentPicker(
+      () => pickPhotosAndVideos({ remaining: 1 }),
+      (picked) => stagePickedFiles(picked, true),
+      "Couldn't open photos"
+    );
+  }, [draft, sharedPostId, stagePickedFiles]);
 
   const chooseFiles = useCallback(() => {
     setAttachmentMenuOpen(false);
@@ -393,6 +430,7 @@ export function MessageComposer({
         mediaId: null,
         owned: false,
         progress: 0,
+        viewOnce: item.viewOnce,
       };
       setAttachments((current) =>
         current.map((entry) => (entry.id === item.id ? staged : entry))
@@ -451,6 +489,7 @@ export function MessageComposer({
           useMessageTextDraft.getState().clear(draftKey);
         }
         setDraft("");
+        setViewOnceMode(false);
         setAttachments([]);
         onCancelEdit();
         onCancelReply();
@@ -552,7 +591,7 @@ export function MessageComposer({
         <TextInput
           ref={fieldRef}
           accessibilityLabel="Message"
-          editable={!disabled}
+          editable={!disabled && !viewOnceMode}
           multiline
           onChangeText={(value) => {
             setDraft(value);
@@ -570,6 +609,9 @@ export function MessageComposer({
             }
           }}
           placeholder={(() => {
+            if (viewOnceMode) {
+              return "Choose one photo to send once…";
+            }
             if (incognitoSessionId) {
               return "Message in incognito…";
             }
@@ -598,7 +640,9 @@ export function MessageComposer({
         <Pressable
           accessibilityLabel="Add GIF"
           accessibilityRole="button"
-          disabled={disabled || atCapacity || Boolean(sharedPostId)}
+          disabled={
+            disabled || atCapacity || Boolean(sharedPostId) || viewOnceMode
+          }
           hitSlop={4}
           onPress={() => {
             Keyboard.dismiss();
@@ -719,6 +763,31 @@ export function MessageComposer({
             </Pressable>
             <Pressable
               accessibilityRole="button"
+              disabled={attachments.length > 0}
+              onPress={() => {
+                if (viewOnceMode) {
+                  setViewOnceMode(false);
+                } else {
+                  chooseViewOncePhoto();
+                }
+              }}
+              style={styles.attachmentSheetRow}
+            >
+              <Eye
+                color={viewOnceMode ? "#ff9500" : theme.dividerText}
+                size={19}
+              />
+              <Text
+                style={[
+                  styles.attachmentSheetLabel,
+                  { color: isDark ? "#f1f1f1" : "#202020" },
+                ]}
+              >
+                {viewOnceMode ? "Turn off view once" : "View once photo"}
+              </Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
               onPress={chooseFiles}
               style={styles.attachmentSheetRow}
             >
@@ -808,6 +877,7 @@ async function stageOneAttachment(
     onStage: () => context.onPatch(item.id, { progress: null }),
     purpose: "message",
     signal: controller.signal,
+    viewOnce: item.viewOnce,
     // The composer gates the send itself, so there is no need to block here on the
     // pipeline; the tile's progress reflects the bytes.
     waitForProcessing: false,

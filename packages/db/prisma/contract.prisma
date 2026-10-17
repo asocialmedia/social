@@ -185,6 +185,7 @@ namespace public {
     incognitoSessionId         String?
     incognitoSession           MessageIncognitoSessions? @relation(fields: [incognitoSessionId], references: [id], onDelete: Cascade, onUpdate: Cascade)
     messageLifecycleProtected  Boolean @default(false)
+    messageViewOnce            Boolean @default(false)
     messageLifecycleLinks      MessageMediaLinks[]
     mimeType                   String                       @default("application/octet-stream")
     _type                      pg.enum(MediaType)           @default("IMAGE") @map("type")
@@ -828,6 +829,7 @@ namespace public {
     @@unique([messageId, mediaId])
     @@unique([incognitoMessageId, mediaId], map: "message_media_incognito_unique")
     @@index([mediaId])
+    @@index([mediaId], unique: true, where: "(\"viewOnce\")", name: "message_media_viewonce_media_unique")
     @@index([deliveryExpiresAt, id], where: "(\"viewOnce\" AND \"deliveryExpiresAt\" IS NOT NULL)", name: "message_media_viewonce_due")
     @@check(expression: "(\"messageId\" IS NULL) <> (\"incognitoMessageId\" IS NULL)", name: "message_media_exact_source")
     @@map("message_media_links")

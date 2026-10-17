@@ -62,7 +62,10 @@ import { ConversationMediaViewer } from "@/components/messages/message-conversat
 import type { MediaNavDirection } from "@/components/messages/message-conversation-viewer";
 import { MessageDeleteDialog } from "@/components/messages/message-delete-dialog";
 import { useMessagesIdentity } from "@/components/messages/message-identity-provider";
-import { ConversationMediaViewerProvider } from "@/components/messages/message-media-viewer-context";
+import {
+  ConversationMediaViewerProvider,
+  ConversationViewOnceProvider,
+} from "@/components/messages/message-media-viewer-context";
 import type { OpenConversationMedia } from "@/components/messages/message-media-viewer-context";
 import { MessageOptionsMenu } from "@/components/messages/message-options-menu";
 import { MessageSearchBar } from "@/components/messages/message-search-bar";
@@ -4801,126 +4804,127 @@ function NormalMessageThread({
 
   return (
     <ConversationMediaViewerProvider value={openConversationMedia}>
-      {/* The transcript and, from `lg` up, the details pane. The row is the
+      <ConversationViewOnceProvider value={detail?.conversation.id ?? null}>
+        {/* The transcript and, from `lg` up, the details pane. The row is the
           OUTER element rather than a grid cell so the pane can be a sibling of
           the whole thread column: it holds the pane's own scroller, and a nested
           one would steal the wheel from the transcript. */}
-      <div className="flex h-full min-h-0 flex-1">
-        <div
-          data-chat-mode={activeIncognito ? "incognito" : "normal"}
-          className="flex h-full min-h-0 min-w-0 flex-1 flex-col"
-          // The member's stored chat theme, published as custom properties the
-          // `.bubble-sent` recipe reads. Setting them here (rather than keying a
-          // class off the theme) keeps one typed palette the single source for both
-          // the swatch the user picked and the bubbles it paints.
-          style={chatThemeVars(detail)}
-        >
+        <div className="flex h-full min-h-0 flex-1">
           <div
-            className={cn(
-              "shrink-0 motion-safe:transition-colors motion-safe:duration-300",
-              activeIncognito && INCOGNITO_SURFACE_CLASS_NAME
-            )}
+            data-chat-mode={activeIncognito ? "incognito" : "normal"}
+            className="flex h-full min-h-0 min-w-0 flex-1 flex-col"
+            // The member's stored chat theme, published as custom properties the
+            // `.bubble-sent` recipe reads. Setting them here (rather than keying a
+            // class off the theme) keeps one typed palette the single source for both
+            // the swatch the user picked and the bubbles it paints.
+            style={chatThemeVars(detail)}
           >
-            <ThreadHeader
-              conversation={detail}
-              detailsRailCollapsed={detailsCollapsed}
-              onBack={onBack}
-              onToggleDetails={handleToggleDetails}
-              onOpenSearch={openSearch}
-              onToggleDetailsRail={toggleDetailsRail}
-              onToggleRail={onToggleRail}
-              showDetailsRail={showsDetailsRailToggle(desktopDetails)}
-              peer={peer}
-              peerPresence={peerPresence}
-              peerTyping={peerTyping}
-              privateKey={privateKey}
-            />
-          </div>
-          <ChatModeTransition
-            sessionId={activeIncognito?.id ?? null}
-            incognito={
-              activeIncognito && lifecycle ? (
-                <IncognitoThread
-                  key={`${activeIncognito.id}:${recoveryGeneration}`}
-                  conversationId={conversationId}
-                  session={activeIncognito}
-                  serverNow={lifecycle.serverNow}
-                  fresh={incognitoFresh}
-                  revision={lifecycleRevision}
-                  onRefresh={refreshLifecycle}
-                  busy={lifecycleBusy}
-                  error={lifecycleError}
-                />
-              ) : null
-            }
-          >
-            {streamUpdateRequired ? (
-              <output className="text-muted-foreground flex items-center justify-between gap-3 border-b px-4 py-2 text-xs">
-                <span>A chat update is available. Reload to reconnect.</span>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => window.location.reload()}
-                >
-                  Reload
-                </Button>
-              </output>
-            ) : null}
-
-            {searchOpen ? (
-              <MessageSearchBar
-                activePosition={searchActivePosition}
-                serverManaged
-                offlineSearch={search.offlineSearch}
-                savedHistorySearch={search.savedHistorySearch}
-                coverageUnavailable={search.serverCoverageUnavailable}
-                searching={search.searching}
-                searchError={search.searchError}
-                searchHasMore={search.serverHasMore}
-                onRetrySearch={handleRetrySearch}
-                onRetryJump={handleRetryJump}
-                // Jump in flight counts as work: the anchored read and the walk
-                // behind it are the slowest requests this bar can be waiting on.
-                indexing={transcriptFetching || jumpLoading}
-                fullyCovered={fullyCovered}
-                indexFailed={false}
-                indexingOlder={indexingOlder}
-                inputRef={searchInputRef}
-                jumpError={jumpError}
-                listPageError={search.listPageError}
-                listPageLoading={search.listPageLoading}
-                listPageStale={search.listPageStale}
-                matchCount={search.totalMatches}
-                onClose={dismissSearch}
-                onNext={searchNext}
-                onPage={changeSearchPage}
-                onPrevious={searchPrevious}
-                onQueryChange={handleSearchQueryChange}
-                onSubmit={searchSubmit}
-                onToggleView={toggleSearchView}
-                page={searchPageSlice.page}
-                pageCount={searchPageSlice.pageCount}
-                canNextPage={search.canNextPage}
-                canPreviousPage={search.canPreviousPage}
-                query={search.query}
-                storageFull={false}
-                rangeEnd={searchRangeEnd}
-                rangeStart={searchPageSlice.rangeStart}
-                resultCount={searchPageResultCount}
-                totalResults={search.totalMatches}
-                totalMatchesExact={search.totalMatchesExact}
-                countState={search.countState}
-                hasSelectedResult={searchActiveId !== null}
-                view={searchView}
+            <div
+              className={cn(
+                "shrink-0 motion-safe:transition-colors motion-safe:duration-300",
+                activeIncognito && INCOGNITO_SURFACE_CLASS_NAME
+              )}
+            >
+              <ThreadHeader
+                conversation={detail}
+                detailsRailCollapsed={detailsCollapsed}
+                onBack={onBack}
+                onToggleDetails={handleToggleDetails}
+                onOpenSearch={openSearch}
+                onToggleDetailsRail={toggleDetailsRail}
+                onToggleRail={onToggleRail}
+                showDetailsRail={showsDetailsRailToggle(desktopDetails)}
+                peer={peer}
+                peerPresence={peerPresence}
+                peerTyping={peerTyping}
+                privateKey={privateKey}
               />
-            ) : null}
+            </div>
+            <ChatModeTransition
+              sessionId={activeIncognito?.id ?? null}
+              incognito={
+                activeIncognito && lifecycle ? (
+                  <IncognitoThread
+                    key={`${activeIncognito.id}:${recoveryGeneration}`}
+                    conversationId={conversationId}
+                    session={activeIncognito}
+                    serverNow={lifecycle.serverNow}
+                    fresh={incognitoFresh}
+                    revision={lifecycleRevision}
+                    onRefresh={refreshLifecycle}
+                    busy={lifecycleBusy}
+                    error={lifecycleError}
+                  />
+                ) : null
+              }
+            >
+              {streamUpdateRequired ? (
+                <output className="text-muted-foreground flex items-center justify-between gap-3 border-b px-4 py-2 text-xs">
+                  <span>A chat update is available. Reload to reconnect.</span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => window.location.reload()}
+                  >
+                    Reload
+                  </Button>
+                </output>
+              ) : null}
 
-            {/* `isolate` is load-bearing. It makes this box a stacking context, so
+              {searchOpen ? (
+                <MessageSearchBar
+                  activePosition={searchActivePosition}
+                  serverManaged
+                  offlineSearch={search.offlineSearch}
+                  savedHistorySearch={search.savedHistorySearch}
+                  coverageUnavailable={search.serverCoverageUnavailable}
+                  searching={search.searching}
+                  searchError={search.searchError}
+                  searchHasMore={search.serverHasMore}
+                  onRetrySearch={handleRetrySearch}
+                  onRetryJump={handleRetryJump}
+                  // Jump in flight counts as work: the anchored read and the walk
+                  // behind it are the slowest requests this bar can be waiting on.
+                  indexing={transcriptFetching || jumpLoading}
+                  fullyCovered={fullyCovered}
+                  indexFailed={false}
+                  indexingOlder={indexingOlder}
+                  inputRef={searchInputRef}
+                  jumpError={jumpError}
+                  listPageError={search.listPageError}
+                  listPageLoading={search.listPageLoading}
+                  listPageStale={search.listPageStale}
+                  matchCount={search.totalMatches}
+                  onClose={dismissSearch}
+                  onNext={searchNext}
+                  onPage={changeSearchPage}
+                  onPrevious={searchPrevious}
+                  onQueryChange={handleSearchQueryChange}
+                  onSubmit={searchSubmit}
+                  onToggleView={toggleSearchView}
+                  page={searchPageSlice.page}
+                  pageCount={searchPageSlice.pageCount}
+                  canNextPage={search.canNextPage}
+                  canPreviousPage={search.canPreviousPage}
+                  query={search.query}
+                  storageFull={false}
+                  rangeEnd={searchRangeEnd}
+                  rangeStart={searchPageSlice.rangeStart}
+                  resultCount={searchPageResultCount}
+                  totalResults={search.totalMatches}
+                  totalMatchesExact={search.totalMatchesExact}
+                  countState={search.countState}
+                  hasSelectedResult={searchActiveId !== null}
+                  view={searchView}
+                />
+              ) : null}
+
+              {/* `isolate` is load-bearing. It makes this box a stacking context, so
               the layers' negative z-index stops at this box's edge instead of
               escaping behind the ancestors' page background. Without it they
               would render underneath the whole app and vanish. */}
-            <div className="relative isolate min-h-0 flex-1">
-              {/* The member's wallpaper and its dim, painted behind the
+              <div className="relative isolate min-h-0 flex-1">
+                {/* The member's wallpaper and its dim, painted behind the
                 transcript. They are siblings of the scroller rather than a
                 background on it: a background would be clipped and repainted by
                 the scroller's own box, and the two layers have to change
@@ -4931,117 +4935,154 @@ function NormalMessageThread({
                 paint over both of them. The dim shares the index with the
                 wallpaper and comes later in tree order, so it still lands on top
                 of the art. Both are aria-hidden and pointer-inert: pure paint. */}
-              {wallpaper ? (
+                {wallpaper ? (
+                  <div
+                    aria-hidden
+                    className="pointer-events-none absolute inset-0 -z-10 bg-cover bg-center"
+                    style={{
+                      backgroundImage: `url(${wallpaper.src})`,
+                    }}
+                  />
+                ) : null}
+                {wallpaperDimOverlayValue ? (
+                  <div
+                    aria-hidden
+                    className="pointer-events-none absolute inset-0 -z-10"
+                    style={{ backgroundColor: wallpaperDimOverlayValue }}
+                  />
+                ) : null}
+                {/* oxlint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- the transcript is a pointer gesture surface (click/double-click/right-click/slide); every real control lives in the per-row options menu, which is keyboard reachable */}
                 <div
-                  aria-hidden
-                  className="pointer-events-none absolute inset-0 -z-10 bg-cover bg-center"
-                  style={{
-                    backgroundImage: `url(${wallpaper.src})`,
-                  }}
-                />
-              ) : null}
-              {wallpaperDimOverlayValue ? (
-                <div
-                  aria-hidden
-                  className="pointer-events-none absolute inset-0 -z-10"
-                  style={{ backgroundColor: wallpaperDimOverlayValue }}
-                />
-              ) : null}
-              {/* oxlint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- the transcript is a pointer gesture surface (click/double-click/right-click/slide); every real control lives in the per-row options menu, which is keyboard reachable */}
-              <div
-                // `overflow-anchor: none` disables the browser's own scroll
-                // anchoring, which otherwise competes with the virtualizer's
-                // scrollTop compensation when rows above the viewport re-measure
-                // (decrypt, image load) — the two corrections fight and the
-                // viewport jitters while scrolling up.
-                //
-                // The desktop gestures are delegated here (one listener set for the
-                // whole transcript, not per row): right click opens the options
-                // pane beside the message, double click replies, and a drag slides
-                // to toggle multi-select. Touch has a single gesture, a tap that
-                // opens the same pane. `select-none` during select mode keeps a drag
-                // from starting a native text selection.
-                className={cn(
-                  "hide-native-scrollbar h-full overflow-y-auto [overflow-anchor:none]",
-                  selectionActive && "select-none"
-                )}
-                onClick={handleTranscriptClick}
-                onContextMenu={handleTranscriptContextMenu}
-                onDoubleClick={handleTranscriptDoubleClick}
-                onPointerCancel={handlePointerEnd}
-                onPointerDown={handlePointerDown}
-                onPointerMove={handlePointerMove}
-                onPointerUp={handlePointerEnd}
-                ref={scrollRef}
-              >
-                {transcriptIsEmpty(transcriptItems) ? (
-                  <div className="flex min-h-full flex-col">
-                    <div className="flex flex-1 flex-col items-center justify-center text-center">
-                      <div className="px-6 py-5">
-                        <p className="text-muted-foreground text-sm">
-                          {/* A den has no single person to say hi to, and "Say hi to
+                  // `overflow-anchor: none` disables the browser's own scroll
+                  // anchoring, which otherwise competes with the virtualizer's
+                  // scrollTop compensation when rows above the viewport re-measure
+                  // (decrypt, image load) — the two corrections fight and the
+                  // viewport jitters while scrolling up.
+                  //
+                  // The desktop gestures are delegated here (one listener set for the
+                  // whole transcript, not per row): right click opens the options
+                  // pane beside the message, double click replies, and a drag slides
+                  // to toggle multi-select. Touch has a single gesture, a tap that
+                  // opens the same pane. `select-none` during select mode keeps a drag
+                  // from starting a native text selection.
+                  className={cn(
+                    "hide-native-scrollbar h-full overflow-y-auto [overflow-anchor:none]",
+                    selectionActive && "select-none"
+                  )}
+                  onClick={handleTranscriptClick}
+                  onContextMenu={handleTranscriptContextMenu}
+                  onDoubleClick={handleTranscriptDoubleClick}
+                  onPointerCancel={handlePointerEnd}
+                  onPointerDown={handlePointerDown}
+                  onPointerMove={handlePointerMove}
+                  onPointerUp={handlePointerEnd}
+                  ref={scrollRef}
+                >
+                  {transcriptIsEmpty(transcriptItems) ? (
+                    <div className="flex min-h-full flex-col">
+                      <div className="flex flex-1 flex-col items-center justify-center text-center">
+                        <div className="px-6 py-5">
+                          <p className="text-muted-foreground text-sm">
+                            {/* A den has no single person to say hi to, and "Say hi to
                             them" in a room of twenty reads as a bug. Naming the
                             room is the same promise the row and the header make. */}
-                          {conversationType === "DEN"
-                            ? `Say hi in ${denHeadingName ?? "this den"}`
-                            : `Say hi to ${peer?.displayName ?? "them"}`}
-                        </p>
-                        <p className="text-muted-foreground/70 mt-1 text-xs">
-                          {/* The trust sentence, from one module. The old copy here
+                            {conversationType === "DEN"
+                              ? `Say hi in ${denHeadingName ?? "this den"}`
+                              : `Say hi to ${peer?.displayName ?? "them"}`}
+                          </p>
+                          <p className="text-muted-foreground/70 mt-1 text-xs">
+                            {/* The trust sentence, from one module. The old copy here
                             was "Messages here are encrypted", which is true and
                             reads as end-to-end to almost everyone - and this
                             scheme is server-recoverable, not end-to-end. The empty
                             transcript is exactly where somebody decides whether
                             to trust what they are about to type, so it is the
                             wrong place to leave the ambiguity in. */}
-                          {messagesTrustNote({
-                            memberCount: detail?.conversation.members.length,
-                            type: conversationType,
-                          })}
-                        </p>
+                            {messagesTrustNote({
+                              memberCount: detail?.conversation.members.length,
+                              type: conversationType,
+                            })}
+                          </p>
+                        </div>
                       </div>
+                      {peerTyping ? (
+                        <TypingRow avatarUrl={peer?.avatarUrl ?? null} />
+                      ) : null}
                     </div>
-                    {peerTyping ? (
-                      <TypingRow avatarUrl={peer?.avatarUrl ?? null} />
-                    ) : null}
-                  </div>
-                ) : (
-                  <>
-                    <div
-                      style={{
-                        height: `${rowVirtualizer.getTotalSize()}px`,
-                        position: "relative",
-                        width: "100%",
-                      }}
-                    >
-                      {virtualItems.map((virtualItem) => {
-                        const item = transcriptItems[virtualItem.index];
-                        if (!item) {
-                          return null;
-                        }
-                        if (item.kind === "incognito") {
-                          return (
-                            <div
-                              data-index={virtualItem.index}
-                              key={virtualItem.key}
-                              ref={rowVirtualizer.measureElement}
-                              style={{
-                                left: 0,
-                                position: "absolute",
-                                top: 0,
-                                transform: `translateY(${virtualItem.start}px)`,
-                                width: "100%",
-                              }}
-                            >
-                              <IncognitoUsageNotice session={item.session} />
-                            </div>
+                  ) : (
+                    <>
+                      <div
+                        style={{
+                          height: `${rowVirtualizer.getTotalSize()}px`,
+                          position: "relative",
+                          width: "100%",
+                        }}
+                      >
+                        {virtualItems.map((virtualItem) => {
+                          const item = transcriptItems[virtualItem.index];
+                          if (!item) {
+                            return null;
+                          }
+                          if (item.kind === "incognito") {
+                            return (
+                              <div
+                                data-index={virtualItem.index}
+                                key={virtualItem.key}
+                                ref={rowVirtualizer.measureElement}
+                                style={{
+                                  left: 0,
+                                  position: "absolute",
+                                  top: 0,
+                                  transform: `translateY(${virtualItem.start}px)`,
+                                  width: "100%",
+                                }}
+                              >
+                                <IncognitoUsageNotice session={item.session} />
+                              </div>
+                            );
+                          }
+                          if (item.kind === "event") {
+                            return (
+                              <div
+                                data-event-id={item.event.id}
+                                data-index={virtualItem.index}
+                                key={virtualItem.key}
+                                ref={rowVirtualizer.measureElement}
+                                style={{
+                                  left: 0,
+                                  position: "absolute",
+                                  top: 0,
+                                  transform: `translateY(${virtualItem.start}px)`,
+                                  width: "100%",
+                                }}
+                              >
+                                <DenEventRow
+                                  event={item.event}
+                                  myUserId={userId ?? ""}
+                                />
+                              </div>
+                            );
+                          }
+                          const { message } = item;
+                          // Grouping is a property of the message list, not of the
+                          // transcript: a log line between two messages does not stop
+                          // them continuing each other's group. So this reads the
+                          // message's own index in `allMessages`. The lookup cannot
+                          // miss - a message item only exists because it came from
+                          // `allMessages` - so a miss is skipped rather than given a
+                          // fabricated group.
+                          const messageIndex = messageIndexById.get(message.id);
+                          if (messageIndex === undefined) {
+                            return null;
+                          }
+                          const groupMeta = getMessageGroupMeta(
+                            allMessages,
+                            messageIndex
                           );
-                        }
-                        if (item.kind === "event") {
                           return (
                             <div
-                              data-event-id={item.event.id}
                               data-index={virtualItem.index}
+                              data-message-id={message.id}
                               key={virtualItem.key}
                               ref={rowVirtualizer.measureElement}
                               style={{
@@ -5052,317 +5093,323 @@ function NormalMessageThread({
                                 width: "100%",
                               }}
                             >
-                              <DenEventRow
-                                event={item.event}
+                              <VirtualRow
+                                conversationId={conversationId}
+                                conversationType={conversationType}
+                                groupMeta={groupMeta}
+                                highlighted={jumpTargetId === message.id}
+                                historyVersion={historyVersion}
+                                unreadDivider={
+                                  showUnreadDivider &&
+                                  message.id === unreadAnchorId
+                                }
+                                message={message}
+                                messagesById={messagesById}
                                 myUserId={userId ?? ""}
+                                onEdit={handleEdit}
+                                onReact={handleMessageReaction}
+                                onReply={handleReply}
+                                onRequest={requestDecrypt}
+                                onRetry={retryDecrypt}
+                                peerName={peer?.displayName ?? "them"}
+                                scrolling={scrolling}
+                                selected={selectedIds.has(message.id)}
+                                reactionPending={reactionPendingIds.has(
+                                  message.id
+                                )}
+                                selectionActive={selectionActive}
                               />
                             </div>
                           );
-                        }
-                        const { message } = item;
-                        // Grouping is a property of the message list, not of the
-                        // transcript: a log line between two messages does not stop
-                        // them continuing each other's group. So this reads the
-                        // message's own index in `allMessages`. The lookup cannot
-                        // miss - a message item only exists because it came from
-                        // `allMessages` - so a miss is skipped rather than given a
-                        // fabricated group.
-                        const messageIndex = messageIndexById.get(message.id);
-                        if (messageIndex === undefined) {
-                          return null;
-                        }
-                        const groupMeta = getMessageGroupMeta(
-                          allMessages,
-                          messageIndex
-                        );
-                        return (
-                          <div
-                            data-index={virtualItem.index}
-                            data-message-id={message.id}
-                            key={virtualItem.key}
-                            ref={rowVirtualizer.measureElement}
-                            style={{
-                              left: 0,
-                              position: "absolute",
-                              top: 0,
-                              transform: `translateY(${virtualItem.start}px)`,
-                              width: "100%",
-                            }}
-                          >
-                            <VirtualRow
-                              conversationId={conversationId}
-                              conversationType={conversationType}
-                              groupMeta={groupMeta}
-                              highlighted={jumpTargetId === message.id}
-                              historyVersion={historyVersion}
-                              unreadDivider={
-                                showUnreadDivider &&
-                                message.id === unreadAnchorId
-                              }
-                              message={message}
-                              messagesById={messagesById}
-                              myUserId={userId ?? ""}
-                              onEdit={handleEdit}
-                              onReact={handleMessageReaction}
-                              onReply={handleReply}
-                              onRequest={requestDecrypt}
-                              onRetry={retryDecrypt}
-                              peerName={peer?.displayName ?? "them"}
-                              scrolling={scrolling}
-                              selected={selectedIds.has(message.id)}
-                              reactionPending={reactionPendingIds.has(
-                                message.id
-                              )}
-                              selectionActive={selectionActive}
-                            />
-                          </div>
-                        );
-                      })}
-                    </div>
-                    {peerTyping ? (
-                      <TypingRow avatarUrl={peer?.avatarUrl ?? null} />
-                    ) : null}
-                  </>
-                )}
-              </div>
-
-              {transcriptBusy ? (
-                <div className="pointer-events-none absolute inset-x-0 top-2 z-10 flex justify-center">
-                  <span className="panel-3d text-muted-foreground flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-medium">
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    {transcriptLoadingLabel}
-                  </span>
+                        })}
+                      </div>
+                      {peerTyping ? (
+                        <TypingRow avatarUrl={peer?.avatarUrl ?? null} />
+                      ) : null}
+                    </>
+                  )}
                 </div>
-              ) : null}
 
-              {!pinnedToBottom && allMessages.length > 0 ? (
-                <button
-                  aria-label={
-                    arrivalCount > 0
-                      ? `Scroll to ${arrivalCount} new message${arrivalCount === 1 ? "" : "s"}`
-                      : "Scroll to latest messages"
-                  }
-                  className="icon-btn-3d motion-safe:animate-in motion-safe:fade-in motion-safe:zoom-in-75 absolute right-4 bottom-4 z-10 flex h-11 w-11 items-center justify-center rounded-full transition-transform duration-150 outline-none hover:scale-105 focus-visible:ring-2 focus-visible:ring-[hsl(var(--primary))] active:scale-95"
-                  onClick={jumpToBottom}
-                  title="Scroll to latest"
-                  type="button"
-                >
-                  <ArrowDown className="h-5 w-5" />
-                  {arrivalCount > 0 ? (
-                    <span className="absolute -top-1 -right-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-[#ff3b30] px-1 text-[10px] font-semibold text-white tabular-nums shadow-sm">
-                      {formatArrivalCount(arrivalCount)}
+                {transcriptBusy ? (
+                  <div className="pointer-events-none absolute inset-x-0 top-2 z-10 flex justify-center">
+                    <span className="panel-3d text-muted-foreground flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-medium">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      {transcriptLoadingLabel}
                     </span>
-                  ) : null}
-                </button>
-              ) : null}
+                  </div>
+                ) : null}
 
-              {optionsMessage && optionsTarget ? (
-                <MessageOptionsMenu
-                  anchorRect={optionsTarget.rect}
-                  canDeleteForEveryone={
-                    optionsMessage.senderId === userId &&
-                    !optionsMessage.deletedAt
-                  }
-                  canEdit={
-                    !optionsMessage.deletedAt &&
-                    optionsMessage.senderId === userId &&
-                    isWithinEditWindow(optionsMessage.createdAt)
-                  }
-                  createdAt={optionsMessage.createdAt}
-                  editedAt={optionsMessage.editedAt}
-                  onClose={closeOptions}
-                  onCopy={() => handleOptionsCopy(optionsMessage)}
-                  onDeleteForEveryone={() =>
-                    requestDeleteForEveryone(optionsMessage)
-                  }
-                  onDeleteForMe={() => requestDeleteForMe(optionsMessage)}
-                  onEdit={() => handleEdit(optionsMessage)}
-                  onReact={(emoji) => {
-                    closeOptions();
-                    void handleMessageReaction(optionsMessage, emoji);
-                  }}
-                  reactionPending={reactionPendingIds.has(optionsMessage.id)}
-                  onReply={() => handleReply(optionsMessage)}
-                  onSelect={() => handleOptionsSelect(optionsMessage)}
-                  preferEnd={optionsTarget.preferEnd}
-                  presentation={coarsePointer ? "sheet" : "popover"}
-                  receipt={optionsReceipt}
-                />
-              ) : null}
-
-              {pendingDelete ? (
-                <MessageDeleteDialog
-                  busy={deleteBusy}
-                  copy={messageDeleteCopy({
-                    count:
-                      pendingDelete.scope === "for-everyone"
-                        ? 1
-                        : pendingDelete.messageIds.length,
-                    scope: pendingDelete.scope,
-                  })}
-                  onConfirm={() => {
-                    void confirmPendingDelete();
-                  }}
-                  onOpenChange={(open) => {
-                    // Ignore a dismissal while the request is in flight so the busy
-                    // state cannot be abandoned mid-delete. The node stays mounted
-                    // (pendingDelete is retained) so the close can animate and focus
-                    // returns to the invoker.
-                    if (!open && !deleteBusy) {
-                      setDeleteOpen(false);
+                {!pinnedToBottom && allMessages.length > 0 ? (
+                  <button
+                    aria-label={
+                      arrivalCount > 0
+                        ? `Scroll to ${arrivalCount} new message${arrivalCount === 1 ? "" : "s"}`
+                        : "Scroll to latest messages"
                     }
-                  }}
-                  open={deleteOpen}
-                />
-              ) : null}
+                    className="icon-btn-3d motion-safe:animate-in motion-safe:fade-in motion-safe:zoom-in-75 absolute right-4 bottom-4 z-10 flex h-11 w-11 items-center justify-center rounded-full transition-transform duration-150 outline-none hover:scale-105 focus-visible:ring-2 focus-visible:ring-[hsl(var(--primary))] active:scale-95"
+                    onClick={jumpToBottom}
+                    title="Scroll to latest"
+                    type="button"
+                  >
+                    <ArrowDown className="h-5 w-5" />
+                    {arrivalCount > 0 ? (
+                      <span className="absolute -top-1 -right-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-[#ff3b30] px-1 text-[10px] font-semibold text-white tabular-nums shadow-sm">
+                        {formatArrivalCount(arrivalCount)}
+                      </span>
+                    ) : null}
+                  </button>
+                ) : null}
 
-              {/* The list view is a state of the same surface, not a separate pane:
+                {optionsMessage && optionsTarget ? (
+                  <MessageOptionsMenu
+                    anchorRect={optionsTarget.rect}
+                    canDeleteForEveryone={
+                      optionsMessage.senderId === userId &&
+                      !optionsMessage.deletedAt
+                    }
+                    canEdit={
+                      !optionsMessage.deletedAt &&
+                      optionsMessage.senderId === userId &&
+                      isWithinEditWindow(optionsMessage.createdAt)
+                    }
+                    createdAt={optionsMessage.createdAt}
+                    editedAt={optionsMessage.editedAt}
+                    onClose={closeOptions}
+                    onCopy={() => handleOptionsCopy(optionsMessage)}
+                    onDeleteForEveryone={() =>
+                      requestDeleteForEveryone(optionsMessage)
+                    }
+                    onDeleteForMe={() => requestDeleteForMe(optionsMessage)}
+                    onEdit={() => handleEdit(optionsMessage)}
+                    onReact={(emoji) => {
+                      closeOptions();
+                      void handleMessageReaction(optionsMessage, emoji);
+                    }}
+                    reactionPending={reactionPendingIds.has(optionsMessage.id)}
+                    onReply={() => handleReply(optionsMessage)}
+                    onSelect={() => handleOptionsSelect(optionsMessage)}
+                    preferEnd={optionsTarget.preferEnd}
+                    presentation={coarsePointer ? "sheet" : "popover"}
+                    receipt={optionsReceipt}
+                  />
+                ) : null}
+
+                {pendingDelete ? (
+                  <MessageDeleteDialog
+                    busy={deleteBusy}
+                    copy={messageDeleteCopy({
+                      count:
+                        pendingDelete.scope === "for-everyone"
+                          ? 1
+                          : pendingDelete.messageIds.length,
+                      scope: pendingDelete.scope,
+                    })}
+                    onConfirm={() => {
+                      void confirmPendingDelete();
+                    }}
+                    onOpenChange={(open) => {
+                      // Ignore a dismissal while the request is in flight so the busy
+                      // state cannot be abandoned mid-delete. The node stays mounted
+                      // (pendingDelete is retained) so the close can animate and focus
+                      // returns to the invoker.
+                      if (!open && !deleteBusy) {
+                        setDeleteOpen(false);
+                      }
+                    }}
+                    open={deleteOpen}
+                  />
+                ) : null}
+
+                {/* The list view is a state of the same surface, not a separate pane:
               the bar above switches its own controls, and this only swaps the
               body. Layering over the transcript (rather than replacing it)
               keeps the virtualizer's measured rows and scroll anchor, so
               jumping from a result and returning lands where it should. */}
-              {/* The removal popup. Sits next to the self-leave dialog rather than
+                {/* The removal popup. Sits next to the self-leave dialog rather than
               above the composer, which is where it used to be drawn: a line
               above the input was the quietest place to put news that had already
               happened to somebody, and it left a dead input with no stated
               reason. The composer now carries the reason in its placeholder, so
               this only has to announce. */}
-              <MessageAccessEndedDialog
-                onDismiss={() => {
-                  setRemovedNotice(false);
-                }}
-                open={removedNotice}
-              />
-              <Dialog
-                onOpenChange={(open) => !open && setSelfLeftNotice(false)}
-                open={selfLeftNotice}
-              >
-                <DialogContent>
-                  <DialogHeader>
-                    <DialogTitle>{ACCESS_ENDED_MESSAGE}</DialogTitle>
-                    <DialogDescription>
-                      {SELF_LEAVE_DESCRIPTION}
-                    </DialogDescription>
-                  </DialogHeader>
-                  <DialogFooter>
-                    <button
-                      className="btn-3d inline-flex items-center justify-center rounded-lg px-3.5 py-2 text-sm font-medium"
-                      onClick={() => setSelfLeftNotice(false)}
-                      type="button"
-                    >
-                      {ACCESS_ENDED_DISMISS_LABEL}
-                    </button>
-                  </DialogFooter>
-                </DialogContent>
-              </Dialog>
-
-              <div
-                aria-hidden={!searchOpen || searchView !== "list"}
-                className="absolute inset-0 z-20 flex min-h-0 flex-col bg-[hsl(var(--background))]"
-                hidden={!searchOpen || searchView !== "list"}
-              >
-                <MessageSearchResults
-                  activeIndex={Math.max(searchListIndexClamped, 0)}
-                  allMessages={search.resultMessages}
-                  pageHitIds={search.pageHitIds}
-                  indexingOlder={indexingOlder}
-                  savedScope={search.savedHistorySearch}
-                  coverageUnavailable={search.serverCoverageUnavailable}
-                  listPageError={search.listPageError}
-                  listPageLoading={search.listPageLoading}
-                  listPageStale={search.listPageStale}
-                  myUserId={userId ?? ""}
-                  members={detail.conversation.members.map((member) => ({
-                    avatarUrl: member.user.avatarUrl,
-                    displayName: member.user.displayName,
-                    userId: member.userId,
-                  }))}
-                  onJump={jumpFromList}
-                  query={search.query}
-                  results={searchPageSlice.pageResults}
-                  totalMatches={search.totalMatches}
-                  truncated={search.truncated}
+                <MessageAccessEndedDialog
+                  onDismiss={() => {
+                    setRemovedNotice(false);
+                  }}
+                  open={removedNotice}
                 />
-              </div>
-            </div>
-
-            {selectionActive ? (
-              <div className="panel-3d mx-3 mb-2 flex items-center justify-between gap-3 rounded-xl px-3 py-2">
-                <span
-                  aria-live="polite"
-                  className="text-sm font-medium tabular-nums"
+                <Dialog
+                  onOpenChange={(open) => !open && setSelfLeftNotice(false)}
+                  open={selfLeftNotice}
                 >
-                  {selectedIds.size} selected
-                </span>
-                <div className="flex items-center gap-2">
-                  <button
-                    className="btn-3d-gray inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-medium disabled:opacity-50"
-                    disabled={selectedIds.size === 0}
-                    onClick={requestDeleteSelectedForMe}
-                    type="button"
-                  >
-                    <Trash2 className="size-3.5" />
-                    Delete for me
-                  </button>
-                  <button
-                    aria-label="Cancel selection"
-                    className="icon-btn-3d text-muted-foreground inline-flex h-8 w-8 items-center justify-center rounded-full"
-                    onClick={clearSelection}
-                    type="button"
-                  >
-                    <X className="size-4" />
-                  </button>
+                  <DialogContent>
+                    <DialogHeader>
+                      <DialogTitle>{ACCESS_ENDED_MESSAGE}</DialogTitle>
+                      <DialogDescription>
+                        {SELF_LEAVE_DESCRIPTION}
+                      </DialogDescription>
+                    </DialogHeader>
+                    <DialogFooter>
+                      <button
+                        className="btn-3d inline-flex items-center justify-center rounded-lg px-3.5 py-2 text-sm font-medium"
+                        onClick={() => setSelfLeftNotice(false)}
+                        type="button"
+                      >
+                        {ACCESS_ENDED_DISMISS_LABEL}
+                      </button>
+                    </DialogFooter>
+                  </DialogContent>
+                </Dialog>
+
+                <div
+                  aria-hidden={!searchOpen || searchView !== "list"}
+                  className="absolute inset-0 z-20 flex min-h-0 flex-col bg-[hsl(var(--background))]"
+                  hidden={!searchOpen || searchView !== "list"}
+                >
+                  <MessageSearchResults
+                    activeIndex={Math.max(searchListIndexClamped, 0)}
+                    allMessages={search.resultMessages}
+                    pageHitIds={search.pageHitIds}
+                    indexingOlder={indexingOlder}
+                    savedScope={search.savedHistorySearch}
+                    coverageUnavailable={search.serverCoverageUnavailable}
+                    listPageError={search.listPageError}
+                    listPageLoading={search.listPageLoading}
+                    listPageStale={search.listPageStale}
+                    myUserId={userId ?? ""}
+                    members={detail.conversation.members.map((member) => ({
+                      avatarUrl: member.user.avatarUrl,
+                      displayName: member.user.displayName,
+                      userId: member.userId,
+                    }))}
+                    onJump={jumpFromList}
+                    query={search.query}
+                    results={searchPageSlice.pageResults}
+                    totalMatches={search.totalMatches}
+                    truncated={search.truncated}
+                  />
                 </div>
               </div>
-            ) : null}
 
-            <MessageComposer
-              accessEnded={accessEndedNotice.accessEnded}
-              conversation={detail}
-              editTarget={editTarget}
-              replyTarget={replyTarget}
-              onEditCancel={() => setEditTarget(null)}
-              onEditSave={handleEditSave}
-              onReplyCancel={() => setReplyTarget(null)}
-              // Typing is the reader acknowledging what is on screen, so the rule
-              // stops saying "new". Local only: it is not a claim that the history was
-              // read, and the server is not told anything by a keystroke.
-              onDraftInput={() => setUnreadDismissed(true)}
-              onSent={() => {
-                scheduleRead();
-                // Sending always returns the user to the newest message, even from
-                // mid-history, matching every mainstream chat client.
-                jumpToBottom();
-              }}
-            />
+              {selectionActive ? (
+                <div className="panel-3d mx-3 mb-2 flex items-center justify-between gap-3 rounded-xl px-3 py-2">
+                  <span
+                    aria-live="polite"
+                    className="text-sm font-medium tabular-nums"
+                  >
+                    {selectedIds.size} selected
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      className="btn-3d-gray inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-medium disabled:opacity-50"
+                      disabled={selectedIds.size === 0}
+                      onClick={requestDeleteSelectedForMe}
+                      type="button"
+                    >
+                      <Trash2 className="size-3.5" />
+                      Delete for me
+                    </button>
+                    <button
+                      aria-label="Cancel selection"
+                      className="icon-btn-3d text-muted-foreground inline-flex h-8 w-8 items-center justify-center rounded-full"
+                      onClick={clearSelection}
+                      type="button"
+                    >
+                      <X className="size-4" />
+                    </button>
+                  </div>
+                </div>
+              ) : null}
 
-            {mediaViewerKey ? (
-              <ConversationMediaViewer
-                key={mediaViewerKey}
-                anchorKey={mediaViewerKey}
-                hasOlder={hasPreviousPage}
-                hasNewer={hasNextPage ?? false}
-                isFetchingOlder={isFetchingPreviousPage}
-                isFetchingNewer={isFetchingNextPage}
-                messages={allMessages}
-                onActive={handleViewerActive}
-                onClose={closeViewer}
-                onLoadOlder={loadOlderMedia}
-                onLoadNewer={loadNewerMedia}
-                onReadServerPage={
-                  SERVER_MESSAGE_SEARCH_ENABLED ? serverReadRefsPage : undefined
-                }
-                onPosition={handleViewerPosition}
+              <MessageComposer
+                accessEnded={accessEndedNotice.accessEnded}
+                conversation={detail}
+                editTarget={editTarget}
+                replyTarget={replyTarget}
+                onEditCancel={() => setEditTarget(null)}
+                onEditSave={handleEditSave}
+                onReplyCancel={() => setReplyTarget(null)}
+                // Typing is the reader acknowledging what is on screen, so the rule
+                // stops saying "new". Local only: it is not a claim that the history was
+                // read, and the server is not told anything by a keystroke.
+                onDraftInput={() => setUnreadDismissed(true)}
+                onSent={() => {
+                  scheduleRead();
+                  // Sending always returns the user to the newest message, even from
+                  // mid-history, matching every mainstream chat client.
+                  jumpToBottom();
+                }}
               />
-            ) : null}
-          </ChatModeTransition>
 
-          {/* The dialog, below `lg` only. Keyed by conversation: its reader holds
+              {mediaViewerKey ? (
+                <ConversationMediaViewer
+                  key={mediaViewerKey}
+                  anchorKey={mediaViewerKey}
+                  hasOlder={hasPreviousPage}
+                  hasNewer={hasNextPage ?? false}
+                  isFetchingOlder={isFetchingPreviousPage}
+                  isFetchingNewer={isFetchingNextPage}
+                  messages={allMessages}
+                  onActive={handleViewerActive}
+                  onClose={closeViewer}
+                  onLoadOlder={loadOlderMedia}
+                  onLoadNewer={loadNewerMedia}
+                  onReadServerPage={
+                    SERVER_MESSAGE_SEARCH_ENABLED
+                      ? serverReadRefsPage
+                      : undefined
+                  }
+                  onPosition={handleViewerPosition}
+                />
+              ) : null}
+            </ChatModeTransition>
+
+            {/* The dialog, below `lg` only. Keyed by conversation: its reader holds
             cursors, rows and counts for one conversation, and remounting on a
             switch is both cheaper and safer than resetting them -- a read in
             flight during the switch resolves against the old cursors. */}
-          {placement === "sheet" ? (
-            <ConversationDetailsPanel
+            {placement === "sheet" ? (
+              <ConversationDetailsPanel
+                key={detail.conversation.id}
+                detail={detail}
+                onSelectedTabChange={(tab) => {
+                  setDetailsTabState({
+                    conversationId: detail.conversation.id,
+                    tab,
+                  });
+                }}
+                // A walk in flight, so the tabs can say "indexing" rather than imply
+                // the list is the whole conversation.
+                indexingRefs={false}
+                messages={allMessages}
+                onClose={() => setDetailsOpen(false)}
+                // The same jump the search results use, so a tile for a message this
+                // device has not paged in lands the transcript on that message and
+                // then opens the viewer on it.
+                onJumpToMessage={jumpToMessage}
+                onRequestDecrypts={requestLoadedDecrypts}
+                peer={peer}
+                presence={peerPresence}
+                // The index the tabs read, and the token that says it changed. The
+                // same store and the same signal search uses, rather than a second
+                // subscription that would re-read on a different schedule.
+                refsRefreshToken={sharedRefsRefreshToken}
+                searchIndexStore={null}
+                serverReadRefsPage={
+                  SERVER_MESSAGE_SEARCH_ENABLED ? serverReadRefsPage : undefined
+                }
+                selectedTab={selectedDetailsTab}
+              />
+            ) : null}
+          </div>
+
+          {/* The pane, from `lg` up, replacing the online friends rail. An `aside`
+            and not a dialog: nothing here is modal, nothing traps focus, and
+            there is no close -- it is the state of this conversation rather than
+            something the user opened. The same `hidden lg:flex` pair the friends
+            rail uses, so a stale media query costs an invisible pane for a frame
+            rather than a layout that cannot fit. */}
+          {placement === "rail" ? (
+            <ConversationDetailsRail
               key={detail.conversation.id}
               detail={detail}
               onSelectedTabChange={(tab) => {
@@ -5371,21 +5418,12 @@ function NormalMessageThread({
                   tab,
                 });
               }}
-              // A walk in flight, so the tabs can say "indexing" rather than imply
-              // the list is the whole conversation.
               indexingRefs={false}
               messages={allMessages}
-              onClose={() => setDetailsOpen(false)}
-              // The same jump the search results use, so a tile for a message this
-              // device has not paged in lands the transcript on that message and
-              // then opens the viewer on it.
               onJumpToMessage={jumpToMessage}
               onRequestDecrypts={requestLoadedDecrypts}
               peer={peer}
               presence={peerPresence}
-              // The index the tabs read, and the token that says it changed. The
-              // same store and the same signal search uses, rather than a second
-              // subscription that would re-read on a different schedule.
               refsRefreshToken={sharedRefsRefreshToken}
               searchIndexStore={null}
               serverReadRefsPage={
@@ -5395,38 +5433,7 @@ function NormalMessageThread({
             />
           ) : null}
         </div>
-
-        {/* The pane, from `lg` up, replacing the online friends rail. An `aside`
-            and not a dialog: nothing here is modal, nothing traps focus, and
-            there is no close -- it is the state of this conversation rather than
-            something the user opened. The same `hidden lg:flex` pair the friends
-            rail uses, so a stale media query costs an invisible pane for a frame
-            rather than a layout that cannot fit. */}
-        {placement === "rail" ? (
-          <ConversationDetailsRail
-            key={detail.conversation.id}
-            detail={detail}
-            onSelectedTabChange={(tab) => {
-              setDetailsTabState({
-                conversationId: detail.conversation.id,
-                tab,
-              });
-            }}
-            indexingRefs={false}
-            messages={allMessages}
-            onJumpToMessage={jumpToMessage}
-            onRequestDecrypts={requestLoadedDecrypts}
-            peer={peer}
-            presence={peerPresence}
-            refsRefreshToken={sharedRefsRefreshToken}
-            searchIndexStore={null}
-            serverReadRefsPage={
-              SERVER_MESSAGE_SEARCH_ENABLED ? serverReadRefsPage : undefined
-            }
-            selectedTab={selectedDetailsTab}
-          />
-        ) : null}
-      </div>
+      </ConversationViewOnceProvider>
     </ConversationMediaViewerProvider>
   );
 }

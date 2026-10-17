@@ -533,6 +533,12 @@ async function sendEncryptedMessageAtIndex(
   const mediaIds = extractMessageReferences(payload).flatMap((ref) =>
     ref.kind === "media" && ref.requiredId ? [ref.requiredId] : []
   );
+  const viewOnceMediaIds =
+    payload.type === "media" && "attachments" in payload
+      ? payload.attachments.flatMap((attachment) =>
+          attachment.kind === "view-once" ? [attachment.ref] : []
+        )
+      : [];
   const body = await request<{ message: MessageData }>(
     `/api/messages/conversations/${conversationId}/messages`,
     options,
@@ -543,6 +549,7 @@ async function sendEncryptedMessageAtIndex(
         mediaIds,
         ratchetIndex: encrypted.ratchetIndex,
         retentionVersion: lifecycle.retentionVersion,
+        viewOnceMediaIds,
       }),
       method: "POST",
     }

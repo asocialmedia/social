@@ -8,10 +8,13 @@ import { toPrismaDateTime } from "../dates";
 import prisma from "../prisma";
 import { visibleToUser } from "./access/visibility";
 import {
+  activateViewOnceGrant,
   clearChatHistory,
+  closeViewOnceGrant,
   endIncognito,
   lifecycleMediaAllowed,
   linkLifecycleMedia,
+  reserveViewOnceMedia,
   startIncognito,
 } from "./lifecycle";
 import { eraseExpiredChatBatch } from "./lifecycle-cleanup";
@@ -469,5 +472,80 @@ describe("lifecycle media binding and erasure", () => {
     }).deleteAndCount();
     await prisma.orm.public.Messages.where({ id: message.id }).deleteAndCount();
     await prisma.orm.public.PostMedia.where({ id: mediaId }).deleteAndCount();
+  });
+
+  test("view-once media is recipient-scoped and consumed after one open", async () => {
+    const mediaId = crypto.randomUUID();
+    const message = await prisma.orm.public.Messages.create({
+      ciphertext: "view-once",
+      conversationId: dm,
+      creationSequence: 101,
+      iv: "fixture",
+      ratchetIndex: 505,
+      senderId: owner,
+    });
+    await readyMedia(mediaId, owner, {
+      detectedMime: "image/png",
+      key: `view-once/${mediaId}`,
+      messageLifecycleProtected: true,
+      messageViewOnce: true,
+      publishedKey: `view-once/${mediaId}`,
+      size: 123,
+    });
+
+    try {
+      await prisma.transaction((tx) =>
+        linkLifecycleMedia(
+          {
+            conversationId: dm,
+            mediaIds: [],
+            messageId: message.id,
+            protect: true,
+            userId: owner,
+            viewOnceMediaIds: [mediaId],
+          },
+          tx
+        )
+      );
+
+      expect(await lifecycleMediaAllowed(mediaId, owner)).toBe(false);
+      expect(await lifecycleMediaAllowed(mediaId, peer)).toBe(false);
+      await expect(
+        reserveViewOnceMedia(dm, mediaId, owner, crypto.randomUUID())
+      ).rejects.toMatchObject({ code: "VIEW_ONCE_UNAVAILABLE" });
+
+      const grantId = crypto.randomUUID();
+      const reservation = await reserveViewOnceMedia(
+        dm,
+        mediaId,
+        peer,
+        grantId
+      );
+      expect(reservation).toEqual({
+        mimeType: "image/png",
+        objectKey: `view-once/${mediaId}`,
+        size: 123,
+      });
+      expect(await reserveViewOnceMedia(dm, mediaId, peer, grantId)).toEqual(
+        reservation
+      );
+      expect(await activateViewOnceGrant(dm, grantId, peer)).toBe(true);
+      await expect(
+        reserveViewOnceMedia(dm, mediaId, peer, crypto.randomUUID())
+      ).rejects.toMatchObject({ code: "VIEW_ONCE_OPENING" });
+
+      await closeViewOnceGrant(grantId, peer);
+      await expect(
+        reserveViewOnceMedia(dm, mediaId, peer, crypto.randomUUID())
+      ).rejects.toMatchObject({ code: "VIEW_ONCE_CONSUMED" });
+    } finally {
+      await prisma.orm.public.MessageMediaLinks.where({
+        mediaId,
+      }).deleteAndCount();
+      await prisma.orm.public.Messages.where({
+        id: message.id,
+      }).deleteAndCount();
+      await prisma.orm.public.PostMedia.where({ id: mediaId }).deleteAndCount();
+    }
   });
 });

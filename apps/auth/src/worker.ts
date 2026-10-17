@@ -368,7 +368,7 @@ if (import.meta.main) {
               ) {
                 // oxlint-disable-next-line no-await-in-loop -- Claim each bounded batch after the prior one commits.
                 const result = await eraseExpiredChatBatch();
-                if (!result.messages && !result.incognito) {
+                if (!result.messages && !result.incognito && !result.viewOnce) {
                   break;
                 }
               }

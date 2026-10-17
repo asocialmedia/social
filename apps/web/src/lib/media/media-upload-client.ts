@@ -473,6 +473,7 @@ export async function uploadMediaFile(
     // "message" so the peer can fetch the bytes back.
     messageConversationId?: string | null;
     incognitoSessionId?: string;
+    viewOnce?: boolean;
     purpose?:
       | "avatar"
       | "banner"
@@ -511,6 +512,16 @@ export async function uploadMediaFile(
     });
   const shouldWaitForProcessing = options.waitForProcessing ?? true;
   const contentType = file.type || "application/octet-stream";
+  if (
+    options.viewOnce &&
+    !["image/jpeg", "image/png", "image/webp", "image/avif"].includes(
+      contentType.toLowerCase()
+    )
+  ) {
+    throw new MediaUploadError(
+      "View-once attachments must be JPEG, PNG, WebP, or AVIF photos"
+    );
+  }
   const category = categoryForMime(contentType);
   if (!category) {
     throw new MediaUploadError(`Unsupported file type: ${contentType}`);
@@ -528,7 +539,9 @@ export async function uploadMediaFile(
   // instead of being read and hashed once before the actual upload begins.
   const DEDUP_HASH_MAX_BYTES = MULTIPART_UPLOAD_THRESHOLD_BYTES;
   const sha256 =
-    file.size <= DEDUP_HASH_MAX_BYTES ? await computeFileSha256(file) : null;
+    !options.viewOnce && file.size <= DEDUP_HASH_MAX_BYTES
+      ? await computeFileSha256(file)
+      : null;
 
   const initiateResponse = await fetch("/api/upload/initiate", {
     body: JSON.stringify({
@@ -541,6 +554,7 @@ export async function uploadMediaFile(
       sha256: sha256 ?? undefined,
       size: file.size,
       type: contentType,
+      viewOnce: options.viewOnce ?? false,
       width: options.width ?? undefined,
     }),
     credentials: "same-origin",

@@ -101,6 +101,10 @@ import type {
   MessageSender,
 } from "@/features/messages/lib/types";
 import { UNREAD_DIVIDER_LABEL } from "@/features/messages/lib/unread-marker";
+import {
+  closeViewOnceMedia,
+  openViewOnceMedia,
+} from "@/features/messages/lib/view-once-client";
 import { conversationListStore } from "@/features/messages/state/conversation-list-store";
 import { useMessagesIdentity } from "@/features/messages/state/message-identity";
 import {
@@ -318,6 +322,22 @@ function NormalMessageThreadScreen({
       cookie: cookie ?? undefined,
     };
   }, []);
+  const openViewOnce = useCallback(
+    async (mediaId: string, grantId: string, signal?: AbortSignal) =>
+      openViewOnceMedia(
+        conversationId,
+        mediaId,
+        grantId,
+        await apiOptions(),
+        signal
+      ),
+    [apiOptions, conversationId]
+  );
+  const closeViewOnce = useCallback(
+    async (mediaId: string, grantId: string) =>
+      closeViewOnceMedia(conversationId, mediaId, grantId, await apiOptions()),
+    [apiOptions, conversationId]
+  );
 
   // ---- peer detail + key healing ---------------------------------------------
 
@@ -973,6 +993,8 @@ function NormalMessageThreadScreen({
                   ? toggleSelected(message.id)
                   : openViewer(message, entry, index)
               }
+              onOpenViewOnce={openViewOnce}
+              onCloseViewOnce={closeViewOnce}
               onRetry={() => retryRow(message)}
               onReact={(emoji) => {
                 void handleMessageReaction(message.id, emoji);
@@ -1028,6 +1050,8 @@ function NormalMessageThreadScreen({
       swipeId,
       swipeX,
       messages,
+      openViewOnce,
+      closeViewOnce,
     ]
   );
 

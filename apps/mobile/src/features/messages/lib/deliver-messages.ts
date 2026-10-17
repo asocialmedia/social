@@ -12,6 +12,7 @@ interface ComposerAttachment {
     width?: number;
   };
   mediaId: string | null;
+  viewOnce?: boolean;
 }
 
 interface ReplyTarget {
@@ -50,7 +51,10 @@ export async function deliverMessages(input: {
   }
   await onSend({
     attachments: attachments.map(toMediaAttachment),
-    content: input.postId ? undefined : caption || undefined,
+    content:
+      input.postId || attachments.some((item) => item.viewOnce)
+        ? undefined
+        : caption || undefined,
     replyToId: input.postId ? undefined : replyTo?.id,
     replyToSenderId: input.postId ? undefined : replyTo?.senderId,
     type: "media",
@@ -60,6 +64,13 @@ export async function deliverMessages(input: {
 function toMediaAttachment(item: ComposerAttachment) {
   if (!item.mediaId) {
     throw new Error("Wait for uploads to finish before sending.");
+  }
+  if (item.viewOnce) {
+    return {
+      height: item.file.height,
+      kind: "view-once" as const,
+      ref: item.mediaId,
+    };
   }
   const url = `/api/media/${item.mediaId}`;
   const kind = messageAttachmentKind(item.file.mimeType);

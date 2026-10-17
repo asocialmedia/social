@@ -60,6 +60,7 @@ async function eraseStagedIncognitoMedia(
 export async function eraseExpiredChatBatch(): Promise<{
   messages: number;
   incognito: number;
+  viewOnce: number;
 }> {
   const normal = await prisma.transaction(async (tx) => {
     const { rows: conversations } = await rawQuery<{
@@ -182,6 +183,49 @@ export async function eraseExpiredChatBatch(): Promise<{
     );
     return ids.length + staged + 1;
   });
+  const viewOnce = await prisma.transaction(async (tx) => {
+    await rawExecute(
+      `UPDATE public.message_view_once_grants SET status='EXPIRED'
+      WHERE status IN ('RESERVED','ACTIVE') AND "expiresAt"<=clock_timestamp()`,
+      [],
+      tx
+    );
+    const { rows } = await rawQuery<{ id: string; mediaId: string }>(
+      `SELECT l.id,l."mediaId" FROM public.message_media_links l
+      LEFT JOIN public.messages m ON m.id=l."messageId"
+      LEFT JOIN public.message_incognito_messages i ON i.id=l."incognitoMessageId"
+      LEFT JOIN public.message_incognito_sessions s ON s.id=i."sessionId"
+      WHERE l."viewOnce"=true AND (
+        l."deliveryExpiresAt"<=clock_timestamp()
+        OR (m.id IS NOT NULL AND (m."deletedAt" IS NOT NULL OR m."expiresAt"<=clock_timestamp()))
+        OR (i.id IS NOT NULL AND (s."endedAt" IS NOT NULL OR i."createdAt"<=clock_timestamp()-interval '24 hours'))
+        OR NOT EXISTS (SELECT 1 FROM public.message_view_once_recipients r WHERE r."mediaLinkId"=l.id)
+        OR NOT EXISTS (SELECT 1 FROM public.message_view_once_recipients r WHERE r."mediaLinkId"=l.id
+          AND NOT EXISTS (SELECT 1 FROM public.message_view_once_grants g
+            WHERE g."recipientId"=r.id AND g.status IN ('CLOSED','EXPIRED','REVOKED')))
+      ) ORDER BY l."deliveryExpiresAt",l.id LIMIT 100 FOR UPDATE OF l SKIP LOCKED`,
+      [],
+      { id: "pg/text@1", mediaId: "pg/text@1" },
+      tx
+    );
+    if (rows.length === 0) {
+      return 0;
+    }
+    const mediaIds = rows.map((row) => row.mediaId);
+    const linkIds = rows.map((row) => row.id);
+    await rawExecute(
+      `UPDATE public.post_media p SET ${erasedMediaFields}
+      WHERE p.id=ANY($1::text[]) AND p."messageViewOnce"=true AND p.status<>'DELETED'`,
+      [mediaIds],
+      tx
+    );
+    await rawExecute(
+      `DELETE FROM public.message_media_links WHERE id=ANY($1::text[])`,
+      [linkIds],
+      tx
+    );
+    return rows.length;
+  });
   const media = await prisma.orm.public.PostMedia.select("id")
     .where({ failureCode: "CHAT_LIFECYCLE_ERASURE", status: "DELETED" })
     .limit(100)
@@ -191,5 +235,5 @@ export async function eraseExpiredChatBatch(): Promise<{
     ...media.map((m) => enqueueMediaDeleteCascade(m.id)),
     unreadMessageCache.resetMany(normal.users),
   ]);
-  return { incognito, messages: normal.count };
+  return { incognito, messages: normal.count, viewOnce };
 }

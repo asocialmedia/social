@@ -37,6 +37,10 @@ import {
   nativeChatRequest,
   nativeIncognitoPage,
 } from "@/features/messages/lib/lifecycle-client";
+import {
+  closeViewOnceMedia,
+  openViewOnceMedia,
+} from "@/features/messages/lib/view-once-client";
 import { useMessagesIdentity } from "@/features/messages/state/message-identity";
 
 import { getMediaImages } from "../lib/crypto";
@@ -107,6 +111,16 @@ export function NativeIncognitoThread({
   const reactionLocks = useRef(new Set<string>());
   const list = useRef<FlatList<Row>>(null);
   const canView = fresh && !session.endedAt;
+  const openViewOnce = useCallback(
+    (mediaId: string, grantId: string, signal?: AbortSignal) =>
+      openViewOnceMedia(conversationId, mediaId, grantId, options, signal),
+    [conversationId, options]
+  );
+  const closeViewOnce = useCallback(
+    (mediaId: string, grantId: string) =>
+      closeViewOnceMedia(conversationId, mediaId, grantId, options),
+    [conversationId, options]
+  );
   const reactToMessage = useCallback(
     async (messageId: string, emoji: string) => {
       if (reactionLocks.current.has(messageId)) {
@@ -325,6 +339,12 @@ export function NativeIncognitoThread({
                 ref.kind === "media" && ref.requiredId ? [ref.requiredId] : []
               ),
               sessionId: session.id,
+              viewOnceMediaIds:
+                payload.type === "media" && "attachments" in payload
+                  ? payload.attachments.flatMap((attachment) =>
+                      attachment.kind === "view-once" ? [attachment.ref] : []
+                    )
+                  : [],
             }),
             method: "POST",
           });
@@ -508,6 +528,8 @@ export function NativeIncognitoThread({
                               messageId: message.id,
                             })
                           }
+                          onOpenViewOnce={openViewOnce}
+                          onCloseViewOnce={closeViewOnce}
                           onReact={(emoji) => {
                             void reactToMessage(message.id, emoji);
                           }}

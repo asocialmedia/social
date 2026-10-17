@@ -33,6 +33,7 @@ export interface MessageAttachmentDraft {
   progress: number;
   stage: UploadStage;
   status: MessageAttachmentStatus;
+  viewOnce?: boolean;
   width: number | null;
 }
 
@@ -231,6 +232,16 @@ export function groupReadyAttachments(
             kind: "video" as const,
             url: attachment.mediaUrl as string,
             width: attachment.width ?? undefined,
+          };
+        }
+        if (attachment.viewOnce) {
+          if (!attachment.mediaId) {
+            throw new Error("Wait for uploads to finish before sending.");
+          }
+          return {
+            height: attachment.height ?? undefined,
+            kind: "view-once" as const,
+            ref: attachment.mediaId,
           };
         }
         return {

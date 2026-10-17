@@ -41,7 +41,10 @@ import { MessageComposer } from "./message-composer";
 import { mediaFlatKey } from "./message-conversation-media";
 import { ConversationMediaViewer } from "./message-conversation-viewer";
 import { getMessageGroupMeta, formatTimeDivider } from "./message-grouping";
-import { ConversationMediaViewerProvider } from "./message-media-viewer-context";
+import {
+  ConversationMediaViewerProvider,
+  ConversationViewOnceProvider,
+} from "./message-media-viewer-context";
 
 interface Row {
   message: IncognitoMessage;
@@ -362,6 +365,14 @@ export function IncognitoThread({
                       : []
                   ),
                   sessionId: session.id,
+                  viewOnceMediaIds:
+                    payload.type === "media" && "attachments" in payload
+                      ? payload.attachments.flatMap((attachment) =>
+                          attachment.kind === "view-once"
+                            ? [attachment.ref]
+                            : []
+                        )
+                      : [],
                 }),
                 method: "POST",
               });
@@ -440,218 +451,220 @@ export function IncognitoThread({
         setMediaAnchor(mediaFlatKey(messageId, imageIndex))
       }
     >
-      <section
-        aria-label="Incognito conversation"
-        className="flex min-h-0 min-w-0 flex-1 flex-col"
-      >
-        <div
-          className="min-h-0 flex-1 overflow-y-auto px-4 py-5 sm:px-6"
-          ref={scrollRef}
-          aria-label="Incognito messages"
+      <ConversationViewOnceProvider value={conversationId}>
+        <section
+          aria-label="Incognito conversation"
+          className="flex min-h-0 min-w-0 flex-1 flex-col"
         >
-          {readBusy && !rows.length ? (
-            <div aria-live="polite" className="flex justify-center p-8">
-              <Loader2 className="size-5 animate-spin" />
-              <span className="sr-only">Opening messages</span>
-            </div>
-          ) : null}
-          {canView ? (
-            <>
-              {hasMore ? (
-                <div className="mb-4 text-center">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    disabled={readBusy}
-                    onClick={() => {
-                      void loadEarlier();
-                    }}
-                  >
-                    Load earlier messages
-                  </Button>
-                </div>
-              ) : null}
-              {!visibleRows.length && !readBusy && !localError ? (
-                <div className="flex h-full flex-col items-center justify-center gap-3 text-zinc-500">
-                  <Shield className="size-8" />
-                  <p className="text-sm">No messages yet</p>
-                </div>
-              ) : null}
-              <div className="space-y-1">
-                {visibleRows.map(({ message, payload }, index) => {
-                  const group = getMessageGroupMeta(messages, index);
-                  const quoted = payload?.replyToId
-                    ? visibleRows.find(
-                        (row) => row.message.id === payload.replyToId
-                      )
-                    : undefined;
-                  const quoteName =
-                    quoted?.message.senderId === user?.id
-                      ? "You"
-                      : (peer?.displayName ?? "Message");
-                  const quote = quoted
-                    ? {
-                        content: quoted.payload?.content ?? "Attachment",
-                        senderName: quoteName,
-                      }
-                    : null;
-                  return (
-                    <div
-                      id={`incognito-message-${message.id}`}
-                      key={message.id}
-                      className={group.isFirstInGroup ? "pt-3" : ""}
-                      onDoubleClick={(event) => {
-                        if (
-                          event.target instanceof Element &&
-                          event.target.closest(
-                            "button, a, video, audio, [role=button]"
-                          )
-                        ) {
-                          return;
-                        }
-                        void reactToMessage(message.id, "❤️");
+          <div
+            className="min-h-0 flex-1 overflow-y-auto px-4 py-5 sm:px-6"
+            ref={scrollRef}
+            aria-label="Incognito messages"
+          >
+            {readBusy && !rows.length ? (
+              <div aria-live="polite" className="flex justify-center p-8">
+                <Loader2 className="size-5 animate-spin" />
+                <span className="sr-only">Opening messages</span>
+              </div>
+            ) : null}
+            {canView ? (
+              <>
+                {hasMore ? (
+                  <div className="mb-4 text-center">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      disabled={readBusy}
+                      onClick={() => {
+                        void loadEarlier();
                       }}
                     >
-                      {group.showTimeDivider ? (
-                        <p className="text-muted-foreground py-3 text-center text-[11px]">
-                          {formatTimeDivider(message.createdAt)}
-                        </p>
-                      ) : null}
-                      <MessageBubble
-                        content={payload}
-                        isDecrypting={false}
-                        message={{
-                          ...message,
-                          createdAt: new Date(message.createdAt),
-                          deletedAt: null,
-                          editedAt: null,
-                          sender: detail?.conversation.members.find(
-                            (member) => member.userId === message.senderId
-                          )?.user,
-                        }}
-                        myUserId={user?.id ?? ""}
-                        onReact={(emoji) => {
-                          void reactToMessage(message.id, emoji);
-                        }}
-                        onReply={() =>
-                          setReplyTarget({
-                            content: payload?.content ?? "Attachment",
-                            id: message.id,
-                            senderId: message.senderId,
-                            senderName:
-                              message.senderId === user?.id
-                                ? "You"
-                                : peer?.displayName,
-                          })
+                      Load earlier messages
+                    </Button>
+                  </div>
+                ) : null}
+                {!visibleRows.length && !readBusy && !localError ? (
+                  <div className="flex h-full flex-col items-center justify-center gap-3 text-zinc-500">
+                    <Shield className="size-8" />
+                    <p className="text-sm">No messages yet</p>
+                  </div>
+                ) : null}
+                <div className="space-y-1">
+                  {visibleRows.map(({ message, payload }, index) => {
+                    const group = getMessageGroupMeta(messages, index);
+                    const quoted = payload?.replyToId
+                      ? visibleRows.find(
+                          (row) => row.message.id === payload.replyToId
+                        )
+                      : undefined;
+                    const quoteName =
+                      quoted?.message.senderId === user?.id
+                        ? "You"
+                        : (peer?.displayName ?? "Message");
+                    const quote = quoted
+                      ? {
+                          content: quoted.payload?.content ?? "Attachment",
+                          senderName: quoteName,
                         }
-                        quote={quote}
-                        quotePending={false}
-                        position={bubblePosition(
-                          group.isFirstInGroup,
-                          group.isLastInGroup
-                        )}
-                        selectionActive={false}
-                        unknownSenderName="Participant"
-                      />
-                    </div>
-                  );
-                })}
+                      : null;
+                    return (
+                      <div
+                        id={`incognito-message-${message.id}`}
+                        key={message.id}
+                        className={group.isFirstInGroup ? "pt-3" : ""}
+                        onDoubleClick={(event) => {
+                          if (
+                            event.target instanceof Element &&
+                            event.target.closest(
+                              "button, a, video, audio, [role=button]"
+                            )
+                          ) {
+                            return;
+                          }
+                          void reactToMessage(message.id, "❤️");
+                        }}
+                      >
+                        {group.showTimeDivider ? (
+                          <p className="text-muted-foreground py-3 text-center text-[11px]">
+                            {formatTimeDivider(message.createdAt)}
+                          </p>
+                        ) : null}
+                        <MessageBubble
+                          content={payload}
+                          isDecrypting={false}
+                          message={{
+                            ...message,
+                            createdAt: new Date(message.createdAt),
+                            deletedAt: null,
+                            editedAt: null,
+                            sender: detail?.conversation.members.find(
+                              (member) => member.userId === message.senderId
+                            )?.user,
+                          }}
+                          myUserId={user?.id ?? ""}
+                          onReact={(emoji) => {
+                            void reactToMessage(message.id, emoji);
+                          }}
+                          onReply={() =>
+                            setReplyTarget({
+                              content: payload?.content ?? "Attachment",
+                              id: message.id,
+                              senderId: message.senderId,
+                              senderName:
+                                message.senderId === user?.id
+                                  ? "You"
+                                  : peer?.displayName,
+                            })
+                          }
+                          quote={quote}
+                          quotePending={false}
+                          position={bubblePosition(
+                            group.isFirstInGroup,
+                            group.isLastInGroup
+                          )}
+                          selectionActive={false}
+                          unknownSenderName="Participant"
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
+            ) : (
+              <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
+                <p className="text-sm text-zinc-400">
+                  Reconnect to continue chatting.
+                </p>
+                <Button variant="outline" onClick={onRefresh}>
+                  Retry connection
+                </Button>
               </div>
-            </>
-          ) : (
-            <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
-              <p className="text-sm text-zinc-400">
-                Reconnect to continue chatting.
-              </p>
-              <Button variant="outline" onClick={onRefresh}>
-                Retry connection
+            )}
+          </div>
+          {latest ? null : (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setLatest(true);
+                onRefresh();
+              }}
+            >
+              Return to latest messages
+            </Button>
+          )}
+          {localError || lifecycleError ? (
+            <div
+              role="alert"
+              className="flex items-center justify-between gap-3 px-5 py-2 text-sm text-amber-300"
+            >
+              <span>{localError ?? lifecycleError}</span>
+              <Button variant="ghost" size="sm" onClick={onRefresh}>
+                <RefreshCw className="mr-1 size-3" />
+                Retry
               </Button>
             </div>
-          )}
-        </div>
-        {latest ? null : (
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => {
-              setLatest(true);
-              onRefresh();
-            }}
-          >
-            Return to latest messages
-          </Button>
-        )}
-        {localError || lifecycleError ? (
-          <div
-            role="alert"
-            className="flex items-center justify-between gap-3 px-5 py-2 text-sm text-amber-300"
-          >
-            <span>{localError ?? lifecycleError}</span>
-            <Button variant="ghost" size="sm" onClick={onRefresh}>
-              <RefreshCw className="mr-1 size-3" />
-              Retry
-            </Button>
-          </div>
-        ) : null}
-        {detail ? (
-          <MessageComposer
-            key={session.id}
-            conversation={detail}
-            incognito={{ send, sessionId: session.id }}
-            accessEnded={!canView || busy}
-            editTarget={null}
-            onDraftInput={() => {
-              // Incognito drafts stay in this composer.
-            }}
-            onEditCancel={() => {
-              // This composer sends new messages.
-            }}
-            onEditSave={() => Promise.resolve(false)}
-            onReplyCancel={() => setReplyTarget(null)}
-            onSent={onRefresh}
-            replyTarget={
-              replyTarget &&
-              visibleRows.some(({ message }) => message.id === replyTarget.id)
-                ? replyTarget
-                : null
-            }
-          />
-        ) : null}
-        {activeMediaAnchor ? (
-          <ConversationMediaViewer
-            key={activeMediaAnchor}
-            anchorKey={activeMediaAnchor}
-            messages={mediaMessages}
-            readPayload={(id) =>
-              visibleRows.find(({ message }) => message.id === id)?.payload ??
-              "error"
-            }
-            hasOlder={hasMore}
-            hasNewer={!latest}
-            isFetchingOlder={readBusy}
-            isFetchingNewer={readBusy}
-            onActive={() => {
-              // Media selection stays in the viewer.
-            }}
-            onClose={() => setMediaAnchor(null)}
-            onLoadOlder={async () => {
-              if (!hasMore || readBusy) {
-                return false;
+          ) : null}
+          {detail ? (
+            <MessageComposer
+              key={session.id}
+              conversation={detail}
+              incognito={{ send, sessionId: session.id }}
+              accessEnded={!canView || busy}
+              editTarget={null}
+              onDraftInput={() => {
+                // Incognito drafts stay in this composer.
+              }}
+              onEditCancel={() => {
+                // This composer sends new messages.
+              }}
+              onEditSave={() => Promise.resolve(false)}
+              onReplyCancel={() => setReplyTarget(null)}
+              onSent={onRefresh}
+              replyTarget={
+                replyTarget &&
+                visibleRows.some(({ message }) => message.id === replyTarget.id)
+                  ? replyTarget
+                  : null
               }
-              await loadEarlier();
-              return true;
-            }}
-            onLoadNewer={() => {
-              setLatest(true);
-              onRefresh();
-              return false;
-            }}
-            onPosition={() => {
-              // The viewer renders its own position.
-            }}
-          />
-        ) : null}
-      </section>
+            />
+          ) : null}
+          {activeMediaAnchor ? (
+            <ConversationMediaViewer
+              key={activeMediaAnchor}
+              anchorKey={activeMediaAnchor}
+              messages={mediaMessages}
+              readPayload={(id) =>
+                visibleRows.find(({ message }) => message.id === id)?.payload ??
+                "error"
+              }
+              hasOlder={hasMore}
+              hasNewer={!latest}
+              isFetchingOlder={readBusy}
+              isFetchingNewer={readBusy}
+              onActive={() => {
+                // Media selection stays in the viewer.
+              }}
+              onClose={() => setMediaAnchor(null)}
+              onLoadOlder={async () => {
+                if (!hasMore || readBusy) {
+                  return false;
+                }
+                await loadEarlier();
+                return true;
+              }}
+              onLoadNewer={() => {
+                setLatest(true);
+                onRefresh();
+                return false;
+              }}
+              onPosition={() => {
+                // The viewer renders its own position.
+              }}
+            />
+          ) : null}
+        </section>
+      </ConversationViewOnceProvider>
     </ConversationMediaViewerProvider>
   );
 }

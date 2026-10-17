@@ -123,6 +123,8 @@ export async function POST(request: Request, context: Context) {
     return Response.json({ error: "Invalid message" }, { status: 400 });
   }
   const mediaIds = "mediaIds" in body ? body.mediaIds : [];
+  const viewOnceMediaIds =
+    "viewOnceMediaIds" in body ? body.viewOnceMediaIds : [];
   if (
     !Array.isArray(mediaIds) ||
     mediaIds.length > 10 ||
@@ -132,6 +134,20 @@ export async function POST(request: Request, context: Context) {
     )
   ) {
     return Response.json({ error: "Invalid attachments" }, { status: 400 });
+  }
+  if (
+    !Array.isArray(viewOnceMediaIds) ||
+    viewOnceMediaIds.length > 1 ||
+    !viewOnceMediaIds.every(
+      (value): value is string =>
+        typeof value === "string" && value.length <= 100
+    ) ||
+    viewOnceMediaIds.some((mediaId) => mediaIds.includes(mediaId))
+  ) {
+    return Response.json(
+      { error: "Invalid view-once attachment" },
+      { status: 400 }
+    );
   }
   try {
     if (!(await getConversationForUser(id, user.id))) {
@@ -150,6 +166,7 @@ export async function POST(request: Request, context: Context) {
       ratchetIndex: body.ratchetIndex,
       senderId: user.id,
       sessionId: body.sessionId,
+      viewOnceMediaIds,
     });
     await publishChatLifecycleChange(id, true);
     return Response.json(

@@ -13,12 +13,14 @@
 // onLayout. Without that a long album scrolls to the wrong place.
 
 import type { MessageReactionSummary } from "@asm/messages";
+import { randomUUID } from "expo-crypto";
 import { File, Directory, Paths } from "expo-file-system";
 import * as Sharing from "expo-sharing";
 import { VideoView, useVideoPlayer } from "expo-video";
-import { Download, FileText, LockKeyhole } from "lucide-react-native";
-import { memo, useCallback, useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Download, Eye, FileText, Loader2, X } from "lucide-react-native";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
+import { Modal, Pressable, StyleSheet, Text, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { UserAvatar } from "@/components/avatar/user-avatar";
 import { toast } from "@/components/feedback/toast";
@@ -68,6 +70,182 @@ const ALBUM_MAX_WIDTH = 384;
 const MAX_BUBBLE_WIDTH_RATIO = 0.85;
 const EMPTY_REACTIONS: MessageReactionSummary[] = [];
 
+function closeViewOnceQuietly(
+  onClose: (mediaId: string, grantId: string) => Promise<void>,
+  mediaId: string,
+  grantId: string
+): void {
+  void (async () => {
+    try {
+      await onClose(mediaId, grantId);
+    } catch {
+      // The server expires abandoned grants if this best-effort close is offline.
+    }
+  })();
+}
+
+function ViewOncePhoto({
+  canOpen,
+  mediaId,
+  onClose,
+  onOpen,
+}: {
+  canOpen: boolean;
+  mediaId: string;
+  onClose?: (mediaId: string, grantId: string) => Promise<void>;
+  onOpen?: (
+    mediaId: string,
+    grantId: string,
+    signal?: AbortSignal
+  ) => Promise<string>;
+}) {
+  const insets = useSafeAreaInsets();
+  const [busy, setBusy] = useState(false);
+  const [opened, setOpened] = useState(false);
+  const [unavailable, setUnavailable] = useState(false);
+  const [uri, setUri] = useState<string | null>(null);
+  const [openError, setOpenError] = useState<string | null>(null);
+  const controllerRef = useRef<AbortController | null>(null);
+  const grantIdRef = useRef<string | null>(null);
+  const uriRef = useRef<string | null>(null);
+
+  const close = useCallback(() => {
+    controllerRef.current?.abort();
+    controllerRef.current = null;
+    const currentUri = uriRef.current;
+    uriRef.current = null;
+    if (currentUri) {
+      const cached = new File(currentUri);
+      if (cached.exists) {
+        cached.delete();
+      }
+    }
+    setUri(null);
+    const grantId = grantIdRef.current;
+    grantIdRef.current = null;
+    if (grantId && onClose) {
+      closeViewOnceQuietly(onClose, mediaId, grantId);
+    }
+  }, [mediaId, onClose]);
+
+  useEffect(
+    () => () => {
+      controllerRef.current?.abort();
+      if (uriRef.current) {
+        const cached = new File(uriRef.current);
+        if (cached.exists) {
+          cached.delete();
+        }
+      }
+      const grantId = grantIdRef.current;
+      if (grantId && onClose) {
+        closeViewOnceQuietly(onClose, mediaId, grantId);
+      }
+    },
+    [mediaId, onClose]
+  );
+
+  const open = useCallback(async () => {
+    if (!canOpen || !onOpen || busy || opened || unavailable) {
+      return;
+    }
+    const grantId = randomUUID();
+    const controller = new AbortController();
+    grantIdRef.current = grantId;
+    controllerRef.current = controller;
+    setBusy(true);
+    setOpenError(null);
+    try {
+      const localUri = await onOpen(mediaId, grantId, controller.signal);
+      uriRef.current = localUri;
+      setUri(localUri);
+      setOpened(true);
+    } catch (error) {
+      grantIdRef.current = null;
+      const status =
+        typeof error === "object" && error !== null && "status" in error
+          ? error.status
+          : null;
+      if (status === 410 || status === 404) {
+        setUnavailable(true);
+      } else if (!controller.signal.aborted) {
+        setOpenError("Couldn't open. Try again.");
+      }
+      if (onClose) {
+        closeViewOnceQuietly(onClose, mediaId, grantId);
+      }
+    }
+    if (controllerRef.current === controller) {
+      controllerRef.current = null;
+    }
+    setBusy(false);
+  }, [busy, canOpen, mediaId, onClose, onOpen, opened, unavailable]);
+
+  let label = "View once photo";
+  if (opened) {
+    label = "Opened";
+  } else if (unavailable) {
+    label = "No longer available";
+  }
+  let accessibilityLabel = label;
+  if (canOpen) {
+    accessibilityLabel = opened ? "Opened photo" : "Open view once photo";
+  }
+  return (
+    <>
+      <Pressable
+        accessibilityLabel={accessibilityLabel}
+        accessibilityRole={canOpen ? "button" : "text"}
+        disabled={!canOpen || busy || opened || unavailable || !onOpen}
+        onPress={open}
+        style={[styles.fileCard, styles.viewOnceCard]}
+      >
+        {busy ? (
+          <Loader2 color="#9a9a9a" size={20} />
+        ) : (
+          <Eye color="#9a9a9a" size={20} />
+        )}
+        <View style={styles.viewOnceCopy}>
+          <Text style={styles.fileName}>{label}</Text>
+          {openError ? (
+            <Text style={styles.viewOnceError}>{openError}</Text>
+          ) : null}
+        </View>
+        {canOpen && !opened && !unavailable && !busy ? (
+          <Text style={styles.viewOnceOpen}>Open</Text>
+        ) : null}
+      </Pressable>
+      <Modal
+        animationType="fade"
+        onRequestClose={close}
+        statusBarTranslucent
+        transparent
+        visible={Boolean(uri)}
+      >
+        <View style={styles.viewOnceModal}>
+          {uri ? (
+            <MessageImage
+              cachePolicy="none"
+              contentFit="contain"
+              source={uri}
+              style={styles.viewOnceImage}
+            />
+          ) : null}
+          <Pressable
+            accessibilityLabel="Close photo"
+            accessibilityRole="button"
+            hitSlop={10}
+            onPress={close}
+            style={[styles.viewOnceClose, { top: insets.top + 12 }]}
+          >
+            <X color="#ffffff" size={21} />
+          </Pressable>
+        </View>
+      </Modal>
+    </>
+  );
+}
+
 export interface MessageBubbleProps {
   ephemeral?: boolean;
   searchJump?: number;
@@ -81,6 +259,12 @@ export interface MessageBubbleProps {
   failed: boolean;
   onRetry?: () => void;
   onPressImage?: (index: number) => void;
+  onOpenViewOnce?: (
+    mediaId: string,
+    grantId: string,
+    signal?: AbortSignal
+  ) => Promise<string>;
+  onCloseViewOnce?: (mediaId: string, grantId: string) => Promise<void>;
   onReact?: (emoji: string) => void;
   reactionPending?: boolean;
   reactions?: MessageReactionSummary[];
@@ -104,6 +288,8 @@ function MessageBubbleInner({
   maxBubbleWidth,
   mine,
   onPressImage,
+  onOpenViewOnce,
+  onCloseViewOnce,
   onReact,
   reactionPending = false,
   onRetry,
@@ -247,12 +433,18 @@ function MessageBubbleInner({
                   />
                 );
               }
-              return (
-                <View key={`view-once-${index}`} style={styles.fileCard}>
-                  <LockKeyhole color="#9a9a9a" size={20} />
-                  <Text style={styles.fileName}>View once photo</Text>
-                </View>
-              );
+              if (attachment.kind === "view-once") {
+                return (
+                  <ViewOncePhoto
+                    canOpen={!mine}
+                    key={`view-once-${attachment.ref}-${index}`}
+                    mediaId={attachment.ref}
+                    onClose={onCloseViewOnce}
+                    onOpen={onOpenViewOnce}
+                  />
+                );
+              }
+              return null;
             })}
             {payload.content ? (
               <Text
@@ -938,5 +1130,47 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     overflow: "hidden",
     width: "100%",
+  },
+  viewOnceCard: {
+    minHeight: 66,
+  },
+  viewOnceClose: {
+    alignItems: "center",
+    backgroundColor: "#00000099",
+    borderRadius: 9999,
+    height: 40,
+    justifyContent: "center",
+    position: "absolute",
+    right: 16,
+    width: 40,
+  },
+  viewOnceCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  viewOnceError: {
+    color: "#c2410c",
+    fontFamily: "SofiaProReg",
+    fontSize: 11,
+    marginTop: 2,
+  },
+  viewOnceImage: {
+    height: "100%",
+    width: "100%",
+  },
+  viewOnceModal: {
+    alignItems: "center",
+    backgroundColor: "#000000",
+    bottom: 0,
+    justifyContent: "center",
+    left: 0,
+    position: "absolute",
+    right: 0,
+    top: 0,
+  },
+  viewOnceOpen: {
+    color: "#8a8a8f",
+    fontFamily: "SofiaProMed",
+    fontSize: 11,
   },
 });

@@ -626,6 +626,7 @@ export async function POST(
     ratchetIndex?: number;
     retentionVersion?: number;
     mediaIds?: unknown;
+    viewOnceMediaIds?: unknown;
   } | null;
   if (
     body === null ||
@@ -650,6 +651,8 @@ export async function POST(
   const { ratchetIndex } = body;
   const { retentionVersion } = body;
   const mediaIds = body.mediaIds === undefined ? [] : body.mediaIds;
+  const viewOnceMediaIds =
+    body.viewOnceMediaIds === undefined ? [] : body.viewOnceMediaIds;
   if (
     !Array.isArray(mediaIds) ||
     mediaIds.length > 10 ||
@@ -659,6 +662,20 @@ export async function POST(
     )
   ) {
     return Response.json({ error: "Invalid attachments" }, { status: 400 });
+  }
+  if (
+    !Array.isArray(viewOnceMediaIds) ||
+    viewOnceMediaIds.length > 1 ||
+    !viewOnceMediaIds.every(
+      (value): value is string =>
+        typeof value === "string" && value.length <= 100
+    ) ||
+    viewOnceMediaIds.some((mediaId) => mediaIds.includes(mediaId))
+  ) {
+    return Response.json(
+      { error: "Invalid view-once attachment" },
+      { status: 400 }
+    );
   }
 
   // Blocks are a DM-only rule, so a den has no peer for one to bite on. The
@@ -735,6 +752,7 @@ export async function POST(
           messageId: created.id,
           protect: lifetime.expiresAt !== null,
           userId: user.id,
+          viewOnceMediaIds,
         },
         tx
       );

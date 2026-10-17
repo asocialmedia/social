@@ -1,6 +1,6 @@
 "use client";
 
-import { FileText, Play, RefreshCw, X } from "lucide-react";
+import { Eye, FileText, Play, RefreshCw, X } from "lucide-react";
 import Image from "next/image";
 
 import { getUploadProgressInfo } from "@/lib/media/upload-progress";
@@ -91,6 +91,13 @@ function AttachmentTile({
           {/* oxlint-enable jsx-a11y/prefer-tag-over-role */}
           <span className="sr-only">Uploading image {percent}%</span>
         </>
+      ) : null}
+
+      {attachment.viewOnce ? (
+        <span className="chip-3d absolute bottom-1 left-1 z-20 flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[9px] font-medium text-white">
+          <Eye className="size-2.5" />
+          1×
+        </span>
       ) : null}
 
       {errored ? (

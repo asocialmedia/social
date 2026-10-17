@@ -9,6 +9,7 @@ import {
   ArrowUp,
   Check,
   Clapperboard,
+  Eye,
   ImagePlus,
   Loader2,
   MessageSquareQuote,
@@ -144,6 +145,7 @@ export function MessageComposer({
   const [savingEdit, setSavingEdit] = useState(false);
   const [sending, setSending] = useState(false);
   const [gifPickerOpen, setGifPickerOpen] = useState(false);
+  const [viewOnceMode, setViewOnceMode] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [dragActive, setDragActive] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -418,7 +420,7 @@ export function MessageComposer({
     if (sending) {
       return;
     }
-    if (attachments.length === 0 && !content) {
+    if (attachments.length === 0 && (!content || viewOnceMode)) {
       return;
     }
     // Attachments must all be uploaded and READY before any goes out: the
@@ -436,9 +438,12 @@ export function MessageComposer({
       if (readyGroups.length > 0) {
         let first = true;
         for (const group of readyGroups) {
+          const viewOnceOnly = group.attachments.some(
+            (attachment) => attachment.kind === "view-once"
+          );
           const payload: MessagePayload = {
             attachments: group.attachments,
-            content: first && content ? content : undefined,
+            content: first && !viewOnceOnly && content ? content : undefined,
             type: "media",
             ...(first && replyTarget
               ? {
@@ -507,6 +512,7 @@ export function MessageComposer({
     // it, so the caret actually lands. preventScroll keeps the just-scrolled
     // transcript from being yanked by the browser focusing the composer.
     setSending(false);
+    setViewOnceMode(false);
     requestAnimationFrame(() => {
       textareaRef.current?.focus({ preventScroll: true });
     });
@@ -526,16 +532,17 @@ export function MessageComposer({
     sending,
     text,
     user,
+    viewOnceMode,
   ]);
 
   const handleFilesSelected = useCallback(
     (files: FileList | File[] | null) => {
       const list = files ? [...files] : [];
       if (list.length > 0) {
-        addFiles(list);
+        addFiles(list, { viewOnce: viewOnceMode });
       }
     },
-    [addFiles]
+    [addFiles, viewOnceMode]
   );
 
   const handleFileInputChange = useCallback(
@@ -667,7 +674,9 @@ export function MessageComposer({
       ? busy || emptyBodyBlocksSave
       : busy ||
         isUploading ||
-        (attachments.length > 0 ? !canSend : text.trim().length === 0));
+        (attachments.length > 0
+          ? !canSend
+          : viewOnceMode || text.trim().length === 0));
   // One flag for every control that would start a write, so a removed member
   // cannot slip a send through the Enter key or a pasted attachment while the
   // button is merely greyed out.
@@ -774,9 +783,13 @@ export function MessageComposer({
           </span>
         ) : null}
         <input
-          accept="image/*,video/*,audio/*,application/pdf,application/zip,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.openxmlformats-officedocument.presentationml.presentation"
+          accept={
+            viewOnceMode
+              ? "image/jpeg,image/png,image/webp,image/avif"
+              : "image/*,video/*,audio/*,application/pdf,application/zip,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.openxmlformats-officedocument.presentationml.presentation"
+          }
           className="hidden"
-          multiple
+          multiple={!viewOnceMode}
           onChange={handleFileInputChange}
           ref={fileInputRef}
           type="file"
@@ -784,7 +797,7 @@ export function MessageComposer({
         <textarea
           aria-label="Message"
           className="placeholder:text-muted-foreground max-h-32 min-h-10 flex-1 resize-none bg-transparent py-1.5 text-sm outline-none disabled:opacity-60"
-          disabled={writeBlocked}
+          disabled={writeBlocked || viewOnceMode}
           onChange={(event) => {
             const { value } = event.target;
             setText(value);
@@ -807,7 +820,9 @@ export function MessageComposer({
           }}
           onKeyDown={handleKeyDown}
           onPaste={handlePaste}
-          placeholder={placeholder}
+          placeholder={
+            viewOnceMode ? "Choose one photo to send once…" : placeholder
+          }
           ref={textareaRef}
           rows={1}
           value={text}
@@ -826,6 +841,39 @@ export function MessageComposer({
           <ImagePlus className="size-4" />
         </button>
         <button
+          aria-label={
+            viewOnceMode ? "Turn off view once photo" : "Send a view once photo"
+          }
+          aria-pressed={viewOnceMode}
+          className={cn(
+            "bg-muted/70 text-muted-foreground flex h-8 shrink-0 items-center justify-center gap-1 rounded-full px-2 transition-all duration-200 active:translate-y-px",
+            viewOnceMode &&
+              "bg-[#ff9500]/15 text-[#d66b00] ring-1 ring-[#ff9500]/30",
+            (busy || editing || attachments.length > 0) && "opacity-50"
+          )}
+          disabled={writeBlocked || editing || attachments.length > 0}
+          onClick={() => {
+            if (viewOnceMode) {
+              setViewOnceMode(false);
+              return;
+            }
+            if (text.trim()) {
+              toast({
+                description: "Send your text first, then choose a photo.",
+                title: "View once photo",
+              });
+              return;
+            }
+            setGifPickerOpen(false);
+            setViewOnceMode(true);
+          }}
+          title="Send one photo that can be opened once"
+          type="button"
+        >
+          <Eye className="size-3.5" />
+          <span className="text-[10px] font-semibold">1×</span>
+        </button>
+        <button
           aria-label="Search and add a GIF"
           className={cn(
             "bg-muted/70 text-muted-foreground flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-all duration-200 active:translate-y-px",
@@ -834,7 +882,7 @@ export function MessageComposer({
               : "hover:bg-linear-to-b hover:from-[#ff9500] hover:to-[#e65500] hover:text-white hover:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)] hover:brightness-110",
             (busy || editing) && "opacity-50"
           )}
-          disabled={writeBlocked || editing}
+          disabled={writeBlocked || editing || viewOnceMode}
           onClick={() => setGifPickerOpen((prev) => !prev)}
           type="button"
         >

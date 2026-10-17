@@ -39,6 +39,7 @@ const initiateSchema = z.object({
     .nullish(),
   size: z.number().int().positive(),
   type: z.string().min(3).max(100),
+  viewOnce: z.boolean().optional(),
   width: z.number().int().positive().max(16_384).nullish(),
 });
 
@@ -68,6 +69,7 @@ export async function POST(request: Request) {
     audioOverlayId,
     conversationId,
     incognitoSessionId,
+    viewOnce = false,
     height,
     name,
     purpose,
@@ -76,6 +78,23 @@ export async function POST(request: Request) {
     type,
     width,
   } = parsed.data;
+
+  if (
+    viewOnce &&
+    (purpose !== "message" ||
+      !conversationId ||
+      !["image/jpeg", "image/png", "image/webp", "image/avif"].includes(
+        type.toLowerCase()
+      ))
+  ) {
+    return Response.json(
+      {
+        error:
+          "View-once attachments must be a single JPEG, PNG, WebP, or AVIF photo in a chat",
+      },
+      { status: 415 }
+    );
+  }
 
   // Message attachments must be bound to a thread the uploader belongs to;
   // the link is what later admits the peer in the serving route.
@@ -152,9 +171,10 @@ export async function POST(request: Request) {
       incognitoSessionId,
       messageConversationId:
         purpose === "message" ? (conversationId ?? null) : null,
-      messageLifecycleProtected: lifecycleProtected,
+      messageLifecycleProtected: lifecycleProtected || viewOnce,
+      messageViewOnce: viewOnce,
       purpose: purpose ?? null,
-      sha256: sha256 ?? null,
+      sha256: viewOnce ? null : (sha256 ?? null),
       userId: user.id,
       width: width ?? null,
     });

@@ -179,7 +179,13 @@ export function MessageBubble({
       );
     }
     if (content.type === "media") {
-      return <MessageMediaAlbum content={content} messageId={message.id} />;
+      return (
+        <MessageMediaAlbum
+          content={content}
+          messageId={message.id}
+          mine={mine}
+        />
+      );
     }
     // Post share: an optional caption the sender typed, above the embed card.
     return (

@@ -162,6 +162,7 @@ export function useMessageAttachments(
               dispatch({ id: draft.id, patch: { stage }, type: "update" });
             },
             signal: controller.signal,
+            viewOnce: draft.viewOnce,
           }
         );
         controllersRef.current.delete(draft.id);
@@ -215,14 +216,31 @@ export function useMessageAttachments(
   );
 
   const addFiles = useCallback(
-    (files: File[]) => {
+    (files: File[], options: { viewOnce?: boolean } = {}) => {
+      if (options.viewOnce) {
+        const supported =
+          files.length === 1 &&
+          ["image/jpeg", "image/png", "image/webp", "image/avif"].includes(
+            files[0]?.type.toLowerCase() ?? ""
+          );
+        if (!supported || attachmentsRef.current.length > 0) {
+          toast({
+            description: "Choose one JPEG, PNG, WebP, or AVIF photo.",
+            title: "View once photo",
+            variant: "destructive",
+          });
+          return;
+        }
+      }
       const { accepted, overflow, rejected, tooLarge } = selectAcceptedFiles(
-        attachmentsRef.current.length,
+        options.viewOnce ? 0 : attachmentsRef.current.length,
         files,
-        attachmentsRef.current.reduce(
-          (total, attachment) => total + attachment.bytes,
-          0
-        )
+        options.viewOnce
+          ? 0
+          : attachmentsRef.current.reduce(
+              (total, attachment) => total + attachment.bytes,
+              0
+            )
       );
 
       if (rejected > 0) {
@@ -263,6 +281,7 @@ export function useMessageAttachments(
         progress: 0,
         stage: "uploading" as const,
         status: "uploading" as const,
+        viewOnce: options.viewOnce ?? false,
         width: null,
       }));
 
