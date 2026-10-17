@@ -8,6 +8,7 @@ import type { ExternalPost } from "@asm/protocols/contracts";
 import {
   abortable,
   discoveryModeSchema,
+  discoveryLocaleSchema,
   discoveryPageSchema,
   externalPostSchema,
   waitForReadRetry,
@@ -15,10 +16,15 @@ import {
 import type { DiscoveryMode, DiscoveryPage } from "@asm/protocols/discovery";
 import { z } from "zod";
 
+import {
+  matchesDiscoveryLanguage,
+  regionalRelevance,
+} from "./discovery-relevance";
 import { MemoryDiscoveryStore } from "./discovery-store";
 import type { DiscoveryLease, DiscoveryStore } from "./discovery-store";
 
 const snapshotSchema = z.object({
+  locale: z.string().default(""),
   mode: discoveryModeSchema,
   page: z.number().int().min(0).max(20),
   seen: z.array(z.string().max(512)).max(400),
@@ -94,14 +100,19 @@ export class BlueskyDiscovery {
     }
   }
 
-  async read(mode: DiscoveryMode, cursor?: string): Promise<DiscoveryPage> {
+  async read(
+    mode: DiscoveryMode,
+    cursor?: string,
+    locale = ""
+  ): Promise<DiscoveryPage> {
     if (
       !discoveryModeSchema.safeParse(mode).success ||
+      (locale !== "" && !discoveryLocaleSchema.safeParse(locale).success) ||
       (cursor && !z.uuid().safeParse(cursor).success)
     ) {
       throw new ProtocolError("invalid_input", "Invalid discovery request");
     }
-    const key = `${this.scope}:page:${mode}:${cursor ?? "head"}`;
+    const key = `${this.scope}:page:${locale}:${mode}:${cursor ?? "head"}`;
     const existing = this.pending.get(key);
     if (existing) {
       return discoveryPageSchema.parse(await existing);
@@ -110,7 +121,7 @@ export class BlueskyDiscovery {
       throw new ProtocolError("capacity", "Discovery is busy", 2);
     }
     const signal = AbortSignal.timeout(this.timeoutMs);
-    const request = this.readCached(mode, cursor, key, signal);
+    const request = this.readCached(mode, cursor, key, signal, locale);
     this.pending.set(key, request);
     try {
       return discoveryPageSchema.parse(await request);
@@ -161,7 +172,8 @@ export class BlueskyDiscovery {
     mode: DiscoveryMode,
     cursor: string | undefined,
     key: string,
-    signal: AbortSignal
+    signal: AbortSignal,
+    locale: string
   ): Promise<DiscoveryPage> {
     const cached = await this.cachedPage(key, signal);
     if (cached) {
@@ -192,7 +204,7 @@ export class BlueskyDiscovery {
       }
       const work = this.queue.then(async () => {
         signal.throwIfAborted();
-        const page = await this.load(mode, cursor, lease, signal);
+        const page = await this.load(mode, cursor, lease, signal, locale);
         if (
           !(await abortable(
             this.store.set(
@@ -229,7 +241,8 @@ export class BlueskyDiscovery {
     mode: DiscoveryMode,
     cursor: string | undefined,
     lease: DiscoveryLease,
-    signal: AbortSignal
+    signal: AbortSignal,
+    locale: string
   ): Promise<DiscoveryPage> {
     const stored = cursor
       ? await abortable(this.store.get(this.snapshotKey(cursor)), signal)
@@ -249,6 +262,7 @@ export class BlueskyDiscovery {
       }
     }
     const snapshot: z.infer<typeof snapshotSchema> = saved ?? {
+      locale,
       mode,
       page: 0,
       seen: [],
@@ -259,7 +273,7 @@ export class BlueskyDiscovery {
         items: [],
       })),
     };
-    if (snapshot.mode !== mode) {
+    if (snapshot.mode !== mode || snapshot.locale !== locale) {
       throw new ProtocolError(
         "invalid_input",
         "Discovery cursor belongs to another feed"
@@ -275,7 +289,11 @@ export class BlueskyDiscovery {
       }
       try {
         if (source.items.length === 0) {
-          const options = { cursor: source.cursor, limit: 30 };
+          const options = {
+            cursor: source.cursor,
+            language: locale && locale !== "all" ? locale : undefined,
+            limit: 30,
+          };
           const feed = source.actor.startsWith("at://");
           const profile = feed
             ? null
@@ -295,7 +313,8 @@ export class BlueskyDiscovery {
           source.items = page.items.filter(
             (post) =>
               (!profile || post.author.id === profile.id) &&
-              !snapshot.seen.includes(post.id)
+              !snapshot.seen.includes(post.id) &&
+              matchesDiscoveryLanguage(post, locale)
           );
           source.cursor = page.cursor ?? undefined;
           source.exhausted = !page.cursor;
@@ -385,6 +404,12 @@ export class BlueskyDiscovery {
           (authorCounts.get(post.author.id) ?? 0) + 1
         );
       }
+    }
+    if (mode !== "latest" && locale) {
+      items.sort(
+        (first, second) =>
+          regionalRelevance(second, locale) - regionalRelevance(first, locale)
+      );
     }
     if (mode === "latest") {
       items.sort(

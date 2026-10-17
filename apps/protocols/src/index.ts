@@ -99,7 +99,7 @@ export async function startProtocols() {
   });
   const app = createProtocolsApp({
     client,
-    discover: (mode, cursor) => discovery.read(mode, cursor),
+    discover: (mode, cursor, locale) => discovery.read(mode, cursor, locale),
     health: () => ({
       ...health,
       storageReady: redis ? redis.status === "ready" : true,

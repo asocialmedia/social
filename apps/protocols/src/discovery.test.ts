@@ -6,6 +6,10 @@ import { BlueskyClient } from "@asm/protocols/bluesky";
 import type { ExternalPost } from "@asm/protocols/contracts";
 
 import { BlueskyDiscovery } from "./discovery";
+import {
+  matchesDiscoveryLanguage,
+  regionalRelevance,
+} from "./discovery-relevance";
 import { MemoryDiscoveryStore } from "./discovery-store";
 
 function post(index: number, did = "did:web:example.test"): ExternalPost {
@@ -34,6 +38,83 @@ function post(index: number, did = "did:web:example.test"): ExternalPost {
   };
 }
 const profile = post(0).author;
+
+test("language matching trusts explicit tags and detects long untagged text", () => {
+  expect(
+    matchesDiscoveryLanguage(
+      { ...post(0), languages: ["es"], text: "Hola" },
+      "en-IN"
+    )
+  ).toBe(false);
+  expect(
+    matchesDiscoveryLanguage({ ...post(0), languages: ["en-US"] }, "en-IN")
+  ).toBe(true);
+  expect(
+    matchesDiscoveryLanguage({ ...post(0), languages: ["es"] }, "all")
+  ).toBe(true);
+  expect(
+    matchesDiscoveryLanguage(
+      {
+        ...post(0),
+        text: "The weather is beautiful today and we are going to take a long walk along the river with our friends and family.",
+      },
+      "en-IN"
+    )
+  ).toBe(true);
+  expect(
+    matchesDiscoveryLanguage(
+      {
+        ...post(0),
+        text: "Bonjour tout le monde, nous sommes très heureux de partager cette nouvelle journée avec nos amis et notre famille dans cette belle ville.",
+      },
+      "en-IN"
+    )
+  ).toBe(false);
+  expect(
+    regionalRelevance(
+      {
+        ...post(0),
+        text: "Bengaluru and Mumbai are hosting this year's event.",
+      },
+      "en-IN"
+    )
+  ).toBeGreaterThan(
+    regionalRelevance({ ...post(1), text: "A beautiful day" }, "en-IN")
+  );
+});
+
+test("language caches and continuation cursors remain separate", async () => {
+  const items = Array.from({ length: 50 }, (_, index) => ({
+    ...post(index),
+    languages: [index < 25 ? "en" : "es"],
+  }));
+  const discovery = new BlueskyDiscovery(
+    {
+      allowsRecommendations: async () => true,
+      getAuthorFeed: async () => ({ cursor: null, items }),
+      getProfile: async () => profile,
+    },
+    ["one"]
+  );
+  const english = await discovery.read("latest", undefined, "en-IN");
+  const spanish = await discovery.read("latest", undefined, "es-ES");
+  expect(english.items).toHaveLength(20);
+  expect(english.items.every((item) => item.languages.includes("en"))).toBe(
+    true
+  );
+  expect(spanish.items.every((item) => item.languages.includes("es"))).toBe(
+    true
+  );
+  await expect(
+    discovery.read("latest", english.cursor ?? undefined, "es-ES")
+  ).rejects.toMatchObject({ code: "invalid_input" });
+  const next = await discovery.read(
+    "latest",
+    english.cursor ?? undefined,
+    "en-IN"
+  );
+  expect(next.items).toHaveLength(5);
+});
 
 test("a thousand simultaneous readers share one discovery refresh", async () => {
   let calls = 0;

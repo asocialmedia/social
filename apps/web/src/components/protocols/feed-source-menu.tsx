@@ -17,6 +17,8 @@ import { useFeedSourceStore } from "@/store/feed-source-store";
 export function FeedSourceMenu({ following }: { following: boolean }) {
   const source = useFeedSourceStore((state) => state.source);
   const setSource = useFeedSourceStore((state) => state.setSource);
+  const language = useFeedSourceStore((state) => state.language);
+  const setLanguage = useFeedSourceStore((state) => state.setLanguage);
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -50,10 +52,28 @@ export function FeedSourceMenu({ following }: { following: boolean }) {
           ))}
         </DropdownMenuRadioGroup>
         <DropdownMenuSeparator />
+        <DropdownMenuLabel>Content language</DropdownMenuLabel>
+        <DropdownMenuRadioGroup
+          value={language}
+          onValueChange={(value) => {
+            if (value === "auto" || value === "en" || value === "all") {
+              setLanguage(value);
+            }
+          }}
+        >
+          <DropdownMenuRadioItem value="auto">
+            Use device language
+          </DropdownMenuRadioItem>
+          <DropdownMenuRadioItem value="en">English</DropdownMenuRadioItem>
+          <DropdownMenuRadioItem value="all">
+            All languages
+          </DropdownMenuRadioItem>
+        </DropdownMenuRadioGroup>
+        <DropdownMenuSeparator />
         <p className="text-muted-foreground max-w-56 px-2 py-1.5 text-xs">
           {following
             ? "Following shows the ASM people you follow."
-            : "Bluesky currently uses a starter selection of public accounts."}
+            : "Public Bluesky posts, matched to your language and region."}
         </p>
       </DropdownMenuContent>
     </DropdownMenu>

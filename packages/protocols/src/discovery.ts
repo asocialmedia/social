@@ -22,6 +22,11 @@ export {
 export type { ExternalMutation, ExternalCommentPage } from "./interactions";
 
 export type DiscoveryMode = "latest" | "personalized" | "trending";
+export const discoveryLocaleSchema = z
+  .string()
+  .regex(
+    /^(?:all|(?:ar|bn|de|el|en|es|fr|hi|id|it|ja|ko|mr|nl|pl|pt|ru|sv|ta|te|tr|uk|ur|vi|zh)(?:-[A-Z]{2})?)$/
+  );
 export type FeedSource = "all" | "asm" | "bluesky";
 
 export function externalReplyTarget(post: ExternalPost) {
@@ -68,6 +73,22 @@ const link = z
   .url()
   .refine((value) => ["https:", "http:"].includes(new URL(value).protocol));
 const count = z.number().int().nonnegative();
+export const externalAuthorSchema = z.object({
+  avatarUrl: link.optional(),
+  bannerUrl: link.optional(),
+  description: z.string().optional(),
+  displayName: z.string(),
+  handle: z.string(),
+  id: z.string(),
+  labels: z.array(z.string()),
+  source: z.literal("bluesky"),
+  upstreamCounts: z.object({
+    followers: count.optional(),
+    following: count.optional(),
+    posts: count.optional(),
+  }),
+  url: link,
+});
 export const externalPostSchema: z.ZodType<ExternalPost> = z.lazy(() =>
   z.object({
     asm: z
@@ -79,22 +100,7 @@ export const externalPostSchema: z.ZodType<ExternalPost> = z.lazy(() =>
         responses: count.optional(),
       })
       .optional(),
-    author: z.object({
-      avatarUrl: link.optional(),
-      bannerUrl: link.optional(),
-      description: z.string().optional(),
-      displayName: z.string(),
-      handle: z.string(),
-      id: z.string(),
-      labels: z.array(z.string()),
-      source: z.literal("bluesky"),
-      upstreamCounts: z.object({
-        followers: count.optional(),
-        following: count.optional(),
-        posts: count.optional(),
-      }),
-      url: link,
-    }),
+    author: externalAuthorSchema,
     createdAt: z.iso.datetime({ offset: true }),
     externalLink: z
       .object({
@@ -241,6 +247,7 @@ export {
 } from "./transport";
 
 export async function readDiscoveryPage(options: {
+  locale?: string;
   baseUrl?: string;
   mode: DiscoveryMode;
   cursor: string | null;
@@ -260,6 +267,9 @@ export async function readDiscoveryPage(options: {
     const timer = setTimeout(abort, options.timeoutMs ?? 18_000);
     try {
       const query = new URLSearchParams({ mode: options.mode });
+      if (options.locale) {
+        query.set("locale", options.locale);
+      }
       if (cursor) {
         query.set("cursor", cursor);
       }

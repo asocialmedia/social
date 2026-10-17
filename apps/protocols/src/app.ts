@@ -30,7 +30,8 @@ export interface ProtocolsAppOptions {
   health: () => ProtocolsHealth;
   discover?: (
     mode: "latest" | "personalized" | "trending",
-    cursor?: string
+    cursor?: string,
+    locale?: string
   ) => Promise<unknown>;
 }
 
@@ -175,12 +176,22 @@ export function createProtocolsApp(options: ProtocolsAppOptions) {
                     "Discovery is not configured"
                   );
                 }
-                return options.discover(query.mode ?? "latest", query.cursor);
+                return options.discover(
+                  query.mode ?? "latest",
+                  query.cursor,
+                  query.locale
+                );
               }
             ),
           {
             query: t.Object({
               cursor: t.Optional(t.String({ format: "uuid" })),
+              locale: t.Optional(
+                t.String({
+                  maxLength: 8,
+                  pattern: "^(?:all|[a-z]{2}(?:-[A-Z]{2})?)$",
+                })
+              ),
               mode: t.Optional(
                 t.Union([
                   t.Literal("latest"),

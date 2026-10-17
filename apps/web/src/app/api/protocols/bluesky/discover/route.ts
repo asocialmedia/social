@@ -1,6 +1,7 @@
 import { externalPostStates } from "@asm/db";
 import {
   discoveryModeSchema,
+  discoveryLocaleSchema,
   filterExternalRecommendations,
 } from "@asm/protocols/discovery";
 import { z } from "zod";
@@ -19,6 +20,10 @@ export function GET(request: Request) {
     const query = new URL(request.url).searchParams;
     const mode = discoveryModeSchema.safeParse(query.get("mode") ?? "latest");
     const cursor = query.get("cursor") ?? undefined;
+    const locale = discoveryLocaleSchema.safeParse(query.get("locale") ?? "en");
+    if (!locale.success) {
+      throw new ProtocolGatewayError(400, "invalid_locale");
+    }
     if (!mode.success || (cursor && !z.uuid().safeParse(cursor).success)) {
       throw new ProtocolGatewayError(400, "invalid_query");
     }
@@ -27,7 +32,7 @@ export function GET(request: Request) {
       await consumeProtocolBudget(session.user.id, "read", true);
     }
     const [page, excluded] = await Promise.all([
-      readBlueskyDiscovery(mode.data, cursor, request.signal, id),
+      readBlueskyDiscovery(mode.data, cursor, request.signal, id, locale.data),
       session?.user.id
         ? readExternalFeedback(session.user.id)
         : Promise.resolve(new Set<string>()),
