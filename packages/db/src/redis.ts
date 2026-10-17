@@ -566,6 +566,14 @@ export interface MessageStreamEvent {
     // to flip its own bubbles to Delivered live. No plaintext, safe to broadcast.
     | "conversation.delivered"
     | "typing.started"
+    // A member added or replaced their reaction on one message. Carries the
+    // target id and the actor; the client refetches the reaction summary for
+    // that message rather than trusting counts off the wire. No plaintext.
+    | "message.reacted"
+    // A view-once photo's grant was revoked (the sender revoked it, or the
+    // delivery window closed). Carries the opaque media id only, never a URL,
+    // so a stream connection can clear a stale tile but cannot fetch bytes.
+    | "media.viewOnce.revoked"
     // A member posted new wrapped root keys (a first send in a new
     // conversation, a heal, or an identity reset that rotated the epoch). The
     // payload is deliberately empty: the only correct response is to refetch
@@ -593,6 +601,11 @@ export interface MessageStreamEvent {
   // `conversation.read`, so the sender patches its read watermark in place
   // instead of refetching the conversation detail.
   readAt?: string;
+  // The reacted-to message id. Present only on `message.reacted`.
+  messageId?: string;
+  // The view-once media id whose grant was revoked. Present only on
+  // `media.viewOnce.revoked`. Opaque by contract: not a URL and not fetchable.
+  mediaId?: string;
   // Which way a den's roster moved. Present only on `den.membership.changed`.
   // Deliberately coarse: it is a discriminator, not a description. No target id
   // rides along, so a connection cannot learn anything about the roster from the
@@ -687,6 +700,8 @@ export function parseMessageEvent(raw: string): MessageStreamEvent | null {
       parsed.kind !== "conversation.read" &&
       parsed.kind !== "conversation.delivered" &&
       parsed.kind !== "typing.started" &&
+      parsed.kind !== "message.reacted" &&
+      parsed.kind !== "media.viewOnce.revoked" &&
       parsed.kind !== "conversation.appearance.changed" &&
       parsed.kind !== "keys.rotated" &&
       parsed.kind !== "den.membership.changed"
@@ -726,6 +741,22 @@ export function parseMessageEvent(raw: string): MessageStreamEvent | null {
     ) {
       return null;
     }
+    // The reaction target and its actor are both required: a receiver without
+    // either cannot know what to refetch.
+    if (
+      parsed.kind === "message.reacted" &&
+      (typeof parsed.messageId !== "string" ||
+        typeof parsed.userId !== "string")
+    ) {
+      return null;
+    }
+    // A revoke notice without a media id is meaningless on the wire.
+    if (
+      parsed.kind === "media.viewOnce.revoked" &&
+      typeof parsed.mediaId !== "string"
+    ) {
+      return null;
+    }
     // A membership announcement without an actor or with an action outside the
     // closed set is refused rather than forwarded. A receiver acts on the action
     // (a dissolve is terminal, a role change is not) and on the actor, so an
@@ -742,6 +773,7 @@ export function parseMessageEvent(raw: string): MessageStreamEvent | null {
       conversationId: parsed.conversationId,
       deliveredAt: parsed.deliveredAt,
       kind: parsed.kind,
+      mediaId: parsed.mediaId,
       // Narrowed above: an event that reached this line either is not a
       // membership announcement (so this is undefined) or carried a valid one.
       membershipAction: isDenMembershipAction(parsed.membershipAction)
@@ -749,6 +781,7 @@ export function parseMessageEvent(raw: string): MessageStreamEvent | null {
         : undefined,
       membershipSeq: readMembershipSeq(parsed.membershipSeq),
       message: parsed.message,
+      messageId: parsed.messageId,
       readAt: parsed.readAt,
       userId: parsed.userId,
     };
@@ -843,6 +876,34 @@ export async function publishTypingStarted(
     conversationId,
     kind: "typing.started",
     userId,
+  });
+}
+
+// A member added or replaced their reaction on one message. Counts never ride
+// the wire: a receiver refetches the summary for that id.
+export async function publishMessageReacted(
+  conversationId: string,
+  messageId: string,
+  userId: string
+): Promise<void> {
+  await publishMessageEvent({
+    conversationId,
+    kind: "message.reacted",
+    messageId,
+    userId,
+  });
+}
+
+// A view-once grant was revoked or its delivery window closed. Only the opaque
+// media id travels, so a receiver clears the tile and learns nothing else.
+export async function publishMediaViewOnceRevoked(
+  conversationId: string,
+  mediaId: string
+): Promise<void> {
+  await publishMessageEvent({
+    conversationId,
+    kind: "media.viewOnce.revoked",
+    mediaId,
   });
 }
 

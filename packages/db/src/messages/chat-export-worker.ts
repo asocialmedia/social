@@ -164,6 +164,21 @@ function exportText(payload: MessagePayload | null): string {
     return `${payload.content ?? ""} [Shared post: ${payload.postId}]`;
   }
   if (payload.type === "media") {
+    // Version-2 attachments label themselves by kind. A view-once photo is
+    // named but never given a URL or a reference, so the export can never
+    // fetch its bytes; the media download below skips it for the same reason.
+    if ("attachments" in payload) {
+      const entries = payload.attachments.map((attachment) => {
+        if (attachment.kind === "view-once") {
+          return "Photo: view once";
+        }
+        if (attachment.kind === "file") {
+          return `File: ${attachment.filename}`;
+        }
+        return attachment.url;
+      });
+      return `${payload.content ?? ""} [Media: ${entries.join(", ")}]`;
+    }
     return `${payload.content ?? ""} [Media: ${extractMessageReferences(payload)
       .filter((r) => r.kind === "media")
       .map((r) => r.url ?? "")

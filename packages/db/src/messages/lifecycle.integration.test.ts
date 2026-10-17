@@ -2,7 +2,6 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 // oxlint-disable no-await-in-loop -- Each bounded cleanup batch must commit before checking progress.
 
 import { requireLifecycleValue, CHAT_DAY_MS } from "@asm/messages";
-import { and } from "@prisma/orm-postgres/orm-client";
 
 import { keys } from "../../keys";
 import { toPrismaDateTime } from "../dates";
@@ -189,10 +188,7 @@ describe("chat lifecycle persistence and concurrency", () => {
     const snapshot = await chatLifecycleSnapshot(dm, owner);
     expect(snapshot.notices).toHaveLength(1);
     expect(snapshot.activeSession).not.toBeNull();
-    expect(
-      Date.parse(requireLifecycleValue(snapshot.activeSession).expiresAt) -
-        Date.parse(requireLifecycleValue(snapshot.activeSession).startedAt)
-    ).toBe(CHAT_DAY_MS);
+    expect(snapshot.activeSession?.expiresAt).toBeNull();
     await expect(clearChatHistory(dm, owner)).rejects.toMatchObject({
       code: "END_INCOGNITO_FIRST",
     });
@@ -246,36 +242,61 @@ describe("chat lifecycle persistence and concurrency", () => {
     expect(ended.notices[0]?.endedById).toBe(peer);
     expect(ended.activeSession).toBeNull();
   });
-  test("timeout hides unread session content and preserves the usage record", async () => {
+  test("individual messages expire without ending incognito or erasing newer messages", async () => {
     await startIncognito(dm, owner);
-    const awaitedChatState6 = await chatLifecycleSnapshot(dm, owner);
-    const session = requireLifecycleValue(awaitedChatState6.activeSession);
+    const initialSnapshot = await chatLifecycleSnapshot(dm, owner);
+    const session = requireLifecycleValue(initialSnapshot.activeSession);
+    const oldestId = crypto.randomUUID();
+    const recentId = crypto.randomUUID();
+    for (const [index, id] of [oldestId, recentId].entries()) {
+      await sendIncognitoMessage({
+        ciphertext: "temporary",
+        conversationId: dm,
+        id,
+        iv: "fixture",
+        keyEpoch: 1,
+        mediaIds: [],
+        ratchetIndex: index,
+        senderId: owner,
+        sessionId: session.id,
+      });
+    }
+    await prisma.orm.public.MessageIncognitoMessages.where({
+      id: oldestId,
+    }).update({
+      createdAt: toPrismaDateTime(new Date(Date.now() - CHAT_DAY_MS - 1000)),
+    });
+    // An old session deadline from a previous client must no longer end the mode.
     await prisma.orm.public.MessageIncognitoSessions.where({
       id: session.id,
     }).update({ expiresAt: toPrismaDateTime(new Date(Date.now() - 1)) });
-    const awaitedChatState7 = await listIncognitoMessages(dm, peer, session.id);
-    expect(awaitedChatState7.messages).toHaveLength(0);
-    const snapshot = await chatLifecycleSnapshot(dm, peer);
-    expect(snapshot.activeSession).toBeNull();
-    expect(snapshot.notices[0]?.endReason).toBe("timeout");
-    await expect(
-      sendIncognitoMessage({
-        ciphertext: "body",
-        conversationId: dm,
-        id: crypto.randomUUID(),
-        iv: "iv",
-        keyEpoch: 1,
-        mediaIds: [],
-        ratchetIndex: 0,
-        senderId: peer,
-        sessionId: session.id,
-      })
-    ).rejects.toMatchObject({ status: 410 });
+    const retained = await listIncognitoMessages(dm, peer, session.id);
+    expect(retained.messages.map((m) => m.id)).toEqual([recentId]);
+    const activeBeforeCleanup = await chatLifecycleSnapshot(dm, peer);
+    expect(activeBeforeCleanup.activeSession?.id).toBe(session.id);
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      await eraseExpiredChatBatch();
+      if (
+        !(await prisma.orm.public.MessageIncognitoMessages.where({
+          id: oldestId,
+        }).first())
+      ) {
+        break;
+      }
+    }
     expect(
-      await prisma.orm.public.MessageIncognitoSessions.where((s) =>
-        and(s.id.eq(session.id), s.endedAt.isNull())
-      ).first()
+      await prisma.orm.public.MessageIncognitoMessages.where({
+        id: oldestId,
+      }).first()
+    ).toBeNull();
+    expect(
+      await prisma.orm.public.MessageIncognitoMessages.where({
+        id: recentId,
+      }).first()
     ).not.toBeNull();
+    const activeAfterCleanup = await chatLifecycleSnapshot(dm, peer);
+    expect(activeAfterCleanup.activeSession?.id).toBe(session.id);
+    await endIncognito(dm, peer, session.id);
   });
 });
 

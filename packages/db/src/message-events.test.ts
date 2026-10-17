@@ -120,6 +120,34 @@ describe("message event (de)serialization", () => {
     });
   });
 
+  test("round-trips a message.reacted event", () => {
+    const raw = serializeMessageEvent({
+      conversationId: "convo-1",
+      kind: "message.reacted",
+      messageId: "m1",
+      userId: "u1",
+    });
+    expect(parseMessageEvent(raw)).toMatchObject({
+      conversationId: "convo-1",
+      kind: "message.reacted",
+      messageId: "m1",
+      userId: "u1",
+    });
+  });
+
+  test("round-trips a media.viewOnce.revoked event", () => {
+    const raw = serializeMessageEvent({
+      conversationId: "convo-1",
+      kind: "media.viewOnce.revoked",
+      mediaId: "media_1",
+    });
+    expect(parseMessageEvent(raw)).toMatchObject({
+      conversationId: "convo-1",
+      kind: "media.viewOnce.revoked",
+      mediaId: "media_1",
+    });
+  });
+
   test("rejects malformed payloads", () => {
     expect(parseMessageEvent("not json")).toBeNull();
     expect(parseMessageEvent('{"kind":"message.created"}')).toBeNull();
@@ -133,6 +161,21 @@ describe("message event (de)serialization", () => {
     // typing events require the sender id
     expect(
       parseMessageEvent('{"kind":"typing.started","conversationId":"c"}')
+    ).toBeNull();
+    // reaction events require both the target and the actor
+    expect(
+      parseMessageEvent('{"kind":"message.reacted","conversationId":"c"}')
+    ).toBeNull();
+    expect(
+      parseMessageEvent(
+        '{"kind":"message.reacted","conversationId":"c","messageId":"m1"}'
+      )
+    ).toBeNull();
+    // a revoke notice requires the media id
+    expect(
+      parseMessageEvent(
+        '{"kind":"media.viewOnce.revoked","conversationId":"c"}'
+      )
     ).toBeNull();
   });
 });

@@ -1,5 +1,5 @@
 export const CHAT_DAY_MS = 24 * 60 * 60 * 1000;
-export const LIFECYCLE_CAPABILITY = "chat-lifecycle-v1";
+export const LIFECYCLE_CAPABILITY = "chat-lifecycle-v2";
 export const INCOGNITO_PAGE_SIZE = 50;
 export const MAX_INCOGNITO_CIPHERTEXT = 64 * 1024;
 
@@ -9,7 +9,7 @@ export interface IncognitoSession {
   startedById: string | null;
   startedByName: string;
   startedAt: string;
-  expiresAt: string;
+  expiresAt: string | null;
   endedAt: string | null;
   endedById: string | null;
   endedByName: string | null;
@@ -41,23 +41,14 @@ export interface ChatLifecycleSnapshot {
   nextNoticeCursor: string | null;
 }
 
-export function incognitoIsActive(
-  session: IncognitoSession,
-  now: number
-): boolean {
-  return session.endedAt === null && Date.parse(session.expiresAt) > now;
+export function incognitoIsActive(session: IncognitoSession): boolean {
+  return session.endedAt === null;
 }
 
-export function incognitoTimeRemaining(deadline: string, now: number): string {
-  const seconds = Math.max(0, Math.ceil((Date.parse(deadline) - now) / 1000));
-  if (!Number.isFinite(seconds) || seconds === 0) {
-    return "Ending…";
-  }
-  const hours = Math.floor(seconds / 3600);
-  const minutes = Math.floor((seconds % 3600) / 60);
-  return hours > 0
-    ? `${hours}h ${minutes}m left`
-    : `${minutes}m ${seconds % 60}s left`;
+export function incognitoMessageExpiresAt(message: {
+  createdAt: string;
+}): number {
+  return Date.parse(message.createdAt) + CHAT_DAY_MS;
 }
 
 export function incognitoNotice(session: IncognitoSession): string {
@@ -67,6 +58,28 @@ export function incognitoNotice(session: IncognitoSession): string {
   return session.endReason === "timeout"
     ? `${session.startedByName} used incognito · Ended automatically after 24 hours`
     : `${session.startedByName} used incognito · Ended by ${session.endedByName ?? "a participant"}`;
+}
+
+export function incognitoUsageDuration(
+  session: Pick<IncognitoSession, "startedAt" | "endedAt">
+): string | null {
+  if (!session.endedAt) {
+    return null;
+  }
+  const elapsed = Date.parse(session.endedAt) - Date.parse(session.startedAt);
+  if (!Number.isFinite(elapsed) || elapsed < 0) {
+    return null;
+  }
+  const minutes = Math.floor(elapsed / 60_000);
+  if (minutes < 1) {
+    return "<1m";
+  }
+  if (minutes < 60) {
+    return `${minutes}m`;
+  }
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  return remainingMinutes ? `${hours}h ${remainingMinutes}m` : `${hours}h`;
 }
 
 export async function deriveIncognitoRootKey(

@@ -325,7 +325,9 @@ namespace public {
     incognitoEnded                    MessageIncognitoSessions[] @relation(name: "incognito_ended_by")
     messageExports                    MessageExportJobs[]
     messageIdentities                 MessageIdentities?
+    messageReactions                  MessageReactions[]
     messages                          Messages[]
+    viewOnceRecipients                MessageViewOnceRecipients[]
     passkeys                          Passkey[]
     passwordResetTokens               PasswordResetTokens[]
     postVisits                        PostVisits[]
@@ -751,6 +753,8 @@ namespace public {
     conversation     MessageConversations @relation(fields: [conversationId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "messages_conversationId_fkey", index: false)
     sender           Users                @relation(fields: [senderId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "messages_senderId_fkey")
     hiddenFor        MessageHiddens[]
+    reactionCounts   MessageReactionCounts[]
+    reactions        MessageReactions[]
 
     @@index([conversationId, createdAt], map: "messages_conversationId_createdAt_idx")
     @@index([conversationId, id], map: "messages_conversationId_id_idx")
@@ -769,7 +773,7 @@ namespace public {
     endedById String?
     endedByName String?
     startedAt Timestamp(3) @default(now())
-    expiresAt Timestamp(3)
+    expiresAt Timestamp(3)?
     endedAt Timestamp(3)?
     endReason String?
     purgedAt Timestamp(3)?
@@ -800,9 +804,12 @@ namespace public {
     session MessageIncognitoSessions @relation(fields: [sessionId], references: [id], onDelete: Cascade, onUpdate: Cascade, index: false)
     sender Users @relation(fields: [senderId], references: [id], onDelete: Cascade, onUpdate: Cascade)
     mediaLinks MessageMediaLinks[]
+    reactionCounts MessageReactionCounts[]
+    reactions MessageReactions[]
 
     @@unique([sessionId, senderId, ratchetIndex], map: "incognito_message_sender_ratchet")
     @@unique([sessionId, sequence])
+    @@index([createdAt, id], name: "incognito_message_expiry_due")
     @@map("message_incognito_messages")
   }
 
@@ -811,13 +818,17 @@ namespace public {
     messageId String?
     incognitoMessageId String?
     mediaId String
+    viewOnce Boolean @default(false)
+    deliveryExpiresAt Timestamp(3)?
     message Messages? @relation(fields: [messageId], references: [id], onDelete: Cascade, onUpdate: Cascade)
     incognitoMessage MessageIncognitoMessages? @relation(fields: [incognitoMessageId], references: [id], onDelete: Cascade, onUpdate: Cascade)
     media PostMedia @relation(fields: [mediaId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+    viewOnceRecipients MessageViewOnceRecipients[]
 
     @@unique([messageId, mediaId])
     @@unique([incognitoMessageId, mediaId], map: "message_media_incognito_unique")
     @@index([mediaId])
+    @@index([deliveryExpiresAt, id], where: "(\"viewOnce\" AND \"deliveryExpiresAt\" IS NOT NULL)", name: "message_media_viewonce_due")
     @@check(expression: "(\"messageId\" IS NULL) <> (\"incognitoMessageId\" IS NULL)", name: "message_media_exact_source")
     @@map("message_media_links")
   }
@@ -859,6 +870,75 @@ namespace public {
     @@id([messageId, userId], map: "message_hidden_pkey")
     @@index([userId], map: "message_hidden_userId_idx")
     @@map("message_hidden")
+  }
+
+  model MessageReactions {
+    id                 String                    @id(map: "message_reactions_pkey") @default(uuid())
+    messageId          String?
+    incognitoMessageId String?
+    userId             String
+    emoji              String
+    createdAt          Timestamp(3)              @default(now())
+    message            Messages?                 @relation(fields: [messageId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "message_reactions_messageId_fkey", index: false)
+    incognitoMessage   MessageIncognitoMessages? @relation(fields: [incognitoMessageId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "message_reactions_incognitoMessageId_fkey", index: false)
+    user               Users                     @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "message_reactions_userId_fkey")
+
+    // One reaction per member per message: changing a reaction replaces it.
+    @@unique([messageId, userId], map: "message_reactions_message_user_unique")
+    @@unique([incognitoMessageId, userId], map: "message_reactions_incognito_user_unique")
+    @@index([messageId, emoji], map: "message_reactions_message_emoji_idx")
+    @@index([incognitoMessageId, emoji], map: "message_reactions_incognito_emoji_idx")
+    @@index([userId], map: "message_reactions_userId_idx")
+    @@check(expression: "(\"messageId\" IS NULL) <> (\"incognitoMessageId\" IS NULL)", name: "message_reactions_exact_source")
+    @@check(expression: "char_length(\"emoji\") BETWEEN 1 AND 32", name: "message_reactions_emoji_length")
+    @@map("message_reactions")
+  }
+
+  model MessageReactionCounts {
+    id                 String                    @id(map: "message_reaction_counts_pkey") @default(uuid())
+    messageId          String?
+    incognitoMessageId String?
+    emoji              String
+    count              Int
+    message            Messages?                 @relation(fields: [messageId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "message_reaction_counts_messageId_fkey", index: false)
+    incognitoMessage   MessageIncognitoMessages? @relation(fields: [incognitoMessageId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "message_reaction_counts_incognitoMessageId_fkey", index: false)
+
+    @@unique([messageId, emoji], map: "message_reaction_counts_message_emoji_unique")
+    @@unique([incognitoMessageId, emoji], map: "message_reaction_counts_incognito_emoji_unique")
+    @@check(expression: "(\"messageId\" IS NULL) <> (\"incognitoMessageId\" IS NULL)", name: "message_reaction_counts_exact_source")
+    @@check(expression: "\"count\" >= 1", name: "message_reaction_counts_positive")
+    @@check(expression: "char_length(\"emoji\") BETWEEN 1 AND 32", name: "message_reaction_counts_emoji_length")
+    @@map("message_reaction_counts")
+  }
+
+  model MessageViewOnceRecipients {
+    id          String              @id(map: "message_view_once_recipients_pkey") @default(uuid())
+    mediaLinkId String
+    userId      String
+    createdAt   Timestamp(3)        @default(now())
+    mediaLink   MessageMediaLinks   @relation(fields: [mediaLinkId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "message_view_once_recipients_mediaLinkId_fkey", index: false)
+    user        Users               @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "message_view_once_recipients_userId_fkey")
+    grants      MessageViewOnceGrants[]
+
+    @@unique([mediaLinkId, userId], map: "message_view_once_recipients_media_user_unique")
+    @@index([userId], map: "message_view_once_recipients_userId_idx")
+    @@map("message_view_once_recipients")
+  }
+
+  model MessageViewOnceGrants {
+    id          String                    @id(map: "message_view_once_grants_pkey") @default(uuid())
+    recipientId String
+    status      pg.enum(ViewOnceGrantStatus) @default("RESERVED")
+    reservedAt  Timestamp(3)              @default(now())
+    activatedAt Timestamp(3)?
+    closedAt    Timestamp(3)?
+    expiresAt   Timestamp(3)?
+    recipient   MessageViewOnceRecipients @relation(fields: [recipientId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "message_view_once_grants_recipientId_fkey", index: false)
+
+    // At most one live grant per recipient; closed history may repeat.
+    @@index([recipientId], unique: true, where: "(\"status\" IN ('RESERVED', 'ACTIVE'))", name: "message_view_once_grants_live_unique")
+    @@index([status, expiresAt], map: "message_view_once_grants_status_expiry_idx")
+    @@map("message_view_once_grants")
   }
 
   model MessageSearchOutbox {
@@ -1382,5 +1462,13 @@ namespace public {
     TOO_LONG = "TOO_LONG"
     CORRUPT = "CORRUPT"
     POLICY = "POLICY"
+  }
+
+  native_enum ViewOnceGrantStatus {
+    RESERVED = "RESERVED"
+    ACTIVE = "ACTIVE"
+    CLOSED = "CLOSED"
+    EXPIRED = "EXPIRED"
+    REVOKED = "REVOKED"
   }
 }

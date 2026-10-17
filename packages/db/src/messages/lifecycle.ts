@@ -80,7 +80,8 @@ function sessionDto(
   return {
     ...row,
     endedAt: row.endedAt ? fromPrismaDateTime(row.endedAt).toISOString() : null,
-    expiresAt: fromPrismaDateTime(row.expiresAt).toISOString(),
+    // Retained as a nullable wire field for older snapshots; sessions now end explicitly.
+    expiresAt: null,
     startedAt: fromPrismaDateTime(row.startedAt).toISOString(),
   };
 }
@@ -127,19 +128,9 @@ export async function chatLifecycleSnapshot(
     { now: "pg/timestamp-temporal@1" }
   );
   const { now } = requireLifecycleValue(clockRows[0]);
-  const cards = sessions
-    .slice(0, 20)
-    .map(sessionDto)
-    .map((s) =>
-      !s.endedAt && Date.parse(s.expiresAt) <= now.getTime()
-        ? { ...s, endReason: "timeout", endedAt: s.expiresAt }
-        : s
-    );
+  const cards = sessions.slice(0, 20).map(sessionDto);
   return {
-    activeSession:
-      active && fromPrismaDateTime(active.expiresAt) > now
-        ? sessionDto(active)
-        : null,
+    activeSession: active ? sessionDto(active) : null,
     changeSeq: conversation.changeSeq,
     clearedAt: member.clearedAt
       ? fromPrismaDateTime(member.clearedAt).toISOString()
@@ -163,12 +154,6 @@ export async function startIncognito(
     if (access.type !== "DM" || access.leftAt) {
       throw new ChatLifecycleError("INCOGNITO_DM_ONLY", 403);
     }
-    await rawExecute(
-      `UPDATE public.message_incognito_sessions SET "endedAt"="expiresAt", "endReason"='timeout'
-      WHERE "conversationId"=$1 AND "endedAt" IS NULL AND "expiresAt"<=clock_timestamp()`,
-      [conversationId],
-      tx
-    );
     // Idempotent retries share a stable client action ID: a delayed retry after the session ended
     // must not start an unintended new session, so a known action ID returns its session as-is.
     if (clientActionId !== undefined) {
@@ -201,7 +186,7 @@ export async function startIncognito(
     await rawExecute(
       `INSERT INTO public.message_incognito_sessions
       (id,"conversationId","startedById","startedByName","startedAt","expiresAt","nextSequence")
-      VALUES ($1,$2,$3,$4,statement_timestamp(),statement_timestamp()+interval '24 hours',0)
+      VALUES ($1,$2,$3,$4,statement_timestamp(),NULL,0)
       ON CONFLICT (id) DO NOTHING`,
       [sessionId, conversationId, userId, access.displayName],
       tx
@@ -233,10 +218,8 @@ export async function endIncognito(
     }
     await rawExecute(
       `UPDATE public.message_incognito_sessions SET
-      "endedAt"=LEAST(clock_timestamp(),"expiresAt"),
-      "endReason"=CASE WHEN "expiresAt"<=clock_timestamp() THEN 'timeout' ELSE 'manual' END,
-      "endedById"=CASE WHEN "expiresAt">clock_timestamp() THEN $3 ELSE NULL END,
-      "endedByName"=CASE WHEN "expiresAt">clock_timestamp() THEN $4 ELSE NULL END
+      "endedAt"=clock_timestamp(),"endReason"='manual',
+      "endedById"=$3,"endedByName"=$4
       WHERE id=$1 AND "conversationId"=$2 AND "endedAt" IS NULL`,
       [sessionId, conversationId, userId, access.displayName],
       tx
@@ -283,7 +266,7 @@ export async function clearChatHistory(
     const access = await lockChatLifecycle(conversationId, userId, tx);
     // Database-clock gate so skewed app clocks cannot clear during an active session.
     const { rows: activeRows } = await rawQuery<{ id: string }>(
-      `SELECT id FROM public.message_incognito_sessions WHERE "conversationId"=$1 AND "endedAt" IS NULL AND "expiresAt">clock_timestamp() LIMIT 1`,
+      `SELECT id FROM public.message_incognito_sessions WHERE "conversationId"=$1 AND "endedAt" IS NULL LIMIT 1`,
       [conversationId],
       { id: "pg/text@1" },
       tx
@@ -333,7 +316,7 @@ export async function guardNormalChatSend(
   const access = await lockChatLifecycle(conversationId, userId, tx);
   // Database-clock predicate so skewed app clocks cannot admit a normal send after activation.
   const { rows: activeRows } = await rawQuery<{ id: string }>(
-    `SELECT id FROM public.message_incognito_sessions WHERE "conversationId"=$1 AND "endedAt" IS NULL AND "expiresAt">clock_timestamp() LIMIT 1`,
+    `SELECT id FROM public.message_incognito_sessions WHERE "conversationId"=$1 AND "endedAt" IS NULL LIMIT 1`,
     [conversationId],
     { id: "pg/text@1" },
     tx
@@ -388,7 +371,7 @@ export async function sendIncognitoMessage(input: {
       id: input.sessionId,
     }).first();
     const active = await rawQuery<{ active: boolean }>(
-      `SELECT EXISTS(SELECT 1 FROM public.message_incognito_sessions WHERE id=$1 AND "conversationId"=$2 AND "endedAt" IS NULL AND "expiresAt">clock_timestamp()) AS active`,
+      `SELECT EXISTS(SELECT 1 FROM public.message_incognito_sessions WHERE id=$1 AND "conversationId"=$2 AND "endedAt" IS NULL) AS active`,
       [input.sessionId, input.conversationId],
       { active: "pg/bool@1" },
       tx
@@ -422,7 +405,7 @@ export async function sendIncognitoMessage(input: {
     const accepted = await rawExecute(
       `INSERT INTO public.message_incognito_messages (id,"sessionId","senderId",ciphertext,iv,"keyEpoch","ratchetIndex",sequence,"createdAt")
       SELECT $1,$2,$3,$4,$5,$6::integer,$7::integer,$7::integer,clock_timestamp()
-      FROM public.message_incognito_sessions WHERE id=$2 AND "endedAt" IS NULL AND "expiresAt">clock_timestamp()`,
+      FROM public.message_incognito_sessions WHERE id=$2 AND "endedAt" IS NULL`,
       [
         input.id,
         input.sessionId,
@@ -472,7 +455,8 @@ export async function listIncognitoMessages(
     `SELECT jsonb_build_object('id',m.id,'sessionId',m."sessionId",'senderId',m."senderId",'ciphertext',m.ciphertext,'iv',m.iv,
       'keyEpoch',m."keyEpoch",'ratchetIndex',m."ratchetIndex",'sequence',m.sequence,'createdAt',to_char(m."createdAt",'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')) AS data
     FROM public.message_incognito_messages m JOIN public.message_incognito_sessions s ON s.id=m."sessionId"
-    WHERE s.id=$1 AND s."conversationId"=$2 AND s."endedAt" IS NULL AND s."expiresAt">clock_timestamp()
+    WHERE s.id=$1 AND s."conversationId"=$2 AND s."endedAt" IS NULL AND m."createdAt">clock_timestamp()-interval '24 hours'
+    AND m."createdAt">clock_timestamp()-interval '24 hours'
     AND ($3::integer IS NULL OR m.sequence<$3::integer) ORDER BY m.sequence DESC LIMIT 51`,
     [sessionId, conversationId, beforeSequence ?? null],
     { data: "pg/jsonb@1" }
@@ -638,7 +622,7 @@ export async function lifecycleMediaAllowed(
       const { rows } = await rawQuery<{ allowed: boolean }>(
         `SELECT EXISTS (SELECT 1 FROM public.message_incognito_sessions s
           JOIN public.message_conversation_members v ON v."conversationId"=s."conversationId" AND v."userId"=$2 AND v."leftAt" IS NULL
-          WHERE s.id=$1 AND s."endedAt" IS NULL AND s."expiresAt">clock_timestamp()) AS allowed`,
+          WHERE s.id=$1 AND s."endedAt" IS NULL) AS allowed`,
         [media.incognitoSessionId, viewerId],
         { allowed: "pg/bool@1" }
       );
@@ -705,7 +689,7 @@ export async function lifecycleMediaAllowed(
     JOIN public.message_conversation_members v ON v."conversationId"=s."conversationId" AND v."userId"=$2 AND v."leftAt" IS NULL
     JOIN public.post_media p ON p.id=l."mediaId"
     WHERE l."mediaId"=$1 AND p."incognitoSessionId"=s.id
-    AND s."endedAt" IS NULL AND s."expiresAt">clock_timestamp()
+    AND s."endedAt" IS NULL AND m."createdAt">clock_timestamp()-interval '24 hours'
     AND (NOT EXISTS(SELECT 1 FROM public.message_search_account_state a WHERE a."userId"=$2 AND a."recoveryGeneration">0)
       OR m."keyEpoch" IN (${readableMessageKeyEpochsSql("$2").replace('epoch_key."conversationId" = $1', 'epoch_key."conversationId" = $5')}))
     ) AS allowed`,

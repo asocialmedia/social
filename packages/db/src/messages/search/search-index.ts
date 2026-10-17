@@ -264,7 +264,9 @@ export interface SearchTermArtifact {
 
 export interface SearchReferenceArtifact {
   kind: "link" | "media" | "post";
-  mediaKind?: "gif" | "image";
+  // Version-2 attachments widen the media kinds; a view-once item never
+  // produces a reference at all.
+  mediaKind?: "file" | "gif" | "image" | "video";
   ordinal: number;
   requiredId?: string;
 }
@@ -329,7 +331,7 @@ export interface SearchReferenceQuery {
 export interface SearchReferenceRow extends SearchReferenceCursor {
   createdAt: Date;
   keyEpoch: number;
-  mediaKind: "gif" | "image" | null;
+  mediaKind: "file" | "gif" | "image" | "video" | null;
   requiredId: string | null;
   ratchetIndex: number;
   revision: number;

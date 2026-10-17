@@ -10,8 +10,12 @@ export async function prebuildChatLifecycleIndex(): Promise<void> {
     await client.query(
       'ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS "expiresAt" timestamp(3)'
     );
-    const tables = await client.query<{ exports: boolean; sessions: boolean }>(
-      "SELECT to_regclass('public.message_export_jobs') IS NOT NULL AS exports, to_regclass('public.message_incognito_sessions') IS NOT NULL AS sessions"
+    const tables = await client.query<{
+      exports: boolean;
+      sessions: boolean;
+      incognitoMessages: boolean;
+    }>(
+      `SELECT to_regclass('public.message_export_jobs') IS NOT NULL AS exports, to_regclass('public.message_incognito_sessions') IS NOT NULL AS sessions, to_regclass('public.message_incognito_messages') IS NOT NULL AS "incognitoMessages"`
     );
     const [existing] = tables.rows;
     if (existing?.exports) {
@@ -34,6 +38,11 @@ export async function prebuildChatLifecycleIndex(): Promise<void> {
       );
       await client.query(
         'CREATE INDEX CONCURRENTLY IF NOT EXISTS incognito_purge_due_618ec377 ON public.message_incognito_sessions ("endedAt",id) WHERE ("endedAt" IS NOT NULL AND "purgedAt" IS NULL)'
+      );
+    }
+    if (existing?.incognitoMessages) {
+      await client.query(
+        'CREATE INDEX CONCURRENTLY IF NOT EXISTS incognito_message_expiry_due_3855cff1 ON public.message_incognito_messages ("createdAt",id)'
       );
     }
     await client.query(
@@ -59,6 +68,9 @@ export async function prebuildChatLifecycleIndex(): Promise<void> {
       "media_lifecycle_erasure_due_d202ba84",
       "post_media_incognitoSessionId_idx_e9d021b8",
       ...(existing?.sessions ? ["incognito_purge_due_618ec377"] : []),
+      ...(existing?.incognitoMessages
+        ? ["incognito_message_expiry_due_3855cff1"]
+        : []),
     ];
     const { rows } = await client.query<{ name: string; valid: boolean }>(
       "SELECT c.relname AS name, i.indisvalid AS valid FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relname=ANY($1::text[])",

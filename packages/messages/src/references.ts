@@ -2,7 +2,7 @@ import type { MessagePayload } from "./payload";
 
 export interface MessageReferenceArtifact {
   kind: "link" | "media" | "post";
-  mediaKind?: "gif" | "image";
+  mediaKind?: "file" | "gif" | "image" | "video";
   ordinal: number;
   requiredId?: string;
   url?: string;
@@ -86,6 +86,32 @@ function extractMessageLinks(content: string): string[] {
   return links;
 }
 
+function mediaReference(
+  url: unknown,
+  mediaKind: NonNullable<MessageReferenceArtifact["mediaKind"]>,
+  ordinal: number
+): MessageReferenceArtifact | null {
+  if (typeof url !== "string" || url.length === 0) {
+    return null;
+  }
+  let pathname = url;
+  try {
+    const parsed = new URL(url, "https://messages.invalid");
+    const { pathname: resolvedPathname } = parsed;
+    pathname = resolvedPathname;
+  } catch {
+    return null;
+  }
+  const mediaId = MEDIA_ID_PATTERN.exec(pathname)?.groups?.id;
+  return {
+    kind: "media",
+    mediaKind,
+    ordinal,
+    ...(mediaId ? { requiredId: mediaId } : {}),
+    url,
+  };
+}
+
 export function extractMessageReferences(
   payload: MessagePayload
 ): MessageReferenceArtifact[] {
@@ -95,33 +121,34 @@ export function extractMessageReferences(
       references.push({ kind: "post", ordinal: 0, requiredId: payload.postId });
     }
   } else if (payload.type === "media") {
-    const images = "images" in payload ? payload.images : [payload];
-    for (const [ordinal, image] of images.entries()) {
-      if (
-        typeof image !== "object" ||
-        image === null ||
-        typeof image.url !== "string" ||
-        image.url.length === 0
-      ) {
-        continue;
+    // Version-2 attachments carry their own kinds. A view-once item holds only
+    // an opaque ref and is deliberately absent from every reference list, so
+    // it can never reach search, the gallery, exports, or offline storage.
+    if ("attachments" in payload) {
+      for (const [ordinal, attachment] of payload.attachments.entries()) {
+        if (attachment.kind === "view-once") {
+          continue;
+        }
+        const reference = mediaReference(
+          attachment.url,
+          attachment.kind,
+          ordinal
+        );
+        if (reference) {
+          references.push(reference);
+        }
       }
-      const { url } = image;
-      let pathname = url;
-      try {
-        const parsed = new URL(url, "https://messages.invalid");
-        const { pathname: resolvedPathname } = parsed;
-        pathname = resolvedPathname;
-      } catch {
-        continue;
+    } else {
+      const images = "images" in payload ? payload.images : [payload];
+      for (const [ordinal, image] of images.entries()) {
+        if (typeof image !== "object" || image === null) {
+          continue;
+        }
+        const reference = mediaReference(image.url, payload.kind, ordinal);
+        if (reference) {
+          references.push(reference);
+        }
       }
-      const mediaId = MEDIA_ID_PATTERN.exec(pathname)?.groups?.id;
-      references.push({
-        kind: "media",
-        mediaKind: payload.kind,
-        ordinal,
-        ...(mediaId ? { requiredId: mediaId } : {}),
-        url,
-      });
     }
   }
   const content = typeof payload.content === "string" ? payload.content : "";

@@ -29,7 +29,7 @@ async function eraseMediaReferences(
       LEFT JOIN public.message_incognito_messages i ON i.id=l."incognitoMessageId"
       LEFT JOIN public.message_incognito_sessions s ON s.id=i."sessionId"
       WHERE l."mediaId"=p.id AND ((m.id IS NOT NULL AND m."deletedAt" IS NULL AND (m."expiresAt" IS NULL OR m."expiresAt">clock_timestamp()))
-        OR (i.id IS NOT NULL AND s."endedAt" IS NULL AND s."expiresAt">clock_timestamp())))`,
+        OR (i.id IS NOT NULL AND s."endedAt" IS NULL AND i."createdAt">clock_timestamp()-interval '24 hours')))`,
     [ids],
     tx
   );
@@ -61,9 +61,6 @@ export async function eraseExpiredChatBatch(): Promise<{
   messages: number;
   incognito: number;
 }> {
-  await rawExecute(`WITH due AS (SELECT id FROM public.message_incognito_sessions
-    WHERE "endedAt" IS NULL AND "expiresAt"<=clock_timestamp() ORDER BY "expiresAt" LIMIT 100 FOR UPDATE SKIP LOCKED)
-    UPDATE public.message_incognito_sessions s SET "endedAt"=s."expiresAt","endReason"='timeout' FROM due WHERE s.id=due.id`);
   const normal = await prisma.transaction(async (tx) => {
     const { rows: conversations } = await rawQuery<{
       id: string;
@@ -142,11 +139,13 @@ export async function eraseExpiredChatBatch(): Promise<{
     return { count: rows.length, outboxes, users };
   });
   const incognito = await prisma.transaction(async (tx) => {
-    const { rows: sessions } = await rawQuery<{ id: string }>(
-      `SELECT id FROM public.message_incognito_sessions
-      WHERE "endedAt" IS NOT NULL AND "purgedAt" IS NULL ORDER BY "endedAt",id LIMIT 1 FOR UPDATE SKIP LOCKED`,
+    const { rows: sessions } = await rawQuery<{ id: string; ended: boolean }>(
+      `SELECT id, ("endedAt" IS NOT NULL) AS ended FROM public.message_incognito_sessions
+      WHERE ("endedAt" IS NOT NULL AND "purgedAt" IS NULL)
+      OR id IN (SELECT "sessionId" FROM public.message_incognito_messages WHERE "createdAt"<=clock_timestamp()-interval '24 hours' ORDER BY "createdAt",id LIMIT 100)
+      ORDER BY "endedAt",id LIMIT 1 FOR UPDATE SKIP LOCKED`,
       [],
-      { id: "pg/text@1" },
+      { ended: "pg/bool@1", id: "pg/text@1" },
       tx
     );
     const [session] = sessions;
@@ -155,8 +154,8 @@ export async function eraseExpiredChatBatch(): Promise<{
     }
     const { rows } = await rawQuery<{ id: string }>(
       `SELECT id FROM public.message_incognito_messages
-      WHERE "sessionId"=$1 ORDER BY sequence LIMIT 100 FOR UPDATE SKIP LOCKED`,
-      [session.id],
+      WHERE "sessionId"=$1 AND ($2::boolean OR "createdAt"<=clock_timestamp()-interval '24 hours') ORDER BY sequence LIMIT 100 FOR UPDATE SKIP LOCKED`,
+      [session.id, session.ended],
       { id: "pg/text@1" },
       tx
     );
@@ -171,9 +170,11 @@ export async function eraseExpiredChatBatch(): Promise<{
     }
     // Erase unlinked staged uploads for the ended session before marking purged, so a held
     // staged URL cannot survive the session. Idempotent: only rows with no links are touched.
-    const staged = await eraseStagedIncognitoMedia(session.id, tx);
+    const staged = session.ended
+      ? await eraseStagedIncognitoMedia(session.id, tx)
+      : 0;
     await rawExecute(
-      `UPDATE public.message_incognito_sessions SET "purgedAt"=clock_timestamp() WHERE id=$1
+      `UPDATE public.message_incognito_sessions SET "purgedAt"=clock_timestamp() WHERE id=$1 AND "endedAt" IS NOT NULL
       AND NOT EXISTS (SELECT 1 FROM public.message_incognito_messages WHERE "sessionId"=$1)
       AND NOT EXISTS (SELECT 1 FROM public.post_media WHERE "incognitoSessionId"=$1 AND status<>'DELETED')`,
       [session.id],

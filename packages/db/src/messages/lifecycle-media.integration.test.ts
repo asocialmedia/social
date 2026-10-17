@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 
 // oxlint-disable no-await-in-loop -- Sequential cryptography, database mutations and bounded streams preserve ordering and memory limits.
-import { requireLifecycleValue } from "@asm/messages";
+import { requireLifecycleValue, CHAT_DAY_MS } from "@asm/messages";
 
 import { keys } from "../../keys";
 import { toPrismaDateTime } from "../dates";
@@ -370,6 +370,70 @@ describe("lifecycle media binding and erasure", () => {
     await prisma.orm.public.PostMedia.where((media) =>
       media.id.in(mediaIds)
     ).deleteAndCount();
+  });
+  test("incognito attachments expire with their message while the session stays open", async () => {
+    await startIncognito(dm, owner);
+    const session = requireLifecycleValue(
+      await prisma.orm.public.MessageIncognitoSessions.where({
+        conversationId: dm,
+      })
+        .where((s) => s.endedAt.isNull())
+        .first()
+    );
+    const mediaId = crypto.randomUUID();
+    await readyMedia(mediaId, owner, {
+      incognitoSessionId: session.id,
+      messageLifecycleProtected: true,
+    });
+    const message = await prisma.orm.public.MessageIncognitoMessages.create({
+      ciphertext: "media",
+      id: crypto.randomUUID(),
+      iv: "fixture",
+      keyEpoch: 1,
+      ratchetIndex: 0,
+      senderId: owner,
+      sequence: 0,
+      sessionId: session.id,
+    });
+    await prisma.transaction((tx) =>
+      linkLifecycleMedia(
+        {
+          conversationId: dm,
+          incognitoMessageId: message.id,
+          mediaIds: [mediaId],
+          protect: true,
+          userId: owner,
+        },
+        tx
+      )
+    );
+    expect(await lifecycleMediaAllowed(mediaId, peer)).toBe(true);
+    await prisma.orm.public.MessageIncognitoMessages.where({
+      id: message.id,
+    }).update({
+      createdAt: toPrismaDateTime(new Date(Date.now() - CHAT_DAY_MS - 1000)),
+    });
+    expect(await lifecycleMediaAllowed(mediaId, owner)).toBe(false);
+    expect(await lifecycleMediaAllowed(mediaId, peer)).toBe(false);
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      await eraseExpiredChatBatch();
+      const media = await prisma.orm.public.PostMedia.where({
+        id: mediaId,
+      }).first();
+      if (media?.status === "DELETED") {
+        break;
+      }
+    }
+    const erasedMedia = await prisma.orm.public.PostMedia.where({
+      id: mediaId,
+    }).first();
+    expect(erasedMedia?.status).toBe("DELETED");
+    const active = await prisma.orm.public.MessageIncognitoSessions.where({
+      id: session.id,
+    }).first();
+    expect(active?.endedAt).toBeNull();
+    await endIncognito(dm, owner, session.id);
+    await prisma.orm.public.PostMedia.where({ id: mediaId }).deleteAndCount();
   });
   test("expired normal media is denied without a worker", async () => {
     const mediaId = crypto.randomUUID();
