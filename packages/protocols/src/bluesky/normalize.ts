@@ -7,6 +7,7 @@ import type {
   ExternalPost,
   TextSegment,
 } from "../contracts";
+import { isAuthenticationNotice } from "./auth-feeds";
 import { postViewSchema } from "./schemas";
 import type { BlueskyPost, BlueskyProfile } from "./schemas";
 
@@ -35,9 +36,11 @@ function mediaLink(value: string | undefined): string | undefined {
     : undefined;
 }
 
-function publicLabels(labels: BlueskyProfile["labels"]): string[] {
+function publicLabels(labels: BlueskyProfile["labels"] = []): string[] {
   const values = [
-    ...new Set(labels.filter((label) => !label.neg).map((label) => label.val)),
+    ...new Set(
+      (labels ?? []).filter((label) => !label.neg).map((label) => label.val)
+    ),
   ];
   // Public reads use conservative defaults until ASM supplies a reviewed moderation policy.
   if (values.length > 0) {
@@ -189,6 +192,12 @@ export function normalizePost(post: BlueskyPost, depth = 0): ExternalPost {
     throw new ProtocolError(
       "invalid_response",
       "Post identity does not match its author"
+    );
+  }
+  if (isAuthenticationNotice(post.record.text)) {
+    throw new ProtocolError(
+      "restricted",
+      "This content requires authentication"
     );
   }
   const labels = publicLabels(post.labels);

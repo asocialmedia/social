@@ -25,6 +25,7 @@ import {
   retryAfterMs,
   waitForReadRetry,
 } from "../transport";
+import { isAuthFeed, isAuthFeedUri } from "./auth-feeds";
 import { normalizeAuthor, normalizePost } from "./normalize";
 import {
   actorSchema,
@@ -35,6 +36,12 @@ import {
   postViewSchema,
   profileSchema,
 } from "./schemas";
+
+export {
+  isAuthFeed,
+  isAuthFeedUri,
+  isAuthenticationNotice,
+} from "./auth-feeds";
 
 const popularFeedsQuery = l.query(
   "app.bsky.unspecced.getPopularFeedGenerators",
@@ -235,6 +242,12 @@ export class BlueskyClient {
     if (!parsed.success) {
       throw new ProtocolError("invalid_input", "Invalid Bluesky feed");
     }
+    if (isAuthFeedUri(parsed.data)) {
+      throw new ProtocolError(
+        "restricted",
+        "This feed requires authentication"
+      );
+    }
     const page = await this.feed(
       "app.bsky.feed.getFeed",
       { feed: parsed.data },
@@ -282,7 +295,8 @@ export class BlueskyClient {
       }),
       300_000
     );
-    return { cursor: page.cursor ?? null, items: page.feeds };
+    const items = page.feeds.filter((feed) => !isAuthFeed(feed));
+    return { cursor: page.cursor ?? null, items };
   }
 
   async searchPosts(

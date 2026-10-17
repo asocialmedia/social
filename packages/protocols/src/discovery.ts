@@ -2,6 +2,7 @@
 // oxlint-disable no-await-in-loop, promise/prefer-await-to-then
 import { z } from "zod";
 
+import { isAuthenticationNotice } from "./bluesky/auth-feeds";
 import type { ExternalPost } from "./contracts";
 import {
   abortable,
@@ -12,6 +13,20 @@ import {
   waitForReadRetry,
 } from "./transport";
 
+export {
+  FEED_EVENTS_CHANNEL,
+  DISCOVERY_WATCH_CHANNEL,
+  PROTOCOL_INVALIDATIONS_CHANNEL,
+  feedChangeSchema,
+  createFeedReadScheduler,
+} from "./feed-events";
+export type { FeedChange } from "./feed-events";
+
+export {
+  isAuthFeed,
+  isAuthFeedUri,
+  isAuthenticationNotice,
+} from "./bluesky/auth-feeds";
 export {
   externalUriSchema,
   externalStateSchema,
@@ -75,7 +90,8 @@ export function filterExternalRecommendations(
   return posts.filter(
     (post) =>
       !excluded.has(`post:${post.id}`) &&
-      !excluded.has(`author:${post.author.id}`)
+      !excluded.has(`author:${post.author.id}`) &&
+      !isAuthenticationNotice(post.text)
   );
 }
 
@@ -318,13 +334,37 @@ export async function readDiscoveryPage(options: {
       if (!canRetryRead(failure) || attempt === 2 || delay > 5000) {
         throw failure;
       }
-      clearTimeout(timer);
-      // oxlint-disable-next-line no-await-in-loop -- retries must follow the failed attempt.
       await (options.wait ?? waitForReadRetry)(delay, options.signal);
     } finally {
       clearTimeout(timer);
       options.signal.removeEventListener("abort", abort);
     }
   }
-  throw new FeedReadError(410);
+  throw new FeedReadError(504);
+}
+
+// Filtered or expired continuations can contain only rows already on screen.
+// Advance a bounded number of cursors in one load-more operation.
+export async function readDiscoveryWindow(
+  options: Parameters<typeof readDiscoveryPage>[0],
+  knownIds: ReadonlySet<string>
+): Promise<DiscoveryPage> {
+  let { cursor } = options;
+  const visited = new Set<string>();
+  const signal = AbortSignal.any([options.signal, AbortSignal.timeout(30_000)]);
+  for (let index = 0; index < 3; index += 1) {
+    const page = await readDiscoveryPage({ ...options, cursor, signal });
+    const items = page.items.filter((item) => !knownIds.has(item.id));
+    if (
+      items.length ||
+      !page.cursor ||
+      visited.has(page.cursor) ||
+      index === 2
+    ) {
+      return { ...page, items };
+    }
+    visited.add(page.cursor);
+    ({ cursor } = page);
+  }
+  throw new FeedReadError(504);
 }

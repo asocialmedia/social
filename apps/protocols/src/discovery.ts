@@ -12,6 +12,9 @@ import {
   discoveryPageSchema,
   discoveryTopicsSchema,
   externalPostSchema,
+  isAuthFeed,
+  isAuthFeedUri,
+  isAuthenticationNotice,
   waitForReadRetry,
 } from "@asm/protocols/discovery";
 import type { DiscoveryMode, DiscoveryPage } from "@asm/protocols/discovery";
@@ -156,6 +159,45 @@ export class BlueskyDiscovery {
     return `${this.scope}:snapshot:${cursor}`;
   }
 
+  async refreshHead(mode: DiscoveryMode, locale: string, topics: string[]) {
+    const key = `${this.scope}:page:${createHash("sha256")
+      .update(JSON.stringify([locale, mode, topics]))
+      .digest("hex")
+      .slice(0, 24)}:head`;
+    const owner = crypto.randomUUID();
+    const lease = { key, owner };
+    if (this.activeLoads >= 1 || !(await this.store.acquire(key, owner))) {
+      throw new ProtocolError("capacity", "Discovery is being refreshed", 2);
+    }
+    this.activeLoads += 1;
+    try {
+      const signal = AbortSignal.timeout(this.timeoutMs);
+      // Keep the last usable head readable while its replacement is built.
+      const page = await this.load(
+        mode,
+        undefined,
+        lease,
+        signal,
+        locale,
+        topics
+      );
+      if (
+        !(await this.store.set(
+          key,
+          JSON.stringify(page),
+          page.partial ? 5000 : 60_000,
+          lease
+        ))
+      ) {
+        throw new ProtocolError("capacity", "Discovery cache is full", 2);
+      }
+      return page;
+    } finally {
+      this.activeLoads -= 1;
+      await this.store.release(key, owner);
+    }
+  }
+
   private async cachedPage(
     key: string,
     signal: AbortSignal
@@ -234,14 +276,15 @@ export class BlueskyDiscovery {
           locale,
           topics
         );
+        let ttlMs = 60_000;
+        if (page.partial) {
+          ttlMs = 1000;
+        } else if (cursor) {
+          ttlMs = 30_000;
+        }
         if (
           !(await abortable(
-            this.store.set(
-              key,
-              JSON.stringify(page),
-              page.partial ? 1000 : 10_000,
-              lease
-            ),
+            this.store.set(key, JSON.stringify(page), ttlMs, lease),
             signal
           ))
         ) {
@@ -289,6 +332,7 @@ export class BlueskyDiscovery {
       }
     }
     const snapshot: z.infer<typeof snapshotSchema> = saved ?? {
+      catalogCursor: undefined,
       catalogExhausted: false,
       catalogFeeds: [],
       locale,
@@ -358,7 +402,7 @@ export class BlueskyDiscovery {
             ...rotated,
           ].map((feed) => [feed.uri, feed])
         ).values(),
-      ];
+      ].filter((feed) => !isAuthFeed(feed));
       snapshot.catalogFeeds = feeds.slice(4).map((feed) => feed.uri);
       snapshot.sources = feeds.slice(0, 4).map((feed) => ({
         actor: feed.uri,
@@ -414,6 +458,13 @@ export class BlueskyDiscovery {
           };
           const search = source.actor.startsWith("search:");
           const feed = source.actor.startsWith("at://") || search;
+          if (feed && isAuthFeedUri(source.actor)) {
+            blocked.add(source.actor);
+            source.exhausted = true;
+            source.items = [];
+            succeeded += 1;
+            return;
+          }
           const profile = feed
             ? null
             : await abortable(this.client.getProfile(source.actor), signal);
@@ -440,6 +491,7 @@ export class BlueskyDiscovery {
             (post) =>
               (!profile || post.author.id === profile.id) &&
               !snapshot.seen.includes(post.id) &&
+              !isAuthenticationNotice(post.text) &&
               matchesDiscoveryLanguage(post, locale)
           );
           source.cursor = page.cursor ?? undefined;
@@ -448,6 +500,7 @@ export class BlueskyDiscovery {
         succeeded += 1;
       } catch (error) {
         if (error instanceof ProtocolError && error.code === "restricted") {
+          blocked.add(source.actor);
           source.exhausted = true;
           source.items = [];
           succeeded += 1;
