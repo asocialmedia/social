@@ -24,7 +24,7 @@ export interface ProtocolsAppOptions {
     BlueskyClient,
     "getProfile" | "getAuthorFeed" | "getFeed" | "getPost"
   > &
-    Partial<Pick<BlueskyClient, "getPosts">>;
+    Partial<Pick<BlueskyClient, "getPosts" | "getPostThread">>;
   logger: ProtocolLogger;
   token?: string;
   health: () => ProtocolsHealth;
@@ -292,6 +292,34 @@ export function createProtocolsApp(options: ProtocolsAppOptions) {
             ),
           {
             query: t.Object({
+              uri: t.String({ maxLength: 2300, minLength: 1 }),
+            }),
+          }
+        )
+        .get(
+          "/bluesky/thread",
+          ({ query, request, set }) =>
+            observeRequest(
+              "bluesky.thread",
+              request,
+              String(set.headers["x-request-id"]),
+              options.logger,
+              () => {
+                if (!options.client.getPostThread) {
+                  throw new ProtocolError(
+                    "unavailable",
+                    "Thread reads unavailable"
+                  );
+                }
+                return options.client.getPostThread(
+                  query.uri,
+                  query.depth === undefined ? 3 : Number(query.depth)
+                );
+              }
+            ),
+          {
+            query: t.Object({
+              depth: t.Optional(t.Integer({ maximum: 10, minimum: 0 })),
               uri: t.String({ maxLength: 2300, minLength: 1 }),
             }),
           }

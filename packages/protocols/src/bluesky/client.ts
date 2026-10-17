@@ -16,6 +16,7 @@ import type {
   ExternalAuthor,
   ExternalPage,
   ExternalPost,
+  ExternalThread,
   ProtocolCapabilities,
   ProtocolObserver,
 } from "../contracts";
@@ -26,7 +27,7 @@ import {
   waitForReadRetry,
 } from "../transport";
 import { isAuthFeed, isAuthFeedUri } from "./auth-feeds";
-import { normalizeAuthor, normalizePost } from "./normalize";
+import { extractThread, normalizeAuthor, normalizePost } from "./normalize";
 import {
   actorSchema,
   feedPageSchema,
@@ -35,6 +36,7 @@ import {
   postsSchema,
   postViewSchema,
   profileSchema,
+  threadResponseSchema,
 } from "./schemas";
 
 export {
@@ -384,6 +386,25 @@ export class BlueskyClient {
     return posts;
   }
 
+  async getPostThread(uri: string, depth = 3): Promise<ExternalThread> {
+    const parsed = postUriSchema.safeParse(uri);
+    if (!parsed.success) {
+      throw new ProtocolError("invalid_input", "Invalid Bluesky post");
+    }
+    const clampedDepth = Math.max(0, Math.min(depth, 10));
+    const data = await this.request(
+      "app.bsky.feed.getPostThread",
+      {
+        depth: String(clampedDepth),
+        parentHeight: "0",
+        uri: parsed.data,
+      },
+      threadResponseSchema,
+      15_000
+    );
+    return extractThread(data.thread);
+  }
+
   private async feed(
     operation: string,
     parameters: Record<string, string>,
@@ -598,6 +619,17 @@ export class BlueskyClient {
               .min(1)
               .max(25)
               .parse(JSON.parse(query.get("uris") ?? "[]")),
+          },
+          options
+        );
+      }
+      if (operation === "app.bsky.feed.getPostThread") {
+        return await this.rpc.call(
+          app.bsky.feed.getPostThread,
+          {
+            depth: Number(query.get("depth") ?? "3"),
+            parentHeight: Number(query.get("parentHeight") ?? "0"),
+            uri: postUriSchema.parse(query.get("uri")),
           },
           options
         );

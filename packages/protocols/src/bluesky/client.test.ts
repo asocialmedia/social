@@ -353,6 +353,65 @@ describe("Bluesky public read boundary", () => {
       code: "unavailable",
     });
   });
+
+  test("fetches a post thread with nested replies and maps reply targets", async () => {
+    const replyUri = `at://${authorDid}/app.bsky.feed.post/reply1`;
+    const subReplyUri = `at://${authorDid}/app.bsky.feed.post/reply2`;
+    const threadData = {
+      thread: {
+        $type: "app.bsky.feed.defs#threadViewPost",
+        post: postFixture,
+        replies: [
+          {
+            $type: "app.bsky.feed.defs#threadViewPost",
+            post: {
+              ...postFixture,
+              record: {
+                $type: "app.bsky.feed.post",
+                createdAt: "2026-10-16T10:02:00.000Z",
+                reply: { parent: { uri: postFixture.uri } },
+                text: "First reply",
+              },
+              uri: replyUri,
+            },
+            replies: [
+              {
+                $type: "app.bsky.feed.defs#threadViewPost",
+                post: {
+                  ...postFixture,
+                  record: {
+                    $type: "app.bsky.feed.post",
+                    createdAt: "2026-10-16T10:04:00.000Z",
+                    reply: { parent: { uri: replyUri } },
+                    text: "Nested response",
+                  },
+                  uri: subReplyUri,
+                },
+                replies: [],
+              },
+              {
+                // Malformed or blocked reply node should auto-heal and be skipped
+                $type: "app.bsky.feed.defs#blockedPost",
+                author: { did: "did:plc:blocked" },
+                blocked: true,
+                uri: "at://did:plc:blocked/app.bsky.feed.post/bad",
+              },
+            ],
+          },
+        ],
+      },
+    };
+    const client = new BlueskyClient({
+      fetch: async () => Response.json(threadData),
+    });
+    const thread = await client.getPostThread(postFixture.uri);
+    expect(thread.post?.id).toBe(postFixture.uri);
+    expect(thread.replies).toHaveLength(2);
+    expect(thread.replies[0]?.id).toBe(replyUri);
+    expect(thread.replies[0]?.replyTo).toBe(postFixture.uri);
+    expect(thread.replies[1]?.id).toBe(subReplyUri);
+    expect(thread.replies[1]?.replyTo).toBe(replyUri);
+  });
 });
 
 describe("safe Bluesky presentation", () => {
@@ -372,11 +431,11 @@ describe("safe Bluesky presentation", () => {
             index: { byteEnd: 9, byteStart: 5 },
           },
         ],
-        text: "🦋 link!",
+        text: "\uD83E\uDD8B link!",
       },
     });
     expect(normalizeSegments(post)).toEqual([
-      { text: "🦋 " },
+      { text: "\uD83E\uDD8B " },
       { href: "https://example.com/", text: "link" },
       { text: "!" },
     ]);
@@ -384,7 +443,7 @@ describe("safe Bluesky presentation", () => {
     if (facet) {
       facet.index.byteStart = 1;
     }
-    expect(normalizeSegments(post)).toEqual([{ text: "🦋 link!" }]);
+    expect(normalizeSegments(post)).toEqual([{ text: "\uD83E\uDD8B link!" }]);
   });
 
   test("rejects unsafe facet links and untrusted media hosts", () => {

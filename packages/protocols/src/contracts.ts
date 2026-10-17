@@ -62,6 +62,11 @@ export interface ExternalPost {
   };
 }
 
+export interface ExternalThread {
+  post: ExternalPost | null;
+  replies: ExternalPost[];
+}
+
 export interface ExternalPage<T> {
   items: T[];
   cursor: string | null;

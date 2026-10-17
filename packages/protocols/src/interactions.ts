@@ -38,23 +38,30 @@ export const externalMutationSchema = z.discriminatedUnion("action", [
     .strict(),
 ]);
 export type ExternalMutation = z.infer<typeof externalMutationSchema>;
+
+export const externalCommentSchema = z.object({
+  content: z.string(),
+  createdAt: z.string(),
+  deleted: z.boolean(),
+  id: z.string(),
+  parentId: z.string().nullable().optional(),
+  rootId: z.string().nullable().optional(),
+  source: z.enum(["asm", "bluesky"]).default("asm"),
+  uri: z.string().optional(),
+  user: z.object({
+    avatarUrl: z.string().nullable(),
+    displayName: z.string(),
+    handle: z.string().optional(),
+    id: z.string(),
+    username: z.string(),
+  }),
+  userId: z.string(),
+});
+export type ExternalComment = z.infer<typeof externalCommentSchema>;
+
 export const externalCommentPageSchema = z.object({
   cursor: z.object({ createdAt: z.string(), id: z.string() }).nullable(),
-  items: z.array(
-    z.object({
-      content: z.string(),
-      createdAt: z.string(),
-      deleted: z.boolean(),
-      id: z.string(),
-      user: z.object({
-        avatarUrl: z.string().nullable(),
-        displayName: z.string(),
-        id: z.string(),
-        username: z.string(),
-      }),
-      userId: z.string(),
-    })
-  ),
+  items: z.array(externalCommentSchema),
 });
 export type ExternalCommentPage = z.infer<typeof externalCommentPageSchema>;
 

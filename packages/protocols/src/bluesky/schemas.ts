@@ -101,5 +101,18 @@ export const feedPageSchema = z.object({
   feed: z.array(z.object({ post: z.unknown() })).max(100),
 });
 export const postsSchema = z.object({ posts: z.array(z.unknown()).max(25) });
+
+export const threadViewPostSchema = z.object({
+  $type: z.literal("app.bsky.feed.defs#threadViewPost"),
+  parent: z.unknown().optional(),
+  post: postViewSchema,
+  replies: z.array(z.unknown()).default([]),
+});
+
+export const threadResponseSchema = z.object({
+  thread: z.unknown(),
+});
+
 export type BlueskyProfile = z.infer<typeof profileSchema>;
 export type BlueskyPost = z.infer<typeof postViewSchema>;
+export type ThreadViewPost = z.infer<typeof threadViewPostSchema>;

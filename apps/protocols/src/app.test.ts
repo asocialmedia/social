@@ -2,7 +2,7 @@
 // oxlint-disable require-await
 import { describe, expect, test } from "bun:test";
 
-import type { ExternalAuthor } from "@asm/protocols/contracts";
+import type { ExternalAuthor, ExternalThread } from "@asm/protocols/contracts";
 import { ProtocolError } from "@asm/protocols/contracts";
 
 import { createProtocolsApp } from "./app";
@@ -48,6 +48,10 @@ function fixture(overrides: Partial<ProtocolsAppOptions> = {}) {
     getAuthorFeed: async () => ({ cursor: null, items: [] }),
     getFeed: async () => ({ cursor: null, items: [] }),
     getPost: async () => null,
+    getPostThread: async (): Promise<ExternalThread> => ({
+      post: null,
+      replies: [],
+    }),
     getProfile: async () => author,
   };
   const app = createProtocolsApp({
@@ -137,6 +141,32 @@ describe("Elysia protocol service", () => {
     const awaitedResponse8 = await request("/v1/capabilities");
     const capabilities = await awaitedResponse8.json();
     expect(capabilities.protocols[0].authenticatedWrites).toBe(false);
+  });
+
+  test("serves post thread reads with requested depth", async () => {
+    let capturedDepth: number | undefined;
+    let capturedUri: string | undefined;
+    const { request } = fixture({
+      client: {
+        getAuthorFeed: async () => ({ cursor: null, items: [] }),
+        getFeed: async () => ({ cursor: null, items: [] }),
+        getPost: async () => null,
+        getPostThread: async (uri, depth) => {
+          capturedUri = uri;
+          capturedDepth = depth;
+          return { post: null, replies: [] };
+        },
+        getProfile: async () => author,
+      },
+    });
+    const targetUri = "at://did:web:example.test/app.bsky.feed.post/123";
+    const res = await request(
+      `/v1/bluesky/thread?uri=${encodeURIComponent(targetUri)}&depth=4`
+    );
+    expect(res.status).toBe(200);
+    expect(capturedUri).toBe(targetUri);
+    expect(capturedDepth).toBe(4);
+    expect(await res.json()).toEqual({ post: null, replies: [] });
   });
 
   test("validates tab and pagination before invoking the adapter", async () => {

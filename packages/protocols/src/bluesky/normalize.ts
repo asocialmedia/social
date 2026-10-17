@@ -5,10 +5,11 @@ import type {
   ExternalAuthor,
   ExternalMedia,
   ExternalPost,
+  ExternalThread,
   TextSegment,
 } from "../contracts";
 import { isAuthenticationNotice } from "./auth-feeds";
-import { postViewSchema } from "./schemas";
+import { postViewSchema, threadViewPostSchema } from "./schemas";
 import type { BlueskyPost, BlueskyProfile } from "./schemas";
 
 export function safeLink(value: string | undefined): string | undefined {
@@ -298,4 +299,42 @@ export function normalizePost(post: BlueskyPost, depth = 0): ExternalPost {
     }
   }
   return result;
+}
+
+export function extractThread(
+  rawThread: unknown,
+  maxReplies = 150
+): ExternalThread {
+  const parsed = threadViewPostSchema.safeParse(rawThread);
+  if (!parsed.success) {
+    return { post: null, replies: [] };
+  }
+  let post: ExternalPost | null = null;
+  try {
+    post = normalizePost(parsed.data.post);
+  } catch {
+    return { post: null, replies: [] };
+  }
+
+  const replies: ExternalPost[] = [];
+  const queue: unknown[] = [...(parsed.data.replies ?? [])];
+
+  while (queue.length > 0 && replies.length < maxReplies) {
+    const candidate = queue.shift();
+    const validated = threadViewPostSchema.safeParse(candidate);
+    if (!validated.success) {
+      continue;
+    }
+    try {
+      const normalized = normalizePost(validated.data.post);
+      replies.push(normalized);
+      if (Array.isArray(validated.data.replies)) {
+        queue.push(...validated.data.replies);
+      }
+    } catch {
+      // Content moderation / restricted label / format issues on a reply are safely skipped.
+    }
+  }
+
+  return { post, replies };
 }

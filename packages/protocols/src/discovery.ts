@@ -31,16 +31,21 @@ export {
   externalUriSchema,
   externalStateSchema,
   externalMutationSchema,
+  externalCommentSchema,
   externalCommentPageSchema,
   feedAvailability,
 } from "./interactions";
-export type { ExternalMutation, ExternalCommentPage } from "./interactions";
+export type {
+  ExternalMutation,
+  ExternalComment,
+  ExternalCommentPage,
+} from "./interactions";
 
 export type DiscoveryMode = "latest" | "personalized" | "trending";
 export const discoveryLocaleSchema = z
   .string()
   .regex(
-    /^(?:all|(?:ar|bn|de|el|en|es|fr|hi|id|it|ja|ko|mr|nl|pl|pt|ru|sv|ta|te|tr|uk|ur|vi|zh)(?:-[A-Z]{2})?)$/
+    /^(?:all|(?:ar|bn|de|el|en|es|fr|hi|id|it|ja|ko|mr|nl|pt|ru|sv|ta|te|tr|uk|ur|vi|zh)(?:-[A-Z]{2})?)$/
   );
 export const discoveryTopicsSchema = z
   .array(
