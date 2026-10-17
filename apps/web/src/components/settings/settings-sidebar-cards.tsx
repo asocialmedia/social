@@ -26,9 +26,12 @@ export function GithubProjectCard({ className = "" }: { className?: string }) {
 
     async function loadStats() {
       try {
-        const response = await fetch("https://api.github.com/repos/asocialmedia/social", {
-          headers: { Accept: "application/vnd.github.v3+json" },
-        });
+        const response = await fetch(
+          "https://api.github.com/repos/asocialmedia/social",
+          {
+            headers: { Accept: "application/vnd.github.v3+json" },
+          }
+        );
         if (!response.ok) {
           return;
         }
@@ -75,7 +78,8 @@ export function GithubProjectCard({ className = "" }: { className?: string }) {
       </div>
 
       <p className="mt-2.5 text-xs leading-relaxed text-zinc-300">
-        Building the last social platform you&apos;ll ever need. Open source, cozy, and sovereign.
+        Building the last social platform you&apos;ll ever need. Open source,
+        cozy, and sovereign.
       </p>
 
       <div className="mt-3">
@@ -87,7 +91,7 @@ export function GithubProjectCard({ className = "" }: { className?: string }) {
         >
           <Star className="size-3.5 fill-[#e3b341] text-[#e3b341]" />
           <span>Star on GitHub</span>
-          <span className="ml-1 rounded-full bg-white/10 px-1.5 py-0.2 text-[11px] font-bold tabular-nums text-zinc-200">
+          <span className="py-0.2 ml-1 rounded-full bg-white/10 px-1.5 text-[11px] font-bold text-zinc-200 tabular-nums">
             {stars}
           </span>
         </Link>
@@ -114,7 +118,8 @@ export function SponsorProjectCard({ className = "" }: { className?: string }) {
       </div>
 
       <p className="mt-2.5 text-xs leading-relaxed text-zinc-300">
-        Help keep asocialmedia free, tracker-free, and independently funded for everyone.
+        Help keep asocialmedia free, tracker-free, and independently funded for
+        everyone.
       </p>
 
       <div className="mt-3">
@@ -162,7 +167,7 @@ export function SupportContactCard({ className = "" }: { className?: string }) {
           <span className="text-xs font-semibold">Support</span>
         </div>
         <Link
-          className="text-[11px] text-muted-foreground transition-colors hover:text-foreground"
+          className="text-muted-foreground hover:text-foreground text-[11px] transition-colors"
           href="/support"
         >
           FAQ

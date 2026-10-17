@@ -1,4 +1,5 @@
 import { describe, expect, it } from "bun:test";
+
 import { renderToStaticMarkup } from "react-dom/server";
 
 import {
@@ -15,7 +16,9 @@ describe("Settings Sidebar Cards", () => {
     expect(html).toContain("Star on GitHub");
     expect(html).toContain("asocialmedia");
     expect(html).toContain("/social");
-    expect(html).toContain("Building the last social platform you&#x27;ll ever need");
+    expect(html).toContain(
+      "Building the last social platform you&#x27;ll ever need"
+    );
   });
 
   it("renders SponsorProjectCard with description and GitHub Sponsors link", () => {
@@ -33,7 +36,9 @@ describe("Settings Sidebar Cards", () => {
     expect(html).toContain("hello@asocialmedia.cc");
     expect(html).toContain("mailto:hello@asocialmedia.cc");
     expect(html).toContain("Support");
-    expect(html).toContain("For any account, security, or general issue, reach out directly:");
+    expect(html).toContain(
+      "For any account, security, or general issue, reach out directly:"
+    );
     expect(html).toContain("/support");
   });
 });

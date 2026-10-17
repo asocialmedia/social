@@ -136,7 +136,7 @@ export function FeedSourceMenu({ following }: { following: boolean }) {
 
       <DropdownMenuContent
         align="end"
-        className="w-[330px] rounded-2xl border border-white/15 bg-zinc-950/95 p-3 text-white shadow-[inset_0_1px_1px_rgba(255,255,255,0.2),inset_0_-1px_1px_rgba(0,0,0,0.6),0_16px_40px_rgba(0,0,0,0.7)] backdrop-blur-2xl sm:w-[350px] border-border"
+        className="border-border w-[330px] rounded-2xl border border-white/15 bg-zinc-950/95 p-3 text-white shadow-[inset_0_1px_1px_rgba(255,255,255,0.2),inset_0_-1px_1px_rgba(0,0,0,0.6),0_16px_40px_rgba(0,0,0,0.7)] backdrop-blur-2xl sm:w-[350px]"
         sideOffset={8}
       >
         {/* Header */}
@@ -269,7 +269,7 @@ export function FeedSourceMenu({ following }: { following: boolean }) {
 
         {/* Footer Note */}
         <div className="mt-3 flex items-start gap-2 rounded-xl border border-white/10 bg-black/30 p-2 text-[10px] leading-snug text-zinc-400">
-          <Info className="mt-0.5 size-3.5 shrink-0 text-[#ff9500] border-border" />
+          <Info className="border-border mt-0.5 size-3.5 shrink-0 text-[#ff9500]" />
           <span>
             {following
               ? "Following tab strictly displays people you follow on asocialmedia."
