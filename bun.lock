@@ -87,7 +87,7 @@
     },
     "apps/mobile": {
       "name": "@asocialmedia/mobile",
-      "version": "0.2.30",
+      "version": "0.2.31",
       "dependencies": {
         "@asm/auth": "workspace:*",
         "@asm/db": "workspace:*",
@@ -178,7 +178,7 @@
     },
     "apps/protocols": {
       "name": "@asm/protocols-app",
-      "version": "0.1.16",
+      "version": "0.1.17",
       "dependencies": {
         "@asm/logger": "workspace:*",
         "@asm/protocols": "workspace:*",
@@ -198,7 +198,7 @@
     },
     "apps/web": {
       "name": "@asm/web",
-      "version": "1.7.88",
+      "version": "1.7.89",
       "dependencies": {
         "@asm/aggregator": "workspace:*",
         "@asm/auth": "workspace:*",
@@ -434,7 +434,7 @@
     },
     "packages/protocols": {
       "name": "@asm/protocols",
-      "version": "0.1.16",
+      "version": "0.1.17",
       "dependencies": {
         "@atproto/lex": "^0.3.14",
         "@atproto/syntax": "^0.7.7",
@@ -450,7 +450,7 @@
     },
     "packages/ui": {
       "name": "@asm/ui",
-      "version": "1.0.66",
+      "version": "1.0.67",
       "dependencies": {
         "@asm/aggregator": "workspace:*",
         "@radix-ui/react-accordion": "^1.2.20",

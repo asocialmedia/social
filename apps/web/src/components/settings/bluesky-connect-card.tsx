@@ -22,7 +22,6 @@ import { useState } from "react";
 import { FaBluesky } from "react-icons/fa6";
 
 import { LoadingButton } from "@/components/auth/fields/loading-button";
-import { SettingsStatusChip } from "@/components/settings/settings-section-card";
 import { useToast } from "@/lib/gooey-toast";
 import { cn } from "@/lib/utils";
 
@@ -148,65 +147,77 @@ export function BlueskyConnectCard({
 
   return (
     <>
-      <div className="relative overflow-hidden rounded-2xl border border-sky-500/25 bg-gradient-to-br from-sky-500/10 via-sky-600/5 to-transparent p-5 shadow-sm sm:p-6">
-        {/* Subtle decorative background glow */}
-        <div className="pointer-events-none absolute -top-12 -right-12 size-40 rounded-full bg-sky-500/10 blur-2xl" />
-
-        <div className="flex flex-col gap-4">
+      <div
+        className={cn(
+          "relative overflow-hidden rounded-2xl! p-5 text-white sm:p-6",
+          "bg-linear-to-b from-[#159dff] via-[#0980fa] to-[#0866df]",
+          "border-2 border-white/80 dark:border-white/60",
+          "shadow-[inset_0_0_0_1.5px_rgba(255,255,255,0.45),inset_0_2px_4px_rgba(255,255,255,0.55),0_4px_20px_-2px_rgba(8,102,223,0.35)]"
+        )}
+        id="settings-bluesky-connection"
+      >
+        <div className="flex flex-col gap-5">
           {/* Header Row */}
           <div className="flex items-start justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <div className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-[#0085ff]/15 text-[#0085ff] shadow-inner">
-                <FaBluesky className="size-6 text-[#0085ff]" />
+            <div className="flex items-center gap-3.5">
+              <div className="flex size-11 shrink-0 items-center justify-center rounded-2xl border border-white/50 bg-white/20 shadow-[inset_0_1px_2px_rgba(255,255,255,0.6)] backdrop-blur-xs">
+                <FaBluesky className="size-6 text-white drop-shadow-xs" />
               </div>
               <div>
-                <h3 className="flex items-center gap-2 text-base font-semibold sm:text-lg">
-                  Bluesky Connection
+                <div className="flex items-center gap-2">
+                  <h3 className="text-base font-bold text-white sm:text-lg">
+                    Bluesky Connection
+                  </h3>
                   {isConnected && (
-                    <span className="inline-flex items-center gap-1 rounded-full border border-sky-500/20 bg-sky-500/15 px-2 py-0.5 text-xs font-medium text-sky-400">
-                      <Sparkles className="size-3" /> Linked
+                    <span className="inline-flex items-center gap-1 rounded-full border border-white/40 bg-white/20 px-2 py-0.5 text-xs font-semibold text-white">
+                      <Sparkles className="size-3 text-white" /> Linked
                     </span>
                   )}
-                </h3>
-                <p className="text-muted-foreground text-xs sm:text-sm">
+                </div>
+                <p className="text-xs text-white/85 sm:text-sm">
                   Connect your AT Protocol account to interact across federated
                   threads and post seamlessly.
                 </p>
               </div>
             </div>
 
-            <SettingsStatusChip on={isConnected}>
+            <span
+              className={cn(
+                "inline-flex shrink-0 items-center rounded-full px-2.5 py-1 text-xs font-semibold backdrop-blur-xs",
+                isConnected
+                  ? "border border-white/60 bg-white/25 text-white shadow-[inset_0_1px_1px_rgba(255,255,255,0.4)]"
+                  : "border border-white/30 bg-white/10 text-white/80"
+              )}
+            >
               {isConnected ? "Active" : "Unlinked"}
-            </SettingsStatusChip>
+            </span>
           </div>
 
           {/* Email Verification Requirement Notice */}
           {!hasVerifiedEmail && (
-            <div className="flex items-start gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3.5 text-amber-200">
-              <ShieldAlert className="mt-0.5 size-4 shrink-0 text-amber-400" />
-              <p className="text-xs sm:text-sm">
+            <div className="flex items-start gap-2.5 rounded-xl border border-white/30 bg-black/15 p-3 text-white backdrop-blur-xs">
+              <ShieldAlert className="mt-0.5 size-4 shrink-0 text-amber-300" />
+              <p className="text-xs text-white/95 sm:text-sm">
                 You must verify your email address on asocialmedia before
                 connecting an external federated account.
               </p>
             </div>
           )}
 
-          {/* Connected State Info or Connect Action */}
+          {/* Connected State Info or Connect Action (Directly in card, no box-in-box) */}
           {isConnected ? (
-            <div className="border-border/40 bg-background/50 flex flex-col gap-3 rounded-xl border p-3.5 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-col gap-4 border-t border-white/20 pt-4 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex flex-col">
-                <span className="text-muted-foreground text-xs font-medium tracking-wider uppercase">
+                <span className="text-xs font-semibold tracking-wider text-white/75 uppercase">
                   Linked Bluesky Handle
                 </span>
-                <span className="font-mono text-sm font-semibold text-sky-400 sm:text-base">
+                <span className="font-mono text-base font-bold text-white sm:text-lg">
                   @{cleanHandle}
                 </span>
               </div>
               <div className="flex items-center gap-2">
                 <a
-                  className={cn(
-                    "border-border/50 bg-background/80 text-foreground hover:bg-accent hover:text-accent-foreground inline-flex h-9 items-center gap-1.5 rounded-lg border px-3 text-xs font-medium transition-colors"
-                  )}
+                  className="btn-3d-white inline-flex h-9 items-center justify-center gap-1.5 rounded-xl px-4 text-xs font-bold text-[#0866df] transition-all"
                   href={`https://bsky.app/profile/${cleanHandle}`}
                   rel="noreferrer"
                   target="_blank"
@@ -215,30 +226,31 @@ export function BlueskyConnectCard({
                   View Profile
                 </a>
                 <LoadingButton
-                  className="h-9 px-3 text-xs"
+                  className="btn-3d-danger inline-flex h-9 items-center justify-center gap-1.5 rounded-xl px-4 text-xs font-semibold text-white transition-all"
                   disabled={isDisconnecting}
                   loading={isDisconnecting}
                   onClick={handleDisconnect}
-                  variant="destructive"
+                  type="button"
                 >
-                  <Unlink className="mr-1.5 size-3.5" />
+                  <Unlink className="size-3.5 text-white" />
                   Disconnect
                 </LoadingButton>
               </div>
             </div>
           ) : (
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <p className="text-muted-foreground text-xs">
-                Linking your account allows you to cross-post and engage
-                directly with the AT Protocol federated firehose.
+            <div className="flex flex-col gap-4 border-t border-white/20 pt-4 sm:flex-row sm:items-center sm:justify-between">
+              <p className="max-w-xl text-xs leading-relaxed text-white/85 sm:text-sm">
+                Linking your account allows you to cross-post, reply to Bluesky
+                discussions, and broadcast your interactions directly to the AT
+                Protocol firehose.
               </p>
               <Button
-                className="pill-3d-hover bg-sky-500 text-white hover:bg-sky-600 sm:self-end"
+                className="btn-3d-white inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-xl px-6 text-sm font-bold text-[#0866df] transition-all disabled:opacity-50 sm:self-center"
                 disabled={!hasVerifiedEmail}
                 onClick={() => setIsDialogOpen(true)}
-                size="sm"
+                type="button"
               >
-                <FaBluesky className="mr-2 size-4" />
+                <FaBluesky className="size-4 text-[#0866df]" />
                 Connect Bluesky
               </Button>
             </div>
@@ -248,36 +260,41 @@ export function BlueskyConnectCard({
 
       {/* Connect Modal */}
       <Dialog onOpenChange={setIsDialogOpen} open={isDialogOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="surface-3d max-w-md rounded-2xl! border border-white/40 p-6 shadow-2xl dark:border-white/15">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <FaBluesky className="size-5 text-[#0085ff]" />
+            <DialogTitle className="flex items-center gap-2.5 text-base sm:text-lg">
+              <div className="bluesky-3d-surface flex size-8 shrink-0 items-center justify-center rounded-xl">
+                <FaBluesky className="size-4 text-white" />
+              </div>
               Connect your Bluesky Account
             </DialogTitle>
-            <DialogDescription>
+            <DialogDescription className="text-muted-foreground text-xs sm:text-sm">
               Enter your Bluesky handle and an optional App Password to link
               your identity and enable cross-posting actions.
             </DialogDescription>
           </DialogHeader>
 
           <form className="space-y-4 py-2" onSubmit={handleConnect}>
-            <div className="space-y-2">
+            <div className="space-y-1.5">
               <label
-                className="text-foreground text-xs font-medium"
+                className="text-foreground text-xs font-semibold"
                 htmlFor="bsky-handle"
               >
                 Bluesky Handle
               </label>
               <div className="relative">
-                <span className="text-muted-foreground absolute inset-y-0 left-3 flex items-center text-sm font-semibold">
+                <span className="text-muted-foreground pointer-events-none absolute inset-y-0 left-3 flex items-center text-sm font-semibold">
                   @
                 </span>
                 <Input
-                  className="pl-7 font-mono text-sm"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  className="premium-input h-10 rounded-xl pl-7 font-mono text-sm"
                   id="bsky-handle"
                   onChange={(e) => setHandle(e.target.value)}
                   placeholder="alice.bsky.social"
                   required
+                  spellCheck="false"
                   value={handle}
                 />
               </div>
@@ -286,45 +303,46 @@ export function BlueskyConnectCard({
               </p>
             </div>
 
-            <div className="space-y-2">
+            <div className="space-y-1.5">
               <label
-                className="text-foreground text-xs font-medium"
+                className="text-foreground text-xs font-semibold"
                 htmlFor="bsky-password"
               >
                 App Password (Optional)
               </label>
               <Input
+                autoCapitalize="none"
                 autoComplete="off"
-                className="font-mono text-sm"
+                className="premium-input h-10 rounded-xl font-mono text-sm"
                 id="bsky-password"
                 onChange={(e) => setAppPassword(e.target.value)}
                 placeholder="xxxx-xxxx-xxxx-xxxx"
                 type="password"
                 value={appPassword}
               />
-              <p className="text-muted-foreground text-[11px]">
+              <p className="text-muted-foreground text-[11px] leading-relaxed">
                 Recommended for publishing likes, replies, and posts from ASM.
                 Generate in Bluesky Settings &gt; App Passwords. Never enter
                 your primary password!
               </p>
             </div>
 
-            <DialogFooter className="pt-2">
+            <DialogFooter className="gap-2 pt-2 sm:justify-end">
               <Button
+                className="btn-3d-gray h-9 rounded-xl px-4 text-sm font-semibold"
                 disabled={isConnecting}
                 onClick={() => setIsDialogOpen(false)}
                 type="button"
-                variant="ghost"
               >
                 Cancel
               </Button>
               <LoadingButton
-                className="pill-3d-hover bg-sky-500 text-white hover:bg-sky-600"
+                className="btn-3d-bluesky inline-flex h-9 items-center justify-center gap-1.5 rounded-xl px-5 text-sm font-semibold text-white"
                 disabled={isConnecting || !handle.trim()}
                 loading={isConnecting}
                 type="submit"
               >
-                <Check className="mr-1.5 size-4" />
+                <Check className="size-4 text-white" />
                 Connect Account
               </LoadingButton>
             </DialogFooter>

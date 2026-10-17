@@ -51,7 +51,9 @@ export async function GET(request: Request) {
   const postRows =
     postIds.length > 0
       ? await getPostDataQuery(prisma.orm, user.id)
-          .where((post) => and(post.id.in(postIds), post.isGust.eq(isGustFilter)))
+          .where((post) =>
+            and(post.id.in(postIds), post.isGust.eq(isGustFilter))
+          )
           .all()
       : [];
   const posts = postRows.map(mapPostData);
@@ -77,9 +79,7 @@ export async function GET(request: Request) {
     if (post) {
       asmItems.push({
         post,
-        timestamp: b.createdAt
-          ? fromPrismaDateTime(b.createdAt).getTime()
-          : 0,
+        timestamp: b.createdAt ? fromPrismaDateTime(b.createdAt).getTime() : 0,
       });
     }
   }

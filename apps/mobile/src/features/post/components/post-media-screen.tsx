@@ -1131,14 +1131,7 @@ export function PostMediaScreen({
                   accessibilityLabel="View eddies"
                   accessibilityRole="button"
                   onPress={() => {
-                    if (post.external) {
-                      router.push({
-                        params: { uri: post.external.id },
-                        pathname: "/external-post",
-                      });
-                    } else {
-                      setShowEddies(true);
-                    }
+                    setShowEddies(true);
                   }}
                   style={styles.eddiesBtn}
                 >

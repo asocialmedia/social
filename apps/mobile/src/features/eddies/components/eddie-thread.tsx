@@ -746,7 +746,7 @@ export function EddieThread({
     }
     setDeleting(true);
     try {
-      await deleteEddie(deleteTarget);
+      await deleteEddie(deleteTarget, postId);
       setComments((current) => withDeletedEddie(current, deleteTarget));
       setDeleteTarget(null);
     } catch (error) {

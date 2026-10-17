@@ -49,7 +49,7 @@ export const externalCommentSchema = z.object({
   source: z.enum(["asm", "bluesky"]).default("asm"),
   uri: z.string().optional(),
   user: z.object({
-    avatarUrl: z.string().nullable(),
+    avatarUrl: z.string().nullable().optional(),
     displayName: z.string(),
     handle: z.string().optional(),
     id: z.string(),
@@ -60,7 +60,10 @@ export const externalCommentSchema = z.object({
 export type ExternalComment = z.infer<typeof externalCommentSchema>;
 
 export const externalCommentPageSchema = z.object({
-  cursor: z.object({ createdAt: z.string(), id: z.string() }).nullable(),
+  cursor: z
+    .object({ createdAt: z.string(), id: z.string() })
+    .nullable()
+    .nullish(),
   items: z.array(externalCommentSchema),
 });
 export type ExternalCommentPage = z.infer<typeof externalCommentPageSchema>;

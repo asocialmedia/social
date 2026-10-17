@@ -120,27 +120,38 @@ async function requestSetPassword(password: string): Promise<void> {
 }
 
 const BUTTON_CLASS = cn(
-  "h-9 rounded-xl px-5",
+  "h-10 rounded-xl px-5 font-semibold",
   ORANGE_GRADIENT_CLASS,
   "hover:from-[#ffa629] hover:to-[#f56a14] active:translate-y-px"
 );
 
 const UsernameFieldRenderer = ({
   field,
+  loading,
 }: {
   field: ControllerRenderProps<UsernameFormValues, "username">;
+  loading: boolean;
 }) => (
   <FormItem>
     <FormLabel>Username</FormLabel>
     <FormControl>
-      <div className="relative">
-        <span className="text-muted-foreground pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 font-medium">
-          @
-        </span>
-        <Input
-          className="premium-input h-10 rounded-xl pl-7 text-sm"
-          {...field}
-        />
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+        <div className="relative min-w-0 flex-1">
+          <span className="text-muted-foreground pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 font-medium">
+            @
+          </span>
+          <Input
+            className="premium-input h-10 rounded-xl pl-7 text-sm"
+            {...field}
+          />
+        </div>
+        <LoadingButton
+          className={cn(BUTTON_CLASS, "w-full shrink-0 sm:w-auto")}
+          loading={loading}
+          type="submit"
+        >
+          Update Username
+        </LoadingButton>
       </div>
     </FormControl>
     <FormMessage />
@@ -149,18 +160,33 @@ const UsernameFieldRenderer = ({
 
 const EmailFieldRenderer = ({
   field,
+  loading = false,
+  showButton = false,
 }: {
   field: ControllerRenderProps<EmailFormValues, "email">;
+  loading?: boolean;
+  showButton?: boolean;
 }) => (
   <FormItem>
     <FormLabel>Email</FormLabel>
     <FormControl>
-      <Input
-        className="premium-input h-10 rounded-xl text-sm"
-        disabled={field.disabled}
-        type="email"
-        {...field}
-      />
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+        <Input
+          className="premium-input h-10 min-w-0 flex-1 rounded-xl text-sm"
+          disabled={field.disabled}
+          type="email"
+          {...field}
+        />
+        {showButton ? (
+          <LoadingButton
+            className={cn(BUTTON_CLASS, "w-full shrink-0 sm:w-auto")}
+            loading={loading}
+            type="submit"
+          >
+            Update Email
+          </LoadingButton>
+        ) : null}
+      </div>
     </FormControl>
     <FormMessage />
   </FormItem>
@@ -503,29 +529,24 @@ export default function AccountSettings({
 
           <Form {...usernameForm}>
             <form
-              className="mt-4 space-y-4"
+              className="mt-4 space-y-3"
               onSubmit={usernameForm.handleSubmit(onUsernameSubmit)}
             >
               <FormField
                 control={usernameForm.control}
                 name="username"
-                render={UsernameFieldRenderer}
+                render={({ field }) => (
+                  <UsernameFieldRenderer
+                    field={field}
+                    loading={usernameMutation.isPending}
+                  />
+                )}
               />
 
-              <p className="text-muted-foreground -mt-1 text-xs leading-relaxed">
+              <p className="text-muted-foreground text-xs leading-relaxed">
                 Your previous username stays reserved and redirects here for 30
                 days. You can make up to 5 username changes every 30 days.
               </p>
-
-              <div className="flex justify-end">
-                <LoadingButton
-                  className={BUTTON_CLASS}
-                  loading={usernameMutation.isPending}
-                  type="submit"
-                >
-                  Update Username
-                </LoadingButton>
-              </div>
             </form>
           </Form>
         </div>
@@ -548,23 +569,20 @@ export default function AccountSettings({
           {emailStep === "idle" ? (
             <Form {...emailForm}>
               <form
-                className="mt-4 space-y-4"
+                className="mt-4 space-y-3"
                 onSubmit={emailForm.handleSubmit(onStartEmailChange)}
               >
                 <FormField
                   control={emailForm.control}
                   name="email"
-                  render={EmailFieldRenderer}
+                  render={({ field }) => (
+                    <EmailFieldRenderer
+                      field={field}
+                      loading={isEmailBusy}
+                      showButton
+                    />
+                  )}
                 />
-                <div className="flex justify-end">
-                  <LoadingButton
-                    className={BUTTON_CLASS}
-                    loading={isEmailBusy}
-                    type="submit"
-                  >
-                    Update Email
-                  </LoadingButton>
-                </div>
               </form>
             </Form>
           ) : null}
@@ -579,7 +597,7 @@ export default function AccountSettings({
                   control={emailForm.control}
                   disabled
                   name="email"
-                  render={EmailFieldRenderer}
+                  render={({ field }) => <EmailFieldRenderer field={field} />}
                 />
                 <FormField
                   control={emailForm.control}
@@ -661,6 +679,11 @@ export default function AccountSettings({
           ) : null}
         </div>
       </SettingsCard>
+
+      <BlueskyConnectCard
+        blueskyHandle={user.blueskyHandle}
+        hasVerifiedEmail={accountLinkingReadiness.hasVerifiedEmail}
+      />
 
       <section className="scroll-mt-24 space-y-3" id="settings-linked-accounts">
         <SettingsCardHeading
@@ -744,11 +767,6 @@ export default function AccountSettings({
           )}
         </SettingsCard>
       )}
-
-      <BlueskyConnectCard
-        blueskyHandle={user.blueskyHandle}
-        hasVerifiedEmail={accountLinkingReadiness.hasVerifiedEmail}
-      />
     </div>
   );
 }
