@@ -1,5 +1,7 @@
 import { beforeEach, expect, mock, test } from "bun:test";
 
+import { asmDbMockBase } from "@/posts/test-support/asm-db-mock";
+
 let notify: ((_channel: string, raw: string) => void) | undefined;
 let unsubscribeCount = 0;
 const watches: unknown[] = [];
@@ -13,14 +15,17 @@ mock.module("@/lib/protocols/recommendations", () => ({
 }));
 mock.module("@/lib/protocols/budget", () => ({
   ProtocolBudgetError: class extends Error {},
+  consumeExternalCreationBudget: () => Promise.resolve(),
   consumeProtocolBudget: () => Promise.resolve(),
 }));
 mock.module("@asm/db", () => ({
+  ...asmDbMockBase,
   getClientIpFromHeaders: () => "127.0.0.1",
   getRecommendationProfile: () => Promise.resolve(null),
   getTrustedIngressIp: () => "127.0.0.1",
   hashViewerId: (value: string) => value,
   redis: {
+    ...asmDbMockBase.redis,
     publish: (_channel: string, raw: string) => {
       watches.push(JSON.parse(raw));
       return Promise.resolve(1);

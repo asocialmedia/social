@@ -1,3 +1,4 @@
+// oxlint-disable eslint/max-classes-per-file
 export const EMBEDDING_DIMENSION = 384;
 
 // Shared @asm/db mock surface for the posts/editor test suites. Both suites
@@ -27,6 +28,9 @@ export const asmDbMockBase = {
   COMMENT_CREATION_AURA: 1,
   COMMENT_RECEIVED_AURA: 1,
   EMBEDDING_DIMENSION,
+  ExternalInteractionError: class extends Error {
+    override name = "ExternalInteractionError";
+  },
   FOLLOW_GAINED_AURA: 10,
   FOLLOW_GIVEN_AURA: 1,
   HN_SHARE_BONUS_AURA: 15,
@@ -52,6 +56,11 @@ export const asmDbMockBase = {
   enqueuePostAnalyze: () => Promise.resolve(),
   enqueuePostDeleted: () => Promise.resolve(),
   enqueueShitposterCheck: () => Promise.resolve(),
+  externalComments: () => Promise.resolve({ cursor: null, items: [] }),
+  externalLibrary: () => Promise.resolve({ cursor: null, items: [] }),
+  externalPostStates: () => Promise.resolve(new Map()),
+  externalResponses: () => Promise.resolve({ cursor: null, items: [] }),
+  findExternalPost: () => Promise.resolve(null),
   fromPrismaDateTime: (value: Date): Date => value,
   generateLocalEmbedding: (): number[] =>
     Array.from({ length: EMBEDDING_DIMENSION ?? 384 }).fill(0) as number[],
@@ -72,6 +81,13 @@ export const asmDbMockBase = {
   mapPostData: (value: Record<string, unknown>) => value,
   markUserOnline: () => Promise.resolve(),
   messageConversationInclude: {},
+  mutateExternalPost: () =>
+    Promise.resolve({
+      amplifications: 0,
+      amplified: false,
+      bookmarked: false,
+      comments: 0,
+    }),
   notifyCommunitySubscribers: () => Promise.resolve([]),
   postViewsCache: {},
   publishCommentCreated: () => Promise.resolve(),
@@ -88,6 +104,7 @@ export const asmDbMockBase = {
     set: () => Promise.resolve("OK"),
     srem: () => Promise.resolve(),
   },
+  refreshExternalPost: () => Promise.resolve(),
   rememberRankingImpression: () => Promise.resolve(),
   resolveLastRankingContext: () => Promise.resolve(null),
   resolveRankingContext: () => Promise.resolve(null),
