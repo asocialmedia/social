@@ -1,6 +1,7 @@
 "use client";
 
 import type { PostData, PostsPage, SearchCommunityResult } from "@asm/db";
+import { createFeedReadScheduler } from "@asm/protocols/discovery";
 import { Input } from "@asm/ui/shadui/input";
 import { Tabs, TabsContent, TabsList } from "@asm/ui/shadui/tabs";
 import noFollowImage from "@assets/general/nofollow.png";
@@ -23,6 +24,7 @@ import MobileBottomNav from "@/components/layouts/navigation/mobile/mobile-botto
 import MobileTopBar from "@/components/layouts/navigation/mobile/mobile-top-bar";
 import { CollapsibleTopBar } from "@/components/layouts/shell/collapsible-top-bar";
 import PostHistoryCard from "@/components/posts/views/post-history-card";
+import { useFeedEvents } from "@/hooks/feed/use-feed-events";
 import { useFeedScrollMemory } from "@/hooks/feed/use-feed-scroll-memory";
 import { useFeedSwipeNavigation } from "@/hooks/feed/use-feed-swipe-navigation";
 import useDebounce from "@/hooks/use-debounce";
@@ -109,7 +111,6 @@ const ExploreClient: React.FC = () => {
   // Track the newest post id so a quiet poll can surface a "new posts" pill
   // without disturbing the grid or the user's scroll position. Declared early
   // so the tab/search handlers can clear it.
-  const newestIdRef = useRef<string | null>(null);
   const [newPostsCount, setNewPostsCount] = useState(0);
   const feedRootRef = useRef<HTMLDivElement>(null);
 
@@ -123,7 +124,6 @@ const ExploreClient: React.FC = () => {
   const handleTabChange = useCallback(
     (tab: string) => {
       setNewPostsCount(0);
-      newestIdRef.current = null;
       if (isTabValue(EXPLORE_TABS, tab)) {
         setExploreTab(tab);
       }
@@ -211,57 +211,57 @@ const ExploreClient: React.FC = () => {
   const communities = useMemo(() => data?.communities ?? [], [data]);
   const gusts = useMemo(() => gustsData ?? [], [gustsData]);
 
-  // Poll every 45s for the newest post in the active feed. When a brand-new
-  // post appears, reveal the pill; the grid is refetched only when tapped.
+  const scheduleProbeRef = useRef<() => void>(() => {
+    /* empty */
+  });
+  useFeedEvents(
+    canQuery &&
+      activeTab !== "gusts" &&
+      activeTab !== "people" &&
+      !debouncedSearch.trim(),
+    (change) => {
+      if (change.source === "asm" || change.source === "connected") {
+        scheduleProbeRef.current();
+      }
+    }
+  );
   useEffect(() => {
-    // A feed identity change (tab or search) must not carry stale state over:
-    // re-baseline the newest id against the posts actually showing here. The
-    // pill count is cleared when the identity changes (tab/search handlers).
-    newestIdRef.current = posts.length > 0 ? posts[0].id : null;
-
     if (
+      !canQuery ||
       activeTab === "gusts" ||
       activeTab === "people" ||
       debouncedSearch.trim()
     ) {
       return;
     }
-    const identity = `${activeTab}:${debouncedSearch.trim()}`;
-    const interval = window.setInterval(() => {
-      void (async () => {
-        try {
-          const fresh = await kyInstance
-            .get(`/api/posts/${activeTab}`, {
-              searchParams: { excludeModerated: "1" },
-            })
-            .json<{ posts: PostData[] }>();
-          // Ignore responses that started for a previous identity (a tab switch
-          // could land while a request is in flight).
-          if (identity !== `${activeTab}:${debouncedSearch.trim()}`) {
-            return;
-          }
-          const newest = fresh.posts[0]?.id;
-          if (newest && newest !== newestIdRef.current) {
-            newestIdRef.current = newest;
-            const knownIds = new Set(posts.map((p) => p.id));
-            let count = 0;
-            for (const post of fresh.posts) {
-              if (knownIds.has(post.id)) {
-                break;
-              }
-              count += 1;
-            }
-            if (count > 0) {
-              setNewPostsCount(count);
-            }
-          }
-        } catch {
-          // Best-effort polling; ignore transient failures
-        }
-      })();
-    }, 45 * 1000);
-    return () => window.clearInterval(interval);
-  }, [activeTab, debouncedSearch, posts]);
+    let cancelled = false;
+    const controller = new AbortController();
+    const scheduler = createFeedReadScheduler(async () => {
+      const fresh = await kyInstance
+        .get(`/api/posts/${activeTab}`, {
+          searchParams: { excludeModerated: "1" },
+          signal: controller.signal,
+        })
+        .json<{ posts: PostData[] }>();
+      if (cancelled) {
+        return;
+      }
+      const known = new Set(posts.map((post) => post.id));
+      const count = fresh.posts.filter((post) => !known.has(post.id)).length;
+      if (count > 0) {
+        setNewPostsCount(count);
+      }
+    });
+    scheduleProbeRef.current = scheduler.schedule;
+    return () => {
+      cancelled = true;
+      controller.abort();
+      scheduler.stop();
+      scheduleProbeRef.current = () => {
+        /* empty */
+      };
+    };
+  }, [activeTab, canQuery, debouncedSearch, posts]);
 
   const showNewPosts = useCallback(() => {
     setNewPostsCount(0);
@@ -290,7 +290,6 @@ const ExploreClient: React.FC = () => {
   const handleSearchChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
       setNewPostsCount(0);
-      newestIdRef.current = null;
       setSearch(e.target.value);
     },
     []
@@ -298,7 +297,6 @@ const ExploreClient: React.FC = () => {
 
   const handleClearSearch = useCallback(() => {
     setNewPostsCount(0);
-    newestIdRef.current = null;
     setSearch("");
   }, []);
 

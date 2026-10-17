@@ -52,7 +52,8 @@ import { FeedPager } from "@/features/feed/components/feed-pager";
 import { NewContentPill } from "@/features/feed/components/new-content-pill";
 import type { PillAuthor } from "@/features/feed/components/new-content-pill";
 import { FeedMediaScope } from "@/features/feed/components/post-media";
-import { findUnseenItems } from "@/features/feed/lib/feed-types";
+import { subscribeFeedReads } from "@/features/feed/lib/feed-events";
+import { findUnseenRankedItems } from "@/features/feed/lib/feed-types";
 import type { FeedPost } from "@/features/feed/lib/feed-types";
 import { mediaGridImageUrl } from "@/features/feed/lib/media-url";
 import {
@@ -75,7 +76,6 @@ import { MobileBottomNav } from "@/features/home/components/mobile-bottom-nav";
 import { MobileHeader } from "@/features/home/components/mobile-header";
 import { UserBadge } from "@/features/home/components/user-badge";
 import { getApiBaseUrl } from "@/lib/api-env";
-import { createExpoPoller } from "@/lib/expo-poller";
 import { SHOWS_SCROLL_INDICATOR } from "@/lib/scroll-indicator";
 import { logInfo, logWarn } from "@/lib/telemetry";
 import {
@@ -106,9 +106,6 @@ import { ExploreGuestSearch } from "./explore-guest-search";
 import { ExplorePostCard } from "./explore-post-card";
 import { ExploreLoadingSkeleton } from "./explore-skeleton";
 import { ExploreUserCard } from "./explore-user-card";
-
-// Matches web's useNewContentProbe cadence on the Explore feeds.
-const PROBE_INTERVAL_MS = 45_000;
 
 type ExploreItem =
   | { kind: "post"; post: FeedPost }
@@ -452,18 +449,14 @@ const ExploreTabContent = memo(
       [apiBase, router, runWithInstallToken, viewerId]
     );
 
-    // Web polls each Explore feed every 45s and offers the new posts behind a
-    // pill, so a reader who has sat on the tab sees arrivals without pulling to
-    // refresh. The probe diffs the head against what is already on screen and
+    // Feed events offer new posts behind a pill without replacing the visible grid. The probe diffs the head against what is already on screen and
     // never rewrites the list on its own; tapping the pill prepends and scrolls to top.
     const knownIdsRef = useRef<Set<string>>(new Set());
-    const newestIdRef = useRef<string | null>(null);
     const probeKeyRef = useRef("");
     const probeTab = activeTab;
     const probeSearch = deferredSearch;
 
     useEffect(() => {
-      newestIdRef.current = posts.length > 0 ? posts[0].id : null;
       knownIdsRef.current = new Set(posts.map((post) => post.id));
     }, [posts]);
 
@@ -497,14 +490,7 @@ const ExploreTabContent = memo(
           ) {
             return;
           }
-          const newest = headPosts[0]?.id;
-          // If the newest post is unchanged, the head is unchanged - do not count
-          // shifts or re-rankings inside candidate sets as new arrivals.
-          if (!newest || newest === newestIdRef.current) {
-            return;
-          }
-          newestIdRef.current = newest;
-          const unseen = findUnseenItems(headPosts, knownIdsRef.current);
+          const unseen = findUnseenRankedItems(headPosts, knownIdsRef.current);
           if (unseen.length > 0) {
             setNewItems(unseen);
           }
@@ -515,15 +501,14 @@ const ExploreTabContent = memo(
           });
         }
       };
-      const poller = createExpoPoller({
-        intervalMs: PROBE_INTERVAL_MS,
-        onPoll: probe,
-        skipInitialPoll: true,
-      });
-      poller.start();
+      const unsubscribe = subscribeFeedReads(
+        viewerId || undefined,
+        "asm",
+        probe
+      );
       return () => {
         cancelled = true;
-        poller.stop();
+        unsubscribe();
       };
     }, [cacheKey, isActive, probeTab, probeSearch, status, viewerId]);
 

@@ -42,6 +42,18 @@ export function GET(request: Request) {
       session?.user.id && mode.data === "personalized"
         ? await getRecommendationProfile(session.user.id).catch(() => null)
         : null;
+    void redis
+      .publish(
+        DISCOVERY_WATCH_CHANNEL,
+        JSON.stringify({
+          locale: locale.data,
+          mode: mode.data,
+          topics: profile ? discoveryTopics(profile) : [],
+        })
+      )
+      .catch(() => {
+        // Foreground reads remain usable if watch registration is unavailable.
+      });
     const [page, excluded] = await Promise.all([
       readBlueskyDiscovery(
         mode.data,
@@ -56,18 +68,6 @@ export function GET(request: Request) {
         : Promise.resolve(new Set<string>()),
     ]);
     const filtered = filterExternalRecommendations(page.items, excluded);
-    void redis
-      .publish(
-        DISCOVERY_WATCH_CHANNEL,
-        JSON.stringify({
-          locale: locale.data,
-          mode: mode.data,
-          topics: profile ? discoveryTopics(profile) : [],
-        })
-      )
-      .catch(() => {
-        // The completed page remains usable if watch registration is unavailable.
-      });
     const items = profile ? rankExternalForViewer(filtered, profile) : filtered;
     const states = await externalPostStates(
       items.map((post) => post.id),
