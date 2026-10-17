@@ -41,7 +41,7 @@ export function findTopAnchor(container: HTMLElement): TopAnchor | null {
     }
     const rect = node.getBoundingClientRect();
     if (rect.bottom > containerTop + 1) {
-      return { id, offset: Math.max(0, rect.top - containerTop) };
+      return { id, offset: rect.top - containerTop };
     }
   }
   return null;

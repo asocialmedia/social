@@ -7,8 +7,12 @@ export default function FeedViewSkeleton({
   posts,
 }: { posts?: readonly PostPreviewSource[] } = {}) {
   return (
-    <div className="flex flex-col">
-      {(posts?.length ? posts : [undefined, undefined, undefined]).map(
+    <div
+      className="flex min-h-dvh flex-col overflow-hidden"
+      aria-label="Loading feed"
+      aria-busy="true"
+    >
+      {(posts?.length ? posts : Array.from<undefined>({ length: 10 })).map(
         (post, index) => (
           <div key={`feed-skeleton-${index}`}>
             {index > 0 ? <Separator className="bg-border/60" /> : null}

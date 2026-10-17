@@ -1,5 +1,6 @@
 import { clientLog } from "@asm/config/debug";
 import type { PostsPage, ResponsesPage } from "@asm/db";
+import type { ExternalPost } from "@asm/protocols/contracts";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { InfiniteData } from "@tanstack/react-query";
 
@@ -9,6 +10,7 @@ import {
   applyResponseCountDeltaToCaches,
   forceInvalidatePostFeeds,
 } from "@/lib/posts/cache-sync";
+import { applyExternalStateToCaches } from "@/lib/protocols/external-cache";
 
 import { submitPost, updatePostMentions } from "./actions";
 
@@ -72,14 +74,23 @@ export function useSubmitPostMutation() {
     },
     onSuccess: async (newPost, input) => {
       if (input.externalParentUri) {
+        const viewer = newPost.userId;
+        const state = queryClient.getQueryData<
+          NonNullable<ExternalPost["asm"]>
+        >(["external-interaction", viewer, input.externalParentUri]);
+        if (state) {
+          applyExternalStateToCaches(
+            queryClient,
+            viewer,
+            input.externalParentUri,
+            { ...state, responses: (state.responses ?? 0) + 1 }
+          );
+        }
         await queryClient.invalidateQueries({
           queryKey: ["external-responses", input.externalParentUri],
         });
         await queryClient.invalidateQueries({
           queryKey: ["external-post", input.externalParentUri],
-        });
-        await queryClient.invalidateQueries({
-          queryKey: ["bluesky-discovery"],
         });
       }
       // A response is a first-class post: it lands in its parent's thread and

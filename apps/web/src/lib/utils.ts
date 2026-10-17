@@ -199,6 +199,9 @@ export function isGifUrl(url?: string | null): boolean {
 }
 
 export function isRouteActive(currentHref: string, itemHref: string): boolean {
+  if (!itemHref) {
+    return false;
+  }
   if (itemHref === "/") {
     return currentHref === "/" || currentHref.startsWith("/?");
   }

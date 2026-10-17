@@ -6,6 +6,7 @@ import { useInfiniteQuery } from "@tanstack/react-query";
 
 import { useSession } from "@/app/(main)/session-provider";
 import PostCard from "@/components/home/feedview/post-card";
+import LoadMoreSkeleton from "@/components/layouts/skeletons/load-more-skeleton";
 import { normalizePostData } from "@/lib/posts/post-normalize";
 
 interface ResponsePage {
@@ -41,11 +42,7 @@ export function ExternalResponses({ uri }: { uri: string }) {
       className="border-border/60 border-t pt-4"
     >
       <h2 className="px-4 pb-3 font-semibold">Responses on ASM</h2>
-      {query.isPending ? (
-        <p className="text-muted-foreground px-4 pb-4 text-sm">
-          Loading responses…
-        </p>
-      ) : null}
+      {query.isPending ? <LoadMoreSkeleton /> : null}
       {query.isError ? (
         <Button
           className="mx-4 mb-4"

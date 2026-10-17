@@ -96,7 +96,7 @@ function sanitizeSnapshot(persisted: unknown): FeedPositionSnapshot {
   for (const [key, entry] of Object.entries(positions)) {
     if (isValidPosition(entry)) {
       clean[key] = {
-        anchorOffset: Math.max(0, entry.anchorOffset),
+        anchorOffset: entry.anchorOffset,
         anchorPostId: entry.anchorPostId,
         scrollTop: Math.max(0, entry.scrollTop),
         updatedAt: entry.updatedAt,

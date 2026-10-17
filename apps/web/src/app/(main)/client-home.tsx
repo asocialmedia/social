@@ -32,9 +32,11 @@ import SearchField from "@/components/layouts/navigation/search-field";
 import { CollapsibleTopBar } from "@/components/layouts/shell/collapsible-top-bar";
 import PostEditor from "@/components/posts/editor/post-editor";
 import { FeedSourceMenu } from "@/components/protocols/feed-source-menu";
+import { useDiscoveryLocale } from "@/hooks/feed/use-discovery-locale";
 import { useFeedScrollMemory } from "@/hooks/feed/use-feed-scroll-memory";
 import { useFeedSwipeNavigation } from "@/hooks/feed/use-feed-swipe-navigation";
 import { useHideOnScroll } from "@/hooks/use-hide-on-scroll";
+import { useFeedSourceStore } from "@/store/feed-source-store";
 import {
   HOME_TABS,
   isTabValue,
@@ -104,12 +106,17 @@ const ClientHome: React.FC<ClientHomeProps> = () => {
   );
 
   const feedScrollRef = useRef<HTMLDivElement>(null);
+  const source = useFeedSourceStore((state) => state.source);
+  const { locale } = useDiscoveryLocale();
   const hideTopBar = useHideOnScroll(feedScrollRef);
   // Each tab keeps its own scroll position: leaving for a post (or another
   // tab) and coming back lands exactly where you left.
   useFeedScrollMemory({
     containerRef: feedScrollRef,
-    memoryKey: `home:${tab}`,
+    memoryKey:
+      tab === "following" || source === "asm"
+        ? `home:${tab}`
+        : `home:${tab}:${source}:${locale}`,
   });
 
   // Swipe through visible tabs; the remembered discovery feed occupies one slot.

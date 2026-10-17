@@ -56,6 +56,39 @@ export function PostCardSkeleton({
   post?: PostPreviewSource | null;
 }) {
   const layout = postPreviewLayout(post);
+  const content = (
+    <div className={cn("space-y-2", detail ? "mt-3 sm:mt-3.5" : "mt-1")}>
+      {Array.from({ length: layout.textLines }, (_, index) => (
+        <Skeleton
+          className={
+            index === layout.textLines - 1 ? "h-4 w-3/4" : "h-4 w-full"
+          }
+          key={index}
+        />
+      ))}
+      <PostMediaSkeleton post={post} />
+      <div className="mt-3 flex items-center justify-between gap-2">
+        <div className="flex items-center gap-1.5">
+          <Skeleton className="h-7 w-28 rounded-full" />
+          <Skeleton className="h-7 w-12 rounded-full" />
+          <Skeleton className="h-7 w-12 rounded-full" />
+        </div>
+        <div className="flex items-center gap-1.5">
+          {post && "external" in post ? null : (
+            <Skeleton className="h-7 w-12 rounded-full" />
+          )}
+          <Skeleton className="size-7 rounded-full" />
+        </div>
+      </div>
+    </div>
+  );
+  const identity = (
+    <div className="flex min-h-4.5 items-center gap-2">
+      <Skeleton className="h-3.5 w-28 max-w-[45%]" />
+      <Skeleton className="h-3 w-16 max-w-[25%]" />
+      <Skeleton className="ml-auto size-6 shrink-0 rounded-full" />
+    </div>
+  );
   return (
     <div
       aria-label="Loading post"
@@ -63,35 +96,26 @@ export function PostCardSkeleton({
       className="min-w-0 overflow-hidden p-4"
       data-post-skeleton={layout.kind}
     >
-      <div className="flex items-start gap-3">
-        <Skeleton className="size-9 shrink-0 rounded-xl" />
-        <div className="min-w-0 flex-1 space-y-2">
-          <div className="flex items-center gap-2">
-            <Skeleton className="h-3.5 w-28 max-w-[45%]" />
-            <Skeleton className="h-3 w-16 max-w-[25%]" />
-            <Skeleton className="ml-auto size-6 shrink-0 rounded-full" />
+      {detail ? (
+        <>
+          <div className="flex items-start gap-2 sm:gap-3">
+            <Skeleton className="size-9 shrink-0 rounded-xl sm:size-12" />
+            <div className="min-w-0 flex-1 space-y-2">
+              {identity}
+              <Skeleton className="h-3 w-32" />
+            </div>
           </div>
-          {detail ? <Skeleton className="h-3 w-24" /> : null}
+          {content}
+        </>
+      ) : (
+        <div className="flex items-start gap-3">
+          <Skeleton className="size-9 shrink-0 rounded-xl sm:size-10" />
+          <div className="min-w-0 flex-1">
+            {identity}
+            {content}
+          </div>
         </div>
-      </div>
-      <div className={cn("mt-3 space-y-2", !detail && "ml-12")}>
-        {Array.from({ length: layout.textLines }, (_, index) => (
-          <Skeleton
-            className={
-              index === layout.textLines - 1 ? "h-4 w-3/4" : "h-4 w-full"
-            }
-            key={index}
-          />
-        ))}
-        <PostMediaSkeleton post={post} />
-        <div className="mt-3 flex items-center justify-between gap-2">
-          <Skeleton className="h-7 w-16 rounded-full" />
-          <Skeleton className="h-7 w-12 rounded-full" />
-          <Skeleton className="h-7 w-12 rounded-full" />
-          <Skeleton className="size-7 rounded-full" />
-          <Skeleton className="size-7 rounded-full" />
-        </div>
-      </div>
+      )}
     </div>
   );
 }

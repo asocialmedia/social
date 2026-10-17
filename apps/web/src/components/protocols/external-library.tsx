@@ -8,6 +8,7 @@ import { useState } from "react";
 import { z } from "zod";
 
 import { useSession } from "@/app/(main)/session-provider";
+import FeedViewSkeleton from "@/components/layouts/skeletons/feed-view-skeleton";
 
 import { BlueskyPostCard } from "./bluesky-post-card";
 
@@ -63,9 +64,7 @@ export function ExternalLibrary() {
           Amplified
         </Button>
       </div>
-      {library.isPending ? (
-        <p className="text-muted-foreground p-4 text-sm">Loading posts…</p>
-      ) : null}
+      {library.isPending ? <FeedViewSkeleton /> : null}
       {library.isError ? (
         <Button
           onClick={() => {

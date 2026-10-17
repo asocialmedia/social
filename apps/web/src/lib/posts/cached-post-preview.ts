@@ -1,4 +1,9 @@
+import { externalPostSchema } from "@asm/protocols/discovery";
 import type { PostPreviewSource } from "@asm/ui/lib/post-preview-layout";
+
+import { externalPostView } from "./presentation";
+
+const externalPreviews = new WeakMap<object, PostPreviewSource>();
 
 export function cachedPostPreview(
   data: unknown,
@@ -17,6 +22,18 @@ export function cachedPostPreview(
     return undefined;
   }
   const record = data as Record<string, unknown>;
+  if (record.id === postId && record.source === "bluesky") {
+    const existing = externalPreviews.get(record);
+    if (existing) {
+      return existing;
+    }
+    const parsed = externalPostSchema.safeParse(record);
+    if (parsed.success) {
+      const preview = externalPostView(parsed.data);
+      externalPreviews.set(record, preview);
+      return preview;
+    }
+  }
   if (
     typeof record.id === "string" &&
     (record.id === postId ||
@@ -26,7 +43,7 @@ export function cachedPostPreview(
   ) {
     return record as unknown as PostPreviewSource;
   }
-  for (const key of ["pages", "posts", "post", "data", "parentPost"]) {
+  for (const key of ["pages", "items", "posts", "post", "data", "parentPost"]) {
     const found = cachedPostPreview(record[key], postId);
     if (found) {
       return found;

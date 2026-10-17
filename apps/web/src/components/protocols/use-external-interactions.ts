@@ -9,6 +9,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { useRequireAuth } from "@/hooks/auth/use-require-auth";
 import { useToast } from "@/lib/gooey-toast";
+import { applyExternalStateToCaches } from "@/lib/protocols/external-cache";
 
 export function useExternalInteractions(
   post: Pick<ExternalPost, "id" | "asm">
@@ -71,9 +72,12 @@ export function useExternalInteractions(
         }
         throw new Error(message);
       }
-      queryClient.setQueryData(
-        queryKey,
-        externalStateSchema.parse(await response.json())
+      const next = externalStateSchema.parse(await response.json());
+      applyExternalStateToCaches(
+        queryClient,
+        auth.user?.id ?? "guest",
+        post.id,
+        next
       );
       await queryClient.invalidateQueries({ queryKey: ["external-library"] });
       await queryClient.invalidateQueries({

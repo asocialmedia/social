@@ -322,8 +322,9 @@ export default function HomeFeed({
   const showNewPosts = useCallback(() => {
     clearNewItems();
     prependPostsToFeedCache(queryClient, queryKey, newPosts);
+    external.showNewItems();
     scrollFeedToTop(feedRootRef.current);
-  }, [clearNewItems, newPosts, queryClient, queryKey]);
+  }, [clearNewItems, newPosts, queryClient, queryKey, external]);
 
   // A community segment that is still loading leads the render; a failed
   // community fetch degrades to the global feed rather than blanking the page,
@@ -435,25 +436,46 @@ export default function HomeFeed({
 
   return (
     <div className="relative" ref={feedRootRef}>
-      {source !== "bluesky" &&
-      !excludePostId &&
+      {!excludePostId &&
       !communitySlug &&
-      newPosts.length > 0 ? (
-        <div className="pointer-events-none sticky top-3 z-20 flex justify-center">
+      ((source !== "bluesky" && newPosts.length > 0) ||
+        (source !== "asm" && external.newItems.length > 0)) ? (
+        <div className="pointer-events-none sticky top-3 z-20 flex h-0 items-start justify-center">
           <NewContentPill
             authors={[
-              ...new Map(
-                newPosts.map((post) => [
-                  post.userId,
-                  {
-                    avatarUrl: post.user?.avatarUrl,
-                    id: post.userId,
-                    username: post.user?.username,
-                  },
-                ])
-              ).values(),
+              ...new Map([
+                ...(source === "bluesky"
+                  ? []
+                  : newPosts.map(
+                      (post) =>
+                        [
+                          post.userId,
+                          {
+                            avatarUrl: post.user?.avatarUrl,
+                            id: post.userId,
+                            username: post.user?.username,
+                          },
+                        ] as const
+                    )),
+                ...(source === "asm"
+                  ? []
+                  : external.newItems.map(
+                      (post) =>
+                        [
+                          post.author.id,
+                          {
+                            avatarUrl: post.author.avatarUrl ?? null,
+                            id: post.author.id,
+                            username: post.author.handle,
+                          },
+                        ] as const
+                    )),
+              ]).values(),
             ]}
-            count={newPosts.length}
+            count={
+              (source === "bluesky" ? 0 : newPosts.length) +
+              (source === "asm" ? 0 : external.newItems.length)
+            }
             noun="post"
             onClick={showNewPosts}
           />

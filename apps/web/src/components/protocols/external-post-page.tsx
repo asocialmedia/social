@@ -2,7 +2,7 @@
 
 import { externalPostSchema } from "@asm/protocols/discovery";
 import { Button } from "@asm/ui/shadui/button";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft } from "lucide-react";
 import { useSearchParams, useRouter } from "next/navigation";
 
@@ -23,8 +23,26 @@ export function ExternalPostPage() {
   const uri = params.get("uri") ?? "";
   const { user } = useSession();
   const router = useRouter();
+  const queryClient = useQueryClient();
 
   const query = useQuery({
+    initialData: () => {
+      for (const entry of queryClient.getQueriesData<{
+        pages: { items: unknown[] }[];
+      }>({ queryKey: ["bluesky-discovery"] })) {
+        if (entry[0][2] !== (user?.id ?? "guest")) {
+          continue;
+        }
+        for (const page of entry[1]?.pages ?? []) {
+          for (const item of page.items) {
+            const result = externalPostSchema.safeParse(item);
+            if (result.success && result.data.id === uri) {
+              return result.data;
+            }
+          }
+        }
+      }
+    },
     queryFn: async ({ signal }) => {
       const response = await fetch(
         `/api/protocols/bluesky/interactions?${new URLSearchParams({ uri })}`,
@@ -40,6 +58,7 @@ export function ExternalPostPage() {
     },
     queryKey: ["external-post", uri, user?.id ?? "guest"],
     retry: false,
+    staleTime: 30_000,
   });
 
   if (query.isPending) {

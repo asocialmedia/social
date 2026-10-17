@@ -114,7 +114,7 @@ describe("findTopAnchor", () => {
 
     expect(findTopAnchor(asElement(container))).toEqual({
       id: "top",
-      offset: 0,
+      offset: -50,
     });
   });
 
@@ -180,6 +180,18 @@ describe("findAnchorElement", () => {
 });
 
 describe("computeAnchorScrollTop", () => {
+  test("keeps a partially read post at its original offset instead of snapping its top into view", () => {
+    const container = new FakeNode();
+    container.scrollTop = 1200;
+    container.rect = { bottom: 800, top: 0 };
+    expect(
+      computeAnchorScrollTop(
+        asElement(container),
+        asElement(postCard("p1", -153, 400)),
+        -153
+      )
+    ).toBe(1200);
+  });
   test("repositions the anchor to its saved offset despite drift above", () => {
     const container = new FakeNode();
     container.scrollTop = 1200;

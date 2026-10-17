@@ -844,13 +844,23 @@ const SingleImagePreview = ({
   }, [media, natural, hasStoredDims]);
 
   const dims = natural;
+  const ratio = mediaAspect(
+    dims ? { height: dims.h, width: dims.w } : media,
+    animated ? 1 : 4 / 3
+  );
+  const frameStyle = {
+    aspectRatio: ratio,
+    width: `min(100%, calc(var(--preview-max-height) * ${ratio}))`,
+  };
+  const frameClassName =
+    "relative max-w-full overflow-hidden rounded-xl [--preview-max-height:380px] sm:[--preview-max-height:480px]";
 
   if (isFailed) {
     return (
-      <div className="bg-muted/20 relative flex max-h-95 w-full items-center justify-center overflow-hidden rounded-xl sm:max-h-120">
+      <div className={cn(frameClassName, "bg-muted/20")} style={frameStyle}>
         <Image
           alt="Attachment unavailable"
-          className="h-auto max-h-95 w-full object-contain opacity-60 sm:max-h-120"
+          className="h-full w-full object-contain opacity-60"
           height={600}
           sizes="(max-width: 768px) 100vw, 640px"
           src={noMediaImage}
@@ -860,33 +870,14 @@ const SingleImagePreview = ({
     );
   }
 
-  // Single images always show full height without cropping (no object-cover
-  // + w-full). Height-capped and left-pinned with w-fit so the frame
-  // shrink-wraps to the image width - matches vertical post behaviour: full
-  // height visible, right gap is fine, wide images still expand to near-full
-  // width via w-auto max-w-full.
+  // Reserve the same frame as the loading skeleton before image bytes arrive.
   const previewContent = (
     <div
       className={cn(
-        "bg-muted/20 relative block overflow-hidden rounded-xl shadow-xs transition-shadow duration-300 hover:shadow-md",
-        // All single images are height-capped and left-pinned with w-fit so the
-        // frame shrink-wraps to the image width. This prevents top/bottom
-        // cropping (object-cover + w-full) and matches vertical post behaviour:
-        // show full height, left-aligned, right gap is fine.
-        animated
-          ? "w-full max-sm:w-[min(100%,calc(380px*var(--media-aspect)))] sm:w-fit"
-          : "w-fit max-w-full"
+        frameClassName,
+        "bg-muted/20 shadow-xs transition-shadow duration-300 hover:shadow-md"
       )}
-      style={
-        animated
-          ? ({
-              "--media-aspect": mediaAspect(
-                dims ? { height: dims.h, width: dims.w } : media,
-                1
-              ),
-            } as React.CSSProperties)
-          : undefined
-      }
+      style={frameStyle}
     >
       {isLoading ? (
         <div className="bg-muted/40 absolute inset-0 animate-pulse rounded-xl" />
@@ -895,10 +886,7 @@ const SingleImagePreview = ({
       <img
         alt="Attachment"
         className={cn(
-          "rounded-xl object-contain",
-          "h-auto max-h-95 w-auto max-w-full sm:max-h-120",
-          animated &&
-            "max-sm:aspect-[var(--media-aspect)] max-sm:max-h-none max-sm:w-full",
+          "block h-full w-full rounded-xl object-contain",
           isLoading ? "opacity-0" : "asm-media-reveal"
         )}
         decoding="async"
@@ -933,10 +921,7 @@ const SingleImagePreview = ({
   return interactive ? (
     <button
       aria-label="View attachment"
-      className={cn(
-        "block max-w-full cursor-pointer text-left",
-        animated ? "w-full sm:w-fit" : "w-fit"
-      )}
+      className="block w-full max-w-full cursor-pointer text-left"
       onClick={onSelect}
       type="button"
     >
