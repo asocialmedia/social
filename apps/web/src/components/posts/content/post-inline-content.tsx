@@ -9,6 +9,7 @@ import type { ReactNode } from "react";
 import UserAvatar from "@/components/layouts/user/user-avatar";
 import type { LinkEmbed } from "@/lib/link-embeds/shared";
 import { INLINE_TOKEN_PATTERN } from "@/lib/posts/inline-meta";
+import { blueskyProfilePath } from "@/lib/protocols/paths";
 import { cn } from "@/lib/utils";
 
 import { LinkBadge, findEmbedForUrl, hostLabel } from "../embeds/link-badge";
@@ -26,6 +27,8 @@ import { LinkBadge, findEmbedForUrl, hostLabel } from "../embeds/link-badge";
 // Callers that want enriched mentions pass `renderMention`.
 
 const linkify = new LinkifyIt();
+const EXTERNAL_INLINE_TOKEN_PATTERN =
+  /@[a-zA-Z0-9_-]+(?:\.[a-zA-Z0-9_-]+)+|#[\p{L}\p{N}_-]+/gu;
 
 interface ContentSegment {
   text?: string;
@@ -54,10 +57,12 @@ function segmentContent(content: string): ContentSegment[] {
 // wrap this themselves via `renderMention`.
 export function InlineMentionChip({
   avatarUrl,
+  href,
   user,
   username,
 }: {
   avatarUrl?: string | null;
+  href?: string;
   // Mirrors UserAvatar's own `user` prop shape (avatarUrl required when
   // present) so a resolved UserData passes through without a cast.
   user?: {
@@ -70,7 +75,7 @@ export function InlineMentionChip({
   return (
     <Link
       className="meta-chip meta-chip-mention inline-flex max-w-full items-center gap-1.5 align-middle text-xs"
-      href={`/users/${username}`}
+      href={href ?? `/users/${username}`}
       onClick={(event) => event.stopPropagation()}
     >
       <UserAvatar
@@ -138,24 +143,49 @@ export function PostInlineContent({
     >
       {segments.map((segment, index) => {
         if (segment.url === undefined) {
-          return sourceSegments ? (
-            <span key={`text-${index}`}>{segment.text}</span>
-          ) : (
+          return (
             <InlineRichText
               key={`text-${index}`}
-              renderMention={renderMention}
+              external={Boolean(sourceSegments)}
+              renderMention={
+                sourceSegments
+                  ? (username) => (
+                      <InlineMentionChip
+                        href={blueskyProfilePath(username)}
+                        username={username}
+                      />
+                    )
+                  : renderMention
+              }
               text={segment.text ?? ""}
             />
           );
         }
+        if (sourceSegments && segment.text?.startsWith("@")) {
+          const destination = new URL(segment.url);
+          if (
+            destination.hostname === "bsky.app" &&
+            destination.pathname.startsWith("/profile/")
+          ) {
+            const actor = decodeURIComponent(
+              destination.pathname.slice("/profile/".length)
+            );
+            return (
+              <InlineMentionChip
+                key={`mention-${index}`}
+                href={blueskyProfilePath(actor)}
+                username={segment.text.slice(1)}
+              />
+            );
+          }
+        }
         let title = findEmbedForUrl(segment.url, embeds)?.title;
-        if (sourceSegments) {
-          title = segment.text;
-        } else if (linkBadge === "chip") {
+        if (linkBadge === "chip") {
           title = hostLabel(segment.url);
         }
         return (
           <LinkBadge
+            index={index}
             key={`${segment.url}-${index}`}
             title={title}
             url={segment.url}
@@ -189,8 +219,10 @@ function InlineMention({
 function InlineRichText({
   text,
   renderMention,
+  external = false,
 }: {
   text: string;
+  external?: boolean;
   renderMention?: (username: string) => ReactNode;
 }) {
   if (!text) {
@@ -199,7 +231,9 @@ function InlineRichText({
   const nodes: ReactNode[] = [];
   let cursor = 0;
   let key = 0;
-  for (const match of text.matchAll(INLINE_TOKEN_PATTERN)) {
+  for (const match of text.matchAll(
+    external ? EXTERNAL_INLINE_TOKEN_PATTERN : INLINE_TOKEN_PATTERN
+  )) {
     const [token] = match;
     const matchIndex = match.index ?? -1;
     if (matchIndex < 0) {

@@ -2,6 +2,8 @@ import { expect, test } from "bun:test";
 
 import type { ExternalPost } from "@asm/protocols/contracts";
 
+import { parseStoredEmbeds } from "@/lib/link-embeds/shared";
+
 import {
   getMediaImageSrcSet,
   getMediaImageUrl,
@@ -112,4 +114,20 @@ test("the shared gallery receives original remote images and HLS videos with the
   expect(video && getMediaProxyUrl(video)).toBe(
     "https://video.bsky.app/thumbnail.jpg"
   );
+});
+
+test("external link metadata uses native embeds including YouTube facades and sanitized URLs", () => {
+  const source = {
+    ...post,
+    externalLink: {
+      description: "Video description",
+      title: "Video title",
+      url: "https://youtu.be/dQw4w9WgXcQ?utm_source=bluesky",
+    },
+  };
+  const [embed] = parseStoredEmbeds(externalPostView(source).embeds);
+  expect(embed?.type).toBe("youtube");
+  expect(embed?.videoId).toBe("dQw4w9WgXcQ");
+  expect(embed?.siteName).toBe("youtu.be");
+  expect(embed?.url).toBe("https://youtu.be/dQw4w9WgXcQ");
 });

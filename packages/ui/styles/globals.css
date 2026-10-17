@@ -186,6 +186,35 @@
     background-color: var(--community-accent-dark);
   }
 
+  .btn-3d-bluesky {
+    color: white;
+    font-weight: 600;
+    background: linear-gradient(to bottom, #159dff, #0866df);
+    box-shadow:
+      inset 0 0 0 1px rgb(255 255 255 / 28%),
+      inset 0 1.5px 2px rgb(255 255 255 / 50%),
+      0 0 0 1px #0758bf,
+      0 1px 1px rgb(255 255 255 / 45%),
+      0 4px 10px -3px rgb(0 70 180 / 35%);
+    transition:
+      background 150ms,
+      transform 150ms;
+  }
+
+  .btn-3d-bluesky:hover {
+    background: linear-gradient(to bottom, #39adff, #0875ee);
+    transform: translateY(-1px);
+  }
+
+  .btn-3d-bluesky:active {
+    transform: translateY(1px);
+  }
+
+  .btn-3d-bluesky:focus-visible {
+    outline: 2px solid #159dff;
+    outline-offset: 3px;
+  }
+
   .btn-3d {
     font-size: 18px;
     font-weight: 600;

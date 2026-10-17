@@ -1,6 +1,11 @@
 import type { PostData, UserData } from "@asm/db";
 import type { ExternalPost, ExternalAuthor } from "@asm/protocols/contracts";
 
+import {
+  sanitizeEmbedUrl,
+  youtubeVideoIdFromUrl,
+} from "@/lib/link-embeds/shared";
+
 export type PresentedPost = PostData & { external?: ExternalPost };
 
 // This is a rendering model. Its external tag keeps protocol identities out of native mutations.
@@ -36,9 +41,17 @@ export function externalPostView(post: ExternalPost): PresentedPost {
           {
             description: post.externalLink.description,
             imageUrl: post.externalLink.thumbnailUrl ?? null,
+            siteName: new URL(post.externalLink.url).hostname.replace(
+              /^www\./u,
+              ""
+            ),
             title: post.externalLink.title,
-            type: "link",
-            url: post.externalLink.url,
+            type: youtubeVideoIdFromUrl(post.externalLink.url)
+              ? "youtube"
+              : "link",
+            url:
+              sanitizeEmbedUrl(post.externalLink.url) ?? post.externalLink.url,
+            videoId: youtubeVideoIdFromUrl(post.externalLink.url),
           },
         ]
       : null,

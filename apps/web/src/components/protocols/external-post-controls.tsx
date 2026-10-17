@@ -7,7 +7,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@asm/ui/shadui/dropdown-menu";
-import { ArrowUpRight, EyeOff, MoreHorizontal, VolumeX } from "lucide-react";
+import { EyeOff, MoreHorizontal, VolumeX } from "lucide-react";
 
 import { FEED_POST_ACTION } from "@/components/home/feedview/feed-post-surface";
 import ShareButton from "@/components/home/feedview/share-button";
@@ -18,6 +18,7 @@ import { useRequireAuth } from "@/hooks/auth/use-require-auth";
 import { getPostUrl } from "@/lib/posts/post-url";
 import { useComposerStore } from "@/store/composer-store";
 
+import { BlueskyIcon } from "./bluesky-icon";
 import { useExternalFeedback } from "./use-external-feedback";
 import { useExternalInteractions } from "./use-external-interactions";
 
@@ -164,7 +165,7 @@ export function ExternalPostMenu({
         </DropdownMenuItem>
         <DropdownMenuItem asChild>
           <a href={post.url} rel="noopener noreferrer" target="_blank">
-            <ArrowUpRight className="size-4" />
+            <BlueskyIcon tooltip={false} />
             Open on Bluesky
           </a>
         </DropdownMenuItem>

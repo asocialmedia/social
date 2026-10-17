@@ -11,10 +11,12 @@ export { BlueskyIcon } from "./bluesky-icon";
 export function BlueskyPostCard({
   post,
   detail = false,
+  isJoined = true,
 }: {
   post: ExternalPost;
   detail?: boolean;
+  isJoined?: boolean;
 }) {
   const presentation = useMemo(() => externalPostView(post), [post]);
-  return <PostCard detail={detail} post={presentation} />;
+  return <PostCard detail={detail} isJoined={isJoined} post={presentation} />;
 }

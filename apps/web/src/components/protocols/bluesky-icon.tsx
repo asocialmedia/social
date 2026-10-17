@@ -1,8 +1,50 @@
-export function BlueskyIcon() {
+"use client";
+
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@asm/ui/shadui/tooltip";
+
+import { cn } from "@/lib/utils";
+
+export function BlueskyIcon({
+  className,
+  tooltip = true,
+}: {
+  className?: string;
+  tooltip?: boolean;
+}) {
+  const icon = <BlueskyMark className={className} />;
+  if (!tooltip) {
+    return icon;
+  }
+  return (
+    <TooltipProvider delayDuration={250}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span
+            aria-label="From Bluesky"
+            className="inline-flex shrink-0 items-center"
+          >
+            {icon}
+          </span>
+        </TooltipTrigger>
+        <TooltipContent>
+          This person and their posts come from Bluesky. ASM interactions stay
+          on ASM.
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
+
+function BlueskyMark({ className }: { className?: string }) {
   return (
     <svg
       aria-hidden="true"
-      className="size-4 shrink-0 text-sky-500"
+      className={cn("size-4 shrink-0 text-sky-500", className)}
       fill="currentColor"
       viewBox="0 0 24 24"
     >

@@ -3,7 +3,7 @@
 import type { UserCommunityRole, UserData } from "@asm/db";
 import type { ExternalAuthor } from "@asm/protocols/contracts";
 import { formatDate } from "date-fns";
-import { CalendarDays, Flame, Globe, MessageCircle } from "lucide-react";
+import { CalendarDays, Flame, Globe, Info, MessageCircle } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import { useCallback, useState } from "react";
@@ -137,12 +137,13 @@ const ProfileHeader: React.FC<ProfileHeaderProps> = ({
   } else if (external) {
     profileActions = (
       <a
-        className="btn-3d-gray inline-flex h-9 items-center rounded-full px-4 text-sm"
+        className="btn-3d-bluesky inline-flex h-9 items-center gap-2 rounded-full px-3 text-xs whitespace-nowrap sm:px-4 sm:text-sm"
         href={external.url}
         rel="noopener noreferrer"
         target="_blank"
       >
-        Open on Bluesky
+        <BlueskyIcon className="text-white" tooltip={false} />
+        Visit on Bluesky
       </a>
     );
   } else {
@@ -360,6 +361,17 @@ const ProfileHeader: React.FC<ProfileHeaderProps> = ({
             </>
           )}
         </div>
+        {external ? (
+          <p className="text-muted-foreground flex min-w-0 items-center gap-1.5 pb-4 text-xs">
+            <Info className="size-3.5 shrink-0" />
+            <span
+              className="truncate"
+              title="This profile is from Bluesky. Interactions here stay on ASM."
+            >
+              This profile is from Bluesky. Interactions here stay on ASM.
+            </span>
+          </p>
+        ) : null}
       </div>
     </div>
   );
