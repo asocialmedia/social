@@ -552,7 +552,7 @@ export default function HomeFeed({
         ) : null}
         {includeBluesky && external.isPending && hasAnyPosts ? (
           <div aria-label="Loading Bluesky posts" aria-busy="true">
-            <LoadMoreSkeleton count={2} source="bluesky" />
+            <LoadMoreSkeleton count={4} source="bluesky" />
           </div>
         ) : null}
         {hasAnyPosts ? (
@@ -568,7 +568,7 @@ export default function HomeFeed({
           />
         ) : null}
         {isFetchingNextPage ? (
-          <LoadMoreSkeleton count={2} source={nextSkeletonSource} />
+          <LoadMoreSkeleton count={4} source={nextSkeletonSource} />
         ) : null}
         {hasNextPage && !isFetchingNextPage ? (
           <div className="flex justify-center p-4">

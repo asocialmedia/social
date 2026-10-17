@@ -4,13 +4,34 @@ import { renderToString } from "react-dom/server";
 
 import FeedViewSkeleton from "./feed-view-skeleton";
 import LoadMoreSkeleton from "./load-more-skeleton";
-import { PostCardSkeleton } from "./post-card-skeleton";
+import {
+  DYNAMIC_SKELETON_PROFILES,
+  PostCardSkeleton,
+} from "./post-card-skeleton";
 
 describe("post skeletons", () => {
-  test("unknown next-page posts use neutral cards without inventing an album", () => {
-    const html = renderToString(<LoadMoreSkeleton />);
-    expect(html.match(/data-post-skeleton="unknown"/g)).toHaveLength(2);
+  test("neutral mode produces neutral cards without media placeholders", () => {
+    const html = renderToString(<LoadMoreSkeleton dynamic={false} />);
+    expect(html.match(/data-post-skeleton="unknown"/g)).toHaveLength(4);
     expect(html).not.toContain("data-skeleton-media");
+  });
+
+  test("initial FeedViewSkeleton renders dynamic post shapes (albums, text, landscape, vertical)", () => {
+    const html = renderToString(<FeedViewSkeleton count={8} />);
+    expect(html).toContain('data-skeleton-media="album"');
+    expect(html).toContain('data-post-skeleton="text"');
+    expect(html).toContain('data-skeleton-media="image"');
+    expect(html).toContain('data-skeleton-media="vertical"');
+  });
+
+  test("LoadMoreSkeleton defaults to at least 4 items with varied dynamic post types", () => {
+    const html = renderToString(<LoadMoreSkeleton />);
+    const cards = html.match(/data-post-skeleton=/g);
+    expect(cards).toHaveLength(4);
+    expect(html).toContain('data-skeleton-media="album"');
+    expect(html).toContain('data-post-skeleton="text"');
+    expect(html).toContain('data-skeleton-media="image"');
+    expect(html).toContain('data-skeleton-media="vertical"');
   });
 
   test("text-only posts have no media placeholder", () => {
@@ -68,12 +89,20 @@ describe("post skeletons", () => {
     expect(matches).toHaveLength(4);
   });
 
-  test("LoadMoreSkeleton with source=bluesky renders scroll loading state for Bluesky", () => {
+  test("LoadMoreSkeleton with source=bluesky renders scroll loading state for Bluesky with 4 items", () => {
     const html = renderToString(
-      <LoadMoreSkeleton count={3} source="bluesky" />
+      <LoadMoreSkeleton count={4} source="bluesky" />
     );
     expect(html).toContain('aria-label="Loading Bluesky posts"');
     const matches = html.match(/aria-label="Loading Bluesky post"/g);
-    expect(matches).toHaveLength(3);
+    expect(matches).toHaveLength(4);
+  });
+
+  test("DYNAMIC_SKELETON_PROFILES defines album, text, image, and vertical varieties", () => {
+    const kinds = new Set(DYNAMIC_SKELETON_PROFILES.map((p) => p.kind));
+    expect(kinds.has("album")).toBe(true);
+    expect(kinds.has("text")).toBe(true);
+    expect(kinds.has("image")).toBe(true);
+    expect(kinds.has("vertical")).toBe(true);
   });
 });

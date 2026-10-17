@@ -2,29 +2,104 @@ import type { FeedSource } from "@asm/protocols/discovery";
 import { postPreviewLayout } from "@asm/ui/lib/post-preview-layout";
 import type { PostPreviewSource } from "@asm/ui/lib/post-preview-layout";
 import { Skeleton } from "@asm/ui/shadui/skeleton";
+import type * as React from "react";
 
 import { BlueskyIcon } from "@/components/protocols/bluesky-icon";
 import { cn } from "@/lib/utils";
 
+export interface DynamicSkeletonProfile {
+  albumCount?: number;
+  aspectRatio?: number;
+  kind: "album" | "image" | "vertical" | "text" | "unknown";
+  textLines: number;
+}
+
+// Varied profiles representing realistic feed posts: albums, text, landscape images, and vertical portraits.
+export const DYNAMIC_SKELETON_PROFILES: readonly DynamicSkeletonProfile[] = [
+  // 0: Multi-image album (2 images) with 2 lines of text
+  {
+    albumCount: 2,
+    aspectRatio: 3 / 2,
+    kind: "album",
+    textLines: 2,
+  },
+  // 1: Pure text post (4 lines of text)
+  {
+    kind: "text",
+    textLines: 4,
+  },
+  // 2: Single landscape image (16:9) with 2 lines of text
+  {
+    aspectRatio: 16 / 9,
+    kind: "image",
+    textLines: 2,
+  },
+  // 3: Vertical / portrait image (3:4) with 1 line of text
+  {
+    aspectRatio: 3 / 4,
+    kind: "vertical",
+    textLines: 1,
+  },
+  // 4: Multi-image album (4 images grid) with 1 line of text
+  {
+    albumCount: 4,
+    aspectRatio: 1,
+    kind: "album",
+    textLines: 1,
+  },
+  // 5: Text-only post (3 lines of text)
+  {
+    kind: "text",
+    textLines: 3,
+  },
+  // 6: Single standard image (4:3) with 2 lines of text
+  {
+    aspectRatio: 4 / 3,
+    kind: "image",
+    textLines: 2,
+  },
+  // 7: Vertical / portrait image (4:5) with 2 lines of text
+  {
+    aspectRatio: 4 / 5,
+    kind: "vertical",
+    textLines: 2,
+  },
+] as const;
+
 export function PostMediaSkeleton({
   post,
+  profile,
 }: {
   post?: PostPreviewSource | null;
+  profile?: DynamicSkeletonProfile | null;
 }) {
   const layout = postPreviewLayout(post);
-  if (["text", "unknown"].includes(layout.kind)) {
+  const effectiveKind = post ? layout.kind : (profile?.kind ?? layout.kind);
+  if (["text", "unknown"].includes(effectiveKind)) {
     return null;
   }
-  if (layout.kind === "album") {
+  if (effectiveKind === "album") {
+    const count =
+      profile?.albumCount ?? (layout.kind === "album" ? layout.count : 2);
+    const isTwo = count <= 2;
     return (
-      <div className="mt-3 grid grid-cols-2 gap-2" data-skeleton-media="album">
-        {Array.from({ length: Math.min(layout.count, 5) }, (_, index) => (
-          <Skeleton className="h-32 rounded-xl sm:h-40" key={index} />
+      <div
+        className="mt-3 grid grid-cols-2 gap-2 transition-all duration-500 ease-in-out"
+        data-skeleton-media="album"
+      >
+        {Array.from({ length: Math.min(count, 4) }, (_, index) => (
+          <Skeleton
+            className={cn(
+              "rounded-xl transition-all duration-500 ease-in-out",
+              isTwo ? "h-36 sm:h-44" : "h-28 sm:h-36"
+            )}
+            key={index}
+          />
         ))}
       </div>
     );
   }
-  if (layout.kind === "audio") {
+  if (effectiveKind === "audio") {
     return (
       <div
         className="mt-3 flex h-20 items-center gap-3 rounded-xl p-3"
@@ -38,13 +113,29 @@ export function PostMediaSkeleton({
       </div>
     );
   }
+  if (effectiveKind === "vertical") {
+    const ratio = profile?.aspectRatio ?? 3 / 4;
+    return (
+      <Skeleton
+        className="mt-3 max-w-full rounded-xl transition-all duration-500 ease-in-out [--preview-max-height:360px] sm:[--preview-max-height:440px]"
+        data-skeleton-media="vertical"
+        style={{
+          aspectRatio: ratio,
+          width: `min(100%, calc(var(--preview-max-height) * ${ratio}))`,
+        }}
+      />
+    );
+  }
+  const ratio = post
+    ? layout.aspectRatio
+    : (profile?.aspectRatio ?? (effectiveKind === "image" ? 16 / 9 : 4 / 3));
   return (
     <Skeleton
-      className="mt-3 max-w-full rounded-xl [--preview-max-height:380px] sm:[--preview-max-height:480px]"
-      data-skeleton-media={layout.kind}
+      className="mt-3 max-w-full rounded-xl transition-all duration-500 ease-in-out [--preview-max-height:320px] sm:[--preview-max-height:400px]"
+      data-skeleton-media={effectiveKind}
       style={{
-        aspectRatio: layout.aspectRatio,
-        width: `min(100%, calc(var(--preview-max-height) * ${layout.aspectRatio}))`,
+        aspectRatio: ratio,
+        width: `min(100%, calc(var(--preview-max-height) * ${ratio}))`,
       }}
     />
   );
@@ -53,10 +144,13 @@ export function PostMediaSkeleton({
 export interface PostCardSkeletonProps {
   className?: string;
   detail?: boolean;
+  dynamic?: boolean;
   index?: number;
   isBluesky?: boolean;
   post?: PostPreviewSource | null;
+  profile?: DynamicSkeletonProfile | null;
   source?: FeedSource;
+  style?: React.CSSProperties;
 }
 
 function getLineSkeletonWidth(lineIndex: number, lineCount: number): string {
@@ -72,10 +166,13 @@ function getLineSkeletonWidth(lineIndex: number, lineCount: number): string {
 export function PostCardSkeleton({
   className,
   detail = false,
+  dynamic = true,
   index = 0,
   isBluesky,
   post,
+  profile,
   source,
+  style,
 }: PostCardSkeletonProps) {
   const layout = postPreviewLayout(post);
   const isBsky =
@@ -83,20 +180,37 @@ export function PostCardSkeleton({
     (source === "bluesky" ||
       Boolean(post && "external" in post && post.external));
 
-  let lineCount = index % 3 === 1 ? 3 : 2;
+  const effectiveProfile: DynamicSkeletonProfile | undefined =
+    profile ??
+    (!post && dynamic
+      ? DYNAMIC_SKELETON_PROFILES[index % DYNAMIC_SKELETON_PROFILES.length]
+      : undefined);
+
+  let lineCount = 2;
   if (post && typeof post.content === "string") {
     lineCount = layout.textLines;
+  } else if (effectiveProfile) {
+    lineCount = effectiveProfile.textLines;
+  } else {
+    lineCount = index % 3 === 1 ? 3 : 2;
   }
+
+  const effectiveKind = post
+    ? layout.kind
+    : (effectiveProfile?.kind ?? layout.kind);
 
   const content = (
     <div className={cn("space-y-2", detail ? "mt-3 sm:mt-3.5" : "mt-1")}>
       {Array.from({ length: lineCount }, (_, lineIndex) => (
         <Skeleton
-          className={cn("h-4", getLineSkeletonWidth(lineIndex, lineCount))}
+          className={cn(
+            "h-4 transition-all duration-500 ease-in-out",
+            getLineSkeletonWidth(lineIndex, lineCount)
+          )}
           key={lineIndex}
         />
       ))}
-      <PostMediaSkeleton post={post} />
+      <PostMediaSkeleton post={post} profile={effectiveProfile} />
       {/* Mobile action bar: full-width space-between matching PostCard */}
       <div className="mt-3 flex w-full items-center justify-between sm:hidden">
         <Skeleton className="h-7 w-12 rounded-full" />
@@ -132,10 +246,11 @@ export function PostCardSkeleton({
       aria-busy="true"
       aria-label={isBsky ? "Loading Bluesky post" : "Loading post"}
       className={cn(
-        "group/post relative min-w-0 overflow-hidden rounded-none bg-[hsl(var(--background-alt))] p-4",
+        "group/post relative min-w-0 overflow-hidden rounded-none bg-[hsl(var(--background-alt))] p-4 transition-all duration-500 ease-in-out",
         className
       )}
-      data-post-skeleton={layout.kind}
+      data-post-skeleton={effectiveKind}
+      style={style}
     >
       {detail ? (
         <>
