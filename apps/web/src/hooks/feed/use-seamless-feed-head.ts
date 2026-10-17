@@ -16,9 +16,11 @@ export function useSeamlessFeedHead({
 }) {
   const latest = useRef({ count, merge, probe });
   const requestedAt = useRef(0);
+
   useEffect(() => {
     latest.current = { count, merge, probe };
   }, [count, merge, probe]);
+
   useEffect(() => {
     if (!enabled || !root.current) {
       return;
@@ -36,8 +38,28 @@ export function useSeamlessFeedHead({
     const scrollContainer = container;
     let previous = scrollContainer.scrollTop;
     let lastProbe = 0;
+
+    const getFeedHeadOffset = () => {
+      if (!root.current || !scrollContainer) {
+        return 0;
+      }
+      const rootRect = root.current.getBoundingClientRect();
+      const containerRect = scrollContainer.getBoundingClientRect();
+      return Math.max(
+        0,
+        rootRect.top - containerRect.top + scrollContainer.scrollTop
+      );
+    };
+
+    const isAtHead = (top: number, feedHeadOffset: number) =>
+      top <= feedHeadOffset + 48;
+
     const requestHead = () => {
-      if (scrollContainer.scrollTop > 16 || !root.current?.checkVisibility()) {
+      const feedHeadOffset = getFeedHeadOffset();
+      if (
+        !isAtHead(scrollContainer.scrollTop, feedHeadOffset) ||
+        !root.current?.checkVisibility()
+      ) {
         return;
       }
       requestedAt.current = Date.now();
@@ -50,29 +72,40 @@ export function useSeamlessFeedHead({
         void latest.current.probe();
       }
     };
+
     const onScroll = () => {
       const top = scrollContainer.scrollTop;
-      if (top < previous) {
+      const feedHeadOffset = getFeedHeadOffset();
+      if (top < previous && isAtHead(top, feedHeadOffset)) {
         requestHead();
       }
-      if (top > 16) {
+      if (!isAtHead(top, feedHeadOffset)) {
         requestedAt.current = 0;
       }
       previous = top;
     };
+
     const onWheel = (event: WheelEvent) => {
-      if (event.deltaY < 0) {
+      const feedHeadOffset = getFeedHeadOffset();
+      if (
+        event.deltaY < 0 &&
+        isAtHead(scrollContainer.scrollTop, feedHeadOffset)
+      ) {
         requestHead();
       }
     };
+
     const onTouchEnd = () => {
-      if (scrollContainer.scrollTop <= 16) {
+      const feedHeadOffset = getFeedHeadOffset();
+      if (isAtHead(scrollContainer.scrollTop, feedHeadOffset)) {
         requestHead();
       }
     };
+
     scrollContainer.addEventListener("scroll", onScroll, { passive: true });
     scrollContainer.addEventListener("wheel", onWheel, { passive: true });
     scrollContainer.addEventListener("touchend", onTouchEnd, { passive: true });
+
     return () => {
       requestedAt.current = 0;
       scrollContainer.removeEventListener("scroll", onScroll);
@@ -80,6 +113,7 @@ export function useSeamlessFeedHead({
       scrollContainer.removeEventListener("touchend", onTouchEnd);
     };
   }, [enabled, root]);
+
   useEffect(() => {
     if (
       enabled &&

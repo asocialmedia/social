@@ -294,7 +294,12 @@ export const FeedView: React.FC<FeedViewProps> = ({
     <div className="flex flex-col">
       {mixedGroups.map((entry) => {
         if (entry.kind === "bluesky") {
-          return <BlueskyPostCard key={entry.id} post={entry.value} />;
+          return (
+            <div className="flex flex-col" key={entry.id}>
+              <BlueskyPostCard isJoined={true} post={entry.value} />
+              <Separator className="bg-border/60" />
+            </div>
+          );
         }
         const group = entry.value;
         return (

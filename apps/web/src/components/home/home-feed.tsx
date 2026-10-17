@@ -1,6 +1,7 @@
 "use client";
 
 import type { PostsPage } from "@asm/db";
+import type { FeedSource } from "@asm/protocols/discovery";
 import {
   discoveryMode,
   feedAvailability,
@@ -329,12 +330,23 @@ export default function HomeFeed({
   // Merge the probed posts straight into the head of the cached feed, then
   // bring the viewer up to meet them. No refetch and no skeleton: the feed is
   // already on screen, we only reveal what the probe found.
+  // Merge the probed posts straight into the head of the cached feed, then
+  // optionally bring the viewer up to meet them.
+  const revealNewPosts = useCallback(
+    (opts: { scrollToTop?: boolean } = {}) => {
+      clearNewItems();
+      prependPostsToFeedCache(queryClient, queryKey, newPosts);
+      external.showNewItems();
+      if (opts.scrollToTop) {
+        scrollFeedToTop(feedRootRef.current);
+      }
+    },
+    [clearNewItems, newPosts, queryClient, queryKey, external]
+  );
+
   const showNewPosts = useCallback(() => {
-    clearNewItems();
-    prependPostsToFeedCache(queryClient, queryKey, newPosts);
-    external.showNewItems();
-    scrollFeedToTop(feedRootRef.current);
-  }, [clearNewItems, newPosts, queryClient, queryKey, external]);
+    revealNewPosts({ scrollToTop: true });
+  }, [revealNewPosts]);
 
   // A community segment that is still loading leads the render; a failed
   // community fetch degrades to the global feed rather than blanking the page,
@@ -362,7 +374,7 @@ export default function HomeFeed({
       (source === "bluesky" ? 0 : newPosts.length) +
       (source === "asm" ? 0 : external.newItems.length),
     enabled: !excludePostId && !communitySlug && hasAnyPosts,
-    merge: showNewPosts,
+    merge: () => revealNewPosts({ scrollToTop: false }),
     probe: () =>
       Promise.all([
         probeNow(),
@@ -400,7 +412,7 @@ export default function HomeFeed({
   // community segment renders immediately even if the global feed is still in
   // flight behind it.
   if (availability === "loading") {
-    return <FeedViewSkeleton />;
+    return <FeedViewSkeleton source={source} />;
   }
 
   let emptyTitle = "No personalized Fleets to show here.";
@@ -458,13 +470,20 @@ export default function HomeFeed({
     globalInitialLoading ||
     external.isFetchingNextPage;
 
+  let nextSkeletonSource: FeedSource = "all";
+  if (external.isFetchingNextPage) {
+    nextSkeletonSource = "bluesky";
+  } else if (isFetchingNextGlobalPage) {
+    nextSkeletonSource = source;
+  }
+
   return (
     <div className="relative" ref={feedRootRef}>
       {!excludePostId &&
       !communitySlug &&
       ((source !== "bluesky" && newPosts.length > 0) ||
         (source !== "asm" && external.newItems.length > 0)) ? (
-        <div className="pointer-events-none sticky top-3 z-20 flex h-0 items-start justify-center">
+        <div className="pointer-events-none sticky top-3 z-20 -mb-10 flex justify-center">
           <NewContentPill
             authors={[
               ...new Map([
@@ -526,7 +545,7 @@ export default function HomeFeed({
         ) : null}
         {includeBluesky && external.isPending && hasAnyPosts ? (
           <div aria-label="Loading Bluesky posts" aria-busy="true">
-            <LoadMoreSkeleton />
+            <LoadMoreSkeleton count={2} source="bluesky" />
           </div>
         ) : null}
         {hasAnyPosts ? (
@@ -541,7 +560,9 @@ export default function HomeFeed({
             sortBy={isTrending || isPersonalized ? "server" : "newest"}
           />
         ) : null}
-        {isFetchingNextPage ? <LoadMoreSkeleton /> : null}
+        {isFetchingNextPage ? (
+          <LoadMoreSkeleton count={2} source={nextSkeletonSource} />
+        ) : null}
         {hasNextPage && !isFetchingNextPage ? (
           <div className="flex justify-center p-4">
             <Button onClick={handleBottomReached} variant="ghost">

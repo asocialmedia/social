@@ -392,24 +392,28 @@ const PostContent: React.FC<PostContentProps> = ({
   const mediaAndEmbedsTopMargin =
     attachments.length > 0 && !post.content?.trim() ? "mt-3.5" : "mt-2.5";
 
-  const updateOverflow = useCallback(() => {
-    const el = contentRef.current;
-    if (!el) {
+  useEffect(() => {
+    const element = contentRef.current;
+    if (!element) {
       return;
     }
-    // 6 lines at ~24px line-height = 144px threshold
-    setIsOverflowing(el.scrollHeight > 144);
-  }, []);
-
-  useEffect(() => {
-    // Only check if content is long enough to potentially overflow
-    if (post.content && post.content.length > 150) {
-      updateOverflow();
+    const measure = () => {
+      const prose = element.firstElementChild;
+      const lineHeight = prose
+        ? Number(getComputedStyle(prose).lineHeight.replace("px", ""))
+        : 24;
+      setIsOverflowing(element.scrollHeight > 6 * (lineHeight || 24) + 1);
+    };
+    // Expansion and content changes require a fresh measurement even at the same width.
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    if (element.firstElementChild) {
+      observer.observe(element.firstElementChild);
     }
-    // isExpanded is a trigger only: expanding must re-measure even though
-    // the value itself is not read here.
-    // eslint-disable-next-line react/exhaustive-effect-dependencies -- re-measure on expand/collapse
-  }, [isExpanded, post.content, updateOverflow]);
+    return () => observer.disconnect();
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies
+  }, [isExpanded, post.content]);
 
   const authorUsername = post.user?.username || "unknown";
   const authorDisplayName = post.user?.displayName || authorUsername;
@@ -561,7 +565,11 @@ const PostContent: React.FC<PostContentProps> = ({
               {isOverflowing ? (
                 <button
                   className="text-primary mt-1 cursor-pointer text-sm font-medium hover:underline"
-                  onClick={onToggleExpand}
+                  aria-expanded={isExpanded}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onToggleExpand();
+                  }}
                   type="button"
                 >
                   {isExpanded ? "Show less" : "Show more"}

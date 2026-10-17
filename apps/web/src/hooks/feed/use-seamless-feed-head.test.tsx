@@ -71,3 +71,100 @@ test("a feed that mounts after loading merges buffered posts only when returning
   });
   host.remove();
 });
+
+test("scrolling downwards never merges buffered posts", async () => {
+  const host = dom.document.createElement("div");
+  host.style.overflowY = "auto";
+  dom.document.body.append(host);
+  const root = createRoot(host as unknown as HTMLElement);
+  const merge = mock(() => null);
+  const probe = mock(() => Promise.resolve());
+  function Feed() {
+    const ref = useRef<HTMLDivElement>(null);
+    useSeamlessFeedHead({ count: 5, enabled: true, merge, probe, root: ref });
+    return <div ref={ref}>Posts</div>;
+  }
+  await act(() => {
+    root.render(<Feed />);
+  });
+  // Scrolling down from 0 to 200 should not trigger merge
+  await act(() => {
+    host.scrollTop = 200;
+    host.dispatchEvent(new dom.Event("scroll"));
+  });
+  expect(merge).toHaveBeenCalledTimes(0);
+  await act(() => {
+    root.unmount();
+  });
+  host.remove();
+});
+
+test("a feed sitting below a composer merges buffered posts when scrolling up to the feed boundary", async () => {
+  const host = dom.document.createElement("div");
+  host.style.overflowY = "auto";
+  dom.document.body.append(host);
+  const root = createRoot(host as unknown as HTMLElement);
+  const merge = mock(() => null);
+  const probe = mock(() => Promise.resolve());
+  function FeedWithComposer() {
+    const feedRef = useRef<HTMLDivElement>(null);
+    useSeamlessFeedHead({
+      count: 3,
+      enabled: true,
+      merge,
+      probe,
+      root: feedRef,
+    });
+    return (
+      <div>
+        <div style={{ height: "200px" }}>Composer</div>
+        <div ref={feedRef}>Feed</div>
+      </div>
+    );
+  }
+  await act(() => {
+    root.render(<FeedWithComposer />);
+  });
+  // Mock bounding rects so feed is 200px below host container
+  const feedEl = host.querySelector("div > div:nth-child(2)") as HTMLElement;
+  if (feedEl) {
+    Object.defineProperty(host, "getBoundingClientRect", {
+      configurable: true,
+      value: () => ({
+        bottom: 600,
+        height: 600,
+        left: 0,
+        right: 800,
+        top: 0,
+        width: 800,
+      }),
+    });
+    Object.defineProperty(feedEl, "getBoundingClientRect", {
+      configurable: true,
+      value: () => ({
+        bottom: 200 - host.scrollTop + 500,
+        height: 500,
+        left: 0,
+        right: 800,
+        top: 200 - host.scrollTop,
+        width: 800,
+      }),
+    });
+  }
+  // User scrolls down into the feed
+  await act(() => {
+    host.scrollTop = 800;
+    host.dispatchEvent(new dom.Event("scroll"));
+  });
+  expect(merge).toHaveBeenCalledTimes(0);
+  // User scrolls back up to the feed boundary (200px)
+  await act(() => {
+    host.scrollTop = 200;
+    host.dispatchEvent(new dom.Event("scroll"));
+  });
+  expect(merge).toHaveBeenCalledTimes(1);
+  await act(() => {
+    root.unmount();
+  });
+  host.remove();
+});
