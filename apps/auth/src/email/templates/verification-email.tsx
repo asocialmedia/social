@@ -11,7 +11,6 @@ import {
   EmailCard,
   EmailDocument,
   FooterLinks,
-  HeroImage,
   PrimaryButton,
   SignOff,
   Step,
@@ -39,9 +38,10 @@ export const VerificationEmail = ({
     >
       <EmailCanvas>
         <BrandHeader />
-        <EmailCard footerImage={assets.emailFooter}>
-          <HeroImage alt={company.name} src={assets.welcomeHero} />
-
+        <EmailCard
+          footerImage={assets.emailFooter}
+          headerImage={assets.welcomeHero}
+        >
           <tr>
             <td style={{ padding: "0 4px" }}>
               <table
@@ -96,6 +96,7 @@ export const VerificationEmail = ({
                         body="Add a profile picture and a short bio so people know who they are following."
                         href={app.settingsProfile}
                         icon={assets.icons.account}
+                        iconAlt="Profile"
                         label="Edit your profile"
                         title="Make it yours"
                       />
@@ -108,6 +109,7 @@ export const VerificationEmail = ({
                         body="Follow the people whose work you like and join the communities that match your interests. Your For you feed sharpens from there."
                         href={app.discover}
                         icon={assets.icons.people}
+                        iconAlt="People"
                         label="Find people and communities"
                         title="Find your people"
                       />
@@ -120,6 +122,7 @@ export const VerificationEmail = ({
                         body="Post a Fleet, reply with an eddie, or share a short video Gust. Aura is earned for the contributions that genuinely help."
                         href={app.feed}
                         icon={assets.icons.compose}
+                        iconAlt="Compose"
                         label="Make your first Fleet"
                         title="Say something"
                       />
@@ -132,6 +135,7 @@ export const VerificationEmail = ({
                         body="Four feeds, one tap apart: For you, Trending, Latest and Following. Switch between them whenever you want."
                         href={app.feedTrending}
                         icon={assets.icons.feeds}
+                        iconAlt="Feeds"
                         label="Switch your feed"
                         title="Four feeds, your call"
                       />
@@ -141,7 +145,7 @@ export const VerificationEmail = ({
                   <SignOff>
                     See you out there,
                     <br />
-                    The {company.name} team
+                    The {company.name} team 🫶
                   </SignOff>
 
                   <AppDownload />
@@ -252,7 +256,7 @@ export const OTPVerificationEmail = ({ otp }: OTPVerificationEmailProps) => {
           <SignOff>
             See you out there,
             <br />
-            The {company.name} team
+            The {company.name} team 🫶
           </SignOff>
 
           <SupportNote>
@@ -359,7 +363,7 @@ export const TwoFactorOTPEmail = ({ otp }: TwoFactorOTPEmailProps) => {
           <SignOff>
             See you out there,
             <br />
-            The {company.name} team
+            The {company.name} team 🫶
           </SignOff>
 
           <SupportNote>

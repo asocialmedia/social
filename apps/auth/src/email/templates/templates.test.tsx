@@ -37,9 +37,9 @@ describe("email templates", () => {
   test("verification email ships the real store marks, not inline svg", async () => {
     const html = await getVerificationEmailHtml("http://localhost:3000/verify");
 
-    // Gmail strips inline SVG, so the marks ship as PNGs.
-    expect(html).toContain("/brand/email/play-store.png");
-    expect(html).toContain("/brand/email/github.png");
+    // Gmail strips inline SVG, so the marks ship as PNGs served from the CDN.
+    expect(html).toContain("https://cdn.asocialmedia.cc/email/play-store.png");
+    expect(html).toContain("https://cdn.asocialmedia.cc/email/github.png");
     expect(html).not.toContain("<svg");
   });
 
@@ -101,11 +101,20 @@ describe("email templates", () => {
       "http://localhost:3000/reset-password/confirm?token=t"
     );
 
-    expect(html).toContain("Password Reset Request");
+    expect(html).toContain("Reset your password");
     expect(html).toContain(
       "http://localhost:3000/reset-password/confirm?token=t"
     );
-    expect(html).toContain("zephyr-githubanner.jpg");
+    // On the shared card shell, framed with the enclosed wordmark header and
+    // the meadow footer.
+    expect(html).toContain("asm_email_header_transactional.png");
+    expect(html).toContain("asm_email_footer.png");
+    expect(html).not.toContain("zephyr-githubanner.jpg");
+    expect(html).not.toContain("<svg");
+    // Support route plus the legal footer.
+    expect(html).toContain("mailto:hello@asocialmedia.cc");
+    expect(html).toContain("/privacy");
+    expect(html).toContain("/toc");
   });
 
   test("password reset component returns JSX", () => {

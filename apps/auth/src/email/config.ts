@@ -26,7 +26,6 @@ export const emailConfig = {
 
   assets: {
     backgroundImage: `${env.APP_URL}/assets/auth/signup-image.jpg`,
-    bannerUrl: "https://zr2.asocialmedia.cc/Assets/zephyr-githubanner.jpg",
     colors: {
       border: "rgba(255, 255, 255, 0.08)",
       cardBg: "#232326",
@@ -76,18 +75,22 @@ export const emailConfig = {
     // The rounded brand lockup the onboarding email opens with.
     headerLogo: "https://cdn.asocialmedia.cc/email-header-asm.png",
     // Rasterised marks and step glyphs. Gmail strips inline SVG from HTML, so
-    // every icon ships as a PNG served by the web app instead of being drawn
-    // in the markup: play-store.png and github.png are the real brand marks.
+    // every icon ships as a PNG on the CDN instead of being drawn in the
+    // markup: play-store.png and github.png are the real brand marks.
     icons: {
-      account: `${env.APP_URL}/brand/email/icon-account.png`,
-      arrow: `${env.APP_URL}/brand/email/arrow.png`,
-      compose: `${env.APP_URL}/brand/email/icon-compose.png`,
-      feeds: `${env.APP_URL}/brand/email/icon-feeds.png`,
-      github: `${env.APP_URL}/brand/email/github.png`,
-      people: `${env.APP_URL}/brand/email/icon-people.png`,
-      playStore: `${env.APP_URL}/brand/email/play-store.png`,
+      account: "https://cdn.asocialmedia.cc/email/icon-account.png",
+      arrow: "https://cdn.asocialmedia.cc/email/arrow.png",
+      compose: "https://cdn.asocialmedia.cc/email/icon-compose.png",
+      feeds: "https://cdn.asocialmedia.cc/email/icon-feeds.png",
+      github: "https://cdn.asocialmedia.cc/email/github.png",
+      people: "https://cdn.asocialmedia.cc/email/icon-people.png",
+      playStore: "https://cdn.asocialmedia.cc/email/play-store.png",
     },
     logoUrl: "https://zr2.asocialmedia.cc/Assets/zephyr-logo.png",
+    // The enclosed wordmark band used as the header of the transactional emails.
+    // Transparent top edge, so it sits flush on the card like the scene does.
+    transactionalHeader:
+      "https://cdn.asocialmedia.cc/asm_email_header_transactional.png",
     verificationHeader:
       "https://cdn.asocialmedia.cc/asm_verification_header.png",
     welcomeHero: "https://cdn.asocialmedia.cc/asm-welcome-email.png",

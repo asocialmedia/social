@@ -28,83 +28,9 @@ export const palette = {
   store: "#141413",
 } as const;
 
-// Kept for the templates that have not been migrated to the card design yet
-// (OTP, two-factor, password reset). New templates should use the components
-// below instead of these.
-export const { bannerUrl } = emailConfig.assets;
-
-export const main: CSSProperties = {
-  backgroundColor: "#ffffff",
-  fontFamily:
-    '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
-};
-
-export const container: CSSProperties = {
-  margin: "0 auto",
-  maxWidth: "600px",
-  padding: "24px 0 48px",
-};
-
-export const banner: CSSProperties = {
-  display: "block",
-  height: "auto",
-  width: "100%",
-};
-
-export const heading: CSSProperties = {
-  color: "#111111",
-  fontSize: "22px",
-  fontWeight: 700,
-  margin: "24px 0 12px",
-};
-
-export const paragraph: CSSProperties = {
-  color: "#444444",
-  fontSize: "15px",
-  lineHeight: "24px",
-  margin: "0 0 16px",
-};
-
-export const actionLink: CSSProperties = {
-  color: "#ff9500",
-  display: "inline-block",
-  fontSize: "15px",
-  fontWeight: 600,
-  maxWidth: "100%",
-  overflowWrap: "anywhere",
-  textDecoration: "underline",
-};
-
-export const code: CSSProperties = {
-  color: "#111111",
-  fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
-  fontSize: "30px",
-  fontWeight: 700,
-  letterSpacing: "6px",
-  margin: "0 0 16px",
-};
-
-// The brand line closes every transactional email. It is the same sentence the
-// site, the manifest and the app description use, so a forwarded verification
-// email carries the positioning with it.
-export const brandLine: CSSProperties = {
-  color: "#7b7b82",
-  fontSize: "13px",
-  lineHeight: "20px",
-  margin: "24px 0 0",
-};
-
-export const EmailBanner = () => (
-  // oxlint-disable-next-line jsx-a11y/alt-text
-  <img
-    alt={`${emailConfig.company.name} banner`}
-    height={252}
-    loading="lazy"
-    src={bannerUrl}
-    style={banner}
-    width={600}
-  />
-);
+// ---------------------------------------------------------------------------
+// Document shell
+// ---------------------------------------------------------------------------
 
 function fontFaces(): string {
   const { fonts } = emailConfig.assets;
@@ -243,7 +169,7 @@ export const BrandHeader = () => (
         target="_blank"
       >
         <img
-          alt={emailConfig.company.name}
+          alt={`${emailConfig.company.name} home`}
           height={72}
           loading="lazy"
           src={emailConfig.assets.headerLogo}
@@ -254,42 +180,28 @@ export const BrandHeader = () => (
   </tr>
 );
 
-// Left-aligned brand lockup. Used by the short transactional emails (codes,
-// reset) where the content is a single block and a centred masthead would just
-// add height.
-export const BrandHeaderLeft = () => (
-  <tr>
-    <td align="left" style={{ paddingBottom: "22px" }}>
-      <a
-        href={emailConfig.company.website}
-        style={{ display: "inline-block", textDecoration: "none" }}
-        rel="noreferrer"
-        target="_blank"
-      >
-        <img
-          alt={emailConfig.company.name}
-          height={56}
-          loading="lazy"
-          src={emailConfig.assets.headerLogo}
-          style={{ display: "block", height: "56px", width: "auto" }}
-        />
-      </a>
-    </td>
-  </tr>
-);
+const HEADER_ART_ALT = `An illustration of Zeph, the ${emailConfig.company.name} mascot, at a desk above the city`;
+const FOOTER_ART_ALT = `An illustrated flower meadow, a closing scene from ${emailConfig.company.name}`;
 
 interface EmailCardProps {
   children: ReactNode;
+  footerAlt?: string;
   footerImage?: string;
+  headerAlt?: string;
   headerImage?: string;
 }
 
 // The card. When a header or footer image is passed it runs full-bleed across
 // that edge and carries the matching radius, so the art and the card read as
 // one object; the content sits in a padded band between them.
+//
+// The framing art is the one image that leaves a blank band when a client
+// blocks it, so it always carries alt text describing the scene.
 export const EmailCard = ({
   children,
+  footerAlt = FOOTER_ART_ALT,
   footerImage,
+  headerAlt = HEADER_ART_ALT,
   headerImage,
 }: EmailCardProps) => (
   <tr>
@@ -316,7 +228,7 @@ export const EmailCard = ({
             <tr>
               <td>
                 <img
-                  alt=""
+                  alt={headerAlt}
                   className="card-img-top"
                   loading="lazy"
                   src={headerImage}
@@ -354,7 +266,7 @@ export const EmailCard = ({
             <tr>
               <td>
                 <img
-                  alt=""
+                  alt={footerAlt}
                   className="card-img-bottom"
                   loading="lazy"
                   src={footerImage}
@@ -434,10 +346,18 @@ interface StepProps {
   body: string;
   href: string;
   icon: string;
+  iconAlt: string;
   label: string;
   title: string;
 }
-export const Step = ({ body, href, icon, label, title }: StepProps) => (
+export const Step = ({
+  body,
+  href,
+  icon,
+  iconAlt,
+  label,
+  title,
+}: StepProps) => (
   <table
     border={0}
     cellPadding={0}
@@ -453,7 +373,7 @@ export const Step = ({ body, href, icon, label, title }: StepProps) => (
           width={32}
         >
           <img
-            alt=""
+            alt={iconAlt}
             height={20}
             loading="lazy"
             src={icon}
@@ -520,27 +440,6 @@ export const Step = ({ body, href, icon, label, title }: StepProps) => (
   </table>
 );
 
-export const HeroImage = ({ alt, src }: { alt: string; src: string }) => (
-  <tr>
-    <td align="center" style={{ paddingBottom: "24px" }}>
-      <img
-        alt={alt}
-        height={408}
-        loading="lazy"
-        src={src}
-        style={{
-          borderRadius: "14px",
-          display: "block",
-          height: "auto",
-          maxWidth: "408px",
-          width: "100%",
-        }}
-        width={408}
-      />
-    </td>
-  </tr>
-);
-
 const storeButtonStyle: CSSProperties = {
   borderBottom: "3px solid #000000",
   borderRadius: "12px",
@@ -578,7 +477,7 @@ const StoreButton = ({
             style={{ paddingRight: "9px", verticalAlign: "middle" }}
           >
             <img
-              alt=""
+              alt={`${name} app icon`}
               className="store-icon"
               height={26}
               loading="lazy"
@@ -684,12 +583,7 @@ export const AppDownload = () => (
 
 export const SignOff = ({ children }: { children: ReactNode }) => (
   <tr>
-    <td
-      style={{
-        borderBottom: `1px solid ${palette.hairline}`,
-        paddingBottom: "24px",
-      }}
-    >
+    <td style={{ paddingBottom: "18px" }}>
       <p
         style={{
           color: palette.muted,
@@ -707,7 +601,12 @@ export const SignOff = ({ children }: { children: ReactNode }) => (
 
 export const Colophon = () => (
   <tr>
-    <td style={{ paddingTop: "20px" }}>
+    <td
+      style={{
+        borderTop: `1px solid ${palette.hairline}`,
+        paddingTop: "20px",
+      }}
+    >
       <p
         style={{
           color: palette.faint,
@@ -783,10 +682,16 @@ export const SupportNote = ({ children }: { children: ReactNode }) => (
 
 // The lighter footer: legal links and the brand line, without the
 // "Singularity Works" colophon or the app-download block. Used by the code
-// emails, which should stay short.
+// emails, which should stay short. A hairline opens the block so it reads as
+// the page's baseline, not a third stray paragraph.
 export const FooterLinks = () => (
   <tr>
-    <td style={{ paddingTop: "20px" }}>
+    <td
+      style={{
+        borderTop: `1px solid ${palette.hairline}`,
+        paddingTop: "20px",
+      }}
+    >
       <p
         style={{
           color: palette.faint,
