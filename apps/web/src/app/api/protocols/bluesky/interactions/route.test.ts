@@ -5,6 +5,7 @@ const writes: unknown[] = [];
 let reads = 0;
 let available = true;
 let offline = false;
+let threadReplies: unknown[] = [];
 const uri = "at://did:web:example.test/app.bsky.feed.post/example";
 const post = {
   author: { id: "did:web:example.test" },
@@ -29,6 +30,15 @@ mock.module("@/lib/protocols/service", () => ({
       return Promise.reject(new Error("Source unavailable"));
     }
     return Promise.resolve(available ? [post] : []);
+  },
+  readBlueskyThread: () => {
+    if (offline) {
+      return Promise.reject(new Error("Source unavailable"));
+    }
+    return Promise.resolve({
+      post: available ? post : null,
+      replies: available ? threadReplies : [],
+    });
   },
 }));
 mock.module("@asm/db", () => ({
@@ -65,6 +75,7 @@ beforeEach(() => {
   reads = 0;
   available = true;
   offline = false;
+  threadReplies = [];
 });
 test("guests may read discussions but cannot create durable data", async () => {
   session = null;
@@ -162,4 +173,89 @@ test("discussion pagination never waits for or revalidates the upstream post", a
   });
   expect(reads).toBe(0);
   expect(writes).toEqual([]);
+});
+
+test("discussion includes upstream Bluesky replies mapped as external comments with hierarchy", async () => {
+  threadReplies = [
+    {
+      author: {
+        displayName: "Bob",
+        handle: "bob.bsky.social",
+        id: "did:plc:bob",
+        labels: [],
+        source: "bluesky",
+        upstreamCounts: {},
+        url: "https://bsky.app/profile/did:plc:bob",
+      },
+      createdAt: "2026-10-16T12:00:00.000Z",
+      id: `${uri}/reply-1`,
+      indexedAt: "2026-10-16T12:00:00.000Z",
+      labels: [],
+      languages: [],
+      media: [],
+      replyTo: uri,
+      revision: "rev",
+      segments: [{ text: "Direct reply" }],
+      source: "bluesky",
+      text: "Direct reply",
+      upstreamCounts: { likes: 0, replies: 0, reposts: 0 },
+      url: "https://bsky.app/profile/did:plc:bob/post/reply-1",
+    },
+    {
+      author: {
+        displayName: "Charlie",
+        handle: "charlie.bsky.social",
+        id: "did:plc:charlie",
+        labels: [],
+        source: "bluesky",
+        upstreamCounts: {},
+        url: "https://bsky.app/profile/did:plc:charlie",
+      },
+      createdAt: "2026-10-16T12:05:00.000Z",
+      id: `${uri}/reply-2`,
+      indexedAt: "2026-10-16T12:05:00.000Z",
+      labels: [],
+      languages: [],
+      media: [],
+      replyTo: `${uri}/reply-1`,
+      revision: "rev",
+      segments: [{ text: "Nested reply" }],
+      source: "bluesky",
+      text: "Nested reply",
+      upstreamCounts: { likes: 0, replies: 0, reposts: 0 },
+      url: "https://bsky.app/profile/did:plc:charlie/post/reply-2",
+    },
+  ];
+  const response = await GET(
+    new Request(
+      `http://localhost/api/protocols/bluesky/interactions?${new URLSearchParams({ kind: "comments", uri })}`
+    )
+  );
+  expect(response.status).toBe(200);
+  const data = (await response.json()) as {
+    comments: {
+      items: {
+        id: string;
+        parentId: string | null;
+        rootId: string | null;
+        source: string;
+        content: string;
+      }[];
+    };
+  };
+  expect(data.comments.items).toHaveLength(2);
+  expect(data.comments.items[0]).toMatchObject({
+    content: "Direct reply",
+    id: `${uri}/reply-1`,
+    parentId: null,
+    rootId: uri,
+    source: "bluesky",
+  });
+  expect(data.comments.items[1]).toMatchObject({
+    content: "Nested reply",
+    id: `${uri}/reply-2`,
+    parentId: `${uri}/reply-1`,
+    rootId: uri,
+    source: "bluesky",
+  });
 });

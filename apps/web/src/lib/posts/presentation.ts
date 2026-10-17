@@ -13,9 +13,9 @@ export function externalPostView(post: ExternalPost): PresentedPost {
   return {
     _count: {
       bookmarks: 0,
-      comments: post.asm?.comments ?? 0,
+      comments: (post.asm?.comments ?? 0) + (post.upstreamCounts?.replies ?? 0),
       responses: post.asm?.responses ?? 0,
-      vote: 0,
+      vote: post.upstreamCounts?.likes ?? 0,
     },
     attachments: post.media.map((media) => ({
       altText: media.alt,

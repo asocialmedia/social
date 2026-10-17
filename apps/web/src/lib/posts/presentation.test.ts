@@ -81,7 +81,7 @@ test("external cards retain source identity and local interaction counts without
   expect(view.external).toBe(source);
   expect(view.id).toBe(post.id);
   expect(view.user?.id).toBe(post.author.id);
-  expect(view._count?.comments).toBe(4);
+  expect(view._count?.comments).toBe(5);
   expect(view._count?.responses).toBe(5);
   expect(view.external?.upstreamCounts).not.toHaveProperty("views");
 });

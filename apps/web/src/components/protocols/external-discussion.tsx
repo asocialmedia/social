@@ -9,6 +9,7 @@ import { useRef } from "react";
 
 import CommentInput from "@/components/comments/composer/comment-input";
 import CommentItem from "@/components/comments/item/comment";
+import { buildCommentTree } from "@/components/comments/thread/comment-tree";
 import { CommentsThreadView } from "@/components/comments/thread/comments-thread-view";
 import { externalCommentView } from "@/lib/posts/external-comment-view";
 
@@ -54,6 +55,18 @@ export function ExternalDiscussion({
         .map((comment) => [comment.id, comment])
     ).values(),
   ];
+  const mapped = items.map((comment) => externalCommentView(comment, post.id));
+  const tree = buildCommentTree(mapped);
+  const localActions = {
+    delete: (commentId?: string) =>
+      interaction.mutate({
+        action: "delete_comment",
+        commentId: commentId ?? "",
+        uri: post.id,
+      }),
+    pending: interaction.pending,
+  };
+
   return (
     <CommentsThreadView
       loading={comments.isPending}
@@ -85,26 +98,15 @@ export function ExternalDiscussion({
         />
       }
     >
-      {items.map((comment) => (
+      {tree.map((node, index) => (
         <CommentItem
           applyCreated={noop}
           applyDeleted={noop}
-          key={comment.id}
+          isLast={index === tree.length - 1}
+          key={node.comment.id}
+          localActions={localActions}
+          node={node}
           post={post}
-          node={{
-            children: [],
-            comment: externalCommentView(comment, post.id),
-            depth: 0,
-          }}
-          localActions={{
-            delete: () =>
-              interaction.mutate({
-                action: "delete_comment",
-                commentId: comment.id,
-                uri: post.id,
-              }),
-            pending: interaction.pending,
-          }}
         />
       ))}
       {comments.hasNextPage ? (

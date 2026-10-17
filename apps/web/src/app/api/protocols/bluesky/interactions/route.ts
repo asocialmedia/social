@@ -8,10 +8,12 @@ import {
   refreshExternalPost,
   ExternalInteractionError,
 } from "@asm/db";
+import type { ExternalPost } from "@asm/protocols/contracts";
 import {
   externalMutationSchema,
   externalUriSchema,
 } from "@asm/protocols/discovery";
+import type { ExternalComment } from "@asm/protocols/discovery";
 import { z } from "zod";
 
 import { getSessionFromApi } from "@/lib/auth/session";
@@ -22,13 +24,71 @@ import {
   protocolJsonBody,
   protocolRoute,
 } from "@/lib/protocols/gateway";
-import { readBlueskyPosts } from "@/lib/protocols/service";
+import { readBlueskyPosts, readBlueskyThread } from "@/lib/protocols/service";
 
 const commentCursor = z.object({ createdAt: z.iso.datetime(), id: z.uuid() });
 const libraryCursor = z.object({
   externalPostId: z.string().regex(/^[a-f0-9]{64}$/),
   updatedAt: z.iso.datetime(),
 });
+
+function mapBlueskyReplies(
+  replies: ExternalPost[],
+  rootUri: string
+): ExternalComment[] {
+  return replies.map((reply) => ({
+    content: reply.text,
+    createdAt: reply.createdAt,
+    deleted: false,
+    id: reply.id,
+    parentId: reply.replyTo === rootUri ? null : (reply.replyTo ?? null),
+    rootId: rootUri,
+    source: "bluesky",
+    uri: reply.id,
+    user: {
+      avatarUrl: reply.author.avatarUrl ?? null,
+      displayName: reply.author.displayName || reply.author.handle,
+      handle: reply.author.handle,
+      id: reply.author.id,
+      username: reply.author.handle,
+    },
+    userId: reply.author.id,
+  }));
+}
+
+function mapLocalComments(
+  items: {
+    content: string;
+    createdAt: string;
+    deleted: boolean;
+    id: string;
+    user: {
+      avatarUrl: string | null;
+      displayName: string;
+      id: string;
+      username: string;
+    } | null;
+    userId: string;
+  }[]
+): ExternalComment[] {
+  return items.map((comment) => ({
+    content: comment.content,
+    createdAt: comment.createdAt,
+    deleted: comment.deleted,
+    id: comment.id,
+    parentId: null,
+    rootId: null,
+    source: "asm",
+    user: {
+      avatarUrl: comment.user?.avatarUrl ?? null,
+      displayName:
+        comment.user?.displayName || comment.user?.username || "Deleted User",
+      id: comment.user?.id ?? comment.userId,
+      username: comment.user?.username || "deleted",
+    },
+    userId: comment.userId,
+  }));
+}
 
 async function readCurrent(uris: string[], request: Request, id: string) {
   try {
@@ -118,25 +178,70 @@ export function GET(request: Request) {
       );
     }
     if (kind === "comments") {
+      const local = await externalComments(uri.data, parsed?.data);
+      let bskyReplies: ExternalPost[] = [];
+      if (!parsed?.data) {
+        try {
+          const thread = await readBlueskyThread(
+            uri.data,
+            3,
+            request.signal,
+            requestId
+          );
+          bskyReplies = thread.replies;
+        } catch (error) {
+          if (request.signal.aborted) {
+            throw error;
+          }
+          // Resilient degradation: upstream failure preserves local discussion
+        }
+      }
       return Response.json({
-        comments: await externalComments(uri.data, parsed?.data),
+        comments: {
+          cursor: local.cursor,
+          items: [
+            ...mapBlueskyReplies(bskyReplies, uri.data),
+            ...mapLocalComments(local.items),
+          ],
+        },
       });
     }
-    const [posts, comments, retained] = await Promise.all([
+    const [posts, local, retained, thread] = await Promise.all([
       readCurrent([uri.data], request, requestId),
       externalComments(uri.data, parsed?.data),
       findExternalPost(uri.data),
+      readBlueskyThread(uri.data, 3, request.signal, requestId).catch(
+        (error) => {
+          if (request.signal.aborted) {
+            throw error;
+          }
+          return null;
+        }
+      ),
     ]);
     if (!posts.verified) {
       throw new ProtocolGatewayError(503, "source_read_failed");
     }
-    const post = posts.posts.find((entry) => entry.id === uri.data) ?? null;
+    let post = posts.posts.find((entry) => entry.id === uri.data) ?? null;
+    if (post && thread?.post) {
+      post = {
+        ...post,
+        upstreamCounts: thread.post.upstreamCounts,
+      };
+    }
     if (retained && posts.verified) {
       await refreshExternalPost(uri.data, post);
     }
     const states = await externalPostStates([uri.data], viewer);
+    const bskyComments = thread
+      ? mapBlueskyReplies(thread.replies, uri.data)
+      : [];
+    const localComments = mapLocalComments(local.items);
     return Response.json({
-      comments,
+      comments: {
+        cursor: local.cursor,
+        items: [...bskyComments, ...localComments],
+      },
       post: post ? { ...post, asm: states.get(uri.data) } : null,
     });
   });

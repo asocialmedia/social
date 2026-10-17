@@ -10,7 +10,9 @@ import UserBadge from "@/components/layouts/user/user-badge";
 import UserTooltip from "@/components/layouts/user/user-tooltip";
 import AuraVoteButton from "@/components/posts/actions/aura-vote-button";
 import PostLinkedContent from "@/components/posts/content/post-linked-content";
+import { BlueskyIcon } from "@/components/protocols/bluesky-icon";
 import { useRequireAuth } from "@/hooks/auth/use-require-auth";
+import { blueskyProfilePath } from "@/lib/protocols/paths";
 import type { Media } from "@/lib/types";
 import { cn, formatRelativeDate } from "@/lib/utils";
 import { getSecureImageUrl } from "@/lib/utils/image-url";
@@ -46,11 +48,15 @@ type CommentWithExtras = CommentData & {
     mimeType?: string;
     thumbnailKey?: string | null;
   }[];
+  source?: "asm" | "bluesky";
   votes?: { userId: string; value: number }[];
 };
 
 interface CommentItemProps {
-  localActions?: { pending: boolean; delete: () => Promise<boolean> };
+  localActions?: {
+    pending: boolean;
+    delete: (commentId?: string) => Promise<boolean>;
+  };
   applyCreated: (comment: CommentData) => void;
   applyDeleted: (comment: CommentData) => void;
   // Marks the last sibling so its rail segment terminates at the avatar center
@@ -75,6 +81,11 @@ export default function CommentItem({
   const [showReply, setShowReply] = useState(false);
 
   const commentWithExtras = comment as CommentWithExtras;
+  const isBluesky =
+    commentWithExtras.source === "bluesky" ||
+    comment.id.startsWith("at://") ||
+    comment.postId?.startsWith("at://") ||
+    (Boolean(comment.user?.id) && comment.user.id.startsWith("did:"));
   const commentUser = comment.user;
   const username = commentUser?.username ?? "unknown";
   const displayName = commentUser?.displayName || username;
@@ -128,97 +139,110 @@ export default function CommentItem({
     [shared, showReply]
   );
 
+  let avatarNode = (
+    <CommentAvatarFallback
+      className="relative z-10 h-10 w-10"
+      src={undefined}
+    />
+  );
+  if (!comment.deleted && commentUser) {
+    const avatarFallback = (
+      <CommentAvatarFallback
+        className="h-10 w-10"
+        src={
+          commentUser.avatarUrl
+            ? getSecureImageUrl(commentUser.avatarUrl)
+            : undefined
+        }
+      />
+    );
+    avatarNode = isBluesky ? (
+      <Link
+        aria-label={`View @${username}'s profile`}
+        className="relative z-10 shrink-0"
+        href={blueskyProfilePath(commentUser.id)}
+      >
+        {avatarFallback}
+      </Link>
+    ) : (
+      <UserTooltip user={commentUser}>
+        <Link
+          aria-label={`View @${username}'s profile`}
+          className="relative z-10 shrink-0"
+          href={`/users/${username}`}
+        >
+          {avatarFallback}
+        </Link>
+      </UserTooltip>
+    );
+  }
+
   return (
     <div
-      className={`relative scroll-mt-4 ${hasRail ? "pl-8" : ""}`}
-      id={`comment-${comment.id}`}
+      className={cn(
+        "group/comment relative transition-colors",
+        hasRail && "pl-8"
+      )}
     >
-      {/* Rail connector for this reply: A unified SVG drawing the continuous rail
-          and rounded branch. Centered on the parent avatar column (RAIL_X = 16),
-          it smoothly bends with a generous circular arc into this reply's
-          avatar (at LEVEL_PAD = 32, AVATAR_CENTER = 24). If this is the last
-          sibling, the stroke terminates cleanly at the avatar without extending
-          past it. Otherwise, the through-rail continues down to subsequent siblings. */}
-      {hasRail && (
-        <svg
-          aria-hidden="true"
-          className="pointer-events-none absolute top-0 left-0 overflow-visible"
-          style={{
-            height: isLast ? AVATAR_CENTER + 4 : "100%",
-            width: LEVEL_PAD + 4,
-          }}
-        >
-          {isLast ? (
-            <path
-              d={`M ${RAIL_X} -1 V ${AVATAR_CENTER - CURVE_RADIUS} A ${CURVE_RADIUS} ${CURVE_RADIUS} 0 0 0 ${LEVEL_PAD} ${AVATAR_CENTER} H ${LEVEL_PAD + 2}`}
-              fill="none"
-              stroke="hsl(var(--border))"
-              strokeWidth="2"
-            />
-          ) : (
-            <>
-              <line
-                stroke="hsl(var(--border))"
-                strokeWidth="2"
-                x1={RAIL_X}
-                x2={RAIL_X}
-                y1="-1"
-                y2="100%"
-              />
+      <div className="relative pt-1.5 pb-2.5">
+        {hasRail && (
+          <svg
+            aria-hidden="true"
+            className="pointer-events-none absolute top-0 left-0 overflow-visible"
+            style={{
+              height: isLast ? AVATAR_CENTER + 4 : "100%",
+              width: LEVEL_PAD + 4,
+            }}
+          >
+            {isLast ? (
               <path
-                d={`M ${RAIL_X} ${AVATAR_CENTER - CURVE_RADIUS} A ${CURVE_RADIUS} ${CURVE_RADIUS} 0 0 0 ${LEVEL_PAD} ${AVATAR_CENTER} H ${LEVEL_PAD + 2}`}
+                d={`M ${RAIL_X} -1 V ${AVATAR_CENTER - CURVE_RADIUS} A ${CURVE_RADIUS} ${CURVE_RADIUS} 0 0 0 ${LEVEL_PAD} ${AVATAR_CENTER} H ${LEVEL_PAD + 2}`}
                 fill="none"
                 stroke="hsl(var(--border))"
                 strokeWidth="2"
               />
-            </>
-          )}
-        </svg>
-      )}
+            ) : (
+              <>
+                <line
+                  stroke="hsl(var(--border))"
+                  strokeWidth="2"
+                  x1={RAIL_X}
+                  x2={RAIL_X}
+                  y1="-1"
+                  y2="100%"
+                />
+                <path
+                  d={`M ${RAIL_X} ${AVATAR_CENTER - CURVE_RADIUS} A ${CURVE_RADIUS} ${CURVE_RADIUS} 0 0 0 ${LEVEL_PAD} ${AVATAR_CENTER} H ${LEVEL_PAD + 2}`}
+                  fill="none"
+                  stroke="hsl(var(--border))"
+                  strokeWidth="2"
+                />
+              </>
+            )}
+          </svg>
+        )}
 
-      {/* Stub: connects THIS comment's avatar down to its first reply's rail
-          segment, so the thread line reads as hanging off the parent avatar. */}
-      <div className="group/comment relative min-w-0 pt-2.5 pr-1 pb-2.5">
-        {(children.length > 0 || showReply) && (
+        {children.length > 0 && (
           <svg
             aria-hidden="true"
-            className="pointer-events-none absolute top-6 bottom-0 left-0 overflow-visible"
-            style={{ height: "calc(100% - 24px + 2px)", width: RAIL_X + 4 }}
+            className="pointer-events-none absolute top-0 left-0 overflow-visible"
+            style={{
+              height: "100%",
+              width: LEVEL_PAD + 4,
+            }}
           >
             <line
               stroke="hsl(var(--border))"
               strokeWidth="2"
-              x1={RAIL_X}
-              x2={RAIL_X}
-              y1="0"
+              x1={LEVEL_PAD + RAIL_X}
+              x2={LEVEL_PAD + RAIL_X}
+              y1={AVATAR_CENTER + 20}
               y2="100%"
             />
           </svg>
         )}
         <div className="flex gap-2.5">
-          {comment.deleted || !commentUser ? (
-            <CommentAvatarFallback
-              className="relative z-10 h-10 w-10"
-              src={undefined}
-            />
-          ) : (
-            <UserTooltip user={commentUser}>
-              <Link
-                aria-label={`View @${username}'s profile`}
-                className="relative z-10 shrink-0"
-                href={`/users/${username}`}
-              >
-                <CommentAvatarFallback
-                  className="h-10 w-10"
-                  src={
-                    commentUser.avatarUrl
-                      ? getSecureImageUrl(commentUser.avatarUrl)
-                      : undefined
-                  }
-                />
-              </Link>
-            </UserTooltip>
-          )}
+          {avatarNode}
 
           <div className="min-w-0 flex-1">
             <div className="flex min-w-0 items-center gap-2 text-sm">
@@ -228,22 +252,39 @@ export default function CommentItem({
                 </span>
               ) : (
                 <>
-                  <UserTooltip user={commentUser}>
+                  {isBluesky ? (
                     <Link
                       className="text-foreground truncate font-semibold hover:underline"
-                      href={`/users/${username}`}
+                      href={blueskyProfilePath(commentUser.id)}
                     >
                       {displayName}
                     </Link>
-                  </UserTooltip>
-                  <UserBadge
-                    badge={commentUser.badge}
-                    badges={[...(commentUser.badges ?? [])]}
-                    communityRoles={commentUser.communityMemberships}
-                  />
+                  ) : (
+                    <UserTooltip user={commentUser}>
+                      <Link
+                        className="text-foreground truncate font-semibold hover:underline"
+                        href={`/users/${username}`}
+                      >
+                        {displayName}
+                      </Link>
+                    </UserTooltip>
+                  )}
+                  {isBluesky ? (
+                    <BlueskyIcon className="inline size-3.5 shrink-0 text-sky-500" />
+                  ) : (
+                    <UserBadge
+                      badge={commentUser.badge}
+                      badges={[...(commentUser.badges ?? [])]}
+                      communityRoles={commentUser.communityMemberships}
+                    />
+                  )}
                   <Link
                     className="text-muted-foreground truncate hover:underline"
-                    href={`/users/${username}`}
+                    href={
+                      isBluesky
+                        ? blueskyProfilePath(commentUser.id)
+                        : `/users/${username}`
+                    }
                   >
                     @{username}
                   </Link>
@@ -264,9 +305,11 @@ export default function CommentItem({
               </p>
             ) : (
               <>
-                <PostLinkedContent content={comment.content} />
+                <div className="mt-1 text-[15px] break-words whitespace-pre-wrap">
+                  <PostLinkedContent content={comment.content} />
+                </div>
                 <CommentAttachments
-                  attachments={commentWithExtras.attachments ?? []}
+                  attachments={commentWithExtras.attachments}
                 />
                 <CommentLinkEmbeds content={comment.content} />
               </>
@@ -274,7 +317,9 @@ export default function CommentItem({
 
             {!isDeleted && (
               <div className="mt-1 flex flex-wrap items-center gap-1">
-                {localActions ? null : (
+                {localActions ||
+                isBluesky ||
+                post.id.startsWith("at://") ? null : (
                   <>
                     <AuraVoteButton
                       authorName={displayName}
@@ -302,7 +347,7 @@ export default function CommentItem({
                     controller={
                       localActions
                         ? {
-                            delete: localActions.delete,
+                            delete: () => localActions.delete(comment.id),
                             pending: localActions.pending,
                           }
                         : undefined
@@ -390,6 +435,7 @@ export default function CommentItem({
               applyDeleted={applyDeleted}
               isLast={index === children.length - 1}
               key={child.comment.id}
+              localActions={localActions}
               node={child}
               post={post}
             />

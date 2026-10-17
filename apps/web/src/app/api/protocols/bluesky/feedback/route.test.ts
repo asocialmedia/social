@@ -16,6 +16,7 @@ mock.module("@/lib/protocols/feedback", () => ({
 }));
 mock.module("@/lib/protocols/budget", () => ({
   ProtocolBudgetError: class extends Error {},
+  consumeExternalCreationBudget: () => Promise.resolve(),
   consumeProtocolBudget: () => Promise.resolve(),
 }));
 const { POST, DELETE } = await import("./route");
