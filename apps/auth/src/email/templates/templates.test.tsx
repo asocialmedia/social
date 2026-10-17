@@ -17,9 +17,30 @@ describe("email templates", () => {
   test("renders verification email html", async () => {
     const html = await getVerificationEmailHtml("http://localhost:3000/verify");
 
-    expect(html).toContain("Verify your email");
+    expect(html).toContain("Verify your email to join asocialmedia");
     expect(html).toContain("http://localhost:3000/verify");
-    expect(html).toContain("zephyr-githubanner.jpg");
+    // The onboarding email leads with the brand lockup, not the old banner.
+    expect(html).toContain("email-header-asm.png");
+  });
+
+  test("verification email links resolve to real app routes", async () => {
+    const html = await getVerificationEmailHtml("http://localhost:3000/verify");
+
+    // Every deep link points at a route the web app actually serves.
+    expect(html).toContain("http://localhost:3000/settings?tab=profile");
+    expect(html).toContain("http://localhost:3000/discover");
+    expect(html).toContain("http://localhost:3000/?tab=trending");
+    // /explore was never a route; Explore lives at /discover.
+    expect(html).not.toContain("localhost:3000/explore");
+  });
+
+  test("verification email ships the real store marks, not inline svg", async () => {
+    const html = await getVerificationEmailHtml("http://localhost:3000/verify");
+
+    // Gmail strips inline SVG, so the marks ship as PNGs.
+    expect(html).toContain("/brand/email/play-store.png");
+    expect(html).toContain("/brand/email/github.png");
+    expect(html).not.toContain("<svg");
   });
 
   test("verification email component returns JSX", () => {

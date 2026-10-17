@@ -1,6 +1,29 @@
 import { env } from "../../env";
 
 export const emailConfig = {
+  // Real in-app destinations, keyed to the routes the web app actually serves.
+  // Every email links through here so a route rename is a one-line change and
+  // no template can drift to a dead path.
+  app: {
+    // Android ships from the latest GitHub release (an APK), not a live store
+    // listing. The Play URL is the eventual store target and is kept here so
+    // the button has one source of truth when the listing goes live.
+    androidRelease: "https://github.com/asocialmedia/social/releases/latest",
+    // Explore. The route is /discover; /explore does not exist.
+    discover: `${env.APP_URL}/discover`,
+    // The feed. There is no /compose route - the composer is an in-app modal -
+    // so the honest target for "make a post" is the feed itself.
+    feed: `${env.APP_URL}/`,
+    // ?tab= is the switchable-feed deep link the feed controls read.
+    feedTrending: `${env.APP_URL}/?tab=trending`,
+    playStore:
+      "https://play.google.com/store/apps/details?id=cc.asocialmedia.mobile",
+    // The profile tab of settings (tabs: profile, account, privacy, security,
+    // personalization).
+    settingsProfile: `${env.APP_URL}/settings?tab=profile`,
+    source: "https://github.com/asocialmedia/social",
+  },
+
   assets: {
     backgroundImage: `${env.APP_URL}/assets/auth/signup-image.jpg`,
     bannerUrl: "https://zr2.asocialmedia.cc/Assets/zephyr-githubanner.jpg",
@@ -39,7 +62,30 @@ export const emailConfig = {
         title: "Earned Communities",
       },
     ],
+    // Sofia Pro Soft is the brand face and is self-hosted by the web app.
+    // Clients that honour @font-face get the real type; the rest fall back to
+    // a system rounded stack (see EMAIL_FONT_STACK), never a Google font.
+    fonts: {
+      bold: `${env.APP_URL}/fonts/SofiaProSoftBold.woff2`,
+      medium: `${env.APP_URL}/fonts/SofiaProSoftMed.woff2`,
+      regular: `${env.APP_URL}/fonts/SofiaProSoftReg.woff2`,
+    },
+    // The rounded brand lockup the onboarding email opens with.
+    headerLogo: "https://cdn.asocialmedia.cc/email-header-asm.png",
+    // Rasterised marks and step glyphs. Gmail strips inline SVG from HTML, so
+    // every icon ships as a PNG served by the web app instead of being drawn
+    // in the markup: play-store.png and github.png are the real brand marks.
+    icons: {
+      account: `${env.APP_URL}/brand/email/icon-account.png`,
+      arrow: `${env.APP_URL}/brand/email/arrow.png`,
+      compose: `${env.APP_URL}/brand/email/icon-compose.png`,
+      feeds: `${env.APP_URL}/brand/email/icon-feeds.png`,
+      github: `${env.APP_URL}/brand/email/github.png`,
+      people: `${env.APP_URL}/brand/email/icon-people.png`,
+      playStore: `${env.APP_URL}/brand/email/play-store.png`,
+    },
     logoUrl: "https://zr2.asocialmedia.cc/Assets/zephyr-logo.png",
+    welcomeHero: "https://cdn.asocialmedia.cc/asm-welcome-email.png",
   },
 
   // The same brand line the site, the web manifest and the app description use.
