@@ -1,10 +1,9 @@
 import {
-  fromPrismaDateTime,
   consumeRateLimit,
   isMessageReactionEmoji,
   listMessageReactionSummaries,
   MessageReactionError,
-  prisma,
+  messageInteractionAllowed,
   publishMessageReacted,
   toggleMessageReaction,
 } from "@asm/db";
@@ -56,9 +55,12 @@ export async function GET(request: Request, context: RouteContext) {
     return Response.json({ error: "Invalid message source" }, { status: 400 });
   }
   try {
-    const valid = sessionId
-      ? await isLiveIncognitoMessage(id, messageId, sessionId)
-      : await isLiveNormalMessage(id, messageId);
+    const valid = await messageInteractionAllowed({
+      conversationId: id,
+      messageId,
+      sessionId: sessionId ?? undefined,
+      userId: user.id,
+    });
     if (!valid) {
       return Response.json({ error: "Message not found" }, { status: 404 });
     }
@@ -146,52 +148,12 @@ export async function POST(request: Request, context: RouteContext) {
         { status: error.status }
       );
     }
-    console.error("Message reaction failed:", error);
+    console.error("Message reaction failed");
     return Response.json(
       { error: "Couldn't update reaction" },
       { status: 500 }
     );
   }
-}
-
-async function isLiveNormalMessage(
-  conversationId: string,
-  messageId: string
-): Promise<boolean> {
-  const message = await prisma.orm.public.Messages.where({
-    conversationId,
-    id: messageId,
-  }).first();
-  return Boolean(
-    message &&
-    !message.deletedAt &&
-    (!message.expiresAt || fromPrismaDateTime(message.expiresAt) > new Date())
-  );
-}
-
-async function isLiveIncognitoMessage(
-  conversationId: string,
-  messageId: string,
-  sessionId: string
-): Promise<boolean> {
-  const message = await prisma.orm.public.MessageIncognitoMessages.where({
-    id: messageId,
-    sessionId,
-  }).first();
-  if (
-    !message ||
-    Date.now() - fromPrismaDateTime(message.createdAt).getTime() >=
-      24 * 60 * 60 * 1000
-  ) {
-    return false;
-  }
-  const activeSession = await prisma.orm.public.MessageIncognitoSessions.where({
-    conversationId,
-    id: sessionId,
-  })
-    .where((sessionRow) => sessionRow.endedAt.isNull())
-    .first();
-  return Boolean(activeSession);
 }
 
 function reactionErrorCopy(code: string): string {

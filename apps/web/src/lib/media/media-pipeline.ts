@@ -312,6 +312,8 @@ export async function createInitiatedUpload(input: {
     const existing = await prisma.orm.public.PostMedia.where((media) =>
       and(
         media.sha256.eq(sha256),
+        media.messageLifecycleProtected.eq(false),
+        media.messageViewOnce.eq(false),
         media.size.eq(fileSize),
         media.status.in([
           "READY",

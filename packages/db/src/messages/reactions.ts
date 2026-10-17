@@ -2,6 +2,7 @@ import type { MessageReactionSummary } from "@asm/messages";
 
 import prisma from "../prisma";
 import type { PrismaTransaction } from "../prisma";
+import { messageInteractionAllowed } from "./access/interaction-access";
 import { rawExecute, rawQuery } from "./infrastructure/raw-sql";
 
 export const MESSAGE_REACTION_EMOJIS = [
@@ -130,7 +131,10 @@ export function toggleMessageReaction(
             { id: "pg/text@1" },
             tx
           );
-    if (target.rows.length === 0) {
+    if (
+      target.rows.length === 0 ||
+      !(await messageInteractionAllowed(input, tx))
+    ) {
       throw new MessageReactionError("MESSAGE_NOT_FOUND", 404);
     }
 

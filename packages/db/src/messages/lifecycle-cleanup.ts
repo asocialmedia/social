@@ -183,27 +183,48 @@ export async function eraseExpiredChatBatch(): Promise<{
     );
     return ids.length + staged + 1;
   });
-  const viewOnce = await prisma.transaction(async (tx) => {
+  // Reservation expiry is retryable; only a transfer that became ACTIVE consumes a photo.
+  const released = await rawExecute(
+    `WITH due AS (SELECT id FROM public.message_view_once_grants
+      WHERE status='RESERVED' AND "expiresAt"<=clock_timestamp()
+      ORDER BY "expiresAt",id LIMIT 100 FOR UPDATE SKIP LOCKED)
+    DELETE FROM public.message_view_once_grants g USING due WHERE g.id=due.id`
+  );
+  const expired = await rawExecute(
+    `WITH due AS (SELECT id FROM public.message_view_once_grants
+      WHERE status='ACTIVE' AND "expiresAt"<=clock_timestamp()
+      ORDER BY "expiresAt",id LIMIT 100 FOR UPDATE SKIP LOCKED)
+    UPDATE public.message_view_once_grants g SET status='EXPIRED' FROM due WHERE g.id=due.id`
+  );
+  const { rows: settled } = await rawQuery<{ id: string; mediaLinkId: string }>(
+    `SELECT g.id,r."mediaLinkId" FROM public.message_view_once_grants g
+      JOIN public.message_view_once_recipients r ON r.id=g."recipientId"
+      WHERE g.status IN ('CLOSED','EXPIRED','REVOKED') AND g."expiresAt"<=clock_timestamp()
+      ORDER BY g."expiresAt",g.id LIMIT 100`,
+    [],
+    { id: "pg/text@1", mediaLinkId: "pg/text@1" }
+  );
+  if (settled.length > 0) {
+    // The terminal grant's expiry is a durable cleanup signal until this update succeeds.
     await rawExecute(
-      `UPDATE public.message_view_once_grants SET status='EXPIRED'
-      WHERE status IN ('RESERVED','ACTIVE') AND "expiresAt"<=clock_timestamp()`,
-      [],
-      tx
+      `UPDATE public.message_media_links l SET "deliveryExpiresAt"=LEAST(l."deliveryExpiresAt",clock_timestamp())
+        WHERE l.id=ANY($1::text[]) AND l."viewOnce"=true
+        AND NOT EXISTS (SELECT 1 FROM public.message_view_once_recipients r WHERE r."mediaLinkId"=l.id
+          AND NOT EXISTS (SELECT 1 FROM public.message_view_once_grants g
+            WHERE g."recipientId"=r.id AND g.status IN ('CLOSED','EXPIRED','REVOKED')))`,
+      [settled.map((row) => row.mediaLinkId)]
     );
+    await rawExecute(
+      `UPDATE public.message_view_once_grants SET "expiresAt"=NULL
+        WHERE id=ANY($1::text[]) AND status IN ('CLOSED','EXPIRED','REVOKED')`,
+      [settled.map((row) => row.id)]
+    );
+  }
+  const viewOnce = await prisma.transaction(async (tx) => {
     const { rows } = await rawQuery<{ id: string; mediaId: string }>(
       `SELECT l.id,l."mediaId" FROM public.message_media_links l
-      LEFT JOIN public.messages m ON m.id=l."messageId"
-      LEFT JOIN public.message_incognito_messages i ON i.id=l."incognitoMessageId"
-      LEFT JOIN public.message_incognito_sessions s ON s.id=i."sessionId"
-      WHERE l."viewOnce"=true AND (
-        l."deliveryExpiresAt"<=clock_timestamp()
-        OR (m.id IS NOT NULL AND (m."deletedAt" IS NOT NULL OR m."expiresAt"<=clock_timestamp()))
-        OR (i.id IS NOT NULL AND (s."endedAt" IS NOT NULL OR i."createdAt"<=clock_timestamp()-interval '24 hours'))
-        OR NOT EXISTS (SELECT 1 FROM public.message_view_once_recipients r WHERE r."mediaLinkId"=l.id)
-        OR NOT EXISTS (SELECT 1 FROM public.message_view_once_recipients r WHERE r."mediaLinkId"=l.id
-          AND NOT EXISTS (SELECT 1 FROM public.message_view_once_grants g
-            WHERE g."recipientId"=r.id AND g.status IN ('CLOSED','EXPIRED','REVOKED')))
-      ) ORDER BY l."deliveryExpiresAt",l.id LIMIT 100 FOR UPDATE OF l SKIP LOCKED`,
+      WHERE l."viewOnce"=true AND l."deliveryExpiresAt"<=clock_timestamp()
+      ORDER BY l."deliveryExpiresAt",l.id LIMIT 100 FOR UPDATE OF l SKIP LOCKED`,
       [],
       { id: "pg/text@1", mediaId: "pg/text@1" },
       tx
@@ -235,5 +256,10 @@ export async function eraseExpiredChatBatch(): Promise<{
     ...media.map((m) => enqueueMediaDeleteCascade(m.id)),
     unreadMessageCache.resetMany(normal.users),
   ]);
-  return { incognito, messages: normal.count, viewOnce };
+  return {
+    incognito,
+    messages: normal.count,
+    viewOnce:
+      viewOnce + released.affectedRows + expired.affectedRows + settled.length,
+  };
 }

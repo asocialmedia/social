@@ -2,6 +2,7 @@ import { closeViewOnceGrant } from "@asm/db";
 import { z } from "zod";
 
 import { getSessionFromApi } from "@/lib/auth/session";
+import { parseBoundedJsonBody } from "@/lib/messages/server";
 
 const closeSchema = z.object({ grantId: z.uuid() });
 
@@ -13,7 +14,7 @@ export async function POST(request: Request) {
   }
   let body: unknown;
   try {
-    body = await request.json();
+    body = await parseBoundedJsonBody(request, 1024);
   } catch {
     return Response.json({ error: "Invalid request" }, { status: 400 });
   }
@@ -21,7 +22,14 @@ export async function POST(request: Request) {
   if (!parsed.success) {
     return Response.json({ error: "Invalid request" }, { status: 400 });
   }
-  await closeViewOnceGrant(parsed.data.grantId, user.id);
+  try {
+    await closeViewOnceGrant(parsed.data.grantId, user.id);
+  } catch {
+    return Response.json(
+      { error: "Couldn't close the photo" },
+      { status: 503 }
+    );
+  }
   return Response.json(
     { ok: true },
     { headers: { "Cache-Control": "private, no-store" } }

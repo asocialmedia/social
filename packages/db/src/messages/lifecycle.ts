@@ -13,6 +13,7 @@ import type {
 import { fromPrismaDateTime, toPrismaDateTime } from "../dates";
 import prisma from "../prisma";
 import type { PrismaTransaction } from "../prisma";
+import { messageInteractionAllowed } from "./access/interaction-access";
 import { listDenMembershipEvents } from "./dens/den-service";
 import { readableMessageKeyEpochsSql } from "./epochs/epoch-readability";
 import { rawExecute, rawQuery } from "./infrastructure/raw-sql";
@@ -664,6 +665,8 @@ export async function linkLifecycleMedia(
 }
 
 interface ViewOnceGrantRow {
+  messageId: string;
+  sessionId: string | null;
   recipientId: string;
   objectKey: string | null;
   mimeType: string;
@@ -675,9 +678,11 @@ interface ViewOnceGrantRow {
 const viewOnceGrantRowSpec = {
   deliveryExpiresAt: { codecId: "pg/timestamp-temporal@1", nullable: true },
   live: "pg/bool@1",
+  messageId: "pg/text@1",
   mimeType: "pg/text@1",
   objectKey: { codecId: "pg/text@1", nullable: true },
   recipientId: "pg/text@1",
+  sessionId: { codecId: "pg/text@1", nullable: true },
   size: "pg/int4@1",
 } as const;
 
@@ -695,7 +700,7 @@ export async function reserveViewOnceMedia(
       }
       const { rows } = await rawQuery<ViewOnceGrantRow>(
         `SELECT r.id AS "recipientId",COALESCE(p."publishedKey",NULLIF(p.key,'')) AS "objectKey",
-        p."mimeType",p.size,
+        p."detectedMime" AS "mimeType",p.size,COALESCE(m.id,i.id) AS "messageId",s.id AS "sessionId",
         (p."messageViewOnce" AND p."status"='READY' AND p.type='IMAGE' AND l."deliveryExpiresAt">clock_timestamp()
           AND ((m.id IS NOT NULL AND m."conversationId"=$1 AND m."deletedAt" IS NULL
             AND (m."expiresAt" IS NULL OR m."expiresAt">clock_timestamp()))
@@ -715,7 +720,20 @@ export async function reserveViewOnceMedia(
         tx
       );
       const [target] = rows;
-      if (!target || !target.live || !target.objectKey) {
+      if (
+        !target ||
+        !target.live ||
+        !target.objectKey ||
+        !(await messageInteractionAllowed(
+          {
+            conversationId,
+            messageId: target.messageId,
+            sessionId: target.sessionId ?? undefined,
+            userId,
+          },
+          tx
+        ))
+      ) {
         throw new ChatLifecycleError("VIEW_ONCE_UNAVAILABLE", 410);
       }
       const existingGrant = await rawQuery<{
@@ -737,17 +755,19 @@ export async function reserveViewOnceMedia(
             size: target.size,
           };
         }
-        throw new ChatLifecycleError("VIEW_ONCE_CONSUMED", 410);
+        if (existingGrant.rows[0].status !== "RESERVED") {
+          throw new ChatLifecycleError("VIEW_ONCE_CONSUMED", 410);
+        }
       }
       await rawExecute(
-        `UPDATE public.message_view_once_grants SET status='EXPIRED'
-        WHERE "recipientId"=$1 AND status IN ('RESERVED','ACTIVE') AND "expiresAt"<=clock_timestamp()`,
+        `DELETE FROM public.message_view_once_grants
+        WHERE "recipientId"=$1 AND status='RESERVED' AND "expiresAt"<=clock_timestamp()`,
         [target.recipientId],
         tx
       );
       const history = await rawQuery<{ consumed: boolean; opening: boolean }>(
         `SELECT EXISTS(SELECT 1 FROM public.message_view_once_grants WHERE "recipientId"=$1
-          AND status IN ('CLOSED','EXPIRED','REVOKED')) AS consumed,
+          AND (status IN ('CLOSED','EXPIRED','REVOKED') OR status='ACTIVE' AND "expiresAt"<=clock_timestamp())) AS consumed,
           EXISTS(SELECT 1 FROM public.message_view_once_grants WHERE "recipientId"=$1
           AND status IN ('RESERVED','ACTIVE') AND "expiresAt">clock_timestamp()) AS opening`,
         [target.recipientId],
@@ -794,6 +814,38 @@ export function activateViewOnceGrant(
     if (access.leftAt) {
       return false;
     }
+    const { rows: sources } = await rawQuery<{
+      messageId: string;
+      sessionId: string | null;
+    }>(
+      `SELECT COALESCE(l."messageId",l."incognitoMessageId") AS "messageId",i."sessionId"
+        FROM public.message_view_once_grants g
+        JOIN public.message_view_once_recipients r ON r.id=g."recipientId" AND r."userId"=$2
+        JOIN public.message_media_links l ON l.id=r."mediaLinkId"
+        LEFT JOIN public.message_incognito_messages i ON i.id=l."incognitoMessageId"
+        WHERE g.id=$1`,
+      [grantId, userId],
+      {
+        messageId: "pg/text@1",
+        sessionId: { codecId: "pg/text@1", nullable: true },
+      },
+      tx
+    );
+    const [source] = sources;
+    if (
+      !source ||
+      !(await messageInteractionAllowed(
+        {
+          conversationId,
+          messageId: source.messageId,
+          sessionId: source.sessionId ?? undefined,
+          userId,
+        },
+        tx
+      ))
+    ) {
+      return false;
+    }
     const result = await rawExecute(
       `UPDATE public.message_view_once_grants g SET status='ACTIVE',"activatedAt"=clock_timestamp(),
         "expiresAt"=clock_timestamp()+interval '2 minutes'
@@ -831,10 +883,11 @@ export async function closeViewOnceGrant(
   grantId: string,
   userId: string
 ): Promise<void> {
+  await releaseViewOnceGrant(grantId, userId);
   await rawExecute(
-    `UPDATE public.message_view_once_grants g SET status='CLOSED',"closedAt"=clock_timestamp()
+    `UPDATE public.message_view_once_grants g SET status='CLOSED',"closedAt"=clock_timestamp(),"expiresAt"=clock_timestamp()
     FROM public.message_view_once_recipients r WHERE g.id=$1 AND g."recipientId"=r.id
-      AND r."userId"=$2 AND g.status IN ('RESERVED','ACTIVE')`,
+      AND r."userId"=$2 AND g.status='ACTIVE'`,
     [grantId, userId]
   );
 }
@@ -858,7 +911,10 @@ export async function lifecycleMediaAllowed(
   if (!media) {
     return null;
   }
-  if (media.messageViewOnce) {
+  if (
+    media.messageViewOnce &&
+    (!options.allowProcessing || media.userId !== viewerId)
+  ) {
     return false;
   }
   if (!media.messageLifecycleProtected) {
@@ -884,9 +940,7 @@ export async function lifecycleMediaAllowed(
     !(
       options.allowProcessing &&
       media.userId === viewerId &&
-      ["UPLOADING", "QUARANTINED", "SCANNING", "PROCESSING"].includes(
-        media.status
-      )
+      media.status !== "DELETED"
     )
   ) {
     return false;

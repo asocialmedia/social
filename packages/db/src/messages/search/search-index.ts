@@ -1077,6 +1077,12 @@ export async function commitMessageSearchMutation(
 
     if (input.kind === "delete") {
       await rawExecute(
+        `UPDATE public.message_media_links SET "deliveryExpiresAt"=clock_timestamp()
+          WHERE "messageId"=$1 AND "viewOnce"=true`,
+        [input.messageId],
+        tx
+      );
+      await rawExecute(
         messageSearchSql.commitMessageSearchMutation.updateConversationMembers,
         [input.conversationId],
         tx

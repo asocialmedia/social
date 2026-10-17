@@ -112,6 +112,8 @@ function createPostMediaOrm() {
         }
         let id = "";
         let status = "";
+        let lifecycleProtected: boolean | undefined;
+        let viewOnce: boolean | undefined;
         where({
           _type: { eq: () => ({}) },
           createdAt: { desc: () => ({}) },
@@ -120,6 +122,10 @@ function createPostMediaOrm() {
             eq: () => ({}),
             isNull: () => ({}),
           },
+          messageLifecycleProtected: {
+            eq: (value: boolean) => (lifecycleProtected = value),
+          },
+          messageViewOnce: { eq: (value: boolean) => (viewOnce = value) },
           sha256: { eq: () => ({}) },
           size: { eq: () => ({}) },
           status: { eq: (value: string) => (status = value), in: () => ({}) },
@@ -128,7 +134,11 @@ function createPostMediaOrm() {
         const query = {
           aggregate: (aggregate: (value: { count: () => number }) => unknown) =>
             aggregate({ count: () => 0 }),
-          first: () => createMediaFindQuery({}).first(),
+          first: () =>
+            createMediaFindQuery({
+              messageLifecycleProtected: lifecycleProtected,
+              messageViewOnce: viewOnce,
+            }).first(),
           include: () => query,
           orderBy: () => query,
           updateAndCount: (data: Record<string, unknown>) => {
@@ -201,6 +211,23 @@ describe("computeFileSha256", () => {
 });
 
 describe("createInitiatedUpload deduplication", () => {
+  test("ordinary uploads exclude lifecycle-protected photos from deduplication sources", async () => {
+    mediaFindFirstImpl = (args) => {
+      expect(args).toMatchObject({
+        where: { messageLifecycleProtected: false, messageViewOnce: false },
+      });
+      return null;
+    };
+    const result = await createInitiatedUpload({
+      declaredMime: "image/png",
+      fileName: "photo.png",
+      fileSize: 1024,
+      purpose: "post",
+      sha256: TEST_SHA256,
+      userId: USER_ID,
+    });
+    expect(result.deduplicated).toBeFalsy();
+  });
   test("returns uploadUrl for new upload with no existing match", async () => {
     const result = await createInitiatedUpload({
       declaredMime: "image/png",
