@@ -48,9 +48,12 @@ export async function GET(request: Request) {
     .map((bookmark) => bookmark.postId)
     .filter((postId): postId is string => Boolean(postId));
 
-  const postRows = await getPostDataQuery(prisma.orm, user.id)
-    .where((post) => and(post.id.in(postIds), post.isGust.eq(isGustFilter)))
-    .all();
+  const postRows =
+    postIds.length > 0
+      ? await getPostDataQuery(prisma.orm, user.id)
+          .where((post) => and(post.id.in(postIds), post.isGust.eq(isGustFilter)))
+          .all()
+      : [];
   const posts = postRows.map(mapPostData);
 
   const postById = new Map(posts.map((post) => [post.id, post]));
@@ -74,7 +77,9 @@ export async function GET(request: Request) {
     if (post) {
       asmItems.push({
         post,
-        timestamp: b.createdAt ? fromPrismaDateTime(b.createdAt).getTime() : 0,
+        timestamp: b.createdAt
+          ? fromPrismaDateTime(b.createdAt).getTime()
+          : 0,
       });
     }
   }
@@ -84,9 +89,12 @@ export async function GET(request: Request) {
     const externalUris = externalEngagements
       .map((entry) => entry.externalPost?.uri)
       .filter((uri): uri is string => Boolean(uri));
-    const states = await externalPostStates(externalUris, user.id).catch(
-      () => new Map()
-    );
+    const states =
+      externalUris.length > 0
+        ? await externalPostStates(externalUris.slice(0, 50), user.id).catch(
+            () => new Map()
+          )
+        : new Map();
 
     for (const entry of externalEngagements) {
       if (entry.externalPost?.snapshot) {

@@ -1,7 +1,7 @@
 "use client";
 
 import type { HNStory as HnStoryType } from "@asm/aggregator/hackernews";
-import type { PostsPage, UserData } from "@asm/db";
+import type { PostData, PostsPage, UserData } from "@asm/db";
 import { Separator } from "@asm/ui/shadui/separator";
 import { Tabs, TabsContent, TabsList } from "@asm/ui/shadui/tabs";
 import noBookmarksImage from "@assets/general/nonotibook.png";
@@ -42,6 +42,107 @@ interface BookmarksProps {
 
 // Swipe order mirrors the rendered tab strip order.
 const TAB_ORDER = ["posts", "gusts", "hackernews", "likes"];
+
+function FleetsTabBody({
+  isFetchingNext,
+  onBottomReached,
+  posts,
+  status,
+}: {
+  isFetchingNext: boolean;
+  onBottomReached: () => void;
+  posts: PostData[];
+  status: "error" | "pending" | "success";
+}) {
+  if (status === "pending") {
+    return <FeedViewSkeleton />;
+  }
+  if (status === "error") {
+    return (
+      <p className="text-destructive px-4 py-8 text-center">
+        An error occurred while loading bookmarked fleets.
+      </p>
+    );
+  }
+  if (posts.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-3 px-4 py-16 text-center">
+        <Image
+          alt=""
+          className="h-40 w-auto object-contain"
+          draggable={false}
+          height={1024}
+          src={noBookmarksImage}
+          width={1536}
+        />
+        <p className="font-medium">You don&apos;t have any bookmarks yet.</p>
+        <p className="text-muted-foreground text-sm">
+          Bookmark fleets to read them later.
+        </p>
+      </div>
+    );
+  }
+  return (
+    <InfiniteScrollContainer onBottomReached={onBottomReached}>
+      <FeedView cacheKey={["post-feed", "bookmarks"]} posts={posts} />
+      {isFetchingNext ? <LoadMoreSkeleton /> : null}
+    </InfiniteScrollContainer>
+  );
+}
+
+function HackerNewsTabBody({
+  isFetchingNext,
+  onBottomReached,
+  status,
+  stories,
+}: {
+  isFetchingNext: boolean;
+  onBottomReached: () => void;
+  status: "error" | "pending" | "success";
+  stories: HnStoryType[];
+}) {
+  if (status === "pending") {
+    return <FeedViewSkeleton />;
+  }
+  if (status === "error") {
+    return (
+      <p className="text-destructive px-4 py-8 text-center">
+        An error occurred while loading HackerNews bookmarks.
+      </p>
+    );
+  }
+  if (stories.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-3 px-4 py-16 text-center">
+        <Image
+          alt=""
+          className="h-40 w-auto object-contain"
+          draggable={false}
+          height={1024}
+          src={noBookmarksImage}
+          width={1536}
+        />
+        <p className="font-medium">No bookmarked HackerNews stories.</p>
+        <p className="text-muted-foreground text-sm">
+          Bookmark HackerNews stories to read them later.
+        </p>
+      </div>
+    );
+  }
+  return (
+    <InfiniteScrollContainer onBottomReached={onBottomReached}>
+      <div className="flex flex-col">
+        {stories.map((story, index) => (
+          <div key={story.id}>
+            {index > 0 && <Separator className="bg-border/60" />}
+            <HNStoryCard initialBookmarked={true} story={story} />
+          </div>
+        ))}
+      </div>
+      {isFetchingNext ? <LoadMoreSkeleton /> : null}
+    </InfiniteScrollContainer>
+  );
+}
 
 const Bookmarks: React.FC<BookmarksProps> = ({
   gustBookmarkCount,
@@ -107,6 +208,7 @@ const Bookmarks: React.FC<BookmarksProps> = ({
     isFetchingNextPage: isFetchingNextHn,
     status: hnStatus,
   } = useInfiniteQuery({
+    enabled: activeTab === "hackernews",
     getNextPageParam: (lastPage) => lastPage.nextCursor,
     initialPageParam: null as string | null,
     queryFn: async ({ pageParam }: { pageParam: string | null }) => {
@@ -143,79 +245,6 @@ const Bookmarks: React.FC<BookmarksProps> = ({
 
   if (!userData) {
     return null;
-  }
-
-  const isLoading = postsStatus === "pending" || hnStatus === "pending";
-
-  const showEmptyState =
-    postsStatus === "success" &&
-    hnStatus === "success" &&
-    !posts.length &&
-    !hnStories.length &&
-    !hasNextPosts &&
-    !hasNextHn;
-
-  let feedBody: React.ReactNode;
-  if (isLoading) {
-    feedBody = <FeedViewSkeleton />;
-  } else if (postsStatus === "error" && hnStatus === "error") {
-    feedBody = (
-      <p className="text-destructive px-4 py-8 text-center">
-        An error occurred while loading bookmarks.
-      </p>
-    );
-  } else if (showEmptyState) {
-    feedBody = (
-      <div className="flex flex-col items-center justify-center gap-3 px-4 py-16 text-center">
-        <Image
-          alt=""
-          className="h-40 w-auto object-contain"
-          draggable={false}
-          height={1024}
-          src={noBookmarksImage}
-          width={1536}
-        />
-        <p className="font-medium">You don&apos;t have any bookmarks yet.</p>
-        <p className="text-muted-foreground text-sm">
-          Bookmark fleets and HackerNews stories to read them later.
-        </p>
-      </div>
-    );
-  } else {
-    feedBody = (
-      <>
-        <TabsContent className="mt-0 pb-12" value="posts">
-          <InfiniteScrollContainer onBottomReached={handleBottomReachedPosts}>
-            {posts.length > 0 ? (
-              <FeedView cacheKey={["post-feed", "bookmarks"]} posts={posts} />
-            ) : null}
-            {isFetchingNextPosts ? <LoadMoreSkeleton /> : null}
-          </InfiniteScrollContainer>
-        </TabsContent>
-
-        <TabsContent className="mt-0 pb-12" value="gusts">
-          <BookmarkedGusts />
-        </TabsContent>
-
-        <TabsContent className="mt-0 pb-12" value="hackernews">
-          <InfiniteScrollContainer onBottomReached={handleBottomReachedHn}>
-            <div className="flex flex-col">
-              {hnStories.map((story, index) => (
-                <div key={story.id}>
-                  {index > 0 && <Separator className="bg-border/60" />}
-                  <HNStoryCard initialBookmarked={true} story={story} />
-                </div>
-              ))}
-            </div>
-            {isFetchingNextHn ? <LoadMoreSkeleton /> : null}
-          </InfiniteScrollContainer>
-        </TabsContent>
-
-        <TabsContent className="mt-0 pb-12" value="likes">
-          <LikedPosts />
-        </TabsContent>
-      </>
-    );
   }
 
   return (
@@ -289,7 +318,31 @@ const Bookmarks: React.FC<BookmarksProps> = ({
               className="hide-native-scrollbar h-full touch-pan-y overflow-x-hidden overflow-y-auto"
               ref={feedScrollRef}
             >
-              {feedBody}
+              <TabsContent className="mt-0 pb-12" value="posts">
+                <FleetsTabBody
+                  isFetchingNext={isFetchingNextPosts}
+                  onBottomReached={handleBottomReachedPosts}
+                  posts={posts}
+                  status={postsStatus}
+                />
+              </TabsContent>
+
+              <TabsContent className="mt-0 pb-12" value="gusts">
+                <BookmarkedGusts />
+              </TabsContent>
+
+              <TabsContent className="mt-0 pb-12" value="hackernews">
+                <HackerNewsTabBody
+                  isFetchingNext={isFetchingNextHn}
+                  onBottomReached={handleBottomReachedHn}
+                  status={hnStatus}
+                  stories={hnStories}
+                />
+              </TabsContent>
+
+              <TabsContent className="mt-0 pb-12" value="likes">
+                <LikedPosts />
+              </TabsContent>
             </div>
             <FeedScrollbar containerRef={feedScrollRef} />
           </div>
