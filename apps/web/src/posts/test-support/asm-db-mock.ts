@@ -115,8 +115,16 @@ export const asmDbMockBase = {
   redis: {
     del: () => Promise.resolve(),
     get: () => Promise.resolve(null),
+    pipeline: () => ({
+      exec: () => Promise.resolve([]),
+      zadd: () => ({}),
+    }),
     set: () => Promise.resolve("OK"),
     srem: () => Promise.resolve(),
+    zadd: () => Promise.resolve(1),
+    zrem: () => Promise.resolve(1),
+    zremrangebyrank: () => Promise.resolve(0),
+    zrevrange: () => Promise.resolve([]),
   },
   refreshExternalPost: () => Promise.resolve(),
   rememberRankingImpression: () => Promise.resolve(),

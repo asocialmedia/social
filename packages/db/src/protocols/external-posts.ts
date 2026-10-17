@@ -398,3 +398,27 @@ export async function externalLibrary(
     items,
   };
 }
+
+export async function upsertExternalPostSnapshot(
+  post: ExternalPost
+): Promise<string> {
+  const snapshot = externalPostSchema.parse(post);
+  const id = externalPostId(snapshot.id);
+  const data = {
+    available: true,
+    checkedAt: toPrismaDateTime(new Date()),
+    snapshot: durableSnapshot(snapshot),
+  };
+  await prisma.orm.public.ExternalPosts.upsert({
+    conflictOn: { id },
+    create: {
+      ...data,
+      authorId: snapshot.author.id,
+      id,
+      source: "bluesky",
+      uri: snapshot.id,
+    },
+    update: data,
+  });
+  return id;
+}

@@ -190,7 +190,7 @@ export function ExternalPostScreen() {
       parentId: comment.parentId ?? null,
       source: comment.source,
       user: {
-        avatarUrl: comment.user.avatarUrl,
+        avatarUrl: comment.user?.avatarUrl ?? null,
         displayName: comment.user.displayName,
         id: comment.user.id,
         username: comment.user.username,

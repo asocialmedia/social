@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { ZodError } from "zod";
 
+import { asmDbMockBase } from "@/posts/test-support/asm-db-mock";
+
 // In-memory Redis with SET NX EX semantics, enough for the idempotency flow.
 const store = new Map<string, string>();
 const redis = {
@@ -30,6 +32,7 @@ class ExternalInteractionError extends Error {
 }
 
 mock.module("@asm/db", () => ({
+  ...asmDbMockBase,
   ExternalInteractionError,
   // Named-export stub for the linker: sibling route tests in the same
   // process mock @asm/db with only prisma, and vice versa.

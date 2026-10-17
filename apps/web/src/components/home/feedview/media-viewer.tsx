@@ -198,6 +198,12 @@ const MediaViewer = ({
   const [loadAttempt, setLoadAttempt] = useState(0);
 
   const currentMedia = media[currentIndex];
+  let moreContentHref = "/";
+  if (post?.external) {
+    moreContentHref = post.external.author.id
+      ? blueskyProfilePath(post.external.author.id)
+      : "/network/bluesky";
+  }
 
   // The bottom panel drives the video directly (the built-in player controls
   // are hidden on every size; the panel's control rows take over on both
@@ -1742,12 +1748,15 @@ const MediaViewer = ({
                 <Link
                   aria-label="View all posts on the global feed"
                   className="text-primary shrink-0 text-sm font-medium hover:underline"
-                  href="/"
+                  href={moreContentHref}
                 >
                   View all posts
                 </Link>
               </div>
               <RelatedPosts
+                authorActor={
+                  post.external?.author.id || post.external?.author.handle
+                }
                 excludePostId={post.id}
                 external={Boolean(post.external)}
               />

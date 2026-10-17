@@ -224,13 +224,17 @@ const ClientPost: React.FC<ClientPostProps> = ({
   // refresh it right away so the list updates without a manual reload. Guests
   // don't have visit history, so skip the request entirely.
   useEffect(() => {
-    if (!isLoggedIn || post.external) {
+    if (!isLoggedIn) {
       return;
     }
     const recordVisit = async () => {
       try {
         await kyInstance.post("/api/posts/visit", {
-          json: { postId: post.id },
+          json: {
+            externalPost: post.external ?? undefined,
+            postId: post.id,
+            uri: post.external?.id,
+          },
         });
         await queryClient.invalidateQueries({ queryKey: ["post-history"] });
       } catch {

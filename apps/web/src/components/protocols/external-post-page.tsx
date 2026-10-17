@@ -1,15 +1,19 @@
 "use client";
 
 import { Button } from "@asm/ui/shadui/button";
+import { useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft } from "lucide-react";
 import { useSearchParams, useRouter } from "next/navigation";
+import { useEffect } from "react";
 
 import ClientPost, {
   HeaderBannerWash,
 } from "@/app/(main)/posts/[postId]/client-post";
+import { useSession } from "@/app/(main)/session-provider";
 import MediaViewer from "@/components/home/feedview/media-viewer";
 import MediaRouteSkeleton from "@/components/layouts/skeletons/media-route-skeleton";
 import PostDetailSkeleton from "@/components/layouts/skeletons/post-detail-skeleton";
+import kyInstance from "@/lib/ky";
 import { getPostAttachments } from "@/lib/posts/post-normalize";
 import { getPostMediaPath, getPostPath } from "@/lib/posts/post-url";
 import { externalPostView } from "@/lib/posts/presentation";
@@ -24,6 +28,33 @@ export function ExternalPostPage() {
   const uri = params.get("uri") ?? "";
   const router = useRouter();
   const query = useExternalPost(uri);
+
+  const session = useSession();
+  const isLoggedIn = Boolean(session.user);
+  const queryClient = useQueryClient();
+  const mediaIndex = params.get("media");
+  const externalPostData = query.data;
+
+  useEffect(() => {
+    if (!isLoggedIn || !externalPostData || mediaIndex === null) {
+      return;
+    }
+    const recordVisit = async () => {
+      try {
+        await kyInstance.post("/api/posts/visit", {
+          json: {
+            externalPost: externalPostData,
+            postId: externalPostData.id,
+            uri: externalPostData.id,
+          },
+        });
+        await queryClient.invalidateQueries({ queryKey: ["post-history"] });
+      } catch {
+        // Best-effort
+      }
+    };
+    void recordVisit();
+  }, [isLoggedIn, externalPostData, mediaIndex, queryClient]);
 
   const uriActor = uri.startsWith("at://")
     ? (uri.slice(5).split("/")[0] ?? "")
@@ -48,7 +79,6 @@ export function ExternalPostPage() {
   }
   if (query.data) {
     const post = externalPostView(query.data);
-    const mediaIndex = params.get("media");
     if (mediaIndex !== null && post.attachments.length) {
       return (
         <MediaViewer

@@ -1,6 +1,5 @@
 "use client";
 
-import type { PostData } from "@asm/db";
 import noSearchImage from "@assets/general/nosearch.png";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -22,9 +21,11 @@ import {
   embedImageProxyUrl,
   useEmbedImageError,
 } from "@/components/posts/embeds/embed-utils";
+import { BlueskyIcon } from "@/components/protocols/bluesky-icon";
 import { getAuraFlameClass } from "@/lib/aura/aura";
 import kyInstance from "@/lib/ky";
 import { parseStoredEmbeds } from "@/lib/link-embeds/shared";
+import type { PresentedPost } from "@/lib/posts/presentation";
 import { getPostPath } from "@/lib/seo/seo";
 import { cn, formatNumber, formatRelativeDate } from "@/lib/utils";
 import { getMediaProxyUrl } from "@/lib/utils/image-url";
@@ -41,7 +42,7 @@ const HistoryRowSkeleton: React.FC = () => (
 );
 
 interface HistoryRowProps {
-  post: PostData;
+  post: PresentedPost;
 }
 
 const HistoryRow: React.FC<HistoryRowProps> = ({ post }) => {
@@ -138,11 +139,18 @@ const HistoryRow: React.FC<HistoryRowProps> = ({ post }) => {
           <span className="block truncate text-sm font-semibold">
             {post.user?.displayName || post.user?.username || "Anonymous"}
           </span>
-          <UserBadge
-            badge={post.user?.badge}
-            badges={post.user?.badges}
-            communityRoles={post.user?.communityMemberships}
-          />
+          {post.external ? (
+            <BlueskyIcon
+              className="size-3.5 shrink-0 text-sky-500"
+              tooltip={false}
+            />
+          ) : (
+            <UserBadge
+              badge={post.user?.badge}
+              badges={post.user?.badges}
+              communityRoles={post.user?.communityMemberships}
+            />
+          )}
         </span>
 
         {post.moderated ? (
@@ -166,10 +174,10 @@ const HistoryRow: React.FC<HistoryRowProps> = ({ post }) => {
             <Flame
               className={cn(
                 "h-3 w-3 transition-colors group-hover:text-inherit",
-                getAuraFlameClass(post.aura)
+                getAuraFlameClass(post.external ? post._count.vote : post.aura)
               )}
             />
-            {formatNumber(post.aura)}
+            {formatNumber(post.external ? post._count.vote : post.aura)}
           </span>
           <span className="flex shrink-0 items-center gap-0.5">
             <MessageSquare
@@ -180,10 +188,12 @@ const HistoryRow: React.FC<HistoryRowProps> = ({ post }) => {
             />
             {formatNumber(post._count.comments)}
           </span>
-          <span className="flex shrink-0 items-center gap-0.5">
-            <Eye className="h-3 w-3" />
-            {formatNumber(post.viewCount)}
-          </span>
+          {post.external ? null : (
+            <span className="flex shrink-0 items-center gap-0.5">
+              <Eye className="h-3 w-3" />
+              {formatNumber(post.viewCount)}
+            </span>
+          )}
         </span>
       </span>
     </Link>
@@ -193,7 +203,7 @@ const HistoryRow: React.FC<HistoryRowProps> = ({ post }) => {
 const PostHistoryCard: React.FC = () => {
   const { data, status } = useQuery({
     queryFn: () =>
-      kyInstance.get("/api/posts/history").json<{ posts: PostData[] }>(),
+      kyInstance.get("/api/posts/history").json<{ posts: PresentedPost[] }>(),
     queryKey: ["post-history"],
     refetchInterval: 30 * 1000,
     refetchIntervalInBackground: false,
