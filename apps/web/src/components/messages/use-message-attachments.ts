@@ -6,11 +6,6 @@ import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
 import { toast } from "@/lib/gooey-toast";
 import { discardMessageMedia, uploadMessageMedia } from "@/lib/messages/client";
 
-import type {
-  GroupedMessageAttachments,
-  MessageAttachmentDraft,
-  StagedMediaId,
-} from "./message-attachment-state";
 import {
   claimStagedMedia,
   groupReadyAttachments,
@@ -20,6 +15,11 @@ import {
   kindForFile,
   restoreStagedMedia,
   selectAcceptedFiles,
+} from "./message-attachment-state";
+import type {
+  GroupedMessageAttachments,
+  MessageAttachmentDraft,
+  StagedMediaId,
 } from "./message-attachment-state";
 
 type AttachmentAction =
@@ -69,7 +69,10 @@ function nextDraftId(): string {
 // the composer sends only once every attachment is READY (the serving route
 // gates on that status). Uploads are abortable so removing a tile or unmounting
 // the thread stops the work instead of leaking a request.
-export function useMessageAttachments(conversationId: string) {
+export function useMessageAttachments(
+  conversationId: string,
+  incognitoSessionId?: string
+) {
   const [attachments, dispatch] = useReducer(attachmentReducer, []);
   const controllersRef = useRef(new Map<string, AbortController>());
   const progressRef = useRef(new Map<string, number>());
@@ -129,6 +132,7 @@ export function useMessageAttachments(conversationId: string) {
           draft.kind,
           conversationId,
           {
+            incognitoSessionId,
             onMediaId: (mediaId, meta) => {
               mediaIdsRef.current.set(draft.id, {
                 mediaId,
@@ -204,7 +208,7 @@ export function useMessageAttachments(conversationId: string) {
         });
       }
     },
-    [conversationId]
+    [conversationId, incognitoSessionId]
   );
 
   const addFiles = useCallback(

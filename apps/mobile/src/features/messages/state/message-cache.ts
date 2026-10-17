@@ -61,6 +61,7 @@ function schedulePersist(): void {
           version: 1,
         });
       } catch {
+        // Reconcile safely on the next request; do not expose source errors.
         // Cache IO is best effort.
       }
     })();
@@ -115,7 +116,19 @@ export function hydrateMessageCache(
           Array.isArray(item.conversation?.members)
         )
       ) {
-        conversationListStore.replaceAll(data.list, userId, data.listFetchedAt);
+        conversationListStore.replaceAll(
+          {
+            ...data.list,
+            items: data.list.items.map((item) => ({
+              ...item,
+              lastMessage: item.lastMessage?.expiresAt
+                ? null
+                : item.lastMessage,
+            })),
+          },
+          userId,
+          data.listFetchedAt
+        );
       }
       for (const [id, saved] of Object.entries(data.transcripts ?? {})) {
         const { page } = saved;
@@ -128,10 +141,18 @@ export function hydrateMessageCache(
               typeof message.iv === "string"
           )
         ) {
-          transcriptStore.setPages(id, page, saved.fetchedAt);
+          transcriptStore.setPages(
+            id,
+            {
+              ...page,
+              messages: page.messages.filter((message) => !message.expiresAt),
+            },
+            saved.fetchedAt
+          );
         }
       }
     } catch {
+      // Reconcile safely on the next request; do not expose source errors.
       // A corrupt cache is discarded while server history remains intact.
     }
   })();
@@ -146,4 +167,26 @@ export function hydrateMessageCache(
     ];
   })();
   return hydration;
+}
+
+export async function purgeCachedConversation(
+  conversationId: string
+): Promise<void> {
+  generation += 1;
+  if (timer) {
+    clearTimeout(timer);
+  }
+  timer = null;
+  transcriptStore.clear(conversationId);
+  conversationListStore.clearSearchCache();
+  conversationListStore.clearPreview(conversationId);
+  if (!scope) {
+    return;
+  }
+  const { File, Paths } = await import("expo-file-system");
+  const { snapshotFileName } = await import("@/lib/persistent-cache");
+  const file = new File(Paths.cache, snapshotFileName(cacheName(scope)));
+  if (file.exists) {
+    file.delete();
+  }
 }

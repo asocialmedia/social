@@ -80,6 +80,7 @@ export interface MessageConversationData {
 }
 
 export interface MessageData {
+  expiresAt?: Date | string | null;
   revision?: number;
   keyEpoch?: number | null;
   ciphertext: string;

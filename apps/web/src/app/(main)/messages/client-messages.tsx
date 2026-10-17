@@ -110,7 +110,7 @@ function MessagesPanes() {
 
   if (status === "loading") {
     return (
-      <div className="border-border/60 flex min-w-0 flex-1 flex-col bg-[hsl(var(--background-alt))] sm:border-x">
+      <div className="border-border/60 flex min-h-0 min-w-0 flex-1 flex-col bg-[hsl(var(--background-alt))] sm:border-x">
         <MessagesSkeleton conversationOpen={Boolean(pendingConversation)} />
       </div>
     );
@@ -122,7 +122,7 @@ function MessagesPanes() {
 
   if (status === "error") {
     return (
-      <div className="border-border/60 flex min-w-0 flex-1 flex-col bg-[hsl(var(--background-alt))] sm:border-x">
+      <div className="border-border/60 flex min-h-0 min-w-0 flex-1 flex-col bg-[hsl(var(--background-alt))] sm:border-x">
         <MessagesErrorState onRetry={() => window.location.reload()} />
       </div>
     );
@@ -137,7 +137,7 @@ function MessagesPanes() {
   return (
     <div
       className={cn(
-        "border-border/60 flex min-w-0 flex-1 flex-col bg-[hsl(var(--background-alt))] sm:border-x lg:pb-0",
+        "border-border/60 flex min-h-0 min-w-0 flex-1 flex-col bg-[hsl(var(--background-alt))] sm:border-x lg:pb-0",
         // The bottom nav only shows when no thread is open (it unmounts for
         // an active chat), so the padding reserved for it must too.
         pendingConversation ? "" : "pb-14"
@@ -170,7 +170,7 @@ function MessagesPanes() {
             open the list above is, so the empty state and its header stand down. */}
         <div
           className={cn(
-            "min-w-0 flex-1 flex-col border-r border-[hsl(var(--border))]",
+            "min-h-0 min-w-0 flex-1 flex-col border-r border-[hsl(var(--border))]",
             listLayout === "full" && !desktopList ? "hidden" : "flex"
           )}
         >

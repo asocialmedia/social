@@ -1,3 +1,4 @@
+import { messageIsRetained } from "@asm/messages";
 import * as Clipboard from "expo-clipboard";
 // The message thread: a scrolling transcript, the header, and the composer.
 //
@@ -60,7 +61,6 @@ import { useInstall } from "@/features/auth/state/install";
 import { useSessionContext } from "@/features/auth/state/session";
 import type { ApiCallOptions } from "@/features/feed/lib/feed-api";
 import { UserBadge } from "@/features/home/components/user-badge";
-import type { ConversationPrefs } from "@/features/messages/lib/client";
 import {
   ackMessageDelivered,
   ensureConversationKeys,
@@ -70,6 +70,7 @@ import {
   sendEncryptedMessage,
   sendTypingIndicator,
 } from "@/features/messages/lib/client";
+import type { ConversationPrefs } from "@/features/messages/lib/client";
 import {
   conversationKind,
   conversationLeft,
@@ -112,6 +113,12 @@ import { SHOWS_SCROLL_INDICATOR } from "@/lib/scroll-indicator";
 import { logWarn } from "@/lib/telemetry";
 import { useAppTheme } from "@/theme";
 
+import {
+  NativeChatLifecycleBoundary,
+  NativeIncognitoUsageNotice,
+  useNativeChatLifecycle,
+} from "./chat-lifecycle-context";
+import { NativeChatLifecycleTools } from "./chat-lifecycle-tools";
 import { ConversationDetails } from "./conversation-details";
 import { DenAvatar } from "./den-avatar";
 import { MessageBubble } from "./message-bubble";
@@ -144,13 +151,29 @@ const SELF_GROUP = {
   showTimeDivider: false,
 };
 
-export function MessageThreadScreen({
+export function MessageThreadScreen(props: {
+  conversationId: string;
+  onBack: () => void;
+}) {
+  return (
+    <NativeChatLifecycleBoundary
+      key={props.conversationId}
+      conversationId={props.conversationId}
+      onBack={props.onBack}
+    >
+      <NormalMessageThreadScreen {...props} />
+    </NativeChatLifecycleBoundary>
+  );
+}
+
+function NormalMessageThreadScreen({
   conversationId,
   onBack,
 }: {
   conversationId: string;
   onBack: () => void;
 }) {
+  const { snapshot: lifecycle } = useNativeChatLifecycle();
   const { theme } = useAppTheme();
   const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
@@ -372,7 +395,37 @@ export function MessageThreadScreen({
 
   // ---- decryption ------------------------------------------------------------
 
-  const { messages } = transcript.snapshot;
+  const retainedRows = transcript.snapshot.messages;
+  const [expiryClock, setExpiryClock] = useState(Date.now);
+  const messages = useMemo(
+    () =>
+      retainedRows.filter((message) => messageIsRetained(message, expiryClock)),
+    [retainedRows, expiryClock]
+  );
+  useEffect(() => {
+    const deadlines = retainedRows.flatMap((message) =>
+      message.expiresAt ? [new Date(message.expiresAt).getTime()] : []
+    );
+    if (!deadlines.length) {
+      return;
+    }
+    const timer = setTimeout(
+      () => {
+        const now = Date.now();
+        transcriptStore.removeMessages(
+          conversationId,
+          new Set(
+            retainedRows
+              .filter((message) => !messageIsRetained(message, now))
+              .map((message) => message.id)
+          )
+        );
+        setExpiryClock(now);
+      },
+      Math.max(0, Math.min(...deadlines) - Date.now()) + 10
+    );
+    return () => clearTimeout(timer);
+  }, [retainedRows, conversationId]);
 
   const decryptItems = useMemo<DecryptItem[]>(
     () =>
@@ -438,8 +491,8 @@ export function MessageThreadScreen({
   // Newest-first, because the list is inverted. Dividers become list items so they
   // scroll with the transcript rather than being positioned against it.
   const items = useMemo(
-    () => buildTranscriptRows(messages, unreadId),
-    [messages, unreadId]
+    () => buildTranscriptRows(messages, unreadId, lifecycle?.notices),
+    [messages, unreadId, lifecycle?.notices]
   );
 
   const groupMetaFor = useCallback(
@@ -555,6 +608,7 @@ export function MessageThreadScreen({
           );
           unreadMessageStore.notifyActivity();
         } catch {
+          // Reconcile safely on the next request; do not expose source errors.
           // Keep the unread state until the server accepts the read watermark.
         }
         await ackMessageDelivered(conversationId, target.id, options).catch(
@@ -761,6 +815,9 @@ export function MessageThreadScreen({
 
   const renderItem = useCallback(
     ({ item }: { item: TranscriptItem }) => {
+      if (item.kind === "incognito") {
+        return <NativeIncognitoUsageNotice session={item.session} />;
+      }
       if (item.kind === "divider") {
         return (
           <View style={styles.dividerRow}>
@@ -984,6 +1041,7 @@ export function MessageThreadScreen({
           typing={transcript.snapshot.peerTyping}
         />
       )}
+      <NativeChatLifecycleTools conversation={currentConversation} />
       {searchOpen ? (
         <MessageSearchBar
           query={search.query}

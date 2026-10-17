@@ -27,6 +27,7 @@ export interface MessageStreamEvent {
   conversationId: string;
   deliveredAt?: string;
   kind:
+    | "conversation.appearance.changed"
     | "conversation.delivered"
     | "conversation.read"
     | "den.membership.changed"
@@ -47,6 +48,7 @@ export function parseMessageEvent(raw: string): MessageStreamEvent | null {
   try {
     const parsed = JSON.parse(raw) as Partial<MessageStreamEvent>;
     if (
+      parsed.kind !== "conversation.appearance.changed" &&
       parsed.kind !== "message.created" &&
       parsed.kind !== "message.deleted" &&
       parsed.kind !== "message.edited" &&

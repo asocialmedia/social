@@ -1,7 +1,10 @@
 "use client";
 
-import type { InfiniteData } from "@tanstack/react-query";
+// oxlint-disable react/exhaustive-effect-dependencies -- Account, clear and retry revisions intentionally invalidate scoped effects even when they are not request payload fields.
+
+import { ChatDraftStore } from "@asm/messages";
 import { useQueryClient } from "@tanstack/react-query";
+import type { InfiniteData } from "@tanstack/react-query";
 import {
   ArrowUp,
   Check,
@@ -49,6 +52,8 @@ const MessageImageEditDialog = dynamic(
   () => import("@/components/messages/message-image-edit-dialog"),
   { ssr: false }
 );
+
+const normalDrafts = new ChatDraftStore();
 
 interface MessageComposerProps {
   // Set when the server told us this member is no longer inside the conversation.
@@ -126,7 +131,9 @@ export function MessageComposer({
   const { user } = useSession();
   const { privateKey } = useMessagesIdentity();
   const queryClient = useQueryClient();
-  const [text, setText] = useState("");
+  const [text, setText] = useState(() =>
+    normalDrafts.get(user?.id ?? "", conversation.conversation.id)
+  );
   const [savingEdit, setSavingEdit] = useState(false);
   const [sending, setSending] = useState(false);
   const [gifPickerOpen, setGifPickerOpen] = useState(false);
@@ -142,6 +149,7 @@ export function MessageComposer({
   const seededEditIdRef = useRef<string | null>(null);
 
   const conversationId = conversation.conversation.id;
+  const draftKey = `chat-draft:${conversationId}`;
   const editing = editTarget !== null;
 
   // Seed the textarea when entering edit mode (or switching between messages).
@@ -161,6 +169,19 @@ export function MessageComposer({
       setText(target.content);
     });
   }, [editTarget]);
+  // Drafts survive mode switches in account-scoped memory and never enter browser storage.
+  useEffect(() => {
+    try {
+      localStorage.removeItem(draftKey);
+    } catch {
+      // Reconcile safely on the next request; do not expose source errors.
+    }
+  }, [draftKey]);
+  useEffect(() => {
+    if (!editing && user) {
+      normalDrafts.set(user.id, conversationId, text);
+    }
+  }, [text, conversationId, user?.id, editing, user]);
 
   const {
     addFiles,

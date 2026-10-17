@@ -1,6 +1,7 @@
 "use client";
 
 import type { ConversationType } from "@asm/db/messages/dens";
+import type { IncognitoSession } from "@asm/messages";
 import {
   Dialog,
   DialogContent,
@@ -121,12 +122,12 @@ import {
   publicKeyBase64ToJwk,
 } from "@/lib/messages/crypto";
 import type { MessagePayload } from "@/lib/messages/crypto";
-import type { DecryptEntry, DecryptItem } from "@/lib/messages/decryptor";
 import {
   MESSAGE_DECRYPTOR_CACHE_CAP,
   MESSAGE_DECRYPTOR_QUEUE_CAP,
   messageDecryptor,
 } from "@/lib/messages/decryptor";
+import type { DecryptEntry, DecryptItem } from "@/lib/messages/decryptor";
 import {
   denEventIsAboutMe,
   denEventLine,
@@ -165,13 +166,13 @@ import {
   selectionRange,
 } from "@/lib/messages/message-gestures";
 import type { PaneRect } from "@/lib/messages/message-gestures";
-import type { PeerWatermarks } from "@/lib/messages/message-receipts";
 import {
   advanceWatermark,
   EMPTY_WATERMARKS,
   getMessageReceipt,
   peerWatermarks,
 } from "@/lib/messages/message-receipts";
+import type { PeerWatermarks } from "@/lib/messages/message-receipts";
 import { shouldReconcileMessageEvent } from "@/lib/messages/message-revision";
 import {
   paginateSearchResults,
@@ -218,6 +219,7 @@ import {
 } from "@/lib/messages/use-messages-realtime";
 import { usePresence } from "@/lib/messages/use-presence";
 import { createViewerScanCache } from "@/lib/messages/viewer-scan-cache";
+import { viewportDecryptPlan } from "@/lib/messages/viewport-decrypt-plan";
 import {
   isDecryptSettled,
   requestDecryptsWithBackpressure as drainDecryptRequests,
@@ -226,6 +228,12 @@ import {
 import { cn } from "@/lib/utils";
 import { getMessageMediaId } from "@/lib/utils/image-url";
 
+import {
+  ChatLifecycleBoundary,
+  IncognitoUsageNotice,
+  useChatLifecycle,
+} from "./chat-lifecycle-context";
+import { ChatLifecycleTools } from "./chat-lifecycle-tools";
 import { bubblePosition, bubbleRoundingClasses } from "./message-bubble-shape";
 import { getMessageGroupMeta, formatTimeDivider } from "./message-grouping";
 import type { MessageGroupMeta } from "./message-grouping";
@@ -491,6 +499,7 @@ export function transcriptLoadingCopy(input: {
 // ciphertext, and nothing for the receipts, search index or ratchet to read - all
 // of which key off `allMessages`, which stays messages-only.
 type TranscriptItem =
+  | { id: string; kind: "incognito"; session: IncognitoSession }
   | { id: string; kind: "event"; event: DenMembershipEvent }
   | { id: string; kind: "message"; message: MessageData };
 
@@ -504,17 +513,42 @@ type TranscriptItem =
 //
 // This is a function rather than an inline `length === 0` so the rule has one
 // home and the merge cannot drift away from it again.
+const transcriptItemTime = (item: TranscriptItem) =>
+  (() => {
+    if (item.kind === "incognito") {
+      return Date.parse(item.session.startedAt);
+    }
+    if (item.kind === "event") {
+      return item.event.createdAt.getTime();
+    }
+    return item.message.createdAt.getTime();
+  })();
+
 export function transcriptIsEmpty(
   transcript: readonly TranscriptItem[]
 ): boolean {
   return transcript.length === 0;
 }
 
-export function MessageThread({
+export function MessageThread(props: MessageThreadProps) {
+  return (
+    <ChatLifecycleBoundary
+      key={props.conversationId}
+      conversationId={props.conversationId}
+      onBack={props.onBack}
+    >
+      <NormalMessageThread {...props} />
+    </ChatLifecycleBoundary>
+  );
+}
+
+function NormalMessageThread({
   conversationId,
   onBack,
   onToggleRail,
 }: MessageThreadProps) {
+  const { snapshot: lifecycle } = useChatLifecycle();
+  const [visibilityNow, setVisibilityNow] = useState(Date.now);
   const { user } = useSession();
   const { privateKey, recoveryGeneration, refreshRecoveryGeneration } =
     useMessagesIdentity();
@@ -873,6 +907,7 @@ export function MessageThread({
         localStorage.getItem(DETAILS_RAIL_COLLAPSED_KEY) === "1"
       );
     } catch {
+      // Reconcile safely on the next request; do not expose source errors.
       // A blocked storage (private browsing on some engines) just means the
       // preference does not survive the reload.
     }
@@ -884,6 +919,7 @@ export function MessageThread({
       try {
         localStorage.setItem(DETAILS_RAIL_COLLAPSED_KEY, next ? "1" : "0");
       } catch {
+        // Reconcile safely on the next request; do not expose source errors.
         // Not being able to remember it is not worth an error.
       }
       return next;
@@ -916,9 +952,29 @@ export function MessageThread({
   });
 
   const allMessages = useMemo(
-    () => (messagesQuery.data?.pages ?? []).flatMap((page) => page.messages),
-    [messagesQuery.data]
+    () =>
+      (messagesQuery.data?.pages ?? [])
+        .flatMap((page) => page.messages)
+        .filter(
+          (message) =>
+            !message.expiresAt ||
+            new Date(message.expiresAt).getTime() > visibilityNow
+        ),
+    [messagesQuery.data, visibilityNow]
   );
+  useEffect(() => {
+    const deadlines = allMessages.flatMap((message) =>
+      message.expiresAt ? [new Date(message.expiresAt).getTime()] : []
+    );
+    if (!deadlines.length) {
+      return;
+    }
+    const timer = setTimeout(
+      () => setVisibilityNow(Date.now()),
+      Math.max(0, Math.min(...deadlines) - Date.now() + 1)
+    );
+    return () => clearTimeout(timer);
+  }, [allMessages]);
 
   // Resolve a replyToId to its parent without scanning the whole list for
   // every rendered bubble.
@@ -974,8 +1030,35 @@ export function MessageThread({
         messageIndex += 1;
       }
     }
+    for (const session of lifecycle?.notices ?? []) {
+      const oldest = allMessages[0]?.createdAt.getTime();
+      if (
+        oldest !== undefined &&
+        messagesQuery.hasPreviousPage &&
+        Date.parse(session.startedAt) < oldest
+      ) {
+        continue;
+      }
+      merged.push({
+        id: `incognito-${session.id}`,
+        kind: "incognito",
+        session,
+      });
+    }
+    if (lifecycle?.notices.length) {
+      merged.sort(
+        (left, right) =>
+          transcriptItemTime(left) - transcriptItemTime(right) ||
+          left.id.localeCompare(right.id)
+      );
+    }
     return merged;
-  }, [allMessages, denEventsQuery.data]);
+  }, [
+    allMessages,
+    denEventsQuery.data,
+    lifecycle?.notices,
+    messagesQuery.hasPreviousPage,
+  ]);
 
   // Scroll targets need the index in the TRANSCRIPT, not in `allMessages`: the
   // virtualizer's index space is the merged one. Kept separate from
@@ -1414,6 +1497,7 @@ export function MessageThread({
         ? deleteForEveryone(pending.message)
         : deleteForMe(pending.messageIds));
     } catch {
+      // Reconcile safely on the next request; do not expose source errors.
       // Handlers report their own failures; nothing to add here.
     }
     setDeleteBusy(false);
@@ -1849,39 +1933,29 @@ export function MessageThread({
     if (!detail || !rootKeyStore || !userId || allMessages.length === 0) {
       return;
     }
-    const [first, last] = (() => {
-      const items = rowVirtualizer.getVirtualItems();
-      const lastItem = items.at(-1);
-      if (items.length === 0 || !lastItem) {
-        return [allMessages.length - 1, allMessages.length - 1] as const;
-      }
-      return [items[0].index, lastItem.index] as const;
-    })();
-    const start = Math.max(0, first - DECRYPT_PREFETCH_ROWS);
-    const end = Math.min(allMessages.length - 1, last + DECRYPT_PREFETCH_ROWS);
-    const items: DecryptItem[] = [];
-    const seen = new Set<string>();
-    const push = (message: MessageData | undefined) => {
-      if (!message || message.deletedAt || seen.has(message.id)) {
-        return;
-      }
-      seen.add(message.id);
-      items.push(toDecryptItem(message));
-    };
-    for (let index = first; index <= last; index += 1) {
-      push(allMessages[index]);
-    }
-    for (let index = first - 1; index >= start; index -= 1) {
-      push(allMessages[index]);
-    }
-    for (let index = last + 1; index <= end; index += 1) {
-      push(allMessages[index]);
-    }
-    messageDecryptor.requestUrgent(items, { getBaseKeys });
+    const visibleIds = rowVirtualizer.getVirtualItems().flatMap((item) => {
+      const row = transcriptItems[item.index];
+      return row?.kind === "message" ? [row.message.id] : [];
+    });
+    const plan = viewportDecryptPlan(
+      allMessages,
+      visibleIds,
+      DECRYPT_PREFETCH_ROWS
+    );
+    messageDecryptor.requestUrgent(
+      plan.urgent.filter((message) => !message.deletedAt).map(toDecryptItem),
+      { getBaseKeys }
+    );
+    // Background prefetch must not evict visible rows from the bounded urgent queue.
+    messageDecryptor.request(
+      plan.prefetch.filter((message) => !message.deletedAt).map(toDecryptItem),
+      { getBaseKeys }
+    );
     // The viewport owns the urgent lane; superseded prefetch rows can be
     // evicted from that bounded lane as the reader scrolls.
   }, [
     allMessages,
+    transcriptItems,
     conversationId,
     detail,
     getBaseKeys,
@@ -2354,6 +2428,7 @@ export function MessageThread({
         try {
           await fetchPreviousPage();
         } catch {
+          // Reconcile safely on the next request; do not expose source errors.
           // The failure counter above owns reporting this; the fill's own
           // stand-down is what keeps it from refiring.
         } finally {
@@ -2396,6 +2471,7 @@ export function MessageThread({
         try {
           await fetchNextPage();
         } catch {
+          // Reconcile safely on the next request; do not expose source errors.
           // Owned by the failure stand-down, as above.
         } finally {
           historyReads.release(token);
@@ -3797,6 +3873,7 @@ export function MessageThread({
           queryKey: ["message-conversations", myUserId],
         });
       } catch {
+        // Reconcile safely on the next request; do not expose source errors.
         // Best-effort read marking; the next open, send, or peer message
         // re-runs it, so a failed request must not become an unhandled
         // rejection.
@@ -4632,6 +4709,7 @@ export function MessageThread({
             peerTyping={peerTyping}
             privateKey={privateKey}
           />
+          <ChatLifecycleTools detail={detail} />
 
           {searchOpen ? (
             <MessageSearchBar
@@ -4784,6 +4862,24 @@ export function MessageThread({
                       const item = transcriptItems[virtualItem.index];
                       if (!item) {
                         return null;
+                      }
+                      if (item.kind === "incognito") {
+                        return (
+                          <div
+                            data-index={virtualItem.index}
+                            key={virtualItem.key}
+                            ref={rowVirtualizer.measureElement}
+                            style={{
+                              left: 0,
+                              position: "absolute",
+                              top: 0,
+                              transform: `translateY(${virtualItem.start}px)`,
+                              width: "100%",
+                            }}
+                          >
+                            <IncognitoUsageNotice session={item.session} />
+                          </div>
+                        );
                       }
                       if (item.kind === "event") {
                         return (
@@ -5720,6 +5816,7 @@ function ThreadHeader({
           setKeyChanged(true);
         }
       } catch {
+        // Reconcile safely on the next request; do not expose source errors.
         // Fingerprint is best-effort; the thread still works without it.
       }
     }
@@ -5973,7 +6070,7 @@ function TypingRow({ avatarUrl }: { avatarUrl: string | null }) {
       {/* oxlint-disable jsx-a11y/prefer-tag-over-role -- live typing presence is a status role; <output> is form output and the wrong semantics here */}
       <div
         className="motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-2 flex items-end gap-2 px-4 pt-1 pb-2 motion-safe:duration-300"
-        role="status"
+        aria-live="polite"
       >
         <UserAvatar avatarUrl={avatarUrl} size={28} />
         <div className="border-border/60 rounded-2xl rounded-bl-sm border bg-[hsl(var(--background))] px-4 py-3 shadow-[inset_0_1px_2px_rgba(0,0,0,0.04)]">
@@ -6064,6 +6161,7 @@ async function copyToClipboard(text: string): Promise<void> {
   try {
     await navigator.clipboard.writeText(text);
   } catch {
+    // Reconcile safely on the next request; do not expose source errors.
     // Best-effort.
   }
 }

@@ -620,7 +620,7 @@ export function useTranscript(conversationId: string): TranscriptBinding {
           void authClient.signOut();
         },
         signal: controller.signal,
-        url: `${apiBase}/api/messages/conversations/${conversationId}/stream`,
+        url: `${apiBase}/api/messages/conversations/${conversationId}/stream?capability=chat-lifecycle-v1`,
       });
     })();
 

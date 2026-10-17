@@ -37,6 +37,7 @@ import { GifPicker } from "@/components/media/gif-picker";
 import { Gradient3D } from "@/components/surface/gradient-3d";
 import { IconButton3D } from "@/components/surface/icon-button-3d";
 import { authClient } from "@/features/auth/lib/auth-client";
+import { useSessionContext } from "@/features/auth/state/session";
 import {
   downloadGif,
   pickPhotosAndVideos,
@@ -63,6 +64,7 @@ import { getApiBaseUrl } from "@/lib/api-env";
 import { logWarn } from "@/lib/telemetry";
 import { useAppTheme } from "@/theme";
 
+import { useMessageTextDraft } from "../state/message-text-draft";
 import { useSharedPostDraft } from "../state/shared-post-draft";
 import { MessagePostPreview } from "./message-post-preview";
 
@@ -91,6 +93,7 @@ export interface ComposerTarget {
 
 export function MessageComposer({
   conversationId,
+  incognitoSessionId,
   disabled,
   editing,
   onCancelEdit,
@@ -101,6 +104,7 @@ export function MessageComposer({
   peerName,
 }: {
   conversationId: string;
+  incognitoSessionId?: string;
   disabled?: boolean;
   editing: ComposerTarget | null;
   onCancelEdit: () => void;
@@ -132,15 +136,22 @@ export function MessageComposer({
       hide.remove();
     };
   }, []);
-  const input = reelsInput(isDark);
-  const button = sendButton(isDark);
+  const incognito = Boolean(incognitoSessionId);
+  const input = reelsInput(incognito ? true : isDark);
+  const button = sendButton(incognito ? true : isDark);
   // The draft the user is typing, and the text the field shows. They differ only
   // while an edit is being loaded, which is why this is not a plain `useState`.
   // What the user has typed this session, keyed by nothing: it survives a cancel so
   // cancelling an edit restores what they had before it.
-  const [draft, setDraft] = useState("");
-  const sharedPostId = useSharedPostDraft(
-    (state) => state.drafts[conversationId]
+  const { user } = useSessionContext();
+  const draftKey = `${user?.id ?? ""}:${conversationId}`;
+  const [draft, setDraft] = useState(() =>
+    incognitoSessionId
+      ? ""
+      : (useMessageTextDraft.getState().drafts[draftKey] ?? "")
+  );
+  const sharedPostId = useSharedPostDraft((state) =>
+    incognitoSessionId ? undefined : state.drafts[conversationId]
   );
   const { crop, cropper } = useProfileMediaCropper();
   const [attachments, setAttachments] = useState<StagedAttachment[]>([]);
@@ -272,10 +283,11 @@ export function MessageComposer({
       await uploadStagedAttachments(staged, {
         aborts,
         conversationId,
+        incognitoSessionId,
         onPatch: update,
       });
     })();
-  }, [conversationId, update]);
+  }, [conversationId, incognitoSessionId, update]);
 
   const editAttachment = async (item: StagedAttachment) => {
     Keyboard.dismiss();
@@ -301,6 +313,7 @@ export function MessageComposer({
       await uploadStagedAttachments([staged], {
         aborts,
         conversationId,
+        incognitoSessionId,
         onPatch: update,
       });
       if (item.mediaId && item.owned) {
@@ -347,6 +360,9 @@ export function MessageComposer({
       },
       onSuccess: () => {
         useSharedPostDraft.getState().clear(conversationId);
+        if (!incognitoSessionId) {
+          useMessageTextDraft.getState().clear(draftKey);
+        }
         setDraft("");
         setAttachments([]);
         onCancelEdit();
@@ -359,6 +375,7 @@ export function MessageComposer({
     });
   }, [
     conversationId,
+    incognitoSessionId,
     sharedPostId,
     attachments,
     canSend,
@@ -368,6 +385,7 @@ export function MessageComposer({
     onSend,
     replyTo,
     stopTyping,
+    draftKey,
   ]);
 
   const atCapacity = attachments.length >= MAX_MESSAGE_ATTACHMENTS;
@@ -377,7 +395,8 @@ export function MessageComposer({
       style={[
         styles.root,
         {
-          borderTopColor: theme.dividerLine,
+          backgroundColor: incognito ? "#09090b" : undefined,
+          borderTopColor: incognito ? "#3f3f46" : theme.dividerLine,
           paddingBottom: 10 + (keyboardVisible ? 0 : insets.bottom),
         },
       ]}
@@ -450,19 +469,33 @@ export function MessageComposer({
           multiline
           onChangeText={(value) => {
             setDraft(value);
+            if (!incognitoSessionId) {
+              if (value) {
+                useMessageTextDraft.getState().save(draftKey, value);
+              } else {
+                useMessageTextDraft.getState().clear(draftKey);
+              }
+            }
             if (value.trim().length > 0) {
               noteTyping();
             } else {
               stopTyping();
             }
           }}
-          placeholder={
-            editing
-              ? "Edit message…"
-              : `Message${peerName ? ` ${peerName}` : ""}…`
-          }
-          placeholderTextColor={isDark ? "#6b6b6b" : "#9a9a9a"}
-          style={[styles.fieldInput, { color: isDark ? "#eeeeee" : "#202020" }]}
+          placeholder={(() => {
+            if (incognitoSessionId) {
+              return "Message in incognito…";
+            }
+            if (editing) {
+              return "Edit message…";
+            }
+            return `Message${peerName ? ` ${peerName}` : ""}…`;
+          })()}
+          placeholderTextColor={incognito || isDark ? "#6b6b6b" : "#9a9a9a"}
+          style={[
+            styles.fieldInput,
+            { color: incognito || isDark ? "#eeeeee" : "#202020" },
+          ]}
           value={fieldValue}
         />
         <Pressable
@@ -536,6 +569,7 @@ export function MessageComposer({
                   return uploadStagedAttachments([staged], {
                     aborts,
                     conversationId,
+                    incognitoSessionId,
                     onPatch: update,
                   });
                 })
@@ -566,6 +600,7 @@ async function uploadStagedAttachments(
   context: {
     aborts: React.RefObject<Map<string, AbortController>>;
     conversationId: string;
+    incognitoSessionId?: string;
     onPatch: (id: string, patch: Partial<StagedAttachment>) => void;
   }
 ): Promise<void> {
@@ -587,6 +622,7 @@ async function stageOneAttachment(
   context: {
     aborts: React.RefObject<Map<string, AbortController>>;
     conversationId: string;
+    incognitoSessionId?: string;
     onPatch: (id: string, patch: Partial<StagedAttachment>) => void;
   }
 ): Promise<void> {
@@ -594,6 +630,7 @@ async function stageOneAttachment(
   context.aborts.current.set(item.id, controller);
   const outcome = await uploadMedia(item.file, {
     conversationId: context.conversationId,
+    incognitoSessionId: context.incognitoSessionId,
     onBytes: (percent) => context.onPatch(item.id, { progress: percent }),
     // A dedup hit reused bytes that belong to another message, so this row is not
     // ours to discard later.

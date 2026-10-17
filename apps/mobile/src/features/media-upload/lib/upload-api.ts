@@ -33,6 +33,7 @@ export interface InitiateRequest {
   // binding, so an attachment uploaded without it 404s for the recipient. Every
   // other purpose leaves it unset.
   conversationId?: string;
+  incognitoSessionId?: string;
   height?: number;
   name: string;
   purpose: UploadPurpose;

@@ -103,7 +103,9 @@ export class TranscriptStore {
         if (!entry.snapshot.initialLoaded) {
           return [];
         }
-        const messages = entry.snapshot.messages.slice(-150);
+        const messages = entry.snapshot.messages
+          .filter((message) => !message.expiresAt)
+          .slice(-150);
         return [
           [
             id,
