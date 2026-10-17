@@ -145,10 +145,11 @@ function emailStyles(): string {
     `.store-btn{background-color:${palette.store};color:#ffffff;border-radius:12px;padding:11px 16px;text-decoration:none;display:block;border-bottom:3px solid #000000;white-space:nowrap}`,
     ".store-btn:hover{background-color:#2b2a28}",
     ".step-link:hover span{text-decoration:underline!important}",
-    // The store row is a two-cell table so the buttons never stack: cells sit
-    // on one row at every width and simply shrink. Only the padding tightens.
-    ".store-table{width:100%!important;table-layout:fixed!important}",
-    ".store-td{width:50%!important}",
+    // The store row is a two-cell table that shrink-wraps its buttons, so they
+    // sit side by side packed to the left with a single gap and never stack.
+    // No fixed column widths: a width:50% cell would strand them at the far
+    // edges of the row.
+    ".store-table{width:auto!important}",
     // Responsive: condense the frame; the store row stays side by side.
     "@media screen and (max-width:520px){",
     ".outer-pad{padding:24px 12px 36px!important}",
