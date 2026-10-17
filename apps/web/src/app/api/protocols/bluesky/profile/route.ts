@@ -18,6 +18,7 @@ const profileQuery = z.object({
       /^(?:did:(?:plc|web):[A-Za-z0-9._:%-]+|[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)+)$/
     ),
   cursor: z.string().min(1).max(4096).optional(),
+  limit: z.coerce.number().int().min(1).max(50).optional(),
   tab: z.enum(["posts", "replies", "media"]).optional(),
 });
 
@@ -39,6 +40,9 @@ export function GET(request: Request) {
     }
     if (parsed.data.cursor) {
       params.set("cursor", parsed.data.cursor);
+    }
+    if (parsed.data.limit) {
+      params.set("limit", String(parsed.data.limit));
     }
     const resource = await readBlueskyProfileResource(
       parsed.data.tab ? "author-feed" : "profile",

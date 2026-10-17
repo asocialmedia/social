@@ -636,7 +636,7 @@ export class BlueskyClient {
       }
       const page = {
         cursor: query.get("cursor") ?? undefined,
-        limit: Number(query.get("limit")),
+        limit: query.get("limit") ? Number(query.get("limit")) : undefined,
       };
       if (operation === "app.bsky.unspecced.getPopularFeedGenerators") {
         return await this.rpc.call(
