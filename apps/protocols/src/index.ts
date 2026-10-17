@@ -1,3 +1,4 @@
+// oxlint-disable promise/prefer-await-to-then
 import type RedisConnection from "ioredis";
 
 import { version } from "../package.json";
@@ -100,6 +101,59 @@ export async function startProtocols() {
   const discovery = new BlueskyDiscovery(client, undefined, {
     store: redis ? new RedisDiscoveryStore(redis) : new MemoryDiscoveryStore(),
   });
+  let stopLive: (() => void) | undefined;
+  if (redis) {
+    const { createDiscoveryLive } = await import("./discovery-live");
+    const { DISCOVERY_WATCH_CHANNEL, PROTOCOL_INVALIDATIONS_CHANNEL } =
+      await import("@asm/protocols/discovery");
+    const publisher = redis;
+    const subscriber = redis.duplicate({ lazyConnect: true });
+    subscriber.on("error", () => {
+      // Existing health and storage logging owns Redis availability reporting.
+    });
+    const live = createDiscoveryLive({
+      publish: (channel, message) => publisher.publish(channel, message),
+      read: ({ mode, locale, topics }, refresh) =>
+        refresh
+          ? discovery.refreshHead(mode, locale, topics)
+          : discovery.read(mode, undefined, locale, topics),
+      store: new RedisDiscoveryStore(redis),
+    });
+    subscriber.on("message", (channel, raw) => {
+      if (channel === PROTOCOL_INVALIDATIONS_CHANNEL) {
+        client.invalidate();
+        live.invalidate();
+      } else {
+        try {
+          live.watch(JSON.parse(raw));
+        } catch {
+          // Invalid watch hints carry no work.
+        }
+      }
+    });
+    const subscribe = () => {
+      void subscriber
+        .subscribe(DISCOVERY_WATCH_CHANNEL, PROTOCOL_INVALIDATIONS_CHANNEL)
+        .catch(() => {
+          // Reconnect resubscribes on ready.
+        });
+    };
+    subscriber.on("ready", subscribe);
+    void subscriber.connect().catch(() => {
+      // The subscriber reconnects in the background.
+    });
+    const timer = setInterval(() => {
+      void live.tick().catch(() => {
+        // A failed reconciliation is retried by the next tick.
+      });
+    }, 1000);
+    timer.unref();
+    stopLive = () => {
+      clearInterval(timer);
+      live.stop();
+      subscriber.disconnect();
+    };
+  }
   const app = createProtocolsApp({
     client,
     discover: (mode, cursor, locale, topics) =>
@@ -130,6 +184,7 @@ export async function startProtocols() {
     }
   } catch (error) {
     abort.abort();
+    await stopLive?.();
     client.close();
     await app.stop(true);
     await closeRedis?.().catch(() => {
@@ -163,6 +218,7 @@ export async function startProtocols() {
     stopping ??= (async () => {
       health.draining = true;
       abort.abort();
+      await stopLive?.();
       client.close();
       await worker;
       await app.stop(true);

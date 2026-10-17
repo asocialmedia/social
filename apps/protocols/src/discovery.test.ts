@@ -39,6 +39,50 @@ function post(index: number, did = "did:web:example.test"): ExternalPost {
 }
 const profile = post(0).author;
 
+test("background head refresh keeps the old head and every continuation readable", async () => {
+  let refreshing = false;
+  const pending = Promise.withResolvers<undefined>();
+  const started = Promise.withResolvers<undefined>();
+  const discovery = new BlueskyDiscovery(
+    {
+      allowsRecommendations: async () => true,
+      getAuthorFeed: async () => {
+        if (refreshing) {
+          started.resolve();
+          await pending.promise;
+        }
+        return {
+          cursor: null,
+          items: Array.from({ length: 30 }, (_, index) =>
+            post(index + (refreshing ? 100 : 0))
+          ),
+        };
+      },
+      getProfile: async () => profile,
+    },
+    ["one"]
+  );
+  const first = await discovery.read("latest", undefined, "en");
+  refreshing = true;
+  const refresh = discovery.refreshHead("latest", "en", []);
+  await started.promise;
+  const during = await discovery.read("latest", undefined, "en");
+  expect(during.items.map((item) => item.id)).toEqual(
+    first.items.map((item) => item.id)
+  );
+  expect(during.cursor).toBe(first.cursor);
+  pending.resolve();
+  await refresh;
+  const after = await discovery.read("latest", undefined, "en");
+  expect(after.items[0]?.id).not.toBe(first.items[0]?.id);
+  const continuation = await discovery.read(
+    "latest",
+    first.cursor ?? undefined,
+    "en"
+  );
+  expect(continuation.items.length).toBeGreaterThan(0);
+});
+
 test("a stalled locale does not queue unrelated discovery", async () => {
   const stalled = Promise.withResolvers<undefined>();
   const started = Promise.withResolvers<undefined>();
