@@ -267,8 +267,7 @@ export const VideoPreview = ({
   onDimensionsChange,
 }: {
   autoPlay?: boolean;
-  /** Stretch to the parent box (uniform grid cells) instead of sizing by
-   * natural aspect - the parent supplies width AND height, video covers. */
+  // Stretch to the parent box for uniform grid cells.
   fill?: boolean;
   media: Media;
   onDimensionsChange?: (dims: { h: number; w: number }) => void;
@@ -292,11 +291,13 @@ export const VideoPreview = ({
   useVideoDelivery(
     videoRef,
     media.id,
-    isHovered || isVideoActive,
-    media.hasHls
+    isHovered || autoPlay,
+    media.hasHls,
+    previewStartedRef
   );
 
   const [isFailed, setIsFailed] = useState(false);
+  const [posterFailed, setPosterFailed] = useState(false);
   // Minimal hover controls: playback state, current time and clip duration.
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -474,8 +475,7 @@ export const VideoPreview = ({
   const handleVideoPause = useCallback(() => setIsPlaying(false), []);
 
   const handlePosterError = useCallback(() => {
-    setIsFailed(true);
-    setIsVideoActive(false);
+    setPosterFailed(true);
   }, []);
 
   const handleVideoError = useCallback(() => {
@@ -543,7 +543,7 @@ export const VideoPreview = ({
           // Ignore seek aborts
         }
       }
-      if (previewStartedRef.current && autoPlay) {
+      if (previewStartedRef.current && (autoPlay || isHoveredRef.current)) {
         void (async () => {
           try {
             await video.play();
@@ -650,40 +650,55 @@ export const VideoPreview = ({
         muted={isMuted}
         onDurationChange={handleDurationChange}
         onError={handleVideoError}
+        onCanPlay={async () => {
+          if (previewStartedRef.current && (autoPlay || isHoveredRef.current)) {
+            try {
+              await videoRef.current?.play();
+            } catch {
+              // A new gesture can retry playback if the browser blocks it.
+            }
+          }
+        }}
         onLoadedMetadata={handleLoadedMetadata}
         onPause={handleVideoPause}
         onPlay={handleVideoPlay}
         onPlaying={handlePlaying}
         onTimeUpdate={handleTimeUpdate}
         playsInline
-        preload={autoPlay ? "metadata" : "none"}
-        src={isHovered || autoPlay ? getMediaVideoUrl(media.id) : undefined}
+        preload={autoPlay || posterFailed ? "metadata" : "none"}
+        src={
+          !media.hasHls && (isHovered || autoPlay)
+            ? getMediaVideoUrl(media.id)
+            : undefined
+        }
       />
-      <Image
-        alt="Video preview"
-        className={cn(
-          "absolute inset-0 h-full w-full rounded-lg object-cover transition-opacity duration-500 ease-[cubic-bezier(0.16,1,0.3,1)]",
-          isVideoActive ? "opacity-0" : "opacity-100"
-        )}
-        fill
-        loading="eager"
-        onError={handlePosterError}
-        onLoad={(event) => {
-          if (
-            (!storedW || !storedH) &&
-            event.currentTarget.naturalWidth > 0 &&
-            event.currentTarget.naturalHeight > 0
-          ) {
-            handleDimensionsUpdate({
-              h: event.currentTarget.naturalHeight,
-              w: event.currentTarget.naturalWidth,
-            });
-          }
-        }}
-        sizes="(max-width: 768px) 100vw, 640px"
-        src={getMediaProxyUrl(media)}
-        unoptimized
-      />
+      {posterFailed ? null : (
+        <Image
+          alt="Video preview"
+          className={cn(
+            "absolute inset-0 h-full w-full rounded-lg object-cover transition-opacity duration-500 ease-[cubic-bezier(0.16,1,0.3,1)]",
+            isVideoActive ? "opacity-0" : "opacity-100"
+          )}
+          fill
+          loading="eager"
+          onError={handlePosterError}
+          onLoad={(event) => {
+            if (
+              (!storedW || !storedH) &&
+              event.currentTarget.naturalWidth > 0 &&
+              event.currentTarget.naturalHeight > 0
+            ) {
+              handleDimensionsUpdate({
+                h: event.currentTarget.naturalHeight,
+                w: event.currentTarget.naturalWidth,
+              });
+            }
+          }}
+          sizes="(max-width: 768px) 100vw, 640px"
+          src={getMediaProxyUrl(media)}
+          unoptimized
+        />
+      )}
       <div
         className={cn(
           "absolute top-2 right-2 transition-opacity duration-300",

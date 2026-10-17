@@ -25,7 +25,8 @@ export function useVideoDelivery(
   videoRef: RefObject<HTMLVideoElement | null>,
   mediaId: string | undefined,
   enabled: boolean,
-  hasHls = false
+  hasHls = false,
+  playbackIntent?: RefObject<boolean>
 ) {
   useEffect(() => {
     const video = videoRef.current;
@@ -62,9 +63,11 @@ export function useVideoDelivery(
             startLevel: -1,
           });
           hls = instance;
-          const shouldResume = !video.paused;
+          const shouldResume = () =>
+            !destroyed &&
+            (playbackIntent ? playbackIntent.current : !video.paused);
           instance.on(Hls.Events.MANIFEST_PARSED, () => {
-            if (shouldResume && !destroyed) {
+            if (shouldResume()) {
               void resumeVideo(video);
             }
           });
@@ -73,7 +76,7 @@ export function useVideoDelivery(
               instance.destroy();
               const wasPlaying = !video.paused;
               video.src = fallback;
-              if (wasPlaying || shouldResume) {
+              if (!destroyed && (wasPlaying || shouldResume())) {
                 void resumeVideo(video);
               }
             }
@@ -91,5 +94,5 @@ export function useVideoDelivery(
       destroyed = true;
       hls?.destroy();
     };
-  }, [enabled, hasHls, mediaId, videoRef]);
+  }, [enabled, hasHls, mediaId, playbackIntent, videoRef]);
 }
