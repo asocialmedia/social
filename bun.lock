@@ -178,7 +178,7 @@
     },
     "apps/web": {
       "name": "@asm/web",
-      "version": "1.7.57",
+      "version": "1.7.58",
       "dependencies": {
         "@asm/aggregator": "workspace:*",
         "@asm/auth": "workspace:*",
@@ -306,7 +306,7 @@
     },
     "packages/db": {
       "name": "@asm/db",
-      "version": "1.2.80",
+      "version": "1.2.81",
       "dependencies": {
         "@asm/config": "workspace:*",
         "@asm/logger": "workspace:*",
@@ -376,9 +376,10 @@
     },
     "packages/messages": {
       "name": "@asm/messages",
-      "version": "1.0.15",
+      "version": "1.0.16",
       "dependencies": {
         "@asm/media": "workspace:*",
+        "emojibase-data": "^18.0.0",
       },
     },
     "packages/next": {
@@ -2343,6 +2344,10 @@
     "embla-carousel-reactive-utils": ["embla-carousel-reactive-utils@8.6.0", "", { "peerDependencies": { "embla-carousel": "8.6.0" } }, "sha512-fMVUDUEx0/uIEDM0Mz3dHznDhfX+znCCDCeIophYb1QGVM7YThSWX+wz11zlYwWFOr74b4QLGg0hrGPJeG2s4A=="],
 
     "emoji-regex": ["emoji-regex@8.0.0", "", {}, "sha512-MSjYzcWNOA0ewAHpz0MxpYFvwg6yjy1NG3xteoqz644VCo/RPgnr1/GGt+ic3iJTzQ8Eu3TdM14SawnVUmGE6A=="],
+
+    "emojibase": ["emojibase@18.0.0", "", {}, "sha512-5PG+EEt5zQ9qvqdHZw61+T9iz96g+r621QS/w8jEzPg+3mjzAdjl8LPLc+e9ABv/yboNfMwEair7aK9qKnwAbQ=="],
+
+    "emojibase-data": ["emojibase-data@18.0.0", "", { "peerDependencies": { "emojibase": "*" } }, "sha512-TPPRRYv2zPd0jKI+pTpMquwWNZXYAsC3IVsCMeg2X8y8fEzKwOks4/5bz0YavF5r6d71aGPpb6oDnUEwSLLMoA=="],
 
     "empathic": ["empathic@2.0.1", "", {}, "sha512-YGRs8knHhKHVShLkFET/rWAU8kmHbOV5LwN938RHI0pljAJ1Gf6SzXsSmRaEzcXTtOOmVqJ5+WtQPL5uigY50Q=="],
 

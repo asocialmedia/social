@@ -1,3 +1,4 @@
+import { loadReactionCatalog } from "@asm/messages";
 import type { MessageReactionSummary } from "@asm/messages";
 
 import prisma from "../prisma";
@@ -5,15 +6,7 @@ import type { PrismaTransaction } from "../prisma";
 import { messageInteractionAllowed } from "./access/interaction-access";
 import { rawExecute, rawQuery } from "./infrastructure/raw-sql";
 
-export const MESSAGE_REACTION_EMOJIS = [
-  "❤️",
-  "👍",
-  "😂",
-  "😮",
-  "😢",
-  "🔥",
-] as const;
-export type MessageReactionEmoji = (typeof MESSAGE_REACTION_EMOJIS)[number];
+export { QUICK_MESSAGE_REACTIONS as MESSAGE_REACTION_EMOJIS } from "@asm/messages";
 
 export class MessageReactionError extends Error {
   readonly status: number;
@@ -80,10 +73,10 @@ export async function listMessageReactionSummaries(
   return grouped;
 }
 
-export function toggleMessageReaction(
+export async function toggleMessageReaction(
   input: MessageReactionTarget & { emoji: string }
 ): Promise<MessageReactionSummary[]> {
-  if (!isMessageReactionEmoji(input.emoji)) {
+  if (!(await isMessageReactionEmoji(input.emoji))) {
     throw new MessageReactionError("INVALID_EMOJI", 400);
   }
   if (input.messageId.length === 0 || input.messageId.length > 100) {
@@ -183,10 +176,12 @@ export function toggleMessageReaction(
   });
 }
 
-export function isMessageReactionEmoji(
-  value: string
-): value is MessageReactionEmoji {
-  return MESSAGE_REACTION_EMOJIS.some((emoji) => emoji === value);
+export async function isMessageReactionEmoji(value: string): Promise<boolean> {
+  if (!value || value.length > 64) {
+    return false;
+  }
+  const catalog = await loadReactionCatalog();
+  return catalog.allowed.has(value);
 }
 
 async function decrementReactionCount(

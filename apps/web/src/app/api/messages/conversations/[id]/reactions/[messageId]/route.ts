@@ -1,6 +1,5 @@
 import {
   consumeRateLimit,
-  isMessageReactionEmoji,
   listMessageReactionSummaries,
   MessageReactionError,
   messageInteractionAllowed,
@@ -22,7 +21,7 @@ interface RouteContext {
 }
 
 const bodySchema = z.object({
-  emoji: z.string().min(1).max(32),
+  emoji: z.string().min(1).max(64),
   sessionId: z.uuid().optional(),
 });
 
@@ -101,7 +100,7 @@ export async function POST(request: Request, context: RouteContext) {
     return Response.json({ error: "Invalid request" }, { status: 413 });
   }
   const parsed = bodySchema.safeParse(body);
-  if (!parsed.success || !isMessageReactionEmoji(parsed.data.emoji)) {
+  if (!parsed.success) {
     return Response.json(
       { error: "Choose a supported reaction" },
       { status: 400 }
