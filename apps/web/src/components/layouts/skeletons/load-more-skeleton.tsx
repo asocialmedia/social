@@ -15,7 +15,7 @@ export default function LoadMoreSkeleton({
   dynamic = true,
   posts,
   rotate = true,
-  rotateIntervalMs = 2400,
+  rotateIntervalMs = 4200,
   source = "all",
 }: {
   count?: number;
@@ -68,8 +68,8 @@ export default function LoadMoreSkeleton({
             : undefined;
         return (
           <div
-            className="flex flex-col transition-all duration-500 ease-in-out"
-            key={`load-more-${index}`}
+            className="animate-skeleton-morph flex flex-col transition-all duration-700 ease-in-out"
+            key={`load-more-${index}-${cycle}`}
           >
             <PostCardSkeleton
               dynamic={dynamic}

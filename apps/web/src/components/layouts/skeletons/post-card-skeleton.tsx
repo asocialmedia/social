@@ -84,13 +84,13 @@ export function PostMediaSkeleton({
     const isTwo = count <= 2;
     return (
       <div
-        className="mt-3 grid grid-cols-2 gap-2 transition-all duration-500 ease-in-out"
+        className="mt-3 grid grid-cols-2 gap-2 transition-all duration-700 ease-in-out"
         data-skeleton-media="album"
       >
         {Array.from({ length: Math.min(count, 4) }, (_, index) => (
           <Skeleton
             className={cn(
-              "rounded-xl transition-all duration-500 ease-in-out",
+              "rounded-xl transition-all duration-700 ease-in-out",
               isTwo ? "h-36 sm:h-44" : "h-28 sm:h-36"
             )}
             key={index}
@@ -117,7 +117,7 @@ export function PostMediaSkeleton({
     const ratio = profile?.aspectRatio ?? 3 / 4;
     return (
       <Skeleton
-        className="mt-3 max-w-full rounded-xl transition-all duration-500 ease-in-out [--preview-max-height:360px] sm:[--preview-max-height:440px]"
+        className="mt-3 max-w-full rounded-xl transition-all duration-700 ease-in-out [--preview-max-height:360px] sm:[--preview-max-height:440px]"
         data-skeleton-media="vertical"
         style={{
           aspectRatio: ratio,
@@ -131,7 +131,7 @@ export function PostMediaSkeleton({
     : (profile?.aspectRatio ?? (effectiveKind === "image" ? 16 / 9 : 4 / 3));
   return (
     <Skeleton
-      className="mt-3 max-w-full rounded-xl transition-all duration-500 ease-in-out [--preview-max-height:320px] sm:[--preview-max-height:400px]"
+      className="mt-3 max-w-full rounded-xl transition-all duration-700 ease-in-out [--preview-max-height:320px] sm:[--preview-max-height:400px]"
       data-skeleton-media={effectiveKind}
       style={{
         aspectRatio: ratio,
@@ -200,11 +200,16 @@ export function PostCardSkeleton({
     : (effectiveProfile?.kind ?? layout.kind);
 
   const content = (
-    <div className={cn("space-y-2", detail ? "mt-3 sm:mt-3.5" : "mt-1")}>
+    <div
+      className={cn(
+        "space-y-2 transition-all duration-700 ease-in-out",
+        detail ? "mt-3 sm:mt-3.5" : "mt-1"
+      )}
+    >
       {Array.from({ length: lineCount }, (_, lineIndex) => (
         <Skeleton
           className={cn(
-            "h-4 transition-all duration-500 ease-in-out",
+            "h-4 transition-all duration-700 ease-in-out",
             getLineSkeletonWidth(lineIndex, lineCount)
           )}
           key={lineIndex}
@@ -246,7 +251,7 @@ export function PostCardSkeleton({
       aria-busy="true"
       aria-label={isBsky ? "Loading Bluesky post" : "Loading post"}
       className={cn(
-        "group/post relative min-w-0 overflow-hidden rounded-none bg-[hsl(var(--background-alt))] p-4 transition-all duration-500 ease-in-out",
+        "group/post relative min-w-0 overflow-hidden rounded-none bg-[hsl(var(--background-alt))] p-4 transition-all duration-700 ease-in-out",
         className
       )}
       data-post-skeleton={effectiveKind}
