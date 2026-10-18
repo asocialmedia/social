@@ -58,6 +58,11 @@ import {
   prependPostsToFeedCache,
 } from "@/lib/posts/feed-cache";
 import { mergeGustPosts } from "@/lib/posts/gust-feed";
+import {
+  activeNetworkInterests,
+  networkPostAllowed,
+  networkPostRecommended,
+} from "@/lib/posts/network-content-policy";
 import { externalPostView } from "@/lib/posts/presentation";
 import type { PresentedPost } from "@/lib/posts/presentation";
 import { cn, isEditableTarget } from "@/lib/utils";
@@ -294,7 +299,8 @@ const GustStream = ({ gustTab }: { gustTab: GustFeed }) => {
     status: nativeStatus,
     isFetchNextPageError: nativePageError,
   } = useInfiniteQuery({
-    enabled: !gatedPersonalized && includeNative && !externalId,
+    enabled:
+      !gatedPersonalized && includeNative && !externalId && network.ready,
     getNextPageParam: (lastPage: GustsPage) => lastPage.nextCursor,
     initialPageParam: null as string | null,
     queryFn: ({ pageParam, signal }) => {
@@ -303,6 +309,7 @@ const GustStream = ({ gustTab }: { gustTab: GustFeed }) => {
         excludeModerated: "1",
         locale,
         profile: network.settings.preferences.activeProfileId,
+        ...(initialPostId ? {} : { network: network.scope }),
       };
       if (isPersonalized) {
         queryParams.mode = "personalized";
@@ -324,7 +331,7 @@ const GustStream = ({ gustTab }: { gustTab: GustFeed }) => {
 
   const nativePosts = useMemo(
     () =>
-      includeNative && !externalId
+      includeNative && !externalId && network.ready
         ? [
             ...new Map(
               (data?.pages.flatMap((page) => page.posts) ?? []).map((post) => [
@@ -336,12 +343,36 @@ const GustStream = ({ gustTab }: { gustTab: GustFeed }) => {
             (post) =>
               !post.moderated &&
               !hiddenPostIds.has(post.id) &&
+              (gustTab === "following" || initialPostId
+                ? networkPostAllowed(
+                    post,
+                    network.settings.preferences,
+                    network.settings.topicScope
+                  )
+                : networkPostRecommended(
+                    post,
+                    network.settings.preferences,
+                    network.settings.topicScope
+                  )) &&
               post.attachments.some((media) => media.type === "VIDEO")
           )
         : [],
-    [data, includeNative, externalId, hiddenPostIds]
+    [
+      data,
+      includeNative,
+      externalId,
+      hiddenPostIds,
+      gustTab,
+      initialPostId,
+      network.settings.preferences,
+      network.settings.topicScope,
+      network.ready,
+    ]
   );
   const externalPosts = useMemo(() => {
+    if (!network.ready) {
+      return [];
+    }
     let candidates = includeExternal
       ? (externalFeed.data?.pages.flatMap((page) => page.items) ?? [])
       : [];
@@ -350,8 +381,30 @@ const GustStream = ({ gustTab }: { gustTab: GustFeed }) => {
     }
     return filterExternalRecommendations(candidates, excluded)
       .filter((post) => post.media.some((media) => media.type === "video"))
-      .map((post) => ({ ...externalPostView(post), isGust: true }));
-  }, [externalId, deepLink.data, includeExternal, externalFeed.data, excluded]);
+      .map((post) => ({ ...externalPostView(post), isGust: true }))
+      .filter((post) =>
+        externalId
+          ? networkPostAllowed(
+              post,
+              network.settings.preferences,
+              network.settings.topicScope
+            )
+          : networkPostRecommended(
+              post,
+              network.settings.preferences,
+              network.settings.topicScope
+            )
+      );
+  }, [
+    externalId,
+    deepLink.data,
+    includeExternal,
+    externalFeed.data,
+    excluded,
+    network.settings.preferences,
+    network.settings.topicScope,
+    network.ready,
+  ]);
   const orderScope = `${gustTab}:${initialPostId ?? ""}:${source}:${user?.id ?? "guest"}:${network.scope}:${locale}`;
   const [reel, setReel] = useState<{
     scope: string;
@@ -474,7 +527,7 @@ const GustStream = ({ gustTab }: { gustTab: GustFeed }) => {
           searchParams: { excludeModerated: "1", mode: "following", take: "5" },
         })
         .json<GustsPage>(),
-    queryKey: ["following-gust-preview", user?.id ?? "guest"],
+    queryKey: ["following-gust-preview", user?.id ?? "guest", network.scope],
     staleTime: 60_000,
   });
   const orderedFollowingAvatars = followingGustAvatars(
@@ -510,11 +563,13 @@ const GustStream = ({ gustTab }: { gustTab: GustFeed }) => {
       includeNative &&
       !initialPostId &&
       !gatedPersonalized &&
+      network.ready &&
       nativeStatus === "success",
     fetchHead: async (signal) => {
       const queryParams: Record<string, string> = {
         excludeModerated: "1",
         locale,
+        network: network.scope,
         profile: network.settings.preferences.activeProfileId,
       };
       if (isPersonalized) {
@@ -527,7 +582,19 @@ const GustStream = ({ gustTab }: { gustTab: GustFeed }) => {
         .json<GustsPage>();
       return fresh.posts;
     },
-    filter: (post) => post.attachments.some((media) => media.type === "VIDEO"),
+    filter: (post) =>
+      post.attachments.some((media) => media.type === "VIDEO") &&
+      (gustTab === "following"
+        ? networkPostAllowed(
+            post,
+            network.settings.preferences,
+            network.settings.topicScope
+          )
+        : networkPostRecommended(
+            post,
+            network.settings.preferences,
+            network.settings.topicScope
+          )),
     probeOnMount: !isFetchedAfterMount,
     resetKey: orderScope,
     visible: nativePosts,
@@ -535,10 +602,18 @@ const GustStream = ({ gustTab }: { gustTab: GustFeed }) => {
 
   const allNewGusts = [
     ...newGusts,
-    ...externalFeed.newItems.map((post) => ({
-      ...externalPostView(post),
-      isGust: true,
-    })),
+    ...externalFeed.newItems
+      .map((post) => ({
+        ...externalPostView(post),
+        isGust: true,
+      }))
+      .filter((post) =>
+        networkPostRecommended(
+          post,
+          network.settings.preferences,
+          network.settings.topicScope
+        )
+      ),
   ];
 
   // Pull-to-refresh deliberately updates the visible reel: it is the explicit
@@ -883,6 +958,11 @@ const GustStream = ({ gustTab }: { gustTab: GustFeed }) => {
     }
 
     if (posts.length === 0) {
+      const focused =
+        gustTab !== "following" &&
+        !initialPostId &&
+        !externalId &&
+        activeNetworkInterests(network.settings.preferences).length > 0;
       return (
         <div className="flex h-full w-full flex-col items-center justify-center p-6 text-center">
           <Image
@@ -893,14 +973,17 @@ const GustStream = ({ gustTab }: { gustTab: GustFeed }) => {
             src={noMediaImage}
             width={128}
           />
-          <h2 className="text-foreground text-xl font-bold">No Gusts yet</h2>
+          <h2 className="text-foreground text-xl font-bold">
+            {focused ? "No Gusts match this profile yet" : "No Gusts yet"}
+          </h2>
           <p className="text-muted-foreground mt-1 max-w-sm text-sm">
-            Be the first to share a high-energy short-form video clip with the
-            community!
+            {focused
+              ? "Try another profile or add interests in Network settings."
+              : "Be the first to share a high-energy short-form video clip with the community!"}
           </p>
           <Button className="mt-5" onClick={handleOpenUpload} variant="premium">
             <Plus className="mr-1.5 size-4" />
-            Create the First Gust
+            {focused ? "Create a Gust" : "Create the First Gust"}
           </Button>
         </div>
       );

@@ -22,6 +22,7 @@ import InfiniteScrollContainer from "@/components/layouts/feed/infinite-scroll-c
 import FollowButton from "@/components/layouts/user/follow-button";
 import UserAvatar from "@/components/layouts/user/user-avatar";
 import UserBadge from "@/components/layouts/user/user-badge";
+import { PostEngagementCount } from "@/components/posts/actions/post-engagement-count";
 import ExplicitContentGate from "@/components/posts/content/explicit-content-gate";
 import {
   embedImageProxyUrl,
@@ -141,9 +142,6 @@ const AuthorPostRow: React.FC<AuthorPostRowProps> = ({ post }) => {
   }
 
   const destination = getPostPath(post);
-  const likesCount = post.external
-    ? (post.external.upstreamCounts?.likes ?? 0)
-    : post.aura;
   const commentsCount = post._count?.comments ?? 0;
 
   return (
@@ -187,15 +185,16 @@ const AuthorPostRow: React.FC<AuthorPostRowProps> = ({ post }) => {
           <span className="shrink-0" suppressHydrationWarning>
             {formatRelativeDate(post.createdAt)}
           </span>
-          <span className="flex shrink-0 items-center gap-0.5">
-            <Flame
-              className={cn(
-                "h-3 w-3 transition-colors group-hover:text-inherit",
-                getAuraFlameClass(likesCount)
-              )}
-            />
-            {formatNumber(likesCount)}
-          </span>
+          <PostEngagementCount
+            aura={post.aura}
+            className="flex shrink-0 items-center gap-0.5"
+            iconClassName="h-3 w-3 transition-colors group-hover:text-inherit"
+            likeCount={
+              post.external
+                ? (post.external.upstreamCounts.likes ?? null)
+                : undefined
+            }
+          />
           <span className="flex shrink-0 items-center gap-0.5">
             <MessageSquare
               className={cn("h-3 w-3", commentsCount > 0 && "fill-current")}

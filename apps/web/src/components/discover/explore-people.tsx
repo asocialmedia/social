@@ -10,6 +10,7 @@ import type React from "react";
 import { useCallback, useMemo, useState } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
+import { useNetworkSettings } from "@/hooks/feed/use-network-settings";
 import useDebounce from "@/hooks/use-debounce";
 import kyInstance from "@/lib/ky";
 
@@ -33,6 +34,7 @@ const PEOPLE_SEARCH_DEBOUNCE_MS = 300;
 // leaving the tab.
 const ExplorePeople: React.FC = () => {
   const { user: sessionUser } = useSession();
+  const network = useNetworkSettings();
   const isLoggedIn = Boolean(sessionUser);
   const queryClient = useQueryClient();
 
@@ -50,8 +52,7 @@ const ExplorePeople: React.FC = () => {
     isFetching: isFetchingPeople,
     status: discoveryStatus,
   } = useQuery({
-    enabled: !isSearching,
-    placeholderData: (previousData) => previousData,
+    enabled: !isSearching && network.ready,
     queryFn: async (): Promise<ExploreUser[]> => {
       const res = await kyInstance
         .get(
@@ -60,7 +61,12 @@ const ExplorePeople: React.FC = () => {
         .json<ExploreUser[]>();
       return res;
     },
-    queryKey: ["explore-people", source],
+    queryKey: [
+      "explore-people",
+      source,
+      sessionUser?.id ?? "guest",
+      network.scope,
+    ],
     staleTime: 60 * 1000,
   });
 
@@ -98,13 +104,21 @@ const ExplorePeople: React.FC = () => {
       const res = await kyInstance
         .get("/api/users/suggested?limit=12&refresh=1")
         .json<ExploreUser[]>();
-      queryClient.setQueryData(["explore-people", "suggested"], res);
+      queryClient.setQueryData(
+        [
+          "explore-people",
+          "suggested",
+          sessionUser?.id ?? "guest",
+          network.scope,
+        ],
+        res
+      );
     } catch {
       void queryClient.invalidateQueries({
         queryKey: ["explore-people", "suggested"],
       });
     }
-  }, [queryClient]);
+  }, [queryClient, sessionUser, network.scope]);
 
   const status = isSearching ? searchStatus : discoveryStatus;
   const showDiscoveryHeader = !isSearching;

@@ -8,14 +8,15 @@ import { useCallback } from "react";
 
 import { trackNetworkAction } from "@/components/recommendations/recommendation-tracker";
 import { useRequireAuth } from "@/hooks/auth/use-require-auth";
-import { getAuraFlameClass } from "@/lib/aura/aura";
 import { useToast } from "@/lib/gooey-toast";
 import kyInstance from "@/lib/ky";
 import {
   applyAuraToCaches,
   applyCommentAuraToCaches,
 } from "@/lib/posts/cache-sync";
-import { cn, formatNumber } from "@/lib/utils";
+import { cn } from "@/lib/utils";
+
+import { PostEngagementCount } from "./post-engagement-count";
 
 interface AuraVoteButtonProps {
   controller?: {
@@ -32,6 +33,7 @@ interface AuraVoteButtonProps {
   expandable?: boolean;
   initialState: VoteInfo;
   layout?: "inline" | "menu";
+  likeCount?: number | null;
   postId: string;
 }
 
@@ -54,6 +56,7 @@ export default function AuraVoteButton({
   initialState,
   postId,
   layout = "inline",
+  likeCount,
 }: AuraVoteButtonProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -354,16 +357,12 @@ export default function AuraVoteButton({
           ) : null}
         </button>
       </div>
-      <span
+      <PostEngagementCount
+        aura={data.aura}
         className="text-muted-foreground flex h-7 items-center gap-1 rounded-full px-1.5 text-xs font-semibold tabular-nums sm:h-7.5 sm:px-2 sm:text-[13px]"
-        title="Aura"
-      >
-        <Flame
-          aria-hidden="true"
-          className={cn("h-4 w-4 sm:h-5 sm:w-5", getAuraFlameClass(data.aura))}
-        />
-        {formatNumber(data.aura)}
-      </span>
+        iconClassName="h-4 w-4 sm:h-5 sm:w-5"
+        likeCount={likeCount}
+      />
     </div>
   );
 }

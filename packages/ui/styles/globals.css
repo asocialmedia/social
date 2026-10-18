@@ -678,6 +678,31 @@
       0 1px 1px rgba(0, 0, 0, 0.04);
   }
 
+  /* Feathers the edge of a horizontally scrolling strip so a partially visible
+     item reads as "there is more" instead of a label sliced at the boundary.
+     The masks are applied to the strip itself, so the fade travels with the
+     content and nothing is painted over the text. The attributes are set by
+     useHorizontalDragScroll. */
+  .tab-strip-fade {
+    --tab-fade-from: 0px;
+    --tab-fade-to: 0px;
+    mask-image: linear-gradient(
+      to right,
+      transparent 0,
+      #000 var(--tab-fade-from),
+      #000 calc(100% - var(--tab-fade-to)),
+      transparent 100%
+    );
+  }
+
+  .tab-strip-fade[data-overflow-start] {
+    --tab-fade-from: 1.5rem;
+  }
+
+  .tab-strip-fade[data-overflow-end] {
+    --tab-fade-to: 1.5rem;
+  }
+
   .dark .chip-3d {
     border: 1px solid rgba(255, 255, 255, 0.1);
     box-shadow:

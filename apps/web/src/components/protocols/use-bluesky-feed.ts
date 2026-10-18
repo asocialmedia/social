@@ -17,6 +17,7 @@ import { useFeedEvents } from "@/hooks/feed/use-feed-events";
 import { useNetworkSettings } from "@/hooks/feed/use-network-settings";
 import { useNewContentProbe } from "@/hooks/feed/use-new-content-probe";
 import { FEED_QUERY_BEHAVIOR } from "@/lib/posts/feed-cache";
+import { externalNetworkPostRecommended } from "@/lib/posts/network-content-policy";
 import { useExternalExclusions } from "@/store/feed-source-store";
 
 export function useBlueskyFeed(
@@ -40,7 +41,7 @@ export function useBlueskyFeed(
   ];
   const query = useInfiniteQuery({
     ...FEED_QUERY_BEHAVIOR,
-    enabled: enabled && ready,
+    enabled: enabled && ready && network.ready,
     getNextPageParam: (lastPage: DiscoveryPage) => lastPage.cursor ?? undefined,
     initialPageParam: null as string | null,
     queryFn: ({ pageParam, signal }): Promise<DiscoveryPage> => {
@@ -75,7 +76,7 @@ export function useBlueskyFeed(
     }
   });
   const probe = useNewContentProbe({
-    enabled: enabled && Boolean(query.data),
+    enabled: enabled && network.ready && Boolean(query.data),
     eventMode: mode,
     eventSource: "bluesky",
     fetchHead: async (signal) => {
@@ -91,7 +92,13 @@ export function useBlueskyFeed(
     },
     filter: (post) =>
       !excluded.has(`post:${post.id}`) &&
-      !excluded.has(`author:${post.author.id}`),
+      !excluded.has(`author:${post.author.id}`) &&
+      externalNetworkPostRecommended(
+        post,
+        network.settings.preferences,
+        undefined,
+        network.settings.topicScope
+      ),
     order: mode === "latest" ? "newest-first" : "ranked",
     probeOnMount: !query.isFetchedAfterMount,
     resetKey: `${mode}:${viewer}:${locale}:${network.scope}:${content}`,

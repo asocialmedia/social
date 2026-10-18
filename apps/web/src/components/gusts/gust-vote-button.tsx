@@ -2,11 +2,11 @@
 
 import type { VoteInfo } from "@asm/db";
 import type { ExternalPost } from "@asm/protocols/contracts";
-import { ArrowBigDown, ArrowBigUp, Flame } from "lucide-react";
+import { ArrowBigDown, ArrowBigUp } from "lucide-react";
 import { useCallback } from "react";
 
-import { getAuraFlameClass } from "@/lib/aura/aura";
-import { cn, formatNumber } from "@/lib/utils";
+import { PostEngagementCount } from "@/components/posts/actions/post-engagement-count";
+import { cn } from "@/lib/utils";
 
 import { useGustVote } from "./use-gust-vote";
 
@@ -82,10 +82,17 @@ export default function GustVoteButton({
       </button>
 
       {isUp ? (
-        <span className="text-primary flex items-center gap-1 text-lg font-black tabular-nums drop-shadow-md">
-          <Flame className={cn("size-5", getAuraFlameClass(aura))} />
-          {formatNumber(aura)}
-        </span>
+        <PostEngagementCount
+          aura={aura}
+          className={cn(
+            "flex items-center gap-1 text-lg font-black tabular-nums drop-shadow-md",
+            external ? "text-white" : "text-primary"
+          )}
+          iconClassName="size-5"
+          likeCount={
+            external ? (external.upstreamCounts.likes ?? null) : undefined
+          }
+        />
       ) : null}
     </div>
   );

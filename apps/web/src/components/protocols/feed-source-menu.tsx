@@ -78,12 +78,6 @@ const SOURCE_OPTIONS: SourceOption[] = [
   },
 ];
 
-const LANGUAGE_OPTIONS = [
-  { label: "Device", value: "auto" },
-  { label: "English", value: "en" },
-  { label: "All", value: "all" },
-] as const;
-
 const subscribe = () => () => {
   // Hydration detection does not need a live subscription.
 };
@@ -102,8 +96,6 @@ export function FeedSourceMenu({ following }: { following: boolean }) {
   const mounted = useMounted();
   const source = useFeedSourceStore((state) => state.source);
   const setSource = useFeedSourceStore((state) => state.setSource);
-  const language = useFeedSourceStore((state) => state.language);
-  const setLanguage = useFeedSourceStore((state) => state.setLanguage);
 
   // During SSR and initial hydration, align to the default store state to avoid
   // hydration mismatches when local storage contains persisted user choices.
@@ -114,14 +106,11 @@ export function FeedSourceMenu({ following }: { following: boolean }) {
     activeSource = source;
   }
 
-  const activeLanguage = mounted ? language : "auto";
-  const isCustomized =
-    mounted && !following && (source !== "all" || language !== "auto");
+  const isCustomized = mounted && !following && source !== "all";
 
   const handleReset = useCallback(() => {
     setSource("all");
-    setLanguage("auto");
-  }, [setSource, setLanguage]);
+  }, [setSource]);
 
   return (
     <Popover>
@@ -290,32 +279,6 @@ export function FeedSourceMenu({ following }: { following: boolean }) {
               </button>
             );
           })}
-        </div>
-
-        <div className="mt-2.5 flex items-center justify-between gap-2 px-1">
-          <span className="text-muted-foreground text-xs font-medium">
-            Language
-          </span>
-          <fieldset
-            aria-label="Content language"
-            className="surface-3d flex min-w-0 items-center gap-0.5 rounded-lg p-0.5"
-          >
-            {LANGUAGE_OPTIONS.map((lang) => {
-              const isLangSelected = activeLanguage === lang.value;
-              return (
-                <button
-                  key={lang.value}
-                  aria-pressed={isLangSelected}
-                  className="tabs-segment-3d text-muted-foreground hover:text-foreground data-[state=active]:text-foreground focus-visible:ring-ring cursor-pointer rounded-md px-2 py-1 text-[11px] font-semibold focus-visible:ring-2 focus-visible:outline-none"
-                  data-state={isLangSelected ? "active" : "inactive"}
-                  onClick={() => setLanguage(lang.value)}
-                  type="button"
-                >
-                  {lang.label}
-                </button>
-              );
-            })}
-          </fieldset>
         </div>
 
         {following ? (

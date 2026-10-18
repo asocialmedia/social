@@ -37,6 +37,7 @@ export function ExternalVoteButton({
   };
   return (
     <AuraVoteButton
+      likeCount={post.upstreamCounts.likes ?? null}
       layout={layout}
       authorName={post.author.displayName}
       initialState={state}

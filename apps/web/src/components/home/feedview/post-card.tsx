@@ -43,7 +43,10 @@ import {
   ExternalShareButton,
   ExternalVoteButton,
 } from "@/components/protocols/external-post-controls";
-import { ExternalResponseParent } from "@/components/protocols/external-response-parent";
+import {
+  ExternalResponseParent,
+  ExternalResponseParentRow,
+} from "@/components/protocols/external-response-parent";
 import { ResponseParentRow } from "@/components/responses/response-parent-card";
 import { PostMeta } from "@/components/tags/post-meta";
 import { communityAccentStyle } from "@/lib/communities/accent";
@@ -54,7 +57,6 @@ import {
   isBookmarkedByUser,
   normalizePostData,
 } from "@/lib/posts/post-normalize";
-import { externalPostView } from "@/lib/posts/presentation";
 import type { PresentedPost as PostData } from "@/lib/posts/presentation";
 import { blueskyProfilePath } from "@/lib/protocols/paths";
 import { getPostPath } from "@/lib/seo/seo";
@@ -429,7 +431,8 @@ const PostContent: React.FC<PostContentProps> = ({
   // replies to as the top node of a mini-thread, connected by a rail,
   // unless this post is already preceded by its parent in an ongoing thread.
   const showParentRow =
-    Boolean(post.parentPostId || post.externalParent) && !hasThreadParent;
+    Boolean(post.parentPostId || post.externalParent || post.external?.quote) &&
+    !hasThreadParent;
   const isThreadChild = hasThreadParent || showParentRow;
 
   // Attachment media and link embeds render as one column, so a post with both
@@ -471,10 +474,16 @@ const PostContent: React.FC<PostContentProps> = ({
 
   return (
     <div>
-      {showParentRow && post.externalParent ? (
+      {showParentRow && post.external?.quote ? (
+        <ExternalResponseParentRow
+          post={post.external.quote}
+          uri={post.external.quote.id}
+        />
+      ) : null}
+      {showParentRow && !post.external?.quote && post.externalParent ? (
         <ExternalResponseParent uri={post.externalParent.uri} />
       ) : null}
-      {showParentRow && !post.externalParent ? (
+      {showParentRow && !post.external?.quote && !post.externalParent ? (
         <ResponseParentRow
           parent={post.parentPost}
           parentPostId={post.parentPostId as string}
@@ -484,6 +493,23 @@ const PostContent: React.FC<PostContentProps> = ({
           set above the avatar so the space it belongs to reads first, before
           the author. Suppressed inside that community's own feed, where the
           attribution is redundant; ranked feeds add the reason line. */}
+      {post.recommendationSources?.length ? (
+        <div className="text-muted-foreground mb-2 flex flex-wrap items-center gap-1 text-xs">
+          <span>Amplified by</span>
+          {post.recommendationSources.map((person, index) => (
+            <span key={person.id}>
+              {index ? ", " : ""}
+              <Link
+                className="hover:text-foreground hover:underline"
+                href={`/users/${person.username}`}
+              >
+                {person.displayName || person.username}
+              </Link>
+            </span>
+          ))}
+          <span>· Following</span>
+        </div>
+      ) : null}
       {contextCommunity && showCommunity ? (
         <CommunityAttribution
           className="mb-2.5"
@@ -623,20 +649,6 @@ const PostContent: React.FC<PostContentProps> = ({
                 </div>
               ) : null}
 
-              {post.external?.quote ? (
-                <div
-                  className="border-border/60 mt-3 overflow-hidden rounded-2xl border"
-                  data-card-interactive
-                >
-                  <PostCard
-                    post={externalPostView({
-                      ...post.external.quote,
-                      quote: undefined,
-                    })}
-                    showCommunity={false}
-                  />
-                </div>
-              ) : null}
               {post.external?.unavailableQuote ? (
                 <p className="text-muted-foreground mt-3 text-sm">
                   Quoted post unavailable

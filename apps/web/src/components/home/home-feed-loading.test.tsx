@@ -1,12 +1,21 @@
 import { expect, mock, test } from "bun:test";
 
 import type { ExternalPost } from "@asm/protocols/contracts";
+import {
+  defaultNetworkPreferences,
+  networkPreferenceScope,
+} from "@asm/protocols/discovery";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import { externalPostView } from "@/lib/posts/presentation";
 
 import HomeFeed from "./home-feed";
+
+const networkScope = networkPreferenceScope({
+  preferences: defaultNetworkPreferences(),
+  revision: 0,
+});
 
 mock.module("next/navigation", () => ({
   usePathname: () => "/",
@@ -40,7 +49,7 @@ const source: ExternalPost = {
 
 test("a cold mixed feed keeps a full-height skeleton after an empty asocialmedia response", () => {
   const client = new QueryClient();
-  client.setQueryData(["post-feed", "latest", "guest", "default:0", "en"], {
+  client.setQueryData(["post-feed", "latest", "guest", networkScope, "en"], {
     pageParams: [null],
     pages: [{ nextCursor: null, posts: [] }],
   });
@@ -62,7 +71,7 @@ test("a pending Bluesky source leaves loaded asocialmedia posts ahead of its pla
     external: undefined,
     id: "native-post",
   };
-  client.setQueryData(["post-feed", "latest", "guest", "default:0", "en"], {
+  client.setQueryData(["post-feed", "latest", "guest", networkScope, "en"], {
     pageParams: [null],
     pages: [{ nextCursor: null, posts: [native] }],
   });

@@ -37,6 +37,7 @@ import {
   prependPostsToFeedCache,
   scrollFeedToTop,
 } from "@/lib/posts/feed-cache";
+import { activeNetworkInterests } from "@/lib/posts/network-content-policy";
 import {
   useFeedSourceStore,
   useExternalExclusions,
@@ -461,6 +462,11 @@ export default function HomeFeed({
     emptyTitle = "No Fleets yet.";
     emptyDescription = "The latest Fleets will appear here.";
   }
+  if (activeNetworkInterests(network.settings.preferences).length) {
+    emptyTitle = "No Fleets match this profile yet.";
+    emptyDescription =
+      "Try another profile or add interests in Network settings.";
+  }
 
   if (!hasAnyPosts && !hasNextPage && globalStatus === "success") {
     return (
@@ -589,6 +595,7 @@ export default function HomeFeed({
             excludeIds={communityIds}
             excludePostId={excludePostId}
             posts={visibleGlobalPosts}
+            respectInterests
             showCommunityReason={isTrending || isPersonalized}
             sortBy={isTrending || isPersonalized ? "server" : "newest"}
           />

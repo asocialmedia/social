@@ -1,5 +1,6 @@
 "use client";
 
+import type { ExternalPost } from "@asm/protocols/contracts";
 import { Skeleton } from "@asm/ui/shadui/skeleton";
 
 import { ResponseParentRow } from "@/components/responses/response-parent-card";
@@ -37,7 +38,17 @@ export function ExternalResponseParent({ uri }: { uri: string }) {
       </button>
     );
   }
-  const presented = query.data ? externalPostView(query.data) : null;
+  return <ExternalResponseParentRow post={query.data ?? null} uri={uri} />;
+}
+
+export function ExternalResponseParentRow({
+  post,
+  uri,
+}: {
+  post: ExternalPost | null;
+  uri: string;
+}) {
+  const presented = post ? externalPostView(post) : null;
   const parent = presented
     ? {
         ...presented,
@@ -48,7 +59,7 @@ export function ExternalResponseParent({ uri }: { uri: string }) {
     <ResponseParentRow
       parent={parent}
       parentPostId={uri}
-      external={query.data ?? undefined}
+      external={post ?? undefined}
     />
   );
 }

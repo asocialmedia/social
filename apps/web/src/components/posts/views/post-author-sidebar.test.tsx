@@ -125,5 +125,7 @@ test("PostAuthorSidebar renders external author info and 'More from' section for
 
   // Checks that likes and replies are formatted
   expect(html).toContain("120");
+  expect(html).toContain('aria-label="Likes on Bluesky: 120"');
+  expect(html).toContain("lucide-heart");
   expect(html).toContain("18");
 });

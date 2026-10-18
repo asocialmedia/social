@@ -2,8 +2,7 @@
 
 import type { PostData } from "@asm/db";
 import type { ExternalPost } from "@asm/protocols/contracts";
-import { externalPostTopics } from "@asm/protocols/contracts";
-import { matchesAvoidedTopic, mixFeedItems } from "@asm/protocols/discovery";
+import { mixFeedItems } from "@asm/protocols/discovery";
 import type { FeedSource } from "@asm/protocols/discovery";
 import { Separator } from "@asm/ui/shadui/separator";
 import { hashKey, useQueryClient } from "@tanstack/react-query";
@@ -20,11 +19,13 @@ import {
 } from "@/lib/posts/cache-sync";
 import { filterFeedPosts } from "@/lib/posts/feed-cache";
 import { reconcileFeedOrder } from "@/lib/posts/feed-order";
-import { normalizePostsData } from "@/lib/posts/post-normalize";
 import {
-  postHasExplicitMedia,
-  blueskyMediaIsExplicit,
-} from "@/lib/protocols/content-labels";
+  networkPostAllowed,
+  externalNetworkPostAllowed,
+  networkPostRecommended,
+  externalNetworkPostRecommended,
+} from "@/lib/posts/network-content-policy";
+import { normalizePostsData } from "@/lib/posts/post-normalize";
 
 import { groupPostsIntoThreads } from "./feed-thread-group";
 import PostCard from "./feedview/post-card";
@@ -33,6 +34,7 @@ const EMPTY_EXTERNAL_POSTS: ExternalPost[] = [];
 const DEFAULT_FEED_CACHE_KEY: QueryKey = ["post-feed", "for-you"];
 
 interface FeedViewProps {
+  respectInterests?: boolean;
   externalPosts?: ExternalPost[];
   source?: FeedSource;
   cacheKey?: QueryKey;
@@ -61,6 +63,7 @@ export const FeedView: React.FC<FeedViewProps> = ({
   showCommunity = true,
   showCommunityReason = false,
   sortBy = "newest",
+  respectInterests = false,
 }) => {
   const MemoizedPostCard = useMemo(() => React.memo(PostCard), []);
   const queryClient = useQueryClient();
@@ -281,22 +284,26 @@ export const FeedView: React.FC<FeedViewProps> = ({
       groupPostsIntoThreads(
         sortedPosts.filter(
           (post) =>
-            (network.settings.preferences.showExplicitContent ||
-              !postHasExplicitMedia(post)) &&
-            !matchesAvoidedTopic(
-              post.content,
-              [
-                ...(post.semanticTags ?? []),
-                ...post.tags.map((tag) => tag.name),
-              ],
-              network.settings.preferences.avoidedTopics
-            )
+            network.ready &&
+            (respectInterests
+              ? networkPostRecommended(
+                  post,
+                  network.settings.preferences,
+                  network.settings.topicScope
+                )
+              : networkPostAllowed(
+                  post,
+                  network.settings.preferences,
+                  network.settings.topicScope
+                ))
         )
       ),
     [
       sortedPosts,
-      network.settings.preferences.showExplicitContent,
-      network.settings.preferences.avoidedTopics,
+      network.ready,
+      network.settings.preferences,
+      network.settings.topicScope,
+      respectInterests,
     ]
   );
 
@@ -306,13 +313,19 @@ export const FeedView: React.FC<FeedViewProps> = ({
         threadGroups,
         externalPosts.filter(
           (post) =>
-            (network.settings.preferences.showExplicitContent ||
-              !blueskyMediaIsExplicit(post)) &&
-            !matchesAvoidedTopic(
-              `${post.text} ${post.externalLink?.title ?? ""} ${post.media.map((media) => media.alt).join(" ")}`,
-              externalPostTopics(post),
-              network.settings.preferences.avoidedTopics
-            )
+            network.ready &&
+            (respectInterests
+              ? externalNetworkPostRecommended(
+                  post,
+                  network.settings.preferences,
+                  undefined,
+                  network.settings.topicScope
+                )
+              : externalNetworkPostAllowed(
+                  post,
+                  network.settings.preferences,
+                  network.settings.topicScope
+                ))
         ),
         {
           createdAt: (group) => {
@@ -332,11 +345,13 @@ export const FeedView: React.FC<FeedViewProps> = ({
       ),
     [
       externalPosts,
+      respectInterests,
+      network.ready,
       sortBy,
       source,
       threadGroups,
-      network.settings.preferences.showExplicitContent,
-      network.settings.preferences.avoidedTopics,
+      network.settings.preferences,
+      network.settings.topicScope,
     ]
   );
   const [orderedFeed, setOrderedFeed] = useState({

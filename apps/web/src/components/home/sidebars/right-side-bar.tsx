@@ -25,6 +25,7 @@ import FollowButton from "@/components/layouts/user/follow-button";
 import UserAvatar from "@/components/layouts/user/user-avatar";
 import UserBadge from "@/components/layouts/user/user-badge";
 import PostHistoryCard from "@/components/posts/views/post-history-card";
+import { useNetworkSettings } from "@/hooks/feed/use-network-settings";
 import { useFollowStates } from "@/hooks/users/use-follow-states";
 import kyInstance from "@/lib/ky";
 import { getUserCount } from "@/lib/types";
@@ -292,6 +293,7 @@ const useIsHydrated = () =>
 
 const RightSideBar: React.FC = () => {
   const { user } = useSession();
+  const network = useNetworkSettings();
   const mounted = useIsHydrated();
   const isLoggedIn = Boolean(user);
   const queryClient = useQueryClient();
@@ -305,7 +307,7 @@ const RightSideBar: React.FC = () => {
     isError,
     isFetching,
   } = useQuery({
-    enabled: isLoggedIn,
+    enabled: isLoggedIn && network.ready,
     gcTime: 5 * 60 * 1000,
     queryFn: async () => {
       const res = await kyInstance
@@ -313,7 +315,7 @@ const RightSideBar: React.FC = () => {
         .json<SuggestedUser[]>();
       return res;
     },
-    queryKey: ["suggested-users"],
+    queryKey: ["suggested-users", user?.id ?? "guest", network.scope],
     retry: (failureCount, _err) => {
       const msg = String(_err);
       if (msg.includes("429")) {
