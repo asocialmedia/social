@@ -5,10 +5,30 @@ import {
   createExternalTopicMatcher,
   mergeTopicWeights,
 } from "@asm/protocols/contracts";
-import { networkInterestTerms } from "@asm/protocols/discovery";
+import {
+  discoveryTopicsSchema,
+  networkInterestTerms,
+} from "@asm/protocols/discovery";
 import type { NetworkTopicScope } from "@asm/protocols/discovery";
 
 import { externalNetworkInterestScore } from "@/lib/posts/network-content-policy";
+
+function normalizeDiscoveryTopics(topics: readonly string[]): string[] {
+  return [
+    ...new Set(
+      topics
+        .map((topic) =>
+          topic
+            .normalize("NFKC")
+            .toLowerCase()
+            .replaceAll(/[^\p{L}\p{M}\p{N} _-]/gu, " ")
+            .replaceAll(/\s+/gu, " ")
+            .trim()
+        )
+        .filter((topic) => discoveryTopicsSchema.safeParse([topic]).success)
+    ),
+  ];
+}
 
 export function discoveryTopics(
   profile: UserProfile,
@@ -20,7 +40,7 @@ export function discoveryTopics(
     const related = [
       ...new Set(interests.flatMap((root) => scope?.related?.[root] ?? [])),
     ];
-    return [...chosen, ...related].slice(0, 5);
+    return normalizeDiscoveryTopics([...chosen, ...related]).slice(0, 5);
   }
   const weights = mergeTopicWeights(
     profile.tagWeights,
@@ -39,31 +59,21 @@ export function discoveryTopics(
     .filter(([tag, weight]) => weight > 0 && (negative[tag] ?? 0) < weight)
     .toSorted((first, second) => second[1] - first[1])
     .map(([tag]) => tag);
-  const direct = [
-    ...new Set(
-      [
-        ...ranked,
-        ...summaryTopics.filter(
-          (tag) => (negative[tag] ?? 0) < (weights[tag] ?? 1)
-        ),
-      ]
-        .map((tag) =>
-          tag
-            .replaceAll(/[^\p{L}\p{N} _-]/gu, " ")
-            .replaceAll(/\s+/g, " ")
-            .trim()
-        )
-        .filter((tag) => tag.length >= 2 && tag.length <= 80)
+  const direct = normalizeDiscoveryTopics([
+    ...ranked,
+    ...summaryTopics.filter(
+      (tag) => (negative[tag] ?? 0) < (weights[tag] ?? 1)
     ),
-  ];
-  const related = Object.entries(profile.expandedEntityWeights ?? {})
-    .filter(
-      ([topic, weight]) =>
-        weight > 0 && !direct.includes(topic) && !(negative[topic] > 0)
-    )
-    .toSorted((a, b) => b[1] - a[1])
-    .map(([topic]) => topic.replaceAll(/[^\p{L}\p{N} _-]/gu, " ").trim())
-    .find((topic) => topic.length >= 2 && topic.length <= 80);
+  ]);
+  const related = normalizeDiscoveryTopics(
+    Object.entries(profile.expandedEntityWeights ?? {})
+      .filter(
+        ([topic, weight]) =>
+          weight > 0 && !direct.includes(topic) && !(negative[topic] > 0)
+      )
+      .toSorted((a, b) => b[1] - a[1])
+      .map(([topic]) => topic)
+  ).find((topic) => !direct.includes(topic));
   return related ? [...direct.slice(0, 4), related] : direct.slice(0, 5);
 }
 

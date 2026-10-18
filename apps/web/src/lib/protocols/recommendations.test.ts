@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 
 import type { UserProfile } from "@asm/db";
 import type { ExternalPost } from "@asm/protocols/contracts";
+import { discoveryTopicsSchema } from "@asm/protocols/discovery";
 
 import { discoveryTopics, rankExternalForViewer } from "./recommendations";
 
@@ -49,6 +50,47 @@ test("explicit interests control discovery terms even when learned and graph wei
   expect(topics).toContain("web development");
   expect(topics).not.toContain("politics");
   expect(topics).not.toContain("elections");
+});
+
+test("catalog expansions are normalized, deduplicated and validated before taking discovery slots", () => {
+  const topics = discoveryTopics(
+    profile,
+    ["software", "web development", "tech"],
+    {
+      avoided: {},
+      interests: {},
+      related: {
+        software: [
+          "AJAX (programming)",
+          "ajax programming",
+          "!!!",
+          "a",
+          "x".repeat(81),
+          "  Automattic  ",
+        ],
+      },
+      version: "fixture",
+    }
+  );
+  expect(topics).toEqual([
+    "software",
+    "web development",
+    "tech",
+    "ajax programming",
+    "automattic",
+  ]);
+  expect(discoveryTopicsSchema.safeParse(topics).success).toBe(true);
+});
+
+test("Unicode discovery terms retain combining marks from supported languages", () => {
+  const topics = discoveryTopics(profile, ["प्रोग्रामिंग", "cafe\u0301"], {
+    avoided: {},
+    interests: {},
+    related: { प्रोग्रामिंग: ["वेब (विकास)"] },
+    version: "fixture",
+  });
+  expect(topics).toEqual(["प्रोग्रामिंग", "café", "वेब विकास"]);
+  expect(discoveryTopicsSchema.safeParse(topics).success).toBe(true);
 });
 
 test("For You and Trending never admit viral off-topic content to an explicitly focused profile", () => {

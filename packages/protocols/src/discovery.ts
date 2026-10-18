@@ -98,7 +98,7 @@ export const discoveryTopicsSchema = z
       .trim()
       .min(2)
       .max(80)
-      .regex(/^[\p{L}\p{N} _-]+$/u)
+      .regex(/^[\p{L}\p{M}\p{N} _-]+$/u)
   )
   .max(5);
 export type FeedSource = "all" | "asm" | "bluesky";

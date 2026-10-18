@@ -2,7 +2,10 @@ import { beforeEach, expect, mock, test } from "bun:test";
 
 import type { UserProfile } from "@asm/db";
 import type { ExternalPost } from "@asm/protocols/contracts";
-import { defaultNetworkPreferences } from "@asm/protocols/discovery";
+import {
+  defaultNetworkPreferences,
+  discoveryTopicsSchema,
+} from "@asm/protocols/discovery";
 import type { DiscoveryPage } from "@asm/protocols/discovery";
 
 let session: { user: { id: string } } | null = { user: { id: "reader" } };
@@ -33,6 +36,7 @@ const persona = mock((_userId: string, requestedProfileId?: string) => {
     topicScope: {
       avoided: {},
       interests: { software: ["typescript", "react hooks", "next.js"] },
+      related: { software: ["ajax (programming)", "automattic"] },
       version: "fixture",
     },
   });
@@ -182,6 +186,35 @@ test("all five discovery modes enforce chosen interests before popularity and le
     expect(watch.topics).toContain("software");
     expect(watch.topics).not.toContain("politics");
   }
+});
+
+test("live graph labels are valid for protocol reads and event watches", async () => {
+  const response = await GET(
+    new Request(
+      "http://localhost/api/protocols/bluesky/discover?mode=trending&content=all&profile=default&locale=en-IN"
+    )
+  );
+  expect(response.status).toBe(200);
+  const topics = [
+    "software",
+    "web development",
+    "tech",
+    "ajax programming",
+    "automattic",
+  ];
+  expect(read).toHaveBeenCalledWith(
+    "trending",
+    undefined,
+    expect.any(AbortSignal),
+    expect.any(String),
+    "en-IN",
+    topics,
+    false,
+    "all"
+  );
+  expect(publications).toHaveLength(1);
+  const watch: { topics: string[] } = JSON.parse(publications[0] ?? "{}");
+  expect(discoveryTopicsSchema.parse(watch.topics)).toEqual(topics);
 });
 
 test("cached heads are filtered against the selected profile and its current exclusions", async () => {
