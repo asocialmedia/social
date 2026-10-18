@@ -46,7 +46,9 @@ export const NETWORK_SUBPAGES: readonly NetworkSubpageEntry[] = [
 const SUBPAGE_IDS = new Set<string>(NETWORK_SUBPAGES.map((entry) => entry.id));
 
 const SECTION_TARGETS: Record<string, NetworkSubpage> = {
+  "settings-network-activity": "content",
   "settings-network-avoid": "moderation",
+  "settings-network-connections": "content",
   "settings-network-explicit": "moderation",
   "settings-network-interests": "content",
   "settings-network-profiles": "profiles",

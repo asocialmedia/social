@@ -14,6 +14,7 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
+import { useRef, useState } from "react";
 
 import { useSession } from "@/lib/auth/session-context";
 
@@ -40,7 +41,7 @@ async function readSettings(): Promise<NetworkSettings> {
   return response.json();
 }
 
-export function useNetworkSettings() {
+export function useNetworkSettings(options: { optimistic?: boolean } = {}) {
   const { user } = useSession();
   const client = useQueryClient();
   const queryKey = ["network-settings", user?.id ?? "guest"];
@@ -50,15 +51,33 @@ export function useNetworkSettings() {
     queryKey,
     staleTime: 30_000,
   });
-  const settings = user ? (query.data ?? GUEST) : GUEST;
+  const confirmed = user ? (query.data ?? GUEST) : GUEST;
+  const sequence = useRef(0);
+  const epoch = useRef(0);
+  const [draft, setDraft] = useState<{
+    viewer: string;
+    preferences: NetworkPreferences;
+    sequence: number;
+  } | null>(null);
+  const settings =
+    options.optimistic && draft && draft.viewer === user?.id
+      ? { ...confirmed, preferences: draft.preferences }
+      : confirmed;
   const mutation = useMutation({
     mutationFn: async ({
       preferences,
-      revision,
+      epoch: requestEpoch,
     }: {
       preferences: NetworkPreferences;
-      revision: number;
+      epoch: number;
+      sequence: number;
     }): Promise<NetworkSettings> => {
+      if (requestEpoch !== epoch.current) {
+        throw new Error("The previous change failed. Please try again.");
+      }
+      const revision =
+        client.getQueryData<NetworkSettings>(queryKey)?.revision ??
+        confirmed.revision;
       const response = await fetch("/api/network/preferences", {
         body: JSON.stringify({ preferences, revision }),
         credentials: "include",
@@ -72,20 +91,21 @@ export function useNetworkSettings() {
       return response.json();
     },
     mutationKey: queryKey,
-    onError: (_error, _variables, previous) => {
-      if (previous) {
-        client.setQueryData(queryKey, previous);
+    onError: async (_error, variables) => {
+      if (variables.epoch === epoch.current) {
+        epoch.current += 1;
+        setDraft(null);
+        await client.invalidateQueries({ queryKey });
       }
     },
     onMutate: async () => {
       await client.cancelQueries({ queryKey });
-      const previous = client.getQueryData<NetworkSettings>(queryKey);
-      // Feed keys change only after the server commits the new revision.
-      // Optimistically publishing it can cache an old-policy response forever.
-      return previous;
     },
-    onSuccess: (value) => {
+    onSuccess: (value, variables) => {
       client.setQueryData(queryKey, value);
+      setDraft((current) =>
+        current?.sequence === variables.sequence ? null : current
+      );
       window.dispatchEvent(new Event("network:settings-changed"));
       const channel =
         typeof BroadcastChannel === "undefined"
@@ -95,6 +115,7 @@ export function useNetworkSettings() {
       channel?.postMessage("changed");
       channel?.close();
     },
+    scope: { id: `network-settings:${user?.id ?? "guest"}` },
   });
   const pending = useIsMutating({ mutationKey: queryKey });
   return {
@@ -102,9 +123,21 @@ export function useNetworkSettings() {
     error: mutation.error ?? query.error,
     isSaving: pending > 0,
     ready: !user || Boolean(query.data),
-    save: (preferences: NetworkPreferences) =>
-      mutation.mutate({ preferences, revision: settings.revision }),
-    scope: networkPreferenceScope(settings),
+    save: (preferences: NetworkPreferences) => {
+      sequence.current += 1;
+      const nextSequence = sequence.current;
+      setDraft({
+        preferences,
+        sequence: nextSequence,
+        viewer: user?.id ?? "guest",
+      });
+      mutation.mutate({
+        epoch: epoch.current,
+        preferences,
+        sequence: nextSequence,
+      });
+    },
+    scope: networkPreferenceScope(confirmed),
     settings,
   };
 }

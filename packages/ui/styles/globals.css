@@ -601,6 +601,26 @@
       0 1px 1px rgba(255, 255, 255, 0.8);
   }
 
+  /* Light mode. The rule above is a dark fill with white hairlines, so without
+     this the select rendered as a black bar on the light settings page. Same
+     construction as .premium-input in light mode: a soft inset, a black ring at
+     low opacity, and a bright lip, rather than the inverted dark recipe. */
+  :root:not(.dark) .premium-select {
+    color: hsl(var(--foreground));
+    background-color: hsl(var(--background));
+    box-shadow:
+      inset 0 1px 2px rgba(0, 0, 0, 0.06),
+      0 0 0 1px rgba(0, 0, 0, 0.1),
+      0 1px 1px rgba(0, 0, 0, 0.03);
+  }
+
+  :root:not(.dark) .premium-select:focus {
+    box-shadow:
+      inset 0 1px 2px rgba(0, 0, 0, 0.06),
+      0 0 0 1px hsl(var(--primary) / 0.5),
+      0 0 0 3px hsl(var(--primary) / 0.15);
+  }
+
   .panel-3d {
     background: hsl(var(--background-alt));
     border: 1px solid rgba(0, 0, 0, 0.12);
@@ -676,6 +696,38 @@
     box-shadow:
       inset 0 1px 1px rgba(255, 255, 255, 0.7),
       0 1px 1px rgba(0, 0, 0, 0.04);
+  }
+
+  /* A chosen item: the same 3D construction as .orange-3d-surface, in the neutral
+     surface tone rather than a colour. Four layers, which is what makes it read as
+     a raised object instead of a flat rectangle: a hard outer ring (the edge), a
+     bright inner lip along the top (light catching the bevel), a soft fill that is
+     lighter than the page, and one small directional shadow. The label stays
+     foreground ink, so selection is carried by depth rather than by a hue. */
+  .chip-3d-raised {
+    color: hsl(var(--foreground));
+    background: linear-gradient(
+      to bottom,
+      hsl(var(--background)),
+      hsl(var(--muted))
+    );
+    border: 1px solid rgba(0, 0, 0, 0.14);
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 255, 255, 0.7),
+      inset 0 1.5px 2px rgba(255, 255, 255, 0.9),
+      inset 0 -1px 2px rgba(0, 0, 0, 0.04),
+      0 1px 2px rgba(0, 0, 0, 0.08);
+  }
+
+  .dark .chip-3d-raised {
+    color: hsl(var(--foreground));
+    background: linear-gradient(to bottom, #3a3a3a, #2a2a2a);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 255, 255, 0.08),
+      inset 0 1.5px 2px rgba(255, 255, 255, 0.14),
+      inset 0 -1px 2px rgba(0, 0, 0, 0.3),
+      0 1px 2px rgba(0, 0, 0, 0.4);
   }
 
   /* Feathers the edge of a horizontally scrolling strip so a partially visible

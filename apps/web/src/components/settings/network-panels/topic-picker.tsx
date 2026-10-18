@@ -9,7 +9,7 @@ import type { NetworkTopic } from "@asm/protocols/discovery";
 import { Button } from "@asm/ui/shadui/button";
 import { Input } from "@asm/ui/shadui/input";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, ChevronLeft, ChevronRight, Loader2, Plus } from "lucide-react";
+import { ChevronLeft, ChevronRight, Loader2, Plus } from "lucide-react";
 import { useEffect, useId, useState } from "react";
 
 import { cn } from "@/lib/utils";
@@ -31,7 +31,6 @@ export function TopicPicker({
   const [search, setSearch] = useState("");
   const [debounced, setDebounced] = useState("");
   const [path, setPath] = useState<NetworkTopic[]>([]);
-  const [preparing, setPreparing] = useState<string | null>(null);
   const listId = useId();
   useEffect(() => {
     const timer = setTimeout(() => setDebounced(search.trim()), 250);
@@ -70,23 +69,8 @@ export function TopicPicker({
       void client.invalidateQueries({ queryKey: ["network-settings"] });
     }
   }, [client, disabled, parent, topicQuery.data]);
-  const choose = async (topic: string) => {
+  const choose = (topic: string) => {
     const normalized = normalizeInterest(topic);
-    if (selected.includes(normalized)) {
-      onToggle(normalized);
-      return;
-    }
-    setPreparing(normalized);
-    try {
-      // Warm the same server taxonomy used by feeds before committing a selected root.
-      await fetch(
-        `/api/network/topics?${new URLSearchParams({ parent: topic })}`,
-        { credentials: "include", signal: AbortSignal.timeout(8000) }
-      );
-    } catch {
-      // Exact-topic matching remains available while the provider is offline.
-    }
-    setPreparing(null);
     onToggle(normalized);
   };
   return (
@@ -125,37 +109,46 @@ export function TopicPicker({
           const chosen = selected.includes(value);
           return (
             <div
-              className="chip-3d inline-flex items-center rounded-full!"
+              className={cn(
+                "inline-flex items-center overflow-hidden rounded-full",
+                // The fill lives on the container, not on the label button. Split
+                // across two children, a button-level gradient leaves a rounded
+                // sliver of the container unpainted and the pill reads as a chip
+                // floating inside a ring rather than one solid object.
+                chosen
+                  ? "orange-3d-surface bg-linear-to-b from-[#ff9500] to-[#e65500] text-white"
+                  : "chip-3d"
+              )}
               key={entry.id}
             >
               <button
                 aria-pressed={chosen}
                 className={cn(
-                  "focus-visible:ring-ring inline-flex cursor-pointer items-center gap-1 rounded-full px-3 py-1.5 text-sm focus-visible:ring-2 disabled:opacity-50",
-                  chosen && "text-primary"
+                  "focus-visible:ring-ring inline-flex cursor-pointer items-center gap-1 px-3 py-1.5 text-sm focus-visible:ring-2 focus-visible:outline-hidden disabled:opacity-50",
+                  // Chosen reads as a filled brand pill with white ink, not a
+                  // tinted label with a tick: the fill is the state, so the mark
+                  // does not have to carry it alone.
+                  chosen
+                    ? "rounded-l-full font-medium text-white"
+                    : "text-foreground rounded-full"
                 )}
-                disabled={
-                  disabled ||
-                  preparing !== null ||
-                  (!chosen && selected.length >= limit)
-                }
+                disabled={disabled || (!chosen && selected.length >= limit)}
                 onClick={() => {
                   void choose(entry.label);
                 }}
                 title={entry.description}
                 type="button"
               >
-                {preparing === value ? (
-                  <Loader2 className="size-3 animate-spin" />
-                ) : null}
-                {preparing !== value && chosen ? (
-                  <Check className="size-3" />
-                ) : null}
                 {entry.label}
               </button>
               <button
                 aria-label={`Explore topics related to ${entry.label}`}
-                className="focus-visible:ring-ring cursor-pointer rounded-r-full border-l px-2 py-2 focus-visible:ring-2 disabled:opacity-50"
+                className={cn(
+                  "focus-visible:ring-ring cursor-pointer rounded-r-full border-l px-2 py-2 focus-visible:ring-2 disabled:opacity-50",
+                  // On a chosen pill the divider has to read against the orange
+                  // fill, so it is a light rule rather than the default border.
+                  chosen ? "border-white/30 text-white" : "border-border/60"
+                )}
                 disabled={path.some((ancestor) => ancestor.id === entry.id)}
                 onClick={() => {
                   setPath((currentPath) => [...currentPath, entry]);
@@ -196,7 +189,7 @@ export function TopicPicker({
         (entry) => normalizeInterest(entry.label) === parsed.data
       ) ? (
         <Button
-          disabled={disabled || preparing !== null || selected.length >= limit}
+          disabled={disabled || selected.length >= limit}
           onClick={() => {
             void choose(parsed.data);
             setSearch("");

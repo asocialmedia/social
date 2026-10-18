@@ -1,18 +1,17 @@
 "use client";
 
 import { interestSchema } from "@asm/protocols/discovery";
-import { Sparkles, X } from "lucide-react";
-
-import {
-  SettingsCard,
-  SettingsCardHeading,
-} from "@/components/settings/settings-section-card";
+import { Network, Sparkles } from "lucide-react";
 
 import type { NetworkPanelProps } from "./panel-props";
+import { RecentActivityCard } from "./recent-activity-card";
+import { SettingsPanelSection } from "./settings-panel-section";
+import { SettingsPill } from "./settings-pill";
 import { TopicPicker } from "./topic-picker";
 
 export default function ContentPanel({
   isSaving,
+  revision,
   persona,
   preferences,
   profile,
@@ -30,63 +29,82 @@ export default function ContentPanel({
     if (!parsed.success) {
       return;
     }
+    const { interests: current } = profile;
     updateInterests(
-      profile.interests.includes(parsed.data)
-        ? profile.interests.filter((interest) => interest !== parsed.data)
-        : [...profile.interests, parsed.data].slice(0, 32)
+      current.includes(parsed.data)
+        ? current.filter((interest) => interest !== parsed.data)
+        : [...current, parsed.data].slice(0, 32)
     );
   };
+  const { interests } = profile;
   return (
-    <SettingsCard className="space-y-4" id="settings-network-interests">
-      <SettingsCardHeading
-        description={`Choose interests for ${profile.name}. Your feeds include related subjects discovered from these topics. Explore a topic to see up to 10 more.`}
+    <>
+      <SettingsPanelSection
+        count={interests.length ? `${interests.length} of 32` : undefined}
+        description={`Your feeds pull in related subjects discovered from these topics, for ${profile.name}.`}
         icon={Sparkles}
+        id="settings-network-interests"
         title="Interests"
-      />
-      <TopicPicker
-        disabled={isSaving}
-        label="Find or add an interest"
-        limit={32}
-        onToggle={toggleInterest}
-        selected={profile.interests}
-      />
-      <div aria-label="Chosen interests" className="flex flex-wrap gap-2">
-        {profile.interests.map((topic) => (
-          <button
-            aria-label={`Remove interest ${topic}`}
-            className="chip-3d text-primary focus-visible:ring-ring inline-flex cursor-pointer items-center gap-1 rounded-full! px-3 py-1.5 text-sm focus-visible:ring-2 disabled:opacity-50"
-            disabled={isSaving}
-            key={topic}
-            onClick={() => toggleInterest(topic)}
-            type="button"
-          >
-            {topic} <X className="size-3" />
-          </button>
-        ))}
-      </div>
-      <div
-        aria-live="polite"
-        className="text-muted-foreground space-y-2 text-xs"
       >
-        <p>
-          {profile.interests.length}/32 chosen · {persona.signalCount} recent
-          interactions
-        </p>
-        {persona.learnedInterests.length ? (
-          <p>Recent activity signals: {persona.learnedInterests.join(", ")}</p>
+        <div className="space-y-4 px-3">
+          <TopicPicker
+            disabled={false}
+            label="Find or add an interest"
+            limit={32}
+            onToggle={toggleInterest}
+            selected={interests}
+          />
+
+          {interests.length ? (
+            <div aria-label="Chosen interests" className="flex flex-wrap gap-2">
+              {interests.map((topic) => (
+                <SettingsPill
+                  disabled={isSaving}
+                  key={topic}
+                  label={topic}
+                  onRemove={() => toggleInterest(topic)}
+                />
+              ))}
+            </div>
+          ) : (
+            <p className="text-muted-foreground text-xs">
+              Nothing chosen yet. Search above, or explore a suggestion to see
+              up to ten related subjects.
+            </p>
+          )}
+        </div>
+      </SettingsPanelSection>
+
+      <RecentActivityCard
+        disabled={isSaving}
+        persona={persona}
+        profileId={profile.id}
+        revision={revision}
+      />
+
+      <SettingsPanelSection
+        description="Related subjects connected to this profile’s interests."
+        icon={Network}
+        id="settings-network-connections"
+        title="Topic connections"
+      >
+        {persona.relatedInterests.length ? (
+          <div className="flex flex-wrap gap-2 px-3">
+            {persona.relatedInterests.map((topic) => (
+              <span
+                className="chip-3d rounded-full! px-3 py-1 text-sm"
+                key={topic}
+              >
+                {topic}
+              </span>
+            ))}
+          </div>
         ) : (
-          <p>
-            Your activity on ASM and connected networks will help this profile
-            discover more.
+          <p className="text-muted-foreground px-3 text-sm">
+            Topic connections appear as you choose interests and browse.
           </p>
         )}
-        {persona.relatedInterests.length ? (
-          <p>
-            Topic suggestions from activity:{" "}
-            {persona.relatedInterests.join(", ")}
-          </p>
-        ) : null}
-      </div>
-    </SettingsCard>
+      </SettingsPanelSection>
+    </>
   );
 }

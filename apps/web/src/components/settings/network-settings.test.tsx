@@ -134,7 +134,19 @@ test("a section page offers a back control to the hub", async () => {
   expect(opened).toEqual([null]);
 });
 
-test("the back control survives a slow or failed preferences load", async () => {
+test("a slow load shows the pane's shape, not a line of text", async () => {
+  hookState = { ...hookState, error: null, ready: false };
+  const { host } = await render("moderation");
+  // One announcement for assistive tech, and the shapes are hidden from it.
+  expect(host.textContent).toContain("Loading network preferences…");
+  // Placeholder blocks rather than the real fields.
+  expect(
+    host.querySelectorAll('[class*="animate-pulse"]').length
+  ).toBeGreaterThan(3);
+  expect(host.querySelector("#settings-network-region")).toBeNull();
+});
+
+test("a failed load says so and keeps the way back", async () => {
   // The exact state that used to strand the reader on a section page.
   hookState = {
     ...hookState,
@@ -142,8 +154,10 @@ test("the back control survives a slow or failed preferences load", async () => 
     ready: false,
   };
   const { host, opened } = await render("moderation");
-  expect(host.textContent).toContain("Loading network preferences…");
+  expect(host.textContent).toContain("Couldn't load network preferences");
   expect(host.textContent).toContain("Try again");
+  // It must not claim to still be loading.
+  expect(host.textContent).not.toContain("Loading network preferences…");
   const back = host.querySelector<HTMLButtonElement>(
     '[aria-label="Back to network settings"]'
   );

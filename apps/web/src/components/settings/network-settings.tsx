@@ -12,6 +12,7 @@ import LanguagesPanel from "./network-panels/languages-panel";
 import ModerationPanel from "./network-panels/moderation-panel";
 import type { NetworkPanelProps } from "./network-panels/panel-props";
 import ProfilesPanel from "./network-panels/profiles-panel";
+import NetworkSettingsSkeleton from "./network-settings-skeleton";
 import {
   NETWORK_SUBPAGES,
   networkSubpageEntry,
@@ -50,7 +51,7 @@ export default function NetworkSettings({
   section,
 }: NetworkSettingsProps) {
   const { settings, save, ready, isSaving, error, refetch } =
-    useNetworkSettings();
+    useNetworkSettings({ optimistic: true });
   const { catalog, persona, preferences } = settings;
   const profile =
     preferences.profiles.find(
@@ -84,14 +85,16 @@ export default function NetworkSettings({
     </div>
   ) : null;
   if (!ready || !profile) {
-    return (
-      <div className="flex flex-1 flex-col gap-6 px-4 pt-6 sm:px-6">
-        {sectionHeader}
-        <div className="flex flex-col items-start gap-3">
-          <p aria-live="polite" className="text-muted-foreground text-sm">
-            Loading network preferences…
-          </p>
-          {error ? (
+    // A failed load still has to say so and offer a way out; a normal load shows
+    // the shape of the pane instead of a line of text.
+    if (error) {
+      return (
+        <div className="flex flex-1 flex-col gap-6 px-4 pt-6 sm:px-6">
+          {sectionHeader}
+          <div className="flex flex-col items-start gap-3">
+            <p className="text-destructive text-sm" role="alert">
+              {error.message}
+            </p>
             <Button
               onClick={() => {
                 void refetch();
@@ -100,8 +103,18 @@ export default function NetworkSettings({
             >
               Try again
             </Button>
-          ) : null}
+          </div>
         </div>
+      );
+    }
+    return (
+      <div className="flex flex-1 flex-col">
+        {section ? (
+          <div className="flex flex-col gap-6 px-4 pt-6 sm:px-6">
+            {sectionHeader}
+          </div>
+        ) : null}
+        <NetworkSettingsSkeleton section={Boolean(section)} />
       </div>
     );
   }
@@ -174,6 +187,7 @@ export default function NetworkSettings({
         </p>
       ) : null}
       <Panel
+        revision={settings.revision}
         catalog={catalog}
         isSaving={isSaving}
         persona={persona}

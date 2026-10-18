@@ -172,7 +172,7 @@ export function ContentLanguagesDialog({
                       key={`recent-${lang.code}`}
                       aria-pressed={isChecked}
                       className={cn(
-                        "hover:bg-accent/40 active:bg-accent/60 flex w-full cursor-pointer items-center justify-between rounded-lg px-3 py-2.5 text-left transition-colors",
+                        "pill-3d-hover flex w-full cursor-pointer items-center justify-between rounded-lg border-0 px-3 py-2.5 text-left",
                         isChecked && "text-foreground font-medium"
                       )}
                       onClick={() => toggleLanguage(lang.code)}
@@ -207,7 +207,7 @@ export function ContentLanguagesDialog({
                       key={`all-${lang.code}`}
                       aria-pressed={isChecked}
                       className={cn(
-                        "hover:bg-accent/40 active:bg-accent/60 flex w-full cursor-pointer items-center justify-between rounded-lg px-3 py-2.5 text-left transition-colors",
+                        "pill-3d-hover flex w-full cursor-pointer items-center justify-between rounded-lg border-0 px-3 py-2.5 text-left",
                         isChecked && "text-foreground font-medium"
                       )}
                       onClick={() => toggleLanguage(lang.code)}
