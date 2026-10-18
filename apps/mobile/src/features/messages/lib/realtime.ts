@@ -33,6 +33,7 @@ export interface MessageStreamEvent {
     | "den.membership.changed"
     | "keys.rotated"
     | "media.viewOnce.revoked"
+    | "media.viewOnce.seen"
     | "message.created"
     | "message.deleted"
     | "message.edited"
@@ -65,6 +66,7 @@ export function parseMessageEvent(raw: string): MessageStreamEvent | null {
       parsed.kind !== "typing.started" &&
       parsed.kind !== "message.reacted" &&
       parsed.kind !== "media.viewOnce.revoked" &&
+      parsed.kind !== "media.viewOnce.seen" &&
       parsed.kind !== "den.membership.changed" &&
       parsed.kind !== "keys.rotated"
     ) {
@@ -112,7 +114,8 @@ export function parseMessageEvent(raw: string): MessageStreamEvent | null {
       return null;
     }
     if (
-      parsed.kind === "media.viewOnce.revoked" &&
+      (parsed.kind === "media.viewOnce.revoked" ||
+        parsed.kind === "media.viewOnce.seen") &&
       typeof parsed.mediaId !== "string"
     ) {
       return null;

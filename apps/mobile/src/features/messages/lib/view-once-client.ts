@@ -1,4 +1,5 @@
 import { LIFECYCLE_CAPABILITY } from "@asm/messages";
+import type { ViewOnceReceipt } from "@asm/messages";
 import { Directory, File, Paths } from "expo-file-system";
 
 import type { ApiCallOptions } from "@/features/feed/lib/feed-api";
@@ -16,6 +17,55 @@ export class ViewOnceMediaError extends Error {
 
 function viewOncePath(conversationId: string, mediaId: string): string {
   return `/api/messages/conversations/${conversationId}/media/${mediaId}/view-once`;
+}
+
+export async function fetchViewOnceReceipt(
+  conversationId: string,
+  mediaId: string,
+  options: ApiCallOptions,
+  signal?: AbortSignal
+): Promise<ViewOnceReceipt> {
+  const response = await (options.baseFetch ?? fetch)(
+    `${options.apiBase}${viewOncePath(conversationId, mediaId)}/receipt`,
+    {
+      headers: withAuthHeaders(
+        { "X-Chat-Capability": LIFECYCLE_CAPABILITY },
+        options.cookie
+      ),
+      signal,
+    }
+  );
+  if (!response.ok) {
+    throw await parseViewOnceError(response);
+  }
+  return (await response.json()) as ViewOnceReceipt;
+}
+
+export async function acknowledgeViewOnceSeen(
+  conversationId: string,
+  mediaId: string,
+  grantId: string,
+  options: ApiCallOptions
+): Promise<ViewOnceReceipt> {
+  const response = await (options.baseFetch ?? fetch)(
+    `${options.apiBase}${viewOncePath(conversationId, mediaId)}/receipt`,
+    {
+      body: JSON.stringify({ grantId }),
+      headers: withAuthHeaders(
+        {
+          "Content-Type": "application/json",
+          "X-Chat-Capability": LIFECYCLE_CAPABILITY,
+        },
+        options.cookie
+      ),
+      method: "POST",
+      signal: AbortSignal.timeout(5000),
+    }
+  );
+  if (!response.ok) {
+    throw await parseViewOnceError(response);
+  }
+  return (await response.json()) as ViewOnceReceipt;
 }
 
 let cachePrepared = false;

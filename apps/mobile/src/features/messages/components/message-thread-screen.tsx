@@ -987,6 +987,7 @@ function NormalMessageThreadScreen({
                   : openViewer(message, entry, index)
               }
               onOpenViewOnce={openViewOnce}
+              conversationId={conversationId}
               onCloseViewOnce={closeViewOnce}
               onRetry={() => retryRow(message)}
               onReact={(emoji) => {
@@ -1020,6 +1021,7 @@ function NormalMessageThreadScreen({
       );
     },
     [
+      conversationId,
       search.activeId,
       search.jump,
       currentConversation,

@@ -55,6 +55,7 @@ import { hydrateMessageCache } from "./message-cache";
 import { useMessagesIdentity } from "./message-identity";
 import { unreadMessageStore } from "./unread-message-store";
 import { useMessagesForeground } from "./use-messages-foreground";
+import { invalidateViewOnceReceipt } from "./use-view-once-receipt";
 
 export { type MessagePageAxis } from "@/features/messages/lib/client";
 export { peerOf } from "@/features/messages/state/conversation-list-store";
@@ -582,6 +583,16 @@ export function useTranscript(
             return;
           }
           transcriptStore.setPeerTyping(conversationId, true);
+          return;
+        }
+        case "media.viewOnce.seen": {
+          if (event.mediaId) {
+            invalidateViewOnceReceipt(
+              userId ?? "",
+              conversationId,
+              event.mediaId
+            );
+          }
           return;
         }
         case "message.reacted": {

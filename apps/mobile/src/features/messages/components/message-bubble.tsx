@@ -12,7 +12,9 @@
 // until the photo reports its intrinsic size, so the row reports it through
 // onLayout. Without that a long album scrolls to the wrong place.
 
+// oxlint-disable react/immutability -- Reanimated shared values are mutable animation handles, not React state.
 import type { MessageReactionSummary } from "@asm/messages";
+import { formatViewOnceSeenAt, isViewOnceUnavailable } from "@asm/messages";
 import { randomUUID } from "expo-crypto";
 import { File, Directory, Paths } from "expo-file-system";
 import { Image as ExpoImage } from "expo-image";
@@ -30,6 +32,15 @@ import {
   Text,
   View,
 } from "react-native";
+import Animated, {
+  cancelAnimation,
+  useAnimatedStyle,
+  useReducedMotion,
+  useSharedValue,
+  withDelay,
+  withSequence,
+  withTiming,
+} from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { UserAvatar } from "@/components/avatar/user-avatar";
@@ -64,6 +75,8 @@ import {
 } from "@/features/messages/lib/message-recipes";
 import { deleteViewOncePhoto } from "@/features/messages/lib/view-once-client";
 import { useMessagesIdentity } from "@/features/messages/state/message-identity";
+import { useMessagesForeground } from "@/features/messages/state/use-messages-foreground";
+import { useViewOnceReceipt } from "@/features/messages/state/use-view-once-receipt";
 import { getApiBaseUrl } from "@/lib/api-env";
 import { useAppTheme } from "@/theme";
 
@@ -99,11 +112,13 @@ function closeViewOnceQuietly(
 
 function ViewOncePhoto({
   canOpen,
+  conversationId,
   mediaId,
   onClose,
   onOpen,
 }: {
   canOpen: boolean;
+  conversationId?: string;
   mediaId: string;
   onClose?: (mediaId: string, grantId: string) => Promise<void>;
   onOpen?: (
@@ -113,6 +128,29 @@ function ViewOncePhoto({
   ) => Promise<string>;
 }) {
   const insets = useSafeAreaInsets();
+  const foreground = useMessagesForeground();
+  const receipt = useViewOnceReceipt(conversationId, mediaId);
+  const seenLabel = formatViewOnceSeenAt(receipt.data?.seenAt);
+  const receiptUnavailable =
+    receipt.data?.unavailable || isViewOnceUnavailable(receipt.error);
+  const acknowledgedGrant = useRef<string | null>(null);
+  const reduceMotion = useReducedMotion();
+  const eyeScale = useSharedValue(1);
+  const eyeStyle = useAnimatedStyle(() => ({
+    transform: [{ scaleY: eyeScale.value }],
+  }));
+  useEffect(() => {
+    if (foreground && !reduceMotion) {
+      eyeScale.value = withSequence(
+        withDelay(190, withTiming(0.14, { duration: 90 })),
+        withTiming(1, { duration: 180 })
+      );
+    }
+    return () => {
+      cancelAnimation(eyeScale);
+      eyeScale.value = 1;
+    };
+  }, [eyeScale, foreground, reduceMotion]);
   const [busy, setBusy] = useState(false);
   const [opened, setOpened] = useState(false);
   const [unavailable, setUnavailable] = useState(false);
@@ -172,6 +210,7 @@ function ViewOncePhoto({
       !onOpen ||
       controllerRef.current ||
       busy ||
+      receiptUnavailable ||
       opened ||
       unavailable
     ) {
@@ -216,16 +255,27 @@ function ViewOncePhoto({
       controllerRef.current = null;
       setBusy(false);
     }
-  }, [busy, canOpen, mediaId, onClose, onOpen, opened, unavailable]);
+  }, [
+    busy,
+    canOpen,
+    mediaId,
+    onClose,
+    onOpen,
+    opened,
+    unavailable,
+    receiptUnavailable,
+  ]);
 
   let label = "View once photo";
-  if (opened) {
+  if (seenLabel) {
+    label = seenLabel;
+  } else if (opened) {
     label = "Opened";
-  } else if (unavailable) {
+  } else if (unavailable || receiptUnavailable) {
     label = "No longer available";
   }
   let accessibilityLabel = label;
-  if (canOpen) {
+  if (canOpen && !seenLabel) {
     accessibilityLabel = opened ? "Opened photo" : "Open view once photo";
   }
   return (
@@ -233,14 +283,23 @@ function ViewOncePhoto({
       <Pressable
         accessibilityLabel={accessibilityLabel}
         accessibilityRole={canOpen ? "button" : "text"}
-        disabled={!canOpen || busy || opened || unavailable || !onOpen}
+        disabled={
+          !canOpen ||
+          busy ||
+          opened ||
+          unavailable ||
+          receiptUnavailable ||
+          !onOpen
+        }
         onPress={open}
         style={[styles.fileCard, styles.viewOnceCard]}
       >
         {busy ? (
           <Loader2 color="#9a9a9a" size={20} />
         ) : (
-          <Eye color="#9a9a9a" size={20} />
+          <Animated.View style={eyeStyle}>
+            <Eye color="#9a9a9a" size={20} />
+          </Animated.View>
         )}
         <View style={styles.viewOnceCopy}>
           <Text style={styles.fileName}>{label}</Text>
@@ -248,7 +307,12 @@ function ViewOncePhoto({
             <Text style={styles.viewOnceError}>{openError}</Text>
           ) : null}
         </View>
-        {canOpen && !opened && !unavailable && !busy ? (
+        {canOpen &&
+        !seenLabel &&
+        !opened &&
+        !unavailable &&
+        !receiptUnavailable &&
+        !busy ? (
           <Text style={styles.viewOnceOpen}>Open</Text>
         ) : null}
       </Pressable>
@@ -263,6 +327,21 @@ function ViewOncePhoto({
           {uri ? (
             <ExpoImage
               cachePolicy="none"
+              onError={() => {
+                setOpenError("This photo couldn't be displayed.");
+                close();
+              }}
+              onDisplay={() => {
+                const grant = grantIdRef.current;
+                if (
+                  grant &&
+                  conversationId &&
+                  acknowledgedGrant.current !== grant
+                ) {
+                  acknowledgedGrant.current = grant;
+                  receipt.confirm(grant);
+                }
+              }}
               contentFit="contain"
               source={{ uri }}
               style={styles.viewOnceImage}
@@ -284,6 +363,7 @@ function ViewOncePhoto({
 }
 
 export interface MessageBubbleProps {
+  conversationId?: string;
   ephemeral?: boolean;
   searchJump?: number;
   deleted: boolean;
@@ -316,6 +396,7 @@ export interface MessageBubbleProps {
 }
 
 function MessageBubbleInner({
+  conversationId,
   ephemeral = false,
   searchJump = 0,
   deleted,
@@ -474,6 +555,7 @@ function MessageBubbleInner({
                 return (
                   <ViewOncePhoto
                     canOpen={!mine}
+                    conversationId={conversationId}
                     key={`view-once-${attachment.ref}-${index}`}
                     mediaId={attachment.ref}
                     onClose={onCloseViewOnce}
@@ -500,7 +582,10 @@ function MessageBubbleInner({
               reactions={reactions}
             />
           </View>
-          {showReceipt && mine && receipt ? (
+          {showReceipt &&
+          mine &&
+          receipt &&
+          !attachments.some((attachment) => attachment.kind === "view-once") ? (
             <ReceiptLine
               at={formatReceiptStamp(receipt.at)}
               label={receipt.status}

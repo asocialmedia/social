@@ -518,6 +518,7 @@ export function NativeIncognitoThread({
                             })
                           }
                           onOpenViewOnce={openViewOnce}
+                          conversationId={conversationId}
                           onCloseViewOnce={closeViewOnce}
                           onReact={(emoji) => {
                             void reactToMessage(message.id, emoji);
