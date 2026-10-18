@@ -1,5 +1,4 @@
 "use client";
-
 import type { GustsPage, UserData } from "@asm/db";
 import { filterExternalRecommendations } from "@asm/protocols/discovery";
 import {
@@ -57,7 +56,8 @@ import {
   FEED_QUERY_BEHAVIOR,
   prependPostsToFeedCache,
 } from "@/lib/posts/feed-cache";
-import { mergeGustPosts } from "@/lib/posts/gust-feed";
+import { otherFeedExposures } from "@/lib/posts/feed-exposure";
+import { advanceGustPaging, mergeGustPosts } from "@/lib/posts/gust-feed";
 import {
   activeNetworkInterests,
   networkPostAllowed,
@@ -159,6 +159,10 @@ const GustStream = ({ gustTab }: { gustTab: GustFeed }) => {
   const externalId = initialPostId?.startsWith("at://") ? initialPostId : "";
   const deepLink = useExternalPost(externalId);
   const { user } = useSession();
+  const oppositeSeen = useMemo(
+    () => otherFeedExposures(user?.id ?? "guest", "gusts"),
+    [user?.id]
+  );
   const { goToLogin } = useRequireAuth();
   const openComposer = useComposerStore((state) => state.openComposer);
   const autoOpenCreate = searchParams.get("create") === "true";
@@ -343,6 +347,7 @@ const GustStream = ({ gustTab }: { gustTab: GustFeed }) => {
             (post) =>
               !post.moderated &&
               !hiddenPostIds.has(post.id) &&
+              (!isPersonalized || !oppositeSeen.has(post.id)) &&
               (gustTab === "following" || initialPostId
                 ? networkPostAllowed(
                     post,
@@ -362,6 +367,8 @@ const GustStream = ({ gustTab }: { gustTab: GustFeed }) => {
       includeNative,
       externalId,
       hiddenPostIds,
+      oppositeSeen,
+      isPersonalized,
       gustTab,
       initialPostId,
       network.settings.preferences,
@@ -380,6 +387,7 @@ const GustStream = ({ gustTab }: { gustTab: GustFeed }) => {
       candidates = deepLink.data ? [deepLink.data] : [];
     }
     return filterExternalRecommendations(candidates, excluded)
+      .filter((post) => !isPersonalized || !oppositeSeen.has(post.id))
       .filter((post) => post.media.some((media) => media.type === "video"))
       .map((post) => ({ ...externalPostView(post), isGust: true }))
       .filter((post) =>
@@ -401,6 +409,8 @@ const GustStream = ({ gustTab }: { gustTab: GustFeed }) => {
     includeExternal,
     externalFeed.data,
     excluded,
+    oppositeSeen,
+    isPersonalized,
     network.settings.preferences,
     network.settings.topicScope,
     network.ready,
@@ -435,6 +445,32 @@ const GustStream = ({ gustTab }: { gustTab: GustFeed }) => {
       scope: orderScope,
     });
   }
+  const loadedPageCount =
+    (includeNative ? (data?.pages.length ?? 0) : 0) +
+    (includeExternal ? (externalFeed.data?.pages.length ?? 0) : 0);
+  const [pagingProgress, setPagingProgress] = useState({
+    emptyPages: 0,
+    pages: loadedPageCount,
+    scope: orderScope,
+    visible: posts.length,
+  });
+  let currentPagingProgress = pagingProgress;
+  if (
+    pagingProgress.scope !== orderScope ||
+    pagingProgress.pages !== loadedPageCount ||
+    pagingProgress.visible !== posts.length
+  ) {
+    currentPagingProgress = advanceGustPaging(
+      pagingProgress,
+      orderScope,
+      loadedPageCount,
+      posts.length
+    );
+    setPagingProgress(currentPagingProgress);
+  }
+  const autoPagingPaused = currentPagingProgress.emptyPages >= 3;
+  const resumePaging = () =>
+    setPagingProgress((current) => ({ ...current, emptyPages: 0 }));
   const hasNextPage = Boolean(
     (includeNative && hasNativeNextPage) ||
     (includeExternal && externalFeed.hasNextPage)
@@ -572,9 +608,7 @@ const GustStream = ({ gustTab }: { gustTab: GustFeed }) => {
         network: network.scope,
         profile: network.settings.preferences.activeProfileId,
       };
-      if (isPersonalized) {
-        queryParams.mode = "personalized";
-      } else if (gustTab === "following" && !initialPostId) {
+      if (gustTab === "following" && !initialPostId) {
         queryParams.mode = "following";
       }
       const fresh = await kyInstance
@@ -787,6 +821,7 @@ const GustStream = ({ gustTab }: { gustTab: GustFeed }) => {
     if (
       (isEndVisible || posts.length - activeIndex <= 8) &&
       hasNextPage &&
+      !autoPagingPaused &&
       !isFetchingNextPage &&
       !pageError
     ) {
@@ -800,6 +835,7 @@ const GustStream = ({ gustTab }: { gustTab: GustFeed }) => {
     activeIndex,
     posts.length,
     pageError,
+    autoPagingPaused,
   ]);
 
   // When the visible list is empty (e.g. the first page held no video gusts)
@@ -809,12 +845,20 @@ const GustStream = ({ gustTab }: { gustTab: GustFeed }) => {
     if (
       posts.length === 0 &&
       hasNextPage &&
+      !autoPagingPaused &&
       !isFetchingNextPage &&
       !pageError
     ) {
       void fetchNextPage();
     }
-  }, [fetchNextPage, hasNextPage, isFetchingNextPage, posts.length, pageError]);
+  }, [
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+    posts.length,
+    pageError,
+    autoPagingPaused,
+  ]);
 
   // Keyboard navigation
   const handleToggleMute = useCallback(() => {
@@ -949,7 +993,7 @@ const GustStream = ({ gustTab }: { gustTab: GustFeed }) => {
     // exist (and the first page may simply not have had video gusts). Show the
     // skeleton instead of the "No Gusts yet" panel so the empty state only
     // appears once the feed is genuinely exhausted.
-    if (posts.length === 0 && hasNextPage) {
+    if (posts.length === 0 && hasNextPage && !autoPagingPaused) {
       return (
         <div className="flex h-full w-full items-center justify-center">
           <GustCardSkeleton />
@@ -981,6 +1025,11 @@ const GustStream = ({ gustTab }: { gustTab: GustFeed }) => {
               ? "Try another profile or add interests in Network settings."
               : "Be the first to share a high-energy short-form video clip with the community!"}
           </p>
+          {hasNextPage ? (
+            <Button className="mt-4" onClick={resumePaging} variant="secondary">
+              Look for more Gusts
+            </Button>
+          ) : null}
           <Button className="mt-5" onClick={handleOpenUpload} variant="premium">
             <Plus className="mr-1.5 size-4" />
             {focused ? "Create a Gust" : "Create the First Gust"}
@@ -1077,6 +1126,11 @@ const GustStream = ({ gustTab }: { gustTab: GustFeed }) => {
                 >
                   Retry Bluesky videos
                 </Button>
+              </div>
+            ) : null}
+            {autoPagingPaused && hasNextPage ? (
+              <div className="flex h-24 items-center justify-center">
+                <Button onClick={resumePaging}>Load more Gusts</Button>
               </div>
             ) : null}
             {isFetchingNextPage ? (

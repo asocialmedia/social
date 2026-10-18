@@ -42,6 +42,7 @@ import ModeratedNotice from "@/components/posts/content/moderated-notice";
 import PostLinkedContent from "@/components/posts/content/post-linked-content";
 import ViewTracker from "@/components/posts/effects/view-counter";
 import { BlueskyIcon } from "@/components/protocols/bluesky-icon";
+import { ExternalAuthorTooltip } from "@/components/protocols/external-author-tooltip";
 import {
   ExternalBookmarkButton,
   ExternalPostMenu,
@@ -783,12 +784,14 @@ export const GustCard: React.FC<GustCardProps> = ({
           </div>
           <div className="flex items-center gap-3">
             {external ? (
-              <Link href={authorProfileHref}>
-                <UserAvatar
-                  avatarUrl={external.author.avatarUrl}
-                  className="size-10 shrink-0 rounded-xl ring-2 ring-white/60"
-                />
-              </Link>
+              <ExternalAuthorTooltip author={external.author}>
+                <Link href={authorProfileHref}>
+                  <UserAvatar
+                    avatarUrl={external.author.avatarUrl}
+                    className="size-10 shrink-0 rounded-xl ring-2 ring-white/60"
+                  />
+                </Link>
+              </ExternalAuthorTooltip>
             ) : (
               <UserTooltip user={post.user}>
                 <Link href={authorProfileHref}>

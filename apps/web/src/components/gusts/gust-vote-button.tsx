@@ -6,6 +6,7 @@ import { ArrowBigDown, ArrowBigUp } from "lucide-react";
 import { useCallback } from "react";
 
 import { PostEngagementCount } from "@/components/posts/actions/post-engagement-count";
+import { ExternalLikeButton } from "@/components/protocols/external-like-button";
 import { cn } from "@/lib/utils";
 
 import { useGustVote } from "./use-gust-vote";
@@ -81,17 +82,19 @@ export default function GustVoteButton({
         )}
       </button>
 
-      {isUp ? (
+      {isUp && external ? (
+        <ExternalLikeButton
+          interactive={interactive}
+          post={external}
+          className="text-lg font-black tabular-nums drop-shadow-md"
+          iconClassName="size-5"
+        />
+      ) : null}
+      {isUp && !external ? (
         <PostEngagementCount
           aura={aura}
-          className={cn(
-            "flex items-center gap-1 text-lg font-black tabular-nums drop-shadow-md",
-            external ? "text-white" : "text-primary"
-          )}
+          className="text-primary flex items-center gap-1 text-lg font-black tabular-nums drop-shadow-md"
           iconClassName="size-5"
-          likeCount={
-            external ? (external.upstreamCounts.likes ?? null) : undefined
-          }
         />
       ) : null}
     </div>

@@ -2,8 +2,19 @@ import { expect, test } from "bun:test";
 
 import type { ExternalPost } from "@asm/protocols/contracts";
 
-import { mergeGustPosts } from "./gust-feed";
+import { advanceGustPaging, mergeGustPosts } from "./gust-feed";
 import { externalPostView } from "./presentation";
+
+test("empty Gust pages pause automatic paging and visible progress or a changed profile resets the budget", () => {
+  let progress = { emptyPages: 0, pages: 0, scope: "software", visible: 0 };
+  for (let page = 1; page <= 3; page += 1) {
+    progress = advanceGustPaging(progress, "software", page, 0);
+  }
+  expect(progress.emptyPages).toBe(3);
+  expect(advanceGustPaging(progress, "software", 4, 1).emptyPages).toBe(0);
+  expect(advanceGustPaging(progress, "art", 1, 0).emptyPages).toBe(0);
+  expect(advanceGustPaging(progress, "software", 1, 0).emptyPages).toBe(0);
+});
 
 function clip(id: string) {
   const post: ExternalPost = {
