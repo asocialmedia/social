@@ -32,6 +32,7 @@ import { requestPasswordReset } from "@/app/(auth)/reset-password/server-actions
 import { LoadingButton } from "@/components/auth/fields/loading-button";
 import { PasswordInput } from "@/components/auth/fields/password-input";
 import PushSettingsCard from "@/components/settings/push-settings-card";
+import SettingsFooterArt from "@/components/settings/settings-footer-art";
 import {
   ORANGE_GRADIENT_CLASS,
   SETTINGS_SUBCARD_CLASS,
@@ -636,7 +637,7 @@ export default function SecuritySettings({
   }
 
   return (
-    <div className="space-y-6 px-4 py-6 sm:px-6">
+    <div className="flex flex-1 flex-col gap-6 px-4 pt-6 pb-0 sm:px-6 lg:pb-0">
       <SettingsSectionHeader
         description="Protect access to your account and manage sign-in methods"
         icon={KeyRound}
@@ -1137,6 +1138,10 @@ export default function SecuritySettings({
           </Form>
         </DialogContent>
       </Dialog>
+      <SettingsFooterArt
+        className="-mx-4 mt-auto pt-6 sm:-mx-6"
+        tab="security"
+      />
     </div>
   );
 }

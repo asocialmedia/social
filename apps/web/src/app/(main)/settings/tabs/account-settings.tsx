@@ -31,6 +31,7 @@ import { BlueskyConnectCard } from "@/components/settings/bluesky-connect-card";
 import LinkAccountAlert from "@/components/settings/link-account-alert";
 import LinkedAccounts from "@/components/settings/linked-accounts";
 import type { AccountLinkingReadiness } from "@/components/settings/linked-accounts";
+import SettingsFooterArt from "@/components/settings/settings-footer-art";
 import {
   ORANGE_GRADIENT_CLASS,
   SettingsCard,
@@ -493,7 +494,7 @@ export default function AccountSettings({
   }
 
   return (
-    <div className="space-y-6 px-4 py-6 sm:px-6">
+    <div className="flex flex-1 flex-col gap-6 px-4 pt-6 pb-0 sm:px-6 lg:pb-0">
       <SettingsSectionHeader
         description="Your username, email and sign-in methods"
         icon={AtSign}
@@ -768,6 +769,10 @@ export default function AccountSettings({
           )}
         </SettingsCard>
       )}
+      <SettingsFooterArt
+        className="-mx-4 mt-auto pt-6 sm:-mx-6"
+        tab="account"
+      />
     </div>
   );
 }

@@ -6,6 +6,7 @@ import { Palette } from "lucide-react";
 import { useTheme } from "next-themes";
 import { useSyncExternalStore } from "react";
 
+import SettingsFooterArt from "./settings-footer-art";
 import {
   SettingsCard,
   SettingsCardHeading,
@@ -41,7 +42,7 @@ export default function PersonalizationSettings() {
     () => false
   );
   return (
-    <div className="flex flex-col gap-6 px-4 pt-6 sm:px-6">
+    <div className="flex flex-1 flex-col gap-6 px-4 pt-6 pb-0 sm:px-6 lg:pb-0">
       <SettingsSectionHeader
         icon={Palette}
         title="Personalization"
@@ -84,6 +85,10 @@ export default function PersonalizationSettings() {
           ))}
         </RadioGroup>
       </SettingsCard>
+      <SettingsFooterArt
+        className="-mx-4 mt-auto pt-6 sm:-mx-6"
+        tab="personalization"
+      />
     </div>
   );
 }
