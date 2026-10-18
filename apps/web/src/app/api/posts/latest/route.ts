@@ -9,6 +9,7 @@ import {
 import type { PostsPage } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/auth/session";
+import { filterNetworkFeed } from "@/lib/recommendations/filter-network-feed";
 
 const TAKE_PATTERN = /^[1-9]\d*$/;
 const PAGE_SIZE = 20;
@@ -77,7 +78,7 @@ export async function GET(request: Request) {
   const data: PostsPage = {
     nextCursor:
       posts.length > pageSize ? (posts[pageSize - 1]?.id ?? null) : null,
-    posts: hydrated,
+    posts: await filterNetworkFeed(hydrated, userId),
   };
   const responseHeaders = userId
     ? { "cache-control": "private, no-cache", vary: "Cookie" }

@@ -1,15 +1,18 @@
 import {
   and,
-  getPersonalizedFeedPage,
   getPostDataQuery,
   hydrateViewCounts,
   mapPostData,
   prisma,
+  readNetworkPreferences,
 } from "@asm/db";
 import type { PostsPage } from "@asm/db";
+import { defaultNetworkPreferences } from "@asm/protocols/discovery";
 
 import { getSessionFromApi } from "@/lib/auth/session";
 import { followingGustsPage } from "@/lib/gusts/following";
+import { networkPostAllowed } from "@/lib/posts/network-content-policy";
+import { filterNetworkFeed } from "@/lib/recommendations/filter-network-feed";
 
 const TAKE_PATTERN = /^[1-9]\d*$/;
 
@@ -52,6 +55,10 @@ async function queryChronologicalGusts(
 export async function GET(request: Request) {
   const session = await getSessionFromApi();
   const userId = session?.user?.id ?? "";
+  const settings = userId ? await readNetworkPreferences(userId) : null;
+  const preferences = settings?.preferences ?? defaultNetworkPreferences();
+  const allowed = (post: Parameters<typeof networkPostAllowed>[0]) =>
+    networkPostAllowed(post, preferences);
 
   const url = new URL(request.url);
   const cursor = url.searchParams.get("cursor") || undefined;
@@ -78,37 +85,23 @@ export async function GET(request: Request) {
       userId,
     });
     return Response.json(
-      { ...data, mode: "following" },
+      { ...data, mode: "following", posts: data.posts.filter(allowed) },
       {
         headers: { "cache-control": "private, no-cache", vary: "Cookie" },
       }
     );
   }
 
-  // Personalized Gusts use the same user persona as fleet recommendations,
-  // but the candidate set is constrained to video Gusts. Deep links with an
-  // initial id stay chronological so the requested Gust remains first.
-  if (mode && userId && !initialId && (!cursor || cursor.startsWith("fyp."))) {
-    const personalized = await getPersonalizedFeedPage({
-      contentKind: "gust",
-      cursor,
-      excludeModerated,
-      includeVisited: true,
-      pageSize,
+  // Both formats use the selected Network persona and revision-bound cursors.
+  if (!initialId && (mode || url.searchParams.has("network"))) {
+    const { networkNativeFeed } =
+      await import("@/lib/recommendations/network-native-feed");
+    return networkNativeFeed(
+      request,
       userId,
-    });
-    if (personalized.posts.length > 0) {
-      const data: PostsPage = {
-        nextCursor: personalized.nextCursor ?? personalized.anchorCursor,
-        posts: await hydrateViewCounts(personalized.posts),
-      };
-      return Response.json(data, {
-        headers: {
-          "cache-control": "private, no-cache",
-          vary: "Cookie",
-        },
-      });
-    }
+      mode ? "personalized" : "latest",
+      "gust"
+    );
   }
 
   // When initialId is requested on the first page, ensure that gust is returned at the top
@@ -154,7 +147,7 @@ export async function GET(request: Request) {
 
     const data: PostsPage = {
       nextCursor,
-      posts: hydrated,
+      posts: hydrated.filter(allowed),
     };
     const responseHeaders = userId
       ? { "cache-control": "private, no-cache", vary: "Cookie" }
@@ -189,7 +182,7 @@ export async function GET(request: Request) {
   const nextCursor = posts.length > pageSize ? posts[pageSize - 1].id : null;
   const data: PostsPage = {
     nextCursor,
-    posts: hydrated,
+    posts: await filterNetworkFeed(hydrated, userId),
   };
   const responseHeaders = userId
     ? { "cache-control": "private, no-cache", vary: "Cookie" }

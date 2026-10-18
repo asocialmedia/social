@@ -20,6 +20,7 @@ import { after } from "next/server";
 import { z } from "zod";
 
 import { getSessionFromApi } from "@/lib/auth/session";
+import { externalNetworkPostRecommended } from "@/lib/posts/network-content-policy";
 import { blueskyMediaIsExplicit } from "@/lib/protocols/content-labels";
 import {
   cachedDiscoveryHead,
@@ -41,8 +42,8 @@ import {
   networkFeedContext,
   networkRegionalLocale,
 } from "@/lib/recommendations/network-context";
-import { networkTopicAffinity } from "@/lib/recommendations/network-native-feed";
 import { signNetworkObservation } from "@/lib/recommendations/network-observation";
+import { socialExternalRecommendations } from "@/lib/recommendations/social-external";
 
 export function GET(request: Request) {
   return protocolRoute(request, "discovery", async (id) => {
@@ -74,6 +75,14 @@ export function GET(request: Request) {
     const includeExplicit = Boolean(
       session?.user.id && network.preferences.showExplicitContent
     );
+    const topics = discoveryTopics(
+      profile,
+      network.selected.interests,
+      network.topicScope
+    ).filter(
+      (topic) =>
+        !matchesAvoidedTopic(topic, [topic], network.preferences.avoidedTopics)
+    );
     void redis
       .publish(
         DISCOVERY_WATCH_CHANNEL,
@@ -81,13 +90,12 @@ export function GET(request: Request) {
           content: content.data,
           locale: locale.data,
           mode: mode.data,
-          topics: profile ? discoveryTopics(profile) : [],
+          topics,
         })
       )
       .catch(() => {
         // Foreground reads remain usable if watch registration is unavailable.
       });
-    const topics = profile ? discoveryTopics(profile) : [];
     const cacheKey = discoveryCacheKey(
       mode.data,
       locale.data,
@@ -141,8 +149,21 @@ export function GET(request: Request) {
         ? readExternalFeedback(session.user.id)
         : Promise.resolve(new Set<string>()),
     ]);
+    const social = session?.user.id
+      ? await socialExternalRecommendations(
+          session.user.id,
+          !cursor,
+          request.signal,
+          id
+        )
+      : null;
+    const candidates = [
+      ...new Map(
+        [...page.items, ...(social?.items ?? [])].map((post) => [post.id, post])
+      ).values(),
+    ];
     const metadata = new Map(
-      page.items.map((post) => [
+      candidates.map((post) => [
         post.id,
         networkContentTopics(
           `${post.text} ${post.externalLink?.title ?? ""} ${post.media.map((media) => media.alt).join(" ")}`,
@@ -151,42 +172,35 @@ export function GET(request: Request) {
         ),
       ])
     );
-    const filtered = filterExternalRecommendations(page.items, excluded).filter(
+    const filtered = filterExternalRecommendations(candidates, excluded).filter(
       (post) =>
         (content.data !== "video" ||
           post.media.some((media) => media.type === "video")) &&
-        (includeExplicit || !blueskyMediaIsExplicit(post)) &&
-        !matchesAvoidedTopic(
-          `${post.text} ${post.externalLink?.title ?? ""} ${post.media.map((media) => media.alt).join(" ")}`,
-          metadata.get(post.id) ?? [],
-          network.preferences.avoidedTopics
+        (includeExplicit ? true : !blueskyMediaIsExplicit(post)) &&
+        externalNetworkPostRecommended(
+          post,
+          network.preferences,
+          network.selected.interests,
+          network.topicScope
         ) &&
         networkLanguageMatches(
           post.text,
           post.languages,
-          network.preferences.language
+          network.preferences.contentLanguages ?? [network.preferences.language]
         ) &&
         Date.parse(post.createdAt) <= Date.now() + 60_000
     );
-    const eligible =
-      mode.data === "latest" && Object.keys(profile.tagWeights).length
-        ? filtered.filter(
-            (post) =>
-              networkTopicAffinity(
-                post.text,
-                metadata.get(post.id) ?? [],
-                profile
-              ) > 0
-          )
-        : filtered;
     const items =
       mode.data === "latest"
-        ? eligible.toSorted(
+        ? filtered.toSorted(
             (a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt)
           )
-        : rankExternalForViewer(eligible, profile, {
+        : rankExternalForViewer(filtered, profile, {
+            interests: network.selected.interests,
             locale: networkRegionalLocale(network, locale.data),
             mode: mode.data,
+            socialProof: social?.weights,
+            topicScope: network.topicScope,
             topics: metadata,
           });
     after(async () => {
@@ -210,8 +224,8 @@ export function GET(request: Request) {
     return Response.json({
       ...page,
       items: await Promise.all(
-        items.map(async (post) => ({
-          ...post,
+        items.slice(0, 50).map(async (post) => ({
+          ...(social ? social.annotate(post) : post),
           asm: states.get(post.id),
           ...(session?.user.id
             ? {
@@ -237,6 +251,7 @@ export function GET(request: Request) {
             : {}),
         }))
       ),
+      partial: page.partial || Boolean(social?.partial),
     });
   });
 }

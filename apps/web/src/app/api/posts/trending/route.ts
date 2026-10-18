@@ -14,6 +14,7 @@ import {
 } from "@asm/db/recommendation/trending-snapshot";
 
 import { getSessionFromApi } from "@/lib/auth/session";
+import { filterNetworkFeed } from "@/lib/recommendations/filter-network-feed";
 
 export async function GET(request: Request) {
   // Guests can browse the public feed; per-user fields simply resolve to empty.
@@ -179,7 +180,10 @@ export async function GET(request: Request) {
         vary: "Cookie",
       };
 
-  return Response.json(data, { headers: responseHeaders });
+  return Response.json(
+    { ...data, posts: await filterNetworkFeed(data.posts, userId) },
+    { headers: responseHeaders }
+  );
 }
 
 type PostRow = ReturnType<typeof mapPostData>;

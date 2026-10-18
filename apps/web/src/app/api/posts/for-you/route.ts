@@ -10,6 +10,8 @@ import {
 import type { PostsPage } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/auth/session";
+import { filterNetworkFeed } from "@/lib/recommendations/filter-network-feed";
+import { networkFeedContext } from "@/lib/recommendations/network-context";
 
 // A valid take value is a positive integer only (no partial-prefix parsing).
 const TAKE_PATTERN = /^[1-9]\d*$/;
@@ -93,10 +95,14 @@ export async function GET(request: Request) {
   // continuing to stream older/expired posts at the bottom so NO posts are hidden.
   let data: PostsPage | null = null;
   if (userId && (!cursor || cursor.startsWith("fyp."))) {
+    const network = await networkFeedContext(userId);
     const personalized = await getPersonalizedFeedPage({
       cursor,
+      excludeExplicit: !network.preferences.showExplicitContent,
       excludeModerated,
       includeVisited: true,
+      networkProfile: network.profile,
+      networkScope: `${network.selected.id}:${network.revision}`,
       pageSize,
       userId,
     });
@@ -199,5 +205,8 @@ export async function GET(request: Request) {
         vary: "Cookie",
       };
 
-  return Response.json(data, { headers: responseHeaders });
+  return Response.json(
+    { ...data, posts: await filterNetworkFeed(data.posts, userId) },
+    { headers: responseHeaders }
+  );
 }
