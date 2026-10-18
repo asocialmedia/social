@@ -344,6 +344,8 @@ export {
 } from "./transport";
 
 export async function readDiscoveryPage(options: {
+  following?: boolean;
+  refresh?: boolean;
   content?: DiscoveryContent;
   profile?: string;
   locale?: string;
@@ -366,6 +368,9 @@ export async function readDiscoveryPage(options: {
     const timer = setTimeout(abort, options.timeoutMs ?? 18_000);
     try {
       const query = new URLSearchParams({ mode: options.mode });
+      if (options.refresh) {
+        query.set("refresh", "1");
+      }
       if (options.content) {
         query.set("content", options.content);
       }
@@ -380,7 +385,7 @@ export async function readDiscoveryPage(options: {
       }
       const response = await abortable(
         (options.fetch ?? fetch)(
-          `${options.baseUrl ?? ""}/api/protocols/bluesky/discover?${query}`,
+          `${options.baseUrl ?? ""}/api/protocols/bluesky/${options.following ? "following" : "discover"}?${query}`,
           { cache: "no-store", signal: controller.signal }
         ),
         controller.signal
@@ -447,3 +452,6 @@ export async function readDiscoveryWindow(
   }
   throw new FeedReadError(504);
 }
+
+export { RedisBoundedStore } from "./bounded-store";
+export type { BoundedStore, CacheLease } from "./bounded-store";

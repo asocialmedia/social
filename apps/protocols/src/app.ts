@@ -1,6 +1,9 @@
 import { timingSafeEqual } from "node:crypto";
 
-import { blueskyCapabilities } from "@asm/protocols/bluesky";
+import {
+  readBlueskyAccountStatus,
+  blueskyCapabilities,
+} from "@asm/protocols/bluesky";
 import type { BlueskyClient } from "@asm/protocols/bluesky";
 import { ProtocolError } from "@asm/protocols/contracts";
 import { Elysia, t } from "elysia";
@@ -269,6 +272,20 @@ export function createProtocolsApp(options: ProtocolsAppOptions) {
           }
         )
         .get(
+          "/bluesky/account-status",
+          async ({ query, request }) => ({
+            status: await readBlueskyAccountStatus(query.actor, request.signal),
+          }),
+          {
+            query: t.Object({
+              actor: t.String({
+                maxLength: 2048,
+                pattern: "^did:(plc|web):[A-Za-z0-9._:%-]+$",
+              }),
+            }),
+          }
+        )
+        .get(
           "/bluesky/author-feed",
           ({ query, request, set }) =>
             observeRequest(
@@ -282,6 +299,7 @@ export function createProtocolsApp(options: ProtocolsAppOptions) {
                   query.tab ?? "posts",
                   {
                     cursor: query.cursor,
+                    includePins: query.pins === "0" ? false : undefined,
                     language: query.language,
                     limit: query.limit,
                   }
@@ -290,6 +308,7 @@ export function createProtocolsApp(options: ProtocolsAppOptions) {
           {
             query: t.Object({
               actor: t.String({ maxLength: 2048, minLength: 3 }),
+              pins: t.Optional(t.Literal("0")),
               tab: t.Optional(
                 t.Union([
                   t.Literal("posts"),

@@ -5,9 +5,11 @@ export const DISCOVERY_WATCH_CHANNEL = "asm:protocols:discovery:watch:v1";
 export const PROTOCOL_INVALIDATIONS_CHANNEL = "asm:protocols:invalidations";
 
 export const feedChangeSchema = z.object({
+  authorIds: z.array(z.string().max(2048)).max(1000).optional(),
   locale: z.string().max(8).optional(),
   mode: z.enum(["latest", "personalized", "trending"]).optional(),
-  source: z.enum(["asm", "bluesky", "connected"]),
+  source: z.enum(["asm", "bluesky", "bluesky-following", "connected"]),
+  viewerId: z.string().max(128).optional(),
 });
 export type FeedChange = z.infer<typeof feedChangeSchema>;
 

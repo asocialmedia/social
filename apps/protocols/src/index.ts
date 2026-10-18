@@ -189,25 +189,19 @@ export async function startProtocols() {
   });
   try {
     app.listen({ hostname: config.hostname, port: config.port });
-    if (config.jetstreamEnabled && redis) {
-      const [{ RedisCheckpointStore }, { runJetstreamWorker }] =
-        await Promise.all([import("./checkpoints"), import("./worker")]);
-      worker = runJetstreamWorker({
+    if (redis && (config.jetstreamEnabled || (config.asmUrl && config.token))) {
+      const { runFollowTracking } = await import("./follow-tracking");
+      worker = runFollowTracking({
+        client,
+        config,
         health,
         invalidate: (event) => {
           client.invalidate(event?.did);
           explicitClient.invalidate(event?.did);
         },
         logger,
-        renewEveryMs: 3000,
+        redis,
         signal: abort.signal,
-        standbyWaitMs: 1500,
-        store: new RedisCheckpointStore(redis, {
-          dids: config.dids,
-          endpoint: config.endpoint,
-          leaseMs: 10_000,
-        }),
-        streamOptions: { dids: config.dids, endpoint: config.endpoint },
       });
     }
   } catch (error) {

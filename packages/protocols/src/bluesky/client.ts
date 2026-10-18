@@ -104,6 +104,7 @@ const pageOptionsSchema = z.object({
   limit: z.number().int().min(1).max(50).default(20),
 });
 export interface FeedReadOptions {
+  includePins?: boolean;
   limit?: number;
   cursor?: string;
   language?: string;
@@ -249,7 +250,13 @@ export class BlueskyClient {
     const filter = filterByTab[tab];
     const page = await this.feed(
       "app.bsky.feed.getAuthorFeed",
-      { actor: author.id, filter },
+      {
+        actor: author.id,
+        filter,
+        ...(options.includePins === undefined
+          ? {}
+          : { includePins: String(options.includePins) }),
+      },
       options
     );
     return {
@@ -724,6 +731,9 @@ export class BlueskyClient {
           app.bsky.feed.getAuthorFeed,
           {
             actor: actorSchema.parse(query.get("actor")),
+            ...(query.has("includePins")
+              ? { includePins: query.get("includePins") === "true" }
+              : {}),
             filter: query.get("filter") ?? "posts_no_replies",
             ...page,
           },
@@ -876,3 +886,4 @@ export class BlueskyClient {
     }
   }
 }
+export { readBlueskyAccountStatus } from "./lifecycle";

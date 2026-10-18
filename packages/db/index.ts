@@ -220,3 +220,4 @@ export * from "./src/recommendation/shared-topic-graph";
 export * from "./src/recommendation/attribution";
 export * from "./src/recommendation/retrieval-benchmark";
 export * from "./src/recommendation/experiment-report";
+export * from "./src/protocols/external-follows";

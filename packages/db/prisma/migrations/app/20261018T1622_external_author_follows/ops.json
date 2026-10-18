@@ -1,0 +1,261 @@
+[
+  {
+    "id": "table.external_authors",
+    "label": "Create table \"external_authors\"",
+    "summary": "Creates table \"external_authors\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "table",
+        "name": "external_authors"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure table \"external_authors\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": ["\"public\".\"external_authors\""]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create table \"external_authors\"",
+        "sql": "CREATE TABLE \"public\".\"external_authors\" (\n  \"did\" text NOT NULL,\n  \"displayName\" text NOT NULL,\n  \"handle\" text NOT NULL,\n  \"nextCheckAt\" timestamp(3) DEFAULT (now()) NOT NULL,\n  \"status\" text DEFAULT 'active' NOT NULL,\n  PRIMARY KEY (\"did\")\n)",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify table \"external_authors\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": ["\"public\".\"external_authors\""]
+      }
+    ]
+  },
+  {
+    "id": "table.external_follows",
+    "label": "Create table \"external_follows\"",
+    "summary": "Creates table \"external_follows\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "table",
+        "name": "external_follows"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure table \"external_follows\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": ["\"public\".\"external_follows\""]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create table \"external_follows\"",
+        "sql": "CREATE TABLE \"public\".\"external_follows\" (\n  \"authorDid\" text NOT NULL,\n  \"createdAt\" timestamp(3) DEFAULT (now()) NOT NULL,\n  \"userId\" text NOT NULL,\n  PRIMARY KEY (\"userId\", \"authorDid\")\n)",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify table \"external_follows\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": ["\"public\".\"external_follows\""]
+      }
+    ]
+  },
+  {
+    "id": "index.external_authors.external_authors_nextCheckAt_idx_271e69e8",
+    "label": "Create index \"external_authors_nextCheckAt_idx_271e69e8\" on \"external_authors\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "external_authors_nextCheckAt_idx_271e69e8",
+        "table": "external_authors"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"external_authors_nextCheckAt_idx_271e69e8\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": ["\"public\".\"external_authors_nextCheckAt_idx_271e69e8\""]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"external_authors_nextCheckAt_idx_271e69e8\"",
+        "sql": "CREATE INDEX \"external_authors_nextCheckAt_idx_271e69e8\" ON \"public\".\"external_authors\" (\"nextCheckAt\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"external_authors_nextCheckAt_idx_271e69e8\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": ["\"public\".\"external_authors_nextCheckAt_idx_271e69e8\""]
+      }
+    ]
+  },
+  {
+    "id": "index.external_follows.external_follows_authorDid_idx_823d3cb1",
+    "label": "Create index \"external_follows_authorDid_idx_823d3cb1\" on \"external_follows\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "external_follows_authorDid_idx_823d3cb1",
+        "table": "external_follows"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"external_follows_authorDid_idx_823d3cb1\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": ["\"public\".\"external_follows_authorDid_idx_823d3cb1\""]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"external_follows_authorDid_idx_823d3cb1\"",
+        "sql": "CREATE INDEX \"external_follows_authorDid_idx_823d3cb1\" ON \"public\".\"external_follows\" (\"authorDid\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"external_follows_authorDid_idx_823d3cb1\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": ["\"public\".\"external_follows_authorDid_idx_823d3cb1\""]
+      }
+    ]
+  },
+  {
+    "id": "index.external_follows.external_follows_userId_idx_a489d58a",
+    "label": "Create index \"external_follows_userId_idx_a489d58a\" on \"external_follows\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "external_follows_userId_idx_a489d58a",
+        "table": "external_follows"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"external_follows_userId_idx_a489d58a\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": ["\"public\".\"external_follows_userId_idx_a489d58a\""]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"external_follows_userId_idx_a489d58a\"",
+        "sql": "CREATE INDEX \"external_follows_userId_idx_a489d58a\" ON \"public\".\"external_follows\" (\"userId\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"external_follows_userId_idx_a489d58a\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": ["\"public\".\"external_follows_userId_idx_a489d58a\""]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.external_follows.external_follows_userId_fkey",
+    "label": "Add foreign key \"external_follows_userId_fkey\" on \"external_follows\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "external_follows_userId_fkey",
+        "table": "external_follows"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"external_follows_userId_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "external_follows_userId_fkey",
+          "public",
+          "\"public\".\"external_follows\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"external_follows_userId_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"external_follows\"\nADD CONSTRAINT \"external_follows_userId_fkey\"\nFOREIGN KEY (\"userId\")\nREFERENCES \"public\".\"users\" (\"id\")\nON DELETE CASCADE"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"external_follows_userId_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "external_follows_userId_fkey",
+          "public",
+          "\"public\".\"external_follows\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.external_follows.external_follows_authorDid_fkey",
+    "label": "Add foreign key \"external_follows_authorDid_fkey\" on \"external_follows\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "external_follows_authorDid_fkey",
+        "table": "external_follows"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"external_follows_authorDid_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "external_follows_authorDid_fkey",
+          "public",
+          "\"public\".\"external_follows\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"external_follows_authorDid_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"external_follows\"\nADD CONSTRAINT \"external_follows_authorDid_fkey\"\nFOREIGN KEY (\"authorDid\")\nREFERENCES \"public\".\"external_authors\" (\"did\")\nON DELETE CASCADE"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"external_follows_authorDid_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "external_follows_authorDid_fkey",
+          "public",
+          "\"public\".\"external_follows\""
+        ]
+      }
+    ]
+  }
+]

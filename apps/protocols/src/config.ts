@@ -2,6 +2,7 @@ import { jetstreamEndpoints } from "@asm/protocols/jetstream";
 import type { JetstreamEndpoint } from "@asm/protocols/jetstream";
 
 export interface ProtocolsConfig {
+  asmUrl?: string;
   hostname: string;
   port: number;
   token?: string;
@@ -68,8 +69,27 @@ export function readConfig(
       "Production discovery requires REDIS_URL for shared continuations"
     );
   }
-  if (enabled === "true" && (!redisUrl || dids.length === 0)) {
-    throw new Error("Jetstream requires REDIS_URL and PROTOCOLS_BLUESKY_DIDS");
+  const asmUrl =
+    env.PROTOCOLS_ASM_URL ??
+    env.NEXT_PUBLIC_URL ??
+    (env.NODE_ENV === "development" ? "http://localhost:3000" : undefined);
+  if (asmUrl) {
+    const parsed = new URL(asmUrl);
+    if (
+      !["http:", "https:"].includes(parsed.protocol) ||
+      parsed.username ||
+      parsed.password
+    ) {
+      throw new Error("PROTOCOLS_ASM_URL must be an HTTP origin");
+    }
+  }
+  if (
+    enabled === "true" &&
+    (!redisUrl || (asmUrl && !token) || (!asmUrl && !dids.length))
+  ) {
+    throw new Error(
+      "Jetstream requires REDIS_URL and either ASM registry credentials or seed DIDs"
+    );
   }
   if (redisUrl) {
     let parsed: URL;
@@ -83,6 +103,7 @@ export function readConfig(
     }
   }
   return {
+    asmUrl,
     dids,
     endpoint,
     hostname: env.PROTOCOLS_HOST ?? "0.0.0.0",

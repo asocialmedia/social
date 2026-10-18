@@ -42,6 +42,30 @@ namespace public {
     @@map("communities")
   }
 
+  model ExternalAuthors {
+    did String @id
+    handle String
+    displayName String
+    status String @default("active")
+    nextCheckAt Timestamp(3) @default(now())
+    follows ExternalFollows[]
+
+    @@index([nextCheckAt])
+    @@map("external_authors")
+  }
+
+  model ExternalFollows {
+    userId String
+    authorDid String
+    createdAt Timestamp(3) @default(now())
+    user Users @relation(fields: [userId], references: [id], onDelete: Cascade)
+    author ExternalAuthors @relation(fields: [authorDid], references: [did], onDelete: Cascade)
+
+    @@id([userId, authorDid])
+    @@index([authorDid])
+    @@map("external_follows")
+  }
+
   model ExternalPosts {
     id String @id
     source String
@@ -354,6 +378,7 @@ namespace public {
     bookmarks                         Bookmarks[]
     externalEngagements               ExternalEngagements[]
     externalComments                  ExternalComments[]
+    externalFollows                   ExternalFollows[]
     commentVotes                      CommentVotes[]
     comments                          Comments[]
     communities                       Communities[]
