@@ -202,11 +202,9 @@ export function useNewContentProbe<T extends NewContentItem>({
     };
     document.addEventListener("visibilitychange", onVisible);
     window.addEventListener("network:learned", scheduler.schedule);
-    const interval = eventSource
-      ? undefined
-      : window.setInterval(() => {
-          void probe();
-        }, intervalMs);
+    const interval = window.setInterval(() => {
+      void probe();
+    }, intervalMs);
     return () => {
       active = false;
       scheduler.stop();
@@ -219,7 +217,7 @@ export function useNewContentProbe<T extends NewContentItem>({
       window.removeEventListener("network:learned", scheduler.schedule);
       window.clearInterval(interval);
     };
-  }, [enabled, eventSource, intervalMs, probeOnMount, ranked, resetKey]);
+  }, [enabled, intervalMs, probeOnMount, ranked, resetKey]);
 
   const clearNewItems = useCallback(() => {
     setBadge((previous) => ({ ...previous, items: [] }));

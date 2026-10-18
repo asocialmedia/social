@@ -109,7 +109,9 @@ export async function POST(request: Request) {
           tags: receipt.topics,
         },
         `${receipt.source}:${receipt.postId}`,
-        receipt.publicContent
+        receipt.publicContent,
+        undefined,
+        revision
       );
     })
   );

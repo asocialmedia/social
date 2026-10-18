@@ -82,7 +82,9 @@ export function networkPostRecommended(
   const interests = activeNetworkInterests(preferences);
   return (
     networkPostAllowed(post, scopedNetworkPreferences(preferences, scope)) &&
-    (!interests.length || postNetworkInterestScore(post, interests, scope) > 0)
+    (!interests.length ||
+      matchesDiscoveryContext(post.discoveryContext, interests) ||
+      postNetworkInterestScore(post, interests, scope) > 0)
   );
 }
 
@@ -101,7 +103,20 @@ export function externalNetworkPostRecommended(
       scopedNetworkPreferences(preferences, scope)
     ) &&
     (!interests.length ||
+      matchesDiscoveryContext(post.discoveryContext, interests) ||
       externalNetworkInterestScore(post, interests, scope) > 0)
+  );
+}
+
+function matchesDiscoveryContext(
+  context: ExternalPost["discoveryContext"],
+  interests: readonly string[]
+) {
+  return Boolean(
+    context &&
+    context.level > 0 &&
+    context.level <= 2 &&
+    JSON.stringify(context.interests) === JSON.stringify(interests)
   );
 }
 

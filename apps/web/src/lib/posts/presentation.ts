@@ -11,7 +11,10 @@ import {
 } from "@/lib/link-embeds/shared";
 import { blueskyMediaIsExplicit } from "@/lib/protocols/content-labels";
 
-export type PresentedPost = PostData & { external?: ExternalPost };
+export type PresentedPost = PostData & {
+  external?: ExternalPost;
+  discoveryContext?: ExternalPost["discoveryContext"];
+};
 
 // This is a rendering model. Its external tag keeps protocol identities out of native mutations.
 export function externalPostView(post: ExternalPost): PresentedPost {
@@ -42,6 +45,7 @@ export function externalPostView(post: ExternalPost): PresentedPost {
     communityShare: null,
     content: post.text,
     createdAt: new Date(post.createdAt),
+    discoveryContext: post.discoveryContext,
     embedding: [],
     embeddingFingerprint: null,
     embeddingModel: null,

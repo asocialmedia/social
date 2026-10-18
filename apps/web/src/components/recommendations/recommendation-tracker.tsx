@@ -6,6 +6,7 @@ import type React from "react";
 import { useEffect, useRef } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
+import { rememberFeedExposure } from "@/lib/posts/feed-exposure";
 
 type RecommendationEventType =
   | EngagementEventType
@@ -189,7 +190,7 @@ export function RecommendationTracker({
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (!user || !containerRef.current || typeof window === "undefined") {
+    if (!containerRef.current || typeof window === "undefined") {
       return;
     }
     if (networkToken) {
@@ -205,15 +206,18 @@ export function RecommendationTracker({
     const element = containerRef.current;
     let visible = false;
     let timer: ReturnType<typeof setInterval> | null = null;
-    const session = new EngagementSession((event) =>
+    const session = new EngagementSession((event) => {
+      if (!user) {
+        return;
+      }
       trackRecommendationEvent({
         ...event,
         networkSource,
         networkToken,
         postId,
         requestId,
-      })
-    );
+      });
+    });
     const sample = () => {
       const video = element.querySelector("video");
       session.sample(
@@ -258,6 +262,14 @@ export function RecommendationTracker({
         }
         visible = next;
         if (next) {
+          const path = window.location.pathname;
+          if (path === "/" || path === "/gusts") {
+            rememberFeedExposure(
+              user?.id ?? "guest",
+              path === "/gusts" ? "gusts" : "home",
+              postId
+            );
+          }
           visibilityChanged();
         }
       },

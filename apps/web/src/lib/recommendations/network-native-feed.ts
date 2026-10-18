@@ -28,13 +28,19 @@ import {
   networkPostAllowed,
   postNetworkInterestScore,
 } from "@/lib/posts/network-content-policy";
+import { isTrendingPost } from "@/lib/posts/trending-eligibility";
 
 import { networkFeedContext } from "./network-context";
 import { signNetworkObservation } from "./network-observation";
 
 const snapshotSchema = z.object({
+  anchor: z.string().default(() => new Date().toISOString()),
+  candidateOffset: z.number().int().min(0).max(100_000).default(0),
   ids: z.array(z.string()).max(400),
+  level: z.number().int().min(0).max(2).default(0),
+  moreCandidates: z.boolean().default(false),
   scope: z.string(),
+  seen: z.array(z.string()).max(2000).default([]),
 });
 
 export function networkTopicAffinity(
@@ -96,16 +102,22 @@ export async function networkNativeFeed(
       { status: 409 }
     );
   }
-  const scope = `v4:${userId || "guest"}:${context.selected.id}:${context.revision}:${context.topicScope?.version ?? "exact"}:${mode}:${contentKind}`;
+  const scope = `v6:${userId || "guest"}:${context.selected.id}:${context.revision}:${context.topicScope?.version ?? "exact"}:${mode}:${contentKind}`;
   const social = await networkSocialCandidates(userId);
   const socialById = new Map(social.native.map((entry) => [entry.id, entry]));
   const cursor = query.get("cursor");
   const take = query.get("take") ?? (contentKind === "gust" ? "10" : "20");
   const pageSize = /^[1-9]\d*$/u.test(take) ? Math.min(20, Number(take)) : 20;
-  let ids: string[];
+  let ids: string[] = [];
   let generation = crypto.randomUUID();
   let offset = 0;
   let canContinue = true;
+  let level = 0;
+  let candidateOffset = 0;
+  let moreCandidates = false;
+  let seen: string[] = [];
+  let anchor = new Date().toISOString();
+  let buildBatch = !cursor;
   if (cursor) {
     const match =
       /^nf1\.(?<generation>[a-f\d-]{36})\.(?<offset>\d{1,4})$/i.exec(cursor);
@@ -121,9 +133,26 @@ export async function networkNativeFeed(
     if (!parsed.success || parsed.data.scope !== scope) {
       return Response.json({ error: "Refresh this feed" }, { status: 410 });
     }
-    ({ ids } = parsed.data);
-  } else {
-    const seeds = context.selected.interests.length
+    ({ ids, level, candidateOffset, moreCandidates, seen, anchor } =
+      parsed.data);
+    if (offset >= ids.length) {
+      generation = crypto.randomUUID();
+      seen = [...new Set([...seen, ...ids])].slice(-2000);
+      if (moreCandidates) {
+        candidateOffset += 180;
+      } else {
+        level += 1;
+        candidateOffset = 0;
+      }
+      if (level > 2 || (mode === "latest" && level > 0)) {
+        return Response.json({ nextCursor: null, posts: [] });
+      }
+      offset = 0;
+      buildBatch = true;
+    }
+  }
+  if (buildBatch) {
+    const focusedSeeds = context.selected.interests.length
       ? networkInterestTerms(context.selected.interests, context.topicScope)
       : [
           ...new Set([
@@ -132,39 +161,61 @@ export async function networkNativeFeed(
             ...Object.keys(context.profile.expandedEntityWeights ?? {}),
           ]),
         ].slice(0, 40);
+    let seeds = focusedSeeds;
+    if (level === 1) {
+      seeds = [
+        ...new Set(
+          context.selected.interests.flatMap(
+            (interest) => context.topicScope?.related?.[interest] ?? []
+          )
+        ),
+      ].slice(0, 80);
+    } else if (level === 2) {
+      seeds = [];
+    }
     const { rawQuery } = await import("@asm/db");
     const [relevant, exploration] = await Promise.all([
-      rawQuery<{ id: string }>(
-        networkSql.candidates,
-        [
-          seeds,
-          context.preferences.showExplicitContent,
-          mode,
-          contentKind === "gust",
-        ],
-        { id: "pg/text@1" }
-      ),
-      context.selected.interests.length
+      level === 1 && seeds.length === 0
+        ? Promise.resolve({ rows: [] as { id: string }[] })
+        : rawQuery<{ id: string }>(
+            networkSql.pagedCandidates,
+            [
+              seeds,
+              context.preferences.showExplicitContent,
+              mode,
+              contentKind === "gust",
+              candidateOffset,
+              anchor,
+            ],
+            { id: "pg/text@1" }
+          ),
+      context.selected.interests.length || level > 0
         ? Promise.resolve({ rows: [] })
         : rawQuery<{ id: string }>(
-            networkSql.candidates,
+            networkSql.pagedCandidates,
             [
               [],
               context.preferences.showExplicitContent,
               mode,
               contentKind === "gust",
+              candidateOffset,
+              anchor,
             ],
             { id: "pg/text@1" }
           ),
     ]);
+    moreCandidates =
+      relevant.rows.length === 180 || exploration.rows.length === 180;
     ids = [
       ...new Set(
         [...relevant.rows, ...exploration.rows.slice(0, 60)].map(
           (row) => row.id
         )
       ),
-      ...social.native.map((entry) => entry.id),
-    ];
+      ...(level === 0 && candidateOffset === 0
+        ? social.native.map((entry) => entry.id)
+        : []),
+    ].filter((id) => !seen.includes(id));
   }
   const visibility = communityVisibilityWhere(userId);
   const [subscriptions, blocked, hidden] = await Promise.all([
@@ -207,6 +258,7 @@ export async function networkNativeFeed(
     : [];
   let posts = rows
     .map(mapPostData)
+    .filter((post) => mode !== "trending" || isTrendingPost(post))
     .filter(
       (post) =>
         networkLanguageMatches(
@@ -215,14 +267,15 @@ export async function networkNativeFeed(
           context.preferences.contentLanguages ?? [context.preferences.language]
         ) &&
         networkPostAllowed(post, context.preferences, context.topicScope) &&
-        (!context.selected.interests.length ||
+        (level > 0 ||
+          !context.selected.interests.length ||
           postNetworkInterestScore(
             post,
             context.selected.interests,
             context.topicScope
           ) > 0)
     );
-  if (!cursor) {
+  if (buildBatch) {
     const authorSignals = await getAuraSignalsForUsers([
       ...new Set(posts.map((post) => post.userId)),
     ]);
@@ -280,8 +333,8 @@ export async function networkNativeFeed(
         post,
         score:
           mode === "trending"
-            ? fit * 20 +
-              Math.min(5, trend) +
+            ? Math.min(3, fit) +
+              trend * 8 +
               geographicAffinity * 0.4 +
               (socialById.get(post.id)?.weight ?? 0) * 2
             : nativeScore + fit * 20,
@@ -290,7 +343,7 @@ export async function networkNativeFeed(
     });
     const hasInterests = Object.keys(context.profile.tagWeights).length > 0;
     const eligible =
-      mode === "latest" && hasInterests
+      mode === "latest" && hasInterests && level === 0
         ? enriched.filter((item) => item.fit > 0)
         : enriched;
     eligible.sort((a, b) =>
@@ -323,7 +376,15 @@ export async function networkNativeFeed(
     canContinue = await redis
       .set(
         `rec:network-feed:v1:${generation}`,
-        JSON.stringify({ ids, scope }),
+        JSON.stringify({
+          anchor,
+          candidateOffset,
+          ids,
+          level,
+          moreCandidates,
+          scope,
+          seen,
+        }),
         "EX",
         NETWORK_FEED_TTL_SECONDS
       )
@@ -345,6 +406,9 @@ export async function networkNativeFeed(
   const observed = await Promise.all(
     posts.map(async (post) => ({
       ...post,
+      ...(level > 0
+        ? { discoveryContext: { interests: context.selected.interests, level } }
+        : {}),
       recommendationSources: socialById.get(post.id)?.sources,
       ...(userId
         ? {
@@ -370,7 +434,10 @@ export async function networkNativeFeed(
   return Response.json(
     {
       nextCursor:
-        canContinue && consumed < ids.length
+        canContinue &&
+        (consumed < ids.length ||
+          moreCandidates ||
+          (mode !== "latest" && level < 2))
           ? `nf1.${generation}.${consumed}`
           : null,
       posts: observed,

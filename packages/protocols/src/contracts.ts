@@ -42,6 +42,7 @@ export interface RecommendationSource {
 }
 
 export interface ExternalPost {
+  discoveryContext?: { interests: string[]; level: number };
   recommendationSources?: RecommendationSource[];
   networkRecommendationToken?: string;
   asm?: {

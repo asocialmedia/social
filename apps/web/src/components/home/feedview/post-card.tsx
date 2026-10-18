@@ -36,6 +36,7 @@ import PostLinkedContent from "@/components/posts/content/post-linked-content";
 import ViewTracker from "@/components/posts/effects/view-counter";
 import PostLinkEmbeds from "@/components/posts/embeds/link-embeds";
 import { BlueskyIcon } from "@/components/protocols/bluesky-icon";
+import { ExternalAuthorTooltip } from "@/components/protocols/external-author-tooltip";
 import { ExternalDiscussion } from "@/components/protocols/external-discussion";
 import {
   ExternalBookmarkButton,
@@ -93,7 +94,9 @@ function PostAuthorTooltip({
   children: React.ReactNode;
 }) {
   return post.external ? (
-    children
+    <ExternalAuthorTooltip author={post.external.author}>
+      {children}
+    </ExternalAuthorTooltip>
   ) : (
     <UserTooltip user={post.user}>{children}</UserTooltip>
   );

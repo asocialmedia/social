@@ -7,6 +7,8 @@ import { createRoot } from "react-dom/client";
 
 import { useNewContentProbe } from "./use-new-content-probe";
 
+mock.module("./use-feed-events", () => ({ useFeedEvents: () => {} }));
+
 const dom = new Window({ url: "http://localhost:3000" });
 const originals = new Map<string, PropertyDescriptor | undefined>();
 for (const [key, value] of Object.entries({
@@ -169,4 +171,24 @@ test("switching feeds discards a late response from the previous feed", async ()
     await pending.promise;
   });
   expect(probe.items()).toBe("");
+});
+
+test("event-backed feeds still poll when their live event stream stays quiet", async () => {
+  const fetchHead = mock(() =>
+    Promise.resolve([{ id: "arrived" }, { id: "known" }])
+  );
+  const probe = createProbe();
+  await probe.render({
+    eventSource: "asm",
+    fetchHead,
+    intervalMs: 10,
+    probeOnMount: false,
+    visible: [{ id: "known" }],
+  });
+  expect(fetchHead).toHaveBeenCalledTimes(0);
+  await act(async () => {
+    await Bun.sleep(35);
+  });
+  expect(fetchHead.mock.calls.length).toBeGreaterThan(0);
+  expect(probe.items()).toBe("arrived");
 });

@@ -7,7 +7,7 @@ import {
   PopoverTrigger,
 } from "@asm/ui/shadui/popover";
 import asmLogo from "@assets/asm.png";
-import { Check, RotateCcw, Settings2 } from "lucide-react";
+import { Brain, Check, RotateCcw, Settings2 } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import type React from "react";
@@ -110,6 +110,10 @@ export function FeedSourceMenu({ following }: { following: boolean }) {
     setSource("all");
   }, [setSource]);
 
+  const activeProfile = network.settings.preferences.profiles.find(
+    (profile) => profile.id === network.settings.preferences.activeProfileId
+  );
+
   return (
     <Popover>
       <PopoverTrigger asChild>
@@ -153,42 +157,73 @@ export function FeedSourceMenu({ following }: { following: boolean }) {
           ) : null}
         </div>
         {user ? (
-          <fieldset className="border-border/60 mb-2 space-y-2 border-b px-1 py-2">
-            <legend className="text-muted-foreground text-[11px] font-semibold">
+          <fieldset className="border-border/60 mb-2 min-w-0 space-y-2.5 border-b px-1 pt-1 pb-3">
+            {/* A legend must be the fieldset's own child to be announced with
+                the group, so the header row is the legend itself and the Manage
+                link follows it rather than wrapping it. */}
+            <legend className="text-muted-foreground flex min-w-0 items-center gap-1.5 text-[11px] font-semibold">
+              <Brain aria-hidden className="size-3.5 shrink-0" />
               Recommendation profile
             </legend>
-            <div className="flex flex-wrap gap-1.5">
-              {network.settings.preferences.profiles.map((profile) => (
-                <button
-                  aria-pressed={
-                    profile.id === network.settings.preferences.activeProfileId
-                  }
-                  className={cn(
-                    "chip-3d cursor-pointer rounded-md px-2 py-1.5 text-xs",
-                    profile.id ===
-                      network.settings.preferences.activeProfileId &&
-                      "text-primary"
-                  )}
-                  disabled={network.isSaving || !network.ready}
-                  key={profile.id}
-                  onClick={() =>
-                    network.save({
-                      ...network.settings.preferences,
-                      activeProfileId: profile.id,
-                    })
-                  }
-                  type="button"
-                >
-                  {profile.name}
-                </button>
-              ))}
+            <div className="flex items-center justify-end">
+              <Link
+                className="text-muted-foreground hover:text-foreground focus-visible:ring-ring shrink-0 rounded-md px-1 text-[11px] font-medium transition-colors focus-visible:ring-2 focus-visible:outline-hidden"
+                href="/settings?tab=network&section=profiles"
+              >
+                Manage
+              </Link>
             </div>
-            <Link
-              className="text-muted-foreground hover:text-foreground text-xs"
-              href="/settings?tab=network"
-            >
-              Manage interests and network preferences
-            </Link>
+
+            {/* The active profile is a filled brand pill, the rest sit a step
+                above the panel. Selection reads from the fill rather than from
+                a tinted label, which is the same rule the source rows below
+                follow, so the whole menu speaks one language. */}
+            <div className="flex flex-wrap gap-1.5">
+              {network.settings.preferences.profiles.map((profile) => {
+                const active =
+                  profile.id === network.settings.preferences.activeProfileId;
+                return (
+                  <button
+                    aria-pressed={active}
+                    className={cn(
+                      "focus-visible:ring-ring flex cursor-pointer items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors focus-visible:ring-2 focus-visible:outline-hidden disabled:opacity-50",
+                      active
+                        ? ORANGE_FILL
+                        : "chip-3d text-muted-foreground hover:text-foreground"
+                    )}
+                    disabled={network.isSaving || !network.ready}
+                    key={profile.id}
+                    onClick={() =>
+                      network.save({
+                        ...network.settings.preferences,
+                        activeProfileId: profile.id,
+                      })
+                    }
+                    type="button"
+                  >
+                    {active ? (
+                      <Check aria-hidden className="size-3" strokeWidth={3} />
+                    ) : null}
+                    {profile.name}
+                  </button>
+                );
+              })}
+            </div>
+
+            <p className="text-muted-foreground text-[11px] leading-snug">
+              {network.ready ? (
+                <>
+                  {activeProfile
+                    ? `${activeProfile.interests.length} ${activeProfile.interests.length === 1 ? "interest" : "interests"}`
+                    : "No interests yet"}
+                  {network.settings.persona.signalCount > 0
+                    ? ` · learning from ${network.settings.persona.signalCount} recent interactions`
+                    : " · learning starts as you browse"}
+                </>
+              ) : (
+                "Loading profiles…"
+              )}
+            </p>
           </fieldset>
         ) : null}
 
