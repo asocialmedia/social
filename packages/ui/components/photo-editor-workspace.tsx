@@ -405,15 +405,10 @@ export function PhotoEditorWorkspace({
     }
   };
 
-  const reset = () => {
+  const resetCrop = () => {
     onError(null);
     onCropAction("reset");
-    setLook("original");
-    setAdjustments(DEFAULT_PHOTO_ADJUSTMENTS);
-    setHistory({ strokes: [], undone: [] });
     setCompare(false);
-    setTool("edit");
-    setEditMode("crop");
     setCropRatio("free");
   };
   const aspect = snapshot ? snapshot.canvas.width / snapshot.canvas.height : 1;
@@ -475,201 +470,259 @@ export function PhotoEditorWorkspace({
           </button>
         )}
       </div>
-      <div
-        className="photo-editor-tool-bar"
-        role="group"
-        aria-label="Photo tools"
-      >
-        {TOOLS.map(({ id: toolId, label, Icon }) => (
-          <button
-            type="button"
-            key={toolId}
-            disabled={disabled || !ready}
-            aria-pressed={tool === toolId}
-            onClick={() => selectTool(toolId)}
-          >
-            <Icon size={17} />
-            <span>{label}</span>
-          </button>
-        ))}
-      </div>
-      <fieldset
-        disabled={disabled || !ready}
-        className="photo-editor-options"
-        key={tool}
-        aria-label={`${tool} options`}
-      >
-        {tool === "edit" ? (
-          <>
-            <div
-              className="photo-editor-edit-modes"
-              role="group"
-              aria-label="Edit tools"
+      <div className="photo-editor-controls">
+        <div
+          className="photo-editor-tool-bar"
+          role="group"
+          aria-label="Photo tools"
+        >
+          {TOOLS.map(({ id: toolId, label, Icon }) => (
+            <button
+              type="button"
+              key={toolId}
+              disabled={disabled || !ready}
+              aria-pressed={tool === toolId}
+              onClick={() => selectTool(toolId)}
             >
-              <button
-                type="button"
-                aria-pressed={editMode === "crop"}
-                onClick={() => selectEditMode("crop")}
+              <Icon size={17} />
+              <span>{label}</span>
+            </button>
+          ))}
+        </div>
+        <fieldset
+          disabled={disabled || !ready}
+          className="photo-editor-options"
+          key={tool}
+          aria-label={`${tool} options`}
+        >
+          {tool === "edit" ? (
+            <div className="photo-editor-edit">
+              <div
+                className="photo-editor-edit-modes"
+                role="group"
+                aria-label="Edit tools"
               >
-                <Crop size={15} />
-                <span>Crop</span>
-              </button>
-              <button
-                type="button"
-                aria-pressed={editMode === "adjust"}
-                onClick={() => selectEditMode("adjust")}
-              >
-                <SlidersHorizontal size={15} />
-                <span>Adjust</span>
-              </button>
+                <button
+                  type="button"
+                  aria-pressed={editMode === "crop"}
+                  onClick={() => selectEditMode("crop")}
+                >
+                  <Crop size={15} />
+                  <span>Crop</span>
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={editMode === "adjust"}
+                  onClick={() => selectEditMode("adjust")}
+                >
+                  <SlidersHorizontal size={15} />
+                  <span>Adjust</span>
+                </button>
+                <button
+                  type="button"
+                  className="photo-editor-mode-reset"
+                  aria-label={
+                    editMode === "crop" ? "Reset crop" : "Reset adjustments"
+                  }
+                  title={
+                    editMode === "crop" ? "Reset crop" : "Reset adjustments"
+                  }
+                  onClick={
+                    editMode === "crop"
+                      ? resetCrop
+                      : () => setAdjustments(DEFAULT_PHOTO_ADJUSTMENTS)
+                  }
+                >
+                  <RotateCcw size={17} />
+                </button>
+              </div>
+              {editMode === "crop" ? (
+                <div className="photo-editor-crop-layout">
+                  <div
+                    className="photo-editor-crop-actions"
+                    role="group"
+                    aria-label="Rotate and flip photo"
+                  >
+                    <button
+                      type="button"
+                      aria-label="Rotate left"
+                      onClick={() => onCropAction("left")}
+                    >
+                      <RotateCcw size={18} />
+                      <span>Left</span>
+                    </button>
+                    <button
+                      type="button"
+                      aria-label="Rotate right"
+                      onClick={() => onCropAction("right")}
+                    >
+                      <RotateCw size={18} />
+                      <span>Right</span>
+                    </button>
+                    <button
+                      type="button"
+                      aria-label="Flip horizontally"
+                      onClick={() => onCropAction("flip")}
+                    >
+                      <FlipHorizontal2 size={18} />
+                      <span>Flip</span>
+                    </button>
+                  </div>
+                  <div
+                    className="photo-editor-ratios"
+                    role="group"
+                    aria-label="Crop proportions"
+                  >
+                    {CROP_RATIOS.map(([action, label]) => (
+                      <button
+                        type="button"
+                        key={action}
+                        aria-pressed={cropRatio === action}
+                        onClick={() => {
+                          setCropRatio(action);
+                          onCropAction(action);
+                        }}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="photo-editor-adjustments">
+                  {(
+                    [
+                      ["brightness", "Light"],
+                      ["contrast", "Contrast"],
+                      ["saturation", "Color"],
+                      ["warmth", "Warmth"],
+                    ] as const
+                  ).map(([key, label]) => (
+                    <label key={key} htmlFor={`${id}-${key}`}>
+                      <span>{label}</span>
+                      <input
+                        id={`${id}-${key}`}
+                        type="range"
+                        min={-50}
+                        max={50}
+                        step={1}
+                        value={adjustments[key]}
+                        onChange={(event) =>
+                          setAdjustments({
+                            ...adjustments,
+                            [key]: Number(event.target.value),
+                          })
+                        }
+                      />
+                      <output htmlFor={`${id}-${key}`}>
+                        {adjustments[key] > 0 ? "+" : ""}
+                        {adjustments[key]}
+                      </output>
+                    </label>
+                  ))}
+                </div>
+              )}
             </div>
-            {editMode === "crop" ? (
-              <>
-                <div className="photo-editor-row photo-editor-crop-actions">
+          ) : null}
+          {tool === "looks" ? (
+            <div
+              className="photo-editor-looks"
+              role="group"
+              aria-label="Photo filters"
+            >
+              {PHOTO_LOOKS.map((preset) => (
+                <button
+                  type="button"
+                  key={preset.id}
+                  aria-pressed={look === preset.id}
+                  onClick={() => setLook(preset.id)}
+                >
+                  <span className="photo-editor-look-image">
+                    <canvas
+                      width={72}
+                      height={72}
+                      ref={(canvas) => {
+                        if (canvas) {
+                          thumbnailsRef.current.set(preset.id, canvas);
+                        } else {
+                          thumbnailsRef.current.delete(preset.id);
+                        }
+                      }}
+                      aria-hidden="true"
+                    />
+                    {look === preset.id ? <Check size={16} /> : null}
+                  </span>
+                  <span>{preset.label}</span>
+                </button>
+              ))}
+            </div>
+          ) : null}
+          {tool === "markup" ? (
+            <div className="photo-editor-markup">
+              <div className="photo-editor-markup-header">
+                <div
+                  className="photo-editor-brushes"
+                  role="group"
+                  aria-label="Drawing tool"
+                >
                   <button
                     type="button"
-                    aria-label="Rotate left"
-                    onClick={() => onCropAction("left")}
+                    aria-label="Pen"
+                    aria-pressed={brush === "pen"}
+                    onClick={() => setBrush("pen")}
                   >
-                    <RotateCcw size={18} />
+                    <Pencil size={18} />
+                    <span>Pen</span>
                   </button>
                   <button
                     type="button"
-                    aria-label="Rotate right"
-                    onClick={() => onCropAction("right")}
+                    aria-label="Marker"
+                    aria-pressed={brush === "highlight"}
+                    onClick={() => setBrush("highlight")}
                   >
-                    <RotateCw size={18} />
-                  </button>
-                  <button
-                    type="button"
-                    aria-label="Flip horizontally"
-                    onClick={() => onCropAction("flip")}
-                  >
-                    <FlipHorizontal2 size={18} />
-                  </button>
-                  <button
-                    type="button"
-                    className="photo-editor-text-button"
-                    onClick={reset}
-                  >
-                    Reset
+                    <Highlighter size={18} />
+                    <span>Marker</span>
                   </button>
                 </div>
                 <div
-                  className="photo-editor-row photo-editor-ratios"
+                  className="photo-editor-history"
                   role="group"
-                  aria-label="Crop proportions"
+                  aria-label="Markup history"
                 >
-                  {CROP_RATIOS.map(([action, label]) => (
-                    <button
-                      type="button"
-                      key={action}
-                      aria-pressed={cropRatio === action}
-                      onClick={() => {
-                        setCropRatio(action);
-                        onCropAction(action);
-                      }}
-                    >
-                      {label}
-                    </button>
-                  ))}
+                  <button
+                    type="button"
+                    aria-label="Undo mark"
+                    disabled={!history.strokes.length}
+                    onClick={() =>
+                      setHistory((current) => ({
+                        strokes: current.strokes.slice(0, -1),
+                        undone: [
+                          ...current.undone,
+                          ...current.strokes.slice(-1),
+                        ],
+                      }))
+                    }
+                  >
+                    <Undo2 size={18} />
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="Redo mark"
+                    disabled={!history.undone.length}
+                    onClick={() =>
+                      setHistory((current) => ({
+                        strokes: [
+                          ...current.strokes,
+                          ...current.undone.slice(-1),
+                        ],
+                        undone: current.undone.slice(0, -1),
+                      }))
+                    }
+                  >
+                    <Redo2 size={18} />
+                  </button>
                 </div>
-              </>
-            ) : (
-              <div className="photo-editor-adjustments">
-                {(
-                  [
-                    ["brightness", "Light"],
-                    ["contrast", "Contrast"],
-                    ["saturation", "Color"],
-                    ["warmth", "Warmth"],
-                  ] as const
-                ).map(([key, label]) => (
-                  <label key={key} htmlFor={`${id}-${key}`}>
-                    <span>{label}</span>
-                    <input
-                      id={`${id}-${key}`}
-                      type="range"
-                      min={-50}
-                      max={50}
-                      step={1}
-                      value={adjustments[key]}
-                      onChange={(event) =>
-                        setAdjustments({
-                          ...adjustments,
-                          [key]: Number(event.target.value),
-                        })
-                      }
-                    />
-                    <output htmlFor={`${id}-${key}`}>
-                      {adjustments[key] > 0 ? "+" : ""}
-                      {adjustments[key]}
-                    </output>
-                  </label>
-                ))}
-                <button
-                  type="button"
-                  className="photo-editor-text-button"
-                  onClick={() => setAdjustments(DEFAULT_PHOTO_ADJUSTMENTS)}
-                >
-                  Reset adjustments
-                </button>
               </div>
-            )}
-          </>
-        ) : null}
-        {tool === "looks" ? (
-          <div
-            className="photo-editor-looks"
-            role="group"
-            aria-label="Photo filters"
-          >
-            {PHOTO_LOOKS.map((preset) => (
-              <button
-                type="button"
-                key={preset.id}
-                aria-pressed={look === preset.id}
-                onClick={() => setLook(preset.id)}
-              >
-                <span className="photo-editor-look-image">
-                  <canvas
-                    width={72}
-                    height={72}
-                    ref={(canvas) => {
-                      if (canvas) {
-                        thumbnailsRef.current.set(preset.id, canvas);
-                      } else {
-                        thumbnailsRef.current.delete(preset.id);
-                      }
-                    }}
-                    aria-hidden="true"
-                  />
-                  {look === preset.id ? <Check size={16} /> : null}
-                </span>
-                <span>{preset.label}</span>
-              </button>
-            ))}
-          </div>
-        ) : null}
-        {tool === "markup" ? (
-          <>
-            <div className="photo-editor-row">
-              <button
-                type="button"
-                aria-label="Pen"
-                aria-pressed={brush === "pen"}
-                onClick={() => setBrush("pen")}
-              >
-                <Pencil size={18} />
-              </button>
-              <button
-                type="button"
-                aria-label="Highlighter"
-                aria-pressed={brush === "highlight"}
-                onClick={() => setBrush("highlight")}
-              >
-                <Highlighter size={18} />
-              </button>
               <label
                 className="photo-editor-brush-size"
                 htmlFor={`${id}-brush`}
@@ -683,77 +736,58 @@ export function PhotoEditorWorkspace({
                   value={brushSize}
                   onChange={(event) => setBrushSize(Number(event.target.value))}
                 />
+                <output htmlFor={`${id}-brush`}>{brushSize}</output>
               </label>
-              <button
-                type="button"
-                aria-label="Undo mark"
-                disabled={!history.strokes.length}
-                onClick={() =>
-                  setHistory((current) => ({
-                    strokes: current.strokes.slice(0, -1),
-                    undone: [...current.undone, ...current.strokes.slice(-1)],
-                  }))
-                }
-              >
-                <Undo2 size={18} />
-              </button>
-              <button
-                type="button"
-                aria-label="Redo mark"
-                disabled={!history.undone.length}
-                onClick={() =>
-                  setHistory((current) => ({
-                    strokes: [...current.strokes, ...current.undone.slice(-1)],
-                    undone: current.undone.slice(0, -1),
-                  }))
-                }
-              >
-                <Redo2 size={18} />
-              </button>
-            </div>
-            <div
-              className="photo-editor-row photo-editor-colors"
-              role="group"
-              aria-label="Markup color"
-            >
-              {COLORS.map((item) => (
+              <div className="photo-editor-palette">
+                <span className="photo-editor-color-label">Color</span>
                 <button
                   type="button"
-                  key={item.value}
-                  aria-label={item.label}
-                  aria-pressed={color === item.value}
-                  onClick={() => setColor(item.value)}
+                  className="photo-editor-text-button"
+                  aria-label="Clear markup"
+                  disabled={!history.strokes.length}
+                  onClick={() =>
+                    setHistory((current) => ({
+                      strokes: [],
+                      undone: [
+                        ...current.undone,
+                        ...current.strokes.toReversed(),
+                      ],
+                    }))
+                  }
                 >
-                  <span style={{ backgroundColor: item.value }}>
-                    {color === item.value ? (
-                      <Check
-                        size={13}
-                        color={item.value === "#202020" ? "#fff" : "#171717"}
-                      />
-                    ) : null}
-                  </span>
+                  Clear
                 </button>
-              ))}
-              <button
-                type="button"
-                className="photo-editor-text-button"
-                disabled={!history.strokes.length}
-                onClick={() =>
-                  setHistory((current) => ({
-                    strokes: [],
-                    undone: [
-                      ...current.undone,
-                      ...current.strokes.toReversed(),
-                    ],
-                  }))
-                }
-              >
-                Clear
-              </button>
+                <div
+                  className="photo-editor-colors"
+                  role="group"
+                  aria-label="Markup color"
+                >
+                  {COLORS.map((item) => (
+                    <button
+                      type="button"
+                      key={item.value}
+                      aria-label={item.label}
+                      aria-pressed={color === item.value}
+                      onClick={() => setColor(item.value)}
+                    >
+                      <span style={{ backgroundColor: item.value }}>
+                        {color === item.value ? (
+                          <Check
+                            size={13}
+                            color={
+                              item.value === "#202020" ? "#fff" : "#171717"
+                            }
+                          />
+                        ) : null}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
-          </>
-        ) : null}
-      </fieldset>
+          ) : null}
+        </fieldset>
+      </div>
     </div>
   );
 }

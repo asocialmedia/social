@@ -99,7 +99,11 @@ export type PhotoCropAction =
   | "portrait"
   | "wide";
 interface PhotoCropperAdapter {
+  clear: () => unknown;
+  crop: () => unknown;
   getData: () => Omit<PhotoGeometry, "naturalWidth" | "naturalHeight">;
+  getCanvasData: () => { naturalWidth: number; naturalHeight: number };
+  getContainerData: () => { width: number; height: number };
   getImageData: () => { naturalWidth: number; naturalHeight: number };
   getCroppedCanvas: (options: {
     maxWidth: number;
@@ -108,8 +112,48 @@ interface PhotoCropperAdapter {
   }) => HTMLCanvasElement;
   rotate: (degrees: number) => unknown;
   scaleX: (scale: number) => unknown;
-  reset: () => unknown;
+  setCanvasData: (data: {
+    width: number;
+    left: number;
+    top: number;
+  }) => unknown;
+  setData: (
+    data: Partial<Omit<PhotoGeometry, "naturalWidth" | "naturalHeight">>
+  ) => unknown;
   setAspectRatio: (ratio: number) => unknown;
+}
+
+export function restorePhotoCrop(
+  cropper: PhotoCropperAdapter | undefined,
+  selection: Omit<PhotoGeometry, "naturalWidth" | "naturalHeight">
+) {
+  if (!cropper || !(selection.width > 0) || !(selection.height > 0)) {
+    return;
+  }
+  // Clear the old crop constraints before fitting the image to its new container.
+  cropper.clear();
+  cropper.setData({
+    rotate: selection.rotate ?? 0,
+    scaleX: selection.scaleX ?? 1,
+    scaleY: selection.scaleY ?? 1,
+  });
+  const container = cropper.getContainerData();
+  const canvas = cropper.getCanvasData();
+  const scale = Math.min(
+    container.width / canvas.naturalWidth,
+    container.height / canvas.naturalHeight
+  );
+  if (scale > 0 && Number.isFinite(scale)) {
+    const width = canvas.naturalWidth * scale;
+    const height = canvas.naturalHeight * scale;
+    cropper.setCanvasData({
+      left: (container.width - width) / 2,
+      top: (container.height - height) / 2,
+      width,
+    });
+  }
+  cropper.crop();
+  cropper.setData(selection);
 }
 
 export function capturePhotoSnapshot(cropper: PhotoCropperAdapter | undefined) {
@@ -152,7 +196,16 @@ export function applyPhotoCropAction(
     cropper.scaleX(-(cropper.getData().scaleX ?? 1));
   } else if (action === "reset") {
     cropper.setAspectRatio(Number.NaN);
-    cropper.reset();
+    const image = cropper.getImageData();
+    restorePhotoCrop(cropper, {
+      height: image.naturalHeight,
+      rotate: 0,
+      scaleX: 1,
+      scaleY: 1,
+      width: image.naturalWidth,
+      x: 0,
+      y: 0,
+    });
   } else {
     cropper.setAspectRatio(
       { free: Number.NaN, portrait: 4 / 5, square: 1, wide: 16 / 9 }[action]
