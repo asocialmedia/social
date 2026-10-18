@@ -1,32 +1,23 @@
 "use client";
 
 import { interestSchema } from "@asm/protocols/discovery";
-import { Button } from "@asm/ui/shadui/button";
-import { Input } from "@asm/ui/shadui/input";
-import { Check, Plus, Sparkles } from "lucide-react";
-import { useState } from "react";
+import { Sparkles, X } from "lucide-react";
 
 import {
   SettingsCard,
   SettingsCardHeading,
 } from "@/components/settings/settings-section-card";
-import { cn } from "@/lib/utils";
 
 import type { NetworkPanelProps } from "./panel-props";
+import { TopicPicker } from "./topic-picker";
 
 export default function ContentPanel({
-  catalog,
   isSaving,
   persona,
   preferences,
   profile,
   save,
 }: NetworkPanelProps) {
-  const [search, setSearch] = useState("");
-  const choices = [...new Set([...profile.interests, ...catalog])].filter(
-    (topic) => topic.toLowerCase().includes(search.toLowerCase())
-  );
-  const custom = interestSchema.safeParse(search);
   const updateInterests = (interests: string[]) =>
     save({
       ...preferences,
@@ -48,57 +39,31 @@ export default function ContentPanel({
   return (
     <SettingsCard className="space-y-4" id="settings-network-interests">
       <SettingsCardHeading
-        description={`Choose interests for ${profile.name}. Add any topic; these suggestions are a starting point.`}
+        description={`Choose interests for ${profile.name}. Your feeds include related subjects discovered from these topics. Explore a topic to see up to 10 more.`}
         icon={Sparkles}
         title="Interests"
       />
-      <Input
-        aria-label="Find or add an interest"
-        maxLength={64}
-        onChange={(event) => setSearch(event.target.value)}
-        placeholder="Find or add an interest…"
-        value={search}
+      <TopicPicker
+        disabled={isSaving}
+        label="Find or add an interest"
+        limit={32}
+        onToggle={toggleInterest}
+        selected={profile.interests}
       />
-      <div aria-label="Interest choices" className="flex flex-wrap gap-2">
-        {choices.map((topic) => (
+      <div aria-label="Chosen interests" className="flex flex-wrap gap-2">
+        {profile.interests.map((topic) => (
           <button
-            aria-pressed={profile.interests.includes(topic)}
-            className={cn(
-              "chip-3d focus-visible:ring-ring inline-flex cursor-pointer items-center gap-1 rounded-full! px-3 py-1.5 text-sm focus-visible:ring-2 disabled:opacity-50",
-              profile.interests.includes(topic) && "text-primary"
-            )}
-            disabled={
-              isSaving ||
-              (!profile.interests.includes(topic) &&
-                profile.interests.length >= 32)
-            }
+            aria-label={`Remove interest ${topic}`}
+            className="chip-3d text-primary focus-visible:ring-ring inline-flex cursor-pointer items-center gap-1 rounded-full! px-3 py-1.5 text-sm focus-visible:ring-2 disabled:opacity-50"
+            disabled={isSaving}
             key={topic}
             onClick={() => toggleInterest(topic)}
             type="button"
           >
-            {profile.interests.includes(topic) ? (
-              <Check className="size-3" />
-            ) : null}
-            {topic}
+            {topic} <X className="size-3" />
           </button>
         ))}
       </div>
-      {custom.success &&
-      !catalog.includes(custom.data) &&
-      !profile.interests.includes(custom.data) ? (
-        <Button
-          disabled={isSaving || profile.interests.length >= 32}
-          onClick={() => {
-            toggleInterest(custom.data);
-            setSearch("");
-          }}
-          size="sm"
-          variant="outline"
-        >
-          <Plus className="size-3.5" />
-          Add “{custom.data}”
-        </Button>
-      ) : null}
       <div
         aria-live="polite"
         className="text-muted-foreground space-y-2 text-xs"
@@ -108,9 +73,7 @@ export default function ContentPanel({
           interactions
         </p>
         {persona.learnedInterests.length ? (
-          <p>
-            Learning from your activity: {persona.learnedInterests.join(", ")}
-          </p>
+          <p>Recent activity signals: {persona.learnedInterests.join(", ")}</p>
         ) : (
           <p>
             Your activity on ASM and connected networks will help this profile
@@ -119,7 +82,8 @@ export default function ContentPanel({
         )}
         {persona.relatedInterests.length ? (
           <p>
-            Related interests discovered: {persona.relatedInterests.join(", ")}
+            Topic suggestions from activity:{" "}
+            {persona.relatedInterests.join(", ")}
           </p>
         ) : null}
       </div>

@@ -1,12 +1,8 @@
 "use client";
 
-import { interestSchema } from "@asm/protocols/discovery";
-import { Button } from "@asm/ui/shadui/button";
-import { Input } from "@asm/ui/shadui/input";
 import { Label } from "@asm/ui/shadui/label";
 import { Switch } from "@asm/ui/shadui/switch";
-import { Ban, Plus, Shield, X } from "lucide-react";
-import { useState } from "react";
+import { Ban, Shield, X } from "lucide-react";
 
 import {
   SETTINGS_SUBCARD_CLASS,
@@ -16,6 +12,7 @@ import {
 import { cn } from "@/lib/utils";
 
 import type { NetworkPanelProps } from "./panel-props";
+import { TopicPicker } from "./topic-picker";
 
 export default function ModerationPanel({
   isSaving,
@@ -24,12 +21,11 @@ export default function ModerationPanel({
   profile,
   save,
 }: NetworkPanelProps) {
-  const [avoidSearch, setAvoidSearch] = useState("");
   return (
     <>
       <SettingsCard className="space-y-4" id="settings-network-explicit">
         <SettingsCardHeading
-          description="Applies to every recommendation profile and Home feed."
+          description="Off by default for new accounts. Applies to Home, Gusts, and every recommendation profile."
           icon={Shield}
           title="Explicit content"
         />
@@ -61,48 +57,24 @@ export default function ModerationPanel({
       </SettingsCard>
       <SettingsCard className="space-y-4" id="settings-network-avoid">
         <SettingsCardHeading
-          description="Hide matching topics from all your Home feeds and recommendation profiles."
+          description="Hide matching topics and compound tags from Home, Gusts, and every recommendation profile."
           icon={Ban}
           title="Not interested"
         />
-        <form
-          className="flex gap-2"
-          onSubmit={(event) => {
-            event.preventDefault();
-            const topic = interestSchema.safeParse(avoidSearch);
-            if (
-              !topic.success ||
-              preferences.avoidedTopics.includes(topic.data) ||
-              preferences.avoidedTopics.length >= 64
-            ) {
-              return;
-            }
+        <TopicPicker
+          disabled={isSaving}
+          label="Topic to avoid"
+          limit={64}
+          onToggle={(topic) =>
             save({
               ...preferences,
-              avoidedTopics: [...preferences.avoidedTopics, topic.data],
-            });
-            setAvoidSearch("");
-          }}
-        >
-          <Input
-            aria-label="Topic to avoid"
-            maxLength={64}
-            onChange={(event) => setAvoidSearch(event.target.value)}
-            placeholder="Add a topic, e.g. furry…"
-            value={avoidSearch}
-          />
-          <Button
-            disabled={
-              isSaving ||
-              !interestSchema.safeParse(avoidSearch).success ||
-              preferences.avoidedTopics.length >= 64
-            }
-            type="submit"
-            variant="premium"
-          >
-            <Plus className="size-4" /> Add
-          </Button>
-        </form>
+              avoidedTopics: preferences.avoidedTopics.includes(topic)
+                ? preferences.avoidedTopics.filter((entry) => entry !== topic)
+                : [...preferences.avoidedTopics, topic].slice(0, 64),
+            })
+          }
+          selected={preferences.avoidedTopics}
+        />
         <div aria-label="Avoided topics" className="flex flex-wrap gap-2">
           {preferences.avoidedTopics.map((topic) => (
             <button
@@ -125,8 +97,9 @@ export default function ModerationPanel({
           ))}
         </div>
         <p className="text-muted-foreground text-xs">
-          Chosen exclusions stay until you remove them. Matching uses available
-          text and topic metadata.
+          Chosen exclusions stay until you remove them. A topic such as furry
+          also hides furryart, furryimages, and similar tagged formats. Matching
+          uses available text and topic metadata.
         </p>
         <div aria-live="polite" className="text-muted-foreground text-xs">
           {persona.avoidedTopics.length

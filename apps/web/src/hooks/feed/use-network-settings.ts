@@ -77,14 +77,11 @@ export function useNetworkSettings() {
         client.setQueryData(queryKey, previous);
       }
     },
-    onMutate: async ({ preferences, revision }) => {
+    onMutate: async () => {
       await client.cancelQueries({ queryKey });
       const previous = client.getQueryData<NetworkSettings>(queryKey);
-      client.setQueryData(queryKey, {
-        ...settings,
-        preferences,
-        revision: revision + 1,
-      });
+      // Feed keys change only after the server commits the new revision.
+      // Optimistically publishing it can cache an old-policy response forever.
       return previous;
     },
     onSuccess: (value) => {

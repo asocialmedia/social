@@ -43,6 +43,8 @@ export const NETWORK_SUBPAGES: readonly NetworkSubpageEntry[] = [
   },
 ];
 
+const SUBPAGE_IDS = new Set<string>(NETWORK_SUBPAGES.map((entry) => entry.id));
+
 const SECTION_TARGETS: Record<string, NetworkSubpage> = {
   "settings-network-avoid": "moderation",
   "settings-network-explicit": "moderation",
@@ -55,6 +57,24 @@ export function networkSubpageForSection(
   sectionId: string
 ): NetworkSubpage | null {
   return SECTION_TARGETS[sectionId] ?? null;
+}
+
+// The URL holds which subpage is open (?section=content), so a refresh lands on
+// the same page and Back returns to the hub instead of leaving Settings. The
+// visible title is the section's own name.
+export function isNetworkSubpage(value: string): value is NetworkSubpage {
+  return SUBPAGE_IDS.has(value);
+}
+
+export function getNetworkSubpage(
+  searchParams: Pick<URLSearchParams, "get">
+): NetworkSubpage | null {
+  const requested = searchParams.get("section");
+  return requested && isNetworkSubpage(requested) ? requested : null;
+}
+
+export function networkSubpageTitle(subpage: NetworkSubpage): string {
+  return networkSubpageEntry(subpage).title;
 }
 
 export function networkSubpageEntry(
@@ -89,7 +109,20 @@ export function networkSubpageSummary(
       return `${preferences.showExplicitContent ? "18+ shown" : "18+ hidden"} · ${count} ${count === 1 ? "topic" : "topics"} avoided`;
     }
     case "languages": {
-      return `${describeLanguage(preferences.language)} · ${describeRegion(preferences.region)}`;
+      const langs = preferences.contentLanguages;
+      let langSummary = describeLanguage(preferences.language);
+      if (preferences.language !== "auto" && langs !== undefined) {
+        if (langs.length === 0) {
+          langSummary = "All languages";
+        } else if (langs.length === 1 && langs[0]) {
+          langSummary = describeLanguageCode(langs[0]);
+        } else if (langs.length === 2 && langs[0] && langs[1]) {
+          langSummary = `${describeLanguageCode(langs[0])}, ${describeLanguageCode(langs[1])}`;
+        } else if (langs[0]) {
+          langSummary = `${describeLanguageCode(langs[0])} + ${langs.length - 1} more`;
+        }
+      }
+      return `${langSummary} · ${describeRegion(preferences.region)}`;
     }
     default: {
       return "";
@@ -120,29 +153,10 @@ export function describeRegion(value: string): string {
   return new Intl.DisplayNames(["en"], { type: "region" }).of(value) ?? value;
 }
 
-// Which subpage is open lives here rather than inside the component: the
-// settings search has to open a subpage in a tab that has not mounted yet, and
-// the choice survives leaving and returning to settings.
-let requested: NetworkSubpage | null = null;
-const listeners = new Set<() => void>();
-
-export function requestNetworkSubpage(subpage: NetworkSubpage | null) {
-  if (requested === subpage) {
-    return;
+export function describeLanguageCode(code: string): string {
+  try {
+    return new Intl.DisplayNames(["en"], { type: "language" }).of(code) ?? code;
+  } catch {
+    return code;
   }
-  requested = subpage;
-  for (const listener of listeners) {
-    listener();
-  }
-}
-
-export function subscribeNetworkSubpage(listener: () => void): () => void {
-  listeners.add(listener);
-  return () => {
-    listeners.delete(listener);
-  };
-}
-
-export function readRequestedNetworkSubpage(): NetworkSubpage | null {
-  return requested;
 }

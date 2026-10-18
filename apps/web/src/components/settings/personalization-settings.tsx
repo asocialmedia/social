@@ -86,7 +86,7 @@ export default function PersonalizationSettings() {
         </RadioGroup>
       </SettingsCard>
       <SettingsFooterArt
-        className="-mx-4 mt-auto pt-6 sm:-mx-6"
+        className="-mx-4 mt-auto sm:-mx-6"
         tab="personalization"
       />
     </div>

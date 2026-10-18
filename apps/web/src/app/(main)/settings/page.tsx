@@ -1,5 +1,6 @@
 import { recoveryEmail } from "@asm/auth/validation";
 import { and, fromPrismaDateTime, prisma } from "@asm/db";
+import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { connection } from "next/server";
 import { Suspense } from "react";
@@ -7,10 +8,28 @@ import { Suspense } from "react";
 import type { SecurityPasskey } from "@/app/(main)/settings/tabs/security-settings";
 import SettingsPageSkeleton from "@/components/layouts/skeletons/settings-page-skeleton";
 import type { SocialProvider } from "@/components/settings/linked-accounts";
+import { settingsTitleFromParams } from "@/components/settings/settings-tab-state";
 import { getUserData } from "@/hooks/users/use-user-data";
 import { getSessionFromApi } from "@/lib/auth/session";
 
 import ClientSettings from "./client-settings";
+
+// The title is derived from the query so a deep link or refresh is named
+// correctly in the server HTML, before the client reads the same params.
+export async function generateMetadata({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}): Promise<Metadata> {
+  const params = await searchParams;
+  const read = (key: string) => {
+    const value = params[key];
+    return typeof value === "string" ? value : null;
+  };
+  return {
+    title: { absolute: settingsTitleFromParams(read("tab"), read("section")) },
+  };
+}
 
 function isSocialProvider(providerId: string): providerId is SocialProvider {
   return providerId === "google" || providerId === "reddit";

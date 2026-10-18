@@ -3,13 +3,13 @@ import { describe, expect, it } from "bun:test";
 import { defaultNetworkPreferences } from "@asm/protocols/discovery";
 
 import {
+  getNetworkSubpage,
+  isNetworkSubpage,
   NETWORK_SUBPAGES,
   networkSubpageEntry,
   networkSubpageForSection,
   networkSubpageSummary,
-  readRequestedNetworkSubpage,
-  requestNetworkSubpage,
-  subscribeNetworkSubpage,
+  networkSubpageTitle,
 } from "./network-subpages";
 
 describe("network subpages", () => {
@@ -30,6 +30,29 @@ describe("network subpages", () => {
       "languages"
     );
     expect(networkSubpageForSection("settings-appearance")).toBeNull();
+  });
+
+  it("reads the open subpage from the URL and rejects anything else", () => {
+    expect(getNetworkSubpage(new URLSearchParams("section=content"))).toBe(
+      "content"
+    );
+    expect(getNetworkSubpage(new URLSearchParams("section=languages"))).toBe(
+      "languages"
+    );
+    // The hub itself is the absence of a section.
+    expect(getNetworkSubpage(new URLSearchParams("tab=network"))).toBeNull();
+    expect(getNetworkSubpage(new URLSearchParams("section=nope"))).toBeNull();
+    expect(isNetworkSubpage("moderation")).toBe(true);
+    expect(isNetworkSubpage("nope")).toBe(false);
+  });
+
+  it("gives each subpage a title for the document title and the header", () => {
+    expect(networkSubpageTitle("profiles")).toBe("Profiles");
+    expect(networkSubpageTitle("content")).toBe("Content & media");
+    expect(networkSubpageTitle("moderation")).toBe(
+      "Moderation & content filters"
+    );
+    expect(networkSubpageTitle("languages")).toBe("Languages");
   });
 
   it("lists the hub entries in order, each with a description and icon", () => {
@@ -71,25 +94,5 @@ describe("network subpages", () => {
         "Everyday"
       )
     ).toBe("18+ shown · 1 topic avoided");
-  });
-
-  it("notifies subscribers only when the requested subpage changes", () => {
-    requestNetworkSubpage(null);
-    let calls = 0;
-    const unsubscribe = subscribeNetworkSubpage(() => {
-      calls += 1;
-    });
-    requestNetworkSubpage("content");
-    expect(readRequestedNetworkSubpage()).toBe("content");
-    expect(calls).toBe(1);
-    requestNetworkSubpage("content");
-    expect(calls).toBe(1);
-    requestNetworkSubpage(null);
-    expect(readRequestedNetworkSubpage()).toBeNull();
-    expect(calls).toBe(2);
-    unsubscribe();
-    requestNetworkSubpage("languages");
-    expect(calls).toBe(2);
-    requestNetworkSubpage(null);
   });
 });

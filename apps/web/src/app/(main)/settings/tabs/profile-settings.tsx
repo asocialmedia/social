@@ -522,10 +522,7 @@ export default function ProfileSettings({
           </div>
         </form>
       </Form>
-      <SettingsFooterArt
-        className="-mx-4 mt-auto pt-6 sm:-mx-6"
-        tab="profile"
-      />
+      <SettingsFooterArt className="-mx-4 mt-auto sm:-mx-6" tab="profile" />
     </div>
   );
 }

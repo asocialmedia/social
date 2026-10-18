@@ -170,10 +170,7 @@ export default function PrivacySettings({ user }: PrivacySettingsProps) {
         </p>
       </SettingsCard>
       <LegalSettingsCard />
-      <SettingsFooterArt
-        className="-mx-4 mt-auto pt-6 sm:-mx-6"
-        tab="privacy"
-      />
+      <SettingsFooterArt className="-mx-4 mt-auto sm:-mx-6" tab="privacy" />
     </div>
   );
 }

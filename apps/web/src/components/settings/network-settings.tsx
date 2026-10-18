@@ -1,9 +1,8 @@
 "use client";
 
 import { Button } from "@asm/ui/shadui/button";
-import { ChevronLeft, ChevronRight, Network } from "lucide-react";
+import { ArrowLeft, ChevronRight, Network } from "lucide-react";
 import type { ComponentType } from "react";
-import { useCallback, useSyncExternalStore } from "react";
 
 import { useNetworkSettings } from "@/hooks/feed/use-network-settings";
 import { cn } from "@/lib/utils";
@@ -17,9 +16,6 @@ import {
   NETWORK_SUBPAGES,
   networkSubpageEntry,
   networkSubpageSummary,
-  readRequestedNetworkSubpage,
-  requestNetworkSubpage,
-  subscribeNetworkSubpage,
 } from "./network-subpages";
 import type { NetworkSubpage } from "./network-subpages";
 import SettingsFooterArt from "./settings-footer-art";
@@ -44,40 +40,72 @@ const PANELS: Record<NetworkSubpage, ComponentType<NetworkPanelProps>> = {
   profiles: ProfilesPanel,
 };
 
-export default function NetworkSettings() {
+interface NetworkSettingsProps {
+  onOpenSection: (section: NetworkSubpage | null) => void;
+  section: NetworkSubpage | null;
+}
+
+export default function NetworkSettings({
+  onOpenSection,
+  section,
+}: NetworkSettingsProps) {
   const { settings, save, ready, isSaving, error, refetch } =
     useNetworkSettings();
-  const subpage = useSyncExternalStore(
-    subscribeNetworkSubpage,
-    readRequestedNetworkSubpage,
-    readRequestedNetworkSubpage
-  );
   const { catalog, persona, preferences } = settings;
   const profile =
     preferences.profiles.find(
       (entry) => entry.id === preferences.activeProfileId
     ) ?? preferences.profiles[0];
-  const openSubpage = useCallback((next: NetworkSubpage | null) => {
-    requestNetworkSubpage(next);
+  const openSubpage = (next: NetworkSubpage | null) => {
+    onOpenSection(next);
     revealTop();
-  }, []);
+  };
+  // The section header, and therefore the way back to the hub, must not depend
+  // on preferences having arrived: a slow or failed load used to leave the
+  // reader stranded on a section page with no exit.
+  const sectionEntry = section ? networkSubpageEntry(section) : null;
+  const sectionHeader = sectionEntry ? (
+    <div className="flex items-center gap-3">
+      <button
+        aria-label="Back to network settings"
+        className="icon-btn-3d flex size-10 shrink-0 items-center justify-center rounded-full transition-all! duration-300! ease-out! hover:scale-105 active:scale-95"
+        onClick={() => openSubpage(null)}
+        type="button"
+      >
+        <ArrowLeft className="size-5" />
+      </button>
+      <div className="min-w-0 flex-1">
+        <SettingsSectionHeader
+          description={sectionEntry.description}
+          icon={sectionEntry.icon}
+          title={sectionEntry.title}
+        />
+      </div>
+    </div>
+  ) : null;
   if (!ready || !profile) {
     return (
-      <div className="p-6">
-        <p aria-live="polite">Loading network preferences…</p>
-        {error ? (
-          <Button
-            onClick={() => {
-              void refetch();
-            }}
-          >
-            Try again
-          </Button>
-        ) : null}
+      <div className="flex flex-1 flex-col gap-6 px-4 pt-6 sm:px-6">
+        {sectionHeader}
+        <div className="flex flex-col items-start gap-3">
+          <p aria-live="polite" className="text-muted-foreground text-sm">
+            Loading network preferences…
+          </p>
+          {error ? (
+            <Button
+              onClick={() => {
+                void refetch();
+              }}
+              variant="premium"
+            >
+              Try again
+            </Button>
+          ) : null}
+        </div>
       </div>
     );
   }
-  if (!subpage) {
+  if (!section) {
     return (
       <div className="flex flex-1 flex-col gap-6 px-4 pt-6 sm:px-6">
         {/* The header sits at the container edge while a row's mark sits inset by
@@ -129,35 +157,17 @@ export default function NetworkSettings() {
             ))}
           </div>
         </SettingsCard>
-        <SettingsFooterArt
-          className="-mx-4 mt-auto pt-6 sm:-mx-6"
-          tab="network"
-        />
         <p aria-live="polite" className="sr-only">
           {isSaving ? "Saving network preferences…" : ""}
         </p>
+        <SettingsFooterArt className="-mx-4 mt-auto sm:-mx-6" tab="network" />
       </div>
     );
   }
-  const panel = networkSubpageEntry(subpage);
-  const Panel = PANELS[subpage];
+  const Panel = PANELS[section];
   return (
     <div className="flex flex-1 flex-col gap-6 px-4 pt-6 sm:px-6">
-      <div className="flex flex-col gap-3">
-        <button
-          className="text-muted-foreground hover:text-foreground focus-visible:ring-ring inline-flex w-fit items-center gap-1 rounded-lg text-xs font-medium transition-colors focus-visible:ring-2 focus-visible:outline-hidden"
-          onClick={() => openSubpage(null)}
-          type="button"
-        >
-          <ChevronLeft className="size-3.5" />
-          All network settings
-        </button>
-        <SettingsSectionHeader
-          description={panel.description}
-          icon={panel.icon}
-          title={panel.title}
-        />
-      </div>
+      {sectionHeader}
       {error ? (
         <p className="text-destructive text-sm" role="alert">
           {error.message}
@@ -171,13 +181,10 @@ export default function NetworkSettings() {
         profile={profile}
         save={save}
       />
-      <SettingsFooterArt
-        className="-mx-4 mt-auto pt-6 sm:-mx-6"
-        tab="network"
-      />
       <p aria-live="polite" className="sr-only">
         {isSaving ? "Saving network preferences…" : ""}
       </p>
+      <SettingsFooterArt className="-mx-4 mt-auto sm:-mx-6" tab="network" />
     </div>
   );
 }

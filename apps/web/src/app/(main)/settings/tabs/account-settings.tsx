@@ -769,10 +769,7 @@ export default function AccountSettings({
           )}
         </SettingsCard>
       )}
-      <SettingsFooterArt
-        className="-mx-4 mt-auto pt-6 sm:-mx-6"
-        tab="account"
-      />
+      <SettingsFooterArt className="-mx-4 mt-auto sm:-mx-6" tab="account" />
     </div>
   );
 }

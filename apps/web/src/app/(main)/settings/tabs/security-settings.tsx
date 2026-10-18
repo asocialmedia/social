@@ -1138,10 +1138,7 @@ export default function SecuritySettings({
           </Form>
         </DialogContent>
       </Dialog>
-      <SettingsFooterArt
-        className="-mx-4 mt-auto pt-6 sm:-mx-6"
-        tab="security"
-      />
+      <SettingsFooterArt className="-mx-4 mt-auto sm:-mx-6" tab="security" />
     </div>
   );
 }
