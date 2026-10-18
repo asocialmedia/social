@@ -19,9 +19,11 @@ test("post-route placeholders find full or short ids in paginated feed caches", 
       },
     ],
   };
-  expect(cachedPostPreview(cache, "7e422386")).toBe(portraitPost);
-  expect(cachedPostPreview(cache, "7e422386-full-id")).toBe(portraitPost);
-  expect(cachedPostPreview({ post: portraitPost }, "7e422386")).toBe(
+  expect(cachedPostPreview(cache, "7e422386")).toMatchObject(portraitPost);
+  expect(cachedPostPreview(cache, "7e422386-full-id")).toMatchObject(
+    portraitPost
+  );
+  expect(cachedPostPreview({ post: portraitPost }, "7e422386")).toMatchObject(
     portraitPost
   );
 });

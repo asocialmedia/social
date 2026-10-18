@@ -9,6 +9,7 @@ import {
 import { createLogger } from "@asm/logger";
 
 import { getSessionFromApi } from "@/lib/auth/session";
+import { recordNegativeRecommendationInteraction } from "@/lib/recommendations/record-event";
 
 const logger = createLogger({ serviceName: "recommendation-actions" });
 
@@ -67,6 +68,11 @@ export async function hideRecommendationPost(postId: string): Promise<void> {
   // The taste profile was built with this post's author/tags down-weighted;
   // dropping the cache lets the next feed build reflect the hide.
   await invalidateFypProfile(userId);
+  await recordNegativeRecommendationInteraction(
+    userId,
+    postId,
+    "notInterested"
+  );
   logger.info({ postId, userId }, "recommendation post hidden");
 }
 
@@ -86,5 +92,11 @@ export async function unhideRecommendationPost(postId: string): Promise<void> {
   ).delete();
 
   await invalidateFypProfile(userId);
+  await recordNegativeRecommendationInteraction(
+    userId,
+    postId,
+    "notInterested",
+    true
+  );
   logger.info({ postId, userId }, "recommendation post unhidden");
 }

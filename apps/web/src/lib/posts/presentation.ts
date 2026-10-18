@@ -75,6 +75,7 @@ export function externalPostView(post: ExternalPost): PresentedPost {
     lastAwardedViewCount: 0,
     mentions: [],
     moderated: false,
+    networkRecommendationToken: post.networkRecommendationToken,
     parentPost: null,
     parentPostId: null,
     rootPostId: null,

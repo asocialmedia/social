@@ -1,4 +1,5 @@
 import "server-only";
+import { readNetworkPreferences } from "@asm/db";
 import type { ExternalPost } from "@asm/protocols/contracts";
 import {
   abortable,
@@ -12,7 +13,20 @@ import type { DiscoveryMode } from "@asm/protocols/discovery";
 import { context, propagation } from "@opentelemetry/api";
 import { z } from "zod";
 
+import { getSessionFromApi } from "@/lib/auth/session";
+
 import { ProtocolGatewayError } from "./gateway";
+
+async function applyViewerMediaPolicy(url: URL) {
+  url.searchParams.delete("explicit");
+  const session = await getSessionFromApi();
+  const settings = session?.user.id
+    ? await readNetworkPreferences(session.user.id)
+    : null;
+  if (settings?.preferences.showExplicitContent) {
+    url.searchParams.set("explicit", "1");
+  }
+}
 
 export async function readBlueskyProfileResource(
   kind: "profile" | "author-feed",
@@ -34,6 +48,7 @@ export async function readBlueskyProfileResource(
     throw new ProtocolGatewayError(503, "invalid_configuration");
   }
   url.search = query.toString();
+  await applyViewerMediaPolicy(url);
   const boundedSignal = AbortSignal.any([signal, AbortSignal.timeout(15_000)]);
   const response = await abortable(
     fetch(url, {
@@ -68,7 +83,8 @@ export async function readBlueskyDiscovery(
   signal?: AbortSignal,
   requestId?: string,
   locale?: string,
-  topics: string[] = []
+  topics: string[] = [],
+  includeExplicit = false
 ) {
   const service = process.env.PROTOCOLS_SERVICE_URL;
   const token = process.env.PROTOCOLS_INTERNAL_TOKEN;
@@ -84,6 +100,9 @@ export async function readBlueskyDiscovery(
     throw new ProtocolGatewayError(503, "invalid_configuration", 30);
   }
   url.searchParams.set("mode", mode);
+  if (includeExplicit) {
+    url.searchParams.set("explicit", "1");
+  }
   for (const topic of topics) {
     url.searchParams.append("topic", topic);
   }
@@ -157,6 +176,7 @@ export async function readBlueskyPosts(
   for (const uri of uris) {
     url.searchParams.append("uri", uri);
   }
+  await applyViewerMediaPolicy(url);
   const boundedSignal = signal
     ? AbortSignal.any([signal, AbortSignal.timeout(15_000)])
     : AbortSignal.timeout(15_000);
@@ -202,6 +222,7 @@ export async function readBlueskyThread(
     throw new ProtocolGatewayError(503, "invalid_configuration");
   }
   url.searchParams.set("uri", uri);
+  await applyViewerMediaPolicy(url);
   if (depth !== undefined) {
     url.searchParams.set("depth", String(depth));
   }

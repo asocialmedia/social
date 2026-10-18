@@ -4,6 +4,7 @@ import {
   hydrateViewCounts,
   mapPostData,
   prisma,
+  readNetworkPreferences,
 } from "@asm/db";
 import type { PostsPage } from "@asm/db";
 
@@ -17,6 +18,10 @@ export async function GET(request: Request) {
   const userId = session.user.id;
 
   const url = new URL(request.url);
+  const settings = url.searchParams.has("network")
+    ? await readNetworkPreferences(userId)
+    : null;
+  const showExplicit = settings?.preferences.showExplicitContent ?? true;
   const cursor = url.searchParams.get("cursor") || undefined;
   const pageSize = 20;
 
@@ -25,6 +30,7 @@ export async function GET(request: Request) {
       and(
         post.userId.neq(userId),
         post.isGust.eq(false),
+        ...(showExplicit ? [] : [post.explicitContent.eq(false)]),
         post.user.some((user) =>
           user.followsFollows.some((follow) => follow.followerId.eq(userId))
         )

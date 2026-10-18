@@ -15,6 +15,10 @@ mock.module("@/lib/auth/session", () => ({
 let postVisible = true;
 
 mock.module("@asm/db", () => ({
+  getNetworkPersona: () => ({ selected: { id: "default" } }),
+  networkContentTopics: () => [],
+  recordNetworkSignal: () => true,
+  removeNetworkSignal: () => true,
   ...asmDbMockBase,
   COMMENT_CREATION_AURA: 5,
   COMMENT_RECEIVED_AURA: 10,

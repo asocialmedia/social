@@ -49,6 +49,7 @@ mock.module("@asm/db", () => ({
   externalResponses: () => Promise.resolve({ cursor: null, items: [] }),
   findExternalPost: () => Promise.resolve(null),
   getClientIpFromHeaders: () => "127.0.0.1",
+  getNetworkPersona: () => Promise.resolve({ selected: { id: "default" } }),
   getTrustedIngressIp: () => "127.0.0.1",
   hashViewerId: (value: string) => value,
   mutateExternalPost: (input: unknown) => {
@@ -60,6 +61,7 @@ mock.module("@asm/db", () => ({
       comments: 0,
     });
   },
+  networkContentTopics: () => [],
   prisma: {
     orm: {
       public: {
@@ -71,7 +73,9 @@ mock.module("@asm/db", () => ({
       },
     },
   },
+  recordNetworkSignal: () => Promise.resolve(true),
   refreshExternalPost: () => Promise.resolve(),
+  removeNetworkSignal: () => Promise.resolve(true),
 }));
 const { GET, POST } = await import("./route");
 const request = (body: unknown, headers: HeadersInit = {}) =>

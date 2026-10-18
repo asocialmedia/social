@@ -24,7 +24,7 @@ export function discoveryTopics(profile: UserProfile): string[] {
     .filter(([tag, weight]) => weight > 0 && (negative[tag] ?? 0) < weight)
     .toSorted((first, second) => second[1] - first[1])
     .map(([tag]) => tag);
-  return [
+  const direct = [
     ...new Set(
       [
         ...ranked,
@@ -40,13 +40,27 @@ export function discoveryTopics(profile: UserProfile): string[] {
         )
         .filter((tag) => tag.length >= 2 && tag.length <= 80)
     ),
-  ].slice(0, 5);
+  ];
+  const related = Object.entries(profile.expandedEntityWeights ?? {})
+    .filter(
+      ([topic, weight]) =>
+        weight > 0 && !direct.includes(topic) && !(negative[topic] > 0)
+    )
+    .toSorted((a, b) => b[1] - a[1])
+    .map(([topic]) => topic.replaceAll(/[^\p{L}\p{N} _-]/gu, " ").trim())
+    .find((topic) => topic.length >= 2 && topic.length <= 80);
+  return related ? [...direct.slice(0, 4), related] : direct.slice(0, 5);
 }
 
 export function rankExternalForViewer(
   posts: ExternalPost[],
   profile: UserProfile,
-  options: { locale?: string; now?: number } = {}
+  options: {
+    locale?: string;
+    now?: number;
+    mode?: "personalized" | "trending";
+    topics?: ReadonlyMap<string, string[]>;
+  } = {}
 ): ExternalPost[] {
   const now = options.now ?? Date.now();
   const positive = mergeTopicWeights(
@@ -57,7 +71,10 @@ export function rankExternalForViewer(
   );
   const negative = mergeTopicWeights(profile.negativeTagWeights);
   const score = (post: ExternalPost) => {
-    const matchTopic = createExternalTopicMatcher(post);
+    const matchTopic = createExternalTopicMatcher({
+      ...post,
+      tags: [...(post.tags ?? []), ...(options.topics?.get(post.id) ?? [])],
+    });
     let value = 0;
     for (const [tag, weight] of Object.entries(positive)) {
       value += matchTopic(tag) * Math.log1p(Math.max(0, weight));
@@ -66,11 +83,21 @@ export function rankExternalForViewer(
       value -= matchTopic(tag) * Math.log1p(Math.max(0, weight)) * 2;
     }
     value += Math.log1p(
-      Math.max(0, profile.authorWeights[post.author.id] ?? 0)
+      Math.max(
+        0,
+        profile.authorWeights[`${post.source}:${post.author.id}`] ??
+          profile.authorWeights[post.author.id] ??
+          0
+      )
     );
     value -=
       Math.log1p(
-        Math.max(0, profile.negativeAuthorWeights?.[post.author.id] ?? 0)
+        Math.max(
+          0,
+          profile.negativeAuthorWeights?.[`${post.source}:${post.author.id}`] ??
+            profile.negativeAuthorWeights?.[post.author.id] ??
+            0
+        )
       ) * 2;
     const formats = post.media.length
       ? [...new Set(post.media.map((media) => media.type))]
@@ -88,7 +115,9 @@ export function rankExternalForViewer(
       counts.likes + counts.reposts * 2 + counts.replies + counts.quotes * 2;
     value += Math.min(0.1, Math.log1p(engagement) * 0.01) / (1 + hours / 24);
     value -= post.replyTo ? 0.1 : 0;
-    return value;
+    return options.mode === "trending"
+      ? value * 0.5 + Math.log1p(engagement) / (1 + hours / 24)
+      : value;
   };
   return posts
     .map((post) => ({ post, score: score(post) }))

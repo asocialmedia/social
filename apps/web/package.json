@@ -1,6 +1,6 @@
 {
   "name": "@asm/web",
-  "version": "1.7.92",
+  "version": "1.7.93",
   "private": true,
   "description": "asocialmedia Web App",
   "license": "AGPL-3.0",
@@ -58,6 +58,7 @@
     "gooey-toast": "^0.2.2",
     "hls.js": "^1.7.1",
     "image-size": "^2.0.2",
+    "jose": "^6.2.12",
     "jsonwebtoken": "^9.0.3",
     "ky": "^2.0.2",
     "linkify-it": "^5.0.0",

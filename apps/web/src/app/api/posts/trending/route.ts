@@ -21,6 +21,11 @@ export async function GET(request: Request) {
   const userId = session?.user?.id ?? "";
 
   const url = new URL(request.url);
+  if (url.searchParams.has("network")) {
+    const { networkNativeFeed } =
+      await import("@/lib/recommendations/network-native-feed");
+    return networkNativeFeed(request, userId, "trending");
+  }
   const cursor = url.searchParams.get("cursor") || undefined;
   // Explore opts out of moderated posts so its compact cards never show a
   // moderation row; the home feed still returns them.

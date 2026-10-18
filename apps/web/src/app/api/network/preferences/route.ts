@@ -1,0 +1,80 @@
+import {
+  consumeRateLimit,
+  getNetworkSettings,
+  NetworkPreferenceConflictError,
+  saveNetworkPreferences,
+} from "@asm/db";
+import { networkPreferencesUpdateSchema } from "@asm/protocols/discovery";
+
+import { getSessionFromApi } from "@/lib/auth/session";
+
+const headers = { "cache-control": "private, no-store", vary: "Cookie" };
+
+export async function GET() {
+  const session = await getSessionFromApi();
+  if (!session?.user.id) {
+    return Response.json({ error: "Unauthorized" }, { headers, status: 401 });
+  }
+  return Response.json(await getNetworkSettings(session.user.id), { headers });
+}
+
+export async function PUT(request: Request) {
+  const session = await getSessionFromApi();
+  if (!session?.user.id) {
+    return Response.json({ error: "Unauthorized" }, { headers, status: 401 });
+  }
+  if (
+    request.headers.get("sec-fetch-site") === "cross-site" ||
+    (request.headers.get("origin") &&
+      request.headers.get("origin") !== new URL(request.url).origin)
+  ) {
+    return Response.json({ error: "Invalid origin" }, { headers, status: 403 });
+  }
+  const rate = await consumeRateLimit({
+    bucket: "network-preferences",
+    identifier: session.user.id,
+    limit: 120,
+    windowSeconds: 60,
+  });
+  if (!rate.allowed) {
+    return Response.json(
+      { error: "Try again shortly" },
+      { headers, status: 429 }
+    );
+  }
+  const raw = await request.text();
+  if (raw.length > 32_768) {
+    return Response.json(
+      { error: "Settings are too large" },
+      { headers, status: 413 }
+    );
+  }
+  let body: unknown;
+  try {
+    body = JSON.parse(raw);
+  } catch {
+    return Response.json({ error: "Invalid JSON" }, { headers, status: 400 });
+  }
+  const parsed = networkPreferencesUpdateSchema.safeParse(body);
+  if (!parsed.success) {
+    return Response.json(
+      { error: "Invalid network preferences" },
+      { headers, status: 400 }
+    );
+  }
+  try {
+    await saveNetworkPreferences(
+      session.user.id,
+      parsed.data.preferences,
+      parsed.data.revision
+    );
+    return Response.json(await getNetworkSettings(session.user.id), {
+      headers,
+    });
+  } catch (error) {
+    if (error instanceof NetworkPreferenceConflictError) {
+      return Response.json({ error: error.message }, { headers, status: 409 });
+    }
+    throw error;
+  }
+}

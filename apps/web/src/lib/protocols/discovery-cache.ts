@@ -9,10 +9,11 @@ const RETENTION_SECONDS = 10 * 60;
 export function discoveryCacheKey(
   mode: DiscoveryMode,
   locale: string,
-  topics: string[]
+  topics: string[],
+  includeExplicit = false
 ) {
   return `asm:web:bluesky:head:v2:${createHash("sha256")
-    .update(JSON.stringify([mode, locale, topics]))
+    .update(JSON.stringify([mode, locale, topics, includeExplicit]))
     .digest("hex")}`;
 }
 

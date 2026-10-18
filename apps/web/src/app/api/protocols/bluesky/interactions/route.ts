@@ -8,9 +8,13 @@ import {
   refreshExternalPost,
   ExternalInteractionError,
   prisma,
+  getNetworkPersona,
+  networkContentTopics,
+  recordNetworkSignal,
 } from "@asm/db";
 import type { PostData } from "@asm/db";
 import type { ExternalPost } from "@asm/protocols/contracts";
+import { externalPostTopics } from "@asm/protocols/contracts";
 import {
   externalMutationSchema,
   externalUriSchema,
@@ -354,6 +358,31 @@ export function POST(request: Request) {
         post,
         userId: session.user.id,
       });
+      if (post && needsPost) {
+        try {
+          const network = await getNetworkPersona(session.user.id);
+          const kind = input.action === "bookmark" ? "bookmark" : "amplify";
+          await recordNetworkSignal(
+            session.user.id,
+            network.selected.id,
+            {
+              authorId: `${post.source}:${post.author.id}`,
+              createdAt: Date.now(),
+              hasImage: post.media.some((media) => media.type === "image"),
+              hasVideo: post.media.some((media) => media.type === "video"),
+              kind: input.action === "comment" ? "comment" : kind,
+              tags: networkContentTopics(
+                `${post.text} ${post.media.map((media) => media.alt).join(" ")}`,
+                externalPostTopics(post),
+                post.languages
+              ),
+            },
+            `${post.source}:${post.id}`
+          );
+        } catch {
+          // A social action remains successful if optional recommendation learning is unavailable.
+        }
+      }
 
       if (
         input.action === "comment" ||
