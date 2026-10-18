@@ -9,7 +9,11 @@ import {
 } from "@asm/protocols/discovery";
 import { Button } from "@asm/ui/shadui/button";
 import noFeedImage from "@assets/general/nofeed.png";
-import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  hashKey,
+  useInfiniteQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import Image from "next/image";
 import { useCallback, useMemo, useRef } from "react";
 
@@ -212,6 +216,7 @@ export default function HomeFeed({
     data,
     fetchNextPage,
     hasNextPage: globalHasNextPage,
+    isFetchedAfterMount,
     isFetching,
     isFetchingNextPage: isFetchingNextGlobalPage,
     status: globalStatus,
@@ -277,7 +282,11 @@ export default function HomeFeed({
     probeNow,
   } = useNewContentProbe({
     enabled:
-      network.ready && !excludePostId && !communitySlug && source !== "bluesky",
+      network.ready &&
+      globalStatus === "success" &&
+      !excludePostId &&
+      !communitySlug &&
+      source !== "bluesky",
     eventSource: "asm",
     fetchHead: async (signal) => {
       // Cheap first, and only where it is sound: one row answers "did anything
@@ -305,6 +314,8 @@ export default function HomeFeed({
       return fresh.posts;
     },
     order: isRankedFeed ? "ranked" : "newest-first",
+    // A cold fetch already supplies the head; cached returns need a probe.
+    probeOnMount: !isFetchedAfterMount,
     resetKey: `${feedKey}:${user?.id ?? "guest"}:${network.scope}:${locale}`,
     visible: globalPosts,
   });
@@ -318,7 +329,7 @@ export default function HomeFeed({
         !external.isFetching &&
         (!external.isError || retry)
       ) {
-        void external.fetchNextPage();
+        void external.fetchNextPage({ cancelRefetch: false });
       }
       if (source === "bluesky") {
         return;
@@ -330,12 +341,12 @@ export default function HomeFeed({
       });
       if (segment === "community") {
         if (!isFetchingNextCommunityPage) {
-          fetchNextCommunityPage();
+          fetchNextCommunityPage({ cancelRefetch: false });
         }
         return;
       }
       if (segment === "global" && !isFetching) {
-        fetchNextPage();
+        fetchNextPage({ cancelRefetch: false });
       }
     },
     [
@@ -554,7 +565,7 @@ export default function HomeFeed({
             here already belongs to the community being read. */}
         {showCommunitySection ? (
           <FeedView
-            key={`${network.scope}:${locale}`}
+            key={hashKey(communityQueryKey)}
             cacheKey={communityQueryKey}
             excludePostId={excludePostId}
             posts={leadPosts}
@@ -569,13 +580,9 @@ export default function HomeFeed({
             More from asocialmedia
           </h3>
         ) : null}
-        {includeBluesky && external.isPending && hasAnyPosts ? (
-          <div aria-label="Loading Bluesky posts" aria-busy="true">
-            <LoadMoreSkeleton count={4} source="bluesky" />
-          </div>
-        ) : null}
         {hasAnyPosts ? (
           <FeedView
+            key={`${hashKey(queryKey)}:${source}`}
             externalPosts={allowExternal ? externalPosts : []}
             source={source}
             cacheKey={queryKey}
@@ -585,6 +592,9 @@ export default function HomeFeed({
             showCommunityReason={isTrending || isPersonalized}
             sortBy={isTrending || isPersonalized ? "server" : "newest"}
           />
+        ) : null}
+        {includeBluesky && external.isPending && hasAnyPosts ? (
+          <LoadMoreSkeleton count={1} source="bluesky" />
         ) : null}
         {isFetchingNextPage ? (
           <LoadMoreSkeleton count={4} source={nextSkeletonSource} />

@@ -1,22 +1,15 @@
 import type { ExternalPost } from "@asm/protocols/contracts";
-import { asAtUriString } from "@atproto/lex";
-import { like, post as publishPost } from "@bsky/sdk";
 
+import { writeBlueskyInteraction } from "./bluesky-write";
+import type { BlueskyWrite } from "./bluesky-write";
 import { blueskyOAuthLexClient } from "./oauth";
 
 export async function publishBlueskyInteraction(
   userId: string,
   did: string,
-  post: ExternalPost,
-  content?: string
+  input: BlueskyWrite,
+  post?: ExternalPost
 ) {
   const client = await blueskyOAuthLexClient(userId, did);
-  const subject = { cid: post.revision, uri: asAtUriString(post.id) };
-  await (content
-    ? publishPost(
-        client,
-        { reply: { parent: subject, root: subject }, text: content },
-        {}
-      )
-    : like(client, subject, {}));
+  await writeBlueskyInteraction(client, input, post);
 }

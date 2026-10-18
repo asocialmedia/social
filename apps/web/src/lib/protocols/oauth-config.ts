@@ -1,5 +1,5 @@
 export const BLUESKY_OAUTH_SCOPE =
-  "atproto repo:app.bsky.feed.post?action=create repo:app.bsky.feed.like?action=create repo:app.bsky.feed.repost?action=create";
+  "atproto repo:app.bsky.feed.post?action=create repo:app.bsky.feed.like?action=create repo:app.bsky.feed.repost?action=create&action=delete rpc:app.bsky.bookmark.createBookmark?aud=did:web:api.bsky.app%23bsky_appview rpc:app.bsky.bookmark.deleteBookmark?aud=did:web:api.bsky.app%23bsky_appview rpc:app.bsky.feed.getPosts?aud=did:web:api.bsky.app%23bsky_appview";
 export const BLUESKY_OAUTH_COOKIE = "asm-bluesky-oauth";
 export const BLUESKY_OAUTH_CALLBACK = "/api/protocols/bluesky/oauth/callback";
 

@@ -60,11 +60,15 @@ export function ExternalVoteButton({
   );
 }
 export function ExternalBookmarkButton({
+  iconClassName,
+  kind,
   post,
   className,
   layout,
 }: {
   post: ExternalPost;
+  iconClassName?: string;
+  kind?: "post" | "gust";
   className?: string;
   layout?: "menu";
 }) {
@@ -72,6 +76,8 @@ export function ExternalBookmarkButton({
   const state = { isBookmarkedByUser: interaction.state.bookmarked };
   return (
     <BookmarkButton
+      iconClassName={iconClassName}
+      kind={kind}
       layout={layout}
       className={className}
       initialState={state}

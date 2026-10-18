@@ -73,7 +73,26 @@ export function useExternalInteractions(
         }
         throw new Error(message);
       }
-      const next = externalStateSchema.parse(await response.json());
+      const body: unknown = await response.json();
+      const next = externalStateSchema.parse(body);
+      if (
+        body &&
+        typeof body === "object" &&
+        "upstream" in body &&
+        body.upstream === "failed"
+      ) {
+        toast({
+          button: {
+            onClick: async () => {
+              await mutate(input);
+            },
+            title: "Retry",
+          },
+          description:
+            "Retry, or reconnect Bluesky in settings if your connection needs updated permissions.",
+          title: "Saved in asocialmedia; Bluesky sync failed",
+        });
+      }
       if (input.action === "bookmark" && next.bookmarked) {
         trackNetworkAction(post.id, "BOOKMARK");
       }

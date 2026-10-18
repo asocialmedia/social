@@ -131,10 +131,10 @@ export async function startProtocols() {
     });
     const live = createDiscoveryLive({
       publish: (channel, message) => publisher.publish(channel, message),
-      read: ({ mode, locale, topics }, refresh) =>
+      read: ({ mode, locale, topics, content }, refresh) =>
         refresh
-          ? discovery.refreshHead(mode, locale, topics)
-          : discovery.read(mode, undefined, locale, topics),
+          ? discovery.refreshHead(mode, locale, topics, content)
+          : discovery.read(mode, undefined, locale, topics, content),
       store: new RedisDiscoveryStore(redis),
     });
     subscriber.on("message", (channel, raw) => {
@@ -175,11 +175,11 @@ export async function startProtocols() {
   }
   const app = createProtocolsApp({
     client: effectiveClient,
-    discover: (mode, cursor, locale, topics) =>
-      discovery.read(mode, cursor, locale, topics),
+    discover: (mode, cursor, locale, topics, content) =>
+      discovery.read(mode, cursor, locale, topics, content),
     explicitClient,
-    explicitDiscover: (mode, cursor, locale, topics) =>
-      explicitDiscovery.read(mode, cursor, locale, topics),
+    explicitDiscover: (mode, cursor, locale, topics, content) =>
+      explicitDiscovery.read(mode, cursor, locale, topics, content),
     health: () => ({
       ...health,
       storageReady: redis ? redis.status === "ready" : true,

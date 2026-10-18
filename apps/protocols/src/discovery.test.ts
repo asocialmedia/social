@@ -39,6 +39,83 @@ function post(index: number, did = "did:web:example.test"): ExternalPost {
 }
 const profile = post(0).author;
 
+function videoPost(index: number): ExternalPost {
+  return {
+    ...post(index),
+    media: [
+      {
+        alt: "Clip",
+        type: "video",
+        url: "https://video.bsky.app/playlist.m3u8",
+      },
+    ],
+  };
+}
+
+test("video discovery pages past text results and isolates its cursor from the regular feed", async () => {
+  const discovery = new BlueskyDiscovery(
+    {
+      allowsRecommendations: async () => true,
+      getAuthorFeed: async () => ({ cursor: null, items: [] }),
+      getFeed: async (_uri, options) =>
+        options?.cursor
+          ? { cursor: null, items: [videoPost(2), post(3)] }
+          : { cursor: "more", items: [post(1)] },
+      getProfile: async () => profile,
+    },
+    ["at://did:plc:source/app.bsky.feed.generator/video"]
+  );
+  const regular = await discovery.read("latest");
+  expect(regular.items.map((item) => item.id)).toEqual([post(1).id]);
+  const videos = await discovery.read("latest", undefined, "", [], "video");
+  expect(videos.items.map((item) => item.id)).toEqual([post(2).id]);
+  const regularAgain = await discovery.read("latest");
+  expect(regularAgain.items).toEqual(regular.items);
+  await expect(
+    discovery.read("latest", regular.cursor ?? undefined, "", [], "video")
+  ).rejects.toMatchObject({ code: "invalid_input" });
+});
+
+test("video catalogs prioritize declared video feeds and retain topic discovery", async () => {
+  const queries: (string | undefined)[] = [];
+  const sources: string[] = [];
+  const discovery = new BlueskyDiscovery({
+    allowsRecommendations: async () => true,
+    getAuthorFeed: async () => ({ cursor: null, items: [] }),
+    getFeed: async (uri) => {
+      sources.push(uri);
+      return { cursor: null, items: [videoPost(sources.length)] };
+    },
+    getProfile: async () => profile,
+    getSuggestedFeeds: async (options) => {
+      queries.push(options?.query);
+      return {
+        cursor: null,
+        items:
+          options?.query === "video"
+            ? Array.from({ length: 6 }, (_, index) => ({
+                contentMode:
+                  index === 5
+                    ? "app.bsky.feed.defs#contentModeVideo"
+                    : undefined,
+                displayName: `Feed ${index}`,
+                uri: `at://did:plc:source/app.bsky.feed.generator/feed${index}`,
+              }))
+            : [
+                {
+                  displayName: "Topic",
+                  uri: "at://did:plc:source/app.bsky.feed.generator/topic",
+                },
+              ],
+      };
+    },
+  });
+  await discovery.read("personalized", undefined, "", ["science"], "video");
+  expect(queries).toEqual(["video", "science"]);
+  expect(sources[0]).toEndWith("feed5");
+  expect(sources.some((uri) => uri.endsWith("topic"))).toBe(true);
+});
+
 test("background head refresh keeps the old head and every continuation readable", async () => {
   let refreshing = false;
   const pending = Promise.withResolvers<undefined>();

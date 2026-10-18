@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 
 import { redis } from "@asm/db";
 import { discoveryPageSchema } from "@asm/protocols/discovery";
-import type { DiscoveryMode } from "@asm/protocols/discovery";
+import type { DiscoveryContent, DiscoveryMode } from "@asm/protocols/discovery";
 
 const RETENTION_SECONDS = 10 * 60;
 
@@ -10,10 +10,11 @@ export function discoveryCacheKey(
   mode: DiscoveryMode,
   locale: string,
   topics: string[],
-  includeExplicit = false
+  includeExplicit = false,
+  content: DiscoveryContent = "all"
 ) {
   return `asm:web:bluesky:head:v2:${createHash("sha256")
-    .update(JSON.stringify([mode, locale, topics, includeExplicit]))
+    .update(JSON.stringify([mode, locale, topics, includeExplicit, content]))
     .digest("hex")}`;
 }
 

@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 
 import {
+  discoveryContentSchema,
   discoveryLocaleSchema,
   discoveryModeSchema,
   discoveryTopicsSchema,
@@ -12,6 +13,7 @@ import { z } from "zod";
 import type { DiscoveryStore } from "./discovery-store";
 
 export const discoveryWatchSchema = z.object({
+  content: discoveryContentSchema.default("all"),
   locale: discoveryLocaleSchema,
   mode: discoveryModeSchema,
   topics: discoveryTopicsSchema,

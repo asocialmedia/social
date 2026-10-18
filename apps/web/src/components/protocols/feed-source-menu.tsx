@@ -131,7 +131,7 @@ export function FeedSourceMenu({ following }: { following: boolean }) {
             following ? "asocialmedia" : activeSource
           }`}
           className={cn(
-            "surface-3d bg-background text-muted-foreground relative ml-1.5 flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-full",
+            "icon-btn-3d text-muted-foreground relative flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-full",
             "hover:text-foreground focus-visible:ring-ring focus-visible:ring-2 focus-visible:outline-none active:translate-y-px",
             "transition-colors",
             isCustomized && "text-foreground"

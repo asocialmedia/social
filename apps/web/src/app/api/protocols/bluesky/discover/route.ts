@@ -10,6 +10,7 @@ import {
 import { externalPostTopics } from "@asm/protocols/contracts";
 import {
   matchesAvoidedTopic,
+  discoveryContentSchema,
   discoveryModeSchema,
   discoveryLocaleSchema,
   filterExternalRecommendations,
@@ -47,6 +48,12 @@ export function GET(request: Request) {
   return protocolRoute(request, "discovery", async (id) => {
     const query = new URL(request.url).searchParams;
     const mode = discoveryModeSchema.safeParse(query.get("mode") ?? "latest");
+    const content = discoveryContentSchema.safeParse(
+      query.get("content") ?? "all"
+    );
+    if (!content.success) {
+      throw new ProtocolGatewayError(400, "invalid_content");
+    }
     const cursor = query.get("cursor") ?? undefined;
     const locale = discoveryLocaleSchema.safeParse(query.get("locale") ?? "en");
     if (!locale.success) {
@@ -71,6 +78,7 @@ export function GET(request: Request) {
       .publish(
         DISCOVERY_WATCH_CHANNEL,
         JSON.stringify({
+          content: content.data,
           locale: locale.data,
           mode: mode.data,
           topics: profile ? discoveryTopics(profile) : [],
@@ -84,7 +92,8 @@ export function GET(request: Request) {
       mode.data,
       locale.data,
       topics,
-      includeExplicit
+      includeExplicit,
+      content.data
     );
     const cached = cursor ? null : await cachedDiscoveryHead(cacheKey);
     const read = async (signal: AbortSignal) => {
@@ -95,7 +104,8 @@ export function GET(request: Request) {
         id,
         locale.data,
         topics,
-        includeExplicit
+        includeExplicit,
+        content.data
       );
       if (!cursor) {
         await saveDiscoveryHead(cacheKey, page).catch(() => {
@@ -143,6 +153,8 @@ export function GET(request: Request) {
     );
     const filtered = filterExternalRecommendations(page.items, excluded).filter(
       (post) =>
+        (content.data !== "video" ||
+          post.media.some((media) => media.type === "video")) &&
         (includeExplicit || !blueskyMediaIsExplicit(post)) &&
         !matchesAvoidedTopic(
           `${post.text} ${post.externalLink?.title ?? ""} ${post.media.map((media) => media.alt).join(" ")}`,

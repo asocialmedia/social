@@ -7,6 +7,7 @@ import { ProtocolError } from "@asm/protocols/contracts";
 import type { ExternalPost } from "@asm/protocols/contracts";
 import {
   abortable,
+  discoveryContentSchema,
   discoveryModeSchema,
   discoveryLocaleSchema,
   discoveryPageSchema,
@@ -18,7 +19,11 @@ import {
   isAuthenticationNotice,
   waitForReadRetry,
 } from "@asm/protocols/discovery";
-import type { DiscoveryMode, DiscoveryPage } from "@asm/protocols/discovery";
+import type {
+  DiscoveryContent,
+  DiscoveryMode,
+  DiscoveryPage,
+} from "@asm/protocols/discovery";
 import { z } from "zod";
 
 import {
@@ -32,6 +37,7 @@ const snapshotSchema = z.object({
   catalogCursor: z.string().max(4096).optional(),
   catalogExhausted: z.boolean().default(false),
   catalogFeeds: z.array(z.string().max(2048)).max(50).default([]),
+  content: discoveryContentSchema.default("all"),
   locale: z.string().default(""),
   mode: discoveryModeSchema,
   page: z.number().int().min(0).max(1000),
@@ -120,9 +126,11 @@ export class BlueskyDiscovery {
     mode: DiscoveryMode,
     cursor?: string,
     locale = "",
-    topics: string[] = []
+    topics: string[] = [],
+    content: DiscoveryContent = "all"
   ): Promise<DiscoveryPage> {
     if (
+      !discoveryContentSchema.safeParse(content).success ||
       !discoveryModeSchema.safeParse(mode).success ||
       !discoveryTopicsSchema.safeParse(topics).success ||
       (locale !== "" && !discoveryLocaleSchema.safeParse(locale).success) ||
@@ -131,7 +139,7 @@ export class BlueskyDiscovery {
       throw new ProtocolError("invalid_input", "Invalid discovery request");
     }
     const key = `${this.scope}:page:${createHash("sha256")
-      .update(JSON.stringify([locale, mode, topics]))
+      .update(JSON.stringify([locale, mode, topics, content]))
       .digest("hex")
       .slice(0, 24)}:${cursor ?? "head"}`;
     const existing = this.pending.get(key);
@@ -142,7 +150,15 @@ export class BlueskyDiscovery {
       throw new ProtocolError("capacity", "Discovery is busy", 2);
     }
     const signal = AbortSignal.timeout(this.timeoutMs);
-    const request = this.readCached(mode, cursor, key, signal, locale, topics);
+    const request = this.readCached(
+      mode,
+      cursor,
+      key,
+      signal,
+      locale,
+      topics,
+      content
+    );
     this.pending.set(key, request);
     try {
       return discoveryPageSchema.parse(await request);
@@ -160,9 +176,14 @@ export class BlueskyDiscovery {
     return `${this.scope}:snapshot:${cursor}`;
   }
 
-  async refreshHead(mode: DiscoveryMode, locale: string, topics: string[]) {
+  async refreshHead(
+    mode: DiscoveryMode,
+    locale: string,
+    topics: string[],
+    content: DiscoveryContent = "all"
+  ) {
     const key = `${this.scope}:page:${createHash("sha256")
-      .update(JSON.stringify([locale, mode, topics]))
+      .update(JSON.stringify([locale, mode, topics, content]))
       .digest("hex")
       .slice(0, 24)}:head`;
     const owner = crypto.randomUUID();
@@ -180,7 +201,8 @@ export class BlueskyDiscovery {
         lease,
         signal,
         locale,
-        topics
+        topics,
+        content
       );
       if (
         !(await this.store.set(
@@ -234,7 +256,8 @@ export class BlueskyDiscovery {
     key: string,
     signal: AbortSignal,
     locale: string,
-    topics: string[]
+    topics: string[],
+    content: DiscoveryContent
   ): Promise<DiscoveryPage> {
     const cached = await this.cachedPage(key, signal);
     if (cached) {
@@ -275,7 +298,8 @@ export class BlueskyDiscovery {
           lease,
           signal,
           locale,
-          topics
+          topics,
+          content
         );
         let ttlMs = 60_000;
         if (page.partial) {
@@ -313,7 +337,8 @@ export class BlueskyDiscovery {
     lease: DiscoveryLease,
     signal: AbortSignal,
     locale: string,
-    topics: string[]
+    topics: string[],
+    content: DiscoveryContent
   ): Promise<DiscoveryPage> {
     const stored = cursor
       ? await abortable(this.store.get(this.snapshotKey(cursor)), signal)
@@ -336,6 +361,7 @@ export class BlueskyDiscovery {
       catalogCursor: undefined,
       catalogExhausted: false,
       catalogFeeds: [],
+      content,
       locale,
       mode,
       page: 0,
@@ -349,6 +375,7 @@ export class BlueskyDiscovery {
       topics,
     };
     if (
+      snapshot.content !== content ||
       snapshot.mode !== mode ||
       snapshot.locale !== locale ||
       JSON.stringify(snapshot.topics) !== JSON.stringify(topics)
@@ -372,6 +399,7 @@ export class BlueskyDiscovery {
         this.client.getSuggestedFeeds({
           cursor: snapshot.catalogCursor,
           limit: 24,
+          ...(content === "video" ? { query: "video" } : {}),
         }),
         signal
       );
@@ -404,6 +432,13 @@ export class BlueskyDiscovery {
           ].map((feed) => [feed.uri, feed])
         ).values(),
       ].filter((feed) => !isAuthFeed(feed));
+      if (content === "video") {
+        feeds.sort(
+          (a, b) =>
+            Number(b.contentMode === "app.bsky.feed.defs#contentModeVideo") -
+            Number(a.contentMode === "app.bsky.feed.defs#contentModeVideo")
+        );
+      }
       snapshot.catalogFeeds = feeds.slice(4).map((feed) => feed.uri);
       snapshot.sources = feeds.slice(0, 4).map((feed) => ({
         actor: feed.uri,
@@ -411,7 +446,7 @@ export class BlueskyDiscovery {
         exhausted: false,
         items: [],
       }));
-      if (this.client.searchPosts) {
+      if (this.client.searchPosts && content !== "video") {
         snapshot.sources.unshift(
           ...[
             ...new Set([
@@ -465,12 +500,21 @@ export class BlueskyDiscovery {
         return;
       }
       try {
-        if (source.items.length === 0) {
+        for (
+          let attempt = 0;
+          source.items.length === 0 &&
+          !source.exhausted &&
+          attempt < (content === "video" ? 3 : 1);
+          attempt += 1
+        ) {
           const options = {
             cursor: source.cursor,
             language: locale && locale !== "all" ? locale : undefined,
             limit: this.actors ? 30 : 16,
           };
+          if (content === "video") {
+            options.limit = 50;
+          }
           const search = source.actor.startsWith("search:");
           const feed = source.actor.startsWith("at://") || search;
           if (feed && isAuthFeedUri(source.actor)) {
@@ -504,6 +548,8 @@ export class BlueskyDiscovery {
           const page = await abortable(read, signal);
           source.items = page.items.filter(
             (post) =>
+              (content !== "video" ||
+                post.media.some((media) => media.type === "video")) &&
               (!profile || post.author.id === profile.id) &&
               !snapshot.seen.includes(post.id) &&
               !isAuthenticationNotice(post.text) &&
@@ -662,7 +708,10 @@ export class BlueskyDiscovery {
       cursor: next,
       items: items.flatMap((post) => {
         const latest = byId.get(post.id);
-        return latest && matchesDiscoveryLanguage(latest, locale)
+        return latest &&
+          (content !== "video" ||
+            latest.media.some((media) => media.type === "video")) &&
+          matchesDiscoveryLanguage(latest, locale)
           ? [latest]
           : [];
       }),

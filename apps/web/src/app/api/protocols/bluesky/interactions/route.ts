@@ -384,35 +384,35 @@ export function POST(request: Request) {
         }
       }
 
+      let upstream: "synced" | "failed" | "not_linked" | undefined;
       if (
         input.action === "comment" ||
-        (input.action === "amplify" && input.active)
+        input.action === "amplify" ||
+        input.action === "bookmark"
       ) {
-        void (async () => {
-          try {
-            const blueskyAccount = await prisma.orm.public.Accounts.where({
-              providerId: "bluesky",
-              userId: session.user.id,
-            }).first();
-
-            if (!blueskyAccount?.idToken || !post) {
-              return;
-            }
+        try {
+          const blueskyAccount = await prisma.orm.public.Accounts.where({
+            providerId: "bluesky",
+            userId: session.user.id,
+          }).first();
+          upstream = "not_linked";
+          if (blueskyAccount?.idToken) {
             const { publishBlueskyInteraction } =
               await import("@/lib/protocols/oauth-publish");
             await publishBlueskyInteraction(
               session.user.id,
               blueskyAccount.accountId,
-              post,
-              input.action === "comment" ? input.content : undefined
+              input,
+              post
             );
-          } catch {
-            // Background ATProto cross-posting failure should never fail the local interaction
+            upstream = "synced";
           }
-        })();
+        } catch {
+          upstream = "failed";
+        }
       }
 
-      return Response.json(result);
+      return Response.json({ ...result, upstream });
     } catch (error) {
       if (error instanceof ExternalInteractionError) {
         throw new ProtocolGatewayError(error.status, error.code);

@@ -10,7 +10,7 @@ import { RefreshCw, Search, X } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import Image from "next/image";
 import Link from "next/link";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import type React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -27,6 +27,7 @@ import PostHistoryCard from "@/components/posts/views/post-history-card";
 import { useFeedEvents } from "@/hooks/feed/use-feed-events";
 import { useFeedScrollMemory } from "@/hooks/feed/use-feed-scroll-memory";
 import { useFeedSwipeNavigation } from "@/hooks/feed/use-feed-swipe-navigation";
+import { useFeedTabSelection } from "@/hooks/feed/use-feed-tab-selection";
 import useDebounce from "@/hooks/use-debounce";
 import { useHideOnScroll } from "@/hooks/use-hide-on-scroll";
 import kyInstance from "@/lib/ky";
@@ -70,7 +71,6 @@ const USER_INTERVAL = 6;
 
 const ExploreClient: React.FC = () => {
   const pathname = usePathname();
-  const router = useRouter();
   const searchParams = useSearchParams();
   const feedScrollRef = useRef<HTMLDivElement>(null);
   const queryClient = useQueryClient();
@@ -87,12 +87,13 @@ const ExploreClient: React.FC = () => {
   // Explicit ?tab= wins (shareable links); otherwise the remembered tab
   // restores, so leaving for a profile and coming back lands where you left.
   // Guests default to the open Trending tab; For you is behind auth.
-  const activeTab: ExploreTab = resolveExploreTab(
+  const resolvedTab: ExploreTab = resolveExploreTab(
     tabParam,
     isLoggedIn,
     storedExplore,
     memoryReady
   );
+  const [activeTab, selectTab] = useFeedTabSelection(resolvedTab);
 
   // Each tab keeps its own scroll position: leaving for a post and coming
   // back lands exactly where you left.
@@ -123,16 +124,32 @@ const ExploreClient: React.FC = () => {
 
   const handleTabChange = useCallback(
     (tab: string) => {
-      setNewPostsCount(0);
-      if (isTabValue(EXPLORE_TABS, tab)) {
-        setExploreTab(tab);
+      if (!isTabValue(EXPLORE_TABS, tab)) {
+        return;
       }
-      const nextParams = new URLSearchParams(searchParams.toString());
+      const nextParams = new URLSearchParams(window.location.search);
+      const currentTab = nextParams.get("tab");
+      if (
+        tab === (isTabValue(EXPLORE_TABS, currentTab) ? currentTab : activeTab)
+      ) {
+        return;
+      }
+      selectTab(tab);
+      setNewPostsCount(0);
+      setExploreTab(tab);
+      if (!isTabValue(EXPLORE_TABS, nextParams.get("tab"))) {
+        nextParams.set("tab", activeTab);
+        window.history.replaceState(null, "", `${pathname}?${nextParams}`);
+      }
       nextParams.set("tab", tab);
       const query = nextParams.toString();
-      router.push(query ? `${pathname}?${query}` : pathname);
+      window.history.pushState(
+        null,
+        "",
+        query ? `${pathname}?${query}` : pathname
+      );
     },
-    [pathname, router, searchParams, setExploreTab]
+    [activeTab, pathname, selectTab, setExploreTab]
   );
 
   // Mobile swipes drag the tab strip like a carousel (same mechanism as the
@@ -173,7 +190,8 @@ const ExploreClient: React.FC = () => {
 
   const { data, status, isFetching } = useQuery({
     enabled: canQuery && activeTab !== "gusts" && activeTab !== "people",
-    placeholderData: (previousData) => previousData,
+    placeholderData: (previousData, previousQuery) =>
+      previousQuery?.queryKey[1] === activeTab ? previousData : undefined,
     queryFn: async () => {
       if (debouncedSearch.trim()) {
         const result = await kyInstance

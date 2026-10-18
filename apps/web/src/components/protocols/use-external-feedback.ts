@@ -10,12 +10,12 @@ import { trackNetworkAction } from "@/components/recommendations/recommendation-
 import { useToast } from "@/lib/gooey-toast";
 import { useFeedSourceStore } from "@/store/feed-source-store";
 
-export function useExternalFeedback(post: ExternalPost) {
+export function useExternalFeedback(post: ExternalPost | undefined) {
   const { user } = useSession();
   const { toast } = useToast();
   const pending = useRef(false);
   return async (scope: ExternalFeedback["scope"]) => {
-    if (pending.current) {
+    if (!post || pending.current) {
       return;
     }
     pending.current = true;

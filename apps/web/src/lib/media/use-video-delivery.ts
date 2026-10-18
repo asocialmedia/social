@@ -26,17 +26,24 @@ export function useVideoDelivery(
   mediaId: string | undefined,
   enabled: boolean,
   hasHls = false,
-  playbackIntent?: RefObject<boolean>
+  playbackIntent?: RefObject<boolean>,
+  externalPlaylist?: string
 ) {
   useEffect(() => {
     const video = videoRef.current;
-    if (!video || !mediaId || !enabled) {
+    if (!video || (!mediaId && !externalPlaylist) || !enabled) {
       return;
     }
-    const fallback = getMediaVariantUrl(mediaId, "mp4-h264.mp4");
+    const fallback = externalPlaylist
+      ? undefined
+      : getMediaVariantUrl(mediaId ?? "", "mp4-h264.mp4");
+    const playlist =
+      externalPlaylist ?? getMediaVariantUrl(mediaId ?? "", "hls/master.m3u8");
     let destroyed = false;
     let hls: { destroy: () => void } | undefined;
-    if (hasHls) {
+    const shouldResume = () =>
+      !destroyed && (playbackIntent ? playbackIntent.current : !video.paused);
+    if (hasHls || externalPlaylist) {
       void (async () => {
         try {
           const { default: Hls } = await loadHls();
@@ -48,7 +55,10 @@ export function useVideoDelivery(
             Boolean(video.canPlayType("application/vnd.apple.mpegurl"))
           );
           if (mode === "native") {
-            video.src = getMediaVariantUrl(mediaId, "hls/master.m3u8");
+            video.src = playlist;
+            if (shouldResume()) {
+              void resumeVideo(video);
+            }
             return;
           }
           if (mode === "unsupported") {
@@ -63,9 +73,6 @@ export function useVideoDelivery(
             startLevel: -1,
           });
           hls = instance;
-          const shouldResume = () =>
-            !destroyed &&
-            (playbackIntent ? playbackIntent.current : !video.paused);
           instance.on(Hls.Events.MANIFEST_PARSED, () => {
             if (shouldResume()) {
               void resumeVideo(video);
@@ -75,6 +82,9 @@ export function useVideoDelivery(
             if (data.fatal) {
               instance.destroy();
               const wasPlaying = !video.paused;
+              if (!fallback || destroyed) {
+                return;
+              }
               video.src = fallback;
               if (!destroyed && (wasPlaying || shouldResume())) {
                 void resumeVideo(video);
@@ -82,17 +92,17 @@ export function useVideoDelivery(
             }
           });
           instance.attachMedia(video);
-          instance.loadSource(getMediaVariantUrl(mediaId, "hls/master.m3u8"));
+          instance.loadSource(playlist);
         } catch {
           // The progressive source stays available if loading HLS fails.
         }
       })();
     } else if (video.canPlayType('video/webm; codecs="av01.0.08M.08,opus"')) {
-      video.src = getMediaVariantUrl(mediaId, "webm-av1.webm");
+      video.src = getMediaVariantUrl(mediaId ?? "", "webm-av1.webm");
     }
     return () => {
       destroyed = true;
       hls?.destroy();
     };
-  }, [enabled, hasHls, mediaId, playbackIntent, videoRef]);
+  }, [enabled, externalPlaylist, hasHls, mediaId, playbackIntent, videoRef]);
 }

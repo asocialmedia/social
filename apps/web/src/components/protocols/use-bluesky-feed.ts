@@ -4,7 +4,11 @@ import {
   readDiscoveryPage,
   readDiscoveryWindow,
 } from "@asm/protocols/discovery";
-import type { DiscoveryMode, DiscoveryPage } from "@asm/protocols/discovery";
+import type {
+  DiscoveryContent,
+  DiscoveryMode,
+  DiscoveryPage,
+} from "@asm/protocols/discovery";
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import type { InfiniteData } from "@tanstack/react-query";
 
@@ -18,22 +22,37 @@ import { useExternalExclusions } from "@/store/feed-source-store";
 export function useBlueskyFeed(
   mode: DiscoveryMode,
   enabled: boolean,
-  viewer = "guest"
+  viewer = "guest",
+  content: DiscoveryContent = "all"
 ) {
   const queryClient = useQueryClient();
   const excluded = useExternalExclusions(viewer);
   const { locale, ready } = useDiscoveryLocale();
   const network = useNetworkSettings();
   const profile = network.settings.preferences.activeProfileId;
-  const queryKey = ["bluesky-discovery", mode, viewer, locale, network.scope];
+  const queryKey = [
+    "bluesky-discovery",
+    mode,
+    viewer,
+    locale,
+    network.scope,
+    content,
+  ];
   const query = useInfiniteQuery({
     ...FEED_QUERY_BEHAVIOR,
     enabled: enabled && ready,
     getNextPageParam: (lastPage: DiscoveryPage) => lastPage.cursor ?? undefined,
     initialPageParam: null as string | null,
     queryFn: ({ pageParam, signal }): Promise<DiscoveryPage> => {
-      const options = { cursor: pageParam, locale, mode, profile, signal };
-      if (!pageParam) {
+      const options = {
+        content,
+        cursor: pageParam,
+        locale,
+        mode,
+        profile,
+        signal,
+      };
+      if (!pageParam && content !== "video") {
         return readDiscoveryPage(options);
       }
       const current =
@@ -61,6 +80,7 @@ export function useBlueskyFeed(
     eventSource: "bluesky",
     fetchHead: async (signal) => {
       const head = await readDiscoveryPage({
+        content,
         cursor: null,
         locale,
         mode,
@@ -74,7 +94,7 @@ export function useBlueskyFeed(
       !excluded.has(`author:${post.author.id}`),
     order: mode === "latest" ? "newest-first" : "ranked",
     probeOnMount: !query.isFetchedAfterMount,
-    resetKey: `${mode}:${viewer}:${locale}:${network.scope}`,
+    resetKey: `${mode}:${viewer}:${locale}:${network.scope}:${content}`,
     visible: query.data?.pages.flatMap((page) => page.items) ?? [],
   });
   const showNewItems = () => {

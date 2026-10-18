@@ -6,7 +6,7 @@ import { externalPostTopics } from "@asm/protocols/contracts";
 import { matchesAvoidedTopic, mixFeedItems } from "@asm/protocols/discovery";
 import type { FeedSource } from "@asm/protocols/discovery";
 import { Separator } from "@asm/ui/shadui/separator";
-import { useQueryClient } from "@tanstack/react-query";
+import { hashKey, useQueryClient } from "@tanstack/react-query";
 import type { QueryKey } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import React, { useEffect, useMemo, useRef, useState } from "react";
@@ -19,6 +19,7 @@ import {
   repairStalePostCaches,
 } from "@/lib/posts/cache-sync";
 import { filterFeedPosts } from "@/lib/posts/feed-cache";
+import { reconcileFeedOrder } from "@/lib/posts/feed-order";
 import { normalizePostsData } from "@/lib/posts/post-normalize";
 import {
   postHasExplicitMedia,
@@ -102,37 +103,40 @@ export const FeedView: React.FC<FeedViewProps> = ({
   }, [queryClient, router]);
 
   useEffect(() => {
-    const unsubscribe = queryClient.getQueryCache().subscribe(() => {
-      setTimeout(() => {
-        const feedQueries = queryClient.getQueriesData<{
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const queryHash = hashKey(cacheKey);
+    const unsubscribe = queryClient.getQueryCache().subscribe((event) => {
+      if (
+        event.type !== "updated" ||
+        event.action.type !== "success" ||
+        event.query.queryHash !== queryHash
+      ) {
+        return;
+      }
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        const feed = queryClient.getQueryData<{
           pages: { posts: PostData[] }[];
-        }>({
-          queryKey: cacheKey,
-        });
+        }>(cacheKey);
 
-        if (feedQueries.length > 0) {
+        if (feed) {
           const updatedPosts = filterFeedPosts(
-            normalizePostsData(
-              feedQueries.flatMap(
-                ([, data]) => data?.pages?.flatMap((page) => page.posts) || []
-              )
-            ),
+            normalizePostsData(feed.pages.flatMap((page) => page.posts)),
             { dismissedIds, excludeIds, excludePostId }
           );
 
-          if (updatedPosts.length) {
-            const uniquePosts = [
-              ...new Map(updatedPosts.map((post) => [post.id, post])).values(),
-            ];
-            // eslint-disable-next-line react-compiler -- reflect cache updates into local feed state
-            setPosts(uniquePosts);
-          }
+          const uniquePosts = [
+            ...new Map(updatedPosts.map((post) => [post.id, post])).values(),
+          ];
+          // eslint-disable-next-line react-compiler -- reflect cache updates into local feed state
+          setPosts(uniquePosts);
         }
       }, 0);
     });
 
     return () => {
       unsubscribe();
+      clearTimeout(timer);
     };
   }, [cacheKey, dismissedIds, excludeIds, excludePostId, queryClient]);
 
@@ -231,12 +235,11 @@ export const FeedView: React.FC<FeedViewProps> = ({
       excludeIds,
       excludePostId,
     });
-    const initialFirstId = safeInitial[0]?.id;
-    const currentFirstId = posts[0]?.id;
     if (
-      safeInitial.length > 0 &&
-      (posts.length === 0 ||
-        (initialFirstId && currentFirstId !== initialFirstId))
+      syncInputs === null ||
+      syncInputs.initialPosts !== normalizedInitial ||
+      syncInputs.excludeIds !== excludeIds ||
+      syncInputs.excludePostId !== excludePostId
     ) {
       const uniquePosts = [
         ...new Map(safeInitial.map((post) => [post.id, post])).values(),
@@ -336,9 +339,35 @@ export const FeedView: React.FC<FeedViewProps> = ({
       network.settings.preferences.avoidedTopics,
     ]
   );
+  const [orderedFeed, setOrderedFeed] = useState({
+    input: mixedGroups,
+    items: mixedGroups,
+    sortBy,
+    source,
+  });
+  let visibleGroups = orderedFeed.items;
+  if (
+    orderedFeed.input !== mixedGroups ||
+    orderedFeed.sortBy !== sortBy ||
+    orderedFeed.source !== source
+  ) {
+    visibleGroups =
+      orderedFeed.sortBy === sortBy && orderedFeed.source === source
+        ? reconcileFeedOrder(orderedFeed.items, mixedGroups, [
+            threadGroups.map((group) => `asm:${group.id}`),
+            externalPosts.map((post) => `bluesky:${post.id}`),
+          ])
+        : mixedGroups;
+    setOrderedFeed({
+      input: mixedGroups,
+      items: visibleGroups,
+      sortBy,
+      source,
+    });
+  }
   return (
     <div className="flex flex-col">
-      {mixedGroups.map((entry) => {
+      {visibleGroups.map((entry) => {
         if (entry.kind === "bluesky") {
           return (
             <div className="flex flex-col" key={entry.id}>

@@ -286,7 +286,12 @@ export class BlueskyClient {
     options: { query?: string; cursor?: string; limit?: number } = {}
   ): Promise<{
     cursor: string | null;
-    items: { uri: string; displayName: string; description?: string }[];
+    items: {
+      uri: string;
+      displayName: string;
+      description?: string;
+      contentMode?: string;
+    }[];
   }> {
     const parsed = z
       .object({
@@ -312,6 +317,7 @@ export class BlueskyClient {
         feeds: z
           .array(
             z.object({
+              contentMode: z.string().optional(),
               description: z.string().optional(),
               displayName: z.string(),
               uri: feedUriSchema,

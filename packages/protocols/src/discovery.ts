@@ -66,6 +66,9 @@ export type {
   ExternalCommentPage,
 } from "./interactions";
 
+export const discoveryContentSchema = z.enum(["all", "video"]);
+export type DiscoveryContent = z.infer<typeof discoveryContentSchema>;
+
 export type DiscoveryMode = "latest" | "personalized" | "trending";
 export const discoveryLocaleSchema = z
   .string()
@@ -314,6 +317,7 @@ export {
 } from "./transport";
 
 export async function readDiscoveryPage(options: {
+  content?: DiscoveryContent;
   profile?: string;
   locale?: string;
   baseUrl?: string;
@@ -335,6 +339,9 @@ export async function readDiscoveryPage(options: {
     const timer = setTimeout(abort, options.timeoutMs ?? 18_000);
     try {
       const query = new URLSearchParams({ mode: options.mode });
+      if (options.content) {
+        query.set("content", options.content);
+      }
       if (options.profile) {
         query.set("profile", options.profile);
       }

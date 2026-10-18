@@ -34,7 +34,8 @@ export interface ProtocolsAppOptions {
     mode: "latest" | "personalized" | "trending",
     cursor?: string,
     locale?: string,
-    topics?: string[]
+    topics?: string[],
+    content?: "all" | "video"
   ) => Promise<unknown>;
 }
 
@@ -192,12 +193,16 @@ export function createProtocolsApp(options: ProtocolsAppOptions) {
                   query.mode ?? "latest",
                   query.cursor,
                   query.locale,
-                  query.topic
+                  query.topic,
+                  query.content
                 );
               }
             ),
           {
             query: t.Object({
+              content: t.Optional(
+                t.Union([t.Literal("all"), t.Literal("video")])
+              ),
               cursor: t.Optional(t.String({ format: "uuid" })),
               locale: t.Optional(
                 t.String({

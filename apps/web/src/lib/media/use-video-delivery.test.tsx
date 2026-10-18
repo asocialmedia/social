@@ -8,13 +8,21 @@ const instances: FakeHls[] = [];
 class FakeHls {
   static Events = { ERROR: "error", MANIFEST_PARSED: "manifest" };
   static isSupported = () => true;
-  listeners = new Map<string, () => void>();
+  listeners = new Map<
+    string,
+    (event?: string, data?: { fatal: boolean }) => void
+  >();
   destroy = mock(() => {});
   constructor() {
     instances.push(this);
   }
-  on(event: string, listener: () => void) {
-    this.listeners.set(event, listener);
+  on(
+    event: string,
+    listener: (event: string, data: { fatal: boolean }) => void
+  ) {
+    this.listeners.set(event, (name, data) =>
+      listener(name ?? event, data ?? { fatal: false })
+    );
   }
   attachMedia = mock(() => {});
   loadSource = mock(() => {});
@@ -46,6 +54,38 @@ afterAll(async () => {
   }
 });
 
+test("external Gust HLS uses the source playlist and never falls back to ASM media", async () => {
+  const play = mock(() => Promise.resolve());
+  const intent = { current: true };
+  const playlist = "https://video.bsky.app/watch/clip/playlist.m3u8";
+  function Gust() {
+    const ref = useRef<HTMLVideoElement>(null);
+    useVideoDelivery(ref, "remote-media", true, true, intent, playlist);
+    return (
+      <video ref={ref}>
+        <track kind="captions" />
+      </video>
+    );
+  }
+  Object.defineProperty(dom.HTMLVideoElement.prototype, "play", {
+    configurable: true,
+    value: play,
+  });
+  const host = dom.document.createElement("div");
+  const root = createRoot(host as unknown as HTMLElement);
+  await act(() => root.render(<Gust />));
+  const hls = instances.at(-1);
+  expect(hls?.loadSource).toHaveBeenCalledWith(playlist);
+  await act(() => hls?.listeners.get("manifest")?.());
+  expect(play).toHaveBeenCalledTimes(1);
+  const video = host.querySelector("video");
+  expect(video?.getAttribute("src")).toBeNull();
+  await act(() => hls?.listeners.get("error")?.("error", { fatal: true }));
+  expect(video?.getAttribute("src")).toBeNull();
+  expect(hls?.destroy).toHaveBeenCalledTimes(1);
+  await act(() => root.unmount());
+});
+
 test("late HLS manifests resume an intended hover preview but never restart after mouse leave", async () => {
   const play = mock(() => Promise.resolve());
   Object.defineProperty(dom.HTMLVideoElement.prototype, "play", {
@@ -73,7 +113,7 @@ test("late HLS manifests resume an intended hover preview but never restart afte
   await act(() => {
     root.render(<Preview enabled />);
   });
-  const [hls] = instances;
+  const hls = instances.at(-1);
   expect(hls).toBeDefined();
   await act(() => {
     hls?.listeners.get("manifest")?.();

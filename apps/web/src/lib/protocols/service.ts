@@ -9,7 +9,7 @@ import {
   readJsonBounded,
   retryAfterMs,
 } from "@asm/protocols/discovery";
-import type { DiscoveryMode } from "@asm/protocols/discovery";
+import type { DiscoveryContent, DiscoveryMode } from "@asm/protocols/discovery";
 import { context, propagation } from "@opentelemetry/api";
 import { z } from "zod";
 
@@ -84,7 +84,8 @@ export async function readBlueskyDiscovery(
   requestId?: string,
   locale?: string,
   topics: string[] = [],
-  includeExplicit = false
+  includeExplicit = false,
+  content: DiscoveryContent = "all"
 ) {
   const service = process.env.PROTOCOLS_SERVICE_URL;
   const token = process.env.PROTOCOLS_INTERNAL_TOKEN;
@@ -100,6 +101,7 @@ export async function readBlueskyDiscovery(
     throw new ProtocolGatewayError(503, "invalid_configuration", 30);
   }
   url.searchParams.set("mode", mode);
+  url.searchParams.set("content", content);
   if (includeExplicit) {
     url.searchParams.set("explicit", "1");
   }

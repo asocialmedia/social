@@ -36,6 +36,7 @@ export default function FollowingFeed() {
     data,
     fetchNextPage,
     hasNextPage,
+    isFetchedAfterMount,
     isFetching,
     isFetchingNextPage,
     status,
@@ -64,6 +65,7 @@ export default function FollowingFeed() {
   // Head-only probe so cached pages stay visible while new follows arrive as an
   // avatar badge. Nothing moves until the badge is tapped.
   const { clearNewItems, newItems } = useNewContentProbe({
+    enabled: network.ready && status === "success",
     eventSource: "asm",
     fetchHead: async () => {
       const fresh = await kyInstance
@@ -73,12 +75,14 @@ export default function FollowingFeed() {
         .json<PostsPage>();
       return fresh.posts;
     },
+    probeOnMount: !isFetchedAfterMount,
+    resetKey: `following:${user?.id ?? "guest"}:${network.scope}`,
     visible: posts,
   });
 
   const handleBottomReached = useCallback(() => {
     if (hasNextPage && !isFetching) {
-      fetchNextPage();
+      fetchNextPage({ cancelRefetch: false });
     }
   }, [fetchNextPage, hasNextPage, isFetching]);
 

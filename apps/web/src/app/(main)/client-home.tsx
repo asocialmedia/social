@@ -12,14 +12,15 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@asm/ui/shadui/dropdown-menu";
-import { Tabs, TabsContent, TabsList } from "@asm/ui/shadui/tabs";
+import { Tabs, TabsList } from "@asm/ui/shadui/tabs";
 import { ListPlus, Plus } from "lucide-react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
 import { AuthPromptCard } from "@/components/auth/shell/auth-prompt-card";
+import { FeedTabContent } from "@/components/feeds/feed-tab-content";
 import { AnimatedTabTrigger } from "@/components/home/feedview/animated-tab-trigger";
 import FollowingFeed from "@/components/home/feedview/following";
 import HomeFeed from "@/components/home/home-feed";
@@ -35,6 +36,7 @@ import { FeedSourceMenu } from "@/components/protocols/feed-source-menu";
 import { useDiscoveryLocale } from "@/hooks/feed/use-discovery-locale";
 import { useFeedScrollMemory } from "@/hooks/feed/use-feed-scroll-memory";
 import { useFeedSwipeNavigation } from "@/hooks/feed/use-feed-swipe-navigation";
+import { useFeedTabSelection } from "@/hooks/feed/use-feed-tab-selection";
 import { useHideOnScroll } from "@/hooks/use-hide-on-scroll";
 import { useFeedSourceStore } from "@/store/feed-source-store";
 import {
@@ -54,7 +56,6 @@ type FeedTab = HomeTab;
 
 const ClientHome: React.FC<ClientHomeProps> = () => {
   const pathname = usePathname();
-  const router = useRouter();
   const searchParams = useSearchParams();
   const { user } = useSession();
   const isLoggedIn = Boolean(user);
@@ -63,15 +64,15 @@ const ClientHome: React.FC<ClientHomeProps> = () => {
   const setHomeTab = useTabStore((state) => state.setHomeTab);
 
   const tabParam = searchParams.get("tab");
-  const defaultTab: FeedTab = isLoggedIn ? "personalized" : "latest";
   // Explicit ?tab= wins (shareable links); otherwise the remembered tab
   // restores, so leaving for a profile and coming back lands where you left.
-  const tab: FeedTab = resolveHomeTab(
+  const resolvedTab: FeedTab = resolveHomeTab(
     tabParam,
     isLoggedIn,
     storedHome,
     memoryReady
   );
+  const [tab, selectTab] = useFeedTabSelection(resolvedTab);
   const [rememberedDiscovery, setRememberedDiscovery] =
     useState<DiscoveryFleetFeed>("personalized");
   const discovery = discoveryFleetFeed(tab, rememberedDiscovery);
@@ -88,21 +89,29 @@ const ClientHome: React.FC<ClientHomeProps> = () => {
 
   const handleTabChange = useCallback(
     (value: string) => {
-      if (isTabValue(HOME_TABS, value)) {
-        setHomeTab(value);
+      if (!isTabValue(HOME_TABS, value)) {
+        return;
       }
-      const nextParams = new URLSearchParams(searchParams.toString());
-      if (value === defaultTab) {
-        nextParams.delete("tab");
-      } else if (isTabValue(HOME_TABS, value)) {
-        nextParams.set("tab", value);
-      } else {
-        nextParams.delete("tab");
+      const nextParams = new URLSearchParams(window.location.search);
+      const currentTab = nextParams.get("tab");
+      if (value === (isTabValue(HOME_TABS, currentTab) ? currentTab : tab)) {
+        return;
       }
+      selectTab(value);
+      setHomeTab(value);
+      if (!isTabValue(HOME_TABS, nextParams.get("tab"))) {
+        nextParams.set("tab", tab);
+        window.history.replaceState(null, "", `${pathname}?${nextParams}`);
+      }
+      nextParams.set("tab", value);
       const query = nextParams.toString();
-      router.push(query ? `${pathname}?${query}` : pathname);
+      window.history.pushState(
+        null,
+        "",
+        query ? `${pathname}?${query}` : pathname
+      );
     },
-    [defaultTab, pathname, router, searchParams, setHomeTab]
+    [pathname, selectTab, setHomeTab, tab]
   );
 
   const feedScrollRef = useRef<HTMLDivElement>(null);
@@ -237,7 +246,11 @@ const ClientHome: React.FC<ClientHomeProps> = () => {
               ref={feedScrollRef}
             >
               {isLoggedIn ? <PostEditor /> : null}
-              <TabsContent className="mt-0 pb-12" value="personalized">
+              <FeedTabContent
+                activeTab={tab}
+                className="mt-0 pb-12"
+                value="personalized"
+              >
                 {isLoggedIn ? (
                   <HomeFeed variant="personalized" />
                 ) : (
@@ -250,17 +263,29 @@ const ClientHome: React.FC<ClientHomeProps> = () => {
                     />
                   </div>
                 )}
-              </TabsContent>
+              </FeedTabContent>
 
-              <TabsContent className="mt-0 pb-12" value="latest">
+              <FeedTabContent
+                activeTab={tab}
+                className="mt-0 pb-12"
+                value="latest"
+              >
                 <HomeFeed variant="latest" />
-              </TabsContent>
+              </FeedTabContent>
 
-              <TabsContent className="mt-0 pb-12" value="trending">
+              <FeedTabContent
+                activeTab={tab}
+                className="mt-0 pb-12"
+                value="trending"
+              >
                 <HomeFeed variant="trending" />
-              </TabsContent>
+              </FeedTabContent>
 
-              <TabsContent className="mt-0 pb-12" value="following">
+              <FeedTabContent
+                activeTab={tab}
+                className="mt-0 pb-12"
+                value="following"
+              >
                 {isLoggedIn ? (
                   <FollowingFeed />
                 ) : (
@@ -273,7 +298,7 @@ const ClientHome: React.FC<ClientHomeProps> = () => {
                     />
                   </div>
                 )}
-              </TabsContent>
+              </FeedTabContent>
             </div>
             <FeedScrollbar containerRef={feedScrollRef} />
           </div>

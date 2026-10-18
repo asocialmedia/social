@@ -13,7 +13,7 @@ export function shouldPersistFeed(query: FeedQuery, viewer: string) {
     return false;
   }
   if (kind === "bluesky-discovery") {
-    return owner === viewer;
+    return owner === viewer && query.queryKey[5] !== "video";
   }
   return (
     kind === "post-feed" &&

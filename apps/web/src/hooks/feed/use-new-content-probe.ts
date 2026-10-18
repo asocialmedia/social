@@ -97,7 +97,11 @@ export function useNewContentProbe<T extends NewContentItem>({
     items: T[];
     key: UseNewContentProbeOptions<T>["resetKey"];
   }>({ items: [], key: resetKey });
-  const newItems = badge.key === resetKey ? badge.items : [];
+  const visibleIds = new Set(visible.map((item) => item.id));
+  const newItems =
+    badge.key === resetKey
+      ? badge.items.filter((item) => !visibleIds.has(item.id))
+      : [];
 
   // Latest values live in refs so the polling interval keeps one stable
   // identity and is not torn down/recreated on every render.
@@ -107,7 +111,7 @@ export function useNewContentProbe<T extends NewContentItem>({
   const probeRef = useRef<() => Promise<void>>(() => Promise.resolve());
   const ranked = order === "ranked";
   const scheduleRef = useRef<() => void>(() => {
-    /* empty */
+    // Wait until the enabled probe installs its scheduler.
   });
   useFeedEvents(enabled && Boolean(eventSource), (change) => {
     if (
@@ -139,7 +143,6 @@ export function useNewContentProbe<T extends NewContentItem>({
       if (inFlight || !active || document.visibilityState === "hidden") {
         return;
       }
-      const { current } = visibleRef;
       let fresh: T[];
       inFlight = true;
       try {
@@ -153,6 +156,8 @@ export function useNewContentProbe<T extends NewContentItem>({
       if (!active) {
         return;
       }
+      // The feed may have loaded or merged posts while this read was pending.
+      const { current } = visibleRef;
       const { current: filterFn } = filterRef;
       const candidates = filterFn ? fresh.filter(filterFn) : fresh;
       if (!ranked) {
@@ -205,7 +210,7 @@ export function useNewContentProbe<T extends NewContentItem>({
       active = false;
       scheduler.stop();
       scheduleRef.current = () => {
-        /* empty */
+        // Ignore events after this probe stops.
       };
       controller.abort();
       probeRef.current = () => Promise.resolve();

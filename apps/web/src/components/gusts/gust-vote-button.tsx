@@ -1,6 +1,7 @@
 "use client";
 
 import type { VoteInfo } from "@asm/db";
+import type { ExternalPost } from "@asm/protocols/contracts";
 import { ArrowBigDown, ArrowBigUp, Flame } from "lucide-react";
 import { useCallback } from "react";
 
@@ -10,6 +11,7 @@ import { cn, formatNumber } from "@/lib/utils";
 import { useGustVote } from "./use-gust-vote";
 
 interface GustVoteButtonProps {
+  external?: ExternalPost;
   authorName: string;
   direction: "up" | "down";
   initialState: VoteInfo;
@@ -24,6 +26,7 @@ interface GustVoteButtonProps {
 // render read-only so they can't fire mutations that fight the first copy.
 export default function GustVoteButton({
   authorName,
+  external,
   direction,
   initialState,
   interactive = true,
@@ -31,6 +34,7 @@ export default function GustVoteButton({
 }: GustVoteButtonProps) {
   const { aura, toggleVote, userVote } = useGustVote({
     authorName,
+    external,
     initialState,
     postId,
   });

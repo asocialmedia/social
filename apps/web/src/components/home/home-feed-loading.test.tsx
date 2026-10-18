@@ -55,7 +55,7 @@ test("a cold mixed feed keeps a full-height skeleton after an empty asocialmedia
   client.clear();
 });
 
-test("a pending Bluesky source retains visible post placeholders alongside loaded asocialmedia posts", () => {
+test("a pending Bluesky source leaves loaded asocialmedia posts ahead of its placeholder", () => {
   const client = new QueryClient();
   const native = {
     ...externalPostView(source),
@@ -73,7 +73,7 @@ test("a pending Bluesky source retains visible post placeholders alongside loade
   );
   expect(html).toContain('aria-label="Loading Bluesky posts"');
   expect(html).toContain("Native content remains visible");
-  expect(html.indexOf('aria-label="Loading Bluesky posts"')).toBeLessThan(
+  expect(html.indexOf('aria-label="Loading Bluesky posts"')).toBeGreaterThan(
     html.indexOf('data-post-id="native-post"')
   );
   client.clear();
