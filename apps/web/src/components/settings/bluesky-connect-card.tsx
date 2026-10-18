@@ -22,6 +22,7 @@ import { useEffect, useState } from "react";
 import { FaBluesky } from "react-icons/fa6";
 
 import { LoadingButton } from "@/components/auth/fields/loading-button";
+import { ExternalFollowingList } from "@/components/protocols/external-following-list";
 import { useToast } from "@/lib/gooey-toast";
 import { cn } from "@/lib/utils";
 
@@ -288,6 +289,7 @@ export function BlueskyConnectCard({
       </div>
 
       {/* Connect Modal */}
+      <ExternalFollowingList />
       <Dialog onOpenChange={setIsDialogOpen} open={isDialogOpen}>
         <DialogContent className="max-w-md rounded-2xl! p-6">
           <DialogHeader>

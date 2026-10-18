@@ -78,6 +78,7 @@ export function rankExternalForViewer(
     interests?: readonly string[];
     topicScope?: NetworkTopicScope;
     socialProof?: ReadonlyMap<string, number>;
+    followedAuthors?: ReadonlySet<string>;
   } = {}
 ): ExternalPost[] {
   const now = options.now ?? Date.now();
@@ -99,7 +100,7 @@ export function rankExternalForViewer(
       ...post,
       tags: [...(post.tags ?? []), ...(options.topics?.get(post.id) ?? [])],
     });
-    let value = 0;
+    let value = options.followedAuthors?.has(post.author.id) ? 3 : 0;
     for (const [tag, weight] of Object.entries(positive)) {
       value += matchTopic(tag) * Math.log1p(Math.max(0, weight));
     }

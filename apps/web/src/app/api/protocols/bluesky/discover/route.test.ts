@@ -42,6 +42,7 @@ mock.module("@/lib/auth/session", () => ({
   getSessionFromApi: () => Promise.resolve(session),
 }));
 mock.module("@asm/db", () => ({
+  externalFollowAuthors: () => Promise.resolve([]),
   externalPostStates: () => Promise.resolve(new Map()),
   getClientIpFromHeaders: () => "127.0.0.1",
   getNetworkPersona: persona,
@@ -69,6 +70,8 @@ mock.module("@asm/db", () => ({
 mock.module("@/lib/protocols/service", () => ({
   readBlueskyDiscovery: read,
   readBlueskyPosts: () => Promise.resolve([]),
+  readBlueskyProfileResource: () =>
+    Promise.resolve({ cursor: null, items: [] }),
 }));
 mock.module("@/lib/protocols/feedback", () => ({
   readExternalFeedback: () => Promise.resolve(excluded),

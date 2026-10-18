@@ -28,6 +28,7 @@ import {
   saveDiscoveryHead,
 } from "@/lib/protocols/discovery-cache";
 import { readExternalFeedback } from "@/lib/protocols/feedback";
+import { followedExternalRecommendations } from "@/lib/protocols/follow-recommendations";
 import {
   consumeProtocolBudget,
   ProtocolGatewayError,
@@ -157,9 +158,23 @@ export function GET(request: Request) {
           id
         )
       : null;
+    const followed = session?.user.id
+      ? await followedExternalRecommendations(
+          session.user.id,
+          !cursor,
+          request.signal,
+          id,
+          String(network.revision),
+          includeExplicit
+        )
+      : null;
     const candidates = [
       ...new Map(
-        [...page.items, ...(social?.items ?? [])].map((post) => [post.id, post])
+        [
+          ...(followed?.items ?? []),
+          ...page.items,
+          ...(social?.items ?? []),
+        ].map((post) => [post.id, post])
       ).values(),
     ];
     const metadata = new Map(
@@ -196,6 +211,7 @@ export function GET(request: Request) {
             (a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt)
           )
         : rankExternalForViewer(filtered, profile, {
+            followedAuthors: followed?.followed,
             interests: network.selected.interests,
             locale: networkRegionalLocale(network, locale.data),
             mode: mode.data,
@@ -251,7 +267,8 @@ export function GET(request: Request) {
             : {}),
         }))
       ),
-      partial: page.partial || Boolean(social?.partial),
+      partial:
+        page.partial || Boolean(social?.partial) || Boolean(followed?.partial),
     });
   });
 }

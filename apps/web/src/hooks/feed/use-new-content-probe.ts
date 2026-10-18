@@ -44,7 +44,7 @@ export function findUnseenRankedItems<T extends NewContentItem>(
 }
 
 interface UseNewContentProbeOptions<T extends NewContentItem> {
-  eventSource?: "asm" | "bluesky";
+  eventSource?: "asm" | "bluesky" | "bluesky-following";
   eventMode?: DiscoveryMode;
   // Skip probing entirely (e.g. a deep-linked detail feed that is not the
   // active timeline).
@@ -116,7 +116,8 @@ export function useNewContentProbe<T extends NewContentItem>({
   useFeedEvents(enabled && Boolean(eventSource), (change) => {
     if (
       change.source === "connected" ||
-      (change.source === eventSource &&
+      ((change.source === eventSource ||
+        (eventSource === "bluesky" && change.source === "bluesky-following")) &&
         (!change.mode || change.mode === eventMode))
     ) {
       scheduleRef.current();

@@ -17,14 +17,18 @@ import { useFeedEvents } from "@/hooks/feed/use-feed-events";
 import { useNetworkSettings } from "@/hooks/feed/use-network-settings";
 import { useNewContentProbe } from "@/hooks/feed/use-new-content-probe";
 import { FEED_QUERY_BEHAVIOR } from "@/lib/posts/feed-cache";
-import { externalNetworkPostRecommended } from "@/lib/posts/network-content-policy";
+import {
+  externalNetworkPostAllowed,
+  externalNetworkPostRecommended,
+} from "@/lib/posts/network-content-policy";
 import { useExternalExclusions } from "@/store/feed-source-store";
 
 export function useBlueskyFeed(
   mode: DiscoveryMode,
   enabled: boolean,
   viewer = "guest",
-  content: DiscoveryContent = "all"
+  content: DiscoveryContent = "all",
+  following = false
 ) {
   const queryClient = useQueryClient();
   const excluded = useExternalExclusions(viewer);
@@ -32,7 +36,7 @@ export function useBlueskyFeed(
   const network = useNetworkSettings();
   const profile = network.settings.preferences.activeProfileId;
   const queryKey = [
-    "bluesky-discovery",
+    following ? "bluesky-following" : "bluesky-discovery",
     mode,
     viewer,
     locale,
@@ -48,6 +52,7 @@ export function useBlueskyFeed(
       const options = {
         content,
         cursor: pageParam,
+        following,
         locale,
         mode,
         profile,
@@ -77,15 +82,17 @@ export function useBlueskyFeed(
   });
   const probe = useNewContentProbe({
     enabled: enabled && network.ready && Boolean(query.data),
-    eventMode: mode,
-    eventSource: "bluesky",
+    eventMode: following ? undefined : mode,
+    eventSource: following ? "bluesky-following" : "bluesky",
     fetchHead: async (signal) => {
       const head = await readDiscoveryPage({
         content,
         cursor: null,
+        following,
         locale,
         mode,
         profile,
+        refresh: following,
         signal: AbortSignal.any([signal, AbortSignal.timeout(18_000)]),
       });
       return head.items;
@@ -93,15 +100,21 @@ export function useBlueskyFeed(
     filter: (post) =>
       !excluded.has(`post:${post.id}`) &&
       !excluded.has(`author:${post.author.id}`) &&
-      externalNetworkPostRecommended(
-        post,
-        network.settings.preferences,
-        undefined,
-        network.settings.topicScope
-      ),
+      (following
+        ? externalNetworkPostAllowed(
+            post,
+            network.settings.preferences,
+            network.settings.topicScope
+          )
+        : externalNetworkPostRecommended(
+            post,
+            network.settings.preferences,
+            undefined,
+            network.settings.topicScope
+          )),
     order: mode === "latest" ? "newest-first" : "ranked",
     probeOnMount: !query.isFetchedAfterMount,
-    resetKey: `${mode}:${viewer}:${locale}:${network.scope}:${content}`,
+    resetKey: `${following}:${mode}:${viewer}:${locale}:${network.scope}:${content}`,
     visible: query.data?.pages.flatMap((page) => page.items) ?? [],
   });
   const showNewItems = () => {

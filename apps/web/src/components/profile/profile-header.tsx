@@ -24,6 +24,7 @@ import PostLinkedContent from "@/components/posts/content/post-linked-content";
 import CommunityRoleSummary from "@/components/profile/community-role-summary";
 import { ProfileMutualAvatars } from "@/components/profile/profile-mutual-avatars";
 import { BlueskyIcon } from "@/components/protocols/bluesky-icon";
+import { ExternalFollowButton } from "@/components/protocols/external-follow-button";
 import { useRequireAuth } from "@/hooks/auth/use-require-auth";
 import type { PrivateUserData } from "@/hooks/users/use-user-data";
 import { useUserDataQuery } from "@/hooks/users/use-user-data-query";
@@ -150,15 +151,18 @@ const ProfileHeader: React.FC<ProfileHeaderProps> = ({
     }
   } else if (external) {
     profileActions = (
-      <a
-        className="btn-3d-bluesky inline-flex h-9 items-center gap-2 rounded-full px-3 text-xs whitespace-nowrap sm:px-4 sm:text-sm"
-        href={external.url}
-        rel="noopener noreferrer"
-        target="_blank"
-      >
-        <BlueskyIcon className="text-white" tooltip={false} />
-        Visit on Bluesky
-      </a>
+      <div className="flex flex-wrap items-center gap-2">
+        <ExternalFollowButton did={external.id} />
+        <a
+          className="btn-3d-bluesky inline-flex h-9 items-center gap-2 rounded-full px-3 text-xs whitespace-nowrap sm:px-4 sm:text-sm"
+          href={external.url}
+          rel="noopener noreferrer"
+          target="_blank"
+        >
+          <BlueskyIcon className="text-white" tooltip={false} />
+          Visit on Bluesky
+        </a>
+      </div>
     );
   } else {
     profileActions = (

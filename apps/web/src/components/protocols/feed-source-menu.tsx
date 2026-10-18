@@ -100,13 +100,11 @@ export function FeedSourceMenu({ following }: { following: boolean }) {
   // During SSR and initial hydration, align to the default store state to avoid
   // hydration mismatches when local storage contains persisted user choices.
   let activeSource: FeedSource = "all";
-  if (following) {
-    activeSource = "asm";
-  } else if (mounted) {
+  if (mounted) {
     activeSource = source;
   }
 
-  const isCustomized = mounted && !following && source !== "all";
+  const isCustomized = mounted && source !== "all";
 
   const handleReset = useCallback(() => {
     setSource("all");
@@ -116,9 +114,7 @@ export function FeedSourceMenu({ following }: { following: boolean }) {
     <Popover>
       <PopoverTrigger asChild>
         <button
-          aria-label={`Feed settings, source: ${
-            following ? "asocialmedia" : activeSource
-          }`}
+          aria-label={`Feed settings, source: ${activeSource}`}
           className={cn(
             "icon-btn-3d text-muted-foreground relative flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-full",
             "hover:text-foreground focus-visible:ring-ring focus-visible:ring-2 focus-visible:outline-none active:translate-y-px",
@@ -199,7 +195,6 @@ export function FeedSourceMenu({ following }: { following: boolean }) {
         <div className="flex flex-col gap-1.5">
           {SOURCE_OPTIONS.map((opt) => {
             const isSelected = activeSource === opt.value;
-            const isLocked = following && opt.value !== "asm";
             let fill: string | null = null;
             if (opt.value === "asm") {
               fill = ORANGE_FILL;
@@ -222,10 +217,8 @@ export function FeedSourceMenu({ following }: { following: boolean }) {
                 className={cn(
                   "focus-visible:ring-ring flex w-full cursor-pointer items-center gap-2.5 rounded-xl px-2.5 py-2 text-left focus-visible:ring-2 focus-visible:outline-none",
                   "active:translate-y-px",
-                  rowSkin,
-                  isLocked && "pointer-events-none opacity-45"
+                  rowSkin
                 )}
-                disabled={isLocked}
                 onClick={() => setSource(opt.value)}
                 type="button"
               >
@@ -283,7 +276,8 @@ export function FeedSourceMenu({ following }: { following: boolean }) {
 
         {following ? (
           <p className="text-muted-foreground mt-2 px-1 text-[11px] leading-snug">
-            Following only shows people you follow on asocialmedia.
+            Following shows ASM users and Bluesky accounts you follow in ASM. No
+            linked Bluesky account required.
           </p>
         ) : null}
       </PopoverContent>

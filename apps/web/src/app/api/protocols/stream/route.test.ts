@@ -2,13 +2,14 @@ import { beforeEach, expect, mock, test } from "bun:test";
 
 import { asmDbMockBase } from "@/posts/test-support/asm-db-mock";
 
+let session: { user: { id: string } } | null = null;
 let notify: ((_channel: string, raw: string) => void) | undefined;
 let unsubscribeCount = 0;
 const watches: unknown[] = [];
 let deferred: Promise<undefined> | undefined;
 
 mock.module("@/lib/auth/session", () => ({
-  getSessionFromApi: () => Promise.resolve(null),
+  getSessionFromApi: () => Promise.resolve(session),
 }));
 mock.module("@/lib/protocols/recommendations", () => ({
   discoveryTopics: () => [],
@@ -20,6 +21,8 @@ mock.module("@/lib/protocols/budget", () => ({
 }));
 mock.module("@asm/db", () => ({
   ...asmDbMockBase,
+  externalFollowAuthors: () =>
+    Promise.resolve([{ did: "did:web:followed.test" }]),
   getClientIpFromHeaders: () => "127.0.0.1",
   getRecommendationProfile: () => Promise.resolve(null),
   getTrustedIngressIp: () => "127.0.0.1",
@@ -44,6 +47,7 @@ mock.module("@asm/db", () => ({
 }));
 const { GET } = await import("./route");
 beforeEach(() => {
+  session = null;
   watches.length = 0;
   unsubscribeCount = 0;
   deferred = undefined;
@@ -67,6 +71,10 @@ test("guests receive bounded change hints, malformed and other-language hints ar
   expect(watches).toEqual([{ locale: "en", renew: true, topics: [] }]);
   const next = reader.read();
   notify?.("feed", "invalid JSON");
+  notify?.(
+    "feed",
+    JSON.stringify({ source: "bluesky-following", viewerId: "private-viewer" })
+  );
   notify?.("feed", JSON.stringify({ locale: "es", source: "bluesky" }));
   for (let i = 0; i < 1000; i += 1) {
     notify?.("feed", JSON.stringify({ source: "asm" }));
@@ -94,4 +102,44 @@ test("aborting while the subscriber connects still releases its eventual subscri
   await response.body?.cancel();
   expect(unsubscribeCount).toBe(1);
   expect(watches).toEqual([]);
+});
+
+test("followed-author hints are viewer scoped and never expose private graph metadata", async () => {
+  session = { user: { id: "reader" } };
+  const controller = new AbortController();
+  const response = await GET(
+    new Request("http://localhost/api/protocols/stream?locale=en", {
+      signal: controller.signal,
+    })
+  );
+  const reader = response.body?.getReader();
+  if (!reader) {
+    throw new Error("Missing stream");
+  }
+  await reader.read();
+  const pending = reader.read();
+  notify?.(
+    "feed",
+    JSON.stringify({ source: "bluesky-following", viewerId: "someone-else" })
+  );
+  notify?.(
+    "feed",
+    JSON.stringify({
+      authorIds: ["did:web:unfollowed.test"],
+      source: "bluesky-following",
+    })
+  );
+  notify?.(
+    "feed",
+    JSON.stringify({
+      authorIds: ["did:web:followed.test"],
+      source: "bluesky-following",
+    })
+  );
+  const chunk = await pending;
+  expect(new TextDecoder().decode(chunk.value)).toBe(
+    'event: feed\ndata: {"source":"bluesky-following"}\n\n'
+  );
+  controller.abort();
+  await reader.cancel();
 });

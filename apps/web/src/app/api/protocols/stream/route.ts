@@ -1,5 +1,10 @@
 // oxlint-disable promise/prefer-await-to-then
-import { getRecommendationProfile, redis, subscribeToChannel } from "@asm/db";
+import {
+  externalFollowAuthors,
+  getRecommendationProfile,
+  redis,
+  subscribeToChannel,
+} from "@asm/db";
 import {
   DISCOVERY_WATCH_CHANNEL,
   FEED_EVENTS_CHANNEL,
@@ -32,6 +37,7 @@ export function GET(request: Request) {
       ? await getRecommendationProfile(session.user.id).catch(() => null)
       : null;
     const topics = profile ? discoveryTopics(profile) : [];
+    let followedAuthors = new Set<string>();
     if (openStreams >= 256) {
       throw new ProtocolGatewayError(503, "stream_capacity");
     }
@@ -82,6 +88,10 @@ export function GET(request: Request) {
           }
         };
         const watch = async () => {
+          if (session?.user.id) {
+            const authors = await externalFollowAuthors(session.user.id);
+            followedAuthors = new Set(authors.map((author) => author.did));
+          }
           await redis.publish(
             DISCOVERY_WATCH_CHANNEL,
             JSON.stringify({ locale: locale.data, renew: true, topics })
@@ -110,9 +120,26 @@ export function GET(request: Request) {
                     change.success &&
                     (!change.data.locale || change.data.locale === locale.data)
                   ) {
+                    if (
+                      (change.data.source === "bluesky-following" &&
+                        !session?.user.id) ||
+                      (change.data.viewerId &&
+                        change.data.viewerId !== session?.user.id) ||
+                      (change.data.authorIds &&
+                        !change.data.authorIds.some((did) =>
+                          followedAuthors.has(did)
+                        ))
+                    ) {
+                      return;
+                    }
+                    const {
+                      authorIds: _authorIds,
+                      viewerId: _viewerId,
+                      ...publicChange
+                    } = change.data;
                     pending.set(
-                      `${change.data.source}:${change.data.mode ?? ""}`,
-                      `event: feed\ndata: ${JSON.stringify(change.data)}\n\n`
+                      `${publicChange.source}:${publicChange.mode ?? ""}`,
+                      `event: feed\ndata: ${JSON.stringify(publicChange)}\n\n`
                     );
                     flushTimer ??= setTimeout(() => {
                       flushTimer = undefined;

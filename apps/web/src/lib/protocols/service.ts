@@ -32,7 +32,8 @@ export async function readBlueskyProfileResource(
   kind: "profile" | "author-feed",
   query: URLSearchParams,
   signal: AbortSignal,
-  requestId: string
+  requestId: string,
+  includeExplicit?: boolean
 ) {
   const service = process.env.PROTOCOLS_SERVICE_URL;
   const token = process.env.PROTOCOLS_INTERNAL_TOKEN;
@@ -48,7 +49,14 @@ export async function readBlueskyProfileResource(
     throw new ProtocolGatewayError(503, "invalid_configuration");
   }
   url.search = query.toString();
-  await applyViewerMediaPolicy(url);
+  if (includeExplicit === undefined) {
+    await applyViewerMediaPolicy(url);
+  } else {
+    url.searchParams.delete("explicit");
+    if (includeExplicit) {
+      url.searchParams.set("explicit", "1");
+    }
+  }
   const boundedSignal = AbortSignal.any([signal, AbortSignal.timeout(15_000)]);
   const response = await abortable(
     fetch(url, {
@@ -261,4 +269,37 @@ export async function readBlueskyThread(
     throw new ProtocolGatewayError(503, "invalid_upstream_response");
   }
   return parsed.data;
+}
+
+export async function verifyBlueskyFollowTarget(
+  did: string,
+  signal: AbortSignal
+) {
+  const service = process.env.PROTOCOLS_SERVICE_URL;
+  const token = process.env.PROTOCOLS_INTERNAL_TOKEN;
+  if (!service || !token) {
+    throw new ProtocolGatewayError(503, "not_configured");
+  }
+  const url = new URL("/v1/bluesky/account-status", service);
+  url.searchParams.set("actor", did);
+  const bounded = AbortSignal.any([signal, AbortSignal.timeout(7000)]);
+  const response = await fetch(url, {
+    cache: "no-store",
+    headers: { authorization: `Bearer ${token}` },
+    redirect: "error",
+    signal: bounded,
+  });
+  if (!response.ok) {
+    await response.body?.cancel();
+    throw new ProtocolGatewayError(503, "status_unavailable");
+  }
+  const parsed = z
+    .object({ status: z.string() })
+    .safeParse(await readJsonBounded(response, 4096, bounded));
+  if (!parsed.success || parsed.data.status === "unknown") {
+    throw new ProtocolGatewayError(503, "status_unavailable");
+  }
+  if (parsed.data.status !== "active") {
+    throw new ProtocolGatewayError(409, "author_inactive");
+  }
 }
