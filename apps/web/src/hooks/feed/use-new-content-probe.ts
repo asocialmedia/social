@@ -195,6 +195,7 @@ export function useNewContentProbe<T extends NewContentItem>({
       void probe();
     };
     document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("network:learned", scheduler.schedule);
     const interval = eventSource
       ? undefined
       : window.setInterval(() => {
@@ -209,6 +210,7 @@ export function useNewContentProbe<T extends NewContentItem>({
       controller.abort();
       probeRef.current = () => Promise.resolve();
       document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("network:learned", scheduler.schedule);
       window.clearInterval(interval);
     };
   }, [enabled, eventSource, intervalMs, probeOnMount, ranked, resetKey]);

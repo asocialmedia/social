@@ -40,7 +40,7 @@ const source: ExternalPost = {
 
 test("a cold mixed feed keeps a full-height skeleton after an empty asocialmedia response", () => {
   const client = new QueryClient();
-  client.setQueryData(["post-feed", "latest", "guest"], {
+  client.setQueryData(["post-feed", "latest", "guest", "default:0", "en"], {
     pageParams: [null],
     pages: [{ nextCursor: null, posts: [] }],
   });
@@ -62,7 +62,7 @@ test("a pending Bluesky source retains visible post placeholders alongside loade
     external: undefined,
     id: "native-post",
   };
-  client.setQueryData(["post-feed", "latest", "guest"], {
+  client.setQueryData(["post-feed", "latest", "guest", "default:0", "en"], {
     pageParams: [null],
     pages: [{ nextCursor: null, posts: [native] }],
   });

@@ -19,6 +19,8 @@ import InfiniteScrollContainer from "@/components/layouts/feed/infinite-scroll-c
 import FeedViewSkeleton from "@/components/layouts/skeletons/feed-view-skeleton";
 import LoadMoreSkeleton from "@/components/layouts/skeletons/load-more-skeleton";
 import { useBlueskyFeed } from "@/components/protocols/use-bluesky-feed";
+import { useDiscoveryLocale } from "@/hooks/feed/use-discovery-locale";
+import { useNetworkSettings } from "@/hooks/feed/use-network-settings";
 import { useNewContentProbe } from "@/hooks/feed/use-new-content-probe";
 import { useSeamlessFeedHead } from "@/hooks/feed/use-seamless-feed-head";
 import kyInstance from "@/lib/ky";
@@ -124,6 +126,13 @@ export default function HomeFeed({
     [external.data, excluded, excludePostId]
   );
   const isTrending = variant === "trending";
+  const network = useNetworkSettings();
+  const { locale } = useDiscoveryLocale();
+  const networkParams = {
+    locale,
+    network: network.scope,
+    profile: network.settings.preferences.activeProfileId,
+  };
   const isLatest = variant === "latest";
   const isPersonalized = variant === "personalized" || variant === "global";
   let feedKey = "for-you";
@@ -138,8 +147,8 @@ export default function HomeFeed({
   const isRankedFeed = feedIsRanked(variant);
   const probeSupportsSingleRow = probeOrdersNewestFirst(variant);
   const queryKey = useMemo(
-    () => ["post-feed", feedKey, user?.id ?? "guest"],
-    [feedKey, user?.id]
+    () => ["post-feed", feedKey, user?.id ?? "guest", network.scope, locale],
+    [feedKey, user?.id, network.scope, locale]
   );
 
   // The community segment reuses the community feed's exact query key, so the
@@ -207,12 +216,17 @@ export default function HomeFeed({
     isFetchingNextPage: isFetchingNextGlobalPage,
     status: globalStatus,
   } = useInfiniteQuery({
-    enabled: globalEnabled && source !== "bluesky",
+    enabled: globalEnabled && source !== "bluesky" && network.ready,
     getNextPageParam: (lastPage) => lastPage.nextCursor,
     initialPageParam: null as string | null,
     queryFn: async ({ pageParam }: { pageParam: string | null }) => {
       const result = await kyInstance
-        .get(endpoint, pageParam ? { searchParams: { cursor: pageParam } } : {})
+        .get(endpoint, {
+          searchParams: {
+            ...networkParams,
+            ...(pageParam ? { cursor: pageParam } : {}),
+          },
+        })
         .json<PostsPage>();
       return result;
     },
@@ -262,7 +276,8 @@ export default function HomeFeed({
     newItems: newPosts,
     probeNow,
   } = useNewContentProbe({
-    enabled: !excludePostId && !communitySlug && source !== "bluesky",
+    enabled:
+      network.ready && !excludePostId && !communitySlug && source !== "bluesky",
     eventSource: "asm",
     fetchHead: async (signal) => {
       // Cheap first, and only where it is sound: one row answers "did anything
@@ -275,19 +290,22 @@ export default function HomeFeed({
       // be sitting at the top.
       if (probeSupportsSingleRow && globalPosts.length > 0) {
         const head = await kyInstance
-          .get(endpoint, { searchParams: { take: 1 }, signal })
+          .get(endpoint, {
+            searchParams: { ...networkParams, take: 1 },
+            signal,
+          })
           .json<PostsPage>();
         if (globalPosts.some((post) => post.id === head.posts[0]?.id)) {
           return [];
         }
       }
       const fresh = await kyInstance
-        .get(endpoint, { signal })
+        .get(endpoint, { searchParams: networkParams, signal })
         .json<PostsPage>();
       return fresh.posts;
     },
     order: isRankedFeed ? "ranked" : "newest-first",
-    resetKey: `${feedKey}:${user?.id ?? "guest"}`,
+    resetKey: `${feedKey}:${user?.id ?? "guest"}:${network.scope}:${locale}`,
     visible: globalPosts,
   });
 
@@ -536,6 +554,7 @@ export default function HomeFeed({
             here already belongs to the community being read. */}
         {showCommunitySection ? (
           <FeedView
+            key={`${network.scope}:${locale}`}
             cacheKey={communityQueryKey}
             excludePostId={excludePostId}
             posts={leadPosts}

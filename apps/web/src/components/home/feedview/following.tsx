@@ -13,6 +13,7 @@ import FeedEnd from "@/components/home/feedview/feed-end";
 import InfiniteScrollContainer from "@/components/layouts/feed/infinite-scroll-container";
 import FeedViewSkeleton from "@/components/layouts/skeletons/feed-view-skeleton";
 import LoadMoreSkeleton from "@/components/layouts/skeletons/load-more-skeleton";
+import { useNetworkSettings } from "@/hooks/feed/use-network-settings";
 import { useNewContentProbe } from "@/hooks/feed/use-new-content-probe";
 import kyInstance from "@/lib/ky";
 import {
@@ -22,12 +23,13 @@ import {
 } from "@/lib/posts/feed-cache";
 
 export default function FollowingFeed() {
+  const network = useNetworkSettings();
   const { user } = useSession();
   const queryClient = useQueryClient();
   const feedRootRef = useRef<HTMLDivElement>(null);
   const queryKey = useMemo(
-    () => ["post-feed", "following", user?.id ?? "guest"],
-    [user?.id]
+    () => ["post-feed", "following", user?.id ?? "guest", network.scope],
+    [user?.id, network.scope]
   );
 
   const {
@@ -38,14 +40,17 @@ export default function FollowingFeed() {
     isFetchingNextPage,
     status,
   } = useInfiniteQuery({
+    enabled: network.ready,
     getNextPageParam: (lastPage) => lastPage.nextCursor,
     initialPageParam: null as string | null,
     queryFn: ({ pageParam }: { pageParam: string | null }) =>
       kyInstance
-        .get(
-          "/api/posts/following",
-          pageParam ? { searchParams: { cursor: pageParam } } : {}
-        )
+        .get("/api/posts/following", {
+          searchParams: {
+            network: network.scope,
+            ...(pageParam ? { cursor: pageParam } : {}),
+          },
+        })
         .json<PostsPage>(),
     queryKey,
     ...FEED_QUERY_BEHAVIOR,
@@ -62,7 +67,9 @@ export default function FollowingFeed() {
     eventSource: "asm",
     fetchHead: async () => {
       const fresh = await kyInstance
-        .get("/api/posts/following")
+        .get("/api/posts/following", {
+          searchParams: { network: network.scope },
+        })
         .json<PostsPage>();
       return fresh.posts;
     },

@@ -13,6 +13,7 @@ export type SettingsTab =
   | "account"
   | "privacy"
   | "security"
+  | "network"
   | "personalization";
 
 interface SettingsEntry {
@@ -25,6 +26,26 @@ interface SettingsEntry {
 }
 
 const SETTINGS_CATALOG: SettingsEntry[] = [
+  {
+    description:
+      "Recommendation profiles, interests, explicit content, geography and language",
+    id: "network",
+    keywords: [
+      "network",
+      "recommendations",
+      "interests",
+      "persona",
+      "profiles",
+      "explicit",
+      "18+",
+      "language",
+      "region",
+      "bluesky",
+    ],
+    label: "Network preferences",
+    sectionId: "settings-network-profiles",
+    tab: "network",
+  },
   {
     description: "Light, dark or your device appearance",
     id: "appearance",
@@ -194,6 +215,7 @@ const SETTINGS_CATALOG: SettingsEntry[] = [
 
 const TAB_LABELS: Record<SettingsTab, string> = {
   account: "Account",
+  network: "Network",
   personalization: "Personalization",
   privacy: "Privacy",
   profile: "Profile",

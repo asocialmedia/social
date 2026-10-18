@@ -10,6 +10,7 @@ import { FeedScrollbar } from "@/components/layouts/feed/feed-scrollbar";
 import MobileBottomNav from "@/components/layouts/navigation/mobile/mobile-bottom-nav";
 import MobileTopBar from "@/components/layouts/navigation/mobile/mobile-top-bar";
 import type { AccountLinkingReadiness } from "@/components/settings/linked-accounts";
+import NetworkSettings from "@/components/settings/network-settings";
 import PersonalizationSettings from "@/components/settings/personalization-settings";
 import SettingsSearch from "@/components/settings/settings-search";
 import type { SettingsTab } from "@/components/settings/settings-search";
@@ -213,6 +214,14 @@ export default function ClientSettings({
                 >
                   Personalization
                 </TabsTrigger>
+                <TabsTrigger
+                  className={TAB_TRIGGER_CLASS}
+                  data-settings-tab="network"
+                  onClick={(event) => revealTab(event.currentTarget)}
+                  value="network"
+                >
+                  Network
+                </TabsTrigger>
               </TabsList>
               <div className="ml-auto hidden min-w-0 items-center gap-2 pr-1.5 md:flex">
                 <div className="w-full max-w-[24rem] xl:max-w-md">
@@ -231,6 +240,13 @@ export default function ClientSettings({
               data-settings-scroll
               ref={feedScrollRef}
             >
+              <TabsContent
+                className="mt-0 pb-[calc(env(safe-area-inset-bottom)+6rem)] data-[state=inactive]:hidden lg:pb-12"
+                forceMount={visitedTabs.has("network") || undefined}
+                value="network"
+              >
+                <NetworkSettings />
+              </TabsContent>
               <TabsContent
                 className="mt-0 pb-[calc(env(safe-area-inset-bottom)+6rem)] data-[state=inactive]:hidden lg:pb-12"
                 forceMount={visitedTabs.has("personalization") || undefined}

@@ -7,6 +7,7 @@ import type { ExternalMutation } from "@asm/protocols/discovery";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 
+import { trackNetworkAction } from "@/components/recommendations/recommendation-tracker";
 import { useRequireAuth } from "@/hooks/auth/use-require-auth";
 import { useToast } from "@/lib/gooey-toast";
 import { applyExternalStateToCaches } from "@/lib/protocols/external-cache";
@@ -73,6 +74,12 @@ export function useExternalInteractions(
         throw new Error(message);
       }
       const next = externalStateSchema.parse(await response.json());
+      if (input.action === "bookmark" && next.bookmarked) {
+        trackNetworkAction(post.id, "BOOKMARK");
+      }
+      if (input.action === "amplify" && next.amplified) {
+        trackNetworkAction(post.id, "VOTE");
+      }
       applyExternalStateToCaches(
         queryClient,
         auth.user?.id ?? "guest",

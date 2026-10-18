@@ -8,6 +8,7 @@ export const SETTINGS_TAB_ORDER: readonly SettingsTab[] = [
   "privacy",
   "security",
   "personalization",
+  "network",
 ];
 
 const SETTINGS_TABS = new Set<SettingsTab>(SETTINGS_TAB_ORDER);

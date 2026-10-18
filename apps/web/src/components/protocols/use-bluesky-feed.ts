@@ -10,6 +10,7 @@ import type { InfiniteData } from "@tanstack/react-query";
 
 import { useDiscoveryLocale } from "@/hooks/feed/use-discovery-locale";
 import { useFeedEvents } from "@/hooks/feed/use-feed-events";
+import { useNetworkSettings } from "@/hooks/feed/use-network-settings";
 import { useNewContentProbe } from "@/hooks/feed/use-new-content-probe";
 import { FEED_QUERY_BEHAVIOR } from "@/lib/posts/feed-cache";
 import { useExternalExclusions } from "@/store/feed-source-store";
@@ -22,14 +23,16 @@ export function useBlueskyFeed(
   const queryClient = useQueryClient();
   const excluded = useExternalExclusions(viewer);
   const { locale, ready } = useDiscoveryLocale();
-  const queryKey = ["bluesky-discovery", mode, viewer, locale];
+  const network = useNetworkSettings();
+  const profile = network.settings.preferences.activeProfileId;
+  const queryKey = ["bluesky-discovery", mode, viewer, locale, network.scope];
   const query = useInfiniteQuery({
     ...FEED_QUERY_BEHAVIOR,
     enabled: enabled && ready,
     getNextPageParam: (lastPage: DiscoveryPage) => lastPage.cursor ?? undefined,
     initialPageParam: null as string | null,
     queryFn: ({ pageParam, signal }): Promise<DiscoveryPage> => {
-      const options = { cursor: pageParam, locale, mode, signal };
+      const options = { cursor: pageParam, locale, mode, profile, signal };
       if (!pageParam) {
         return readDiscoveryPage(options);
       }
@@ -61,6 +64,7 @@ export function useBlueskyFeed(
         cursor: null,
         locale,
         mode,
+        profile,
         signal: AbortSignal.any([signal, AbortSignal.timeout(18_000)]),
       });
       return head.items;
@@ -70,7 +74,7 @@ export function useBlueskyFeed(
       !excluded.has(`author:${post.author.id}`),
     order: mode === "latest" ? "newest-first" : "ranked",
     probeOnMount: !query.isFetchedAfterMount,
-    resetKey: `${mode}:${viewer}:${locale}`,
+    resetKey: `${mode}:${viewer}:${locale}:${network.scope}`,
     visible: query.data?.pages.flatMap((page) => page.items) ?? [],
   });
   const showNewItems = () => {

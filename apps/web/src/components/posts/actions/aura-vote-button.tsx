@@ -6,6 +6,7 @@ import { HTTPError } from "ky";
 import { ArrowBigDown, ArrowBigUp, Flame } from "lucide-react";
 import { useCallback } from "react";
 
+import { trackNetworkAction } from "@/components/recommendations/recommendation-tracker";
 import { useRequireAuth } from "@/hooks/auth/use-require-auth";
 import { getAuraFlameClass } from "@/lib/aura/aura";
 import { useToast } from "@/lib/gooey-toast";
@@ -145,6 +146,16 @@ export default function AuraVoteButton({
     // oxlint-disable-next-line react/no-unstable-nested-components
     onSuccess: (result, _newVote) => {
       const { serverResponse } = result;
+      if (!commentId) {
+        window.dispatchEvent(new Event("network:learned"));
+        trackNetworkAction(
+          postId,
+          serverResponse.userVote === -1 ? "DOWNVOTE" : "REMOVE_DOWNVOTE"
+        );
+        if (serverResponse.userVote === 1) {
+          trackNetworkAction(postId, "VOTE");
+        }
+      }
       queryClient.setQueryData<VoteInfo>(queryKey, {
         aura: serverResponse.aura,
         userVote: serverResponse.userVote,

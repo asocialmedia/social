@@ -9,10 +9,13 @@ import {
 import asmLogo from "@assets/asm.png";
 import { Check, RotateCcw, Settings2 } from "lucide-react";
 import Image from "next/image";
+import Link from "next/link";
 import type React from "react";
 import { useCallback, useSyncExternalStore } from "react";
 
+import { useSession } from "@/app/(main)/session-provider";
 import { BlueskyIcon } from "@/components/protocols/bluesky-icon";
+import { useNetworkSettings } from "@/hooks/feed/use-network-settings";
 import { cn } from "@/lib/utils";
 import { useFeedSourceStore } from "@/store/feed-source-store";
 
@@ -82,7 +85,7 @@ const LANGUAGE_OPTIONS = [
 ] as const;
 
 const subscribe = () => () => {
-  /* empty */
+  // Hydration detection does not need a live subscription.
 };
 
 function useMounted(): boolean {
@@ -94,6 +97,8 @@ function useMounted(): boolean {
 }
 
 export function FeedSourceMenu({ following }: { following: boolean }) {
+  const { user } = useSession();
+  const network = useNetworkSettings();
   const mounted = useMounted();
   const source = useFeedSourceStore((state) => state.source);
   const setSource = useFeedSourceStore((state) => state.setSource);
@@ -162,6 +167,45 @@ export function FeedSourceMenu({ following }: { following: boolean }) {
             </button>
           ) : null}
         </div>
+        {user ? (
+          <fieldset className="border-border/60 mb-2 space-y-2 border-b px-1 py-2">
+            <legend className="text-muted-foreground text-[11px] font-semibold">
+              Recommendation profile
+            </legend>
+            <div className="flex flex-wrap gap-1.5">
+              {network.settings.preferences.profiles.map((profile) => (
+                <button
+                  aria-pressed={
+                    profile.id === network.settings.preferences.activeProfileId
+                  }
+                  className={cn(
+                    "chip-3d cursor-pointer rounded-md px-2 py-1.5 text-xs",
+                    profile.id ===
+                      network.settings.preferences.activeProfileId &&
+                      "text-primary"
+                  )}
+                  disabled={network.isSaving || !network.ready}
+                  key={profile.id}
+                  onClick={() =>
+                    network.save({
+                      ...network.settings.preferences,
+                      activeProfileId: profile.id,
+                    })
+                  }
+                  type="button"
+                >
+                  {profile.name}
+                </button>
+              ))}
+            </div>
+            <Link
+              className="text-muted-foreground hover:text-foreground text-xs"
+              href="/settings?tab=network"
+            >
+              Manage interests and network preferences
+            </Link>
+          </fieldset>
+        ) : null}
 
         <div className="flex flex-col gap-1.5">
           {SOURCE_OPTIONS.map((opt) => {

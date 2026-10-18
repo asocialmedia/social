@@ -49,7 +49,8 @@ describe("settings tab state", () => {
 
   test("swipes stop at the first and last settings tabs", () => {
     expect(adjacentSettingsTab("profile", -1)).toBeNull();
-    expect(adjacentSettingsTab("personalization", 1)).toBeNull();
+    expect(adjacentSettingsTab("personalization", 1)).toBe("network");
+    expect(adjacentSettingsTab("network", 1)).toBeNull();
   });
 
   test("falls back safely for missing or untrusted tab values", () => {

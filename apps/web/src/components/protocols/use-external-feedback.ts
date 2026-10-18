@@ -6,6 +6,7 @@ import type { ExternalFeedback } from "@asm/protocols/discovery";
 import { useRef } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
+import { trackNetworkAction } from "@/components/recommendations/recommendation-tracker";
 import { useToast } from "@/lib/gooey-toast";
 import { useFeedSourceStore } from "@/store/feed-source-store";
 
@@ -32,6 +33,10 @@ export function useExternalFeedback(post: ExternalPost) {
           throw new Error("Couldn't save preference. Please try again.");
         }
       }
+      trackNetworkAction(
+        post.id,
+        remove ? "REMOVE_NOT_INTERESTED" : "NOT_INTERESTED"
+      );
       useFeedSourceStore.getState().exclude(viewer, key, !remove);
     };
     try {

@@ -2,7 +2,8 @@
 
 import type { PostData } from "@asm/db";
 import type { ExternalPost } from "@asm/protocols/contracts";
-import { mixFeedItems } from "@asm/protocols/discovery";
+import { externalPostTopics } from "@asm/protocols/contracts";
+import { matchesAvoidedTopic, mixFeedItems } from "@asm/protocols/discovery";
 import type { FeedSource } from "@asm/protocols/discovery";
 import { Separator } from "@asm/ui/shadui/separator";
 import { useQueryClient } from "@tanstack/react-query";
@@ -12,12 +13,17 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 
 import { BlueskyPostCard } from "@/components/protocols/bluesky-post-card";
 import { RecommendationTracker } from "@/components/recommendations/recommendation-tracker";
+import { useNetworkSettings } from "@/hooks/feed/use-network-settings";
 import {
   forceInvalidatePostFeeds,
   repairStalePostCaches,
 } from "@/lib/posts/cache-sync";
 import { filterFeedPosts } from "@/lib/posts/feed-cache";
 import { normalizePostsData } from "@/lib/posts/post-normalize";
+import {
+  postHasExplicitMedia,
+  blueskyMediaIsExplicit,
+} from "@/lib/protocols/content-labels";
 
 import { groupPostsIntoThreads } from "./feed-thread-group";
 import PostCard from "./feedview/post-card";
@@ -57,6 +63,7 @@ export const FeedView: React.FC<FeedViewProps> = ({
 }) => {
   const MemoizedPostCard = useMemo(() => React.memo(PostCard), []);
   const queryClient = useQueryClient();
+  const network = useNetworkSettings();
   const router = useRouter();
   const normalizedInitial = useMemo(
     () =>
@@ -267,28 +274,67 @@ export const FeedView: React.FC<FeedViewProps> = ({
   }, [posts, excludeIds, excludePostId, dismissedIds, sortBy]);
 
   const threadGroups = useMemo(
-    () => groupPostsIntoThreads(sortedPosts),
-    [sortedPosts]
+    () =>
+      groupPostsIntoThreads(
+        sortedPosts.filter(
+          (post) =>
+            (network.settings.preferences.showExplicitContent ||
+              !postHasExplicitMedia(post)) &&
+            !matchesAvoidedTopic(
+              post.content,
+              [
+                ...(post.semanticTags ?? []),
+                ...post.tags.map((tag) => tag.name),
+              ],
+              network.settings.preferences.avoidedTopics
+            )
+        )
+      ),
+    [
+      sortedPosts,
+      network.settings.preferences.showExplicitContent,
+      network.settings.preferences.avoidedTopics,
+    ]
   );
 
   const mixedGroups = useMemo(
     () =>
-      mixFeedItems(threadGroups, externalPosts, {
-        createdAt: (group) => {
-          let latest = "";
-          for (const post of group.posts) {
-            const createdAt = new Date(post.createdAt).toISOString();
-            if (createdAt > latest) {
-              latest = createdAt;
+      mixFeedItems(
+        threadGroups,
+        externalPosts.filter(
+          (post) =>
+            (network.settings.preferences.showExplicitContent ||
+              !blueskyMediaIsExplicit(post)) &&
+            !matchesAvoidedTopic(
+              `${post.text} ${post.externalLink?.title ?? ""} ${post.media.map((media) => media.alt).join(" ")}`,
+              externalPostTopics(post),
+              network.settings.preferences.avoidedTopics
+            )
+        ),
+        {
+          createdAt: (group) => {
+            let latest = "";
+            for (const post of group.posts) {
+              const createdAt = new Date(post.createdAt).toISOString();
+              if (createdAt > latest) {
+                latest = createdAt;
+              }
             }
-          }
-          return latest;
-        },
-        id: (group) => group.id,
-        latest: sortBy === "newest",
-        source,
-      }),
-    [externalPosts, sortBy, source, threadGroups]
+            return latest;
+          },
+          id: (group) => group.id,
+          latest: sortBy === "newest",
+          source,
+        }
+      ),
+    [
+      externalPosts,
+      sortBy,
+      source,
+      threadGroups,
+      network.settings.preferences.showExplicitContent,
+      network.settings.preferences.avoidedTopics,
+    ]
   );
   return (
     <div className="flex flex-col">
@@ -314,6 +360,8 @@ export const FeedView: React.FC<FeedViewProps> = ({
                 <RecommendationTracker
                   key={post.id}
                   postId={post.id}
+                  networkToken={post.networkRecommendationToken}
+                  networkSource="asm"
                   requestId={post.recommendation?.requestId}
                 >
                   <MemoizedPostCard
