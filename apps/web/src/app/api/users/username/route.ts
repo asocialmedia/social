@@ -10,6 +10,11 @@ import {
 } from "@asm/db";
 import { z } from "zod";
 
+import {
+  accountNotices,
+  noticeTimestamp,
+  queueNotice,
+} from "@/lib/auth/account-notices";
 import { getSessionFromApi } from "@/lib/auth/session";
 
 const usernameSchema = z.object({
@@ -222,6 +227,28 @@ export async function PATCH(request: Request) {
         },
         { status: 429 }
       );
+    }
+
+    // The handle is committed. Notify only on an actual change, and use the
+    // pre-change handle the session still carries.
+    if (result.status === "changed") {
+      const recipient = session.user.email;
+      const previousUsername = session.user.username;
+      if (
+        recipient &&
+        previousUsername &&
+        previousUsername !== result.username
+      ) {
+        queueNotice(() =>
+          accountNotices.usernameChanged({
+            changedAt: noticeTimestamp(),
+            previousUsername,
+            previousUsernameExpiresAt: result.aliasExpiresAt.toISOString(),
+            recipient,
+            username: result.username,
+          })
+        );
+      }
     }
 
     return Response.json({

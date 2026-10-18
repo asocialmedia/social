@@ -18,9 +18,13 @@ export const emailConfig = {
     feedTrending: `${env.APP_URL}/?tab=trending`,
     playStore:
       "https://play.google.com/store/apps/details?id=cc.asocialmedia.mobile",
+    // The account tab: email, password and connected social accounts.
+    settingsLinkedAccounts: `${env.APP_URL}/settings?tab=account`,
     // The profile tab of settings (tabs: profile, account, privacy, security,
     // personalization).
     settingsProfile: `${env.APP_URL}/settings?tab=profile`,
+    // The security tab: two-factor, active sessions, passkeys.
+    settingsSecurity: `${env.APP_URL}/settings?tab=security`,
     source: "https://github.com/asocialmedia/social",
   },
 
@@ -87,6 +91,13 @@ export const emailConfig = {
       playStore: "https://cdn.asocialmedia.cc/email/play-store.png",
     },
     logoUrl: "https://zr2.asocialmedia.cc/Assets/zephyr-logo.png",
+    // Provider marks for the "linked account" emails. Real brand artwork, so
+    // they stay recognisable at 28px on a cream card.
+    socialIcons: {
+      bluesky: "https://cdn.asocialmedia.cc/email/bluesky.png",
+      google: "https://cdn.asocialmedia.cc/email/google.png",
+      reddit: "https://cdn.asocialmedia.cc/email/reddit.png",
+    },
     // The enclosed wordmark band used as the header of the transactional emails.
     // Transparent top edge, so it sits flush on the card like the scene does.
     transactionalHeader:

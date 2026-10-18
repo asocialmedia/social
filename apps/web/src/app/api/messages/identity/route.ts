@@ -6,6 +6,11 @@ import {
   toPrismaDateTime,
 } from "@asm/db";
 
+import {
+  accountNotices,
+  noticeTimestamp,
+  queueNotice,
+} from "@/lib/auth/account-notices";
 import { getSessionFromApi } from "@/lib/auth/session";
 import {
   consumeDenRateLimit,
@@ -316,6 +321,19 @@ export async function DELETE() {
       });
       return { recoveryGeneration, removedKeys: deleted };
     });
+
+    // The reset is committed. Messages are not touched, so the notice explains
+    // the trade-off rather than asking for an action.
+    const recipient = user.email;
+    if (recipient && user.emailVerified) {
+      queueNotice(() =>
+        accountNotices.messageKeyReset({
+          nextStep: "Created the next time you open Messages",
+          recipient,
+          resetAt: noticeTimestamp(),
+        })
+      );
+    }
 
     return Response.json({ ok: true, ...reset });
   } catch (error) {

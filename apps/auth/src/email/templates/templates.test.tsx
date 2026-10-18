@@ -135,10 +135,17 @@ describe("email templates", () => {
     // asocialmedia is not a cross-platform aggregator and never has been. The
     // old copy claimed it pulled Twitter, Reddit and 4chan into one feed, which
     // was false and would ship the moment a template rendered `assets.features`.
-    const serialised = JSON.stringify(emailConfig).toLowerCase();
+    //
+    // Scoped to the marketing copy on purpose: "Reddit" is a legitimate
+    // sign-in provider elsewhere in the config (socialIcons.reddit), and the
+    // guard is about the claim that the *feed* aggregates other networks.
+    const claims = JSON.stringify({
+      features: emailConfig.assets.features,
+      project: emailConfig.project,
+    }).toLowerCase();
 
     for (const claim of ["aggregat", "twitter", "reddit", "4chan"]) {
-      expect(serialised).not.toContain(claim);
+      expect(claims).not.toContain(claim);
     }
   });
 

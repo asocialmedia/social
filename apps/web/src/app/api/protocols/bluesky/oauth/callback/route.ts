@@ -1,6 +1,11 @@
 import { cookies } from "next/headers";
 import { z } from "zod";
 
+import {
+  accountNotices,
+  noticeTimestamp,
+  queueNotice,
+} from "@/lib/auth/account-notices";
 import { getSessionFromApi } from "@/lib/auth/session";
 import {
   blueskyOAuthOrigin,
@@ -58,6 +63,21 @@ export async function GET(request: Request) {
       profile.handle
     );
     target.searchParams.set("bluesky", "connected");
+
+    // The link is committed. Notify without awaiting so the redirect is not
+    // delayed by the mail hop.
+    const recipient = session.user.email;
+    if (recipient) {
+      queueNotice(() =>
+        accountNotices.socialAccount({
+          accountName: `@${profile.handle}`,
+          action: "linked",
+          changedAt: noticeTimestamp(),
+          provider: "bluesky",
+          recipient,
+        })
+      );
+    }
   } catch {
     target.searchParams.set("bluesky", "error");
   }

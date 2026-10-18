@@ -28,10 +28,6 @@ export const palette = {
   store: "#141413",
 } as const;
 
-// ---------------------------------------------------------------------------
-// Document shell
-// ---------------------------------------------------------------------------
-
 function fontFaces(): string {
   const { fonts } = emailConfig.assets;
   return [
@@ -339,6 +335,66 @@ export const CodeBlock = ({ code: value }: { code: string }) => (
     }}
   >
     {value}
+  </div>
+);
+
+// A label/value pair in a tonal well. Security notices answer "what exactly
+// happened, and where" before they ask for anything, so the facts sit together
+// in one block instead of being scattered through prose.
+export const DetailList = ({
+  items,
+}: {
+  items: readonly { label: string; value: string }[];
+}) => (
+  <div
+    style={{
+      backgroundColor: "#f4f1ea",
+      border: `1px solid ${palette.hairline}`,
+      borderRadius: "14px",
+      margin: "0 0 20px",
+      padding: "4px 16px",
+    }}
+  >
+    <table
+      border={0}
+      cellPadding={0}
+      cellSpacing={0}
+      role="presentation"
+      width="100%"
+    >
+      <tbody>
+        {items.map((item) => (
+          <tr key={item.label}>
+            <td
+              style={{
+                color: palette.muted,
+                fontSize: "12.5px",
+                fontWeight: 500,
+                lineHeight: "1.5",
+                padding: "8px 0",
+                verticalAlign: "top",
+                width: "42%",
+              }}
+            >
+              {item.label}
+            </td>
+            <td
+              style={{
+                color: palette.ink,
+                fontSize: "12.5px",
+                fontWeight: 700,
+                lineHeight: "1.5",
+                padding: "8px 0",
+                textAlign: "right",
+                verticalAlign: "top",
+              }}
+            >
+              {item.value}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
   </div>
 );
 

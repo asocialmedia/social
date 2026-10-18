@@ -100,6 +100,22 @@ interface TotpSetup {
   uri: string;
 }
 
+// Reports a completed credential change so the user gets the advisory email.
+// Fire-and-forget: a notification problem must never surface as a failed
+// passkey or backup-code action.
+async function reportCredentialChange(body: unknown): Promise<void> {
+  try {
+    await fetch("/api/users/credential-notice", {
+      body: JSON.stringify(body),
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+    });
+  } catch {
+    // The credential change already succeeded in better-auth; a failed advisory
+    // email is not worth surfacing to the user.
+  }
+}
+
 function getErrorMessage(error: { message?: string } | null | undefined) {
   return error?.message || "Please try again.";
 }
@@ -428,6 +444,12 @@ export default function SecuritySettings({
       });
       return;
     }
+    // Enrolling the authenticator mints a fresh backup-code set, invalidating
+    // any earlier one. That is the event the notice describes.
+    void reportCredentialChange({
+      codeCount: result.data.backupCodes.length,
+      kind: "backup-codes",
+    });
     setTotpSetup({
       backupCodes: result.data.backupCodes,
       uri: result.data.totpURI,
@@ -511,6 +533,11 @@ export default function SecuritySettings({
     setIsPasskeyDialogOpen(false);
     passkeyNameForm.reset();
     await refreshPasskeys();
+    void reportCredentialChange({
+      action: "added",
+      kind: "passkey",
+      passkeyName: values.name.trim() || "This device",
+    });
     toast({
       description: "You can now use this passkey to sign in.",
       title: "Passkey added",
@@ -533,6 +560,11 @@ export default function SecuritySettings({
       });
     } else {
       await refreshPasskeys();
+      void reportCredentialChange({
+        action: "removed",
+        kind: "passkey",
+        passkeyName: "This device",
+      });
       toast({ title: "Passkey removed" });
     }
     setRemovingPasskeyId(null);

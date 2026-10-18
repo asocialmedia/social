@@ -1,7 +1,13 @@
 import { accountResolutionStore } from "@asm/auth/core";
+import { recoveryEmail } from "@asm/auth/validation";
 import { prisma } from "@asm/db";
 import { z } from "zod";
 
+import {
+  accountNotices,
+  noticeTimestamp,
+  queueNotice,
+} from "@/lib/auth/account-notices";
 import { authInternalHeaders, getAuthBaseUrl } from "@/lib/auth/auth-internal";
 import { getSessionFromApi } from "@/lib/auth/session";
 
@@ -35,6 +41,11 @@ export async function POST(request: Request) {
     );
   }
   const { email, otp } = parsed.data;
+
+  // Capture the address being replaced before the change commits: the notice
+  // deliberately goes to the OLD mailbox, because the whole point is to tell
+  // someone who may no longer control the new one.
+  const previousEmail = recoveryEmail(session.user.email) ?? null;
 
   const { headers } = await import("next/headers");
   const hdrs = await headers();
@@ -124,6 +135,17 @@ export async function POST(request: Request) {
     return Response.json(
       { error: data.message || "Verification failed" },
       { status: response.status }
+    );
+  }
+
+  // The change is committed. Tell the old mailbox where the notice matters.
+  if (previousEmail && previousEmail !== email) {
+    queueNotice(() =>
+      accountNotices.emailChanged({
+        changedAt: noticeTimestamp(),
+        newEmail: email,
+        recipient: previousEmail,
+      })
     );
   }
 

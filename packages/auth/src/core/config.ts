@@ -116,6 +116,39 @@ export interface AuthConfig {
     type: string;
   }) => Promise<void>;
   sendTwoFactorOTP?: (params: { email: string; otp: string }) => Promise<void>;
+  /**
+   * Emails a "new sign-in" notice when a session is created for an account that
+   * already had one. Injected by the auth service; advisory, so the
+   * implementation must swallow its own failures.
+   */
+  notifyNewClientLogin?: (params: {
+    browser: string;
+    city: string | null;
+    country: string | null;
+    ipAddress: string | null;
+    recipient: string;
+    signedInAt: string;
+  }) => void;
+  /**
+   * Emails an "account connected/disconnected" notice. Injected by the auth
+   * service so this package keeps no dependency on the mail stack; advisory
+   * only, so implementations must swallow their own failures.
+   */
+  notifySocialAccount?: (params: {
+    accountName: string;
+    action: "linked" | "unlinked";
+    provider: "bluesky" | "google" | "reddit";
+    recipient: string;
+  }) => void;
+  /**
+   * Emails a "two-factor changed" notice. Injected by the auth service;
+   * advisory, so the implementation must swallow its own failures.
+   */
+  notifyTwoFactorChanged?: (params: {
+    change: "disabled" | "enabled" | "method-changed";
+    method: string;
+    recipient: string;
+  }) => void;
   turnstile?: {
     allowedHostnames: string[];
     secretKey: string;
@@ -147,6 +180,43 @@ interface SocialUserMapping {
   name?: string;
   username: string;
   [key: string]: unknown;
+}
+
+// Turns a raw User-Agent into the short label the security emails print. Kept
+// deliberately coarse: the notice only needs enough for the reader to recognise
+// the device, not a fingerprint.
+export function describeUserAgent(
+  userAgent: string | null | undefined
+): string {
+  if (!userAgent) {
+    return "Unknown browser";
+  }
+
+  const browser = /Edg\//.test(userAgent)
+    ? "Edge"
+    : /OPR\/|Opera/.test(userAgent)
+      ? "Opera"
+      : /Firefox\//.test(userAgent)
+        ? "Firefox"
+        : /Chrome\//.test(userAgent)
+          ? "Chrome"
+          : /Safari\//.test(userAgent)
+            ? "Safari"
+            : "A browser";
+
+  const platform = /Android/.test(userAgent)
+    ? "Android"
+    : /iPhone|iPad|iPod/.test(userAgent)
+      ? "iOS"
+      : /Mac OS X|Macintosh/.test(userAgent)
+        ? "macOS"
+        : /Windows/.test(userAgent)
+          ? "Windows"
+          : /Linux/.test(userAgent)
+            ? "Linux"
+            : "an unknown device";
+
+  return `${browser} on ${platform}`;
 }
 
 export interface SocialProvidersConfig {
@@ -266,16 +336,55 @@ export function createAuthConfig(config: AuthConfig = {}) {
     baseURL,
     emailService,
     environment = env.NODE_ENV || "development",
+    notifyNewClientLogin,
+    notifySocialAccount,
+    notifyTwoFactorChanged,
     sendVerificationOTP,
     sendTwoFactorOTP,
   } = config;
+
+  // Advisory two-factor notice. Looks the user up for their verified address;
+  // every failure is swallowed so a mail problem can never fail the 2FA change.
+  async function queueTwoFactorNotice(
+    userId: string,
+    change: "disabled" | "enabled"
+  ): Promise<void> {
+    if (!notifyTwoFactorChanged) {
+      return;
+    }
+    try {
+      const user = await prisma.orm.public.Users.select(
+        "email",
+        "emailVerified"
+      )
+        .where({ id: userId })
+        .first();
+      if (!user?.email || !user.emailVerified) {
+        return;
+      }
+      const remaining = await prisma.orm.public.TwoFactor.select("id")
+        .where({ userId })
+        .first();
+      notifyTwoFactorChanged({
+        change,
+        method: remaining
+          ? "Authenticator app and email codes"
+          : "Email codes only",
+        recipient: user.email,
+      });
+    } catch (error) {
+      console.error(
+        "Failed to queue two-factor notice:",
+        error instanceof Error ? error.message : error
+      );
+    }
+  }
 
   const authBaseUrl = resolveAuthBaseUrl({
     authUrl: env.AUTH_URL,
     baseURL,
     betterAuthUrl: process.env.BETTER_AUTH_URL,
-  });
-  // The web app imports auth helpers while collecting route data at build time.
+  }); // The web app imports auth helpers while collecting route data at build time.
   // Env validation is intentionally skipped there, so retain a valid relying
   // party origin even though the production runtime still supplies APP_URL.
   const defaultPasskeyAppUrl =
@@ -629,6 +738,37 @@ export function createAuthConfig(config: AuthConfig = {}) {
                 error instanceof Error ? error.message : error
               );
             }
+
+            // Advisory notice that a provider was connected. The notifier is
+            // injected by the auth service and swallows its own failures, so a
+            // mail problem can never break the link that just succeeded.
+            if (
+              notifySocialAccount &&
+              (account.providerId === "google" ||
+                account.providerId === "reddit")
+            ) {
+              try {
+                const linkedUser = await prisma.orm.public.Users.select(
+                  "email",
+                  "emailVerified"
+                )
+                  .where({ id: account.userId })
+                  .first();
+                if (linkedUser?.email && linkedUser.emailVerified) {
+                  notifySocialAccount({
+                    accountName: account.accountId,
+                    action: "linked",
+                    provider: account.providerId,
+                    recipient: linkedUser.email,
+                  });
+                }
+              } catch (error) {
+                console.error(
+                  "Failed to queue social link notice:",
+                  error instanceof Error ? error.message : error
+                );
+              }
+            }
           },
         },
         delete: {
@@ -676,6 +816,22 @@ export function createAuthConfig(config: AuthConfig = {}) {
           },
         },
       },
+      // Two-factor state lives in its own table: a row appearing means TOTP was
+      // enrolled, a row disappearing means it was removed. better-auth owns
+      // both writes, so the hooks below are the only place that can observe
+      // them without reimplementing the flow.
+      twoFactor: {
+        create: {
+          after: async (factor: { userId: string }) => {
+            await queueTwoFactorNotice(factor.userId, "enabled");
+          },
+        },
+        delete: {
+          after: async (factor: { userId: string }) => {
+            await queueTwoFactorNotice(factor.userId, "disabled");
+          },
+        },
+      },
       session: {
         create: {
           after: async (session, context) => {
@@ -697,6 +853,51 @@ export function createAuthConfig(config: AuthConfig = {}) {
               }
             }
             await enforceAccountSessionLimit(session.userId);
+
+            // A new sign-in to an account that already had sessions is the
+            // "another device" case. First-ever sign-ins (right after signup)
+            // have no earlier session to differ from, so skip them.
+            if (notifyNewClientLogin) {
+              try {
+                const existingSessions =
+                  await prisma.orm.public.Sessions.select("id")
+                    .where({ userId: session.userId })
+                    .first();
+                const account = await prisma.orm.public.Users.select(
+                  "email",
+                  "emailVerified"
+                )
+                  .where({ id: session.userId })
+                  .first();
+
+                if (
+                  account?.email &&
+                  account.emailVerified &&
+                  existingSessions
+                ) {
+                  const headers = context?.headers ?? context?.request?.headers;
+                  const userAgentValue = headers?.get("user-agent");
+                  const sessionCountry = (session as { country?: unknown })
+                    .country;
+                  notifyNewClientLogin({
+                    browser: describeUserAgent(userAgentValue ?? null),
+                    city: null,
+                    country:
+                      typeof sessionCountry === "string"
+                        ? sessionCountry
+                        : null,
+                    ipAddress: session.ipAddress ?? null,
+                    recipient: account.email,
+                    signedInAt: new Date().toISOString(),
+                  });
+                }
+              } catch (error) {
+                console.error(
+                  "Failed to queue new sign-in notice:",
+                  error instanceof Error ? error.message : error
+                );
+              }
+            }
           },
           before: async (session, context) => {
             const user = await prisma.orm.public.Users.select(
