@@ -20,6 +20,10 @@ describe("push path routing", () => {
     );
   });
 
+  test("maps community chat links to the native community chat screen", () => {
+    expect(pathToNativeRoute("/a/anime/chat/room-1")).toBe("/a/anime/chat");
+  });
+
   test("strips a query string from the post id", () => {
     expect(pathToNativeRoute("/posts/abcd1234?comment=c1")).toBe(
       "/posts/abcd1234"

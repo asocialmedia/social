@@ -198,6 +198,8 @@ export const COMMUNITY_CREATION_AURA_TIERS = [
 
 export const COMMUNITY_MAX_OWNED = COMMUNITY_CREATION_AURA_TIERS.length;
 
+export const COMMUNITY_ACTIVE_MEMBER_LIMIT = 100_000;
+
 // Role model. Joining grants PARTICIPANT (no badge); the OWNER promotes
 // participants to MEMBER, and promotes members to MODERATOR. There is exactly
 // one owner (the founder) and at most this many moderators per community;

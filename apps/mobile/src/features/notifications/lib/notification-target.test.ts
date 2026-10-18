@@ -47,6 +47,14 @@ describe("nativeNotificationAction", () => {
     }
   });
 
+  test("opens community chat in its native screen", () => {
+    expect(
+      nativeNotificationAction({ kind: "communityChat", slug: "anime" })
+    ).toEqual({
+      path: { params: { slug: "anime" }, pathname: "/a/[slug]/chat" },
+    });
+  });
+
   test("names the gap for a den rather than doing nothing", () => {
     // The case this whole module exists for. A den thread has no native surface
     // and is not about to grow one as a side effect of a notification tap, so the
@@ -80,6 +88,7 @@ describe("nativeNotificationAction", () => {
         postId: "p",
       },
       { kind: "community", slug: "anime" },
+      { kind: "communityChat", slug: "anime" },
       { kind: "user", username: "alice" },
       { conversationId: "den-1", kind: "conversation" },
       { kind: "none" },

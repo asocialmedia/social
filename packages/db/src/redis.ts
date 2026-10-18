@@ -146,6 +146,11 @@ export interface ChannelSubscription {
 let hubClient: IoRedis | null = null;
 const hubListeners = new Map<string, Set<ChannelListener>>();
 let hubOpenStreams = 0;
+let hubGeneration = 0;
+
+export function getSubscriberGeneration(): number {
+  return hubGeneration;
+}
 
 // Gauges for observability: how many streams are open and how many distinct
 // channels/listeners the shared connection is carrying right now.
@@ -199,6 +204,9 @@ function getHubClient(): IoRedis {
       hubClient = null;
     }
     hubClient = createSubscriberConnection();
+    hubClient.on("ready", () => {
+      hubGeneration += 1;
+    });
     hubClient.on("message", (channel, message) => {
       const listeners = hubListeners.get(channel);
       if (!listeners) {

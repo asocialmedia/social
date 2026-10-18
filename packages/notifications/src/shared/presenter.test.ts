@@ -195,6 +195,18 @@ describe("notification presenter", () => {
     });
   });
 
+  test("routes community chat notifications to the chat surface", () => {
+    const record = base({
+      community: { id: "comm-1", name: "Anime", slug: "anime" },
+      communityId: "comm-1",
+      type: "COMMUNITY_CHAT",
+    });
+    expect(getNotificationTarget(record)).toEqual({
+      kind: "communityChat",
+      slug: "anime",
+    });
+  });
+
   test("routes a follow to the issuer's profile", () => {
     const record = base({ type: "FOLLOW" });
     expect(getNotificationTarget(record)).toEqual({

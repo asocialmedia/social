@@ -10,9 +10,12 @@ import type { CommunityRoleValue } from "@/lib/communities/client";
 import { cn } from "@/lib/utils";
 import { useActiveCommunityStore } from "@/store/active-community-store";
 
+import CommunityAvatar from "../card/community-avatar";
+import CommunityChat from "./community-chat";
 import CommunityFeed from "./community-feed";
 import CommunityHeader from "./community-header";
 import CommunityMatureGate from "./community-mature-gate";
+import CommunitySectionNav from "./community-section-nav";
 import CommunitySidebar from "./community-sidebar";
 
 interface ClientCommunityProps {
@@ -23,6 +26,9 @@ interface ClientCommunityProps {
   } | null;
   slug: string;
   stats: CommunityStats;
+  view?: "chat" | "posts";
+  channelId?: string;
+  threadId?: string;
   // Whether the viewer follows this community's posts; drives the header bell.
   subscribed: boolean;
 }
@@ -36,6 +42,9 @@ export default function ClientCommunity({
   slug,
   stats,
   subscribed,
+  view = "posts",
+  channelId,
+  threadId,
 }: ClientCommunityProps) {
   const router = useRouter();
   const [matureAccepted, setMatureAccepted] = useState(false);
@@ -123,13 +132,63 @@ export default function ClientCommunity({
               the community reading narrower with a wider rail. */}
           <div className="border-border/60 mx-auto flex min-w-0 flex-1 flex-col bg-[hsl(var(--background-alt))] sm:border-x lg:max-w-5xl">
             <MobileTopBar />
-            <CommunityHeader
-              community={community}
-              members={stats.members}
-              membership={membership}
-              subscribed={subscribed}
-            />
-            <CommunityFeed slug={slug} />
+            {view === "chat" ? (
+              <>
+                <header className="border-border/60 flex min-h-[4.5rem] items-center gap-3 border-b px-4 sm:px-6">
+                  <CommunityAvatar
+                    accentColor={community.accentColor}
+                    avatarUrl={community.avatarUrl}
+                    className="size-10"
+                    name={community.name}
+                    slug={community.slug}
+                  />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-muted-foreground text-[10px] font-semibold tracking-[0.14em] uppercase">
+                      Community conversation
+                    </p>
+                    <h1 className="text-foreground truncate text-base font-bold">
+                      {community.name}
+                    </h1>
+                  </div>
+                  <span className="chip-3d text-muted-foreground hidden rounded-full px-3 py-1 text-xs sm:inline-flex">
+                    {stats.members.toLocaleString()} members
+                  </span>
+                </header>
+                <CommunitySectionNav
+                  accentColor={community.accentColor}
+                  active="chat"
+                  channelId={channelId}
+                  slug={slug}
+                />
+                {channelId ? (
+                  <CommunityChat
+                    accentColor={community.accentColor}
+                    avatarUrl={community.avatarUrl}
+                    channelId={channelId}
+                    communityId={community.id}
+                    communityName={community.name}
+                    membership={membership}
+                    slug={slug}
+                    threadId={threadId}
+                  />
+                ) : null}
+              </>
+            ) : (
+              <>
+                <CommunityHeader
+                  community={community}
+                  members={stats.members}
+                  membership={membership}
+                  subscribed={subscribed}
+                />
+                <CommunitySectionNav
+                  accentColor={community.accentColor}
+                  active="posts"
+                  slug={slug}
+                />
+                <CommunityFeed slug={slug} />
+              </>
+            )}
           </div>
 
           <CommunitySidebar

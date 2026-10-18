@@ -9,6 +9,7 @@ export * from "./cache/user-cache";
 export * from "./constants/cache-keys";
 export * from "./src/aura";
 export * from "./src/communities/aura";
+export * from "./src/communities/chat";
 export * from "./src/communities/constants";
 export * from "./src/communities/media";
 export * from "./src/communities/service";

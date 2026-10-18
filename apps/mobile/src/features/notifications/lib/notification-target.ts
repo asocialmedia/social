@@ -63,6 +63,14 @@ export function nativeNotificationAction(
     case "community": {
       return { path: "/" };
     }
+    case "communityChat": {
+      return {
+        path: {
+          params: { slug: target.slug },
+          pathname: "/a/[slug]/chat",
+        },
+      };
+    }
     case "conversation": {
       // A den thread. The app has no den surface and is not about to grow one
       // as a side effect of a notification tap, so the honest answer names the

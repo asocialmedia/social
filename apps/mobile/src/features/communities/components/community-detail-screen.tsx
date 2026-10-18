@@ -496,6 +496,19 @@ export function CommunityDetailScreen() {
                         {detail.stats.members === 1 ? "member" : "members"}
                       </Text>
                     </View>
+                    <FeedTabs<"posts" | "chat">
+                      alignment="start"
+                      active="posts"
+                      tabs={[
+                        { label: "Posts", value: "posts" },
+                        { label: "Chat", value: "chat" },
+                      ]}
+                      onChange={(value) => {
+                        if (value === "chat") {
+                          router.push(`/a/${slug}/chat`);
+                        }
+                      }}
+                    />
                     <FeedTabs
                       alignment="start"
                       active={sort}

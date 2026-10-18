@@ -17,6 +17,7 @@ export type NotificationTarget =
       isGust: boolean;
     }
   | { kind: "community"; slug: string }
+  | { kind: "communityChat"; slug: string }
   | { kind: "user"; username: string }
   // A den (group conversation) thread, opened by id. Carries no name and no
   // roster: the surface that renders it already knows who the reader is, and a
@@ -70,6 +71,10 @@ const TYPE_META: Record<
   },
   COMMENT: {
     badge: { from: "#38bdf8", to: "#0284c7" },
+    icon: "MessageCircle",
+  },
+  COMMUNITY_CHAT: {
+    badge: { from: "#34d399", to: "#0d9488" },
     icon: "MessageCircle",
   },
   COMMUNITY_POST: {
@@ -200,6 +205,11 @@ function getAction(notification: NotificationRecord): string {
         ? `${notification.count} new fleets posted in a/${slug}`
         : `posted a new fleet in a/${slug}`;
     }
+    case "COMMUNITY_CHAT": {
+      return notification.community
+        ? `new activity in a/${notification.community.slug}`
+        : "new community chat activity";
+    }
     case "DEN_MEMBERSHIP_ENDED": {
       // The den is named only when it still exists, which is the removal case.
       // A dissolve has no den to name, so the sentence is deliberately generic:
@@ -246,6 +256,9 @@ function getAction(notification: NotificationRecord): string {
 export function getNotificationTarget(
   notification: NotificationRecord
 ): NotificationTarget {
+  if (notification.type === "COMMUNITY_CHAT" && notification.community) {
+    return { kind: "communityChat", slug: notification.community.slug };
+  }
   if (notification.type === "COMMUNITY_POST" && notification.community) {
     return { kind: "community", slug: notification.community.slug };
   }

@@ -133,6 +133,15 @@ const TYPE_CONFIG: Record<NotificationType, TypeConfig> = {
     href: getCommentHref,
     icon: MessageCircle,
   },
+  COMMUNITY_CHAT: {
+    action: () => "sent you a community chat update",
+    badgeClass: "bg-gradient-to-b from-orange-400 to-rose-600",
+    href: (notification) =>
+      notification.community
+        ? `/a/${notification.community.slug}/chat`
+        : "/communities",
+    icon: MessageCircle,
+  },
   // Batched community activity: one rolling row per community, naming it and
   // how many posts have landed since the row was last read. Links to the
   // community so the reader lands in the space, not on a single post.

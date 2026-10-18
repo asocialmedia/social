@@ -21,6 +21,7 @@ import prisma, { fromPrismaDateTime, toPrismaDateTime } from "../prisma";
 import type { PrismaOrm, PrismaTransaction } from "../prisma";
 import {
   COMMUNITY_ACTIVITY_WINDOW_DAYS,
+  COMMUNITY_ACTIVE_MEMBER_LIMIT,
   COMMUNITY_CATEGORIES,
   COMMUNITY_GROWING_WINDOW_DAYS,
   COMMUNITY_LIMITS,
@@ -48,6 +49,7 @@ export interface CommunityMembership {
 
 export function getCommunitySelect(orm: PrismaOrm = prisma.orm) {
   return orm.public.Communities.select(
+    "activeMemberCount",
     "accentColor",
     "avatarUrl",
     "bannerUrl",
@@ -61,18 +63,14 @@ export function getCommunitySelect(orm: PrismaOrm = prisma.orm) {
     "topics",
     "_type",
     "updatedAt"
-  )
-    .include("communityMembers", (members) =>
-      members.where((member) => member.status.eq("ACTIVE")).count()
-    )
-    .include("posts", (posts) => posts.count());
+  ).include("posts", (posts) => posts.count());
 }
 
 type CommunityQueryData = ResultType<ReturnType<typeof getCommunitySelect>>;
 
 export interface CommunityData extends Omit<
   CommunityQueryData,
-  "_type" | "communityMembers" | "createdAt" | "posts" | "updatedAt"
+  "_type" | "activeMemberCount" | "createdAt" | "posts" | "updatedAt"
 > {
   _count: { members: number; posts: number };
   createdAt: Date;
@@ -81,11 +79,10 @@ export interface CommunityData extends Omit<
 }
 
 function mapCommunityData(row: CommunityQueryData): CommunityData {
-  const { _type, communityMembers, createdAt, posts, updatedAt, ...scalars } =
-    row;
+  const { _type, createdAt, posts, updatedAt, ...scalars } = row;
   return {
     ...scalars,
-    _count: { members: communityMembers, posts },
+    _count: { members: row.activeMemberCount, posts },
     createdAt: fromPrismaDateTime(createdAt),
     type: _type,
     updatedAt: fromPrismaDateTime(updatedAt),
@@ -381,6 +378,7 @@ export async function createCommunity(
       const row = await getCommunitySelect(transaction.orm).create({
         _type: input.type ?? "PUBLIC",
         accentColor,
+        activeMemberCount: 1,
         description: input.description.trim(),
         mature: input.mature ?? false,
         name,
@@ -404,6 +402,16 @@ export async function createCommunity(
       role: "OWNER",
       status: "ACTIVE",
       userId: input.ownerId,
+    });
+
+    await transaction.orm.public.CommunityChatRooms.create({
+      channelType: "TEXT",
+      communityId: created.id,
+      creatorId: input.ownerId,
+      kind: "CHANNEL",
+      name: "general",
+      slug: "general",
+      visibility: "PUBLIC",
     });
 
     await applyFlatAward(transaction, {
@@ -522,6 +530,16 @@ export async function joinCommunity(
 
   const status = community._type === "PUBLIC" ? "ACTIVE" : "PENDING";
   await prisma.transaction(async (transaction) => {
+    await claimCommunityMutation(transaction, communityId);
+    const currentMembership =
+      await transaction.orm.public.CommunityMembers.select("id", "status")
+        .where((member) =>
+          and(member.communityId.eq(communityId), member.userId.eq(userId))
+        )
+        .first();
+    if (currentMembership?.status === "ACTIVE") {
+      throw new CommunityError("ALREADY_MEMBER", "You are already a member");
+    }
     await transaction.orm.public.CommunityMembers.upsert({
       conflictOn: { communityId, userId },
       create: {
@@ -533,6 +551,23 @@ export async function joinCommunity(
       update: { status },
     });
     if (status === "ACTIVE") {
+      const communityState = await transaction.orm.public.Communities.select(
+        "activeMemberCount"
+      )
+        .where({ id: communityId })
+        .first();
+      if (!communityState) {
+        throw new CommunityError("NOT_FOUND", "Community not found");
+      }
+      if (communityState.activeMemberCount >= COMMUNITY_ACTIVE_MEMBER_LIMIT) {
+        throw new CommunityError(
+          "LIMIT_REACHED",
+          `A community can have at most ${COMMUNITY_ACTIVE_MEMBER_LIMIT} active members`
+        );
+      }
+      await transaction.orm.public.Communities.where({
+        id: communityId,
+      }).update({ activeMemberCount: communityState.activeMemberCount + 1 });
       await grantCommunityJoinBonus(transaction, {
         communityId,
         ownerId: community.ownerId,
@@ -568,9 +603,46 @@ export async function leaveCommunity(
 
   await prisma.transaction(async (transaction) => {
     await claimCommunityMutation(transaction, communityId);
-    await transaction.orm.public.CommunityMembers.where((member) =>
-      and(member.communityId.eq(communityId), member.userId.eq(userId))
+    const currentMembership =
+      await transaction.orm.public.CommunityMembers.select("id", "status")
+        .where((member) =>
+          and(member.communityId.eq(communityId), member.userId.eq(userId))
+        )
+        .first();
+    if (currentMembership) {
+      const privateThreads =
+        await transaction.orm.public.CommunityChatRoomMembers.select("roomId")
+          .where({ communityMemberId: currentMembership.id })
+          .all();
+      const privateThreadIds = privateThreads.map((thread) => thread.roomId);
+      if (privateThreadIds.length > 0) {
+        await transaction.orm.public.CommunityChatSubscriptions.where(
+          (subscription) =>
+            and(
+              subscription.userId.eq(userId),
+              subscription.roomId.in(privateThreadIds)
+            )
+        ).deleteAndCount();
+      }
+    }
+    const removed = await transaction.orm.public.CommunityMembers.where(
+      (member) =>
+        and(member.communityId.eq(communityId), member.userId.eq(userId))
     ).deleteAndCount();
+    if (removed > 0 && currentMembership?.status === "ACTIVE") {
+      const communityState = await transaction.orm.public.Communities.select(
+        "activeMemberCount"
+      )
+        .where({ id: communityId })
+        .first();
+      if (communityState) {
+        await transaction.orm.public.Communities.where({
+          id: communityId,
+        }).update({
+          activeMemberCount: Math.max(0, communityState.activeMemberCount - 1),
+        });
+      }
+    }
 
     if (community?._type === "PRIVATE") {
       await transaction.orm.public.CommunitySubscriptions.where(
@@ -811,6 +883,34 @@ export async function approveMember(
   }
 
   await prisma.transaction(async (transaction) => {
+    await claimCommunityMutation(transaction, communityId);
+    const pendingMembership =
+      await transaction.orm.public.CommunityMembers.select("id")
+        .where((member) =>
+          and(
+            member.communityId.eq(communityId),
+            member.status.eq("PENDING"),
+            member.userId.eq(targetUserId)
+          )
+        )
+        .first();
+    if (!pendingMembership) {
+      return;
+    }
+    const communityState = await transaction.orm.public.Communities.select(
+      "activeMemberCount"
+    )
+      .where({ id: communityId })
+      .first();
+    if (!communityState) {
+      throw new CommunityError("NOT_FOUND", "Community not found");
+    }
+    if (communityState.activeMemberCount >= COMMUNITY_ACTIVE_MEMBER_LIMIT) {
+      throw new CommunityError(
+        "LIMIT_REACHED",
+        `A community can have at most ${COMMUNITY_ACTIVE_MEMBER_LIMIT} active members`
+      );
+    }
     const updated = await transaction.orm.public.CommunityMembers.where(
       (member) =>
         and(
@@ -820,6 +920,9 @@ export async function approveMember(
         )
     ).updateAndCount({ status: "ACTIVE" });
     if (updated > 0) {
+      await transaction.orm.public.Communities.where({
+        id: communityId,
+      }).update({ activeMemberCount: communityState.activeMemberCount + 1 });
       await grantCommunityJoinBonus(transaction, {
         communityId,
         ownerId: community.ownerId,
