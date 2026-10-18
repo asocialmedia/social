@@ -20,6 +20,7 @@ import {
   hasRedisPong,
   hasSchemaTables,
   PREFLIGHT_CHECK_ORDER,
+  parseComposePublishedPort,
   parseServiceSnapshots,
   withinTtl,
 } from "./dev-preflight-lib";
@@ -34,7 +35,7 @@ import { postgresInspectionQuery } from "./postgres-inspection";
 
 const CACHE_FILE = path.join(process.cwd(), ".cache", "dev-preflight.json");
 const CACHE_TTL_MS = 20_000;
-const CACHE_VERSION = 1;
+const CACHE_VERSION = 2;
 const ASMOB_ACCESS_KEY = process.env.ASMOB_ROOT_USER ?? "asmob-admin";
 const ASMOB_SECRET_KEY = process.env.ASMOB_ROOT_PASSWORD ?? "asmob-admin";
 const ASMOB_REGION = process.env.ASMOB_REGION ?? "ap-south-1";
@@ -212,12 +213,35 @@ function assertServicesHealthy(snapshots: ServiceSnapshot[]) {
 // Verifies the host-side TCP listener exists. Container healthchecks pass
 // even when the pasta port forward is dead, which is exactly how a fully
 // "green" preflight left dev servers with ECONNREFUSED.
-async function assertHostPortReady(port: number, label: string) {
+async function assertHostPortReady(
+  service: string,
+  containerPort: number,
+  label: string
+) {
+  const published = await runCmd([
+    "docker",
+    "compose",
+    "-f",
+    "docker/docker-compose.dev.yml",
+    "port",
+    service,
+    String(containerPort),
+  ]);
+  if (published.exitCode !== 0) {
+    fatal(
+      `${label} published port lookup failed: ${published.stderr || published.stdout}`
+    );
+  }
+  const port = parseComposePublishedPort(published.stdout);
+  if (port === undefined) {
+    fatal(`${label} has no valid published host port for ${containerPort}/tcp`);
+  }
   if (!(await hasListenerOnPort(port))) {
     fatal(
       `${label} is not reachable on localhost:${port}. The container may be healthy but its port forward is stale - recreate it with 'podman rm -f <container> && bun run docker:dev'.`
     );
   }
+  return port;
 }
 
 async function assertPostgresSchemaReady() {
@@ -311,12 +335,12 @@ async function assertBucketsReady() {
   }
 }
 
-async function assertOpenObserveReady() {
+async function assertOpenObserveReady(port: number) {
   const result = await runCmd([
     "curl",
     "-sS",
     "-f",
-    "http://localhost:5080/healthz",
+    `http://localhost:${port}/healthz`,
   ]);
 
   if (result.exitCode !== 0 || !hasOpenObserveHealth(result.stdout)) {
@@ -394,7 +418,9 @@ async function run() {
     getComposeFileFingerprint(),
     getCache(),
   ]);
-  runtimeFingerprint = buildRuntimeFingerprint(snapshots);
+  runtimeFingerprint = hash(
+    `${composeFingerprint}:${buildRuntimeFingerprint(snapshots)}`
+  );
 
   if (cache.version !== CACHE_VERSION) {
     cache.version = CACHE_VERSION;
@@ -409,6 +435,7 @@ async function run() {
       assertServicesHealthy(snapshots);
     }
   );
+  activeChecks.delete("services");
   setCheckState("services", servicesStatus);
 
   const checks: {
@@ -419,7 +446,7 @@ async function run() {
     {
       checkInput: runtimeFingerprint,
       fn: async () => {
-        await assertHostPortReady(5433, "Postgres");
+        await assertHostPortReady("postgres-dev", 5432, "Postgres");
         await assertPostgresSchemaReady();
       },
       key: "postgres",
@@ -427,7 +454,7 @@ async function run() {
     {
       checkInput: runtimeFingerprint,
       fn: async () => {
-        await assertHostPortReady(6379, "Redis");
+        await assertHostPortReady("redis-dev", 6379, "Redis");
         await assertRedisReady();
       },
       key: "redis",
@@ -435,7 +462,7 @@ async function run() {
     {
       checkInput: runtimeFingerprint,
       fn: async () => {
-        await assertHostPortReady(9000, "Object storage (ASMOB)");
+        await assertHostPortReady("asmob-dev", 9000, "Object storage (ASMOB)");
         await assertBucketsReady();
       },
       key: "asmob",
@@ -443,15 +470,19 @@ async function run() {
     {
       checkInput: runtimeFingerprint,
       fn: async () => {
-        await assertHostPortReady(5080, "OpenObserve");
-        await assertOpenObserveReady();
+        const port = await assertHostPortReady(
+          "openobserve-dev",
+          5080,
+          "OpenObserve"
+        );
+        await assertOpenObserveReady(port);
       },
       key: "openobserve",
     },
     {
       checkInput: runtimeFingerprint,
       fn: async () => {
-        await assertHostPortReady(3310, "ClamAV");
+        await assertHostPortReady("clamav-dev", 3310, "ClamAV");
         await assertClamAvReady();
       },
       key: "clamav",

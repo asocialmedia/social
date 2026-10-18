@@ -12,6 +12,7 @@ import {
   hasRedisPong,
   hasSchemaTables,
   PREFLIGHT_CHECK_ORDER,
+  parseComposePublishedPort,
   parseServiceSnapshots,
   withinTtl,
 } from "./dev-preflight-lib";
@@ -153,6 +154,34 @@ describe("service snapshot helpers", () => {
 });
 
 describe("output validators", () => {
+  test("uses the published host port across Docker and Podman output formats", () => {
+    for (const output of [
+      "9090\n",
+      "0.0.0.0:9090\n",
+      "[::]:9090\n",
+      ":::9090\n",
+    ]) {
+      expect(parseComposePublishedPort(output)).toBe(9090);
+    }
+    expect(parseComposePublishedPort("127.0.0.1:5433\n")).toBe(5433);
+    expect(parseComposePublishedPort("0.0.0.0:9090\n[::]:9090\n")).toBe(9090);
+  });
+
+  test("rejects missing or invalid published ports", () => {
+    for (const output of [
+      "",
+      "unpublished",
+      "0",
+      "65536",
+      "-1",
+      "0.0.0.0:",
+      "9000/tcp",
+      "9090 extra",
+    ]) {
+      expect(parseComposePublishedPort(output)).toBeUndefined();
+    }
+  });
+
   test("validates postgres schema probe output", () => {
     expect(hasSchemaTables("t\n")).toBe(true);
     expect(hasSchemaTables("f")).toBe(false);
