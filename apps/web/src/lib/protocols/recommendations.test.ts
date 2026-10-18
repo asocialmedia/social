@@ -35,6 +35,40 @@ const post = (id: string, text: string): ExternalPost => ({
   url: "https://bsky.app/profile/did:plc:fixture/post/example",
 });
 
+test("Gust quality favors fresh engagement over repeating more keyword matches", () => {
+  const weak = post("weak", "software astronomy gardening");
+  const strong = {
+    ...post("strong", "software"),
+    upstreamCounts: { likes: 800, quotes: 10, replies: 40, reposts: 150 },
+  };
+  const ranked = rankExternalForViewer([weak, strong], profile, {
+    interests: ["software", "astronomy", "gardening"],
+    now: Date.parse("2026-10-18T12:00:00Z"),
+    video: true,
+  });
+  expect(ranked[0]?.id).toBe("strong");
+});
+
+test("equal-quality candidates diversify authors and exploration preserves interest priority", () => {
+  const first = post("one", "astronomy");
+  const same = post("two", "astronomy");
+  const different = {
+    ...post("three", "astronomy"),
+    author: { ...first.author, id: "did:plc:other" },
+  };
+  const broad = post("four", "cooking");
+  const ranked = rankExternalForViewer(
+    [first, same, different, broad],
+    profile,
+    { allowExploration: true, interests: ["astronomy"] }
+  );
+  expect(ranked.slice(0, 2).map((entry) => entry.author.id)).toEqual([
+    first.author.id,
+    different.author.id,
+  ]);
+  expect(ranked.some((entry) => entry.id === broad.id)).toBe(true);
+});
+
 test("explicit interests control discovery terms even when learned and graph weights prefer politics", () => {
   const drifted: UserProfile = {
     authorWeights: {},
@@ -103,7 +137,10 @@ test("For You and Trending never admit viral off-topic content to an explicitly 
       reposts: 10_000_000,
     },
   };
-  const software = post("software", "TypeScript and React hooks tutorial");
+  const software = {
+    ...post("software", "TypeScript and React hooks tutorial"),
+    upstreamCounts: { likes: 20, quotes: 0, replies: 0, reposts: 0 },
+  };
   const drifted: UserProfile = {
     authorWeights: { "did:plc:fixture": 999 },
     expandedEntityWeights: { politics: 99_999 },
@@ -154,6 +191,34 @@ test("different personas rank the same live candidates differently and penalize 
     })[0]?.id
   ).toBe("garden");
   expect(posts[0]?.id).toBe("politics");
+});
+
+test("Trending prioritizes popular eligible posts over learned affinity and excludes off-topic virality", () => {
+  const quiet = {
+    ...post("quiet", "software tutorial"),
+    upstreamCounts: { likes: 1 },
+  };
+  const popular = {
+    ...post("popular", "software release"),
+    upstreamCounts: { likes: 10_000, replies: 400 },
+  };
+  const offTopic = {
+    ...post("off-topic", "Election news"),
+    upstreamCounts: { likes: 1_000_000 },
+  };
+  const ranked = rankExternalForViewer(
+    [quiet, offTopic, popular],
+    {
+      authorWeights: { [quiet.author.id]: 10_000 },
+      tagWeights: { tutorial: 10_000 },
+    },
+    {
+      interests: ["software"],
+      mode: "trending",
+      now: Date.parse("2026-10-18T11:00:00Z"),
+    }
+  );
+  expect(ranked.map((entry) => entry.id)).toEqual(["popular"]);
 });
 
 test("structured tags and alt text personalize even when the caption has no topic words", () => {

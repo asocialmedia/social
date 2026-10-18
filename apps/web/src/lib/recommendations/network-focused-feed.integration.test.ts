@@ -77,6 +77,11 @@ beforeAll(async () => {
           userId,
         });
         fixtures.push({ id: post.id, isGust, topic });
+        await prisma.orm.public.Votes.create({
+          postId: post.id,
+          userId,
+          value: 1,
+        });
         if (isGust) {
           await prisma.orm.public.PostMedia.create({
             _type: "VIDEO",
@@ -165,7 +170,7 @@ test("all five recommendation modes exclude viral politics despite learned polit
   );
 }, 20_000);
 
-test("profile changes affect every mode and invalidate cursors; unmatched interests never fall back to popular posts", async () => {
+test("profile changes invalidate cursors; unmatched ranked feeds can continue into discovery", async () => {
   const previous = await networkNativeFeed(
     new Request("http://localhost/feed?take=1"),
     userId,
@@ -222,8 +227,57 @@ test("profile changes affect every mode and invalidate cursors; unmatched intere
       (["personalized", "latest", "trending"] as const).map(async (mode) => {
         const { page } = await read(mode, kind);
         expect(page.posts).toEqual([]);
-        expect(page.nextCursor).toBeNull();
+        if (mode === "latest") {
+          expect(page.nextCursor).toBeNull();
+        } else {
+          expect(page.nextCursor).toBeString();
+        }
       })
     )
   );
+}, 20_000);
+
+test("exhausted ranked pools expand without repeating focused results or bypassing exclusions", async () => {
+  await choose(["software"]);
+  await saveNetworkPreferences(
+    userId,
+    { ...settings.preferences, avoidedTopics: ["politics"] },
+    settings.revision
+  );
+  settings = await readNetworkPreferences(userId);
+  const first = await read("personalized", "post");
+  const known = new Set(first.page.posts.map((post) => post.id));
+  let cursor = first.page.nextCursor;
+  let expanded = false;
+  for (let pageIndex = 0; cursor && pageIndex < 8; pageIndex += 1) {
+    // oxlint-disable-next-line no-await-in-loop -- each page consumes the prior page's private continuation.
+    const next = await read("personalized", "post", cursor);
+    expect(next.status).toBe(200);
+    for (const post of next.page.posts) {
+      expect(known.has(post.id)).toBe(false);
+      known.add(post.id);
+      expect(post.content.toLowerCase()).not.toContain("politics");
+      expect(networkPostRecommended(post, settings.preferences)).toBe(true);
+    }
+    expanded ||= next.page.posts.length > 0;
+    cursor = next.page.nextCursor;
+  }
+  expect(expanded).toBe(true);
+}, 20_000);
+
+test("a new post with a large stale score stays out of Trending until it has a recorded reaction", async () => {
+  await choose(["software"]);
+  const quiet = await prisma.orm.public.Posts.create({
+    content: "Software tutorial with no reactions",
+    semanticTags: ["software"],
+    trendingScore: 9_999_999,
+    userId,
+  });
+  const trending = await read("trending", "post");
+  expect(trending.page.posts.some((post) => post.id === quiet.id)).toBe(false);
+  const latest = await read("latest", "post");
+  expect(latest.page.posts.some((post) => post.id === quiet.id)).toBe(true);
+  await prisma.orm.public.Votes.create({ postId: quiet.id, userId, value: 1 });
+  const reacted = await read("trending", "post");
+  expect(reacted.page.posts.some((post) => post.id === quiet.id)).toBe(true);
 }, 20_000);

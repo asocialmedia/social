@@ -20,7 +20,10 @@ import { after } from "next/server";
 import { z } from "zod";
 
 import { getSessionFromApi } from "@/lib/auth/session";
-import { externalNetworkPostRecommended } from "@/lib/posts/network-content-policy";
+import {
+  externalNetworkPostRecommended,
+  externalNetworkInterestScore,
+} from "@/lib/posts/network-content-policy";
 import { blueskyMediaIsExplicit } from "@/lib/protocols/content-labels";
 import {
   cachedDiscoveryHead,
@@ -36,6 +39,7 @@ import {
 } from "@/lib/protocols/gateway";
 import {
   discoveryTopics,
+  normalizeDiscoveryTopics,
   rankExternalForViewer,
 } from "@/lib/protocols/recommendations";
 import { readBlueskyDiscovery } from "@/lib/protocols/service";
@@ -73,10 +77,43 @@ export function GET(request: Request) {
       query.get("profile") ?? undefined
     );
     const { profile } = network;
+    const level = z.coerce
+      .number()
+      .int()
+      .min(0)
+      .max(2)
+      .safeParse(query.get("level") ?? 0);
+    const topicPage = z.coerce
+      .number()
+      .int()
+      .min(0)
+      .max(15)
+      .safeParse(query.get("topicPage") ?? 0);
+    if (
+      !level.success ||
+      !topicPage.success ||
+      (mode.data === "latest" && level.data > 0)
+    ) {
+      throw new ProtocolGatewayError(400, "invalid_discovery_level");
+    }
+    const neighbors = normalizeDiscoveryTopics(
+      network.selected.interests.flatMap(
+        (interest) => network.topicScope?.related?.[interest] ?? []
+      )
+    ).slice(0, 80);
+    if (level.data === 1 && neighbors.length === 0) {
+      return Response.json({
+        cursor: null,
+        discoveryLevel: 1,
+        items: [],
+        moreRelatedTopics: false,
+        partial: false,
+      });
+    }
     const includeExplicit = Boolean(
       session?.user.id && network.preferences.showExplicitContent
     );
-    const topics = discoveryTopics(
+    const focusedTopics = discoveryTopics(
       profile,
       network.selected.interests,
       network.topicScope
@@ -84,6 +121,21 @@ export function GET(request: Request) {
       (topic) =>
         !matchesAvoidedTopic(topic, [topic], network.preferences.avoidedTopics)
     );
+    let topics = focusedTopics;
+    if (level.data === 1) {
+      topics = neighbors
+        .slice(topicPage.data * 5, topicPage.data * 5 + 5)
+        .filter(
+          (topic) =>
+            !matchesAvoidedTopic(
+              topic,
+              [topic],
+              network.preferences.avoidedTopics
+            )
+        );
+    } else if (level.data === 2) {
+      topics = [];
+    }
     void redis
       .publish(
         DISCOVERY_WATCH_CHANNEL,
@@ -104,7 +156,10 @@ export function GET(request: Request) {
       includeExplicit,
       content.data
     );
-    const cached = cursor ? null : await cachedDiscoveryHead(cacheKey);
+    const cached =
+      cursor || query.get("refresh") === "1"
+        ? null
+        : await cachedDiscoveryHead(cacheKey);
     const read = async (signal: AbortSignal) => {
       const page = await readBlueskyDiscovery(
         mode.data,
@@ -192,8 +247,19 @@ export function GET(request: Request) {
         (content.data !== "video" ||
           post.media.some((media) => media.type === "video")) &&
         (includeExplicit ? true : !blueskyMediaIsExplicit(post)) &&
+        (level.data !== 1 ||
+          (topics.length > 0 &&
+            externalNetworkInterestScore(post, topics) > 0)) &&
         externalNetworkPostRecommended(
-          post,
+          level.data > 0
+            ? {
+                ...post,
+                discoveryContext: {
+                  interests: network.selected.interests,
+                  level: level.data,
+                },
+              }
+            : post,
           network.preferences,
           network.selected.interests,
           network.topicScope
@@ -211,6 +277,7 @@ export function GET(request: Request) {
             (a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt)
           )
         : rankExternalForViewer(filtered, profile, {
+            allowExploration: level.data > 0,
             followedAuthors: followed?.followed,
             interests: network.selected.interests,
             locale: networkRegionalLocale(network, locale.data),
@@ -218,6 +285,7 @@ export function GET(request: Request) {
             socialProof: social?.weights,
             topicScope: network.topicScope,
             topics: metadata,
+            video: content.data === "video",
           });
     after(async () => {
       await Promise.all(
@@ -239,9 +307,18 @@ export function GET(request: Request) {
     );
     return Response.json({
       ...page,
+      discoveryLevel: level.data,
       items: await Promise.all(
         items.slice(0, 50).map(async (post) => ({
           ...(social ? social.annotate(post) : post),
+          ...(level.data > 0
+            ? {
+                discoveryContext: {
+                  interests: network.selected.interests,
+                  level: level.data,
+                },
+              }
+            : {}),
           asm: states.get(post.id),
           ...(session?.user.id
             ? {
@@ -267,6 +344,8 @@ export function GET(request: Request) {
             : {}),
         }))
       ),
+      moreRelatedTopics:
+        level.data === 1 && neighbors.length > (topicPage.data + 1) * 5,
       partial:
         page.partial || Boolean(social?.partial) || Boolean(followed?.partial),
     });

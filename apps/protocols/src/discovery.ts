@@ -17,6 +17,7 @@ import {
   isAuthFeed,
   isAuthFeedUri,
   isAuthenticationNotice,
+  isExternalTrendingPost,
   waitForReadRetry,
 } from "@asm/protocols/discovery";
 import type {
@@ -109,7 +110,7 @@ export class BlueskyDiscovery {
     this.actors = actors ? [...actors] : undefined;
     this.store = options.store ?? new MemoryDiscoveryStore();
     this.scope = createHash("sha256")
-      .update(JSON.stringify(["dynamic-v3", actors]))
+      .update(JSON.stringify(["dynamic-v6", actors]))
       .digest("hex")
       .slice(0, 16);
     this.timeoutMs = options.timeoutMs ?? 12_000;
@@ -436,7 +437,8 @@ export class BlueskyDiscovery {
         feeds.sort(
           (a, b) =>
             Number(b.contentMode === "app.bsky.feed.defs#contentModeVideo") -
-            Number(a.contentMode === "app.bsky.feed.defs#contentModeVideo")
+              Number(a.contentMode === "app.bsky.feed.defs#contentModeVideo") ||
+            (b.likeCount ?? 0) - (a.likeCount ?? 0)
         );
       }
       snapshot.catalogFeeds = feeds.slice(4).map((feed) => feed.uri);
@@ -504,7 +506,7 @@ export class BlueskyDiscovery {
           let attempt = 0;
           source.items.length === 0 &&
           !source.exhausted &&
-          attempt < (content === "video" ? 3 : 1);
+          attempt < (content === "video" || mode === "trending" ? 3 : 1);
           attempt += 1
         ) {
           const options = {
@@ -512,7 +514,7 @@ export class BlueskyDiscovery {
             language: locale && locale !== "all" ? locale : undefined,
             limit: this.actors ? 30 : 16,
           };
-          if (content === "video") {
+          if (content === "video" || mode === "trending") {
             options.limit = 50;
           }
           const search = source.actor.startsWith("search:");
@@ -552,9 +554,10 @@ export class BlueskyDiscovery {
                 post.media.some((media) => media.type === "video")) &&
               (!profile || post.author.id === profile.id) &&
               !snapshot.seen.includes(post.id) &&
+              (mode !== "trending" || isExternalTrendingPost(post)) &&
               !isAuthenticationNotice(post.text) &&
               matchesDiscoveryLanguage(post, locale) &&
-              (mode !== "latest" ||
+              (mode === "personalized" ||
                 !topics.length ||
                 topics.some((topic) => externalTopicMatch(post, topic) > 0))
           );
@@ -709,6 +712,7 @@ export class BlueskyDiscovery {
       items: items.flatMap((post) => {
         const latest = byId.get(post.id);
         return latest &&
+          (mode !== "trending" || isExternalTrendingPost(latest)) &&
           (content !== "video" ||
             latest.media.some((media) => media.type === "video")) &&
           matchesDiscoveryLanguage(latest, locale)

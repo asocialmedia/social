@@ -101,7 +101,8 @@ function createFeed() {
       ),
     render: (
       posts: ReturnType<typeof post>[],
-      cacheKey = ["post-feed", "latest"]
+      cacheKey = ["post-feed", "latest"],
+      trending = false
     ) =>
       act(() =>
         root.render(
@@ -111,6 +112,7 @@ function createFeed() {
               posts={posts}
               source="asm"
               sortBy="server"
+              trending={trending}
             />
           </QueryClientProvider>
         )
@@ -124,6 +126,27 @@ test("an empty incoming feed clears posts from the previous feed immediately", a
   expect(feed.ids()).toEqual(["latest"]);
   await feed.render([], ["post-feed", "trending"]);
   expect(feed.ids()).toEqual([]);
+});
+
+test("Trending rejects quiet cached cards and cache updates even when their old scores are huge", async () => {
+  const feed = createFeed();
+  const quiet = { ...post("quiet"), aura: 1_000_000, trendingScore: 1_000_000 };
+  const active = {
+    ...post("active"),
+    _count: { ...post("active")._count, vote: 10 },
+  };
+  const key = ["post-feed", "trending"];
+  await feed.render([quiet, active], key, true);
+  expect(feed.ids()).toEqual(["active"]);
+  await act(async () => {
+    feed.client.setQueryData(key, {
+      pages: [{ posts: [quiet, active, post("new-but-quiet")] }],
+    });
+    await Bun.sleep(5);
+  });
+  expect(feed.ids()).toEqual(["active"]);
+  await feed.render([quiet, active], ["post-feed", "latest"]);
+  expect(feed.ids()).toEqual(["quiet", "active"]);
 });
 
 test("pagination is adopted immediately even when the first post stays the same", async () => {

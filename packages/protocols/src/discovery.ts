@@ -55,6 +55,12 @@ export {
 } from "./post-metadata";
 
 export {
+  externalTrendingEngagement,
+  isExternalTrendingPost,
+  MIN_BLUESKY_TRENDING_ENGAGEMENT,
+} from "./trending";
+
+export {
   FEED_EVENTS_CHANNEL,
   DISCOVERY_WATCH_CHANNEL,
   PROTOCOL_INVALIDATIONS_CHANNEL,
@@ -177,6 +183,12 @@ export const externalPostSchema: z.ZodType<ExternalPost> = z.lazy(() =>
       .optional(),
     author: externalAuthorSchema,
     createdAt: z.iso.datetime({ offset: true }),
+    discoveryContext: z
+      .object({
+        interests: z.array(z.string()).max(32),
+        level: z.number().int().min(0).max(2),
+      })
+      .optional(),
     externalLink: z
       .object({
         description: z.string(),
@@ -241,7 +253,9 @@ export const externalPostSchema: z.ZodType<ExternalPost> = z.lazy(() =>
 );
 export const discoveryPageSchema = z.object({
   cursor: z.string().nullable(),
+  discoveryLevel: z.number().int().min(0).max(2).optional(),
   items: z.array(externalPostSchema).max(50),
+  moreRelatedTopics: z.boolean().optional(),
   partial: z.boolean(),
 });
 export type DiscoveryPage = z.infer<typeof discoveryPageSchema>;
@@ -344,6 +358,8 @@ export {
 } from "./transport";
 
 export async function readDiscoveryPage(options: {
+  discoveryLevel?: number;
+  topicPage?: number;
   following?: boolean;
   refresh?: boolean;
   content?: DiscoveryContent;
@@ -368,6 +384,12 @@ export async function readDiscoveryPage(options: {
     const timer = setTimeout(abort, options.timeoutMs ?? 18_000);
     try {
       const query = new URLSearchParams({ mode: options.mode });
+      if (options.discoveryLevel) {
+        query.set("level", String(options.discoveryLevel));
+      }
+      if (options.topicPage) {
+        query.set("topicPage", String(options.topicPage));
+      }
       if (options.refresh) {
         query.set("refresh", "1");
       }

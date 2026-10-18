@@ -112,7 +112,7 @@ function post(id: string, text: string, video = false): ExternalPost {
     source: "bluesky",
     text,
     upstreamCounts: {
-      likes: id === "politics" ? 10_000_000 : 0,
+      likes: id === "politics" ? 10_000_000 : 50,
       quotes: 0,
       replies: 0,
       reposts: 0,
@@ -277,4 +277,22 @@ test("an explicit requested profile controls eligibility and guests can still br
   expect(
     guestPage.items.every((entry) => !entry.networkRecommendationToken)
   ).toBe(true);
+});
+
+test("quiet external posts cannot qualify for trending discovery", async () => {
+  upstream.items = [
+    {
+      ...post("quiet", "TypeScript tutorial"),
+      upstreamCounts: { likes: 0, quotes: 0, replies: 0, reposts: 0 },
+    },
+    {
+      ...post("engaged", "TypeScript tutorial"),
+      upstreamCounts: { likes: 25, quotes: 0, replies: 0, reposts: 0 },
+    },
+  ];
+  const response = await GET(
+    new Request("http://localhost/api/protocols/bluesky/discover?mode=trending")
+  );
+  const page: DiscoveryPage = await response.json();
+  expect(page.items.map((entry) => entry.id)).toEqual([upstream.items[1]?.id]);
 });

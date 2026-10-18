@@ -86,10 +86,10 @@ export function discoveryRelevance(
     (Date.now() - Date.parse(post.createdAt)) / 3_600_000
   );
   const engagement =
-    post.upstreamCounts.likes +
-    post.upstreamCounts.reposts * 2 +
-    post.upstreamCounts.replies +
-    post.upstreamCounts.quotes * 2;
+    (post.upstreamCounts.likes ?? 0) +
+    (post.upstreamCounts.reposts ?? 0) * 2 +
+    (post.upstreamCounts.replies ?? 0) +
+    (post.upstreamCounts.quotes ?? 0) * 2;
   const popularity = Math.log1p(engagement) / (1 + hours / 24);
   const interest = topics.reduce(
     (score, topic, index) =>

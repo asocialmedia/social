@@ -6,6 +6,7 @@ import {
   discoveryMode,
   feedAvailability,
   filterExternalRecommendations,
+  isExternalTrendingPost,
 } from "@asm/protocols/discovery";
 import { Button } from "@asm/ui/shadui/button";
 import noFeedImage from "@assets/general/nofeed.png";
@@ -38,6 +39,7 @@ import {
   scrollFeedToTop,
 } from "@/lib/posts/feed-cache";
 import { activeNetworkInterests } from "@/lib/posts/network-content-policy";
+import { isTrendingPost } from "@/lib/posts/trending-eligibility";
 import {
   useFeedSourceStore,
   useExternalExclusions,
@@ -127,8 +129,12 @@ export default function HomeFeed({
       filterExternalRecommendations(
         external.data?.pages.flatMap((page) => page.items) ?? [],
         excluded
-      ).filter((post) => post.id !== excludePostId),
-    [external.data, excluded, excludePostId]
+      ).filter(
+        (post) =>
+          post.id !== excludePostId &&
+          (variant !== "trending" || isExternalTrendingPost(post))
+      ),
+    [external.data, excluded, excludePostId, variant]
   );
   const isTrending = variant === "trending";
   const network = useNetworkSettings();
@@ -151,10 +157,19 @@ export default function HomeFeed({
   }
   const isRankedFeed = feedIsRanked(variant);
   const probeSupportsSingleRow = probeOrdersNewestFirst(variant);
-  const queryKey = useMemo(
-    () => ["post-feed", feedKey, user?.id ?? "guest", network.scope, locale],
-    [feedKey, user?.id, network.scope, locale]
-  );
+  const queryKey = useMemo(() => {
+    const key = [
+      "post-feed",
+      feedKey,
+      user?.id ?? "guest",
+      network.scope,
+      locale,
+    ];
+    if (isTrending) {
+      key.push("engaged-v1");
+    }
+    return key;
+  }, [feedKey, user?.id, network.scope, locale, isTrending]);
 
   // The community segment reuses the community feed's exact query key, so the
   // page shares one cache entry with the community page's own feed (no separate
@@ -309,10 +324,17 @@ export default function HomeFeed({
           return [];
         }
       }
+      let probeEndpoint = endpoint;
+      if (isRankedFeed && !isTrending) {
+        probeEndpoint = "/api/posts/latest";
+      }
       const fresh = await kyInstance
-        .get(endpoint, { searchParams: networkParams, signal })
+        .get(probeEndpoint, {
+          searchParams: networkParams,
+          signal,
+        })
         .json<PostsPage>();
-      return fresh.posts;
+      return isTrending ? fresh.posts.filter(isTrendingPost) : fresh.posts;
     },
     order: isRankedFeed ? "ranked" : "newest-first",
     // A cold fetch already supplies the head; cached returns need a probe.
@@ -596,6 +618,7 @@ export default function HomeFeed({
             excludePostId={excludePostId}
             posts={visibleGlobalPosts}
             respectInterests
+            trending={isTrending}
             showCommunityReason={isTrending || isPersonalized}
             sortBy={isTrending || isPersonalized ? "server" : "newest"}
           />

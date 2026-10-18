@@ -14,6 +14,7 @@ import {
 } from "@asm/db/recommendation/trending-snapshot";
 
 import { getSessionFromApi } from "@/lib/auth/session";
+import { isTrendingPost } from "@/lib/posts/trending-eligibility";
 import { filterNetworkFeed } from "@/lib/recommendations/filter-network-feed";
 
 export async function GET(request: Request) {
@@ -181,7 +182,10 @@ export async function GET(request: Request) {
       };
 
   return Response.json(
-    { ...data, posts: await filterNetworkFeed(data.posts, userId) },
+    {
+      ...data,
+      posts: await filterNetworkFeed(data.posts.filter(isTrendingPost), userId),
+    },
     { headers: responseHeaders }
   );
 }

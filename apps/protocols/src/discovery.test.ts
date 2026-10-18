@@ -33,7 +33,7 @@ function post(index: number, did = "did:web:example.test"): ExternalPost {
     segments: [{ text: "Example" }],
     source: "bluesky",
     text: "Example",
-    upstreamCounts: { likes: 1, quotes: 0, replies: 0, reposts: 0 },
+    upstreamCounts: { likes: 10, quotes: 0, replies: 0, reposts: 0 },
     url: "https://bsky.app/profile/example.test/post/example",
   };
 }
@@ -593,6 +593,31 @@ test("trending ranks fresh engagement among distinct authors", async () => {
   );
 });
 
+test("quiet sources are paged past before selecting Trending candidates", async () => {
+  const quiet = {
+    ...post(1),
+    upstreamCounts: { likes: 0, quotes: 0, replies: 0, reposts: 0 },
+  };
+  let reads = 0;
+  const discovery = new BlueskyDiscovery(
+    {
+      allowsRecommendations: async () => true,
+      getAuthorFeed: async () => ({ cursor: null, items: [] }),
+      getFeed: async () => {
+        reads += 1;
+        return reads === 1
+          ? { cursor: "older-popular-posts", items: [quiet] }
+          : { cursor: null, items: [post(2)] };
+      },
+      getProfile: async () => profile,
+    },
+    [publicFeed]
+  );
+  const page = await discovery.read("trending");
+  expect(reads).toBe(2);
+  expect(page.items.map((item) => item.id)).toEqual([post(2).id]);
+});
+
 test("personalized sources search the live corpus and cursors stay bound to their interests", async () => {
   const searches: string[] = [];
   const discovery = new BlueskyDiscovery({
@@ -666,6 +691,35 @@ test("video discovery searches chosen interests instead of relying only on gener
       item.media.some((media) => media.type === "video")
     )
   ).toBe(true);
+});
+
+test("video source selection favors popular native video generators over weak catalog matches", async () => {
+  const reads: string[] = [];
+  const discovery = new BlueskyDiscovery({
+    allowsRecommendations: async () => true,
+    getAuthorFeed: async () => ({ cursor: null, items: [] }),
+    getFeed: async (uri) => {
+      reads.push(uri);
+      return { cursor: null, items: [] };
+    },
+    getProfile: async () => profile,
+    getSuggestedFeeds: async () => ({
+      cursor: null,
+      items: Array.from({ length: 10 }, (_, index) => ({
+        contentMode: "app.bsky.feed.defs#contentModeVideo",
+        displayName: `Video ${index}`,
+        likeCount: index * 100,
+        uri: `at://did:plc:example/app.bsky.feed.generator/video${index}`,
+      })),
+    }),
+  });
+  await discovery.read("personalized", undefined, "en", [], "video");
+  expect(reads).toHaveLength(4);
+  expect(reads).toEqual(
+    [9, 8, 7, 6].map(
+      (index) => `at://did:plc:example/app.bsky.feed.generator/video${index}`
+    )
+  );
 });
 
 test("discovery advances the live catalog after its source buffers drain", async () => {

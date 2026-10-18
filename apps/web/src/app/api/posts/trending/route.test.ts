@@ -30,6 +30,7 @@ let snapshotPage: {
 let snapshotThrows = false;
 
 interface Row {
+  reactions?: number;
   aura?: number;
   content?: string;
   id: string;
@@ -230,6 +231,15 @@ mock.module("@asm/db", () => ({
   getPersonalizedFeedPage: () => ({ anchorCursor: null, posts: [] }),
   getPostDataQuery: () => createPostQuery(),
   hydrateViewCounts: mockHydrate,
+  mapPostData: (row: Row) => ({
+    ...row,
+    _count: {
+      bookmarks: 0,
+      comments: 0,
+      responses: 0,
+      vote: row.reactions ?? 1,
+    },
+  }),
   prisma: mockPrisma,
 }));
 
@@ -258,6 +268,17 @@ describe("GET /api/posts/trending", () => {
   });
 
   describe("snapshot path", () => {
+    test("quiet posts cannot qualify through a stale high ranking score", async () => {
+      pgPosts = [
+        { id: "quiet", reactions: 0, trendingScore: 1_000_000 },
+        { id: "engaged", reactions: 1, trendingScore: 1 },
+      ];
+      const response = await GET(
+        new Request("http://localhost/api/posts/trending")
+      );
+      const page = await response.json();
+      expect(page.posts.map((post: Row) => post.id)).toEqual(["engaged"]);
+    });
     const fullEntries = Array.from({ length: 20 }, (_, index) => ({
       id: `p${index}`,
       score: 100 - index,

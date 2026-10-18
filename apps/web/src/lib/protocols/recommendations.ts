@@ -8,12 +8,13 @@ import {
 import {
   discoveryTopicsSchema,
   networkInterestTerms,
+  isExternalTrendingPost,
 } from "@asm/protocols/discovery";
 import type { NetworkTopicScope } from "@asm/protocols/discovery";
 
 import { externalNetworkInterestScore } from "@/lib/posts/network-content-policy";
 
-function normalizeDiscoveryTopics(topics: readonly string[]): string[] {
+export function normalizeDiscoveryTopics(topics: readonly string[]): string[] {
   return [
     ...new Set(
       topics
@@ -89,6 +90,8 @@ export function rankExternalForViewer(
     topicScope?: NetworkTopicScope;
     socialProof?: ReadonlyMap<string, number>;
     followedAuthors?: ReadonlySet<string>;
+    allowExploration?: boolean;
+    video?: boolean;
   } = {}
 ): ExternalPost[] {
   const now = options.now ?? Date.now();
@@ -152,22 +155,61 @@ export function rankExternalForViewer(
       (counts.replies ?? 0) +
       (counts.quotes ?? 0) * 2;
     value += Math.min(0.1, Math.log1p(engagement) * 0.01) / (1 + hours / 24);
+    if (options.video) {
+      value += (Math.log1p(engagement) * 2.5) / (1 + hours / 48) ** 0.6;
+    }
     value -= post.replyTo ? 0.1 : 0;
     value +=
       Math.min(1, Math.max(0, options.socialProof?.get(post.id) ?? 0)) * 2;
     return options.mode === "trending"
-      ? fit * 20 +
-          value * 0.5 +
-          Math.min(5, Math.log1p(engagement) / (1 + hours / 24))
-      : fit * 20 + value;
+      ? (Math.log1p(engagement) / (1 + hours / 24) ** 0.6) * 8 +
+          Math.min(3, fit) +
+          Math.max(-1, Math.min(1, value * 0.05))
+      : Math.min(3, fit) * (options.video ? 4 : 20) + value;
   };
-  return posts
+  const candidates = posts
+    .filter(
+      (post) => options.mode !== "trending" || isExternalTrendingPost(post)
+    )
     .filter(
       (post) =>
+        options.allowExploration ||
         !interests.length ||
         externalNetworkInterestScore(post, interests, options.topicScope) > 0
     )
     .map((post) => ({ post, score: score(post) }))
-    .toSorted((first, second) => second.score - first.score)
-    .map(({ post }) => post);
+    .toSorted((first, second) => second.score - first.score);
+  const result: ExternalPost[] = [];
+  const authors = new Map<string, number>();
+  const topics = new Map<string, number>();
+  while (candidates.length) {
+    let selected = 0;
+    let best = -Infinity;
+    for (let index = 0; index < candidates.length; index += 1) {
+      const candidate = candidates[index];
+      const tags =
+        options.topics?.get(candidate.post.id) ?? candidate.post.tags ?? [];
+      const repetition =
+        (authors.get(candidate.post.author.id) ?? 0) * 8 +
+        Math.min(3, Math.max(0, ...tags.map((tag) => topics.get(tag) ?? 0))) *
+          0.8;
+      const value = candidate.score - repetition;
+      if (value > best) {
+        best = value;
+        selected = index;
+      }
+    }
+    const [candidate] = candidates.splice(selected, 1);
+    result.push(candidate.post);
+    authors.set(
+      candidate.post.author.id,
+      (authors.get(candidate.post.author.id) ?? 0) + 1
+    );
+    for (const tag of options.topics?.get(candidate.post.id) ??
+      candidate.post.tags ??
+      []) {
+      topics.set(tag, (topics.get(tag) ?? 0) + 1);
+    }
+  }
+  return result;
 }

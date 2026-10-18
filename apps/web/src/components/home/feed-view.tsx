@@ -2,7 +2,7 @@
 
 import type { PostData } from "@asm/db";
 import type { ExternalPost } from "@asm/protocols/contracts";
-import { mixFeedItems } from "@asm/protocols/discovery";
+import { mixFeedItems, isExternalTrendingPost } from "@asm/protocols/discovery";
 import type { FeedSource } from "@asm/protocols/discovery";
 import { Separator } from "@asm/ui/shadui/separator";
 import { hashKey, useQueryClient } from "@tanstack/react-query";
@@ -13,11 +13,13 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { BlueskyPostCard } from "@/components/protocols/bluesky-post-card";
 import { RecommendationTracker } from "@/components/recommendations/recommendation-tracker";
 import { useNetworkSettings } from "@/hooks/feed/use-network-settings";
+import { useSession } from "@/lib/auth/session-context";
 import {
   forceInvalidatePostFeeds,
   repairStalePostCaches,
 } from "@/lib/posts/cache-sync";
 import { filterFeedPosts } from "@/lib/posts/feed-cache";
+import { otherFeedExposures } from "@/lib/posts/feed-exposure";
 import { reconcileFeedOrder } from "@/lib/posts/feed-order";
 import {
   networkPostAllowed,
@@ -26,6 +28,7 @@ import {
   externalNetworkPostRecommended,
 } from "@/lib/posts/network-content-policy";
 import { normalizePostsData } from "@/lib/posts/post-normalize";
+import { isTrendingPost } from "@/lib/posts/trending-eligibility";
 
 import { groupPostsIntoThreads } from "./feed-thread-group";
 import PostCard from "./feedview/post-card";
@@ -34,6 +37,7 @@ const EMPTY_EXTERNAL_POSTS: ExternalPost[] = [];
 const DEFAULT_FEED_CACHE_KEY: QueryKey = ["post-feed", "for-you"];
 
 interface FeedViewProps {
+  trending?: boolean;
   respectInterests?: boolean;
   externalPosts?: ExternalPost[];
   source?: FeedSource;
@@ -64,10 +68,16 @@ export const FeedView: React.FC<FeedViewProps> = ({
   showCommunityReason = false,
   sortBy = "newest",
   respectInterests = false,
+  trending = false,
 }) => {
   const MemoizedPostCard = useMemo(() => React.memo(PostCard), []);
   const queryClient = useQueryClient();
   const network = useNetworkSettings();
+  const { user } = useSession();
+  const oppositeSeen = useMemo(
+    () => otherFeedExposures(user?.id ?? "guest", "home"),
+    [user?.id]
+  );
   const router = useRouter();
   const normalizedInitial = useMemo(
     () =>
@@ -284,7 +294,9 @@ export const FeedView: React.FC<FeedViewProps> = ({
       groupPostsIntoThreads(
         sortedPosts.filter(
           (post) =>
+            (!trending || isTrendingPost(post)) &&
             network.ready &&
+            (!respectInterests || !oppositeSeen.has(post.id)) &&
             (respectInterests
               ? networkPostRecommended(
                   post,
@@ -300,10 +312,12 @@ export const FeedView: React.FC<FeedViewProps> = ({
       ),
     [
       sortedPosts,
+      trending,
       network.ready,
       network.settings.preferences,
       network.settings.topicScope,
       respectInterests,
+      oppositeSeen,
     ]
   );
 
@@ -313,7 +327,9 @@ export const FeedView: React.FC<FeedViewProps> = ({
         threadGroups,
         externalPosts.filter(
           (post) =>
+            (!trending || isExternalTrendingPost(post)) &&
             network.ready &&
+            (!respectInterests || !oppositeSeen.has(post.id)) &&
             (respectInterests
               ? externalNetworkPostRecommended(
                   post,
@@ -345,6 +361,8 @@ export const FeedView: React.FC<FeedViewProps> = ({
       ),
     [
       externalPosts,
+      trending,
+      oppositeSeen,
       respectInterests,
       network.ready,
       sortBy,
