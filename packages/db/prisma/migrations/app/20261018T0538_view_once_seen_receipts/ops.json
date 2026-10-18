@@ -1,0 +1,310 @@
+[
+  {
+    "id": "table.message_view_once_receipts",
+    "label": "Create table \"message_view_once_receipts\"",
+    "summary": "Creates table \"message_view_once_receipts\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "table",
+        "name": "message_view_once_receipts"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure table \"message_view_once_receipts\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": ["\"public\".\"message_view_once_receipts\""]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create table \"message_view_once_receipts\"",
+        "sql": "CREATE TABLE \"public\".\"message_view_once_receipts\" (\n  \"id\" text NOT NULL,\n  \"incognitoMessageId\" text,\n  \"mediaId\" text NOT NULL,\n  \"messageId\" text,\n  \"openedAt\" timestamp(3) DEFAULT (now()) NOT NULL,\n  \"seenAt\" timestamp(3),\n  \"userId\" text NOT NULL,\n  CONSTRAINT \"message_view_once_receipts_pkey\" PRIMARY KEY (\"id\"),\n  CONSTRAINT \"view_once_receipts_exact_source_cdff524f\" CHECK ((\"messageId\" IS NULL) <> (\"incognitoMessageId\" IS NULL))\n)",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify table \"message_view_once_receipts\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": ["\"public\".\"message_view_once_receipts\""]
+      }
+    ]
+  },
+  {
+    "id": "unique.message_view_once_receipts.view_once_receipts_media_user_key",
+    "label": "Add unique constraint on \"message_view_once_receipts\" (mediaId, userId)",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "unique",
+        "name": "view_once_receipts_media_user_key",
+        "table": "message_view_once_receipts"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure constraint \"view_once_receipts_media_user_key\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "view_once_receipts_media_user_key",
+          "public",
+          "\"public\".\"message_view_once_receipts\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add unique constraint \"view_once_receipts_media_user_key\"",
+        "sql": "ALTER TABLE \"public\".\"message_view_once_receipts\" ADD CONSTRAINT \"view_once_receipts_media_user_key\" UNIQUE (\"mediaId\", \"userId\")"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify constraint \"view_once_receipts_media_user_key\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "view_once_receipts_media_user_key",
+          "public",
+          "\"public\".\"message_view_once_receipts\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.message_view_once_receipts.view_once_receipts_incognito_idx",
+    "label": "Create index \"view_once_receipts_incognito_idx\" on \"message_view_once_receipts\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "view_once_receipts_incognito_idx",
+        "table": "message_view_once_receipts"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"view_once_receipts_incognito_idx\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": ["\"public\".\"view_once_receipts_incognito_idx\""]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"view_once_receipts_incognito_idx\"",
+        "sql": "CREATE INDEX \"view_once_receipts_incognito_idx\" ON \"public\".\"message_view_once_receipts\" (\"incognitoMessageId\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"view_once_receipts_incognito_idx\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": ["\"public\".\"view_once_receipts_incognito_idx\""]
+      }
+    ]
+  },
+  {
+    "id": "index.message_view_once_receipts.view_once_receipts_message_idx",
+    "label": "Create index \"view_once_receipts_message_idx\" on \"message_view_once_receipts\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "view_once_receipts_message_idx",
+        "table": "message_view_once_receipts"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"view_once_receipts_message_idx\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": ["\"public\".\"view_once_receipts_message_idx\""]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"view_once_receipts_message_idx\"",
+        "sql": "CREATE INDEX \"view_once_receipts_message_idx\" ON \"public\".\"message_view_once_receipts\" (\"messageId\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"view_once_receipts_message_idx\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": ["\"public\".\"view_once_receipts_message_idx\""]
+      }
+    ]
+  },
+  {
+    "id": "index.message_view_once_receipts.view_once_receipts_user_idx",
+    "label": "Create index \"view_once_receipts_user_idx\" on \"message_view_once_receipts\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "view_once_receipts_user_idx",
+        "table": "message_view_once_receipts"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"view_once_receipts_user_idx\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": ["\"public\".\"view_once_receipts_user_idx\""]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"view_once_receipts_user_idx\"",
+        "sql": "CREATE INDEX \"view_once_receipts_user_idx\" ON \"public\".\"message_view_once_receipts\" (\"userId\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"view_once_receipts_user_idx\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": ["\"public\".\"view_once_receipts_user_idx\""]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.message_view_once_receipts.view_once_receipts_message_fkey",
+    "label": "Add foreign key \"view_once_receipts_message_fkey\" on \"message_view_once_receipts\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "view_once_receipts_message_fkey",
+        "table": "message_view_once_receipts"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"view_once_receipts_message_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "view_once_receipts_message_fkey",
+          "public",
+          "\"public\".\"message_view_once_receipts\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"view_once_receipts_message_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"message_view_once_receipts\"\nADD CONSTRAINT \"view_once_receipts_message_fkey\"\nFOREIGN KEY (\"messageId\")\nREFERENCES \"public\".\"messages\" (\"id\")\nON DELETE CASCADE\nON UPDATE CASCADE"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"view_once_receipts_message_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "view_once_receipts_message_fkey",
+          "public",
+          "\"public\".\"message_view_once_receipts\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.message_view_once_receipts.view_once_receipts_incognito_fkey",
+    "label": "Add foreign key \"view_once_receipts_incognito_fkey\" on \"message_view_once_receipts\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "view_once_receipts_incognito_fkey",
+        "table": "message_view_once_receipts"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"view_once_receipts_incognito_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "view_once_receipts_incognito_fkey",
+          "public",
+          "\"public\".\"message_view_once_receipts\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"view_once_receipts_incognito_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"message_view_once_receipts\"\nADD CONSTRAINT \"view_once_receipts_incognito_fkey\"\nFOREIGN KEY (\"incognitoMessageId\")\nREFERENCES \"public\".\"message_incognito_messages\" (\"id\")\nON DELETE CASCADE\nON UPDATE CASCADE"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"view_once_receipts_incognito_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "view_once_receipts_incognito_fkey",
+          "public",
+          "\"public\".\"message_view_once_receipts\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.message_view_once_receipts.view_once_receipts_user_fkey",
+    "label": "Add foreign key \"view_once_receipts_user_fkey\" on \"message_view_once_receipts\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "view_once_receipts_user_fkey",
+        "table": "message_view_once_receipts"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"view_once_receipts_user_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "view_once_receipts_user_fkey",
+          "public",
+          "\"public\".\"message_view_once_receipts\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"view_once_receipts_user_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"message_view_once_receipts\"\nADD CONSTRAINT \"view_once_receipts_user_fkey\"\nFOREIGN KEY (\"userId\")\nREFERENCES \"public\".\"users\" (\"id\")\nON DELETE CASCADE\nON UPDATE CASCADE"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"view_once_receipts_user_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "view_once_receipts_user_fkey",
+          "public",
+          "\"public\".\"message_view_once_receipts\""
+        ]
+      }
+    ]
+  }
+]

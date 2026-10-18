@@ -13,6 +13,10 @@ import {
 } from "./lifecycle";
 import { eraseExpiredChatBatch } from "./lifecycle-cleanup";
 import { toggleMessageReaction } from "./reactions";
+import {
+  acknowledgeViewOnceSeen,
+  getViewOnceReceipt,
+} from "./view-once-receipts";
 
 const owner = `interaction-owner-${crypto.randomUUID()}`;
 const peer = `interaction-peer-${crypto.randomUUID()}`;
@@ -111,6 +115,69 @@ async function createPhoto(conversationId: string) {
 }
 
 describe("message interaction authorization and lifecycle", () => {
+  test("view-once seen receipts require display confirmation, survive byte cleanup, and enforce reader access", async () => {
+    await withChat(async (conversationId) => {
+      const { mediaId, messageId } = await createPhoto(conversationId);
+      const grant = crypto.randomUUID();
+      expect(await getViewOnceReceipt(conversationId, mediaId, owner)).toEqual({
+        seenAt: null,
+        unavailable: false,
+      });
+      await reserveViewOnceMedia(conversationId, mediaId, peer, grant);
+      expect(await activateViewOnceGrant(conversationId, grant, peer)).toBe(
+        true
+      );
+      const unopened = await getViewOnceReceipt(conversationId, mediaId, owner);
+      expect(unopened.seenAt).toBeNull();
+      await expect(
+        acknowledgeViewOnceSeen(conversationId, mediaId, owner, grant)
+      ).rejects.toThrow();
+      await expect(
+        acknowledgeViewOnceSeen(
+          conversationId,
+          mediaId,
+          peer,
+          crypto.randomUUID()
+        )
+      ).rejects.toThrow();
+      await expect(
+        getViewOnceReceipt(conversationId, mediaId, third)
+      ).rejects.toThrow();
+      const first = await acknowledgeViewOnceSeen(
+        conversationId,
+        mediaId,
+        peer,
+        grant
+      );
+      expect(first.changed).toBe(true);
+      const repeated = await acknowledgeViewOnceSeen(
+        conversationId,
+        mediaId,
+        peer,
+        grant
+      );
+      expect(repeated).toEqual({ changed: false, seenAt: first.seenAt });
+      await closeViewOnceGrant(grant, peer);
+      await prisma.orm.public.MessageMediaLinks.where({
+        mediaId,
+      }).deleteAndCount();
+      expect(await getViewOnceReceipt(conversationId, mediaId, owner)).toEqual({
+        seenAt: first.seenAt,
+        unavailable: true,
+      });
+      expect(await getViewOnceReceipt(conversationId, mediaId, peer)).toEqual({
+        seenAt: first.seenAt,
+        unavailable: true,
+      });
+      await prisma.orm.public.MessageHiddens.create({
+        messageId,
+        userId: peer,
+      });
+      await expect(
+        getViewOnceReceipt(conversationId, mediaId, peer)
+      ).rejects.toThrow();
+    });
+  });
   test("hidden, cleared, and blocked messages cannot be read or reacted to", async () => {
     await withChat(async (conversationId) => {
       const message = await createMessage(conversationId);

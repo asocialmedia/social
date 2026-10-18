@@ -215,6 +215,7 @@ export * from "./src/recommendation/retrieval-benchmark";
 export * from "./src/recommendation/experiment-report";
 export * from "./src/messages/lifecycle";
 export * from "./src/messages/reactions";
+export * from "./src/messages/view-once-receipts";
 export { messageInteractionAllowed } from "./src/messages/access/interaction-access";
 export * from "./src/messages/prebuild-lifecycle";
 export * from "./src/messages/lifecycle-cleanup";

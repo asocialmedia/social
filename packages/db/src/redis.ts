@@ -574,6 +574,7 @@ export interface MessageStreamEvent {
     // delivery window closed). Carries the opaque media id only, never a URL,
     // so a stream connection can clear a stale tile but cannot fetch bytes.
     | "media.viewOnce.revoked"
+    | "media.viewOnce.seen"
     // A member posted new wrapped root keys (a first send in a new
     // conversation, a heal, or an identity reset that rotated the epoch). The
     // payload is deliberately empty: the only correct response is to refetch
@@ -704,6 +705,7 @@ export function parseMessageEvent(raw: string): MessageStreamEvent | null {
       parsed.kind !== "typing.started" &&
       parsed.kind !== "message.reacted" &&
       parsed.kind !== "media.viewOnce.revoked" &&
+      parsed.kind !== "media.viewOnce.seen" &&
       parsed.kind !== "conversation.appearance.changed" &&
       parsed.kind !== "keys.rotated" &&
       parsed.kind !== "den.membership.changed"
@@ -761,7 +763,8 @@ export function parseMessageEvent(raw: string): MessageStreamEvent | null {
     }
     // A revoke notice without a media id is meaningless on the wire.
     if (
-      parsed.kind === "media.viewOnce.revoked" &&
+      (parsed.kind === "media.viewOnce.revoked" ||
+        parsed.kind === "media.viewOnce.seen") &&
       typeof parsed.mediaId !== "string"
     ) {
       return null;

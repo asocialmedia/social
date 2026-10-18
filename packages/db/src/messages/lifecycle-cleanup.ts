@@ -21,6 +21,11 @@ async function eraseMediaReferences(
     return;
   }
   await rawExecute(
+    `DELETE FROM public.message_view_once_receipts WHERE "${field}"=ANY($1::text[])`,
+    [ids],
+    tx
+  );
+  await rawExecute(
     `UPDATE public.post_media p SET ${erasedMediaFields}
     WHERE p.id IN (SELECT "mediaId" FROM public.message_media_links WHERE "${field}"=ANY($1::text[]))
     AND p."messageLifecycleProtected" AND p."postId" IS NULL AND p."commentId" IS NULL

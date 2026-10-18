@@ -207,3 +207,16 @@ test("shared appearance events survive server serialization", () => {
     kind: "conversation.appearance.changed",
   });
 });
+test("view-once seen events carry an opaque photo id and reject incomplete frames", () => {
+  const event = {
+    conversationId: "chat",
+    kind: "media.viewOnce.seen" as const,
+    mediaId: "photo",
+  };
+  expect(parseMessageEvent(serializeMessageEvent(event))).toMatchObject(event);
+  expect(
+    parseMessageEvent(
+      JSON.stringify({ conversationId: "chat", kind: "media.viewOnce.seen" })
+    )
+  ).toBeNull();
+});

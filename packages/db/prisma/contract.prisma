@@ -329,6 +329,7 @@ namespace public {
     messageReactions                  MessageReactions[]
     messages                          Messages[]
     viewOnceRecipients                MessageViewOnceRecipients[]
+    viewOnceReceipts                  MessageViewOnceReceipts[]
     passkeys                          Passkey[]
     passwordResetTokens               PasswordResetTokens[]
     postVisits                        PostVisits[]
@@ -756,6 +757,7 @@ namespace public {
     hiddenFor        MessageHiddens[]
     reactionCounts   MessageReactionCounts[]
     reactions        MessageReactions[]
+    viewOnceReceipts MessageViewOnceReceipts[]
 
     @@index([conversationId, createdAt], map: "messages_conversationId_createdAt_idx")
     @@index([conversationId, id], map: "messages_conversationId_id_idx")
@@ -807,6 +809,7 @@ namespace public {
     mediaLinks MessageMediaLinks[]
     reactionCounts MessageReactionCounts[]
     reactions MessageReactions[]
+    viewOnceReceipts MessageViewOnceReceipts[]
 
     @@unique([sessionId, senderId, ratchetIndex], map: "incognito_message_sender_ratchet")
     @@unique([sessionId, sequence])
@@ -925,6 +928,26 @@ namespace public {
     @@unique([mediaLinkId, userId], map: "message_view_once_recipients_media_user_unique")
     @@index([userId], map: "message_view_once_recipients_userId_idx")
     @@map("message_view_once_recipients")
+  }
+
+  model MessageViewOnceReceipts {
+    id String @id(map: "message_view_once_receipts_pkey")
+    mediaId String
+    userId String
+    messageId String?
+    incognitoMessageId String?
+    openedAt Timestamp(3) @default(now())
+    seenAt Timestamp(3)?
+    message Messages? @relation(fields: [messageId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "view_once_receipts_message_fkey", index: false)
+    incognitoMessage MessageIncognitoMessages? @relation(fields: [incognitoMessageId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "view_once_receipts_incognito_fkey", index: false)
+    user Users @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "view_once_receipts_user_fkey")
+
+    @@unique([mediaId, userId], map: "view_once_receipts_media_user_key")
+    @@index([messageId], map: "view_once_receipts_message_idx")
+    @@index([incognitoMessageId], map: "view_once_receipts_incognito_idx")
+    @@index([userId], map: "view_once_receipts_user_idx")
+    @@check(expression: "(\"messageId\" IS NULL) <> (\"incognitoMessageId\" IS NULL)", name: "view_once_receipts_exact_source")
+    @@map("message_view_once_receipts")
   }
 
   model MessageViewOnceGrants {

@@ -864,6 +864,18 @@ export function activateViewOnceGrant(
       [grantId, userId, conversationId],
       tx
     );
+    if (result.affectedRows === 1) {
+      // Keep a receipt independently of the private bytes and their short-lived grant.
+      await rawExecute(
+        `INSERT INTO public.message_view_once_receipts (id,"mediaId","userId","messageId","incognitoMessageId","openedAt")
+        SELECT g.id,l."mediaId",r."userId",l."messageId",l."incognitoMessageId",g."activatedAt"
+        FROM public.message_view_once_grants g JOIN public.message_view_once_recipients r ON r.id=g."recipientId"
+        JOIN public.message_media_links l ON l.id=r."mediaLinkId" WHERE g.id=$1
+        ON CONFLICT ("mediaId","userId") DO NOTHING`,
+        [grantId],
+        tx
+      );
+    }
     return result.affectedRows === 1;
   });
 }

@@ -4,3 +4,4 @@ export * from "./search";
 export * from "./lifecycle";
 export * from "./reader-window";
 export * from "./reactions";
+export * from "./view-once";
