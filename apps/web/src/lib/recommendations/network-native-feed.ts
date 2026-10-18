@@ -14,12 +14,20 @@ import {
   prisma,
   redis,
   scoreCandidate,
+  networkSocialCandidates,
+  getAuraSignalsForUsers,
+  rankFeed,
   getNotInterestedPostIds,
   NetworkPreferenceConflictError,
 } from "@asm/db";
 import type { PostData, UserProfile } from "@asm/db";
-import { matchesAvoidedTopic } from "@asm/protocols/discovery";
+import { networkInterestTerms } from "@asm/protocols/discovery";
 import { z } from "zod";
+
+import {
+  networkPostAllowed,
+  postNetworkInterestScore,
+} from "@/lib/posts/network-content-policy";
 
 import { networkFeedContext } from "./network-context";
 import { signNetworkObservation } from "./network-observation";
@@ -70,7 +78,8 @@ function topicsOf(post: PostData) {
 export async function networkNativeFeed(
   request: Request,
   userId: string,
-  mode: "personalized" | "trending" | "latest"
+  mode: "personalized" | "trending" | "latest",
+  contentKind: "post" | "gust" = "post"
 ) {
   const query = new URL(request.url).searchParams;
   const context = await networkFeedContext(
@@ -87,9 +96,11 @@ export async function networkNativeFeed(
       { status: 409 }
     );
   }
-  const scope = `${userId || "guest"}:${context.selected.id}:${context.revision}:${mode}`;
+  const scope = `v4:${userId || "guest"}:${context.selected.id}:${context.revision}:${context.topicScope?.version ?? "exact"}:${mode}:${contentKind}`;
+  const social = await networkSocialCandidates(userId);
+  const socialById = new Map(social.native.map((entry) => [entry.id, entry]));
   const cursor = query.get("cursor");
-  const take = query.get("take") ?? "20";
+  const take = query.get("take") ?? (contentKind === "gust" ? "10" : "20");
   const pageSize = /^[1-9]\d*$/u.test(take) ? Math.min(20, Number(take)) : 20;
   let ids: string[];
   let generation = crypto.randomUUID();
@@ -112,25 +123,39 @@ export async function networkNativeFeed(
     }
     ({ ids } = parsed.data);
   } else {
-    const seeds = [
-      ...new Set([
-        ...context.selected.interests,
-        ...Object.keys(context.profile.tagWeights),
-        ...Object.keys(context.profile.expandedEntityWeights ?? {}),
-      ]),
-    ].slice(0, 40);
+    const seeds = context.selected.interests.length
+      ? networkInterestTerms(context.selected.interests, context.topicScope)
+      : [
+          ...new Set([
+            ...context.selected.interests,
+            ...Object.keys(context.profile.tagWeights),
+            ...Object.keys(context.profile.expandedEntityWeights ?? {}),
+          ]),
+        ].slice(0, 40);
     const { rawQuery } = await import("@asm/db");
     const [relevant, exploration] = await Promise.all([
       rawQuery<{ id: string }>(
         networkSql.candidates,
-        [seeds, context.preferences.showExplicitContent, mode],
+        [
+          seeds,
+          context.preferences.showExplicitContent,
+          mode,
+          contentKind === "gust",
+        ],
         { id: "pg/text@1" }
       ),
-      rawQuery<{ id: string }>(
-        networkSql.candidates,
-        [[], context.preferences.showExplicitContent, mode],
-        { id: "pg/text@1" }
-      ),
+      context.selected.interests.length
+        ? Promise.resolve({ rows: [] })
+        : rawQuery<{ id: string }>(
+            networkSql.candidates,
+            [
+              [],
+              context.preferences.showExplicitContent,
+              mode,
+              contentKind === "gust",
+            ],
+            { id: "pg/text@1" }
+          ),
     ]);
     ids = [
       ...new Set(
@@ -138,6 +163,7 @@ export async function networkNativeFeed(
           (row) => row.id
         )
       ),
+      ...social.native.map((entry) => entry.id),
     ];
   }
   const visibility = communityVisibilityWhere(userId);
@@ -160,7 +186,13 @@ export async function networkNativeFeed(
         .where((post) =>
           and(
             post.id.in(ids),
-            post.isGust.eq(false),
+            post.isGust.eq(contentKind === "gust"),
+            ...(contentKind === "gust"
+              ? [
+                  post.rootPostId.isNull(),
+                  post.postMedias.some((media) => media._type.eq("VIDEO")),
+                ]
+              : []),
             post.moderated.eq(false),
             visibility(post),
             or(post.communityId.isNull(), post.communityId.in(subscriptions)),
@@ -180,18 +212,30 @@ export async function networkNativeFeed(
         networkLanguageMatches(
           post.content,
           [],
-          context.preferences.language
+          context.preferences.contentLanguages ?? [context.preferences.language]
         ) &&
-        !matchesAvoidedTopic(
-          post.content,
-          topicsOf(post),
-          context.preferences.avoidedTopics
-        )
+        networkPostAllowed(post, context.preferences, context.topicScope) &&
+        (!context.selected.interests.length ||
+          postNetworkInterestScore(
+            post,
+            context.selected.interests,
+            context.topicScope
+          ) > 0)
     );
   if (!cursor) {
+    const authorSignals = await getAuraSignalsForUsers([
+      ...new Set(posts.map((post) => post.userId)),
+    ]);
+    const followedAuthorIds = new Set(social.followedIds);
     const enriched = posts.map((post) => {
       const topics = topicsOf(post);
-      const fit = networkTopicAffinity(post.content, topics, context.profile);
+      const fit = context.selected.interests.length
+        ? postNetworkInterestScore(
+            post,
+            context.selected.interests,
+            context.topicScope
+          )
+        : networkTopicAffinity(post.content, topics, context.profile);
       const candidate = {
         aura: post.aura,
         authorId: post.userId,
@@ -214,22 +258,34 @@ export async function networkNativeFeed(
         post.content,
         topics,
         region,
-        context.preferences.language === "all" ||
+        context.preferences.contentLanguages?.[0] ??
+          (context.preferences.language === "all" ||
           context.preferences.language === "auto"
-          ? "en"
-          : context.preferences.language
+            ? "en"
+            : context.preferences.language)
       );
       const nativeScore = scoreCandidate(candidate, context.profile, {
+        authorVisibilityWeight:
+          authorSignals.get(post.userId)?.visibilityWeight ?? 1,
+        followedAuthorIds,
         geographicAffinity,
+        socialProofAffinity: socialById.get(post.id)?.weight,
       });
       const trend = Math.log1p(Math.max(0, post.trendingScore));
       return {
+        authorId: post.userId,
         fit,
+        id: post.id,
+        mediaKeys: post.attachments.map((media) => media.id),
         post,
         score:
           mode === "trending"
-            ? trend + Math.min(2, fit) * 2 + geographicAffinity * 0.4
+            ? fit * 20 +
+              Math.min(5, trend) +
+              geographicAffinity * 0.4 +
+              (socialById.get(post.id)?.weight ?? 0) * 2
             : nativeScore + fit * 20,
+        semanticTags: topics,
       };
     });
     const hasInterests = Object.keys(context.profile.tagWeights).length > 0;
@@ -245,7 +301,25 @@ export async function networkNativeFeed(
           b.post.createdAt.getTime() - a.post.createdAt.getTime() ||
           b.post.id.localeCompare(a.post.id)
     );
-    ids = eligible.map((item) => item.post.id);
+    if (mode === "latest") {
+      ids = eligible.map((item) => item.post.id);
+    } else {
+      ids = [];
+      let remaining = eligible;
+      while (remaining.length) {
+        const page = rankFeed(
+          remaining.map((item) => ({ post: item, score: item.score })),
+          { pageSize }
+        );
+        if (!page.length) {
+          break;
+        }
+        ids.push(...page.map((item) => item.id));
+        const used = new Set(page.map((item) => item.id));
+        remaining = remaining.filter((item) => !used.has(item.id));
+      }
+    }
+    ids = ids.slice(0, 400);
     canContinue = await redis
       .set(
         `rec:network-feed:v1:${generation}`,
@@ -271,6 +345,7 @@ export async function networkNativeFeed(
   const observed = await Promise.all(
     posts.map(async (post) => ({
       ...post,
+      recommendationSources: socialById.get(post.id)?.sources,
       ...(userId
         ? {
             networkRecommendationToken: await signNetworkObservation(userId, {

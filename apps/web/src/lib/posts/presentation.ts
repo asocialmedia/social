@@ -78,6 +78,7 @@ export function externalPostView(post: ExternalPost): PresentedPost {
     networkRecommendationToken: post.networkRecommendationToken,
     parentPost: null,
     parentPostId: null,
+    recommendationSources: post.recommendationSources,
     rootPostId: null,
     semanticTags: externalPostTopics(post),
     tags: [],

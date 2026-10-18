@@ -34,6 +34,56 @@ const post = (id: string, text: string): ExternalPost => ({
   url: "https://bsky.app/profile/did:plc:fixture/post/example",
 });
 
+test("explicit interests control discovery terms even when learned and graph weights prefer politics", () => {
+  const drifted: UserProfile = {
+    authorWeights: {},
+    expandedEntityWeights: { elections: 999 },
+    tagWeights: { news: 888, politics: 999, software: 1 },
+  };
+  const topics = discoveryTopics(drifted, [
+    "software",
+    "web development",
+    "tech",
+  ]);
+  expect(topics).toContain("software");
+  expect(topics).toContain("web development");
+  expect(topics).not.toContain("politics");
+  expect(topics).not.toContain("elections");
+});
+
+test("For You and Trending never admit viral off-topic content to an explicitly focused profile", () => {
+  const viral = {
+    ...post("viral-politics", "Election news and world politics"),
+    upstreamCounts: {
+      likes: 10_000_000,
+      quotes: 10_000_000,
+      replies: 10_000_000,
+      reposts: 10_000_000,
+    },
+  };
+  const software = post("software", "TypeScript and React hooks tutorial");
+  const drifted: UserProfile = {
+    authorWeights: { "did:plc:fixture": 999 },
+    expandedEntityWeights: { politics: 99_999 },
+    tagWeights: { news: 99_999, politics: 99_999, software: 1 },
+  };
+  for (const mode of ["personalized", "trending"] as const) {
+    const ranked = rankExternalForViewer([viral, software], drifted, {
+      interests: ["software", "web development"],
+      mode,
+      topicScope: {
+        avoided: {},
+        interests: { software: ["typescript", "react hooks"] },
+        version: "fixture",
+      },
+    });
+    expect(ranked.map((item) => item.id)).toEqual(["software"]);
+    expect(
+      rankExternalForViewer([viral], drifted, { interests: ["software"], mode })
+    ).toEqual([]);
+  }
+});
+
 test("discovery terms come from weighted persona signals without negative topics or query operators", () => {
   expect(discoveryTopics(profile)).toEqual(["astronomy", "gardening"]);
   expect(

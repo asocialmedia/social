@@ -1,4 +1,6 @@
 // oxlint-disable eslint/max-classes-per-file
+import { defaultNetworkPreferences } from "@asm/protocols/discovery";
+
 export const EMBEDDING_DIMENSION = 384;
 
 // Shared @asm/db mock surface for the posts/editor test suites. Both suites
@@ -69,6 +71,13 @@ export const asmDbMockBase = {
     where: () => ({ all: () => Promise.resolve([]) }),
   }),
   getCommunityRoleSelect: () => ({ select: { role: true } }),
+  getNetworkPersona: () =>
+    Promise.resolve({
+      preferences: defaultNetworkPreferences(),
+      profile: { authorWeights: {}, tagWeights: {} },
+      revision: 0,
+      selected: { id: "default", interests: [], name: "Everyday" },
+    }),
   getPersonalizedFeedPage: () =>
     Promise.resolve({ items: [], nextCursor: null }),
   getPostDataInclude: () => ({ user: true }),
@@ -127,6 +136,8 @@ export const asmDbMockBase = {
   publishResponseDeleted: () => Promise.resolve(),
   publishTrendingSnapshot: () => Promise.resolve(),
   publishTypingStarted: () => Promise.resolve(),
+  readNetworkPreferences: () =>
+    Promise.resolve({ preferences: defaultNetworkPreferences(), revision: 0 }),
   recordExternalPostVisit: () => Promise.resolve("snapshot-id"),
   redis: {
     del: () => Promise.resolve(),

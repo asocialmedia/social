@@ -13,6 +13,7 @@ export function networkFeedContext(
       profile: guestProfile,
       revision: 0,
       selected: { id: "default", interests: [], name: "Everyday" },
+      topicScope: undefined,
     });
   }
   return getNetworkPersona(userId, requestedProfileId);

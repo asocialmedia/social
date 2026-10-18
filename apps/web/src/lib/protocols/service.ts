@@ -160,7 +160,8 @@ export async function readBlueskyDiscovery(
 export async function readBlueskyPosts(
   uris: string[],
   signal?: AbortSignal,
-  requestId?: string
+  requestId?: string,
+  recommendations = false
 ) {
   const service = process.env.PROTOCOLS_SERVICE_URL;
   const token = process.env.PROTOCOLS_INTERNAL_TOKEN;
@@ -177,6 +178,9 @@ export async function readBlueskyPosts(
   }
   for (const uri of uris) {
     url.searchParams.append("uri", uri);
+  }
+  if (recommendations) {
+    url.searchParams.set("recommendations", "1");
   }
   await applyViewerMediaPolicy(url);
   const boundedSignal = signal
