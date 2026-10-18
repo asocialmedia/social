@@ -126,6 +126,7 @@ import {
   getMediaImages,
   importPublicKeyJwk,
   importRatchetBaseKey,
+  getMediaAttachments,
   publicKeyBase64ToJwk,
 } from "@/lib/messages/crypto";
 import type { MessagePayload } from "@/lib/messages/crypto";
@@ -3983,6 +3984,7 @@ function NormalMessageThread({
         // handled before the ordinary message event path below.
         | "message.reacted"
         | "media.viewOnce.revoked"
+        | "media.viewOnce.seen"
         | "conversation.appearance.changed"
         | "keys.rotated"
         | "den.membership.changed";
@@ -4768,13 +4770,24 @@ function NormalMessageThread({
   const optionsMessage = optionsTarget
     ? messagesById.get(optionsTarget.messageId)
     : undefined;
-  const optionsReceipt = optionsMessage
-    ? getMessageReceipt({
-        createdAt: optionsMessage.createdAt,
-        mine: optionsMessage.senderId === userId,
-        watermarks: peerMarks,
-      })
+  const optionsContent = optionsMessage
+    ? messageDecryptor.get(optionsMessage.id)
     : null;
+  const optionsHasViewOnce =
+    optionsContent &&
+    typeof optionsContent === "object" &&
+    optionsContent.type === "media" &&
+    getMediaAttachments(optionsContent).some(
+      (attachment) => attachment.kind === "view-once"
+    );
+  const optionsReceipt =
+    optionsMessage && !optionsHasViewOnce
+      ? getMessageReceipt({
+          createdAt: optionsMessage.createdAt,
+          mine: optionsMessage.senderId === userId,
+          watermarks: peerMarks,
+        })
+      : null;
 
   // 1-based counter position of the landed match, or 0 when the landed message
   // is no longer one of the current matches (query changed, or it was hidden).

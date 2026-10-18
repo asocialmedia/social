@@ -1373,3 +1373,26 @@ video::cue {
     }
   }
 }
+
+@layer components {
+  .view-once-in-view .view-once-eye {
+    animation: view-once-eye-blink 680ms ease-in-out 1;
+    transform-origin: center;
+  }
+  @keyframes view-once-eye-blink {
+    0%,
+    28%,
+    70%,
+    100% {
+      transform: scaleY(1);
+    }
+    45% {
+      transform: scaleY(0.14);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .view-once-in-view .view-once-eye {
+      animation: none;
+    }
+  }
+}

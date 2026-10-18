@@ -1,6 +1,7 @@
 "use client";
 
-import { LIFECYCLE_CAPABILITY } from "@asm/messages";
+import { LIFECYCLE_CAPABILITY, viewOnceReceiptKey } from "@asm/messages";
+import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
@@ -23,6 +24,7 @@ interface MessageStreamEvent {
     // The opaque id of a view-once attachment whose grant was revoked. Never a
     // URL: a stream can clear a tile but can never fetch a protected byte.
     | "media.viewOnce.revoked"
+    | "media.viewOnce.seen"
     | "conversation.appearance.changed"
     | "keys.rotated"
     | "den.membership.changed";
@@ -71,6 +73,7 @@ export function parseMessageEvent(raw: string): MessageStreamEvent | null {
       parsed.kind !== "typing.started" &&
       parsed.kind !== "message.reacted" &&
       parsed.kind !== "media.viewOnce.revoked" &&
+      parsed.kind !== "media.viewOnce.seen" &&
       parsed.kind !== "conversation.appearance.changed" &&
       parsed.kind !== "keys.rotated" &&
       parsed.kind !== "den.membership.changed"
@@ -119,7 +122,8 @@ export function parseMessageEvent(raw: string): MessageStreamEvent | null {
       return null;
     }
     if (
-      parsed.kind === "media.viewOnce.revoked" &&
+      (parsed.kind === "media.viewOnce.revoked" ||
+        parsed.kind === "media.viewOnce.seen") &&
       typeof parsed.mediaId !== "string"
     ) {
       return null;
@@ -364,6 +368,7 @@ export function useMessagesRealtime(
   onMembershipEnded?: (conversationId: string) => void
 ): { connected: boolean; updateRequired: boolean } {
   const { user } = useSession();
+  const queryClient = useQueryClient();
   // A stable id keeps the stream effect from tearing down and reconnecting
   // whenever the user object identity changes.
   const userId = user?.id;
@@ -420,6 +425,16 @@ export function useMessagesRealtime(
       }
 
       const { event } = action;
+      if (event.kind === "media.viewOnce.seen" && event.mediaId) {
+        void queryClient.invalidateQueries({
+          queryKey: viewOnceReceiptKey(
+            userId ?? "",
+            conversationId,
+            event.mediaId
+          ),
+        });
+        return;
+      }
       const message = event.message
         ? (JSON.parse(
             JSON.stringify(event.message),
@@ -522,7 +537,7 @@ export function useMessagesRealtime(
         clearTimeout(retryTimer);
       }
     };
-  }, [conversationId, enabled, userId, streamScope]);
+  }, [conversationId, enabled, userId, streamScope, queryClient]);
 
   const updateRequired = updateRequiredFor === streamScope;
   return {

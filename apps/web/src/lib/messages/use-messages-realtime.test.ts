@@ -427,3 +427,14 @@ test("shared wallpaper changes reach the open conversation without pretending th
     kind: "conversation.appearance.changed",
   });
 });
+test("view-once seen frames reach the receipt cache without a message body", () => {
+  const event = {
+    conversationId: "chat",
+    kind: "media.viewOnce.seen",
+    mediaId: "photo",
+  };
+  expect(parseMessageEvent(JSON.stringify(event))).toMatchObject(event);
+  expect(
+    parseMessageEvent(JSON.stringify({ ...event, mediaId: null }))
+  ).toBeNull();
+});

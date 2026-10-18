@@ -4,7 +4,7 @@ import type {
   GroupAddRefusal,
 } from "@asm/db/messages/dens";
 import type { MessageAttachmentKind } from "@asm/media";
-import type { MessageReactionSummary } from "@asm/messages";
+import type { MessageReactionSummary, ViewOnceReceipt } from "@asm/messages";
 import { extractMessageReferences } from "@asm/messages";
 
 import { uploadMediaFile } from "@/lib/media/media-upload-client";
@@ -1705,6 +1705,44 @@ export async function openViewOnceMedia(
     });
     throw error;
   }
+}
+
+export async function fetchViewOnceReceipt(
+  conversationId: string,
+  mediaId: string,
+  signal?: AbortSignal
+) {
+  const response = await fetchChatApi(
+    `/api/messages/conversations/${conversationId}/media/${mediaId}/view-once/receipt`,
+    { cache: "no-store", credentials: "same-origin", signal }
+  );
+  if (!response.ok) {
+    throw await parseError(response);
+  }
+  return (await response.json()) as ViewOnceReceipt;
+}
+
+export async function acknowledgeViewOnceSeen(
+  conversationId: string,
+  mediaId: string,
+  grantId: string
+) {
+  const response = await fetchChatApi(
+    `/api/messages/conversations/${conversationId}/media/${mediaId}/view-once/receipt`,
+    {
+      body: JSON.stringify({ grantId }),
+      cache: "no-store",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      keepalive: true,
+      method: "POST",
+      signal: AbortSignal.timeout(5000),
+    }
+  );
+  if (!response.ok) {
+    throw await parseError(response);
+  }
+  return (await response.json()) as ViewOnceReceipt;
 }
 
 export async function closeViewOnceMedia(

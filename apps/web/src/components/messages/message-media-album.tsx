@@ -1,17 +1,30 @@
 "use client";
 
 import {
+  formatViewOnceSeenAt,
+  isViewOnceUnavailable,
+  retryViewOnceReceipt,
+  viewOnceReceiptKey,
+} from "@asm/messages";
+import {
   Dialog,
   DialogContent,
   DialogDescription,
   DialogTitle,
 } from "@asm/ui/shadui/dialog";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Download, Eye, FileText, ImageOff, Loader2, X } from "lucide-react";
 import Image from "next/image";
 import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { closeViewOnceMedia, openViewOnceMedia } from "@/lib/messages/client";
+import { useSession } from "@/app/(main)/session-provider";
+import {
+  acknowledgeViewOnceSeen,
+  closeViewOnceMedia,
+  fetchViewOnceReceipt,
+  openViewOnceMedia,
+} from "@/lib/messages/client";
 import type {
   MediaAttachmentRef,
   MediaImageRef,
@@ -59,6 +72,55 @@ function ViewOncePhoto({
   mediaId: string;
 }) {
   const conversationId = useViewOnceConversationId();
+  const { user } = useSession();
+  const queryClient = useQueryClient();
+  const tileRef = useRef<HTMLDivElement>(null);
+  const [inView, setInView] = useState(false);
+  const receiptKey = viewOnceReceiptKey(
+    user?.id ?? "",
+    conversationId ?? "",
+    mediaId
+  );
+  const receipt = useQuery({
+    enabled: Boolean(user && conversationId && inView),
+    gcTime: 60_000,
+    queryFn: ({ signal }) =>
+      fetchViewOnceReceipt(conversationId ?? "", mediaId, signal),
+    queryKey: receiptKey,
+    refetchInterval: (query) =>
+      query.state.data?.seenAt ||
+      query.state.data?.unavailable ||
+      isViewOnceUnavailable(query.state.error)
+        ? false
+        : 15_000,
+    retry: 1,
+    staleTime: 15_000,
+  });
+  const acknowledge = useMutation({
+    mutationFn: (grantId: string) =>
+      acknowledgeViewOnceSeen(conversationId ?? "", mediaId, grantId),
+    onSuccess: async (status) => {
+      await queryClient.cancelQueries({ queryKey: receiptKey });
+      queryClient.setQueryData(receiptKey, status);
+    },
+    retry: retryViewOnceReceipt,
+    retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 10_000),
+  });
+  const seenLabel = formatViewOnceSeenAt(receipt.data?.seenAt);
+  const receiptUnavailable =
+    receipt.data?.unavailable || isViewOnceUnavailable(receipt.error);
+  useEffect(() => {
+    const tile = tileRef.current;
+    if (!tile) {
+      return;
+    }
+    const observer = new IntersectionObserver(
+      ([entry]) => setInView(entry.isIntersecting),
+      { threshold: 0.3 }
+    );
+    observer.observe(tile);
+    return () => observer.disconnect();
+  }, []);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [opened, setOpened] = useState(false);
@@ -67,6 +129,7 @@ function ViewOncePhoto({
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const imageUrlRef = useRef<string | null>(null);
   const grantIdRef = useRef<string | null>(null);
+  const acknowledgedGrant = useRef<string | null>(null);
   const controllerRef = useRef<AbortController | null>(null);
 
   const closeViewer = useCallback(() => {
@@ -124,6 +187,7 @@ function ViewOncePhoto({
       !conversationId ||
       controllerRef.current ||
       busy ||
+      receiptUnavailable ||
       opened ||
       unavailable
     ) {
@@ -172,53 +236,76 @@ function ViewOncePhoto({
       controllerRef.current = null;
       setBusy(false);
     }
-  }, [busy, canOpen, conversationId, mediaId, opened, unavailable]);
+  }, [
+    busy,
+    canOpen,
+    conversationId,
+    mediaId,
+    opened,
+    unavailable,
+    receiptUnavailable,
+  ]);
 
   let label = "Open photo";
-  if (opened) {
+  if (seenLabel) {
+    label = seenLabel;
+  } else if (opened) {
     label = "Opened";
-  } else if (unavailable) {
+  } else if (unavailable || receiptUnavailable) {
     label = "No longer available";
   }
   return (
     <>
-      {canOpen && conversationId ? (
-        <button
-          aria-label={label}
-          className="surface-3d text-muted-foreground hover:bg-muted/70 flex min-h-16 w-full items-center gap-3 rounded-2xl px-4 py-3 text-left text-sm transition-colors disabled:cursor-default"
-          disabled={busy || opened || unavailable}
-          onClick={openPhoto}
-          type="button"
-        >
-          <span className="bg-muted/70 flex size-10 shrink-0 items-center justify-center rounded-xl">
-            {busy ? (
-              <Loader2 className="size-4 animate-spin" />
-            ) : (
-              <Eye className="size-4" />
-            )}
-          </span>
-          <span className="min-w-0 flex-1">
-            <span className="block font-medium">
-              {opened || unavailable ? label : "View once photo"}
+      <div ref={tileRef} className={inView ? "view-once-in-view" : undefined}>
+        {canOpen && conversationId ? (
+          <button
+            aria-label={label}
+            className="surface-3d text-muted-foreground hover:bg-muted/70 flex min-h-16 w-full items-center gap-3 rounded-2xl px-4 py-3 text-left text-sm transition-colors disabled:cursor-default"
+            disabled={busy || opened || unavailable || receiptUnavailable}
+            onClick={openPhoto}
+            type="button"
+          >
+            <span className="bg-muted/70 flex size-10 shrink-0 items-center justify-center rounded-xl">
+              {busy ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <Eye className="view-once-eye size-4" />
+              )}
             </span>
-            {openError ? (
-              <span className="text-destructive mt-0.5 block text-xs">
-                {openError}
+            <span className="min-w-0 flex-1">
+              <span className="block font-medium">
+                {seenLabel || opened || unavailable || receiptUnavailable
+                  ? label
+                  : "View once photo"}
               </span>
+              {openError ? (
+                <span className="text-destructive mt-0.5 block text-xs">
+                  {openError}
+                </span>
+              ) : null}
+            </span>
+            {!seenLabel &&
+            !opened &&
+            !unavailable &&
+            !receiptUnavailable &&
+            !busy ? (
+              <span className="text-muted-foreground text-xs">Open</span>
             ) : null}
-          </span>
-          {!opened && !unavailable && !busy ? (
-            <span className="text-muted-foreground text-xs">Open</span>
-          ) : null}
-        </button>
-      ) : (
-        <div className="surface-3d text-muted-foreground flex min-h-16 items-center gap-3 rounded-2xl px-4 py-3 text-sm">
-          <span className="bg-muted/70 flex size-10 shrink-0 items-center justify-center rounded-xl">
-            <Eye className="size-4" />
-          </span>
-          <span>View once photo</span>
-        </div>
-      )}
+          </button>
+        ) : (
+          <div className="surface-3d text-muted-foreground flex min-h-16 items-center gap-3 rounded-2xl px-4 py-3 text-sm">
+            <span className="bg-muted/70 flex size-10 shrink-0 items-center justify-center rounded-xl">
+              <Eye className="view-once-eye size-4" />
+            </span>
+            <span>
+              {seenLabel ??
+                (receiptUnavailable
+                  ? "No longer available"
+                  : "View once photo")}
+            </span>
+          </div>
+        )}
+      </div>
       <Dialog
         onOpenChange={(nextOpen) => {
           if (!nextOpen) {
@@ -245,6 +332,17 @@ function ViewOncePhoto({
                 sizes="92vw"
                 src={imageUrl}
                 unoptimized
+                onError={() => {
+                  setOpenError("This photo couldn't be displayed.");
+                  closeViewer();
+                }}
+                onLoad={() => {
+                  const grantId = grantIdRef.current;
+                  if (grantId && acknowledgedGrant.current !== grantId) {
+                    acknowledgedGrant.current = grantId;
+                    acknowledge.mutate(grantId);
+                  }
+                }}
               />
             </div>
           ) : null}
