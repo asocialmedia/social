@@ -347,6 +347,8 @@ namespace public {
     lastLoginMethod                   String?
     twoFactorEnabled                  Boolean                      @default(false)
     groupAddPolicy                    pg.enum(GroupAddPolicy)      @default("FOLLOWING_ONLY")
+    networkPreferences                Jsonb?
+    networkPreferencesRevision        Int                          @default(0)
     hNBookmarks                       HNBookmark[]
     accounts                          Accounts[]
     bookmarks                         Bookmarks[]

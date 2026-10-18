@@ -6,7 +6,12 @@ import { DynamicKnowledgeGraph } from "./knowledge-graph";
 const PREFIX = "rec:topic-graph:v1:";
 const TTL_SECONDS = 90 * 24 * 60 * 60;
 const UPDATE = `
-if not redis.call('SET', KEYS[2], '1', 'NX', 'EX', ARGV[1]) then return 0 end
+local fingerprint = ARGV[#KEYS + 1]
+if redis.call('ZSCORE', KEYS[2], fingerprint) then return 0 end
+redis.call('ZADD', KEYS[2], ARGV[2], fingerprint)
+redis.call('ZREMRANGEBYSCORE', KEYS[2], '-inf', tonumber(ARGV[2]) - tonumber(ARGV[1]) * 1000)
+redis.call('ZREMRANGEBYRANK', KEYS[2], 0, -20001)
+redis.call('EXPIRE', KEYS[2], ARGV[1])
 for index = 3, #KEYS do
   redis.call('ZADD', KEYS[1], ARGV[2], KEYS[index])
   for other = 3, #KEYS do
@@ -15,6 +20,7 @@ for index = 3, #KEYS do
   redis.call('ZREMRANGEBYRANK', KEYS[index], 0, -41)
   redis.call('EXPIRE', KEYS[index], ARGV[1])
 end
+redis.call('EXPIRE', KEYS[1], ARGV[1])
 local stale = redis.call('ZRANGE', KEYS[1], 0, -5001)
 for _, key in ipairs(stale) do redis.call('DEL', key); redis.call('ZREM', KEYS[1], key) end
 return 1
@@ -56,11 +62,12 @@ export async function recordSharedTopicRelations(
     UPDATE,
     topics.length + 2,
     `${namespace}nodes`,
-    `${namespace}document:${fingerprint}`,
+    `${namespace}documents`,
     ...topics.map((topic) => topicKey(topic, namespace)),
     TTL_SECONDS,
     Date.now(),
-    ...topics
+    ...topics,
+    fingerprint
   );
 }
 

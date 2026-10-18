@@ -1,6 +1,6 @@
 {
   "name": "@asm/db",
-  "version": "1.2.81",
+  "version": "1.2.82",
   "private": true,
   "description": "asocialmedia database & cache package",
   "license": "AGPL-3.0",
@@ -48,10 +48,13 @@
     "bullmq": "^6.1.0",
     "cross-env": "^10.1.0",
     "date-fns": "^4.4.0",
+    "franc-min": "^6.2.0",
     "ioredis": "^6.0.0",
     "jose": "^6.2.8",
     "pg": "8.18.0",
     "temporal-polyfill": "^1.0.5",
+    "wink-eng-lite-web-model": "^1.8.1",
+    "wink-nlp": "^2.4.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
