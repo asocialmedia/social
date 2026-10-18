@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { extractTokenFromUrl } from "./config";
+import { describeUserAgent, extractTokenFromUrl } from "./config";
 import { hashPasswordWithScrypt, verifyPasswordHash } from "./password";
 
 describe("extractTokenFromUrl", () => {
@@ -52,5 +52,50 @@ describe("password verification (emailAndPassword.password.verify)", () => {
   test("rejects an unrecognized stored value", async () => {
     expect(await verifyPasswordHash("password", 42)).toBe(false);
     expect(await verifyPasswordHash("password")).toBe(false);
+  });
+});
+
+describe("describeUserAgent", () => {
+  test("returns a placeholder when there is no user agent", () => {
+    const absent: string | null | undefined = undefined;
+
+    expect(describeUserAgent(null)).toBe("Unknown browser");
+    expect(describeUserAgent(absent)).toBe("Unknown browser");
+    expect(describeUserAgent("")).toBe("Unknown browser");
+  });
+
+  test("names the browser and platform a real Chrome request reports", () => {
+    const chrome =
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36";
+
+    // Safari's engine string appears in Chrome's agent, so the order of the
+    // patterns is what keeps this from being reported as Safari.
+    expect(describeUserAgent(chrome)).toBe("Chrome on macOS");
+  });
+
+  test("prefers Edge and Opera over the Chrome token they also carry", () => {
+    expect(
+      describeUserAgent(
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/141.0.0.0 Safari/537.36 Edg/141.0.0.0"
+      )
+    ).toBe("Edge on Windows");
+    expect(
+      describeUserAgent(
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/141.0.0.0 Safari/537.36 OPR/105.0.0.0"
+      )
+    ).toBe("Opera on Windows");
+  });
+
+  test("reports an iPad as iOS rather than macOS", () => {
+    const ipad =
+      "Mozilla/5.0 (iPad; CPU OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Version/17.0 Mobile/15E148 Safari/604.1";
+
+    expect(describeUserAgent(ipad)).toBe("Safari on iOS");
+  });
+
+  test("falls back on each half independently", () => {
+    expect(describeUserAgent("curl/8.4.0")).toBe(
+      "A browser on an unknown device"
+    );
   });
 });

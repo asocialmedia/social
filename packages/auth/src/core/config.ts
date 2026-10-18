@@ -182,6 +182,33 @@ interface SocialUserMapping {
   [key: string]: unknown;
 }
 
+// Ordered most-specific first. Every entry is a substring test, which is all the
+// notice needs, and keeping them in a table means a new agent is one line.
+const BROWSER_PATTERNS: readonly (readonly [RegExp, string])[] = [
+  [/Edg\//, "Edge"],
+  [/OPR\/|Opera/, "Opera"],
+  [/Firefox\//, "Firefox"],
+  [/Chrome\//, "Chrome"],
+  [/Safari\//, "Safari"],
+];
+
+// iOS is checked before macOS because an iPad user agent reports Macintosh.
+const PLATFORM_PATTERNS: readonly (readonly [RegExp, string])[] = [
+  [/Android/, "Android"],
+  [/iPhone|iPad|iPod/, "iOS"],
+  [/Mac OS X|Macintosh/, "macOS"],
+  [/Windows/, "Windows"],
+  [/Linux/, "Linux"],
+];
+
+function matchUserAgent(
+  patterns: readonly (readonly [RegExp, string])[],
+  userAgent: string,
+  fallback: string
+): string {
+  return patterns.find(([pattern]) => pattern.test(userAgent))?.[1] ?? fallback;
+}
+
 // Turns a raw User-Agent into the short label the security emails print. Kept
 // deliberately coarse: the notice only needs enough for the reader to recognise
 // the device, not a fingerprint.
@@ -192,31 +219,11 @@ export function describeUserAgent(
     return "Unknown browser";
   }
 
-  const browser = /Edg\//.test(userAgent)
-    ? "Edge"
-    : /OPR\/|Opera/.test(userAgent)
-      ? "Opera"
-      : /Firefox\//.test(userAgent)
-        ? "Firefox"
-        : /Chrome\//.test(userAgent)
-          ? "Chrome"
-          : /Safari\//.test(userAgent)
-            ? "Safari"
-            : "A browser";
-
-  const platform = /Android/.test(userAgent)
-    ? "Android"
-    : /iPhone|iPad|iPod/.test(userAgent)
-      ? "iOS"
-      : /Mac OS X|Macintosh/.test(userAgent)
-        ? "macOS"
-        : /Windows/.test(userAgent)
-          ? "Windows"
-          : /Linux/.test(userAgent)
-            ? "Linux"
-            : "an unknown device";
-
-  return `${browser} on ${platform}`;
+  return `${matchUserAgent(BROWSER_PATTERNS, userAgent, "A browser")} on ${matchUserAgent(
+    PLATFORM_PATTERNS,
+    userAgent,
+    "an unknown device"
+  )}`;
 }
 
 export interface SocialProvidersConfig {
@@ -816,22 +823,7 @@ export function createAuthConfig(config: AuthConfig = {}) {
           },
         },
       },
-      // Two-factor state lives in its own table: a row appearing means TOTP was
-      // enrolled, a row disappearing means it was removed. better-auth owns
-      // both writes, so the hooks below are the only place that can observe
-      // them without reimplementing the flow.
-      twoFactor: {
-        create: {
-          after: async (factor: { userId: string }) => {
-            await queueTwoFactorNotice(factor.userId, "enabled");
-          },
-        },
-        delete: {
-          after: async (factor: { userId: string }) => {
-            await queueTwoFactorNotice(factor.userId, "disabled");
-          },
-        },
-      },
+
       session: {
         create: {
           after: async (session, context) => {
@@ -942,6 +934,24 @@ export function createAuthConfig(config: AuthConfig = {}) {
           },
         },
       },
+
+      // Two-factor state lives in its own table: a row appearing means TOTP was
+      // enrolled, a row disappearing means it was removed. better-auth owns
+      // both writes, so the hooks below are the only place that can observe
+      // them without reimplementing the flow.
+      twoFactor: {
+        create: {
+          after: async (factor: { userId: string }) => {
+            await queueTwoFactorNotice(factor.userId, "enabled");
+          },
+        },
+        delete: {
+          after: async (factor: { userId: string }) => {
+            await queueTwoFactorNotice(factor.userId, "disabled");
+          },
+        },
+      },
+
       user: {
         create: {
           before: async (user) => {

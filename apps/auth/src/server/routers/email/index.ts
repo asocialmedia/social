@@ -27,31 +27,37 @@ const twoFactorChange = z.enum(["disabled", "enabled", "method-changed"]);
 // already completed the underlying action. Delivery, retries and logging are
 // owned by email/notify.ts.
 export const emailRouter = router({
-  sendPasswordReset: procedure
+  notifyAccountMerged: procedure
     .input(
       z.object({
-        email: z.email(),
-        token: z.string(),
+        completedAt: z.string().min(1),
+        keptUsername: z.string().min(1),
+        mode: z.enum(["discard", "merge"]),
+        recipient: z.email(),
+        removedUsername: z.string().min(1),
       })
     )
-    .mutation(
-      async ({ input }) =>
-        await sendPasswordResetEmail(input.email, input.token)
-    ),
-
-  sendVerification: procedure
+    .mutation(({ input }) => {
+      const { recipient, ...rest } = input;
+      notifyAccountMerged(recipient, rest, { source: "email-router" });
+      return { queued: true };
+    }),
+  notifyBackupCodesRegenerated: procedure
     .input(
       z.object({
-        email: z.email(),
-        token: z.string(),
+        changedAt: z.string().min(1),
+        codeCount: z.number().int().positive(),
+        recipient: z.email(),
       })
     )
-    .mutation(
-      async ({ input }) => await sendVerificationEmail(input.email, input.token)
-    ),
-
-  // --- account security notices -------------------------------------------
-
+    .mutation(({ input }) => {
+      notifyBackupCodesRegenerated(
+        input.recipient,
+        { changedAt: input.changedAt, codeCount: input.codeCount },
+        { source: "email-router" }
+      );
+      return { queued: true };
+    }),
   notifyEmailChanged: procedure
     .input(
       z.object({
@@ -68,7 +74,6 @@ export const emailRouter = router({
       );
       return { queued: true };
     }),
-
   notifyMessageKeyReset: procedure
     .input(
       z.object({
@@ -85,7 +90,6 @@ export const emailRouter = router({
       );
       return { queued: true };
     }),
-
   notifyNewClientLogin: procedure
     .input(
       z.object({
@@ -111,7 +115,27 @@ export const emailRouter = router({
       );
       return { queued: true };
     }),
-
+  notifyPasskeyChanged: procedure
+    .input(
+      z.object({
+        action: z.enum(["added", "removed"]),
+        changedAt: z.string().min(1),
+        passkeyName: z.string().min(1),
+        recipient: z.email(),
+      })
+    )
+    .mutation(({ input }) => {
+      notifyPasskeyChanged(
+        input.recipient,
+        {
+          action: input.action,
+          changedAt: input.changedAt,
+          passkeyName: input.passkeyName,
+        },
+        { source: "email-router" }
+      );
+      return { queued: true };
+    }),
   notifyPasswordChanged: procedure
     .input(
       z.object({
@@ -131,7 +155,6 @@ export const emailRouter = router({
       );
       return { queued: true };
     }),
-
   notifySocialAccount: procedure
     .input(
       z.object({
@@ -155,7 +178,6 @@ export const emailRouter = router({
       );
       return { queued: true };
     }),
-
   notifyTwoFactorChanged: procedure
     .input(
       z.object({
@@ -177,62 +199,6 @@ export const emailRouter = router({
       );
       return { queued: true };
     }),
-
-  notifyAccountMerged: procedure
-    .input(
-      z.object({
-        completedAt: z.string().min(1),
-        keptUsername: z.string().min(1),
-        mode: z.enum(["discard", "merge"]),
-        recipient: z.email(),
-        removedUsername: z.string().min(1),
-      })
-    )
-    .mutation(({ input }) => {
-      const { recipient, ...rest } = input;
-      notifyAccountMerged(recipient, rest, { source: "email-router" });
-      return { queued: true };
-    }),
-
-  notifyBackupCodesRegenerated: procedure
-    .input(
-      z.object({
-        changedAt: z.string().min(1),
-        codeCount: z.number().int().positive(),
-        recipient: z.email(),
-      })
-    )
-    .mutation(({ input }) => {
-      notifyBackupCodesRegenerated(
-        input.recipient,
-        { changedAt: input.changedAt, codeCount: input.codeCount },
-        { source: "email-router" }
-      );
-      return { queued: true };
-    }),
-
-  notifyPasskeyChanged: procedure
-    .input(
-      z.object({
-        action: z.enum(["added", "removed"]),
-        changedAt: z.string().min(1),
-        passkeyName: z.string().min(1),
-        recipient: z.email(),
-      })
-    )
-    .mutation(({ input }) => {
-      notifyPasskeyChanged(
-        input.recipient,
-        {
-          action: input.action,
-          changedAt: input.changedAt,
-          passkeyName: input.passkeyName,
-        },
-        { source: "email-router" }
-      );
-      return { queued: true };
-    }),
-
   notifyUsernameChanged: procedure
     .input(
       z.object({
@@ -256,8 +222,28 @@ export const emailRouter = router({
       );
       return { queued: true };
     }),
-
+  sendPasswordReset: procedure
+    .input(
+      z.object({
+        email: z.email(),
+        token: z.string(),
+      })
+    )
+    .mutation(
+      async ({ input }) =>
+        await sendPasswordResetEmail(input.email, input.token)
+    ),
+  sendVerification: procedure
+    .input(
+      z.object({
+        email: z.email(),
+        token: z.string(),
+      })
+    )
+    .mutation(
+      async ({ input }) => await sendVerificationEmail(input.email, input.token)
+    ),
+  // --- account security notices -------------------------------------------
   validateConfig: procedure.query(() => validateEmailServiceConfig()),
 });
-
 export type EmailRouter = typeof emailRouter;
