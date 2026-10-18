@@ -24,7 +24,17 @@ mock.module("@asm/db", () => ({
       mutuals: { followers: [], following: [] },
     });
   },
-  prisma: { orm: {} },
+  prisma: {
+    orm: {
+      public: {
+        Accounts: {
+          where: () => ({
+            first: () => Promise.resolve(null),
+          }),
+        },
+      },
+    },
+  },
 }));
 const { getUserData } = await import("./use-user-data");
 

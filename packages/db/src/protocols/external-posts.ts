@@ -236,6 +236,9 @@ export async function mutateExternalPost(input: {
         .where({ id })
         .first();
       if (!existing) {
+        if (input.active !== true) {
+          return;
+        }
         const authorDid = input.uri.replace("at://", "").split("/")[0] ?? "";
         await tx.orm.public.ExternalPosts.upsert({
           conflictOn: { id },
