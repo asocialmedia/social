@@ -151,10 +151,12 @@ const ProfileHeader: React.FC<ProfileHeaderProps> = ({
     }
   } else if (external) {
     profileActions = (
-      <div className="flex flex-wrap items-center gap-2">
+      // Both actions stack and share one width so the pair reads as a column of
+      // equal-weight choices rather than two buttons of different sizes.
+      <div className="flex flex-col items-stretch gap-2">
         <ExternalFollowButton did={external.id} />
         <a
-          className="btn-3d-bluesky inline-flex h-9 items-center gap-2 rounded-full px-3 text-xs whitespace-nowrap sm:px-4 sm:text-sm"
+          className="btn-3d-bluesky inline-flex h-9 items-center justify-center gap-2 rounded-full px-4 text-[13px] whitespace-nowrap sm:text-sm"
           href={external.url}
           rel="noopener noreferrer"
           target="_blank"

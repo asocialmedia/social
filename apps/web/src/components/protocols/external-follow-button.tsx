@@ -14,6 +14,8 @@ export function ExternalFollowButton({ did }: { did: string }) {
   const client = useQueryClient();
   const { toast } = useToast();
   const queryKey = ["external-follow", auth.user?.id ?? "guest", did];
+  // Only reaches the query once the component has decided to render, which it
+  // does only for a signed-in reader; `isLoggedIn` is therefore true here.
   const state = useQuery({
     enabled: auth.isLoggedIn,
     queryFn: async ({ signal }) => {
@@ -61,24 +63,28 @@ export function ExternalFollowButton({ did }: { did: string }) {
       ]);
     },
   });
-  let label = state.data?.following ? "Following in ASM" : "Follow in ASM";
+  // A guest cannot follow, so the control is absent rather than disabled: a
+  // greyed button on a stranger's profile is a dead end, while no button is just
+  // a page you are reading.
+  if (!auth.isLoggedIn) {
+    return null;
+  }
+  let label = state.data?.following ? "Following" : "Follow";
   if (state.isError) {
     label = "Retry follow";
   }
   return (
     <Button
-      className="rounded-full text-xs sm:text-sm"
-      disabled={mutation.isPending || (auth.isLoggedIn && state.isPending)}
+      className="h-9 rounded-full px-4 text-[13px]! sm:text-sm!"
+      disabled={mutation.isPending || state.isPending}
       onClick={() => {
-        if (!auth.isLoggedIn) {
-          auth.goToLogin();
-        } else if (state.isError) {
+        if (state.isError) {
           void state.refetch();
         } else {
           mutation.mutate(!state.data?.following);
         }
       }}
-      title="Follow in asocialmedia. No linked Bluesky account required."
+      title="Follow on asocialmedia. No linked Bluesky account required."
       variant="premium"
     >
       {label}

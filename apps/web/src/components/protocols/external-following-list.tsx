@@ -89,7 +89,7 @@ export function ExternalFollowingList() {
       ) : null}
       {query.data?.authors.length === 0 ? (
         <p className="text-muted-foreground text-sm">
-          Visit a Bluesky profile in ASM and choose Follow in ASM.
+          Visit a Bluesky profile in ASM and choose Follow.
         </p>
       ) : null}
       {query.data?.authors.map((author) => (
