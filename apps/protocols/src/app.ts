@@ -26,7 +26,12 @@ export interface ProtocolsAppOptions {
     BlueskyClient,
     "getProfile" | "getAuthorFeed" | "getFeed" | "getPost"
   > &
-    Partial<Pick<BlueskyClient, "getPosts" | "getPostThread">>;
+    Partial<
+      Pick<
+        BlueskyClient,
+        "getPosts" | "getPostThread" | "allowsRecommendations"
+      >
+    >;
   logger: ProtocolLogger;
   token?: string;
   health: () => ProtocolsHealth;
@@ -150,7 +155,7 @@ export function createProtocolsApp(options: ProtocolsAppOptions) {
               request,
               String(set.headers["x-request-id"]),
               options.logger,
-              () => {
+              async () => {
                 const client = clientFor(request);
                 if (!client.getPosts) {
                   throw new ProtocolError(
@@ -158,11 +163,33 @@ export function createProtocolsApp(options: ProtocolsAppOptions) {
                     "Post reads unavailable"
                   );
                 }
-                return client.getPosts(query.uri);
+                const posts = await client.getPosts(query.uri);
+                if (query.recommendations !== "1") {
+                  return posts;
+                }
+                if (!client.allowsRecommendations) {
+                  return [];
+                }
+                const authors = [
+                  ...new Set(posts.map((post) => post.author.id)),
+                ];
+                const allowed = new Set(
+                  await Promise.all(
+                    authors.map(async (author) =>
+                      (await client
+                        .allowsRecommendations?.(author)
+                        .catch(() => false))
+                        ? author
+                        : ""
+                    )
+                  )
+                );
+                return posts.filter((post) => allowed.has(post.author.id));
               }
             ),
           {
             query: t.Object({
+              recommendations: t.Optional(t.Literal("1")),
               uri: t.Array(t.String({ maxLength: 512 }), {
                 maxItems: 25,
                 minItems: 1,

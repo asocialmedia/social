@@ -21,14 +21,30 @@ export {
   networkPreferenceScope,
   normalizeInterest,
   interestSchema,
-  INTEREST_SUGGESTIONS,
   NETWORK_LANGUAGES,
 } from "./network-preferences";
+export { createKnowledgeTopicProvider } from "./knowledge-topics";
+export {
+  networkTopicSchema,
+  networkTopicPageSchema,
+  scopedNetworkPreferences,
+} from "./network-topics";
+export type {
+  NetworkTopic,
+  NetworkTopicPage,
+  NetworkTopicScope,
+} from "./network-topics";
 export type {
   NetworkPreferences,
   NetworkProfile,
   NetworkSettings,
 } from "./network-preferences";
+
+export {
+  matchesNetworkInterests,
+  networkInterestScore,
+  networkInterestTerms,
+} from "./network-interest-scope";
 
 export {
   externalPostTopics,
@@ -194,6 +210,17 @@ export const externalPostSchema: z.ZodType<ExternalPost> = z.lazy(() =>
       .max(8),
     networkRecommendationToken: z.string().max(8000).optional(),
     quote: externalPostSchema.optional(),
+    recommendationSources: z
+      .array(
+        z.object({
+          avatarUrl: z.string().nullable(),
+          displayName: z.string(),
+          id: z.string(),
+          username: z.string(),
+        })
+      )
+      .max(5)
+      .optional(),
     replyRoot: z.string().optional(),
     replyTo: z.string().optional(),
     revision: z.string(),

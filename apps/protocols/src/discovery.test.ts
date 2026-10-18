@@ -630,6 +630,44 @@ test("personalized sources search the live corpus and cursors stay bound to thei
   ).rejects.toMatchObject({ code: "invalid_input" });
 });
 
+test("video discovery searches chosen interests instead of relying only on general video feeds", async () => {
+  const searches: string[] = [];
+  const discovery = new BlueskyDiscovery({
+    allowsRecommendations: async () => true,
+    getAuthorFeed: async () => ({ cursor: null, items: [] }),
+    getFeed: async () => ({ cursor: null, items: [videoPost(9)] }),
+    getProfile: async () => profile,
+    getSuggestedFeeds: async () => ({
+      cursor: null,
+      items: [{ displayName: "Video", uri: publicFeed }],
+    }),
+    searchPosts: async (query) => {
+      searches.push(query);
+      return {
+        cursor: null,
+        items: [{ ...videoPost(1), text: "Software and web development" }],
+      };
+    },
+  });
+  const page = await discovery.read(
+    "personalized",
+    undefined,
+    "en",
+    ["software", "web development"],
+    "video"
+  );
+  expect(searches).toContain("software");
+  expect(searches).toContain("web development");
+  expect(
+    page.items.some((item) => item.text === "Software and web development")
+  ).toBe(true);
+  expect(
+    page.items.every((item) =>
+      item.media.some((media) => media.type === "video")
+    )
+  ).toBe(true);
+});
+
 test("discovery advances the live catalog after its source buffers drain", async () => {
   const cursors: (string | undefined)[] = [];
   const discovery = new BlueskyDiscovery({

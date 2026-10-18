@@ -446,7 +446,7 @@ export class BlueskyDiscovery {
         exhausted: false,
         items: [],
       }));
-      if (this.client.searchPosts && content !== "video") {
+      if (this.client.searchPosts) {
         snapshot.sources.unshift(
           ...[
             ...new Set([

@@ -178,7 +178,7 @@
     },
     "apps/protocols": {
       "name": "@asm/protocols-app",
-      "version": "0.1.20",
+      "version": "0.1.21",
       "dependencies": {
         "@asm/logger": "workspace:*",
         "@asm/protocols": "workspace:*",
@@ -443,12 +443,13 @@
     },
     "packages/protocols": {
       "name": "@asm/protocols",
-      "version": "0.1.20",
+      "version": "0.1.21",
       "dependencies": {
         "@atproto/lex": "^0.3.14",
         "@atproto/syntax": "^0.7.7",
         "@bsky/jetstream": "^1.0.0",
         "@bsky/sdk": "^1.2.0",
+        "wikibase-sdk": "^11.6.6",
         "zod": "^4.4.3",
       },
       "devDependencies": {
@@ -3891,6 +3892,8 @@
     "which-module": ["which-module@2.0.1", "", {}, "sha512-iBdZ57RDvnOR9AGBhML2vFZf7h8vmBjhoaZqODJBFWHVtKkDmKuHai3cx5PgVMrX5YDNp27AofYbAwctSS+vhQ=="],
 
     "why-is-node-running": ["why-is-node-running@2.3.0", "", { "dependencies": { "siginfo": "^2.0.0", "stackback": "0.0.2" }, "bin": { "why-is-node-running": "cli.js" } }, "sha512-hUrmaWBdVDcxvYqnyh09zunKzROWjbZTiNy8dBEjkS7ehEDQibXJ7XvlmtbwuTclUiIyN+CyXQD4Vmko8fNm8w=="],
+
+    "wikibase-sdk": ["wikibase-sdk@11.6.6", "", {}, "sha512-kXvlx/1K9VWxTfJegsNwb3IAZi4FtTsIYkuYHbjLDEO/luFxR47RoOVyfm+vsWPQF8zmL+ZsEcTMz8TlX1DVCw=="],
 
     "wink-eng-lite-web-model": ["wink-eng-lite-web-model@1.8.1", "", {}, "sha512-M2tSOU/rVNkDj8AS8IoKJaM7apJJjS0cN+hE8CPazfnB4A/ojyc9+7RMPk18UOiIdSyWk7MR6w8z9lWix2l5tA=="],
 

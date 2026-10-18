@@ -34,7 +34,15 @@ export interface ExternalMedia {
   height?: number;
 }
 
+export interface RecommendationSource {
+  id: string;
+  username: string;
+  displayName: string;
+  avatarUrl: string | null;
+}
+
 export interface ExternalPost {
+  recommendationSources?: RecommendationSource[];
   networkRecommendationToken?: string;
   asm?: {
     amplified: boolean;
