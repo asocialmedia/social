@@ -3,6 +3,7 @@ import type {
   CommunityChatMessagePage,
   CommunityChatPermissions,
   CommunityChatRoom,
+  CommunityChatThreadSummary,
 } from "@asm/messages";
 
 import type { ApiCallOptions } from "@/features/feed/lib/feed-api";
@@ -30,7 +31,10 @@ export class CommunityChatApiError extends Error {
 
 async function requestJson<T>(
   path: string,
-  options: ApiCallOptions & { body?: unknown; method?: "GET" | "POST" }
+  options: ApiCallOptions & {
+    body?: unknown;
+    method?: "DELETE" | "GET" | "PATCH" | "POST";
+  }
 ): Promise<T> {
   const baseFetch = options.baseFetch ?? fetch;
   const headers = withAuthHeaders({}, options.cookie);
@@ -80,12 +84,15 @@ export function fetchCommunityChatChannels(
 export function fetchCommunityChatMessages(
   slug: string,
   roomId: string,
-  query: { after?: string; before?: string; limit?: number },
+  query: { after?: string; around?: string; before?: string; limit?: number },
   options: ApiCallOptions
 ): Promise<CommunityChatRoomResponse> {
   const params = new URLSearchParams();
   if (query.after) {
     params.set("after", query.after);
+  }
+  if (query.around) {
+    params.set("around", query.around);
   }
   if (query.before) {
     params.set("before", query.before);
@@ -115,11 +122,58 @@ export function fetchCommunityChatMessage(
 export function sendCommunityChatMessage(
   slug: string,
   roomId: string,
-  input: { clientId: string; content: string },
+  input: { clientId: string; content: string; replyToId?: string },
   options: ApiCallOptions
 ): Promise<{ message: CommunityChatMessage }> {
   return requestJson(
     `/api/communities/${encodeURIComponent(slug)}/chat/rooms/${encodeURIComponent(roomId)}/messages`,
     { ...options, body: input, method: "POST" }
+  );
+}
+
+export function fetchCommunityChatThreads(
+  slug: string,
+  channelId: string,
+  options: ApiCallOptions
+): Promise<{ threads: CommunityChatThreadSummary[] }> {
+  return requestJson(
+    `/api/communities/${encodeURIComponent(slug)}/chat/rooms/${encodeURIComponent(channelId)}/threads`,
+    options
+  );
+}
+
+export function createCommunityChatPublicThread(
+  slug: string,
+  channelId: string,
+  input: { clientId: string; name: string; sourceMessageId: string },
+  options: ApiCallOptions
+): Promise<{ thread: CommunityChatRoom }> {
+  return requestJson(
+    `/api/communities/${encodeURIComponent(slug)}/chat/rooms/${encodeURIComponent(channelId)}/threads`,
+    { ...options, body: { ...input, visibility: "PUBLIC" }, method: "POST" }
+  );
+}
+
+export function updateCommunityChatReaction(
+  slug: string,
+  roomId: string,
+  input: { emoji: string; messageId: string; reacted: boolean },
+  options: ApiCallOptions
+): Promise<{ changed: boolean }> {
+  return requestJson(
+    `/api/communities/${encodeURIComponent(slug)}/chat/rooms/${encodeURIComponent(roomId)}/reactions`,
+    { ...options, body: input, method: "POST" }
+  );
+}
+
+export function advanceCommunityChatRead(
+  slug: string,
+  roomId: string,
+  readSequence: string,
+  options: ApiCallOptions
+): Promise<{ readSequence: string }> {
+  return requestJson(
+    `/api/communities/${encodeURIComponent(slug)}/chat/rooms/${encodeURIComponent(roomId)}/read`,
+    { ...options, body: { readSequence }, method: "POST" }
   );
 }

@@ -144,7 +144,7 @@ export default function ClientCommunity({
                   />
                   <div className="min-w-0 flex-1">
                     <p className="text-muted-foreground text-[10px] font-semibold tracking-[0.14em] uppercase">
-                      Community conversation
+                      a/{community.slug}
                     </p>
                     <h1 className="text-foreground truncate text-base font-bold">
                       {community.name}
@@ -162,6 +162,7 @@ export default function ClientCommunity({
                 />
                 {channelId ? (
                   <CommunityChat
+                    key={threadId ?? channelId}
                     accentColor={community.accentColor}
                     avatarUrl={community.avatarUrl}
                     channelId={channelId}
@@ -191,11 +192,13 @@ export default function ClientCommunity({
             )}
           </div>
 
-          <CommunitySidebar
-            community={community}
-            membership={membership}
-            stats={stats}
-          />
+          {view === "posts" ? (
+            <CommunitySidebar
+              community={community}
+              membership={membership}
+              stats={stats}
+            />
+          ) : null}
         </div>
 
         {isBlocked ? (
