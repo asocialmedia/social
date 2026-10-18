@@ -50,7 +50,12 @@ export interface PhotoEditorSnapshot {
 export interface PhotoEditorHandle {
   exportCanvas: () => HTMLCanvasElement;
 }
-type EditorTool = "crop" | "looks" | "adjust" | "markup";
+type EditorTool = "edit" | "looks" | "markup";
+type EditMode = "crop" | "adjust";
+type PhotoCropRatio = Extract<
+  PhotoCropAction,
+  "free" | "square" | "portrait" | "wide"
+>;
 
 const COLORS = [
   { label: "White", value: "#ffffff" },
@@ -61,11 +66,16 @@ const COLORS = [
   { label: "Purple", value: "#c084fc" },
 ];
 const TOOLS = [
-  { Icon: Crop, id: "crop", label: "Crop" },
+  { Icon: Crop, id: "edit", label: "Edit" },
   { Icon: Palette, id: "looks", label: "Looks" },
-  { Icon: SlidersHorizontal, id: "adjust", label: "Adjust" },
   { Icon: Pencil, id: "markup", label: "Markup" },
 ] as const;
+const CROP_RATIOS: readonly [PhotoCropRatio, string][] = [
+  ["free", "Free"],
+  ["square", "1:1"],
+  ["portrait", "4:5"],
+  ["wide", "16:9"],
+];
 
 // The same DOM workspace runs in the web dialog and Expo WebView.
 export function PhotoEditorWorkspace({
@@ -86,7 +96,9 @@ export function PhotoEditorWorkspace({
   ref?: Ref<PhotoEditorHandle>;
 }) {
   const id = useId();
-  const [tool, setTool] = useState<EditorTool>("crop");
+  const [tool, setTool] = useState<EditorTool>("edit");
+  const [editMode, setEditMode] = useState<EditMode>("crop");
+  const [cropRatio, setCropRatio] = useState<PhotoCropRatio>("free");
   const [look, setLook] = useState<PhotoLook>("original");
   const [adjustments, setAdjustments] = useState<PhotoAdjustments>(
     DEFAULT_PHOTO_ADJUSTMENTS
@@ -147,13 +159,14 @@ export function PhotoEditorWorkspace({
     return output;
   }, [getSnapshot, look, adjustments, history.strokes]);
   useImperativeHandle(ref, () => ({ exportCanvas }), [exportCanvas]);
+  const isCropMode = tool === "edit" && editMode === "crop";
 
   const selectTool = (next: EditorTool) => {
     if (!ready || disabled || next === tool) {
       return;
     }
     try {
-      if (next !== "crop" && tool === "crop") {
+      if (next !== "edit" && isCropMode) {
         setSnapshot(getSnapshot());
       }
       onError(null);
@@ -166,9 +179,28 @@ export function PhotoEditorWorkspace({
     }
   };
 
+  const selectEditMode = (next: EditMode) => {
+    if (!ready || disabled || (next === editMode && tool === "edit")) {
+      return;
+    }
+    try {
+      if (next === "adjust" && tool === "edit" && isCropMode) {
+        setSnapshot(getSnapshot());
+      }
+      onError(null);
+      setCompare(false);
+      setEditMode(next);
+      setTool("edit");
+    } catch (error) {
+      onError(
+        error instanceof Error ? error.message : "Couldn't preview this image"
+      );
+    }
+  };
+
   // Bound previews to 768px; full-resolution pixels are processed only on Save.
   useEffect(() => {
-    if (!snapshot || tool === "crop") {
+    if (!snapshot || isCropMode) {
       return;
     }
     const frame = requestAnimationFrame(() => {
@@ -202,10 +234,10 @@ export function PhotoEditorWorkspace({
       }
     });
     return () => cancelAnimationFrame(frame);
-  }, [snapshot, tool, look, adjustments, compare, onError]);
+  }, [snapshot, isCropMode, look, adjustments, compare, onError]);
 
   useEffect(() => {
-    if (!snapshot || tool === "crop") {
+    if (!snapshot || isCropMode) {
       return;
     }
     const canvas = marksRef.current;
@@ -227,7 +259,7 @@ export function PhotoEditorWorkspace({
       active.width = canvas.width;
       active.height = canvas.height;
     }
-  }, [snapshot, tool, history.strokes]);
+  }, [snapshot, isCropMode, history.strokes]);
 
   useEffect(() => {
     if (tool !== "looks" || !snapshot) {
@@ -380,7 +412,9 @@ export function PhotoEditorWorkspace({
     setAdjustments(DEFAULT_PHOTO_ADJUSTMENTS);
     setHistory({ strokes: [], undone: [] });
     setCompare(false);
-    setTool("crop");
+    setTool("edit");
+    setEditMode("crop");
+    setCropRatio("free");
   };
   const aspect = snapshot ? snapshot.canvas.width / snapshot.canvas.height : 1;
   const displayWidth = Math.max(
@@ -392,13 +426,13 @@ export function PhotoEditorWorkspace({
       <div className="photo-editor-stage" ref={stageRef}>
         <div
           className="photo-editor-crop"
-          style={{ visibility: tool === "crop" ? "visible" : "hidden" }}
-          aria-hidden={tool !== "crop"}
-          inert={tool !== "crop" || disabled}
+          style={{ visibility: isCropMode ? "visible" : "hidden" }}
+          aria-hidden={!isCropMode}
+          inert={!isCropMode || disabled}
         >
           {cropContent}
         </div>
-        {tool !== "crop" && snapshot ? (
+        {!isCropMode && snapshot ? (
           <div
             className="photo-editor-canvas-stack"
             style={{ height: displayWidth / aspect, width: displayWidth }}
@@ -429,7 +463,7 @@ export function PhotoEditorWorkspace({
             />
           </div>
         ) : null}
-        {tool === "crop" ? null : (
+        {isCropMode ? null : (
           <button
             type="button"
             className="photo-editor-compare"
@@ -465,60 +499,123 @@ export function PhotoEditorWorkspace({
         key={tool}
         aria-label={`${tool} options`}
       >
-        {tool === "crop" ? (
+        {tool === "edit" ? (
           <>
-            <div className="photo-editor-row">
+            <div
+              className="photo-editor-edit-modes"
+              role="group"
+              aria-label="Edit tools"
+            >
               <button
                 type="button"
-                aria-label="Rotate left"
-                onClick={() => onCropAction("left")}
+                aria-pressed={editMode === "crop"}
+                onClick={() => selectEditMode("crop")}
               >
-                <RotateCcw size={18} />
+                <Crop size={15} />
+                <span>Crop</span>
               </button>
               <button
                 type="button"
-                aria-label="Rotate right"
-                onClick={() => onCropAction("right")}
+                aria-pressed={editMode === "adjust"}
+                onClick={() => selectEditMode("adjust")}
               >
-                <RotateCw size={18} />
-              </button>
-              <button
-                type="button"
-                aria-label="Flip horizontally"
-                onClick={() => onCropAction("flip")}
-              >
-                <FlipHorizontal2 size={18} />
-              </button>
-              <button
-                type="button"
-                className="photo-editor-text-button"
-                onClick={reset}
-              >
-                Reset
+                <SlidersHorizontal size={15} />
+                <span>Adjust</span>
               </button>
             </div>
-            <div
-              className="photo-editor-row photo-editor-ratios"
-              role="group"
-              aria-label="Crop proportions"
-            >
-              {(
-                [
-                  ["free", "Free"],
-                  ["square", "1:1"],
-                  ["portrait", "4:5"],
-                  ["wide", "16:9"],
-                ] as const
-              ).map(([action, label]) => (
+            {editMode === "crop" ? (
+              <>
+                <div className="photo-editor-row photo-editor-crop-actions">
+                  <button
+                    type="button"
+                    aria-label="Rotate left"
+                    onClick={() => onCropAction("left")}
+                  >
+                    <RotateCcw size={18} />
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="Rotate right"
+                    onClick={() => onCropAction("right")}
+                  >
+                    <RotateCw size={18} />
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="Flip horizontally"
+                    onClick={() => onCropAction("flip")}
+                  >
+                    <FlipHorizontal2 size={18} />
+                  </button>
+                  <button
+                    type="button"
+                    className="photo-editor-text-button"
+                    onClick={reset}
+                  >
+                    Reset
+                  </button>
+                </div>
+                <div
+                  className="photo-editor-row photo-editor-ratios"
+                  role="group"
+                  aria-label="Crop proportions"
+                >
+                  {CROP_RATIOS.map(([action, label]) => (
+                    <button
+                      type="button"
+                      key={action}
+                      aria-pressed={cropRatio === action}
+                      onClick={() => {
+                        setCropRatio(action);
+                        onCropAction(action);
+                      }}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <div className="photo-editor-adjustments">
+                {(
+                  [
+                    ["brightness", "Light"],
+                    ["contrast", "Contrast"],
+                    ["saturation", "Color"],
+                    ["warmth", "Warmth"],
+                  ] as const
+                ).map(([key, label]) => (
+                  <label key={key} htmlFor={`${id}-${key}`}>
+                    <span>{label}</span>
+                    <input
+                      id={`${id}-${key}`}
+                      type="range"
+                      min={-50}
+                      max={50}
+                      step={1}
+                      value={adjustments[key]}
+                      onChange={(event) =>
+                        setAdjustments({
+                          ...adjustments,
+                          [key]: Number(event.target.value),
+                        })
+                      }
+                    />
+                    <output htmlFor={`${id}-${key}`}>
+                      {adjustments[key] > 0 ? "+" : ""}
+                      {adjustments[key]}
+                    </output>
+                  </label>
+                ))}
                 <button
                   type="button"
-                  key={action}
-                  onClick={() => onCropAction(action)}
+                  className="photo-editor-text-button"
+                  onClick={() => setAdjustments(DEFAULT_PHOTO_ADJUSTMENTS)}
                 >
-                  {label}
+                  Reset adjustments
                 </button>
-              ))}
-            </div>
+              </div>
+            )}
           </>
         ) : null}
         {tool === "looks" ? (
@@ -552,47 +649,6 @@ export function PhotoEditorWorkspace({
                 <span>{preset.label}</span>
               </button>
             ))}
-          </div>
-        ) : null}
-        {tool === "adjust" ? (
-          <div className="photo-editor-adjustments">
-            {(
-              [
-                ["brightness", "Light"],
-                ["contrast", "Contrast"],
-                ["saturation", "Color"],
-                ["warmth", "Warmth"],
-              ] as const
-            ).map(([key, label]) => (
-              <label key={key} htmlFor={`${id}-${key}`}>
-                <span>{label}</span>
-                <input
-                  id={`${id}-${key}`}
-                  type="range"
-                  min={-50}
-                  max={50}
-                  step={1}
-                  value={adjustments[key]}
-                  onChange={(event) =>
-                    setAdjustments({
-                      ...adjustments,
-                      [key]: Number(event.target.value),
-                    })
-                  }
-                />
-                <output htmlFor={`${id}-${key}`}>
-                  {adjustments[key] > 0 ? "+" : ""}
-                  {adjustments[key]}
-                </output>
-              </label>
-            ))}
-            <button
-              type="button"
-              className="photo-editor-text-button"
-              onClick={() => setAdjustments(DEFAULT_PHOTO_ADJUSTMENTS)}
-            >
-              Reset adjustments
-            </button>
           </div>
         ) : null}
         {tool === "markup" ? (

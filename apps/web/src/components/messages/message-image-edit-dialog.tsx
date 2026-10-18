@@ -144,7 +144,7 @@ export default function MessageImageEditDialog({
       }}
       open
     >
-      <DialogContent className="flex max-h-[92dvh] w-[calc(100%-1.5rem)] max-w-160 flex-col gap-3 overflow-hidden rounded-2xl! p-0 [&>button:last-child]:hidden">
+      <DialogContent className="flex max-h-[92dvh] w-[calc(100%-1.5rem)] max-w-160 flex-col gap-0 overflow-hidden rounded-2xl! p-0 [&>button:last-child]:hidden">
         <div className="border-border/60 flex shrink-0 items-center border-b py-2 pr-3 pl-4">
           <div className="flex min-w-0 flex-1 flex-col justify-center py-1">
             <DialogTitle className="text-base font-semibold">
@@ -165,7 +165,7 @@ export default function MessageImageEditDialog({
           </DialogClose>
         </div>
 
-        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 pb-4">
+        <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-4 py-3">
           <style>{CROPPER_ACCENT}</style>
           {kind === "image" ? (
             <PhotoEditorWorkspace
@@ -203,82 +203,84 @@ export default function MessageImageEditDialog({
             </div>
           )}
 
-          <div className="mt-3 flex items-center gap-2">
-            {kind === "gif" ? (
-              <>
-                <Button
-                  aria-label="Rotate left"
-                  className="rounded-xl"
-                  onClick={() => rotate(-90)}
-                  type="button"
-                  variant="outline"
-                  disabled={saving || !ready}
-                >
-                  <RotateCcw className="h-4 w-4" />
-                </Button>
-                <Button
-                  aria-label="Rotate right"
-                  className="rounded-xl"
-                  onClick={() => rotate(90)}
-                  type="button"
-                  variant="outline"
-                  disabled={saving || !ready}
-                >
-                  <RotateCw className="h-4 w-4" />
-                </Button>
-              </>
-            ) : null}
-            {kind === "image" ? (
-              <label
-                htmlFor={viewOnceId}
-                className="text-muted-foreground ml-auto flex min-h-11 cursor-pointer items-center gap-2.5 rounded-xl px-2 text-sm"
-                title={
-                  canViewOnce
-                    ? "Opens once, then disappears"
-                    : "Available for one photo without a caption"
-                }
+          {kind === "gif" ? (
+            <div className="flex items-center gap-2">
+              <Button
+                aria-label="Rotate left"
+                className="rounded-xl"
+                onClick={() => rotate(-90)}
+                type="button"
+                variant="outline"
+                disabled={saving || !ready}
               >
-                <Eye className="size-4" />
-                <span>View once</span>
-                <Switch
-                  id={viewOnceId}
-                  aria-label="Send as a view once photo"
-                  checked={viewOnce}
-                  disabled={!canViewOnce || saving}
-                  onCheckedChange={setViewOnce}
-                />
-              </label>
-            ) : null}
-          </div>
+                <RotateCcw className="h-4 w-4" />
+              </Button>
+              <Button
+                aria-label="Rotate right"
+                className="rounded-xl"
+                onClick={() => rotate(90)}
+                type="button"
+                variant="outline"
+                disabled={saving || !ready}
+              >
+                <RotateCw className="h-4 w-4" />
+              </Button>
+            </div>
+          ) : null}
 
           {cropError ? (
-            <p role="alert" className="text-destructive mt-3 text-sm">
+            <p role="alert" className="text-destructive text-sm">
               {cropError}
             </p>
           ) : null}
         </div>
-        <div className="grid shrink-0 grid-cols-2 gap-2 px-4 pt-1 pb-4">
-          <Button
-            className="pill-3d-hover text-muted-foreground h-11 w-full rounded-xl"
-            onClick={onClose}
-            variant="outline"
-            disabled={saving}
-          >
-            Cancel
-          </Button>
-          <Button
-            className={cn(
-              "h-11 w-full rounded-xl",
-              ORANGE_GRADIENT_CLASS,
-              "hover:from-[#ffa629] hover:to-[#f56a14] active:translate-y-px"
-            )}
-            disabled={saving || !ready}
-            onClick={() => {
-              void handleSave();
-            }}
-          >
-            {saving ? "Processing…" : "Save"}
-          </Button>
+        <div className="border-border/50 bg-background/95 grid shrink-0 gap-2 border-t px-4 pt-3 pb-4">
+          {kind === "image" ? (
+            <label
+              htmlFor={viewOnceId}
+              className="surface-3d text-muted-foreground flex min-h-11 items-center justify-between gap-3 rounded-xl px-3 text-sm"
+              title={
+                canViewOnce
+                  ? "Opens once, then disappears"
+                  : "Available for one photo without a caption"
+              }
+            >
+              <span className="flex min-w-0 items-center gap-2.5">
+                <Eye className="size-4 shrink-0" />
+                <span>View once</span>
+              </span>
+              <Switch
+                id={viewOnceId}
+                aria-label="Send as a view once photo"
+                checked={viewOnce}
+                disabled={!canViewOnce || saving}
+                onCheckedChange={setViewOnce}
+              />
+            </label>
+          ) : null}
+          <div className="grid grid-cols-2 gap-2">
+            <Button
+              className="pill-3d-hover text-muted-foreground h-11 w-full rounded-xl"
+              onClick={onClose}
+              variant="outline"
+              disabled={saving}
+            >
+              Cancel
+            </Button>
+            <Button
+              className={cn(
+                "h-11 w-full rounded-xl",
+                ORANGE_GRADIENT_CLASS,
+                "hover:from-[#ffa629] hover:to-[#f56a14] active:translate-y-px"
+              )}
+              disabled={saving || !ready}
+              onClick={() => {
+                void handleSave();
+              }}
+            >
+              {saving ? "Processing…" : "Save"}
+            </Button>
+          </div>
         </div>
       </DialogContent>
     </Dialog>
