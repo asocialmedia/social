@@ -37,7 +37,10 @@ function mediaLink(value: string | undefined): string | undefined {
     : undefined;
 }
 
-function publicLabels(labels: BlueskyProfile["labels"] = []): string[] {
+function publicLabels(
+  labels: BlueskyProfile["labels"] = [],
+  allowExplicitMedia = false
+): string[] {
   const values = [
     ...new Set(
       (labels ?? [])
@@ -49,7 +52,16 @@ function publicLabels(labels: BlueskyProfile["labels"] = []): string[] {
     ),
   ];
   // An explicit AI declaration is informational; all other labels keep the conservative visibility policy.
-  if (values.some((value) => value !== "ai-generated")) {
+  if (
+    values.some(
+      (value) =>
+        value !== "ai-generated" &&
+        !(
+          allowExplicitMedia &&
+          ["porn", "sexual", "graphic-media", "nudity"].includes(value)
+        )
+    )
+  ) {
     throw new ProtocolError(
       "restricted",
       "This content is not available through public discovery"
@@ -109,8 +121,11 @@ function normalizeFacets(
   };
 }
 
-export function normalizeAuthor(profile: BlueskyProfile): ExternalAuthor {
-  const labels = publicLabels(profile.labels);
+export function normalizeAuthor(
+  profile: BlueskyProfile,
+  allowExplicitMedia = false
+): ExternalAuthor {
+  const labels = publicLabels(profile.labels, allowExplicitMedia);
   return {
     avatarUrl: mediaLink(profile.avatar),
     bannerUrl: mediaLink(profile.banner),
@@ -244,7 +259,11 @@ function normalizeMedia(embed: unknown): ExternalMedia[] {
   return [];
 }
 
-export function normalizePost(post: BlueskyPost, depth = 0): ExternalPost {
+export function normalizePost(
+  post: BlueskyPost,
+  depth = 0,
+  allowExplicitMedia = false
+): ExternalPost {
   if (post.uri.slice(5).split("/")[0] !== post.author.did) {
     throw new ProtocolError(
       "invalid_response",
@@ -258,12 +277,12 @@ export function normalizePost(post: BlueskyPost, depth = 0): ExternalPost {
     );
   }
   const selfLabels = post.record.labels?.values.map((label) => label.val) ?? [];
-  const labels = publicLabels([
-    ...post.labels,
-    ...selfLabels.map((val) => ({ val })),
-  ]);
+  const labels = publicLabels(
+    [...post.labels, ...selfLabels.map((val) => ({ val }))],
+    allowExplicitMedia
+  );
   const result: ExternalPost = {
-    author: normalizeAuthor(post.author),
+    author: normalizeAuthor(post.author, allowExplicitMedia),
     createdAt: post.record.createdAt,
     facets: normalizeFacets(post),
     id: post.uri,
@@ -350,7 +369,11 @@ export function normalizePost(post: BlueskyPost, depth = 0): ExternalPost {
       });
       if (parsed.success) {
         try {
-          result.quote = normalizePost(parsed.data, depth + 1);
+          result.quote = normalizePost(
+            parsed.data,
+            depth + 1,
+            allowExplicitMedia
+          );
           result.unavailableQuote = false;
         } catch (error) {
           if (
@@ -367,7 +390,8 @@ export function normalizePost(post: BlueskyPost, depth = 0): ExternalPost {
 
 export function extractThread(
   rawThread: unknown,
-  maxReplies = 150
+  maxReplies = 150,
+  allowExplicitMedia = false
 ): ExternalThread {
   const parsed = threadViewPostSchema.safeParse(rawThread);
   if (!parsed.success) {
@@ -375,7 +399,7 @@ export function extractThread(
   }
   let post: ExternalPost | null = null;
   try {
-    post = normalizePost(parsed.data.post);
+    post = normalizePost(parsed.data.post, 0, allowExplicitMedia);
   } catch {
     return { post: null, replies: [] };
   }
@@ -390,7 +414,11 @@ export function extractThread(
       continue;
     }
     try {
-      const normalized = normalizePost(validated.data.post);
+      const normalized = normalizePost(
+        validated.data.post,
+        0,
+        allowExplicitMedia
+      );
       replies.push(normalized);
       if (Array.isArray(validated.data.replies)) {
         queue.push(...validated.data.replies);

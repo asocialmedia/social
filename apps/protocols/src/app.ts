@@ -20,6 +20,8 @@ export interface ProtocolsHealth {
 }
 
 export interface ProtocolsAppOptions {
+  explicitClient?: ProtocolsAppOptions["client"];
+  explicitDiscover?: ProtocolsAppOptions["discover"];
   client: Pick<
     BlueskyClient,
     "getProfile" | "getAuthorFeed" | "getFeed" | "getPost"
@@ -61,6 +63,10 @@ const statusByCode = {
 } as const;
 
 export function createProtocolsApp(options: ProtocolsAppOptions) {
+  const clientFor = (request: Request) =>
+    new URL(request.url).searchParams.get("explicit") === "1"
+      ? (options.explicitClient ?? options.client)
+      : options.client;
   return new Elysia({
     name: "asm.protocols",
     serve: { maxRequestBodySize: 16 * 1024 },
@@ -144,13 +150,14 @@ export function createProtocolsApp(options: ProtocolsAppOptions) {
               String(set.headers["x-request-id"]),
               options.logger,
               () => {
-                if (!options.client.getPosts) {
+                const client = clientFor(request);
+                if (!client.getPosts) {
                   throw new ProtocolError(
                     "unavailable",
                     "Post reads unavailable"
                   );
                 }
-                return options.client.getPosts(query.uri);
+                return client.getPosts(query.uri);
               }
             ),
           {
@@ -177,7 +184,11 @@ export function createProtocolsApp(options: ProtocolsAppOptions) {
                     "Discovery is not configured"
                   );
                 }
-                return options.discover(
+                const discover =
+                  new URL(request.url).searchParams.get("explicit") === "1"
+                    ? (options.explicitDiscover ?? options.discover)
+                    : options.discover;
+                return discover(
                   query.mode ?? "latest",
                   query.cursor,
                   query.locale,
@@ -217,7 +228,7 @@ export function createProtocolsApp(options: ProtocolsAppOptions) {
               request,
               String(set.headers["x-request-id"]),
               options.logger,
-              () => options.client.getProfile(query.actor)
+              () => clientFor(request).getProfile(query.actor)
             ),
           {
             query: t.Object({
@@ -234,7 +245,7 @@ export function createProtocolsApp(options: ProtocolsAppOptions) {
               String(set.headers["x-request-id"]),
               options.logger,
               () =>
-                options.client.getAuthorFeed(
+                clientFor(request).getAuthorFeed(
                   query.actor,
                   query.tab ?? "posts",
                   {
@@ -267,7 +278,7 @@ export function createProtocolsApp(options: ProtocolsAppOptions) {
               String(set.headers["x-request-id"]),
               options.logger,
               () =>
-                options.client.getFeed(query.feed, {
+                clientFor(request).getFeed(query.feed, {
                   cursor: query.cursor,
                   language: query.language,
                   limit: query.limit,
@@ -288,7 +299,7 @@ export function createProtocolsApp(options: ProtocolsAppOptions) {
               request,
               String(set.headers["x-request-id"]),
               options.logger,
-              () => options.client.getPost(query.uri)
+              () => clientFor(request).getPost(query.uri)
             ),
           {
             query: t.Object({
@@ -305,13 +316,14 @@ export function createProtocolsApp(options: ProtocolsAppOptions) {
               String(set.headers["x-request-id"]),
               options.logger,
               () => {
-                if (!options.client.getPostThread) {
+                const client = clientFor(request);
+                if (!client.getPostThread) {
                   throw new ProtocolError(
                     "unavailable",
                     "Thread reads unavailable"
                   );
                 }
-                return options.client.getPostThread(
+                return client.getPostThread(
                   query.uri,
                   query.depth === undefined ? 3 : Number(query.depth)
                 );

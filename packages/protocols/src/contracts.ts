@@ -35,6 +35,7 @@ export interface ExternalMedia {
 }
 
 export interface ExternalPost {
+  networkRecommendationToken?: string;
   asm?: {
     amplified: boolean;
     bookmarked: boolean;

@@ -14,6 +14,23 @@ import {
 } from "./transport";
 
 export {
+  matchesAvoidedTopic,
+  defaultNetworkPreferences,
+  networkPreferencesSchema,
+  networkPreferencesUpdateSchema,
+  networkPreferenceScope,
+  normalizeInterest,
+  interestSchema,
+  INTEREST_SUGGESTIONS,
+  NETWORK_LANGUAGES,
+} from "./network-preferences";
+export type {
+  NetworkPreferences,
+  NetworkProfile,
+  NetworkSettings,
+} from "./network-preferences";
+
+export {
   externalPostTopics,
   externalTopicMatch,
   externalRegionalRelevance,
@@ -172,6 +189,7 @@ export const externalPostSchema: z.ZodType<ExternalPost> = z.lazy(() =>
         })
       )
       .max(8),
+    networkRecommendationToken: z.string().max(8000).optional(),
     quote: externalPostSchema.optional(),
     replyRoot: z.string().optional(),
     replyTo: z.string().optional(),
@@ -296,6 +314,7 @@ export {
 } from "./transport";
 
 export async function readDiscoveryPage(options: {
+  profile?: string;
   locale?: string;
   baseUrl?: string;
   mode: DiscoveryMode;
@@ -316,6 +335,9 @@ export async function readDiscoveryPage(options: {
     const timer = setTimeout(abort, options.timeoutMs ?? 18_000);
     try {
       const query = new URLSearchParams({ mode: options.mode });
+      if (options.profile) {
+        query.set("profile", options.profile);
+      }
       if (options.locale) {
         query.set("locale", options.locale);
       }

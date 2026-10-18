@@ -82,6 +82,7 @@ export type ProtocolFetch = (
   init: RequestInit
 ) => Promise<Response>;
 export interface BlueskyClientOptions {
+  allowExplicitMedia?: boolean;
   fetch?: ProtocolFetch;
   cache?: ProtocolCache;
   observe?: ProtocolObserver;
@@ -125,6 +126,7 @@ async function boundedJson(
 }
 
 export class BlueskyClient {
+  private readonly allowExplicitMedia: boolean;
   private readonly options: Required<
     Pick<
       BlueskyClientOptions,
@@ -156,6 +158,7 @@ export class BlueskyClient {
   }
 
   constructor(options: BlueskyClientOptions = {}) {
+    this.allowExplicitMedia = options.allowExplicitMedia ?? false;
     this.options = {
       fetch: options.fetch ?? fetch,
       maxConcurrentRequests: options.maxConcurrentRequests ?? 4,
@@ -223,7 +226,7 @@ export class BlueskyClient {
       profileSchema,
       60_000
     );
-    return normalizeAuthor(data);
+    return normalizeAuthor(data, this.allowExplicitMedia);
   }
 
   async getAuthorFeed(
@@ -360,7 +363,7 @@ export class BlueskyClient {
         continue;
       }
       try {
-        items.push(normalizePost(post.data));
+        items.push(normalizePost(post.data, 0, this.allowExplicitMedia));
       } catch (error) {
         if (!(error instanceof ProtocolError)) {
           throw error;
@@ -397,7 +400,7 @@ export class BlueskyClient {
         continue;
       }
       try {
-        posts.push(normalizePost(post.data));
+        posts.push(normalizePost(post.data, 0, this.allowExplicitMedia));
       } catch (error) {
         if (!(error instanceof ProtocolError)) {
           throw error;
@@ -423,7 +426,7 @@ export class BlueskyClient {
       threadResponseSchema,
       15_000
     );
-    return extractThread(data.thread);
+    return extractThread(data.thread, 150, this.allowExplicitMedia);
   }
 
   private async feed(
@@ -454,7 +457,7 @@ export class BlueskyClient {
         continue;
       }
       try {
-        const normalized = normalizePost(post.data);
+        const normalized = normalizePost(post.data, 0, this.allowExplicitMedia);
         unique.set(normalized.id, normalized);
       } catch (error) {
         if (!(error instanceof ProtocolError)) {

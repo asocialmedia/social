@@ -45,6 +45,12 @@ export async function startProtocols() {
     observe: createProtocolObserver(logger),
     timeoutMs: 10_000,
   });
+  const explicitClient = new BlueskyClient({
+    allowExplicitMedia: true,
+    maxConcurrentRequests: 24,
+    observe: createProtocolObserver(logger),
+    timeoutMs: 10_000,
+  });
   const health = {
     connected: false,
     draining: false,
@@ -106,6 +112,13 @@ export async function startProtocols() {
   const discovery = new BlueskyDiscovery(effectiveClient, undefined, {
     store: redis ? new RedisDiscoveryStore(redis) : new MemoryDiscoveryStore(),
   });
+  const explicitDiscovery = new BlueskyDiscovery(explicitClient, undefined, {
+    store: redis
+      ? new RedisDiscoveryStore(redis, {
+          scope: "asm:protocols:{discovery:explicit:v1}",
+        })
+      : new MemoryDiscoveryStore(),
+  });
   let stopLive: (() => void) | undefined;
   if (redis) {
     const { createDiscoveryLive } = await import("./discovery-live");
@@ -127,6 +140,7 @@ export async function startProtocols() {
     subscriber.on("message", (channel, raw) => {
       if (channel === PROTOCOL_INVALIDATIONS_CHANNEL) {
         client.invalidate();
+        explicitClient.invalidate();
         live.invalidate();
       } else {
         try {
@@ -163,6 +177,9 @@ export async function startProtocols() {
     client: effectiveClient,
     discover: (mode, cursor, locale, topics) =>
       discovery.read(mode, cursor, locale, topics),
+    explicitClient,
+    explicitDiscover: (mode, cursor, locale, topics) =>
+      explicitDiscovery.read(mode, cursor, locale, topics),
     health: () => ({
       ...health,
       storageReady: redis ? redis.status === "ready" : true,
@@ -177,7 +194,10 @@ export async function startProtocols() {
         await Promise.all([import("./checkpoints"), import("./worker")]);
       worker = runJetstreamWorker({
         health,
-        invalidate: (event) => client.invalidate(event?.did),
+        invalidate: (event) => {
+          client.invalidate(event?.did);
+          explicitClient.invalidate(event?.did);
+        },
         logger,
         signal: abort.signal,
         store: new RedisCheckpointStore(redis, {
@@ -191,6 +211,7 @@ export async function startProtocols() {
     abort.abort();
     await stopLive?.();
     client.close();
+    explicitClient.close();
     await app.stop(true);
     await closeRedis?.().catch(() => {
       // The original startup failure takes precedence over Redis cleanup.
@@ -225,6 +246,7 @@ export async function startProtocols() {
       abort.abort();
       await stopLive?.();
       client.close();
+      explicitClient.close();
       await worker;
       await app.stop(true);
       try {

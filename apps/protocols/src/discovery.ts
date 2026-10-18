@@ -12,6 +12,7 @@ import {
   discoveryPageSchema,
   discoveryTopicsSchema,
   externalPostSchema,
+  externalTopicMatch,
   isAuthFeed,
   isAuthFeedUri,
   isAuthenticationNotice,
@@ -412,12 +413,26 @@ export class BlueskyDiscovery {
       }));
       if (this.client.searchPosts) {
         snapshot.sources.unshift(
-          ...topics.slice(0, 3).map((topic) => ({
-            actor: `search:${topic}`,
-            cursor: undefined,
-            exhausted: false,
-            items: [],
-          }))
+          ...[
+            ...new Set([
+              topics[0],
+              topics.length > 1
+                ? topics[
+                    1 +
+                      (Math.floor(Date.now() / 300_000) %
+                        Math.max(1, topics.length - 1))
+                  ]
+                : undefined,
+              topics.at(-1),
+            ]),
+          ]
+            .filter((topic): topic is string => Boolean(topic))
+            .map((topic) => ({
+              actor: `search:${topic}`,
+              cursor: undefined,
+              exhausted: false,
+              items: [],
+            }))
         );
       }
     }
@@ -492,7 +507,10 @@ export class BlueskyDiscovery {
               (!profile || post.author.id === profile.id) &&
               !snapshot.seen.includes(post.id) &&
               !isAuthenticationNotice(post.text) &&
-              matchesDiscoveryLanguage(post, locale)
+              matchesDiscoveryLanguage(post, locale) &&
+              (mode !== "latest" ||
+                !topics.length ||
+                topics.some((topic) => externalTopicMatch(post, topic) > 0))
           );
           source.cursor = page.cursor ?? undefined;
           source.exhausted = !page.cursor;

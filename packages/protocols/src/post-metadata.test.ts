@@ -14,6 +14,27 @@ import { postFixture } from "./testing/fixtures";
 
 const post = () => normalizePost(postViewSchema.parse(postFixture));
 
+test("explicit media opt-in keeps warning labels but never bypasses access restrictions", () => {
+  for (const value of ["porn", "sexual", "graphic-media", "nudity"]) {
+    const raw = postViewSchema.parse({
+      ...postFixture,
+      labels: [{ val: value }],
+    });
+    expect(() => normalizePost(raw)).toThrow();
+    expect(normalizePost(raw, 0, true).labels).toContain(value);
+    expect(() =>
+      normalizePost(
+        postViewSchema.parse({
+          ...postFixture,
+          labels: [{ val: value }, { val: "!no-unauthenticated" }],
+        }),
+        0,
+        true
+      )
+    ).toThrow();
+  }
+});
+
 test("metadata survives normalization, snapshots and nested quotes without changing old snapshot requirements", () => {
   const raw = {
     ...postFixture,

@@ -1,4 +1,5 @@
 import type { ExternalPost } from "@asm/protocols/contracts";
+import { externalTopicMatch } from "@asm/protocols/discovery";
 import { francAll } from "franc-min";
 
 const languageCodes: Record<string, string> = {
@@ -90,14 +91,9 @@ export function discoveryRelevance(
     post.upstreamCounts.replies +
     post.upstreamCounts.quotes * 2;
   const popularity = Math.log1p(engagement) / (1 + hours / 24);
-  const text =
-    `${post.text} ${post.author.description ?? ""} ${post.externalLink?.title ?? ""}`.toLocaleLowerCase();
   const interest = topics.reduce(
     (score, topic, index) =>
-      score +
-      (text.includes(topic.toLocaleLowerCase())
-        ? (topics.length - index) * 2
-        : 0),
+      score + externalTopicMatch(post, topic) * (topics.length - index) * 2,
     0
   );
   return (
