@@ -18,7 +18,7 @@ import {
   Unlink,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { FaBluesky } from "react-icons/fa6";
 
 import { LoadingButton } from "@/components/auth/fields/loading-button";
@@ -27,24 +27,51 @@ import { cn } from "@/lib/utils";
 
 interface BlueskyConnectCardProps {
   blueskyHandle?: string | null;
+  oauthConnected?: boolean;
   hasVerifiedEmail: boolean;
 }
 
 export function BlueskyConnectCard({
   blueskyHandle,
   hasVerifiedEmail,
+  oauthConnected = false,
 }: BlueskyConnectCardProps) {
   const { toast } = useToast();
   const router = useRouter();
 
   const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [handle, setHandle] = useState("");
-  const [appPassword, setAppPassword] = useState("");
+  const [handle, setHandle] = useState(blueskyHandle ?? "");
   const [isConnecting, setIsConnecting] = useState(false);
   const [isDisconnecting, setIsDisconnecting] = useState(false);
 
   const isConnected = Boolean(blueskyHandle);
   const cleanHandle = (blueskyHandle ?? "").replace(/^@/, "");
+
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    const result = url.searchParams.get("bluesky");
+    if (!result) {
+      return;
+    }
+    toast({
+      description:
+        result === "connected"
+          ? "Your account is authorized securely."
+          : "Authorization was cancelled or expired. Please try again.",
+      title:
+        result === "connected"
+          ? "Bluesky connected"
+          : "Bluesky connection failed",
+      variant: result === "connected" ? "default" : "destructive",
+    });
+    url.searchParams.delete("bluesky");
+    window.history.replaceState(null, "", url);
+  }, [toast]);
+
+  let connectionStatus = "Unlinked";
+  if (isConnected) {
+    connectionStatus = oauthConnected ? "Active" : "Reconnect needed";
+  }
 
   async function handleConnect(event: React.FormEvent) {
     event.preventDefault();
@@ -59,12 +86,11 @@ export function BlueskyConnectCard({
 
     setIsConnecting(true);
     let errorMessage: string | null = null;
-    let connectedHandle: string | null = null;
+    let authorizationUrl: string | null = null;
 
     try {
       const response = await fetch("/api/protocols/bluesky/link", {
         body: JSON.stringify({
-          appPassword: appPassword.trim() || undefined,
           handle: handle.trim(),
         }),
         headers: { "Content-Type": "application/json" },
@@ -73,7 +99,7 @@ export function BlueskyConnectCard({
 
       const data = await response.json();
       if (response.ok) {
-        connectedHandle = data.handle;
+        authorizationUrl = data.url;
       } else {
         errorMessage = data.error || "Failed to link Bluesky account.";
       }
@@ -95,14 +121,9 @@ export function BlueskyConnectCard({
       return;
     }
 
-    toast({
-      description: `Connected to Bluesky as @${connectedHandle}!`,
-      title: "Bluesky Linked",
-    });
-    setIsDialogOpen(false);
-    setHandle("");
-    setAppPassword("");
-    router.refresh();
+    if (authorizationUrl) {
+      window.location.assign(authorizationUrl);
+    }
   }
 
   async function handleDisconnect() {
@@ -189,7 +210,7 @@ export function BlueskyConnectCard({
                   : "border border-white/30 bg-white/10 text-white/80"
               )}
             >
-              {isConnected ? "Active" : "Unlinked"}
+              {connectionStatus}
             </span>
           </div>
 
@@ -215,7 +236,15 @@ export function BlueskyConnectCard({
                   @{cleanHandle}
                 </span>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  variant="secondary"
+                  disabled={!hasVerifiedEmail}
+                  onClick={() => setIsDialogOpen(true)}
+                  type="button"
+                >
+                  Reconnect securely
+                </Button>
                 <a
                   className="btn-3d-white inline-flex h-9 items-center justify-center gap-1.5 rounded-xl px-4 text-xs font-bold text-[#0866df] transition-all"
                   href={`https://bsky.app/profile/${cleanHandle}`}
@@ -260,7 +289,7 @@ export function BlueskyConnectCard({
 
       {/* Connect Modal */}
       <Dialog onOpenChange={setIsDialogOpen} open={isDialogOpen}>
-        <DialogContent className="surface-3d max-w-md rounded-2xl! border border-white/40 p-6 shadow-2xl dark:border-white/15">
+        <DialogContent className="max-w-md rounded-2xl! p-6">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2.5 text-base sm:text-lg">
               <div className="bluesky-3d-surface flex size-8 shrink-0 items-center justify-center rounded-xl">
@@ -269,8 +298,8 @@ export function BlueskyConnectCard({
               Connect your Bluesky Account
             </DialogTitle>
             <DialogDescription className="text-muted-foreground text-xs sm:text-sm">
-              Enter your Bluesky handle and an optional App Password to link
-              your identity and enable cross-posting actions.
+              Enter your Bluesky handle. You’ll continue to your account
+              provider to review permissions and authorize asocialmedia.
             </DialogDescription>
           </DialogHeader>
 
@@ -303,29 +332,10 @@ export function BlueskyConnectCard({
               </p>
             </div>
 
-            <div className="space-y-1.5">
-              <label
-                className="text-foreground text-xs font-semibold"
-                htmlFor="bsky-password"
-              >
-                App Password (Optional)
-              </label>
-              <Input
-                autoCapitalize="none"
-                autoComplete="off"
-                className="premium-input h-10 rounded-xl font-mono text-sm"
-                id="bsky-password"
-                onChange={(e) => setAppPassword(e.target.value)}
-                placeholder="xxxx-xxxx-xxxx-xxxx"
-                type="password"
-                value={appPassword}
-              />
-              <p className="text-muted-foreground text-[11px] leading-relaxed">
-                Recommended for publishing likes, replies, and posts from ASM.
-                Generate in Bluesky Settings &gt; App Passwords. Never enter
-                your primary password!
-              </p>
-            </div>
+            <p className="text-muted-foreground text-xs leading-relaxed">
+              Your password stays with your provider. You can revoke access from
+              your Bluesky account settings at any time.
+            </p>
 
             <DialogFooter className="gap-2 pt-2 sm:justify-end">
               <Button
@@ -343,7 +353,7 @@ export function BlueskyConnectCard({
                 type="submit"
               >
                 <Check className="size-4 text-white" />
-                Connect Account
+                Continue to Bluesky
               </LoadingButton>
             </DialogFooter>
           </form>

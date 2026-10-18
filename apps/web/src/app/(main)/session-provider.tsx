@@ -4,6 +4,8 @@ import type { Session, User } from "@asm/auth/core";
 import type React from "react";
 import { createContext, useContext } from "react";
 
+import { FeedCacheProvider } from "@/components/feeds/feed-cache-provider";
+
 // oxlint-disable-next-line no-redeclare -- context idiom: type shares its name with the runtime context
 interface SessionContext {
   session: Session | null;
@@ -17,7 +19,14 @@ export default function SessionProvider({
   value,
 }: React.PropsWithChildren<{ value: SessionContext | null }>) {
   return (
-    <SessionContext.Provider value={value}>{children}</SessionContext.Provider>
+    <SessionContext.Provider value={value}>
+      <FeedCacheProvider
+        key={value?.user?.id ?? "guest"}
+        viewer={value?.user?.id ?? "guest"}
+      >
+        {children}
+      </FeedCacheProvider>
+    </SessionContext.Provider>
   );
 }
 

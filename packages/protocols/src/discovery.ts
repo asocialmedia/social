@@ -14,6 +14,14 @@ import {
 } from "./transport";
 
 export {
+  externalPostTopics,
+  externalTopicMatch,
+  externalRegionalRelevance,
+  externalAiDeclaration,
+  mergeTopicWeights,
+} from "./post-metadata";
+
+export {
   FEED_EVENTS_CHANNEL,
   DISCOVERY_WATCH_CHANNEL,
   PROTOCOL_INVALIDATIONS_CHANNEL,
@@ -141,6 +149,13 @@ export const externalPostSchema: z.ZodType<ExternalPost> = z.lazy(() =>
         url: link,
       })
       .optional(),
+    facets: z
+      .object({
+        links: z.array(link).max(1000),
+        mentions: z.array(z.string().max(2048)).max(1000),
+        tags: z.array(z.string().max(640)).max(1000),
+      })
+      .optional(),
     id: z.string().startsWith("at://"),
     indexedAt: z.iso.datetime({ offset: true }),
     labels: z.array(z.string()),
@@ -158,10 +173,13 @@ export const externalPostSchema: z.ZodType<ExternalPost> = z.lazy(() =>
       )
       .max(8),
     quote: externalPostSchema.optional(),
+    replyRoot: z.string().optional(),
     replyTo: z.string().optional(),
     revision: z.string(),
     segments: z.array(z.object({ href: link.optional(), text: z.string() })),
+    selfLabels: z.array(z.string().max(128)).max(10).optional(),
     source: z.literal("bluesky"),
+    tags: z.array(z.string().max(640)).max(8).optional(),
     text: z.string(),
     unavailableQuote: z.boolean().optional(),
     upstreamCounts: z.object({

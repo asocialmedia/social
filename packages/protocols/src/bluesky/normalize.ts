@@ -40,17 +40,73 @@ function mediaLink(value: string | undefined): string | undefined {
 function publicLabels(labels: BlueskyProfile["labels"] = []): string[] {
   const values = [
     ...new Set(
-      (labels ?? []).filter((label) => !label.neg).map((label) => label.val)
+      (labels ?? [])
+        .filter(
+          (label) =>
+            !label.neg && (!label.exp || Date.parse(label.exp) > Date.now())
+        )
+        .map((label) => label.val)
     ),
   ];
-  // Public reads use conservative defaults until asocialmedia supplies a reviewed moderation policy.
-  if (values.length > 0) {
+  // An explicit AI declaration is informational; all other labels keep the conservative visibility policy.
+  if (values.some((value) => value !== "ai-generated")) {
     throw new ProtocolError(
       "restricted",
       "This content is not available through public discovery"
     );
   }
   return values;
+}
+
+function normalizeFacets(
+  post: BlueskyPost
+): NonNullable<ExternalPost["facets"]> {
+  const result: NonNullable<ExternalPost["facets"]> = {
+    links: [],
+    mentions: [],
+    tags: [],
+  };
+  const bytes = new TextEncoder().encode(post.record.text);
+  const decoder = new TextDecoder("utf-8", { fatal: true });
+  let offset = 0;
+  for (const facet of [...post.record.facets].toSorted(
+    (a, b) => a.index.byteStart - b.index.byteStart
+  )) {
+    const { byteStart, byteEnd } = facet.index;
+    if (byteStart < offset || byteEnd <= byteStart || byteEnd > bytes.length) {
+      continue;
+    }
+    try {
+      decoder.decode(bytes.slice(byteStart, byteEnd));
+    } catch {
+      continue;
+    }
+    offset = byteEnd;
+    for (const feature of facet.features) {
+      if (
+        feature.$type === "app.bsky.richtext.facet#tag" &&
+        feature.tag &&
+        feature.tag.length <= 640
+      ) {
+        result.tags.push(feature.tag);
+      }
+      if (feature.$type === "app.bsky.richtext.facet#mention" && feature.did) {
+        result.mentions.push(feature.did);
+      }
+      const link =
+        feature.$type === "app.bsky.richtext.facet#link"
+          ? safeLink(feature.uri)
+          : undefined;
+      if (link) {
+        result.links.push(link);
+      }
+    }
+  }
+  return {
+    links: [...new Set(result.links)].slice(0, 1000),
+    mentions: [...new Set(result.mentions)].slice(0, 1000),
+    tags: [...new Set(result.tags)].slice(0, 1000),
+  };
 }
 
 export function normalizeAuthor(profile: BlueskyProfile): ExternalAuthor {
@@ -201,19 +257,27 @@ export function normalizePost(post: BlueskyPost, depth = 0): ExternalPost {
       "This content requires authentication"
     );
   }
-  const labels = publicLabels(post.labels);
+  const selfLabels = post.record.labels?.values.map((label) => label.val) ?? [];
+  const labels = publicLabels([
+    ...post.labels,
+    ...selfLabels.map((val) => ({ val })),
+  ]);
   const result: ExternalPost = {
     author: normalizeAuthor(post.author),
     createdAt: post.record.createdAt,
+    facets: normalizeFacets(post),
     id: post.uri,
     indexedAt: post.indexedAt,
     labels,
     languages: post.record.langs,
     media: normalizeMedia(post.embed),
+    replyRoot: post.record.reply?.root?.uri,
     replyTo: post.record.reply?.parent.uri,
     revision: post.cid,
     segments: normalizeSegments(post),
+    selfLabels,
     source: "bluesky",
+    tags: post.record.tags ?? [],
     text: post.record.text,
     upstreamCounts: {
       likes: post.likeCount,

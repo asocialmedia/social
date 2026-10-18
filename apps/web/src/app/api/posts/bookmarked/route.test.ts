@@ -231,12 +231,27 @@ describe("GET /api/posts/bookmarked", () => {
           available: true,
           checkedAt: new Date("2026-01-04T00:00:00Z"),
           snapshot: {
-            author: { handle: "alice.bsky.social", id: "did:plc:alice" },
+            author: {
+              displayName: "Alice",
+              handle: "alice.bsky.social",
+              id: "did:plc:alice",
+              labels: [],
+              source: "bluesky",
+              upstreamCounts: {},
+              url: "https://bsky.app/profile/did:plc:alice",
+            },
             createdAt: "2026-01-01T00:00:00.000Z",
             id: "at://did:plc:alice/app.bsky.feed.post/123",
+            indexedAt: "2026-01-01T00:00:00.000Z",
+            labels: [],
+            languages: [],
             media: [],
+            revision: "revision",
+            segments: [],
             source: "bluesky",
             text: "bluesky post content",
+            upstreamCounts: { likes: 0, quotes: 0, replies: 0, reposts: 0 },
+            url: "https://bsky.app/profile/did:plc:alice/post/123",
           },
           uri: "at://did:plc:alice/app.bsky.feed.post/123",
         },
@@ -260,6 +275,28 @@ describe("GET /api/posts/bookmarked", () => {
     expect(body.posts.map((post) => post.id)).toEqual([
       "at://did:plc:alice/app.bsky.feed.post/123",
       "post1",
+    ]);
+  });
+  test("a malformed saved Bluesky snapshot cannot break native bookmarks", async () => {
+    externalEngagementRows = [
+      {
+        externalPost: {
+          available: true,
+          checkedAt: new Date(),
+          snapshot: { media: null, source: "bluesky" },
+          uri: "at://did:plc:alice/app.bsky.feed.post/broken",
+        },
+        externalPostId: "broken",
+        updatedAt: new Date(),
+      },
+    ];
+    const response = await GET(
+      new Request("http://localhost/api/posts/bookmarked")
+    );
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.posts.map((post: { id: string }) => post.id)).toEqual([
+      POST_ID,
     ]);
   });
 });

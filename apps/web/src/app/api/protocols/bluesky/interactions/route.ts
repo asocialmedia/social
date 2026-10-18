@@ -366,51 +366,17 @@ export function POST(request: Request) {
               userId: session.user.id,
             }).first();
 
-            // If the user has not linked their Bluesky account, do not attempt remote ATProto write;
-            // the local record is already durably saved in the database above.
-            if (!blueskyAccount?.password && !blueskyAccount?.accessToken) {
+            if (!blueskyAccount?.idToken || !post) {
               return;
             }
-
-            const {
-              createBlueskySession,
-              publishBlueskyLike,
-              publishBlueskyReply,
-            } = await import("@asm/protocols/bluesky");
-
-            let token = blueskyAccount.accessToken;
-            if (!token && blueskyAccount.password) {
-              const refreshed = await createBlueskySession({
-                identifier: blueskyAccount.accountId,
-                password: blueskyAccount.password,
-              });
-              token = refreshed.accessJwt;
-            }
-
-            if (token) {
-              if (input.action === "comment" && input.content && post) {
-                const rootUri = post.id;
-                const rootCid = post.revision;
-                await publishBlueskyReply(
-                  { accessJwt: token, did: blueskyAccount.accountId },
-                  {
-                    parentCid: rootCid,
-                    parentUri: rootUri,
-                    rootCid,
-                    rootUri,
-                    text: input.content,
-                  }
-                );
-              } else if (input.action === "amplify") {
-                const targetCid = post?.revision;
-                if (targetCid) {
-                  await publishBlueskyLike(
-                    { accessJwt: token, did: blueskyAccount.accountId },
-                    { cid: targetCid, uri: input.uri }
-                  );
-                }
-              }
-            }
+            const { publishBlueskyInteraction } =
+              await import("@/lib/protocols/oauth-publish");
+            await publishBlueskyInteraction(
+              session.user.id,
+              blueskyAccount.accountId,
+              post,
+              input.action === "comment" ? input.content : undefined
+            );
           } catch {
             // Background ATProto cross-posting failure should never fail the local interaction
           }

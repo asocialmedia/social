@@ -43,7 +43,13 @@ export const postUriSchema = recordUriSchema("app.bsky.feed.post");
 export const feedUriSchema = recordUriSchema("app.bsky.feed.generator");
 const count = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
 const labelsSchema = z
-  .array(z.object({ neg: z.boolean().optional(), val: z.string().max(256) }))
+  .array(
+    z.object({
+      exp: z.iso.datetime({ offset: true }).optional(),
+      neg: z.boolean().optional(),
+      val: z.string().max(256),
+    })
+  )
   .max(100)
   .default([]);
 export const profileSchema = z.object({
@@ -86,10 +92,20 @@ export const postViewSchema = z.object({
     $type: z.literal("app.bsky.feed.post"),
     createdAt: z.iso.datetime({ offset: true }),
     facets: z.array(facetSchema).max(1000).default([]),
+    labels: z
+      .object({
+        $type: z.literal("com.atproto.label.defs#selfLabels"),
+        values: z.array(z.object({ val: z.string().max(128) })).max(10),
+      })
+      .optional(),
     langs: z.array(z.string().max(64)).max(10).default([]),
     reply: z
-      .object({ parent: z.object({ uri: z.string().max(2300) }) })
+      .object({
+        parent: z.object({ uri: postUriSchema }),
+        root: z.object({ uri: postUriSchema }).optional(),
+      })
       .optional(),
+    tags: z.array(z.string().max(640)).max(8).optional(),
     text: z.string().max(100_000),
   }),
   replyCount: count.default(0),

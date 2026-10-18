@@ -1,6 +1,10 @@
 import { beforeEach, expect, mock, test } from "bun:test";
 
-const state = { summaryCalls: [] as string[], viewerId: "owner" };
+const state = {
+  account: null as { idToken: string | null; issuer: string } | null,
+  summaryCalls: [] as string[],
+  viewerId: "owner",
+};
 const row = {
   communityMembers: [],
   createdAt: new Date(),
@@ -29,7 +33,7 @@ mock.module("@asm/db", () => ({
       public: {
         Accounts: {
           where: () => ({
-            first: () => Promise.resolve(null),
+            select: () => ({ first: () => Promise.resolve(state.account) }),
           }),
         },
       },
@@ -39,6 +43,7 @@ mock.module("@asm/db", () => ({
 const { getUserData } = await import("./use-user-data");
 
 beforeEach(() => {
+  state.account = null;
   state.viewerId = "owner";
   state.summaryCalls = [];
 });
@@ -52,4 +57,14 @@ test("the Home owner payload includes actual totals instead of missing count fie
 test("private Home data still requires the session owner", async () => {
   expect(await getUserData("another-person")).toBeNull();
   expect(state.summaryCalls).toEqual([]);
+});
+
+test("reports whether a linked Bluesky account needs OAuth reconnection", async () => {
+  state.account = { idToken: null, issuer: "alice.bsky.social" };
+  const legacy = await getUserData("owner");
+  expect(legacy?.blueskyOAuthConnected).toBe(false);
+  state.account = { idToken: "encrypted-session", issuer: "alice.bsky.social" };
+  const connected = await getUserData("owner");
+  expect(connected?.blueskyOAuthConnected).toBe(true);
+  expect(connected).not.toHaveProperty("idToken");
 });

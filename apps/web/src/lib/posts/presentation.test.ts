@@ -11,6 +11,7 @@ import {
   getMediaVideoUrl,
 } from "../utils/image-url";
 import { cachedPostPreview } from "./cached-post-preview";
+import { normalizePostData } from "./post-normalize";
 import { externalPostView } from "./presentation";
 
 const post: ExternalPost = {
@@ -36,6 +37,29 @@ const post: ExternalPost = {
   upstreamCounts: { likes: 2, quotes: 0, replies: 1, reposts: 0 },
   url: "https://bsky.app/profile/did:plc:alice/post/example",
 };
+
+test("declared AI metadata and source topics reach web media without inventing provenance or native tag relations", () => {
+  const view = externalPostView({
+    ...post,
+    media: [
+      {
+        alt: "A generated galaxy",
+        type: "image",
+        url: "https://cdn.bsky.app/image.jpg",
+      },
+    ],
+    selfLabels: ["ai-generated"],
+    tags: ["Astronomy"],
+  });
+  expect(view.attachments?.[0]?.aiGenerated).toBe(true);
+  expect(view.attachments?.[0]).toHaveProperty(
+    "aiGeneratedSource",
+    "bluesky-label"
+  );
+  expect(view.semanticTags).toEqual(["astronomy"]);
+  expect(view.tags).toEqual([]);
+  expect(view.embedding).toEqual([]);
+});
 
 test("external detail skeletons reuse the exact source media from paginated caches", () => {
   const source = {
@@ -130,4 +154,49 @@ test("external link metadata uses native embeds including YouTube facades and sa
   expect(embed?.videoId).toBe("dQw4w9WgXcQ");
   expect(embed?.siteName).toBe("youtu.be");
   expect(embed?.url).toBe("https://youtu.be/dQw4w9WgXcQ");
+});
+
+test.each(["porn", "sexual", "graphic-media", "nudity"])(
+  "Bluesky %s labels set the existing explicit flag without marking the post moderated",
+  (label) => {
+    const view = externalPostView({ ...post, labels: [label] });
+    expect(view.explicitContent).toBe(true);
+    expect(view.moderated).toBe(false);
+    expect(view.content).toBe(post.text);
+  }
+);
+
+test("account warnings apply to post media while quoted posts keep their own warning state", () => {
+  expect(
+    externalPostView({
+      ...post,
+      author: { ...post.author, labels: ["sexual"] },
+    }).explicitContent
+  ).toBe(true);
+  const quote = { ...post, id: `${post.id}-quote`, labels: ["graphic-media"] };
+  const outer = externalPostView({ ...post, quote });
+  expect(outer.explicitContent).toBe(false);
+  expect(
+    outer.external?.quote &&
+      externalPostView(outer.external.quote).explicitContent
+  ).toBe(true);
+});
+
+test("cached bookmarks and media previews repair old false flags synchronously", () => {
+  const stale = {
+    ...externalPostView({ ...post, labels: ["nudity"] }),
+    explicitContent: false,
+  };
+  expect(normalizePostData(stale).explicitContent).toBe(true);
+  expect(
+    cachedPostPreview({ pages: [{ posts: [stale] }] }, stale.id)
+      ?.explicitContent
+  ).toBe(true);
+  expect(
+    cachedPostPreview(
+      { pages: [{ items: [{ ...post, labels: ["sexual"] }] }] },
+      post.id
+    )?.explicitContent
+  ).toBe(true);
+  expect(stale.explicitContent).toBe(false);
 });

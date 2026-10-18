@@ -8,7 +8,7 @@ import {
   prisma,
 } from "@asm/db";
 import type { PostData, PostsPage } from "@asm/db";
-import type { ExternalPost } from "@asm/protocols/contracts";
+import { externalPostSchema } from "@asm/protocols/discovery";
 
 import { getSessionFromApi } from "@/lib/auth/session";
 import { externalPostView } from "@/lib/posts/presentation";
@@ -56,7 +56,7 @@ export async function GET(request: Request) {
           )
           .all()
       : [];
-  const posts = postRows.map(mapPostData);
+  const posts = await hydrateViewCounts(postRows.map(mapPostData));
 
   const postById = new Map(posts.map((post) => [post.id, post]));
 
@@ -64,7 +64,7 @@ export async function GET(request: Request) {
     const orderedGusts = postIds
       .map((postId) => postById.get(postId))
       .filter((post): post is PostData => post !== undefined);
-    const hydrated = await hydrateViewCounts(orderedGusts);
+    const hydrated = orderedGusts;
     const data: PostsPage = {
       nextCursor: null,
       posts: hydrated,
@@ -89,16 +89,26 @@ export async function GET(request: Request) {
     const externalUris = externalEngagements
       .map((entry) => entry.externalPost?.uri)
       .filter((uri): uri is string => Boolean(uri));
-    const states =
-      externalUris.length > 0
-        ? await externalPostStates(externalUris.slice(0, 50), user.id).catch(
-            () => new Map()
-          )
-        : new Map();
+    const statePages = await Promise.all(
+      Array.from({ length: Math.ceil(externalUris.length / 50) }, (_, index) =>
+        externalPostStates(
+          externalUris.slice(index * 50, (index + 1) * 50),
+          user.id
+        )
+      )
+    );
+    const states = new Map(statePages.flatMap((page) => [...page]));
 
     for (const entry of externalEngagements) {
       if (entry.externalPost?.snapshot) {
-        const raw = entry.externalPost.snapshot as unknown as ExternalPost;
+        const parsed = externalPostSchema.safeParse(
+          entry.externalPost.snapshot
+        );
+        if (!parsed.success) {
+          // A damaged legacy snapshot must not prevent the rest of the library from loading.
+          continue;
+        }
+        const raw = parsed.data;
         const asmState = states.get(raw.id);
         const postWithState = asmState ? { ...raw, asm: asmState } : raw;
         bskyItems.push({
@@ -116,7 +126,7 @@ export async function GET(request: Request) {
   );
   const orderedPosts = allItems.map((item) => item.post);
 
-  const hydrated = await hydrateViewCounts(orderedPosts);
+  const hydrated = orderedPosts;
   const data: PostsPage = {
     nextCursor: null,
     posts: hydrated,

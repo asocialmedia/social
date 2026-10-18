@@ -1,6 +1,8 @@
+import type { PostData } from "@asm/db";
 import { externalPostSchema } from "@asm/protocols/discovery";
 import type { PostPreviewSource } from "@asm/ui/lib/post-preview-layout";
 
+import { normalizePostData } from "./post-normalize";
 import { externalPostView } from "./presentation";
 
 const externalPreviews = new WeakMap<object, PostPreviewSource>();
@@ -41,7 +43,7 @@ export function cachedPostPreview(
     typeof record.content === "string" &&
     Array.isArray(record.attachments)
   ) {
-    return record as unknown as PostPreviewSource;
+    return normalizePostData(record as unknown as PostData);
   }
   for (const key of ["pages", "items", "posts", "post", "data", "parentPost"]) {
     const found = cachedPostPreview(record[key], postId);

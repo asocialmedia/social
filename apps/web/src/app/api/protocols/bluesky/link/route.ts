@@ -1,139 +1,74 @@
-import { prisma } from "@asm/db";
-import {
-  createBlueskySession,
-  resolveBlueskyHandle,
-} from "@asm/protocols/bluesky";
+import { cookies } from "next/headers";
 import { z } from "zod";
 
 import { getSessionFromApi } from "@/lib/auth/session";
+import {
+  blueskyOAuthOrigin,
+  createBlueskyOAuthClient,
+} from "@/lib/protocols/oauth";
+import { BLUESKY_OAUTH_COOKIE } from "@/lib/protocols/oauth-config";
 
-const linkBlueskySchema = z.object({
-  appPassword: z.string().max(100).optional(),
-  handle: z.string().min(1).max(253),
-});
+const inputSchema = z
+  .object({ handle: z.string().trim().min(1).max(253) })
+  .strict();
 
-export async function POST(req: Request) {
+export async function POST(request: Request) {
   const session = await getSessionFromApi();
-  if (!session?.user?.id) {
+  if (!session?.user.id) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
-
   if (!session.user.emailVerified) {
     return Response.json(
       {
         error:
-          "You must verify your email address on asocialmedia before connecting an external account.",
+          "You must verify your email address before connecting an external account.",
       },
       { status: 403 }
     );
   }
-
-  let body: unknown;
-  try {
-    body = await req.json();
-  } catch {
-    return Response.json({ error: "Invalid JSON body" }, { status: 400 });
+  const origin = request.headers.get("origin");
+  if (
+    request.headers.get("sec-fetch-site") === "cross-site" ||
+    (origin && origin !== blueskyOAuthOrigin())
+  ) {
+    return Response.json({ error: "Invalid origin" }, { status: 403 });
   }
-
-  const parsed = linkBlueskySchema.safeParse(body);
-  if (!parsed.success) {
+  const input = inputSchema.safeParse(await request.json().catch(() => null));
+  if (!input.success) {
     return Response.json(
-      { error: parsed.error.issues[0]?.message ?? "Invalid input" },
+      { error: "Enter your Bluesky handle." },
       { status: 400 }
     );
   }
-
-  const cleanHandle = parsed.data.handle.replace(/^@/, "").toLowerCase();
-  const appPassword = parsed.data.appPassword?.trim() || undefined;
-
-  let did: string;
+  const nonce = crypto.randomUUID();
   try {
-    const resolved = await resolveBlueskyHandle(cleanHandle);
-    ({ did } = resolved);
-  } catch (error) {
-    return Response.json(
+    const client = createBlueskyOAuthClient(session.user.id, true);
+    const url = await client.authorize(
+      input.data.handle.replace(/^@/, "").toLowerCase(),
       {
-        error:
-          error instanceof Error
-            ? error.message
-            : "Could not resolve Bluesky handle. Check spelling and try again.",
-      },
-      { status: 400 }
+        signal: AbortSignal.timeout(15_000),
+        state: JSON.stringify({ nonce, userId: session.user.id }),
+      }
     );
-  }
-
-  let accessJwt: string | undefined;
-  let refreshJwt: string | undefined;
-  if (appPassword) {
-    try {
-      const sessionResult = await createBlueskySession({
-        identifier: did,
-        password: appPassword,
-      });
-      ({ accessJwt, refreshJwt } = sessionResult);
-    } catch (error) {
-      return Response.json(
-        {
-          error:
-            error instanceof Error
-              ? error.message
-              : "Invalid Bluesky App Password. Please generate one in Bluesky Settings.",
-        },
-        { status: 400 }
-      );
-    }
-  }
-
-  try {
-    const existing = await prisma.orm.public.Accounts.where({
-      accountId: did,
-      providerId: "bluesky",
-    }).first();
-
-    if (existing && existing.userId !== session.user.id) {
-      return Response.json(
-        {
-          error:
-            "This Bluesky account is already linked to another user profile.",
-        },
-        { status: 409 }
-      );
-    }
-
-    await (existing
-      ? prisma.orm.public.Accounts.where({
-          id: existing.id,
-        }).updateAndCount({
-          accessToken: accessJwt ?? existing.accessToken,
-          issuer: cleanHandle,
-          password: appPassword ?? existing.password,
-          refreshToken: refreshJwt ?? existing.refreshToken,
-        })
-      : prisma.orm.public.Accounts.create({
-          accessToken: accessJwt ?? null,
-          accountId: did,
-          issuer: cleanHandle,
-          password: appPassword ?? null,
-          providerId: "bluesky",
-          refreshToken: refreshJwt ?? null,
-          userId: session.user.id,
-        }));
-
-    return Response.json({
-      did,
-      handle: cleanHandle,
-      hasSession: Boolean(accessJwt),
-      success: true,
+    const cookieJar = await cookies();
+    cookieJar.set(BLUESKY_OAUTH_COOKIE, nonce, {
+      httpOnly: true,
+      maxAge: 600,
+      path: "/",
+      sameSite: "lax",
+      secure: new URL(blueskyOAuthOrigin()).protocol === "https:",
     });
-  } catch (error) {
+    return Response.json(
+      { url: url.href },
+      { headers: { "cache-control": "no-store" } }
+    );
+  } catch {
     return Response.json(
       {
         error:
-          error instanceof Error
-            ? error.message
-            : "Failed to persist account connection.",
+          "Could not start Bluesky authorization. Check your handle and try again.",
       },
-      { status: 500 }
+      { status: 400 }
     );
   }
 }

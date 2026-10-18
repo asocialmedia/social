@@ -24,6 +24,7 @@ import LoadMoreSkeleton from "@/components/layouts/skeletons/load-more-skeleton"
 import { useFeedSwipeNavigation } from "@/hooks/feed/use-feed-swipe-navigation";
 import { useBookmarkCount } from "@/hooks/posts/use-bookmark-count";
 import kyInstance from "@/lib/ky";
+import { FEED_QUERY_BEHAVIOR } from "@/lib/posts/feed-cache";
 
 import BookmarkedGusts from "./bookmarked-gusts";
 import LikedPosts from "./liked-posts";
@@ -48,7 +49,9 @@ function FleetsTabBody({
   onBottomReached,
   posts,
   status,
+  viewer,
 }: {
+  viewer: string;
   isFetchingNext: boolean;
   onBottomReached: () => void;
   posts: PostData[];
@@ -84,7 +87,11 @@ function FleetsTabBody({
   }
   return (
     <InfiniteScrollContainer onBottomReached={onBottomReached}>
-      <FeedView cacheKey={["post-feed", "bookmarks"]} posts={posts} />
+      <FeedView
+        cacheKey={["post-feed", "bookmarks", viewer]}
+        posts={posts}
+        sortBy="server"
+      />
       {isFetchingNext ? <LoadMoreSkeleton /> : null}
     </InfiniteScrollContainer>
   );
@@ -186,6 +193,7 @@ const Bookmarks: React.FC<BookmarksProps> = ({
     isFetchingNextPage: isFetchingNextPosts,
     status: postsStatus,
   } = useInfiniteQuery({
+    ...FEED_QUERY_BEHAVIOR,
     getNextPageParam: (lastPage) => lastPage.nextCursor,
     initialPageParam: null as string | null,
     queryFn: async ({ pageParam }: { pageParam: string | null }) => {
@@ -197,7 +205,8 @@ const Bookmarks: React.FC<BookmarksProps> = ({
         .json<PostsPage>();
       return response;
     },
-    queryKey: ["post-feed", "bookmarks"],
+    queryKey: ["post-feed", "bookmarks", userData.id],
+    staleTime: 30_000,
   });
 
   const {
@@ -324,6 +333,7 @@ const Bookmarks: React.FC<BookmarksProps> = ({
                   onBottomReached={handleBottomReachedPosts}
                   posts={posts}
                   status={postsStatus}
+                  viewer={userData.id}
                 />
               </TabsContent>
 

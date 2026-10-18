@@ -2,19 +2,13 @@
 
 import type { FeedSource } from "@asm/protocols/discovery";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuTrigger,
-} from "@asm/ui/shadui/dropdown-menu";
-import {
-  Check,
-  Globe,
-  Info,
-  Languages,
-  RotateCcw,
-  Settings2,
-  Sparkles,
-} from "lucide-react";
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@asm/ui/shadui/popover";
+import asmLogo from "@assets/asm.png";
+import { Check, RotateCcw, Settings2 } from "lucide-react";
+import Image from "next/image";
 import type React from "react";
 import { useCallback, useSyncExternalStore } from "react";
 
@@ -22,34 +16,61 @@ import { BlueskyIcon } from "@/components/protocols/bluesky-icon";
 import { cn } from "@/lib/utils";
 import { useFeedSourceStore } from "@/store/feed-source-store";
 
+// Filled selections reuse the app's brand surfaces so the menu looks like the
+// rest of the UI: orange for asocialmedia, Bluesky blue for the bridge.
+const ORANGE_FILL =
+  "orange-3d-surface bg-linear-to-b from-[#ff9500] to-[#e65500] text-white";
+const BLUESKY_FILL = "bluesky-3d-surface text-white";
+
 interface SourceOption {
   value: FeedSource;
   label: string;
   description: string;
-  icon: React.ReactNode;
-  iconBg: string;
+  mark: React.ReactNode;
+  // Tone the bare mark wears on an unselected row, so it keeps its brand colour
+  // without the row's muted text colour bleeding into it.
+  idleTone?: string;
+  // The asm logo keeps its brand orange on neutral rows and flips to a white
+  // silhouette on the filled orange row.
+  whiteOnFill?: boolean;
 }
+
+// Two interlocking rings stand for "both networks in one stream".
+const AllNetworksMark = () => (
+  <svg aria-hidden="true" className="size-4" fill="none" viewBox="0 0 16 16">
+    <circle cx="6.3" cy="8" r="4.3" stroke="currentColor" strokeWidth="1.5" />
+    <circle
+      cx="9.7"
+      cy="8"
+      opacity="0.5"
+      r="4.3"
+      stroke="currentColor"
+      strokeWidth="1.5"
+    />
+  </svg>
+);
 
 const SOURCE_OPTIONS: SourceOption[] = [
   {
-    description: "Unified asocialmedia & Bluesky feed",
-    icon: <Globe className="size-4 text-emerald-400" />,
-    iconBg: "bg-emerald-500/10 border-emerald-500/25",
-    label: "All Networks",
+    description: "asocialmedia and Bluesky together",
+    label: "All networks",
+    mark: <AllNetworksMark />,
     value: "all",
   },
   {
-    description: "Native local community & posts only",
-    icon: <Sparkles className="size-4 text-[#ff9500]" />,
-    iconBg: "bg-orange-500/10 border-orange-500/25",
+    description: "Local communities and posts",
     label: "asocialmedia",
+    mark: <Image alt="" className="h-4 w-auto" src={asmLogo} />,
     value: "asm",
+    whiteOnFill: true,
   },
   {
-    description: "Public AT Protocol discovery bridge",
-    icon: <BlueskyIcon className="size-4" tooltip={false} />,
-    iconBg: "bg-sky-500/10 border-sky-500/25",
-    label: "Bluesky Network",
+    description: "Public AT Protocol discovery",
+    // text-current makes the mark inherit the row's tone. Without it the icon's
+    // own text-sky-500 wins and the butterfly stays dark on its own blue fill.
+    idleTone: "text-sky-500",
+    label: "Bluesky",
+    mark: <BlueskyIcon className="size-4 text-current" tooltip={false} />,
     value: "bluesky",
   },
 ];
@@ -59,16 +80,6 @@ const LANGUAGE_OPTIONS = [
   { label: "English", value: "en" },
   { label: "All", value: "all" },
 ] as const;
-
-function getLanguageLabel(language: string): string {
-  if (language === "auto") {
-    return "Device Locale";
-  }
-  if (language === "en") {
-    return "English Only";
-  }
-  return "All Languages";
-}
 
 const subscribe = () => () => {
   /* empty */
@@ -108,175 +119,167 @@ export function FeedSourceMenu({ following }: { following: boolean }) {
   }, [setSource, setLanguage]);
 
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
+    <Popover>
+      <PopoverTrigger asChild>
         <button
-          aria-label={`Feed settings (${following ? "asocialmedia" : activeSource})`}
+          aria-label={`Feed settings, source: ${
+            following ? "asocialmedia" : activeSource
+          }`}
           className={cn(
-            "group relative mx-1.5 flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-xl transition-all duration-200 active:translate-y-px",
-            // Squaricle 3D dual-border background
-            "border border-white/20 bg-linear-to-b from-white/10 to-white/5 backdrop-blur-md",
-            "shadow-[inset_0_1px_1px_rgba(255,255,255,0.35),inset_0_-1px_1px_rgba(0,0,0,0.4),0_2px_6px_rgba(0,0,0,0.3)]",
-            "hover:scale-[1.03] hover:border-white/35 hover:from-white/15 hover:to-white/10 hover:shadow-[inset_0_1px_1.5px_rgba(255,255,255,0.45),0_4px_12px_rgba(0,0,0,0.4)]",
-            "active:scale-[0.97]",
-            "text-zinc-300 hover:text-white"
+            "surface-3d bg-background text-muted-foreground relative ml-1.5 flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-full",
+            "hover:text-foreground focus-visible:ring-ring focus-visible:ring-2 focus-visible:outline-none active:translate-y-px",
+            "transition-colors",
+            isCustomized && "text-foreground"
           )}
           suppressHydrationWarning
           type="button"
         >
-          <Settings2 className="size-4.5 transition-transform duration-300 group-hover:rotate-45" />
+          <Settings2 className="size-4" />
           {isCustomized ? (
-            <span className="absolute -top-0.5 -right-0.5 flex size-2.5">
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#ff9500] opacity-75" />
-              <span className="relative inline-flex size-2.5 rounded-full border-2 border-zinc-950 bg-[#ff9500] shadow-[0_0_8px_rgba(255,149,0,0.8)]" />
-            </span>
+            <span
+              aria-hidden
+              className="bg-primary absolute -top-0.5 -right-0.5 size-2 rounded-full ring-2 ring-[hsl(var(--background-alt))]"
+            />
           ) : null}
         </button>
-      </DropdownMenuTrigger>
+      </PopoverTrigger>
 
-      <DropdownMenuContent
+      <PopoverContent
         align="end"
-        className="border-border w-[330px] rounded-2xl border border-white/15 bg-zinc-950/95 p-3 text-white shadow-[inset_0_1px_1px_rgba(255,255,255,0.2),inset_0_-1px_1px_rgba(0,0,0,0.6),0_16px_40px_rgba(0,0,0,0.7)] backdrop-blur-2xl sm:w-[350px]"
+        className="w-76 max-w-[calc(100vw-1.5rem)] p-2.5 sm:w-84"
         sideOffset={8}
       >
-        {/* Header */}
-        <div className="flex items-center justify-between border-b border-white/10 pb-2.5">
-          <div className="flex items-center gap-2">
-            <div className="flex size-7 items-center justify-center rounded-lg border border-orange-500/30 bg-orange-500/10 text-[#ff9500] shadow-[inset_0_1px_1px_rgba(255,255,255,0.2)]">
-              <Settings2 className="size-3.5" />
-            </div>
-            <div>
-              <h4 className="text-xs font-bold tracking-tight text-white">
-                Feed Tuning
-              </h4>
-              <p className="text-[10px] text-zinc-400">
-                Sources & discovery tuning
-              </p>
-            </div>
-          </div>
+        <div className="flex items-center justify-between gap-2 px-1 pb-2">
+          <h2 className="text-foreground text-sm font-semibold">Feed tuning</h2>
           {isCustomized ? (
             <button
-              className="flex cursor-pointer items-center gap-1 rounded-full border border-white/15 bg-white/5 px-2 py-0.5 text-[10px] font-semibold text-zinc-300 transition-all hover:border-white/30 hover:bg-white/10 hover:text-white active:translate-y-px"
+              className="chip-3d text-muted-foreground hover:text-foreground focus-visible:ring-ring flex cursor-pointer items-center gap-1 rounded-md px-1.5 py-1 text-[11px] font-semibold focus-visible:ring-2 focus-visible:outline-none"
               onClick={handleReset}
               type="button"
             >
-              <RotateCcw className="size-2.5" />
+              <RotateCcw className="size-3" />
               Reset
             </button>
           ) : null}
         </div>
 
-        {/* Section 1: Feed Sources */}
-        <div className="flex items-center justify-between px-0.5 pt-2.5 pb-1">
-          <span className="text-[10px] font-bold tracking-wider text-zinc-400 uppercase">
-            Network Source
-          </span>
-          {following ? (
-            <span className="rounded-md border border-white/15 bg-white/5 px-1.5 py-0.5 text-[9px] font-semibold text-zinc-400">
-              Fixed on Following
-            </span>
-          ) : null}
-        </div>
-
-        <div className="space-y-1.5">
+        <div className="flex flex-col gap-1.5">
           {SOURCE_OPTIONS.map((opt) => {
             const isSelected = activeSource === opt.value;
+            const isLocked = following && opt.value !== "asm";
+            let fill: string | null = null;
+            if (opt.value === "asm") {
+              fill = ORANGE_FILL;
+            } else if (opt.value === "bluesky") {
+              fill = BLUESKY_FILL;
+            }
+
+            let rowSkin = "text-foreground group sidebar-row-hover";
+            if (isSelected) {
+              // The neutral "All networks" selection sits a step above the panel
+              // (bg-card) so it still reads as chosen on the dark theme, where a
+              // plain surface-3d fill matches the panel exactly.
+              rowSkin = fill ?? "surface-3d bg-card text-foreground";
+            }
+
             return (
               <button
                 key={opt.value}
                 aria-pressed={isSelected}
                 className={cn(
-                  "group flex w-full cursor-pointer items-center justify-between rounded-xl p-2 text-left transition-all duration-150 active:translate-y-px",
-                  isSelected
-                    ? "border-2 border-[#ff9500] bg-orange-500/[0.08] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1px_2px_rgba(255,255,255,0.3),0_2px_8px_rgba(255,149,0,0.25)]"
-                    : "border border-white/10 bg-white/[0.03] hover:border-white/20 hover:bg-white/[0.07]",
-                  following &&
-                    "cursor-not-allowed opacity-50 hover:border-white/10 hover:bg-white/[0.03]"
+                  "focus-visible:ring-ring flex w-full cursor-pointer items-center gap-2.5 rounded-xl px-2.5 py-2 text-left focus-visible:ring-2 focus-visible:outline-none",
+                  "active:translate-y-px",
+                  rowSkin,
+                  isLocked && "pointer-events-none opacity-45"
                 )}
-                disabled={following}
-                onClick={() => {
-                  if (!following) {
-                    setSource(opt.value);
-                  }
-                }}
+                disabled={isLocked}
+                onClick={() => setSource(opt.value)}
                 type="button"
               >
-                <div className="flex min-w-0 items-center gap-2.5">
-                  <div
+                <span
+                  className={cn(
+                    "flex size-5 shrink-0 items-center justify-center",
+                    isSelected
+                      ? ""
+                      : cn(
+                          // Brand marks keep their own colour on hover, the same
+                          // way the trending rows do; neutral glyphs inherit.
+                          opt.idleTone ??
+                            "text-muted-foreground transition-colors group-hover:text-inherit"
+                        ),
+                    isSelected && fill && opt.whiteOnFill
+                      ? "brightness-0 invert"
+                      : ""
+                  )}
+                >
+                  {opt.mark}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span
                     className={cn(
-                      "flex size-8 shrink-0 items-center justify-center rounded-lg border",
-                      opt.iconBg
+                      "block truncate text-[13px] leading-tight font-semibold",
+                      isSelected
+                        ? ""
+                        : "transition-colors group-hover:text-inherit"
                     )}
                   >
-                    {opt.icon}
-                  </div>
-                  <div className="min-w-0">
-                    <span
-                      className={cn(
-                        "block truncate text-xs font-semibold",
-                        isSelected ? "text-white" : "text-zinc-300"
-                      )}
-                    >
-                      {opt.label}
-                    </span>
-                    <p className="truncate text-[10px] text-zinc-400">
-                      {opt.description}
-                    </p>
-                  </div>
-                </div>
-                {isSelected ? (
-                  <span className="ml-2 flex size-5 shrink-0 items-center justify-center rounded-full bg-[#ff9500] text-black shadow-sm">
-                    <Check className="size-3 stroke-[3]" />
+                    {opt.label}
                   </span>
+                  <span
+                    className={cn(
+                      "text-muted-foreground block truncate text-[11px] leading-tight",
+                      isSelected && fill
+                        ? "text-white/80"
+                        : "transition-colors group-hover:text-inherit"
+                    )}
+                  >
+                    {opt.description}
+                  </span>
+                </span>
+                {isSelected ? (
+                  <Check
+                    aria-hidden
+                    className="size-4 shrink-0"
+                    strokeWidth={3}
+                  />
                 ) : null}
               </button>
             );
           })}
         </div>
 
-        {/* Section 2: Content Language */}
-        <div className="flex items-center justify-between px-0.5 pt-3 pb-1.5">
-          <span className="flex items-center gap-1 text-[10px] font-bold tracking-wider text-zinc-400 uppercase">
-            <Languages className="size-3 text-zinc-400" />
-            Language Filter
+        <div className="mt-2.5 flex items-center justify-between gap-2 px-1">
+          <span className="text-muted-foreground text-xs font-medium">
+            Language
           </span>
-          <span className="text-[10px] font-medium text-zinc-400 capitalize">
-            {getLanguageLabel(activeLanguage)}
-          </span>
+          <fieldset
+            aria-label="Content language"
+            className="surface-3d flex min-w-0 items-center gap-0.5 rounded-lg p-0.5"
+          >
+            {LANGUAGE_OPTIONS.map((lang) => {
+              const isLangSelected = activeLanguage === lang.value;
+              return (
+                <button
+                  key={lang.value}
+                  aria-pressed={isLangSelected}
+                  className="tabs-segment-3d text-muted-foreground hover:text-foreground data-[state=active]:text-foreground focus-visible:ring-ring cursor-pointer rounded-md px-2 py-1 text-[11px] font-semibold focus-visible:ring-2 focus-visible:outline-none"
+                  data-state={isLangSelected ? "active" : "inactive"}
+                  onClick={() => setLanguage(lang.value)}
+                  type="button"
+                >
+                  {lang.label}
+                </button>
+              );
+            })}
+          </fieldset>
         </div>
 
-        <div className="grid grid-cols-3 gap-1 rounded-xl border border-white/10 bg-black/40 p-1 shadow-[inset_0_1px_2px_rgba(0,0,0,0.6)]">
-          {LANGUAGE_OPTIONS.map((lang) => {
-            const isLangSelected = activeLanguage === lang.value;
-            return (
-              <button
-                key={lang.value}
-                aria-pressed={isLangSelected}
-                className={cn(
-                  "cursor-pointer rounded-lg py-1.5 text-xs font-semibold transition-all duration-150 active:translate-y-px",
-                  isLangSelected
-                    ? "scale-[1.02] border border-white/30 bg-white/20 text-white shadow-[inset_0_1px_1px_rgba(255,255,255,0.4),0_1px_3px_rgba(0,0,0,0.4)]"
-                    : "border border-transparent text-zinc-400 hover:bg-white/5 hover:text-zinc-200"
-                )}
-                onClick={() => setLanguage(lang.value)}
-                type="button"
-              >
-                {lang.label}
-              </button>
-            );
-          })}
-        </div>
-
-        {/* Footer Note */}
-        <div className="mt-3 flex items-start gap-2 rounded-xl border border-white/10 bg-black/30 p-2 text-[10px] leading-snug text-zinc-400">
-          <Info className="border-border mt-0.5 size-3.5 shrink-0 text-[#ff9500]" />
-          <span>
-            {following
-              ? "Following tab strictly displays people you follow on asocialmedia."
-              : "Preferences automatically apply to your feed algorithms & network discovery."}
-          </span>
-        </div>
-      </DropdownMenuContent>
-    </DropdownMenu>
+        {following ? (
+          <p className="text-muted-foreground mt-2 px-1 text-[11px] leading-snug">
+            Following only shows people you follow on asocialmedia.
+          </p>
+        ) : null}
+      </PopoverContent>
+    </Popover>
   );
 }

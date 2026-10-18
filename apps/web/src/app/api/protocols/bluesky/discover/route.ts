@@ -7,9 +7,15 @@ import {
   filterExternalRecommendations,
   DISCOVERY_WATCH_CHANNEL,
 } from "@asm/protocols/discovery";
+import { after } from "next/server";
 import { z } from "zod";
 
 import { getSessionFromApi } from "@/lib/auth/session";
+import {
+  cachedDiscoveryHead,
+  discoveryCacheKey,
+  saveDiscoveryHead,
+} from "@/lib/protocols/discovery-cache";
 import { readExternalFeedback } from "@/lib/protocols/feedback";
 import {
   consumeProtocolBudget,
@@ -54,21 +60,61 @@ export function GET(request: Request) {
       .catch(() => {
         // Foreground reads remain usable if watch registration is unavailable.
       });
-    const [page, excluded] = await Promise.all([
-      readBlueskyDiscovery(
+    const topics = profile ? discoveryTopics(profile) : [];
+    const cacheKey = discoveryCacheKey(mode.data, locale.data, topics);
+    const cached = cursor ? null : await cachedDiscoveryHead(cacheKey);
+    const read = async (signal: AbortSignal) => {
+      const page = await readBlueskyDiscovery(
         mode.data,
         cursor,
-        request.signal,
+        signal,
         id,
         locale.data,
-        profile ? discoveryTopics(profile) : []
-      ),
+        topics
+      );
+      if (!cursor) {
+        await saveDiscoveryHead(cacheKey, page).catch(() => {
+          /* empty */
+        });
+      }
+      return page;
+    };
+    if (cached && Date.now() - cached.at > 20_000) {
+      after(async () => {
+        const lockKey = `${cacheKey}:refresh`;
+        const owner = crypto.randomUUID();
+        if ((await redis.set(lockKey, owner, "EX", 20, "NX")) !== "OK") {
+          return;
+        }
+        try {
+          await read(AbortSignal.timeout(15_000));
+        } catch {
+          // Keep the usable head through a temporary upstream outage.
+        } finally {
+          await redis.eval(
+            "if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) end return 0",
+            1,
+            lockKey,
+            owner
+          );
+        }
+      });
+    }
+    const [page, excluded] = await Promise.all([
+      cached ? Promise.resolve(cached.page) : read(request.signal),
       session?.user.id
         ? readExternalFeedback(session.user.id)
         : Promise.resolve(new Set<string>()),
     ]);
     const filtered = filterExternalRecommendations(page.items, excluded);
-    const items = profile ? rankExternalForViewer(filtered, profile) : filtered;
+    const items =
+      mode.data === "personalized"
+        ? rankExternalForViewer(
+            filtered,
+            profile ?? { authorWeights: {}, tagWeights: {} },
+            { locale: locale.data }
+          )
+        : filtered;
     const states = await externalPostStates(
       items.map((post) => post.id),
       session?.user.id

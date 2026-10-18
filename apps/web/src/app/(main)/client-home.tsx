@@ -184,6 +184,10 @@ const ClientHome: React.FC<ClientHomeProps> = () => {
                 </AnimatedTabTrigger>
               </TabsList>
               <FeedSourceMenu following={tab === "following"} />
+              {/* Gutter between the settings button and the column edge. It lives
+                  here rather than on the button because `ml-auto` on the search
+                  cluster below zeroes out a sibling margin-right at xl. */}
+              <div aria-hidden className="w-2 shrink-0" />
               {/* xl:hidden: the right sidebar owns the search bar from xl up;
                   this header copy serves the md-xl gap. */}
               <div className="ml-auto hidden min-w-0 items-center gap-2 pr-1.5 md:flex xl:hidden">

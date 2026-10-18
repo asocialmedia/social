@@ -682,6 +682,7 @@ export default function AccountSettings({
 
       <BlueskyConnectCard
         blueskyHandle={user.blueskyHandle}
+        oauthConnected={user.blueskyOAuthConnected}
         hasVerifiedEmail={accountLinkingReadiness.hasVerifiedEmail}
       />
 

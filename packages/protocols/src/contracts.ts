@@ -1,3 +1,12 @@
+export {
+  createExternalTopicMatcher,
+  externalPostTopics,
+  externalTopicMatch,
+  externalRegionalRelevance,
+  externalAiDeclaration,
+  mergeTopicWeights,
+} from "./post-metadata";
+
 export interface ExternalAuthor {
   id: string;
   source: "bluesky";
@@ -44,8 +53,12 @@ export interface ExternalPost {
   indexedAt: string;
   languages: string[];
   labels: string[];
+  selfLabels?: string[];
+  tags?: string[];
+  facets?: { tags: string[]; links: string[]; mentions: string[] };
   media: ExternalMedia[];
   replyTo?: string;
+  replyRoot?: string;
   quote?: ExternalPost;
   unavailableQuote?: boolean;
   externalLink?: {

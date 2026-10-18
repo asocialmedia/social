@@ -1,15 +1,21 @@
 import type { PostData, UserData } from "@asm/db";
 import type { ExternalPost, ExternalAuthor } from "@asm/protocols/contracts";
+import {
+  externalAiDeclaration,
+  externalPostTopics,
+} from "@asm/protocols/contracts";
 
 import {
   sanitizeEmbedUrl,
   youtubeVideoIdFromUrl,
 } from "@/lib/link-embeds/shared";
+import { blueskyMediaIsExplicit } from "@/lib/protocols/content-labels";
 
 export type PresentedPost = PostData & { external?: ExternalPost };
 
 // This is a rendering model. Its external tag keeps protocol identities out of native mutations.
 export function externalPostView(post: ExternalPost): PresentedPost {
+  const aiDeclaration = externalAiDeclaration(post);
   return {
     _count: {
       bookmarks: 0,
@@ -18,6 +24,9 @@ export function externalPostView(post: ExternalPost): PresentedPost {
       vote: post.upstreamCounts?.likes ?? 0,
     },
     attachments: post.media.map((media) => ({
+      ...(aiDeclaration
+        ? { aiGenerated: true, aiGeneratedSource: "bluesky-label" as const }
+        : {}),
       altText: media.alt,
       hasHls: media.type === "video",
       height: media.height ?? null,
@@ -55,7 +64,7 @@ export function externalPostView(post: ExternalPost): PresentedPost {
           },
         ]
       : null,
-    explicitContent: false,
+    explicitContent: blueskyMediaIsExplicit(post),
     external: post,
     externalParent: null,
     externalParentId: null,
@@ -69,7 +78,7 @@ export function externalPostView(post: ExternalPost): PresentedPost {
     parentPost: null,
     parentPostId: null,
     rootPostId: null,
-    semanticTags: [],
+    semanticTags: externalPostTopics(post),
     tags: [],
     threadTopId: null,
     trendingScore: 0,

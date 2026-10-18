@@ -21,6 +21,7 @@ export type PrivateUserData = Omit<
   "communityMembers" | "createdAt" | "followsFollows"
 > & {
   blueskyHandle?: string | null;
+  blueskyOAuthConnected?: boolean;
   communityMemberships: CommunityRoleRow[];
   createdAt: Date;
   followers: { followerId: string }[];
@@ -39,7 +40,9 @@ export const getUserData = cache(async (userId: string) => {
     prisma.orm.public.Accounts.where({
       providerId: "bluesky",
       userId,
-    }).first(),
+    })
+      .select("issuer", "idToken")
+      .first(),
   ]);
 
   if (!userData) {
@@ -52,6 +55,7 @@ export const getUserData = cache(async (userId: string) => {
     ...scalars,
     ...summary,
     blueskyHandle: blueskyAccount?.issuer || null,
+    blueskyOAuthConnected: Boolean(blueskyAccount?.idToken),
     communityMemberships: communityMembers.flatMap((membership) =>
       membership.community
         ? [
