@@ -109,6 +109,7 @@ export function ExternalVoteAction({
   const feedback = useExternalFeedback(post);
   return (
     <VoteCluster
+      likeCount={post.upstreamCounts.likes ?? null}
       inactiveColor={inactiveColor}
       labelColor={labelColor}
       size={size}

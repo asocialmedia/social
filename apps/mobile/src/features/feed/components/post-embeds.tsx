@@ -28,11 +28,15 @@ import { useAppTheme } from "@/theme";
 
 import { BioContent } from "../../home/components/bio-content";
 import { safeLinkUrl } from "../../home/components/profile-utils";
+import { externalPostView } from "../lib/external-post-view";
 import { resolveResponseCommunityAccent } from "../lib/feed-rail";
 import { formatRelativeDate } from "../lib/feed-types";
 import type { FeedPost } from "../lib/feed-types";
+import { parseStoredEmbeds } from "../lib/link-embeds";
 import { mediaImageUrl, mediaPosterUrl } from "../lib/media-url";
+import { BlueskyIcon } from "./bluesky-icon";
 import { CommunityAttribution } from "./community-attribution";
+import { PostLinkEmbeds } from "./post-link-embeds";
 
 // `.hn-story-solid` panel shadows, light + dark.
 const HN_CARD_SHADOWS =
@@ -54,13 +58,14 @@ export function ResponseParentRow({ post }: { post: FeedPost }) {
   const { theme, isDark } = useAppTheme();
   const router = useRouter();
   const apiBase = getApiBaseUrl();
-  const parent = post.parentPost;
+  const external = post.external?.quote;
+  const parent = external ? externalPostView(external) : post.parentPost;
   const [natural, setNatural] = useState<{
     width: number;
     height: number;
   } | null>(null);
 
-  if (post.externalParent) {
+  if (post.externalParent && !external) {
     const { uri } = post.externalParent;
     return (
       <Pressable
@@ -125,10 +130,15 @@ export function ResponseParentRow({ post }: { post: FeedPost }) {
   const height = natural?.height ?? firstMedia?.height ?? 0;
   const ratio = width > 0 && height > 0 ? width / height : 1;
   const parentPostId = parent.id || post.parentPostId;
+  const embeds = parseStoredEmbeds(parent.embeds);
 
   const openParentPost = (event: GestureResponderEvent) => {
     event.stopPropagation();
     if (!parentPostId) {
+      return;
+    }
+    if (external) {
+      router.push({ params: { uri: external.id }, pathname: "/external-post" });
       return;
     }
     // Full id: truncated prefixes 404 when they match more than one post.
@@ -143,6 +153,10 @@ export function ResponseParentRow({ post }: { post: FeedPost }) {
     if (!username) {
       return;
     }
+    if (external) {
+      void Linking.openURL(external.author.url);
+      return;
+    }
     router.push({
       params: { username },
       pathname: "/users/[username]",
@@ -150,7 +164,10 @@ export function ResponseParentRow({ post }: { post: FeedPost }) {
   };
 
   return (
-    <View style={styles.parentSource}>
+    <View
+      testID={`response-source-${parentPostId}`}
+      style={styles.parentSource}
+    >
       {parent.community ? (
         <View
           pointerEvents="none"
@@ -219,11 +236,15 @@ export function ResponseParentRow({ post }: { post: FeedPost }) {
                 {name}
               </Text>
             </Pressable>
-            <UserBadge
-              badge={parent.user?.badge}
-              badges={parent.user?.badges}
-              communityRoles={parent.user?.communityMemberships}
-            />
+            {external ? (
+              <BlueskyIcon />
+            ) : (
+              <UserBadge
+                badge={parent.user?.badge}
+                badges={parent.user?.badges}
+                communityRoles={parent.user?.communityMemberships}
+              />
+            )}
             <Pressable
               accessibilityLabel={`Open @${username}'s profile`}
               accessibilityRole="link"
@@ -256,6 +277,7 @@ export function ResponseParentRow({ post }: { post: FeedPost }) {
                 apiBase={apiBase}
                 bio={parent.content}
                 clampLength={400}
+                sourceSegments={external?.segments}
               />
             </View>
           ) : null}
@@ -282,7 +304,11 @@ export function ResponseParentRow({ post }: { post: FeedPost }) {
                   source={{
                     uri:
                       firstMedia.type === "VIDEO"
-                        ? mediaPosterUrl(apiBase, firstMedia.id)
+                        ? mediaPosterUrl(
+                            apiBase,
+                            firstMedia.id,
+                            firstMedia.thumbnailKey
+                          )
                         : mediaImageUrl(apiBase, firstMedia),
                   }}
                   onLoad={(event) => {
@@ -298,7 +324,10 @@ export function ResponseParentRow({ post }: { post: FeedPost }) {
               )}
             </View>
           ) : null}
-          {!parent.content && !firstMedia ? (
+          {embeds.length > 0 && !parent.explicitContent ? (
+            <PostLinkEmbeds apiBase={apiBase} embeds={embeds} />
+          ) : null}
+          {!parent.content && !firstMedia && embeds.length === 0 ? (
             <Text style={[styles.parentEmpty, { color: theme.dividerText }]}>
               Post
             </Text>

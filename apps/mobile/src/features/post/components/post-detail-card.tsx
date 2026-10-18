@@ -26,7 +26,6 @@ import {
   ViewsBadge,
   VoteCluster,
 } from "@/features/feed/components/post-actions";
-import { PostCard } from "@/features/feed/components/post-card";
 import {
   CommunityShareCard,
   HNStoryCard,
@@ -38,7 +37,6 @@ import {
   MediaGallery,
   ModeratedNotice,
 } from "@/features/feed/components/post-media";
-import { externalPostView } from "@/features/feed/lib/external-post-view";
 import { getPostRailColor } from "@/features/feed/lib/feed-rail";
 import type { FeedPost } from "@/features/feed/lib/feed-types";
 import {
@@ -169,7 +167,8 @@ export function PostDetailCard({
           style={[styles.leftRail, { backgroundColor: railColor }]}
         />
       ) : null}
-      {!hasThreadParent && (post.parentPostId || post.externalParent) ? (
+      {!hasThreadParent &&
+      (post.parentPostId || post.externalParent || post.external?.quote) ? (
         <ResponseParentRow post={post} />
       ) : null}
 
@@ -208,7 +207,7 @@ export function PostDetailCard({
         </Pressable>
       ) : null}
 
-      {hasThreadParent ? (
+      {hasThreadParent || post.external?.quote ? (
         <View style={styles.mainRow}>
           <View style={styles.rail}>
             <View
@@ -282,7 +281,6 @@ export function PostDetailCard({
               hasMediaOrEmbeds={hasMediaOrEmbeds}
               hasMeta={hasMeta}
               linkEmbeds={linkEmbeds}
-              onMore={onMore}
               onOpenMedia={onOpenMedia}
               onShare={onShare}
               onToggleEddies={onToggleEddies}
@@ -376,7 +374,6 @@ export function PostDetailCard({
               hasMediaOrEmbeds={hasMediaOrEmbeds}
               hasMeta={hasMeta}
               linkEmbeds={linkEmbeds}
-              onMore={onMore}
               onOpenMedia={onOpenMedia}
               onShare={onShare}
               onToggleEddies={onToggleEddies}
@@ -404,7 +401,6 @@ function DetailBody({
   hasMeta,
   hideBookmark = false,
   linkEmbeds,
-  onMore,
   onOpenMedia,
   onShare,
   onToggleEddies,
@@ -423,7 +419,6 @@ function DetailBody({
   hasMeta: boolean;
   hideBookmark?: boolean;
   linkEmbeds: ReturnType<typeof parseStoredEmbeds>;
-  onMore: (post: FeedPost, anchor: MenuAnchor) => void;
   onOpenMedia: (index: number) => void;
   onShare: (post: FeedPost) => void;
   onToggleEddies: () => void;
@@ -530,21 +525,6 @@ function DetailBody({
         </>
       )}
 
-      {post.external?.quote ? (
-        <View className="border-border/60 mt-3 overflow-hidden rounded-2xl border">
-          <PostCard
-            hasThreadChild={false}
-            hasThreadParent={false}
-            onMore={onMore}
-            onShare={onShare}
-            post={externalPostView({
-              ...post.external.quote,
-              quote: undefined,
-            })}
-            viewerId={viewerId}
-          />
-        </View>
-      ) : null}
       {post.external?.unavailableQuote ? (
         <Text style={{ color: theme.dividerText }}>
           Quoted post unavailable

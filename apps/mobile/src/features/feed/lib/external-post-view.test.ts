@@ -54,6 +54,30 @@ test("external cards retain source identity and combine local comments with upst
   expect(view.viewCount).toBeUndefined();
 });
 
+test("quoted parent previews retain Bluesky identity, facets and source media warnings", () => {
+  const quote = {
+    ...post,
+    id: `${post.id}-quoted`,
+    labels: ["nudity"],
+  };
+  const view = externalPostView({ ...post, quote });
+  expect(view.external?.quote).toBe(quote);
+  const parent = externalPostView(quote);
+  expect(parent.user?.id).toBe(quote.author.id);
+  expect(parent.external?.segments).toEqual(quote.segments);
+  expect(parent.explicitContent).toBe(true);
+  expect(view.explicitContent).toBe(false);
+  expect(
+    externalPostView({
+      ...post,
+      author: { ...post.author, labels: ["sexual"] },
+    }).explicitContent
+  ).toBe(true);
+  expect(
+    externalPostView({ ...post, selfLabels: ["graphic-media"] }).explicitContent
+  ).toBe(true);
+});
+
 test("the shared gallery receives original remote images and HLS videos with their posters", () => {
   const source = {
     ...post,

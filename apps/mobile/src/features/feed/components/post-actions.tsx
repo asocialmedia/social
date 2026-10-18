@@ -14,6 +14,7 @@ import {
   CornerDownRight,
   Eye,
   Flame,
+  Heart,
   MessageSquare,
   MoreHorizontal,
   Share2,
@@ -68,6 +69,7 @@ function ActionLabel({
 }
 
 interface VoteClusterProps {
+  likeCount?: number | null;
   controller?: {
     aura: number;
     userVote: number;
@@ -102,6 +104,7 @@ export function VoteCluster({
   controller,
   inactiveColor,
   labelColor,
+  likeCount,
   onRequireLogin,
   postId,
   size = 28,
@@ -192,6 +195,13 @@ export function VoteCluster({
   const upActive = userVote === 1;
   const downActive = userVote === -1;
   const idleColor = inactiveColor ?? theme.dividerText;
+  let countLabel = `Aura: ${aura}`;
+  if (likeCount !== undefined) {
+    countLabel =
+      likeCount === null
+        ? "Likes on Bluesky unavailable"
+        : `Likes on Bluesky: ${likeCount}`;
+  }
   return (
     <View style={styles.voteCluster}>
       <View style={styles.votePair}>
@@ -224,14 +234,24 @@ export function VoteCluster({
           />
         </VoteButton>
       </View>
-      <Flame
-        color={flame.color}
-        fill={flame.filled ? flame.color : "none"}
-        size={glyph}
-      />
-      <ActionLabel color={labelColor} fontSize={labelSize}>
-        {formatNumber(aura)}
-      </ActionLabel>
+      <View
+        accessible
+        accessibilityLabel={countLabel}
+        style={styles.voteCluster}
+      >
+        {likeCount === undefined ? (
+          <Flame
+            color={flame.color}
+            fill={flame.filled ? flame.color : "none"}
+            size={glyph}
+          />
+        ) : (
+          <Heart color={idleColor} size={glyph} />
+        )}
+        <ActionLabel color={labelColor} fontSize={labelSize}>
+          {likeCount === null ? "—" : formatNumber(likeCount ?? aura)}
+        </ActionLabel>
+      </View>
     </View>
   );
 }

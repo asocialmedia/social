@@ -35,7 +35,6 @@ import {
 } from "../../home/components/bio-content";
 import { resolveAvatarWithFallback } from "../../home/components/profile-utils";
 import { UserBadge } from "../../home/components/user-badge";
-import { externalPostView } from "../lib/external-post-view";
 import { getPostRailColor } from "../lib/feed-rail";
 import type { FeedPost } from "../lib/feed-types";
 import {
@@ -297,7 +296,8 @@ export const PostCard = memo(
           onPress={openDetail}
           style={({ pressed }) => (pressed ? styles.cardPressed : undefined)}
         >
-          {!hasThreadParent && (post.parentPostId || post.externalParent) ? (
+          {!hasThreadParent &&
+          (post.parentPostId || post.externalParent || post.external?.quote) ? (
             <ResponseParentRow post={post} />
           ) : null}
 
@@ -315,7 +315,9 @@ export const PostCard = memo(
             <View style={styles.rail}>
               <ThreadRail
                 hasThreadChild={hasThreadChild}
-                hasThreadParent={hasThreadParent}
+                hasThreadParent={
+                  hasThreadParent || Boolean(post.external?.quote)
+                }
               />
               <View
                 renderToHardwareTextureAndroid={chromeActive}
@@ -536,21 +538,6 @@ export const PostCard = memo(
                     </View>
                   ) : null}
 
-                  {post.external?.quote ? (
-                    <View className="border-border/60 mt-3 overflow-hidden rounded-2xl border">
-                      <PostCard
-                        hasThreadChild={false}
-                        hasThreadParent={false}
-                        post={externalPostView({
-                          ...post.external.quote,
-                          quote: undefined,
-                        })}
-                        viewerId={viewerId}
-                        onMore={onMore}
-                        onShare={onShare}
-                      />
-                    </View>
-                  ) : null}
                   {post.external?.unavailableQuote ? (
                     <Text style={{ color: theme.dividerText }}>
                       Quoted post unavailable
