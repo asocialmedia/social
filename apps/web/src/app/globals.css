@@ -1375,23 +1375,51 @@ video::cue {
 }
 
 @layer components {
+  .view-once-tile {
+    width: 18rem;
+    max-width: 100%;
+  }
   .view-once-in-view .view-once-eye {
-    animation: view-once-eye-blink 680ms ease-in-out 1;
+    animation: view-once-eye-wink 720ms cubic-bezier(0.22, 0.75, 0.25, 1) 1;
     transform-origin: center;
   }
-  @keyframes view-once-eye-blink {
+  .view-once-tile:hover .view-once-eye,
+  .view-once-tile:focus-within .view-once-eye {
+    animation: view-once-eye-wink 720ms cubic-bezier(0.22, 0.75, 0.25, 1) 1;
+    transform-origin: center;
+  }
+  @keyframes view-once-eye-wink {
     0%,
-    28%,
-    70%,
+    16%,
     100% {
       transform: scaleY(1);
     }
-    45% {
-      transform: scaleY(0.14);
+    24% {
+      transform: scaleY(0.12) rotate(-4deg);
+    }
+    31% {
+      transform: scaleY(1.1) rotate(2deg);
+    }
+    38% {
+      transform: scaleY(1) rotate(0);
+    }
+    67% {
+      transform: scaleY(1);
+    }
+    73% {
+      transform: scaleY(0.16) rotate(3deg);
+    }
+    80% {
+      transform: scaleY(1.08) rotate(-1deg);
+    }
+    87% {
+      transform: scaleY(1) rotate(0);
     }
   }
   @media (prefers-reduced-motion: reduce) {
-    .view-once-in-view .view-once-eye {
+    .view-once-in-view .view-once-eye,
+    .view-once-tile:hover .view-once-eye,
+    .view-once-tile:focus-within .view-once-eye {
       animation: none;
     }
   }

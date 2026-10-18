@@ -122,6 +122,7 @@ function ViewOncePhoto({
     return () => observer.disconnect();
   }, []);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [eyeMotionKey, setEyeMotionKey] = useState(0);
   const [busy, setBusy] = useState(false);
   const [opened, setOpened] = useState(false);
   const [unavailable, setUnavailable] = useState(false);
@@ -256,20 +257,29 @@ function ViewOncePhoto({
   }
   return (
     <>
-      <div ref={tileRef} className={inView ? "view-once-in-view" : undefined}>
+      <div
+        ref={tileRef}
+        className={cn("view-once-tile", inView && "view-once-in-view")}
+        onPointerEnter={(event) => {
+          if (event.pointerType === "mouse" || event.pointerType === "pen") {
+            setEyeMotionKey((current) => current + 1);
+          }
+        }}
+      >
         {canOpen && conversationId ? (
           <button
             aria-label={label}
-            className="surface-3d text-muted-foreground hover:bg-muted/70 flex min-h-16 w-full items-center gap-3 rounded-2xl px-4 py-3 text-left text-sm transition-colors disabled:cursor-default"
+            className="surface-3d text-muted-foreground hover:bg-muted/70 flex min-h-16 w-full max-w-full items-center gap-3 rounded-2xl px-4 py-3 text-left text-sm transition-colors disabled:cursor-default"
             disabled={busy || opened || unavailable || receiptUnavailable}
             onClick={openPhoto}
+            onFocus={() => setEyeMotionKey((current) => current + 1)}
             type="button"
           >
             <span className="bg-muted/70 flex size-10 shrink-0 items-center justify-center rounded-xl">
               {busy ? (
                 <Loader2 className="size-4 animate-spin" />
               ) : (
-                <Eye className="view-once-eye size-4" />
+                <Eye className="view-once-eye size-4" key={eyeMotionKey} />
               )}
             </span>
             <span className="min-w-0 flex-1">
@@ -293,9 +303,9 @@ function ViewOncePhoto({
             ) : null}
           </button>
         ) : (
-          <div className="surface-3d text-muted-foreground flex min-h-16 items-center gap-3 rounded-2xl px-4 py-3 text-sm">
+          <div className="surface-3d text-muted-foreground flex min-h-16 w-full max-w-full items-center gap-3 rounded-2xl px-4 py-3 text-sm">
             <span className="bg-muted/70 flex size-10 shrink-0 items-center justify-center rounded-xl">
-              <Eye className="view-once-eye size-4" />
+              <Eye className="view-once-eye size-4" key={eyeMotionKey} />
             </span>
             <span>
               {seenLabel ??
@@ -495,7 +505,7 @@ function AlbumGrid({
 
   return (
     <div
-      className="grid w-96 max-w-[80vw] min-w-0 gap-1 overflow-hidden rounded-2xl"
+      className="grid w-96 max-w-full min-w-0 gap-1 overflow-hidden rounded-2xl"
       style={{
         aspectRatio: `${layout.cols} / ${layout.rows}`,
         gridTemplateColumns: `repeat(${layout.cols}, minmax(0, 1fr))`,
@@ -541,7 +551,7 @@ function SingleImage({
 
   return (
     <div
-      className="relative w-96 max-w-[80vw] min-w-0 overflow-hidden rounded-2xl bg-black/15 text-left"
+      className="relative w-96 max-w-full min-w-0 overflow-hidden rounded-2xl bg-black/15 text-left"
       style={{ aspectRatio }}
     >
       {status === "loading" ? (
@@ -635,8 +645,15 @@ export function MessageMediaAlbum({
       ["file", "video", "view-once"].includes(attachment.kind)
     )
   ) {
+    const singleViewOnce =
+      attachments.length === 1 && attachments[0]?.kind === "view-once";
     return (
-      <div className="flex w-96 max-w-[80vw] min-w-0 flex-col gap-2">
+      <div
+        className={cn(
+          "flex min-w-0 flex-col gap-2",
+          singleViewOnce ? "w-72 max-w-full" : "w-96 max-w-full"
+        )}
+      >
         {attachments.map((attachment, index) => {
           if (attachment.kind === "image" || attachment.kind === "gif") {
             const currentImageIndex = attachments
