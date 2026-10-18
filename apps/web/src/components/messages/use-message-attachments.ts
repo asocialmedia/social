@@ -1,6 +1,7 @@
 "use client";
 
 import { MAX_MESSAGE_ATTACHMENTS } from "@asm/media";
+import { shouldAutoEditPhoto } from "@asm/ui/lib/photo-editing";
 import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
 
 import { toast } from "@/lib/gooey-toast";
@@ -251,7 +252,10 @@ export function useMessageAttachments(
   );
 
   const addFiles = useCallback(
-    (files: File[], options: { viewOnce?: boolean } = {}) => {
+    (
+      files: File[],
+      options: { viewOnce?: boolean; editSinglePhoto?: boolean } = {}
+    ) => {
       if (
         !options.viewOnce &&
         attachmentsRef.current.some((item) => item.viewOnce)
@@ -330,11 +334,20 @@ export function useMessageAttachments(
       // that syncs it from state runs after commit, so two adds in the same
       // tick (e.g. paste + drop) could otherwise each see the old length and
       // together exceed the cap.
+      const editId =
+        options.editSinglePhoto &&
+        attachmentsRef.current.length === 0 &&
+        shouldAutoEditPhoto(files.length, drafts)
+          ? drafts[0].id
+          : undefined;
       attachmentsRef.current = [...attachmentsRef.current, ...drafts];
       dispatch({ drafts, type: "add" });
-      for (const draft of drafts) {
-        void startUpload(draft);
+      if (!editId) {
+        for (const draft of drafts) {
+          void startUpload(draft);
+        }
       }
+      return { drafts, editId };
     },
     [startUpload]
   );
@@ -478,6 +491,16 @@ export function useMessageAttachments(
     [attachments]
   );
 
+  const resumeAttachmentUpload = useCallback(
+    (id: string) => {
+      const draft = attachmentsRef.current.find((item) => item.id === id);
+      if (draft?.status === "uploading" && !controllersRef.current.has(id)) {
+        void startUpload(draft);
+      }
+    },
+    [startUpload]
+  );
+
   return {
     addFiles,
     attachments,
@@ -489,6 +512,7 @@ export function useMessageAttachments(
     removeAttachments,
     replaceAttachmentFile,
     restoreAttachments,
+    resumeAttachmentUpload,
     retryAttachment,
   };
 }

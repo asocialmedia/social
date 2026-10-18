@@ -2,7 +2,13 @@
 "use client";
 
 import { encodeAnimatedCrop } from "@asm/media/image-edit";
+import { PhotoEditorWorkspace } from "@asm/ui/components/photo-editor-workspace";
+import type { PhotoEditorHandle } from "@asm/ui/components/photo-editor-workspace";
 import { CROPPER_ACCENT } from "@asm/ui/lib/cropper-accent";
+import {
+  applyPhotoCropAction,
+  capturePhotoSnapshot,
+} from "@asm/ui/lib/photo-editing";
 import { Button } from "@asm/ui/shadui/button";
 import {
   Dialog,
@@ -14,8 +20,9 @@ import {
 import { Switch } from "@asm/ui/shadui/switch";
 
 import "cropperjs/dist/cropper.css";
+import "@asm/ui/styles/photo-editor.css";
 import { Eye, RotateCcw, RotateCw, X } from "lucide-react";
-import { useCallback, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { Cropper } from "react-cropper";
 import type { ReactCropperElement } from "react-cropper";
 
@@ -43,8 +50,7 @@ interface MessageImageEditDialogProps {
   canViewOnce?: boolean;
 }
 
-// Pre-send editor for a staged message image: free crop plus 90-degree
-// rotation. Animated crops preserve each frame and its timing.
+// Edits stay local until saved; animated crops preserve each frame and its timing.
 export default function MessageImageEditDialog({
   file,
   kind,
@@ -55,8 +61,17 @@ export default function MessageImageEditDialog({
   canViewOnce = false,
 }: MessageImageEditDialogProps) {
   const cropperRef = useRef<ReactCropperElement>(null);
+  const editorRef = useRef<PhotoEditorHandle>(null);
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
   const viewOnceId = useId();
   const [saving, setSaving] = useState(false);
+  const [ready, setReady] = useState(false);
   const [viewOnce, setViewOnce] = useState(initialViewOnce);
 
   const rotate = useCallback((degrees: number) => {
@@ -66,7 +81,7 @@ export default function MessageImageEditDialog({
   const [cropError, setCropError] = useState<string | null>(null);
   const handleSave = useCallback(async () => {
     const cropper = cropperRef.current?.cropper;
-    if (!cropper || saving) {
+    if (!cropper || saving || !ready) {
       return;
     }
     setSaving(true);
@@ -81,10 +96,10 @@ export default function MessageImageEditDialog({
           { type: "image/gif" }
         );
       } else {
-        const canvas = cropper.getCroppedCanvas({
-          maxHeight: 2000,
-          maxWidth: 2000,
-        });
+        const canvas = editorRef.current?.exportCanvas();
+        if (!canvas) {
+          throw new Error("Wait for your photo to load");
+        }
         const type = cropHasTransparency(canvas) ? "image/png" : "image/jpeg";
         // oxlint-disable-next-line promise/avoid-new -- Canvas uses a callback encoder.
         const blob = await new Promise<Blob | null>((resolve) => {
@@ -98,71 +113,121 @@ export default function MessageImageEditDialog({
           `${baseNameFor(file.name)}-edited-${Date.now()}`
         );
       }
-      onSave(result, viewOnce);
-      onClose();
+      if (mounted.current) {
+        onSave(result, viewOnce);
+        onClose();
+      }
     } catch (error) {
-      setCropError(
-        error instanceof Error ? error.message : "Couldn't save that crop"
-      );
+      if (mounted.current) {
+        setCropError(
+          error instanceof Error ? error.message : "Couldn't save that crop"
+        );
+      }
     } finally {
-      setSaving(false);
+      if (mounted.current) {
+        setSaving(false);
+      }
     }
-  }, [file.name, kind, objectUrl, onClose, onSave, saving, viewOnce]);
+  }, [file.name, kind, objectUrl, onClose, onSave, ready, saving, viewOnce]);
+
+  const getSnapshot = useCallback(
+    () => capturePhotoSnapshot(cropperRef.current?.cropper),
+    []
+  );
 
   return (
-    <Dialog onOpenChange={onClose} open>
-      <DialogContent className="flex max-h-[85dvh] w-[calc(100%-2rem)] max-w-140 flex-col gap-4 overflow-hidden rounded-2xl! p-0 [&>button:last-child]:hidden">
+    <Dialog
+      onOpenChange={(open) => {
+        if (!open && !saving) {
+          onClose();
+        }
+      }}
+      open
+    >
+      <DialogContent className="flex max-h-[92dvh] w-[calc(100%-1.5rem)] max-w-160 flex-col gap-3 overflow-hidden rounded-2xl! p-0 [&>button:last-child]:hidden">
         <div className="border-border/60 flex shrink-0 items-center border-b py-2 pr-3 pl-4">
           <div className="flex min-w-0 flex-1 flex-col justify-center py-1">
             <DialogTitle className="text-base font-semibold">
               {kind === "gif" ? "Edit GIF" : "Edit Image"}
             </DialogTitle>
-            <DialogDescription className="text-muted-foreground mt-0.5 text-xs">
+            <DialogDescription className="sr-only">
               {kind === "gif"
                 ? "Crop and rotate while keeping the animation"
-                : "Crop and rotate before sending"}
+                : "Edit your photo before sending"}
             </DialogDescription>
           </div>
           <DialogClose
             aria-label="Close"
-            className="icon-btn-3d flex size-7 shrink-0 items-center justify-center rounded-full border-0"
+            disabled={saving}
+            className="icon-btn-3d flex size-11 shrink-0 items-center justify-center rounded-full border-0"
           >
             <X className="size-4" />
           </DialogClose>
         </div>
 
         <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 pb-4">
-          <div className="border-border/60 flex h-[min(50dvh,420px)] shrink-0 items-center justify-center overflow-hidden rounded-xl border bg-[hsl(var(--background))] shadow-[inset_0_1px_2px_rgba(0,0,0,0.04)]">
-            <style>{CROPPER_ACCENT}</style>
-            <Cropper
-              autoCropArea={1}
-              className="asm-message-cropper h-full w-full object-contain"
-              guides={false}
-              ref={cropperRef}
-              src={objectUrl}
-              viewMode={1}
+          <style>{CROPPER_ACCENT}</style>
+          {kind === "image" ? (
+            <PhotoEditorWorkspace
+              ref={editorRef}
+              ready={ready}
+              disabled={saving}
+              getSnapshot={getSnapshot}
+              onCropAction={(action) =>
+                applyPhotoCropAction(cropperRef.current?.cropper, action)
+              }
+              onError={setCropError}
+              cropContent={
+                <Cropper
+                  autoCropArea={1}
+                  className="asm-message-cropper h-full w-full"
+                  guides={false}
+                  ref={cropperRef}
+                  src={objectUrl}
+                  viewMode={1}
+                  ready={() => setReady(true)}
+                />
+              }
             />
-          </div>
+          ) : (
+            <div className="border-border/60 flex h-[min(50dvh,420px)] shrink-0 items-center justify-center overflow-hidden rounded-xl border bg-[hsl(var(--background))]">
+              <Cropper
+                autoCropArea={1}
+                className="asm-message-cropper h-full w-full object-contain"
+                guides={false}
+                ref={cropperRef}
+                src={objectUrl}
+                viewMode={1}
+                ready={() => setReady(true)}
+              />
+            </div>
+          )}
 
           <div className="mt-3 flex items-center gap-2">
-            <Button
-              aria-label="Rotate left"
-              className="rounded-xl"
-              onClick={() => rotate(-90)}
-              type="button"
-              variant="outline"
-            >
-              <RotateCcw className="h-4 w-4" />
-            </Button>
-            <Button
-              aria-label="Rotate right"
-              className="rounded-xl"
-              onClick={() => rotate(90)}
-              type="button"
-              variant="outline"
-            >
-              <RotateCw className="h-4 w-4" />
-            </Button>
+            {kind === "gif" ? (
+              <>
+                <Button
+                  aria-label="Rotate left"
+                  className="rounded-xl"
+                  onClick={() => rotate(-90)}
+                  type="button"
+                  variant="outline"
+                  disabled={saving || !ready}
+                >
+                  <RotateCcw className="h-4 w-4" />
+                </Button>
+                <Button
+                  aria-label="Rotate right"
+                  className="rounded-xl"
+                  onClick={() => rotate(90)}
+                  type="button"
+                  variant="outline"
+                  disabled={saving || !ready}
+                >
+                  <RotateCw className="h-4 w-4" />
+                </Button>
+              </>
+            ) : null}
             {kind === "image" ? (
               <label
                 htmlFor={viewOnceId}
@@ -191,29 +256,29 @@ export default function MessageImageEditDialog({
               {cropError}
             </p>
           ) : null}
-
-          <div className="mt-4 grid shrink-0 grid-cols-2 gap-2">
-            <Button
-              className="pill-3d-hover text-muted-foreground h-10 w-full rounded-xl"
-              onClick={onClose}
-              variant="outline"
-            >
-              Cancel
-            </Button>
-            <Button
-              className={cn(
-                "h-10 w-full rounded-xl",
-                ORANGE_GRADIENT_CLASS,
-                "hover:from-[#ffa629] hover:to-[#f56a14] active:translate-y-px"
-              )}
-              disabled={saving}
-              onClick={() => {
-                void handleSave();
-              }}
-            >
-              {saving ? "Processing…" : "Save"}
-            </Button>
-          </div>
+        </div>
+        <div className="grid shrink-0 grid-cols-2 gap-2 px-4 pt-1 pb-4">
+          <Button
+            className="pill-3d-hover text-muted-foreground h-11 w-full rounded-xl"
+            onClick={onClose}
+            variant="outline"
+            disabled={saving}
+          >
+            Cancel
+          </Button>
+          <Button
+            className={cn(
+              "h-11 w-full rounded-xl",
+              ORANGE_GRADIENT_CLASS,
+              "hover:from-[#ffa629] hover:to-[#f56a14] active:translate-y-px"
+            )}
+            disabled={saving || !ready}
+            onClick={() => {
+              void handleSave();
+            }}
+          >
+            {saving ? "Processing…" : "Save"}
+          </Button>
         </div>
       </DialogContent>
     </Dialog>

@@ -209,6 +209,7 @@ export function MessageComposer({
     removeAttachments,
     replaceAttachmentFile,
     restoreAttachments,
+    resumeAttachmentUpload,
     retryAttachment,
   } = useMessageAttachments(conversationId, incognito?.sessionId);
   const viewOnceMode = attachments.some((attachment) => attachment.viewOnce);
@@ -545,7 +546,10 @@ export function MessageComposer({
     (files: FileList | File[] | null) => {
       const list = files ? [...files] : [];
       if (list.length > 0) {
-        addFiles(list);
+        const added = addFiles(list, { editSinglePhoto: true });
+        if (added?.editId) {
+          setEditingId(added.editId);
+        }
       }
     },
     [addFiles]
@@ -904,7 +908,10 @@ export function MessageComposer({
           objectUrl={editingAttachment.objectUrl}
           viewOnce={editingAttachment.viewOnce}
           canViewOnce={attachments.length === 1 && !text.trim()}
-          onClose={() => setEditingId(null)}
+          onClose={() => {
+            resumeAttachmentUpload(editingAttachment.id);
+            setEditingId(null);
+          }}
           onSave={(file, viewOnce) => {
             replaceAttachmentFile(editingAttachment.id, file, { viewOnce });
             if (viewOnce) {
