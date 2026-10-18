@@ -157,22 +157,21 @@ export function FeedSourceMenu({ following }: { following: boolean }) {
           ) : null}
         </div>
         {user ? (
-          <fieldset className="border-border/60 mb-2 min-w-0 space-y-2.5 border-b px-1 pt-1 pb-3">
+          <fieldset className="border-border/60 mb-2 min-w-0 space-y-2 border-b px-1 pt-1 pb-3">
             {/* A legend must be the fieldset's own child to be announced with
-                the group, so the header row is the legend itself and the Manage
-                link follows it rather than wrapping it. */}
-            <legend className="text-muted-foreground flex min-w-0 items-center gap-1.5 text-[11px] font-semibold">
+                the group. Floating it lets the Manage link share its row without
+                wrapping the legend, which would strip it of that association. */}
+            <legend className="text-muted-foreground float-left flex min-w-0 items-center gap-1.5 text-[11px] font-semibold">
               <Brain aria-hidden className="size-3.5 shrink-0" />
               Recommendation profile
             </legend>
-            <div className="flex items-center justify-end">
-              <Link
-                className="text-muted-foreground hover:text-foreground focus-visible:ring-ring shrink-0 rounded-md px-1 text-[11px] font-medium transition-colors focus-visible:ring-2 focus-visible:outline-hidden"
-                href="/settings?tab=network&section=profiles"
-              >
-                Manage
-              </Link>
-            </div>
+            <Link
+              className="text-muted-foreground hover:text-foreground focus-visible:ring-ring float-right rounded-md px-1 text-[11px] font-medium transition-colors focus-visible:ring-2 focus-visible:outline-hidden"
+              href="/settings?tab=network&section=profiles"
+            >
+              Manage
+            </Link>
+            <div className="clear-both" />
 
             {/* The active profile is a filled brand pill, the rest sit a step
                 above the panel. Selection reads from the fill rather than from
