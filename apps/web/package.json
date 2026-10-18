@@ -1,11 +1,11 @@
 {
   "name": "@asm/web",
-  "version": "1.8.2",
+  "version": "1.8.3",
   "private": true,
   "description": "asocialmedia Web App",
   "license": "AGPL-3.0",
   "scripts": {
-    "dev": "cross-env NODE_ENV=development next dev",
+    "dev": "bun ../../scripts/development/kill-dev-ports.ts 3000 && cross-env NODE_ENV=development next dev",
     "build": "next build",
     "start": "next start -p 3000",
     "check-types": "tsc --noEmit"

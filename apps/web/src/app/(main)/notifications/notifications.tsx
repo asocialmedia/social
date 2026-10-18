@@ -20,6 +20,7 @@ import InfiniteScrollContainer from "@/components/layouts/feed/infinite-scroll-c
 import MobileTopBar from "@/components/layouts/navigation/mobile/mobile-top-bar";
 import NotificationsSkeleton from "@/components/layouts/skeletons/notifications-skeleton";
 import { useFeedSwipeNavigation } from "@/hooks/feed/use-feed-swipe-navigation";
+import { useGoBack } from "@/hooks/use-go-back";
 import kyInstance from "@/lib/ky";
 import { groupNotifications } from "@/lib/notifications/grouping";
 
@@ -32,6 +33,7 @@ const TAB_ORDER: NotificationTab[] = ["all", "mentions"];
 
 export default function Notifications() {
   const feedScrollRef = useRef<HTMLDivElement>(null);
+  const goBack = useGoBack();
   const [activeTab, setActiveTab] = useState<NotificationTab>("all");
   const [slideDirection, setSlideDirection] = useState<-1 | 1 | 0>(0);
 
@@ -174,7 +176,7 @@ export default function Notifications() {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="z-20 shrink-0 bg-[hsl(var(--background-alt))]/90 pt-2 backdrop-blur-md">
-        <MobileTopBar />
+        <MobileTopBar onBack={goBack} />
         <div className="border-border/60 flex items-center justify-center border-b">
           <AnimatedTabButton
             active={activeTab === "all"}

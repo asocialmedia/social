@@ -23,6 +23,7 @@ import FeedViewSkeleton from "@/components/layouts/skeletons/feed-view-skeleton"
 import LoadMoreSkeleton from "@/components/layouts/skeletons/load-more-skeleton";
 import { useFeedSwipeNavigation } from "@/hooks/feed/use-feed-swipe-navigation";
 import { useBookmarkCount } from "@/hooks/posts/use-bookmark-count";
+import { useGoBack } from "@/hooks/use-go-back";
 import kyInstance from "@/lib/ky";
 import { FEED_QUERY_BEHAVIOR } from "@/lib/posts/feed-cache";
 
@@ -158,6 +159,7 @@ const Bookmarks: React.FC<BookmarksProps> = ({
   userData,
 }) => {
   const feedScrollRef = useRef<HTMLDivElement>(null);
+  const goBack = useGoBack();
   const [activeTab, setActiveTab] = useState("posts");
 
   // Mobile swipes drag the tab strip like a carousel (same mechanism as the
@@ -265,7 +267,7 @@ const Bookmarks: React.FC<BookmarksProps> = ({
           value={activeTab}
         >
           <div className="z-20 shrink-0 bg-[hsl(var(--background-alt))]/90 pt-2 backdrop-blur-md">
-            <MobileTopBar />
+            <MobileTopBar onBack={goBack} />
             <div className="border-border/60 relative flex items-center border-b py-1.5">
               <TabsList className="flex h-full flex-1 items-center justify-center gap-0 bg-transparent p-0 md:justify-start">
                 <AnimatedTabTrigger

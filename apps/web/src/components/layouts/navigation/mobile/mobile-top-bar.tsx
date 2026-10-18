@@ -67,7 +67,7 @@ const MobileTopBar: React.FC<{
       >
         {onBack ? (
           <button
-            aria-label="Back"
+            aria-label="Go back"
             className="icon-btn-3d flex size-8 items-center justify-center rounded-full"
             onClick={onBack}
             type="button"
