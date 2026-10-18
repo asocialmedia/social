@@ -87,6 +87,7 @@ export const interestSchema = z
       .regex(/^[\p{L}\p{N}\p{M}][\p{L}\p{N}\p{M} .+#_&()'’:,;!?/-]*$/u)
   );
 export const networkProfileSchema = z.object({
+  activityResetAt: z.number().int().nonnegative().optional(),
   id: z
     .string()
     .regex(/^(?:default|[a-f\d]{8}(?:-[a-f\d]{4}){3}-[a-f\d]{12})$/i),

@@ -15,6 +15,7 @@ mock.module("@/lib/auth/session", () => ({
 
 mock.module("@asm/db", () => ({
   NetworkPreferenceConflictError,
+  clearNetworkActivity: () => Promise.resolve(),
   consumeRateLimit: () => Promise.resolve({ allowed: rateAllowed }),
   getNetworkSettings: (_userId: string) =>
     Promise.resolve({
@@ -55,7 +56,39 @@ mock.module("@asm/db", () => ({
   },
 }));
 
-const { GET, PUT } = await import("./route");
+const { DELETE, GET, PUT } = await import("./route");
+
+test("activity reset requires a session, same origin, bounded valid input and the current revision", async () => {
+  const reset = (body: unknown, headers: HeadersInit = {}) =>
+    DELETE(
+      new Request("http://localhost:3000/api/network/preferences", {
+        body: JSON.stringify(body),
+        headers: { "content-type": "application/json", ...headers },
+        method: "DELETE",
+      })
+    );
+  session = null;
+  const unauthorized = await reset({ profileId: "default", revision: 1 });
+  expect(unauthorized.status).toBe(401);
+  session = { user: { id: "user-123" } };
+  rateAllowed = true;
+  const crossOrigin = await reset(
+    { profileId: "default", revision: 1 },
+    { origin: "https://evil.test" }
+  );
+  expect(crossOrigin.status).toBe(403);
+  const invalidRevision = await reset({ profileId: "default", revision: -1 });
+  expect(invalidRevision.status).toBe(400);
+  const injectedOwner = await reset({
+    profileId: "default",
+    revision: 1,
+    userId: "other",
+  });
+  expect(injectedOwner.status).toBe(400);
+  const response = await reset({ profileId: "default", revision: 1 });
+  expect(response.status).toBe(200);
+  expect(response.headers.get("cache-control")).toBe("private, no-store");
+});
 
 describe("GET /api/network/preferences", () => {
   beforeEach(() => {

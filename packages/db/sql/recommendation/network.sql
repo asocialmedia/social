@@ -21,6 +21,23 @@ WHERE p."isGust" = $4::boolean AND p."moderated" = false
 ORDER BY CASE WHEN $3 = 'trending' THEN p."trendingScore" ELSE 0 END DESC,
   p."createdAt" DESC, p.id DESC
 LIMIT 180
+// query: network.pagedCandidates
+SELECT p.id FROM posts p
+WHERE p."isGust" = $4::boolean AND p."moderated" = false
+  AND (NOT $4::boolean OR (p."rootPostId" IS NULL AND EXISTS (
+    SELECT 1 FROM post_media m WHERE m."postId" = p.id AND m."type" = 'VIDEO'
+  )))
+  AND ($2::boolean OR p."explicitContent" = false)
+  AND p."createdAt" <= $6::timestamptz
+  AND (cardinality($1::text[]) = 0 OR EXISTS (
+    SELECT 1 FROM unnest($1::text[]) topic
+    WHERE to_tsvector('english', p.content) @@ plainto_tsquery('english', topic)
+      OR lower(topic) = ANY(COALESCE(p."semanticTags", ARRAY[]::text[]))
+      OR EXISTS (SELECT 1 FROM "_PostToTag" pt JOIN "Tag" t ON t.id = pt."B"
+        WHERE pt."A" = p.id AND lower(t.name) = lower(topic))
+  ))
+ORDER BY p."createdAt" DESC, p.id DESC
+LIMIT 180 OFFSET $5::integer
 // query: network.creators
 SELECT p."userId" AS id, count(*)::float8 AS matches
 FROM posts p JOIN users u ON u.id = p."userId"

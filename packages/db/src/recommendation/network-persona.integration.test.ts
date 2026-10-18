@@ -6,6 +6,7 @@ import prisma, { closePrisma } from "../prisma";
 import { redis } from "../redis";
 import {
   getNetworkPersona,
+  clearNetworkActivity,
   readNetworkPreferences,
   recordNetworkSignal,
   removeNetworkSignal,
@@ -60,6 +61,99 @@ beforeAll(async () => {
   );
 });
 
+test("clearing one profile removes learning, fences old receipts and preserves interests and other profiles", async () => {
+  const id = crypto.randomUUID();
+  await prisma.orm.public.Users.create({
+    displayName: "Clear activity fixture",
+    id,
+    username: `activity-${id}`,
+  });
+  try {
+    const settings = await saveNetworkPreferences(
+      id,
+      {
+        ...defaultNetworkPreferences(),
+        profiles: [
+          { id: "default", interests: ["software"], name: "Work" },
+          { id: softwareProfile, interests: ["art"], name: "Art" },
+        ],
+      },
+      0
+    );
+    await recordNetworkSignal(
+      id,
+      "default",
+      { ...signal, createdAt: Date.now() },
+      "one"
+    );
+    await recordNetworkSignal(
+      id,
+      softwareProfile,
+      { ...signal, createdAt: Date.now() },
+      "two"
+    );
+    const cleared = await clearNetworkActivity(
+      id,
+      "default",
+      settings.revision
+    );
+    expect(cleared.revision).toBe(settings.revision + 1);
+    expect(cleared.preferences.profiles[0]?.interests).toEqual(["software"]);
+    expect(await redis.exists(`${prefix(id)}:signals`)).toBe(0);
+    const clearedPersona = await getNetworkPersona(id);
+    const otherPersona = await getNetworkPersona(id, softwareProfile);
+    expect(clearedPersona.persona.signalCount).toBe(0);
+    expect(otherPersona.persona.signalCount).toBe(1);
+    expect(
+      await recordNetworkSignal(
+        id,
+        "default",
+        { ...signal, createdAt: Date.now() },
+        "old-receipt",
+        false,
+        undefined,
+        settings.revision
+      )
+    ).toBe(false);
+    expect(
+      await recordNetworkSignal(
+        id,
+        "default",
+        { ...signal, createdAt: Date.now() },
+        "new-receipt",
+        false,
+        undefined,
+        cleared.revision
+      )
+    ).toBe(true);
+    const freshPersona = await getNetworkPersona(id);
+    expect(freshPersona.persona.signalCount).toBe(1);
+    const resaved = await saveNetworkPreferences(
+      id,
+      {
+        ...cleared.preferences,
+        profiles: cleared.preferences.profiles.map((profile) => ({
+          ...profile,
+          activityResetAt: undefined,
+        })),
+      },
+      cleared.revision
+    );
+    expect(resaved.preferences.profiles[0]?.activityResetAt).toBe(
+      cleared.preferences.profiles[0]?.activityResetAt
+    );
+    await expect(
+      clearNetworkActivity(id, "default", settings.revision)
+    ).rejects.toBeInstanceOf(NetworkPreferenceConflictError);
+  } finally {
+    const keys = await redis.keys(`rec:network:v1:{${id}:*`);
+    if (keys.length) {
+      await redis.del(...keys);
+    }
+    await prisma.orm.public.Users.where({ id }).deleteAndCount();
+  }
+});
+
 afterAll(async () => {
   const graphKeys = await redis.keys(`${namespace}*`);
   const signalKeys = await Promise.all(
@@ -69,7 +163,9 @@ afterAll(async () => {
   if (keys.length) {
     await redis.del(...keys);
   }
-  await prisma.orm.public.Users.where((user) => user.id.in(ids)).delete();
+  await prisma.orm.public.Users.where((user) =>
+    user.id.in(ids)
+  ).deleteAndCount();
   await closePrisma();
   redis.disconnect();
 });

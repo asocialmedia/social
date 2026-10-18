@@ -26,7 +26,7 @@ import {
 } from "./shared-topic-graph";
 
 export const networkSql = readSqlBundle(source, {
-  network: ["save", "candidates", "creators"],
+  network: ["save", "candidates", "pagedCandidates", "creators"],
 }).network;
 export const NETWORK_SIGNAL_RETENTION_SECONDS = 30 * 24 * 60 * 60;
 export const NETWORK_FEED_TTL_SECONDS = 10 * 60;
@@ -51,6 +51,9 @@ export const networkSignalSchema = z.object({
 });
 type NetworkSignal = z.infer<typeof networkSignalSchema>;
 const RECORD = `
+local generation = redis.call('GET', KEYS[4])
+if generation and generation ~= ARGV[6] then return 0 end
+redis.call('SET', KEYS[4], ARGV[6], 'EX', ARGV[4])
 if redis.call('ZSCORE', KEYS[3], ARGV[2]) then return 0 end
 redis.call('ZADD', KEYS[3], ARGV[1], ARGV[2])
 redis.call('ZREMRANGEBYSCORE', KEYS[3], '-inf', ARGV[5])
@@ -71,8 +74,12 @@ export class NetworkPreferenceConflictError extends Error {
   override name = "NetworkPreferenceConflictError";
 }
 
-function signalPrefix(userId: string, profileId: string): string {
-  return `rec:network:v1:{${userId}:${profileId}}`;
+function signalPrefix(
+  userId: string,
+  profileId: string,
+  resetAt?: number
+): string {
+  return `rec:network:v1:{${userId}:${profileId}}${resetAt ? `:reset:${resetAt}` : ""}`;
 }
 
 export async function readNetworkPreferences(
@@ -97,10 +104,21 @@ export async function readNetworkPreferences(
 export async function saveNetworkPreferences(
   userId: string,
   preferences: NetworkPreferences,
-  revision: number
+  revision: number,
+  resetProfileId?: string
 ) {
   const previous = await readNetworkPreferences(userId);
   const value = networkPreferencesSchema.parse(preferences);
+  value.profiles = value.profiles.map((profile) => {
+    const previousProfile = previous.preferences.profiles.find(
+      (entry) => entry.id === profile.id
+    );
+    const activityResetAt =
+      profile.id === resetProfileId
+        ? Math.max(Date.now(), (previousProfile?.activityResetAt ?? 0) + 1)
+        : previousProfile?.activityResetAt;
+    return { ...profile, activityResetAt };
+  });
   const { rows } = await rawQuery<{ revision: number }>(
     networkSql.save,
     [JSON.stringify(value), userId, revision],
@@ -116,13 +134,50 @@ export async function saveNetworkPreferences(
   );
   await Promise.all(
     removed.map((profile) => {
-      const prefix = signalPrefix(userId, profile.id);
+      const prefix = signalPrefix(userId, profile.id, profile.activityResetAt);
       return redis
         .del(`${prefix}:time`, `${prefix}:signals`, `${prefix}:dedupe`)
         .catch(() => 0);
     })
   );
   return { preferences: value, revision: rows[0].revision };
+}
+
+export async function clearNetworkActivity(
+  userId: string,
+  profileId: string,
+  revision: number
+) {
+  const previous = await readNetworkPreferences(userId);
+  const profile = previous.preferences.profiles.find(
+    (entry) => entry.id === profileId
+  );
+  if (!profile) {
+    throw new NetworkPreferenceConflictError(
+      "This profile is no longer available."
+    );
+  }
+  const result = await saveNetworkPreferences(
+    userId,
+    previous.preferences,
+    revision,
+    profileId
+  );
+  const resetAt = result.preferences.profiles.find(
+    (entry) => entry.id === profileId
+  )?.activityResetAt;
+  const prefix = signalPrefix(userId, profileId, profile.activityResetAt);
+  await redis
+    .multi()
+    .set(
+      `${signalPrefix(userId, profileId)}:generation`,
+      String(resetAt),
+      "EX",
+      NETWORK_SIGNAL_RETENTION_SECONDS
+    )
+    .del(`${prefix}:time`, `${prefix}:signals`, `${prefix}:dedupe`)
+    .exec();
+  return result;
 }
 
 function networkSignalKey(
@@ -144,7 +199,14 @@ export async function removeNetworkSignal(
   kind: "downvote" | "notInterested",
   documentId: string
 ): Promise<boolean> {
-  const prefix = signalPrefix(userId, profileId);
+  const settings = await readNetworkPreferences(userId);
+  const profile = settings.preferences.profiles.find(
+    (entry) => entry.id === profileId
+  );
+  if (!profile) {
+    return false;
+  }
+  const prefix = signalPrefix(userId, profileId, profile.activityResetAt);
   const key = networkSignalKey(kind, documentId, Date.now());
   const result = await redis.eval(
     "local removed = redis.call('HDEL', KEYS[2], ARGV[1]); redis.call('ZREM', KEYS[1], ARGV[1]); redis.call('ZREM', KEYS[3], ARGV[1]); return removed",
@@ -163,23 +225,38 @@ export async function recordNetworkSignal(
   signal: NetworkSignal,
   documentId: string,
   publicDocument = false,
-  graphNamespace?: string
+  graphNamespace?: string,
+  expectedRevision?: number
 ): Promise<boolean> {
   const parsed = networkSignalSchema.parse(signal);
-  const prefix = signalPrefix(userId, profileId);
+  const settings = await readNetworkPreferences(userId);
+  const profile = settings.preferences.profiles.find(
+    (entry) => entry.id === profileId
+  );
+  if (
+    !profile ||
+    (expectedRevision !== undefined &&
+      expectedRevision !== settings.revision) ||
+    parsed.createdAt < (profile.activityResetAt ?? 0)
+  ) {
+    return false;
+  }
+  const prefix = signalPrefix(userId, profileId, profile.activityResetAt);
   const eventKey = networkSignalKey(parsed.kind, documentId, parsed.createdAt);
   const now = Date.now();
   const added = await redis.eval(
     RECORD,
-    3,
+    4,
     `${prefix}:time`,
     `${prefix}:signals`,
     `${prefix}:dedupe`,
+    `${signalPrefix(userId, profileId)}:generation`,
     now,
     eventKey,
     JSON.stringify({ ...parsed, createdAt: now }),
     NETWORK_SIGNAL_RETENTION_SECONDS,
-    now - NETWORK_SIGNAL_RETENTION_SECONDS * 1000
+    now - NETWORK_SIGNAL_RETENTION_SECONDS * 1000,
+    String(profile.activityResetAt ?? 0)
   );
   if (
     added === 1 &&
@@ -213,7 +290,7 @@ export async function getNetworkPersona(
       "Recommendation profile is no longer available"
     );
   }
-  const prefix = signalPrefix(userId, selected.id);
+  const prefix = signalPrefix(userId, selected.id, selected.activityResetAt);
   const saved = await redis.hvals(`${prefix}:signals`).catch(() => []);
   const now = new Date();
   const signals: ProfileSignal[] = saved.flatMap((value) => {
@@ -251,6 +328,7 @@ export async function getNetworkPersona(
   });
   if (
     selected.id === "default" &&
+    !selected.activityResetAt &&
     !selected.interests.length &&
     !signals.length
   ) {
