@@ -45,6 +45,7 @@ export interface JetstreamWorkerOptions {
   stream?: (options: JetstreamOptions) => AsyncIterable<JetstreamEvent>;
   wait?: (milliseconds: number, signal: AbortSignal) => Promise<void>;
   renewEveryMs?: number;
+  standbyWaitMs?: number;
 }
 
 export async function runJetstreamWorker(
@@ -64,7 +65,10 @@ export async function runJetstreamWorker(
           { event: "jetstream.standby" },
           "Another instance owns the stream"
         );
-        await wait(5000, options.signal);
+        // Standby poll interval: 1.5s ensures that when a previous container is
+        // replaced or shut down by Dokploy, the replacement instance claims the
+        // stream promptly without unnecessary delay.
+        await wait(options.standbyWaitMs ?? 1500, options.signal);
         continue;
       }
       options.health.leaseHeld = true;
@@ -86,7 +90,7 @@ export async function runJetstreamWorker(
             renewing = false;
           }
         })();
-      }, options.renewEveryMs ?? 10_000);
+      }, options.renewEveryMs ?? 3000);
       renewTimer.unref();
       for await (const event of stream({
         ...options.streamOptions,
@@ -126,6 +130,20 @@ export async function runJetstreamWorker(
     } catch (error) {
       if (!options.signal.aborted) {
         attempt += 1;
+        const isReconciliation =
+          (error instanceof ProtocolError &&
+            (error.code === "unavailable" ||
+              error.code === "invalid_response") &&
+            error.message.toLowerCase().includes("reconciliation")) ||
+          (error instanceof Error &&
+            error.message.toLowerCase().includes("cursortoold"));
+        if (isReconciliation) {
+          options.logger.warn(
+            { attempt, event: "jetstream.cursor_reset" },
+            "Jetstream cursor out of range or requires reconciliation; resuming from live edge"
+          );
+          await options.store.resetCursor?.().catch(() => null);
+        }
         const code =
           error instanceof ProtocolError
             ? error.code

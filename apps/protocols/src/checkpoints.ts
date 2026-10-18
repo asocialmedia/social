@@ -13,6 +13,7 @@ export interface CheckpointStore {
   release: () => Promise<void>;
   load: () => Promise<number | undefined>;
   commit: (event: JetstreamEvent) => Promise<void>;
+  resetCursor?: () => Promise<void>;
 }
 
 const releaseScript =
@@ -31,12 +32,13 @@ return 1
 
 export class RedisCheckpointStore implements CheckpointStore {
   readonly scope: string;
-  private readonly redis: Pick<Redis, "get" | "set" | "eval">;
+  private readonly redis: Pick<Redis, "get" | "set" | "eval"> &
+    Partial<Pick<Redis, "del">>;
   private readonly owner: string;
   private readonly leaseMs: number;
 
   constructor(
-    redis: Pick<Redis, "get" | "set" | "eval">,
+    redis: Pick<Redis, "get" | "set" | "eval"> & Partial<Pick<Redis, "del">>,
     options: Pick<JetstreamOptions, "dids" | "endpoint"> & {
       owner?: string;
       leaseMs?: number;
@@ -44,7 +46,9 @@ export class RedisCheckpointStore implements CheckpointStore {
   ) {
     this.redis = redis;
     this.owner = options.owner ?? crypto.randomUUID();
-    this.leaseMs = options.leaseMs ?? 30_000;
+    // Default lease is 10s: short enough for quick takeover when containers
+    // are replaced by Dokploy / Docker, with renewal heartbeats every 3s.
+    this.leaseMs = options.leaseMs ?? 10_000;
     if (!Number.isSafeInteger(this.leaseMs) || this.leaseMs < 1000) {
       throw new RangeError("Lease duration must be at least one second");
     }
@@ -75,6 +79,9 @@ export class RedisCheckpointStore implements CheckpointStore {
   }
   async release(): Promise<void> {
     await this.redis.eval(releaseScript, 1, `${this.scope}:lease`, this.owner);
+  }
+  async resetCursor(): Promise<void> {
+    await this.redis.del?.(`${this.scope}:cursor`);
   }
   async load(): Promise<number | undefined> {
     const stored = await this.redis.get(`${this.scope}:cursor`);

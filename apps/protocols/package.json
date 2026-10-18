@@ -1,12 +1,12 @@
 {
   "name": "@asm/protocols-app",
-  "version": "0.1.22",
+  "version": "0.1.23",
   "private": true,
   "description": "Elysia protocol service and live network consumers for asocialmedia",
   "license": "AGPL-3.0",
   "type": "module",
   "scripts": {
-    "dev": "NODE_ENV=development bun --no-env-file --watch src/index.ts",
+    "dev": "bun ../../scripts/development/kill-dev-ports.ts 3012 && NODE_ENV=development bun --no-env-file --watch src/index.ts",
     "start": "bun --no-env-file run src/index.ts",
     "check-types": "tsc --noEmit",
     "test": "bun test src"

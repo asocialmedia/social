@@ -24,17 +24,23 @@ function createHandler() {
 }
 
 function createLoggingHandler() {
-  const logs: { level: string; message: string }[] = [];
+  const logs: {
+    level: string;
+    message: string;
+    obj?: Record<string, unknown>;
+  }[] = [];
   const logger: HttpLogger = {
-    debug: () => {},
+    debug: (obj: Record<string, unknown>, message?: string) => {
+      logs.push({ level: "debug", message: message ?? "", obj });
+    },
     error: (obj: Record<string, unknown>, message?: string) => {
-      logs.push({ level: "error", message: message ?? "" });
+      logs.push({ level: "error", message: message ?? "", obj });
     },
     info: (obj: Record<string, unknown>, message?: string) => {
-      logs.push({ level: "info", message: message ?? "" });
+      logs.push({ level: "info", message: message ?? "", obj });
     },
     warn: (obj: Record<string, unknown>, message?: string) => {
-      logs.push({ level: "warn", message: message ?? "" });
+      logs.push({ level: "warn", message: message ?? "", obj });
     },
   };
   const handler = createHttpHandler({
@@ -198,7 +204,7 @@ describe("auth service http handler", () => {
   });
 });
 
-describe("health probe logging", () => {
+describe("health probe and session request logging", () => {
   beforeEach(() => {
     mockGetSession.mockClear();
     mockAuthHandler.mockClear();
@@ -219,14 +225,65 @@ describe("health probe logging", () => {
     ).toEqual([]);
   });
 
-  test("still logs ordinary requests", async () => {
+  test("still logs ordinary requests immediately at info level", async () => {
+    const { handler, logs } = createLoggingHandler();
+
+    await handler(
+      new Request("http://localhost/api/auth/sign-in/email", { method: "POST" })
+    );
+
+    expect(
+      logs.filter(
+        (entry) =>
+          entry.message === "request completed" && entry.level === "info"
+      )
+    ).toHaveLength(1);
+  });
+
+  test("bundles routine GET /api/auth/get-session at debug and emits batch summary", async () => {
     const { handler, logs } = createLoggingHandler();
 
     await handler(new Request("http://localhost/api/auth/get-session"));
+    await handler(new Request("http://localhost/api/auth/get-session"));
 
+    // Individual session requests are logged at debug only, not spamming info
     expect(
-      logs.filter((entry) => entry.message === "request completed")
-    ).toHaveLength(1);
+      logs.filter(
+        (entry) =>
+          entry.message === "request completed" && entry.level === "info"
+      )
+    ).toHaveLength(0);
+    expect(
+      logs.filter(
+        (entry) =>
+          entry.message === "request completed" && entry.level === "debug"
+      )
+    ).toHaveLength(2);
+
+    // Flushes bundled summary
+    handler.flushSessionBatch?.();
+    const summary = logs.find(
+      (entry) => entry.message === "session requests completed"
+    );
+    expect(summary).toBeDefined();
+    expect(summary?.obj?.count).toBe(2);
+    expect(summary?.level).toBe("info");
+  });
+
+  test("logs failed GET /api/auth/get-session immediately", async () => {
+    const { handler, logs } = createLoggingHandler();
+    mockGetSession.mockImplementationOnce(() =>
+      Promise.reject(new Error("Database disconnected"))
+    );
+
+    const res = await handler(
+      new Request("http://localhost/api/auth/get-session")
+    );
+
+    expect(res.status).toBe(500);
+    expect(
+      logs.some((entry) => entry.level === "error" || entry.level === "warn")
+    ).toBe(true);
   });
 
   test("still logs a failed request, so the filter cannot swallow errors", async () => {

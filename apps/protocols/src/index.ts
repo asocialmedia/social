@@ -199,10 +199,13 @@ export async function startProtocols() {
           explicitClient.invalidate(event?.did);
         },
         logger,
+        renewEveryMs: 3000,
         signal: abort.signal,
+        standbyWaitMs: 1500,
         store: new RedisCheckpointStore(redis, {
           dids: config.dids,
           endpoint: config.endpoint,
+          leaseMs: 10_000,
         }),
         streamOptions: { dids: config.dids, endpoint: config.endpoint },
       });
@@ -247,7 +250,7 @@ export async function startProtocols() {
       await stopLive?.();
       client.close();
       explicitClient.close();
-      await worker;
+      await Promise.race([worker, Bun.sleep(3000)]).catch(() => null);
       await app.stop(true);
       try {
         await closeRedis?.();
@@ -266,10 +269,23 @@ export async function startProtocols() {
     return stopping;
   };
   const shutdown = async () => {
+    const isProduction = process.env.NODE_ENV === "production";
+    const shutdownTimeoutMs = isProduction ? 8000 : 2500;
+    const forceExitTimer = setTimeout(() => {
+      logger.warn(
+        { event: "protocols.shutdown_timeout" },
+        "Protocols force exiting after timeout"
+      );
+      process.exit(0);
+    }, shutdownTimeoutMs + 500);
+    forceExitTimer.unref();
+
     try {
-      await stop();
-    } catch {
-      process.exitCode = 1;
+      await Promise.race([stop(), Bun.sleep(shutdownTimeoutMs)]);
+      process.exit(0);
+    } catch (error) {
+      logger.error({ error }, "protocols shutdown failed");
+      process.exit(1);
     }
   };
   process.once("SIGTERM", shutdown);
