@@ -398,6 +398,55 @@ export interface SearchCandidateRow {
   senderId: string;
 }
 
+export interface GlobalSearchScopeEntry {
+  conversationId: string;
+  membershipSequence: number;
+  snapshotSequence: number;
+  windows: readonly { after: string | null; before: string | null }[];
+}
+
+export interface GlobalSearchCandidateRow extends SearchCandidateRow {
+  conversationAvatarMediaId: string | null;
+  conversationId: string;
+  conversationName: string | null;
+  conversationType: "DEN" | "DM";
+  peerAvatarUrl: string | null;
+  peerName: string | null;
+  peerUsername: string | null;
+  rootKeyCiphertext: string | null;
+  rootKeyIv: string | null;
+  rootKeyWrapperPublicKey: string | null;
+  senderName: string;
+  senderUsername: string;
+}
+
+export interface GlobalMessageSearchScopeRow {
+  clearedAt: Date | null;
+  clearedThroughSequence: number;
+  conversationAvatarMediaId: string | null;
+  conversationId: string;
+  conversationName: string | null;
+  conversationType: "DEN" | "DM";
+  coverageComplete: boolean;
+  memberCreatedAt: Date;
+  memberLeftAt: Date | null;
+  membershipSequence: number;
+  peerAvatarUrl: string | null;
+  peerName: string | null;
+  peerUsername: string | null;
+  snapshotSequence: number;
+}
+
+export const GLOBAL_MESSAGE_SEARCH_SCOPE_LIMIT = 5000;
+
+export interface GlobalSearchCandidateInput {
+  after?: { conversationId: string; createdAt: Date; messageId: string };
+  fragments: readonly { grams: readonly string[]; text: string }[];
+  limit: number;
+  scope: readonly GlobalSearchScopeEntry[];
+  userId: string;
+}
+
 interface OrderedSearchDocumentRow {
   createdAt: Date | null;
   messageId: string | null;
@@ -2365,6 +2414,136 @@ const SEARCH_MESSAGE_CANDIDATES_SELECTIVE_SQL = (newer: boolean) =>
 
 const SEARCH_SELECTIVE_CANDIDATE_THRESHOLD = 1000;
 const ORDERED_SEARCH_SCAN_BATCH_SIZE = 100;
+
+export async function searchGlobalMessageCandidates(
+  input: GlobalSearchCandidateInput
+): Promise<GlobalSearchCandidateRow[]> {
+  if (
+    input.scope.length === 0 ||
+    input.scope.length > GLOBAL_MESSAGE_SEARCH_SCOPE_LIMIT
+  ) {
+    throw new RangeError("The global message search scope is invalid");
+  }
+  if (
+    input.fragments.length === 0 ||
+    input.fragments.length > 32 ||
+    input.fragments.some(
+      (fragment) =>
+        fragment.text.length === 0 ||
+        fragment.text.length > 256 ||
+        fragment.grams.length > 512
+    )
+  ) {
+    throw new RangeError("The global message search query is invalid");
+  }
+  const readableEpochs = readableMessageKeyEpochsSql("$2").replaceAll(
+    /\$1\b/gu,
+    'message."conversationId"'
+  );
+  const sql = renderSql(messageSearchSql.searchGlobalMessageCandidates.result, {
+    readableMessageKeyEpochs: readableEpochs,
+  });
+  const cursor = input.after;
+  // Keep each ordered document stream intact so access checks stop after a page of eligible hits.
+  // The two OFFSET 0 fences prevent flattening that would authorize every match before the limit.
+  const result = await prisma.transaction(async (tx) => {
+    await rawExecute(
+      messageSearchSql.searchGlobalMessageCandidates.timeout,
+      [],
+      tx
+    );
+    return await rawQuery<GlobalSearchCandidateRow>(
+      sql,
+      [
+        JSON.stringify(input.scope),
+        input.userId,
+        JSON.stringify(input.fragments),
+        cursor ? cursor.createdAt : null,
+        cursor?.messageId ?? null,
+        cursor?.conversationId ?? null,
+        Math.min(Math.max(Math.trunc(input.limit), 1), 21),
+      ],
+      {
+        ciphertext: "pg/text@1",
+        conversationAvatarMediaId: { codecId: "pg/text@1", nullable: true },
+        conversationId: "pg/text@1",
+        conversationName: { codecId: "pg/text@1", nullable: true },
+        conversationType: "pg/text@1",
+        createdAt: "pg/timestamp-temporal@1",
+        expiresAt: { codecId: "pg/timestamp-temporal@1", nullable: true },
+        id: "pg/text@1",
+        iv: "pg/text@1",
+        keyEpoch: "pg/int4@1",
+        peerAvatarUrl: { codecId: "pg/text@1", nullable: true },
+        peerName: { codecId: "pg/text@1", nullable: true },
+        peerUsername: { codecId: "pg/text@1", nullable: true },
+        ratchetIndex: "pg/int4@1",
+        revision: "pg/int4@1",
+        rootKeyCiphertext: { codecId: "pg/text@1", nullable: true },
+        rootKeyIv: { codecId: "pg/text@1", nullable: true },
+        rootKeyWrapperPublicKey: { codecId: "pg/text@1", nullable: true },
+        senderId: "pg/text@1",
+        senderName: "pg/text@1",
+        senderUsername: "pg/text@1",
+      },
+      tx
+    );
+  });
+  return result.rows;
+}
+
+export async function ensureGlobalMessageSearchBackfills(
+  conversationIds: readonly string[]
+): Promise<void> {
+  if (conversationIds.length === 0) {
+    return;
+  }
+  if (conversationIds.length > GLOBAL_MESSAGE_SEARCH_SCOPE_LIMIT) {
+    throw new RangeError("The global message search scope is invalid");
+  }
+  await rawQuery<{ conversationId: string }>(
+    messageSearchSql.ensureGlobalMessageSearchBackfills.result,
+    [JSON.stringify(conversationIds)],
+    { conversationId: "pg/text@1" }
+  );
+}
+
+export async function listGlobalMessageSearchScope(input: {
+  conversationType: "ALL" | "DEN" | "DM";
+  userId: string;
+}): Promise<GlobalMessageSearchScopeRow[]> {
+  const readableEpochs = readableMessageKeyEpochsSql("$2").replaceAll(
+    /\$1\b/gu,
+    'required_key."conversationId"'
+  );
+  const result = await rawQuery<GlobalMessageSearchScopeRow>(
+    renderSql(messageSearchSql.searchGlobalMessageScope.result, {
+      readableEpochs,
+    }),
+    [
+      input.conversationType,
+      input.userId,
+      GLOBAL_MESSAGE_SEARCH_SCOPE_LIMIT + 1,
+    ],
+    {
+      clearedAt: { codecId: "pg/timestamp-temporal@1", nullable: true },
+      clearedThroughSequence: "pg/int4@1",
+      conversationAvatarMediaId: { codecId: "pg/text@1", nullable: true },
+      conversationId: "pg/text@1",
+      conversationName: { codecId: "pg/text@1", nullable: true },
+      conversationType: "pg/text@1",
+      coverageComplete: "pg/bool@1",
+      memberCreatedAt: "pg/timestamp-temporal@1",
+      memberLeftAt: { codecId: "pg/timestamp-temporal@1", nullable: true },
+      membershipSequence: "pg/int4@1",
+      peerAvatarUrl: { codecId: "pg/text@1", nullable: true },
+      peerName: { codecId: "pg/text@1", nullable: true },
+      peerUsername: { codecId: "pg/text@1", nullable: true },
+      snapshotSequence: "pg/int4@1",
+    }
+  );
+  return result.rows;
+}
 
 interface SearchCandidatePlanNode {
   "Actual Loops"?: number;

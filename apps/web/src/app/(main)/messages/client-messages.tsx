@@ -4,7 +4,7 @@ import messagesImage from "@assets/general/messages.png";
 import { Users } from "lucide-react";
 import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import MobileTopBar from "@/components/layouts/navigation/mobile/mobile-top-bar";
 import { ActiveFriendsRail } from "@/components/messages/active-friends-rail";
@@ -42,7 +42,11 @@ function MessagesPanes() {
   const searchParams = useSearchParams();
   const conversationId = searchParams.get("c");
   const dmUserId = searchParams.get("dm");
+  const requestedMessageId = searchParams.get("mid");
+  const requestedMessageNavigationId = searchParams.get("searchNav");
   const [railOpen, setRailOpen] = useState(false);
+  const [searchNavigationSequence, setSearchNavigationSequence] = useState(0);
+  const lastSearchNavigationRef = useRef<string | null>(null);
   // Whether the window is wide enough for two panes. `48rem` tracks Tailwind's `md`
   // exactly; below it the list and the conversation are the same surface shown one
   // at a time, which is what the thread's back button swaps.
@@ -95,18 +99,57 @@ function MessagesPanes() {
       const params = new URLSearchParams(searchParams.toString());
       if (id) {
         params.set("c", id);
+        params.delete("mid");
+        params.delete("searchNav");
         // Rail the list away while reading a conversation. Not persisted as a
         // preference: arriving on /messages must always find the list open, so
         // the collapse is a view state for this conversation, not a setting.
         setCollapsed(true);
       } else {
         params.delete("c");
+        params.delete("mid");
+        params.delete("searchNav");
         setCollapsed(false);
       }
       router.replace(`/messages?${params.toString()}`, { scroll: false });
     },
     [router, searchParams, setCollapsed]
   );
+
+  const selectMessage = useCallback(
+    (id: string, messageId: string) => {
+      const navigationId = String(searchNavigationSequence + 1);
+      setSearchNavigationSequence((sequence) => sequence + 1);
+      lastSearchNavigationRef.current = navigationId;
+      setCollapsed(false);
+      const params = new URLSearchParams(searchParams.toString());
+      params.set("c", id);
+      params.set("mid", messageId);
+      params.set("searchNav", navigationId);
+      router.push(`/messages?${params.toString()}`, { scroll: false });
+    },
+    [router, searchNavigationSequence, searchParams, setCollapsed]
+  );
+
+  const backFromThread = useCallback(() => {
+    if (
+      requestedMessageId &&
+      requestedMessageNavigationId &&
+      lastSearchNavigationRef.current === requestedMessageNavigationId
+    ) {
+      lastSearchNavigationRef.current = null;
+      setCollapsed(false);
+      router.back();
+      return;
+    }
+    selectConversation(null);
+  }, [
+    requestedMessageId,
+    requestedMessageNavigationId,
+    router,
+    selectConversation,
+    setCollapsed,
+  ]);
 
   if (status === "loading") {
     return (
@@ -159,6 +202,7 @@ function MessagesPanes() {
             setListScreenCollapsed(false);
           }}
           onSelect={selectConversation}
+          onSelectMessage={selectMessage}
           onToggleCollapse={
             pendingConversation
               ? toggleCollapsed
@@ -178,8 +222,12 @@ function MessagesPanes() {
             <MessageThread
               conversationId={pendingConversation}
               key={pendingConversation}
-              onBack={() => selectConversation(null)}
+              onBack={backFromThread}
               onToggleRail={() => setRailOpen((open) => !open)}
+              requestedMessageId={requestedMessageId ?? undefined}
+              requestedMessageNavigationId={
+                requestedMessageNavigationId ?? undefined
+              }
             />
           ) : (
             <>

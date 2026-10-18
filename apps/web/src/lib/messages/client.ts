@@ -40,6 +40,7 @@ import {
   readMembershipSeq,
 } from "./membership-seq";
 import { shouldReplaceMessageRevision } from "./message-revision";
+import { fetchMessageSearchJson } from "./search-request";
 
 // Thin typed wrappers around the messages API plus the client-side crypto
 // orchestration (unwrap a conversation key, encrypt a message). All network
@@ -1872,17 +1873,53 @@ export async function fetchGroupAddEligibility(
 // message". Anything else stays follow-only.
 export async function searchMessageUsers(
   query: string,
-  context: "den" | "message" = "message"
+  context: "den" | "message" = "message",
+  signal?: AbortSignal
 ): Promise<SearchUserResult[]> {
-  const response = await fetchChatApi(
+  const json = await fetchMessageSearchJson(
     `/api/messages/search?q=${encodeURIComponent(query)}&context=${context}`,
-    { credentials: "same-origin" }
+    { credentials: "same-origin", signal },
+    { maxBytes: 64 * 1024 }
   );
-  if (!response.ok) {
-    throw await parseError(response);
+  if (
+    typeof json !== "object" ||
+    json === null ||
+    !("users" in json) ||
+    !Array.isArray(json.users) ||
+    json.users.length > 20 ||
+    !json.users.every(isSearchUserResult)
+  ) {
+    throw new Error("Profile search results could not be loaded.");
   }
-  const json = (await response.json()) as { users: SearchUserResult[] };
   return json.users;
+}
+
+function isSearchUserResult(value: unknown): value is SearchUserResult {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+  return (
+    "id" in value &&
+    typeof value.id === "string" &&
+    value.id.length > 0 &&
+    "username" in value &&
+    typeof value.username === "string" &&
+    "displayName" in value &&
+    typeof value.displayName === "string" &&
+    "hasIdentity" in value &&
+    typeof value.hasIdentity === "boolean" &&
+    "avatarUrl" in value &&
+    (value.avatarUrl === null || typeof value.avatarUrl === "string") &&
+    "badge" in value &&
+    (value.badge === null || typeof value.badge === "string") &&
+    "badges" in value &&
+    Array.isArray(value.badges) &&
+    value.badges.every((badge) => typeof badge === "string") &&
+    "addRefusal" in value &&
+    (value.addRefusal === null ||
+      value.addRefusal === "NO_DIRECT_ADDS" ||
+      value.addRefusal === "NOT_FOLLOWING_YOU")
+  );
 }
 
 export async function fetchPresenceUsers(): Promise<PresenceUser[]> {

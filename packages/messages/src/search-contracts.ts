@@ -7,12 +7,14 @@ export const MESSAGE_SEARCH_NORMALIZATION_VERSION = 1;
 export interface MessageSearchFeatureFlagEnvironment {
   MESSAGE_SEARCH_BACKFILL_ENABLED?: string;
   MESSAGE_SEARCH_COUNT_ENABLED?: string;
+  MESSAGE_SEARCH_GLOBAL_ENABLED?: string;
   MESSAGE_SEARCH_SERVER_ENABLED?: string;
 }
 
 export interface MessageSearchFeatureFlags {
   backfill: boolean;
   counts: boolean;
+  globalSearch: boolean;
   serverSearch: boolean;
 }
 
@@ -39,6 +41,9 @@ export function readMessageSearchFeatureFlags(
     ),
     counts: isMessageSearchFeatureEnabled(
       environment.MESSAGE_SEARCH_COUNT_ENABLED
+    ),
+    globalSearch: isMessageSearchFeatureEnabled(
+      environment.MESSAGE_SEARCH_GLOBAL_ENABLED
     ),
     serverSearch: isMessageSearchFeatureEnabled(
       environment.MESSAGE_SEARCH_SERVER_ENABLED

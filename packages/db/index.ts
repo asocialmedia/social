@@ -127,7 +127,13 @@ export {
   releaseMessageSearchCountRequest,
   requestMessageSearchCount,
   searchMessageCandidates,
+  searchGlobalMessageCandidates,
   startMessageSearchBackfill,
+} from "./src/messages/search/search-index";
+export {
+  ensureGlobalMessageSearchBackfills,
+  GLOBAL_MESSAGE_SEARCH_SCOPE_LIMIT,
+  listGlobalMessageSearchScope,
 } from "./src/messages/search/search-index";
 export type {
   MessageIdentityBackupRefreshInput,
@@ -148,6 +154,10 @@ export type {
   MessageSearchBackfillOutcome,
   MessageSearchBackfillPosition,
   SearchCandidateQuery,
+  GlobalSearchCandidateInput,
+  GlobalMessageSearchScopeRow,
+  GlobalSearchCandidateRow,
+  GlobalSearchScopeEntry,
   SearchCandidateRow,
   SearchHydrationQuery,
   SearchHydrationRequest,

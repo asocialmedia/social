@@ -258,6 +258,8 @@ interface MessageThreadProps {
   conversationId: string;
   onBack: () => void;
   onToggleRail: () => void;
+  requestedMessageId?: string;
+  requestedMessageNavigationId?: string;
 }
 
 // Estimated row height before measurement, and the exact height the decrypt
@@ -557,6 +559,8 @@ function NormalMessageThread({
   conversationId,
   onBack,
   onToggleRail,
+  requestedMessageId,
+  requestedMessageNavigationId,
 }: MessageThreadProps) {
   const {
     snapshot: lifecycle,
@@ -684,6 +688,8 @@ function NormalMessageThread({
   // as a transcript that stopped loading. Cleared by the next attempt, which is
   // itself the retry.
   const [jumpError, setJumpError] = useState<string | null>(null);
+  const [globalTargetBlockedByIncognito, setGlobalTargetBlockedByIncognito] =
+    useState(false);
   // A jump is in flight right now: an anchored read, or the bounded walk behind
   // it. The bar's loader is driven by this alongside the transcript's own page
   // fetches, so a slow jump shows as work instead of as a frozen bar.
@@ -3236,6 +3242,42 @@ function NormalMessageThread({
     ]
   );
 
+  const requestedMessageKey = requestedMessageId
+    ? `${requestedMessageNavigationId ?? "direct"}:${requestedMessageId}`
+    : null;
+  const consumedRequestedMessageRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (
+      !requestedMessageKey ||
+      !requestedMessageId ||
+      !incognitoFresh ||
+      lifecycleBusy
+    ) {
+      if (!requestedMessageKey) {
+        consumedRequestedMessageRef.current = null;
+        setGlobalTargetBlockedByIncognito(false);
+      }
+      return;
+    }
+    if (activeIncognito) {
+      setGlobalTargetBlockedByIncognito(true);
+      return;
+    }
+    if (consumedRequestedMessageRef.current === requestedMessageKey) {
+      return;
+    }
+    consumedRequestedMessageRef.current = requestedMessageKey;
+    setGlobalTargetBlockedByIncognito(false);
+    void jumpToMessage(requestedMessageId);
+  }, [
+    activeIncognito,
+    jumpToMessage,
+    incognitoFresh,
+    lifecycleBusy,
+    requestedMessageId,
+    requestedMessageKey,
+  ]);
+
   useEffect(() => {
     void retireLegacySearchIndex();
   }, [conversationId]);
@@ -4853,6 +4895,21 @@ function NormalMessageThread({
                 privateKey={privateKey}
               />
             </div>
+            {globalTargetBlockedByIncognito && activeIncognito ? (
+              <output className="text-muted-foreground flex items-center justify-between gap-3 border-b px-4 py-2 text-xs">
+                <span>
+                  This result is in normal history. End the temporary chat to
+                  open it.
+                </span>
+                <button
+                  className="min-h-11 shrink-0 rounded-lg px-2 font-medium text-[hsl(var(--primary))] outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))]"
+                  onClick={onBack}
+                  type="button"
+                >
+                  Back to results
+                </button>
+              </output>
+            ) : null}
             <ChatModeTransition
               sessionId={activeIncognito?.id ?? null}
               incognito={
