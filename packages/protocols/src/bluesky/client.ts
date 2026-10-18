@@ -298,6 +298,7 @@ export class BlueskyClient {
       displayName: string;
       description?: string;
       contentMode?: string;
+      likeCount?: number;
     }[];
   }> {
     const parsed = z
@@ -327,6 +328,7 @@ export class BlueskyClient {
               contentMode: z.string().optional(),
               description: z.string().optional(),
               displayName: z.string(),
+              likeCount: z.number().int().nonnegative().optional(),
               uri: feedUriSchema,
             })
           )
@@ -784,11 +786,14 @@ export class BlueskyClient {
         ]);
         try {
           const response = await abortable(
-            this.options.fetch(`https://public.api.bsky.app${path}`, {
-              ...init,
-              redirect: "error",
-              signal,
-            }),
+            this.options.fetch(
+              `${path.startsWith("/xrpc/app.bsky.feed.searchPosts?") ? "https://api.bsky.app" : "https://public.api.bsky.app"}${path}`,
+              {
+                ...init,
+                redirect: "error",
+                signal,
+              }
+            ),
             signal
           );
           if (!response.ok) {

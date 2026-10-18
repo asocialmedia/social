@@ -2,7 +2,45 @@ import { expect, test } from "bun:test";
 
 import { NodeOAuthClient } from "@atproto/oauth-client-node";
 
-import { BLUESKY_OAUTH_SCOPE, blueskyOAuthMetadata } from "./oauth-config";
+import {
+  BLUESKY_OAUTH_SCOPE,
+  blueskyOAuthMetadata,
+  hasBlueskyRepoPermission,
+} from "./oauth-config";
+
+test("like permissions require create and delete and reject unrelated grants", () => {
+  expect(
+    hasBlueskyRepoPermission(
+      BLUESKY_OAUTH_SCOPE,
+      "app.bsky.feed.like",
+      "create"
+    )
+  ).toBe(true);
+  expect(
+    hasBlueskyRepoPermission(
+      BLUESKY_OAUTH_SCOPE,
+      "app.bsky.feed.like",
+      "delete"
+    )
+  ).toBe(true);
+  expect(
+    hasBlueskyRepoPermission(
+      "repo:app.bsky.feed.like?action=create",
+      "app.bsky.feed.like",
+      "delete"
+    )
+  ).toBe(false);
+  expect(
+    hasBlueskyRepoPermission(
+      "repo:app.bsky.feed.repost",
+      "app.bsky.feed.like",
+      "create"
+    )
+  ).toBe(false);
+  expect(
+    hasBlueskyRepoPermission(undefined, "app.bsky.feed.like", "create")
+  ).toBe(false);
+});
 
 for (const origin of [
   "http://localhost:3000",

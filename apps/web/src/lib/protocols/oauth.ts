@@ -16,7 +16,24 @@ import type {
   RuntimeLock,
 } from "@atproto/oauth-client-node";
 
-import { blueskyOAuthMetadata } from "./oauth-config";
+import { blueskyOAuthMetadata, hasBlueskyRepoPermission } from "./oauth-config";
+
+export function blueskyConnectionPermissions(saved: string | null | undefined) {
+  try {
+    const scope = saved
+      ? unseal<NodeSavedSession>(saved).tokenSet.scope
+      : undefined;
+    return {
+      canLike:
+        hasBlueskyRepoPermission(scope, "app.bsky.feed.like", "create") &&
+        hasBlueskyRepoPermission(scope, "app.bsky.feed.like", "delete"),
+      canReply: hasBlueskyRepoPermission(scope, "app.bsky.feed.post", "create"),
+      connected: Boolean(saved),
+    };
+  } catch {
+    return { canLike: false, canReply: false, connected: false };
+  }
+}
 
 function encryptionKey() {
   const secret = process.env.BETTER_AUTH_SECRET;

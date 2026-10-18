@@ -1,5 +1,20 @@
 export const BLUESKY_OAUTH_SCOPE =
-  "atproto repo:app.bsky.feed.post?action=create repo:app.bsky.feed.like?action=create repo:app.bsky.feed.repost?action=create&action=delete rpc:app.bsky.bookmark.createBookmark?aud=did:web:api.bsky.app%23bsky_appview rpc:app.bsky.bookmark.deleteBookmark?aud=did:web:api.bsky.app%23bsky_appview rpc:app.bsky.feed.getPosts?aud=did:web:api.bsky.app%23bsky_appview";
+  "atproto repo:app.bsky.feed.post?action=create repo:app.bsky.feed.like?action=create&action=delete repo:app.bsky.feed.repost?action=create&action=delete rpc:app.bsky.bookmark.createBookmark?aud=did:web:api.bsky.app%23bsky_appview rpc:app.bsky.bookmark.deleteBookmark?aud=did:web:api.bsky.app%23bsky_appview rpc:app.bsky.feed.getPosts?aud=did:web:api.bsky.app%23bsky_appview";
+
+export function hasBlueskyRepoPermission(
+  scope: string | undefined,
+  collection: string,
+  action: "create" | "delete"
+) {
+  return (scope ?? "").split(/\s+/u).some((permission) => {
+    const [resource, query] = permission.split("?", 2);
+    if (resource !== `repo:${collection}` && resource !== "repo:*") {
+      return false;
+    }
+    const actions = new URLSearchParams(query).getAll("action");
+    return !actions.length || actions.includes(action);
+  });
+}
 export const BLUESKY_OAUTH_COOKIE = "asm-bluesky-oauth";
 export const BLUESKY_OAUTH_CALLBACK = "/api/protocols/bluesky/oauth/callback";
 

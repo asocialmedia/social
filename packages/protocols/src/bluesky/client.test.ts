@@ -13,6 +13,18 @@ import { normalizePost, normalizeSegments } from "./normalize";
 import { postViewSchema } from "./schemas";
 
 describe("Bluesky public read boundary", () => {
+  test("search uses the public AppView search host without forwarding credentials", async () => {
+    const calls: string[] = [];
+    const client = new BlueskyClient({
+      fetch: async (url, options) => {
+        calls.push(url);
+        expect(new Headers(options.headers).has("authorization")).toBe(false);
+        return Response.json({ posts: [] });
+      },
+    });
+    await client.searchPosts("software", "top");
+    expect(new URL(calls[0] ?? "").origin).toBe("https://api.bsky.app");
+  });
   test("transient reads retry once while invalid responses never retry", async () => {
     let calls = 0;
     const waits: number[] = [];

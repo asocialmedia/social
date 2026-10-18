@@ -12,6 +12,21 @@ mock.module("@asm/db", () => ({
     orm: {
       public: {
         Accounts: {
+          select: (field: string) => {
+            expect(field).toBe("accountId");
+            return {
+              where: (owner: { providerId: string; userId: string }) => {
+                expect(owner).toEqual({
+                  providerId: "bluesky",
+                  userId: "user-123",
+                });
+                return {
+                  first: () =>
+                    Promise.resolve({ accountId: "example.bsky.social" }),
+                };
+              },
+            };
+          },
           where: () => ({
             deleteAndCount: () => {
               deleteCount += 1;
