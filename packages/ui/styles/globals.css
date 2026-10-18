@@ -178,6 +178,14 @@
 }
 
 @layer components {
+  .community-accent-scope {
+    --community-accent-resolved: var(--community-accent);
+  }
+
+  .dark .community-accent-scope {
+    --community-accent-resolved: var(--community-accent-dark);
+  }
+
   .community-accent-rail {
     background-color: var(--community-accent);
   }

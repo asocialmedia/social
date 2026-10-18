@@ -8,7 +8,10 @@ import {
 } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/auth/session";
-import { communityChatErrorResponse } from "@/lib/communities/chat-api";
+import {
+  communityChatAvailabilityResponse,
+  communityChatErrorResponse,
+} from "@/lib/communities/chat-api";
 import { decodeCommunityChatLiveEvent } from "@/lib/communities/chat-events";
 
 const MAX_REPLAY_PAGES = 5;
@@ -18,6 +21,10 @@ export async function GET(
   request: Request,
   context: { params: Promise<{ roomId: string; slug: string }> }
 ) {
+  const unavailable = communityChatAvailabilityResponse(false);
+  if (unavailable) {
+    return unavailable;
+  }
   const { roomId, slug } = await context.params;
   const session = await getSessionFromApi();
   const userId = session?.user?.id ?? "";
@@ -252,6 +259,10 @@ export async function GET(
           }, 20_000);
           const checkLease = async () => {
             try {
+              if (communityChatAvailabilityResponse()) {
+                await close(true);
+                return;
+              }
               const nextAccess = await getCommunityChatRoomAccess(
                 roomId,
                 userId

@@ -935,11 +935,12 @@ export async function createCommunityChatThread(input: {
   const previousThread = await roomDataById(prisma.orm, roomId);
   if (previousThread) {
     await requireRoomAccess(roomId, input.creatorId);
-    if (previousThread.visibility !== input.visibility)
-      {throw new CommunityChatError(
+    if (previousThread.visibility !== input.visibility) {
+      throw new CommunityChatError(
         "CONFLICT",
         "Thread privacy is fixed at creation"
-      );}
+      );
+    }
     return mapRoom(previousThread);
   }
 
@@ -1118,11 +1119,12 @@ export async function createCommunityChatThread(input: {
               )
             )
             .first();
-        if (otherThread)
-          {throw new CommunityChatError(
+        if (otherThread) {
+          throw new CommunityChatError(
             "CONFLICT",
             "This message already has a public thread"
-          );}
+          );
+        }
         return sequence;
       }
       return null;

@@ -49,6 +49,7 @@ import {
 } from "../lib/communities-api";
 import type { CommunityDetail } from "../lib/communities-api";
 import { resolveCommunityAccentColor } from "../lib/community-accents";
+import { communityChatUiEnabled } from "../lib/community-chat-features";
 import {
   communityMediaUrl,
   communityPageCache,
@@ -501,7 +502,9 @@ export function CommunityDetailScreen() {
                       active="posts"
                       tabs={[
                         { label: "Posts", value: "posts" },
-                        { label: "Chat", value: "chat" },
+                        ...(communityChatUiEnabled
+                          ? [{ label: "Chat", value: "chat" as const }]
+                          : []),
                       ]}
                       onChange={(value) => {
                         if (value === "chat") {

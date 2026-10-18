@@ -7,7 +7,10 @@ import {
 } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/auth/session";
-import { communityChatErrorResponse } from "@/lib/communities/chat-api";
+import {
+  communityChatAvailabilityResponse,
+  communityChatErrorResponse,
+} from "@/lib/communities/chat-api";
 
 interface RouteContext {
   params: Promise<{ messageId: string; slug: string }>;
@@ -26,6 +29,10 @@ async function handleMutation(
   context: RouteContext,
   operation: "DELETE" | "EDIT"
 ) {
+  const unavailable = communityChatAvailabilityResponse(true);
+  if (unavailable) {
+    return unavailable;
+  }
   const { messageId, slug } = await context.params;
   const session = await getSessionFromApi();
   const actorId = session?.user?.id;

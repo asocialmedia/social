@@ -12,6 +12,8 @@ import { connection } from "next/server";
 
 import CommunityPage from "@/components/communities/page/community-page";
 import { getSessionFromApi } from "@/lib/auth/session";
+import { communityChatAvailabilityResponse } from "@/lib/communities/chat-api";
+import { communityChatUiEnabled } from "@/lib/communities/chat-features";
 
 interface PageProps {
   params: Promise<{ channelId: string; slug: string }>;
@@ -24,6 +26,9 @@ export const metadata: Metadata = {
 
 export default async function Page({ params }: PageProps) {
   await connection();
+  if (!communityChatUiEnabled || communityChatAvailabilityResponse()) {
+    notFound();
+  }
   const { channelId, slug } = await params;
   const session = await getSessionFromApi();
   const userId = session?.user?.id ?? "";

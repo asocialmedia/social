@@ -7,13 +7,20 @@ import {
 } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/auth/session";
-import { communityChatErrorResponse } from "@/lib/communities/chat-api";
+import {
+  communityChatAvailabilityResponse,
+  communityChatErrorResponse,
+} from "@/lib/communities/chat-api";
 
 interface RouteContext {
   params: Promise<{ channelId: string; slug: string }>;
 }
 
 export async function PATCH(request: Request, context: RouteContext) {
+  const unavailable = communityChatAvailabilityResponse(true);
+  if (unavailable) {
+    return unavailable;
+  }
   const { channelId, slug } = await context.params;
   const session = await getSessionFromApi();
   const actorId = session?.user?.id;
@@ -115,6 +122,10 @@ export async function PATCH(request: Request, context: RouteContext) {
 }
 
 export async function DELETE(_request: Request, context: RouteContext) {
+  const unavailable = communityChatAvailabilityResponse(true);
+  if (unavailable) {
+    return unavailable;
+  }
   const { channelId, slug } = await context.params;
   const session = await getSessionFromApi();
   const actorId = session?.user?.id;

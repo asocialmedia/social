@@ -227,6 +227,7 @@ function CommunityChatTimeline({
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const [atLatest, setAtLatest] = useState(true);
   const [hasNewActivity, setHasNewActivity] = useState(false);
+  const [reconnecting, setReconnecting] = useState(false);
   const [mobileChannelsOpen, setMobileChannelsOpen] = useState(false);
   const [createChannelOpen, setCreateChannelOpen] = useState(false);
   const [newChannelName, setNewChannelName] = useState("");
@@ -569,9 +570,8 @@ function CommunityChatTimeline({
       setPermissions(null);
       setLoadError("Your access to this conversation changed.");
     });
-    source.addEventListener("error", () => {
-      setHasNewActivity(true);
-    });
+    source.addEventListener("open", () => setReconnecting(false));
+    source.addEventListener("error", () => setReconnecting(true));
     return () => source.close();
   }, [
     channelsUrl,
@@ -1254,7 +1254,7 @@ function CommunityChatTimeline({
 
   const channelList = (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex items-center justify-between gap-2 px-3 pt-3 pb-2">
+      <div className="flex items-center justify-between gap-2 pt-3 pr-16 pb-2 pl-3 md:pr-3">
         <div>
           <p className="text-muted-foreground text-[11px] font-semibold tracking-[0.14em] uppercase">
             Channels
@@ -1329,7 +1329,7 @@ function CommunityChatTimeline({
         {channels.map((channel) => (
           <button
             aria-current={channel.id === channelId ? "page" : undefined}
-            className={`group relative mb-1 flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left transition-colors ${channel.id === channelId ? "text-foreground bg-[color-mix(in_srgb,var(--community-accent)_12%,hsl(var(--background)))]" : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"}`}
+            className={`group relative mb-1 flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left transition-colors ${channel.id === channelId ? "text-foreground bg-[color-mix(in_srgb,var(--community-accent-resolved)_12%,hsl(var(--background)))]" : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"}`}
             key={channel.id}
             onClick={() => {
               setMobileChannelsOpen(false);
@@ -1347,7 +1347,7 @@ function CommunityChatTimeline({
               </span>
             ) : null}
             {channel.id === channelId ? (
-              <span className="absolute inset-y-2 left-0 w-[3px] rounded-full bg-[var(--community-accent)]" />
+              <span className="absolute inset-y-2 left-0 w-[3px] rounded-full bg-[var(--community-accent-resolved)]" />
             ) : null}
           </button>
         ))}
@@ -1363,7 +1363,7 @@ function CommunityChatTimeline({
             threads.map((thread) => (
               <button
                 aria-current={threadId === thread.room.id ? "page" : undefined}
-                className={`mb-1 flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm transition-colors ${threadId === thread.room.id ? "text-foreground bg-[color-mix(in_srgb,var(--community-accent)_12%,hsl(var(--background)))]" : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"}`}
+                className={`mb-1 flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm transition-colors ${threadId === thread.room.id ? "text-foreground bg-[color-mix(in_srgb,var(--community-accent-resolved)_12%,hsl(var(--background)))]" : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"}`}
                 key={thread.room.id}
                 onClick={() => {
                   setMobileChannelsOpen(false);
@@ -1434,7 +1434,7 @@ function CommunityChatTimeline({
   return (
     <section
       aria-label={`${communityName} chat`}
-      className="relative flex min-h-0 flex-1 flex-col"
+      className="community-accent-scope relative flex min-h-0 flex-1 flex-col"
       style={communityAccentStyle(accentColor) as CSSProperties}
     >
       <Dialog
@@ -1445,7 +1445,10 @@ function CommunityChatTimeline({
         }}
         open={publicThreadSource !== null}
       >
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent
+          className="community-accent-scope sm:max-w-lg"
+          style={communityAccentStyle(accentColor)}
+        >
           <DialogHeader>
             <DialogTitle>Start a thread</DialogTitle>
             <DialogDescription>
@@ -1456,7 +1459,7 @@ function CommunityChatTimeline({
             </DialogDescription>
           </DialogHeader>
           {publicThreadSource?.payload?.type === "text" ? (
-            <blockquote className="border-l-2 border-[var(--community-accent)] pl-3 text-sm">
+            <blockquote className="border-l-2 border-[var(--community-accent-resolved)] pl-3 text-sm">
               <span className="text-foreground mb-1 block font-semibold">
                 {displayName(publicThreadSource.sender)}
               </span>
@@ -1512,7 +1515,10 @@ function CommunityChatTimeline({
         }}
         open={pinsOpen}
       >
-        <DialogContent className="max-h-[80dvh] overflow-y-auto sm:max-w-xl">
+        <DialogContent
+          className="community-accent-scope max-h-[80dvh] overflow-y-auto sm:max-w-xl"
+          style={communityAccentStyle(accentColor)}
+        >
           <DialogHeader>
             <DialogTitle>Pinned messages</DialogTitle>
             <DialogDescription>
@@ -1556,7 +1562,7 @@ function CommunityChatTimeline({
                       ? message.payload.content
                       : "Message"}
                   </span>
-                  <span className="mt-3 block text-xs font-medium text-[var(--community-accent)]">
+                  <span className="mt-3 block text-xs font-medium text-[var(--community-accent-resolved)]">
                     Jump to message →
                   </span>
                 </button>
@@ -1572,7 +1578,8 @@ function CommunityChatTimeline({
 
         <Sheet onOpenChange={setMobileChannelsOpen} open={mobileChannelsOpen}>
           <SheetContent
-            className="flex w-[min(20rem,90vw)] flex-col gap-0 p-0"
+            className="community-accent-scope flex w-[min(20rem,90vw)] flex-col gap-0 p-0"
+            style={communityAccentStyle(accentColor)}
             side="left"
           >
             <SheetHeader className="sr-only">
@@ -1596,7 +1603,7 @@ function CommunityChatTimeline({
             >
               <Menu className="size-4" />
             </Button>
-            <div className="grid size-9 shrink-0 place-items-center rounded-xl bg-[color-mix(in_srgb,var(--community-accent)_13%,hsl(var(--background)))] text-[var(--community-accent)]">
+            <div className="grid size-9 shrink-0 place-items-center rounded-xl bg-[color-mix(in_srgb,var(--community-accent-resolved)_13%,hsl(var(--background)))] text-[var(--community-accent-resolved)]">
               {room?.kind === "THREAD" ? (
                 <MessageCircle className="size-[18px]" />
               ) : room?.channelType === "ANNOUNCEMENT" ? (
@@ -1610,9 +1617,11 @@ function CommunityChatTimeline({
                 {room?.kind === "THREAD" ? channelName : `#${channelName}`}
               </h2>
               <p className="text-muted-foreground truncate text-[11px]">
-                {room?.kind === "THREAD"
-                  ? `${room.visibility === "PRIVATE" ? "Private thread" : "Thread"} in #${channels.find((channel) => channel.id === channelId)?.name ?? "community"}`
-                  : room?.topic || `A conversation in ${communityName}`}
+                {reconnecting
+                  ? "Reconnecting…"
+                  : room?.kind === "THREAD"
+                    ? `${room.visibility === "PRIVATE" ? "Private thread" : "Thread"} in #${channels.find((channel) => channel.id === channelId)?.name ?? "community"}`
+                    : room?.topic || `A conversation in ${communityName}`}
               </p>
             </div>
             {room?.channelType === "ANNOUNCEMENT" ? (
@@ -1667,12 +1676,13 @@ function CommunityChatTimeline({
             ) : null}
             {!threadId && canSend ? (
               <Button
-                className="h-8 rounded-full px-3 text-xs"
+                aria-label="Start private thread"
+                className="h-9 w-9 shrink-0 rounded-full p-0 sm:h-8 sm:w-auto sm:px-3 sm:text-xs"
                 onClick={() => setPrivateThreadOpen((open) => !open)}
-                variant="premium"
+                variant="ghost"
               >
-                <LockKeyhole className="mr-1.5 size-3.5" />
-                Private thread
+                <LockKeyhole className="size-4 sm:mr-1.5 sm:size-3.5" />
+                <span className="hidden sm:inline">Private thread</span>
               </Button>
             ) : threadId ? (
               <Button
@@ -1911,7 +1921,7 @@ function CommunityChatTimeline({
                     <div className="mb-5 flex items-center gap-3">
                       <div className="bg-border/70 h-px flex-1" />
                       <span className="text-muted-foreground text-[10px] font-semibold tracking-[0.13em] uppercase">
-                        Room history
+                        {threadId ? "Thread history" : "Channel history"}
                       </span>
                       <div className="bg-border/70 h-px flex-1" />
                     </div>
@@ -1944,7 +1954,7 @@ function CommunityChatTimeline({
                           ) : null}
                           <article
                             data-chat-message-id={message.id}
-                            className={`group hover:bg-muted/35 relative flex gap-3 rounded-xl px-2 py-1.5 pr-20 transition-colors sm:pr-2 ${isGrouped ? "pt-0.5" : "mt-2"}`}
+                            className={`group hover:bg-muted/35 relative flex gap-3 rounded-xl px-2 py-1.5 transition-colors ${isGrouped ? "pt-0.5" : "mt-2"}`}
                           >
                             {!message.deletedAt ? (
                               <CommunityChatMessageActions
@@ -1997,7 +2007,7 @@ function CommunityChatTimeline({
                             </div>
                             <div className="min-w-0 flex-1">
                               {!isGrouped ? (
-                                <div className="mb-0.5 flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                                <div className="mb-0.5 flex min-h-8 flex-wrap items-baseline gap-x-2 gap-y-0.5 pr-20 sm:min-h-0 sm:pr-0">
                                   <span className="text-foreground text-[13px] font-bold">
                                     {displayName(message.sender)}
                                   </span>
@@ -2076,7 +2086,7 @@ function CommunityChatTimeline({
                                     <button
                                       aria-label={`${reaction.emoji}, ${reaction.count} ${reaction.count === 1 ? "reaction" : "reactions"}`}
                                       aria-pressed={reaction.reacted}
-                                      className={`chip-3d inline-flex min-h-8 items-center gap-1.5 rounded-full! px-2.5 text-xs ${reaction.reacted ? "text-[var(--community-accent)] ring-1 ring-[var(--community-accent)]" : "text-muted-foreground"}`}
+                                      className={`chip-3d inline-flex min-h-8 items-center gap-1.5 rounded-full! px-2.5 text-xs ${reaction.reacted ? "text-[var(--community-accent-resolved)] ring-1 ring-[var(--community-accent-resolved)]" : "text-muted-foreground"}`}
                                       disabled={!canSend}
                                       key={reaction.emoji}
                                       onClick={() =>
@@ -2160,7 +2170,7 @@ function CommunityChatTimeline({
                               ) : null}
                               {!threadId && linkedThread ? (
                                 <Link
-                                  className="hover:bg-muted/60 mt-2 inline-flex items-center gap-1.5 rounded-full px-2.5 py-1.5 text-[11px] font-medium text-[var(--community-accent)]"
+                                  className="hover:bg-muted/60 mt-2 inline-flex items-center gap-1.5 rounded-full px-2.5 py-1.5 text-[11px] font-medium text-[var(--community-accent-resolved)]"
                                   href={`/a/${slug}/chat/${channelId}/threads/${linkedThread.room.id}`}
                                 >
                                   <MessageCircle className="size-3.5" />
@@ -2201,7 +2211,7 @@ function CommunityChatTimeline({
                 >
                   {replyTarget ? (
                     <div className="border-border/60 mb-2 flex items-center gap-2 border-b px-2 pb-2">
-                      <Reply className="size-3.5 shrink-0 text-[var(--community-accent)]" />
+                      <Reply className="size-3.5 shrink-0 text-[var(--community-accent-resolved)]" />
                       <div className="min-w-0 flex-1">
                         <p className="text-xs font-semibold">
                           Replying to {displayName(replyTarget.sender)}

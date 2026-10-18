@@ -6,13 +6,20 @@ import {
 } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/auth/session";
-import { communityChatErrorResponse } from "@/lib/communities/chat-api";
+import {
+  communityChatAvailabilityResponse,
+  communityChatErrorResponse,
+} from "@/lib/communities/chat-api";
 
 interface RouteContext {
   params: Promise<{ messageId: string; roomId: string; slug: string }>;
 }
 
 export async function GET(_request: Request, context: RouteContext) {
+  const unavailable = communityChatAvailabilityResponse(false);
+  if (unavailable) {
+    return unavailable;
+  }
   const { messageId, roomId, slug } = await context.params;
   const session = await getSessionFromApi();
   const userId = session?.user?.id ?? "";

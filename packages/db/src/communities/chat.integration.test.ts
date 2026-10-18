@@ -252,7 +252,9 @@ describe("community channel messaging", () => {
       createCommunityChatThread(request),
     ]);
     expect(thread?.id).toBe(retry?.id);
-    if (!thread) {throw new Error("Thread was not created");}
+    if (!thread) {
+      throw new Error("Thread was not created");
+    }
     expect(
       (await listCommunityChatThreads(channelId, outsider)).some(
         (entry) => entry.room.id === thread.id

@@ -7,12 +7,19 @@ import {
 } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/auth/session";
-import { communityChatErrorResponse } from "@/lib/communities/chat-api";
+import {
+  communityChatAvailabilityResponse,
+  communityChatErrorResponse,
+} from "@/lib/communities/chat-api";
 
 export async function GET(
   _request: Request,
   context: { params: Promise<{ slug: string }> }
 ) {
+  const unavailable = communityChatAvailabilityResponse(false);
+  if (unavailable) {
+    return unavailable;
+  }
   const { slug } = await context.params;
   const session = await getSessionFromApi();
   const userId = session?.user?.id;
@@ -42,6 +49,10 @@ export async function PATCH(
   request: Request,
   context: { params: Promise<{ slug: string }> }
 ) {
+  const unavailable = communityChatAvailabilityResponse(true);
+  if (unavailable) {
+    return unavailable;
+  }
   const { slug } = await context.params;
   const session = await getSessionFromApi();
   const userId = session?.user?.id;

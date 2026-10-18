@@ -8,6 +8,8 @@ import { notFound, redirect } from "next/navigation";
 import { connection } from "next/server";
 
 import { getSessionFromApi } from "@/lib/auth/session";
+import { communityChatAvailabilityResponse } from "@/lib/communities/chat-api";
+import { communityChatUiEnabled } from "@/lib/communities/chat-features";
 
 interface PageProps {
   params: Promise<{ slug: string }>;
@@ -20,6 +22,9 @@ export const metadata: Metadata = {
 
 export default async function Page({ params }: PageProps) {
   await connection();
+  if (!communityChatUiEnabled || communityChatAvailabilityResponse()) {
+    notFound();
+  }
   const { slug } = await params;
   const session = await getSessionFromApi();
   const userId = session?.user?.id ?? "";

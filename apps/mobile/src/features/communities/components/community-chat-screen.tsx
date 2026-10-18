@@ -12,7 +12,12 @@ import {
 } from "@asm/messages";
 import { randomUUID } from "expo-crypto";
 import { Image } from "expo-image";
-import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
+import {
+  Redirect,
+  useFocusEffect,
+  useLocalSearchParams,
+  useRouter,
+} from "expo-router";
 import { fetch as streamingFetch } from "expo/fetch";
 import {
   ArrowDown,
@@ -20,6 +25,7 @@ import {
   Hash,
   LockKeyhole,
   MessageCircle,
+  Menu,
   MoreHorizontal,
   Reply,
   Send,
@@ -35,6 +41,7 @@ import {
   Modal,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -71,6 +78,7 @@ import {
   updateCommunityChatReaction,
 } from "../lib/community-chat-api";
 import type { CommunityChatChannelsResponse } from "../lib/community-chat-api";
+import { communityChatUiEnabled } from "../lib/community-chat-features";
 import { CommunityAvatar } from "./community-avatar";
 
 // oxlint-disable react/todo -- The current React Compiler lint cannot lower the async try/catch/finally blocks used for visible request and retry states.
@@ -101,6 +109,9 @@ function communityChatUrl(slug: string, roomId: string, suffix = ""): string {
 
 export function CommunityChatChannelsScreen() {
   const { user } = useSessionContext();
+  if (!communityChatUiEnabled) {
+    return <Redirect href="/" />;
+  }
   return <CommunityChatChannelsContent key={user?.id ?? "guest"} />;
 }
 
@@ -317,6 +328,9 @@ function CommunityChatChannelsContent() {
 export function CommunityChatScreen() {
   const { user } = useSessionContext();
   const params = useLocalSearchParams();
+  if (!communityChatUiEnabled) {
+    return <Redirect href="/" />;
+  }
   return (
     <CommunityChatTimelineScreen
       key={JSON.stringify([
@@ -1007,7 +1021,7 @@ function CommunityChatTimelineScreen() {
             onPress={() => setChannelsOpen(true)}
             style={styles.roomIconButton}
           >
-            <Users color={theme.dividerText} size={18} />
+            <Menu color={theme.dividerText} size={18} />
           </Pressable>
         </View>
       ) : null}
@@ -1417,11 +1431,21 @@ function CommunityChatTimelineScreen() {
                 </View>
               ) : null}
               <Text style={[styles.readOnlyText, { color: theme.dividerText }]}>
-                {!permissions?.isMember
-                  ? "Join this community to add to the conversation."
-                  : room?.channelType === "ANNOUNCEMENT"
-                    ? "Only community staff can post updates here."
-                    : "You can read this room, but can’t send messages right now."}
+                {permissions?.writeRestriction === "TIMEOUT"
+                  ? "You’re timed out. You can read along until your timeout ends."
+                  : permissions?.writeRestriction === "BANNED"
+                    ? "You can read public conversations, but can’t contribute to this community."
+                    : permissions?.writeRestriction === "PENDING"
+                      ? "Your membership is pending approval. You can read along for now."
+                      : permissions?.writeRestriction === "ARCHIVED"
+                        ? "This conversation is archived. Its history is still available."
+                        : permissions?.writeRestriction === "LOCKED"
+                          ? "This conversation is locked. New messages are paused."
+                          : !permissions?.isMember
+                            ? "Join this community to add to the conversation."
+                            : room?.channelType === "ANNOUNCEMENT"
+                              ? "Only community staff can post updates here."
+                              : "You can read this conversation, but can’t send messages right now."}
               </Text>
             </View>
           ) : (
@@ -1673,6 +1697,7 @@ function CommunityChatTimelineScreen() {
           style={styles.modalScrim}
         >
           <Pressable
+            accessibilityViewIsModal
             onPress={(event) => event.stopPropagation()}
             style={[
               styles.channelSheet,
@@ -1701,91 +1726,93 @@ function CommunityChatTimelineScreen() {
                 <X color={theme.dividerText} size={22} />
               </Pressable>
             </View>
-            {channels.map((channel) => (
-              <Pressable
-                accessibilityRole="button"
-                key={channel.id}
-                onPress={() => {
-                  setChannelsOpen(false);
-                  router.replace(chatUrl(slug, channel.id));
-                }}
-                style={[
-                  styles.sheetChannel,
-                  channel.id === channelId && {
-                    backgroundColor: `${communityAccent}18`,
-                  },
-                ]}
-              >
-                <Hash
-                  color={
-                    channel.id === channelId
-                      ? communityAccent
-                      : theme.dividerText
-                  }
-                  size={17}
-                />
-                <Text
-                  numberOfLines={1}
-                  style={[styles.channelName, { color: theme.inputText }]}
-                >
-                  {channel.name}
-                </Text>
-                {channel.channelType === "ANNOUNCEMENT" ? (
-                  <Text
-                    style={[styles.staffLabel, { color: theme.dividerText }]}
-                  >
-                    STAFF
-                  </Text>
-                ) : null}
-              </Pressable>
-            ))}
-            {threads.length ? (
-              <View
-                style={{
-                  borderTopColor: theme.cardBorder,
-                  borderTopWidth: StyleSheet.hairlineWidth,
-                  marginTop: 12,
-                  paddingTop: 12,
-                }}
-              >
-                <Text
+            <ScrollView style={{ flexShrink: 1 }}>
+              {channels.map((channel) => (
+                <Pressable
+                  accessibilityRole="button"
+                  key={channel.id}
+                  onPress={() => {
+                    setChannelsOpen(false);
+                    router.replace(chatUrl(slug, channel.id));
+                  }}
                   style={[
-                    styles.channelTopic,
-                    { color: theme.dividerText, marginBottom: 6 },
+                    styles.sheetChannel,
+                    channel.id === channelId && {
+                      backgroundColor: `${communityAccent}18`,
+                    },
                   ]}
                 >
-                  Threads in #{parentChannelName}
-                </Text>
-                {threads.map((thread) => (
-                  <Pressable
-                    accessibilityRole="button"
-                    key={thread.room.id}
-                    onPress={() => {
-                      setChannelsOpen(false);
-                      router.push(threadUrl(slug, channelId, thread.room.id));
-                    }}
+                  <Hash
+                    color={
+                      channel.id === channelId
+                        ? communityAccent
+                        : theme.dividerText
+                    }
+                    size={17}
+                  />
+                  <Text
+                    numberOfLines={1}
+                    style={[styles.channelName, { color: theme.inputText }]}
+                  >
+                    {channel.name}
+                  </Text>
+                  {channel.channelType === "ANNOUNCEMENT" ? (
+                    <Text
+                      style={[styles.staffLabel, { color: theme.dividerText }]}
+                    >
+                      STAFF
+                    </Text>
+                  ) : null}
+                </Pressable>
+              ))}
+              {threads.length ? (
+                <View
+                  style={{
+                    borderTopColor: theme.cardBorder,
+                    borderTopWidth: StyleSheet.hairlineWidth,
+                    marginTop: 12,
+                    paddingTop: 12,
+                  }}
+                >
+                  <Text
                     style={[
-                      styles.sheetChannel,
-                      thread.room.id === threadId && {
-                        backgroundColor: `${communityAccent}18`,
-                      },
+                      styles.channelTopic,
+                      { color: theme.dividerText, marginBottom: 6 },
                     ]}
                   >
-                    {thread.room.visibility === "PRIVATE" ? (
-                      <LockKeyhole color={communityAccent} size={16} />
-                    ) : (
-                      <MessageCircle color={communityAccent} size={16} />
-                    )}
-                    <Text
-                      numberOfLines={1}
-                      style={[styles.channelName, { color: theme.inputText }]}
+                    Threads in #{parentChannelName}
+                  </Text>
+                  {threads.map((thread) => (
+                    <Pressable
+                      accessibilityRole="button"
+                      key={thread.room.id}
+                      onPress={() => {
+                        setChannelsOpen(false);
+                        router.push(threadUrl(slug, channelId, thread.room.id));
+                      }}
+                      style={[
+                        styles.sheetChannel,
+                        thread.room.id === threadId && {
+                          backgroundColor: `${communityAccent}18`,
+                        },
+                      ]}
                     >
-                      {thread.room.name}
-                    </Text>
-                  </Pressable>
-                ))}
-              </View>
-            ) : null}
+                      {thread.room.visibility === "PRIVATE" ? (
+                        <LockKeyhole color={communityAccent} size={16} />
+                      ) : (
+                        <MessageCircle color={communityAccent} size={16} />
+                      )}
+                      <Text
+                        numberOfLines={1}
+                        style={[styles.channelName, { color: theme.inputText }]}
+                      >
+                        {thread.room.name}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              ) : null}
+            </ScrollView>
           </Pressable>
         </Pressable>
       </Modal>
@@ -1833,6 +1860,7 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     bottom: 0,
     left: 0,
+    maxHeight: "85%",
     paddingHorizontal: 18,
     paddingTop: 20,
     position: "absolute",
