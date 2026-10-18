@@ -709,7 +709,10 @@ export function MessageMediaAlbum({
   }
 
   return (
-    <div className="flex min-w-0 flex-col gap-1.5">
+    // The wrapper must cap itself too: the collage's own `max-w-full` resolves
+    // against this box, so without a cap the fixed-width collage pokes out of
+    // the narrow transcript between the md and lg breakpoints.
+    <div className="flex max-w-full min-w-0 flex-col gap-1.5">
       <AlbumGrid
         images={images}
         kind={kind}
