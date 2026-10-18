@@ -66,14 +66,16 @@ const iso3: Record<string, string> = {
 export function networkLanguageMatches(
   text: string,
   languages: readonly string[],
-  preference: string
+  preference: string | readonly string[]
 ): boolean {
-  if (["auto", "all"].includes(preference)) {
+  const prefs = typeof preference === "string" ? [preference] : preference;
+  if (!prefs.length || prefs.includes("all") || prefs.includes("auto")) {
     return true;
   }
+  const cleanPref = prefs.map((p) => p.toLowerCase().split("-")[0]);
   if (languages.length) {
-    return languages.some(
-      (language) => language.toLowerCase().split("-")[0] === preference
+    return languages.some((language) =>
+      cleanPref.includes(language.toLowerCase().split("-")[0])
     );
   }
   if (text.replaceAll(/[^\p{L}]/gu, "").length < 60) {
@@ -84,7 +86,7 @@ export function networkLanguageMatches(
     !first ||
     first[0] === "und" ||
     Boolean(second && first[1] - second[1] < 0.15) ||
-    first[0] === iso3[preference]
+    cleanPref.some((p) => first[0] === iso3[p])
   );
 }
 

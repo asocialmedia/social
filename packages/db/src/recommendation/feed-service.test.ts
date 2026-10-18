@@ -390,6 +390,22 @@ describe("getPersonalizedFeedPage", () => {
     expect(mockRedis.get).toHaveBeenCalledWith("fyp-profile:v3:user-1");
   });
 
+  test("a selected Network persona bypasses the legacy profile and isolates cursor snapshots by revision", async () => {
+    const { getPersonalizedFeedPage } = await import("./feed-service");
+    mockRedis.get.mockClear();
+    await getPersonalizedFeedPage({
+      cursor: `fyp.post.0.${Date.now()}`,
+      networkProfile: { authorWeights: {}, tagWeights: { software: 5 } },
+      networkScope: "default:9",
+      pageSize: 20,
+      userId: "user-1",
+    });
+    expect(mockRedis.get).not.toHaveBeenCalledWith("fyp-profile:v3:user-1");
+    expect(
+      mockRedis.get.mock.calls.some(([key]) => key.endsWith(":default:9"))
+    ).toBe(true);
+  });
+
   test("hard-excludes dismissed posts from the candidate pool", async () => {
     const { getPersonalizedFeedPage } = await import("./feed-service");
     notInterestedRows = [{ postId: "p-dismissed" }, { postId: "p-also" }];

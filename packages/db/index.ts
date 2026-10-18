@@ -192,6 +192,8 @@ export * from "./src/recommendation/knowledge-graph";
 export * from "./src/recommendation/rank-feed";
 export * from "./src/recommendation/score-candidate";
 export * from "./src/recommendation/network-persona";
+export * from "./src/recommendation/network-topics";
+export * from "./src/recommendation/network-social";
 export * from "./src/recommendation/network-features";
 export { rawQuery } from "./src/messages/infrastructure/raw-sql";
 export * from "./src/recommendation/vector";

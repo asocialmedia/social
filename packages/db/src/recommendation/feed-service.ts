@@ -118,6 +118,8 @@ export interface PersonalizedFeedPage {
 }
 
 export interface GetPersonalizedFeedOptions {
+  networkProfile?: UserProfile;
+  networkScope?: string;
   contentKind?: "post" | "gust";
   cursor?: string;
   excludeModerated?: boolean;
@@ -765,9 +767,15 @@ export async function getPersonalizedFeedPage(
   const notInterestedPostIds = await getNotInterestedPostIds(userId);
 
   const contentKind = options.contentKind ?? "post";
+  const { networkProfile } = options;
   const visibilityPredicate = communityVisibilityWhere(userId);
   const [profile, viewerSession, blocks] = await Promise.all([
-    getRecommendationProfile(userId),
+    networkProfile
+      ? fetchFollowedAuthorIds(userId).then((followedAuthorIds) => ({
+          ...networkProfile,
+          followedAuthorIds,
+        }))
+      : getRecommendationProfile(userId),
     prisma.orm.public.Sessions.select("country")
       .where({ userId })
       .orderBy((session) => session.updatedAt.desc())
@@ -852,7 +860,7 @@ export async function getPersonalizedFeedPage(
         }
         return and(...predicates);
       });
-  const snapshotKey = `rec:fyp:v3:${rankingAssignment(userId).variant}:${userId}:${contentKind}:${timestamp}:${excludeModerated}:${Boolean(options.excludeExplicit)}:${includeVisited}`;
+  const snapshotKey = `rec:fyp:v3:${rankingAssignment(userId).variant}:${userId}:${contentKind}:${timestamp}:${excludeModerated}:${Boolean(options.excludeExplicit)}:${includeVisited}:${options.networkScope ?? "legacy"}`;
   if (cursor) {
     const cached = await redis.get(snapshotKey).catch(() => null);
     if (cached) {

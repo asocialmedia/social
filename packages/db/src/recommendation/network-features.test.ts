@@ -56,4 +56,7 @@ test("language selection follows explicit metadata and remains neutral for uncer
   expect(networkLanguageMatches("Hello", ["en-IN"], "en")).toBe(true);
   expect(networkLanguageMatches("Hello", [], "ja")).toBe(true);
   expect(networkLanguageMatches("Bonjour", ["fr"], "all")).toBe(true);
+  expect(networkLanguageMatches("Hello", ["ja"], ["en", "ja"])).toBe(true);
+  expect(networkLanguageMatches("Hello", ["fr"], ["en", "ja"])).toBe(false);
+  expect(networkLanguageMatches("Hello", ["fr"], [])).toBe(true);
 });

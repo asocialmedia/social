@@ -1,3 +1,4 @@
+import type { RecommendationSource } from "@asm/protocols/contracts";
 import type { ResultType } from "@prisma/orm-postgres/components/runtime";
 import { and } from "@prisma/orm-postgres/orm-client";
 
@@ -374,6 +375,7 @@ export interface PostData extends Omit<
 > {
   recommendation?: { requestId: string };
   networkRecommendationToken?: string;
+  recommendationSources?: RecommendationSource[];
   _count: {
     bookmarks: number;
     comments: number;

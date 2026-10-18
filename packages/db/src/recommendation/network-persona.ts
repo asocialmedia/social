@@ -3,7 +3,6 @@ import { createHash } from "node:crypto";
 import {
   defaultNetworkPreferences,
   networkPreferencesSchema,
-  INTEREST_SUGGESTIONS,
   normalizeInterest,
 } from "@asm/protocols/discovery";
 import type {
@@ -18,6 +17,7 @@ import { readSqlBundle } from "../messages/infrastructure/sql-template";
 import prisma from "../prisma";
 import { redis } from "../redis";
 import { getRecommendationProfile } from "./feed-service";
+import { networkTopicCatalog, networkTopicScope } from "./network-topics";
 import { buildUserProfile } from "./profile";
 import type { ProfileSignal, UserProfile } from "./profile";
 import {
@@ -26,7 +26,7 @@ import {
 } from "./shared-topic-graph";
 
 export const networkSql = readSqlBundle(source, {
-  network: ["save", "candidates"],
+  network: ["save", "candidates", "creators"],
 }).network;
 export const NETWORK_SIGNAL_RETENTION_SECONDS = 30 * 24 * 60 * 60;
 export const NETWORK_FEED_TTL_SECONDS = 10 * 60;
@@ -293,18 +293,28 @@ export async function getNetworkPersona(
     },
     profile: result,
     selected,
+    topicScope: await networkTopicScope(
+      selected.interests,
+      settings.preferences.avoidedTopics
+    ),
   };
 }
 
 export async function getNetworkSettings(
   userId: string
 ): Promise<NetworkSettings> {
-  const { preferences, revision, persona } = await getNetworkPersona(userId);
+  const { preferences, revision, persona, selected } =
+    await getNetworkPersona(userId);
+  const [catalog, topicScope] = await Promise.all([
+    networkTopicCatalog().catch(() => []),
+    networkTopicScope(selected.interests, preferences.avoidedTopics, true),
+  ]);
   return {
     catalog: [
       ...new Set(
         [
-          ...INTEREST_SUGGESTIONS,
+          ...catalog.map((entry) => entry.label),
+          ...selected.interests,
           ...persona.relatedInterests,
           ...persona.learnedInterests,
         ].map(normalizeInterest)
@@ -313,5 +323,6 @@ export async function getNetworkSettings(
     persona,
     preferences,
     revision,
+    topicScope,
   };
 }
