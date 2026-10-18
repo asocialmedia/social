@@ -412,7 +412,7 @@ export default function ProfileSettings({
     : (croppedAvatarUrl ?? avatarState.url ?? avatarPlaceholder.src);
 
   return (
-    <div className="flex flex-1 flex-col gap-6 px-4 pt-6 pb-0 sm:px-6 lg:pb-0">
+    <div className="flex flex-1 flex-col gap-6 px-4 pt-6 sm:px-6">
       <SettingsSectionHeader
         description="How you appear across asocialmedia"
         icon={UserRound}

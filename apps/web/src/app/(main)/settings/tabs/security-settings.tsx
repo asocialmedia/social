@@ -637,7 +637,7 @@ export default function SecuritySettings({
   }
 
   return (
-    <div className="flex flex-1 flex-col gap-6 px-4 pt-6 pb-0 sm:px-6 lg:pb-0">
+    <div className="flex flex-1 flex-col gap-6 px-4 pt-6 sm:px-6">
       <SettingsSectionHeader
         description="Protect access to your account and manage sign-in methods"
         icon={KeyRound}

@@ -79,7 +79,7 @@ export default function NetworkSettings() {
   }
   if (!subpage) {
     return (
-      <div className="flex flex-1 flex-col gap-6 px-4 pt-6 pb-0 sm:px-6 lg:pb-0">
+      <div className="flex flex-1 flex-col gap-6 px-4 pt-6 sm:px-6">
         {/* The header sits at the container edge while a row's mark sits inset by
             the card border (1px) plus the card padding (6px) plus the row
             padding (12px). Matching that 19px inset here lines the header mark
@@ -142,7 +142,7 @@ export default function NetworkSettings() {
   const panel = networkSubpageEntry(subpage);
   const Panel = PANELS[subpage];
   return (
-    <div className="flex flex-1 flex-col gap-6 px-4 pt-6 pb-0 sm:px-6 lg:pb-0">
+    <div className="flex flex-1 flex-col gap-6 px-4 pt-6 sm:px-6">
       <div className="flex flex-col gap-3">
         <button
           className="text-muted-foreground hover:text-foreground focus-visible:ring-ring inline-flex w-fit items-center gap-1 rounded-lg text-xs font-medium transition-colors focus-visible:ring-2 focus-visible:outline-hidden"
