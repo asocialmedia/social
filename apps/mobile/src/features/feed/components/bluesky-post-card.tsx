@@ -1,6 +1,6 @@
 import type { ExternalPost } from "@asm/protocols/contracts";
 import { useRouter } from "expo-router";
-import { ArrowUpRight, EyeOff, VolumeX } from "lucide-react-native";
+import { ArrowUpRight, EyeOff, UserPlus, VolumeX } from "lucide-react-native";
 import { memo, useMemo, useState } from "react";
 import { Linking, Share } from "react-native";
 
@@ -9,6 +9,7 @@ import { PostDetailCard } from "@/features/post/components/post-detail-card";
 
 import { externalPostView } from "../lib/external-post-view";
 import { useExternalFeedback } from "../state/use-external-feedback";
+import { useExternalFollow } from "../state/use-external-follow";
 import { MoreMenu } from "./more-menu";
 import type { MenuAnchor } from "./more-menu";
 import { PostCard } from "./post-card";
@@ -31,6 +32,14 @@ export const BlueskyPostCard = memo(
     const [menuPost, setMenuPost] = useState(post);
     const feedback = useExternalFeedback(menuPost);
     const [anchor, setAnchor] = useState<MenuAnchor | null>(null);
+    const follow = useExternalFollow(menuPost.author.id, Boolean(anchor));
+    let followLabel = follow.following ? "Unfollow in ASM" : "Follow in ASM";
+    if (follow.pending) {
+      followLabel = "Loading follow…";
+    }
+    if (follow.failed) {
+      followLabel = "Retry follow state";
+    }
     const discussion = () =>
       onDiscussion
         ? onDiscussion()
@@ -70,9 +79,14 @@ export const BlueskyPostCard = memo(
             viewerId={user?.id}
           />
         )}
-        <MoreMenu<{ type: "post" | "author" | "open" }>
+        <MoreMenu<{ type: "post" | "author" | "open" | "follow" }>
           anchor={anchor}
           entries={[
+            {
+              action: { type: "follow" },
+              icon: UserPlus,
+              label: followLabel,
+            },
             { action: { type: "post" }, icon: EyeOff, label: "Not interested" },
             {
               action: { type: "author" },
@@ -86,7 +100,9 @@ export const BlueskyPostCard = memo(
             },
           ]}
           onAction={({ type }) => {
-            if (type === "open") {
+            if (type === "follow") {
+              void follow.toggle();
+            } else if (type === "open") {
               void Linking.openURL(menuPost.url);
             } else {
               void feedback(type);

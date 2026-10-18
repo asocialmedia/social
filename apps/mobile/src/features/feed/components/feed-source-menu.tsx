@@ -10,7 +10,7 @@ import { useFeedSourceStore } from "../state/feed-source-store";
 import { MoreMenu } from "./more-menu";
 import type { MenuAnchor } from "./more-menu";
 
-export function FeedSourceMenu({ following }: { following: boolean }) {
+export function FeedSourceMenu(_props: { following: boolean }) {
   const { theme } = useAppTheme();
   const source = useFeedSourceStore((state) => state.source);
   const setSource = useFeedSourceStore((state) => state.setSource);
@@ -19,7 +19,7 @@ export function FeedSourceMenu({ following }: { following: boolean }) {
   return (
     <View>
       <Pressable
-        accessibilityLabel={`Feed sources: ${following ? "asocialmedia" : feedSourceLabels[source]}`}
+        accessibilityLabel={`Feed sources: ${feedSourceLabels[source]}`}
         accessibilityRole="button"
         onPress={() =>
           trigger.current?.measureInWindow((x, y, width, height) =>
@@ -39,20 +39,14 @@ export function FeedSourceMenu({ following }: { following: boolean }) {
       <MoreMenu<{ type: FeedSource }>
         align="end"
         anchor={anchor}
-        entries={(following
-          ? (["asm"] as const)
-          : (["all", "asm", "bluesky"] as const)
-        ).map((value) => ({
+        entries={(["all", "asm", "bluesky"] as const).map((value) => ({
           action: { type: value },
-          icon:
-            (following ? "asm" : source) === value ? Check : SlidersHorizontal,
+          icon: source === value ? Check : SlidersHorizontal,
           label: feedSourceLabels[value],
         }))}
         minWidth={180}
         onAction={({ type }) => {
-          if (!following) {
-            setSource(type);
-          }
+          setSource(type);
         }}
         onClose={() => setAnchor(null)}
       />

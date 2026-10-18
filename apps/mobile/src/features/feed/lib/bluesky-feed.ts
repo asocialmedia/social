@@ -16,7 +16,8 @@ interface DiscoveryState {
 export function createBlueskyFeed(
   apiBase: string,
   mode: DiscoveryMode,
-  baseFetch: (url: string, init: RequestInit) => Promise<Response> = fetch
+  baseFetch: (url: string, init: RequestInit) => Promise<Response> = fetch,
+  following = false
 ) {
   let state: DiscoveryState = {
     error: null,
@@ -55,6 +56,7 @@ export function createBlueskyFeed(
         baseUrl: apiBase,
         cursor,
         fetch: baseFetch,
+        following,
         mode,
         signal: current.signal,
       };
@@ -118,7 +120,9 @@ export function createBlueskyFeed(
         baseUrl: apiBase,
         cursor: null,
         fetch: baseFetch,
+        following,
         mode,
+        refresh: following,
         signal: current.signal,
       });
       if (current.signal.aborted) {

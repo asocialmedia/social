@@ -166,14 +166,15 @@ export const FeedList = memo(
     const { theme } = useAppTheme();
     const { user } = useSessionContext();
     const selectedSource = useFeedSourceStore((state) => state.source);
-    const source = variant === "following" ? "asm" : selectedSource;
+    const source = selectedSource;
     const excluded = useExternalExclusions(userId ?? "guest");
     const includeBluesky = source !== "asm";
-    const showSources = variant !== "following";
+
     const external = useBlueskyFeed(
       discoveryMode(variant),
-      enabled && showSources && includeBluesky,
-      userId
+      enabled && includeBluesky && (variant !== "following" || Boolean(userId)),
+      userId,
+      variant === "following"
     );
     const externalPosts = useMemo(
       () =>
@@ -576,27 +577,24 @@ export const FeedList = memo(
         mixedFeedRows(
           incomingFeedRows(posts, incomingIds),
           externalPosts,
-          variant === "following" ? "asm" : source,
-          variant === "latest"
+          source,
+          variant === "latest" || variant === "following"
         ),
       [externalPosts, incomingIds, posts, source, variant]
     );
-    const externalPending =
-      variant !== "following" &&
-      source !== "asm" &&
-      external.status === "loading";
+    const externalPending = source !== "asm" && external.status === "loading";
     const availability = feedAvailability({
       count: rows.length,
-      externalEnabled: variant !== "following" && source !== "asm",
+      externalEnabled: source !== "asm",
       externalError: external.status === "error",
       externalLoading: externalPending,
-      nativeEnabled: variant === "following" || source !== "bluesky",
+      nativeEnabled: source !== "bluesky",
       nativeError: status === "error",
       nativeLoading: status === "loading" || (status === "idle" && enabled),
     });
     const combinedHasMore =
       (source !== "bluesky" && hasMore) ||
-      (variant !== "following" && source !== "asm" && external.hasMore);
+      (source !== "asm" && external.hasMore);
 
     // Account-only tabs. For you is ranked from the viewer's own signals and
     // Following is their people, so neither means anything without an account;
@@ -761,7 +759,7 @@ export const FeedList = memo(
             if (source !== "bluesky") {
               fetchNext();
             }
-            if (variant !== "following" && source !== "asm") {
+            if (source !== "asm") {
               void external.fetchNext();
             }
           }}
@@ -799,7 +797,7 @@ export const FeedList = memo(
                     if (source !== "bluesky") {
                       fetchNext();
                     }
-                    if (variant !== "following" && source !== "asm") {
+                    if (source !== "asm") {
                       external.fetchNext();
                     }
                   }}

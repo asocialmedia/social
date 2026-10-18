@@ -6,22 +6,35 @@ import { getApiBaseUrl } from "@/lib/api-env";
 
 import { createBlueskyFeed } from "../lib/bluesky-feed";
 import { subscribeFeedReads } from "../lib/feed-events";
+import { useExternalFollowRevision } from "./use-external-follow";
 
 export function useBlueskyFeed(
   mode: DiscoveryMode,
   enabled: boolean,
-  viewer?: string
+  viewer?: string,
+  following = false
 ) {
+  const revision = useExternalFollowRevision(
+    (state) => state.revisions[viewer ?? "guest"] ?? 0
+  );
   const store = useMemo(
     () =>
-      createBlueskyFeed(getApiBaseUrl(), mode, async (url, init) => {
-        const cookie = viewer ? await authClient.getCookie() : null;
-        return fetch(url, {
-          ...init,
-          headers: { "x-asm-client": "mobile", ...(cookie ? { cookie } : {}) },
-        });
-      }),
-    [mode, viewer]
+      createBlueskyFeed(
+        getApiBaseUrl(),
+        mode,
+        async (url, init) => {
+          const cookie = viewer ? await authClient.getCookie() : null;
+          return fetch(url, {
+            ...init,
+            headers: {
+              "x-asm-client": "mobile",
+              ...(cookie ? { cookie } : {}),
+            },
+          });
+        },
+        following
+      ),
+    [mode, viewer, following]
   );
   const state = useSyncExternalStore(
     store.subscribe,
@@ -40,14 +53,19 @@ export function useBlueskyFeed(
     }
     return subscribeFeedReads(
       viewer,
-      "bluesky",
+      following ? "bluesky-following" : "bluesky",
       async () => {
         await store.recover();
         await store.probe();
       },
-      mode
+      following ? undefined : mode
     );
-  }, [enabled, mode, store, viewer]);
+  }, [enabled, mode, store, viewer, following]);
+  useEffect(() => {
+    if (enabled && revision > 0) {
+      void store.refresh();
+    }
+  }, [enabled, revision, store]);
   useEffect(() => store.dispose, [store]);
   return {
     ...state,

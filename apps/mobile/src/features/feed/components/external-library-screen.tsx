@@ -95,6 +95,14 @@ export function ExternalLibraryScreen() {
       <Pressable className="px-4 py-4" onPress={() => router.back()}>
         <Text style={{ color: theme.inputText }}>Back · Bluesky</Text>
       </Pressable>
+      <Pressable
+        className="px-4 py-3"
+        onPress={() => router.push("/external-following")}
+      >
+        <Text style={{ color: theme.inputText }}>
+          Manage Bluesky follows in ASM
+        </Text>
+      </Pressable>
       <View className="flex-row gap-6 px-4 py-3">
         <Pressable onPress={() => setKind("bookmarks")}>
           <Text

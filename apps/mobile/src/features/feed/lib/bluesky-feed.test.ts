@@ -146,3 +146,28 @@ test("simultaneous pagination attempts share the current request", async () => {
   await next;
   expect(store.snapshot().pages).toHaveLength(2);
 });
+
+test("Following uses its authenticated endpoint for initial, continuation, and event head reads", async () => {
+  const urls: string[] = [];
+  const store = createBlueskyFeed(
+    "https://asm.test",
+    "latest",
+    (url) => {
+      urls.push(url);
+      return Promise.resolve(
+        Response.json({
+          cursor: "tail",
+          items: [external(String(urls.length))],
+          partial: false,
+        })
+      );
+    },
+    true
+  );
+  await store.refresh();
+  await store.fetchNext();
+  await store.probe();
+  expect(urls).toHaveLength(3);
+  expect(urls.every((url) => url.includes("/bluesky/following?"))).toBe(true);
+  store.dispose();
+});

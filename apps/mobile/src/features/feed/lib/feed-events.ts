@@ -78,7 +78,7 @@ export function subscribeFeedEvents(
 
 export function subscribeFeedReads(
   viewer: string | undefined,
-  source: "asm" | "bluesky",
+  source: "asm" | "bluesky" | "bluesky-following",
   read: () => Promise<unknown>,
   mode?: string
 ) {
@@ -86,7 +86,8 @@ export function subscribeFeedReads(
   const unsubscribe = subscribeFeedEvents(viewer, (change) => {
     if (
       change.source === "connected" ||
-      (change.source === source &&
+      ((change.source === source ||
+        (source === "bluesky" && change.source === "bluesky-following")) &&
         (!mode || !change.mode || change.mode === mode))
     ) {
       scheduler.schedule();
