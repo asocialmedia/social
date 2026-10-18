@@ -161,6 +161,7 @@ export function MessageComposer({
   const foreground = useMessagesForeground();
   const typingTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const aborts = useRef(new Map<string, AbortController>());
+  const composerMounted = useRef(true);
   const discardBaseRef = useRef<{
     apiBase: string;
     cookie?: string;
@@ -187,12 +188,15 @@ export function MessageComposer({
   useEffect(() => {
     attachmentsRef.current = attachments;
   }, [attachments]);
-  useEffect(
-    () => () => {
-      for (const controller of aborts.current.values()) {
+  useEffect(() => {
+    composerMounted.current = true;
+    const uploadControllers = aborts.current;
+    return () => {
+      composerMounted.current = false;
+      for (const controller of uploadControllers.values()) {
         controller.abort();
       }
-      aborts.current.clear();
+      uploadControllers.clear();
       const discardBase = discardBaseRef.current;
       if (!discardBase) {
         return;
@@ -202,9 +206,8 @@ export function MessageComposer({
           void discardMessageMedia(item.mediaId, discardBase);
         }
       }
-    },
-    []
-  );
+    };
+  }, []);
 
   // While an edit is active and the user has not typed anything into it, the field
   // shows the message being edited. Derived during render rather than seeded by an
@@ -259,8 +262,77 @@ export function MessageComposer({
     );
   }, []);
 
+  const editAttachment = useCallback(
+    async (item: StagedAttachment) => {
+      Keyboard.dismiss();
+      try {
+        const result = await crop(
+          { purpose: "message", source: item.file },
+          "post",
+          {
+            canViewOnce:
+              attachmentsRef.current.length === 1 &&
+              !fieldValue.trim() &&
+              !sharedPostId,
+            viewOnce: item.viewOnce ?? false,
+          }
+        );
+        if (
+          !composerMounted.current ||
+          !result ||
+          !attachmentsRef.current.some((entry) => entry.id === item.id)
+        ) {
+          return false;
+        }
+        const previous = attachmentsRef.current.find(
+          (entry) => entry.id === item.id
+        );
+        const staged: StagedAttachment = {
+          error: null,
+          file: { ...result.source, size: result.source.size ?? 0 },
+          id: `${item.id}-edit-${result.source.uri}`,
+          mediaId: null,
+          owned: false,
+          progress: 0,
+          viewOnce: result.viewOnce ?? false,
+        };
+        aborts.current.get(item.id)?.abort();
+        aborts.current.delete(item.id);
+        attachmentsRef.current = attachmentsRef.current.map((entry) =>
+          entry.id === item.id ? staged : entry
+        );
+        setAttachments(attachmentsRef.current);
+        await uploadStagedAttachments([staged], {
+          aborts,
+          conversationId,
+          incognitoSessionId,
+          onPatch: update,
+        });
+        if (previous?.mediaId && previous.owned) {
+          void discardMessageMedia(previous.mediaId, {
+            apiBase: getApiBaseUrl(),
+            baseFetch: fetch,
+          });
+        }
+        return true;
+      } catch (error) {
+        toast({
+          description:
+            error instanceof Error ? error.message : "Try another image",
+          title: "Couldn't edit image",
+          variant: "destructive",
+        });
+        return false;
+      }
+    },
+    [crop, fieldValue, sharedPostId, conversationId, incognitoSessionId, update]
+  );
+
   const stagePickedFiles = useCallback(
     async (picked: PickedMedia[], viewOnce = false) => {
+      if (!composerMounted.current) {
+        return;
+      }
       if (!viewOnce && attachmentsRef.current.some((item) => item.viewOnce)) {
         return;
       }
@@ -347,6 +419,21 @@ export function MessageComposer({
       }
       attachmentsRef.current = [...attachmentsRef.current, ...staged];
       setAttachments(attachmentsRef.current);
+      if (
+        picked.length === 1 &&
+        staged.length === 1 &&
+        attachmentsRef.current.length === 1 &&
+        messageAttachmentKind(staged[0].file.mimeType) === "image"
+      ) {
+        const edited = await editAttachment(staged[0]);
+        if (
+          edited ||
+          !composerMounted.current ||
+          !attachmentsRef.current.some((entry) => entry.id === staged[0].id)
+        ) {
+          return;
+        }
+      }
       await uploadStagedAttachments(staged, {
         aborts,
         conversationId,
@@ -354,7 +441,7 @@ export function MessageComposer({
         onPatch: update,
       });
     },
-    [conversationId, incognitoSessionId, update]
+    [conversationId, incognitoSessionId, update, editAttachment]
   );
 
   const choosePhotosAndVideos = useCallback(() => {
@@ -393,63 +480,6 @@ export function MessageComposer({
     Keyboard.dismiss();
     setAttachmentMenuOpen(true);
   }, []);
-
-  const editAttachment = async (item: StagedAttachment) => {
-    Keyboard.dismiss();
-    try {
-      const result = await crop(
-        { purpose: "message", source: item.file },
-        "post",
-        {
-          canViewOnce:
-            attachmentsRef.current.length === 1 &&
-            !fieldValue.trim() &&
-            !sharedPostId,
-          viewOnce: item.viewOnce ?? false,
-        }
-      );
-      if (
-        !result ||
-        !attachmentsRef.current.some((entry) => entry.id === item.id)
-      ) {
-        return;
-      }
-      const staged: StagedAttachment = {
-        error: null,
-        file: { ...result.source, size: result.source.size ?? 0 },
-        id: `${item.id}-edit-${result.source.uri}`,
-        mediaId: null,
-        owned: false,
-        progress: 0,
-        viewOnce: result.viewOnce ?? false,
-      };
-      aborts.current.get(item.id)?.abort();
-      aborts.current.delete(item.id);
-      attachmentsRef.current = attachmentsRef.current.map((entry) =>
-        entry.id === item.id ? staged : entry
-      );
-      setAttachments(attachmentsRef.current);
-      await uploadStagedAttachments([staged], {
-        aborts,
-        conversationId,
-        incognitoSessionId,
-        onPatch: update,
-      });
-      if (item.mediaId && item.owned) {
-        void discardMessageMedia(item.mediaId, {
-          apiBase: getApiBaseUrl(),
-          baseFetch: fetch,
-        });
-      }
-    } catch (error) {
-      toast({
-        description:
-          error instanceof Error ? error.message : "Try another image",
-        title: "Couldn't edit image",
-        variant: "destructive",
-      });
-    }
-  };
 
   const remove = useCallback((id: string) => {
     aborts.current.get(id)?.abort();

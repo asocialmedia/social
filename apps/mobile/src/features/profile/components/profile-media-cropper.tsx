@@ -168,6 +168,7 @@ function ProfileMediaCropper({
             dataUrl={request.dataUrl}
             isDark={isDark}
             kind={request.kind}
+            messagePhoto={Boolean(request.messagePhoto)}
             onComplete={complete}
             onCancel={() => {
               onFinish(null);
