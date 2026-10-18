@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 import { createLogger } from "@asm/logger";
 import type {
@@ -9,11 +9,17 @@ import type {
   CommunityChatRoom,
   CommunityChatThreadSummary,
 } from "@asm/messages";
-import { parseCommunityChatText } from "@asm/messages";
+import {
+  COMMUNITY_CHAT_HISTORY_BYTE_LIMIT,
+  mergeCommunityChatTimeline,
+  parseCommunityChatText,
+} from "@asm/messages";
 import { parseMessagePayload } from "@asm/messages/payload";
 import type { ResultType } from "@prisma/orm-postgres/components/runtime";
 import { and, or } from "@prisma/orm-postgres/orm-client";
 
+import { rawQuery } from "../messages/infrastructure/raw-sql";
+import { isMessageReactionEmoji } from "../messages/reactions";
 import prisma, { fromPrismaDateTime, toPrismaDateTime } from "../prisma";
 import type { PrismaOrm, PrismaTransaction } from "../prisma";
 import { redis } from "../redis";
@@ -73,6 +79,7 @@ interface RoomData {
 function mapRoom(room: RoomData): CommunityChatRoom {
   return {
     archived: room.archived,
+    changeSequence: room.changeSequence.toString(),
     channelType: room.channelType,
     id: room.id,
     kind: room.kind,
@@ -80,6 +87,7 @@ function mapRoom(room: RoomData): CommunityChatRoom {
     name: room.name,
     nextSequence: room.nextSequence.toString(),
     parentRoomId: room.parentRoomId,
+    slowModeSeconds: room.slowModeSeconds,
     slug: room.slug,
     sortOrder: room.sortOrder,
     topic: room.topic,
@@ -97,6 +105,32 @@ function findMembership(orm: PrismaOrm, communityId: string, userId: string) {
       and(member.communityId.eq(communityId), member.userId.eq(userId))
     )
     .first();
+}
+
+async function chatViewerContext(
+  orm: PrismaOrm,
+  communityId: string,
+  userId: string
+) {
+  const now = toPrismaDateTime(new Date());
+  const [community, membership, sanction] = await Promise.all([
+    orm.public.Communities.select("_type").where({ id: communityId }).first(),
+    userId ? findMembership(orm, communityId, userId) : null,
+    userId
+      ? orm.public.CommunityChatSanctions.select("kind")
+          .where((row) =>
+            and(
+              row.communityId.eq(communityId),
+              row.userId.eq(userId),
+              row.kind.in(["BAN", "TIMEOUT"]),
+              or(row.expiresAt.isNull(), row.expiresAt.gt(now))
+            )
+          )
+          .orderBy((row) => row.kind.asc())
+          .first()
+      : null,
+  ]);
+  return { community, membership, sanction };
 }
 
 async function roomDataById(
@@ -130,14 +164,11 @@ async function roomDataById(
 async function roomPermissions(
   orm: PrismaOrm,
   room: RoomData,
-  userId: string
+  userId: string,
+  context?: Awaited<ReturnType<typeof chatViewerContext>>
 ): Promise<CommunityChatPermissions> {
-  const [community, membership] = await Promise.all([
-    orm.public.Communities.select("_type")
-      .where({ id: room.communityId })
-      .first(),
-    userId ? findMembership(orm, room.communityId, userId) : null,
-  ]);
+  const { community, membership, sanction } =
+    context ?? (await chatViewerContext(orm, room.communityId, userId));
   if (!community) {
     return {
       canManage: false,
@@ -147,7 +178,7 @@ async function roomPermissions(
     };
   }
 
-  const active = membership?.status === "ACTIVE";
+  const active = membership?.status === "ACTIVE" && sanction?.kind !== "BAN";
   const staff = active && isStaff(membership.role);
   const communityReadable = community._type === "PUBLIC" || active;
   let threadReadable = true;
@@ -177,9 +208,28 @@ async function roomPermissions(
         .first()
     : null;
   const canManage = Boolean(staff);
+  let writeRestriction: CommunityChatPermissions["writeRestriction"] = null;
+  if (sanction?.kind === "BAN") {
+    writeRestriction = "BANNED";
+  } else if (!active) {
+    writeRestriction = membership?.status === "PENDING" ? "PENDING" : "JOIN";
+  } else if (sanction?.kind === "TIMEOUT") {
+    writeRestriction = "TIMEOUT";
+  } else if (room.archived || parent?.archived) {
+    writeRestriction = "ARCHIVED";
+  } else if (room.locked || parent?.locked) {
+    writeRestriction = "LOCKED";
+  } else if (
+    (room.channelType === "ANNOUNCEMENT" ||
+      parent?.channelType === "ANNOUNCEMENT") &&
+    !staff
+  ) {
+    writeRestriction = "ANNOUNCEMENT";
+  }
   const canSend = Boolean(
     canRead &&
     active &&
+    writeRestriction === null &&
     !room.locked &&
     !room.archived &&
     (room.channelType !== "ANNOUNCEMENT" || staff) &&
@@ -189,7 +239,13 @@ async function roomPermissions(
         (parent.channelType !== "ANNOUNCEMENT" || staff)))
   );
 
-  return { canManage, canRead, canSend, isMember: Boolean(active) };
+  return {
+    canManage,
+    canRead,
+    canSend,
+    isMember: Boolean(active),
+    writeRestriction,
+  };
 }
 
 async function requireRoomAccess(
@@ -227,6 +283,7 @@ export async function listCommunityChatChannels(
   channels: CommunityChatRoom[];
   permissions: CommunityChatPermissions;
 }> {
+  const viewer = await chatViewerContext(prisma.orm, communityId, userId);
   const rows = await prisma.orm.public.CommunityChatRooms.select(
     "archived",
     "channelType",
@@ -265,7 +322,7 @@ export async function listCommunityChatChannels(
   };
   for (const row of rows) {
     const room = row as RoomData;
-    const access = await roomPermissions(prisma.orm, room, userId);
+    const access = await roomPermissions(prisma.orm, room, userId, viewer);
     if (!access.canRead) {
       continue;
     }
@@ -372,6 +429,107 @@ function mapMessage(row: ChatMessageRow): CommunityChatMessage {
   };
 }
 
+async function hydrateChatMessages(
+  messages: CommunityChatMessage[],
+  communityId: string,
+  userId: string
+): Promise<CommunityChatMessage[]> {
+  if (messages.length === 0) {
+    return [];
+  }
+  const ids = messages.map((message) => message.id);
+  const senderIds = [...new Set(messages.map((message) => message.senderId))];
+  const replyIds = messages.flatMap((message) =>
+    message.replyToId ? [message.replyToId] : []
+  );
+  const roomIds = [...new Set(messages.map((message) => message.roomId))];
+  const [members, reactions, pins, replyRows] = await Promise.all([
+    prisma.orm.public.CommunityMembers.select("role", "userId")
+      .where((member) =>
+        and(
+          member.communityId.eq(communityId),
+          member.status.eq("ACTIVE"),
+          member.userId.in(senderIds)
+        )
+      )
+      .all(),
+    rawQuery<{
+      messageId: string;
+      emoji: string;
+      count: number;
+      reacted: boolean;
+    }>(
+      `SELECT "messageId", emoji, count(*)::integer AS count, bool_or("userId" = $2) AS reacted
+       FROM public.community_chat_reactions WHERE "messageId" = ANY($1::text[])
+       GROUP BY "messageId", emoji ORDER BY count DESC, emoji ASC`,
+      [ids, userId],
+      {
+        count: "pg/int4@1",
+        emoji: "pg/text@1",
+        messageId: "pg/text@1",
+        reacted: "pg/bool@1",
+      }
+    ),
+    prisma.orm.public.CommunityChatPins.select("messageId")
+      .where((pin) => pin.messageId.in(ids))
+      .all(),
+    replyIds.length
+      ? messageQuery(prisma.orm)
+          .where((message) =>
+            and(message.id.in(replyIds), message.roomId.in(roomIds))
+          )
+          .all()
+      : [],
+  ]);
+  const roleByUser = new Map(
+    members.map((member) => [member.userId, member.role])
+  );
+  const pinnedIds = new Set(pins.map((pin) => pin.messageId));
+  const replies = new Map(replyRows.map((row) => [row.id, mapMessage(row)]));
+  const reactionsByMessage = new Map<
+    string,
+    NonNullable<CommunityChatMessage["reactions"]>
+  >();
+  for (const reaction of reactions.rows) {
+    const summary = reactionsByMessage.get(reaction.messageId) ?? [];
+    if (summary.length < 20) {
+      summary.push({
+        count: reaction.count,
+        emoji: reaction.emoji,
+        reacted: reaction.reacted,
+      });
+    }
+    reactionsByMessage.set(reaction.messageId, summary);
+  }
+  return messages.map((message) => {
+    const reply = message.replyToId ? replies.get(message.replyToId) : null;
+    return {
+      ...message,
+      pinned: !message.deletedAt && pinnedIds.has(message.id),
+      reactions: message.deletedAt
+        ? []
+        : (reactionsByMessage.get(message.id) ?? []),
+      replyTo:
+        reply && reply.roomId === message.roomId
+          ? {
+              content:
+                reply.payload?.type === "text"
+                  ? reply.payload.content.slice(0, 240)
+                  : null,
+              deleted: reply.deletedAt !== null,
+              id: reply.id,
+              senderName:
+                reply.sender.displayName.trim() || reply.sender.username,
+            }
+          : null,
+      sender: {
+        ...message.sender,
+        role: roleByUser.get(message.senderId) ?? null,
+      },
+    };
+  });
+}
+
 export async function getCommunityChatMessage(input: {
   messageId: string;
   roomId: string;
@@ -386,7 +544,15 @@ export async function getCommunityChatMessage(input: {
   if (!row) {
     throw new CommunityChatError("NOT_FOUND", "Message not found");
   }
-  return mapMessage(row);
+  const [message] = await hydrateChatMessages(
+    [mapMessage(row)],
+    access.communityId,
+    input.userId
+  );
+  if (!message) {
+    throw new CommunityChatError("NOT_FOUND", "Message not found");
+  }
+  return message;
 }
 
 export async function listCommunityChatThreads(
@@ -397,6 +563,10 @@ export async function listCommunityChatThreads(
   if (access.room.kind !== "CHANNEL") {
     throw new CommunityChatError("NOT_FOUND", "Chat channel not found");
   }
+  const membership = userId
+    ? await findMembership(prisma.orm, access.communityId, userId)
+    : null;
+  const memberId = membership?.status === "ACTIVE" ? membership.id : "";
   const rows = await prisma.orm.public.CommunityChatRooms.select(
     "archived",
     "channelType",
@@ -420,32 +590,40 @@ export async function listCommunityChatThreads(
       and(
         room.parentRoomId.eq(channelId),
         room.kind.eq("THREAD"),
-        room.archived.eq(false)
+        room.archived.eq(false),
+        access.permissions.canManage
+          ? room.kind.eq("THREAD")
+          : or(
+              room.visibility.eq("PUBLIC"),
+              room.members.some((participant) =>
+                participant.communityMemberId.eq(memberId)
+              )
+            )
       )
     )
     .orderBy((room) => room.updatedAt.desc())
     .limit(100)
     .all();
 
-  const result: CommunityChatThreadSummary[] = [];
-  for (const candidate of rows) {
-    const room = candidate as RoomData;
-    const permissions = await roomPermissions(prisma.orm, room, userId);
-    if (!permissions.canRead) {
-      continue;
-    }
-    const { sourceMessageId } = room;
-    const source = sourceMessageId
-      ? await messageQuery(prisma.orm)
-          .where((message) => message.id.eq(sourceMessageId))
-          .first()
-      : null;
-    result.push({
-      room: mapRoom(room),
-      sourceMessage: source ? mapMessage(source) : null,
-    });
-  }
-  return result;
+  const sourceIds = rows.flatMap((row) =>
+    row.sourceMessageId ? [row.sourceMessageId] : []
+  );
+  const sources = sourceIds.length
+    ? await messageQuery(prisma.orm)
+        .where((message) =>
+          and(message.id.in(sourceIds), message.roomId.eq(channelId))
+        )
+        .all()
+    : [];
+  const sourceById = new Map(
+    sources.map((source) => [source.id, mapMessage(source)])
+  );
+  return rows.map((candidate) => ({
+    room: mapRoom(candidate as RoomData),
+    sourceMessage: candidate.sourceMessageId
+      ? (sourceById.get(candidate.sourceMessageId) ?? null)
+      : null,
+  }));
 }
 
 export async function searchCommunityChatMembers(input: {
@@ -478,7 +656,15 @@ export async function searchCommunityChatMembers(input: {
     "id",
     "username"
   ).where((user) =>
-    or(user.username.ilike(pattern), user.displayName.ilike(pattern))
+    and(
+      or(user.username.ilike(pattern), user.displayName.ilike(pattern)),
+      user.communityMembers.some((member) =>
+        and(
+          member.communityId.eq(input.communityId),
+          member.status.eq("ACTIVE")
+        )
+      )
+    )
   );
   const { cursor } = input;
   if (cursor) {
@@ -489,33 +675,13 @@ export async function searchCommunityChatMembers(input: {
     .limit(limit + 1)
     .all();
   const pageCandidates = candidates.slice(0, limit);
-  const userIds = pageCandidates.map((user) => user.id);
-  const memberships = userIds.length
-    ? await prisma.orm.public.CommunityMembers.select("userId")
-        .where((member) =>
-          and(
-            member.communityId.eq(input.communityId),
-            member.status.eq("ACTIVE"),
-            member.userId.in(userIds)
-          )
-        )
-        .all()
-    : [];
-  const activeUserIds = new Set(memberships.map((member) => member.userId));
   return {
-    members: pageCandidates.flatMap((user) =>
-      activeUserIds.has(user.id)
-        ? [
-            {
-              avatarUrl: user.avatarUrl,
-              displayName:
-                user.displayName?.trim() || user.username || "Member",
-              id: user.id,
-              username: user.username || user.id,
-            },
-          ]
-        : []
-    ),
+    members: pageCandidates.map((user) => ({
+      avatarUrl: user.avatarUrl,
+      displayName: user.displayName?.trim() || user.username || "Member",
+      id: user.id,
+      username: user.username || user.id,
+    })),
     nextCursor:
       candidates.length > limit ? (pageCandidates.at(-1)?.id ?? null) : null,
   };
@@ -528,11 +694,16 @@ function parseSequence(value: string | undefined): bigint | undefined {
   if (!/^[0-9]{1,20}$/u.test(value)) {
     throw new CommunityChatError("INVALID", "Invalid sequence cursor");
   }
-  return BigInt(value);
+  const sequence = BigInt(value);
+  if (sequence > 9_223_372_036_854_775_807n) {
+    throw new CommunityChatError("INVALID", "Invalid sequence cursor");
+  }
+  return sequence;
 }
 
 export async function getCommunityChatMessages(input: {
   afterSequence?: string;
+  aroundMessageId?: string;
   beforeSequence?: string;
   limit?: number;
   roomId: string;
@@ -545,16 +716,73 @@ export async function getCommunityChatMessages(input: {
   );
   const before = parseSequence(input.beforeSequence);
   const after = parseSequence(input.afterSequence);
-  if (before !== undefined && after !== undefined) {
+  if (
+    [
+      before !== undefined,
+      after !== undefined,
+      Boolean(input.aroundMessageId),
+    ].filter(Boolean).length > 1
+  ) {
     throw new CommunityChatError(
       "INVALID",
-      "Use either beforeSequence or afterSequence"
+      "Use one history boundary at a time"
     );
   }
 
   let query = messageQuery(prisma.orm).where((message) =>
     message.roomId.eq(access.room.id)
   );
+  if (input.aroundMessageId) {
+    const anchor = await messageQuery(prisma.orm)
+      .where((message) =>
+        and(
+          message.id.eq(input.aroundMessageId ?? ""),
+          message.roomId.eq(access.room.id)
+        )
+      )
+      .first();
+    if (!anchor) {
+      throw new CommunityChatError("NOT_FOUND", "Message not found");
+    }
+    const olderLimit = Math.ceil(limit / 2);
+    const newerLimit = limit - olderLimit;
+    const [older, newer] = await Promise.all([
+      query
+        .where((message) => message.sequence.lte(anchor.sequence))
+        .orderBy((message) => message.sequence.desc())
+        .limit(olderLimit + 1)
+        .all(),
+      query
+        .where((message) => message.sequence.gt(anchor.sequence))
+        .orderBy((message) => message.sequence.asc())
+        .limit(newerLimit + 1)
+        .all(),
+    ]);
+    const hydrated = await hydrateChatMessages(
+      [
+        ...older.slice(0, olderLimit).toReversed(),
+        ...newer.slice(0, newerLimit),
+      ].map(mapMessage),
+      access.communityId,
+      input.userId
+    );
+    const bounded = mergeCommunityChatTimeline([], hydrated, {
+      edge: "newer",
+      maxBytes: COMMUNITY_CHAT_HISTORY_BYTE_LIMIT,
+      maxMessages: limit,
+    });
+    return {
+      messages: bounded.messages,
+      nextAfterSequence:
+        newer.length > newerLimit
+          ? (bounded.messages.at(-1)?.sequence ?? null)
+          : null,
+      nextBeforeSequence:
+        older.length > olderLimit || bounded.trimmedBefore
+          ? (bounded.messages[0]?.sequence ?? null)
+          : null,
+    };
+  }
   if (before !== undefined) {
     query = query.where((message) => message.sequence.lt(before));
   }
@@ -573,12 +801,26 @@ export async function getCommunityChatMessages(input: {
   if (descending) {
     selected.reverse();
   }
-  const messages = selected.map(mapMessage);
+  const hydrated = await hydrateChatMessages(
+    selected.map(mapMessage),
+    access.communityId,
+    input.userId
+  );
+  const bounded = mergeCommunityChatTimeline([], hydrated, {
+    edge: descending ? "newer" : "older",
+    maxBytes: COMMUNITY_CHAT_HISTORY_BYTE_LIMIT,
+    maxMessages: limit,
+  });
+  const { messages } = bounded;
   const oldest = messages[0]?.sequence ?? null;
   const newest = messages.at(-1)?.sequence ?? null;
-  const nextAfterSequence = after !== undefined && hasMore ? newest : null;
+  const nextAfterSequence =
+    after !== undefined && (hasMore || bounded.trimmedAfter) ? newest : null;
   let nextBeforeSequence: string | null = null;
-  if ((before !== undefined || after === undefined) && hasMore) {
+  if (
+    (before !== undefined || after === undefined) &&
+    (hasMore || bounded.trimmedBefore)
+  ) {
     nextBeforeSequence = oldest;
   }
   return {
@@ -588,32 +830,34 @@ export async function getCommunityChatMessages(input: {
   };
 }
 
-async function checkContributionPolicy(input: {
-  communityId: string;
-  room: RoomData;
-  userId: string;
-}): Promise<void> {
+async function checkContributionPolicy(
+  input: {
+    communityId: string;
+    room: RoomData;
+    userId: string;
+  },
+  orm: PrismaOrm = prisma.orm
+): Promise<void> {
   if (input.room.kind === "THREAD" && input.room.parentRoomId) {
-    const parent = await roomDataById(prisma.orm, input.room.parentRoomId);
+    const parent = await roomDataById(orm, input.room.parentRoomId);
     if (!parent) {
       throw new CommunityChatError("NOT_FOUND", "Thread channel not found");
     }
-    await checkContributionPolicy({
-      communityId: input.communityId,
-      room: parent,
-      userId: input.userId,
-    });
+    await checkContributionPolicy(
+      {
+        communityId: input.communityId,
+        room: parent,
+        userId: input.userId,
+      },
+      orm
+    );
   }
-  const membership = await findMembership(
-    prisma.orm,
-    input.communityId,
-    input.userId
-  );
+  const membership = await findMembership(orm, input.communityId, input.userId);
   if (membership?.status !== "ACTIVE") {
     throw new CommunityChatError("FORBIDDEN", "Join this community to chat");
   }
   const now = toPrismaDateTime(new Date());
-  const sanction = await prisma.orm.public.CommunityChatSanctions.where((row) =>
+  const sanction = await orm.public.CommunityChatSanctions.where((row) =>
     and(
       row.communityId.eq(input.communityId),
       row.userId.eq(input.userId),
@@ -643,9 +887,8 @@ async function checkContributionPolicy(input: {
 function normalizeRoomSlug(name: string): string {
   return name
     .toLowerCase()
-    .normalize("NFKD")
-    .replaceAll(/[\u0300-\u036F]/gu, "")
-    .replaceAll(/[^a-z0-9]+/gu, "-")
+    .normalize("NFKC")
+    .replaceAll(/[^\p{L}\p{N}\p{M}]+/gu, "-")
     .replaceAll(/^-|-$/gu, "");
 }
 
@@ -676,7 +919,7 @@ export async function createCommunityChatThread(input: {
     userId: input.creatorId,
   });
   const name = input.name.trim();
-  if (name.length < 1 || name.length > 64 || !normalizeRoomSlug(name)) {
+  if (name.length < 1 || name.length > 64) {
     throw new CommunityChatError(
       "INVALID",
       "Thread names must be 1 to 64 characters"
@@ -684,6 +927,20 @@ export async function createCommunityChatThread(input: {
   }
   if (!CLIENT_ID_PATTERN.test(input.clientId)) {
     throw new CommunityChatError("INVALID", "Invalid client message id");
+  }
+  const roomId = `thread_${createHash("sha256")
+    .update(JSON.stringify([channel.id, input.creatorId, input.clientId]))
+    .digest("hex")
+    .slice(0, 48)}`;
+  const previousThread = await roomDataById(prisma.orm, roomId);
+  if (previousThread) {
+    await requireRoomAccess(roomId, input.creatorId);
+    if (previousThread.visibility !== input.visibility)
+      {throw new CommunityChatError(
+        "CONFLICT",
+        "Thread privacy is fixed at creation"
+      );}
+    return mapRoom(previousThread);
   }
 
   let starterPayload: { content: string; type: "text" } | null = null;
@@ -781,12 +1038,12 @@ export async function createCommunityChatThread(input: {
     );
   }
 
-  const roomId = randomUUID();
   const slug = `thread-${roomId}`;
   const threadSequence = starterPayload ? 1n : 0n;
   const threadChangeSequence = starterPayload ? 1n : 0n;
-  const channelChangeSequence = await prisma.transaction(
-    async (transaction) => {
+  let channelChangeSequence: bigint | null;
+  try {
+    channelChangeSequence = await prisma.transaction(async (transaction) => {
       await transaction.orm.public.CommunityChatRooms.create({
         changeSequence: threadChangeSequence,
         communityId: channel.communityId,
@@ -842,7 +1099,7 @@ export async function createCommunityChatThread(input: {
         });
       }
       if (input.visibility === "PUBLIC") {
-        return appendRoomChange(transaction, {
+        const sequence = await appendRoomChange(transaction, {
           kind: "thread.created",
           payload: {
             sourceMessageId: input.sourceMessageId ?? null,
@@ -850,10 +1107,36 @@ export async function createCommunityChatThread(input: {
           },
           roomId: channel.id,
         });
+        const otherThread =
+          await transaction.orm.public.CommunityChatRooms.select("id")
+            .where((candidate) =>
+              and(
+                candidate.parentRoomId.eq(channel.id),
+                candidate.sourceMessageId.eq(input.sourceMessageId ?? ""),
+                candidate.id.neq(roomId),
+                candidate.archived.eq(false)
+              )
+            )
+            .first();
+        if (otherThread)
+          {throw new CommunityChatError(
+            "CONFLICT",
+            "This message already has a public thread"
+          );}
+        return sequence;
       }
       return null;
+    });
+  } catch (error) {
+    if (isUniqueError(error)) {
+      const previous = await roomDataById(prisma.orm, roomId);
+      if (previous) {
+        await requireRoomAccess(roomId, input.creatorId);
+        return mapRoom(previous);
+      }
     }
-  );
+    throw error;
+  }
   const created = await roomDataById(prisma.orm, roomId);
   if (!created) {
     throw new Error("Committed community thread could not be read");
@@ -1044,8 +1327,12 @@ export async function updateCommunityChatThreadInvitations(input: {
 }
 
 function isUniqueError(error: unknown): boolean {
-  const code = (error as { code?: unknown } | null)?.code;
-  return code === "P2002" || code === "23505";
+  const databaseError = error as { code?: unknown; sqlState?: unknown } | null;
+  return (
+    databaseError?.sqlState === "23505" ||
+    databaseError?.code === "23505" ||
+    databaseError?.code === "P2002"
+  );
 }
 
 async function findIdempotentMessage(
@@ -1121,28 +1408,6 @@ export async function sendCommunityChatMessage(input: {
     }
   }
 
-  if (room.slowModeSeconds > 0) {
-    const lastMessage = await prisma.orm.public.CommunityChatMessages.select(
-      "createdAt"
-    )
-      .where((message) =>
-        and(
-          message.roomId.eq(room.id),
-          message.senderId.eq(input.userId),
-          message.deletedAt.isNull()
-        )
-      )
-      .orderBy((message) => message.sequence.desc())
-      .first();
-    if (
-      lastMessage &&
-      Date.now() - fromPrismaDateTime(lastMessage.createdAt).getTime() <
-        room.slowModeSeconds * 1000
-    ) {
-      throw new CommunityChatError("SLOW_MODE", "Slow mode is active");
-    }
-  }
-
   const messageId = randomUUID();
   let replayed = false;
   let messageSequence = 0n;
@@ -1194,6 +1459,7 @@ export async function sendCommunityChatMessage(input: {
         ).updateAndCount({
           changeSequence: nextChangeSequence,
           nextSequence,
+          updatedAt: toPrismaDateTime(new Date()),
         });
         if (updated === 1) {
           claimed = {
@@ -1211,6 +1477,37 @@ export async function sendCommunityChatMessage(input: {
       }
 
       ({ nextSequence: messageSequence, changeSequence } = claimed);
+      const currentRoom = await roomDataById(transaction.orm, room.id);
+      if (!currentRoom) {
+        throw new CommunityChatError("NOT_FOUND", "Channel not found");
+      }
+      await checkContributionPolicy(
+        {
+          communityId: access.communityId,
+          room: currentRoom,
+          userId: input.userId,
+        },
+        transaction.orm
+      );
+      if (currentRoom.slowModeSeconds > 0) {
+        const lastMessage =
+          await transaction.orm.public.CommunityChatMessages.select("createdAt")
+            .where((message) =>
+              and(message.roomId.eq(room.id), message.senderId.eq(input.userId))
+            )
+            .orderBy((message) => message.sequence.desc())
+            .first();
+        if (
+          lastMessage &&
+          Date.now() - fromPrismaDateTime(lastMessage.createdAt).getTime() <
+            currentRoom.slowModeSeconds * 1000
+        ) {
+          throw new CommunityChatError(
+            "SLOW_MODE",
+            `Slow mode allows one message every ${currentRoom.slowModeSeconds} seconds`
+          );
+        }
+      }
       await transaction.orm.public.CommunityChatMessages.create({
         changeSequence,
         clientId: input.clientId,
@@ -1266,13 +1563,27 @@ export async function sendCommunityChatMessage(input: {
   if (!row) {
     throw new Error("Committed community chat message could not be read");
   }
-  const message = mapMessage(row);
+  const [message] = await hydrateChatMessages(
+    [mapMessage(row)],
+    access.communityId,
+    input.userId
+  );
+  if (!message) {
+    throw new Error("Committed community chat message could not be hydrated");
+  }
   if (replayed) {
     return { message, replayed: true };
   }
   const event = {
     changeSequence: changeSequence.toString(),
     kind: "message.created",
+    message: {
+      ...message,
+      reactions: message.reactions?.map((reaction) => ({
+        ...reaction,
+        reacted: false,
+      })),
+    },
     messageId: message.id,
     roomId: room.id,
     sequence: messageSequence.toString(),
@@ -1320,7 +1631,10 @@ async function appendRoomChange(
           room.id.eq(input.roomId),
           room.changeSequence.eq(current.changeSequence)
         )
-    ).updateAndCount({ changeSequence: sequence });
+    ).updateAndCount({
+      changeSequence: sequence,
+      updatedAt: toPrismaDateTime(new Date()),
+    });
     if (changed !== 1) {
       continue;
     }
@@ -1471,7 +1785,14 @@ export async function mutateCommunityChatMessage(input: {
   if (!updated) {
     throw new Error("Committed community message update could not be read");
   }
-  const message = mapMessage(updated);
+  const [message] = await hydrateChatMessages(
+    [mapMessage(updated)],
+    room.communityId,
+    input.actorId
+  );
+  if (!message) {
+    throw new Error("Committed community chat message could not be hydrated");
+  }
   try {
     await redis.publish(
       communityChatRedisChannel(room.id),
@@ -1500,15 +1821,19 @@ export async function setCommunityChatReaction(input: {
   roomId: string;
 }): Promise<{ changed: boolean }> {
   const emoji = input.emoji.trim();
-  if (emoji.length < 1 || emoji.length > 32) {
+  if (!(await isMessageReactionEmoji(emoji))) {
     throw new CommunityChatError(
       "INVALID",
-      "Reaction must be 1 to 32 characters"
+      "Choose a supported emoji reaction"
     );
   }
   const message = await prisma.orm.public.CommunityChatMessages.select("roomId")
     .where((row) =>
-      and(row.id.eq(input.messageId), row.roomId.eq(input.roomId))
+      and(
+        row.id.eq(input.messageId),
+        row.roomId.eq(input.roomId),
+        row.deletedAt.isNull()
+      )
     )
     .first();
   if (!message) {
@@ -1559,7 +1884,7 @@ export async function setCommunityChatReaction(input: {
           return null;
         }
       }
-      return appendRoomChange(transaction, {
+      const sequence = await appendRoomChange(transaction, {
         kind: "message.reacted",
         messageId: input.messageId,
         payload: {
@@ -1570,6 +1895,25 @@ export async function setCommunityChatReaction(input: {
         },
         roomId: message.roomId,
       });
+      const distinct = await rawQuery<{ count: number }>(
+        'SELECT count(DISTINCT emoji)::integer AS count FROM public.community_chat_reactions WHERE "messageId" = $1',
+        [input.messageId],
+        { count: "pg/int4@1" },
+        transaction
+      );
+      if ((distinct.rows[0]?.count ?? 0) > 20) {
+        throw new CommunityChatError(
+          "INVALID",
+          "This message already has 20 different reactions"
+        );
+      }
+      const updated = await transaction.orm.public.CommunityChatMessages.where(
+        (row) => and(row.id.eq(input.messageId), row.deletedAt.isNull())
+      ).updateAndCount({ changeSequence: sequence });
+      if (updated !== 1) {
+        throw new CommunityChatError("NOT_FOUND", "Message not found");
+      }
+      return sequence;
     });
   } catch (error) {
     if (input.reacted && isUniqueError(error)) {
@@ -1657,12 +2001,19 @@ export async function setCommunityChatPin(input: {
           return null;
         }
       }
-      return appendRoomChange(transaction, {
+      const sequence = await appendRoomChange(transaction, {
         kind: input.pinned ? "message.pinned" : "message.unpinned",
         messageId: input.messageId,
         payload: { messageId: input.messageId, pinned: input.pinned },
         roomId: input.roomId,
       });
+      const updated = await transaction.orm.public.CommunityChatMessages.where(
+        (row) => and(row.id.eq(input.messageId), row.deletedAt.isNull())
+      ).updateAndCount({ changeSequence: sequence });
+      if (updated !== 1) {
+        throw new CommunityChatError("NOT_FOUND", "Message not found");
+      }
+      return sequence;
     });
   } catch (error) {
     if (input.pinned && isUniqueError(error)) {
@@ -1697,7 +2048,7 @@ export async function listCommunityChatPins(input: {
   roomId: string;
   userId: string;
 }): Promise<CommunityChatMessage[]> {
-  await requireRoomAccess(input.roomId, input.userId);
+  const access = await requireRoomAccess(input.roomId, input.userId);
   const limit = Math.max(1, Math.min(Math.trunc(input.limit ?? 50), 50));
   const pins = await prisma.orm.public.CommunityChatPins.select("messageId")
     .where({ roomId: input.roomId })
@@ -1717,7 +2068,12 @@ export async function listCommunityChatPins(input: {
       )
     )
     .all();
-  const byId = new Map(rows.map((row) => [row.id, mapMessage(row)]));
+  const hydrated = await hydrateChatMessages(
+    rows.map(mapMessage),
+    access.communityId,
+    input.userId
+  );
+  const byId = new Map(hydrated.map((message) => [message.id, message]));
   return pins.flatMap(({ messageId }) => {
     const message = byId.get(messageId);
     return message ? [message] : [];
@@ -2192,14 +2548,46 @@ export async function getCommunityChatRoomChanges(input: {
     .orderBy((change) => change.sequence.asc())
     .limit(limit + 1)
     .all();
-  const hasMore = rows.length > limit;
-  const changes = rows.slice(0, limit).map((row) => ({
+  const selected = rows.slice(0, limit);
+  const ids = [
+    ...new Set(
+      selected.flatMap((row) => (row.messageId ? [row.messageId] : []))
+    ),
+  ];
+  const messageRows = ids.length
+    ? await messageQuery(prisma.orm)
+        .where((message) =>
+          and(message.roomId.eq(input.roomId), message.id.in(ids))
+        )
+        .all()
+    : [];
+  const hydrated = await hydrateChatMessages(
+    messageRows.map(mapMessage),
+    access.communityId,
+    input.userId
+  );
+  const messagesById = new Map(
+    hydrated.map((message) => [message.id, message])
+  );
+  const candidates = selected.map((row) => ({
     changeSequence: row.sequence.toString(),
     kind: row.kind,
+    message: row.messageId ? (messagesById.get(row.messageId) ?? null) : null,
     messageId: row.messageId,
     payload: row.payload,
     roomId: row.roomId,
   }));
+  const changes: typeof candidates = [];
+  let bytes = 0;
+  for (const change of candidates) {
+    const size = new TextEncoder().encode(JSON.stringify(change)).byteLength;
+    if (bytes + size > COMMUNITY_CHAT_HISTORY_BYTE_LIMIT) {
+      break;
+    }
+    changes.push(change);
+    bytes += size;
+  }
+  const hasMore = rows.length > changes.length;
   return {
     changes,
     hasMore,

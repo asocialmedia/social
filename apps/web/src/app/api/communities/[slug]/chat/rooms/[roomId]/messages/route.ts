@@ -29,6 +29,7 @@ export async function GET(request: Request, context: RouteContext) {
     }
     const page = await getCommunityChatMessages({
       afterSequence: url.searchParams.get("after") ?? undefined,
+      aroundMessageId: url.searchParams.get("around") ?? undefined,
       beforeSequence: url.searchParams.get("before") ?? undefined,
       limit: Number(url.searchParams.get("limit")) || undefined,
       roomId,

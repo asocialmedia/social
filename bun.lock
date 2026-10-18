@@ -178,7 +178,7 @@
     },
     "apps/web": {
       "name": "@asm/web",
-      "version": "1.7.71",
+      "version": "1.7.72",
       "dependencies": {
         "@asm/aggregator": "workspace:*",
         "@asm/auth": "workspace:*",
@@ -306,7 +306,7 @@
     },
     "packages/db": {
       "name": "@asm/db",
-      "version": "1.2.84",
+      "version": "1.2.85",
       "dependencies": {
         "@asm/config": "workspace:*",
         "@asm/logger": "workspace:*",
@@ -376,7 +376,7 @@
     },
     "packages/messages": {
       "name": "@asm/messages",
-      "version": "1.0.19",
+      "version": "1.0.20",
       "dependencies": {
         "@asm/media": "workspace:*",
         "emojibase-data": "^18.0.0",

@@ -9,6 +9,7 @@ import {
 
 import { getSessionFromApi } from "@/lib/auth/session";
 import { communityChatErrorResponse } from "@/lib/communities/chat-api";
+import { decodeCommunityChatLiveEvent } from "@/lib/communities/chat-events";
 
 const MAX_REPLAY_PAGES = 5;
 const REPLAY_PAGE_SIZE = 100;
@@ -35,7 +36,10 @@ export async function GET(
   }
 
   const url = new URL(request.url);
-  const initialCursor = url.searchParams.get("after") ?? "0";
+  const initialCursor =
+    request.headers.get("last-event-id") ??
+    url.searchParams.get("after") ??
+    "0";
   if (!/^[0-9]{1,20}$/u.test(initialCursor)) {
     return Response.json({ error: "Invalid event cursor" }, { status: 400 });
   }
@@ -49,6 +53,9 @@ export async function GET(
       },
       async start(controller) {
         let closed = false;
+        let leaseExpiresAt = Date.now() + 5000;
+        let replaying = false;
+        let replayRequested = false;
         let lastChangeSequence = BigInt(initialCursor);
         let subscriberGeneration = getSubscriberGeneration();
         let subscription: Awaited<
@@ -58,8 +65,12 @@ export async function GET(
         let heartbeat: ReturnType<typeof setInterval> | null = null;
         let leaseTimer: ReturnType<typeof setInterval> | null = null;
 
-        const enqueue = (event: string, data: unknown, id?: string) => {
+        const enqueueChunk = (chunk: Uint8Array) => {
           if (closed) {
+            return false;
+          }
+          if (Date.now() >= leaseExpiresAt) {
+            void close(true);
             return false;
           }
           if ((controller.desiredSize ?? 0) < -32_768) {
@@ -78,13 +89,8 @@ export async function GET(
             void close();
             return false;
           }
-          const idLine = id ? `id: ${id}\n` : "";
           try {
-            controller.enqueue(
-              encoder.encode(
-                `${idLine}event: ${event}\ndata: ${JSON.stringify(data)}\n\n`
-              )
-            );
+            controller.enqueue(chunk);
             return true;
           } catch {
             // oxlint-disable-next-line no-void -- Stream enqueue failure cannot await asynchronous cancellation.
@@ -92,6 +98,13 @@ export async function GET(
             return false;
           }
         };
+
+        const enqueue = (event: string, data: unknown, id?: string) =>
+          enqueueChunk(
+            encoder.encode(
+              `${id ? `id: ${id}\n` : ""}event: ${event}\ndata: ${JSON.stringify(data)}\n\n`
+            )
+          );
 
         const close = async (notify = false) => {
           if (closed) {
@@ -132,7 +145,7 @@ export async function GET(
           }
         };
 
-        const replay = async () => {
+        const replay = async (): Promise<boolean> => {
           for (
             let pageNumber = 0;
             pageNumber < MAX_REPLAY_PAGES;
@@ -146,7 +159,7 @@ export async function GET(
               userId,
             });
             if (page.changes.length === 0) {
-              return;
+              return false;
             }
             for (const change of page.changes) {
               const sequence = BigInt(change.changeSequence);
@@ -155,25 +168,37 @@ export async function GET(
               }
               lastChangeSequence = sequence;
               if (!enqueue("change", change, change.changeSequence)) {
-                return;
+                return false;
               }
             }
             if (!page.hasMore) {
-              return;
+              return false;
             }
           }
+          return true;
         };
 
         const scheduleReplay = () => {
+          if (replaying) {
+            replayRequested = true;
+            return;
+          }
           if (replayTimer || closed) {
             return;
           }
           replayTimer = setTimeout(async () => {
             replayTimer = null;
+            replaying = true;
+            replayRequested = false;
             try {
-              await replay();
+              replayRequested = (await replay()) || replayRequested;
             } catch {
               await close();
+            } finally {
+              replaying = false;
+              if (replayRequested && !closed) {
+                scheduleReplay();
+              }
             }
           }, 100);
         };
@@ -182,18 +207,19 @@ export async function GET(
           if (receivedChannel !== channel) {
             return;
           }
-          let event: unknown;
-          try {
-            event = JSON.parse(raw);
-          } catch {
+          const decoded = decodeCommunityChatLiveEvent(roomId, raw);
+          if (!decoded) {
             return;
           }
-          if (
-            typeof event === "object" &&
-            event !== null &&
-            "roomId" in event &&
-            event.roomId === roomId
-          ) {
+          const sequence = BigInt(decoded.event.changeSequence);
+          if (sequence <= lastChangeSequence) {
+            return;
+          }
+          if (!replaying && sequence === lastChangeSequence + 1n) {
+            if (enqueueChunk(decoded.bytes)) {
+              lastChangeSequence = sequence;
+            }
+          } else {
             scheduleReplay();
           }
         };
@@ -211,7 +237,12 @@ export async function GET(
             changeSequence: lastChangeSequence.toString(),
             roomId,
           });
-          await replay();
+          replaying = true;
+          replayRequested = (await replay()) || replayRequested;
+          replaying = false;
+          if (replayRequested) {
+            scheduleReplay();
+          }
           heartbeat = setInterval(async () => {
             try {
               controller.enqueue(encoder.encode(": keep-alive\n\n"));
@@ -219,37 +250,33 @@ export async function GET(
               await close();
             }
           }, 20_000);
-          const checkLease = access.requiresLease
-            ? async () => {
-                try {
-                  const nextAccess = await getCommunityChatRoomAccess(
-                    roomId,
-                    userId
-                  );
-                  if (
-                    nextAccess.communityId !== community.id ||
-                    !nextAccess.permissions.canRead
-                  ) {
-                    await close(true);
-                    return;
-                  }
-                  const nextGeneration = getSubscriberGeneration();
-                  if (nextGeneration !== subscriberGeneration) {
-                    subscriberGeneration = nextGeneration;
-                    scheduleReplay();
-                  }
-                } catch {
-                  await close(true);
-                }
+          const checkLease = async () => {
+            try {
+              const nextAccess = await getCommunityChatRoomAccess(
+                roomId,
+                userId
+              );
+              if (
+                nextAccess.communityId !== community.id ||
+                !nextAccess.permissions.canRead
+              ) {
+                await close(true);
+                return;
               }
-            : () => {
-                const nextGeneration = getSubscriberGeneration();
-                if (nextGeneration !== subscriberGeneration) {
-                  subscriberGeneration = nextGeneration;
-                  scheduleReplay();
-                }
-              };
-          leaseTimer = setInterval(checkLease, 5000);
+              leaseExpiresAt = Date.now() + 5000;
+              if (BigInt(nextAccess.room.changeSequence) > lastChangeSequence) {
+                scheduleReplay();
+              }
+              const nextGeneration = getSubscriberGeneration();
+              if (nextGeneration !== subscriberGeneration) {
+                subscriberGeneration = nextGeneration;
+                scheduleReplay();
+              }
+            } catch {
+              await close(true);
+            }
+          };
+          leaseTimer = setInterval(checkLease, 4000);
         } catch (error) {
           const response = communityChatErrorResponse(error);
           enqueue("error", await response.json());
@@ -260,7 +287,7 @@ export async function GET(
     {
       highWaterMark: 256 * 1024,
       size(chunk) {
-        return chunk.byteLength;
+        return Math.max(chunk.byteLength, 1024);
       },
     }
   );
