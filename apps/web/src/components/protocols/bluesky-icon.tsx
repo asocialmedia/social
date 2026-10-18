@@ -25,15 +25,32 @@ export function BlueskyIcon({
       <Tooltip>
         <TooltipTrigger asChild>
           <span
-            aria-label="From Bluesky"
+            aria-label="From Bluesky, on the AT Protocol"
             className="inline-flex shrink-0 items-center"
           >
             {icon}
           </span>
         </TooltipTrigger>
-        <TooltipContent>
-          This person and their posts come from Bluesky. Connect your Bluesky
-          account in Settings to sync supported interactions.
+        <TooltipContent
+          // A card rather than a line of text: this is an explanation of where
+          // the content comes from, so it gets the Bluesky surface the app
+          // already uses for that brand, and enough room to say something.
+          // `border-0` drops the primitive's hairline, which would double up
+          // with the surface's own ring.
+          className="bluesky-3d-surface w-60 border-0 p-3.5"
+          sideOffset={6}
+        >
+          <div className="flex items-center gap-2">
+            <BlueskyMark className="size-4 text-white" />
+            <span className="text-sm font-semibold">Bluesky</span>
+            <span className="ml-auto text-[10px] font-semibold tracking-[0.08em] text-white/60">
+              AT PROTOCOL
+            </span>
+          </div>
+          <p className="mt-2 text-xs leading-relaxed text-white/85">
+            This account and its posts live on a decentralised network of
+            independent servers, not on ours.
+          </p>
         </TooltipContent>
       </Tooltip>
     </TooltipProvider>

@@ -1196,4 +1196,42 @@
       0 1px 2px rgba(0, 70, 180, 0.25),
       0 3px 7px -2px rgba(0, 70, 180, 0.3);
   }
+
+  /* A white button that sits ON a brand-coloured surface (the Bluesky tooltip).
+     White fill would disappear against a white page, so the dual border does the
+     separating: a bright inner lip on the top edge, then a ring in the surface's
+     own blue, one step darker than the fill behind it. Tinted to the parent
+     rather than to black, which is what keeps it looking placed instead of
+     stamped on. */
+  .btn-3d-on-brand {
+    color: #0866df;
+    font-weight: 600;
+    background: linear-gradient(to bottom, #ffffff, #eef5ff);
+    border-radius: 12px;
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 255, 255, 1),
+      inset 0 1.5px 2px #ffffff,
+      0 0 0 1px rgba(3, 55, 130, 0.55),
+      0 1px 2px rgba(0, 40, 100, 0.3);
+    transition:
+      background-color 150ms ease,
+      box-shadow 150ms ease;
+  }
+
+  .btn-3d-on-brand:hover {
+    background: linear-gradient(to bottom, #ffffff, #e2eeff);
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 255, 255, 1),
+      inset 0 1.5px 2px #ffffff,
+      0 0 0 1px rgba(3, 55, 130, 0.7),
+      0 2px 3px rgba(0, 40, 100, 0.35);
+  }
+
+  .btn-3d-on-brand:active {
+    background: linear-gradient(to bottom, #dceaff, #cfe1ff);
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 255, 255, 0.8),
+      inset 0 1px 2px rgba(0, 40, 100, 0.28),
+      0 0 0 1px rgba(3, 55, 130, 0.7);
+  }
 }

@@ -167,12 +167,15 @@ export function ExternalLikeButton({
         <TooltipContent
           className={cn(
             "max-w-64 space-y-3 p-4",
-            !canLike && "border-white/20 bg-[#0085ff] text-white"
+            // The unconnected state is a Bluesky surface, so it wears the brand's
+            // own 3D recipe (blue fill, dark blue ring, bright inner lip) rather
+            // than a flat blue slab with a border utility on top.
+            !canLike && "bluesky-3d-surface border-0 text-white"
           )}
           onClick={(event) => event.stopPropagation()}
         >
           {canLike ? null : (
-            <BlueskyIcon tooltip={false} className="size-7 text-white" />
+            <BlueskyIcon className="size-7 text-white" tooltip={false} />
           )}
           <p className="text-sm">
             {canLike
@@ -182,9 +185,9 @@ export function ExternalLikeButton({
           {canLike ? null : (
             <Button
               asChild
-              className="w-full border-white bg-white text-[#0085ff] shadow-none hover:bg-white/90"
+              className="btn-3d-on-brand h-9 w-full border-0"
               size="sm"
-              variant="secondary"
+              variant="ghost"
             >
               <Link href={settingsHref}>
                 {connection.data?.connected
