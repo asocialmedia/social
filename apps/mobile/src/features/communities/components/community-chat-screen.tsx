@@ -27,6 +27,9 @@ import {
   MessageCircle,
   Menu,
   MoreHorizontal,
+  Pencil,
+  Pin,
+  Trash2,
   Reply,
   Send,
   Users,
@@ -73,6 +76,9 @@ import {
   fetchCommunityChatMessage,
   fetchCommunityChatMessages,
   fetchCommunityChatThreads,
+  fetchCommunityChatPins,
+  mutateCommunityChatMessage,
+  updateCommunityChatPin,
   createCommunityChatPublicThread,
   sendCommunityChatMessage,
   updateCommunityChatReaction,
@@ -80,6 +86,7 @@ import {
 import type { CommunityChatChannelsResponse } from "../lib/community-chat-api";
 import { communityChatUiEnabled } from "../lib/community-chat-features";
 import { CommunityAvatar } from "./community-avatar";
+import { CommunityThreadFollowButton } from "./community-thread-follow-button";
 
 // oxlint-disable react/todo -- The current React Compiler lint cannot lower the async try/catch/finally blocks used for visible request and retry states.
 // oxlint-disable react/set-state-in-effect -- Route activation starts a fetch and resets the loading/error state for that screen.
@@ -379,6 +386,7 @@ function CommunityChatTimelineScreen() {
   const [permissions, setPermissions] = useState<
     CommunityChatChannelsResponse["permissions"] | null
   >(null);
+  const [accessRevoked, setAccessRevoked] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [hasOlder, setHasOlder] = useState(false);
@@ -405,6 +413,13 @@ function CommunityChatTimelineScreen() {
   const [threadSource, setThreadSource] = useState<CommunityChatMessage | null>(
     null
   );
+  const [messageActionMode, setMessageActionMode] = useState<
+    "DELETE" | "EDIT" | null
+  >(null);
+  const [editContent, setEditContent] = useState("");
+  const [mutatingMessage, setMutatingMessage] = useState(false);
+  const [pins, setPins] = useState<CommunityChatMessage[] | null>(null);
+  const [loadingPins, setLoadingPins] = useState(false);
   const [threadName, setThreadName] = useState("");
   const [creatingThread, setCreatingThread] = useState(false);
   const threadRequestId = useRef<string | null>(null);
@@ -667,11 +682,21 @@ function CommunityChatTimelineScreen() {
             getCookie: () => Promise.resolve(currentCookie),
             onEvent: async (event, data) => {
               if (event === "access-revoked") {
+                setAccessRevoked(true);
                 setMessages([]);
                 setThreads([]);
                 setContent("");
                 setPending(null);
                 setReplyTarget(null);
+                setActionMessage(null);
+                setMessageActionMode(null);
+                setEditContent("");
+                setPins(null);
+                setThreadSource(null);
+                setThreadName("");
+                setRoom(null);
+                setPermissions(null);
+                setChannels([]);
                 controller.abort();
                 setLoadError("Your access to this conversation changed.");
                 return;
@@ -891,6 +916,114 @@ function CommunityChatTimelineScreen() {
     threadSource,
   ]);
 
+  async function applyMessageMutation() {
+    if (!actionMessage || !messageActionMode || mutatingMessage) {
+      return;
+    }
+    setMutatingMessage(true);
+    setActionError(null);
+    try {
+      const result = await mutateCommunityChatMessage(
+        slug,
+        actionMessage.id,
+        {
+          content:
+            messageActionMode === "EDIT" ? editContent.trim() : undefined,
+          revision: actionMessage.revision,
+        },
+        messageActionMode,
+        await options()
+      );
+      mergeMessages([result.message]);
+      setActionMessage(null);
+      setMessageActionMode(null);
+    } catch (error) {
+      setActionError(
+        error instanceof Error ? error.message : "Couldn’t update this message."
+      );
+      if (error instanceof CommunityChatApiError && error.status === 409) {
+        try {
+          const latest = await fetchCommunityChatMessage(
+            slug,
+            roomId,
+            actionMessage.id,
+            await options()
+          );
+          mergeMessages([latest.message]);
+          if (latest.message.deletedAt) {
+            setActionMessage(null);
+            setMessageActionMode(null);
+          } else {
+            setActionMessage(latest.message);
+            setActionError(
+              "This message changed. The preview above is current; review it before saving again."
+            );
+          }
+        } catch {
+          setActionError(
+            "Couldn’t refresh this message. Close and reopen its actions to retry."
+          );
+        }
+      }
+    } finally {
+      setMutatingMessage(false);
+    }
+  }
+
+  async function toggleMessagePin() {
+    if (!actionMessage || mutatingMessage) {
+      return;
+    }
+    setMutatingMessage(true);
+    setActionError(null);
+    try {
+      await updateCommunityChatPin(
+        slug,
+        roomId,
+        { messageId: actionMessage.id, pinned: !actionMessage.pinned },
+        await options()
+      );
+      const result = await fetchCommunityChatMessage(
+        slug,
+        roomId,
+        actionMessage.id,
+        await options()
+      );
+      mergeMessages([result.message]);
+      setActionMessage(null);
+    } catch (error) {
+      setActionError(
+        error instanceof Error ? error.message : "Couldn’t update this pin."
+      );
+    } finally {
+      setMutatingMessage(false);
+    }
+  }
+
+  async function openPins() {
+    if (loadingPins) {
+      return;
+    }
+    setLoadingPins(true);
+    setActionError(null);
+    try {
+      const result = await fetchCommunityChatPins(
+        slug,
+        roomId,
+        await options()
+      );
+      setPins(result.messages);
+    } catch (error) {
+      setActionError(
+        error instanceof Error
+          ? error.message
+          : "Couldn’t load pinned messages."
+      );
+    } finally {
+      setLoadingPins(false);
+    }
+  }
+
   const submit = useCallback(async () => {
     const outgoing = pending ?? {
       clientId: randomUUID(),
@@ -947,6 +1080,23 @@ function CommunityChatTimelineScreen() {
     sending,
     slug,
   ]);
+
+  if (accessRevoked) {
+    return (
+      <View style={[styles.state, { backgroundColor: theme.containerBg }]}>
+        <Text
+          accessibilityRole="alert"
+          style={[styles.stateBody, { color: theme.inputText }]}
+        >
+          Your access to this conversation changed.
+        </Text>
+        <StatusActionButton
+          label="Back to community"
+          onPress={() => router.replace(`/a/${slug}`)}
+        />
+      </View>
+    );
+  }
 
   const headerUser = user
     ? {
@@ -1017,6 +1167,18 @@ function CommunityChatTimelineScreen() {
             </Text>
           </View>
           <Pressable
+            accessibilityLabel="Pinned messages"
+            disabled={loadingPins}
+            onPress={() => void openPins()}
+            style={styles.roomIconButton}
+          >
+            {loadingPins ? (
+              <ActivityIndicator color={theme.dividerText} size="small" />
+            ) : (
+              <Pin color={theme.dividerText} size={18} />
+            )}
+          </Pressable>
+          <Pressable
             accessibilityLabel="Open community channels"
             onPress={() => setChannelsOpen(true)}
             style={styles.roomIconButton}
@@ -1024,6 +1186,17 @@ function CommunityChatTimelineScreen() {
             <Menu color={theme.dividerText} size={18} />
           </Pressable>
         </View>
+      ) : null}
+      {threadId && permissions?.isMember ? (
+        <CommunityThreadFollowButton
+          key={
+            messages.find((message) => message.senderId === user?.id)?.id ??
+            "new"
+          }
+          options={options}
+          slug={slug}
+          threadId={threadId}
+        />
       ) : null}
       <View
         style={[styles.sectionTabs, { borderBottomColor: theme.cardBorder }]}
@@ -1530,11 +1703,80 @@ function CommunityChatTimelineScreen() {
         </>
       )}
       <MobileBottomNav />
-      {actionMessage ? (
+      {!loadError && pins ? (
+        <DialogPanel
+          description="Messages community staff saved in this conversation."
+          onClose={() => setPins(null)}
+          title="Pinned messages"
+        >
+          {pins.length ? (
+            <View>
+              {pins.map((message) => (
+                <Pressable
+                  accessibilityRole="button"
+                  key={message.id}
+                  onPress={() => {
+                    setPins(null);
+                    router.push({
+                      params: {
+                        "channel-id": channelId,
+                        message: message.id,
+                        slug,
+                        ...(threadId ? { "thread-id": threadId } : {}),
+                      },
+                      pathname: threadId
+                        ? "/a/[slug]/chat/[channel-id]/threads/[thread-id]"
+                        : "/a/[slug]/chat/[channel-id]",
+                    });
+                  }}
+                  style={styles.actionRow}
+                >
+                  <View style={{ flex: 1, gap: 4 }}>
+                    <Text
+                      style={[styles.channelName, { color: theme.inputText }]}
+                    >
+                      {userLabel(message)}
+                    </Text>
+                    <Text
+                      numberOfLines={4}
+                      style={[styles.messageText, { color: theme.dividerText }]}
+                    >
+                      {message.payload?.type === "text"
+                        ? message.payload.content
+                        : "Message"}
+                    </Text>
+                    <Text
+                      style={[styles.channelTopic, { color: communityAccent }]}
+                    >
+                      Jump to message →
+                    </Text>
+                  </View>
+                </Pressable>
+              ))}
+            </View>
+          ) : (
+            <Text style={[styles.messageText, { color: theme.dividerText }]}>
+              No pinned messages yet.
+            </Text>
+          )}
+        </DialogPanel>
+      ) : null}
+      {!loadError && actionMessage ? (
         <DialogPanel
           description={`A message from ${userLabel(actionMessage)}`}
-          onClose={() => setActionMessage(null)}
-          title="Message actions"
+          busy={mutatingMessage}
+          onClose={() => {
+            setActionMessage(null);
+            setMessageActionMode(null);
+            setActionError(null);
+          }}
+          title={
+            messageActionMode === "EDIT"
+              ? "Edit message"
+              : messageActionMode === "DELETE"
+                ? "Delete message?"
+                : "Message actions"
+          }
         >
           <Text
             numberOfLines={3}
@@ -1547,82 +1789,216 @@ function CommunityChatTimelineScreen() {
               ? actionMessage.payload.content
               : "Message"}
           </Text>
-          {permissions?.canSend ? (
-            <>
-              <View
-                style={[
-                  styles.row,
-                  { justifyContent: "space-between", marginBottom: 12 },
-                ]}
-              >
-                {QUICK_MESSAGE_REACTIONS.map((emoji) => (
-                  <Pressable
-                    accessibilityLabel={`React ${emoji}`}
-                    accessibilityRole="button"
-                    key={emoji}
-                    onPress={() => void reactToMessage(actionMessage, emoji)}
-                    style={{
-                      alignItems: "center",
-                      justifyContent: "center",
-                      minHeight: 44,
-                      minWidth: 44,
-                    }}
-                  >
-                    <Text style={{ fontSize: 26 }}>{emoji}</Text>
-                  </Pressable>
-                ))}
-              </View>
+          {messageActionMode ? (
+            <View style={{ gap: 12 }}>
+              {messageActionMode === "EDIT" ? (
+                <TextInput
+                  accessibilityLabel="Edit message"
+                  autoFocus
+                  editable={!mutatingMessage}
+                  maxLength={4000}
+                  multiline
+                  onChangeText={setEditContent}
+                  placeholderTextColor={inputStyle.placeholder}
+                  style={{
+                    backgroundColor: inputStyle.background,
+                    borderRadius: 14,
+                    boxShadow: inputStyle.shadows,
+                    color: inputStyle.text,
+                    fontFamily: "SofiaProReg",
+                    minHeight: 100,
+                    padding: 12,
+                    textAlignVertical: "top",
+                  }}
+                  value={editContent}
+                />
+              ) : (
+                <Text
+                  style={[styles.messageText, { color: theme.dividerText }]}
+                >
+                  The message becomes a deleted-message marker. Existing thread
+                  replies remain available.
+                </Text>
+              )}
+              <StatusActionButton
+                disabled={
+                  mutatingMessage ||
+                  (messageActionMode === "EDIT" && !editContent.trim())
+                }
+                label={
+                  mutatingMessage
+                    ? "Saving…"
+                    : messageActionMode === "EDIT"
+                      ? "Save changes"
+                      : "Delete message"
+                }
+                onPress={() => void applyMessageMutation()}
+              />
               <Pressable
+                accessibilityRole="button"
+                disabled={mutatingMessage}
                 onPress={() => {
-                  setReplyTarget(actionMessage);
-                  setPending(null);
-                  setActionMessage(null);
-                  requestAnimationFrame(() => composerRef.current?.focus());
+                  setMessageActionMode(null);
+                  setActionError(null);
                 }}
                 style={styles.actionRow}
               >
-                <Reply color={communityAccent} size={18} />
                 <Text style={[styles.channelName, { color: theme.inputText }]}>
-                  Reply
+                  Cancel
                 </Text>
               </Pressable>
-              {!threadId &&
-              !threads.some(
-                (thread) => thread.sourceMessage?.id === actionMessage.id
-              ) ? (
+            </View>
+          ) : (
+            <>
+              {permissions?.canSend ? (
+                <>
+                  <View
+                    style={[
+                      styles.row,
+                      { justifyContent: "space-between", marginBottom: 12 },
+                    ]}
+                  >
+                    {QUICK_MESSAGE_REACTIONS.map((emoji) => (
+                      <Pressable
+                        accessibilityLabel={`React ${emoji}`}
+                        accessibilityRole="button"
+                        key={emoji}
+                        onPress={() =>
+                          void reactToMessage(actionMessage, emoji)
+                        }
+                        style={{
+                          alignItems: "center",
+                          justifyContent: "center",
+                          minHeight: 44,
+                          minWidth: 44,
+                        }}
+                      >
+                        <Text style={{ fontSize: 26 }}>{emoji}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                  <Pressable
+                    onPress={() => {
+                      setReplyTarget(actionMessage);
+                      setPending(null);
+                      setActionMessage(null);
+                      requestAnimationFrame(() => composerRef.current?.focus());
+                    }}
+                    style={styles.actionRow}
+                  >
+                    <Reply color={communityAccent} size={18} />
+                    <Text
+                      style={[styles.channelName, { color: theme.inputText }]}
+                    >
+                      Reply
+                    </Text>
+                  </Pressable>
+                  {!threadId &&
+                  !threads.some(
+                    (thread) => thread.sourceMessage?.id === actionMessage.id
+                  ) ? (
+                    <Pressable
+                      onPress={() => {
+                        setThreadSource(actionMessage);
+                        setThreadName(
+                          actionMessage.payload?.type === "text"
+                            ? (actionMessage.payload.content
+                                .split("\n")[0]
+                                ?.slice(0, 64) ?? "")
+                            : ""
+                        );
+                        threadRequestId.current = randomUUID();
+                        setActionMessage(null);
+                        setActionError(null);
+                      }}
+                      style={styles.actionRow}
+                    >
+                      <MessageCircle color={communityAccent} size={18} />
+                      <Text
+                        style={[styles.channelName, { color: theme.inputText }]}
+                      >
+                        Start a thread
+                      </Text>
+                    </Pressable>
+                  ) : null}
+                </>
+              ) : (
+                <Text
+                  style={[styles.channelTopic, { color: theme.dividerText }]}
+                >
+                  Join this community to reply or react.
+                </Text>
+              )}
+              {permissions?.canManage ? (
                 <Pressable
+                  accessibilityRole="button"
+                  disabled={mutatingMessage}
+                  onPress={() => void toggleMessagePin()}
+                  style={styles.actionRow}
+                >
+                  <Pin color={communityAccent} size={18} />
+                  <Text
+                    style={[styles.channelName, { color: theme.inputText }]}
+                  >
+                    {actionMessage.pinned ? "Unpin message" : "Pin message"}
+                  </Text>
+                </Pressable>
+              ) : null}
+              {permissions?.canSend && actionMessage.senderId === user?.id ? (
+                <Pressable
+                  accessibilityRole="button"
                   onPress={() => {
-                    setThreadSource(actionMessage);
-                    setThreadName(
+                    setEditContent(
                       actionMessage.payload?.type === "text"
-                        ? (actionMessage.payload.content
-                            .split("\n")[0]
-                            ?.slice(0, 64) ?? "")
+                        ? actionMessage.payload.content
                         : ""
                     );
-                    threadRequestId.current = randomUUID();
-                    setActionMessage(null);
+                    setMessageActionMode("EDIT");
                     setActionError(null);
                   }}
                   style={styles.actionRow}
                 >
-                  <MessageCircle color={communityAccent} size={18} />
+                  <Pencil color={communityAccent} size={18} />
                   <Text
                     style={[styles.channelName, { color: theme.inputText }]}
                   >
-                    Start a thread
+                    Edit message
+                  </Text>
+                </Pressable>
+              ) : null}
+              {permissions?.canManage || actionMessage.senderId === user?.id ? (
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => {
+                    setMessageActionMode("DELETE");
+                    setActionError(null);
+                  }}
+                  style={styles.actionRow}
+                >
+                  <Trash2 color={theme.errorBannerText} size={18} />
+                  <Text
+                    style={[
+                      styles.channelName,
+                      { color: theme.errorBannerText },
+                    ]}
+                  >
+                    Delete message
                   </Text>
                 </Pressable>
               ) : null}
             </>
-          ) : (
-            <Text style={[styles.channelTopic, { color: theme.dividerText }]}>
-              Join this community to reply or react.
-            </Text>
           )}
+          {actionError ? (
+            <Text
+              accessibilityRole="alert"
+              style={[styles.retryText, { color: theme.errorBannerText }]}
+            >
+              {actionError}
+            </Text>
+          ) : null}
         </DialogPanel>
       ) : null}
-      {threadSource ? (
+      {!loadError && threadSource ? (
         <DialogPanel
           busy={creatingThread}
           description={`Everyone with access to #${parentChannelName} can read and join this thread.`}

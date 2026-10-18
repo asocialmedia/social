@@ -177,3 +177,66 @@ export function advanceCommunityChatRead(
     { ...options, body: { readSequence }, method: "POST" }
   );
 }
+
+export function mutateCommunityChatMessage(
+  slug: string,
+  messageId: string,
+  input: { content?: string; revision: number },
+  operation: "DELETE" | "EDIT",
+  options: ApiCallOptions
+): Promise<{ message: CommunityChatMessage }> {
+  return requestJson(
+    `/api/communities/${encodeURIComponent(slug)}/chat/messages/${encodeURIComponent(messageId)}`,
+    {
+      ...options,
+      body: input,
+      method: operation === "EDIT" ? "PATCH" : "DELETE",
+    }
+  );
+}
+
+export function fetchCommunityChatPins(
+  slug: string,
+  roomId: string,
+  options: ApiCallOptions
+): Promise<{ messages: CommunityChatMessage[] }> {
+  return requestJson(
+    `/api/communities/${encodeURIComponent(slug)}/chat/rooms/${encodeURIComponent(roomId)}/pins`,
+    options
+  );
+}
+
+export function updateCommunityChatPin(
+  slug: string,
+  roomId: string,
+  input: { messageId: string; pinned: boolean },
+  options: ApiCallOptions
+): Promise<{ changed: boolean }> {
+  return requestJson(
+    `/api/communities/${encodeURIComponent(slug)}/chat/rooms/${encodeURIComponent(roomId)}/pins`,
+    { ...options, body: input, method: "PATCH" }
+  );
+}
+
+export function fetchCommunityChatThreadFollowing(
+  slug: string,
+  threadId: string,
+  options: ApiCallOptions
+): Promise<{ following: boolean }> {
+  return requestJson(
+    `/api/communities/${encodeURIComponent(slug)}/chat/threads/${encodeURIComponent(threadId)}/following`,
+    options
+  );
+}
+
+export function updateCommunityChatThreadFollowing(
+  slug: string,
+  threadId: string,
+  following: boolean,
+  options: ApiCallOptions
+): Promise<{ following: boolean }> {
+  return requestJson(
+    `/api/communities/${encodeURIComponent(slug)}/chat/threads/${encodeURIComponent(threadId)}/following`,
+    { ...options, body: { following }, method: "PATCH" }
+  );
+}

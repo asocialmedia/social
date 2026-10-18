@@ -202,6 +202,7 @@ function CommunityChatTimeline({
   const [permissions, setPermissions] =
     useState<CommunityChatPermissions | null>(null);
   const [room, setRoom] = useState<CommunityChatRoom | null>(null);
+  const [accessRevoked, setAccessRevoked] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [hasOlder, setHasOlder] = useState(false);
@@ -563,11 +564,27 @@ function CommunityChatTimeline({
     source.addEventListener("reset", refresh);
     source.addEventListener("access-revoked", () => {
       source.close();
+      setAccessRevoked(true);
       setMessages([]);
       setThreads([]);
       setContent("");
       setPendingDraft(null);
       setPermissions(null);
+      setRoom(null);
+      setChannels([]);
+      setReplyTarget(null);
+      setPublicThreadSource(null);
+      setPublicThreadName("");
+      setPinsOpen(false);
+      setPinnedMessages([]);
+      setEditingMessageId(null);
+      setEditContent("");
+      setConfirmDeleteId(null);
+      setPrivateThreadOpen(false);
+      setPrivateThreadName("");
+      setPrivateThreadStarter("");
+      setMemberOptions([]);
+      setSelectedMemberIds([]);
       setLoadError("Your access to this conversation changed.");
     });
     source.addEventListener("open", () => setReconnecting(false));
@@ -1431,6 +1448,20 @@ function CommunityChatTimeline({
     </div>
   );
 
+  if (accessRevoked) {
+    return (
+      <section
+        className="flex flex-1 flex-col items-center justify-center gap-4 p-6"
+        role="alert"
+      >
+        <p>Your access to this conversation changed.</p>
+        <Button asChild variant="premium">
+          <Link href={`/a/${slug}`}>Back to community</Link>
+        </Button>
+      </section>
+    );
+  }
+
   return (
     <section
       aria-label={`${communityName} chat`}
@@ -1443,7 +1474,7 @@ function CommunityChatTimeline({
             setPublicThreadSource(null);
           }
         }}
-        open={publicThreadSource !== null}
+        open={!loadError && publicThreadSource !== null}
       >
         <DialogContent
           className="community-accent-scope sm:max-w-lg"
@@ -1513,7 +1544,7 @@ function CommunityChatTimeline({
             void loadPins();
           }
         }}
-        open={pinsOpen}
+        open={!loadError && pinsOpen}
       >
         <DialogContent
           className="community-accent-scope max-h-[80dvh] overflow-y-auto sm:max-w-xl"
