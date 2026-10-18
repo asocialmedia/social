@@ -10,6 +10,7 @@ import {
   DialogTitle,
 } from "@asm/ui/shadui/dialog";
 import { Input } from "@asm/ui/shadui/input";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   Check,
   ExternalLink,
@@ -39,6 +40,7 @@ export function BlueskyConnectCard({
 }: BlueskyConnectCardProps) {
   const { toast } = useToast();
   const router = useRouter();
+  const queryClient = useQueryClient();
 
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [handle, setHandle] = useState(blueskyHandle ?? "");
@@ -164,6 +166,9 @@ export function BlueskyConnectCard({
       description: "Your Bluesky account has been unlinked.",
       title: "Disconnected",
     });
+    await queryClient.cancelQueries({ queryKey: ["bluesky-like"] });
+    queryClient.removeQueries({ queryKey: ["bluesky-like"] });
+    await queryClient.invalidateQueries({ queryKey: ["bluesky-connection"] });
     router.refresh();
   }
 

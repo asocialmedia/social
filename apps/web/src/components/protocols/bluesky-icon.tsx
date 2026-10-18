@@ -32,8 +32,8 @@ export function BlueskyIcon({
           </span>
         </TooltipTrigger>
         <TooltipContent>
-          This person and their posts come from Bluesky. asocialmedia
-          interactions stay on asocialmedia.
+          This person and their posts come from Bluesky. Connect your Bluesky
+          account in Settings to sync supported interactions.
         </TooltipContent>
       </Tooltip>
     </TooltipProvider>

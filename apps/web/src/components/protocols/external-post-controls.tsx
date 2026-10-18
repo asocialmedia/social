@@ -19,6 +19,7 @@ import { getPostUrl } from "@/lib/posts/post-url";
 import { useComposerStore } from "@/store/composer-store";
 
 import { BlueskyIcon } from "./bluesky-icon";
+import { ExternalLikeButton } from "./external-like-button";
 import { useExternalFeedback } from "./use-external-feedback";
 import { useExternalInteractions } from "./use-external-interactions";
 
@@ -37,6 +38,7 @@ export function ExternalVoteButton({
   };
   return (
     <AuraVoteButton
+      engagement={<ExternalLikeButton post={post} />}
       likeCount={post.upstreamCounts.likes ?? null}
       layout={layout}
       authorName={post.author.displayName}
