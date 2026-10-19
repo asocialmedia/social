@@ -8,6 +8,7 @@ import type React from "react";
 import { useEffect, useState } from "react";
 
 import { useHideOnPageScroll } from "@/hooks/use-hide-on-scroll";
+import { isCommunityChatPath } from "@/lib/communities/chat-navigation";
 import { cn } from "@/lib/utils";
 
 // Full-width sticky bar shown to guests. On mobile it docks directly on top of
@@ -48,7 +49,11 @@ export const GuestAuthBar: React.FC = () => {
   // would cover the feed there, so hide it on that route. The post media page
   // is a full-viewport media viewer with its own bottom chrome, so the fixed
   // banner would sit on top of the controls there too.
-  if (pathname === "/gusts" || /^\/posts\/[^/]+\/media\//.test(pathname)) {
+  if (
+    pathname === "/gusts" ||
+    isCommunityChatPath(pathname) ||
+    /^\/posts\/[^/]+\/media\//.test(pathname)
+  ) {
     return null;
   }
 

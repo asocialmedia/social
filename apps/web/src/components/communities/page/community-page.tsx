@@ -6,11 +6,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import MobileBottomNav from "@/components/layouts/navigation/mobile/mobile-bottom-nav";
 import MobileTopBar from "@/components/layouts/navigation/mobile/mobile-top-bar";
+import { useCommunityChatViewport } from "@/hooks/use-community-chat-viewport";
 import type { CommunityRoleValue } from "@/lib/communities/client";
 import { cn } from "@/lib/utils";
 import { useActiveCommunityStore } from "@/store/active-community-store";
 
-import CommunityAvatar from "../card/community-avatar";
 import CommunityChat from "./community-chat";
 import CommunityFeed from "./community-feed";
 import CommunityHeader from "./community-header";
@@ -47,6 +47,7 @@ export default function ClientCommunity({
   threadId,
 }: ClientCommunityProps) {
   const router = useRouter();
+  const chatViewportRef = useCommunityChatViewport(view === "chat");
   const [matureAccepted, setMatureAccepted] = useState(false);
   const hasRecorded = useRef(false);
   const setActiveCommunity = useActiveCommunityStore(
@@ -118,11 +119,18 @@ export default function ClientCommunity({
       {/* The community renders either way; when gated it is blurred and made
           inert so the gate reads as a popup over the real page rather than
           replacing it. `overflow-hidden` also clips the blur's soft bleed. */}
-      <div className="relative flex min-w-0 flex-1 overflow-hidden">
+      <div
+        ref={chatViewportRef}
+        className={cn(
+          "relative flex min-h-0 min-w-0 flex-1 overflow-hidden",
+          view === "chat" &&
+            "fixed inset-x-0 top-[var(--community-chat-top,0px)] z-20 h-[var(--community-chat-height,100dvh)] md:relative md:inset-auto md:z-auto md:h-full"
+        )}
+      >
         <div
           aria-hidden={isBlocked || undefined}
           className={cn(
-            "flex min-w-0 flex-1",
+            "flex min-h-0 min-w-0 flex-1",
             isBlocked && "pointer-events-none scale-[1.03] blur-md select-none"
           )}
           inert={isBlocked || undefined}
@@ -130,50 +138,23 @@ export default function ClientCommunity({
           {/* Same column metrics as the home feed: lg:max-w-5xl on the center
               column and a w-72 rail, so the two pages share one grid instead of
               the community reading narrower with a wider rail. */}
-          <div className="border-border/60 mx-auto flex min-w-0 flex-1 flex-col bg-[hsl(var(--background-alt))] sm:border-x lg:max-w-5xl">
-            <MobileTopBar />
+          <div className="border-border/60 mx-auto flex min-h-0 min-w-0 flex-1 flex-col bg-[hsl(var(--background-alt))] sm:border-x lg:max-w-5xl">
+            {view === "posts" ? <MobileTopBar /> : null}
             {view === "chat" ? (
-              <>
-                <header className="border-border/60 flex min-h-[4.5rem] items-center gap-3 border-b px-4 sm:px-6">
-                  <CommunityAvatar
-                    accentColor={community.accentColor}
-                    avatarUrl={community.avatarUrl}
-                    className="size-10"
-                    name={community.name}
-                    slug={community.slug}
-                  />
-                  <div className="min-w-0 flex-1">
-                    <p className="text-muted-foreground text-[10px] font-semibold tracking-[0.14em] uppercase">
-                      a/{community.slug}
-                    </p>
-                    <h1 className="text-foreground truncate text-base font-bold">
-                      {community.name}
-                    </h1>
-                  </div>
-                  <span className="chip-3d text-muted-foreground hidden rounded-full px-3 py-1 text-xs sm:inline-flex">
-                    {stats.members.toLocaleString()} members
-                  </span>
-                </header>
-                <CommunitySectionNav
+              channelId && (
+                <CommunityChat
+                  key={threadId ?? channelId}
                   accentColor={community.accentColor}
-                  active="chat"
+                  avatarUrl={community.avatarUrl}
                   channelId={channelId}
+                  communityId={community.id}
+                  communityName={community.name}
+                  membership={membership}
+                  memberCount={stats.members}
                   slug={slug}
+                  threadId={threadId}
                 />
-                {channelId ? (
-                  <CommunityChat
-                    key={threadId ?? channelId}
-                    accentColor={community.accentColor}
-                    avatarUrl={community.avatarUrl}
-                    channelId={channelId}
-                    communityId={community.id}
-                    communityName={community.name}
-                    membership={membership}
-                    slug={slug}
-                    threadId={threadId}
-                  />
-                ) : null}
-              </>
+              )
             ) : (
               <>
                 <CommunityHeader
@@ -210,7 +191,7 @@ export default function ClientCommunity({
         ) : null}
       </div>
 
-      <MobileBottomNav />
+      {view === "posts" ? <MobileBottomNav /> : null}
     </>
   );
 }

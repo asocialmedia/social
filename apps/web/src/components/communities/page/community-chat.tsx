@@ -34,14 +34,11 @@ import {
 import { Textarea } from "@asm/ui/shadui/textarea";
 import {
   ArrowDown,
-  Hash,
   LockKeyhole,
-  Menu,
   MessageCircle,
   Plus,
   Pin,
   Reply,
-  Megaphone,
   Send,
   X,
 } from "lucide-react";
@@ -72,6 +69,7 @@ import CommunityRoleBadge, {
 } from "../card/community-role-badge";
 import CommunityChannelSettings from "./community-channel-settings";
 import CommunityChatMessageActions from "./community-chat-message-actions";
+import CommunityConversationHeader from "./community-conversation-header";
 import JoinButton from "./join-button";
 
 interface CommunityChatProps {
@@ -81,6 +79,7 @@ interface CommunityChatProps {
   threadId?: string;
   communityId: string;
   communityName: string;
+  memberCount: number;
   membership: {
     role: "MEMBER" | "MODERATOR" | "OWNER" | "PARTICIPANT";
     status: "ACTIVE" | "PENDING";
@@ -177,6 +176,7 @@ function CommunityChatTimeline({
   threadId,
   communityId,
   communityName,
+  memberCount,
   membership,
   slug,
 }: CommunityChatProps) {
@@ -226,10 +226,12 @@ function CommunityChatTimeline({
   const [pinsLoading, setPinsLoading] = useState(false);
   const [pinsError, setPinsError] = useState<string | null>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
+  const transcriptSize = useRef({ height: 0, width: 0 });
   const [atLatest, setAtLatest] = useState(true);
   const [hasNewActivity, setHasNewActivity] = useState(false);
   const [reconnecting, setReconnecting] = useState(false);
   const [mobileChannelsOpen, setMobileChannelsOpen] = useState(false);
+  const [toolsOpen, setToolsOpen] = useState(false);
   const [createChannelOpen, setCreateChannelOpen] = useState(false);
   const [newChannelName, setNewChannelName] = useState("");
   const [newChannelType, setNewChannelType] = useState<"ANNOUNCEMENT" | "TEXT">(
@@ -263,6 +265,14 @@ function CommunityChatTimeline({
   const followingUrl = threadId
     ? `/api/communities/${slug}/chat/threads/${threadId}/following`
     : null;
+
+  useLayoutEffect(() => {
+    const composer = composerRef.current;
+    if (composer) {
+      composer.style.height = content ? "auto" : "44px";
+      composer.style.height = `${Math.min(composer.scrollHeight, 144)}px`;
+    }
+  }, [content]);
 
   const appendMessages = useCallback((newMessages: CommunityChatMessage[]) => {
     if (newMessages.length === 0) {
@@ -620,6 +630,26 @@ function CommunityChatTimeline({
   }, [atLatest, messages]);
   // oxlint-enable react/exhaustive-effect-dependencies
 
+  useEffect(() => {
+    const transcript = transcriptRef.current;
+    if (!transcript || loading || accessRevoked) {
+      return;
+    }
+    const observer = new ResizeObserver(() => {
+      transcriptSize.current = {
+        height: transcript.clientHeight,
+        width: transcript.clientWidth,
+      };
+      if (atLatestRef.current) {
+        transcript.scrollTop = transcript.scrollHeight;
+      } else if (viewportAnchor.current) {
+        restoreCommunityChatAnchor(transcript, viewportAnchor.current);
+      }
+    });
+    observer.observe(transcript);
+    return () => observer.disconnect();
+  }, [accessRevoked, loading]);
+
   const latestVisibleSequence = messages.at(-1)?.sequence ?? null;
   useEffect(() => {
     if (
@@ -758,6 +788,22 @@ function CommunityChatTimeline({
   const onTranscriptScroll = useCallback(() => {
     const transcript = transcriptRef.current;
     if (!transcript) {
+      return;
+    }
+    const size = transcriptSize.current;
+    if (
+      size.height !== transcript.clientHeight ||
+      size.width !== transcript.clientWidth
+    ) {
+      transcriptSize.current = {
+        height: transcript.clientHeight,
+        width: transcript.clientWidth,
+      };
+      if (atLatestRef.current) {
+        transcript.scrollTop = transcript.scrollHeight;
+      } else if (viewportAnchor.current) {
+        restoreCommunityChatAnchor(transcript, viewportAnchor.current);
+      }
       return;
     }
     const nearLatest =
@@ -1271,13 +1317,13 @@ function CommunityChatTimeline({
 
   const channelList = (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex items-center justify-between gap-2 pt-3 pr-16 pb-2 pl-3 md:pr-3">
+      <div className="flex items-center justify-between gap-2 pt-5 pr-16 pb-4 pl-5">
         <div>
           <p className="text-muted-foreground text-[11px] font-semibold tracking-[0.14em] uppercase">
-            Channels
+            Conversations
           </p>
           <p className="text-foreground mt-1 text-sm font-semibold">
-            In this community
+            Choose where to join in
           </p>
         </div>
         {canManage ? (
@@ -1296,6 +1342,12 @@ function CommunityChatTimeline({
           </Button>
         ) : null}
       </div>
+      <Link
+        className="text-muted-foreground hover:text-foreground mx-4 mb-3 flex min-h-11 items-center rounded-xl px-3 text-sm font-medium"
+        href={`/a/${slug}`}
+      >
+        Community posts
+      </Link>
       {createChannelOpen && canManage ? (
         <div className="border-border/70 mx-3 mb-3 rounded-xl border bg-[hsl(var(--background))] p-3">
           <label
@@ -1342,11 +1394,11 @@ function CommunityChatTimeline({
           </Button>
         </div>
       ) : null}
-      <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4">
         {channels.map((channel) => (
           <button
             aria-current={channel.id === channelId ? "page" : undefined}
-            className={`group relative mb-1 flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left transition-colors ${channel.id === channelId ? "text-foreground bg-[color-mix(in_srgb,var(--community-accent-resolved)_12%,hsl(var(--background)))]" : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"}`}
+            className={`group relative mb-2 flex min-h-14 w-full items-center gap-3 rounded-2xl px-4 py-3 text-left transition-colors ${channel.id === channelId ? "text-foreground bg-[color-mix(in_srgb,var(--community-accent-resolved)_12%,hsl(var(--background)))]" : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"}`}
             key={channel.id}
             onClick={() => {
               setMobileChannelsOpen(false);
@@ -1354,7 +1406,7 @@ function CommunityChatTimeline({
             }}
             type="button"
           >
-            <Hash className="size-4 shrink-0 opacity-75" />
+            <MessageCircle className="size-4 shrink-0 opacity-75" />
             <span className="min-w-0 flex-1 truncate text-sm font-medium">
               {channel.name}
             </span>
@@ -1380,7 +1432,7 @@ function CommunityChatTimeline({
             threads.map((thread) => (
               <button
                 aria-current={threadId === thread.room.id ? "page" : undefined}
-                className={`mb-1 flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm transition-colors ${threadId === thread.room.id ? "text-foreground bg-[color-mix(in_srgb,var(--community-accent-resolved)_12%,hsl(var(--background)))]" : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"}`}
+                className={`mb-1 flex min-h-11 w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm transition-colors ${threadId === thread.room.id ? "text-foreground bg-[color-mix(in_srgb,var(--community-accent-resolved)_12%,hsl(var(--background)))]" : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"}`}
                 key={thread.room.id}
                 onClick={() => {
                   setMobileChannelsOpen(false);
@@ -1402,12 +1454,6 @@ function CommunityChatTimeline({
             ))
           )}
         </div>
-      </div>
-      <div className="border-border/60 border-t px-4 py-3">
-        <p className="text-muted-foreground text-[11px] leading-relaxed">
-          Channels bring the community together. Follow threads to keep up with
-          a conversation.
-        </p>
       </div>
     </div>
   );
@@ -1483,7 +1529,7 @@ function CommunityChatTimeline({
           <DialogHeader>
             <DialogTitle>Start a thread</DialogTitle>
             <DialogDescription>
-              Give this conversation a name. Everyone with access to #
+              Give this conversation a name. Everyone with access to
               {channels.find((channel) => channel.id === channelId)?.name ??
                 channelName}{" "}
               can read and join it.
@@ -1553,8 +1599,7 @@ function CommunityChatTimeline({
           <DialogHeader>
             <DialogTitle>Pinned messages</DialogTitle>
             <DialogDescription>
-              Messages community staff saved in{" "}
-              {room?.kind === "THREAD" ? channelName : `#${channelName}`}.
+              Messages community staff saved in {channelName}.
             </DialogDescription>
           </DialogHeader>
           {pinsLoading ? (
@@ -1603,130 +1648,115 @@ function CommunityChatTimeline({
         </DialogContent>
       </Dialog>
       <div className="border-border/60 flex min-h-0 flex-1 overflow-hidden border-b">
-        <aside className="surface-3d hidden w-60 shrink-0 flex-col rounded-none! md:flex">
-          {channelList}
-        </aside>
-
         <Sheet onOpenChange={setMobileChannelsOpen} open={mobileChannelsOpen}>
           <SheetContent
-            className="community-accent-scope flex w-[min(20rem,90vw)] flex-col gap-0 p-0"
+            className="community-accent-scope mx-auto flex h-[min(75dvh,36rem)] max-h-[85dvh] w-full max-w-2xl flex-col gap-0 rounded-t-3xl! p-0"
             style={communityAccentStyle(accentColor)}
-            side="left"
+            side="bottom"
           >
             <SheetHeader className="sr-only">
               <SheetTitle>{communityName} channels</SheetTitle>
               <SheetDescription>
-                Choose a channel or a thread in this community.
+                Choose a channel or a thread with {memberCount.toLocaleString()}{" "}
+                community members.
               </SheetDescription>
             </SheetHeader>
             {channelList}
           </SheetContent>
         </Sheet>
 
-        <div className="flex min-w-0 flex-1 flex-col">
-          <header className="border-border/60 flex min-h-14 items-center gap-3 border-b px-3 sm:px-5">
-            <Button
-              aria-label="Browse community channels"
-              className="icon-btn-3d size-9 rounded-full md:hidden"
-              onClick={() => setMobileChannelsOpen(true)}
-              size="icon"
-              variant="ghost"
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+          <CommunityConversationHeader
+            accentColor={accentColor}
+            avatarUrl={avatarUrl}
+            channelId={channelId}
+            channelName={channelName}
+            communityName={communityName}
+            onBrowse={() => setMobileChannelsOpen(true)}
+            onTools={() => setToolsOpen(true)}
+            reconnecting={reconnecting}
+            slug={slug}
+            thread={Boolean(threadId)}
+          />
+          <Sheet onOpenChange={setToolsOpen} open={toolsOpen}>
+            <SheetContent
+              side="bottom"
+              className="mx-auto max-h-[85dvh] w-full max-w-2xl overflow-y-auto rounded-t-3xl!"
             >
-              <Menu className="size-4" />
-            </Button>
-            <div className="grid size-9 shrink-0 place-items-center rounded-xl bg-[color-mix(in_srgb,var(--community-accent-resolved)_13%,hsl(var(--background)))] text-[var(--community-accent-resolved)]">
-              {room?.kind === "THREAD" ? (
-                <MessageCircle className="size-[18px]" />
-              ) : room?.channelType === "ANNOUNCEMENT" ? (
-                <Megaphone className="size-[18px]" />
-              ) : (
-                <Hash className="size-[18px]" />
-              )}
-            </div>
-            <div className="min-w-0 flex-1">
-              <h2 className="text-foreground truncate text-sm font-bold">
-                {room?.kind === "THREAD" ? channelName : `#${channelName}`}
-              </h2>
-              <p className="text-muted-foreground truncate text-[11px]">
-                {reconnecting
-                  ? "Reconnecting…"
-                  : room?.kind === "THREAD"
-                    ? `${room.visibility === "PRIVATE" ? "Private thread" : "Thread"} in #${channels.find((channel) => channel.id === channelId)?.name ?? "community"}`
-                    : room?.topic || `A conversation in ${communityName}`}
-              </p>
-            </div>
-            {room?.channelType === "ANNOUNCEMENT" ? (
-              <span className="chip-3d text-muted-foreground hidden rounded-full px-2.5 py-1 text-[10px] font-semibold tracking-wide uppercase sm:inline-flex">
-                Announcement
-              </span>
-            ) : null}
-            <Button
-              aria-label="Pinned messages"
-              className="size-9 shrink-0 rounded-full"
-              onClick={() => {
-                setPinsOpen(true);
-                void loadPins();
-              }}
-              size="icon"
-              variant="ghost"
-            >
-              <Pin className="size-4" />
-            </Button>
-            {canManage && room?.kind === "CHANNEL" ? (
-              <CommunityChannelSettings
-                canArchive={channels.length > 1}
-                onUpdated={(updated) => {
-                  setChannels((current) =>
-                    current
-                      .map((channel) =>
-                        channel.id === updated.id ? updated : channel
-                      )
-                      .filter((channel) => !channel.archived)
-                      .toSorted(
-                        (left, right) => left.sortOrder - right.sortOrder
-                      )
-                  );
-                  setRoom(updated);
-                  if (updated.archived) {
-                    router.push(`/a/${slug}/chat`);
-                  }
-                }}
-                room={room}
-                slug={slug}
-              />
-            ) : null}
-            {threadId && permissions?.isMember ? (
-              <Button
-                className="h-8 rounded-full px-3 text-xs"
-                disabled={savingThreadPreference}
-                onClick={updateThreadFollowing}
-                variant={followingThread ? "ghost" : "premium"}
-              >
-                {followingThread ? "Following" : "Follow thread"}
-              </Button>
-            ) : null}
-            {!threadId && canSend ? (
-              <Button
-                aria-label="Start private thread"
-                className="h-9 w-9 shrink-0 rounded-full p-0 sm:h-8 sm:w-auto sm:px-3 sm:text-xs"
-                onClick={() => setPrivateThreadOpen((open) => !open)}
-                variant="ghost"
-              >
-                <LockKeyhole className="size-4 sm:mr-1.5 sm:size-3.5" />
-                <span className="hidden sm:inline">Private thread</span>
-              </Button>
-            ) : threadId ? (
-              <Button
-                asChild
-                className="h-8 rounded-full px-3 text-xs"
-                variant="ghost"
-              >
-                <Link href={`/a/${slug}/chat/${channelId}`}>
-                  Back to channel
-                </Link>
-              </Button>
-            ) : null}
-          </header>
+              <SheetHeader>
+                <SheetTitle>{channelName}</SheetTitle>
+                <SheetDescription>
+                  {room?.topic || `A conversation in ${communityName}.`}
+                </SheetDescription>
+              </SheetHeader>
+              <div className="grid gap-2 pt-4">
+                <Button
+                  className="min-h-12 justify-start rounded-xl px-3"
+                  onClick={() => {
+                    setToolsOpen(false);
+                    setPinsOpen(true);
+                    void loadPins();
+                  }}
+                  variant="ghost"
+                >
+                  <Pin className="mr-3 size-4" />
+                  Pinned messages
+                </Button>
+                {canManage && room?.kind === "CHANNEL" ? (
+                  <CommunityChannelSettings
+                    canArchive={channels.length > 1}
+                    onUpdated={(updated) => {
+                      setChannels((current) =>
+                        current
+                          .map((channel) =>
+                            channel.id === updated.id ? updated : channel
+                          )
+                          .filter((channel) => !channel.archived)
+                          .toSorted(
+                            (left, right) => left.sortOrder - right.sortOrder
+                          )
+                      );
+                      setRoom(updated);
+                      if (updated.archived) {
+                        router.push(`/a/${slug}/chat`);
+                      }
+                    }}
+                    room={room}
+                    slug={slug}
+                  />
+                ) : null}
+                {threadId && permissions?.isMember ? (
+                  <Button
+                    className="min-h-12 justify-start rounded-xl px-3 text-sm"
+                    disabled={savingThreadPreference}
+                    onClick={updateThreadFollowing}
+                    variant={followingThread ? "ghost" : "premium"}
+                  >
+                    {followingThread ? "Following" : "Follow thread"}
+                  </Button>
+                ) : null}
+
+                {!threadId && canSend ? (
+                  <Button
+                    className="min-h-12 justify-start rounded-xl px-3"
+                    onClick={() => {
+                      setToolsOpen(false);
+                      setPrivateThreadOpen(true);
+                    }}
+                    variant="ghost"
+                  >
+                    <LockKeyhole className="mr-3 size-4" />
+                    Start a private thread
+                  </Button>
+                ) : null}
+                {room?.channelType === "ANNOUNCEMENT" ? (
+                  <p className="text-muted-foreground px-3 text-sm">
+                    Only community staff can post announcements here.
+                  </p>
+                ) : null}
+              </div>
+            </SheetContent>
+          </Sheet>
           {actionError || statusMessage ? (
             <div
               className="border-border/60 flex items-center justify-between gap-3 border-b px-4 py-2 text-xs"
@@ -1754,145 +1784,138 @@ function CommunityChatTimeline({
             </div>
           ) : null}
           {threadRoot ? (
-            <div className="border-border/60 bg-muted/20 border-b px-5 py-3">
-              <p className="text-muted-foreground mb-1 text-[11px]">
-                Thread started by{" "}
-                <span className="text-foreground font-semibold">
-                  {displayName(threadRoot.sender)}
-                </span>
-              </p>
-              <p className="text-foreground/80 line-clamp-2 text-sm whitespace-pre-wrap">
+            <details className="border-border/50 shrink-0 border-b px-4 py-2 text-xs">
+              <summary className="text-muted-foreground cursor-pointer">
+                Thread started by {displayName(threadRoot.sender)}
+              </summary>
+              <p className="text-foreground/80 mt-2 max-h-24 overflow-y-auto whitespace-pre-wrap">
                 {threadRoot.payload?.type === "text"
                   ? threadRoot.payload.content
                   : "The original message was deleted. Replies remain in this thread."}
               </p>
-            </div>
+            </details>
           ) : null}
 
-          {privateThreadOpen && !threadId ? (
-            <div className="border-border/60 mx-3 mt-3 rounded-2xl border bg-[hsl(var(--background))] p-4 shadow-sm sm:mx-5">
-              <div className="mb-3 flex items-start justify-between gap-4">
-                <div>
-                  <h3 className="text-foreground text-sm font-bold">
-                    Start a private thread
-                  </h3>
-                  <p className="text-muted-foreground mt-1 text-xs">
+          {!threadId ? (
+            <Dialog
+              open={privateThreadOpen}
+              onOpenChange={(open) => {
+                setPrivateThreadOpen(open);
+                if (!open) {
+                  privateThreadRequestId.current = null;
+                  setMemberOptions([]);
+                  setMemberCursor(null);
+                }
+              }}
+            >
+              <DialogContent className="max-h-[85dvh] overflow-y-auto">
+                <DialogHeader>
+                  <DialogTitle>Start a private thread</DialogTitle>
+                  <DialogDescription>
                     Only invited active members and community staff can read
                     this conversation.
-                  </p>
-                </div>
-                <Button
-                  aria-label="Close private thread form"
-                  className="icon-btn-3d size-8 rounded-full"
-                  onClick={() => {
-                    setPrivateThreadOpen(false);
-                    privateThreadRequestId.current = null;
-                    setMemberOptions([]);
-                    setMemberCursor(null);
-                  }}
-                  size="icon"
-                  variant="ghost"
-                >
-                  <X className="size-4" />
-                </Button>
-              </div>
-              <div className="grid gap-2">
-                <Input
-                  aria-label="Private thread name"
-                  maxLength={64}
-                  onChange={(event) => setPrivateThreadName(event.target.value)}
-                  placeholder="What’s this conversation about?"
-                  value={privateThreadName}
-                />
-                <Textarea
-                  aria-label="Private thread starter message"
-                  className="min-h-16 resize-y text-sm"
-                  maxLength={4000}
-                  onChange={(event) =>
-                    setPrivateThreadStarter(event.target.value)
-                  }
-                  placeholder="Add a first message"
-                  value={privateThreadStarter}
-                />
-                <Input
-                  aria-label="Find community members to invite"
-                  autoComplete="off"
-                  onChange={(event) => {
-                    const query = event.target.value;
-                    setMemberSearch(query);
-                    if (query.trim().length < 2) {
-                      setMemberOptions([]);
-                      setMemberCursor(null);
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="grid gap-2">
+                  <Input
+                    aria-label="Private thread name"
+                    maxLength={64}
+                    onChange={(event) =>
+                      setPrivateThreadName(event.target.value)
                     }
-                  }}
-                  placeholder="Find members by name or username"
-                  value={memberSearch}
-                />
-                {selectedMemberIds.length > 0 ? (
-                  <p className="text-muted-foreground text-xs">
-                    {selectedMemberIds.length} member
-                    {selectedMemberIds.length === 1 ? "" : "s"} invited
-                  </p>
-                ) : null}
-                {membersLoading ? (
-                  <p className="text-muted-foreground text-xs">
-                    Searching members…
-                  </p>
-                ) : null}
-                <div className="flex max-h-36 flex-wrap gap-2 overflow-y-auto">
-                  {memberOptions.map((member) => {
-                    const selected = selectedMemberIds.includes(member.id);
-                    return (
-                      <button
-                        aria-pressed={selected}
-                        className={`chip-3d rounded-full px-3 py-1.5 text-xs ${selected ? "text-foreground" : "text-muted-foreground"}`}
-                        key={member.id}
-                        onClick={() =>
-                          setSelectedMemberIds((current) =>
-                            selected
-                              ? current.filter((id) => id !== member.id)
-                              : [...current, member.id]
-                          )
-                        }
-                        type="button"
-                      >
-                        {member.displayName}{" "}
-                        <span className="opacity-60">@{member.username}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-                {memberCursor ? (
-                  <Button
-                    className="h-8 w-fit text-xs"
-                    disabled={membersLoading}
-                    onClick={async () => {
-                      await loadMoreMembers();
-                    }}
-                    variant="ghost"
-                  >
-                    Show more members
-                  </Button>
-                ) : null}
-                <div className="flex justify-end">
-                  <Button
-                    disabled={
-                      creatingThread ||
-                      !privateThreadName.trim() ||
-                      !privateThreadStarter.trim()
+                    placeholder="What’s this conversation about?"
+                    value={privateThreadName}
+                  />
+                  <Textarea
+                    aria-label="Private thread starter message"
+                    className="min-h-16 resize-y text-sm"
+                    maxLength={4000}
+                    onChange={(event) =>
+                      setPrivateThreadStarter(event.target.value)
                     }
-                    onClick={async () => {
-                      await createPrivateThread();
+                    placeholder="Add a first message"
+                    value={privateThreadStarter}
+                  />
+                  <Input
+                    aria-label="Find community members to invite"
+                    autoComplete="off"
+                    onChange={(event) => {
+                      const query = event.target.value;
+                      setMemberSearch(query);
+                      if (query.trim().length < 2) {
+                        setMemberOptions([]);
+                        setMemberCursor(null);
+                      }
                     }}
-                    variant="premium"
-                  >
-                    {creatingThread
-                      ? "Opening thread…"
-                      : "Create private thread"}
-                  </Button>
+                    placeholder="Find members by name or username"
+                    value={memberSearch}
+                  />
+                  {selectedMemberIds.length > 0 ? (
+                    <p className="text-muted-foreground text-xs">
+                      {selectedMemberIds.length} member
+                      {selectedMemberIds.length === 1 ? "" : "s"} invited
+                    </p>
+                  ) : null}
+                  {membersLoading ? (
+                    <p className="text-muted-foreground text-xs">
+                      Searching members…
+                    </p>
+                  ) : null}
+                  <div className="flex max-h-36 flex-wrap gap-2 overflow-y-auto">
+                    {memberOptions.map((member) => {
+                      const selected = selectedMemberIds.includes(member.id);
+                      return (
+                        <button
+                          aria-pressed={selected}
+                          className={`chip-3d rounded-full px-3 py-1.5 text-xs ${selected ? "text-foreground" : "text-muted-foreground"}`}
+                          key={member.id}
+                          onClick={() =>
+                            setSelectedMemberIds((current) =>
+                              selected
+                                ? current.filter((id) => id !== member.id)
+                                : [...current, member.id]
+                            )
+                          }
+                          type="button"
+                        >
+                          {member.displayName}{" "}
+                          <span className="opacity-60">@{member.username}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {memberCursor ? (
+                    <Button
+                      className="h-8 w-fit text-xs"
+                      disabled={membersLoading}
+                      onClick={async () => {
+                        await loadMoreMembers();
+                      }}
+                      variant="ghost"
+                    >
+                      Show more members
+                    </Button>
+                  ) : null}
+                  <div className="flex justify-end">
+                    <Button
+                      disabled={
+                        creatingThread ||
+                        !privateThreadName.trim() ||
+                        !privateThreadStarter.trim()
+                      }
+                      onClick={async () => {
+                        await createPrivateThread();
+                      }}
+                      variant="premium"
+                    >
+                      {creatingThread
+                        ? "Opening thread…"
+                        : "Create private thread"}
+                    </Button>
+                  </div>
                 </div>
-              </div>
-            </div>
+              </DialogContent>
+            </Dialog>
           ) : null}
 
           {loadError ? (
@@ -1913,7 +1936,7 @@ function CommunityChatTimeline({
             <>
               <div
                 aria-live="polite"
-                className="flex min-h-0 flex-1 flex-col overflow-y-auto px-3 py-4 [overflow-anchor:none] sm:px-5"
+                className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain px-2 py-2 [overflow-anchor:none] sm:px-5 sm:py-4"
                 onScroll={onTranscriptScroll}
                 ref={transcriptRef}
                 role="log"
@@ -1944,18 +1967,14 @@ function CommunityChatTimeline({
                       A fresh place to start
                     </p>
                     <p className="text-muted-foreground mt-1 text-sm">
-                      Welcome to #{channelName}. Say hello to the community.
+                      Welcome to {channelName}.{" "}
+                      {canSend
+                        ? "Say hello to the community."
+                        : "Community conversations will appear here."}
                     </p>
                   </div>
                 ) : (
                   <div className="mt-auto space-y-1 pb-2">
-                    <div className="mb-5 flex items-center gap-3">
-                      <div className="bg-border/70 h-px flex-1" />
-                      <span className="text-muted-foreground text-[10px] font-semibold tracking-[0.13em] uppercase">
-                        {threadId ? "Thread history" : "Channel history"}
-                      </span>
-                      <div className="bg-border/70 h-px flex-1" />
-                    </div>
                     {sortedMessages.map((message, index) => {
                       const previous = sortedMessages[index - 1];
                       const linkedThread = threads.find(
@@ -1975,12 +1994,10 @@ function CommunityChatTimeline({
                       return (
                         <div key={message.id}>
                           {showDay ? (
-                            <div className="my-5 flex items-center gap-3">
-                              <div className="bg-border/60 h-px flex-1" />
+                            <div className="my-3 flex items-center justify-center gap-3">
                               <span className="text-muted-foreground text-[11px] font-medium">
                                 {formatDay(message.createdAt)}
                               </span>
-                              <div className="bg-border/60 h-px flex-1" />
                             </div>
                           ) : null}
                           <article
@@ -2036,9 +2053,11 @@ function CommunityChatTimeline({
                                 </Avatar>
                               ) : null}
                             </div>
-                            <div className="min-w-0 flex-1">
+                            <div
+                              className={`min-w-0 flex-1 ${isGrouped ? "pr-9" : ""}`}
+                            >
                               {!isGrouped ? (
-                                <div className="mb-0.5 flex min-h-8 flex-wrap items-baseline gap-x-2 gap-y-0.5 pr-20 sm:min-h-0 sm:pr-0">
+                                <div className="mb-1 flex min-h-6 flex-wrap items-baseline gap-x-1.5 gap-y-0.5 pr-9">
                                   <span className="text-foreground text-[13px] font-bold">
                                     {displayName(message.sender)}
                                   </span>
@@ -2051,7 +2070,7 @@ function CommunityChatTimeline({
                                       roleValue={message.sender.role}
                                     />
                                   ) : null}
-                                  <span className="text-muted-foreground text-[10px]">
+                                  <span className="text-muted-foreground hidden text-[10px] sm:inline">
                                     @{message.sender.username}
                                   </span>
                                   <time
@@ -2100,7 +2119,7 @@ function CommunityChatTimeline({
                                 </span>
                               ) : null}
                               {message.payload?.type === "text" ? (
-                                <p className="text-foreground/90 text-[13px] leading-[1.55] break-words whitespace-pre-wrap">
+                                <p className="text-foreground/90 text-[15px] leading-relaxed break-words whitespace-pre-wrap">
                                   {message.payload.content}
                                 </p>
                               ) : message.deletedAt ? (
@@ -2234,7 +2253,7 @@ function CommunityChatTimeline({
               {callToChat}
               {canSend ? (
                 <form
-                  className="border-border/60 mx-3 mb-3 rounded-2xl border bg-[hsl(var(--background))] p-2.5 shadow-sm sm:mx-5"
+                  className="surface-3d mx-3 mt-1 mb-[max(0.5rem,env(safe-area-inset-bottom))] shrink-0 rounded-3xl! px-2 py-1.5 sm:mx-5"
                   onSubmit={(event) => {
                     event.preventDefault();
                     void send();
@@ -2268,52 +2287,51 @@ function CommunityChatTimeline({
                       </Button>
                     </div>
                   ) : null}
-                  <Textarea
-                    aria-label={`Message #${channelName}`}
-                    className="max-h-40 min-h-11 resize-y border-0 bg-transparent px-2 py-2 text-[13px] shadow-none focus-visible:ring-0"
-                    maxLength={4000}
-                    disabled={sending}
-                    ref={composerRef}
-                    onChange={(event) => {
-                      setContent(event.target.value);
-                      if (pendingDraft) {
-                        setPendingDraft(null);
-                      }
-                      if (sendError) {
-                        setSendError(null);
-                      }
-                    }}
-                    onKeyDown={(event) => {
-                      if (
-                        event.key === "Enter" &&
-                        !event.shiftKey &&
-                        !event.nativeEvent.isComposing
-                      ) {
-                        event.preventDefault();
-                        void send();
-                      }
-                    }}
-                    placeholder={
-                      threadId
-                        ? `Message ${channelName}`
-                        : `Message #${channelName}`
-                    }
-                    value={content}
-                  />
-                  <div className="border-border/50 flex items-center justify-between border-t px-1 pt-2">
-                    <span className="text-muted-foreground text-[10px]">
-                      Enter to send · Shift + Enter for a new line
+                  <div className="flex items-end gap-2">
+                    <Textarea
+                      rows={1}
+                      aria-label={`Message ${channelName}`}
+                      className="max-h-36 min-h-11 resize-none border-0 bg-transparent px-3 py-2.5 text-base shadow-none focus-visible:ring-0"
+                      maxLength={4000}
+                      disabled={sending}
+                      ref={composerRef}
+                      onChange={(event) => {
+                        setContent(event.target.value);
+                        if (pendingDraft) {
+                          setPendingDraft(null);
+                        }
+                        if (sendError) {
+                          setSendError(null);
+                        }
+                      }}
+                      onKeyDown={(event) => {
+                        if (
+                          event.key === "Enter" &&
+                          !event.shiftKey &&
+                          !event.nativeEvent.isComposing
+                        ) {
+                          event.preventDefault();
+                          void send();
+                        }
+                      }}
+                      placeholder={`Message ${channelName}`}
+                      value={content}
+                    />
+                    <span className="sr-only">
+                      Enter to send. Shift + Enter for a new line.
                     </span>
                     <Button
                       aria-label="Send message"
-                      className="h-8 gap-2 rounded-full px-3.5"
+                      className="size-11 shrink-0 rounded-full p-0"
                       disabled={!content.trim() || sending}
                       size="sm"
                       type="submit"
                       variant="premium"
                     >
-                      <span>{sending ? "Sending…" : "Send"}</span>
-                      <Send className="size-3.5" />
+                      <span className="sr-only">
+                        {sending ? "Sending…" : "Send"}
+                      </span>
+                      <Send className="size-4" />
                     </Button>
                   </div>
                   {sendError ? (

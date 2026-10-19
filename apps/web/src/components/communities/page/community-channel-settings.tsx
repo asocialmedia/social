@@ -88,7 +88,7 @@ export default function CommunityChannelSettings({
       <DialogTrigger asChild>
         <Button
           aria-label="Channel settings"
-          className="size-9 rounded-full"
+          className="min-h-12 w-full justify-start gap-3 rounded-xl px-3"
           onClick={() => {
             setName(room.name);
             setTopic(room.topic ?? "");
@@ -99,15 +99,15 @@ export default function CommunityChannelSettings({
             setRequestError(null);
             setConfirmArchive(false);
           }}
-          size="icon"
           variant="ghost"
         >
           <Settings2 className="size-4" />
+          <span>Channel settings</span>
         </Button>
       </DialogTrigger>
       <DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>#{room.name} settings</DialogTitle>
+          <DialogTitle>{room.name} settings</DialogTitle>
           <DialogDescription>
             Shape this channel for your community.
           </DialogDescription>

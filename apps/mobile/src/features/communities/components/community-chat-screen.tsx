@@ -22,10 +22,9 @@ import { fetch as streamingFetch } from "expo/fetch";
 import {
   ArrowDown,
   ArrowLeft,
-  Hash,
   LockKeyhole,
   MessageCircle,
-  Menu,
+  ChevronDown,
   MoreHorizontal,
   Pencil,
   Pin,
@@ -40,6 +39,7 @@ import {
   ActivityIndicator,
   AppState,
   FlatList,
+  Keyboard,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -285,7 +285,7 @@ function CommunityChatChannelsContent() {
                     { backgroundColor: `${communityAccent}18` },
                   ]}
                 >
-                  <Hash color={communityAccent} size={18} />
+                  <MessageCircle color={communityAccent} size={18} />
                 </View>
                 <View style={styles.flex}>
                   <View style={styles.row}>
@@ -374,10 +374,6 @@ function CommunityChatTimelineScreen() {
   const insets = useSafeAreaInsets();
   const { isDark, theme } = useAppTheme();
   const { user } = useSessionContext();
-  const unreadNotifications = useUnreadNotificationCount(
-    user?.id ?? null,
-    Boolean(user)
-  );
   const [detail, setDetail] = useState<CommunityDetail | null>(null);
   const [channels, setChannels] = useState<CommunityChatRoom[]>([]);
   const [room, setRoom] = useState<CommunityChatRoom | null>(null);
@@ -392,6 +388,21 @@ function CommunityChatTimelineScreen() {
   const [hasOlder, setHasOlder] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [content, setContent] = useState("");
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
+  useEffect(() => {
+    const show = Keyboard.addListener(
+      Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow",
+      () => setKeyboardVisible(true)
+    );
+    const hide = Keyboard.addListener(
+      Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide",
+      () => setKeyboardVisible(false)
+    );
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, []);
   const [sending, setSending] = useState(false);
   const [pending, setPending] = useState<{
     clientId: string;
@@ -401,6 +412,7 @@ function CommunityChatTimelineScreen() {
   const [sendError, setSendError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [channelsOpen, setChannelsOpen] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const [atLatest, setAtLatest] = useState(true);
   const atLatestRef = useRef(true);
   const windowAtLiveTail = useRef(true);
@@ -689,6 +701,8 @@ function CommunityChatTimelineScreen() {
                 setPending(null);
                 setReplyTarget(null);
                 setActionMessage(null);
+                setDetailsOpen(false);
+                setChannelsOpen(false);
                 setMessageActionMode(null);
                 setEditContent("");
                 setPins(null);
@@ -1098,13 +1112,6 @@ function CommunityChatTimelineScreen() {
     );
   }
 
-  const headerUser = user
-    ? {
-        avatarUrl: user.image ?? null,
-        id: user.id,
-        username: user.username ?? "",
-      }
-    : null;
   const channelName = room?.name ?? "Community chat";
   const parentChannelName =
     channels.find((channel) => channel.id === channelId)?.name ?? "channel";
@@ -1116,117 +1123,76 @@ function CommunityChatTimelineScreen() {
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === "ios" ? "padding" : undefined}
-      keyboardVerticalOffset={insets.top + 52}
-      style={[styles.root, { backgroundColor: theme.containerBg }]}
+      keyboardVerticalOffset={0}
+      style={[
+        styles.root,
+        { backgroundColor: theme.containerBg, paddingTop: insets.top },
+      ]}
     >
-      <MobileHeader user={headerUser} unreadCount={unreadNotifications} />
-      {detail ? (
-        <View
+      <View
+        style={[styles.compactHeader, { borderBottomColor: theme.cardBorder }]}
+      >
+        <Pressable
+          accessibilityLabel={
+            threadId ? "Back to channel" : "Back to community posts"
+          }
+          accessibilityRole="button"
+          onPress={() =>
+            router.replace(threadId ? chatUrl(slug, channelId) : `/a/${slug}`)
+          }
+          style={styles.roomIconButton}
+        >
+          <ArrowLeft color={theme.inputText} size={20} />
+        </Pressable>
+        <Pressable
+          accessibilityLabel={`Choose conversation, currently ${channelName}`}
+          accessibilityRole="button"
+          onPress={() => setChannelsOpen(true)}
           style={[
-            styles.compactHeader,
-            { borderBottomColor: theme.cardBorder },
+            styles.flex,
+            {
+              alignItems: "center",
+              flexDirection: "row",
+              gap: 10,
+              minHeight: 48,
+            },
           ]}
         >
-          <Pressable
-            accessibilityLabel={
-              threadId ? "Back to channel" : "Browse community channels"
-            }
-            onPress={() => {
-              if (threadId) {
-                if (router.canGoBack()) {
-                  router.back();
-                } else {
-                  router.replace(chatUrl(slug, channelId));
-                }
-              } else {
-                setChannelsOpen(true);
-              }
-            }}
-            style={styles.roomIconButton}
-          >
-            {threadId ? (
-              <ArrowLeft color={communityAccent} size={19} />
-            ) : (
-              <Hash color={communityAccent} size={17} />
-            )}
-          </Pressable>
+          {detail ? (
+            <CommunityAvatar community={detail.community} size={34} />
+          ) : null}
           <View style={styles.flex}>
             <Text
               numberOfLines={1}
-              style={[styles.channelName, { color: theme.inputText }]}
+              style={[styles.communityName, { color: theme.inputText }]}
             >
-              {threadId ? channelName : `#${channelName}`}
+              {detail?.community.name ?? "Community"}
             </Text>
-            <Text
-              numberOfLines={1}
-              style={[styles.channelTopic, { color: theme.dividerText }]}
+            <View
+              style={{ alignItems: "center", flexDirection: "row", gap: 4 }}
             >
-              {threadId
-                ? `${room?.visibility === "PRIVATE" ? "Private thread" : "Thread"} in #${parentChannelName}`
-                : room?.topic || `a/${detail.community.slug}`}
-            </Text>
+              <Text
+                numberOfLines={1}
+                style={[
+                  styles.channelTopic,
+                  { color: theme.dividerText, flexShrink: 1 },
+                ]}
+              >
+                {threadId ? "Thread" : "Chat"} · {channelName}
+              </Text>
+              <ChevronDown color={theme.dividerText} size={12} />
+            </View>
           </View>
-          <Pressable
-            accessibilityLabel="Pinned messages"
-            disabled={loadingPins}
-            onPress={() => void openPins()}
-            style={styles.roomIconButton}
-          >
-            {loadingPins ? (
-              <ActivityIndicator color={theme.dividerText} size="small" />
-            ) : (
-              <Pin color={theme.dividerText} size={18} />
-            )}
-          </Pressable>
-          <Pressable
-            accessibilityLabel="Open community channels"
-            onPress={() => setChannelsOpen(true)}
-            style={styles.roomIconButton}
-          >
-            <Menu color={theme.dividerText} size={18} />
-          </Pressable>
-        </View>
-      ) : null}
-      {threadId && permissions?.isMember ? (
-        <CommunityThreadFollowButton
-          key={
-            messages.find((message) => message.senderId === user?.id)?.id ??
-            "new"
-          }
-          options={options}
-          slug={slug}
-          threadId={threadId}
-        />
-      ) : null}
-      <View
-        style={[styles.sectionTabs, { borderBottomColor: theme.cardBorder }]}
-      >
-        <Pressable
-          onPress={() => router.replace(`/a/${slug}`)}
-          style={styles.sectionTab}
-        >
-          <Text style={[styles.sectionTabText, { color: theme.dividerText }]}>
-            Posts
-          </Text>
         </Pressable>
-        <View
-          style={[
-            styles.sectionTab,
-            styles.activeSectionTab,
-            { borderBottomColor: communityAccent },
-          ]}
+        <Pressable
+          accessibilityLabel="Conversation details and tools"
+          accessibilityRole="button"
+          onPress={() => setDetailsOpen(true)}
+          style={styles.roomIconButton}
         >
-          <Text
-            style={[
-              styles.sectionTabText,
-              { color: theme.inputText, fontFamily: "SofiaProBold" },
-            ]}
-          >
-            Chat
-          </Text>
-        </View>
+          <MoreHorizontal color={theme.dividerText} size={21} />
+        </Pressable>
       </View>
-
       {actionError ? (
         <View
           style={[
@@ -1246,29 +1212,6 @@ function CommunityChatTimelineScreen() {
           </Pressable>
         </View>
       ) : null}
-      {threadRoot ? (
-        <View
-          style={{
-            borderBottomColor: theme.cardBorder,
-            borderBottomWidth: StyleSheet.hairlineWidth,
-            paddingHorizontal: 18,
-            paddingVertical: 10,
-          }}
-        >
-          <Text style={[styles.channelTopic, { color: theme.dividerText }]}>
-            Thread started by {userLabel(threadRoot)}
-          </Text>
-          <Text
-            numberOfLines={2}
-            style={[styles.messageText, { color: theme.inputText }]}
-          >
-            {threadRoot.payload?.type === "text"
-              ? threadRoot.payload.content
-              : "Original message deleted. Replies remain in this thread."}
-          </Text>
-        </View>
-      ) : null}
-
       {loading ? (
         <View style={styles.state}>
           <ActivityIndicator color={communityAccent} />
@@ -1299,7 +1242,9 @@ function CommunityChatTimelineScreen() {
                   A fresh place to start
                 </Text>
                 <Text style={[styles.stateBody, { color: theme.dividerText }]}>
-                  Say hello to the community.
+                  {permissions?.canSend
+                    ? "Say hello to the community."
+                    : "Community conversations will appear here."}
                 </Text>
               </View>
             }
@@ -1337,12 +1282,12 @@ function CommunityChatTimelineScreen() {
             onEndReachedThreshold={0.3}
             ref={listRef}
             renderItem={({ item, index }) => {
-              const newer = messages[index - 1];
+              const previous = messages[index + 1];
               const grouped = Boolean(
-                newer &&
-                newer.senderId === item.senderId &&
+                previous &&
+                previous.senderId === item.senderId &&
                 Math.abs(
-                  new Date(newer.createdAt).getTime() -
+                  new Date(previous.createdAt).getTime() -
                     new Date(item.createdAt).getTime()
                 ) <
                   5 * 60_000
@@ -1375,7 +1320,12 @@ function CommunityChatTimelineScreen() {
                       />
                     ) : null}
                   </View>
-                  <View style={[styles.messageBody, { paddingRight: 36 }]}>
+                  <View
+                    style={[
+                      styles.messageBody,
+                      grouped && { paddingRight: 36 },
+                    ]}
+                  >
                     {!grouped ? (
                       <View style={styles.messageMeta}>
                         <Text
@@ -1580,6 +1530,9 @@ function CommunityChatTimelineScreen() {
                 {
                   backgroundColor: theme.cardBg,
                   borderColor: theme.cardBorder,
+                  marginBottom: keyboardVisible
+                    ? 8
+                    : Math.max(insets.bottom, 8),
                 },
               ]}
             >
@@ -1628,13 +1581,15 @@ function CommunityChatTimelineScreen() {
                 {
                   backgroundColor: theme.cardBg,
                   borderColor: theme.cardBorder,
-                  marginBottom: Math.max(insets.bottom, 10),
+                  marginBottom: keyboardVisible
+                    ? 8
+                    : Math.max(insets.bottom, 10),
                 },
               ]}
             >
               <TextInput
                 ref={composerRef}
-                accessibilityLabel={`Message #${channelName}`}
+                accessibilityLabel={`Message ${channelName}`}
                 editable={!sending}
                 maxLength={4000}
                 multiline
@@ -1648,11 +1603,7 @@ function CommunityChatTimelineScreen() {
                   }
                 }}
                 onSubmitEditing={() => void submit()}
-                placeholder={
-                  threadId
-                    ? `Message ${channelName}`
-                    : `Message #${channelName}`
-                }
+                placeholder={`Message ${channelName}`}
                 placeholderTextColor={theme.dividerText}
                 returnKeyType="send"
                 style={[styles.composerInput, { color: theme.inputText }]}
@@ -1702,7 +1653,65 @@ function CommunityChatTimelineScreen() {
           )}
         </>
       )}
-      <MobileBottomNav />
+
+      {detailsOpen && !loadError ? (
+        <DialogPanel
+          description={
+            room?.topic ||
+            `A conversation in ${detail?.community.name ?? "your community"}.`
+          }
+          onClose={() => setDetailsOpen(false)}
+          title={channelName}
+        >
+          <Pressable
+            accessibilityRole="button"
+            disabled={loadingPins}
+            onPress={() => {
+              setDetailsOpen(false);
+              void openPins();
+            }}
+            style={styles.actionRow}
+          >
+            <Pin color={communityAccent} size={18} />
+            <Text style={[styles.channelName, { color: theme.inputText }]}>
+              Pinned messages
+            </Text>
+          </Pressable>
+          {threadId && permissions?.isMember ? (
+            <CommunityThreadFollowButton
+              key={
+                messages.find((message) => message.senderId === user?.id)?.id ??
+                "new"
+              }
+              options={options}
+              slug={slug}
+              threadId={threadId}
+            />
+          ) : null}
+          {threadRoot ? (
+            <View
+              style={{
+                borderBottomColor: theme.cardBorder,
+                borderBottomWidth: StyleSheet.hairlineWidth,
+                paddingHorizontal: 18,
+                paddingVertical: 10,
+              }}
+            >
+              <Text style={[styles.channelTopic, { color: theme.dividerText }]}>
+                Thread started by {userLabel(threadRoot)}
+              </Text>
+              <Text
+                numberOfLines={2}
+                style={[styles.messageText, { color: theme.inputText }]}
+              >
+                {threadRoot.payload?.type === "text"
+                  ? threadRoot.payload.content
+                  : "Original message deleted. Replies remain in this thread."}
+              </Text>
+            </View>
+          ) : null}
+        </DialogPanel>
+      ) : null}
       {!loadError && pins ? (
         <DialogPanel
           description="Messages community staff saved in this conversation."
@@ -2001,7 +2010,7 @@ function CommunityChatTimelineScreen() {
       {!loadError && threadSource ? (
         <DialogPanel
           busy={creatingThread}
-          description={`Everyone with access to #${parentChannelName} can read and join this thread.`}
+          description={`Everyone with access to ${parentChannelName} can read and join this thread.`}
           onClose={() => setThreadSource(null)}
           title="Start a thread"
         >
@@ -2087,7 +2096,7 @@ function CommunityChatTimelineScreen() {
             <View style={styles.sheetHeading}>
               <View>
                 <Text style={[styles.sheetTitle, { color: theme.inputText }]}>
-                  Channels
+                  Conversations
                 </Text>
                 <Text
                   style={[styles.channelTopic, { color: theme.dividerText }]}
@@ -2097,12 +2106,31 @@ function CommunityChatTimelineScreen() {
               </View>
               <Pressable
                 accessibilityLabel="Close channels"
+                style={{
+                  alignItems: "center",
+                  justifyContent: "center",
+                  minHeight: 44,
+                  minWidth: 44,
+                }}
                 onPress={() => setChannelsOpen(false)}
               >
                 <X color={theme.dividerText} size={22} />
               </Pressable>
             </View>
             <ScrollView style={{ flexShrink: 1 }}>
+              <Pressable
+                accessibilityRole="link"
+                onPress={() => {
+                  setChannelsOpen(false);
+                  router.replace(`/a/${slug}`);
+                }}
+                style={styles.sheetChannel}
+              >
+                <ArrowLeft color={theme.dividerText} size={17} />
+                <Text style={[styles.channelName, { color: theme.inputText }]}>
+                  Community posts
+                </Text>
+              </Pressable>
               {channels.map((channel) => (
                 <Pressable
                   accessibilityRole="button"
@@ -2118,7 +2146,7 @@ function CommunityChatTimelineScreen() {
                     },
                   ]}
                 >
-                  <Hash
+                  <MessageCircle
                     color={
                       channel.id === channelId
                         ? communityAccent
@@ -2156,7 +2184,7 @@ function CommunityChatTimelineScreen() {
                       { color: theme.dividerText, marginBottom: 6 },
                     ]}
                   >
-                    Threads in #{parentChannelName}
+                    Threads in {parentChannelName}
                   </Text>
                   {threads.map((thread) => (
                     <Pressable
@@ -2262,9 +2290,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     borderBottomWidth: StyleSheet.hairlineWidth,
     flexDirection: "row",
-    gap: 11,
-    minHeight: 58,
-    paddingHorizontal: 12,
+    gap: 6,
+    minHeight: 64,
+    paddingHorizontal: 8,
   },
   composer: {
     alignItems: "flex-end",
@@ -2280,7 +2308,7 @@ const styles = StyleSheet.create({
   composerInput: {
     flex: 1,
     fontFamily: "SofiaProReg",
-    fontSize: 14,
+    fontSize: 16,
     maxHeight: 112,
     minHeight: 38,
     paddingHorizontal: 6,
@@ -2321,6 +2349,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 7,
+    paddingRight: 36,
   },
   messageRow: {
     flexDirection: "row",
@@ -2329,7 +2358,7 @@ const styles = StyleSheet.create({
     paddingTop: 9,
     transform: [{ scaleY: -1 }],
   },
-  messageText: { fontFamily: "SofiaProReg", fontSize: 14, lineHeight: 20 },
+  messageText: { fontFamily: "SofiaProReg", fontSize: 15, lineHeight: 22 },
   modalScrim: {
     backgroundColor: "rgba(0,0,0,0.38)",
     flex: 1,
@@ -2360,9 +2389,9 @@ const styles = StyleSheet.create({
   roomIconButton: {
     alignItems: "center",
     borderRadius: 18,
-    height: 36,
+    height: 44,
     justifyContent: "center",
-    width: 36,
+    width: 44,
   },
   root: { flex: 1 },
   row: { alignItems: "center", flexDirection: "row", gap: 8 },
@@ -2382,9 +2411,9 @@ const styles = StyleSheet.create({
   sendButton: {
     alignItems: "center",
     borderRadius: 15,
-    height: 38,
+    height: 44,
     justifyContent: "center",
-    width: 40,
+    width: 44,
   },
   senderName: { fontFamily: "SofiaProBold", fontSize: 13, maxWidth: "70%" },
   sheetChannel: {
