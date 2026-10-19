@@ -162,18 +162,21 @@ test("current exclusions remove already cached Gusts from native and external so
     semanticTags: ["furryimage"],
   };
   const preferences = defaultNetworkPreferences();
-  expect(networkPostAllowed(external, preferences)).toBe(true);
-  expect(networkPostAllowed(native, preferences)).toBe(true);
-  const blocked = { ...preferences, avoidedTopics: ["furry"] };
+  expect(networkPostAllowed(external, preferences)).toBe(false);
+  expect(networkPostAllowed(native, preferences)).toBe(false);
+  const explicitAllowed = { ...preferences, showExplicitContent: true };
+  expect(networkPostAllowed(external, explicitAllowed)).toBe(true);
+  expect(networkPostAllowed(native, explicitAllowed)).toBe(true);
+  const blocked = { ...explicitAllowed, avoidedTopics: ["furry"] };
   expect(networkPostAllowed(external, blocked)).toBe(false);
   expect(networkPostAllowed(native, blocked)).toBe(false);
-  expect(networkPostAllowed(external, preferences)).toBe(true);
 });
 
 test("metadata, alt text, and source labels still apply to cached presentations", () => {
   const preferences = {
     ...defaultNetworkPreferences(),
     avoidedTopics: ["furry"],
+    showExplicitContent: true,
   };
   const alt = externalPostView({
     ...source,
@@ -242,7 +245,10 @@ test("new accounts or accounts with no configured interests strictly do not rece
     { ...source, tags: ["nsfw"] },
     { ...source, tags: ["18+"] },
     { ...source, tags: ["r18"] },
+    { ...source, tags: ["furryart"] },
+    { ...source, tags: ["yiff"] },
     { ...source, text: "Some art #nsfw" },
+    { ...source, text: "Some art #furry" },
   ];
 
   for (const post of adultPosts) {
