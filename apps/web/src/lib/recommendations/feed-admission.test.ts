@@ -3,7 +3,7 @@ import { expect, test } from "bun:test";
 import { admitFeedRead } from "./feed-admission";
 
 test("navigation bursts wait within downstream capacity and cancelled queued work never starts", async () => {
-  const release = Promise.withResolvers<undefined>();
+  const release = Promise.withResolvers<boolean>();
   let active = 0;
   let maximum = 0;
   let started = 0;
@@ -29,7 +29,7 @@ test("navigation bursts wait within downstream capacity and cancelled queued wor
   controller.abort();
   await expect(cancelled).rejects.toBeDefined();
   expect(started).toBe(32);
-  release.resolve(undefined);
+  release.resolve(true);
   expect(await Promise.all(reads)).toHaveLength(64);
   expect(maximum).toBe(32);
   expect(cancelledWorkStarted).toBe(false);
