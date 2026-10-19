@@ -74,7 +74,9 @@ import CommunityRoleBadge, {
 import CommunityChannelSettings from "./community-channel-settings";
 import CommunityChatMessageActions from "./community-chat-message-actions";
 import CommunityConversationHeader from "./community-conversation-header";
-import CommunityWorkspaceNavigation from "./community-workspace-navigation";
+import CommunityWorkspaceNavigation, {
+  communityNavigationRowClassName,
+} from "./community-workspace-navigation";
 import JoinButton from "./join-button";
 
 interface CommunityChatProps {
@@ -1358,21 +1360,27 @@ function CommunityChatTimeline({
       "You are timed out from contributing to this community. You can still read along.",
   };
 
+  const parentChannelName = channels.find(
+    (item) => item.id === channelId
+  )?.name;
+
   const channelList = (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex items-center justify-between gap-2 px-4 pt-4 pb-3">
-        <div>
-          <p className="text-muted-foreground text-[11px] font-semibold tracking-[0.14em] uppercase">
-            Conversations
-          </p>
-          <p className="text-foreground mt-1 text-sm font-semibold">
-            Choose where to join in
-          </p>
-        </div>
+      <div className="flex min-h-12 shrink-0 items-center justify-between gap-2 pr-2 pl-5">
+        <h2 className="text-muted-foreground flex items-baseline gap-2 text-xs font-semibold">
+          Channels{" "}
+          <span className="text-muted-foreground text-xs font-normal tabular-nums">
+            {channels.length}
+          </span>
+        </h2>
         {canManage ? (
           <Button
-            aria-label="Create channel"
-            className="icon-btn-3d size-11 shrink-0 rounded-full"
+            aria-label={
+              createChannelOpen ? "Cancel channel creation" : "Create channel"
+            }
+            aria-expanded={createChannelOpen}
+            aria-controls="community-create-channel"
+            className="size-11 shrink-0 rounded-lg"
             onClick={() => setCreateChannelOpen((open) => !open)}
             size="icon"
             variant="ghost"
@@ -1386,7 +1394,10 @@ function CommunityChatTimeline({
         ) : null}
       </div>
       {createChannelOpen && canManage ? (
-        <div className="border-border/70 mx-3 mb-3 rounded-xl border bg-[hsl(var(--background))] p-3">
+        <div
+          id="community-create-channel"
+          className="border-border/70 mx-3 mb-3 rounded-xl border bg-[hsl(var(--background))] p-3"
+        >
           <label
             className="text-muted-foreground mb-1.5 block text-xs font-medium"
             htmlFor="community-channel-name"
@@ -1395,6 +1406,7 @@ function CommunityChatTimeline({
           </label>
           <Input
             autoFocus
+            className="min-h-11"
             id="community-channel-name"
             maxLength={64}
             onChange={(event) => setNewChannelName(event.target.value)}
@@ -1410,7 +1422,7 @@ function CommunityChatTimeline({
             {(["TEXT", "ANNOUNCEMENT"] as const).map((type) => (
               <button
                 aria-pressed={newChannelType === type}
-                className={`chip-3d rounded-full px-2.5 py-1 text-[11px] ${newChannelType === type ? "text-foreground" : "text-muted-foreground"}`}
+                className={`chip-3d min-h-11 flex-1 rounded-lg px-2.5 py-2 text-xs ${newChannelType === type ? "text-foreground" : "text-muted-foreground"}`}
                 key={type}
                 onClick={() => setNewChannelType(type)}
                 type="button"
@@ -1420,7 +1432,7 @@ function CommunityChatTimeline({
             ))}
           </div>
           <Button
-            className="mt-3 h-8 w-full text-xs"
+            className="mt-3 min-h-11 w-full text-sm"
             disabled={!newChannelName.trim() || creatingChannel}
             onClick={async () => {
               await createChannel();
@@ -1431,11 +1443,11 @@ function CommunityChatTimeline({
           </Button>
         </div>
       ) : null}
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4">
+      <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
         {channels.map((channel) => (
           <button
             aria-current={channel.id === channelId ? "page" : undefined}
-            className={`group relative mb-2 flex min-h-14 w-full items-center gap-3 rounded-2xl px-4 py-3 text-left transition-colors ${channel.id === channelId ? "text-foreground bg-[color-mix(in_srgb,var(--community-accent-resolved)_12%,hsl(var(--background)))]" : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"}`}
+            className={`${communityNavigationRowClassName} ${channel.id === channelId ? "text-foreground bg-[color-mix(in_srgb,var(--community-accent-resolved)_9%,hsl(var(--background)))] font-semibold" : "text-foreground/80 hover:bg-muted/60 hover:text-foreground"}`}
             key={channel.id}
             onClick={() => {
               if (!desktopNavigation) {
@@ -1446,32 +1458,38 @@ function CommunityChatTimeline({
             type="button"
           >
             <MessageCircle className="size-4 shrink-0 opacity-75" />
-            <span className="min-w-0 flex-1 truncate text-sm font-medium">
+            <span className="min-w-0 flex-1 truncate text-sm">
               {channel.name}
             </span>
             {channel.channelType === "ANNOUNCEMENT" ? (
-              <span className="text-[9px] font-bold tracking-wide uppercase opacity-55">
+              <span className="text-muted-foreground text-xs font-medium">
                 Staff
               </span>
             ) : null}
             {channel.id === channelId ? (
-              <span className="absolute inset-y-2 left-0 w-[3px] rounded-full bg-[var(--community-accent-resolved)]" />
+              <span className="absolute inset-y-3 left-0 w-0.5 rounded-full bg-[var(--community-accent-resolved)]" />
             ) : null}
           </button>
         ))}
-        <div className="border-border/50 mt-4 border-t px-1 pt-3">
-          <p className="text-muted-foreground px-2 pb-1.5 text-[10px] font-semibold tracking-[0.12em] uppercase">
-            Threads in this channel
-          </p>
+        <div className="border-border/50 mt-3 border-t pt-2">
+          <h2 className="text-muted-foreground flex min-h-8 items-center gap-2 px-3 text-xs font-semibold">
+            Threads{" "}
+            <span
+              className="min-w-0 truncate font-normal"
+              title={parentChannelName}
+            >
+              {parentChannelName}
+            </span>
+          </h2>
           {threads.length === 0 ? (
-            <p className="text-muted-foreground px-2 py-2 text-xs leading-relaxed">
-              Threads started in this channel appear here.
+            <p className="text-muted-foreground px-3 py-2 text-xs leading-relaxed">
+              No threads yet.
             </p>
           ) : (
             threads.map((thread) => (
               <button
                 aria-current={threadId === thread.room.id ? "page" : undefined}
-                className={`mb-1 flex min-h-11 w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm transition-colors ${threadId === thread.room.id ? "text-foreground bg-[color-mix(in_srgb,var(--community-accent-resolved)_12%,hsl(var(--background)))]" : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"}`}
+                className={`${communityNavigationRowClassName} ${threadId === thread.room.id ? "text-foreground bg-[color-mix(in_srgb,var(--community-accent-resolved)_9%,hsl(var(--background)))] font-semibold" : "text-foreground/80 hover:bg-muted/60 hover:text-foreground"}`}
                 key={thread.room.id}
                 onClick={() => {
                   if (!desktopNavigation) {
@@ -1488,7 +1506,10 @@ function CommunityChatTimeline({
                 ) : (
                   <MessageCircle className="size-3.5 shrink-0" />
                 )}
-                <span className="min-w-0 flex-1 truncate">
+                <span
+                  className="line-clamp-2 min-w-0 flex-1 break-words"
+                  title={thread.room.name}
+                >
                   {thread.room.name}
                 </span>
               </button>

@@ -29,6 +29,9 @@ import { cn } from "@/lib/utils";
 
 import CommunityAvatar from "../card/community-avatar";
 
+export const communityNavigationRowClassName =
+  "group relative mb-0.5 flex min-h-11 w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm leading-5 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-ring";
+
 export const COMMUNITY_NAVIGATION_ID = "community-workspace-navigation";
 
 export default function CommunityWorkspaceNavigation({
@@ -75,8 +78,10 @@ export default function CommunityWorkspaceNavigation({
     <nav
       aria-label={`${communityName} navigation`}
       className={cn(
-        "flex gap-2 p-2",
-        collapsed ? "flex-col" : "border-border/50 border-b"
+        "flex",
+        collapsed
+          ? "flex-col gap-2 p-2"
+          : "border-border/50 gap-4 border-b px-4"
       )}
     >
       {links.map(({ key, label, href, icon: Icon }) => (
@@ -92,11 +97,18 @@ export default function CommunityWorkspaceNavigation({
             }
           }}
           className={cn(
-            "focus-visible:outline-ring flex min-h-11 min-w-11 items-center justify-center gap-2 rounded-xl px-3 text-sm font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2",
+            "focus-visible:outline-ring flex min-h-11 min-w-11 items-center justify-center gap-2 text-sm transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px]",
+            collapsed ? "rounded-xl px-3" : "flex-1 border-b-2 px-1",
             active === key
-              ? "text-foreground bg-[color-mix(in_srgb,var(--community-accent-resolved)_14%,hsl(var(--background)))]"
-              : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
-            !collapsed && "flex-1"
+              ? "text-foreground font-semibold"
+              : "text-muted-foreground hover:text-foreground font-medium",
+            !collapsed &&
+              (active === key
+                ? "border-[var(--community-accent-resolved)]"
+                : "border-transparent"),
+            collapsed &&
+              active === key &&
+              "bg-[color-mix(in_srgb,var(--community-accent-resolved)_12%,hsl(var(--background)))]"
           )}
         >
           <Icon className="size-[18px] shrink-0" />
@@ -194,7 +206,7 @@ export default function CommunityWorkspaceNavigation({
                 Switch between community posts, chat and channels.
               </SheetDescription>
             </SheetHeader>
-            <div className="panel-3d group-data-[state=open]:animate-in group-data-[state=open]:slide-in-from-left group-data-[state=closed]:animate-out group-data-[state=closed]:slide-out-to-left pointer-events-auto relative flex h-full w-80 max-w-[calc(100vw-2.75rem)] flex-col gap-0 rounded-l-none! rounded-r-3xl! pt-[env(safe-area-inset-top)] pb-[calc(env(safe-area-inset-bottom)+6rem)] group-data-[state=closed]:duration-240 group-data-[state=open]:duration-250 motion-reduce:animate-none! sm:w-96 sm:max-w-sm">
+            <div className="panel-3d group-data-[state=open]:animate-in group-data-[state=open]:slide-in-from-left group-data-[state=closed]:animate-out group-data-[state=closed]:slide-out-to-left pointer-events-auto relative flex h-full w-80 max-w-[calc(100vw-2.75rem)] flex-col gap-0 rounded-l-none! rounded-r-2xl! pt-[env(safe-area-inset-top)] pb-[calc(env(safe-area-inset-bottom)+6rem)] group-data-[state=closed]:duration-240 group-data-[state=open]:duration-250 motion-reduce:animate-none!">
               <SheetClose
                 aria-label="Close"
                 className="icon-btn-3d absolute top-[calc(env(safe-area-inset-top)+0.75rem)] right-3 flex size-11 items-center justify-center rounded-full"
@@ -203,9 +215,14 @@ export default function CommunityWorkspaceNavigation({
               </SheetClose>
               <div className="border-border/50 flex min-h-16 shrink-0 items-center gap-3 border-b py-3 pr-16 pl-4">
                 {identity}
-                <span className="min-w-0 truncate text-sm font-bold">
-                  {communityName}
-                </span>
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold">
+                    {communityName}
+                  </p>
+                  <p className="text-muted-foreground truncate text-xs">
+                    a/{slug}
+                  </p>
+                </div>
               </div>
               {sectionLinks(false)}
               {navigation}

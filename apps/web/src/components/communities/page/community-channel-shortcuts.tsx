@@ -9,6 +9,8 @@ import { useEffect, useState } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
 
+import { communityNavigationRowClassName } from "./community-workspace-navigation";
+
 export default function CommunityChannelShortcuts({
   slug,
   onNavigate,
@@ -72,9 +74,12 @@ function ChannelShortcuts({
     return () => controller.abort();
   }, [slug]);
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto p-3">
-      <h2 className="text-muted-foreground mb-3 px-2 text-[11px] font-semibold tracking-[0.12em] uppercase">
-        Channels
+    <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
+      <h2 className="text-muted-foreground flex min-h-12 items-center gap-2 px-3 text-xs font-semibold">
+        Channels{" "}
+        {status === "ready" ? (
+          <span className="font-normal tabular-nums">{channels.length}</span>
+        ) : null}
       </h2>
       {status === "loading" ? (
         <output aria-label="Loading channels" className="block space-y-2">
@@ -106,12 +111,14 @@ function ChannelShortcuts({
           key={channel.id}
           href={`/a/${slug}/chat/${channel.id}`}
           onClick={onNavigate}
-          className="text-muted-foreground hover:bg-muted/60 hover:text-foreground flex min-h-12 items-center gap-3 rounded-xl px-3 py-2 text-sm"
+          className={`${communityNavigationRowClassName} text-foreground/80 hover:bg-muted/60 hover:text-foreground`}
         >
           <MessageCircle className="size-4 shrink-0" />
           <span className="min-w-0 flex-1 truncate">{channel.name}</span>
           {channel.channelType === "ANNOUNCEMENT" ? (
-            <span className="text-[10px] uppercase">Staff</span>
+            <span className="text-muted-foreground text-xs font-medium">
+              Staff
+            </span>
           ) : null}
         </Link>
       ))}

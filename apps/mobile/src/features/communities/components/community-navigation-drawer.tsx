@@ -148,14 +148,14 @@ export function CommunityNavigationDrawer({
               borderColor: theme.cardBorder,
               opacity: entrance,
               paddingBottom: insets.bottom + 96,
-              paddingLeft: insets.left + 16,
+              paddingLeft: insets.left + 12,
               paddingTop: insets.top + 12,
               transform: [
                 {
                   translateX: entrance.interpolate({
                     inputRange: [0, 1],
                     outputRange: [
-                      reduceMotion ? 0 : -Math.min(width * 0.86, 384),
+                      reduceMotion ? 0 : -Math.min(width * 0.86, 320),
                       0,
                     ],
                   }),
@@ -165,20 +165,33 @@ export function CommunityNavigationDrawer({
           ]}
         >
           <View style={styles.heading}>
-            <Text
-              accessibilityRole="header"
-              numberOfLines={2}
-              style={[styles.title, { color: theme.inputText }]}
-            >
-              {communityName}
-            </Text>
+            <View style={{ flex: 1 }}>
+              <Text
+                accessibilityRole="header"
+                numberOfLines={1}
+                style={[styles.title, { color: theme.inputText }]}
+              >
+                {communityName}
+              </Text>
+              <Text
+                numberOfLines={1}
+                style={{
+                  color: theme.dividerText,
+                  fontFamily: "SofiaProReg",
+                  fontSize: 12,
+                  marginTop: 2,
+                }}
+              >
+                a/{slug}
+              </Text>
+            </View>
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Close community sidebar"
               onPress={close}
               style={styles.close}
             >
-              <X color={theme.dividerText} size={22} />
+              <X color={theme.dividerText} size={18} />
             </Pressable>
           </View>
           <View
@@ -187,7 +200,14 @@ export function CommunityNavigationDrawer({
             <Pressable
               accessibilityRole="link"
               accessibilityState={{ selected: active === "posts" }}
-              style={[...rowStyle(active === "posts"), styles.tab]}
+              style={[
+                styles.row,
+                styles.tab,
+                {
+                  borderBottomColor:
+                    active === "posts" ? accent : "transparent",
+                },
+              ]}
               onPress={() => {
                 if (active === "posts") {
                   close();
@@ -205,7 +225,14 @@ export function CommunityNavigationDrawer({
               <Pressable
                 accessibilityRole="link"
                 accessibilityState={{ selected: active === "chat" }}
-                style={[...rowStyle(active === "chat"), styles.tab]}
+                style={[
+                  styles.row,
+                  styles.tab,
+                  {
+                    borderBottomColor:
+                      active === "chat" ? accent : "transparent",
+                  },
+                ]}
                 onPress={() =>
                   navigate(
                     channelId
@@ -227,7 +254,7 @@ export function CommunityNavigationDrawer({
                 accessibilityRole="header"
                 style={[styles.eyebrow, { color: theme.dividerText }]}
               >
-                Channels
+                Channels · {(availableChannels ?? channels).length}
               </Text>
             ) : null}
             {status === "loading" ? (
@@ -277,7 +304,7 @@ export function CommunityNavigationDrawer({
                 style={[styles.threads, { borderTopColor: theme.cardBorder }]}
               >
                 <Text style={[styles.eyebrow, { color: theme.dividerText }]}>
-                  Threads in this channel
+                  Threads
                 </Text>
                 {threads.map((thread) => (
                   <Pressable
@@ -299,7 +326,7 @@ export function CommunityNavigationDrawer({
                       <MessageCircle color={accent} size={16} />
                     )}
                     <Text
-                      numberOfLines={1}
+                      numberOfLines={2}
                       style={[styles.channelName, { color: theme.inputText }]}
                     >
                       {thread.room.name}
@@ -332,32 +359,40 @@ export function CommunityNavigationDrawer({
 }
 
 const styles = StyleSheet.create({
-  channelName: { flex: 1, fontFamily: "SofiaProReg", fontSize: 14 },
+  channelName: {
+    flex: 1,
+    fontFamily: "SofiaProReg",
+    fontSize: 14,
+    lineHeight: 20,
+  },
   close: {
     alignItems: "center",
     justifyContent: "center",
-    minHeight: 48,
-    minWidth: 48,
+    minHeight: 44,
+    minWidth: 44,
   },
   error: { gap: 12, padding: 12 },
   eyebrow: {
     fontFamily: "SofiaProBold",
-    fontSize: 11,
-    letterSpacing: 1,
+    fontSize: 12,
     paddingHorizontal: 12,
-    paddingVertical: 16,
-    textTransform: "uppercase",
+    paddingVertical: 12,
   },
-  heading: { alignItems: "center", flexDirection: "row", minHeight: 56 },
+  heading: {
+    alignItems: "center",
+    flexDirection: "row",
+    minHeight: 56,
+    paddingHorizontal: 4,
+  },
   label: { fontFamily: "SofiaProBold", fontSize: 14 },
   panel: {
-    borderBottomRightRadius: 26,
+    borderBottomRightRadius: 16,
     borderColor: "transparent",
     borderRightWidth: StyleSheet.hairlineWidth,
-    borderTopRightRadius: 26,
+    borderTopRightRadius: 16,
     bottom: 0,
     left: 0,
-    maxWidth: 384,
+    maxWidth: 320,
     paddingRight: 12,
     position: "absolute",
     top: 0,
@@ -365,27 +400,34 @@ const styles = StyleSheet.create({
   },
   row: {
     alignItems: "center",
-    borderRadius: 14,
+    borderRadius: 8,
     flexDirection: "row",
     gap: 10,
-    marginBottom: 4,
+    marginBottom: 0,
     minHeight: 48,
     paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingVertical: 8,
   },
   scrim: { backgroundColor: "rgba(0,0,0,0.55)", flex: 1 },
   sections: {
     borderBottomWidth: StyleSheet.hairlineWidth,
     flexDirection: "row",
-    gap: 8,
-    paddingBottom: 8,
+    gap: 16,
+    paddingBottom: 0,
   },
   staff: {
     fontFamily: "SofiaProBold",
-    fontSize: 9,
-    textTransform: "uppercase",
+    fontSize: 12,
   },
-  tab: { flex: 1, justifyContent: "center" },
+  tab: {
+    backgroundColor: "transparent",
+    borderBottomWidth: 2,
+    borderRadius: 0,
+    flex: 1,
+    justifyContent: "center",
+    minHeight: 44,
+    paddingHorizontal: 0,
+  },
   threads: { borderTopWidth: StyleSheet.hairlineWidth, marginTop: 12 },
-  title: { flex: 1, fontFamily: "SofiaProBold", fontSize: 16 },
+  title: { fontFamily: "SofiaProBold", fontSize: 14 },
 });
