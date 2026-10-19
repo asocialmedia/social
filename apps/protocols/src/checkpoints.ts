@@ -39,7 +39,7 @@ export class RedisCheckpointStore implements CheckpointStore {
 
   constructor(
     redis: Pick<Redis, "get" | "set" | "eval"> & Partial<Pick<Redis, "del">>,
-    options: Pick<JetstreamOptions, "dids" | "endpoint"> & {
+    options: Pick<JetstreamOptions, "dids" | "endpoint" | "collections"> & {
       owner?: string;
       leaseMs?: number;
     }

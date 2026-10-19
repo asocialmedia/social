@@ -22,6 +22,7 @@ export const networkTopicPageSchema = z.object({
 export type NetworkTopicPage = z.infer<typeof networkTopicPageSchema>;
 
 export interface NetworkTopicScope {
+  aliases?: Record<string, string[]>;
   avoided: Record<string, string[]>;
   interests: Record<string, string[]>;
   related?: Record<string, string[]>;

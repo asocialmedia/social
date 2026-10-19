@@ -8,6 +8,7 @@ const related = new Map<string, string[]>([
   ["First child", ["Nested subject"]],
 ]);
 let requests = 0;
+let cacheReads = 0;
 const originalFetch = globalThis.fetch;
 globalThis.fetch = Object.assign(
   async (input: string | URL | Request) => {
@@ -34,7 +35,10 @@ mock.module("../redis", () => ({
   ...realRedis,
   redis: {
     ...realRedis.redis,
-    get: (key: string) => Promise.resolve(saved.get(key) ?? null),
+    get: (key: string) => {
+      cacheReads += 1;
+      return Promise.resolve(saved.get(key) ?? null);
+    },
     set: (key: string, value: string) => {
       saved.set(key, value);
       return Promise.resolve("OK");
@@ -83,4 +87,20 @@ test("autocomplete mixes real ASM tags and observed network subjects", async () 
   expect(matches.some((m) => m.label === "Live Bluesky subject")).toBe(true);
   const local = await networkTopicCatalog("local");
   expect(local.some((m) => m.label === "Local ASM subject")).toBe(true);
+});
+
+test("a thousand settings readers share one hydrated topic scope instead of rebuilding taxonomy per account", async () => {
+  const before = requests;
+  const reads = cacheReads;
+  const scopes = await Promise.all(
+    Array.from({ length: 1000 }, () =>
+      networkTopicScope(["Shared hydrated scope"], [], true)
+    )
+  );
+  expect(scopes.every((scope) => scope === scopes[0])).toBe(true);
+  expect(requests - before).toBe(3);
+  expect(cacheReads - reads).toBeLessThan(10);
+  const warmReads = cacheReads;
+  await networkTopicScope(["Shared hydrated scope"], [], true);
+  expect(cacheReads).toBe(warmReads);
 });

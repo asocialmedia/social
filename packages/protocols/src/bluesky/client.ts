@@ -102,12 +102,14 @@ const pageOptionsSchema = z.object({
     .regex(/^[a-zA-Z0-9,;-]+$/)
     .optional(),
   limit: z.number().int().min(1).max(50).default(20),
+  since: z.iso.datetime().optional(),
 });
 export interface FeedReadOptions {
   includePins?: boolean;
   limit?: number;
   cursor?: string;
   language?: string;
+  since?: string;
 }
 export type AuthorFeedTab = "posts" | "replies" | "media";
 
@@ -144,6 +146,10 @@ export class BlueskyClient {
   private readonly observe?: ProtocolObserver;
   private readonly rpc: Client;
   private readonly pending = new Map<string, Promise<unknown>>();
+  private readonly unavailable = new Map<
+    string,
+    { until: number; code: "restricted" | "unavailable" }
+  >();
   private active = 0;
   private blockedUntil = 0;
   private generation = 0;
@@ -228,6 +234,75 @@ export class BlueskyClient {
       60_000
     );
     return normalizeAuthor(data, this.allowExplicitMedia);
+  }
+
+  async getPublicSocialRecords(actor: string) {
+    const repo = actorSchema.parse(actor);
+    const collections = [
+      "app.bsky.feed.like",
+      "app.bsky.feed.repost",
+      "app.bsky.graph.follow",
+    ] as const;
+    const pages = await Promise.all(
+      collections.map(async (collection) => {
+        const page = await this.request(
+          "com.atproto.repo.listRecords",
+          { collection, limit: "50", repo, reverse: "true" },
+          z.object({
+            records: z
+              .array(
+                z.object({ uri: z.string().max(2300), value: z.unknown() })
+              )
+              .max(50),
+          }),
+          60_000
+        );
+        return page.records.flatMap((record) => {
+          const value = z
+            .object({
+              createdAt: z.iso.datetime({ offset: true }).optional(),
+              subject:
+                collection === "app.bsky.graph.follow"
+                  ? z.string().startsWith("did:")
+                  : z.object({ uri: postUriSchema }),
+            })
+            .safeParse(record.value);
+          if (
+            !value.success ||
+            !record.uri.startsWith(`at://${repo}/${collection}/`)
+          ) {
+            return [];
+          }
+          const actions = {
+            "app.bsky.feed.like": "like",
+            "app.bsky.feed.repost": "repost",
+            "app.bsky.graph.follow": "follow",
+          } as const;
+          const action = actions[collection];
+          return [
+            {
+              action,
+              at:
+                action === "follow"
+                  ? this.options.now()
+                  : Date.parse(value.data.createdAt ?? ""),
+              rkey: record.uri.split("/").at(-1) ?? "",
+              target:
+                typeof value.data.subject === "string"
+                  ? value.data.subject
+                  : value.data.subject.uri,
+            },
+          ];
+        });
+      })
+    );
+    return pages
+      .flat()
+      .filter(
+        (entry) =>
+          Number.isFinite(entry.at) &&
+          entry.at > this.options.now() - 7 * 86_400_000
+      );
   }
 
   async searchActors(query: string, limit = 6): Promise<ExternalAuthor[]> {
@@ -393,6 +468,7 @@ export class BlueskyClient {
         limit: String(parsed.data.limit),
         q: parsedQuery.data,
         sort,
+        ...(parsed.data.since ? { since: parsed.data.since } : {}),
         ...(parsed.data.cursor ? { cursor: parsed.data.cursor } : {}),
         ...(parsed.data.language
           ? { lang: parsed.data.language.split("-")[0] ?? "en" }
@@ -527,6 +603,16 @@ export class BlueskyClient {
     const query = new URLSearchParams(parameters);
     query.sort();
     const key = `${this.generation}:${operation}:${language ?? ""}:${query}`;
+    const resource = `${operation}:${parameters.feed ?? parameters.actor ?? parameters.repo ?? parameters.q ?? ""}:${parameters.collection ?? ""}`;
+    const resourceFailure = this.unavailable.get(resource);
+    if (resourceFailure && resourceFailure.until > this.options.now()) {
+      throw new ProtocolError(
+        resourceFailure.code,
+        "Public resource is cooling down",
+        Math.ceil((resourceFailure.until - this.options.now()) / 1000)
+      );
+    }
+    this.unavailable.delete(resource);
     const cached = this.cache.get(key);
     if (cached) {
       this.report({
@@ -595,7 +681,12 @@ export class BlueskyClient {
         } catch (error) {
           if (
             error instanceof ProtocolError &&
-            ["unavailable", "invalid_response"].includes(error.code)
+            ["unavailable", "invalid_response"].includes(error.code) &&
+            ![
+              "app.bsky.feed.getFeed",
+              "com.atproto.repo.listRecords",
+              "app.bsky.feed.searchPosts",
+            ].includes(operation)
           ) {
             const now = this.options.now();
             if (now - this.lastFailureAt > 30_000) {
@@ -610,6 +701,27 @@ export class BlueskyClient {
             // A non-availability response (e.g. rate limit, input error, auth) proves upstream is reachable.
             this.failures = 0;
             this.circuitUntil = 0;
+          }
+          if (
+            error instanceof ProtocolError &&
+            ["restricted", "unavailable"].includes(error.code)
+          ) {
+            for (const [id, entry] of this.unavailable) {
+              if (entry.until <= this.options.now()) {
+                this.unavailable.delete(id);
+              }
+            }
+            if (this.unavailable.size >= 256) {
+              this.unavailable.delete(
+                this.unavailable.keys().next().value ?? ""
+              );
+            }
+            this.unavailable.set(resource, {
+              code: error.code === "restricted" ? "restricted" : "unavailable",
+              until:
+                this.options.now() +
+                (error.code === "restricted" ? 300_000 : 5000),
+            });
           }
           throw error;
         } finally {
@@ -657,6 +769,24 @@ export class BlueskyClient {
       maxRetries: 0,
     };
     try {
+      if (operation === "com.atproto.repo.listRecords") {
+        return await this.rpc.call(
+          com.atproto.repo.listRecords,
+          {
+            collection: z
+              .enum([
+                "app.bsky.feed.like",
+                "app.bsky.feed.repost",
+                "app.bsky.graph.follow",
+              ])
+              .parse(query.get("collection")),
+            limit: 50,
+            repo: actorSchema.parse(query.get("repo")),
+            reverse: true,
+          },
+          options
+        );
+      }
       if (operation === "content_visibility") {
         try {
           const record = await this.rpc.call(
@@ -763,6 +893,7 @@ export class BlueskyClient {
             ...page,
             lang: query.get("lang") ?? undefined,
             q: query.get("q") ?? "",
+            since: query.get("since") ?? undefined,
             sort: query.get("sort") ?? "top",
           },
           options
@@ -825,15 +956,18 @@ export class BlueskyClient {
           AbortSignal.timeout(this.options.timeoutMs),
         ]);
         try {
+          let origin = "https://public.api.bsky.app";
+          if (path.startsWith("/xrpc/com.atproto.repo.listRecords?")) {
+            origin = "https://bsky.social";
+          } else if (path.startsWith("/xrpc/app.bsky.feed.searchPosts?")) {
+            origin = "https://api.bsky.app";
+          }
           const response = await abortable(
-            this.options.fetch(
-              `${path.startsWith("/xrpc/app.bsky.feed.searchPosts?") ? "https://api.bsky.app" : "https://public.api.bsky.app"}${path}`,
-              {
-                ...init,
-                redirect: "error",
-                signal,
-              }
-            ),
+            this.options.fetch(`${origin}${path}`, {
+              ...init,
+              redirect: "error",
+              signal,
+            }),
             signal
           );
           if (!response.ok) {

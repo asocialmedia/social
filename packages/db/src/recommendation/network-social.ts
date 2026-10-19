@@ -1,8 +1,10 @@
 import type { RecommendationSource } from "@asm/protocols/contracts";
+import { readPublicSocialGraph } from "@asm/protocols/discovery";
 import { and, or } from "@prisma/orm-postgres/orm-client";
 
 import { fromPrismaDateTime } from "../dates";
 import prisma from "../prisma";
+import { redis } from "../redis";
 
 export interface NetworkSocialCandidate {
   id: string;
@@ -14,13 +16,14 @@ export interface NetworkSocialCandidate {
 export async function networkSocialCandidates(viewerId: string) {
   const empty = {
     external: [] as NetworkSocialCandidate[],
+    externalConnections: [] as { id: string; via: string[] }[],
     followedIds: [] as string[],
     native: [] as NetworkSocialCandidate[],
   };
   if (!viewerId) {
     return empty;
   }
-  const [follows, blocks] = await Promise.all([
+  const [follows, blocks, remoteFollows] = await Promise.all([
     prisma.orm.public.Follows.select("followingId")
       .where({ followerId: viewerId })
       .all(),
@@ -28,6 +31,10 @@ export async function networkSocialCandidates(viewerId: string) {
       .where((block) =>
         or(block.blockerId.eq(viewerId), block.blockedId.eq(viewerId))
       )
+      .all(),
+    prisma.orm.public.ExternalFollows.where({ userId: viewerId })
+      .include("author")
+      .limit(80)
       .all(),
   ]);
   const blocked = new Set(
@@ -38,10 +45,10 @@ export async function networkSocialCandidates(viewerId: string) {
   const followedIds = follows
     .map((follow) => follow.followingId)
     .filter((id) => !blocked.has(id) && id !== viewerId);
-  if (!followedIds.length) {
+  if (!followedIds.length && !remoteFollows.length) {
     return empty;
   }
-  const [people, votes, external] = await Promise.all([
+  const [people, votes, external, remoteActivity] = await Promise.all([
     prisma.orm.public.Users.select("id", "username", "displayName", "avatarUrl")
       .where((person) =>
         and(person.id.in(followedIds), person.banned.eq(false))
@@ -60,6 +67,12 @@ export async function networkSocialCandidates(viewerId: string) {
       .orderBy((entry) => entry.updatedAt.desc())
       .limit(100)
       .all(),
+    readPublicSocialGraph(
+      redis,
+      remoteFollows
+        .filter((row) => row.author.status === "active")
+        .map((row) => row.authorDid)
+    ).catch(() => []),
   ]);
   const byId = new Map(people.map((person) => [person.id, person]));
   function collect(
@@ -91,20 +104,86 @@ export async function networkSocialCandidates(viewerId: string) {
       weight: Math.min(1, candidate.weight / 3),
     }));
   }
+  const connections = new Map<string, Set<string>>();
+  for (const activity of remoteActivity) {
+    if (activity.action !== "follow") {
+      continue;
+    }
+    const via = connections.get(activity.target) ?? new Set<string>();
+    via.add(activity.actor);
+    connections.set(activity.target, via);
+  }
+  const remotePeople = new Map(
+    remoteFollows.map((row) => [row.authorDid, row.author])
+  );
+  const remoteCandidates = new Map<string, NetworkSocialCandidate>();
+  for (const activity of remoteActivity) {
+    if (activity.action === "follow") {
+      continue;
+    }
+    const author = remotePeople.get(activity.actor);
+    if (!author) {
+      continue;
+    }
+    const candidate = remoteCandidates.get(activity.target) ?? {
+      id: activity.target,
+      sources: [],
+      weight: 0,
+    };
+    if (!candidate.sources.some((source) => source.id === activity.actor)) {
+      candidate.sources.push({
+        action: activity.action,
+        avatarUrl: null,
+        displayName: author.displayName,
+        id: author.did,
+        username: author.handle,
+      });
+      candidate.weight = Math.min(
+        1,
+        candidate.weight +
+          (activity.action === "repost" ? 0.5 : 0.25) *
+            0.5 ** ((Date.now() - activity.at) / (3 * 86_400_000))
+      );
+    }
+    remoteCandidates.set(activity.target, candidate);
+  }
+  const externalCandidates = collect(
+    external.flatMap((entry) =>
+      entry.externalPost?.available
+        ? [
+            {
+              at: fromPrismaDateTime(entry.updatedAt),
+              id: entry.externalPost.uri,
+              userId: entry.userId,
+            },
+          ]
+        : []
+    )
+  );
+  for (const candidate of remoteCandidates.values()) {
+    const existing = externalCandidates.find(
+      (entry) => entry.id === candidate.id
+    );
+    if (existing) {
+      existing.weight = Math.min(1, existing.weight + candidate.weight);
+      existing.sources = [...existing.sources, ...candidate.sources].slice(
+        0,
+        5
+      );
+    } else {
+      externalCandidates.push({
+        ...candidate,
+        sources: candidate.sources.slice(0, 5),
+      });
+    }
+  }
   return {
-    external: collect(
-      external.flatMap((entry) =>
-        entry.externalPost?.available
-          ? [
-              {
-                at: fromPrismaDateTime(entry.updatedAt),
-                id: entry.externalPost.uri,
-                userId: entry.userId,
-              },
-            ]
-          : []
-      )
-    ).slice(0, 25),
+    external: externalCandidates
+      .toSorted((a, b) => b.weight - a.weight)
+      .slice(0, 25),
+    externalConnections: [...connections]
+      .map(([id, via]) => ({ id, via: [...via] }))
+      .slice(0, 30),
     followedIds: [...byId.keys()],
     native: collect(
       votes.map((vote) => ({

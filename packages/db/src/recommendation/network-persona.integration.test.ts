@@ -225,7 +225,8 @@ test("learning deduplicates, expands observed relationships and stays isolated b
     graphNamespace: namespace,
   });
   expect(anime.persona.learnedInterests).toContain("figurines");
-  expect(anime.profile.expandedEntityWeights?.["3d-art"]).toBeGreaterThan(0);
+  expect(anime.profile.expandedEntityWeights?.["3d-art"]).toBeUndefined();
+  expect(anime.profile.tagWeights["3d art"]).toBeGreaterThan(0);
   const otherProfile = await getNetworkPersona(animeId, softwareProfile, {
     graphNamespace: namespace,
   });

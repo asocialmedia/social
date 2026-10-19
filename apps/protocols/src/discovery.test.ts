@@ -657,6 +657,7 @@ test("personalized sources search the live corpus and cursors stay bound to thei
 
 test("video discovery searches chosen interests instead of relying only on general video feeds", async () => {
   const searches: string[] = [];
+  const sorts: string[] = [];
   const discovery = new BlueskyDiscovery({
     allowsRecommendations: async () => true,
     getAuthorFeed: async () => ({ cursor: null, items: [] }),
@@ -666,7 +667,8 @@ test("video discovery searches chosen interests instead of relying only on gener
       cursor: null,
       items: [{ displayName: "Video", uri: publicFeed }],
     }),
-    searchPosts: async (query) => {
+    searchPosts: async (query, sort) => {
+      sorts.push(sort);
       searches.push(query);
       return {
         cursor: null,
@@ -751,4 +753,65 @@ test("discovery advances the live catalog after its source buffers drain", async
   const second = await discovery.read("latest", first.cursor ?? undefined);
   expect(cursors).toEqual([undefined, "next-catalog"]);
   expect(second.items[0]?.id).not.toBe(first.items[0]?.id);
+});
+
+test("author policy work is bounded by the selected page rather than the complete candidate buffers", async () => {
+  let checks = 0;
+  const feeds = Array.from(
+    { length: 4 },
+    (_, index) => `at://did:plc:source/app.bsky.feed.generator/pool${index}`
+  );
+  const discovery = new BlueskyDiscovery(
+    {
+      allowsRecommendations: async () => {
+        checks += 1;
+        return true;
+      },
+      getAuthorFeed: async () => ({ cursor: null, items: [] }),
+      getFeed: async (feed) => ({
+        cursor: null,
+        items: Array.from({ length: 50 }, (_, index) =>
+          post(
+            index + feeds.indexOf(feed) * 50,
+            `did:web:author${index + feeds.indexOf(feed) * 50}.test`
+          )
+        ),
+      }),
+      getProfile: async () => profile,
+    },
+    feeds
+  );
+  const page = await discovery.read("personalized");
+  expect(page.items).toHaveLength(20);
+  expect(checks).toBe(20);
+  expect(page.cursor).not.toBeNull();
+});
+
+test("distinct cold discovery scopes queue behind the active load bound", async () => {
+  let active = 0;
+  let peak = 0;
+  const discovery = new BlueskyDiscovery({
+    allowsRecommendations: async () => true,
+    getAuthorFeed: async () => ({ cursor: null, items: [] }),
+    getFeed: async () => ({ cursor: null, items: [] }),
+    getProfile: async () => profile,
+    getSuggestedFeeds: async () => ({ cursor: null, items: [] }),
+    searchPosts: async (query) => {
+      active += 1;
+      peak = Math.max(peak, active);
+      await new Promise((resolve) => {
+        setTimeout(resolve, 100);
+      });
+      active -= 1;
+      return { cursor: null, items: [{ ...post(1), text: query }] };
+    },
+  });
+  const pages = await Promise.all(
+    Array.from({ length: 16 }, (_, index) =>
+      discovery.read("personalized", undefined, "en", [`topic ${index}`])
+    )
+  );
+  expect(pages).toHaveLength(16);
+  expect(pages.every((page) => page.items.length === 1)).toBe(true);
+  expect(peak).toBeLessThanOrEqual(8);
 });

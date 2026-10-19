@@ -624,3 +624,129 @@ test("live catalog queries use the bounded public transport with topic and conti
   await client.getSuggestedFeeds({ limit: 5, query: "astronomy" });
   expect(requests).toHaveLength(2);
 });
+
+test("a restricted generator cools down across cursors without blocking healthy feeds, then can recover", async () => {
+  let now = Date.now();
+  let calls = 0;
+  const client = new BlueskyClient({
+    fetch: async (url) => {
+      calls += 1;
+      return new URL(url).searchParams.get("feed")?.endsWith("restricted") &&
+        now < 1e15
+        ? new Response(null, { status: 403 })
+        : Response.json({ feed: [] });
+    },
+    now: () => now,
+  });
+  const restricted = "at://did:plc:fixture/app.bsky.feed.generator/restricted";
+  await expect(client.getFeed(restricted)).rejects.toMatchObject({
+    code: "restricted",
+  });
+  await expect(
+    client.getFeed(restricted, { cursor: "another-page" })
+  ).rejects.toMatchObject({ code: "restricted" });
+  expect(calls).toBe(1);
+  await client.getFeed("at://did:plc:fixture/app.bsky.feed.generator/healthy");
+  expect(calls).toBe(2);
+  now = 1e15;
+  await client.getFeed(restricted);
+  expect(calls).toBe(3);
+  client.close();
+});
+
+test("discovery search sends its freshness window to AppView", async () => {
+  const client = new BlueskyClient({
+    fetch: async (url) => {
+      expect(new URL(url).searchParams.get("since")).toBe(
+        "2026-10-18T00:00:00.000Z"
+      );
+      return Response.json({ posts: [] });
+    },
+  });
+  await client.searchPosts("engineering", "latest", {
+    since: "2026-10-18T00:00:00.000Z",
+  });
+  client.close();
+});
+
+test("failures in independent feed generators cannot open the AppView-wide breaker", async () => {
+  const client = new BlueskyClient({
+    fetch: async (url) =>
+      new URL(url).pathname.endsWith("getFeed")
+        ? new Response(null, { status: 503 })
+        : Response.json(profileFixture),
+    maxRetries: 0,
+  });
+  for (let index = 0; index < 6; index += 1) {
+    // oxlint-disable-next-line no-await-in-loop -- independent generator failures exercise the breaker threshold.
+    await expect(
+      client.getFeed(
+        `at://did:plc:fixture/app.bsky.feed.generator/failing${index}`
+      )
+    ).rejects.toMatchObject({ code: "unavailable" });
+  }
+  expect(await client.getProfile(authorDid)).toMatchObject({ id: authorDid });
+  client.close();
+});
+
+test("public social bootstrap reads bounded repository records without credentials or post bodies", async () => {
+  const client = new BlueskyClient({
+    fetch: async (url, options) => {
+      expect(new URL(url).origin).toBe("https://bsky.social");
+      expect(new Headers(options.headers).has("authorization")).toBe(false);
+      const collection = new URL(url).searchParams.get("collection") ?? "";
+      return Response.json({
+        records: [
+          {
+            cid: postFixture.cid,
+            uri: `at://${authorDid}/${collection}/fixture`,
+            value: {
+              $type: collection,
+              createdAt: new Date().toISOString(),
+              subject:
+                collection === "app.bsky.graph.follow"
+                  ? "did:plc:other"
+                  : { cid: postFixture.cid, uri: postFixture.uri },
+            },
+          },
+        ],
+      });
+    },
+    maxConcurrentRequests: 4,
+  });
+  const records = await client.getPublicSocialRecords(authorDid);
+  expect(records.map((record) => record.action).toSorted()).toEqual([
+    "follow",
+    "like",
+    "repost",
+  ]);
+  expect(
+    records.every(
+      (record) =>
+        !Object.hasOwn(record, "value") && !Object.hasOwn(record, "text")
+    )
+  ).toBe(true);
+  client.close();
+});
+
+test("a restricted public repository does not cool down other actors' social records", async () => {
+  const other = "did:plc:other";
+  const requested: string[] = [];
+  const client = new BlueskyClient({
+    fetch: (url) => {
+      const repo = new URL(url).searchParams.get("repo") ?? "";
+      requested.push(repo);
+      return Promise.resolve(
+        repo === authorDid
+          ? new Response(null, { status: 403 })
+          : Response.json({ records: [] })
+      );
+    },
+    maxConcurrentRequests: 4,
+  });
+  await expect(client.getPublicSocialRecords(authorDid)).rejects.toMatchObject({
+    code: "restricted",
+  });
+  expect(await client.getPublicSocialRecords(other)).toEqual([]);
+  expect(requested.filter((repo) => repo === other)).toHaveLength(3);
+});

@@ -435,7 +435,7 @@ export async function getNetworkPersona(
   const version = await redis
     .get(`rec:suggestions:version:${userId}`)
     .catch(() => null);
-  const key = `rec:persona:v2:{${createHash("sha256")
+  const key = `rec:persona:v3:{${createHash("sha256")
     .update(
       JSON.stringify([
         userId,
@@ -542,6 +542,14 @@ async function buildNetworkPersona(
       base = await getRecommendationProfile(userId);
     }
 
+    if (selected.interests.length) {
+      base = {
+        ...base,
+        expandedEntityWeights: weakPrior(base.expandedEntityWeights),
+        tagWeights: weakPrior(base.tagWeights),
+        topicAffinities: weakPrior(base.topicAffinities),
+      };
+    }
     // Existing durable activity remains part of the default persona without counting the same signal twice.
     profile = {
       ...base,
@@ -603,7 +611,15 @@ async function buildNetworkPersona(
     .toSorted((a, b) => b[1] - a[1])
     .slice(0, 12)
     .map(([topic]) => topic);
-  const avoidedTopics = Object.entries(learned.negativeTagWeights ?? {})
+  const deliberateAvoidance = buildUserProfile(
+    signals.filter(
+      (signal) => signal.kind === "downvote" || signal.kind === "notInterested"
+    ),
+    { now }
+  );
+  const avoidedTopics = Object.entries(
+    deliberateAvoidance.negativeTagWeights ?? {}
+  )
     .filter(([, weight]) => weight > 0)
     .toSorted((a, b) => b[1] - a[1])
     .slice(0, 32)

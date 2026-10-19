@@ -37,7 +37,7 @@ export async function waitForRetry(
 
 export interface JetstreamWorkerOptions {
   store: CheckpointStore;
-  streamOptions: Pick<JetstreamOptions, "dids" | "endpoint">;
+  streamOptions: Pick<JetstreamOptions, "dids" | "endpoint" | "collections">;
   signal: AbortSignal;
   health: ProtocolsHealth;
   logger: ProtocolLogger;

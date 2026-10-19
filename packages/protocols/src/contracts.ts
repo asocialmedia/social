@@ -35,6 +35,7 @@ export interface ExternalMedia {
 }
 
 export interface RecommendationSource {
+  action?: "like" | "repost";
   id: string;
   username: string;
   displayName: string;

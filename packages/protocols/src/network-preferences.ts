@@ -196,7 +196,7 @@ export const networkPreferencesUpdateSchema = z.object({
 export function networkPreferenceScope(
   settings: Pick<NetworkSettings, "preferences" | "revision" | "topicScope">
 ): string {
-  return `v4:${settings.preferences.activeProfileId}:${settings.revision}:${settings.topicScope?.version ?? "exact"}`;
+  return `v6:${settings.preferences.activeProfileId}:${settings.revision}:${settings.topicScope?.version ?? "exact"}`;
 }
 
 // Unicode word boundaries handle prose. Compound metadata can surround a longer

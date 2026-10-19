@@ -229,6 +229,7 @@ export const externalPostSchema: z.ZodType<ExternalPost> = z.lazy(() =>
     recommendationSources: z
       .array(
         z.object({
+          action: z.enum(["like", "repost"]).optional(),
           avatarUrl: z.string().nullable(),
           displayName: z.string(),
           id: z.string(),
@@ -471,6 +472,7 @@ export async function readDiscoveryWindow(
     const items = page.items.filter((item) => !knownIds.has(item.id));
     if (
       items.length ||
+      options.content === "video" ||
       !page.cursor ||
       visited.has(page.cursor) ||
       index === 2
@@ -485,3 +487,9 @@ export async function readDiscoveryWindow(
 
 export { RedisBoundedStore } from "./bounded-store";
 export type { BoundedStore, CacheLease } from "./bounded-store";
+
+export {
+  recordPublicSocialEvent,
+  recordPublicSocialSnapshot,
+  readPublicSocialGraph,
+} from "./public-social-graph";

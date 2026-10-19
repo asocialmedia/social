@@ -29,12 +29,23 @@ export function mergeTopicWeights(
   return result;
 }
 
+const topicPatterns = new Map<string, RegExp>();
+
 function topicPattern(topic: string): RegExp {
+  const existing = topicPatterns.get(topic);
+  if (existing) {
+    return existing;
+  }
   const escaped = topic.replaceAll(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(
+  const pattern = new RegExp(
     `(?:^|[^\\p{L}\\p{N}_])${escaped}(?=$|[^\\p{L}\\p{N}_])`,
     "u"
   );
+  if (topicPatterns.size >= 512) {
+    topicPatterns.delete(topicPatterns.keys().next().value ?? "");
+  }
+  topicPatterns.set(topic, pattern);
+  return pattern;
 }
 
 function linkDomains(post: ExternalPost): string[] {

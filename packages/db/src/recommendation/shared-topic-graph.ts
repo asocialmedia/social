@@ -3,7 +3,8 @@ import { createHash } from "node:crypto";
 import { redis } from "../redis";
 import { DynamicKnowledgeGraph } from "./knowledge-graph";
 
-const PREFIX = "rec:topic-graph:v1:";
+export const SHARED_TOPIC_GRAPH_PREFIX = "rec:topic-graph:v2:";
+const PREFIX = SHARED_TOPIC_GRAPH_PREFIX;
 const TTL_SECONDS = 90 * 24 * 60 * 60;
 const UPDATE = `
 local fingerprint = ARGV[#KEYS + 1]
@@ -55,9 +56,7 @@ export async function recordSharedTopicRelations(
   if (topics.length < 2) {
     return;
   }
-  const fingerprint = createHash("sha256")
-    .update(JSON.stringify([documentId, topics]))
-    .digest("hex");
+  const fingerprint = createHash("sha256").update(documentId).digest("hex");
   await redis.eval(
     UPDATE,
     topics.length + 2,
@@ -74,7 +73,8 @@ export async function recordSharedTopicRelations(
 // Read only a bounded two-hop neighborhood, avoiding a whole-corpus load per user.
 export async function loadSharedTopicGraph(
   tags: readonly string[],
-  namespace = PREFIX
+  namespace = PREFIX,
+  minimumDocuments = 3
 ): Promise<DynamicKnowledgeGraph> {
   const graph = new DynamicKnowledgeGraph();
   let frontier = cleanTopics(tags);
@@ -97,7 +97,7 @@ export async function loadSharedTopicGraph(
       for (let offset = 0; offset < neighbors.length; offset += 2) {
         const target = neighbors[offset];
         const weight = Number(neighbors[offset + 1]);
-        if (target && Number.isFinite(weight) && weight > 0) {
+        if (target && Number.isFinite(weight) && weight >= minimumDocuments) {
           graph.addEdge(source, target, "related_to", weight);
           frontier.push(target);
         }

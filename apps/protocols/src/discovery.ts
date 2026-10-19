@@ -110,7 +110,7 @@ export class BlueskyDiscovery {
     this.actors = actors ? [...actors] : undefined;
     this.store = options.store ?? new MemoryDiscoveryStore();
     this.scope = createHash("sha256")
-      .update(JSON.stringify(["dynamic-v6", actors]))
+      .update(JSON.stringify(["dynamic-v9", actors]))
       .digest("hex")
       .slice(0, 16);
     this.timeoutMs = options.timeoutMs ?? 12_000;
@@ -272,7 +272,7 @@ export class BlueskyDiscovery {
     }
     const lease = { key, owner: crypto.randomUUID() };
     if (!(await abortable(this.store.acquire(key, lease.owner), signal))) {
-      for (let attempt = 0; attempt < 20; attempt += 1) {
+      for (let attempt = 0; attempt < 100; attempt += 1) {
         await waitForReadRetry(100, signal);
         const completed = await this.cachedPage(key, signal);
         if (completed) {
@@ -286,6 +286,14 @@ export class BlueskyDiscovery {
       const completed = await this.cachedPage(key, signal);
       if (completed) {
         return completed;
+      }
+      // Cold scopes wait behind bounded active work instead of failing while another scope warms.
+      for (
+        let attempt = 0;
+        this.activeLoads >= 8 && attempt < 100;
+        attempt += 1
+      ) {
+        await waitForReadRetry(50, signal);
       }
       if (this.activeLoads >= 8) {
         throw new ProtocolError("capacity", "Discovery is busy", 2);
@@ -428,7 +436,9 @@ export class BlueskyDiscovery {
       const feeds = [
         ...new Map(
           [
-            ...related.flatMap((matches) => matches.slice(0, 1)),
+            ...related.flatMap((matches) =>
+              matches.slice(0, content === "video" ? 2 : 1)
+            ),
             ...rotated,
           ].map((feed) => [feed.uri, feed])
         ).values(),
@@ -513,6 +523,9 @@ export class BlueskyDiscovery {
             cursor: source.cursor,
             language: locale && locale !== "all" ? locale : undefined,
             limit: this.actors ? 30 : 16,
+            since: new Date(
+              Date.now() - (mode === "trending" ? 2 : 7) * 86_400_000
+            ).toISOString(),
           };
           if (content === "video" || mode === "trending") {
             options.limit = 50;
@@ -539,7 +552,7 @@ export class BlueskyDiscovery {
           if (search && this.client.searchPosts) {
             read = this.client.searchPosts(
               source.actor.slice(7),
-              mode === "latest" ? "latest" : "top",
+              mode === "trending" ? "top" : "latest",
               options
             );
           } else if (feed && this.client.getFeed) {
@@ -557,8 +570,7 @@ export class BlueskyDiscovery {
               (mode !== "trending" || isExternalTrendingPost(post)) &&
               !isAuthenticationNotice(post.text) &&
               matchesDiscoveryLanguage(post, locale) &&
-              (mode === "personalized" ||
-                !topics.length ||
+              (!topics.length ||
                 topics.some((topic) => externalTopicMatch(post, topic) > 0))
           );
           source.cursor = page.cursor ?? undefined;
@@ -577,46 +589,6 @@ export class BlueskyDiscovery {
         }
       }
     });
-    // Public generators are algorithmic even when asocialmedia displays their candidates by date.
-    const authors = [
-      ...new Set(
-        snapshot.sources.flatMap((source) =>
-          !blocked.has(source.actor) &&
-          (mode !== "latest" ||
-            source.actor.startsWith("at://") ||
-            source.actor.startsWith("search:"))
-            ? source.items.map((post) => post.author.id)
-            : []
-        )
-      ),
-    ];
-    const allowed = new Set<string>();
-    await mapBounded(
-      authors,
-      async (author) => {
-        try {
-          if (
-            await abortable(this.client.allowsRecommendations(author), signal)
-          ) {
-            allowed.add(author);
-          }
-        } catch {
-          partial = true;
-        }
-      },
-      6
-    );
-    for (const source of snapshot.sources) {
-      if (
-        mode !== "latest" ||
-        source.actor.startsWith("at://") ||
-        source.actor.startsWith("search:")
-      ) {
-        source.items = source.items.filter((post) =>
-          allowed.has(post.author.id)
-        );
-      }
-    }
     signal.throwIfAborted();
     if (succeeded === 0) {
       throw new ProtocolError(
@@ -625,6 +597,15 @@ export class BlueskyDiscovery {
         2
       );
     }
+    const directAuthors = new Set(
+      snapshot.sources
+        .filter(
+          (source) =>
+            !source.actor.startsWith("at://") &&
+            !source.actor.startsWith("search:")
+        )
+        .flatMap((source) => source.items.map((post) => post.author.id))
+    );
     const items: ExternalPost[] = [];
     const authorCounts = new Map<string, number>();
     while (items.length < 20) {
@@ -666,6 +647,29 @@ export class BlueskyDiscovery {
         );
       }
     }
+    // Check the selected page, not hundreds of candidates that will not be displayed.
+    // Unconsumed buffers are checked when their own page is selected.
+    const needsPolicy = (post: ExternalPost) =>
+      mode !== "latest" || !directAuthors.has(post.author.id);
+    const allowed = new Set<string>();
+    await mapBounded(
+      [...new Set(items.filter(needsPolicy).map((post) => post.author.id))],
+      async (author) => {
+        try {
+          if (
+            await abortable(this.client.allowsRecommendations(author), signal)
+          ) {
+            allowed.add(author);
+          }
+        } catch {
+          partial = true;
+        }
+      },
+      6
+    );
+    const permitted = items.filter(
+      (post) => !needsPolicy(post) || allowed.has(post.author.id)
+    );
     if (mode === "latest") {
       items.sort(
         (first, second) =>
@@ -700,16 +704,16 @@ export class BlueskyDiscovery {
     }
     // Continuation buffers can outlive a source edit or deletion; resolve selected records again.
     const current =
-      cursor && this.client.getPosts && items.length > 0
+      cursor && this.client.getPosts && permitted.length > 0
         ? await abortable(
-            this.client.getPosts(items.map((post) => post.id)),
+            this.client.getPosts(permitted.map((post) => post.id)),
             signal
           )
-        : items;
+        : permitted;
     const byId = new Map(current.map((post) => [post.id, post]));
     return {
       cursor: next,
-      items: items.flatMap((post) => {
+      items: permitted.flatMap((post) => {
         const latest = byId.get(post.id);
         return latest &&
           (mode !== "trending" || isExternalTrendingPost(latest)) &&

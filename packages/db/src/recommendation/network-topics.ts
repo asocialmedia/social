@@ -16,12 +16,17 @@ import { rawQuery } from "../messages/infrastructure/raw-sql";
 import { readSqlBundle } from "../messages/infrastructure/sql-template";
 import { redis } from "../redis";
 import { networkContentTopics } from "./network-features";
+import { SHARED_TOPIC_GRAPH_PREFIX } from "./shared-topic-graph";
 
 const sql = readSqlBundle(source, { topics: ["catalog"] }).topics;
 const provider = createKnowledgeTopicProvider();
 const pending = new Map<string, Promise<NetworkTopicPage>>();
 const cachePrefix = "rec:topic-taxonomy:v3:";
-const scopeMemo = new Map<string, { at: number; scope: NetworkTopicScope }>();
+const scopeMemo = new Map<
+  string,
+  { at: number; scope: NetworkTopicScope; hydrated: boolean }
+>();
+const scopePending = new Map<string, Promise<NetworkTopicScope>>();
 
 function cacheKey(kind: string, value: string) {
   return `${cachePrefix}${kind}:${createHash("sha256")
@@ -89,7 +94,9 @@ export async function knowledgeTopicPage(
 export async function networkTopicCatalog(query = ""): Promise<NetworkTopic[]> {
   const [{ rows }, nodes] = await Promise.all([
     rawQuery<{ topic: string }>(sql.catalog, [query], { topic: "pg/text@1" }),
-    redis.zrevrange("rec:topic-graph:v1:nodes", 0, 199).catch(() => []),
+    redis
+      .zrevrange(`${SHARED_TOPIC_GRAPH_PREFIX}nodes`, 0, 199)
+      .catch(() => []),
   ]);
   const observed = nodes.flatMap((key) => {
     const [, encoded] = key.split(":neighbors:");
@@ -137,9 +144,38 @@ export async function networkTopicScope(
 ): Promise<NetworkTopicScope> {
   const memoKey = JSON.stringify([interests, avoidedTopics]);
   const previous = scopeMemo.get(memoKey);
-  if (!refresh && previous && Date.now() - previous.at < 30_000) {
+  if (
+    previous &&
+    (!refresh || previous.hydrated) &&
+    Date.now() - previous.at < 30_000
+  ) {
     return previous.scope;
   }
+  const pendingKey = `${memoKey}:${refresh}`;
+  const existing = scopePending.get(pendingKey);
+  if (existing) {
+    return existing;
+  }
+  const work = buildNetworkTopicScope(
+    interests,
+    avoidedTopics,
+    refresh,
+    memoKey
+  );
+  scopePending.set(pendingKey, work);
+  try {
+    return await work;
+  } finally {
+    scopePending.delete(pendingKey);
+  }
+}
+
+async function buildNetworkTopicScope(
+  interests: readonly string[],
+  avoidedTopics: readonly string[],
+  refresh: boolean,
+  memoKey: string
+): Promise<NetworkTopicScope> {
   const roots = [...new Set([...interests, ...avoidedTopics])];
   const expansions = new Map<string, NetworkTopicPage>();
   // Each request explores one level only. Existing child caches supply deeper evidence without recursively issuing upstream reads.
@@ -211,6 +247,9 @@ export async function networkTopicScope(
     ),
   ]);
   const interestsMap = Object.fromEntries(interestEntries);
+  const aliases = Object.fromEntries(
+    interests.map((root) => [root, expansions.get(root)?.aliases ?? []])
+  );
   const qualifiers = Object.fromEntries(
     interests
       .filter((root) => expansions.get(root)?.requiresContext)
@@ -219,22 +258,25 @@ export async function networkTopicScope(
   const avoided = Object.fromEntries(avoidedEntries);
   const related = Object.fromEntries(
     interests.map((root) => {
-      const aliases = new Set(
+      const rootAliases = new Set(
         [root, ...(expansions.get(root)?.aliases ?? [])].map(normalizeInterest)
       );
       return [
         root,
-        (interestsMap[root] ?? []).filter((term) => !aliases.has(term)),
+        (interestsMap[root] ?? []).filter((term) => !rootAliases.has(term)),
       ];
     })
   );
   const scope: NetworkTopicScope = {
+    aliases,
     avoided,
     interests: interestsMap,
     qualifiers,
     related,
     version: createHash("sha256")
-      .update(JSON.stringify([interestsMap, avoided, related, qualifiers]))
+      .update(
+        JSON.stringify([interestsMap, avoided, related, qualifiers, aliases])
+      )
       .digest("hex")
       .slice(0, 16),
   };
@@ -244,6 +286,6 @@ export async function networkTopicScope(
       scopeMemo.delete(oldest);
     }
   }
-  scopeMemo.set(memoKey, { at: Date.now(), scope });
+  scopeMemo.set(memoKey, { at: Date.now(), hydrated: refresh, scope });
   return scope;
 }
