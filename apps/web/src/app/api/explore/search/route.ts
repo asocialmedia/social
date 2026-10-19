@@ -9,6 +9,7 @@ import {
   prisma,
   searchCommunitiesForSearch,
 } from "@asm/db";
+import { postHasExplicitMedia } from "@asm/protocols/discovery";
 
 import { getSessionFromApi } from "@/lib/auth/session";
 import { explicitContentEnabled } from "@/lib/posts/explicit-content-enabled";
@@ -188,7 +189,13 @@ export async function GET(request: Request) {
     .toSorted((left, right) => right.aura - left.aura)
     .slice(0, pageSize)
     .map(mapUserData);
-  const posts = await hydrateViewCounts(rawPosts.map(mapPostData));
+  const posts = await hydrateViewCounts(
+    rawPosts
+      .map(mapPostData)
+      // Re-check text and hashtags: the stored flag can miss a post that only
+      // declares itself explicit in its body.
+      .filter((post) => showExplicitContent || !postHasExplicitMedia(post))
+  );
 
   return Response.json({ communities, posts, users });
 }

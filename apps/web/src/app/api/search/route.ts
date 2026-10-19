@@ -9,6 +9,7 @@ import {
   searchSuggestionsCache,
 } from "@asm/db";
 import type { PostsPage } from "@asm/db";
+import { postHasExplicitMedia } from "@asm/protocols/discovery";
 import type { NextRequest } from "next/server";
 
 import { getSessionFromApi } from "@/lib/auth/session";
@@ -72,7 +73,11 @@ export async function GET(request: Request) {
     }
   }
   const postRows = await query.limit(pageSize + 1).all();
-  const posts = postRows.map(mapPostData);
+  // The stored flag can miss a post that only declares itself explicit in text
+  // or a hashtag, so re-check with the same detector the feeds use.
+  const posts = postRows
+    .map(mapPostData)
+    .filter((post) => showExplicitContent || !postHasExplicitMedia(post));
 
   // The cursor must be the last SERVED row: anchoring on the look-ahead row
   // would skip a post on every page.

@@ -5,6 +5,7 @@ import {
   prisma,
   SYSTEM_MODERATION_USER_ID,
 } from "@asm/db";
+import { postHasExplicitMedia } from "@asm/protocols/discovery";
 import { siteConfig } from "@asm/ui/meta/site";
 
 import { getPostUrl } from "@/lib/seo/seo";
@@ -163,6 +164,7 @@ async function getPostEntries(): Promise<SitemapEntry[]> {
     .all();
 
   return posts
+    .filter((post) => !postHasExplicitMedia(post))
     .filter((post) => {
       const text = (post.content ?? "").trim();
       const hasMedia = post.postMedias.length > 0;
@@ -197,7 +199,11 @@ async function getPostEntries(): Promise<SitemapEntry[]> {
 }
 
 async function getGustEntries(): Promise<SitemapEntry[]> {
-  const posts = await prisma.orm.public.Posts.select("createdAt", "id")
+  const posts = await prisma.orm.public.Posts.select(
+    "content",
+    "createdAt",
+    "id"
+  )
     .include("postMedias", (media) =>
       media.where({ status: "READY" }).select("id", "_type")
     )
@@ -214,17 +220,19 @@ async function getGustEntries(): Promise<SitemapEntry[]> {
     .limit(SITEMAP_URL_LIMIT)
     .all();
 
-  return posts.map((post) => {
-    const video = post.postMedias.find((media) => media._type === "VIDEO");
-    const imageUrl = video
-      ? `${siteConfig.url}/api/media/${video.id}?thumb=1`
-      : undefined;
-    return {
-      ...(imageUrl ? { images: [imageUrl] } : {}),
-      lastModified: fromPrismaDateTime(post.createdAt),
-      url: `${siteConfig.url}/gusts?id=${post.id}`,
-    };
-  });
+  return posts
+    .filter((post) => !postHasExplicitMedia(post))
+    .map((post) => {
+      const video = post.postMedias.find((media) => media._type === "VIDEO");
+      const imageUrl = video
+        ? `${siteConfig.url}/api/media/${video.id}?thumb=1`
+        : undefined;
+      return {
+        ...(imageUrl ? { images: [imageUrl] } : {}),
+        lastModified: fromPrismaDateTime(post.createdAt),
+        url: `${siteConfig.url}/gusts?id=${post.id}`,
+      };
+    });
 }
 
 async function getUserEntries(): Promise<SitemapEntry[]> {
