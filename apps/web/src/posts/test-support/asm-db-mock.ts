@@ -66,6 +66,7 @@ export const asmDbMockBase = {
   fromPrismaDateTime: (value: Date): Date => value,
   generateLocalEmbedding: (): number[] =>
     Array.from({ length: EMBEDDING_DIMENSION ?? 384 }).fill(0) as number[],
+  getClientIpFromHeaders: () => "127.0.0.1",
   getCommentDataInclude: () => ({ user: true }),
   getCommentDataQuery: () => ({
     where: () => ({ all: () => Promise.resolve([]) }),
@@ -87,8 +88,10 @@ export const asmDbMockBase = {
   getPrivateUserSelect: () => ({}),
   getPublicUserSelect: () => ({}),
   getSubscribedCommunityIds: () => Promise.resolve([]),
+  getTrustedIngressIp: () => "127.0.0.1",
   getUserDataSelect: () => ({}),
   grantBadge: () => Promise.resolve(true),
+  hashViewerId: () => "test-viewer",
   hydrateViewCounts: (items: unknown[]) => Promise.resolve(items),
   invalidateAuraSignals: () => Promise.resolve(),
   invalidateCommunityPostAggregates: () => Promise.resolve(),

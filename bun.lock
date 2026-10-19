@@ -62,7 +62,7 @@
     },
     "apps/media-processing": {
       "name": "@asm/media-processing",
-      "version": "1.1.14",
+      "version": "1.1.15",
       "dependencies": {
         "@asm/config": "workspace:*",
         "@asm/db": "workspace:*",
@@ -198,7 +198,7 @@
     },
     "apps/web": {
       "name": "@asm/web",
-      "version": "1.8.21",
+      "version": "1.8.22",
       "dependencies": {
         "@asm/aggregator": "workspace:*",
         "@asm/auth": "workspace:*",
@@ -334,7 +334,7 @@
     },
     "packages/db": {
       "name": "@asm/db",
-      "version": "1.2.91",
+      "version": "1.2.92",
       "dependencies": {
         "@asm/config": "workspace:*",
         "@asm/logger": "workspace:*",
@@ -460,7 +460,7 @@
     },
     "packages/ui": {
       "name": "@asm/ui",
-      "version": "1.0.70",
+      "version": "1.0.71",
       "dependencies": {
         "@asm/aggregator": "workspace:*",
         "@radix-ui/react-accordion": "^1.2.20",

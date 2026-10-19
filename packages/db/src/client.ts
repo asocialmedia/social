@@ -98,7 +98,7 @@ export function getUserDataQuery(orm: PrismaOrm, loggedInUserId: string) {
 
 // Profile counts are totals, not the viewer-filtered follow relation above.
 export async function getUserProfileCounts(orm: PrismaOrm, userId: string) {
-  const [followers, following, posts] = await Promise.all([
+  const [followers, following, posts, externalFollowing] = await Promise.all([
     orm.public.Follows.where({ followingId: userId }).aggregate(
       (aggregate) => ({ count: aggregate.count() })
     ),
@@ -108,10 +108,13 @@ export async function getUserProfileCounts(orm: PrismaOrm, userId: string) {
     orm.public.Posts.where({ userId }).aggregate((aggregate) => ({
       count: aggregate.count(),
     })),
+    orm.public.ExternalFollows.where({ userId }).aggregate((aggregate) => ({
+      count: aggregate.count(),
+    })),
   ]);
   return {
     followers: followers.count,
-    following: following.count,
+    following: following.count + externalFollowing.count,
     posts: posts.count,
   };
 }

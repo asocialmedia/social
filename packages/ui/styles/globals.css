@@ -661,6 +661,106 @@
       0 1px 3px rgba(0, 0, 0, 0.06);
   }
 
+  /* A segmented control built from the same dual border as the rest of the app:
+     the track is recessed (inner shadow plus a hard outer hairline), and the
+     chosen segment is a separate raised object with its own outer edge, bright
+     top lip and one small directional shadow. Used by the spotlight's network
+     switcher. */
+  .segmented-3d {
+    background: linear-gradient(
+      to bottom,
+      hsl(var(--muted)),
+      hsl(var(--background-alt))
+    );
+    box-shadow:
+      inset 0 2px 3px rgba(0, 0, 0, 0.1),
+      inset 0 0 0 1px rgba(0, 0, 0, 0.06),
+      0 1px 1px rgba(255, 255, 255, 0.7);
+  }
+
+  .dark .segmented-3d {
+    background: linear-gradient(to bottom, #1d1d1d, #262626);
+    box-shadow:
+      inset 0 2px 4px rgba(0, 0, 0, 0.45),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.06),
+      0 1px 1px rgba(255, 255, 255, 0.04);
+  }
+
+  /* The same recess, carried on the Bluesky surface: a slightly deeper blue
+     well, with its light coming from the top lip only. Deliberately no dark
+     ring, because a black outline on blue reads as a foreign edge. */
+  .segmented-3d-on-brand {
+    background: linear-gradient(
+      to bottom,
+      rgba(2, 46, 112, 0.34),
+      rgba(2, 46, 112, 0.18)
+    );
+    box-shadow:
+      inset 0 1px 2px rgba(0, 26, 70, 0.28),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.32),
+      0 1px 1px rgba(255, 255, 255, 0.26);
+  }
+
+  .segment-3d {
+    color: hsl(var(--foreground));
+    background: linear-gradient(
+      to bottom,
+      hsl(var(--background)),
+      hsl(var(--card))
+    );
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 255, 255, 0.9),
+      inset 0 1.5px 2px rgba(255, 255, 255, 1),
+      0 0 0 1px rgba(0, 0, 0, 0.12),
+      0 1px 2px rgba(0, 0, 0, 0.12);
+  }
+
+  .dark .segment-3d {
+    color: hsl(var(--foreground));
+    background: linear-gradient(to bottom, #3d3d3d, #2b2b2b);
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 255, 255, 0.14),
+      inset 0 1.5px 2px rgba(255, 255, 255, 0.18),
+      0 0 0 1px rgba(0, 0, 0, 0.5),
+      0 1px 2px rgba(0, 0, 0, 0.4);
+  }
+
+  .segment-3d-orange {
+    color: #ffffff;
+    text-shadow: 0 1px 1px rgba(0, 0, 0, 0.2);
+    background: linear-gradient(to bottom, #ff9500, #e65500);
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 255, 255, 0.28),
+      inset 0 1.5px 2px rgba(255, 255, 255, 0.5),
+      0 0 0 1px rgba(170, 60, 0, 0.95),
+      0 1px 1px rgba(255, 255, 255, 0.4),
+      0 2px 4px rgba(0, 0, 0, 0.14);
+  }
+
+  .segment-3d-bluesky {
+    color: #ffffff;
+    background: linear-gradient(to bottom, #159dff, #0866df);
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 255, 255, 0.3),
+      inset 0 1.5px 2px rgba(255, 255, 255, 0.5),
+      0 0 0 1px #0758bf,
+      0 1px 1px rgba(255, 255, 255, 0.4),
+      0 2px 4px rgba(0, 70, 180, 0.24);
+  }
+
+  /* The chosen segment inside the Bluesky dialog: white fill, blue ink, so it
+     is unmistakably the selected key on a blue panel. Its separation comes from
+     the white fill and a soft blue shadow rather than a black ring, because a
+     black outline on blue reads as a foreign edge. */
+  .segment-3d-on-brand {
+    color: #0866df;
+    background: linear-gradient(to bottom, #ffffff, #e9f2ff);
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 255, 255, 1),
+      inset 0 1.5px 2px #ffffff,
+      0 1px 2px rgba(1, 32, 85, 0.32);
+  }
+
   .tabs-segment-3d[data-state="active"] {
     color: hsl(var(--foreground));
     background: linear-gradient(
@@ -760,6 +860,27 @@
     box-shadow:
       inset 0 1px 1px rgba(255, 255, 255, 0.05),
       0 1px 1px rgba(0, 0, 0, 0.2);
+  }
+
+  /* A chip or card that sits ON a brand surface. Same dual border, tinted to
+     the panel behind it rather than to black, so it reads as placed. */
+  .chip-3d-on-brand {
+    color: #ffffff;
+    background: rgba(255, 255, 255, 0.16);
+    border: 1px solid rgba(255, 255, 255, 0.38);
+    box-shadow:
+      inset 0 1px 1px rgba(255, 255, 255, 0.34),
+      inset 0 -1px 2px rgba(0, 25, 70, 0.16),
+      0 1px 2px rgba(0, 30, 80, 0.18);
+  }
+
+  .surface-3d-on-brand {
+    background: rgba(255, 255, 255, 0.13);
+    border: 1px solid rgba(255, 255, 255, 0.32);
+    box-shadow:
+      inset 0 1px 1px rgba(255, 255, 255, 0.32),
+      inset 0 -1px 2px rgba(0, 25, 70, 0.16),
+      0 1px 2px rgba(0, 30, 80, 0.18);
   }
 
   .explore-recommended-chip {
