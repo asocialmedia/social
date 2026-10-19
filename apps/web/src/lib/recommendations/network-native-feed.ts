@@ -48,6 +48,7 @@ import { nativeCandidateIds } from "./native-candidates";
 import type { NetworkFeedContext } from "./network-context";
 import { networkFeedContext } from "./network-context";
 import { signNetworkObservation } from "./network-observation";
+import { readServedIds, recordServedIds } from "./served-set";
 
 const snapshotSchema = z.object({
   anchor: z.string().default(() => new Date().toISOString()),
@@ -159,10 +160,19 @@ async function readNetworkNativeFeed(
         "native"
       );
     }
+    // The served count is part of the key so a viewer with history gets a fresh
+    // ordering, while concurrent loads of the same page still share one read.
+    const servedCount = userId
+      ? await redis
+          .zcard(`rec:served:v1:{${createHash("sha256")
+            .update(`${userId}:${contentKind}:${mode}`)
+            .digest("hex")}}`)
+          .catch(() => 0)
+      : 0;
     const version = userId
       ? await redis.get(`rec:suggestions:version:${userId}`).catch(() => null)
       : "guest";
-    const key = `rec:native-head:v3:{${createHash("sha256")
+    const key = `rec:native-head:v4:{${createHash("sha256")
       .update(
         JSON.stringify([
           userId,
@@ -174,6 +184,7 @@ async function readNetworkNativeFeed(
           query.get("surface"),
           query.get("take"),
           query.get("locale"),
+          servedCount,
         ])
       )
       .digest("hex")}}`;
@@ -300,6 +311,12 @@ async function buildNetworkNativeFeed(
     }
   }
   const stopRetrieval = timing.start("retrieval");
+  // Only a fresh head asks what this viewer already saw; a continuation page
+  // belongs to the same snapshot and must not shift under the reader.
+  const served =
+    buildBatch && !cursor
+      ? await readServedIds(userId, `${contentKind}:${mode}`)
+      : [];
   if (buildBatch) {
     const focusedSeeds = context.selected.interests.length
       ? networkInterestTerms(context.selected.interests, context.topicScope)
@@ -334,6 +351,7 @@ async function buildNetworkNativeFeed(
             mode,
             offset: candidateOffset,
             seeds,
+            served,
             signal: request.signal,
           }),
       (!exploring && context.selected.interests.length) || level > 0
@@ -347,6 +365,7 @@ async function buildNetworkNativeFeed(
               contentKind === "gust",
               candidateOffset,
               anchor,
+              served,
             ],
             { id: "pg/text@1" }
           ),
@@ -629,6 +648,12 @@ async function buildNetworkNativeFeed(
     }))
   );
   stopFeatures();
+  // Remember this page so the next head starts past it instead of replaying it.
+  await recordServedIds(
+    userId,
+    `${contentKind}:${mode}`,
+    observed.map((post) => post.id)
+  );
   const stopSerialization = timing.start("serialization");
   const response = Response.json(
     {

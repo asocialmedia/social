@@ -36,7 +36,13 @@ WHERE p."isGust" = $4::boolean AND p."moderated" = false
       OR EXISTS (SELECT 1 FROM "_PostToTag" pt JOIN "Tag" t ON t.id = pt."B"
         WHERE pt."A" = p.id AND lower(t.name) = lower(topic))
   ))
-ORDER BY p."createdAt" DESC, p.id DESC
+-- Already-served posts sort last rather than disappearing: a refresh prefers
+-- unseen content, yet a small pool still fills the page instead of going blank.
+-- Trending orders by heat inside both groups, because retrieving "trending" by
+-- recency made the Trending and Latest tabs return the same rows.
+ORDER BY (p.id = ANY($7::text[])) ASC,
+  (CASE WHEN $3::text = 'trending' THEN p."trendingScore" END) DESC NULLS LAST,
+  p."createdAt" DESC, p.id DESC
 LIMIT 180 OFFSET $5::integer
 // query: network.creators
 SELECT p."userId" AS id, count(*)::float8 AS matches

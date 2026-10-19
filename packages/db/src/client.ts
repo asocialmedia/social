@@ -278,7 +278,9 @@ export function getPostDataQuery(orm: PrismaOrm, loggedInUserId: string) {
     .include("votes", (votes) =>
       votes.combine({
         totalUp: votes.where((vote) => vote.value.eq(1)).count(),
-        viewer: votes.where({ userId: loggedInUserId }).select("userId", "value"),
+        viewer: votes
+          .where({ userId: loggedInUserId })
+          .select("userId", "value"),
       })
     )
     .include("community", (community) =>
