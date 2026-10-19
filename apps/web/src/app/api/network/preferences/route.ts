@@ -9,6 +9,7 @@ import { networkPreferencesUpdateSchema } from "@asm/protocols/discovery";
 import { z } from "zod";
 
 import { getSessionFromApi } from "@/lib/auth/session";
+import { invalidateDiscoverySuggestions } from "@/lib/recommendations/suggestion-version";
 
 const headers = { "cache-control": "private, no-store", vary: "Cookie" };
 
@@ -137,6 +138,11 @@ export async function PUT(request: Request) {
       parsed.data.preferences,
       parsed.data.revision
     );
+    // A policy change (interest, avoided topic, explicit content) must not keep
+    // serving a suggestion snapshot built under the old preferences.
+    await invalidateDiscoverySuggestions(session.user.id).catch(() => {
+      // The save already committed; a cache miss only costs one rebuild.
+    });
     return Response.json(await getNetworkSettings(session.user.id), {
       headers,
     });

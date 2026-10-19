@@ -13,6 +13,10 @@ mock.module("@/lib/auth/session", () => ({
   getSessionFromApi: () => Promise.resolve(session),
 }));
 
+mock.module("@/lib/recommendations/suggestion-version", () => ({
+  invalidateDiscoverySuggestions: () => Promise.resolve(),
+}));
+
 mock.module("@asm/db", () => ({
   NetworkPreferenceConflictError,
   clearNetworkActivity: () => Promise.resolve(),
