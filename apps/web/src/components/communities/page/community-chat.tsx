@@ -58,6 +58,7 @@ import {
 import type { CSSProperties } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
+import { useCommunityNavigation } from "@/hooks/use-community-navigation";
 import { communityAccentStyle } from "@/lib/communities/accent";
 import {
   captureCommunityChatAnchor,
@@ -73,6 +74,7 @@ import CommunityRoleBadge, {
 import CommunityChannelSettings from "./community-channel-settings";
 import CommunityChatMessageActions from "./community-chat-message-actions";
 import CommunityConversationHeader from "./community-conversation-header";
+import CommunityWorkspaceNavigation from "./community-workspace-navigation";
 import JoinButton from "./join-button";
 
 interface CommunityChatProps {
@@ -179,7 +181,6 @@ function CommunityChatTimeline({
   threadId,
   communityId,
   communityName,
-  memberCount,
   membership,
   slug,
 }: CommunityChatProps) {
@@ -234,7 +235,11 @@ function CommunityChatTimeline({
   const [atLatest, setAtLatest] = useState(true);
   const [hasNewActivity, setHasNewActivity] = useState(false);
   const [reconnecting, setReconnecting] = useState(false);
-  const [mobileChannelsOpen, setMobileChannelsOpen] = useState(false);
+  const {
+    desktop: desktopNavigation,
+    open: communityNavigationOpen,
+    setOpen: setCommunityNavigationOpen,
+  } = useCommunityNavigation();
   const [toolsOpen, setToolsOpen] = useState(false);
   const [createChannelOpen, setCreateChannelOpen] = useState(false);
   const [newChannelName, setNewChannelName] = useState("");
@@ -927,7 +932,9 @@ function CommunityChatTimeline({
       setChannels((current) => [...current, data.channel]);
       setNewChannelName("");
       setCreateChannelOpen(false);
-      setMobileChannelsOpen(false);
+      if (!desktopNavigation) {
+        setCommunityNavigationOpen(false);
+      }
       router.push(`/a/${slug}/chat/${data.channel.id}`);
     } catch (error) {
       setActionError(
@@ -939,10 +946,12 @@ function CommunityChatTimeline({
   }, [
     channelsUrl,
     creatingChannel,
+    desktopNavigation,
     newChannelName,
     newChannelType,
     router,
     slug,
+    setCommunityNavigationOpen,
   ]);
 
   useEffect(() => {
@@ -1351,7 +1360,7 @@ function CommunityChatTimeline({
 
   const channelList = (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex items-center justify-between gap-2 pt-5 pr-16 pb-4 pl-5">
+      <div className="flex items-center justify-between gap-2 px-4 pt-4 pb-3">
         <div>
           <p className="text-muted-foreground text-[11px] font-semibold tracking-[0.14em] uppercase">
             Conversations
@@ -1363,7 +1372,7 @@ function CommunityChatTimeline({
         {canManage ? (
           <Button
             aria-label="Create channel"
-            className="icon-btn-3d size-8 rounded-full"
+            className="icon-btn-3d size-11 shrink-0 rounded-full"
             onClick={() => setCreateChannelOpen((open) => !open)}
             size="icon"
             variant="ghost"
@@ -1376,12 +1385,6 @@ function CommunityChatTimeline({
           </Button>
         ) : null}
       </div>
-      <Link
-        className="text-muted-foreground hover:text-foreground mx-4 mb-3 flex min-h-11 items-center rounded-xl px-3 text-sm font-medium"
-        href={`/a/${slug}`}
-      >
-        Community posts
-      </Link>
       {createChannelOpen && canManage ? (
         <div className="border-border/70 mx-3 mb-3 rounded-xl border bg-[hsl(var(--background))] p-3">
           <label
@@ -1435,7 +1438,9 @@ function CommunityChatTimeline({
             className={`group relative mb-2 flex min-h-14 w-full items-center gap-3 rounded-2xl px-4 py-3 text-left transition-colors ${channel.id === channelId ? "text-foreground bg-[color-mix(in_srgb,var(--community-accent-resolved)_12%,hsl(var(--background)))]" : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"}`}
             key={channel.id}
             onClick={() => {
-              setMobileChannelsOpen(false);
+              if (!desktopNavigation) {
+                setCommunityNavigationOpen(false);
+              }
               router.push(`/a/${slug}/chat/${channel.id}`);
             }}
             type="button"
@@ -1469,7 +1474,9 @@ function CommunityChatTimeline({
                 className={`mb-1 flex min-h-11 w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm transition-colors ${threadId === thread.room.id ? "text-foreground bg-[color-mix(in_srgb,var(--community-accent-resolved)_12%,hsl(var(--background)))]" : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"}`}
                 key={thread.room.id}
                 onClick={() => {
-                  setMobileChannelsOpen(false);
+                  if (!desktopNavigation) {
+                    setCommunityNavigationOpen(false);
+                  }
                   router.push(
                     `/a/${slug}/chat/${channelId}/threads/${thread.room.id}`
                   );
@@ -1686,26 +1693,19 @@ function CommunityChatTimeline({
         </DialogContent>
       </Dialog>
       <div className="border-border/60 flex min-h-0 flex-1 overflow-hidden border-b">
-        <Sheet onOpenChange={setMobileChannelsOpen} open={mobileChannelsOpen}>
-          <SheetContent
-            className="community-accent-scope flex h-dvh w-80 max-w-[calc(100vw-2.75rem)] flex-col gap-0 rounded-l-none! rounded-r-3xl! p-0 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] motion-reduce:animate-none motion-reduce:transition-none sm:w-96 sm:max-w-sm"
-            style={communityAccentStyle(accentColor)}
-            side="left"
-            onCloseAutoFocus={(event) => {
-              event.preventDefault();
-              channelSelectorRef.current?.focus();
-            }}
-          >
-            <SheetHeader className="sr-only">
-              <SheetTitle>{communityName} channels</SheetTitle>
-              <SheetDescription>
-                Choose a channel or a thread with {memberCount.toLocaleString()}{" "}
-                community members.
-              </SheetDescription>
-            </SheetHeader>
-            {channelList}
-          </SheetContent>
-        </Sheet>
+        <CommunityWorkspaceNavigation
+          active="chat"
+          accentColor={accentColor}
+          avatarUrl={avatarUrl}
+          channelId={channelId}
+          communityName={communityName}
+          desktop={desktopNavigation}
+          navigation={channelList}
+          onOpenChange={setCommunityNavigationOpen}
+          open={communityNavigationOpen}
+          slug={slug}
+          triggerRef={channelSelectorRef}
+        />
 
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           <CommunityConversationHeader
@@ -1714,9 +1714,11 @@ function CommunityChatTimeline({
             browseButtonRef={channelSelectorRef}
             channelId={channelId}
             channelName={channelName}
-            channelsOpen={mobileChannelsOpen}
+            channelsOpen={communityNavigationOpen}
             communityName={communityName}
-            onBrowse={() => setMobileChannelsOpen(true)}
+            onBrowse={() =>
+              setCommunityNavigationOpen(!communityNavigationOpen)
+            }
             onTools={() => setToolsOpen(true)}
             reconnecting={reconnecting}
             slug={slug}

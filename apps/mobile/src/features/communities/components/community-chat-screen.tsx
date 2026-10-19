@@ -22,6 +22,7 @@ import { fetch as streamingFetch } from "expo/fetch";
 import {
   ArrowDown,
   ArrowLeft,
+  PanelLeft,
   LockKeyhole,
   MessageCircle,
   ChevronDown,
@@ -41,10 +42,8 @@ import {
   FlatList,
   Keyboard,
   KeyboardAvoidingView,
-  Modal,
   Platform,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -86,6 +85,7 @@ import {
 import type { CommunityChatChannelsResponse } from "../lib/community-chat-api";
 import { communityChatUiEnabled } from "../lib/community-chat-features";
 import { CommunityAvatar } from "./community-avatar";
+import { CommunityNavigationDrawer } from "./community-navigation-drawer";
 import { CommunityPrivateThreadDialog } from "./community-private-thread-dialog";
 import { CommunityThreadFollowButton } from "./community-thread-follow-button";
 
@@ -1137,18 +1137,27 @@ function CommunityChatTimelineScreen() {
       >
         <Pressable
           accessibilityLabel={
-            threadId ? "Back to channel" : "Back to community posts"
+            threadId ? "Back to channel" : "Open community sidebar"
           }
           accessibilityRole="button"
-          onPress={() =>
-            router.replace(threadId ? chatUrl(slug, channelId) : `/a/${slug}`)
-          }
+          onPress={() => {
+            if (threadId) {
+              router.replace(chatUrl(slug, channelId));
+            } else {
+              setChannelsOpen(true);
+            }
+          }}
           style={styles.roomIconButton}
         >
-          <ArrowLeft color={theme.inputText} size={20} />
+          {threadId ? (
+            <ArrowLeft color={theme.inputText} size={20} />
+          ) : (
+            <PanelLeft color={theme.inputText} size={20} />
+          )}
         </Pressable>
         <Pressable
-          accessibilityLabel={`Choose conversation, currently ${channelName}`}
+          accessibilityLabel={`Open community sidebar, currently ${channelName}`}
+          accessibilityState={{ expanded: channelsOpen }}
           accessibilityRole="button"
           onPress={() => setChannelsOpen(true)}
           style={[
@@ -2102,157 +2111,19 @@ function CommunityChatTimelineScreen() {
           }}
         />
       ) : null}
-      <Modal
-        animationType="fade"
-        onRequestClose={() => setChannelsOpen(false)}
-        transparent
-        visible={channelsOpen}
-      >
-        <Pressable
-          onPress={() => setChannelsOpen(false)}
-          style={styles.modalScrim}
-        >
-          <Pressable
-            accessibilityViewIsModal
-            onPress={(event) => event.stopPropagation()}
-            style={[
-              styles.channelSheet,
-              {
-                backgroundColor: theme.containerBg,
-                borderColor: theme.cardBorder,
-                paddingBottom: insets.bottom + 20,
-                paddingLeft: insets.left + 18,
-                paddingTop: insets.top + 20,
-              },
-            ]}
-          >
-            <View style={styles.sheetHeading}>
-              <View>
-                <Text style={[styles.sheetTitle, { color: theme.inputText }]}>
-                  Conversations
-                </Text>
-                <Text
-                  style={[styles.channelTopic, { color: theme.dividerText }]}
-                >
-                  Choose where to join in
-                </Text>
-              </View>
-              <Pressable
-                accessibilityLabel="Close channels"
-                style={{
-                  alignItems: "center",
-                  justifyContent: "center",
-                  minHeight: 44,
-                  minWidth: 44,
-                }}
-                onPress={() => setChannelsOpen(false)}
-              >
-                <X color={theme.dividerText} size={22} />
-              </Pressable>
-            </View>
-            <ScrollView style={{ flexShrink: 1 }}>
-              <Pressable
-                accessibilityRole="link"
-                onPress={() => {
-                  setChannelsOpen(false);
-                  router.replace(`/a/${slug}`);
-                }}
-                style={styles.sheetChannel}
-              >
-                <ArrowLeft color={theme.dividerText} size={17} />
-                <Text style={[styles.channelName, { color: theme.inputText }]}>
-                  Community posts
-                </Text>
-              </Pressable>
-              {channels.map((channel) => (
-                <Pressable
-                  accessibilityRole="button"
-                  key={channel.id}
-                  onPress={() => {
-                    setChannelsOpen(false);
-                    router.replace(chatUrl(slug, channel.id));
-                  }}
-                  style={[
-                    styles.sheetChannel,
-                    channel.id === channelId && {
-                      backgroundColor: `${communityAccent}18`,
-                    },
-                  ]}
-                >
-                  <MessageCircle
-                    color={
-                      channel.id === channelId
-                        ? communityAccent
-                        : theme.dividerText
-                    }
-                    size={17}
-                  />
-                  <Text
-                    numberOfLines={1}
-                    style={[styles.channelName, { color: theme.inputText }]}
-                  >
-                    {channel.name}
-                  </Text>
-                  {channel.channelType === "ANNOUNCEMENT" ? (
-                    <Text
-                      style={[styles.staffLabel, { color: theme.dividerText }]}
-                    >
-                      STAFF
-                    </Text>
-                  ) : null}
-                </Pressable>
-              ))}
-              {threads.length ? (
-                <View
-                  style={{
-                    borderTopColor: theme.cardBorder,
-                    borderTopWidth: StyleSheet.hairlineWidth,
-                    marginTop: 12,
-                    paddingTop: 12,
-                  }}
-                >
-                  <Text
-                    style={[
-                      styles.channelTopic,
-                      { color: theme.dividerText, marginBottom: 6 },
-                    ]}
-                  >
-                    Threads in {parentChannelName}
-                  </Text>
-                  {threads.map((thread) => (
-                    <Pressable
-                      accessibilityRole="button"
-                      key={thread.room.id}
-                      onPress={() => {
-                        setChannelsOpen(false);
-                        router.push(threadUrl(slug, channelId, thread.room.id));
-                      }}
-                      style={[
-                        styles.sheetChannel,
-                        thread.room.id === threadId && {
-                          backgroundColor: `${communityAccent}18`,
-                        },
-                      ]}
-                    >
-                      {thread.room.visibility === "PRIVATE" ? (
-                        <LockKeyhole color={communityAccent} size={16} />
-                      ) : (
-                        <MessageCircle color={communityAccent} size={16} />
-                      )}
-                      <Text
-                        numberOfLines={1}
-                        style={[styles.channelName, { color: theme.inputText }]}
-                      >
-                        {thread.room.name}
-                      </Text>
-                    </Pressable>
-                  ))}
-                </View>
-              ) : null}
-            </ScrollView>
-          </Pressable>
-        </Pressable>
-      </Modal>
+      {channelsOpen ? (
+        <CommunityNavigationDrawer
+          active="chat"
+          accentColor={detail?.community.accentColor ?? null}
+          channelId={channelId}
+          channels={channels}
+          communityName={detail?.community.name ?? "Community"}
+          onClose={() => setChannelsOpen(false)}
+          slug={slug}
+          threadId={threadId}
+          threads={threads}
+        />
+      ) : null}
     </KeyboardAvoidingView>
   );
 }
@@ -2291,19 +2162,6 @@ const styles = StyleSheet.create({
   },
   channelList: { paddingHorizontal: 16, paddingVertical: 16 },
   channelName: { fontFamily: "SofiaProBold", fontSize: 15 },
-  channelSheet: {
-    borderBottomRightRadius: 26,
-    borderTopRightRadius: 26,
-    borderWidth: StyleSheet.hairlineWidth,
-    bottom: 0,
-    left: 0,
-    maxWidth: 384,
-    paddingHorizontal: 18,
-    paddingTop: 20,
-    position: "absolute",
-    top: 0,
-    width: "86%",
-  },
   channelTopic: { fontFamily: "SofiaProReg", fontSize: 12, marginTop: 3 },
   chevron: {
     fontSize: 26,
@@ -2393,11 +2251,6 @@ const styles = StyleSheet.create({
     transform: [{ scaleY: -1 }],
   },
   messageText: { fontFamily: "SofiaProReg", fontSize: 15, lineHeight: 22 },
-  modalScrim: {
-    backgroundColor: "rgba(0,0,0,0.38)",
-    flex: 1,
-    justifyContent: "flex-end",
-  },
   readOnly: {
     borderRadius: 16,
     borderWidth: StyleSheet.hairlineWidth,
@@ -2450,22 +2303,6 @@ const styles = StyleSheet.create({
     width: 44,
   },
   senderName: { fontFamily: "SofiaProBold", fontSize: 13, maxWidth: "70%" },
-  sheetChannel: {
-    alignItems: "center",
-    borderRadius: 13,
-    flexDirection: "row",
-    gap: 12,
-    marginTop: 5,
-    minHeight: 45,
-    paddingHorizontal: 12,
-  },
-  sheetHeading: {
-    alignItems: "center",
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginBottom: 12,
-  },
-  sheetTitle: { fontFamily: "SofiaProBold", fontSize: 17 },
   staffLabel: { fontFamily: "SofiaProBold", fontSize: 9, letterSpacing: 0.7 },
   state: {
     alignItems: "center",

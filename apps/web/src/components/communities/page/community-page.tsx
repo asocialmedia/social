@@ -7,16 +7,20 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import MobileBottomNav from "@/components/layouts/navigation/mobile/mobile-bottom-nav";
 import MobileTopBar from "@/components/layouts/navigation/mobile/mobile-top-bar";
 import { useCommunityChatViewport } from "@/hooks/use-community-chat-viewport";
+import { useCommunityNavigation } from "@/hooks/use-community-navigation";
+import { communityChatUiEnabled } from "@/lib/communities/chat-features";
 import type { CommunityRoleValue } from "@/lib/communities/client";
 import { cn } from "@/lib/utils";
 import { useActiveCommunityStore } from "@/store/active-community-store";
 
+import CommunityChannelShortcuts from "./community-channel-shortcuts";
 import CommunityChat from "./community-chat";
 import CommunityFeed from "./community-feed";
 import CommunityHeader from "./community-header";
 import CommunityMatureGate from "./community-mature-gate";
 import CommunitySectionNav from "./community-section-nav";
 import CommunitySidebar from "./community-sidebar";
+import CommunityWorkspaceNavigation from "./community-workspace-navigation";
 
 interface ClientCommunityProps {
   community: CommunityData;
@@ -47,6 +51,8 @@ export default function ClientCommunity({
   threadId,
 }: ClientCommunityProps) {
   const router = useRouter();
+  const navigation = useCommunityNavigation();
+  const navigationTriggerRef = useRef<HTMLButtonElement>(null);
   const chatViewportRef = useCommunityChatViewport(view === "chat");
   const [matureAccepted, setMatureAccepted] = useState(false);
   const hasRecorded = useRef(false);
@@ -138,7 +144,37 @@ export default function ClientCommunity({
           {/* Same column metrics as the home feed: lg:max-w-5xl on the center
               column and a w-72 rail, so the two pages share one grid instead of
               the community reading narrower with a wider rail. */}
-          <div className="border-border/60 mx-auto flex min-h-0 min-w-0 flex-1 flex-col bg-[hsl(var(--background-alt))] sm:border-x lg:max-w-5xl">
+          {view === "posts" ? (
+            <CommunityWorkspaceNavigation
+              active="posts"
+              accentColor={community.accentColor}
+              avatarUrl={community.avatarUrl}
+              communityName={community.name}
+              desktop={navigation.desktop}
+              navigation={
+                communityChatUiEnabled && navigation.open ? (
+                  <CommunityChannelShortcuts
+                    slug={slug}
+                    onNavigate={() => {
+                      if (!navigation.desktop) {
+                        navigation.setOpen(false);
+                      }
+                    }}
+                  />
+                ) : null
+              }
+              open={navigation.open}
+              onOpenChange={(open) => navigation.setOpen(open)}
+              slug={slug}
+              triggerRef={navigationTriggerRef}
+            />
+          ) : null}
+          <div
+            className={cn(
+              "border-border/60 mx-auto flex min-h-0 min-w-0 flex-1 flex-col bg-[hsl(var(--background-alt))] sm:border-x",
+              view === "posts" && "lg:max-w-5xl"
+            )}
+          >
             {view === "posts" ? <MobileTopBar /> : null}
             {view === "chat" ? (
               channelId && (
@@ -167,6 +203,9 @@ export default function ClientCommunity({
                   accentColor={community.accentColor}
                   active="posts"
                   slug={slug}
+                  navigationOpen={navigation.open}
+                  onOpenNavigation={() => navigation.setOpen(true)}
+                  navigationTriggerRef={navigationTriggerRef}
                 />
                 <CommunityFeed slug={slug} />
               </>

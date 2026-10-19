@@ -7,6 +7,7 @@ import type { CommunityPostFilters as PostFilters } from "@asm/db/communities";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
+import { PanelLeft } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Animated, Pressable, StyleSheet, Text, View } from "react-native";
 import type { ViewToken } from "react-native";
@@ -65,6 +66,7 @@ import { useCommunityMembership } from "../state/use-community-membership";
 import { CommunityAvatar } from "./community-avatar";
 import { CommunityJoinButton } from "./community-join-button";
 import { CommunityMatureGate } from "./community-mature-gate";
+import { CommunityNavigationDrawer } from "./community-navigation-drawer";
 import { CommunityNotifyButton } from "./community-notify-button";
 import {
   CommunityPostFilters,
@@ -80,6 +82,7 @@ type CommunitySort = "new" | "top";
 export function CommunityDetailScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const [navigationOpen, setNavigationOpen] = useState(false);
   const [dockHeight, setDockHeight] = useState(56);
   const params = useLocalSearchParams<{ slug?: string | string[] }>();
   const slug =
@@ -516,21 +519,45 @@ export function CommunityDetailScreen() {
                         {detail.stats.members === 1 ? "member" : "members"}
                       </Text>
                     </View>
-                    <FeedTabs<"posts" | "chat">
-                      alignment="start"
-                      active="posts"
-                      tabs={[
-                        { label: "Posts", value: "posts" },
-                        ...(communityChatUiEnabled
-                          ? [{ label: "Chat", value: "chat" as const }]
-                          : []),
-                      ]}
-                      onChange={(value) => {
-                        if (value === "chat") {
-                          router.push(`/a/${slug}/chat`);
-                        }
+                    <View
+                      style={{
+                        alignItems: "center",
+                        flexDirection: "row",
+                        paddingLeft: 12,
                       }}
-                    />
+                    >
+                      <Pressable
+                        accessibilityLabel="Open community sidebar"
+                        accessibilityRole="button"
+                        accessibilityState={{ expanded: navigationOpen }}
+                        onPress={() => setNavigationOpen(true)}
+                        style={{
+                          alignItems: "center",
+                          justifyContent: "center",
+                          minHeight: 48,
+                          minWidth: 48,
+                        }}
+                      >
+                        <PanelLeft color={theme.inputText} size={22} />
+                      </Pressable>
+                      <View style={{ flex: 1 }}>
+                        <FeedTabs<"posts" | "chat">
+                          alignment="start"
+                          active="posts"
+                          tabs={[
+                            { label: "Posts", value: "posts" },
+                            ...(communityChatUiEnabled
+                              ? [{ label: "Chat", value: "chat" as const }]
+                              : []),
+                          ]}
+                          onChange={(value) => {
+                            if (value === "chat") {
+                              router.push(`/a/${slug}/chat`);
+                            }
+                          }}
+                        />
+                      </View>
+                    </View>
                     <View
                       style={{
                         alignItems: "center",
@@ -632,6 +659,16 @@ export function CommunityDetailScreen() {
           community={community}
           onEnter={() => setAcceptedSlug(slug)}
           onLeave={() => router.back()}
+        />
+      ) : null}
+      {navigationOpen && detail ? (
+        <CommunityNavigationDrawer
+          key={`${user?.id ?? "guest"}:${slug}`}
+          active="posts"
+          accentColor={detail.community.accentColor}
+          communityName={detail.community.name}
+          onClose={() => setNavigationOpen(false)}
+          slug={slug}
         />
       ) : null}
     </View>
