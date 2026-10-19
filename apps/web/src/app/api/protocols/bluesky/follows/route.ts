@@ -19,6 +19,7 @@ import {
   readBlueskyProfileResource,
   verifyBlueskyFollowTarget,
 } from "@/lib/protocols/service";
+import { invalidateDiscoverySuggestions } from "@/lib/recommendations/suggestion-version";
 
 const did = z
   .string()
@@ -83,6 +84,7 @@ export function POST(request: Request) {
         active,
         author && !("items" in author) ? author : undefined
       );
+      await invalidateDiscoverySuggestions(session.user.id);
       await redis
         .publish(
           FEED_EVENTS_CHANNEL,

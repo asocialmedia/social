@@ -26,7 +26,10 @@ mock.module("@asm/db", () => ({
   getClientIpFromHeaders: () => "127.0.0.1",
   getTrustedIngressIp: () => "127.0.0.1",
   hashViewerId: () => "ip",
-  redis: { publish: () => Promise.resolve(0) },
+  redis: {
+    publish: () => Promise.resolve(0),
+    set: () => Promise.resolve("OK"),
+  },
   setExternalFollow: (...args: unknown[]) => {
     writes.push(args);
     return Promise.resolve(args[2]);

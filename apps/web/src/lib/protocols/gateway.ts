@@ -26,6 +26,7 @@ export class ProtocolGatewayError extends Error {
 }
 
 let active = 0;
+let activeSearches = 0;
 
 export async function protocolJsonBody(
   request: Request,
@@ -66,7 +67,7 @@ export async function protocolJsonBody(
 
 export async function protocolRoute(
   request: Request,
-  operation: "discovery" | "feedback",
+  operation: "discovery" | "feedback" | "search",
   run: (id: string) => Promise<Response>
 ): Promise<Response> {
   const supplied = request.headers.get("x-request-id");
@@ -81,13 +82,18 @@ export async function protocolRoute(
     "x-content-type-options": "nosniff",
     "x-request-id": id,
   };
-  if (active >= 128) {
+  const isSearch = operation === "search";
+  if (isSearch ? activeSearches >= 256 : active >= 128) {
     return Response.json(
       { error: "Bluesky is busy. Try again shortly." },
       { headers: { ...headers, "retry-after": "2" }, status: 503 }
     );
   }
-  active += 1;
+  if (isSearch) {
+    activeSearches += 1;
+  } else {
+    active += 1;
+  }
   let response: Response;
   let code = "ok";
   try {
@@ -132,7 +138,11 @@ export async function protocolRoute(
       );
     }
   } finally {
-    active -= 1;
+    if (isSearch) {
+      activeSearches -= 1;
+    } else {
+      active -= 1;
+    }
   }
   for (const [key, value] of Object.entries(headers)) {
     if (

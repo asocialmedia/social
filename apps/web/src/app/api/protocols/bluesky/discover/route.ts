@@ -22,6 +22,7 @@ import { z } from "zod";
 import { getSessionFromApi } from "@/lib/auth/session";
 import {
   externalNetworkPostRecommended,
+  externalNetworkPostAllowed,
   externalNetworkInterestScore,
 } from "@/lib/posts/network-content-policy";
 import { blueskyMediaIsExplicit } from "@/lib/protocols/content-labels";
@@ -43,6 +44,8 @@ import {
   rankExternalForViewer,
 } from "@/lib/protocols/recommendations";
 import { readBlueskyDiscovery } from "@/lib/protocols/service";
+import { exploreTopics } from "@/lib/recommendations/explore-topics";
+import { diversifyExploreCandidates } from "@/lib/recommendations/mix-explore";
 import {
   networkFeedContext,
   networkRegionalLocale,
@@ -77,6 +80,13 @@ export function GET(request: Request) {
       query.get("profile") ?? undefined
     );
     const { profile } = network;
+    const exploring = query.get("surface") === "explore";
+    const exploreSeeds = exploreTopics(
+      profile,
+      network.selected.interests,
+      network.preferences.avoidedTopics,
+      network.topicScope
+    );
     const level = z.coerce
       .number()
       .int()
@@ -121,7 +131,7 @@ export function GET(request: Request) {
       (topic) =>
         !matchesAvoidedTopic(topic, [topic], network.preferences.avoidedTopics)
     );
-    let topics = focusedTopics;
+    let topics = exploring ? exploreSeeds.slice(0, 5) : focusedTopics;
     if (level.data === 1) {
       topics = neighbors
         .slice(topicPage.data * 5, topicPage.data * 5 + 5)
@@ -250,20 +260,26 @@ export function GET(request: Request) {
         (level.data !== 1 ||
           (topics.length > 0 &&
             externalNetworkInterestScore(post, topics) > 0)) &&
-        externalNetworkPostRecommended(
-          level.data > 0
-            ? {
-                ...post,
-                discoveryContext: {
-                  interests: network.selected.interests,
-                  level: level.data,
-                },
-              }
-            : post,
-          network.preferences,
-          network.selected.interests,
-          network.topicScope
-        ) &&
+        (exploring
+          ? externalNetworkPostAllowed(
+              post,
+              network.preferences,
+              network.topicScope
+            )
+          : externalNetworkPostRecommended(
+              level.data > 0
+                ? {
+                    ...post,
+                    discoveryContext: {
+                      interests: network.selected.interests,
+                      level: level.data,
+                    },
+                  }
+                : post,
+              network.preferences,
+              network.selected.interests,
+              network.topicScope
+            )) &&
         networkLanguageMatches(
           post.text,
           post.languages,
@@ -271,15 +287,15 @@ export function GET(request: Request) {
         ) &&
         Date.parse(post.createdAt) <= Date.now() + 60_000
     );
-    const items =
+    let items =
       mode.data === "latest"
         ? filtered.toSorted(
             (a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt)
           )
         : rankExternalForViewer(filtered, profile, {
-            allowExploration: level.data > 0,
+            allowExploration: exploring || level.data > 0,
             followedAuthors: followed?.followed,
-            interests: network.selected.interests,
+            interests: exploring ? exploreSeeds : network.selected.interests,
             locale: networkRegionalLocale(network, locale.data),
             mode: mode.data,
             socialProof: social?.weights,
@@ -287,6 +303,12 @@ export function GET(request: Request) {
             topics: metadata,
             video: content.data === "video",
           });
+    if (exploring) {
+      items = diversifyExploreCandidates(
+        items,
+        (post) => externalNetworkInterestScore(post, exploreSeeds) > 0
+      );
+    }
     after(async () => {
       await Promise.all(
         items

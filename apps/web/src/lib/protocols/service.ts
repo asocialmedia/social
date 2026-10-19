@@ -28,6 +28,55 @@ async function applyViewerMediaPolicy(url: URL) {
   }
 }
 
+export async function readBlueskySearch(
+  query: string,
+  signal: AbortSignal,
+  requestId: string,
+  kind: "all" | "user" | "post" = "all"
+) {
+  const service = process.env.PROTOCOLS_SERVICE_URL;
+  const token = process.env.PROTOCOLS_INTERNAL_TOKEN;
+  if (!service || !token) {
+    throw new ProtocolGatewayError(503, "not_configured");
+  }
+  const url = new URL("/v1/bluesky/search", service);
+  if (
+    !["http:", "https:"].includes(url.protocol) ||
+    url.username ||
+    url.password
+  ) {
+    throw new ProtocolGatewayError(503, "invalid_configuration");
+  }
+  url.searchParams.set("q", query);
+  url.searchParams.set("limit", "6");
+  url.searchParams.set("kind", kind);
+  await applyViewerMediaPolicy(url);
+  const bounded = AbortSignal.any([signal, AbortSignal.timeout(10_000)]);
+  const response = await fetch(url, {
+    cache: "no-store",
+    headers: { authorization: `Bearer ${token}`, "x-request-id": requestId },
+    redirect: "error",
+    signal: bounded,
+  });
+  if (!response.ok) {
+    await response.body?.cancel();
+    throw new ProtocolGatewayError(
+      response.status === 429 ? 429 : 503,
+      "search_unavailable",
+      Math.ceil(
+        (retryAfterMs(response.headers.get("retry-after")) ?? 1000) / 1000
+      )
+    );
+  }
+  return z
+    .object({
+      posts: z.array(externalPostSchema).max(10),
+      profiles: z.array(externalAuthorSchema).max(10),
+      unavailable: z.array(z.enum(["profiles", "posts"])),
+    })
+    .parse(await readJsonBounded(response, 1024 * 1024, bounded));
+}
+
 export async function readBlueskyProfileResource(
   kind: "profile" | "author-feed",
   query: URLSearchParams,

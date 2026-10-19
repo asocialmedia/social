@@ -10,7 +10,6 @@ import type { CommentsPage } from "@asm/db";
 
 import { createComment } from "@/components/comments/data/comment-service";
 import { getSessionFromApi } from "@/lib/auth/session";
-import { recordRecommendationInteraction } from "@/lib/recommendations/record-event";
 
 export async function POST(
   request: Request,
@@ -40,11 +39,6 @@ export async function POST(
     // For-You load instead of aging out with the 15-minute profile TTL. Never
     // rejects (internally swallowed), so fire-and-forget is safe.
     void invalidateFypProfile(user.id);
-    void recordRecommendationInteraction({
-      eventType: "COMMENT",
-      postId,
-      userId: user.id,
-    });
     return Response.json(comment);
   } catch (error) {
     const message =

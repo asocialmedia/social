@@ -296,3 +296,23 @@ test("quiet external posts cannot qualify for trending discovery", async () => {
   const page: DiscoveryPage = await response.json();
   expect(page.items.map((entry) => entry.id)).toEqual([upstream.items[1]?.id]);
 });
+
+test("Explore admits related and exploratory posts while preserving the active profile's exclusions", async () => {
+  preferences.avoidedTopics = ["politics"];
+  upstream.items = [
+    post("related", "Automattic engineering"),
+    post("broad", "Cats playing"),
+    post("blocked", "Politics news"),
+  ];
+  const response = await GET(
+    new Request(
+      "http://localhost/api/protocols/bluesky/discover?mode=personalized&surface=explore"
+    )
+  );
+  const page: DiscoveryPage = await response.json();
+  expect(response.status).toBe(200);
+  expect(page.items.map((entry) => entry.id)).toEqual([
+    upstream.items[0]?.id,
+    upstream.items[1]?.id,
+  ]);
+});

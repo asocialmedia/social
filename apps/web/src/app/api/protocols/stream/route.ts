@@ -1,7 +1,7 @@
 // oxlint-disable promise/prefer-await-to-then
 import {
   externalFollowAuthors,
-  getRecommendationProfile,
+  getNetworkPersona,
   redis,
   subscribeToChannel,
 } from "@asm/db";
@@ -33,10 +33,16 @@ export function GET(request: Request) {
       throw new ProtocolGatewayError(503, "stream_capacity");
     }
     const session = await getSessionFromApi();
-    const profile = session?.user.id
-      ? await getRecommendationProfile(session.user.id).catch(() => null)
+    const network = session?.user.id
+      ? await getNetworkPersona(session.user.id).catch(() => null)
       : null;
-    const topics = profile ? discoveryTopics(profile) : [];
+    const topics = network
+      ? discoveryTopics(
+          network.profile,
+          network.selected.interests,
+          network.topicScope
+        )
+      : [];
     let followedAuthors = new Set<string>();
     if (openStreams >= 256) {
       throw new ProtocolGatewayError(503, "stream_capacity");

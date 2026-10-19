@@ -314,3 +314,25 @@ test("regional metadata, freshness and top-level originals improve weak-interest
     )[0]?.id
   ).toBe("plain");
 });
+
+test("a lone low confidence search cannot select the entire external discovery pool", () => {
+  expect(
+    discoveryTopics({
+      authorWeights: {},
+      summary: {
+        dominantTopic: "f1",
+        preferredFormat: "balanced",
+        topTags: ["f1"],
+      },
+      tagWeights: { f1: 0.05 },
+      topicAffinities: { f1: 0.05 },
+    })
+  ).toEqual([]);
+  expect(
+    discoveryTopics({
+      authorWeights: {},
+      tagWeights: { art: 0.8, f1: 0.05 },
+      topicAffinities: { art: 0.8, f1: 0.05 },
+    })
+  ).toEqual(["art"]);
+});

@@ -20,7 +20,8 @@ async function queryChronologicalGusts(
   userId: string,
   excludeModerated: boolean,
   cursor: string | undefined,
-  limit: number
+  limit: number,
+  excludeExplicit = true
 ) {
   let query = getPostDataQuery(prisma.orm, userId)
     .where((post) => {
@@ -31,6 +32,9 @@ async function queryChronologicalGusts(
       ];
       if (excludeModerated) {
         filters.push(post.moderated.eq(false));
+      }
+      if (excludeExplicit) {
+        filters.push(post.explicitContent.eq(false));
       }
       return and(...filters);
     })
@@ -57,6 +61,7 @@ export async function GET(request: Request) {
   const userId = session?.user?.id ?? "";
   const settings = userId ? await readNetworkPreferences(userId) : null;
   const preferences = settings?.preferences ?? defaultNetworkPreferences();
+  const excludeExplicit = !preferences.showExplicitContent;
   const allowed = (post: Parameters<typeof networkPostAllowed>[0]) =>
     networkPostAllowed(post, preferences);
 
@@ -117,6 +122,9 @@ export async function GET(request: Request) {
         if (excludeModerated) {
           filters.push(post.moderated.eq(false));
         }
+        if (excludeExplicit) {
+          filters.push(post.explicitContent.eq(false));
+        }
         return and(...filters);
       })
       .first();
@@ -132,6 +140,9 @@ export async function GET(request: Request) {
         ];
         if (excludeModerated) {
           filters.push(post.moderated.eq(false));
+        }
+        if (excludeExplicit) {
+          filters.push(post.explicitContent.eq(false));
         }
         return and(...filters);
       })
@@ -168,13 +179,15 @@ export async function GET(request: Request) {
       userId,
       excludeModerated,
       chronologicalCursor,
-      pageSize + 1
+      pageSize + 1,
+      excludeExplicit
     )) ??
     (await queryChronologicalGusts(
       userId,
       excludeModerated,
       undefined,
-      pageSize + 1
+      pageSize + 1,
+      excludeExplicit
     )) ??
     [];
 

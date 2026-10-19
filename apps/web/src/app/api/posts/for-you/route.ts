@@ -32,7 +32,8 @@ async function queryArchivePosts(
   userId: string,
   excludeModerated: boolean,
   cursor: string | undefined,
-  limit: number
+  limit: number,
+  excludeExplicit = true
 ) {
   const visibility = communityVisibilityWhere(userId);
   let query = getPostDataQuery(prisma.orm, userId)
@@ -40,6 +41,9 @@ async function queryArchivePosts(
       const filters = [post.isGust.eq(false), visibility(post)];
       if (excludeModerated) {
         filters.push(post.moderated.eq(false));
+      }
+      if (excludeExplicit) {
+        filters.push(post.explicitContent.eq(false));
       }
       if (userId) {
         filters.push(post.userId.neq(userId));
@@ -89,20 +93,24 @@ export async function GET(request: Request) {
       : 0;
   const pageSize = requestedTake > 0 ? Math.min(requestedTake, 20) : 20;
 
+  const network = userId ? await networkFeedContext(userId) : null;
+  const excludeExplicit = !network?.preferences.showExplicitContent;
+
   // Personalization serves ranked candidate slices for signed-in users.
   // When cursor is undefined or begins with "fyp.", we serve from the ranked pool.
   // Once the ranked pool is exhausted, the cursor transitions to "exp." or post ID,
   // continuing to stream older/expired posts at the bottom so NO posts are hidden.
   let data: PostsPage | null = null;
   if (userId && (!cursor || cursor.startsWith("fyp."))) {
-    const network = await networkFeedContext(userId);
     const personalized = await getPersonalizedFeedPage({
       cursor,
-      excludeExplicit: !network.preferences.showExplicitContent,
+      excludeExplicit,
       excludeModerated,
       includeVisited: true,
-      networkProfile: network.profile,
-      networkScope: `${network.selected.id}:${network.revision}`,
+      networkProfile: network?.profile,
+      networkScope: network
+        ? `${network.selected.id}:${network.revision}`
+        : undefined,
       pageSize,
       userId,
     });
@@ -124,13 +132,15 @@ export async function GET(request: Request) {
             userId,
             excludeModerated,
             chronologicalCursor,
-            pageSize - posts.length + 1
+            pageSize - posts.length + 1,
+            excludeExplicit
           )) ??
           (await queryArchivePosts(
             userId,
             excludeModerated,
             undefined,
-            pageSize - posts.length + 1
+            pageSize - posts.length + 1,
+            excludeExplicit
           )) ??
           [];
         const seenPostIds = new Set(posts.map((post) => post.id));
@@ -165,7 +175,8 @@ export async function GET(request: Request) {
         userId,
         excludeModerated,
         rawCursor,
-        pageSize + 1
+        pageSize + 1,
+        excludeExplicit
       );
     } catch (error) {
       if (!isMissingCursorError(error)) {
@@ -177,7 +188,8 @@ export async function GET(request: Request) {
         userId,
         excludeModerated,
         undefined,
-        pageSize + 1
+        pageSize + 1,
+        excludeExplicit
       );
     }
 
@@ -187,7 +199,8 @@ export async function GET(request: Request) {
           userId,
           excludeModerated,
           undefined,
-          pageSize + 1
+          pageSize + 1,
+          excludeExplicit
         )) ?? [];
     }
 

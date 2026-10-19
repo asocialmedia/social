@@ -57,20 +57,22 @@ export function discoveryTopics(
     )
   );
   const ranked = Object.entries(weights)
-    .filter(([tag, weight]) => weight > 0 && (negative[tag] ?? 0) < weight)
+    .filter(([tag, weight]) => weight >= 0.15 && (negative[tag] ?? 0) < weight)
     .toSorted((first, second) => second[1] - first[1])
     .map(([tag]) => tag);
   const direct = normalizeDiscoveryTopics([
     ...ranked,
     ...summaryTopics.filter(
-      (tag) => (negative[tag] ?? 0) < (weights[tag] ?? 1)
+      (tag) =>
+        (weights[tag] ?? 0) >= 0.15 &&
+        (negative[tag] ?? 0) < (weights[tag] ?? 0)
     ),
   ]);
   const related = normalizeDiscoveryTopics(
     Object.entries(profile.expandedEntityWeights ?? {})
       .filter(
         ([topic, weight]) =>
-          weight > 0 && !direct.includes(topic) && !(negative[topic] > 0)
+          weight >= 0.15 && !direct.includes(topic) && !(negative[topic] > 0)
       )
       .toSorted((a, b) => b[1] - a[1])
       .map(([topic]) => topic)

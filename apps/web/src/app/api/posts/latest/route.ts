@@ -5,8 +5,10 @@ import {
   hydrateViewCounts,
   mapPostData,
   prisma,
+  readNetworkPreferences,
 } from "@asm/db";
 import type { PostsPage } from "@asm/db";
+import { defaultNetworkPreferences } from "@asm/protocols/discovery";
 
 import { getSessionFromApi } from "@/lib/auth/session";
 import { filterNetworkFeed } from "@/lib/recommendations/filter-network-feed";
@@ -33,6 +35,10 @@ export async function GET(request: Request) {
   const pageSize =
     requestedTake > 0 ? Math.min(requestedTake, PAGE_SIZE) : PAGE_SIZE;
 
+  const settings = userId ? await readNetworkPreferences(userId) : null;
+  const preferences = settings?.preferences ?? defaultNetworkPreferences();
+  const excludeExplicit = !preferences.showExplicitContent;
+
   // Latest is the global timeline: global posts (communityId null, which
   // includes reshares) plus the posts of communities the viewer subscribes to,
   // interleaved by time. Native community posts never appear here unless the
@@ -46,6 +52,9 @@ export async function GET(request: Request) {
       const filters = [post.isGust.eq(false)];
       if (excludeModerated) {
         filters.push(post.moderated.eq(false));
+      }
+      if (excludeExplicit) {
+        filters.push(post.explicitContent.eq(false));
       }
       if (subscribedCommunityIds.length > 0) {
         filters.push(
