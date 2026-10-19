@@ -4,6 +4,7 @@ import {
   fromPrismaDateTime,
   prisma,
 } from "@asm/db";
+import { blueskyMediaIsExplicit } from "@asm/protocols/discovery";
 import { siteConfig } from "@asm/ui/meta/site";
 import { connection } from "next/server";
 
@@ -54,6 +55,9 @@ export async function GET(): Promise<Response> {
     .all();
 
   const items = posts
+    .filter(
+      (post) => !blueskyMediaIsExplicit({ text: post.content ?? undefined })
+    )
     .map((post) => {
       const authorUsername = post.user?.username || "anonymous";
       const authorDisplayName =

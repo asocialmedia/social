@@ -7,6 +7,7 @@ import {
   mapPostData,
   prisma,
 } from "@asm/db";
+import { blueskyMediaIsExplicit } from "@asm/protocols/discovery";
 import { siteConfig } from "@asm/ui/meta/site";
 
 import { excerpt, getPostUrl, getShortPostId } from "@/lib/seo/seo";
@@ -50,6 +51,14 @@ function toCrawlPost(p: {
   };
 }
 
+// The stored flag is written by the media pipeline and can miss a post that
+// only declares itself explicit in text or a hashtag ("#nsfw", "nudes"). These
+// rows are rendered as guest HTML and indexed, so re-check the same detector the
+// feeds use rather than trusting the column alone.
+function isCrawlSafe(post: { content: string | null }): boolean {
+  return !blueskyMediaIsExplicit({ text: post.content ?? undefined });
+}
+
 export async function getRecentPostsForCrawl(limit = 20): Promise<CrawlPost[]> {
   const posts = await prisma.orm.public.Posts.select(
     "aura",
@@ -73,7 +82,7 @@ export async function getRecentPostsForCrawl(limit = 20): Promise<CrawlPost[]> {
     .limit(limit)
     .all();
 
-  return posts.map((post) =>
+  return posts.filter(isCrawlSafe).map((post) =>
     toCrawlPost({
       ...post,
       createdAt: fromPrismaDateTime(post.createdAt),
@@ -102,7 +111,7 @@ export async function getRecentGustsForCrawl(limit = 12): Promise<CrawlPost[]> {
     .limit(limit)
     .all();
 
-  return posts.map((post) =>
+  return posts.filter(isCrawlSafe).map((post) =>
     toCrawlPost({
       ...post,
       community: null,
@@ -137,7 +146,7 @@ export async function getTrendingPostsForCrawl(
     .limit(limit)
     .all();
 
-  return posts.map((post) =>
+  return posts.filter(isCrawlSafe).map((post) =>
     toCrawlPost({
       ...post,
       createdAt: fromPrismaDateTime(post.createdAt),
@@ -174,7 +183,7 @@ export async function getHashtagPostsForCrawl(
     .limit(limit)
     .all();
 
-  return posts.map((post) =>
+  return posts.filter(isCrawlSafe).map((post) =>
     toCrawlPost({
       ...post,
       createdAt: fromPrismaDateTime(post.createdAt),
@@ -209,7 +218,7 @@ export async function getUserPostsForCrawl(
     .limit(limit)
     .all();
 
-  return posts.map((post) =>
+  return posts.filter(isCrawlSafe).map((post) =>
     toCrawlPost({
       ...post,
       createdAt: fromPrismaDateTime(post.createdAt),
@@ -275,7 +284,7 @@ export async function getCommunityPostsForCrawl(
     .limit(limit)
     .all();
 
-  return posts.map((post) =>
+  return posts.filter(isCrawlSafe).map((post) =>
     toCrawlPost({
       ...post,
       community: { slug: community.slug },
