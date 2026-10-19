@@ -368,10 +368,13 @@ const personaSnapshotSchema = z.object({
 const personaCache = new SharedReadCache({
   deadlineMs: 15_000,
   parse: (value) => personaSnapshotSchema.parse(value),
+  // A persona key is per viewer, so a cold navigation burst of N users means N
+  // builds that can never coalesce. Four at a time serialised the whole wave;
+  // this widens the door while still bounding concurrent database reads.
   queue: new BoundedReadQueue({
-    concurrency: 4,
-    maxQueued: 64,
-    maxWaitMs: 5000,
+    concurrency: 16,
+    maxQueued: 256,
+    maxWaitMs: 8000,
   }),
   store: createRedisReadStore(redis),
   ttlMs: 30_000,
