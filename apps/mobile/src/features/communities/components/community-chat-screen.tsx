@@ -2072,7 +2072,7 @@ function CommunityChatTimelineScreen() {
         </DialogPanel>
       ) : null}
       <Modal
-        animationType="slide"
+        animationType="fade"
         onRequestClose={() => setChannelsOpen(false)}
         transparent
         visible={channelsOpen}
@@ -2090,6 +2090,8 @@ function CommunityChatTimelineScreen() {
                 backgroundColor: theme.containerBg,
                 borderColor: theme.cardBorder,
                 paddingBottom: insets.bottom + 20,
+                paddingLeft: insets.left + 18,
+                paddingTop: insets.top + 20,
               },
             ]}
           >
@@ -2259,16 +2261,17 @@ const styles = StyleSheet.create({
   channelList: { paddingHorizontal: 16, paddingVertical: 16 },
   channelName: { fontFamily: "SofiaProBold", fontSize: 15 },
   channelSheet: {
-    borderTopLeftRadius: 26,
+    borderBottomRightRadius: 26,
     borderTopRightRadius: 26,
     borderWidth: StyleSheet.hairlineWidth,
     bottom: 0,
     left: 0,
-    maxHeight: "85%",
+    maxWidth: 384,
     paddingHorizontal: 18,
     paddingTop: 20,
     position: "absolute",
-    right: 0,
+    top: 0,
+    width: "86%",
   },
   channelTopic: { fontFamily: "SofiaProReg", fontSize: 12, marginTop: 3 },
   chevron: {

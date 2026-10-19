@@ -125,6 +125,39 @@ function send(
 }
 
 describe("community channel messaging", () => {
+  test("returns typed validation errors for invalid sends, edits and private starters", async () => {
+    for (const content of ["", "   ", "x".repeat(4001), null]) {
+      await expect(
+        sendCommunityChatMessage({
+          clientId: randomUUID(),
+          content,
+          roomId: channelId,
+          userId: member,
+        })
+      ).rejects.toMatchObject({ code: "INVALID" });
+    }
+    const { message } = await send(member, "Valid editable content");
+    await expect(
+      mutateCommunityChatMessage({
+        actorId: member,
+        content: "",
+        expectedRevision: message.revision,
+        messageId: message.id,
+        operation: "EDIT",
+      })
+    ).rejects.toMatchObject({ code: "INVALID" });
+    await expect(
+      createCommunityChatThread({
+        channelId,
+        clientId: randomUUID(),
+        creatorId: member,
+        name: "Invalid private starter",
+        starterContent: "",
+        visibility: "PRIVATE",
+      })
+    ).rejects.toMatchObject({ code: "INVALID" });
+  });
+
   test("enforces guest, pending, active, and staff access across community types", async () => {
     const channels = await prisma.orm.public.CommunityChatRooms.select(
       "id",

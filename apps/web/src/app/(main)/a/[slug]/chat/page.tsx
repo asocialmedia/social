@@ -6,7 +6,9 @@ import {
 import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 import { connection } from "next/server";
+import { Suspense } from "react";
 
+import CommunityChatLoading from "@/components/communities/page/community-chat-loading";
 import { getSessionFromApi } from "@/lib/auth/session";
 import { communityChatAvailabilityResponse } from "@/lib/communities/chat-api";
 import { communityChatUiEnabled } from "@/lib/communities/chat-features";
@@ -20,7 +22,15 @@ export const metadata: Metadata = {
   title: "Community chat",
 };
 
-export default async function Page({ params }: PageProps) {
+export default function Page(props: PageProps) {
+  return (
+    <Suspense fallback={<CommunityChatLoading />}>
+      <CommunityChatLanding {...props} />
+    </Suspense>
+  );
+}
+
+async function CommunityChatLanding({ params }: PageProps) {
   await connection();
   if (!communityChatUiEnabled || communityChatAvailabilityResponse()) {
     notFound();
@@ -37,5 +47,5 @@ export default async function Page({ params }: PageProps) {
   if (!firstChannel) {
     notFound();
   }
-  redirect(`/a/${community.slug}/chat/${firstChannel.id}`);
+  return redirect(`/a/${community.slug}/chat/${firstChannel.id}`);
 }

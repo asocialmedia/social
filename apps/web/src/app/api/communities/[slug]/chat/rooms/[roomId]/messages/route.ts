@@ -1,5 +1,4 @@
 import {
-  CommunityChatError,
   getCommunityBySlug,
   getCommunityChatMessages,
   getCommunityChatRoomAccess,
@@ -105,9 +104,6 @@ export async function POST(request: Request, context: RouteContext) {
     });
     return Response.json(result, { status: result.replayed ? 200 : 201 });
   } catch (error) {
-    if (error instanceof CommunityChatError) {
-      return communityChatErrorResponse(error);
-    }
     return communityChatErrorResponse(error);
   }
 }

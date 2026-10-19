@@ -1,0 +1,84 @@
+{
+  "executedAt": "2026-10-19T05:22:17.365Z",
+  "origin": "http://localhost:3000",
+  "run": "ea6f9e50",
+  "passed": 15,
+  "failed": 0,
+  "results": [
+    {
+      "name": "guest reads public history but cannot contribute",
+      "passed": true,
+      "durationMs": 636
+    },
+    {
+      "name": "pending and timed-out roles read with correct write restrictions",
+      "passed": true,
+      "durationMs": 1285
+    },
+    {
+      "name": "announcement and locked channel restrictions are server-enforced",
+      "passed": true,
+      "durationMs": 1570
+    },
+    {
+      "name": "private fixture hidden across history, threads, changes, pins and events",
+      "passed": true,
+      "durationMs": 2921
+    },
+    {
+      "name": "member lookup is bounded and excludes pending applicants",
+      "passed": true,
+      "durationMs": 356
+    },
+    {
+      "name": "members cannot create channels; staff can rename and order",
+      "passed": true,
+      "durationMs": 666
+    },
+    {
+      "name": "validates malformed, empty and oversized message bodies",
+      "passed": true,
+      "durationMs": 983
+    },
+    {
+      "name": "concurrent retry IDs produce one message and monotonic string sequences",
+      "passed": true,
+      "durationMs": 862
+    },
+    {
+      "name": "reply context, edits, stale revisions, reactions and pins survive HTTP hydration",
+      "passed": true,
+      "durationMs": 3067
+    },
+    {
+      "name": "public thread remains readable after its source becomes a tombstone",
+      "passed": true,
+      "durationMs": 2419
+    },
+    {
+      "name": "private thread invitation grants and revokes access without channel leakage",
+      "passed": true,
+      "durationMs": 4407
+    },
+    {
+      "name": "read watermarks and mute preferences persist privately",
+      "passed": true,
+      "durationMs": 1776
+    },
+    {
+      "name": "live SSE delivers a committed message and replays it after reconnect",
+      "passed": true,
+      "durationMs": 1335
+    },
+    {
+      "name": "open private stream revokes an invitation within its authorization lease",
+      "passed": true,
+      "durationMs": 4966
+    },
+    {
+      "name": "slow mode serializes concurrent sends and archive blocks new writes",
+      "passed": true,
+      "durationMs": 1515
+    }
+  ]
+}

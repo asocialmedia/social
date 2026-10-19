@@ -9,7 +9,9 @@ import {
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { connection } from "next/server";
+import { Suspense } from "react";
 
+import CommunityChatLoading from "@/components/communities/page/community-chat-loading";
 import CommunityPage from "@/components/communities/page/community-page";
 import { getSessionFromApi } from "@/lib/auth/session";
 import { communityChatAvailabilityResponse } from "@/lib/communities/chat-api";
@@ -24,7 +26,15 @@ export const metadata: Metadata = {
   title: "Community thread",
 };
 
-export default async function Page({ params }: PageProps) {
+export default function Page(props: PageProps) {
+  return (
+    <Suspense fallback={<CommunityChatLoading />}>
+      <CommunityChatThreadPage {...props} />
+    </Suspense>
+  );
+}
+
+async function CommunityChatThreadPage({ params }: PageProps) {
   await connection();
   if (!communityChatUiEnabled || communityChatAvailabilityResponse()) {
     notFound();

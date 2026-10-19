@@ -3,14 +3,17 @@
 import { Button } from "@asm/ui/shadui/button";
 import { ArrowLeft, ChevronDown, MoreHorizontal } from "lucide-react";
 import Link from "next/link";
+import type { Ref } from "react";
 
 import CommunityAvatar from "../card/community-avatar";
 
 interface Props {
   accentColor: string;
   avatarUrl: string | null;
+  browseButtonRef: Ref<HTMLButtonElement>;
   channelId: string;
   channelName: string;
+  channelsOpen: boolean;
   communityName: string;
   onBrowse: () => void;
   onTools: () => void;
@@ -19,7 +22,10 @@ interface Props {
   thread: boolean;
 }
 
-export default function CommunityConversationHeader(props: Props) {
+export default function CommunityConversationHeader({
+  browseButtonRef,
+  ...props
+}: Props) {
   return (
     <header
       className="border-border/50 flex h-16 shrink-0 items-center gap-1 border-b px-2 sm:gap-2 sm:px-4"
@@ -46,9 +52,12 @@ export default function CommunityConversationHeader(props: Props) {
       </Button>
       <h1 className="sr-only">{props.communityName} chat</h1>
       <button
+        aria-expanded={props.channelsOpen}
+        aria-haspopup="dialog"
         aria-label={`Choose conversation, currently ${props.channelName}`}
         className="hover:bg-muted/50 flex min-h-11 min-w-0 flex-1 items-center gap-2.5 rounded-2xl px-1.5 text-left transition-colors"
         onClick={props.onBrowse}
+        ref={browseButtonRef}
         type="button"
       >
         <CommunityAvatar

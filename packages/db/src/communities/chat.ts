@@ -49,6 +49,17 @@ export class CommunityChatError extends Error {
   }
 }
 
+function parseCommunityChatTextInput(value: unknown) {
+  try {
+    return parseCommunityChatText(value);
+  } catch {
+    throw new CommunityChatError(
+      "INVALID",
+      "Message text must be between 1 and 4,000 characters"
+    );
+  }
+}
+
 export interface CommunityChatRoomAccess {
   communityId: string;
   permissions: CommunityChatPermissions;
@@ -946,7 +957,7 @@ export async function createCommunityChatThread(input: {
 
   let starterPayload: { content: string; type: "text" } | null = null;
   if (input.visibility === "PRIVATE") {
-    const payload = parseCommunityChatText(input.starterContent);
+    const payload = parseCommunityChatTextInput(input.starterContent);
     if (payload.type !== "text") {
       throw new CommunityChatError(
         "INVALID",
@@ -1374,7 +1385,7 @@ export async function sendCommunityChatMessage(input: {
   if (!CLIENT_ID_PATTERN.test(input.clientId)) {
     throw new CommunityChatError("INVALID", "Invalid client message id");
   }
-  const payload = parseCommunityChatText(input.content);
+  const payload = parseCommunityChatTextInput(input.content);
   if (payload.type !== "text") {
     throw new CommunityChatError(
       "INVALID",
@@ -1725,7 +1736,9 @@ export async function mutateCommunityChatMessage(input: {
     );
   }
   const payload =
-    input.operation === "EDIT" ? parseCommunityChatText(input.content) : null;
+    input.operation === "EDIT"
+      ? parseCommunityChatTextInput(input.content)
+      : null;
   if (payload && payload.type !== "text") {
     throw new CommunityChatError(
       "INVALID",

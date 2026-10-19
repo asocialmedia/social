@@ -48,6 +48,7 @@ import { LoadingButton } from "@/components/auth/fields/loading-button";
 import { PasswordInput } from "@/components/auth/fields/password-input";
 import ForgotPasswordLink from "@/components/auth/shell/forgot-password-link";
 import { authClient } from "@/lib/auth/auth";
+import { getLoginReturnPath } from "@/lib/auth/login-return-path";
 import { useToast } from "@/lib/gooey-toast";
 
 interface LoginFormProps {
@@ -207,7 +208,7 @@ function InlineTwoFactorForm({
           variant: "destructive",
         });
       } else {
-        window.location.assign("/");
+        window.location.assign(getLoginReturnPath(window.location.search));
       }
     } catch (verificationError) {
       clientLog.error("Two-factor verification error:", verificationError);
@@ -490,7 +491,7 @@ export default function LoginForm({
 
     // A hard navigation reads the session cookie that the sign-in response
     // just set, rather than reusing the guest App Router layout cache.
-    window.location.assign("/");
+    window.location.assign(getLoginReturnPath(window.location.search));
   }
 
   const renderUsernameField = useCallback(

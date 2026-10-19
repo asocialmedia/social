@@ -226,6 +226,7 @@ function CommunityChatTimeline({
   const [pinsLoading, setPinsLoading] = useState(false);
   const [pinsError, setPinsError] = useState<string | null>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
+  const channelSelectorRef = useRef<HTMLButtonElement>(null);
   const transcriptSize = useRef({ height: 0, width: 0 });
   const [atLatest, setAtLatest] = useState(true);
   const [hasNewActivity, setHasNewActivity] = useState(false);
@@ -1486,7 +1487,11 @@ function CommunityChatTimeline({
             />
           ) : (
             <Button asChild className="w-auto" size="sm" variant="premium">
-              <Link href="/login">Sign in to join</Link>
+              <Link
+                href={`/login?next=${encodeURIComponent(`/a/${slug}/chat/${channelId}${threadId ? `/threads/${threadId}` : ""}`)}`}
+              >
+                Sign in to join
+              </Link>
             </Button>
           )}
         </div>
@@ -1650,9 +1655,13 @@ function CommunityChatTimeline({
       <div className="border-border/60 flex min-h-0 flex-1 overflow-hidden border-b">
         <Sheet onOpenChange={setMobileChannelsOpen} open={mobileChannelsOpen}>
           <SheetContent
-            className="community-accent-scope mx-auto flex h-[min(75dvh,36rem)] max-h-[85dvh] w-full max-w-2xl flex-col gap-0 rounded-t-3xl! p-0"
+            className="community-accent-scope flex h-dvh w-80 max-w-[calc(100vw-2.75rem)] flex-col gap-0 rounded-l-none! rounded-r-3xl! p-0 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] motion-reduce:animate-none motion-reduce:transition-none sm:w-96 sm:max-w-sm"
             style={communityAccentStyle(accentColor)}
-            side="bottom"
+            side="left"
+            onCloseAutoFocus={(event) => {
+              event.preventDefault();
+              channelSelectorRef.current?.focus();
+            }}
           >
             <SheetHeader className="sr-only">
               <SheetTitle>{communityName} channels</SheetTitle>
@@ -1669,8 +1678,10 @@ function CommunityChatTimeline({
           <CommunityConversationHeader
             accentColor={accentColor}
             avatarUrl={avatarUrl}
+            browseButtonRef={channelSelectorRef}
             channelId={channelId}
             channelName={channelName}
+            channelsOpen={mobileChannelsOpen}
             communityName={communityName}
             onBrowse={() => setMobileChannelsOpen(true)}
             onTools={() => setToolsOpen(true)}
