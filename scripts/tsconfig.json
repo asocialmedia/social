@@ -18,7 +18,8 @@
       "@asm/messages": ["../packages/messages/src/index.ts"],
       "@asm/messages/*": ["../packages/messages/src/*"],
       "@/*": ["../apps/web/src/*"],
-      "@asm/db": ["../packages/db/index.ts"]
+      "@asm/db": ["../packages/db/index.ts"],
+      "@asm/protocols/discovery": ["../packages/protocols/src/discovery.ts"]
     }
   }
 }
