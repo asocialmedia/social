@@ -154,7 +154,13 @@ export async function runJetstreamWorker(
             ? error.code
             : "checkpoint_unavailable";
         options.logger.warn(
-          { attempt, code, event: "jetstream.retry" },
+          {
+            attempt,
+            code,
+            event: "jetstream.retry",
+            reason:
+              error instanceof Error ? error.message : "Checkpoint failure",
+          },
           "Jetstream paused; reconnecting from its checkpoint"
         );
       }

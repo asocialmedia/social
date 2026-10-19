@@ -51,6 +51,7 @@ test("public discovery filters sync frames at the actual SDK subscription and re
     transport: {
       async *stream(getUrl) {
         const url = new URL(await getUrl());
+        expect(url.searchParams.get("maxMessageSizeBytes")).toBe("262144");
         expect(url.searchParams.getAll("kinds")).toEqual([
           "commit",
           "identity",
@@ -86,6 +87,50 @@ test("validates deletes, account events, payload bounds, and v2 cursors", () => 
     parseJetstreamEvent(JSON.stringify({ ...eventFixture, seq: undefined }))
   ).toThrow();
   expect(() => parseJetstreamEvent(JSON.stringify(eventFixture), 10)).toThrow();
+});
+
+const frame = (seq: number, record: unknown) =>
+  JSON.stringify({
+    $type: "message",
+    payload: {
+      $type: "network.bsky.jetstream.subscribeEvents#commit",
+      did: authorDid,
+      seq,
+      time: eventFixture.time,
+      ...eventFixture.commit,
+      record,
+    },
+  });
+
+test("public discovery skips one malformed record and continues, and an oversized replay requests reconciliation", async () => {
+  const stream = streamJetstream({
+    dids: [],
+    publicDiscovery: true,
+    transport: {
+      async *stream() {
+        yield frame(1, {});
+        yield frame(2, eventFixture.commit.record);
+      },
+    },
+  });
+  const first = await stream.next();
+  const completed = await stream.next();
+  expect(first.value?.seq).toBe(2);
+  expect(completed.done).toBe(true);
+  const oversized = streamJetstream({
+    dids: [],
+    maxMessageBytes: 100,
+    publicDiscovery: true,
+    transport: {
+      async *stream() {
+        yield frame(1, eventFixture.commit.record);
+      },
+    },
+  });
+  await expect(oversized.next()).rejects.toMatchObject({
+    code: "invalid_response",
+    message: "Jetstream cursor requires reconciliation",
+  });
 });
 
 test("reads the real WebSocket lifecycle and closes on cancellation", async () => {

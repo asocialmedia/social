@@ -120,7 +120,7 @@ export class DiscoveryInventory {
     // A sparse local page must not hide deeper source pages from the reader.
     if (
       cursor &&
-      !candidates.length &&
+      candidates.length < 20 &&
       this.readSource &&
       (!sourceStarted || sourceCursor)
     ) {
@@ -131,7 +131,14 @@ export class DiscoveryInventory {
         topics,
         content
       );
-      candidates = page.items.filter(eligible);
+      candidates = [
+        ...new Map(
+          [...candidates, ...page.items.filter(eligible)].map((post) => [
+            post.id,
+            post,
+          ])
+        ).values(),
+      ];
       sourceStarted = true;
       sourceCursor = page.cursor ?? undefined;
       ({ partial } = page);

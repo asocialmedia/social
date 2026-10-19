@@ -27,8 +27,10 @@ const requestDuration = meter.createHistogram(
 );
 
 export function createProtocolObserver(
-  logger: ProtocolLogger
+  logger: ProtocolLogger,
+  now = Date.now
 ): ProtocolObserver {
+  const failures = new Map<string, { at: number; suppressed: number }>();
   return (diagnostic) => {
     const attributes = {
       operation: diagnostic.operation,
@@ -39,7 +41,24 @@ export function createProtocolObserver(
     upstreamRequests.add(1, attributes);
     const fields = { ...diagnostic, source: "bluesky" };
     if (diagnostic.outcome === "error") {
-      logger.warn(fields, "Protocol upstream request failed");
+      const key = `${diagnostic.operation}:${diagnostic.code ?? "unknown"}`;
+      const previous = failures.get(key);
+      if (previous && now() - previous.at < 30_000) {
+        previous.suppressed += 1;
+        logger.debug(
+          fields,
+          "Protocol upstream request failed during cooldown"
+        );
+        return;
+      }
+      if (failures.size >= 128 && !previous) {
+        failures.delete(failures.keys().next().value ?? "");
+      }
+      failures.set(key, { at: now(), suppressed: 0 });
+      logger.warn(
+        { ...fields, suppressed: previous?.suppressed ?? 0 },
+        "Protocol upstream request failed"
+      );
     } else {
       logger.debug(fields, "Protocol upstream request completed");
     }

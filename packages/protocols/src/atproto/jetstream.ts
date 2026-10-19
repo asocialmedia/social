@@ -2,6 +2,7 @@ import { ensureValidNsid } from "@atproto/syntax";
 import {
   Jetstream,
   MalformedError,
+  RecordValidationError,
   XrpcSubscriptionError,
   websocketTransport,
 } from "@bsky/jetstream";
@@ -226,7 +227,12 @@ export async function* streamJetstream(
   const boundedTransport: LiveTransport = {
     async *stream(getUrl, transportSignal, transportOptions) {
       for await (const message of transport.stream(
-        getUrl,
+        () => {
+          const url = new URL(getUrl());
+          // Filter oversized records before delivery so a checkpoint cannot replay the same poison frame forever.
+          url.searchParams.set("maxMessageSizeBytes", String(maxMessageBytes));
+          return url.toString();
+        },
         transportSignal,
         transportOptions
       )) {
@@ -263,7 +269,11 @@ export async function* streamJetstream(
       dids: options.dids.map((did) => didSchema.parse(did)),
       kinds: options.publicDiscovery ? [...discoveryKinds] : undefined,
       liveTransport: boundedTransport,
-      onError: () => {
+      onError: (error) => {
+        if (options.publicDiscovery && error instanceof RecordValidationError) {
+          // The SDK skips this unusable record; AppView hydration remains the eligibility boundary.
+          return;
+        }
         controller.abort(
           new ProtocolError(
             "invalid_response",
@@ -308,6 +318,9 @@ export async function* streamJetstream(
       throw signal.reason;
     }
     if (
+      (options.publicDiscovery &&
+        error instanceof ProtocolError &&
+        error.message === "Jetstream event exceeds the size limit") ||
       (options.publicDiscovery && error instanceof MalformedError) ||
       (error instanceof XrpcSubscriptionError &&
         (error.error === "CursorTooOld" ||
