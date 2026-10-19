@@ -43,12 +43,14 @@ function createPostQuery(): PostQuery {
     orderBy: () => query,
     where: (predicate) => {
       predicate({
+        explicitContent: {
+          eq: (value) => (state.where.explicitContent = value),
+        },
         id: {
           eq: (id) => (state.where.id = id),
           neq: (id) => (state.where.neqId = id),
           notIn: (ids) => (state.where.notInIds = ids),
         },
-        explicitContent: { eq: (value) => (state.where.explicitContent = value) },
         isGust: { eq: (value) => (state.where.isGust = value) },
         moderated: { eq: (value) => (state.where.moderated = value) },
         rootPostId: { isNull: () => ({}) },

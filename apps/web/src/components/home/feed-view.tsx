@@ -452,7 +452,9 @@ export const FeedView: React.FC<FeedViewProps> = ({
       {showEmpty && mixedGroups.length === 0 && (
         <div className="flex flex-col items-center justify-center py-6 sm:py-8">
           <p className="text-muted-foreground text-center text-sm sm:text-base">
-            No posts to show here. Follow someone or create your first post.
+            {trending
+              ? "Nothing is trending yet. Trending only shows posts that have already earned engagement."
+              : "No posts to show here. Follow someone or create your first post."}
           </p>
         </div>
       )}
