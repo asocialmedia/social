@@ -1,3 +1,9 @@
+import {
+  communityFeedSearchParams,
+  readCommunityFeedSelection,
+} from "@asm/db/communities";
+import type { CommunityPostFilters } from "@asm/db/communities";
+
 import type { ApiCallOptions } from "@/features/feed/lib/feed-api";
 import type { FeedPost } from "@/features/feed/lib/feed-types";
 import { normalizePostsData } from "@/features/feed/lib/feed-types";
@@ -489,9 +495,19 @@ export async function fetchCommunityPosts(
   slug: string,
   cursor: string | null,
   options: ApiCallOptions,
-  sort: CommunitySort = "new"
+  sort: CommunitySort = "new",
+  filters?: CommunityPostFilters
 ): Promise<{ nextCursor: string | null; posts: FeedPost[] }> {
-  const path = `/api/communities/${encodeURIComponent(slug)}/posts?sort=${sort}&excludeModerated=1${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`;
+  const params = communityFeedSearchParams({
+    ...(filters ?? readCommunityFeedSelection(new URLSearchParams())),
+    sort,
+  });
+  params.set("sort", sort);
+  params.set("excludeModerated", "1");
+  if (cursor) {
+    params.set("cursor", cursor);
+  }
+  const path = `/api/communities/${encodeURIComponent(slug)}/posts?${params}`;
   const response = await get(path, options);
   requireOk(response, "Community posts");
   const body = objectOf(await readJson(response)) ?? {};

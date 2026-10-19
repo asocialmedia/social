@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import { createLogger } from "@asm/logger";
 import type { ResultType } from "@prisma/orm-postgres/components/runtime";
-import { and, or } from "@prisma/orm-postgres/orm-client";
+import { and, not, or } from "@prisma/orm-postgres/orm-client";
 import type { ModelAccessor } from "@prisma/orm-postgres/orm-client";
 import type { AnyExpression } from "@prisma/orm-postgres/relational-core/ast";
 
@@ -32,9 +32,18 @@ import {
   DEFAULT_COMMUNITY_ACCENT,
   isCommunityAccent,
 } from "./constants";
+import { communityFeedSince, readCommunityFeedSelection } from "./feed-filters";
+import type { CommunityPostFilters } from "./feed-filters";
 import { isValidCommunitySlug, normalizeCommunitySlug } from "./slug";
 
 const logger = createLogger({ serviceName: "communities" });
+
+function escapeFeedPattern(value: string): string {
+  return value
+    .replaceAll("\\", "\\\\")
+    .replaceAll("%", "\\%")
+    .replaceAll("_", "\\_");
+}
 
 export type CommunityRoleValue =
   | "MEMBER"
@@ -1408,6 +1417,7 @@ export interface CommunityFeedOptions {
   limit?: number;
   loggedInUserId: string;
   sort?: CommunityFeedSort;
+  filters?: Partial<CommunityPostFilters>;
 }
 
 export async function getCommunityFeedPage(
@@ -1418,9 +1428,63 @@ export async function getCommunityFeedPage(
 }> {
   const limit = Math.min(Math.max(options.limit ?? 20, 1), 20);
   const sort = options.sort ?? "new";
+  const filters = readCommunityFeedSelection(
+    new URLSearchParams({
+      ...options.filters,
+      q: options.filters?.query ?? "",
+    })
+  );
+  const since = communityFeedSince(filters.range);
   const query = getPostDataQuery(prisma.orm, options.loggedInUserId).where(
-    (post) =>
-      and(post.communityId.eq(options.communityId), post.isGust.eq(false))
+    (post) => {
+      const predicates = [
+        post.communityId.eq(options.communityId),
+        post.isGust.eq(false),
+      ];
+      if (since) {
+        predicates.push(post.createdAt.gte(toPrismaDateTime(since)));
+      }
+      if (filters.rating !== "all") {
+        predicates.push(post.explicitContent.eq(filters.rating === "explicit"));
+      }
+      if (filters.query) {
+        predicates.push(
+          post.content.ilike(`%${escapeFeedPattern(filters.query)}%`)
+        );
+      }
+      if (filters.author) {
+        predicates.push(
+          post.user.some((user) =>
+            user.username.ilike(escapeFeedPattern(filters.author))
+          )
+        );
+      }
+      const linkPredicate = or(
+        and(post.embeds.isNotNull(), post.embeds.neq([])),
+        post.content.ilike("%https://%"),
+        post.content.ilike("%http://%")
+      );
+      if (filters.type === "links") {
+        predicates.push(linkPredicate);
+      }
+      if (filters.type === "text") {
+        predicates.push(post.postMedias.none(), not(linkPredicate));
+      }
+      const mediaType = {
+        audio: "AUDIO",
+        images: "IMAGE",
+        videos: "VIDEO",
+      } as const;
+      const { type } = filters;
+      if (type === "images" || type === "videos" || type === "audio") {
+        predicates.push(
+          post.postMedias.some((media) =>
+            and(media._type.eq(mediaType[type]), media.status.eq("READY"))
+          )
+        );
+      }
+      return and(...predicates);
+    }
   );
   const orderedQuery =
     sort === "top"
@@ -1437,7 +1501,8 @@ export async function getCommunityFeedPage(
   let pagedQuery = orderedQuery;
   if (options.cursor) {
     if (sort === "top") {
-      const anchor = await prisma.orm.public.Posts.select("aura")
+      const anchor = await query
+        .select("aura")
         .where({ id: options.cursor })
         .first();
       if (anchor) {
@@ -1447,7 +1512,8 @@ export async function getCommunityFeedPage(
         });
       }
     } else {
-      const anchor = await prisma.orm.public.Posts.select("createdAt")
+      const anchor = await query
+        .select("createdAt")
         .where({ id: options.cursor })
         .first();
       if (anchor) {

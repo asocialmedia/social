@@ -1,12 +1,19 @@
 "use client";
 
 import type { PostsPage } from "@asm/db";
+import {
+  communityFeedSearchParams,
+  communityPostFilterCount,
+  readCommunityFeedSelection,
+} from "@asm/db/communities";
+import type { CommunityFeedSelection } from "@asm/db/communities";
 import { Button } from "@asm/ui/shadui/button";
 import { Tabs, TabsContent, TabsList } from "@asm/ui/shadui/tabs";
 import errorImage from "@assets/general/error.png";
 import { useInfiniteQuery } from "@tanstack/react-query";
+import { usePathname, useSearchParams } from "next/navigation";
 import type React from "react";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 
 import { FeedView } from "@/components/home/feed-view";
 import { AnimatedTabTrigger } from "@/components/home/feedview/animated-tab-trigger";
@@ -19,16 +26,41 @@ import EmptyFeedState from "@/components/profile/empty-feed-state";
 import kyInstance from "@/lib/ky";
 import { FEED_QUERY_BEHAVIOR } from "@/lib/posts/feed-cache";
 
-type CommunitySort = "new" | "top";
+import CommunityPostFilters, {
+  CommunityPostFilterSummary,
+} from "./community-post-filters";
 
 // The community's own feed. Native posts only, sorted by new or top. Reuses
 // the global FeedView so the card, media, voting and comments behave exactly
 // as they do everywhere else.
 export default function CommunityFeed({ slug }: { slug: string }) {
-  const [sort, setSort] = useState<CommunitySort>("new");
+  const searchParams = useSearchParams();
+  const pathname = usePathname();
+  const selection = readCommunityFeedSelection(searchParams);
+  const { sort } = selection;
+  const filterParams = communityFeedSearchParams(selection).toString();
+  const filtered = communityPostFilterCount(selection) > 0;
   const feedScrollRef = useRef<HTMLDivElement>(null);
 
-  const queryKey = useMemo(() => ["community-feed", slug, sort], [slug, sort]);
+  const queryKey = useMemo(
+    () => ["community-feed", slug, sort, filterParams],
+    [slug, sort, filterParams]
+  );
+  const updateSelection = useCallback(
+    (next: CommunityFeedSelection) => {
+      const params = communityFeedSearchParams(next, searchParams.toString());
+      window.history.pushState(
+        null,
+        "",
+        `${pathname}${params.size ? `?${params}` : ""}`
+      );
+    },
+    [pathname, searchParams]
+  );
+  useEffect(() => {
+    feedScrollRef.current?.scrollTo({ top: 0 });
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- A new selection resets the scrolling viewport even when its element is reused.
+  }, [filterParams, slug]);
 
   const {
     data,
@@ -40,13 +72,20 @@ export default function CommunityFeed({ slug }: { slug: string }) {
   } = useInfiniteQuery({
     getNextPageParam: (lastPage) => lastPage.nextCursor,
     initialPageParam: null as string | null,
-    queryFn: ({ pageParam }: { pageParam: string | null }) =>
+    queryFn: ({
+      pageParam,
+      signal,
+    }: {
+      pageParam: string | null;
+      signal: AbortSignal;
+    }) =>
       kyInstance
         .get(`/api/communities/${slug}/posts`, {
           searchParams: {
-            sort,
+            ...Object.fromEntries(new URLSearchParams(filterParams)),
             ...(pageParam ? { cursor: pageParam } : {}),
           },
+          signal,
         })
         .json<PostsPage>(),
     queryKey,
@@ -58,9 +97,8 @@ export default function CommunityFeed({ slug }: { slug: string }) {
     [data?.pages]
   );
 
-  const handleSortChange = useCallback((value: string) => {
-    setSort(value === "top" ? "top" : "new");
-  }, []);
+  const handleSortChange = (value: string) =>
+    updateSelection({ ...selection, sort: value === "top" ? "top" : "new" });
 
   let body: React.ReactNode;
   if (status === "pending") {
@@ -85,8 +123,28 @@ export default function CommunityFeed({ slug }: { slug: string }) {
   } else if (posts.length === 0) {
     body = (
       <EmptyFeedState
-        description="Be the first to post here."
-        title="No posts yet"
+        description={
+          filtered
+            ? "Try a different combination or clear your filters."
+            : "Be the first to post here."
+        }
+        title={filtered ? "No posts match these filters" : "No posts yet"}
+        action={
+          filtered ? (
+            <Button
+              variant="premium-neutral"
+              className="min-h-11"
+              onClick={() =>
+                updateSelection({
+                  ...readCommunityFeedSelection(new URLSearchParams()),
+                  sort,
+                })
+              }
+            >
+              Clear filters
+            </Button>
+          ) : undefined
+        }
       />
     );
   } else {
@@ -117,7 +175,7 @@ export default function CommunityFeed({ slug }: { slug: string }) {
       onValueChange={handleSortChange}
       value={sort}
     >
-      <div className="border-border/60 flex items-center border-b">
+      <div className="border-border/60 flex items-center justify-between gap-2 border-b pr-3">
         <TabsList className="flex h-full items-center gap-0 bg-transparent p-0">
           <AnimatedTabTrigger
             active={sort === "new"}
@@ -134,7 +192,15 @@ export default function CommunityFeed({ slug }: { slug: string }) {
             Top
           </AnimatedTabTrigger>
         </TabsList>
+        <CommunityPostFilters
+          selection={selection}
+          onChange={updateSelection}
+        />
       </div>
+      <CommunityPostFilterSummary
+        selection={selection}
+        onChange={updateSelection}
+      />
 
       <div className="relative min-h-0 flex-1">
         <div className="relative h-full">

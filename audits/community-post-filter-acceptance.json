@@ -1,0 +1,32 @@
+{
+  "executedAt": "2026-10-19T10:07:52.813Z",
+  "origin": "http://localhost:3000",
+  "passed": 6,
+  "failed": 0,
+  "results": [
+    {
+      "name": "combined link, date, keyword and author filters return the seeded post",
+      "passed": true
+    },
+    {
+      "name": "Top preserves all active filters",
+      "passed": true
+    },
+    {
+      "name": "image upload filters do not misclassify external link preview images",
+      "passed": true
+    },
+    {
+      "name": "rating filter narrows results and literal wildcards are escaped",
+      "passed": true
+    },
+    {
+      "name": "an excluded cursor cannot shift the filtered page",
+      "passed": true
+    },
+    {
+      "name": "unknown filter values normalize to the default feed",
+      "passed": true
+    }
+  ]
+}

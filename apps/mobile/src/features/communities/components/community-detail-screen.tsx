@@ -1,3 +1,9 @@
+import {
+  communityFeedSearchParams,
+  communityPostFilterCount,
+  readCommunityFeedSelection,
+} from "@asm/db/communities";
+import type { CommunityPostFilters as PostFilters } from "@asm/db/communities";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
@@ -60,6 +66,10 @@ import { CommunityAvatar } from "./community-avatar";
 import { CommunityJoinButton } from "./community-join-button";
 import { CommunityMatureGate } from "./community-mature-gate";
 import { CommunityNotifyButton } from "./community-notify-button";
+import {
+  CommunityPostFilters,
+  CommunityPostFilterSummary,
+} from "./community-post-filters";
 
 const COMMUNITY_VIEWABILITY = {
   itemVisiblePercentThreshold: 50,
@@ -79,6 +89,9 @@ export function CommunityDetailScreen() {
   const [detail, setDetail] = useState<CommunityDetail | null>(null);
   const [detailError, setDetailError] = useState(false);
   const [sort, setSort] = useState<CommunitySort>("new");
+  const [filters, setFilters] = useState<PostFilters>(() =>
+    readCommunityFeedSelection(new URLSearchParams())
+  );
   const [revision, setRevision] = useState(0);
   const [posts, setPosts] = useState<FeedPost[]>([]);
   const [visiblePostIds, setVisiblePostIds] = useState<ReadonlySet<string>>(
@@ -118,7 +131,7 @@ export function CommunityDetailScreen() {
   const paging = useRef(false);
   const forcedKey = useRef<string | null>(null);
   const apiBase = getApiBaseUrl();
-  const cacheKey = `${apiBase}:${user?.id ?? "guest"}:${slug}:${sort}`;
+  const cacheKey = `${apiBase}:${user?.id ?? "guest"}:${slug}:${communityFeedSearchParams({ ...filters, sort })}`;
   useEffect(() => {
     if (!user?.id || !slug) {
       return;
@@ -213,7 +226,8 @@ export function CommunityDetailScreen() {
               slug,
               null,
               { apiBase, cookie: await authClient.getCookie() },
-              sort
+              sort,
+              filters
             ),
           forced
         );
@@ -237,7 +251,7 @@ export function CommunityDetailScreen() {
         generation.current += 1;
       }
     };
-  }, [apiBase, cacheKey, revision, slug, sort]);
+  }, [apiBase, cacheKey, filters, revision, slug, sort]);
   useFocusEffect(
     useCallback(() => {
       if (detail) {
@@ -289,7 +303,8 @@ export function CommunityDetailScreen() {
         slug,
         cursor,
         { apiBase, cookie: await authClient.getCookie() },
-        sort
+        sort,
+        filters
       );
       if (generation.current === token) {
         const next = communityPageCache.append(cacheKey, page);
@@ -376,10 +391,14 @@ export function CommunityDetailScreen() {
           fontSize: 18,
         }}
       >
-        No posts yet
+        {communityPostFilterCount(filters)
+          ? "No posts match these filters"
+          : "No posts yet"}
       </Text>
       <Text style={{ color: theme.dividerText, fontFamily: "SofiaProReg" }}>
-        Be the first to post here.
+        {communityPostFilterCount(filters)
+          ? "Try a different combination or clear your filters."
+          : "Be the first to post here."}
       </Text>
     </View>
   );
@@ -512,15 +531,37 @@ export function CommunityDetailScreen() {
                         }
                       }}
                     />
-                    <FeedTabs
-                      alignment="start"
-                      active={sort}
-                      tabs={[
-                        { label: "New", value: "new" },
-                        { label: "Top", value: "top" },
-                      ]}
-                      onChange={(value) =>
-                        setSort(value === "top" ? "top" : "new")
+                    <View
+                      style={{
+                        alignItems: "center",
+                        flexDirection: "row",
+                        paddingRight: 12,
+                      }}
+                    >
+                      <View style={{ flex: 1 }}>
+                        <FeedTabs
+                          alignment="start"
+                          active={sort}
+                          tabs={[
+                            { label: "New", value: "new" },
+                            { label: "Top", value: "top" },
+                          ]}
+                          onChange={(value) =>
+                            setSort(value === "top" ? "top" : "new")
+                          }
+                        />
+                      </View>
+                      <CommunityPostFilters
+                        filters={filters}
+                        onChange={setFilters}
+                      />
+                    </View>
+                    <CommunityPostFilterSummary
+                      filters={filters}
+                      onClear={() =>
+                        setFilters(
+                          readCommunityFeedSelection(new URLSearchParams())
+                        )
                       }
                     />
                     {feedError && posts.length > 0 ? (

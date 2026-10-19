@@ -9,4 +9,5 @@
 // outside this folder.
 
 export * from "./constants";
+export * from "./feed-filters";
 export * from "./slug";
