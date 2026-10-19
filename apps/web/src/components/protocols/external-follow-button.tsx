@@ -79,6 +79,8 @@ export function ExternalFollowButton({
       }
       await Promise.all([
         client.invalidateQueries({ queryKey: ["external-follows"] }),
+        client.invalidateQueries({ queryKey: ["profile-user-list"] }),
+        client.invalidateQueries({ queryKey: ["user"] }),
         client.invalidateQueries({ queryKey: ["bluesky-following"] }),
         client.invalidateQueries({ queryKey: ["bluesky-discovery"] }),
         client.invalidateQueries({ queryKey: ["discovery-suggestions"] }),

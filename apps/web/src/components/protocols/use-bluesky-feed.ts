@@ -64,7 +64,7 @@ export function useBlueskyFeed(
     locale,
     network.scope,
     content,
-    "progressive-v2",
+    "progressive-v5",
     surface,
   ];
   const query = useInfiniteQuery({
@@ -120,7 +120,17 @@ export function useBlueskyFeed(
         ) ?? []),
       ]);
       return progressive
-        ? readProgressiveDiscovery(options, pageParam, known)
+        ? readProgressiveDiscovery(
+            options,
+            pageParam,
+            known,
+            undefined,
+            network.settings.preferences.profiles.find(
+              (entry) => entry.id === profile
+            )?.interests.length
+              ? 1
+              : 2
+          )
         : readDiscoveryWindow(options, known);
     },
     queryKey,
@@ -128,17 +138,13 @@ export function useBlueskyFeed(
     retry: false,
     staleTime: Infinity,
   });
-  useFeedEvents(
-    surface !== "explore" && enabled && ready && !query.data,
-    () => {
-      if (query.isError) {
-        void query.refetch();
-      }
+  useFeedEvents(enabled && ready && !query.data, () => {
+    if (query.isError) {
+      void query.refetch();
     }
-  );
+  });
   const probe = useNewContentProbe({
-    enabled:
-      surface !== "explore" && enabled && network.ready && Boolean(query.data),
+    enabled: enabled && network.ready && Boolean(query.data),
     eventMode: following ? undefined : mode,
     eventSource: following ? "bluesky-following" : "bluesky",
     fetchHead: async (signal) => {
@@ -147,10 +153,11 @@ export function useBlueskyFeed(
         cursor: null,
         following,
         locale,
-        mode: following || mode === "trending" ? mode : "latest",
+        mode,
         profile,
         refresh: true,
         signal: AbortSignal.any([signal, AbortSignal.timeout(18_000)]),
+        surface,
       });
       return head.items;
     },
@@ -172,7 +179,7 @@ export function useBlueskyFeed(
           )),
     order: mode === "latest" ? "newest-first" : "ranked",
     probeOnMount: !query.isFetchedAfterMount,
-    resetKey: `${following}:${mode}:${viewer}:${locale}:${network.scope}:${content}`,
+    resetKey: `${following}:${mode}:${viewer}:${locale}:${network.scope}:${content}:${surface}`,
     visible: query.data?.pages.flatMap((page) => page.items) ?? [],
   });
   const showNewItems = () => {

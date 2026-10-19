@@ -5,8 +5,9 @@ import { useQueryClient } from "@tanstack/react-query";
 import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client";
 import type { PersistedClient } from "@tanstack/react-query-persist-client";
 import type { ReactNode } from "react";
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 
+import { refreshExpiredFeeds } from "@/lib/posts/feed-wake-refresh";
 import { parseApiJson } from "@/lib/posts/parse-api-json";
 import { shouldPersistFeed } from "@/lib/posts/persisted-feeds";
 
@@ -26,6 +27,22 @@ export function FeedCacheProvider({
   viewer: string;
 }) {
   const client = useQueryClient();
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === "visible") {
+        void refreshExpiredFeeds(client);
+      }
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onVisible);
+    const interval = window.setInterval(onVisible, 60_000);
+    void refreshExpiredFeeds(client);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onVisible);
+      window.clearInterval(interval);
+    };
+  }, [client]);
   const persistOptions = useMemo(() => {
     const storage = feedStorage();
     const persister = createSyncStoragePersister({
@@ -69,7 +86,7 @@ export function FeedCacheProvider({
       throttleTime: 1000,
     });
     return {
-      buster: "web-feeds-v1",
+      buster: "web-feeds-v3",
       dehydrateOptions: {
         shouldDehydrateQuery: (
           query: Parameters<typeof shouldPersistFeed>[0]
@@ -81,7 +98,11 @@ export function FeedCacheProvider({
   }, [viewer]);
 
   return (
-    <PersistQueryClientProvider client={client} persistOptions={persistOptions}>
+    <PersistQueryClientProvider
+      client={client}
+      persistOptions={persistOptions}
+      onSuccess={() => refreshExpiredFeeds(client)}
+    >
       {children}
     </PersistQueryClientProvider>
   );

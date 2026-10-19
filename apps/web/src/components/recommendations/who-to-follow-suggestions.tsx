@@ -1,5 +1,6 @@
 "use client";
 
+import { Skeleton } from "@asm/ui/shadui/skeleton";
 import { useQueryClient } from "@tanstack/react-query";
 import { RefreshCw, UserRound, X } from "lucide-react";
 import Link from "next/link";
@@ -49,12 +50,11 @@ export function WhoToFollowSuggestions() {
               void suggestions.refetch();
             }}
           >
-            <RefreshCw
-              className={cn(
-                "size-3.5",
-                suggestions.isFetching && "animate-spin"
-              )}
-            />
+            {suggestions.isFetching ? (
+              <Skeleton className="size-3.5 rounded-full" />
+            ) : (
+              <RefreshCw className="size-3.5" />
+            )}
           </button>
         ) : null}
       </div>
@@ -79,9 +79,12 @@ export function WhoToFollowSuggestions() {
       {visible.map((account) => (
         <div
           key={suggestionAccountKey(account)}
-          className={cn("group rounded-xl p-2.5", ROW_HOVER_CLASS)}
+          className={cn(
+            "group relative rounded-xl px-2.5 py-3",
+            ROW_HOVER_CLASS
+          )}
         >
-          <div className="flex items-center gap-2.5">
+          <div className="flex items-center gap-2.5 pr-3">
             <Link
               href={account.href}
               className="flex min-w-0 flex-1 items-center gap-2.5"
@@ -106,10 +109,14 @@ export function WhoToFollowSuggestions() {
                 </span>
               </span>
             </Link>
+            <SuggestedFollowButton
+              account={account}
+              className="h-7! w-auto shrink-0 px-3! text-xs!"
+            />
             <button
               type="button"
               aria-label={`Dismiss ${account.displayName}`}
-              className="text-muted-foreground flex size-6 shrink-0 items-center justify-center rounded-full opacity-70 group-hover:text-inherit"
+              className="text-muted-foreground absolute top-0.5 right-0 flex size-5 items-center justify-center rounded-full opacity-0 group-hover:opacity-70 focus-visible:opacity-100"
               onClick={async () => {
                 setDismissals((current) => ({
                   ids: new Set([
@@ -152,9 +159,6 @@ export function WhoToFollowSuggestions() {
           <p className="text-muted-foreground mt-2 line-clamp-2 text-[11px] leading-4 group-hover:text-inherit">
             {account.reason}
           </p>
-          <div className="mt-2 flex justify-end">
-            <SuggestedFollowButton account={account} className="w-auto" />
-          </div>
         </div>
       ))}
       {user &&
