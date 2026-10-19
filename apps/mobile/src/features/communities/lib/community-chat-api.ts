@@ -4,6 +4,7 @@ import type {
   CommunityChatPermissions,
   CommunityChatRoom,
   CommunityChatThreadSummary,
+  CommunityChatMemberPage,
 } from "@asm/messages";
 
 import type { ApiCallOptions } from "@/features/feed/lib/feed-api";
@@ -151,6 +152,41 @@ export function createCommunityChatPublicThread(
   return requestJson(
     `/api/communities/${encodeURIComponent(slug)}/chat/rooms/${encodeURIComponent(channelId)}/threads`,
     { ...options, body: { ...input, visibility: "PUBLIC" }, method: "POST" }
+  );
+}
+
+export function createCommunityChatPrivateThread(
+  slug: string,
+  channelId: string,
+  input: {
+    clientId: string;
+    name: string;
+    starterContent: string;
+    inviteeUserIds: string[];
+  },
+  options: ApiCallOptions
+): Promise<{ thread: CommunityChatRoom }> {
+  return requestJson(
+    `/api/communities/${encodeURIComponent(slug)}/chat/rooms/${encodeURIComponent(channelId)}/threads`,
+    { ...options, body: { ...input, visibility: "PRIVATE" }, method: "POST" }
+  );
+}
+
+export type { CommunityChatMemberOption } from "@asm/messages";
+
+export function fetchCommunityChatMembers(
+  slug: string,
+  query: string,
+  cursor: string | null,
+  options: ApiCallOptions
+): Promise<CommunityChatMemberPage> {
+  const params = new URLSearchParams({ limit: "20", q: query });
+  if (cursor) {
+    params.set("cursor", cursor);
+  }
+  return requestJson(
+    `/api/communities/${encodeURIComponent(slug)}/chat/members?${params}`,
+    options
   );
 }
 

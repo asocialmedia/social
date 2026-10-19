@@ -7,6 +7,8 @@ import {
   mutateCommunityChatMessage,
   updateCommunityChatPin,
   updateCommunityChatThreadFollowing,
+  createCommunityChatPrivateThread,
+  fetchCommunityChatMembers,
 } from "./community-chat-api";
 
 function transport(status = 200) {
@@ -43,6 +45,36 @@ function transport(status = 200) {
 }
 
 describe("native community chat management", () => {
+  test("creates private starters inside the thread with bounded member lookup", async () => {
+    const { options, requests } = transport();
+    await fetchCommunityChatMembers("a/b", "Ari & Mira", "member/id", options);
+    await createCommunityChatPrivateThread(
+      "a/b",
+      "channel/id",
+      {
+        clientId: "retry-id",
+        inviteeUserIds: ["member-id"],
+        name: "Studio",
+        starterContent: "Private starter",
+      },
+      options
+    );
+    const membersUrl = new URL(requests[0]?.url ?? "");
+    expect(membersUrl.pathname).toBe("/api/communities/a%2Fb/chat/members");
+    expect(membersUrl.searchParams.get("q")).toBe("Ari & Mira");
+    expect(membersUrl.searchParams.get("limit")).toBe("20");
+    expect(membersUrl.searchParams.get("cursor")).toBe("member/id");
+    expect(requests[1]?.url).toBe(
+      "https://example.test/api/communities/a%2Fb/chat/rooms/channel%2Fid/threads"
+    );
+    expect(requests[1]?.body).toEqual({
+      clientId: "retry-id",
+      inviteeUserIds: ["member-id"],
+      name: "Studio",
+      starterContent: "Private starter",
+      visibility: "PRIVATE",
+    });
+  });
   test("sends the expected revision and safely encodes message and community identifiers", async () => {
     const { options, requests } = transport();
     await mutateCommunityChatMessage(

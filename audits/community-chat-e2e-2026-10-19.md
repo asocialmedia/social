@@ -1,5 +1,7 @@
 # Community chat acceptance report — 19 October 2026
 
+Subsequent fixes and additional verification are recorded in the [community follow-up report](community-followup-2026-10-19.md). This report preserves the earlier audit results.
+
 ## Verdict
 
 The implemented text-chat flows passed the local functional checks below after fixes. The original community-messaging release plan is not complete or release-certified. Native device acceptance, production performance, and several planned product features remain outstanding.

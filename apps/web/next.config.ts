@@ -3,6 +3,8 @@ import type { NextConfig } from "@asm/next";
 
 const nextConfig: NextConfig = withStreamConfig({
   ...config,
+  // The floating badge overlaps the sidebar theme control and mobile dock.
+  devIndicators: false,
   headers() {
     return [
       {

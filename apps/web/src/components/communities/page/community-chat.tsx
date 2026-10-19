@@ -13,7 +13,10 @@ import type {
   CommunityChatRoom,
   CommunityChatThreadSummary,
 } from "@asm/messages";
-import { mergeCommunityChatTimeline } from "@asm/messages";
+import {
+  mergeCommunityChatTimeline,
+  mergeCommunityChatMemberOptions,
+} from "@asm/messages";
 import { Avatar, AvatarFallback, AvatarImage } from "@asm/ui/shadui/avatar";
 import { Button } from "@asm/ui/shadui/button";
 import {
@@ -249,6 +252,10 @@ function CommunityChatTimeline({
   const [memberCursor, setMemberCursor] = useState<string | null>(null);
   const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>([]);
   const [membersLoading, setMembersLoading] = useState(false);
+  const [memberSearchError, setMemberSearchError] = useState<string | null>(
+    null
+  );
+  const memberSearchGeneration = useRef(0);
   const [creatingThread, setCreatingThread] = useState(false);
   const publicThreadRequestId = useRef<string | null>(null);
   const privateThreadRequestId = useRef<string | null>(null);
@@ -594,6 +601,9 @@ function CommunityChatTimeline({
       setPrivateThreadOpen(false);
       setPrivateThreadName("");
       setPrivateThreadStarter("");
+      memberSearchGeneration.current += 1;
+      setMemberSearchError(null);
+      setMembersLoading(false);
       setMemberOptions([]);
       setSelectedMemberIds([]);
       setLoadError("Your access to this conversation changed.");
@@ -941,6 +951,7 @@ function CommunityChatTimeline({
       return;
     }
     const controller = new AbortController();
+    const generation = memberSearchGeneration.current;
     const timer = setTimeout(async () => {
       setMembersLoading(true);
       const query = new URLSearchParams({ limit: "20", q: queryText });
@@ -953,17 +964,30 @@ function CommunityChatTimeline({
           throw new Error("Couldn't search community members");
         }
         const page = (await response.json()) as MemberResponse;
-        if (!controller.signal.aborted) {
+        if (
+          !controller.signal.aborted &&
+          generation === memberSearchGeneration.current
+        ) {
           setMemberOptions(page.members);
           setMemberCursor(page.nextCursor);
+          setMemberSearchError(null);
         }
       } catch {
-        if (!controller.signal.aborted) {
+        if (
+          !controller.signal.aborted &&
+          generation === memberSearchGeneration.current
+        ) {
           setMemberOptions([]);
           setMemberCursor(null);
+          setMemberSearchError(
+            "Couldn’t search members. Change your search to try again."
+          );
         }
       } finally {
-        if (!controller.signal.aborted) {
+        if (
+          !controller.signal.aborted &&
+          generation === memberSearchGeneration.current
+        ) {
           setMembersLoading(false);
         }
       }
@@ -979,6 +1003,7 @@ function CommunityChatTimeline({
       return;
     }
     setMembersLoading(true);
+    const generation = memberSearchGeneration.current;
     try {
       const query = new URLSearchParams({
         cursor: memberCursor,
@@ -995,14 +1020,22 @@ function CommunityChatTimeline({
         throw new Error("Couldn't load more members");
       }
       const page = (await response.json()) as MemberResponse;
-      setMemberOptions((current) => [...current, ...page.members]);
-      setMemberCursor(page.nextCursor);
+      if (generation === memberSearchGeneration.current) {
+        setMemberOptions((current) =>
+          mergeCommunityChatMemberOptions(current, page.members)
+        );
+        setMemberCursor(page.nextCursor);
+      }
     } catch (error) {
-      setActionError(
-        error instanceof Error ? error.message : "Couldn't load more members"
-      );
+      if (generation === memberSearchGeneration.current) {
+        setMemberSearchError(
+          error instanceof Error ? error.message : "Couldn't load more members"
+        );
+      }
     } finally {
-      setMembersLoading(false);
+      if (generation === memberSearchGeneration.current) {
+        setMembersLoading(false);
+      }
     }
   }, [memberCursor, memberSearch, membersLoading, slug]);
 
@@ -1753,6 +1786,7 @@ function CommunityChatTimeline({
                     onClick={() => {
                       setToolsOpen(false);
                       setPrivateThreadOpen(true);
+                      setActionError(null);
                     }}
                     variant="ghost"
                   >
@@ -1813,6 +1847,7 @@ function CommunityChatTimeline({
               onOpenChange={(open) => {
                 setPrivateThreadOpen(open);
                 if (!open) {
+                  memberSearchGeneration.current += 1;
                   privateThreadRequestId.current = null;
                   setMemberOptions([]);
                   setMemberCursor(null);
@@ -1823,13 +1858,15 @@ function CommunityChatTimeline({
                 <DialogHeader>
                   <DialogTitle>Start a private thread</DialogTitle>
                   <DialogDescription>
-                    Only invited active members and community staff can read
-                    this conversation.
+                    Only invited active members and community owners or
+                    moderators can read this conversation. Staff can inspect and
+                    moderate it. Its privacy cannot be changed later.
                   </DialogDescription>
                 </DialogHeader>
                 <div className="grid gap-2">
                   <Input
                     aria-label="Private thread name"
+                    className="min-h-11"
                     maxLength={64}
                     onChange={(event) =>
                       setPrivateThreadName(event.target.value)
@@ -1849,14 +1886,16 @@ function CommunityChatTimeline({
                   />
                   <Input
                     aria-label="Find community members to invite"
+                    className="min-h-11"
                     autoComplete="off"
                     onChange={(event) => {
                       const query = event.target.value;
+                      memberSearchGeneration.current += 1;
                       setMemberSearch(query);
-                      if (query.trim().length < 2) {
-                        setMemberOptions([]);
-                        setMemberCursor(null);
-                      }
+                      setMemberOptions([]);
+                      setMemberCursor(null);
+                      setMembersLoading(query.trim().length >= 2);
+                      setMemberSearchError(null);
                     }}
                     placeholder="Find members by name or username"
                     value={memberSearch}
@@ -1872,19 +1911,27 @@ function CommunityChatTimeline({
                       Searching members…
                     </p>
                   ) : null}
+                  {memberSearchError ? (
+                    <p role="alert" className="text-destructive text-xs">
+                      {memberSearchError}
+                    </p>
+                  ) : null}
                   <div className="flex max-h-36 flex-wrap gap-2 overflow-y-auto">
                     {memberOptions.map((member) => {
                       const selected = selectedMemberIds.includes(member.id);
                       return (
                         <button
                           aria-pressed={selected}
-                          className={`chip-3d rounded-full px-3 py-1.5 text-xs ${selected ? "text-foreground" : "text-muted-foreground"}`}
+                          disabled={!selected && selectedMemberIds.length >= 50}
+                          className={`chip-3d min-h-11 rounded-full px-3 py-1.5 text-xs ${selected ? "text-foreground" : "text-muted-foreground"}`}
                           key={member.id}
                           onClick={() =>
                             setSelectedMemberIds((current) =>
                               selected
                                 ? current.filter((id) => id !== member.id)
-                                : [...current, member.id]
+                                : current.length < 50
+                                  ? [...current, member.id]
+                                  : current
                             )
                           }
                           type="button"
@@ -1897,7 +1944,7 @@ function CommunityChatTimeline({
                   </div>
                   {memberCursor ? (
                     <Button
-                      className="h-8 w-fit text-xs"
+                      className="min-h-11 w-fit text-xs"
                       disabled={membersLoading}
                       onClick={async () => {
                         await loadMoreMembers();
@@ -1907,8 +1954,14 @@ function CommunityChatTimeline({
                       Show more members
                     </Button>
                   ) : null}
-                  <div className="flex justify-end">
+                  <div className="flex flex-col items-end gap-2">
+                    {actionError ? (
+                      <p role="alert" className="text-destructive text-xs">
+                        {actionError}
+                      </p>
+                    ) : null}
                     <Button
+                      className="min-h-11"
                       disabled={
                         creatingThread ||
                         !privateThreadName.trim() ||

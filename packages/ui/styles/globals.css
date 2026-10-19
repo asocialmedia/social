@@ -9,6 +9,7 @@
 @source "../shadui";
 @source "../components";
 @source "../hooks";
+@source "../providers";
 
 @theme {
   --font-sofiaProSoft:

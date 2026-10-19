@@ -86,6 +86,7 @@ import {
 import type { CommunityChatChannelsResponse } from "../lib/community-chat-api";
 import { communityChatUiEnabled } from "../lib/community-chat-features";
 import { CommunityAvatar } from "./community-avatar";
+import { CommunityPrivateThreadDialog } from "./community-private-thread-dialog";
 import { CommunityThreadFollowButton } from "./community-thread-follow-button";
 
 // oxlint-disable react/todo -- The current React Compiler lint cannot lower the async try/catch/finally blocks used for visible request and retry states.
@@ -413,6 +414,7 @@ function CommunityChatTimelineScreen() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [channelsOpen, setChannelsOpen] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const [privateThreadOpen, setPrivateThreadOpen] = useState(false);
   const [atLatest, setAtLatest] = useState(true);
   const atLatestRef = useRef(true);
   const windowAtLiveTail = useRef(true);
@@ -702,6 +704,7 @@ function CommunityChatTimelineScreen() {
                 setReplyTarget(null);
                 setActionMessage(null);
                 setDetailsOpen(false);
+                setPrivateThreadOpen(false);
                 setChannelsOpen(false);
                 setMessageActionMode(null);
                 setEditContent("");
@@ -1663,6 +1666,21 @@ function CommunityChatTimelineScreen() {
           onClose={() => setDetailsOpen(false)}
           title={channelName}
         >
+          {!threadId && permissions?.canSend ? (
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => {
+                setDetailsOpen(false);
+                setPrivateThreadOpen(true);
+              }}
+              style={styles.actionRow}
+            >
+              <LockKeyhole color={communityAccent} size={18} />
+              <Text style={[styles.channelName, { color: theme.inputText }]}>
+                Start a private thread
+              </Text>
+            </Pressable>
+          ) : null}
           <Pressable
             accessibilityRole="button"
             disabled={loadingPins}
@@ -2070,6 +2088,19 @@ function CommunityChatTimelineScreen() {
             onPress={() => void createThread()}
           />
         </DialogPanel>
+      ) : null}
+      {privateThreadOpen && !loadError && !accessRevoked && user ? (
+        <CommunityPrivateThreadDialog
+          slug={slug}
+          channelId={channelId}
+          userId={user.id}
+          options={options}
+          onClose={() => setPrivateThreadOpen(false)}
+          onCreated={(id) => {
+            setPrivateThreadOpen(false);
+            router.push(threadUrl(slug, channelId, id));
+          }}
+        />
       ) : null}
       <Modal
         animationType="fade"

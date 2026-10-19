@@ -234,6 +234,7 @@ export default function CommunityPostFilters({
       <PopoverTrigger asChild>{trigger}</PopoverTrigger>
       <PopoverContent
         align="end"
+        collisionPadding={12}
         className="max-h-[min(80dvh,42rem,var(--radix-popover-content-available-height))] w-[min(23rem,calc(100vw-1.5rem))] overflow-y-auto p-5"
         aria-label="Community post filters"
       >

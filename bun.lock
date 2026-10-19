@@ -87,7 +87,7 @@
     },
     "apps/mobile": {
       "name": "@asocialmedia/mobile",
-      "version": "0.2.41",
+      "version": "0.2.42",
       "dependencies": {
         "@asm/auth": "workspace:*",
         "@asm/db": "workspace:*",
@@ -178,7 +178,7 @@
     },
     "apps/web": {
       "name": "@asm/web",
-      "version": "1.7.78",
+      "version": "1.7.79",
       "dependencies": {
         "@asm/aggregator": "workspace:*",
         "@asm/auth": "workspace:*",
@@ -306,7 +306,7 @@
     },
     "packages/db": {
       "name": "@asm/db",
-      "version": "1.2.88",
+      "version": "1.2.89",
       "dependencies": {
         "@asm/config": "workspace:*",
         "@asm/logger": "workspace:*",
@@ -376,7 +376,7 @@
     },
     "packages/messages": {
       "name": "@asm/messages",
-      "version": "1.0.21",
+      "version": "1.0.22",
       "dependencies": {
         "@asm/media": "workspace:*",
         "emojibase-data": "^18.0.0",
@@ -414,7 +414,7 @@
     },
     "packages/ui": {
       "name": "@asm/ui",
-      "version": "1.0.70",
+      "version": "1.0.71",
       "dependencies": {
         "@asm/aggregator": "workspace:*",
         "@radix-ui/react-accordion": "^1.2.20",

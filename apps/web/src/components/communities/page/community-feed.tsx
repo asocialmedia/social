@@ -49,11 +49,10 @@ export default function CommunityFeed({ slug }: { slug: string }) {
   const updateSelection = useCallback(
     (next: CommunityFeedSelection) => {
       const params = communityFeedSearchParams(next, searchParams.toString());
-      window.history.pushState(
-        null,
-        "",
-        `${pathname}${params.size ? `?${params}` : ""}`
-      );
+      const target = `${pathname}${params.size ? `?${params}` : ""}`;
+      if (target !== `${window.location.pathname}${window.location.search}`) {
+        window.history.pushState(null, "", target);
+      }
     },
     [pathname, searchParams]
   );
