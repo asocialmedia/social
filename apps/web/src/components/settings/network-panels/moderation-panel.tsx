@@ -33,7 +33,7 @@ export default function ModerationPanel({
             Show explicit content (18+)
             <span className="text-muted-foreground mt-1 block text-xs font-normal">
               Enable only if you’re 18 or older. Off by default, and applies to
-              Home, Gusts, and every profile.
+              Home, Explore, Gusts, and every profile.
             </span>
           </Label>
           <Switch

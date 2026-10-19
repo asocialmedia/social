@@ -85,7 +85,7 @@ export function useNewContentProbe<T extends NewContentItem>({
   eventMode,
   fetchHead,
   filter,
-  intervalMs = 45_000,
+  intervalMs = 90_000,
   probeOnMount = true,
   order = "newest-first",
   resetKey,
@@ -139,6 +139,7 @@ export function useNewContentProbe<T extends NewContentItem>({
     }
     let active = true;
     let inFlight = false;
+    let lastAutomaticProbeAt = Date.now();
     const controller = new AbortController();
     const probe = async () => {
       if (inFlight || !active || document.visibilityState === "hidden") {
@@ -183,7 +184,7 @@ export function useNewContentProbe<T extends NewContentItem>({
                 .filter((item) => !knownIds.has(item.id))
                 .map((item) => [item.id, item])
             ).values(),
-          ].slice(0, 200),
+          ].slice(0, 20),
           key: resetKey,
         }));
       }
@@ -195,15 +196,22 @@ export function useNewContentProbe<T extends NewContentItem>({
       void probe();
     }
     probeRef.current = probe;
-    const scheduler = createFeedReadScheduler(probe);
+    const automaticProbe = () => {
+      if (Date.now() - lastAutomaticProbeAt < intervalMs) {
+        return Promise.resolve();
+      }
+      lastAutomaticProbeAt = Date.now();
+      return probe();
+    };
+    const scheduler = createFeedReadScheduler(automaticProbe);
     scheduleRef.current = scheduler.schedule;
     const onVisible = () => {
-      void probe();
+      void automaticProbe();
     };
     document.addEventListener("visibilitychange", onVisible);
     window.addEventListener("network:learned", scheduler.schedule);
     const interval = window.setInterval(() => {
-      void probe();
+      void automaticProbe();
     }, intervalMs);
     return () => {
       active = false;

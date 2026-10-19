@@ -20,6 +20,7 @@ import { useRequireAuth } from "@/hooks/auth/use-require-auth";
 import { useNetworkSettings } from "@/hooks/feed/use-network-settings";
 import { getAuraFlameClass } from "@/lib/aura/aura";
 import kyInstance from "@/lib/ky";
+import { networkPostRecommended } from "@/lib/posts/network-content-policy";
 import { mixExplorePosts } from "@/lib/recommendations/mix-explore";
 import { cn, formatNumber } from "@/lib/utils";
 import { getMediaProxyUrl } from "@/lib/utils/image-url";
@@ -244,8 +245,15 @@ export const ExploreGustsGrid: React.FC = () => {
   });
 
   const posts = useMemo(
-    () => data?.pages.flatMap((page) => page.posts) || [],
-    [data?.pages]
+    () =>
+      (data?.pages.flatMap((page) => page.posts) || []).filter((post) =>
+        networkPostRecommended(
+          post,
+          network.settings.preferences,
+          network.settings.topicScope
+        )
+      ),
+    [data?.pages, network.settings]
   );
 
   const externalPosts = useMemo(

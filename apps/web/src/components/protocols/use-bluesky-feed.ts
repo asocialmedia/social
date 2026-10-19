@@ -16,10 +16,10 @@ import { useMemo } from "react";
 
 import { useDiscoveryLocale } from "@/hooks/feed/use-discovery-locale";
 import { useFeedEvents } from "@/hooks/feed/use-feed-events";
+import { useFeedExposures } from "@/hooks/feed/use-feed-exposures";
 import { useNetworkSettings } from "@/hooks/feed/use-network-settings";
 import { useNewContentProbe } from "@/hooks/feed/use-new-content-probe";
 import { FEED_QUERY_BEHAVIOR } from "@/lib/posts/feed-cache";
-import { otherFeedExposures } from "@/lib/posts/feed-exposure";
 import {
   externalNetworkPostAllowed,
   externalNetworkPostRecommended,
@@ -53,10 +53,7 @@ export function useBlueskyFeed(
   if (surface === "explore") {
     exposureSurface = "explore";
   }
-  const oppositeSeen = useMemo(
-    () => otherFeedExposures(viewer, exposureSurface),
-    [viewer, exposureSurface]
-  );
+  const oppositeSeen = useFeedExposures(viewer, exposureSurface);
   const queryKey = [
     following ? "bluesky-following" : "bluesky-discovery",
     mode,
@@ -64,7 +61,7 @@ export function useBlueskyFeed(
     locale,
     network.scope,
     content,
-    "progressive-v5",
+    "progressive-v8",
     surface,
   ];
   const query = useInfiniteQuery({
@@ -144,7 +141,11 @@ export function useBlueskyFeed(
     }
   });
   const probe = useNewContentProbe({
-    enabled: enabled && network.ready && Boolean(query.data),
+    enabled:
+      enabled &&
+      network.ready &&
+      Boolean(query.data) &&
+      (following || content !== "video"),
     eventMode: following ? undefined : mode,
     eventSource: following ? "bluesky-following" : "bluesky",
     fetchHead: async (signal) => {
@@ -177,6 +178,7 @@ export function useBlueskyFeed(
             undefined,
             network.settings.topicScope
           )),
+    intervalMs: mode === "latest" || following ? 90_000 : 180_000,
     order: mode === "latest" ? "newest-first" : "ranked",
     probeOnMount: !query.isFetchedAfterMount,
     resetKey: `${following}:${mode}:${viewer}:${locale}:${network.scope}:${content}:${surface}`,
@@ -202,18 +204,36 @@ export function useBlueskyFeed(
     );
     probe.clearNewItems();
   };
-  return {
-    ...query,
-    data:
-      surface === "explore" && query.data
+  const data = useMemo(
+    () =>
+      !following && query.data
         ? {
             ...query.data,
             pages: query.data.pages.map((page) => ({
               ...page,
-              items: page.items.filter((item) => !oppositeSeen.has(item.id)),
+              items: page.items.filter(
+                (item) =>
+                  !oppositeSeen.has(item.id) &&
+                  externalNetworkPostAllowed(
+                    item,
+                    network.settings.preferences,
+                    network.settings.topicScope
+                  )
+              ),
             })),
           }
         : query.data,
+    [
+      following,
+      query.data,
+      oppositeSeen,
+      network.settings.preferences,
+      network.settings.topicScope,
+    ]
+  );
+  return {
+    ...query,
+    data,
     newItems: probe.newItems,
     probeNow: probe.probeNow,
     showNewItems,

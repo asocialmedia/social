@@ -26,7 +26,8 @@ test("Home and Gusts suppress opposite-feed exposures without sharing another vi
     "video-one",
   ]);
   expect(otherFeedExposures("viewer", "home", 2000).size).toBe(0);
-  expect(otherFeedExposures("viewer", "gusts", 8_000_000).size).toBe(0);
+  expect(otherFeedExposures("viewer", "gusts", 8_000_000).size).toBe(1);
+  expect(otherFeedExposures("viewer", "gusts", 90_000_000).size).toBe(0);
 });
 
 test("exposure history is bounded and malformed storage cannot break a feed", () => {
@@ -48,4 +49,28 @@ test("Explore and Home exclude the other surface's seen posts while keeping the 
     "novel-post",
   ]);
   expect(otherFeedExposures("other-explorer", "explore", 2000).size).toBe(0);
+});
+
+test("a twelve-hour return excludes previously consumed posts without moving a short navigation back", () => {
+  rememberFeedExposure("returning", "home", "consumed", 1000);
+  expect(otherFeedExposures("returning", "home", 60_000).has("consumed")).toBe(
+    false
+  );
+  expect(
+    otherFeedExposures("returning", "home", 12 * 60 * 60_000).has("consumed")
+  ).toBe(true);
+});
+
+test("a fresh document excludes its own previous browsing session without waiting thirty minutes", () => {
+  const snapshot = JSON.stringify([
+    {
+      at: 1000,
+      id: "already-viewed",
+      session: "previous-document",
+      surface: "home",
+    },
+  ]);
+  expect(
+    otherFeedExposures("reload", "home", 1100, snapshot).has("already-viewed")
+  ).toBe(true);
 });

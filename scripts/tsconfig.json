@@ -19,6 +19,7 @@
       "@asm/messages/*": ["../packages/messages/src/*"],
       "@/*": ["../apps/web/src/*"],
       "@asm/db": ["../packages/db/index.ts"],
+      "@asm/protocols/contracts": ["../packages/protocols/src/contracts.ts"],
       "@asm/protocols/discovery": ["../packages/protocols/src/discovery.ts"]
     }
   }

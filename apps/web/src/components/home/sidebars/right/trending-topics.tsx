@@ -12,6 +12,7 @@ import { useSession } from "@/app/(main)/session-provider";
 import UserAvatar from "@/components/layouts/user/user-avatar";
 import UserBadge from "@/components/layouts/user/user-badge";
 import { BlueskyIcon } from "@/components/protocols/bluesky-icon";
+import { useNetworkSettings } from "@/hooks/feed/use-network-settings";
 import { getAuraFlameClass } from "@/lib/aura/aura";
 import { cn, formatNumber, truncateUsername } from "@/lib/utils";
 
@@ -22,6 +23,7 @@ import type {
   TrendingFeed,
   TrendingItem,
 } from "./trending-actions";
+import { filterTrendingForInterests } from "./trending-utils";
 
 // The sidebar rail is fixed-width, and a valid username can be 50 characters, so
 // the handle is clipped to a length that keeps the aura figure beside it on one
@@ -170,6 +172,7 @@ const TrendingRow: React.FC<TrendingRowProps> = ({ item }) => {
 const TrendingTopics: React.FC = () => {
   const queryClient = useQueryClient();
   const { user } = useSession();
+  const network = useNetworkSettings();
   const isLoggedIn = Boolean(user);
   const { data, isError, isFetching, isLoading } = useQuery<TrendingFeed>({
     queryFn: () => getTrendingFeed(false),
@@ -178,7 +181,17 @@ const TrendingTopics: React.FC = () => {
     staleTime: 5 * 60 * 1000,
   });
 
-  const items = data?.items ?? [];
+  const selected = network.settings.preferences.profiles.find(
+    (profile) => profile.id === network.settings.preferences.activeProfileId
+  );
+  const items = filterTrendingForInterests(
+    data?.items ?? [],
+    selected?.interests.length
+      ? selected.interests
+      : network.settings.persona.learnedInterests,
+    network.settings.preferences.avoidedTopics,
+    network.settings.topicScope
+  );
   const topAura = data?.topAura ?? [];
 
   const handleRefresh = useCallback(async () => {
@@ -190,7 +203,7 @@ const TrendingTopics: React.FC = () => {
     }
   }, [queryClient]);
 
-  if (isLoading) {
+  if (isLoading || !network.ready) {
     return <TrendingTopicsSkeleton />;
   }
 

@@ -39,3 +39,16 @@ describe("NewContentPill", () => {
     expect(html).toBe("");
   });
 });
+
+test("large external backlogs use a bounded label", () => {
+  const html = renderToString(
+    <NewContentPill
+      authors={[]}
+      count={140}
+      noun="post"
+      onClick={handleClick}
+    />
+  );
+  expect(html).toContain("20+ new posts");
+  expect(html).not.toContain("140 new posts");
+});

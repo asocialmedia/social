@@ -13,6 +13,8 @@ import { BlueskyIcon } from "@/components/protocols/bluesky-icon";
 import { ExternalLikeButton } from "@/components/protocols/external-like-button";
 import { RecommendationTracker } from "@/components/recommendations/recommendation-tracker";
 import { SuggestedFollowButton } from "@/components/recommendations/suggested-follow-button";
+import { useNetworkSettings } from "@/hooks/feed/use-network-settings";
+import { externalNetworkPostAllowed } from "@/lib/posts/network-content-policy";
 import { blueskyMediaIsExplicit } from "@/lib/protocols/content-labels";
 import type { RecommendedAccount } from "@/lib/recommendations/suggestion-types";
 import { cn } from "@/lib/utils";
@@ -62,6 +64,7 @@ export function ExploreNetworkPost({
   post: ExternalPost;
   gust?: boolean;
 }) {
+  const network = useNetworkSettings();
   const [imageState, setImageState] = useState<"loading" | "loaded" | "failed">(
     "loading"
   );
@@ -79,6 +82,15 @@ export function ExploreNetworkPost({
     aspectRatio = "9 / 16";
   } else if (media?.width && media.height) {
     aspectRatio = `${media.width} / ${media.height}`;
+  }
+  if (
+    !externalNetworkPostAllowed(
+      post,
+      network.settings.preferences,
+      network.settings.topicScope
+    )
+  ) {
+    return null;
   }
   return (
     <RecommendationTracker

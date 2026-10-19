@@ -7,6 +7,7 @@ import { useEffect, useRef } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
 import { rememberFeedExposure } from "@/lib/posts/feed-exposure";
+import { isRecommendationVisible } from "@/lib/posts/recommendation-visibility";
 
 type RecommendationEventType =
   | EngagementEventType
@@ -251,9 +252,7 @@ export function RecommendationTracker({
     };
     const observer = new IntersectionObserver(
       ([entry]) => {
-        const next = Boolean(
-          entry?.isIntersecting && entry.intersectionRatio >= 0.6
-        );
+        const next = isRecommendationVisible(entry);
         if (next === visible) {
           return;
         }
@@ -274,7 +273,7 @@ export function RecommendationTracker({
           visibilityChanged();
         }
       },
-      { threshold: 0.6 }
+      { threshold: [0, 0.1, 0.25, 0.5, 0.6] }
     );
     observer.observe(element);
     document.addEventListener("visibilitychange", visibilityChanged);

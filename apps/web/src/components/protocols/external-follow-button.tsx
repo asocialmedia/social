@@ -73,6 +73,7 @@ export function ExternalFollowButton({
     },
     onError: (error) => toast({ title: error.message, variant: "destructive" }),
     onSuccess: async (next) => {
+      window.dispatchEvent(new Event("network:learned"));
       client.setQueryData(queryKey, next);
       if (next.following) {
         onFollowed?.();

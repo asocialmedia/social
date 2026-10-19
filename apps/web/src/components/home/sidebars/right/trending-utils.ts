@@ -1,3 +1,9 @@
+import {
+  matchesAvoidedTopic,
+  networkInterestScore,
+} from "@asm/protocols/discovery";
+import type { NetworkTopicScope } from "@asm/protocols/discovery";
+
 import type {
   TrendingAuraUser,
   TrendingBlueskyTopic,
@@ -13,6 +19,29 @@ export type {
   TrendingItem,
   TrendingMention,
 } from "./trending-actions";
+
+export function filterTrendingForInterests(
+  items: TrendingItem[],
+  interests: readonly string[],
+  avoided: readonly string[],
+  scope?: NetworkTopicScope
+): TrendingItem[] {
+  return items.filter((item) => {
+    let text: string;
+    if (item.type === "hashtag") {
+      text = item.hashtag;
+    } else if (item.type === "bluesky_topic") {
+      text = `${item.topic} ${item.displayName} ${item.description ?? ""}`;
+    } else {
+      text = `${item.displayName} ${item.username}`;
+    }
+    return (
+      !matchesAvoidedTopic(text, [text], avoided) &&
+      (!interests.length ||
+        networkInterestScore(text, [text], interests, scope) > 0)
+    );
+  });
+}
 
 // Picks the top aura users to show in the Trending card. Always preserves
 // the highest aura members so the leaderboard accurately reflects top

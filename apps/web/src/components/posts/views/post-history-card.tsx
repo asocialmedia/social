@@ -22,9 +22,13 @@ import {
   useEmbedImageError,
 } from "@/components/posts/embeds/embed-utils";
 import { BlueskyIcon } from "@/components/protocols/bluesky-icon";
+import { useNetworkSettings } from "@/hooks/feed/use-network-settings";
+import { useSecondaryFeedReady } from "@/hooks/feed/use-secondary-feed-ready";
 import { getAuraFlameClass } from "@/lib/aura/aura";
+import { useSession } from "@/lib/auth/session-context";
 import kyInstance from "@/lib/ky";
 import { parseStoredEmbeds } from "@/lib/link-embeds/shared";
+import { networkPostAllowed } from "@/lib/posts/network-content-policy";
 import type { PresentedPost } from "@/lib/posts/presentation";
 import { getPostPath } from "@/lib/seo/seo";
 import { cn, formatNumber, formatRelativeDate } from "@/lib/utils";
@@ -201,16 +205,26 @@ const HistoryRow: React.FC<HistoryRowProps> = ({ post }) => {
 };
 
 const PostHistoryCard: React.FC = () => {
+  const { user } = useSession();
+  const network = useNetworkSettings();
+  const primaryReady = useSecondaryFeedReady();
   const { data, status } = useQuery({
+    enabled: Boolean(user) && network.ready && primaryReady,
     queryFn: () =>
       kyInstance.get("/api/posts/history").json<{ posts: PresentedPost[] }>(),
-    queryKey: ["post-history"],
+    queryKey: ["post-history", user?.id ?? "guest", network.scope],
     refetchInterval: 30 * 1000,
     refetchIntervalInBackground: false,
     staleTime: 30 * 1000,
   });
 
-  const posts = data?.posts ?? [];
+  const posts = (data?.posts ?? []).filter((post) =>
+    networkPostAllowed(
+      post,
+      network.settings.preferences,
+      network.settings.topicScope
+    )
+  );
 
   let body: React.ReactNode;
   if (status === "pending") {

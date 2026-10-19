@@ -19,6 +19,10 @@ async function loadHls() {
   return await import("hls.js");
 }
 
+export async function preloadVideoDelivery() {
+  await loadHls().catch(() => null);
+}
+
 // Codec probing happens after hydration. Browsers without AV1 decoding keep
 // the compatible source; the proxy also falls back while modern work is queued.
 export function useVideoDelivery(
@@ -67,10 +71,11 @@ export function useVideoDelivery(
           const instance = new Hls({
             capLevelToPlayerSize: true,
             enableWorker: true,
-            maxBufferLength: 8,
-            maxBufferSize: 8 * 1024 * 1024,
-            maxMaxBufferLength: 16,
-            startLevel: -1,
+            maxBufferLength: 4,
+            maxBufferSize: 4 * 1024 * 1024,
+            maxMaxBufferLength: 8,
+            startFragPrefetch: true,
+            startLevel: 0,
           });
           hls = instance;
           instance.on(Hls.Events.MANIFEST_PARSED, () => {
@@ -91,8 +96,8 @@ export function useVideoDelivery(
               }
             }
           });
-          instance.attachMedia(video);
           instance.loadSource(playlist);
+          instance.attachMedia(video);
         } catch {
           // The progressive source stays available if loading HLS fails.
         }

@@ -70,6 +70,7 @@ interface GustCardProps {
   interactive?: boolean;
   commentsOpen?: boolean;
   isActive: boolean;
+  onUnavailable?: (postId: string) => void;
   isMuted: boolean;
   onOpenComments: () => void;
   onToggleMute: () => void;
@@ -80,6 +81,7 @@ interface GustCardProps {
 export const GustCard: React.FC<GustCardProps> = ({
   post,
   isActive,
+  onUnavailable,
   isMuted,
   onToggleMute,
   onOpenComments,
@@ -517,7 +519,6 @@ export const GustCard: React.FC<GustCardProps> = ({
     videoRef,
     videoMedia?.id,
     shouldMountVideo &&
-      isActive &&
       (!post.explicitContent || explicitRevealed || sharedExplicitRevealed),
     videoMedia?.hasHls,
     playbackIntent,
@@ -645,6 +646,16 @@ export const GustCard: React.FC<GustCardProps> = ({
                       setVideoAspectRatio(
                         loadedVideo.videoWidth / loadedVideo.videoHeight
                       );
+                    }
+                  }}
+                  onError={(event) => {
+                    const code = event.currentTarget.error?.code;
+                    if (
+                      !external &&
+                      !videoMedia.hasHls &&
+                      (code === 3 || code === 4)
+                    ) {
+                      onUnavailable?.(post.id);
                     }
                   }}
                   onCanPlay={handleCanPlay}

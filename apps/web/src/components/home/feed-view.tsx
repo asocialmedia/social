@@ -12,6 +12,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 
 import { BlueskyPostCard } from "@/components/protocols/bluesky-post-card";
 import { RecommendationTracker } from "@/components/recommendations/recommendation-tracker";
+import { useFeedExposures } from "@/hooks/feed/use-feed-exposures";
 import { useNetworkSettings } from "@/hooks/feed/use-network-settings";
 import { useSession } from "@/lib/auth/session-context";
 import {
@@ -19,7 +20,6 @@ import {
   repairStalePostCaches,
 } from "@/lib/posts/cache-sync";
 import { filterFeedPosts } from "@/lib/posts/feed-cache";
-import { otherFeedExposures } from "@/lib/posts/feed-exposure";
 import { reconcileFeedOrder } from "@/lib/posts/feed-order";
 import {
   networkPostAllowed,
@@ -76,10 +76,7 @@ export const FeedView: React.FC<FeedViewProps> = ({
   const queryClient = useQueryClient();
   const network = useNetworkSettings();
   const { user } = useSession();
-  const oppositeSeen = useMemo(
-    () => otherFeedExposures(user?.id ?? "guest", "home"),
-    [user?.id]
-  );
+  const oppositeSeen = useFeedExposures(user?.id ?? "guest", "home");
   const router = useRouter();
   const normalizedInitial = useMemo(
     () =>

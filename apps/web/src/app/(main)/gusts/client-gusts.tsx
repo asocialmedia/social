@@ -44,15 +44,16 @@ import { useExternalPost } from "@/components/protocols/use-external-post";
 import { RecommendationTracker } from "@/components/recommendations/recommendation-tracker";
 import { useRequireAuth } from "@/hooks/auth/use-require-auth";
 import { useDiscoveryLocale } from "@/hooks/feed/use-discovery-locale";
+import { useFeedExposures } from "@/hooks/feed/use-feed-exposures";
 import { useNetworkSettings } from "@/hooks/feed/use-network-settings";
 import { useNewContentProbe } from "@/hooks/feed/use-new-content-probe";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import kyInstance from "@/lib/ky";
+import { preloadVideoDelivery } from "@/lib/media/use-video-delivery";
 import {
   FEED_QUERY_BEHAVIOR,
   prependPostsToFeedCache,
 } from "@/lib/posts/feed-cache";
-import { otherFeedExposures } from "@/lib/posts/feed-exposure";
 import {
   advanceGustPaging,
   gustPagingDelay,
@@ -159,10 +160,7 @@ const GustStream = ({ gustTab }: { gustTab: GustFeed }) => {
   const externalId = initialPostId?.startsWith("at://") ? initialPostId : "";
   const deepLink = useExternalPost(externalId);
   const { user } = useSession();
-  const oppositeSeen = useMemo(
-    () => otherFeedExposures(user?.id ?? "guest", "gusts"),
-    [user?.id]
-  );
+  const oppositeSeen = useFeedExposures(user?.id ?? "guest", "gusts");
   const { goToLogin } = useRequireAuth();
   const openComposer = useComposerStore((state) => state.openComposer);
   const autoOpenCreate = searchParams.get("create") === "true";
@@ -273,6 +271,14 @@ const GustStream = ({ gustTab }: { gustTab: GustFeed }) => {
     gustTab !== "following" &&
     !initialPostId &&
     source !== "asm";
+  useEffect(() => {
+    if (!gatedPersonalized) {
+      void preloadVideoDelivery();
+    }
+  }, [gatedPersonalized]);
+  const handleUnavailable = useCallback((postId: string) => {
+    setHiddenPostIds((previous) => new Set([...previous, postId]));
+  }, []);
   const externalFeed = useBlueskyFeed(
     gustTab === "personalized" ? "personalized" : "latest",
     includeExternal,
@@ -594,6 +600,7 @@ const GustStream = ({ gustTab }: { gustTab: GustFeed }) => {
   // merges them in. The video filter matches what the reel actually renders.
   const { clearNewItems, newItems: newGusts } = useNewContentProbe({
     enabled:
+      gustTab === "following" &&
       includeNative &&
       !initialPostId &&
       !gatedPersonalized &&
@@ -1058,6 +1065,7 @@ const GustStream = ({ gustTab }: { gustTab: GustFeed }) => {
                       isMuted={isMuted}
                       onOpenComments={() => setIsCommentsOpen(true)}
                       onToggleMute={handleToggleMute}
+                      onUnavailable={handleUnavailable}
                       post={post}
                       shouldMountVideo={shouldMount}
                     />
@@ -1224,7 +1232,9 @@ const GustStream = ({ gustTab }: { gustTab: GustFeed }) => {
 
         {/* New gust pill */}
         <AnimatePresence>
-          {allNewGusts.length > 0 && !(isCommentsOpen && isMobile) ? (
+          {gustTab === "following" &&
+          allNewGusts.length > 0 &&
+          !(isCommentsOpen && isMobile) ? (
             <motion.div
               animate={{ opacity: 1, y: 0 }}
               className="absolute top-20 left-1/2 z-30 -translate-x-1/2"

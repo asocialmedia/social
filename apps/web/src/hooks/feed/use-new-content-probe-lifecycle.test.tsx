@@ -192,3 +192,45 @@ test("event-backed feeds still poll when their live event stream stays quiet", a
   expect(fetchHead.mock.calls.length).toBeGreaterThan(0);
   expect(probe.items()).toBe("arrived");
 });
+
+test("visibility and learning bursts cannot bypass the automatic probe cooldown", async () => {
+  const fetchHead = mock(() => Promise.resolve([{ id: "new" }]));
+  const probe = createProbe();
+  await probe.render({
+    fetchHead,
+    intervalMs: 60_000,
+    probeOnMount: false,
+    visible: [{ id: "known" }],
+  });
+  await act(async () => {
+    for (let index = 0; index < 20; index += 1) {
+      dom.document.dispatchEvent(new dom.Event("visibilitychange"));
+    }
+    await Bun.sleep(10);
+  });
+  expect(fetchHead).toHaveBeenCalledTimes(0);
+  await probe.probe();
+  expect(fetchHead).toHaveBeenCalledTimes(1);
+  expect(probe.items()).toBe("new");
+});
+
+test("ranked-head churn cannot accumulate hundreds of pending posts", async () => {
+  let page = 0;
+  const fetchHead = mock(() =>
+    Promise.resolve(
+      Array.from({ length: 20 }, (_, index) => ({ id: `${page}-${index}` }))
+    )
+  );
+  const probe = createProbe();
+  await probe.render({
+    fetchHead,
+    order: "ranked",
+    visible: [{ id: "known" }],
+  });
+  for (let index = 0; index < 5; index += 1) {
+    page += 1;
+    // oxlint-disable-next-line no-await-in-loop -- each probe represents the next changed head.
+    await probe.probe();
+  }
+  expect(probe.items()?.split(",")).toHaveLength(20);
+});

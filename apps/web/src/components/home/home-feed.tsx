@@ -340,6 +340,7 @@ export default function HomeFeed({
         .json<PostsPage>();
       return isTrending ? fresh.posts.filter(isTrendingPost) : fresh.posts;
     },
+    intervalMs: isRankedFeed ? 180_000 : 90_000,
     order: isRankedFeed ? "ranked" : "newest-first",
     // A cold fetch already supplies the head; cached returns need a probe.
     probeOnMount: !isFetchedAfterMount,

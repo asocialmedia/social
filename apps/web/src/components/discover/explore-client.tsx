@@ -23,6 +23,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSession } from "@/app/(main)/session-provider";
 import { AuthPromptCard } from "@/components/auth/shell/auth-prompt-card";
 import CommunityAvatar from "@/components/communities/card/community-avatar";
+import { DiscoverySafetyControl } from "@/components/feeds/discovery-safety-control";
 import { AnimatedTabTrigger } from "@/components/home/feedview/animated-tab-trigger";
 import TrendingTopics from "@/components/home/sidebars/right/trending-topics";
 import { FeedScrollbar } from "@/components/layouts/feed/feed-scrollbar";
@@ -33,6 +34,7 @@ import { CollapsibleTopBar } from "@/components/layouts/shell/collapsible-top-ba
 import PostHistoryCard from "@/components/posts/views/post-history-card";
 import { useBlueskyFeed } from "@/components/protocols/use-bluesky-feed";
 import { RecommendationTracker } from "@/components/recommendations/recommendation-tracker";
+import { useFeedExposures } from "@/hooks/feed/use-feed-exposures";
 import { useFeedScrollMemory } from "@/hooks/feed/use-feed-scroll-memory";
 import { useFeedSwipeNavigation } from "@/hooks/feed/use-feed-swipe-navigation";
 import { useFeedTabSelection } from "@/hooks/feed/use-feed-tab-selection";
@@ -42,10 +44,10 @@ import useDebounce from "@/hooks/use-debounce";
 import { useDiscoverySuggestions } from "@/hooks/use-discovery-suggestions";
 import { useHideOnScroll } from "@/hooks/use-hide-on-scroll";
 import kyInstance from "@/lib/ky";
-import { otherFeedExposures } from "@/lib/posts/feed-exposure";
 import {
   externalNetworkPostAllowed,
   externalNetworkPostRecommended,
+  networkPostAllowed,
   networkPostRecommended,
 } from "@/lib/posts/network-content-policy";
 import { mixExplorePosts } from "@/lib/recommendations/mix-explore";
@@ -318,16 +320,18 @@ const ExploreClient: React.FC = () => {
       ),
     [debouncedSearch, remoteSearch.data, remote.data, network.settings]
   );
-  const homeSeen = useMemo(
-    () => otherFeedExposures(sessionUser?.id ?? "guest", "explore"),
-    [sessionUser?.id]
-  );
+  const homeSeen = useFeedExposures(sessionUser?.id ?? "guest", "explore");
   const mixed = useMemo(
     () =>
       mixExplorePosts(
         posts.filter(
           (post) =>
             !homeSeen.has(post.id) &&
+            networkPostAllowed(
+              post,
+              network.settings.preferences,
+              network.settings.topicScope
+            ) &&
             (debouncedSearch.trim() ||
               networkPostRecommended(
                 post,
@@ -659,6 +663,7 @@ const ExploreClient: React.FC = () => {
                   </AnimatedTabTrigger>
                 ))}
               </TabsList>
+              <DiscoverySafetyControl />
               {isLoggedIn && activeTab !== "gusts" ? (
                 <div className="hidden w-60 shrink-0 md:block xl:hidden">
                   {searchField}

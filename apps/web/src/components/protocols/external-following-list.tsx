@@ -55,6 +55,7 @@ export function ExternalFollowingList() {
     },
     onError: (error) => toast({ title: error.message, variant: "destructive" }),
     onSuccess: async (did) => {
+      window.dispatchEvent(new Event("network:learned"));
       client.setQueryData(["external-follow", user?.id, did], {
         following: false,
       });
