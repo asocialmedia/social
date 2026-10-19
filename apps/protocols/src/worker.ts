@@ -18,6 +18,13 @@ const events = metrics
   .getMeter("asm-protocols")
   .createCounter("asm.protocols.jetstream.events");
 
+// A connection must survive this long before its next drop is treated as a
+// fresh incident rather than a continuing one.
+const HEALTHY_CONNECTION_MS = 30_000;
+// Warnings are useful on the first few attempts and then become noise; a
+// persistent outage is reported once per this many failures instead.
+const RETRY_WARN_INTERVAL = 12;
+
 export async function waitForRetry(
   milliseconds: number,
   signal: AbortSignal
@@ -59,10 +66,12 @@ export async function runJetstreamWorker(
   const stream = options.stream ?? streamJetstream;
   const tracked = new Set(options.streamOptions.dids);
   let attempt = 0;
+  let connectedAt: number | undefined;
   while (!options.signal.aborted) {
     let renewTimer: ReturnType<typeof setInterval> | undefined;
     const leaseAbort = new AbortController();
     let renewing = false;
+    connectedAt = undefined;
     try {
       if (!(await options.store.acquire())) {
         options.logger.debug(
@@ -127,7 +136,13 @@ export async function runJetstreamWorker(
         options.health.processedEvents += 1;
         options.health.lastEventAt = Date.now();
         events.add(1, { kind: event.kind });
-        attempt = 0;
+        // Reset only after a connection proves it is healthy. Resetting on every
+        // single event meant a stream that dies right after one frame retried at
+        // the one-second floor forever, logging a warning each time.
+        connectedAt ??= Date.now();
+        if (Date.now() - connectedAt >= HEALTHY_CONNECTION_MS) {
+          attempt = 0;
+        }
       }
       if (!options.signal.aborted) {
         throw new ProtocolError("unavailable", "Jetstream connection ended");
@@ -153,16 +168,26 @@ export async function runJetstreamWorker(
           error instanceof ProtocolError
             ? error.code
             : "checkpoint_unavailable";
-        options.logger.warn(
-          {
-            attempt,
-            code,
-            event: "jetstream.retry",
-            reason:
-              error instanceof Error ? error.message : "Checkpoint failure",
-          },
-          "Jetstream paused; reconnecting from its checkpoint"
-        );
+        // A flapping upstream can retry many times a minute. Warn on the first
+        // attempts, then only every RETRY_WARN_INTERVAL-th failure, so a real
+        // outage stays visible without drowning the log.
+        const warn =
+          !isReconciliation &&
+          (attempt <= 3 || attempt % RETRY_WARN_INTERVAL === 0);
+        const fields = {
+          attempt,
+          code,
+          event: "jetstream.retry",
+          reason: error instanceof Error ? error.message : "Checkpoint failure",
+        };
+        if (warn) {
+          options.logger.warn(
+            fields,
+            "Jetstream paused; reconnecting from its checkpoint"
+          );
+        } else {
+          options.logger.debug(fields, "Jetstream retry during an outage");
+        }
       }
     } finally {
       if (renewTimer) {

@@ -248,3 +248,49 @@ test("lease renewal loss cancels the socket before another event is committed", 
   expect(health.connected).toBe(false);
   expect(health.leaseHeld).toBe(false);
 });
+
+// A stream that dies right after one frame used to reset the retry counter every
+// time, so it retried at the one-second floor forever and logged a warning per
+// attempt. The counter must survive a connection that never proves healthy.
+test("a flapping stream backs off and stops warning on every attempt", async () => {
+  const { health, controller, logger, logs } = fixture();
+  let streamCalls = 0;
+  let waits = 0;
+  const options = {
+    health,
+    invalidate: () => {},
+    logger,
+    renewEveryMs: 60_000,
+    signal: controller.signal,
+    store: {
+      acquire: async () => true,
+      commit: async () => {},
+      load: async () => 10,
+      release: async () => {},
+      renew: async () => true,
+    },
+    async *stream(streamOptions: { onConnected?: () => void }) {
+      streamCalls += 1;
+      streamOptions.onConnected?.();
+      // One frame, then the socket drops.
+      yield event(streamCalls + 10);
+    },
+    streamOptions: { dids: [did] },
+    async wait(milliseconds: number) {
+      waits = milliseconds;
+      if (streamCalls >= 30) {
+        controller.abort();
+      }
+    },
+  };
+  await runJetstreamWorker(options);
+
+  const retryWarnings = logs.filter((line) =>
+    line.includes("Jetstream paused; reconnecting from its checkpoint")
+  ).length;
+  // 30 drops must not produce 30 warnings.
+  expect(retryWarnings).toBeLessThan(10);
+  // Backoff must have moved past the one-second floor.
+  expect(waits).toBeGreaterThan(1000);
+  expect(health.connected).toBe(false);
+});
