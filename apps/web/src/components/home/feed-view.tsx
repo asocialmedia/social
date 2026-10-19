@@ -76,7 +76,11 @@ export const FeedView: React.FC<FeedViewProps> = ({
   const queryClient = useQueryClient();
   const network = useNetworkSettings();
   const { user } = useSession();
-  const oppositeSeen = useFeedExposures(user?.id ?? "guest", "home");
+  const oppositeSeen = useFeedExposures(
+    user?.id ?? "guest",
+    "home",
+    String(cacheKey[1])
+  );
   const router = useRouter();
   const normalizedInitial = useMemo(
     () =>
@@ -403,7 +407,11 @@ export const FeedView: React.FC<FeedViewProps> = ({
         if (entry.kind === "bluesky") {
           return (
             <div className="flex flex-col" key={entry.id}>
-              <BlueskyPostCard isJoined={true} post={entry.value} />
+              <BlueskyPostCard
+                exposureFeed={String(cacheKey[1])}
+                isJoined={true}
+                post={entry.value}
+              />
               <Separator className="bg-border/60" />
             </div>
           );
@@ -419,6 +427,7 @@ export const FeedView: React.FC<FeedViewProps> = ({
 
               return (
                 <RecommendationTracker
+                  exposureFeed={String(cacheKey[1])}
                   key={post.id}
                   postId={post.id}
                   networkToken={post.networkRecommendationToken}

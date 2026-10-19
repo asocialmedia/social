@@ -13,14 +13,17 @@ export function BlueskyPostCard({
   post,
   detail = false,
   isJoined = true,
+  exposureFeed,
 }: {
   post: ExternalPost;
   detail?: boolean;
   isJoined?: boolean;
+  exposureFeed?: string;
 }) {
   const presentation = useMemo(() => externalPostView(post), [post]);
   return (
     <RecommendationTracker
+      exposureFeed={exposureFeed}
       networkSource={post.source}
       networkToken={post.networkRecommendationToken}
       postId={post.id}

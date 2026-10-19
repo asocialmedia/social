@@ -4,6 +4,7 @@ import { useMemo, useSyncExternalStore } from "react";
 
 import {
   FEED_EXPOSURE_EVENT,
+  canonicalExposureFeed,
   feedExposureSnapshot,
 } from "@/lib/posts/feed-exposure";
 import type { FeedExposureSurface } from "@/lib/posts/feed-exposure";
@@ -17,10 +18,19 @@ function subscribe(listener: () => void) {
   };
 }
 
-export function useFeedExposures(viewer: string, surface: FeedExposureSurface) {
+export function useFeedExposures(
+  viewer: string,
+  surface: FeedExposureSurface,
+  feed?: string
+) {
   const snapshot = useSyncExternalStore(
     subscribe,
-    () => feedExposureSnapshot(viewer, surface),
+    () =>
+      feedExposureSnapshot(
+        viewer,
+        surface,
+        feed ? canonicalExposureFeed(feed) : undefined
+      ),
     () => "[]"
   );
   return useMemo(() => new Set<string>(JSON.parse(snapshot)), [snapshot]);

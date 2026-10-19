@@ -53,7 +53,7 @@ export function useBlueskyFeed(
   if (surface === "explore") {
     exposureSurface = "explore";
   }
-  const oppositeSeen = useFeedExposures(viewer, exposureSurface);
+  const oppositeSeen = useFeedExposures(viewer, exposureSurface, mode);
   const queryKey = [
     following ? "bluesky-following" : "bluesky-discovery",
     mode,
@@ -92,7 +92,12 @@ export function useBlueskyFeed(
         signal,
         surface,
       };
-      if (!progressive && !pageParam.cursor && content !== "video") {
+      if (
+        !progressive &&
+        !pageParam.cursor &&
+        content !== "video" &&
+        !oppositeSeen.size
+      ) {
         return readDiscoveryPage(options);
       }
       const current =

@@ -74,3 +74,31 @@ test("a fresh document excludes its own previous browsing session without waitin
     otherFeedExposures("reload", "home", 1100, snapshot).has("already-viewed")
   ).toBe(true);
 });
+
+test("switching Home modes excludes viewed content while the currently scrolling mode keeps its cards", () => {
+  rememberFeedExposure(
+    "tab-reader",
+    "home",
+    "viewed-in-for-you",
+    1000,
+    "personalized"
+  );
+  expect(
+    otherFeedExposures("tab-reader", "home", 1100, undefined, "personalized")
+      .size
+  ).toBe(0);
+  expect(
+    otherFeedExposures("tab-reader", "home", 1100, undefined, "trending").has(
+      "viewed-in-for-you"
+    )
+  ).toBe(true);
+  expect(
+    otherFeedExposures(
+      "tab-reader",
+      "explore",
+      1100,
+      undefined,
+      "personalized"
+    ).has("viewed-in-for-you")
+  ).toBe(true);
+});

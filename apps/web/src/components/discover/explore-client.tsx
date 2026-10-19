@@ -320,7 +320,11 @@ const ExploreClient: React.FC = () => {
       ),
     [debouncedSearch, remoteSearch.data, remote.data, network.settings]
   );
-  const homeSeen = useFeedExposures(sessionUser?.id ?? "guest", "explore");
+  const homeSeen = useFeedExposures(
+    sessionUser?.id ?? "guest",
+    "explore",
+    activeTab === "trending" ? "trending" : "personalized"
+  );
   const mixed = useMemo(
     () =>
       mixExplorePosts(
@@ -389,6 +393,9 @@ const ExploreClient: React.FC = () => {
         result.push(
           entry.source === "asm" ? (
             <RecommendationTracker
+              exposureFeed={
+                activeTab === "trending" ? "trending" : "personalized"
+              }
               key={`post-${entry.post.id}`}
               postId={entry.post.id}
               networkSource="asm"
@@ -398,6 +405,9 @@ const ExploreClient: React.FC = () => {
             </RecommendationTracker>
           ) : (
             <ExploreNetworkPost
+              exposureFeed={
+                activeTab === "trending" ? "trending" : "personalized"
+              }
               key={`network-${entry.post.id}`}
               post={entry.post}
             />
@@ -436,7 +446,14 @@ const ExploreClient: React.FC = () => {
     }
 
     return result;
-  }, [handleFollowed, mixed, users, debouncedSearch, suggestions.data]);
+  }, [
+    handleFollowed,
+    mixed,
+    users,
+    debouncedSearch,
+    suggestions.data,
+    activeTab,
+  ]);
 
   let body: React.ReactNode;
   if (

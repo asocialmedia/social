@@ -160,7 +160,7 @@ const GustStream = ({ gustTab }: { gustTab: GustFeed }) => {
   const externalId = initialPostId?.startsWith("at://") ? initialPostId : "";
   const deepLink = useExternalPost(externalId);
   const { user } = useSession();
-  const oppositeSeen = useFeedExposures(user?.id ?? "guest", "gusts");
+  const oppositeSeen = useFeedExposures(user?.id ?? "guest", "gusts", gustTab);
   const { goToLogin } = useRequireAuth();
   const openComposer = useComposerStore((state) => state.openComposer);
   const autoOpenCreate = searchParams.get("create") === "true";
@@ -1050,6 +1050,7 @@ const GustStream = ({ gustTab }: { gustTab: GustFeed }) => {
                   }}
                 >
                   <RecommendationTracker
+                    exposureFeed={gustTab}
                     className="h-full w-full"
                     postId={post.id}
                     networkSource={post.external?.source}

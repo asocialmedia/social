@@ -12,7 +12,8 @@ function exposureStorage() {
 
 export function feedExposureSnapshot(
   viewer: string,
-  surface?: Surface
+  surface?: Surface,
+  feed?: string
 ): string {
   try {
     const raw =
@@ -23,6 +24,7 @@ export function feedExposureSnapshot(
             .filter(
               (entry) =>
                 entry.surface !== surface ||
+                Boolean(feed && entry.feed && entry.feed !== feed) ||
                 (Boolean(entry.session) && entry.session !== browsingSession) ||
                 Date.now() - entry.at >= REVISIT_EXCLUSION_MS
             )
@@ -39,7 +41,8 @@ export function rememberFeedExposure(
   viewer: string,
   surface: Surface,
   id: string,
-  now = Date.now()
+  now = Date.now(),
+  feed?: string
 ) {
   try {
     const key = `asm:feed-exposure:${viewer}`;
@@ -49,6 +52,7 @@ export function rememberFeedExposure(
         (entry) =>
           entry.id === id &&
           entry.surface === surface &&
+          entry.feed === feed &&
           now - entry.at < 60_000
       )
     ) {
@@ -58,9 +62,10 @@ export function rememberFeedExposure(
     exposureStorage().setItem(
       key,
       JSON.stringify(
-        [...entries, { at: now, id, session: browsingSession, surface }].slice(
-          -MAX_EXPOSURES
-        )
+        [
+          ...entries,
+          { at: now, feed, id, session: browsingSession, surface },
+        ].slice(-MAX_EXPOSURES)
       )
     );
     if (typeof window !== "undefined") {
@@ -75,7 +80,13 @@ function readExposures(
   viewer: string,
   now: number,
   snapshot = feedExposureSnapshot(viewer)
-): { id: string; surface: Surface; at: number; session?: string }[] {
+): {
+  id: string;
+  surface: Surface;
+  at: number;
+  session?: string;
+  feed?: string;
+}[] {
   try {
     const raw: unknown = JSON.parse(snapshot);
     return Array.isArray(raw)
@@ -88,6 +99,7 @@ function readExposures(
               surface: Surface;
               at: number;
               session?: string;
+              feed?: string;
             } =>
               Boolean(
                 entry &&
@@ -108,16 +120,24 @@ export function otherFeedExposures(
   viewer: string,
   surface: Surface,
   now = Date.now(),
-  snapshot?: string
+  snapshot?: string,
+  feed?: string
 ): Set<string> {
   return new Set(
     readExposures(viewer, now, snapshot)
       .filter(
         (entry) =>
           entry.surface !== surface ||
+          Boolean(feed && entry.feed && entry.feed !== feed) ||
           (Boolean(entry.session) && entry.session !== browsingSession) ||
           now - entry.at >= REVISIT_EXCLUSION_MS
       )
       .map((entry) => entry.id)
   );
+}
+
+export function canonicalExposureFeed(value: string) {
+  return ["for-you", "global", "personalized"].includes(value)
+    ? "personalized"
+    : value;
 }

@@ -60,9 +60,11 @@ export function ExploreNetworkAccount({
 export function ExploreNetworkPost({
   post,
   gust = false,
+  exposureFeed,
 }: {
   post: ExternalPost;
   gust?: boolean;
+  exposureFeed?: string;
 }) {
   const network = useNetworkSettings();
   const [imageState, setImageState] = useState<"loading" | "loaded" | "failed">(
@@ -94,6 +96,7 @@ export function ExploreNetworkPost({
   }
   return (
     <RecommendationTracker
+      exposureFeed={exposureFeed}
       networkSource={post.source}
       networkToken={post.networkRecommendationToken}
       postId={post.id}

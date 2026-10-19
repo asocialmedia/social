@@ -6,8 +6,12 @@ import type React from "react";
 import { useEffect, useRef } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
-import { rememberFeedExposure } from "@/lib/posts/feed-exposure";
+import {
+  canonicalExposureFeed,
+  rememberFeedExposure,
+} from "@/lib/posts/feed-exposure";
 import { isRecommendationVisible } from "@/lib/posts/recommendation-visibility";
+import { recordFeedRenderTiming } from "@/lib/recommendations/feed-render-timing";
 
 type RecommendationEventType =
   | EngagementEventType
@@ -168,6 +172,7 @@ if (typeof window !== "undefined") {
 }
 
 interface RecommendationTrackerProps {
+  exposureFeed?: string;
   networkToken?: string;
   networkSource?: string;
   children: React.ReactNode;
@@ -180,6 +185,7 @@ interface RecommendationTrackerProps {
 }
 
 export function RecommendationTracker({
+  exposureFeed,
   networkToken,
   networkSource,
   children,
@@ -268,7 +274,14 @@ export function RecommendationTracker({
             if (path === "/discover") {
               surface = "explore";
             }
-            rememberFeedExposure(user?.id ?? "guest", surface, postId);
+            recordFeedRenderTiming(surface, exposureFeed ?? "default");
+            rememberFeedExposure(
+              user?.id ?? "guest",
+              surface,
+              postId,
+              Date.now(),
+              exposureFeed ? canonicalExposureFeed(exposureFeed) : undefined
+            );
           }
           visibilityChanged();
         }
@@ -282,7 +295,7 @@ export function RecommendationTracker({
       document.removeEventListener("visibilitychange", visibilityChanged);
       stop(true);
     };
-  }, [postId, requestId, user, networkToken, networkSource]);
+  }, [exposureFeed, postId, requestId, user, networkToken, networkSource]);
 
   return (
     <div className={className} ref={containerRef}>
