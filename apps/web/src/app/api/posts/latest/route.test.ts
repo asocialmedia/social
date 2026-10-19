@@ -41,6 +41,7 @@ interface PostQuery {
       communityId: { in: (ids: string[]) => unknown; isNull: () => unknown };
       isGust: { eq: (value: boolean) => unknown };
       moderated: { eq: (value: boolean) => unknown };
+      explicitContent: { eq: (value: boolean) => unknown };
     }) => unknown
   ) => PostQuery;
 }
@@ -86,6 +87,7 @@ function createPostQuery(): PostQuery {
             return {};
           },
         },
+        explicitContent: { eq: () => ({}) },
         isGust: {
           eq: (value) => {
             where.isGust = value;

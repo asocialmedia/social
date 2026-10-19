@@ -17,8 +17,14 @@ import { getSessionFromApi } from "@/lib/auth/session";
 
 import { ProtocolGatewayError } from "./gateway";
 
-async function applyViewerMediaPolicy(url: URL) {
+async function applyViewerMediaPolicy(url: URL, includeExplicit?: boolean) {
   url.searchParams.delete("explicit");
+  if (includeExplicit !== undefined) {
+    if (includeExplicit) {
+      url.searchParams.set("explicit", "1");
+    }
+    return;
+  }
   const session = await getSessionFromApi();
   const settings = session?.user.id
     ? await readNetworkPreferences(session.user.id)
@@ -32,7 +38,8 @@ export async function readBlueskySearch(
   query: string,
   signal: AbortSignal,
   requestId: string,
-  kind: "all" | "user" | "post" = "all"
+  kind: "all" | "user" | "post" = "all",
+  includeExplicit?: boolean
 ) {
   const service = process.env.PROTOCOLS_SERVICE_URL;
   const token = process.env.PROTOCOLS_INTERNAL_TOKEN;
@@ -50,7 +57,7 @@ export async function readBlueskySearch(
   url.searchParams.set("q", query);
   url.searchParams.set("limit", "6");
   url.searchParams.set("kind", kind);
-  await applyViewerMediaPolicy(url);
+  await applyViewerMediaPolicy(url, includeExplicit);
   const bounded = AbortSignal.any([signal, AbortSignal.timeout(10_000)]);
   const response = await fetch(url, {
     cache: "no-store",

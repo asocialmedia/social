@@ -31,6 +31,15 @@ export function normalizeDiscoveryTopics(topics: readonly string[]): string[] {
   ];
 }
 
+export function isRetrievalTopic(topic: string): boolean {
+  return (
+    topic.length <= 64 &&
+    !/(?:^|\b)(?:category|portal|wikipedia|lists?|outlines?|stubs?|glossar(?:y|ies)|templates?)(?:\b|:)|\bby (?:country|period|type)\b/iu.test(
+      topic
+    )
+  );
+}
+
 export function discoveryTopics(
   profile: UserProfile,
   interests: readonly string[] = [],
@@ -38,10 +47,14 @@ export function discoveryTopics(
 ): string[] {
   if (interests.length) {
     const chosen = networkInterestTerms(interests);
-    const related = [
-      ...new Set(interests.flatMap((root) => scope?.related?.[root] ?? [])),
-    ];
-    return normalizeDiscoveryTopics([...chosen, ...related]).slice(0, 5);
+    const aliases = interests.flatMap((root) => scope?.aliases?.[root] ?? []);
+    return normalizeDiscoveryTopics([
+      ...chosen.filter((term) => term.split(" ").length <= 3),
+      ...aliases.toSorted((a, b) => a.length - b.length),
+      ...chosen,
+    ])
+      .filter(isRetrievalTopic)
+      .slice(0, 5);
   }
   const weights = mergeTopicWeights(
     profile.tagWeights,
@@ -158,7 +171,8 @@ export function rankExternalForViewer(
       (counts.quotes ?? 0) * 2;
     value += Math.min(0.1, Math.log1p(engagement) * 0.01) / (1 + hours / 24);
     if (options.video) {
-      value += (Math.log1p(engagement) * 2.5) / (1 + hours / 48) ** 0.6;
+      value +=
+        Math.min(4, Math.log1p(engagement) * 0.5) / (1 + hours / 24) ** 0.8;
     }
     value -= post.replyTo ? 0.1 : 0;
     value +=
@@ -167,7 +181,10 @@ export function rankExternalForViewer(
       ? (Math.log1p(engagement) / (1 + hours / 24) ** 0.6) * 8 +
           Math.min(3, fit) +
           Math.max(-1, Math.min(1, value * 0.05))
-      : Math.min(3, fit) * (options.video ? 4 : 20) + value;
+      : Math.min(1, fit) *
+          (options.video ? 8 : 12) *
+          (0.25 + 0.75 / (1 + hours / 24)) +
+          value;
   };
   const candidates = posts
     .filter(

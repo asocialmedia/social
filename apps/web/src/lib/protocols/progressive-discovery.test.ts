@@ -71,3 +71,94 @@ test("endless empty related catalogs yield a continuation after three reads inst
   expect(reads).toBe(3);
   expect(page.nextPosition?.topicPage).toBe(3);
 });
+
+test("an upstream outage never broadens a focused profile into an unrelated fallback", async () => {
+  let reads = 0;
+  await expect(
+    readProgressiveDiscovery(
+      {
+        cursor: null,
+        mode: "personalized",
+        signal: new AbortController().signal,
+      },
+      initialDiscoveryPosition,
+      new Set(),
+      () => {
+        reads += 1;
+        return Promise.resolve({ ...empty, partial: true });
+      }
+    )
+  ).rejects.toThrow("temporarily unavailable");
+  expect(reads).toBe(1);
+});
+
+test("configured interests stop at observed neighbors instead of recycling a universal feed", async () => {
+  const reads: number[] = [];
+  const page = await readProgressiveDiscovery(
+    {
+      cursor: null,
+      mode: "personalized",
+      signal: new AbortController().signal,
+    },
+    initialDiscoveryPosition,
+    new Set(),
+    (options) => {
+      reads.push(options.discoveryLevel ?? 0);
+      return Promise.resolve(empty);
+    },
+    1
+  );
+  expect(reads).toEqual([0, 1]);
+  expect(page.nextPosition).toBeNull();
+});
+
+test("focused video cursors survive sparse pages and more than four loaded pages", async () => {
+  let position = initialDiscoveryPosition;
+  for (let index = 0; index < 20; index += 1) {
+    const next = nextDiscoveryPosition(position, {
+      ...empty,
+      cursor: `video-${index}`,
+    });
+    expect(next?.level).toBe(0);
+    expect(next?.cursor).toBe(`video-${index}`);
+    if (!next) {
+      throw new Error("A valid video cursor was discarded");
+    }
+    position = next;
+  }
+  expect(position.pages).toBe(20);
+  let reads = 0;
+  const page = await readProgressiveDiscovery(
+    {
+      content: "video",
+      cursor: null,
+      mode: "personalized",
+      signal: new AbortController().signal,
+    },
+    position,
+    new Set(),
+    () => Promise.resolve({ ...empty, cursor: `still-more-${(reads += 1)}` }),
+    1
+  );
+  expect(page.nextPosition?.level).toBe(0);
+  expect(page.nextPosition?.cursor).toBe("still-more-1");
+  expect(reads).toBe(1);
+});
+
+test("an unavailable independent generator does not discard a healthy sparse video cursor", async () => {
+  const page = await readProgressiveDiscovery(
+    {
+      content: "video",
+      cursor: null,
+      mode: "personalized",
+      signal: new AbortController().signal,
+    },
+    initialDiscoveryPosition,
+    new Set(),
+    () =>
+      Promise.resolve({ ...empty, cursor: crypto.randomUUID(), partial: true }),
+    1
+  );
+  expect(page.nextPosition?.level).toBe(0);
+  expect(page.nextPosition?.cursor).toBeString();
+});

@@ -201,7 +201,8 @@ async function buildNetworkNativeFeed(
     context.preferences.avoidedTopics,
     context.topicScope
   );
-  const scope = `v8:${exploring ? "explore" : "home"}:${userId || "guest"}:${context.selected.id}:${context.revision}:${context.topicScope?.version ?? "exact"}:${mode}:${contentKind}`;
+  const maximumLevel = context.selected.interests.length ? 1 : 2;
+  const scope = `v10:${exploring ? "explore" : "home"}:${userId || "guest"}:${context.selected.id}:${context.revision}:${context.topicScope?.version ?? "exact"}:${mode}:${contentKind}`;
   const social = await networkSocialCandidates(userId);
   const socialById = new Map(social.native.map((entry) => [entry.id, entry]));
   const cursor = query.get("cursor");
@@ -243,7 +244,7 @@ async function buildNetworkNativeFeed(
         level += 1;
         candidateOffset = 0;
       }
-      if (level > 2 || (mode === "latest" && level > 0)) {
+      if (level > maximumLevel || (mode === "latest" && level > 0)) {
         return Response.json({ nextCursor: null, posts: [] });
       }
       offset = 0;
@@ -378,9 +379,7 @@ async function buildNetworkNativeFeed(
           context.preferences.contentLanguages ?? [context.preferences.language]
         ) &&
         networkPostAllowed(post, context.preferences, context.topicScope) &&
-        (exploring ||
-          level > 0 ||
-          !context.selected.interests.length ||
+        (!context.selected.interests.length ||
           postNetworkInterestScore(
             post,
             context.selected.interests,
@@ -576,7 +575,7 @@ async function buildNetworkNativeFeed(
         canContinue &&
         (consumed < ids.length ||
           moreCandidates ||
-          (mode !== "latest" && level < 2))
+          (mode !== "latest" && level < maximumLevel))
           ? `nf1.${generation}.${consumed}`
           : null,
       posts: observed,

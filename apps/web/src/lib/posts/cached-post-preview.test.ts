@@ -40,3 +40,12 @@ test("unrelated cache entries and overly broad prefixes do not supply media hint
   ).toBeUndefined();
   expect(cachedPostPreview(null, "7e422386")).toBeUndefined();
 });
+
+test("repeated snapshots of an incomplete persisted post keep a stable normalized reference", () => {
+  const record = { ...portraitPost };
+  const first = cachedPostPreview(record, record.id);
+  expect(cachedPostPreview(record, record.id)).toBe(first);
+  const replaced = { ...record, content: "updated" };
+  expect(cachedPostPreview(replaced, record.id)).not.toBe(first);
+  expect(cachedPostPreview(replaced, record.id)?.content).toBe("updated");
+});

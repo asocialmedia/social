@@ -2,6 +2,8 @@ import { beforeEach, expect, mock, test } from "bun:test";
 
 import { defaultNetworkPreferences } from "@asm/protocols/discovery";
 
+import { asmDbMockBase } from "@/posts/test-support/asm-db-mock";
+
 let preferences = defaultNetworkPreferences();
 let authenticated = true;
 const posts = [
@@ -43,6 +45,7 @@ const readPreferences = mock(() =>
   Promise.resolve({ preferences, revision: 0 })
 );
 mock.module("@asm/db", () => ({
+  ...asmDbMockBase,
   and: (...values: unknown[]) => values,
   getPostDataQuery: () => query,
   hydrateViewCounts: (values: unknown[]) => Promise.resolve(values),
@@ -69,7 +72,6 @@ test("Following honors adult-content defaults without requiring a network query 
   const page = await response.json();
   expect(page.posts.map((post: { id: string }) => post.id)).toEqual([
     "landscape",
-    "furry",
   ]);
   expect(readPreferences).toHaveBeenCalledTimes(1);
 });

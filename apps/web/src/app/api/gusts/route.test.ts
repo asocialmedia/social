@@ -115,6 +115,7 @@ interface PostQuery {
       };
       isGust: { eq: (value: boolean) => unknown };
       moderated: { eq: (value: boolean) => unknown };
+      explicitContent: { eq: (value: boolean) => unknown };
       postMedias: {
         some: (
           predicate: (media: {
@@ -172,6 +173,7 @@ function createPostQuery(): PostQuery {
     orderBy: () => query,
     where: (predicate) => {
       predicate({
+        explicitContent: { eq: () => ({}) },
         id: {
           desc: () => ({}),
           eq: (id) => (state.id = id),

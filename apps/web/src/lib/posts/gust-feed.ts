@@ -52,3 +52,10 @@ export function mergeGustPosts(
   });
   return [...retained, ...current.values()];
 }
+
+// Sparse video pages keep their continuation, with a capped delay rather than a permanent paging stop.
+export function gustPagingDelay(emptyPages: number): number {
+  return emptyPages < 3
+    ? 0
+    : Math.min(8000, 500 * 2 ** Math.min(4, emptyPages - 3));
+}

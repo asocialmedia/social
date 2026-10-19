@@ -61,6 +61,7 @@ interface PostQuery {
     predicate: (post: {
       isGust: { eq: (value: boolean) => unknown };
       moderated: { eq: (value: boolean) => unknown };
+      explicitContent: { eq: (value: boolean) => unknown };
       userId: { neq: (id: string) => unknown };
     }) => unknown
   ) => PostQuery;
@@ -97,6 +98,7 @@ function createPostQuery(): PostQuery {
     where: (predicate) => {
       const where: Record<string, unknown> = {};
       predicate({
+        explicitContent: { eq: (value) => (where.explicitContent = value) },
         isGust: { eq: (value) => (where.isGust = value) },
         moderated: { eq: (value) => (where.moderated = value) },
         userId: { neq: (id) => (where.userId = { not: id }) },
@@ -262,6 +264,7 @@ describe("GET /api/posts/for-you", () => {
     expect(body.posts).toHaveLength(1);
     expect(mockGetPersonalizedFeedPage).not.toHaveBeenCalled();
     expect(lastLegacyArgs?.where).toEqual({
+      explicitContent: false,
       isGust: false,
     });
   });
@@ -277,6 +280,7 @@ describe("GET /api/posts/for-you", () => {
     await GET(new Request("http://localhost/api/posts/for-you"));
 
     expect(lastLegacyArgs?.where).toEqual({
+      explicitContent: false,
       isGust: false,
       moderated: undefined,
       userId: { not: "user-123" },

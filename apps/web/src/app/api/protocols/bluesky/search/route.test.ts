@@ -1,5 +1,7 @@
 import { expect, mock, test } from "bun:test";
 
+import { asmDbMockBase } from "@/posts/test-support/asm-db-mock";
+
 let limited = false;
 mock.module("@/lib/search/guest-budget", () => ({
   guestSearchBudget: () =>
@@ -21,9 +23,13 @@ mock.module("@/lib/protocols/budget", () => ({
   consumeProtocolBudget: () => Promise.resolve(),
 }));
 mock.module("@asm/db", () => ({
+  ...asmDbMockBase,
   getClientIpFromHeaders: () => "127.0.0.1",
   getTrustedIngressIp: () => "127.0.0.1",
   hashViewerId: () => "search-guest",
+}));
+mock.module("@/lib/auth/session", () => ({
+  getSessionFromApi: () => Promise.resolve(null),
 }));
 const { GET } = await import("./route");
 

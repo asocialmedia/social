@@ -3,6 +3,7 @@ import { z } from "zod";
 export const recommendedAccountSchema = z.object({
   avatarUrl: z.string().nullable(),
   bannerUrl: z.string().nullable().optional(),
+  bio: z.string().nullable().optional(),
   displayName: z.string(),
   followers: z.number().nonnegative(),
   following: z.boolean(),

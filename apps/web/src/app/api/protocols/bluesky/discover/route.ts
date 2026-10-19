@@ -22,7 +22,6 @@ import { z } from "zod";
 import { getSessionFromApi } from "@/lib/auth/session";
 import {
   externalNetworkPostRecommended,
-  externalNetworkPostAllowed,
   externalNetworkInterestScore,
 } from "@/lib/posts/network-content-policy";
 import { blueskyMediaIsExplicit } from "@/lib/protocols/content-labels";
@@ -42,6 +41,7 @@ import {
   discoveryTopics,
   normalizeDiscoveryTopics,
   rankExternalForViewer,
+  isRetrievalTopic,
 } from "@/lib/protocols/recommendations";
 import { readBlueskyDiscovery } from "@/lib/protocols/service";
 import { exploreTopics } from "@/lib/recommendations/explore-topics";
@@ -110,7 +110,9 @@ export function GET(request: Request) {
       network.selected.interests.flatMap(
         (interest) => network.topicScope?.related?.[interest] ?? []
       )
-    ).slice(0, 80);
+    )
+      .filter(isRetrievalTopic)
+      .slice(0, 80);
     if (level.data === 1 && neighbors.length === 0) {
       return Response.json({
         cursor: null,
@@ -119,6 +121,9 @@ export function GET(request: Request) {
         moreRelatedTopics: false,
         partial: false,
       });
+    }
+    if (level.data === 2 && network.selected.interests.length) {
+      throw new ProtocolGatewayError(400, "invalid_discovery_level");
     }
     const includeExplicit = Boolean(
       session?.user.id && network.preferences.showExplicitContent
@@ -209,30 +214,32 @@ export function GET(request: Request) {
         }
       });
     }
-    const [page, excluded] = await Promise.all([
+    const includeSocialCandidates =
+      mode.data === "personalized" && !cursor && !exploring;
+    const [page, excluded, social, followed] = await Promise.all([
       cached ? Promise.resolve(cached.page) : read(request.signal),
       session?.user.id
         ? readExternalFeedback(session.user.id)
         : Promise.resolve(new Set<string>()),
+      session?.user.id
+        ? socialExternalRecommendations(
+            session.user.id,
+            includeSocialCandidates,
+            request.signal,
+            id
+          )
+        : null,
+      session?.user.id
+        ? followedExternalRecommendations(
+            session.user.id,
+            includeSocialCandidates,
+            request.signal,
+            id,
+            String(network.revision),
+            includeExplicit
+          )
+        : null,
     ]);
-    const social = session?.user.id
-      ? await socialExternalRecommendations(
-          session.user.id,
-          !cursor,
-          request.signal,
-          id
-        )
-      : null;
-    const followed = session?.user.id
-      ? await followedExternalRecommendations(
-          session.user.id,
-          !cursor,
-          request.signal,
-          id,
-          String(network.revision),
-          includeExplicit
-        )
-      : null;
     const candidates = [
       ...new Map(
         [
@@ -260,26 +267,20 @@ export function GET(request: Request) {
         (level.data !== 1 ||
           (topics.length > 0 &&
             externalNetworkInterestScore(post, topics) > 0)) &&
-        (exploring
-          ? externalNetworkPostAllowed(
-              post,
-              network.preferences,
-              network.topicScope
-            )
-          : externalNetworkPostRecommended(
-              level.data > 0
-                ? {
-                    ...post,
-                    discoveryContext: {
-                      interests: network.selected.interests,
-                      level: level.data,
-                    },
-                  }
-                : post,
-              network.preferences,
-              network.selected.interests,
-              network.topicScope
-            )) &&
+        externalNetworkPostRecommended(
+          level.data === 1
+            ? {
+                ...post,
+                discoveryContext: {
+                  interests: network.selected.interests,
+                  level: level.data,
+                },
+              }
+            : post,
+          network.preferences,
+          network.selected.interests,
+          network.topicScope
+        ) &&
         networkLanguageMatches(
           post.text,
           post.languages,
@@ -315,7 +316,7 @@ export function GET(request: Request) {
           .filter((post) => !blueskyMediaIsExplicit(post))
           .map((post) =>
             recordSharedTopicRelations(
-              metadata.get(post.id) ?? [],
+              externalPostTopics(post),
               `${post.source}:${post.id}`
             ).catch(() => {
               // Shared topic learning is best effort.

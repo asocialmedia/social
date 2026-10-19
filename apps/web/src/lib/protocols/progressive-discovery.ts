@@ -23,7 +23,7 @@ export function nextDiscoveryPosition(
   position: DiscoveryPosition,
   page: DiscoveryPage
 ): DiscoveryPosition | null {
-  if (page.cursor && page.items.length && position.pages < 3) {
+  if (page.cursor && page.cursor !== position.cursor) {
     return { ...position, cursor: page.cursor, pages: position.pages + 1 };
   }
   if (position.level === 0) {
@@ -44,7 +44,8 @@ export async function readProgressiveDiscovery(
   options: Parameters<typeof readDiscoveryWindow>[0],
   position: DiscoveryPosition,
   known: ReadonlySet<string>,
-  read = readDiscoveryWindow
+  read = readDiscoveryWindow,
+  maximumLevel = 2
 ): Promise<ProgressiveDiscoveryPage> {
   let current = position;
   const signal = AbortSignal.any([options.signal, AbortSignal.timeout(30_000)]);
@@ -60,8 +61,20 @@ export async function readProgressiveDiscovery(
       },
       known
     );
-    const nextPosition = nextDiscoveryPosition(current, page);
-    if (page.items.length || !nextPosition || attempt === 2) {
+    if (page.partial && !page.items.length && !page.cursor) {
+      throw new Error(
+        "Recommendations are temporarily unavailable. Please retry."
+      );
+    }
+    const continuation = nextDiscoveryPosition(current, page);
+    const nextPosition =
+      continuation && continuation.level <= maximumLevel ? continuation : null;
+    if (
+      page.items.length ||
+      options.content === "video" ||
+      !nextPosition ||
+      attempt === 2
+    ) {
       return { ...page, nextPosition };
     }
     current = nextPosition;

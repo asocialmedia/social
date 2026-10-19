@@ -5,7 +5,7 @@ import type { PostPreviewSource } from "@asm/ui/lib/post-preview-layout";
 import { normalizePostData } from "./post-normalize";
 import { externalPostView } from "./presentation";
 
-const externalPreviews = new WeakMap<object, PostPreviewSource>();
+const previews = new WeakMap<object, PostPreviewSource>();
 
 export function cachedPostPreview(
   data: unknown,
@@ -25,14 +25,14 @@ export function cachedPostPreview(
   }
   const record = data as Record<string, unknown>;
   if (record.id === postId && record.source === "bluesky") {
-    const existing = externalPreviews.get(record);
+    const existing = previews.get(record);
     if (existing) {
       return existing;
     }
     const parsed = externalPostSchema.safeParse(record);
     if (parsed.success) {
       const preview = externalPostView(parsed.data);
-      externalPreviews.set(record, preview);
+      previews.set(record, preview);
       return preview;
     }
   }
@@ -43,7 +43,13 @@ export function cachedPostPreview(
     typeof record.content === "string" &&
     Array.isArray(record.attachments)
   ) {
-    return normalizePostData(record as unknown as PostData);
+    const existing = previews.get(record);
+    if (existing) {
+      return existing;
+    }
+    const preview = normalizePostData(record as unknown as PostData);
+    previews.set(record, preview);
+    return preview;
   }
   for (const key of ["pages", "items", "posts", "post", "data", "parentPost"]) {
     const found = cachedPostPreview(record[key], postId);

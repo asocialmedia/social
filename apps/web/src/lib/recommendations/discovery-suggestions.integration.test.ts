@@ -68,7 +68,12 @@ const searchRemote = mock(() => {
 mock.module("@/lib/protocols/service", () => ({
   readBlueskyDiscovery: searchRemote,
   readBlueskyPosts: () => Promise.resolve([]),
+  readBlueskyProfileResource: () => Promise.resolve(remoteAuthor(techTopic)),
   readBlueskySearch: searchRemote,
+}));
+// Account-level ranking tests isolate the public query cache, which has its own cross-viewer coverage.
+mock.module("./suggestion-public-search", () => ({
+  readSuggestionPublicSearch: searchRemote,
 }));
 const { buildDiscoverySuggestions, readDiscoverySuggestions } =
   await import("./discovery-suggestions");

@@ -9,7 +9,7 @@ export async function getProfileUserList(
   viewerId: string,
   kind: "followers" | "following"
 ): Promise<ProfileUserListData[]> {
-  const [users, viewerFollows] = await Promise.all([
+  const [users, viewerFollows, external, viewerExternal] = await Promise.all([
     prisma.orm.public.Users.select(
       "avatarUrl",
       "bio",
@@ -32,7 +32,19 @@ export async function getProfileUserList(
     prisma.orm.public.Follows.select("followingId")
       .where({ followerId: viewerId })
       .all(),
+    kind === "following"
+      ? prisma.orm.public.ExternalFollows.where({ userId: profileId })
+          .include("author")
+          .orderBy((row) => row.createdAt.desc())
+          .all()
+      : [],
+    kind === "following"
+      ? prisma.orm.public.ExternalFollows.select("authorDid")
+          .where({ userId: viewerId })
+          .all()
+      : [],
   ]);
+  const externalFollowing = new Set(viewerExternal.map((row) => row.authorDid));
   const followingIds = viewerFollows.map((follow) => follow.followingId);
   const following = new Set(followingIds);
   const ids = users.map((user) => user.id);
@@ -65,7 +77,7 @@ export async function getProfileUserList(
     }
     mutuals.set(row.followingId, entry);
   }
-  return users.flatMap((user) =>
+  const native = users.flatMap((user) =>
     user.username
       ? [
           {
@@ -82,4 +94,24 @@ export async function getProfileUserList(
         ]
       : []
   );
+  return [
+    ...native,
+    ...external.map(({ author }) => ({
+      _count: { followers: 0 },
+      avatarUrl: null,
+      bio:
+        author.status === "active"
+          ? null
+          : "This account is currently unavailable.",
+      displayName: author.displayName,
+      href: `/network/bluesky/profile?${new URLSearchParams({ actor: author.did })}`,
+      id: author.did,
+      isFollowing: externalFollowing.has(author.did),
+      mutualCount: 0,
+      mutualFollowers: [],
+      source: "bluesky" as const,
+      status: author.status,
+      username: author.handle,
+    })),
+  ];
 }

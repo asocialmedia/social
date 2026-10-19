@@ -23,6 +23,7 @@ import {
   createRedisReadStore,
   matchesAvoidedTopic,
   scopedNetworkPreferences,
+  networkInterestScore,
 } from "@asm/protocols/discovery";
 
 import { externalNetworkPostAllowed } from "@/lib/posts/network-content-policy";
@@ -34,13 +35,15 @@ import { blueskyProfilePath } from "@/lib/protocols/paths";
 import { discoveryTopics } from "@/lib/protocols/recommendations";
 import {
   readBlueskyDiscovery,
-  readBlueskySearch,
   readBlueskyPosts,
+  readBlueskyProfileResource,
 } from "@/lib/protocols/service";
 import { getPostPath } from "@/lib/seo/seo";
 
 import { networkFeedContext } from "./network-context";
+import { readSuggestionPublicSearch } from "./suggestion-public-search";
 import { suggestionAffinity } from "./suggestion-ranking";
+import { suggestionReason } from "./suggestion-reason";
 import {
   discoverySuggestionsSchema,
   mixSuggestionSources,
@@ -52,9 +55,9 @@ import type {
 } from "./suggestion-types";
 
 const queue = new BoundedReadQueue({
-  concurrency: 4,
+  concurrency: 8,
   maxQueued: 48,
-  maxWaitMs: 2000,
+  maxWaitMs: 6500,
 });
 const cache = new SharedReadCache({
   deadlineMs: 9000,
@@ -76,7 +79,7 @@ export async function readDiscoverySuggestions(
         AbortSignal.timeout(250)
       ).catch(() => null)
     : "guest";
-  const key = `rec:suggestions:v3:{${createHash("sha256")
+  const key = `rec:suggestions:v5:{${createHash("sha256")
     .update(`${viewerId}:${profileId ?? "active"}:${version ?? "0"}`)
     .digest("hex")}}`;
   return cache.read(
@@ -115,6 +118,27 @@ export async function buildDiscoverySuggestions(
       (weight) => weight >= 0.15
     ) ||
     Object.values(context.profile.authorWeights).some((weight) => weight > 0.1);
+  const reasonFor = (text: string, topics: string[], author: string) =>
+    suggestionReason(
+      context.profile,
+      context.selected.interests,
+      text,
+      topics,
+      author,
+      context.topicScope
+    );
+  const affinityFor = (text: string, topics: string[], author: string) =>
+    suggestionAffinity(context.profile, text, topics, author) +
+    Math.min(
+      1,
+      networkInterestScore(
+        text,
+        topics,
+        context.selected.interests,
+        context.topicScope
+      )
+    ) *
+      2;
   const social = await networkSocialCandidates(viewerId);
   const follows = social.followedIds.slice(0, 100);
   const [
@@ -251,7 +275,7 @@ export async function buildDiscoverySuggestions(
   const posts: (RecommendedPost & { score: number })[] = [];
   const accountEvidence = new Map<
     string,
-    { score: number; topics: string[] }
+    { score: number; topics: string[]; reason: string | null }
   >();
   for (const post of nativePosts) {
     const author = peopleById.get(post.userId);
@@ -270,12 +294,7 @@ export async function buildDiscoverySuggestions(
     ) {
       continue;
     }
-    const affinity = suggestionAffinity(
-      context.profile,
-      post.content,
-      topics,
-      `asm:${author.id}`
-    );
+    const affinity = affinityFor(post.content, topics, `asm:${author.id}`);
     const age = Math.max(
       0,
       (Date.now() - fromPrismaDateTime(post.createdAt).getTime()) / 86_400_000
@@ -296,7 +315,11 @@ export async function buildDiscoverySuggestions(
     }
     const evidence = accountEvidence.get(author.id);
     if (!evidence || score > evidence.score) {
-      accountEvidence.set(author.id, { score, topics });
+      accountEvidence.set(author.id, {
+        reason: reasonFor(post.content, topics, `asm:${author.id}`),
+        score,
+        topics,
+      });
     }
     posts.push({
       authorId: author.id,
@@ -306,7 +329,8 @@ export async function buildDiscoverySuggestions(
       id: post.id,
       reason: nativeSocial.has(post.id)
         ? "Amplified by people you follow"
-        : "Based on your interests and activity",
+        : (reasonFor(post.content, topics, `asm:${author.id}`) ??
+          "From accounts you follow"),
       score,
       source: "asm",
       subtitle: `@${author.username}`,
@@ -331,8 +355,7 @@ export async function buildDiscoverySuggestions(
       continue;
     }
     const evidence = accountEvidence.get(person.id);
-    const affinity = suggestionAffinity(
-      context.profile,
+    const affinity = affinityFor(
       `${person.displayName} ${person.bio ?? ""}`,
       evidence?.topics ?? [],
       `asm:${person.id}`
@@ -341,12 +364,20 @@ export async function buildDiscoverySuggestions(
       continue;
     }
     const mutual = nativeMutual.get(person.id)?.size ?? 0;
-    if (hasPersonalization && affinity <= 0.05 && !evidence && !mutual) {
+    const reason =
+      evidence?.reason ??
+      reasonFor(
+        `${person.displayName} ${person.bio ?? ""}`,
+        evidence?.topics ?? [],
+        `asm:${person.id}`
+      );
+    if (!reason && !mutual) {
       continue;
     }
     accounts.push({
       avatarUrl: person.avatarUrl,
       bannerUrl: person.bannerUrl,
+      bio: person.bio,
       displayName: person.displayName || person.username,
       followers: 0,
       following: false,
@@ -355,7 +386,7 @@ export async function buildDiscoverySuggestions(
       id: person.id,
       reason: mutual
         ? `Followed by ${mutual} ${mutual === 1 ? "person" : "people"} you follow`
-        : "Based on your interests and activity",
+        : (reason ?? "From your network"),
       score:
         affinity * 5 +
         (evidence?.score ?? 0) +
@@ -371,7 +402,14 @@ export async function buildDiscoverySuggestions(
       ? Promise.allSettled(
           terms
             .slice(0, 3)
-            .map((term) => readBlueskySearch(term, signal, requestId))
+            .map((term) =>
+              readSuggestionPublicSearch(
+                term,
+                policy.showExplicitContent,
+                signal,
+                requestId
+              )
+            )
         )
       : readBlueskyDiscovery(
           "personalized",
@@ -392,6 +430,27 @@ export async function buildDiscoverySuggestions(
       : Promise.resolve([]),
   ]);
   const profiles: ExternalAuthor[] = [];
+  const connections = await Promise.allSettled(
+    social.externalConnections.slice(0, 6).map(async (connection) => {
+      const author = await readBlueskyProfileResource(
+        "profile",
+        new URLSearchParams({ actor: connection.id }),
+        signal,
+        requestId,
+        policy.showExplicitContent
+      );
+      if ("id" in author) {
+        externalMutual.set(connection.id, new Set(connection.via));
+        return author;
+      }
+      return null;
+    })
+  );
+  for (const result of connections) {
+    if (result.status === "fulfilled" && result.value) {
+      profiles.push(result.value);
+    }
+  }
   const externalPosts =
     socialRemote.status === "fulfilled" ? socialRemote.value : [];
   if (socialRemote.status === "rejected") {
@@ -426,13 +485,20 @@ export async function buildDiscoverySuggestions(
       continue;
     }
     const topics = externalPostTopics(post);
-    const affinity = suggestionAffinity(
-      context.profile,
+    const affinity = affinityFor(
       post.text,
       topics,
       `bluesky:${post.author.id}`
     );
     if (affinity < -1) {
+      continue;
+    }
+    if (
+      hasPersonalization &&
+      affinity <= 0.05 &&
+      !externalSocial.has(post.id) &&
+      !followedExternal.has(post.author.id)
+    ) {
       continue;
     }
     profiles.push(post.author);
@@ -443,7 +509,11 @@ export async function buildDiscoverySuggestions(
       (followedExternal.has(post.author.id) ? 1 : 0);
     const existing = accountEvidence.get(evidenceKey);
     if (!existing || score > existing.score) {
-      accountEvidence.set(evidenceKey, { score, topics });
+      accountEvidence.set(evidenceKey, {
+        reason: reasonFor(post.text, topics, evidenceKey),
+        score,
+        topics,
+      });
     }
     posts.push({
       authorId: post.author.id,
@@ -453,7 +523,8 @@ export async function buildDiscoverySuggestions(
       id: post.id,
       reason: externalSocial.has(post.id)
         ? "Amplified by people you follow"
-        : "Based on your interests and activity",
+        : (reasonFor(post.text, topics, `bluesky:${post.author.id}`) ??
+          "From accounts you follow"),
       score,
       source: "bluesky",
       subtitle: `@${post.author.handle}`,
@@ -490,8 +561,7 @@ export async function buildDiscoverySuggestions(
       continue;
     }
     const evidence = accountEvidence.get(`bluesky:${author.id}`);
-    const affinity = suggestionAffinity(
-      context.profile,
+    const affinity = affinityFor(
       `${author.displayName} ${author.description ?? ""}`,
       evidence?.topics ?? [],
       `bluesky:${author.id}`
@@ -500,12 +570,20 @@ export async function buildDiscoverySuggestions(
       continue;
     }
     const mutual = externalMutual.get(author.id)?.size ?? 0;
-    if (hasPersonalization && affinity <= 0.05 && !evidence && !mutual) {
+    const reason =
+      evidence?.reason ??
+      reasonFor(
+        `${author.displayName} ${author.description ?? ""}`,
+        evidence?.topics ?? [],
+        `bluesky:${author.id}`
+      );
+    if (!reason && !mutual) {
       continue;
     }
     accounts.push({
       avatarUrl: author.avatarUrl ?? null,
       bannerUrl: author.bannerUrl ?? null,
+      bio: author.description ?? null,
       displayName: author.displayName || author.handle,
       followers: author.upstreamCounts.followers ?? 0,
       following: false,
@@ -514,7 +592,7 @@ export async function buildDiscoverySuggestions(
       id: author.id,
       reason: mutual
         ? `Followed by ${mutual} ${mutual === 1 ? "person" : "people"} you follow`
-        : "Based on your interests and activity",
+        : (reason ?? "From your network"),
       score: affinity * 5 + (evidence?.score ?? 0) + Math.log1p(mutual) * 5,
       source: "bluesky",
     });

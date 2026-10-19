@@ -188,20 +188,14 @@ test("all five discovery modes enforce chosen interests before popularity and le
   }
 });
 
-test("live graph labels are valid for protocol reads and event watches", async () => {
+test("primary interest labels are valid for protocol reads and event watches", async () => {
   const response = await GET(
     new Request(
       "http://localhost/api/protocols/bluesky/discover?mode=trending&content=all&profile=default&locale=en-IN"
     )
   );
   expect(response.status).toBe(200);
-  const topics = [
-    "software",
-    "web development",
-    "tech",
-    "ajax programming",
-    "automattic",
-  ];
+  const topics = ["software", "web development", "tech"];
   expect(read).toHaveBeenCalledWith(
     "trending",
     undefined,
@@ -297,10 +291,10 @@ test("quiet external posts cannot qualify for trending discovery", async () => {
   expect(page.items.map((entry) => entry.id)).toEqual([upstream.items[1]?.id]);
 });
 
-test("Explore admits related and exploratory posts while preserving the active profile's exclusions", async () => {
+test("Explore gates discovery by the active interests and exclusions", async () => {
   preferences.avoidedTopics = ["politics"];
   upstream.items = [
-    post("related", "Automattic engineering"),
+    post("related", "TypeScript software engineering"),
     post("broad", "Cats playing"),
     post("blocked", "Politics news"),
   ];
@@ -311,8 +305,5 @@ test("Explore admits related and exploratory posts while preserving the active p
   );
   const page: DiscoveryPage = await response.json();
   expect(response.status).toBe(200);
-  expect(page.items.map((entry) => entry.id)).toEqual([
-    upstream.items[0]?.id,
-    upstream.items[1]?.id,
-  ]);
+  expect(page.items.map((entry) => entry.id)).toEqual([upstream.items[0]?.id]);
 });

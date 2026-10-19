@@ -86,7 +86,7 @@ test("explicit interests control discovery terms even when learned and graph wei
   expect(topics).not.toContain("elections");
 });
 
-test("catalog expansions are normalized, deduplicated and validated before taking discovery slots", () => {
+test("primary retrieval reserves descendant topics for the related discovery stage", () => {
   const topics = discoveryTopics(
     profile,
     ["software", "web development", "tech"],
@@ -106,13 +106,7 @@ test("catalog expansions are normalized, deduplicated and validated before takin
       version: "fixture",
     }
   );
-  expect(topics).toEqual([
-    "software",
-    "web development",
-    "tech",
-    "ajax programming",
-    "automattic",
-  ]);
+  expect(topics).toEqual(["software", "web development", "tech"]);
   expect(discoveryTopicsSchema.safeParse(topics).success).toBe(true);
 });
 
@@ -123,7 +117,7 @@ test("Unicode discovery terms retain combining marks from supported languages", 
     related: { प्रोग्रामिंग: ["वेब (विकास)"] },
     version: "fixture",
   });
-  expect(topics).toEqual(["प्रोग्रामिंग", "café", "वेब विकास"]);
+  expect(topics).toEqual(["प्रोग्रामिंग", "café"]);
   expect(discoveryTopicsSchema.safeParse(topics).success).toBe(true);
 });
 
@@ -335,4 +329,52 @@ test("a lone low confidence search cannot select the entire external discovery p
       topicAffinities: { art: 0.8, f1: 0.05 },
     })
   ).toEqual(["art"]);
+});
+
+test("fresh relevant For You posts beat old posts with repeated keyword matches", () => {
+  const fresh = {
+    ...post("fresh", "astronomy"),
+    createdAt: "2026-10-19T09:00:00Z",
+  };
+  const old = {
+    ...post("old", "astronomy gardening"),
+    createdAt: "2026-10-12T09:00:00Z",
+  };
+  expect(
+    rankExternalForViewer([old, fresh], profile, {
+      interests: ["astronomy", "gardening"],
+      now: Date.parse("2026-10-19T10:00:00Z"),
+    })[0]?.id
+  ).toBe("fresh");
+});
+
+test("catalog administrative labels never displace useful interest queries", () => {
+  const topics = discoveryTopics(profile, ["engineering"], {
+    avoided: {},
+    interests: {},
+    related: {
+      engineering: [
+        "engineering by country",
+        "portal:engineering",
+        "engineering stubs",
+        "electrical engineering",
+      ],
+    },
+    version: "test",
+  });
+  expect(topics).toEqual(["engineering"]);
+});
+
+test("a short descendant is not mistaken for an alias of a long selected interest", () => {
+  const root = "science, technology, engineering, and mathematics";
+  const topics = discoveryTopics(profile, ["engineering", "technology", root], {
+    aliases: { [root]: ["STEM"] },
+    avoided: {},
+    interests: { [root]: ["math", "science", "stem"] },
+    related: { [root]: ["math", "science"] },
+    version: "aliases",
+  });
+  expect(topics).toContain("stem");
+  expect(topics).not.toContain("math");
+  expect(topics).not.toContain("science");
 });

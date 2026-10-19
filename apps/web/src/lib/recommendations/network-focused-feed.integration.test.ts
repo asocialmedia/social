@@ -38,9 +38,10 @@ async function choose(interests: string[]) {
 async function read(
   mode: "personalized" | "latest" | "trending",
   kind: "post" | "gust",
-  cursor?: string
+  cursor?: string,
+  surface = "home"
 ) {
-  const query = new URLSearchParams({ take: "20" });
+  const query = new URLSearchParams({ surface, take: "20" });
   if (cursor) {
     query.set("cursor", cursor);
   }
@@ -238,7 +239,7 @@ test("profile changes invalidate cursors; unmatched ranked feeds can continue in
   );
 }, 20_000);
 
-test("exhausted ranked pools expand without repeating focused results or bypassing exclusions", async () => {
+test("exhausted ranked pools preserve focus, exclusions and unique pagination", async () => {
   await choose(["software"]);
   await saveNetworkPreferences(
     userId,
@@ -249,7 +250,6 @@ test("exhausted ranked pools expand without repeating focused results or bypassi
   const first = await read("personalized", "post");
   const known = new Set(first.page.posts.map((post) => post.id));
   let cursor = first.page.nextCursor;
-  let expanded = false;
   for (let pageIndex = 0; cursor && pageIndex < 8; pageIndex += 1) {
     // oxlint-disable-next-line no-await-in-loop -- each page consumes the prior page's private continuation.
     const next = await read("personalized", "post", cursor);
@@ -260,10 +260,9 @@ test("exhausted ranked pools expand without repeating focused results or bypassi
       expect(post.content.toLowerCase()).not.toContain("politics");
       expect(networkPostRecommended(post, settings.preferences)).toBe(true);
     }
-    expanded ||= next.page.posts.length > 0;
     cursor = next.page.nextCursor;
   }
-  expect(expanded).toBe(true);
+  expect(cursor).toBeNull();
 }, 20_000);
 
 test("a new post with a large stale score stays out of Trending until it has a recorded reaction", async () => {
@@ -309,4 +308,39 @@ test("concurrent placements reuse one native head and profile activity invalidat
   const refreshed = await read("personalized", "post");
   expect(refreshed.status).toBe(200);
   expect(refreshed.page.nextCursor).not.toBe(reads[0]?.page.nextCursor);
+});
+
+test("a configured profile never falls through into a universal native pool after exhaustion", async () => {
+  await choose([`unique-focus-${crypto.randomUUID()}`]);
+  const first = await read("personalized", "post");
+  expect(first.page.posts).toEqual([]);
+  const next = await read(
+    "personalized",
+    "post",
+    first.page.nextCursor ?? undefined
+  );
+  expect(next.page.posts).toEqual([]);
+  expect(next.page.nextCursor).toBeNull();
+});
+
+test("Explore keeps chosen interests as an eligibility gate across post and video modes", async () => {
+  await choose(["software"]);
+  const { preferences } = settings;
+  for (const kind of ["post", "gust"] as const) {
+    for (const mode of ["personalized", "latest", "trending"] as const) {
+      // oxlint-disable-next-line no-await-in-loop -- independent cursor scopes are checked sequentially against the same persona.
+      const { page, status } = await read(mode, kind, undefined, "explore");
+      expect(status).toBe(200);
+      expect(
+        page.posts.every((post) => networkPostRecommended(post, preferences))
+      ).toBe(true);
+      expect(
+        page.posts.some((post) =>
+          fixtures.some(
+            (fixture) => fixture.id === post.id && fixture.topic === "politics"
+          )
+        )
+      ).toBe(false);
+    }
+  }
 });

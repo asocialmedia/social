@@ -2,6 +2,8 @@ import type { UserProfile } from "@asm/db";
 import { matchesAvoidedTopic } from "@asm/protocols/discovery";
 import type { NetworkTopicScope } from "@asm/protocols/discovery";
 
+import { isRetrievalTopic } from "@/lib/protocols/recommendations";
+
 // Explore tests observed neighbors and taxonomy siblings instead of repeating the strongest Home topics.
 export function exploreTopics(
   profile: UserProfile,
@@ -27,6 +29,7 @@ export function exploreTopics(
   return [...new Set(related)]
     .filter(
       (topic) =>
+        isRetrievalTopic(topic) &&
         !direct.has(topic.toLowerCase()) &&
         !matchesAvoidedTopic(topic, [topic], avoided)
     )

@@ -8,7 +8,10 @@ import {
   saveNetworkPreferences,
 } from "@asm/db";
 import type { PostData } from "@asm/db";
-import { defaultNetworkPreferences } from "@asm/protocols/discovery";
+import {
+  defaultNetworkPreferences,
+  recordPublicSocialEvent,
+} from "@asm/protocols/discovery";
 
 import { networkNativeFeed } from "./network-native-feed";
 
@@ -151,4 +154,50 @@ test("mutual follows enable the reverse direction and a block removes social amp
   const blockedFriend = await networkSocialCandidates(friend);
   expect(blockedViewer.native).toEqual([]);
   expect(blockedFriend.native).toEqual([]);
+});
+
+test("public Bluesky likes follow the actual ASM-owned edge and disappear after unfollow", async () => {
+  const did =
+    `did:plc:social${crypto.randomUUID().replaceAll("-", "")}` as const;
+  try {
+    await prisma.orm.public.ExternalAuthors.create({
+      did,
+      displayName: "Public actor",
+      handle: "public.test",
+    });
+    await prisma.orm.public.ExternalFollows.create({
+      authorDid: did,
+      userId: viewer,
+    });
+    await recordPublicSocialEvent(redis, {
+      commit: {
+        collection: "app.bsky.feed.like",
+        operation: "create",
+        record: { subject: { uri } },
+        rkey: "likefixture",
+      },
+      did,
+      kind: "commit",
+      seq: 10,
+      time: new Date().toISOString(),
+    });
+    const recommended = await networkSocialCandidates(viewer);
+    expect(
+      recommended.external.find((entry) => entry.id === uri)?.sources[0]
+    ).toMatchObject({ action: "like", id: did });
+    const unrelated = await networkSocialCandidates(author);
+    expect(unrelated.external.some((entry) => entry.id === uri)).toBe(false);
+    await prisma.orm.public.ExternalFollows.where({
+      authorDid: did,
+      userId: viewer,
+    }).deleteAndCount();
+    const unfollowed = await networkSocialCandidates(viewer);
+    expect(unfollowed.external.some((entry) => entry.id === uri)).toBe(false);
+  } finally {
+    await prisma.orm.public.ExternalAuthors.where({ did }).deleteAndCount();
+    await redis.del(
+      `asm:public-social:v1:{${did}}`,
+      `asm:public-social:v1:{${did}}:time`
+    );
+  }
 });

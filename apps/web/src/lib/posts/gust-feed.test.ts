@@ -2,10 +2,14 @@ import { expect, test } from "bun:test";
 
 import type { ExternalPost } from "@asm/protocols/contracts";
 
-import { advanceGustPaging, mergeGustPosts } from "./gust-feed";
+import {
+  advanceGustPaging,
+  gustPagingDelay,
+  mergeGustPosts,
+} from "./gust-feed";
 import { externalPostView } from "./presentation";
 
-test("empty Gust pages pause automatic paging and visible progress or a changed profile resets the budget", () => {
+test("empty Gust pages track sparse progress and visible clips or a changed profile reset it", () => {
   let progress = { emptyPages: 0, pages: 0, scope: "software", visible: 0 };
   for (let page = 1; page <= 3; page += 1) {
     progress = advanceGustPaging(progress, "software", page, 0);
@@ -71,4 +75,11 @@ test("Gust merging updates retained cards and removes excluded clips without dup
     updated,
   ]);
   expect(mergeGustPosts([first, second], [], [])).toEqual([]);
+});
+
+test("sparse video continuation backs off without stopping pagination", () => {
+  expect(gustPagingDelay(0)).toBe(0);
+  expect(gustPagingDelay(3)).toBe(500);
+  expect(gustPagingDelay(5)).toBe(2000);
+  expect(gustPagingDelay(1000)).toBe(8000);
 });
