@@ -125,13 +125,26 @@ export function rankFeed<
     deferred = stillDeferred;
   }
 
-  // Completeness fallback: a page must never come back short just because
-  // the pool is dominated by one author; append what remains in score order.
-  for (const candidate of deferred) {
-    if (selected.length >= pageSize) {
+  // Completeness fallback: a page must never come back short just because the
+  // pool is dominated by one author, but dumping the remainder still bunches
+  // that author together. Each pick prefers a different author than the one
+  // before it, which keeps a thin pool varied without shortening the page.
+  const leftovers = [...deferred];
+  while (selected.length < pageSize && leftovers.length > 0) {
+    let chosen = 0;
+    for (let index = 0; index < leftovers.length; index += 1) {
+      const candidate = leftovers[index];
+      if (candidate && candidate.post.authorId !== lastAuthor) {
+        chosen = index;
+        break;
+      }
+    }
+    const [next] = leftovers.splice(chosen, 1);
+    if (!next) {
       break;
     }
-    selected.push(candidate.post);
+    selected.push(next.post);
+    lastAuthor = next.post.authorId;
   }
 
   return selected;

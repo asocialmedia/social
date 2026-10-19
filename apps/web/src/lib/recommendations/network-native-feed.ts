@@ -559,29 +559,23 @@ async function buildNetworkNativeFeed(
           b.post.createdAt.getTime() - a.post.createdAt.getTime() ||
           b.post.id.localeCompare(a.post.id)
     );
-    if (mode === "latest") {
-      ids = eligible.map((item) => item.post.id);
-    } else {
-      ids = [];
-      let remaining = eligible;
-      while (remaining.length) {
-        const page = rankFeed(
-          remaining.map((item) => ({ post: item, score: item.score })),
-          {
-            maxConsecutivePerAuthor: userId ? undefined : 1,
-            maxSingleAuthorShare: userId ? undefined : 0.15,
-            maxSingleTopicShare: userId ? undefined : 0.35,
-            pageSize,
-          }
-        );
-        if (!page.length) {
-          break;
-        }
-        ids.push(...page.map((item) => item.id));
-        const used = new Set(page.map((item) => item.id));
-        remaining = remaining.filter((item) => !used.has(item.id));
-      }
-    }
+    // Rank the whole pool once. Ranking a page at a time reset the author and
+    // topic caps on every call, so a dominant author could hold their full share
+    // of slot 1..20, then again of 21..40, indefinitely.
+    ids =
+      mode === "latest"
+        ? eligible.map((item) => item.post.id)
+        : rankFeed(
+            eligible.map((item) => ({ post: item, score: item.score })),
+            {
+              // Guests keep the stricter mix: no follow graph exists to explain
+              // a repeated author, so an unfamiliar reader sees more variety.
+              maxConsecutivePerAuthor: userId ? 2 : 1,
+              maxSingleAuthorShare: userId ? 0.3 : 0.15,
+              maxSingleTopicShare: userId ? 0.6 : 0.35,
+              pageSize: eligible.length,
+            }
+          ).map((item) => item.id);
     if (exploring) {
       const related = new Set(
         enriched.filter((item) => item.fit > 0).map((item) => item.id)
