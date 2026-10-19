@@ -7,7 +7,7 @@ import {
   networkPostRecommended,
 } from "@/lib/posts/network-content-policy";
 import type { PresentedPost } from "@/lib/posts/presentation";
-import { isTrendingPost } from "@/lib/posts/trending-eligibility";
+import { isGuestQualityPost } from "@/lib/posts/trending-eligibility";
 
 // Legacy archive and secondary-feed requests enforce the same account policy.
 export async function filterNetworkFeed<T extends PresentedPost>(
@@ -25,6 +25,8 @@ export async function filterNetworkFeed<T extends PresentedPost>(
   return posts.filter(
     (post) =>
       networkPostRecommended(post, preferences, scope) &&
-      (Boolean(userId) || isTrendingPost(post))
+      // A guest has no persona to personalise with, so quality is the gate:
+      // proven engagement, not the current hot list.
+      (Boolean(userId) || isGuestQualityPost(post))
   );
 }

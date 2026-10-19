@@ -25,6 +25,7 @@ interface PostQuery {
         neq: (id: string) => unknown;
         notIn: (ids: string[]) => unknown;
       };
+      explicitContent: { eq: (value: boolean) => unknown };
       isGust: { eq: (value: boolean) => unknown };
       moderated: { eq: (value: boolean) => unknown };
       rootPostId: { isNull: () => unknown };
@@ -47,6 +48,7 @@ function createPostQuery(): PostQuery {
           neq: (id) => (state.where.neqId = id),
           notIn: (ids) => (state.where.notInIds = ids),
         },
+        explicitContent: { eq: (value) => (state.where.explicitContent = value) },
         isGust: { eq: (value) => (state.where.isGust = value) },
         moderated: { eq: (value) => (state.where.moderated = value) },
         rootPostId: { isNull: () => ({}) },
@@ -68,6 +70,9 @@ mock.module("@asm/db", () => ({
 }));
 mock.module("@/lib/auth/session", () => ({
   getSessionFromApi: () => Promise.resolve(null),
+}));
+mock.module("@/lib/posts/explicit-content-enabled", () => ({
+  explicitContentEnabled: () => Promise.resolve(false),
 }));
 
 let cosineSimilarity: (a: number[], b: number[]) => number;

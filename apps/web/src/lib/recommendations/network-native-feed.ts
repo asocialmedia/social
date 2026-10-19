@@ -36,7 +36,10 @@ import {
   networkPostAllowed,
   postNetworkInterestScore,
 } from "@/lib/posts/network-content-policy";
-import { isTrendingPost } from "@/lib/posts/trending-eligibility";
+import {
+  isGuestQualityPost,
+  isTrendingPost,
+} from "@/lib/posts/trending-eligibility";
 
 import { exploreTopics } from "./explore-topics";
 import { admitFeedRead } from "./feed-admission";
@@ -445,7 +448,9 @@ async function buildNetworkNativeFeed(
     .filter((post) =>
       mode === "trending"
         ? isTrendingPost(post)
-        : !coldStart || isTrendingPost(post) || socialById.has(post.id)
+        : // Cold start means no persona to personalise with, not "only the hot
+          // list": a stored positive aura is enough proof of quality there.
+          !coldStart || isGuestQualityPost(post) || socialById.has(post.id)
     )
     .filter(
       (post) =>
