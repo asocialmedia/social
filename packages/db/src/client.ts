@@ -276,7 +276,10 @@ export function getPostDataQuery(orm: PrismaOrm, loggedInUserId: string) {
       postTags.include("tag", (tag) => tag.select("name"))
     )
     .include("votes", (votes) =>
-      votes.where({ userId: loggedInUserId }).select("userId", "value")
+      votes.combine({
+        totalUp: votes.where((vote) => vote.value.eq(1)).count(),
+        viewer: votes.where({ userId: loggedInUserId }).select("userId", "value"),
+      })
     )
     .include("community", (community) =>
       community.select("accentColor", "id", "name", "slug")
@@ -446,7 +449,7 @@ export function mapPostData(post: PostQueryData): PostData {
       bookmarks: bookmarks.total,
       comments: post.comments,
       responses: posts,
-      vote: votes.length,
+      vote: votes.totalUp,
     },
     attachments: postMedias.map((media) => ({
       aiGenerated: media.aiGenerated,
@@ -523,7 +526,7 @@ export function mapPostData(post: PostQueryData): PostData {
       : null,
     tags: postToTags.flatMap((postTag) => (postTag.tag ? [postTag.tag] : [])),
     user: mapUserData(user),
-    vote: votes,
+    vote: votes.viewer,
   };
 }
 
