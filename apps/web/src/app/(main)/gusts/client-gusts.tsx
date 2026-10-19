@@ -14,7 +14,7 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { ChevronDown, ChevronLeft, ChevronUp, Plus } from "lucide-react";
-import { AnimatePresence, motion } from "motion/react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import Image from "next/image";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import React, {
@@ -153,6 +153,7 @@ export const ClientGusts: React.FC<ClientGustsProps> = () => {
 };
 
 const GustStream = ({ gustTab }: { gustTab: GustFeed }) => {
+  const reducedMotion = useReducedMotion();
   const searchParams = useSearchParams();
   const pathname = usePathname();
   const router = useRouter();
@@ -454,23 +455,29 @@ const GustStream = ({ gustTab }: { gustTab: GustFeed }) => {
   const loadedPageCount =
     (includeNative ? (data?.pages.length ?? 0) : 0) +
     (includeExternal ? (externalFeed.data?.pages.length ?? 0) : 0);
+  // Count what the servers returned, not what survived client-side policy and
+  // exposure filtering. Otherwise a strict filter looks like an empty page and
+  // pins the reel in permanent backoff.
+  const serverRows =
+    (data?.pages.flatMap((page) => page.posts).length ?? 0) +
+    (externalFeed.data?.pages.flatMap((page) => page.items).length ?? 0);
   const [pagingProgress, setPagingProgress] = useState({
     emptyPages: 0,
     pages: loadedPageCount,
     scope: orderScope,
-    visible: posts.length,
+    visible: serverRows,
   });
   let currentPagingProgress = pagingProgress;
   if (
     pagingProgress.scope !== orderScope ||
     pagingProgress.pages !== loadedPageCount ||
-    pagingProgress.visible !== posts.length
+    pagingProgress.visible !== serverRows
   ) {
     currentPagingProgress = advanceGustPaging(
       pagingProgress,
       orderScope,
       loadedPageCount,
-      posts.length
+      serverRows
     );
     setPagingProgress(currentPagingProgress);
   }
@@ -482,9 +489,14 @@ const GustStream = ({ gustTab }: { gustTab: GustFeed }) => {
   const isFetchingNextPage =
     (includeNative && isFetchingNativeNextPage) ||
     (includeExternal && externalFeed.isFetchingNextPage);
+  // A failed source must not stall the other one: the reel keeps advancing while
+  // at least one included source can still page. Each fetch call still checks its
+  // own error flag, so a broken source is not retried blindly.
   const pageError =
-    (includeNative && nativePageError) ||
-    (includeExternal && externalFeed.isFetchNextPageError);
+    includeNative && includeExternal
+      ? Boolean(nativePageError) && Boolean(externalFeed.isFetchNextPageError)
+      : (includeNative && Boolean(nativePageError)) ||
+        (includeExternal && Boolean(externalFeed.isFetchNextPageError));
   const {
     refetch: refetchExternal,
     fetchNextPage: fetchExternalNextPage,
@@ -616,6 +628,18 @@ const GustStream = ({ gustTab }: { gustTab: GustFeed }) => {
       if (gustTab === "following" && !initialPostId) {
         queryParams.mode = "following";
       }
+      // Following gust heads are newest-first, so a single row answers "is there
+      // anything new". Only pay for a hydrated page when the answer is yes.
+      const probe = await kyInstance
+        .get("/api/gusts", {
+          searchParams: { ...queryParams, take: "1" },
+          signal,
+        })
+        .json<GustsPage>();
+      const [newest] = probe.posts;
+      if (!newest || nativePosts.some((post) => post.id === newest.id)) {
+        return [];
+      }
       const fresh = await kyInstance
         .get("/api/gusts", { searchParams: queryParams, signal })
         .json<GustsPage>();
@@ -678,14 +702,39 @@ const GustStream = ({ gustTab }: { gustTab: GustFeed }) => {
   }, [isRefreshing, refetch]);
 
   // Jump to the very first gust and merge the probed clips into the reel.
+  // Prepend the probed clips without tearing the reel down. Emptying the merged
+  // list forced a rebuild from scratch, which unmounted every mounted video and
+  // smooth-scrolled from the current clip all the way back to the top.
   const showNewGusts = useCallback(() => {
     prependPostsToFeedCache(queryClient, queryKey, newGusts);
     clearNewItems();
     showExternalNewItems();
-    setReel((current) => ({ ...current, external: [], native: [], posts: [] }));
-    setActiveIndex(0);
-    containerRef.current?.scrollTo({ behavior: "smooth", top: 0 });
-  }, [clearNewItems, newGusts, queryClient, queryKey, showExternalNewItems]);
+    const prepended = new Map(newGusts.map((post) => [post.id, post]));
+    setReel((current) => ({
+      ...current,
+      // Keep the clip being watched first in its new slot so the offset stays
+      // valid, then let the merge place the new clips ahead of it.
+      posts: [
+        ...newGusts,
+        ...current.posts.filter((post) => !prepended.has(post.id)),
+      ],
+    }));
+    if (activeIndex <= 1) {
+      setActiveIndex(0);
+      containerRef.current?.scrollTo({ behavior: "smooth", top: 0 });
+    } else {
+      // The reader is deep in the reel: keep their position, the new clips are
+      // reachable by swiping up rather than yanking them out of the feed.
+      setActiveIndex((index) => index + newGusts.length);
+    }
+  }, [
+    activeIndex,
+    clearNewItems,
+    newGusts,
+    queryClient,
+    queryKey,
+    showExternalNewItems,
+  ]);
 
   // Kept in sync so the wheel/touch listeners (attached once) can consult the
   // current value without re-binding on every fetch state change.
@@ -1238,9 +1287,10 @@ const GustStream = ({ gustTab }: { gustTab: GustFeed }) => {
           !(isCommentsOpen && isMobile) ? (
             <motion.div
               animate={{ opacity: 1, y: 0 }}
-              className="absolute top-20 left-1/2 z-30 -translate-x-1/2"
-              exit={{ opacity: 0, y: -12 }}
-              initial={{ opacity: 0, y: -12 }}
+              className="pointer-events-none absolute top-20 left-1/2 z-30 -translate-x-1/2"
+              exit={{ opacity: 0 }}
+              initial={false}
+              transition={reducedMotion ? { duration: 0 } : undefined}
             >
               <NewContentPill
                 authors={[

@@ -54,8 +54,10 @@ export function mergeGustPosts(
 }
 
 // Sparse video pages keep their continuation, with a capped delay rather than a permanent paging stop.
+// The ceiling is deliberately low: on a swipe-driven reel an 8s gap reads as a
+// dead feed, so a stalled stretch costs at most two seconds per attempt.
 export function gustPagingDelay(emptyPages: number): number {
   return emptyPages < 3
     ? 0
-    : Math.min(8000, 500 * 2 ** Math.min(4, emptyPages - 3));
+    : Math.min(2000, 400 * 2 ** Math.min(3, emptyPages - 3));
 }

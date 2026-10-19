@@ -186,7 +186,7 @@ export default function FollowingFeed() {
         </div>
       ) : null}
       {external.newItems.length ? (
-        <div className="sticky top-3 z-20 flex justify-center">
+        <div className="pointer-events-none sticky top-3 z-20 -mb-10 flex justify-center">
           <NewContentPill
             authors={external.newItems.map((post) => ({
               avatarUrl: post.author.avatarUrl,

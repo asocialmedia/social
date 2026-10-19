@@ -4,7 +4,6 @@ import { NextResponse } from "next/server";
 
 import { getSessionFromApi } from "@/lib/auth/session";
 import { recordDeliveryPayload } from "@/lib/media/delivery-metrics";
-import { explicitContentEnabled } from "@/lib/posts/explicit-content-enabled";
 import {
   decideMediaAccess,
   resolveOwningCommunity,
@@ -20,6 +19,7 @@ import {
   generatePresignedUrl,
 } from "@/lib/media/object-storage";
 import { getWebLogger } from "@/lib/otel";
+import { explicitContentEnabled } from "@/lib/posts/explicit-content-enabled";
 import {
   getContentDisposition,
   isBlockedMediaMime,

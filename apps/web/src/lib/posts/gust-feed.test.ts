@@ -79,7 +79,8 @@ test("Gust merging updates retained cards and removes excluded clips without dup
 
 test("sparse video continuation backs off without stopping pagination", () => {
   expect(gustPagingDelay(0)).toBe(0);
-  expect(gustPagingDelay(3)).toBe(500);
-  expect(gustPagingDelay(5)).toBe(2000);
-  expect(gustPagingDelay(1000)).toBe(8000);
+  expect(gustPagingDelay(3)).toBe(400);
+  expect(gustPagingDelay(5)).toBe(1600);
+  // The ceiling stays low: a long gap on a swipe-driven reel reads as dead.
+  expect(gustPagingDelay(1000)).toBe(2000);
 });
