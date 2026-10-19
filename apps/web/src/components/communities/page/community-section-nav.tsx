@@ -49,7 +49,7 @@ export default function CommunitySectionNav({
           aria-controls={COMMUNITY_NAVIGATION_ID}
           aria-expanded={navigationOpen}
           aria-haspopup="dialog"
-          className="my-auto size-11 shrink-0 rounded-full lg:hidden"
+          className="my-auto size-11 shrink-0 rounded-full xl:hidden"
           variant="ghost"
           size="icon"
           onClick={onOpenNavigation}

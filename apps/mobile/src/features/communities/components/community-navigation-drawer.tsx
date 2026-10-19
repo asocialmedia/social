@@ -4,11 +4,15 @@ import type {
   CommunityChatRoom,
   CommunityChatThreadSummary,
 } from "@asm/messages";
+import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import { FileText, LockKeyhole, MessageCircle, X } from "lucide-react-native";
 import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
+  Animated,
+  Easing,
+  useWindowDimensions,
   Modal,
   Pressable,
   ScrollView,
@@ -16,10 +20,12 @@ import {
   Text,
   View,
 } from "react-native";
+import { useReducedMotion } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { StatusActionButton } from "@/components/feedback/status-action-button";
 import { authClient } from "@/features/auth/lib/auth-client";
+import { MobileBottomNav } from "@/features/home/components/mobile-bottom-nav";
 import { getApiBaseUrl } from "@/lib/api-env";
 import { useAppTheme } from "@/theme";
 
@@ -51,6 +57,21 @@ export function CommunityNavigationDrawer({
   threads?: CommunityChatThreadSummary[];
 }) {
   const router = useRouter();
+  const reduceMotion = useReducedMotion();
+  const { width } = useWindowDimensions();
+  // oxlint-disable-next-line react/hook-use-state -- A stable native animation value owns the entrance.
+  const [entrance] = useState(() => new Animated.Value(0));
+  useEffect(() => {
+    const animation = Animated.timing(entrance, {
+      duration: reduceMotion ? 100 : 250,
+      easing: Easing.out(Easing.cubic),
+      isInteraction: false,
+      toValue: 1,
+      useNativeDriver: true,
+    });
+    animation.start();
+    return () => animation.stop();
+  }, [entrance, reduceMotion]);
   const insets = useSafeAreaInsets();
   const { theme, isDark } = useAppTheme();
   const accent = resolveCommunityAccentColor(accentColor, isDark);
@@ -108,16 +129,28 @@ export function CommunityNavigationDrawer({
           onPress={onClose}
           style={StyleSheet.absoluteFill}
         />
-        <View
+        <Animated.View
           accessibilityViewIsModal
           style={[
             styles.panel,
             {
               backgroundColor: theme.containerBg,
               borderColor: theme.cardBorder,
-              paddingBottom: insets.bottom + 12,
+              opacity: entrance,
+              paddingBottom: insets.bottom + 96,
               paddingLeft: insets.left + 16,
               paddingTop: insets.top + 12,
+              transform: [
+                {
+                  translateX: entrance.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [
+                      reduceMotion ? 0 : -Math.min(width * 0.86, 384),
+                      0,
+                    ],
+                  }),
+                },
+              ],
             },
           ]}
         >
@@ -266,7 +299,23 @@ export function CommunityNavigationDrawer({
               </View>
             ) : null}
           </ScrollView>
-        </View>
+        </Animated.View>
+        <LinearGradient
+          pointerEvents="none"
+          colors={
+            isDark
+              ? ["rgba(23,23,23,0)", "rgba(23,23,23,0.92)"]
+              : ["rgba(243,244,246,0)", "rgba(243,244,246,0.94)"]
+          }
+          style={{
+            bottom: 0,
+            height: 108 + insets.bottom,
+            left: 0,
+            position: "absolute",
+            right: 0,
+          }}
+        />
+        <MobileBottomNav hidden={false} sidebar onNavigate={onClose} />
       </View>
     </Modal>
   );

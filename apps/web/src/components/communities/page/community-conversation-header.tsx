@@ -52,7 +52,7 @@ export default function CommunityConversationHeader({
         aria-expanded={props.channelsOpen}
         aria-controls={COMMUNITY_NAVIGATION_ID}
         aria-label="Toggle community sidebar"
-        className="size-11 shrink-0 rounded-full lg:hidden"
+        className="size-11 shrink-0 rounded-full xl:hidden"
         size="icon"
         variant="ghost"
         onClick={props.onBrowse}

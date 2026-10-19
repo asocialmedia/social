@@ -85,9 +85,11 @@ const NavIcon: React.FC<{ active: boolean; icon: typeof Home }> = ({
   return <Icon className="size-5 transition-colors" />;
 };
 
-const MobileBottomNav: React.FC<{ hidden?: boolean }> = ({
-  hidden: hiddenOverride,
-}) => {
+const MobileBottomNav: React.FC<{
+  hidden?: boolean;
+  sidebar?: boolean;
+  onNavigate?: () => void;
+}> = ({ sidebar = false, onNavigate, hidden: hiddenOverride }) => {
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -149,7 +151,10 @@ const MobileBottomNav: React.FC<{ hidden?: boolean }> = ({
           aria-label={label}
           className={className}
           key={href}
-          onClick={goToLogin}
+          onClick={() => {
+            onNavigate?.();
+            goToLogin();
+          }}
           type="button"
         >
           {inner}
@@ -158,13 +163,20 @@ const MobileBottomNav: React.FC<{ hidden?: boolean }> = ({
     }
 
     return (
-      <Link aria-label={label} className={className} href={href} key={href}>
+      <Link
+        aria-label={label}
+        className={className}
+        href={href}
+        key={href}
+        onClick={onNavigate}
+      >
         {inner}
       </Link>
     );
   };
 
   const handleCompose = () => {
+    onNavigate?.();
     if (!isLoggedIn) {
       goToLogin();
       return;
@@ -180,6 +192,7 @@ const MobileBottomNav: React.FC<{ hidden?: boolean }> = ({
     }
     holdTimer.current = window.setTimeout(() => {
       holdFired.current = true;
+      onNavigate?.();
       if (!isLoggedIn) {
         goToLogin();
         return;
@@ -197,9 +210,20 @@ const MobileBottomNav: React.FC<{ hidden?: boolean }> = ({
 
   return (
     <nav
+      inert={hidden}
+      aria-hidden={hidden || undefined}
       aria-label="Primary"
-      className="fixed inset-x-0 bottom-0 z-50 px-2 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] sm:px-3 lg:hidden"
+      className={cn(
+        "pointer-events-none inset-x-0 bottom-0 z-50 px-2 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] sm:px-3",
+        sidebar ? "absolute xl:hidden" : "fixed lg:hidden"
+      )}
     >
+      {sidebar ? (
+        <div
+          aria-hidden
+          className="community-dock-backdrop absolute inset-x-0 -top-10 bottom-0"
+        />
+      ) : null}
       {/* Slides fully below the fold on scroll-down and back on scroll-up. The
           nav stays fixed so nothing reflows; only the inner dock travels, and it
           is visible by default - motion reacts to scrolling, it never gates the
@@ -208,13 +232,26 @@ const MobileBottomNav: React.FC<{ hidden?: boolean }> = ({
         animate={
           reduceMotion
             ? { opacity: hidden ? 0 : 1 }
-            : { opacity: hidden ? 0 : 1, y: hidden ? "calc(100% + 1rem)" : 0 }
+            : {
+                opacity: hidden ? 0 : 1,
+                scale: 1,
+                y: hidden ? "calc(100% + 1rem)" : 0,
+              }
         }
-        initial={false}
+        className="pointer-events-none relative origin-bottom"
+        initial={
+          sidebar
+            ? {
+                opacity: 0,
+                scale: reduceMotion ? 1 : 0.96,
+                y: reduceMotion ? 0 : 28,
+              }
+            : false
+        }
         transition={{ duration: 0.24, ease: [0.32, 0.72, 0, 1] }}
       >
-        <div className="panel-3d mx-auto flex w-fit items-center gap-1.5 rounded-2xl p-1">
-          <div className="flex items-center gap-0.5">
+        <div className="panel-3d pointer-events-auto mx-auto flex w-fit items-center gap-0 rounded-2xl p-1 min-[360px]:gap-1.5">
+          <div className="flex items-center gap-0 min-[360px]:gap-0.5">
             {LEFT_ITEMS.map(renderTab)}
           </div>
 
@@ -243,7 +280,7 @@ const MobileBottomNav: React.FC<{ hidden?: boolean }> = ({
             <FilledPlus className="size-6" />
           </button>
 
-          <div className="flex items-center gap-0.5">
+          <div className="flex items-center gap-0 min-[360px]:gap-0.5">
             {RIGHT_ITEMS.map(renderTab)}
           </div>
         </div>

@@ -179,6 +179,25 @@
 }
 
 @layer components {
+  .community-dock-backdrop {
+    background: linear-gradient(
+      to top,
+      hsl(var(--background) / 0.94),
+      hsl(var(--background) / 0.5) 55%,
+      transparent
+    );
+    -webkit-backdrop-filter: blur(6px);
+    backdrop-filter: blur(6px);
+    mask-image: linear-gradient(to top, black 35%, transparent);
+  }
+
+  @media (prefers-reduced-transparency: reduce) {
+    .community-dock-backdrop {
+      -webkit-backdrop-filter: none;
+      backdrop-filter: none;
+    }
+  }
+
   .community-accent-scope {
     --community-accent-resolved: var(--community-accent);
   }
