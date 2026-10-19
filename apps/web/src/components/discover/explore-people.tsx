@@ -3,6 +3,7 @@
 import type { ExternalAuthor } from "@asm/protocols/contracts";
 import { matchesAvoidedTopic } from "@asm/protocols/discovery";
 import { Input } from "@asm/ui/shadui/input";
+import { Skeleton } from "@asm/ui/shadui/skeleton";
 import noFollowImage from "@assets/general/nofollow.png";
 import { useQuery } from "@tanstack/react-query";
 import { RefreshCw, Search, X } from "lucide-react";
@@ -210,11 +211,11 @@ const ExplorePeople: React.FC = () => {
                 onClick={handleRefreshPeople}
                 type="button"
               >
-                <RefreshCw
-                  className={`h-3.5 w-3.5 ${
-                    suggestions.isFetching ? "animate-spin" : ""
-                  }`}
-                />
+                {suggestions.isFetching ? (
+                  <Skeleton className="size-3.5 rounded-full" />
+                ) : (
+                  <RefreshCw className="size-3.5" />
+                )}
                 Refresh
               </button>
             ) : null}
@@ -255,7 +256,7 @@ const ExplorePeople: React.FC = () => {
         {isLoggedIn ? (
           <div className="relative mb-4 hidden md:block">
             {isFetching && isSearching ? (
-              <span className="border-primary/30 border-t-primary absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 animate-spin rounded-full border-2" />
+              <Skeleton className="absolute top-1/2 left-3 size-4 -translate-y-1/2 rounded-full" />
             ) : (
               <Search className="text-muted-foreground absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2" />
             )}

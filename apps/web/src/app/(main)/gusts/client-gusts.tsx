@@ -6,19 +6,14 @@ import {
   followingGustAvatars,
 } from "@asm/ui/lib/gust-header";
 import { Button } from "@asm/ui/shadui/button";
+import { Skeleton } from "@asm/ui/shadui/skeleton";
 import noMediaImage from "@assets/general/nomedia.png";
 import {
   useInfiniteQuery,
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import {
-  ChevronDown,
-  ChevronLeft,
-  ChevronUp,
-  Loader2,
-  Plus,
-} from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronUp, Plus } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import Image from "next/image";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -34,6 +29,7 @@ import { useInView } from "react-intersection-observer";
 
 import { useSession } from "@/app/(main)/session-provider";
 import { AuthPromptCard } from "@/components/auth/shell/auth-prompt-card";
+import { FeedErrorState } from "@/components/feeds/feed-error-state";
 import { NewContentPill } from "@/components/feeds/new-content-pill";
 import type { NewContentAuthor } from "@/components/feeds/new-content-pill";
 import { GustCard } from "@/components/gusts/gust-card";
@@ -57,7 +53,11 @@ import {
   prependPostsToFeedCache,
 } from "@/lib/posts/feed-cache";
 import { otherFeedExposures } from "@/lib/posts/feed-exposure";
-import { advanceGustPaging, mergeGustPosts } from "@/lib/posts/gust-feed";
+import {
+  advanceGustPaging,
+  gustPagingDelay,
+  mergeGustPosts,
+} from "@/lib/posts/gust-feed";
 import {
   activeNetworkInterests,
   networkPostAllowed,
@@ -468,9 +468,7 @@ const GustStream = ({ gustTab }: { gustTab: GustFeed }) => {
     );
     setPagingProgress(currentPagingProgress);
   }
-  const autoPagingPaused = currentPagingProgress.emptyPages >= 3;
-  const resumePaging = () =>
-    setPagingProgress((current) => ({ ...current, emptyPages: 0 }));
+  const pagingDelay = gustPagingDelay(currentPagingProgress.emptyPages);
   const hasNextPage = Boolean(
     (includeNative && hasNativeNextPage) ||
     (includeExternal && externalFeed.hasNextPage)
@@ -812,20 +810,19 @@ const GustStream = ({ gustTab }: { gustTab: GustFeed }) => {
     // oxlint-disable-next-line react/exhaustive-effect-dependencies -- posts.length intentionally re-runs this effect so new gust cards get observed
   }, [posts.length]);
 
-  // A bottom sentinel drives pagination instead of watching the last card, so
-  // the feed keeps loading even when a page holds very few gusts - the
-  // sentinel is already visible at the bottom of short content, so the next
-  // page is fetched immediately (and every page after that until the API runs
-  // out).
+  // Continue sparse pages while the reader is near the end, with one bounded read and backoff.
   useEffect(() => {
     if (
+      loadedPageCount > 0 &&
       (isEndVisible || posts.length - activeIndex <= 8) &&
       hasNextPage &&
-      !autoPagingPaused &&
       !isFetchingNextPage &&
       !pageError
     ) {
-      void fetchNextPage();
+      const timer = window.setTimeout(() => {
+        void fetchNextPage();
+      }, pagingDelay);
+      return () => window.clearTimeout(timer);
     }
   }, [
     fetchNextPage,
@@ -835,29 +832,8 @@ const GustStream = ({ gustTab }: { gustTab: GustFeed }) => {
     activeIndex,
     posts.length,
     pageError,
-    autoPagingPaused,
-  ]);
-
-  // When the visible list is empty (e.g. the first page held no video gusts)
-  // but more pages exist, keep loading until something appears or the feed is
-  // exhausted instead of showing the empty state prematurely.
-  useEffect(() => {
-    if (
-      posts.length === 0 &&
-      hasNextPage &&
-      !autoPagingPaused &&
-      !isFetchingNextPage &&
-      !pageError
-    ) {
-      void fetchNextPage();
-    }
-  }, [
-    fetchNextPage,
-    hasNextPage,
-    isFetchingNextPage,
-    posts.length,
-    pageError,
-    autoPagingPaused,
+    pagingDelay,
+    loadedPageCount,
   ]);
 
   // Keyboard navigation
@@ -968,16 +944,12 @@ const GustStream = ({ gustTab }: { gustTab: GustFeed }) => {
 
     if (status === "error" || (posts.length === 0 && pageError)) {
       return (
-        <div className="flex h-full w-full flex-col items-center justify-center gap-3 p-6 text-center">
-          <p>Couldn’t load Gusts. Please try again.</p>
-          <Button
-            onClick={() => {
-              void refetch();
-            }}
-          >
-            Try again
-          </Button>
-        </div>
+        <FeedErrorState
+          message="Couldn’t load Gusts. Please try again."
+          onRetry={() => {
+            void refetch();
+          }}
+        />
       );
     }
 
@@ -993,7 +965,7 @@ const GustStream = ({ gustTab }: { gustTab: GustFeed }) => {
     // exist (and the first page may simply not have had video gusts). Show the
     // skeleton instead of the "No Gusts yet" panel so the empty state only
     // appears once the feed is genuinely exhausted.
-    if (posts.length === 0 && hasNextPage && !autoPagingPaused) {
+    if (posts.length === 0 && hasNextPage) {
       return (
         <div className="flex h-full w-full items-center justify-center">
           <GustCardSkeleton />
@@ -1025,11 +997,7 @@ const GustStream = ({ gustTab }: { gustTab: GustFeed }) => {
               ? "Try another profile or add interests in Network settings."
               : "Be the first to share a high-energy short-form video clip with the community!"}
           </p>
-          {hasNextPage ? (
-            <Button className="mt-4" onClick={resumePaging} variant="secondary">
-              Look for more Gusts
-            </Button>
-          ) : null}
+
           <Button className="mt-5" onClick={handleOpenUpload} variant="premium">
             <Plus className="mr-1.5 size-4" />
             {focused ? "Create a Gust" : "Create the First Gust"}
@@ -1128,14 +1096,14 @@ const GustStream = ({ gustTab }: { gustTab: GustFeed }) => {
                 </Button>
               </div>
             ) : null}
-            {autoPagingPaused && hasNextPage ? (
-              <div className="flex h-24 items-center justify-center">
-                <Button onClick={resumePaging}>Load more Gusts</Button>
-              </div>
-            ) : null}
+
             {isFetchingNextPage ? (
-              <div className="flex h-24 items-center justify-center">
-                <Loader2 className="text-primary size-6 animate-spin" />
+              <div
+                aria-busy="true"
+                aria-label="Loading more Gusts"
+                className="flex h-full w-full snap-start snap-always items-center justify-center py-0 sm:h-[98%] sm:py-2"
+              >
+                <GustCardSkeleton />
               </div>
             ) : null}
 
@@ -1247,14 +1215,10 @@ const GustStream = ({ gustTab }: { gustTab: GustFeed }) => {
           style={{ height: pullDistance || 0 }}
         >
           <div className="rail-3d-btn mt-1 flex h-10 w-10 items-center justify-center rounded-full">
-            {isRefreshing ? (
-              <Loader2 className="text-primary size-5 animate-spin" />
-            ) : (
-              <Loader2
-                className="text-primary size-5"
-                style={{ transform: `rotate(${pullDistance * 2}deg)` }}
-              />
-            )}
+            <Skeleton
+              aria-label={isRefreshing ? "Refreshing Gusts" : "Pull to refresh"}
+              className="size-5 rounded-md"
+            />
           </div>
         </motion.div>
 

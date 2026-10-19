@@ -4,6 +4,7 @@ import type { PostData, PostsPage, SearchCommunityResult } from "@asm/db";
 import type { ExternalPost } from "@asm/protocols/contracts";
 import { Button } from "@asm/ui/shadui/button";
 import { Input } from "@asm/ui/shadui/input";
+import { Skeleton } from "@asm/ui/shadui/skeleton";
 import { Tabs, TabsContent, TabsList } from "@asm/ui/shadui/tabs";
 import noFollowImage from "@assets/general/nofollow.png";
 import {
@@ -36,12 +37,17 @@ import { useFeedScrollMemory } from "@/hooks/feed/use-feed-scroll-memory";
 import { useFeedSwipeNavigation } from "@/hooks/feed/use-feed-swipe-navigation";
 import { useFeedTabSelection } from "@/hooks/feed/use-feed-tab-selection";
 import { useNetworkSettings } from "@/hooks/feed/use-network-settings";
+import { useSeamlessFeedHead } from "@/hooks/feed/use-seamless-feed-head";
 import useDebounce from "@/hooks/use-debounce";
 import { useDiscoverySuggestions } from "@/hooks/use-discovery-suggestions";
 import { useHideOnScroll } from "@/hooks/use-hide-on-scroll";
 import kyInstance from "@/lib/ky";
 import { otherFeedExposures } from "@/lib/posts/feed-exposure";
-import { externalNetworkPostAllowed } from "@/lib/posts/network-content-policy";
+import {
+  externalNetworkPostAllowed,
+  externalNetworkPostRecommended,
+  networkPostRecommended,
+} from "@/lib/posts/network-content-policy";
 import { mixExplorePosts } from "@/lib/recommendations/mix-explore";
 import {
   EXPLORE_TABS,
@@ -87,6 +93,7 @@ const ExploreClient: React.FC = () => {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const feedScrollRef = useRef<HTMLDivElement>(null);
+  const feedHeadRef = useRef<HTMLDivElement>(null);
   const queryClient = useQueryClient();
   const hideTopBar = useHideOnScroll(feedScrollRef);
   const { user: sessionUser } = useSession();
@@ -296,11 +303,18 @@ const ExploreClient: React.FC = () => {
         ? (remoteSearch.data?.posts ?? [])
         : (remote.data?.pages.flatMap((page) => page.items) ?? [])
       ).filter((post) =>
-        externalNetworkPostAllowed(
-          post,
-          network.settings.preferences,
-          network.settings.topicScope
-        )
+        debouncedSearch.trim()
+          ? externalNetworkPostAllowed(
+              post,
+              network.settings.preferences,
+              network.settings.topicScope
+            )
+          : externalNetworkPostRecommended(
+              post,
+              network.settings.preferences,
+              undefined,
+              network.settings.topicScope
+            )
       ),
     [debouncedSearch, remoteSearch.data, remote.data, network.settings]
   );
@@ -311,10 +325,19 @@ const ExploreClient: React.FC = () => {
   const mixed = useMemo(
     () =>
       mixExplorePosts(
-        posts.filter((post) => !homeSeen.has(post.id)),
+        posts.filter(
+          (post) =>
+            !homeSeen.has(post.id) &&
+            (debouncedSearch.trim() ||
+              networkPostRecommended(
+                post,
+                network.settings.preferences,
+                network.settings.topicScope
+              ))
+        ),
         remotePosts.filter((post) => !homeSeen.has(post.id))
       ),
-    [posts, remotePosts, homeSeen]
+    [posts, remotePosts, homeSeen, debouncedSearch, network.settings]
   );
 
   const handleFollowed = useCallback(
@@ -525,7 +548,21 @@ const ExploreClient: React.FC = () => {
   const feedContinuation = (
     <div>
       {!debouncedSearch.trim() && (isFetching || remote.isFetching) ? (
-        <ExploreMasonrySkeleton compact />
+        <output
+          aria-label="Loading more posts"
+          className="grid grid-cols-2 gap-4 px-4 py-3 sm:grid-cols-3 xl:grid-cols-4"
+        >
+          {[0, 1, 2, 3].map((key) => (
+            <div key={key} className="surface-3d space-y-3 rounded-2xl p-3">
+              <div className="flex items-center gap-2">
+                <Skeleton className="size-8 rounded-xl" />
+                <Skeleton className="h-3 w-20" />
+              </div>
+              <Skeleton className="h-3 w-full" />
+              <Skeleton className="h-3 w-2/3" />
+            </div>
+          ))}
+        </output>
       ) : null}
       {remote.isError ? (
         <div className="flex justify-center p-4">
@@ -578,11 +615,24 @@ const ExploreClient: React.FC = () => {
       ) : null}
     </div>
   );
+  useSeamlessFeedHead({
+    count: remote.newItems.length,
+    enabled:
+      !debouncedSearch.trim() && activeTab !== "gusts" && Boolean(remote.data),
+    merge: remote.showNewItems,
+    probe: remote.probeNow,
+    root: feedHeadRef,
+  });
   const stream = (
-    <InfiniteScrollContainer onBottomReached={loadMore} prefetchDistance={1500}>
-      {body}
-      {feedContinuation}
-    </InfiniteScrollContainer>
+    <div ref={feedHeadRef}>
+      <InfiniteScrollContainer
+        onBottomReached={loadMore}
+        prefetchDistance={1500}
+      >
+        {body}
+        {feedContinuation}
+      </InfiniteScrollContainer>
+    </div>
   );
   return (
     <>

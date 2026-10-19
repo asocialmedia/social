@@ -525,7 +525,7 @@ const MediaViewer = ({
     >
       {isDownloading ? (
         <>
-          <span className="border-primary h-4 w-4 animate-spin rounded-full border-2 border-t-transparent" />
+          <span className="bg-primary/10 h-4 w-4 animate-pulse rounded-md" />
           Fetching file...
         </>
       ) : (

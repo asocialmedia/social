@@ -497,13 +497,23 @@ const PostContent: React.FC<PostContentProps> = ({
           attribution is redundant; ranked feeds add the reason line. */}
       {post.recommendationSources?.length ? (
         <div className="text-muted-foreground mb-2 flex flex-wrap items-center gap-1 text-xs">
-          <span>Amplified by</span>
+          <span>
+            {post.recommendationSources.some(
+              (person) => person.action === "like"
+            )
+              ? "Liked by people you follow ·"
+              : "Amplified by"}
+          </span>
           {post.recommendationSources.map((person, index) => (
             <span key={person.id}>
               {index ? ", " : ""}
               <Link
                 className="hover:text-foreground hover:underline"
-                href={`/users/${person.username}`}
+                href={
+                  person.id.startsWith("did:")
+                    ? `/network/bluesky/profile?${new URLSearchParams({ actor: person.id })}`
+                    : `/users/${person.username}`
+                }
               >
                 {person.displayName || person.username}
               </Link>

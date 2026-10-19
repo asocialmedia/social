@@ -80,10 +80,56 @@ test("a pending Bluesky source leaves loaded asocialmedia posts ahead of its pla
       <HomeFeed variant="latest" />
     </QueryClientProvider>
   );
-  expect(html).toContain('aria-label="Loading Bluesky posts"');
+  expect(html).toContain('aria-label="Loading feed"');
+  expect(html).toContain("min-h-dvh");
   expect(html).toContain("Native content remains visible");
-  expect(html.indexOf('aria-label="Loading Bluesky posts"')).toBeGreaterThan(
+  expect(html.indexOf('aria-label="Loading feed"')).toBeGreaterThan(
     html.indexOf('data-post-id="native-post"')
   );
+  expect(html).not.toContain("caught up");
+  expect(html.match(/data-skeleton-media=/g)?.length).toBeGreaterThan(1);
+  client.clear();
+});
+
+test("completion appears only after both mixed-feed sources finish", () => {
+  const client = new QueryClient();
+  client.setQueryData(["post-feed", "latest", "guest", networkScope, "en"], {
+    pageParams: [null],
+    pages: [
+      {
+        nextCursor: null,
+        posts: [
+          {
+            ...externalPostView(source),
+            external: undefined,
+            id: "native-post",
+          },
+        ],
+      },
+    ],
+  });
+  client.setQueryData(
+    [
+      "bluesky-discovery",
+      "latest",
+      "guest",
+      "en",
+      networkScope,
+      "all",
+      "progressive-v5",
+      "home",
+    ],
+    {
+      pageParams: [{ cursor: null, level: 0, pages: 0, topicPage: 0 }],
+      pages: [{ cursor: null, items: [] }],
+    }
+  );
+  const html = renderToStaticMarkup(
+    <QueryClientProvider client={client}>
+      <HomeFeed variant="latest" />
+    </QueryClientProvider>
+  );
+  expect(html).toContain("caught up");
+  expect(html).not.toContain('aria-label="Loading feed"');
   client.clear();
 });

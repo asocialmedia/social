@@ -38,6 +38,7 @@ const DEFAULT_FEED_CACHE_KEY: QueryKey = ["post-feed", "for-you"];
 
 interface FeedViewProps {
   trending?: boolean;
+  showEmpty?: boolean;
   respectInterests?: boolean;
   externalPosts?: ExternalPost[];
   source?: FeedSource;
@@ -69,6 +70,7 @@ export const FeedView: React.FC<FeedViewProps> = ({
   sortBy = "newest",
   respectInterests = false,
   trending = false,
+  showEmpty = true,
 }) => {
   const MemoizedPostCard = useMemo(() => React.memo(PostCard), []);
   const queryClient = useQueryClient();
@@ -441,7 +443,7 @@ export const FeedView: React.FC<FeedViewProps> = ({
           </div>
         );
       })}
-      {mixedGroups.length === 0 && (
+      {showEmpty && mixedGroups.length === 0 && (
         <div className="flex flex-col items-center justify-center py-6 sm:py-8">
           <p className="text-muted-foreground text-center text-sm sm:text-base">
             No posts to show here. Follow someone or create your first post.

@@ -1,6 +1,7 @@
 "use client";
 
 import { Button } from "@asm/ui/shadui/button";
+import { Skeleton } from "@asm/ui/shadui/skeleton";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Flame, Hash, RefreshCw, TrendingUp } from "lucide-react";
 import Link from "next/link";
@@ -207,9 +208,11 @@ const TrendingTopics: React.FC = () => {
             size="icon"
             variant="ghost"
           >
-            <RefreshCw
-              className={cn("h-3.5 w-3.5", isFetching && "animate-spin")}
-            />
+            {isFetching ? (
+              <Skeleton className="size-3.5" />
+            ) : (
+              <RefreshCw className="size-3.5" />
+            )}
           </Button>
         ) : null}
       </div>
@@ -224,9 +227,11 @@ const TrendingTopics: React.FC = () => {
             onClick={handleRefresh}
             variant="ghost"
           >
-            <RefreshCw
-              className={cn("h-3.5 w-3.5", isFetching && "animate-spin")}
-            />
+            {isFetching ? (
+              <Skeleton className="size-3.5" />
+            ) : (
+              <RefreshCw className="size-3.5" />
+            )}
             Retry
           </Button>
         </div>

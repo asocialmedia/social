@@ -10,6 +10,7 @@ import Link from "next/link";
 import React, { useCallback, useMemo, useRef, useState } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
+import { FeedErrorState } from "@/components/feeds/feed-error-state";
 import InfiniteScrollContainer from "@/components/layouts/feed/infinite-scroll-container";
 import UserAvatar from "@/components/layouts/user/user-avatar";
 import UserBadge from "@/components/layouts/user/user-badge";
@@ -217,6 +218,7 @@ export const ExploreGustsGrid: React.FC = () => {
     isFetching,
     isFetchingNextPage,
     status,
+    refetch,
   } = useInfiniteQuery({
     enabled: network.ready,
     getNextPageParam: (lastPage: PostsPage) => lastPage.nextCursor,
@@ -291,9 +293,13 @@ export const ExploreGustsGrid: React.FC = () => {
 
   if (status === "error" && !mixed.length) {
     return (
-      <p className="text-destructive px-4 py-12 text-center text-sm">
-        Couldn't load Gusts right now. Please try again.
-      </p>
+      <FeedErrorState
+        message="Couldn’t load Gusts right now. Please try again."
+        onRetry={() => {
+          void refetch();
+          void remote.refetch();
+        }}
+      />
     );
   }
 

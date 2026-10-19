@@ -19,6 +19,7 @@ import Image from "next/image";
 import { useCallback, useMemo, useRef } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
+import { FeedErrorState } from "@/components/feeds/feed-error-state";
 import { NewContentPill } from "@/components/feeds/new-content-pill";
 import InfiniteScrollContainer from "@/components/layouts/feed/infinite-scroll-container";
 import FeedViewSkeleton from "@/components/layouts/skeletons/feed-view-skeleton";
@@ -277,7 +278,10 @@ export default function HomeFeed({
 
   // The first global fetch after the community segment finishes; counted as a
   // pending page so the end-of-feed marker does not flash before it lands.
-  const globalInitialLoading = globalEnabled && globalStatus === "pending";
+  const globalInitialLoading =
+    source !== "bluesky" && globalEnabled && globalStatus === "pending";
+  const externalInitialLoading =
+    allowExternal && includeBluesky && external.isPending;
   const hasNextPage =
     (source !== "bluesky" &&
       (communityStillLeading ||
@@ -444,26 +448,13 @@ export default function HomeFeed({
 
   if (availability === "error") {
     return (
-      <div
-        className="flex min-h-80 flex-col items-center justify-center gap-3 px-4 text-center"
-        aria-live="polite"
-      >
-        <p className="text-muted-foreground text-sm">
-          Couldn't load your feed.
-        </p>
-        <p className="text-muted-foreground/70 text-xs">
-          Your feed is temporarily unavailable. Try again shortly.
-        </p>
-        <Button
-          onClick={() => {
-            void external.refetch();
-            void queryClient.invalidateQueries({ queryKey });
-          }}
-          variant="premium"
-        >
-          Try again
-        </Button>
-      </div>
+      <FeedErrorState
+        message="Couldn’t load your feed. Please try again."
+        onRetry={() => {
+          void external.refetch();
+          void queryClient.invalidateQueries({ queryKey });
+        }}
+      />
     );
   }
 
@@ -531,8 +522,21 @@ export default function HomeFeed({
   const isFetchingNextPage =
     isFetchingNextCommunityPage ||
     isFetchingNextGlobalPage ||
-    globalInitialLoading ||
-    external.isFetchingNextPage;
+    (allowExternal && includeBluesky && external.isFetchingNextPage);
+  const initialSourceLoading = globalInitialLoading || externalInitialLoading;
+  const sourceFetching =
+    (source !== "bluesky" && isFetching) ||
+    (allowExternal && includeBluesky && external.isFetching);
+  const sourceFailed =
+    (source !== "bluesky" && (communityFailed || globalStatus === "error")) ||
+    (allowExternal && includeBluesky && external.isError);
+  const feedComplete =
+    !hasNextPage &&
+    !communityPending &&
+    !initialSourceLoading &&
+    !isFetchingNextPage &&
+    !sourceFetching &&
+    !sourceFailed;
 
   let nextSkeletonSource: FeedSource = "all";
   if (external.isFetchingNextPage) {
@@ -618,25 +622,28 @@ export default function HomeFeed({
             excludePostId={excludePostId}
             posts={visibleGlobalPosts}
             respectInterests
+            showEmpty={false}
             trending={isTrending}
             showCommunityReason={isTrending || isPersonalized}
             sortBy={isTrending || isPersonalized ? "server" : "newest"}
           />
         ) : null}
-        {includeBluesky && external.isPending && hasAnyPosts ? (
-          <LoadMoreSkeleton count={1} source="bluesky" />
+        {initialSourceLoading ? (
+          <FeedViewSkeleton
+            source={externalInitialLoading ? "bluesky" : source}
+          />
         ) : null}
-        {isFetchingNextPage ? (
+        {isFetchingNextPage && !initialSourceLoading ? (
           <LoadMoreSkeleton count={4} source={nextSkeletonSource} />
         ) : null}
-        {hasNextPage && !isFetchingNextPage ? (
+        {hasNextPage && !isFetchingNextPage && !initialSourceLoading ? (
           <div className="flex justify-center p-4">
             <Button onClick={() => handleBottomReached(true)} variant="ghost">
               {external.isError ? "Retry loading posts" : "Load more posts"}
             </Button>
           </div>
         ) : null}
-        {hasAnyPosts && !hasNextPage ? <FeedEnd /> : null}
+        {hasAnyPosts && feedComplete ? <FeedEnd /> : null}
       </InfiniteScrollContainer>
     </div>
   );
