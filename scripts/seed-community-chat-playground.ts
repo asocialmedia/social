@@ -3,7 +3,11 @@
 import { hashPasswordWithScrypt } from "@asm/auth/core";
 import { closePrisma, keys, prisma, toPrismaDateTime } from "@asm/db";
 
-const OWNER_USERNAME = "anny";
+const OWNER_USERNAME =
+  process.argv
+    .find((argument) => argument.startsWith("--owner="))
+    ?.slice("--owner=".length)
+    .replace(/^@/u, "") || "anny";
 const FIXTURE_SLUG = "community-chat-playground";
 const FIXTURE_ID = "community_chat_playground_v1";
 const TEST_PASSWORD = "Test@1234";
@@ -205,8 +209,15 @@ async function main(): Promise<void> {
     .where({ username: OWNER_USERNAME })
     .first();
   if (!owner) {
+    const localUsers = await prisma.orm.public.Users.select("username")
+      .limit(20)
+      .all();
+    const guidance =
+      localUsers.length > 0
+        ? `Available local usernames (up to 20): ${localUsers.map((user) => `@${user.username}`).join(", ")}. Rerun with --owner=<exact-username>.`
+        : "No local accounts exist. Create @anny through sign-up, then rerun this seed.";
     throw new Error(
-      `Expected existing owner account @${OWNER_USERNAME}; no account was modified`
+      `Expected existing owner account @${OWNER_USERNAME}; no account was modified. ${guidance}`
     );
   }
 

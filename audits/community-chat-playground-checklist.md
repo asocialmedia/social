@@ -2,6 +2,8 @@
 
 This fixture is created by `scripts/seed-community-chat-playground.ts` and is intended for the local development database only. It does not change the password or profile of the existing owner account `@anny`.
 
+The owner must already exist in the local database. If `anny` is missing, the seed lists up to 20 existing usernames without writing data. Use `--owner=<exact-username>` to select another existing account; references to `anny` below then mean that selected owner. If no local accounts exist, sign up as `anny` first.
+
 ## Test accounts
 
 All fixture accounts use the local-only password `Test@1234`.
