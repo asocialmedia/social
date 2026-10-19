@@ -39,7 +39,10 @@ if (
   throw new Error(
     "The workload follow target must be an existing active external author"
   );
-const cohorts = [["engineering"], ["software"], ["astronomy"], ["gardening"]];
+// The dev seed writes community topic keys and their free-text prose, so these
+// cohorts match content that actually exists. Invented interests ("astronomy")
+// retrieve zero rows and would make an empty feed look like a pipeline failure.
+const cohorts = [["technology"], ["software"], ["nature"]];
 const viewers = Array.from({ length: count }, (_, index) => ({
   id: `network-load-${run}-${index}`,
   follow: Boolean(followDid && index % 2 === 0),
