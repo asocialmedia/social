@@ -2,8 +2,9 @@
 
 import type { TagWithCount } from "@asm/db";
 import { Button } from "@asm/ui/shadui/button";
+import { Skeleton } from "@asm/ui/shadui/skeleton";
 import { Command } from "cmdk";
-import { Hash, Loader2, Plus, Search, X } from "lucide-react";
+import { Hash, Plus, Search, X } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import type { Variants } from "motion/react";
 import { useCallback, useState } from "react";
@@ -269,7 +270,7 @@ export const TagEditor = ({
             onClick={handleSave}
           >
             {updateTags.isPending ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
+              <Skeleton className="h-4 w-4" />
             ) : (
               "Save Changes"
             )}

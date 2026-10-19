@@ -1,5 +1,6 @@
 "use client";
 
+import { Skeleton } from "@asm/ui/shadui/skeleton";
 import type { InfiniteData } from "@tanstack/react-query";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -7,7 +8,6 @@ import {
   Check,
   Clapperboard,
   ImagePlus,
-  Loader2,
   MessageSquareQuote,
   Pencil,
   X,
@@ -638,7 +638,7 @@ export function MessageComposer({
   // either request is in flight.
   function renderSendIcon() {
     if (busy) {
-      return <Loader2 className="h-4 w-4 animate-spin" />;
+      return <Skeleton className="h-4 w-4" />;
     }
     if (editing) {
       return <Check className="h-4 w-4" />;

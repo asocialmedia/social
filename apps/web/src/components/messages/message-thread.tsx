@@ -9,6 +9,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@asm/ui/shadui/dialog";
+import { Skeleton } from "@asm/ui/shadui/skeleton";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { InfiniteData } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
@@ -17,7 +18,6 @@ import {
   ArrowLeft,
   Check,
   KeyRound,
-  Loader2,
   Search,
   ShieldAlert,
   ShieldCheck,
@@ -4872,7 +4872,7 @@ export function MessageThread({
             {transcriptBusy ? (
               <div className="pointer-events-none absolute inset-x-0 top-2 z-10 flex justify-center">
                 <span className="panel-3d text-muted-foreground flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-medium">
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  <Skeleton className="h-3.5 w-3.5" />
                   {transcriptLoadingLabel}
                 </span>
               </div>

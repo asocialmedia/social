@@ -382,7 +382,7 @@ export const VideoTranscriptDrawer: React.FC<VideoTranscriptDrawerProps> = ({
               if (isLoading) {
                 return (
                   <div className="flex h-32 items-center justify-center">
-                    <div className="size-5 animate-spin rounded-full border-2 border-orange-500 border-t-transparent" />
+                    <div className="bg-primary/10 size-5 animate-pulse rounded-md" />
                   </div>
                 );
               }

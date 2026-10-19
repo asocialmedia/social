@@ -2,8 +2,8 @@
 
 import type { PostsPage } from "@asm/db";
 import { Separator } from "@asm/ui/shadui/separator";
+import { Skeleton } from "@asm/ui/shadui/skeleton";
 import { useInfiniteQuery } from "@tanstack/react-query";
-import { Loader2 } from "lucide-react";
 import React, { useCallback, useMemo } from "react";
 
 import GustRowCard from "@/components/gusts/gust-row-card";
@@ -91,7 +91,7 @@ const UserAmplifiedFeed: React.FC<UserAmplifiedFeedProps> = ({ userId }) => {
       ))}
       {isFetchingNextPage ? (
         <div className="flex justify-center py-4">
-          <Loader2 className="text-primary animate-spin" />
+          <Skeleton className="text-primary" />
         </div>
       ) : null}
       {!hasNextPage && posts.length > 0 ? (

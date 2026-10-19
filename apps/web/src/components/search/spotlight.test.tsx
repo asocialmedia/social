@@ -7,9 +7,19 @@ import type { CSSProperties, ReactNode } from "react";
 import { act } from "react";
 
 const dom = new Window({ url: "http://localhost:3000" });
+const noop = () => {};
 const originals = new Map<string, PropertyDescriptor | undefined>();
+const emptyRecords = () => [];
+class ObserverStub {
+  observe = noop;
+  unobserve = noop;
+  disconnect = noop;
+  takeRecords = emptyRecords;
+}
 for (const [key, value] of Object.entries({
   IS_REACT_ACT_ENVIRONMENT: true,
+  MutationObserver: ObserverStub,
+  ResizeObserver: ObserverStub,
   document: dom.document,
   navigator: dom.navigator,
   window: dom,
@@ -301,6 +311,12 @@ test("displays user interests from active profile and clicking interest populate
       "section[aria-label='Your interests']"
     );
     expect(interestsSection).not.toBeNull();
+    const interestsToggle = interestsSection?.querySelector<HTMLButtonElement>(
+      "button[aria-controls='spotlight-interests']"
+    );
+    expect(interestsToggle?.getAttribute("aria-expanded")).toBe("false");
+    await act(() => interestsToggle?.click());
+    expect(interestsToggle?.getAttribute("aria-expanded")).toBe("true");
     expect(interestsSection?.textContent).toContain("TypeScript");
     expect(interestsSection?.textContent).toContain("Next.js");
     expect(interestsSection?.textContent).toContain("AI");
@@ -320,6 +336,63 @@ test("displays user interests from active profile and clicking interest populate
       tsButton?.click();
     });
     expect(input?.value).toBe("TypeScript");
+  } finally {
+    networkMockState = { scope: "default" };
+    await act(() => root.unmount());
+    host.remove();
+  }
+});
+
+test("interests start collapsed and reveal the topics on demand", async () => {
+  networkMockState = {
+    scope: "default",
+    settings: {
+      catalog: [],
+      persona: {
+        avoidedTopics: [],
+        learnedInterests: ["AI"],
+        relatedInterests: [],
+        signalCount: 1,
+      },
+      preferences: {
+        ...defaultNetworkPreferences(),
+        activeProfileId: "default",
+        profiles: [
+          {
+            id: "default",
+            interests: ["TypeScript"],
+            name: "Default",
+          },
+        ],
+      },
+      revision: 1,
+    },
+  };
+
+  const host = dom.document.createElement("div");
+  dom.document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(() =>
+      root.render(
+        <Spotlight
+          open
+          initialQuery=""
+          onOpenChange={() => {}}
+          onSelect={() => {}}
+        />
+      )
+    );
+    const section = host.querySelector("section[aria-label='Your interests']");
+    const toggle = section?.querySelector<HTMLButtonElement>("button");
+    expect(toggle?.getAttribute("aria-expanded")).toBe("false");
+    expect(section?.textContent).not.toContain("TypeScript");
+
+    await act(() => {
+      toggle?.click();
+    });
+    expect(toggle?.getAttribute("aria-expanded")).toBe("true");
+    expect(section?.textContent).toContain("TypeScript");
   } finally {
     networkMockState = { scope: "default" };
     await act(() => root.unmount());

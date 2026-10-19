@@ -15,27 +15,28 @@ import {
   DialogTitle,
 } from "@asm/ui/shadui/dialog";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuLabel,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@asm/ui/shadui/dropdown-menu";
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@asm/ui/shadui/popover";
+import asmLogo from "@assets/asm.png";
 import {
   ArrowUpRight,
+  Check,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   Clock3,
   FileText,
   Search,
   SlidersHorizontal,
-  Sparkles,
+  Trash2,
   X,
 } from "lucide-react";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
-import type { CSSProperties, KeyboardEvent } from "react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import type { CSSProperties, KeyboardEvent, ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
 import CommunityAvatar from "@/components/communities/card/community-avatar";
@@ -52,10 +53,12 @@ import {
   useDiscoverySuggestions,
   useSearchLearning,
 } from "@/hooks/use-discovery-suggestions";
+import { useHorizontalDragScroll } from "@/hooks/use-horizontal-drag-scroll";
 import { blueskyProfilePath } from "@/lib/protocols/paths";
 import type { RecommendedAccount } from "@/lib/recommendations/suggestion-types";
 import { getPostPath } from "@/lib/seo/seo";
 import { cn, formatNumber, formatSearchTime } from "@/lib/utils";
+import { getSecureImageUrl } from "@/lib/utils/image-url";
 
 import {
   recentSearchKey,
@@ -137,6 +140,47 @@ function sourceLabel(source: SearchSource) {
     sourceOptions.find((option) => option.value === source)?.label ??
     "Both networks"
   );
+}
+
+// The chosen option in the type menu wears the same raised surface as a chosen
+// segment, so a choice looks identical wherever it is made.
+function kindOptionSkin(active: boolean, blue: boolean) {
+  if (active) {
+    return blue ? "segment-3d-on-brand" : "chip-3d-raised";
+  }
+  return blue
+    ? "text-white/85 hover:bg-white/15"
+    : "text-foreground hover:bg-accent";
+}
+
+// A key in the action track. Neutral by default; when the action is carrying a
+// live setting, it takes the same raised fill a chosen segment wears.
+function actionSegmentSkin(active: boolean, blue: boolean) {
+  if (active) {
+    return blue ? "segment-3d-on-brand" : "segment-3d";
+  }
+  return blue
+    ? "text-white/85 hover:text-white"
+    : "text-muted-foreground hover:text-foreground";
+}
+
+function sourceSegmentSkin(
+  active: boolean,
+  source: SearchSource,
+  blue: boolean
+) {
+  if (!active) {
+    return blue
+      ? "text-white/80 hover:text-white"
+      : "text-muted-foreground hover:text-foreground";
+  }
+  if (source === "asm") {
+    return "segment-3d-orange";
+  }
+  if (source === "bluesky") {
+    return "segment-3d-bluesky";
+  }
+  return blue ? "segment-3d-on-brand" : "segment-3d";
 }
 
 function toTarget(item: SpotlightResultItem): SearchTarget | undefined {
@@ -251,15 +295,14 @@ function resultItems(
   ];
 }
 
-function networkTabClass(active: boolean, isBlue: boolean) {
-  if (active) {
-    return isBlue
-      ? "bg-white font-semibold text-[#0763d6] shadow-sm"
-      : "bg-background text-foreground shadow-sm font-semibold";
+function getDialogSubtitle(source: SearchSource) {
+  if (source === "bluesky") {
+    return "Profiles and posts from the public network";
   }
-  return isBlue
-    ? "text-white/80 hover:text-white"
-    : "text-muted-foreground hover:text-foreground";
+  if (source === "asm") {
+    return "People, posts, and communities on asocialmedia";
+  }
+  return "asocialmedia and Bluesky in one place";
 }
 
 function getDialogTitle(source: SearchSource, isBlue: boolean) {
@@ -294,6 +337,8 @@ export default function Spotlight({
   const [source, setSource] = useState<SearchSource>("all");
   const [kind, setKind] = useState<SearchKind>("all");
   const [activeIndex, setActiveIndex] = useState(-1);
+  const [interestsOpen, setInterestsOpen] = useState(false);
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const recent = useRecentSearches(user?.id ?? "guest");
@@ -632,6 +677,12 @@ export default function Spotlight({
     }
   };
 
+  const canClearHistory =
+    !trimmed &&
+    (recent.history.length > 0 ||
+      saved.history.length > 0 ||
+      recent.candidates.length > 0);
+
   const indexedGroups = groups.map((group, index) => ({
     ...group,
     startIndex: groups
@@ -644,6 +695,7 @@ export default function Spotlight({
       <DialogContent
         className={cn(
           "top-[min(6vh,3.5rem)] flex max-h-[88dvh] max-w-4xl translate-y-0 flex-col gap-0 overflow-hidden p-0 lg:max-w-5xl",
+          "[&>button:last-child]:top-4",
           blue &&
             "bluesky-3d-surface border-white/60 [&>button:last-child]:border [&>button:last-child]:border-white/50 [&>button:last-child]:bg-[#0763d6]! [&>button:last-child]:text-white"
         )}
@@ -659,148 +711,182 @@ export default function Spotlight({
           Your recent searches and interests shape your suggestions.
         </DialogDescription>
         <div className="shrink-0 px-4 pt-4 pb-3 sm:px-6 sm:pt-5">
-          <div className="mb-4 flex min-h-9 flex-wrap items-center justify-between gap-3 pr-11">
-            <DialogTitle className="flex items-center gap-2 text-base font-semibold">
-              {blue ? (
-                <BlueskyIcon className="size-5 text-white" tooltip={false} />
-              ) : null}
-              {getDialogTitle(source, blue)}
-            </DialogTitle>
-
-            {/* Prominent network switcher tabs */}
-            <div
-              className={cn(
-                "flex items-center gap-1 rounded-xl p-1 text-xs",
-                blue ? "bg-black/20" : "bg-muted/70"
-              )}
-              aria-label="Filter network"
-            >
-              <button
-                type="button"
-                aria-pressed={source === "all"}
-                onClick={() => changeSource("all")}
+          <div className="mb-3 flex min-h-9 flex-wrap items-center justify-between gap-x-3 gap-y-2 pr-11">
+            <div className="flex min-w-0 flex-col justify-center">
+              <DialogTitle className="flex items-center gap-2 text-[15px] leading-tight font-semibold tracking-tight">
+                {blue ? (
+                  <BlueskyIcon className="size-5 text-white" tooltip={false} />
+                ) : null}
+                {getDialogTitle(source, blue)}
+              </DialogTitle>
+              <p
                 className={cn(
-                  "rounded-lg px-3 py-1 transition-all outline-none",
-                  networkTabClass(source === "all", blue)
+                  "text-muted-foreground mt-0.5 truncate text-xs",
+                  blue && "text-white/80"
                 )}
               >
-                Both
-              </button>
-              <button
-                type="button"
-                aria-pressed={source === "asm"}
-                onClick={() => changeSource("asm")}
-                className={cn(
-                  "rounded-lg px-3 py-1 transition-all outline-none",
-                  networkTabClass(source === "asm", blue)
-                )}
-              >
-                asocialmedia
-              </button>
-              <button
-                type="button"
-                aria-pressed={source === "bluesky"}
-                onClick={() => changeSource("bluesky")}
-                className={cn(
-                  "flex items-center gap-1.5 rounded-lg px-3 py-1 transition-all outline-none",
-                  networkTabClass(source === "bluesky", blue)
-                )}
-              >
-                <BlueskyIcon tooltip={false} className="size-3.5" />
-                Bluesky
-              </button>
+                {getDialogSubtitle(source)}
+              </p>
             </div>
 
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  className={cn(
-                    "h-8 gap-2 rounded-full! px-3 text-xs",
-                    blue &&
-                      "border border-white/40 bg-white/10 text-white hover:bg-white/20"
-                  )}
-                  size="sm"
-                  variant="ghost"
-                  aria-label="Search filters"
-                >
-                  <SlidersHorizontal className="size-3.5" /> Filters{" "}
-                  <ChevronDown className="size-3" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent
-                align="end"
-                sideOffset={8}
+            <div className="flex flex-wrap items-center justify-end gap-1.5">
+              <fieldset
                 className={cn(
-                  "z-[80] w-60",
-                  blue && "bluesky-3d-surface border-white/60"
+                  "segmented-3d m-0 flex h-9 min-w-0 items-center gap-0.5 rounded-xl border-0 p-1",
+                  blue && "segmented-3d-on-brand"
                 )}
-                style={blue ? blueskyTheme : undefined}
-                onCloseAutoFocus={(event) => {
-                  event.preventDefault();
-                  inputRef.current?.focus();
-                }}
               >
-                <DropdownMenuLabel className="text-muted-foreground text-[11px]">
-                  Network
-                </DropdownMenuLabel>
-                <DropdownMenuRadioGroup
-                  value={source}
-                  onValueChange={changeSource}
-                  aria-label="Search network"
-                >
-                  {sourceOptions.map((option) => (
-                    <DropdownMenuRadioItem
+                <legend className="sr-only">Search network</legend>
+                {sourceOptions.map((option) => {
+                  const active = source === option.value;
+                  return (
+                    <button
                       key={option.value}
-                      value={option.value}
-                      onSelect={(event) => event.preventDefault()}
-                      className="gap-2"
+                      type="button"
+                      aria-pressed={active}
+                      onClick={() => changeSource(option.value)}
+                      className={cn(
+                        "focus-visible:ring-ring flex h-7 items-center gap-1.5 rounded-lg px-2.5 text-[11px] font-medium transition-colors focus-visible:ring-2 focus-visible:outline-none",
+                        sourceSegmentSkin(active, option.value, blue)
+                      )}
                     >
-                      {option.value === "bluesky" ? (
-                        <BlueskyIcon
-                          tooltip={false}
-                          className={blue ? "text-white" : undefined}
+                      {option.value === "asm" ? (
+                        <Image
+                          alt=""
+                          aria-hidden
+                          className={cn(
+                            "size-3.5 object-contain",
+                            active && "brightness-0 invert"
+                          )}
+                          height={14}
+                          src={asmLogo}
+                          width={14}
                         />
                       ) : null}
-                      {option.label}
-                    </DropdownMenuRadioItem>
-                  ))}
-                </DropdownMenuRadioGroup>
-                <DropdownMenuSeparator />
-                <DropdownMenuLabel className="text-muted-foreground text-[11px]">
-                  Show
-                </DropdownMenuLabel>
-                <DropdownMenuRadioGroup
-                  value={kind}
-                  onValueChange={(value) => {
-                    const next = kindOptions.find(
-                      (option) => option.value === value
-                    )?.value;
-                    if (next) {
-                      setKind(next);
+                      {option.value === "bluesky" ? (
+                        <BlueskyIcon className="size-3.5" tooltip={false} />
+                      ) : null}
+                      {option.value === "all" ? "Both" : option.label}
+                    </button>
+                  );
+                })}
+              </fieldset>
+
+              {/* Filters and Clear history sit in their own track, built exactly
+                  like the network switcher, so the whole control bar is one
+                  language: a recessed well with raised keys. */}
+              <fieldset
+                className={cn(
+                  "segmented-3d m-0 flex h-9 items-center gap-0.5 rounded-xl border-0 p-1",
+                  blue && "segmented-3d-on-brand"
+                )}
+              >
+                <legend className="sr-only">Search actions</legend>
+                <Popover open={filtersOpen} onOpenChange={setFiltersOpen}>
+                  <PopoverTrigger asChild>
+                    <button
+                      type="button"
+                      aria-label="Search filters"
+                      className={cn(
+                        "focus-visible:ring-ring flex h-7 shrink-0 items-center gap-1.5 rounded-lg px-2.5 text-[11px] font-medium transition-colors focus-visible:ring-2 focus-visible:outline-none",
+                        actionSegmentSkin(kind !== "all", blue)
+                      )}
+                    >
+                      <SlidersHorizontal className="size-3.5" />
+                      {kind === "all"
+                        ? "Filters"
+                        : (kindOptions.find((option) => option.value === kind)
+                            ?.label ?? "Filters")}
+                      <ChevronDown className="size-3" />
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent
+                    align="end"
+                    sideOffset={8}
+                    className={cn(
+                      "z-80 w-60 max-w-[calc(100vw-2rem)] p-2.5",
+                      blue && "bluesky-3d-surface border-white/60"
+                    )}
+                    style={blue ? blueskyTheme : undefined}
+                    onCloseAutoFocus={(event) => {
+                      event.preventDefault();
+                      inputRef.current?.focus();
+                    }}
+                  >
+                    <h2
+                      className={cn(
+                        "text-foreground px-1 text-[13px] font-semibold",
+                        blue && "text-white"
+                      )}
+                    >
+                      Show
+                    </h2>
+                    <div className="mt-2 flex flex-col gap-1.5">
+                      {kindOptions
+                        .filter(
+                          (option) => !blue || option.value !== "community"
+                        )
+                        .map((option) => {
+                          const active = kind === option.value;
+                          return (
+                            <button
+                              key={option.value}
+                              type="button"
+                              aria-pressed={active}
+                              onClick={() => {
+                                setKind(option.value);
+                                setActiveIndex(-1);
+                              }}
+                              className={cn(
+                                "focus-visible:ring-ring flex h-9 w-full items-center gap-2 rounded-xl px-2.5 text-left text-[13px] font-medium transition-colors focus-visible:ring-2 focus-visible:outline-none active:translate-y-px",
+                                kindOptionSkin(active, blue)
+                              )}
+                            >
+                              <span className="min-w-0 flex-1">
+                                {option.value === "all"
+                                  ? "Everything"
+                                  : option.label}
+                              </span>
+                              {active ? (
+                                <Check
+                                  className="size-3.5 shrink-0"
+                                  strokeWidth={3}
+                                />
+                              ) : null}
+                            </button>
+                          );
+                        })}
+                    </div>
+                  </PopoverContent>
+                </Popover>
+
+                {canClearHistory ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      recent.clear();
+                      if (user) {
+                        saved.clearHistoryMutation.mutate();
+                      }
                       setActiveIndex(-1);
-                    }
-                  }}
-                  aria-label="Result type"
-                >
-                  {kindOptions
-                    .filter((option) => !blue || option.value !== "community")
-                    .map((option) => (
-                      <DropdownMenuRadioItem
-                        key={option.value}
-                        value={option.value}
-                      >
-                        {option.label}
-                      </DropdownMenuRadioItem>
-                    ))}
-                </DropdownMenuRadioGroup>
-              </DropdownMenuContent>
-            </DropdownMenu>
+                    }}
+                    className={cn(
+                      "focus-visible:ring-ring flex h-7 shrink-0 items-center gap-1.5 rounded-lg px-2.5 text-[11px] font-medium transition-colors focus-visible:ring-2 focus-visible:outline-none",
+                      actionSegmentSkin(false, blue)
+                    )}
+                  >
+                    <Trash2 className="size-3.5" />
+                    Clear history
+                  </button>
+                ) : null}
+              </fieldset>
+            </div>
           </div>
           <div className="relative">
             <Search
               className={cn(
                 "text-muted-foreground pointer-events-none absolute top-1/2 left-4 size-5 -translate-y-1/2",
-                blue && "text-white"
+                blue && "text-white/90"
               )}
             />
             <input
@@ -814,9 +900,10 @@ export default function Spotlight({
               type="text"
               placeholder={getSearchPlaceholder(source, blue)}
               className={cn(
-                "premium-input h-12 w-full min-w-0 rounded-xl! pr-11 pl-12 text-base outline-none",
-                blue &&
-                  "border border-white/50 bg-[#0763d6]! text-white shadow-[inset_0_1px_2px_#0000001a]! placeholder:text-white/80! focus:border-white focus:shadow-[0_0_0_2px_#ffffff80]!"
+                "focus-visible:outline-none",
+                blue
+                  ? "h-12 w-full min-w-0 rounded-xl border border-white/50 bg-[#0763d6] pr-11 pl-12 text-base text-white shadow-[inset_0_2px_4px_#00000026,inset_0_0_0_1px_#ffffff26,0_1px_1px_#ffffff33] transition-[box-shadow,border-color] placeholder:text-white/80 focus:border-white focus:shadow-[inset_0_2px_4px_#00000026,0_0_0_1px_#ffffff,0_0_0_4px_#ffffff59]"
+                  : "premium-input h-12 w-full min-w-0 rounded-xl pr-11 pl-12 text-base"
               )}
               onChange={(event) => {
                 setQuery(event.target.value);
@@ -828,7 +915,12 @@ export default function Spotlight({
               <button
                 type="button"
                 aria-label="Clear search"
-                className="text-muted-foreground hover:text-foreground absolute top-1/2 right-3 flex size-7 -translate-y-1/2 items-center justify-center rounded-full"
+                className={cn(
+                  "absolute top-1/2 right-3 flex size-7 -translate-y-1/2 items-center justify-center rounded-full",
+                  blue
+                    ? "text-white/85 hover:bg-white/20 hover:text-white"
+                    : "text-muted-foreground hover:text-foreground hover:bg-accent"
+                )}
                 onClick={() => {
                   setQuery("");
                   setActiveIndex(-1);
@@ -839,35 +931,19 @@ export default function Spotlight({
               </button>
             ) : null}
           </div>
-          <div className="text-muted-foreground mt-2.5 flex items-center justify-between gap-3 px-1 text-xs">
-            <span>
-              {sourceLabel(source)} <span className="mx-1 opacity-50">/</span>{" "}
-              {kindOptions.find((option) => option.value === kind)?.label}
-            </span>
-            {!trimmed &&
-            (recent.history.length > 0 ||
-              saved.history.length > 0 ||
-              recent.candidates.length > 0) ? (
-              <button
-                type="button"
-                className="shrink-0 text-xs hover:underline"
-                onClick={() => {
-                  recent.clear();
-                  if (user) {
-                    saved.clearHistoryMutation.mutate();
-                  }
-                  setActiveIndex(-1);
-                }}
+
+          {trimmed.length >= 2 ? (
+            <div className="mt-2 flex min-h-5 items-center justify-end">
+              <output
+                className={cn(
+                  "text-muted-foreground text-xs",
+                  blue && "text-white/80"
+                )}
               >
-                Clear history
-              </button>
-            ) : null}
-            {trimmed.length >= 2 ? (
-              <output>
                 {fetching ? "Searching…" : `${items.length} results`}
               </output>
-            ) : null}
-          </div>
+            </div>
+          ) : null}
         </div>
         <div
           id="spotlight-results"
@@ -908,39 +984,67 @@ export default function Spotlight({
             </output>
           ) : null}
 
-          {/* Your interests pills shown when query is empty */}
+          {/* Your interests. Collapsed by default: on an empty query the
+              suggestions are the point, and a wall of topics pushed them below
+              the fold. The trigger states what is inside and how much of it. */}
           {!trimmed && userInterests.length > 0 ? (
-            <section aria-label="Your interests" className="mb-4">
-              <div className="mb-2 flex items-center justify-between px-2">
-                <h3 className="text-muted-foreground flex items-center gap-1.5 text-xs font-semibold">
-                  <Sparkles className="size-3.5 text-amber-500" />
-                  Your interests
-                </h3>
-                <span className="text-muted-foreground text-[11px]">
-                  Explore topics
+            <section
+              aria-label="Your interests"
+              className={interestsOpen ? "mb-3" : "mb-1"}
+            >
+              <button
+                type="button"
+                aria-controls="spotlight-interests"
+                aria-expanded={interestsOpen}
+                onClick={() => setInterestsOpen((expanded) => !expanded)}
+                className={cn(
+                  "focus-visible:ring-ring flex h-7 w-fit items-center gap-1.5 rounded-lg px-1.5 text-[13px] font-semibold transition-colors focus-visible:ring-2 focus-visible:outline-none",
+                  blue
+                    ? "text-white hover:bg-white/15"
+                    : "text-foreground hover:bg-accent"
+                )}
+              >
+                Your interests
+                <span
+                  className={cn(
+                    "font-medium",
+                    blue ? "text-white/70" : "text-muted-foreground"
+                  )}
+                >
+                  {userInterests.length}
                 </span>
-              </div>
-              <div className="flex flex-wrap gap-1.5 px-2">
-                {userInterests.map((interest) => (
-                  <button
-                    key={interest}
-                    type="button"
-                    onClick={() => {
-                      setQuery(interest);
-                      setActiveIndex(-1);
-                      inputRef.current?.focus();
-                    }}
-                    className={cn(
-                      "chip-3d text-foreground hover:bg-accent/80 flex items-center gap-1 rounded-full px-3 py-1 text-xs font-medium transition-colors",
-                      blue &&
-                        "border-white/40 bg-white/10 text-white hover:bg-white/20"
-                    )}
-                  >
-                    <span className="opacity-50">#</span>
-                    <span>{interest}</span>
-                  </button>
-                ))}
-              </div>
+                <ChevronDown
+                  aria-hidden
+                  className={cn(
+                    "size-3.5 shrink-0 transition-transform duration-200 motion-reduce:transition-none",
+                    interestsOpen && "rotate-180"
+                  )}
+                />
+              </button>
+              {interestsOpen ? (
+                <div
+                  id="spotlight-interests"
+                  className="mt-2 flex flex-wrap gap-1.5 px-0.5"
+                >
+                  {userInterests.map((interest) => (
+                    <button
+                      key={interest}
+                      type="button"
+                      onClick={() => {
+                        setQuery(interest);
+                        setActiveIndex(-1);
+                        inputRef.current?.focus();
+                      }}
+                      className={cn(
+                        "chip-3d text-foreground hover:bg-accent/80 flex h-8 items-center rounded-lg px-2.5 text-xs font-medium transition-colors active:translate-y-px",
+                        blue && "chip-3d-on-brand hover:bg-white/20"
+                      )}
+                    >
+                      {interest}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
             </section>
           ) : null}
 
@@ -952,33 +1056,46 @@ export default function Spotlight({
                 key={group.title}
                 className="mb-4 last:mb-0"
               >
-                <div className="mb-1.5 flex min-h-6 items-center justify-between px-2">
-                  <h3 className="text-muted-foreground text-xs font-semibold">
-                    {group.title}
-                  </h3>
-                  {group.title.startsWith("Suggested") ? (
-                    <span className="text-muted-foreground text-[11px]">
-                      {user
-                        ? "Based on your activity"
-                        : "Based on your searches"}
-                    </span>
-                  ) : null}
-                </div>
-                <div
-                  className={cn(
-                    group.title === "Suggested accounts"
-                      ? "flex snap-x snap-mandatory gap-2.5 overflow-x-auto overscroll-x-contain p-1 pb-2"
-                      : "grid gap-1",
-                    group.title === "Recent" &&
-                      group.items.every((item) => item.type === "user") &&
-                      "sm:grid-cols-2"
-                  )}
-                >
-                  {group.items.map((item, rowIndex) => {
-                    const index = group.startIndex + rowIndex;
-                    if (group.title === "Suggested accounts") {
+                {group.title === "Suggested accounts" ? null : (
+                  <div className="mb-1.5 flex min-h-6 items-center justify-between px-2">
+                    <h3 className="text-muted-foreground text-xs font-semibold">
+                      {group.title}
+                    </h3>
+                    {group.title.startsWith("Suggested") ? (
+                      <span className="text-muted-foreground text-[11px]">
+                        {user
+                          ? "Based on your activity"
+                          : "Based on your searches"}
+                      </span>
+                    ) : null}
+                  </div>
+                )}
+                {group.title === "Suggested accounts" ? (
+                  <SuggestedAccountsRail
+                    activeIndex={activeIndex}
+                    aside={
+                      user ? "Based on your activity" : "Based on your searches"
+                    }
+                    blue={blue}
+                    items={group.items}
+                    startIndex={group.startIndex}
+                    onAuthRedirect={() => onOpenChange(false)}
+                    onHover={setActiveIndex}
+                    onSelect={select}
+                  />
+                ) : (
+                  <div
+                    className={cn(
+                      "grid gap-1",
+                      group.title === "Recent" &&
+                        group.items.every((item) => item.type === "user") &&
+                        "sm:grid-cols-2"
+                    )}
+                  >
+                    {group.items.map((item, rowIndex) => {
+                      const index = group.startIndex + rowIndex;
                       return (
-                        <SuggestedAccountCard
+                        <SearchRow
                           key={item.id}
                           item={item}
                           index={index}
@@ -986,28 +1103,16 @@ export default function Spotlight({
                           blue={blue}
                           onSelect={() => select(item)}
                           onHover={() => setActiveIndex(index)}
-                          onAuthRedirect={() => onOpenChange(false)}
+                          onRemove={
+                            group.title === "Recent"
+                              ? () => remove(item)
+                              : undefined
+                          }
                         />
                       );
-                    }
-                    return (
-                      <SearchRow
-                        key={item.id}
-                        item={item}
-                        index={index}
-                        active={activeIndex === index}
-                        blue={blue}
-                        onSelect={() => select(item)}
-                        onHover={() => setActiveIndex(index)}
-                        onRemove={
-                          group.title === "Recent"
-                            ? () => remove(item)
-                            : undefined
-                        }
-                      />
-                    );
-                  })}
-                </div>
+                    })}
+                  </div>
+                )}
               </section>
             ))}
           {trimmed.length >= 2 && fetching && items.length === 0 ? (
@@ -1038,7 +1143,7 @@ export default function Spotlight({
               description="Try another name, topic, or network."
             />
           ) : null}
-          {!trimmed && items.length === 0 && userInterests.length === 0 ? (
+          {!trimmed && items.length === 0 ? (
             <EmptySearch
               title="Find your next connection"
               description={
@@ -1051,6 +1156,164 @@ export default function Spotlight({
         </div>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function SuggestedAccountsRail({
+  items,
+  startIndex,
+  activeIndex,
+  blue,
+  aside,
+  onSelect,
+  onHover,
+  onAuthRedirect,
+}: {
+  items: SpotlightResultItem[];
+  startIndex: number;
+  activeIndex: number;
+  blue: boolean;
+  aside: ReactNode;
+  onSelect: (item: SpotlightResultItem) => void;
+  onHover: (index: number) => void;
+  onAuthRedirect: () => void;
+}) {
+  const railRef = useRef<HTMLDivElement>(null);
+  const [edges, setEdges] = useState({ end: false, start: false });
+  useHorizontalDragScroll(railRef);
+
+  // The rail carries 4px of gutter, and scroll snapping can rest the first card
+  // at that gutter, so the slop is wider than the padding: otherwise the rail
+  // looks "already scrolled" and shows a back arrow on first paint.
+  const syncEdges = useCallback(() => {
+    const rail = railRef.current;
+    if (!rail) {
+      return;
+    }
+    const max = rail.scrollWidth - rail.clientWidth;
+    const next = {
+      end: rail.scrollLeft < max - 8,
+      start: rail.scrollLeft > 8,
+    };
+    setEdges((previous) =>
+      previous.start === next.start && previous.end === next.end
+        ? previous
+        : next
+    );
+  }, []);
+
+  useEffect(() => {
+    const rail = railRef.current;
+    if (!rail) {
+      return;
+    }
+    syncEdges();
+    const resize = new ResizeObserver(syncEdges);
+    resize.observe(rail);
+    const mutation = new MutationObserver(syncEdges);
+    mutation.observe(rail, { childList: true, subtree: true });
+    return () => {
+      resize.disconnect();
+      mutation.disconnect();
+    };
+  }, [syncEdges]);
+
+  const nudge = (direction: -1 | 1) => {
+    const rail = railRef.current;
+    if (!rail) {
+      return;
+    }
+    rail.scrollBy({
+      behavior: "smooth",
+      left: direction * Math.max(160, rail.clientWidth * 0.8),
+    });
+  };
+
+  const scrollable = edges.start || edges.end;
+
+  return (
+    <>
+      <div className="mb-1.5 flex min-h-6 items-center justify-between gap-3 px-2">
+        <h3 className="text-muted-foreground text-xs font-semibold">
+          Suggested accounts
+        </h3>
+        <div className="flex items-center gap-2">
+          <span
+            className={cn(
+              "text-muted-foreground text-[11px]",
+              blue && "text-white/75"
+            )}
+          >
+            {aside}
+          </span>
+          {scrollable ? (
+            // Arrows only exist while there is somewhere to go, and each one
+            // disappears at the edge it would go past.
+            <div className="flex items-center gap-1">
+              <RailArrow
+                direction="left"
+                blue={blue}
+                disabled={!edges.start}
+                onClick={() => nudge(-1)}
+              />
+              <RailArrow
+                direction="right"
+                blue={blue}
+                disabled={!edges.end}
+                onClick={() => nudge(1)}
+              />
+            </div>
+          ) : null}
+        </div>
+      </div>
+      <div
+        ref={railRef}
+        className="hide-native-scrollbar tab-strip-fade flex snap-x snap-proximity scroll-px-1 gap-2 overflow-x-auto overscroll-x-contain px-1 pt-0.5 pb-1 select-none"
+        onScroll={syncEdges}
+      >
+        {items.map((item, rowIndex) => (
+          <SuggestedAccountCard
+            key={item.id}
+            item={item}
+            index={startIndex + rowIndex}
+            active={activeIndex === startIndex + rowIndex}
+            blue={blue}
+            onSelect={() => onSelect(item)}
+            onHover={() => onHover(startIndex + rowIndex)}
+            onAuthRedirect={onAuthRedirect}
+          />
+        ))}
+      </div>
+    </>
+  );
+}
+
+function RailArrow({
+  direction,
+  blue,
+  disabled,
+  onClick,
+}: {
+  direction: "left" | "right";
+  blue: boolean;
+  disabled: boolean;
+  onClick: () => void;
+}) {
+  const Icon = direction === "left" ? ChevronLeft : ChevronRight;
+  return (
+    <button
+      type="button"
+      aria-label={direction === "left" ? "Scroll left" : "Scroll right"}
+      disabled={disabled}
+      onClick={onClick}
+      className={cn(
+        "icon-btn-3d flex size-6 items-center justify-center rounded-md! transition-opacity",
+        disabled ? "pointer-events-none opacity-40" : "opacity-100",
+        blue && "border border-white/40 bg-[#0866df] text-white shadow-none!"
+      )}
+    >
+      <Icon className="size-3.5" />
+    </button>
   );
 }
 
@@ -1071,14 +1334,18 @@ function SuggestedAccountCard({
   onHover: () => void;
   onAuthRedirect: () => void;
 }) {
+  const account = item.recommendedAccount;
+  const bannerUrl = account?.bannerUrl ?? null;
+  const bio = account?.bio?.replaceAll(/\s+/g, " ").trim() || null;
   return (
     <Card
       data-suggested-account-card
       className={cn(
-        "group w-40 flex-none snap-start overflow-hidden rounded-xl!",
+        "group flex w-40 flex-none snap-start flex-col overflow-hidden rounded-xl!",
         ROW_HOVER_CLASS,
-        blue && "border-white/40 bg-white/10 text-white",
-        active && "ring-border ring-1 ring-inset"
+        blue && "surface-3d-on-brand border-white/30 text-white",
+        active && "ring-border ring-1 ring-inset",
+        blue && active && "ring-white/70"
       )}
     >
       <button
@@ -1089,33 +1356,53 @@ function SuggestedAccountCard({
         onFocus={onHover}
         aria-label={`${item.displayName} ${item.subtitle ?? ""}`}
         title={item.displayName}
-        className="focus-visible:ring-ring flex h-36 w-full flex-col items-center rounded-xl px-3 pt-4 pb-2 text-center outline-none focus-visible:ring-2 focus-visible:ring-inset"
+        className="focus-visible:ring-ring flex min-w-0 flex-1 flex-col text-left outline-none focus-visible:ring-2 focus-visible:ring-inset"
       >
-        <UserAvatar
-          avatarUrl={item.avatarUrl}
-          seed={item.id}
-          size={48}
-          className={cn("size-12", blue && "ring-1 ring-white/50")}
-        />
-        <span className="mt-3 flex w-full min-w-0 items-start justify-center gap-1">
-          <span className="line-clamp-2 text-[13px] leading-4 font-semibold [overflow-wrap:anywhere]">
+        <SuggestedCardBanner bannerUrl={bannerUrl} seed={item.id} blue={blue} />
+        <span className="relative z-10 -mt-6 flex flex-col px-3">
+          <UserAvatar
+            avatarUrl={item.avatarUrl}
+            seed={item.id}
+            size={44}
+            className={cn(
+              "size-11 rounded-2xl",
+              // Light mode: the ring is the card's own surface, so the avatar
+              // reads as cut out of the banner. On the Bluesky surface the card
+              // is a translucent wash, so a ring would double the tint; a small
+              // shadow separates it instead.
+              blue ? "shadow-sm" : "ring-3 ring-[hsl(var(--background-alt))]"
+            )}
+          />
+        </span>
+        <span className="mt-1.5 flex min-w-0 items-center gap-1 px-3">
+          <span className="line-clamp-1 text-[13px] leading-4 font-semibold [overflow-wrap:anywhere]">
             {item.displayName}
           </span>
           {item.source === "bluesky" ? (
             <BlueskyIcon
               tooltip={false}
-              className={cn(
-                "mt-0.5 size-3 group-hover:text-inherit",
-                blue && "text-white"
-              )}
+              className={cn("size-3 shrink-0", blue && "text-white")}
             />
           ) : null}
         </span>
-        <span className="text-muted-foreground mt-1 block w-full truncate text-[11px] group-hover:text-inherit">
+        <span
+          className={cn(
+            "text-muted-foreground mt-0.5 block w-full truncate px-3 text-[11px]",
+            blue && "text-white/75"
+          )}
+        >
           {item.subtitle}
         </span>
+        <span
+          className={cn(
+            "text-muted-foreground mt-1.5 line-clamp-2 min-h-7 px-3 text-[11px] leading-3.5",
+            blue ? "text-white/80" : "text-foreground/70"
+          )}
+        >
+          {bio ?? item.reason ?? "Suggested for you"}
+        </span>
       </button>
-      <div className="px-4 pb-3">
+      <div className="mt-2 px-3 pb-3">
         <SuggestedFollowButton
           onAuthRedirect={onAuthRedirect}
           account={
@@ -1135,6 +1422,79 @@ function SuggestedAccountCard({
         />
       </div>
     </Card>
+  );
+}
+
+// The header image behind the avatar, held to the top half of the card. Falls
+// back to a tinted wash derived from the avatar when the account has no banner,
+// so every card in the row has the same silhouette instead of a ragged mix of
+// image and bare surface.
+function SuggestedCardBanner({
+  bannerUrl,
+  seed,
+  blue,
+}: {
+  bannerUrl: string | null;
+  seed: string;
+  blue: boolean;
+}) {
+  const [failed, setFailed] = useState(false);
+  const cardSurface = blue
+    ? "rgba(255, 255, 255, 0.13)"
+    : "hsl(var(--background-alt))";
+  if (bannerUrl && !failed) {
+    return (
+      <span className="relative block h-14 w-full overflow-hidden">
+        <Image
+          alt=""
+          aria-hidden
+          className="object-cover"
+          fill
+          onError={() => setFailed(true)}
+          sizes="(max-width: 640px) 45vw, 200px"
+          src={getSecureImageUrl(bannerUrl)}
+          unoptimized
+        />
+        {/* A soft bottom dissolve into the card surface, so the picture never
+            ends on a hard crop line under the avatar. */}
+        <span
+          aria-hidden
+          className="absolute inset-x-0 bottom-0 h-9"
+          style={{
+            backgroundImage: `linear-gradient(to bottom, transparent, ${cardSurface})`,
+          }}
+        />
+      </span>
+    );
+  }
+  const hues = [
+    "from-sky-500/45 to-indigo-500/25",
+    "from-orange-500/45 to-rose-500/25",
+    "from-emerald-500/40 to-teal-500/20",
+    "from-amber-500/45 to-orange-600/25",
+  ];
+  let sum = 0;
+  for (let i = 0; i < seed.length; i += 1) {
+    sum += seed.codePointAt(i) ?? 0;
+  }
+  const wash = hues[sum % hues.length];
+  return (
+    <span
+      aria-hidden
+      className={cn(
+        "relative block h-14 w-full overflow-hidden bg-linear-to-br",
+        wash,
+        blue && "opacity-60"
+      )}
+    >
+      <span
+        aria-hidden
+        className="absolute inset-x-0 bottom-0 h-9"
+        style={{
+          backgroundImage: `linear-gradient(to bottom, transparent, ${cardSurface})`,
+        }}
+      />
+    </span>
   );
 }
 

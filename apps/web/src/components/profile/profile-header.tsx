@@ -300,6 +300,7 @@ const ProfileHeader: React.FC<ProfileHeaderProps> = ({
           <PostLinkedContent
             className="mt-3 overflow-hidden text-sm/5.5 sm:text-[15px]/relaxed"
             content={liveUserData.bio}
+            source={external?.source}
             linkBadge="chip"
           />
         ) : null}

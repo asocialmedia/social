@@ -6,15 +6,9 @@ import {
   DialogDescription,
   DialogTitle,
 } from "@asm/ui/shadui/dialog";
+import { Skeleton } from "@asm/ui/shadui/skeleton";
 import { VisuallyHidden } from "@radix-ui/react-visually-hidden";
-import {
-  ChevronLeft,
-  ChevronRight,
-  Download,
-  ImageOff,
-  Loader2,
-  X,
-} from "lucide-react";
+import { ChevronLeft, ChevronRight, Download, ImageOff, X } from "lucide-react";
 import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -917,7 +911,7 @@ export function ConversationMediaViewer({
           ) : null}
           {!item && (waitingForServerAnchor || serverFetching.initial) ? (
             <span className="text-muted-foreground flex items-center gap-2 text-sm">
-              <Loader2 aria-hidden className="size-4 animate-spin" />
+              <Skeleton aria-hidden className="size-4" />
               Loading media…
             </span>
           ) : null}
@@ -959,7 +953,7 @@ export function ConversationMediaViewer({
               type="button"
             >
               {extending === "older" || viewerFetchingOlder ? (
-                <Loader2 className="h-6 w-6 animate-spin" />
+                <Skeleton className="h-6 w-6" />
               ) : (
                 <ChevronLeft className="h-6 w-6" />
               )}
@@ -972,7 +966,7 @@ export function ConversationMediaViewer({
               type="button"
             >
               {extending === "newer" || viewerFetchingNewer ? (
-                <Loader2 className="h-6 w-6 animate-spin" />
+                <Skeleton className="h-6 w-6" />
               ) : (
                 <ChevronRight className="h-6 w-6" />
               )}

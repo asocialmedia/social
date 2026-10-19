@@ -1,11 +1,11 @@
 "use client";
 
 import { Button } from "@asm/ui/shadui/button";
+import { Skeleton } from "@asm/ui/shadui/skeleton";
 import {
   AlertCircle,
   Ghost,
   Link2Off,
-  Loader2,
   Lock,
   ShieldAlert,
   Users,
@@ -207,7 +207,7 @@ export default function ClientJoinDen({ code }: { code: string }) {
   if (state.kind === "loading") {
     return (
       <Screen>
-        <Loader2 className="text-muted-foreground h-6 w-6 animate-spin" />
+        <Skeleton className="text-muted-foreground h-6 w-6" />
         <h1 className="text-base font-semibold">Checking this link…</h1>
         {/* An `<output>` rather than a `role="status"` paragraph: it is the
             element for a result, it is implicitly a polite live region, and it
@@ -293,7 +293,7 @@ export default function ClientJoinDen({ code }: { code: string }) {
             type="button"
             variant="premium"
           >
-            {joining ? <Loader2 className="size-4 animate-spin" /> : null}
+            {joining ? <Skeleton className="size-4" /> : null}
             {action}
           </Button>
         ) : null}
@@ -440,7 +440,7 @@ export function DenExpiredScreen({
           type="button"
           variant="premium"
         >
-          {asking ? <Loader2 className="size-4 animate-spin" /> : null}
+          {asking ? <Skeleton className="size-4" /> : null}
           {asking ? "Opening…" : "Ask for a new invite"}
         </Button>
         <Button

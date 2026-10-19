@@ -1,7 +1,7 @@
 "use client";
 
+import { Skeleton } from "@asm/ui/shadui/skeleton";
 import type { VirtualItem } from "@tanstack/react-virtual";
-import { Loader2 } from "lucide-react";
 import Image from "next/image";
 import type { StaticImageData } from "next/image";
 import type { ReactNode, Ref } from "react";
@@ -199,13 +199,13 @@ export function ListFooter({
   }
   if (indexing) {
     return (
-      <p
-        aria-live="polite"
+      <div
+        aria-busy="true"
+        aria-label={`Loading older ${noun}`}
         className="text-muted-foreground flex items-center justify-center gap-2 py-3 text-[11px]"
       >
-        <Loader2 className="size-3 animate-spin motion-reduce:animate-none" />
-        Looking further back for older {noun}…
-      </p>
+        <Skeleton className="h-3 w-48 motion-reduce:animate-none" />
+      </div>
     );
   }
   return null;

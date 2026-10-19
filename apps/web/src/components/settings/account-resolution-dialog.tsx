@@ -14,14 +14,8 @@ import {
   DialogTitle,
 } from "@asm/ui/shadui/dialog";
 import { Input } from "@asm/ui/shadui/input";
-import {
-  ArrowLeft,
-  Check,
-  GitMerge,
-  Loader2,
-  ShieldCheck,
-  Trash2,
-} from "lucide-react";
+import { Skeleton } from "@asm/ui/shadui/skeleton";
+import { ArrowLeft, Check, GitMerge, ShieldCheck, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useId, useState } from "react";
 
 async function resolutionRequest(
@@ -346,7 +340,7 @@ function AccountVerification({
               disabled={busy || !(twoFactor ? code : password)}
             >
               {busy ? (
-                <Loader2 className="size-4 animate-spin" />
+                <Skeleton className="size-4" />
               ) : (
                 <ShieldCheck className="size-4" />
               )}{" "}
@@ -500,10 +494,7 @@ export function AccountResolutionDialog({
           <>
             {!review && !errorMessage && (
               <div className="flex justify-center py-8">
-                <Loader2
-                  aria-label="Loading accounts"
-                  className="size-6 animate-spin"
-                />
+                <Skeleton aria-label="Loading accounts" className="size-6" />
               </div>
             )}
             {review && (
@@ -674,9 +665,7 @@ export function AccountResolutionDialog({
                           setBusy(false);
                         }}
                       >
-                        {busy && (
-                          <Loader2 className="mr-2 size-4 animate-spin" />
-                        )}
+                        {busy && <Skeleton className="mr-2 size-4" />}
                         {mode === "merge"
                           ? "Merge into"
                           : "Delete other account and keep"}{" "}

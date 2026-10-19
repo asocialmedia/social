@@ -202,7 +202,7 @@ export const VideoTranscriptSidebar: React.FC<VideoTranscriptSidebarProps> = ({
           if (isLoading) {
             return (
               <div className="flex h-20 items-center justify-center">
-                <div className="size-4 animate-spin rounded-full border-2 border-orange-500 border-t-transparent" />
+                <div className="bg-primary/10 size-4 animate-pulse rounded-md" />
               </div>
             );
           }

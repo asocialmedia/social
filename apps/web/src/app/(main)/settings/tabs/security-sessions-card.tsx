@@ -9,9 +9,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@asm/ui/shadui/dialog";
+import { Skeleton } from "@asm/ui/shadui/skeleton";
 import {
   Globe2,
-  Loader2,
   LogOut,
   MonitorSmartphone,
   Smartphone,
@@ -266,7 +266,7 @@ export default function SecuritySessionsCard({
 
       {isLoading ? (
         <div className="text-muted-foreground mt-4 flex items-center gap-2 text-sm">
-          <Loader2 className="size-4 animate-spin" />
+          <Skeleton className="size-4" />
           Loading signed-in devices…
         </div>
       ) : null}

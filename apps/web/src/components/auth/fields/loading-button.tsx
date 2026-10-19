@@ -1,6 +1,6 @@
 import { Button } from "@asm/ui/shadui/button";
 import type { ButtonProps } from "@asm/ui/shadui/button";
-import { Loader2 } from "lucide-react";
+import { Skeleton } from "@asm/ui/shadui/skeleton";
 
 import { cn } from "@/lib/utils";
 
@@ -20,7 +20,7 @@ export default function LoadingButton({
       disabled={loading || disabled}
       {...props}
     >
-      {loading ? <Loader2 className="size-5 animate-spin" /> : null}
+      {loading ? <Skeleton className="size-5" /> : null}
       {props.children}
     </Button>
   );

@@ -9,7 +9,8 @@ import { PostInlineContent } from "./post-inline-content";
 function render(
   content: string,
   sourceSegments?: { text: string; href?: string }[],
-  compactBlankLines = true
+  compactBlankLines = true,
+  source?: "asm" | "bluesky"
 ) {
   const client = new QueryClient();
   const html = renderToStaticMarkup(
@@ -18,6 +19,7 @@ function render(
         compactBlankLines={compactBlankLines}
         content={content}
         sourceSegments={sourceSegments}
+        source={source}
         embeds={[
           {
             title: "A readable article",
@@ -96,4 +98,17 @@ test("bios can retain their original blank-line spacing", () => {
   const html = render("First paragraph\n\nSecond paragraph", undefined, false);
   expect(html).toContain("First paragraph\n\nSecond paragraph");
   expect(html).not.toContain("block h-2");
+});
+
+test("Bluesky profile bios resolve complete handles inside ASM without local user lookups", () => {
+  const html = render(
+    "Made by @rauchg.com and @vercel.bsky.social. See https://vercel.com",
+    undefined,
+    true,
+    "bluesky"
+  );
+  expect(html).toContain("/network/bluesky/profile?actor=rauchg.com");
+  expect(html).toContain("/network/bluesky/profile?actor=vercel.bsky.social");
+  expect(html).not.toContain("/users/");
+  expect(html).toContain("https://vercel.com");
 });

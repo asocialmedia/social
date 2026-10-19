@@ -1,8 +1,9 @@
 "use client";
 
 import { Button } from "@asm/ui/shadui/button";
+import { Skeleton } from "@asm/ui/shadui/skeleton";
 import noMediaImage from "@assets/general/nomedia.png";
-import { FileIcon, Loader2, Volume2 } from "lucide-react";
+import { FileIcon, Volume2 } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -689,7 +690,7 @@ const MediaGalleryContent: React.FC<MediaGalleryContentProps> = ({
         </MediaHoldDrawer>
         {isFetchingNextPage ? (
           <div className="flex justify-center py-3">
-            <Loader2 className="text-primary h-4 w-4 animate-spin" />
+            <Skeleton className="text-primary h-4 w-4" />
           </div>
         ) : null}
       </InfiniteScrollContainer>

@@ -15,8 +15,9 @@ import {
   DialogTitle,
 } from "@asm/ui/shadui/dialog";
 import { Input } from "@asm/ui/shadui/input";
+import { Skeleton } from "@asm/ui/shadui/skeleton";
 import { Textarea } from "@asm/ui/shadui/textarea";
-import { Loader2, Users, X } from "lucide-react";
+import { Users, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useMemo, useState } from "react";
 
@@ -486,7 +487,7 @@ export function CreateDenDialog({
             type="button"
             variant="premium"
           >
-            {creating ? <Loader2 className="size-4 animate-spin" /> : null}
+            {creating ? <Skeleton className="size-4" /> : null}
             {creating ? "Creating…" : "Create den"}
           </Button>
         </footer>

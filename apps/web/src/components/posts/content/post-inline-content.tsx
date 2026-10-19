@@ -120,8 +120,10 @@ export function PostInlineContent({
   linkBadge = "preview",
   renderMention,
   sourceSegments,
+  source,
 }: {
   sourceSegments?: TextSegment[];
+  source?: "asm" | "bluesky";
   className?: string;
   compactBlankLines?: boolean;
   content: string;
@@ -158,9 +160,9 @@ export function PostInlineContent({
             <InlineRichText
               key={`text-${index}`}
               compactBlankLines={compactBlankLines}
-              external={Boolean(sourceSegments)}
+              external={Boolean(sourceSegments) || source === "bluesky"}
               renderMention={
-                sourceSegments
+                sourceSegments || source === "bluesky"
                   ? (username) => (
                       <InlineMentionChip
                         href={blueskyProfilePath(username)}

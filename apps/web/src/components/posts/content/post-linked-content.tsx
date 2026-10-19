@@ -23,8 +23,10 @@ export default function PostLinkedContent({
   embeds,
   linkBadge = "preview",
   sourceSegments,
+  source,
 }: {
   sourceSegments?: TextSegment[];
+  source?: "asm" | "bluesky";
   className?: string;
   content: string;
   embeds?: LinkEmbed[];
@@ -34,6 +36,7 @@ export default function PostLinkedContent({
     <PostInlineContent
       compactBlankLines
       sourceSegments={sourceSegments}
+      source={source}
       className={className}
       content={content}
       embeds={embeds}

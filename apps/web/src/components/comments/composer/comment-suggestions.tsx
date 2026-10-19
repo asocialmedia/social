@@ -1,8 +1,9 @@
 "use client";
 
 import type { UserData } from "@asm/db";
+import { Skeleton } from "@asm/ui/shadui/skeleton";
 import { useQuery } from "@tanstack/react-query";
-import { Hash, Loader2 } from "lucide-react";
+import { Hash } from "lucide-react";
 import React, {
   forwardRef,
   useCallback,
@@ -149,8 +150,8 @@ export const CommentSuggestions = forwardRef<
     >
       {loading && items.length === 0 ? (
         <div className="text-muted-foreground flex items-center justify-center gap-2 p-3 text-xs">
-          <Loader2 className="size-3.5 animate-spin" />
-          <span>Searching...</span>
+          <Skeleton className="size-3.5" />
+          <Skeleton className="h-3 w-24" />
         </div>
       ) : (
         <div className="max-h-56 space-y-0.5 overflow-y-auto">
