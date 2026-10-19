@@ -8,9 +8,8 @@ import {
 import type { NetworkTopic } from "@asm/protocols/discovery";
 import { Button } from "@asm/ui/shadui/button";
 import { Input } from "@asm/ui/shadui/input";
-import { Skeleton } from "@asm/ui/shadui/skeleton";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronLeft, ChevronRight, Plus } from "lucide-react";
+import { ChevronLeft, ChevronRight, Loader2, Plus } from "lucide-react";
 import { useEffect, useId, useState } from "react";
 
 import { cn } from "@/lib/utils";
@@ -165,14 +164,13 @@ export function TopicPicker({
         })}
       </div>
       {topicQuery.isFetching ? (
-        <div
-          aria-busy="true"
-          aria-label="Loading topics"
+        <p
+          aria-live="polite"
           className="text-muted-foreground flex items-center gap-2 text-xs"
         >
-          <Skeleton className="h-6 w-24 rounded-full" />
-          <Skeleton className="h-6 w-32 rounded-full" />
-        </div>
+          <Loader2 className="size-3 animate-spin" />
+          Finding topics…
+        </p>
       ) : null}
       {topicQuery.isError ? (
         <Button

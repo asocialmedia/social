@@ -2,8 +2,8 @@
 
 import type { PostsPage } from "@asm/db";
 import { Separator } from "@asm/ui/shadui/separator";
-import { Skeleton } from "@asm/ui/shadui/skeleton";
 import { useInfiniteQuery } from "@tanstack/react-query";
+import { Loader2 } from "lucide-react";
 import React, { useCallback, useMemo } from "react";
 
 import PostCard from "@/components/home/feedview/post-card";
@@ -96,7 +96,7 @@ const UserResponsesFeed: React.FC<UserResponsesFeedProps> = ({
       ))}
       {isFetchingNextPage ? (
         <div className="flex justify-center py-4">
-          <Skeleton className="text-primary" />
+          <Loader2 className="text-primary animate-spin" />
         </div>
       ) : null}
       {!hasNextPage && posts.length > 0 ? (

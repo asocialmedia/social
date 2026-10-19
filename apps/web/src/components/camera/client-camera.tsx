@@ -583,7 +583,7 @@ export default function ClientCamera() {
                   <span className="size-6 rounded-md bg-white shadow-sm" />
                 ) : null}
                 {capturing && !recording ? (
-                  <span className="bg-primary/10 size-5 animate-pulse rounded-md" />
+                  <span className="size-5 animate-spin rounded-full border-2 border-white border-t-transparent" />
                 ) : null}
               </span>
             </span>

@@ -2,11 +2,11 @@
 
 import { normalizeMessageSearchQuery } from "@asm/messages/search";
 import { Input } from "@asm/ui/shadui/input";
-import { Skeleton } from "@asm/ui/shadui/skeleton";
 import {
   ChevronLeft,
   ChevronRight,
   List,
+  Loader2,
   MessageSquare,
   Search,
   X,
@@ -399,9 +399,9 @@ export function MessageSearchBar({
           how much history happens to be loaded, so a loader here would imply
           search is still working when it is done. */}
         {(serverManaged ? searching : indexing && !fullyCovered) ? (
-          <Skeleton
+          <Loader2
             aria-label="Loading older messages"
-            className="text-muted-foreground h-3.5 w-3.5 shrink-0"
+            className="text-muted-foreground h-3.5 w-3.5 shrink-0 animate-spin"
           />
         ) : null}
 
@@ -491,7 +491,7 @@ export function MessageSearchBar({
             className="icon-btn-3d flex h-7 w-7 shrink-0 items-center justify-center rounded-full"
             title="Searching older messages"
           >
-            <Skeleton className="h-3.5 w-3.5" />
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
           </span>
         ) : null}
 

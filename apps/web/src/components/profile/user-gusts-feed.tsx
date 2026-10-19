@@ -2,10 +2,9 @@
 
 import type { PostsPage } from "@asm/db";
 import { Button } from "@asm/ui/shadui/button";
-import { Skeleton } from "@asm/ui/shadui/skeleton";
 import noMediaImage from "@assets/general/nomedia.png";
 import { useInfiniteQuery } from "@tanstack/react-query";
-import { Clapperboard, Eye, Flame, Play } from "lucide-react";
+import { Clapperboard, Eye, Flame, Loader2, Play } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import React, { useCallback, useMemo, useRef, useState } from "react";
@@ -257,7 +256,7 @@ const UserGustsFeed: React.FC<UserGustsFeedProps> = ({
       </div>
       {isFetchingNextPage ? (
         <div className="flex justify-center py-4">
-          <Skeleton className="text-primary" />
+          <Loader2 className="text-primary animate-spin" />
         </div>
       ) : null}
       {!hasNextPage && posts.length > 0 ? (

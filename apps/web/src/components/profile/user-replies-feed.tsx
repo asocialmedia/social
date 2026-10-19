@@ -1,9 +1,8 @@
 "use client";
 
 import type { CommentData } from "@asm/db";
-import { Skeleton } from "@asm/ui/shadui/skeleton";
 import { useInfiniteQuery } from "@tanstack/react-query";
-import { CornerDownRight } from "lucide-react";
+import { CornerDownRight, Loader2 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import React, { useCallback, useMemo, useState } from "react";
@@ -289,7 +288,7 @@ const UserRepliesFeed: React.FC<UserRepliesFeedProps> = ({ userId }) => {
       })}
       {isFetchingNextPage ? (
         <div className="flex justify-center py-4">
-          <Skeleton className="text-primary" />
+          <Loader2 className="text-primary animate-spin" />
         </div>
       ) : null}
       {!hasNextPage && visibleReplies.length > 0 ? (

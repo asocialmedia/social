@@ -2,9 +2,8 @@
 
 import { clientLog } from "@asm/config/debug";
 import type { UserData } from "@asm/db";
-import { Skeleton } from "@asm/ui/shadui/skeleton";
 import { Command } from "cmdk";
-import { Hash, Plus, Search, X } from "lucide-react";
+import { Hash, Loader2, Plus, Search, X } from "lucide-react";
 import { useCallback, useState } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
@@ -259,7 +258,7 @@ export function GustMentionPicker({
             value={search}
           />
           {isLoading ? (
-            <Skeleton className="text-muted-foreground h-4 w-4" />
+            <Loader2 className="text-muted-foreground h-4 w-4 animate-spin" />
           ) : null}
         </div>
         {search ? (

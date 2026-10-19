@@ -7,10 +7,15 @@ import {
 } from "@asm/auth/validation";
 import type { CommentData, PostData, UserData } from "@asm/db";
 import { Button } from "@asm/ui/shadui/button";
-import { Skeleton } from "@asm/ui/shadui/skeleton";
 import { useQuery } from "@tanstack/react-query";
 import type { Editor } from "@tiptap/core";
-import { Clapperboard, ImagePlus, SendHorizonal, X } from "lucide-react";
+import {
+  Clapperboard,
+  ImagePlus,
+  Loader2,
+  SendHorizonal,
+  X,
+} from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import type React from "react";
@@ -375,7 +380,7 @@ export default function CommentInput({
                     type="submit"
                   >
                     {pending ? (
-                      <Skeleton className="size-4" />
+                      <Loader2 className="size-4 animate-spin" />
                     ) : (
                       <>
                         <span>Send</span>
@@ -414,7 +419,7 @@ export default function CommentInput({
                       <div className="pointer-events-none absolute inset-0 rounded-xl shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1px_2px_rgba(255,255,255,0.3)] dark:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.1),inset_0_1px_2px_rgba(255,255,255,0.06)]" />
                       {attachment.isUploading ? (
                         <div className="absolute inset-0 flex items-center justify-center bg-black/50 backdrop-blur-xs">
-                          <Skeleton className="size-5" />
+                          <Loader2 className="size-5 animate-spin text-white" />
                         </div>
                       ) : (
                         <button
@@ -457,7 +462,7 @@ export default function CommentInput({
                     type="submit"
                   >
                     {pending ? (
-                      <Skeleton className="size-4" />
+                      <Loader2 className="size-4 animate-spin" />
                     ) : (
                       <>
                         <span>Send</span>

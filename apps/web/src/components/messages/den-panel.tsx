@@ -22,12 +22,12 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@asm/ui/shadui/dropdown-menu";
-import { Skeleton } from "@asm/ui/shadui/skeleton";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Ban,
   Crown,
   Link2,
+  Loader2,
   MoreHorizontal,
   Pencil,
   Search,
@@ -667,7 +667,7 @@ export function DenPanel({
   if (detail.isLoading || roster.isLoading) {
     return (
       <div className="flex items-center justify-center py-6">
-        <Skeleton className="text-muted-foreground h-4 w-4" />
+        <Loader2 className="text-muted-foreground h-4 w-4 animate-spin" />
         <span className="sr-only">Loading den details</span>
       </div>
     );
@@ -1030,7 +1030,9 @@ export function DenPanel({
               }}
               type="button"
             >
-              {addMembers.isPending ? <Skeleton className="size-4" /> : null}
+              {addMembers.isPending ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : null}
               {addMembers.isPending
                 ? "Adding…"
                 : `Add ${selected.length || ""}`.trim()}

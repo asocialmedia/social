@@ -112,9 +112,7 @@ describe("DenInviteDialog", () => {
       inviteShortCodeDurationDays: null,
       inviteShortCodeExpiresAt: null,
     });
-    expect(html).toContain("animate-pulse");
-    expect(html).not.toContain("Creating your invite code…");
-    expect(html).not.toContain("animate-spin");
+    expect(html).toContain("Creating your invite code…");
     expect(html).not.toContain("Generate code");
     expect(html).not.toContain('id="den-invite-code"');
   });

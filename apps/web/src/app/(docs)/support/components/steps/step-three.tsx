@@ -1,8 +1,7 @@
 import { clientLog } from "@asm/config/debug";
 import { Button } from "@asm/ui/shadui/button";
-import { Skeleton } from "@asm/ui/shadui/skeleton";
 import { Textarea } from "@asm/ui/shadui/textarea";
-import { Upload } from "lucide-react";
+import { Loader2, Upload } from "lucide-react";
 import { motion } from "motion/react";
 import { useCallback } from "react";
 
@@ -125,7 +124,7 @@ export const StepThree = ({
           >
             {loading ? (
               <>
-                <Skeleton className="mr-2 h-4 w-4" />
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 Sending...
               </>
             ) : (

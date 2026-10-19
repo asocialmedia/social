@@ -242,7 +242,7 @@ export function MessageSharePicker({ postId }: MessageSharePickerProps) {
   if (status === "loading") {
     return (
       <div className="flex items-center justify-center py-6">
-        <div className="bg-primary/10 h-4 w-4 animate-pulse rounded-md" />
+        <div className="border-primary h-4 w-4 animate-spin rounded-full border-2 border-t-transparent" />
       </div>
     );
   }
@@ -333,7 +333,7 @@ function RecipientRow({
         </span>
       </span>
       {sending ? (
-        <span className="bg-primary/10 h-3.5 w-3.5 animate-pulse rounded-md" />
+        <span className="border-primary h-3.5 w-3.5 animate-spin rounded-full border-2 border-t-transparent" />
       ) : (
         <Send className="text-muted-foreground h-4 w-4 shrink-0" />
       )}

@@ -1,6 +1,5 @@
 import { toast } from "@asm/ui/lib/gooey-toast";
 import { Button } from "@asm/ui/shadui/button";
-import { Skeleton } from "@asm/ui/shadui/skeleton";
 import zephImage from "@assets/zeph.png";
 import { X } from "lucide-react";
 import Image from "next/image";
@@ -8,6 +7,7 @@ import { useState } from "react";
 
 import type { Attachment } from "@/components/posts/editor/attachment-store";
 import { ALT_TEXT_MAX_LENGTH } from "@/lib/media/media-upload-client";
+import { cn } from "@/lib/utils";
 
 interface AltTextPanelProps {
   attachment: Attachment;
@@ -143,22 +143,17 @@ const AltTextPanel = ({
             onClick={handleAutoAltText}
             type="button"
           >
-            {isAutoGenerating ? (
-              <Skeleton className="size-3.5" />
-            ) : (
-              <Image
-                alt=""
-                className="size-3.5 object-contain"
-                height={20}
-                src={zephImage}
-                width={20}
-              />
-            )}
-            {isAutoGenerating ? (
-              <Skeleton className="h-3 w-10" />
-            ) : (
-              <span>Auto</span>
-            )}
+            <Image
+              alt=""
+              className={cn(
+                "size-3.5 object-contain",
+                isAutoGenerating && "animate-spin"
+              )}
+              height={20}
+              src={zephImage}
+              width={20}
+            />
+            <span>{isAutoGenerating ? "Analyzing..." : "Auto"}</span>
           </button>
         ) : null}
       </div>
@@ -187,22 +182,17 @@ const AltTextPanel = ({
           onClick={handleAutoAltText}
           type="button"
         >
-          {isAutoGenerating ? (
-            <Skeleton className="size-3.5" />
-          ) : (
-            <Image
-              alt=""
-              className="size-3.5 object-contain"
-              height={20}
-              src={zephImage}
-              width={20}
-            />
-          )}
-          {isAutoGenerating ? (
-            <Skeleton className="h-3 w-10" />
-          ) : (
-            <span>Auto</span>
-          )}
+          <Image
+            alt=""
+            className={cn(
+              "size-3.5 object-contain",
+              isAutoGenerating && "animate-spin"
+            )}
+            height={20}
+            src={zephImage}
+            width={20}
+          />
+          <span>{isAutoGenerating ? "Analyzing..." : "Auto"}</span>
         </button>
       ) : null}
       <button

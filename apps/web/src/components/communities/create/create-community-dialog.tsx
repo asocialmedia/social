@@ -13,10 +13,9 @@ import {
 } from "@asm/ui/shadui/dialog";
 import { Input } from "@asm/ui/shadui/input";
 import { RadioGroup, RadioGroupItem } from "@asm/ui/shadui/radio-group";
-import { Skeleton } from "@asm/ui/shadui/skeleton";
 import { Textarea } from "@asm/ui/shadui/textarea";
 import avatarPlaceholder from "@assets/general/avatar-placeholder.png";
-import { ArrowLeft, ArrowRight, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, Loader2, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
@@ -781,7 +780,9 @@ export default function CreateCommunityDialog({
               type="button"
               variant="premium"
             >
-              {isSubmitting ? <Skeleton className="size-4" /> : null}
+              {isSubmitting ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : null}
               {isUploadingMedia ? "Uploading…" : "Create community"}
             </Button>
           ) : (

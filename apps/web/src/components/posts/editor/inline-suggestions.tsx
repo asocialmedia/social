@@ -1,8 +1,8 @@
 "use client";
 
 import type { UserData } from "@asm/db";
-import { Skeleton } from "@asm/ui/shadui/skeleton";
 import type { Editor } from "@tiptap/core";
+import { Loader2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import UserAvatar from "@/components/layouts/user/user-avatar";
@@ -542,8 +542,8 @@ export const InlineSuggestions = ({
     if (loading && items.length === 0) {
       return (
         <div className="flex items-center justify-center gap-2 p-3">
-          <Skeleton className="text-muted-foreground size-4" />
-          <Skeleton className="h-3 w-24" />
+          <Loader2 className="text-muted-foreground size-4 animate-spin" />
+          <span className="text-muted-foreground text-sm">Searching...</span>
         </div>
       );
     }

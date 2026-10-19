@@ -1,9 +1,8 @@
 "use client";
 
-import { Skeleton } from "@asm/ui/shadui/skeleton";
 import { useQueries } from "@tanstack/react-query";
 import kyInstance from "ky";
-import { X } from "lucide-react";
+import { Loader2, X } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 
 import { EmbedSiteBadge } from "@/components/posts/embeds/embed-utils";
@@ -95,7 +94,7 @@ export default function LinkEmbedComposer({
                       (isLoading ? "Resolving link…" : "Link")}
                   </span>
                   {isLoading ? (
-                    <Skeleton className="text-muted-foreground size-3" />
+                    <Loader2 className="text-muted-foreground size-3 animate-spin" />
                   ) : null}
                 </div>
                 <button
