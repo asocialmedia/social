@@ -268,6 +268,7 @@ describe("GET /api/gusts", () => {
   test("new accounts and guests receive no adult Gusts until explicitly opted in", async () => {
     mockPostList = sampleGusts.map((post, index) => ({
       ...post,
+      _count: { bookmarks: 0, comments: 0, responses: 0, vote: 5 },
       explicitContent: index === 0,
     }));
     const first = await GET(new Request("http://localhost:3000/api/gusts"));
@@ -362,7 +363,11 @@ describe("GET /api/gusts", () => {
     });
   });
 
-  test("allows guests to browse gusts without authentication", async () => {
+  test("allows guests to browse engaged gusts without authentication", async () => {
+    mockPostList = sampleGusts.map((post) => ({
+      ...post,
+      _count: { bookmarks: 0, comments: 0, responses: 0, vote: 5 },
+    }));
     mockGetSession.mockImplementationOnce(() => null);
 
     const req = new Request("http://localhost:3000/api/gusts");

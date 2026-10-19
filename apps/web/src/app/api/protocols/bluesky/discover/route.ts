@@ -15,6 +15,8 @@ import {
   discoveryLocaleSchema,
   filterExternalRecommendations,
   DISCOVERY_WATCH_CHANNEL,
+  isDiscoveryColdStart,
+  isExternalTrendingPost,
 } from "@asm/protocols/discovery";
 import { after } from "next/server";
 import { z } from "zod";
@@ -80,6 +82,11 @@ export function GET(request: Request) {
       query.get("profile") ?? undefined
     );
     const { profile } = network;
+    const coldStart = isDiscoveryColdStart(
+      network.selected.interests,
+      profile,
+      "persona" in network ? network.persona.signalCount : 0
+    );
     const exploring = query.get("surface") === "explore";
     const exploreSeeds = exploreTopics(
       profile,
@@ -136,7 +143,8 @@ export function GET(request: Request) {
       (topic) =>
         !matchesAvoidedTopic(topic, [topic], network.preferences.avoidedTopics)
     );
-    let topics = exploring ? exploreSeeds.slice(0, 5) : focusedTopics;
+    // Retrieve inside the same eligibility gate; unrelated sibling pools were discarded after expensive reads.
+    let topics = focusedTopics;
     if (level.data === 1) {
       topics = neighbors
         .slice(topicPage.data * 5, topicPage.data * 5 + 5)
@@ -164,6 +172,21 @@ export function GET(request: Request) {
       .catch(() => {
         // Foreground reads remain usable if watch registration is unavailable.
       });
+    if (level.data === 0 && mode.data !== "latest" && neighbors.length) {
+      void redis
+        .publish(
+          DISCOVERY_WATCH_CHANNEL,
+          JSON.stringify({
+            content: "video",
+            locale: locale.data,
+            mode: mode.data,
+            topics: neighbors.slice(0, 5),
+          })
+        )
+        .catch(() => {
+          // Replenish related reels before the reader reaches a sparse continuation.
+        });
+    }
     const cacheKey = discoveryCacheKey(
       mode.data,
       locale.data,
@@ -261,6 +284,8 @@ export function GET(request: Request) {
     );
     const filtered = filterExternalRecommendations(candidates, excluded).filter(
       (post) =>
+        ((!coldStart && mode.data !== "trending") ||
+          isExternalTrendingPost(post)) &&
         (content.data !== "video" ||
           post.media.some((media) => media.type === "video")) &&
         (includeExplicit ? true : !blueskyMediaIsExplicit(post)) &&

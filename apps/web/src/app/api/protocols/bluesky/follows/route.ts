@@ -4,6 +4,10 @@ import {
   setExternalFollow,
   ExternalFollowError,
   redis,
+  networkContentTopics,
+  readNetworkPreferences,
+  recordNetworkSignal,
+  removeNetworkSignal,
 } from "@asm/db";
 import { FEED_EVENTS_CHANNEL } from "@asm/protocols/discovery";
 import { z } from "zod";
@@ -84,6 +88,36 @@ export function POST(request: Request) {
         active,
         author && !("items" in author) ? author : undefined
       );
+      // Following expresses deliberate author interest; it must also teach the active persona.
+      const settings = await readNetworkPreferences(session.user.id);
+      const documentId = `follow:bluesky:${actor}`;
+      if (creating && author && !("items" in author)) {
+        await recordNetworkSignal(
+          session.user.id,
+          settings.preferences.activeProfileId,
+          {
+            authorId: `bluesky:${actor}`,
+            createdAt: Date.now(),
+            kind: "follow",
+            tags: networkContentTopics(author.description ?? ""),
+          },
+          documentId,
+          false,
+          undefined,
+          settings.revision
+        ).catch(() => false);
+      } else if (!active) {
+        await Promise.all(
+          settings.preferences.profiles.map((profile) =>
+            removeNetworkSignal(
+              session.user.id,
+              profile.id,
+              "follow",
+              documentId
+            ).catch(() => false)
+          )
+        );
+      }
       await invalidateDiscoverySuggestions(session.user.id);
       await redis
         .publish(

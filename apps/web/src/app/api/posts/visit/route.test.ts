@@ -1,4 +1,6 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
+
+import { BlueskyClient } from "@asm/protocols/bluesky";
 
 import { asmDbMockBase } from "@/posts/test-support/asm-db-mock";
 
@@ -160,22 +162,33 @@ describe("POST /api/posts/visit", () => {
       url: "https://bsky.app/profile/alice.bsky.social/post/123",
     };
 
-    const res = await POST(
-      new Request("http://localhost/api/posts/visit", {
-        body: JSON.stringify({
-          externalPost,
-          postId: BSKY_URI,
-          uri: BSKY_URI,
-        }),
-        headers: { "Content-Type": "application/json" },
-        method: "POST",
-      })
-    );
+    const read = spyOn(BlueskyClient.prototype, "getPosts").mockResolvedValue([
+      { ...externalPost, text: "Verified upstream text" },
+    ]);
+    let res: Response;
+    try {
+      res = await POST(
+        new Request("http://localhost/api/posts/visit", {
+          body: JSON.stringify({
+            externalPost,
+            postId: BSKY_URI,
+            uri: BSKY_URI,
+          }),
+          headers: { "Content-Type": "application/json" },
+          method: "POST",
+        })
+      );
+    } finally {
+      read.mockRestore();
+    }
 
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body).toEqual({ success: true, type: "bluesky" });
     expect(upsertedSnapshots).toHaveLength(1);
+    expect(upsertedSnapshots[0]).toMatchObject({
+      text: "Verified upstream text",
+    });
     expect(redisZaddCalls).toHaveLength(1);
     expect(redisZaddCalls[0]?.[0]).toBe(`user:post-visits:${USER_ID}`);
     expect(redisZaddCalls[0]?.[2]).toBe(`bsky:${BSKY_URI}`);

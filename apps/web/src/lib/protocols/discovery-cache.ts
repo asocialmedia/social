@@ -4,7 +4,7 @@ import { redis } from "@asm/db";
 import { discoveryPageSchema } from "@asm/protocols/discovery";
 import type { DiscoveryContent, DiscoveryMode } from "@asm/protocols/discovery";
 
-const RETENTION_SECONDS = 10 * 60;
+const RETENTION_SECONDS = 120;
 
 export function discoveryCacheKey(
   mode: DiscoveryMode,
@@ -13,7 +13,7 @@ export function discoveryCacheKey(
   includeExplicit = false,
   content: DiscoveryContent = "all"
 ) {
-  return `asm:web:bluesky:head:v9:${createHash("sha256")
+  return `asm:web:bluesky:head:v12:${createHash("sha256")
     .update(JSON.stringify([mode, locale, topics, includeExplicit, content]))
     .digest("hex")}`;
 }

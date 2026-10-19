@@ -13,6 +13,7 @@ import type {
 import { parseStoredEmbeds } from "@/lib/link-embeds/shared";
 import {
   blueskyMediaIsExplicit,
+  hasRestrictedDiscoveryLabels,
   postHasExplicitMedia,
 } from "@/lib/protocols/content-labels";
 
@@ -140,6 +141,7 @@ export function externalNetworkPostAllowed(
     ];
     const text = `${current.text} ${current.externalLink?.title ?? ""} ${current.externalLink?.description ?? ""} ${current.media.map((media) => media.alt).join(" ")}`;
     if (
+      hasRestrictedDiscoveryLabels(current) ||
       (!policy.showExplicitContent && blueskyMediaIsExplicit(current)) ||
       matchesAvoidedTopic(
         text,
@@ -161,6 +163,19 @@ export function networkPostAllowed(
 ): boolean {
   const policy = scopedNetworkPreferences(preferences, scope);
   if (!policy.showExplicitContent && postHasExplicitMedia(post)) {
+    return false;
+  }
+  if (
+    !policy.showExplicitContent &&
+    parseStoredEmbeds(post.embeds).some((embed) =>
+      blueskyMediaIsExplicit({
+        externalLink: {
+          description: embed.description ?? undefined,
+          title: embed.title ?? undefined,
+        },
+      })
+    )
+  ) {
     return false;
   }
   const { external } = post;

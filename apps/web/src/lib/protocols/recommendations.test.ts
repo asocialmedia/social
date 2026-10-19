@@ -35,6 +35,53 @@ const post = (id: string, text: string): ExternalPost => ({
   url: "https://bsky.app/profile/did:plc:fixture/post/example",
 });
 
+test("For You prefers an engaged technical post over a quiet keyword match inside the same interest gate", () => {
+  const quiet = post(
+    "quiet-job",
+    "software TypeScript job software job software"
+  );
+  const technical = {
+    ...post("technical", "TypeScript software compiler improvements"),
+    upstreamCounts: { likes: 200, quotes: 3, replies: 20, reposts: 40 },
+  };
+  const ranked = rankExternalForViewer(
+    [quiet, technical],
+    { authorWeights: {}, tagWeights: { software: 1 } },
+    { interests: ["software"], now: Date.parse("2026-10-18T12:00:00Z") }
+  );
+  expect(ranked[0]?.id).toBe("technical");
+  expect(ranked.some((candidate) => candidate.id === "quiet-job")).toBe(true);
+});
+
+test("a fresh incidental keyword cannot outrank an engaged tutorial from yesterday that matches the viewer's focus", () => {
+  const now = Date.parse("2026-10-19T12:00:00Z");
+  const incidental = {
+    ...post(
+      "incidental",
+      "Our software is broken, what is happening to the world"
+    ),
+    createdAt: new Date(now - 60_000).toISOString(),
+  };
+  const tutorial = {
+    ...post(
+      "tutorial",
+      "TypeScript and web development: a software compiler tutorial"
+    ),
+    createdAt: new Date(now - 24 * 3_600_000).toISOString(),
+    upstreamCounts: { likes: 120, quotes: 2, replies: 8, reposts: 12 },
+  };
+  const ranked = rankExternalForViewer(
+    [incidental, tutorial],
+    {
+      authorWeights: {},
+      tagWeights: {},
+    },
+    { interests: ["software", "web development", "typescript"], now }
+  );
+  expect(ranked[0]?.id).toBe("tutorial");
+  expect(ranked.some((candidate) => candidate.id === "incidental")).toBe(true);
+});
+
 test("Gust quality favors fresh engagement over repeating more keyword matches", () => {
   const weak = post("weak", "software astronomy gardening");
   const strong = {
@@ -108,6 +155,20 @@ test("primary retrieval reserves descendant topics for the related discovery sta
   );
   expect(topics).toEqual(["software", "web development", "tech"]);
   expect(discoveryTopicsSchema.safeParse(topics).success).toBe(true);
+});
+
+test("retrieval excludes ambiguous short aliases unless the viewer selected the acronym", () => {
+  const aliases = {
+    aliases: { typescript: ["TS", "TypeScript compiler"] },
+    avoided: {},
+    interests: {},
+    version: "short-alias-regression",
+  };
+  expect(discoveryTopics(profile, ["typescript"], aliases)).toEqual([
+    "typescript",
+    "typescript compiler",
+  ]);
+  expect(discoveryTopics(profile, ["ts"], aliases)).toEqual(["ts"]);
 });
 
 test("Unicode discovery terms retain combining marks from supported languages", () => {

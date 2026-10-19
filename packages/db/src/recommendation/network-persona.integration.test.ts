@@ -31,6 +31,61 @@ const signal = {
 const prefix = (id: string, profile = "default") =>
   `rec:network:v1:{${id}:${profile}}`;
 
+test("follow intent teaches only its originating persona, deduplicates retries, and can be removed", async () => {
+  const id = crypto.randomUUID();
+  const work = crypto.randomUUID();
+  await prisma.orm.public.Users.create({
+    displayName: "Follow learning fixture",
+    id,
+    username: `follow-learning-${id}`,
+  });
+  try {
+    await saveNetworkPreferences(
+      id,
+      {
+        ...defaultNetworkPreferences(),
+        profiles: [
+          { id: "default", interests: [], name: "Everyday" },
+          { id: work, interests: [], name: "Work" },
+        ],
+      },
+      0
+    );
+    const follow = {
+      authorId: "bluesky:did:plc:developer",
+      createdAt: Date.now(),
+      kind: "follow" as const,
+      tags: ["typescript", "frontend"],
+    };
+    expect(
+      await recordNetworkSignal(id, work, follow, "follow:developer")
+    ).toBe(true);
+    expect(
+      await recordNetworkSignal(id, work, follow, "follow:developer")
+    ).toBe(false);
+    const learned = await getNetworkPersona(id, work);
+    expect(learned.profile.tagWeights.typescript).toBeGreaterThan(0);
+    expect(learned.profile.authorWeights[follow.authorId]).toBeGreaterThan(0);
+    const everyday = await getNetworkPersona(id);
+    expect(everyday.profile.tagWeights.typescript ?? 0).toBe(0);
+    expect(
+      await removeNetworkSignal(id, work, "follow", "follow:developer")
+    ).toBe(true);
+    const removed = await getNetworkPersona(id, work);
+    expect(removed.profile.tagWeights.typescript ?? 0).toBe(0);
+  } finally {
+    await prisma.orm.public.Users.where({ id }).deleteAndCount();
+    const signalKey = prefix(id, work);
+    await redis.del(
+      `${signalKey}:signals`,
+      `${signalKey}:time`,
+      `${signalKey}:dedupe`,
+      `${signalKey}:generation`,
+      `rec:suggestions:version:${id}`
+    );
+  }
+});
+
 beforeAll(async () => {
   await Promise.all(
     ids.map((id) =>

@@ -252,10 +252,17 @@ describe("GET /api/posts/for-you", () => {
     expect(lastLegacyArgs?.cursor).toBeUndefined();
   });
 
-  test("allows guests to browse chronological recency", async () => {
+  test("allows guests to browse engaged chronological recency", async () => {
     const { GET } = await import("./route");
     mockSessionUser = null;
-    pgPosts = [{ content: "guest post", createdAt: new Date(), id: "g1" }];
+    pgPosts = [
+      {
+        _count: { bookmarks: 0, comments: 0, responses: 0, vote: 5 },
+        content: "guest post",
+        createdAt: new Date(),
+        id: "g1",
+      },
+    ];
 
     const res = await GET(new Request("http://localhost/api/posts/for-you"));
     expect(res.status).toBe(200);

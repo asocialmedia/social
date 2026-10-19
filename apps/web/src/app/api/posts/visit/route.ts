@@ -1,6 +1,7 @@
 import {
   externalPostId,
   findExternalPost,
+  readNetworkPreferences,
   prisma,
   recordExternalPostVisit,
   redis,
@@ -67,7 +68,10 @@ export async function POST(request: Request) {
       );
     } else {
       try {
-        const client = new BlueskyClient();
+        const { preferences } = await readNetworkPreferences(userId);
+        const client = new BlueskyClient({
+          allowExplicitMedia: preferences.showExplicitContent,
+        });
         const posts = await client.getPosts([rawUri]);
         const found = posts.find((p) => p.id === rawUri);
         if (!found) {

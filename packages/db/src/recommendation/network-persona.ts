@@ -38,6 +38,7 @@ const kinds = [
   "amplify",
   "downvote",
   "bookmark",
+  "follow",
   "comment",
   "dwell",
   "viewComplete",
@@ -213,7 +214,7 @@ function networkSignalKey(
   documentId: string,
   createdAt: number
 ): string {
-  const period = ["downvote", "notInterested"].includes(kind)
+  const period = ["downvote", "notInterested", "follow"].includes(kind)
     ? "active"
     : new Date(createdAt).toISOString().slice(0, 10);
   return createHash("sha256")
@@ -224,7 +225,7 @@ function networkSignalKey(
 export async function removeNetworkSignal(
   userId: string,
   profileId: string,
-  kind: "downvote" | "notInterested",
+  kind: "downvote" | "notInterested" | "follow",
   documentId: string
 ): Promise<boolean> {
   const settings = await readNetworkPreferences(userId);

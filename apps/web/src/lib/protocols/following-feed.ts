@@ -124,7 +124,8 @@ export async function readFollowingFeed(
   requestId: string,
   policy = "default",
   refresh = false,
-  includeExplicit = false
+  includeExplicit = false,
+  cachedOnly = false
 ) {
   const followedAuthors = await externalFollowAuthors(userId);
   const authors = followedAuthors.filter(
@@ -149,6 +150,9 @@ export async function readFollowingFeed(
     if (cached?.success) {
       return cached.data;
     }
+  }
+  if (cachedOnly) {
+    return { cursor: null, items: [] as ExternalPost[], partial: true };
   }
   const leaseKey = `build:${owner}`;
   const leaseOwner = crypto.randomUUID();

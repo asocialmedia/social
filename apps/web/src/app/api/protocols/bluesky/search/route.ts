@@ -1,7 +1,9 @@
 import { readNetworkPreferences } from "@asm/db";
+import { defaultNetworkPreferences } from "@asm/protocols/discovery";
 import { z } from "zod";
 
 import { getSessionFromApi } from "@/lib/auth/session";
+import { externalNetworkPostAllowed } from "@/lib/posts/network-content-policy";
 import {
   blueskyMediaIsExplicit,
   isExplicitTagOrTopic,
@@ -31,12 +33,16 @@ export function GET(request: Request) {
       ? await readNetworkPreferences(session.user.id)
       : null;
     const allowExplicit = Boolean(settings?.preferences.showExplicitContent);
+    const preferences = settings?.preferences ?? defaultNetworkPreferences();
 
     const raw = await readBlueskySearch(
       parsed.data.q,
       request.signal,
       id,
       parsed.data.kind
+    );
+    raw.posts = raw.posts.filter((post) =>
+      externalNetworkPostAllowed(post, preferences)
     );
 
     if (!allowExplicit) {
@@ -46,7 +52,9 @@ export function GET(request: Request) {
           !profile.labels.some((l) => isExplicitTagOrTopic(l)) &&
           !isExplicitTagOrTopic(profile.handle) &&
           !isExplicitTagOrTopic(profile.displayName) &&
-          (!profile.description || !isExplicitTagOrTopic(profile.description))
+          (!profile.description ||
+            !isExplicitTagOrTopic(profile.description)) &&
+          !blueskyMediaIsExplicit({ author: profile })
       );
     }
 

@@ -166,7 +166,7 @@ test.each(["porn", "sexual", "graphic-media", "nudity"])(
   }
 );
 
-test("account warnings apply to post media while quoted posts keep their own warning state", () => {
+test("account and quoted-media warnings propagate to the outer post before previews render", () => {
   expect(
     externalPostView({
       ...post,
@@ -175,7 +175,7 @@ test("account warnings apply to post media while quoted posts keep their own war
   ).toBe(true);
   const quote = { ...post, id: `${post.id}-quote`, labels: ["graphic-media"] };
   const outer = externalPostView({ ...post, quote });
-  expect(outer.explicitContent).toBe(false);
+  expect(outer.explicitContent).toBe(true);
   expect(
     outer.external?.quote &&
       externalPostView(outer.external.quote).explicitContent

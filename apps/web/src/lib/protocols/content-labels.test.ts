@@ -45,3 +45,32 @@ test("preserves native explicit flags and repairs old external presentation flag
     })
   ).toBe(true);
 });
+
+test("unlabeled adult cues in bios, alternative text, previews and quotes stay behind the same opt-in", () => {
+  for (const post of [
+    { author: { description: "18+ creator account" } },
+    { author: { description: "A furry artist" } },
+    { media: [{ alt: "NSFW artwork" }] },
+    {
+      externalLink: {
+        description: "Hentai illustrations",
+        title: "Adult-only gallery",
+      },
+    },
+    { quote: { selfLabels: ["porn"] } },
+  ]) {
+    expect(blueskyMediaIsExplicit(post)).toBe(true);
+  }
+  expect(
+    blueskyMediaIsExplicit({
+      media: [{ alt: "Programming diagram" }],
+      text: "A secure TypeScript compiler",
+    })
+  ).toBe(false);
+  expect(
+    postHasExplicitMedia({
+      attachments: [{ altText: "NSFW illustration" }],
+      explicitContent: false,
+    })
+  ).toBe(true);
+});

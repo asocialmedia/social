@@ -298,3 +298,21 @@ test("foreign repost-only windows are advanced before choosing the chronological
   ).toEqual([12, 9]);
   expect(result.partial).toBe(false);
 });
+
+test("Home's optional cached read never fans out to authors on a cold miss", async () => {
+  cache.clear();
+  requested.length = 0;
+  const page = await readFollowingFeed(
+    "reader",
+    undefined,
+    new AbortController().signal,
+    "req",
+    "cached-only-test",
+    false,
+    false,
+    true
+  );
+  expect(page.items).toEqual([]);
+  expect(page.partial).toBe(true);
+  expect(requested).toHaveLength(0);
+});

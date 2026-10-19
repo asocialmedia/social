@@ -182,8 +182,12 @@ test("all five discovery modes enforce chosen interests before popularity and le
     })
   );
   for (const publication of publications) {
-    const watch: { topics: string[] } = JSON.parse(publication);
-    expect(watch.topics).toContain("software");
+    const watch: { content: string; topics: string[] } =
+      JSON.parse(publication);
+    if (!watch.topics.includes("software")) {
+      expect(watch.content).toBe("video");
+      expect(watch.topics).toEqual(["ajax programming", "automattic"]);
+    }
     expect(watch.topics).not.toContain("politics");
   }
 });
@@ -206,9 +210,13 @@ test("primary interest labels are valid for protocol reads and event watches", a
     false,
     "all"
   );
-  expect(publications).toHaveLength(1);
+  expect(publications).toHaveLength(2);
   const watch: { topics: string[] } = JSON.parse(publications[0] ?? "{}");
   expect(discoveryTopicsSchema.parse(watch.topics)).toEqual(topics);
+  expect(JSON.parse(publications[1] ?? "{}")).toMatchObject({
+    content: "video",
+    topics: ["ajax programming", "automattic"],
+  });
 });
 
 test("cached heads are filtered against the selected profile and its current exclusions", async () => {
@@ -306,4 +314,71 @@ test("Explore gates discovery by the active interests and exclusions", async () 
   const page: DiscoveryPage = await response.json();
   expect(response.status).toBe(200);
   expect(page.items.map((entry) => entry.id)).toEqual([upstream.items[0]?.id]);
+  const watch: { topics: string[] } = JSON.parse(publications[0] ?? "{}");
+  expect(watch.topics).toContain("software");
+  expect(watch.topics).not.toContain("automattic");
+});
+
+test("guests cannot request explicit snapshots and every discovery surface enforces an engagement floor", async () => {
+  session = null;
+  const clean = post("engaged", "A useful programming demonstration", true);
+  const adult = {
+    ...post("adult", "Preview", true),
+    author: { ...clean.author, description: "18+ NSFW creator" },
+  };
+  const quiet = {
+    ...post("quiet", "Unreviewed random text", true),
+    upstreamCounts: { likes: 0, quotes: 0, replies: 0, reposts: 0 },
+  };
+  const quoted = {
+    ...post("quoted", "Look at this", true),
+    quote: { ...clean, labels: ["porn"] },
+  };
+  cached = {
+    cursor: null,
+    items: [clean, adult, quiet, quoted],
+    partial: false,
+  };
+  for (const mode of ["latest", "personalized", "trending"]) {
+    for (const surface of ["home", "explore"]) {
+      // oxlint-disable-next-line no-await-in-loop -- compare each public surface against the same hostile cached candidates.
+      const response = await GET(
+        new Request(
+          `http://localhost/api/protocols/bluesky/discover?mode=${mode}&surface=${surface}&content=video&explicit=1`
+        )
+      );
+      // oxlint-disable-next-line no-await-in-loop -- assert the response before changing request scope.
+      const page = await response.json();
+      expect(response.status).toBe(200);
+      expect(page.items.map((entry: { id: string }) => entry.id)).toEqual([
+        clean.id,
+      ]);
+    }
+  }
+});
+
+test("adult opt-in permits labeled media while avoid topics remain enforced", async () => {
+  preferences = {
+    ...preferences,
+    avoidedTopics: ["furry"],
+    showExplicitContent: true,
+  };
+  const adult = {
+    ...post("opted", "Software tutorial", true),
+    labels: ["porn"],
+  };
+  const excludedAdult = {
+    ...post("avoided", "Software furry tutorial", true),
+    labels: ["porn"],
+  };
+  cached = { cursor: null, items: [adult, excludedAdult], partial: false };
+  const response = await GET(
+    new Request(
+      "http://localhost/api/protocols/bluesky/discover?mode=personalized"
+    )
+  );
+  const page = await response.json();
+  expect(page.items.map((entry: { id: string }) => entry.id)).toEqual([
+    adult.id,
+  ]);
 });

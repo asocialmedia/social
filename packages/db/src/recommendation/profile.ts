@@ -8,6 +8,7 @@ import { computeCentroid, EMBEDDING_DIMENSION } from "./vector";
 export type ProfileSignalKind =
   | "amplify"
   | "bookmark"
+  | "follow"
   | "comment"
   | "commentVote"
   | "upvote"
@@ -73,6 +74,7 @@ export const SIGNAL_WEIGHTS: Record<ProfileSignalKind, number> = {
   commentVote: 1,
   downvote: -2,
   dwell: 1.5,
+  follow: 3,
   hide: -3,
   interest: 8,
   notInterested: -4,

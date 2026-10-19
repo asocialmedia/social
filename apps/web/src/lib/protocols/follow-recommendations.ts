@@ -1,7 +1,7 @@
 import { externalFollowAuthors } from "@asm/db";
+import { after } from "next/server";
 
 import { readFollowingFeed } from "./following-feed";
-import { readBlueskyPosts } from "./service";
 
 export async function followedExternalRecommendations(
   userId: string,
@@ -28,17 +28,27 @@ export async function followedExternalRecommendations(
       requestId,
       policy,
       false,
-      includeExplicit
+      includeExplicit,
+      true
     );
-    const items = page.items.length
-      ? await readBlueskyPosts(
-          page.items.map((post) => post.id),
-          signal,
-          requestId,
-          true
-        )
-      : [];
-    return { followed, items, partial: page.partial };
+    if (page.partial && !page.items.length) {
+      after(async () => {
+        try {
+          await readFollowingFeed(
+            userId,
+            undefined,
+            AbortSignal.timeout(15_000),
+            requestId,
+            policy,
+            false,
+            includeExplicit
+          );
+        } catch {
+          // Following stays usable independently if an optional Home candidate source is down.
+        }
+      });
+    }
+    return { followed, items: page.items, partial: page.partial };
   } catch {
     return { followed, items: [], partial: true };
   }

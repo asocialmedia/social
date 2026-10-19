@@ -28,6 +28,7 @@ import {
   SharedReadCache,
   BoundedReadQueue,
   createRedisReadStore,
+  isDiscoveryColdStart,
 } from "@asm/protocols/discovery";
 import { z } from "zod";
 
@@ -128,7 +129,7 @@ export async function networkNativeFeed(
     const version = userId
       ? await redis.get(`rec:suggestions:version:${userId}`).catch(() => null)
       : "guest";
-    const key = `rec:native-head:v2:{${createHash("sha256")
+    const key = `rec:native-head:v3:{${createHash("sha256")
       .update(
         JSON.stringify([
           userId,
@@ -202,7 +203,12 @@ async function buildNetworkNativeFeed(
     context.topicScope
   );
   const maximumLevel = context.selected.interests.length ? 1 : 2;
-  const scope = `v10:${exploring ? "explore" : "home"}:${userId || "guest"}:${context.selected.id}:${context.revision}:${context.topicScope?.version ?? "exact"}:${mode}:${contentKind}`;
+  const scope = `v11:${exploring ? "explore" : "home"}:${userId || "guest"}:${context.selected.id}:${context.revision}:${context.topicScope?.version ?? "exact"}:${mode}:${contentKind}`;
+  const coldStart = isDiscoveryColdStart(
+    context.selected.interests,
+    context.profile,
+    "persona" in context ? context.persona.signalCount : 0
+  );
   const social = await networkSocialCandidates(userId);
   const socialById = new Map(social.native.map((entry) => [entry.id, entry]));
   const cursor = query.get("cursor");
@@ -370,7 +376,11 @@ async function buildNetworkNativeFeed(
     : [];
   let posts = rows
     .map(mapPostData)
-    .filter((post) => mode !== "trending" || isTrendingPost(post))
+    .filter((post) =>
+      mode === "trending"
+        ? isTrendingPost(post)
+        : !coldStart || isTrendingPost(post) || socialById.has(post.id)
+    )
     .filter(
       (post) =>
         networkLanguageMatches(

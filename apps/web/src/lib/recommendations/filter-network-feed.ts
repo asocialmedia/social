@@ -7,6 +7,7 @@ import {
   networkPostRecommended,
 } from "@/lib/posts/network-content-policy";
 import type { PresentedPost } from "@/lib/posts/presentation";
+import { isTrendingPost } from "@/lib/posts/trending-eligibility";
 
 // Legacy archive and secondary-feed requests enforce the same account policy.
 export async function filterNetworkFeed<T extends PresentedPost>(
@@ -21,7 +22,9 @@ export async function filterNetworkFeed<T extends PresentedPost>(
     const { networkTopicScope } = await import("@asm/db");
     scope = await networkTopicScope(interests, preferences.avoidedTopics);
   }
-  return posts.filter((post) =>
-    networkPostRecommended(post, preferences, scope)
+  return posts.filter(
+    (post) =>
+      networkPostRecommended(post, preferences, scope) &&
+      (Boolean(userId) || isTrendingPost(post))
   );
 }

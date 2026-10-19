@@ -10,6 +10,7 @@ import {
   redis,
   refreshExternalPost,
   upsertExternalPostSnapshot,
+  readNetworkPreferences,
 } from "@asm/db";
 import type { PostData } from "@asm/db";
 import { BlueskyClient } from "@asm/protocols/bluesky";
@@ -17,6 +18,7 @@ import type { ExternalPost } from "@asm/protocols/contracts";
 import { externalPostSchema } from "@asm/protocols/discovery";
 
 import { getSessionFromApi } from "@/lib/auth/session";
+import { networkPostAllowed } from "@/lib/posts/network-content-policy";
 import { externalPostView } from "@/lib/posts/presentation";
 import type { PresentedPost } from "@/lib/posts/presentation";
 
@@ -32,6 +34,7 @@ export async function GET() {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
   const userId = session.user.id;
+  const { preferences } = await readNetworkPreferences(userId);
   const redisKey = `user:post-visits:${userId}`;
 
   let rawMembers: string[] = [];
@@ -172,7 +175,9 @@ export async function GET() {
     let livePosts: ExternalPost[] = [];
     let fetchFailed = false;
     try {
-      const client = new BlueskyClient();
+      const client = new BlueskyClient({
+        allowExplicitMedia: preferences.showExplicitContent,
+      });
       livePosts = await client.getPosts(bskyUris);
     } catch (error) {
       fetchFailed = true;
@@ -276,7 +281,9 @@ export async function GET() {
     }
   }
 
-  const hydrated = await hydrateViewCounts(orderedPosts);
+  const hydrated = await hydrateViewCounts(
+    orderedPosts.filter((post) => networkPostAllowed(post, preferences))
+  );
 
   return Response.json({ posts: hydrated });
 }

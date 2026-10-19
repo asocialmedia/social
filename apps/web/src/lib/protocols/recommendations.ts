@@ -53,6 +53,10 @@ export function discoveryTopics(
       ...aliases.toSorted((a, b) => a.length - b.length),
       ...chosen,
     ])
+      .filter(
+        (topic) =>
+          topic.length >= 4 || /\p{N}/u.test(topic) || chosen.includes(topic)
+      )
       .filter(isRetrievalTopic)
       .slice(0, 5);
   }
@@ -169,7 +173,8 @@ export function rankExternalForViewer(
       (counts.reposts ?? 0) * 2 +
       (counts.replies ?? 0) +
       (counts.quotes ?? 0) * 2;
-    value += Math.min(0.1, Math.log1p(engagement) * 0.01) / (1 + hours / 24);
+    value +=
+      Math.min(2, Math.log1p(engagement) * 0.35) / (1 + hours / 24) ** 0.8;
     if (options.video) {
       value +=
         Math.min(4, Math.log1p(engagement) * 0.5) / (1 + hours / 24) ** 0.8;
@@ -181,9 +186,9 @@ export function rankExternalForViewer(
       ? (Math.log1p(engagement) / (1 + hours / 24) ** 0.6) * 8 +
           Math.min(3, fit) +
           Math.max(-1, Math.min(1, value * 0.05))
-      : Math.min(1, fit) *
-          (options.video ? 8 : 12) *
-          (0.25 + 0.75 / (1 + hours / 24)) +
+      : Math.min(1, fit) * 4 +
+          Math.max(0, Math.min(3, fit) - 1) * 0.5 +
+          2 / (1 + hours / 24) +
           value;
   };
   const candidates = posts
