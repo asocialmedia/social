@@ -17,7 +17,7 @@ if (
   count > 5000 ||
   !Number.isInteger(concurrency) ||
   concurrency < 1 ||
-  concurrency > 128
+  concurrency > 1000
 )
   throw new Error("Invalid load bounds");
 if (
@@ -47,6 +47,7 @@ const viewers = Array.from({ length: count }, (_, index) => ({
   interests: cohorts[index % cohorts.length] ?? ["engineering"],
   ip: `198.18.${Math.floor(index / 250)}.${(index % 250) + 1}`,
 }));
+const scenario = Bun.argv.includes("--feed-burst") ? "feed-burst" : "browse";
 const paths = [
   "/api/network/preferences",
   "/api/posts/for-you?network=1&locale=en",
@@ -65,8 +66,16 @@ const paths = [
   "/api/protocols/bluesky/discover?mode=personalized&content=video&surface=explore&locale=en",
   "/api/recommendations/suggestions",
 ];
+if (scenario === "feed-burst")
+  paths.splice(
+    0,
+    paths.length,
+    "/api/protocols/bluesky/discover?mode=personalized&locale=en"
+  );
 if (followDid) paths.push("/api/protocols/bluesky/following?locale=en");
 const timings = new Map<string, number[]>();
+const stages = new Map<string, Map<string, number[]>>();
+const responseBytes = new Map<string, number>();
 const partialByPath = new Map<string, number>();
 const emptyByPath = new Map<string, number>();
 const errors: { path: string; status: number; error?: string }[] = [];
@@ -132,7 +141,23 @@ try {
               signal: AbortSignal.timeout(30_000),
             });
             // oxlint-disable-next-line no-await-in-loop -- consume the response before the next request.
-            const body = (await response.json()) as {
+            const text = await response.text();
+            responseBytes.set(
+              path,
+              (responseBytes.get(path) ?? 0) + Buffer.byteLength(text)
+            );
+            const routeStages = stages.get(path) ?? new Map<string, number[]>();
+            for (const stage of (
+              response.headers.get("server-timing") ?? ""
+            ).split(",")) {
+              const match = /^\s*([a-z]+);dur=([\d.]+)/u.exec(stage);
+              if (!match) continue;
+              const values = routeStages.get(match[1]) ?? [];
+              values.push(Number(match[2]));
+              routeStages.set(match[1], values);
+            }
+            stages.set(path, routeStages);
+            const body = JSON.parse(text) as {
               error?: string;
               partial?: boolean;
               items?: unknown[];
@@ -197,6 +222,7 @@ try {
     usersWithExternalFollow: viewers.filter((viewer) => viewer.follow).length,
     followedActor: followDid ?? null,
     concurrency,
+    scenario,
     requests,
     elapsedMs: Math.round(performance.now() - started),
     partialResponses: partial,
@@ -220,6 +246,18 @@ try {
     errors: errors.slice(0, 40),
     paths: [...timings].map(([path, values]) => ({
       path,
+      responseBytes: responseBytes.get(path) ?? 0,
+      stages: Object.fromEntries(
+        [...(stages.get(path) ?? new Map<string, number[]>())].map(
+          ([stage, samples]) => [
+            stage,
+            {
+              p50Ms: percentile(samples, 0.5),
+              p95Ms: percentile(samples, 0.95),
+            },
+          ]
+        )
+      ),
       partialResponses: partialByPath.get(path) ?? 0,
       emptyResponses: emptyByPath.get(path) ?? 0,
       requests: values.length,
