@@ -6,6 +6,7 @@ import {
   formatPrismaFailure,
   missingExtensions,
   normalizeSkillVersion,
+  parseContainerList,
   parseExtensionList,
   parseMarker,
   parsePendingMigrations,
@@ -78,6 +79,80 @@ describe("parseExtensionList", () => {
 
   test("handles empty output", () => {
     expect(parseExtensionList("")).toEqual([]);
+  });
+});
+
+describe("parseContainerList", () => {
+  test("reads Docker Compose JSON Lines publishers", () => {
+    const output = JSON.stringify({
+      Name: "social-postgres-1",
+      Publishers: [
+        {
+          Protocol: "tcp",
+          PublishedPort: 5433,
+          TargetPort: 5432,
+          URL: "0.0.0.0",
+        },
+      ],
+      Service: "postgres-dev",
+      State: "running",
+    });
+
+    expect(parseContainerList(output)).toEqual([
+      {
+        name: "social-postgres-1",
+        ports: "5433->5432",
+        service: "postgres-dev",
+        state: "running",
+        status: "",
+      },
+    ]);
+  });
+
+  test("reads Podman Compose array ports", () => {
+    const output = JSON.stringify([
+      {
+        Names: ["social-postgres-1"],
+        Ports: [{ container_port: 5432, host_port: 5433 }],
+        Service: "postgres-dev",
+        State: "running",
+        Status: "Up 2 minutes",
+      },
+    ]);
+
+    expect(parseContainerList(output)[0]?.ports).toBe("5433->5432");
+  });
+
+  test("reads object and string port representations without throwing", () => {
+    const output = [
+      JSON.stringify({
+        Ports: {
+          "5432/tcp": [{ HostIp: "0.0.0.0", HostPort: "5433" }],
+        },
+        Service: "postgres-dev",
+      }),
+      JSON.stringify({
+        Ports: "127.0.0.1:6379->6379/tcp",
+        Service: "redis-dev",
+      }),
+    ].join("\n");
+
+    expect(
+      parseContainerList(output).map((container) => container.ports)
+    ).toEqual(["5433->5432", "127.0.0.1:6379->6379/tcp"]);
+  });
+
+  test("ignores invalid records and malformed output", () => {
+    expect(parseContainerList('[null, {"Service":"postgres-dev"}]')).toEqual([
+      {
+        name: "postgres-dev",
+        ports: "",
+        service: "postgres-dev",
+        state: "",
+        status: "",
+      },
+    ]);
+    expect(parseContainerList("not json")).toEqual([]);
   });
 });
 

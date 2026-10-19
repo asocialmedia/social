@@ -42,6 +42,14 @@ export interface StepDecision {
   run: boolean;
 }
 
+export interface ContainerInfo {
+  name: string;
+  ports: string;
+  service: string;
+  state: string;
+  status: string;
+}
+
 export interface ArtefactFacts {
   /** contract.d.ts is the artefact db update and the app both consume. */
   contractDTsMtimeMs: number;
@@ -121,6 +129,132 @@ export function parseExtensionList(stdout: string): string[] {
     .split("\n")
     .map((line) => line.trim())
     .filter((line) => line.length > 0);
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return null;
+  }
+  return value as Record<string, unknown>;
+}
+
+function portValue(value: unknown): string | null {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return String(value);
+  }
+  if (typeof value === "string" && value.trim()) {
+    return value.trim();
+  }
+  return null;
+}
+
+function formatPortEntry(value: unknown, fallbackContainer?: string): string {
+  if (typeof value === "string") {
+    return value.trim();
+  }
+  const port = asRecord(value);
+  if (!port) {
+    return fallbackContainer ?? "";
+  }
+  const host = portValue(port.host_port ?? port.HostPort ?? port.PublishedPort);
+  const container =
+    portValue(port.container_port ?? port.ContainerPort ?? port.TargetPort) ??
+    fallbackContainer;
+  if (!container) {
+    return "";
+  }
+  return host ? `${host}->${container}` : container;
+}
+
+function formatPorts(value: unknown): string {
+  if (typeof value === "string") {
+    return value.trim();
+  }
+  if (Array.isArray(value)) {
+    return value
+      .map((entry) => formatPortEntry(entry))
+      .filter(Boolean)
+      .join(", ");
+  }
+  const ports = asRecord(value);
+  if (!ports) {
+    return "";
+  }
+  const direct = formatPortEntry(ports);
+  if (direct) {
+    return direct;
+  }
+  return Object.entries(ports)
+    .flatMap(([containerKey, mappings]) => {
+      const container = containerKey.split("/")[0] ?? containerKey;
+      if (Array.isArray(mappings)) {
+        return mappings.map((mapping) => formatPortEntry(mapping, container));
+      }
+      if (mappings === null || mappings === undefined) {
+        return [];
+      }
+      return [formatPortEntry(mappings, container)];
+    })
+    .filter(Boolean)
+    .join(", ");
+}
+
+function recordName(value: unknown): string | null {
+  if (Array.isArray(value)) {
+    return (
+      value.find((name): name is string => typeof name === "string") ?? null
+    );
+  }
+  return typeof value === "string" ? value : null;
+}
+
+function recordString(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+
+function mapContainer(value: unknown): ContainerInfo | null {
+  const raw = asRecord(value);
+  if (!raw) {
+    return null;
+  }
+  const labels = asRecord(raw.Labels);
+  const service =
+    recordString(raw.Service) ||
+    recordString(labels?.["com.docker.compose.service"]) ||
+    "unknown";
+  const ports = formatPorts(raw.Publishers) || formatPorts(raw.Ports);
+  return {
+    name: recordName(raw.Names) ?? recordName(raw.Name) ?? service,
+    ports,
+    service,
+    state: recordString(raw.State),
+    status: recordString(raw.Status).replace(/\s+/gu, " ").trim(),
+  };
+}
+
+export function parseContainerList(stdout: string): ContainerInfo[] {
+  const trimmed = stdout.trim();
+  if (!trimmed) {
+    return [];
+  }
+  try {
+    const records: unknown[] = trimmed.startsWith("[")
+      ? (() => {
+          const parsed: unknown = JSON.parse(trimmed);
+          return Array.isArray(parsed) ? parsed : [];
+        })()
+      : trimmed
+          .split("\n")
+          .map((line) => line.trim())
+          .filter(Boolean)
+          .map((line) => JSON.parse(line) as unknown);
+    return records.flatMap((record) => {
+      const container = mapContainer(record);
+      return container ? [container] : [];
+    });
+  } catch {
+    return [];
+  }
 }
 
 export function missingExtensions(
