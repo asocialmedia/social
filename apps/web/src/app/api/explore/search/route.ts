@@ -11,6 +11,7 @@ import {
 } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/auth/session";
+import { explicitContentEnabled } from "@/lib/posts/explicit-content-enabled";
 
 const TAKE_PATTERN = /^[1-9]\d*$/;
 
@@ -44,6 +45,9 @@ export async function GET(request: Request) {
   const lowerQ = q.toLowerCase();
   const pattern = `%${q.replaceAll(/[\\%_]/g, "\\$&")}%`;
   const visibility = communityVisibilityWhere(userId);
+  // Explore search is a feed surface, so an explicit post is only visible to a
+  // reader who turned explicit content on. Guests can never opt in.
+  const showExplicitContent = await explicitContentEnabled(userId);
   const [
     contentPosts,
     tagPosts,
@@ -62,6 +66,7 @@ export async function GET(request: Request) {
           post.content.ilike(pattern),
           visibility(post),
           post.moderated.eq(false),
+          ...(showExplicitContent ? [] : [post.explicitContent.eq(false)]),
           post.rootPostId.isNull(),
           ...(tab === "gusts" ? [post.isGust.eq(true)] : [])
         )
@@ -76,6 +81,7 @@ export async function GET(request: Request) {
           ),
           visibility(post),
           post.moderated.eq(false),
+          ...(showExplicitContent ? [] : [post.explicitContent.eq(false)]),
           post.rootPostId.isNull(),
           ...(tab === "gusts" ? [post.isGust.eq(true)] : [])
         )
@@ -88,6 +94,7 @@ export async function GET(request: Request) {
           post.semanticTags.in([[lowerQ]]),
           visibility(post),
           post.moderated.eq(false),
+          ...(showExplicitContent ? [] : [post.explicitContent.eq(false)]),
           post.rootPostId.isNull(),
           ...(tab === "gusts" ? [post.isGust.eq(true)] : [])
         )
@@ -100,6 +107,7 @@ export async function GET(request: Request) {
           post.postMedias.some((media) => media.transcript.ilike(pattern)),
           visibility(post),
           post.moderated.eq(false),
+          ...(showExplicitContent ? [] : [post.explicitContent.eq(false)]),
           post.rootPostId.isNull(),
           ...(tab === "gusts" ? [post.isGust.eq(true)] : [])
         )
@@ -112,6 +120,7 @@ export async function GET(request: Request) {
           post.postMedias.some((media) => media.ocrText.ilike(pattern)),
           visibility(post),
           post.moderated.eq(false),
+          ...(showExplicitContent ? [] : [post.explicitContent.eq(false)]),
           post.rootPostId.isNull(),
           ...(tab === "gusts" ? [post.isGust.eq(true)] : [])
         )
@@ -124,6 +133,7 @@ export async function GET(request: Request) {
           post.postMedias.some((media) => media.semanticTags.in([[lowerQ]])),
           visibility(post),
           post.moderated.eq(false),
+          ...(showExplicitContent ? [] : [post.explicitContent.eq(false)]),
           post.rootPostId.isNull(),
           ...(tab === "gusts" ? [post.isGust.eq(true)] : [])
         )

@@ -164,9 +164,11 @@ async function readNetworkNativeFeed(
     // ordering, while concurrent loads of the same page still share one read.
     const servedCount = userId
       ? await redis
-          .zcard(`rec:served:v1:{${createHash("sha256")
-            .update(`${userId}:${contentKind}:${mode}`)
-            .digest("hex")}}`)
+          .zcard(
+            `rec:served:v1:{${createHash("sha256")
+              .update(`${userId}:${contentKind}:${mode}`)
+              .digest("hex")}}`
+          )
           .catch(() => 0)
       : 0;
     const version = userId

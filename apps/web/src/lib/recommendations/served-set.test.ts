@@ -4,7 +4,7 @@ const store = new Map<string, Map<string, number>>();
 const multi = () => {
   const pending: (() => void)[] = [];
   const api = {
-    exec: async () => {
+    exec: () => {
       for (const run of pending) {
         run();
       }
@@ -27,13 +27,16 @@ const multi = () => {
 mock.module("@asm/db", () => ({
   redis: {
     multi,
-    zrange: async (key: string, start: string, stop: string) => {
+    zrange: (key: string, start: string, stop: string) => {
       const entries = [...(store.get(key) ?? new Map<string, number>())]
         .toSorted((a, b) => a[1] - b[1])
         .map(([member]) => member);
       const from = Number(start);
       const to = Number(stop);
-      return entries.slice(from < 0 ? from : from, to === -1 ? undefined : to + 1);
+      return entries.slice(
+        from < 0 ? from : from,
+        to === -1 ? undefined : to + 1
+      );
     },
   },
 }));

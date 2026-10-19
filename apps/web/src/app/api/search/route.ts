@@ -12,6 +12,7 @@ import type { PostsPage } from "@asm/db";
 import type { NextRequest } from "next/server";
 
 import { getSessionFromApi } from "@/lib/auth/session";
+import { explicitContentEnabled } from "@/lib/posts/explicit-content-enabled";
 
 export async function GET(request: Request) {
   const session = await getSessionFromApi();
@@ -43,12 +44,16 @@ export async function GET(request: Request) {
 
   // Guests can search public posts; per-user fields simply resolve to empty.
   // Moderated posts are excluded at the DB query — never returned to the client.
+  // Explicit posts follow the reader's policy: a guest can never opt in, so a
+  // search result must not be the way around the feed's content filter.
+  const showExplicitContent = await explicitContentEnabled(user?.id ?? "");
   const pattern = `%${q.replaceAll(/[\\%_]/g, "\\$&")}%`;
   let query = getPostDataQuery(prisma.orm, user?.id ?? "")
     .where((post) =>
       and(
         post.moderated.eq(false),
         post.content.ilike(pattern),
+        ...(showExplicitContent ? [] : [post.explicitContent.eq(false)]),
         communityVisibilityWhere(user?.id ?? "")(post)
       )
     )

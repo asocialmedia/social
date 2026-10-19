@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 
 import { getSessionFromApi } from "@/lib/auth/session";
 import { recordDeliveryPayload } from "@/lib/media/delivery-metrics";
+import { explicitContentEnabled } from "@/lib/posts/explicit-content-enabled";
 import {
   decideMediaAccess,
   resolveOwningCommunity,
@@ -106,7 +107,7 @@ async function getMediaOwnership(mediaId: string) {
     )
     .include("post", (post) =>
       post
-        .select("communityId")
+        .select("communityId", "explicitContent")
         .include("community", (community) => community.select("id", "_type"))
     )
     .include("postMediaDerivatives", (derivative) =>
@@ -239,6 +240,22 @@ export async function GET(
   );
   const owningCommunity = resolveOwningCommunity(ownership);
   const isPrivateCommunityPost = owningCommunity?.type === "PRIVATE";
+  // Media bytes follow the post's own visibility. An explicit post's attachment
+  // is not public just because the row has a postId: guests can never opt in, and
+  // a signed-in reader has to have switched explicit content on.
+  let isExplicitPost = false;
+  if (ownership.post?.explicitContent) {
+    const showExplicitContent = viewer
+      ? await explicitContentEnabled(viewer.id)
+      : false;
+    if (!showExplicitContent) {
+      return mediaError("Media not found", 404);
+    }
+    isExplicitPost = true;
+  }
+  // Explicit media is never stored publicly, even for an opted-in reader: the
+  // next viewer may not be opted in, so every cache-control below also checks
+  // isExplicitPost.
   const isCommunityMember =
     isPrivateCommunityPost && owningCommunity
       ? await canViewCommunity(owningCommunity, viewer?.id ?? "")
@@ -302,7 +319,7 @@ export async function GET(
               headers: {
                 "Access-Control-Allow-Origin": "*",
                 "Cache-Control":
-                  ownership.postId && !isPrivateCommunityPost
+                  ownership.postId && !isPrivateCommunityPost && !isExplicitPost
                     ? "public, max-age=31536000, immutable"
                     : "private, no-store",
                 "Content-Type": "text/vtt; charset=utf-8",
@@ -387,7 +404,7 @@ export async function GET(
             // (re-analysis rewrites them), so this stays private and
             // uncacheable for drafts and short-lived for attached media.
             "Cache-Control":
-              ownership.postId && !isPrivateCommunityPost
+              ownership.postId && !isPrivateCommunityPost && !isExplicitPost
                 ? "public, max-age=3600"
                 : "private, no-store",
             "Content-Type": "text/vtt; charset=utf-8",
@@ -403,7 +420,7 @@ export async function GET(
           // is still a viewer-gated response (comment/message/draft/private),
           // so it must not be stored.
           "Cache-Control":
-            ownership.postId && !isPrivateCommunityPost
+            ownership.postId && !isPrivateCommunityPost && !isExplicitPost
               ? "public, max-age=60"
               : "private, no-store",
           "Content-Type": "text/vtt; charset=utf-8",
@@ -466,7 +483,7 @@ export async function GET(
             // Viewer-gated media (comment/message/draft/private community)
             // must not be stored at all.
             "Cache-Control":
-              ownership.postId && !isPrivateCommunityPost
+              ownership.postId && !isPrivateCommunityPost && !isExplicitPost
                 ? "public, max-age=3"
                 : "private, no-store",
             "Content-Type": "image/svg+xml",
@@ -483,7 +500,7 @@ export async function GET(
       // would keep rendering after that. Public post media stays immutable, and
       // other private media (comment/message drafts) keeps its short cache.
       let posterCacheControl = "private, max-age=86400";
-      if (ownership.postId && !isPrivateCommunityPost) {
+      if (ownership.postId && !isPrivateCommunityPost && !isExplicitPost) {
         posterCacheControl = "public, max-age=31536000, immutable";
       } else if (isPrivateCommunityPost) {
         posterCacheControl = "private, no-store";
@@ -606,7 +623,7 @@ export async function GET(
     // never stored.
     headers.set(
       "Cache-Control",
-      ownership.postId && !isPrivateCommunityPost
+      ownership.postId && !isPrivateCommunityPost && !isExplicitPost
         ? "public, max-age=31536000, immutable"
         : "private, no-store"
     );

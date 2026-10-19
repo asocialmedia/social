@@ -44,6 +44,7 @@ export async function GET(): Promise<Response> {
       and(
         post.isGust.eq(false),
         post.moderated.eq(false),
+        post.explicitContent.eq(false),
         post.rootPostId.isNull(),
         post.user.some((user) => user.banned.eq(false)),
         communityVisibilityWhere("")(post)

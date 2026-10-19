@@ -14,6 +14,8 @@ import { excerpt, getPostUrl, getShortPostId } from "@/lib/seo/seo";
 // Server-side feed helpers for SEO crawlable HTML.
 // These mirror the API route logic but run via Prisma directly so
 // discovery surfaces render real <a href="/posts/..."> links in SSR.
+// Every helper is guest-rendered, so explicit posts are excluded unconditionally:
+// a crawler has no session and can never opt in.
 
 export interface CrawlPost {
   aura: number;
@@ -61,6 +63,7 @@ export async function getRecentPostsForCrawl(limit = 20): Promise<CrawlPost[]> {
       and(
         post.isGust.eq(false),
         post.moderated.eq(false),
+        post.explicitContent.eq(false),
         post.rootPostId.isNull(),
         post.user.some((user) => user.banned.eq(false)),
         communityVisibilityWhere("")(post)
@@ -90,6 +93,7 @@ export async function getRecentGustsForCrawl(limit = 12): Promise<CrawlPost[]> {
       and(
         post.isGust.eq(true),
         post.moderated.eq(false),
+        post.explicitContent.eq(false),
         post.user.some((user) => user.banned.eq(false)),
         communityVisibilityWhere("")(post)
       )
@@ -123,6 +127,7 @@ export async function getTrendingPostsForCrawl(
       and(
         post.isGust.eq(false),
         post.moderated.eq(false),
+        post.explicitContent.eq(false),
         post.rootPostId.isNull(),
         post.user.some((user) => user.banned.eq(false)),
         communityVisibilityWhere("")(post)
@@ -156,6 +161,7 @@ export async function getHashtagPostsForCrawl(
       and(
         post.isGust.eq(false),
         post.moderated.eq(false),
+        post.explicitContent.eq(false),
         post.rootPostId.isNull(),
         post.postToTags.some((postTag) =>
           postTag.tag.some((tagRecord) => tagRecord.name.eq(tag))
@@ -192,6 +198,7 @@ export async function getUserPostsForCrawl(
       and(
         post.isGust.eq(false),
         post.moderated.eq(false),
+        post.explicitContent.eq(false),
         post.rootPostId.isNull(),
         post.userId.eq(userId),
         post.user.some((user) => user.banned.eq(false)),
@@ -219,6 +226,7 @@ export async function getRecentPostDataForCrawl(limit = 20) {
       and(
         post.isGust.eq(false),
         post.moderated.eq(false),
+        post.explicitContent.eq(false),
         post.rootPostId.isNull(),
         post.user.some((user) => user.banned.eq(false)),
         communityVisibilityWhere("")(post)
@@ -259,6 +267,7 @@ export async function getCommunityPostsForCrawl(
         post.communityId.eq(community.id),
         post.isGust.eq(false),
         post.moderated.eq(false),
+        post.explicitContent.eq(false),
         post.user.some((user) => user.banned.eq(false))
       )
     )

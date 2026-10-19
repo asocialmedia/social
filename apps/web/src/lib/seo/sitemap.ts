@@ -153,6 +153,7 @@ async function getPostEntries(): Promise<SitemapEntry[]> {
       and(
         post.isGust.eq(false),
         post.moderated.eq(false),
+        post.explicitContent.eq(false),
         post.rootPostId.isNull(),
         post.user.some((user) => user.banned.eq(false)),
         communityVisibilityWhere("")(post)
@@ -205,6 +206,7 @@ async function getGustEntries(): Promise<SitemapEntry[]> {
       and(
         post.isGust.eq(true),
         post.moderated.eq(false),
+        post.explicitContent.eq(false),
         post.user.some((user) => user.banned.eq(false)),
         communityVisibilityWhere("")(post)
       )
