@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 let backfillEnabled = true;
+let geminiApiKey: string | undefined = "mock-gemini-key";
+let whisperEnabled = true;
 
 mock.module("../env", () => ({
   keys: {},
@@ -8,6 +10,12 @@ mock.module("../env", () => ({
   workerEnv: {
     get BACKFILL_ENABLED() {
       return backfillEnabled;
+    },
+    get GEMINI_API_KEY() {
+      return geminiApiKey;
+    },
+    get WHISPER_ENABLED() {
+      return whisperEnabled;
     },
   },
 }));
@@ -76,6 +84,8 @@ const {
 describe("transcriptionBackfillSweep loop prevention", () => {
   beforeEach(() => {
     backfillEnabled = true;
+    geminiApiKey = "mock-gemini-key";
+    whisperEnabled = true;
     candidateRows = [];
     enqueuedIds.length = 0;
     semanticRefreshIds.length = 0;
@@ -209,6 +219,88 @@ describe("transcriptionBackfillSweep loop prevention", () => {
   test("returns 0 and performs no work when BACKFILL_ENABLED is false", async () => {
     backfillEnabled = false;
     candidateRows = [{ id: "fresh-vid", techMetadata: null }];
+
+    const result = await transcriptionBackfillSweep();
+    expect(result.enqueued).toBe(0);
+    expect(enqueuedIds).toHaveLength(0);
+  });
+
+  test("returns 0 and performs no work when GEMINI_API_KEY is not configured", async () => {
+    geminiApiKey = undefined;
+    candidateRows = [{ id: "fresh-vid", techMetadata: null }];
+
+    const result = await transcriptionBackfillSweep();
+    expect(result.enqueued).toBe(0);
+    expect(enqueuedIds).toHaveLength(0);
+  });
+
+  test("returns 0 and performs no work when WHISPER_ENABLED is false", async () => {
+    whisperEnabled = false;
+    candidateRows = [{ id: "fresh-vid", techMetadata: null }];
+
+    const result = await transcriptionBackfillSweep();
+    expect(result.enqueued).toBe(0);
+    expect(enqueuedIds).toHaveLength(0);
+  });
+
+  test("skips media permanently classified as skipped in transcription or analysisStages", async () => {
+    candidateRows = [
+      {
+        id: "skipped-vid-1",
+        techMetadata: {
+          transcription: {
+            attemptedAt: new Date().toISOString(),
+            status: "skipped",
+          },
+        },
+      },
+      {
+        id: "skipped-vid-2",
+        techMetadata: {
+          analysisStages: {
+            transcription: {
+              status: "skipped",
+              version: 1,
+            },
+          },
+        },
+      },
+    ];
+
+    const result = await transcriptionBackfillSweep();
+    expect(result.enqueued).toBe(0);
+    expect(enqueuedIds).toHaveLength(0);
+  });
+
+  test("respects analysisStages.transcription attempts and retry windows", async () => {
+    candidateRows = [
+      {
+        id: "recent-analysis-failure",
+        techMetadata: {
+          analysisStages: {
+            transcription: {
+              attemptedAt: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
+              attempts: 1,
+              status: "failed",
+            },
+          },
+        },
+      },
+      {
+        id: "exhausted-analysis-failure",
+        techMetadata: {
+          analysisStages: {
+            transcription: {
+              attemptedAt: new Date(
+                Date.now() - 24 * 60 * 60 * 1000
+              ).toISOString(),
+              attempts: MAX_TRANSCRIPTION_BACKFILL_ATTEMPTS,
+              status: "failed",
+            },
+          },
+        },
+      },
+    ];
 
     const result = await transcriptionBackfillSweep();
     expect(result.enqueued).toBe(0);

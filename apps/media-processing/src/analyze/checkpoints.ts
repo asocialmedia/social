@@ -22,7 +22,9 @@ export function analysisStageComplete(
     typeof value === "object" &&
     "status" in value &&
     (!model || ("model" in value && value.model === model)) &&
-    ["completed", "silent", "no_audio"].includes(String(value.status))
+    ["completed", "silent", "no_audio", "skipped"].includes(
+      String(value.status)
+    )
   );
 }
 
@@ -42,7 +44,9 @@ export function transcriptionComplete(metadata: unknown): boolean {
     transcription &&
     typeof transcription === "object" &&
     "status" in transcription &&
-    ["completed", "silent", "no_audio"].includes(String(transcription.status))
+    ["completed", "silent", "no_audio", "skipped"].includes(
+      String(transcription.status)
+    )
   );
 }
 
@@ -86,16 +90,29 @@ export function transcriptionRetryEligible(
   metadata: unknown,
   now = Date.now()
 ): boolean {
-  if (
-    !metadata ||
-    typeof metadata !== "object" ||
-    !("transcription" in metadata)
-  ) {
+  if (!metadata || typeof metadata !== "object") {
     return true;
   }
-  const stage = metadata.transcription;
-  if (!stage || typeof stage !== "object") {
+  const stages =
+    "analysisStages" in metadata &&
+    metadata.analysisStages &&
+    typeof metadata.analysisStages === "object"
+      ? (metadata.analysisStages as Record<string, unknown>)
+      : null;
+  const stage =
+    (stages?.transcription && typeof stages.transcription === "object"
+      ? (stages.transcription as Record<string, unknown>)
+      : null) ??
+    ("transcription" in metadata &&
+    metadata.transcription &&
+    typeof metadata.transcription === "object"
+      ? (metadata.transcription as Record<string, unknown>)
+      : null);
+  if (!stage) {
     return true;
+  }
+  if ("status" in stage && stage.status === "skipped") {
+    return false;
   }
   if (
     "attempts" in stage &&
