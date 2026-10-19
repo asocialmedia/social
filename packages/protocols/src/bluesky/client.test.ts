@@ -13,6 +13,52 @@ import { normalizePost, normalizeSegments } from "./normalize";
 import { postViewSchema } from "./schemas";
 
 describe("Bluesky public read boundary", () => {
+  test("profile search normalizes public profiles, filters restricted authors, and caches identical reads", async () => {
+    const urls: string[] = [];
+    const client = new BlueskyClient({
+      fetch: async (url, init) => {
+        urls.push(url);
+        expect(new Headers(init.headers).has("authorization")).toBe(false);
+        return Response.json({
+          actors: [
+            profileFixture,
+            {
+              ...profileFixture,
+              did: "did:plc:restricted",
+              labels: [
+                {
+                  cts: "2026-10-16T10:00:00.000Z",
+                  src: authorDid,
+                  uri: `at://${authorDid}/app.bsky.actor.profile/self`,
+                  val: "!hide",
+                },
+              ],
+            },
+          ],
+        });
+      },
+    });
+    const profiles = await client.searchActors("  bluesky  ", 6);
+    expect(profiles).toHaveLength(1);
+    expect(profiles[0]).toMatchObject({
+      handle: "bsky.app",
+      id: authorDid,
+      source: "bluesky",
+    });
+    expect(new URL(urls[0] ?? "").pathname).toBe(
+      "/xrpc/app.bsky.actor.searchActors"
+    );
+    expect(new URL(urls[0] ?? "").searchParams.get("q")).toBe("bluesky");
+    await client.searchActors("bluesky", 6);
+    expect(urls).toHaveLength(1);
+    await expect(client.searchActors("x".repeat(81))).rejects.toMatchObject({
+      code: "invalid_input",
+    });
+    await expect(client.searchActors("bluesky", 100)).rejects.toMatchObject({
+      code: "invalid_input",
+    });
+    expect(urls).toHaveLength(1);
+  });
   test("search uses the public AppView search host without forwarding credentials", async () => {
     const calls: string[] = [];
     const client = new BlueskyClient({

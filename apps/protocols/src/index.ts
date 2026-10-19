@@ -51,6 +51,19 @@ export async function startProtocols() {
     observe: createProtocolObserver(logger),
     timeoutMs: 10_000,
   });
+  const searchClient = new BlueskyClient({
+    maxConcurrentRequests: config.searchConcurrency,
+    maxRetries: 0,
+    observe: createProtocolObserver(logger),
+    timeoutMs: 2500,
+  });
+  const explicitSearchClient = new BlueskyClient({
+    allowExplicitMedia: true,
+    maxConcurrentRequests: config.searchConcurrency,
+    maxRetries: 0,
+    observe: createProtocolObserver(logger),
+    timeoutMs: 2500,
+  });
   const health = {
     connected: false,
     draining: false,
@@ -106,6 +119,14 @@ export async function startProtocols() {
     });
   }
   const { createCachedBlueskyClient } = await import("./cache-client");
+  const { createBlueskySearch } = await import("./search");
+  const { createRedisReadStore } = await import("@asm/protocols/discovery");
+  const search = createBlueskySearch({
+    client: searchClient,
+    concurrency: config.searchConcurrency,
+    explicitClient: explicitSearchClient,
+    store: redis ? createRedisReadStore(redis) : undefined,
+  });
   const effectiveClient = redis
     ? createCachedBlueskyClient(client, redis)
     : client;
@@ -185,6 +206,7 @@ export async function startProtocols() {
       storageReady: redis ? redis.status === "ready" : true,
     }),
     logger,
+    search,
     token: config.token,
   });
   try {
@@ -209,6 +231,9 @@ export async function startProtocols() {
     await stopLive?.();
     client.close();
     explicitClient.close();
+    search.close();
+    searchClient.close();
+    explicitSearchClient.close();
     await app.stop(true);
     await closeRedis?.().catch(() => {
       // The original startup failure takes precedence over Redis cleanup.
@@ -244,6 +269,9 @@ export async function startProtocols() {
       await stopLive?.();
       client.close();
       explicitClient.close();
+      search.close();
+      searchClient.close();
+      explicitSearchClient.close();
       await Promise.race([worker, Bun.sleep(3000)]).catch(() => null);
       await app.stop(true);
       try {

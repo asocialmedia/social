@@ -2,6 +2,7 @@ import { jetstreamEndpoints } from "@asm/protocols/jetstream";
 import type { JetstreamEndpoint } from "@asm/protocols/jetstream";
 
 export interface ProtocolsConfig {
+  searchConcurrency: number;
   asmUrl?: string;
   hostname: string;
   port: number;
@@ -16,6 +17,16 @@ export function readConfig(
   env: Record<string, string | undefined>
 ): ProtocolsConfig {
   const port = Number(env.PROTOCOLS_PORT ?? "3012");
+  const searchConcurrency = Number(env.PROTOCOLS_SEARCH_CONCURRENCY ?? "48");
+  if (
+    !Number.isInteger(searchConcurrency) ||
+    searchConcurrency < 1 ||
+    searchConcurrency > 64
+  ) {
+    throw new Error(
+      "PROTOCOLS_SEARCH_CONCURRENCY must be an integer between 1 and 64"
+    );
+  }
   if (!Number.isInteger(port) || port < 1 || port > 65_535) {
     throw new Error("PROTOCOLS_PORT must be a valid port");
   }
@@ -110,6 +121,7 @@ export function readConfig(
     jetstreamEnabled: enabled === "true",
     port,
     redisUrl,
+    searchConcurrency,
     token,
   };
 }

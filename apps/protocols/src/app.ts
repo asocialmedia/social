@@ -11,6 +11,7 @@ import { Elysia, t } from "elysia";
 import { version } from "../package.json";
 import { observeRequest, requestId } from "./observability";
 import type { ProtocolLogger } from "./observability";
+import { createBlueskySearch } from "./search";
 
 export interface ProtocolsHealth {
   storageReady?: boolean;
@@ -23,6 +24,7 @@ export interface ProtocolsHealth {
 }
 
 export interface ProtocolsAppOptions {
+  search?: ReturnType<typeof createBlueskySearch>;
   explicitClient?: ProtocolsAppOptions["client"];
   explicitDiscover?: ProtocolsAppOptions["discover"];
   client: Pick<
@@ -32,7 +34,11 @@ export interface ProtocolsAppOptions {
     Partial<
       Pick<
         BlueskyClient,
-        "getPosts" | "getPostThread" | "allowsRecommendations"
+        | "getPosts"
+        | "getPostThread"
+        | "allowsRecommendations"
+        | "searchActors"
+        | "searchPosts"
       >
     >;
   logger: ProtocolLogger;
@@ -72,6 +78,12 @@ const statusByCode = {
 } as const;
 
 export function createProtocolsApp(options: ProtocolsAppOptions) {
+  const search =
+    options.search ??
+    createBlueskySearch({
+      client: options.client,
+      explicitClient: options.explicitClient,
+    });
   const clientFor = (request: Request) =>
     new URL(request.url).searchParams.get("explicit") === "1"
       ? (options.explicitClient ?? options.client)
@@ -119,6 +131,7 @@ export function createProtocolsApp(options: ProtocolsAppOptions) {
         stream = health.connected ? "connected" : "disconnected";
       }
       return {
+        search: search.stats(),
         service: "protocols",
         status: ready ? "ready" : "not_ready",
         storage: health.storageReady === false ? "recovering" : "ready",
@@ -150,6 +163,37 @@ export function createProtocolsApp(options: ProtocolsAppOptions) {
           }
         })
         .get("/capabilities", () => ({ protocols: [blueskyCapabilities] }))
+        .get(
+          "/bluesky/search",
+          ({ query, request, set }) =>
+            observeRequest(
+              "bluesky.search",
+              request,
+              String(set.headers["x-request-id"]),
+              options.logger,
+              () =>
+                search.read(
+                  query.q,
+                  query.limit ?? 6,
+                  query.kind ?? "all",
+                  new URL(request.url).searchParams.get("explicit") === "1",
+                  request.signal
+                )
+            ),
+          {
+            query: t.Object({
+              kind: t.Optional(
+                t.Union([
+                  t.Literal("all"),
+                  t.Literal("user"),
+                  t.Literal("post"),
+                ])
+              ),
+              limit: t.Optional(t.Integer({ maximum: 10, minimum: 1 })),
+              q: t.String({ maxLength: 80, minLength: 1 }),
+            }),
+          }
+        )
         .get(
           "/bluesky/posts",
           ({ query, request, set }) =>

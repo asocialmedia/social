@@ -71,6 +71,70 @@ function fixture(overrides: Partial<ProtocolsAppOptions> = {}) {
 }
 
 describe("Elysia protocol service", () => {
+  test("search validates inputs, preserves profile results when posts fail, and selects the media policy client", async () => {
+    const queries: string[] = [];
+    const base = fixture();
+    const { request, app } = fixture({
+      client: {
+        ...base.client,
+        searchActors: async (query) => {
+          queries.push(query);
+          return [author];
+        },
+        searchPosts: async () => {
+          throw new ProtocolError("unavailable", "private source error");
+        },
+      },
+      explicitClient: {
+        ...base.client,
+        searchActors: async () => [
+          { ...author, displayName: "Explicit client" },
+        ],
+        searchPosts: async () => ({ cursor: null, items: [] }),
+      },
+    });
+    const response = await request("/v1/bluesky/search?q=example");
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      posts: [],
+      profiles: [author],
+      unavailable: ["posts"],
+    });
+    const explicit = await request("/v1/bluesky/search?q=example&explicit=1");
+    const explicitData = await explicit.json();
+    expect(explicitData.profiles[0]?.displayName).toBe("Explicit client");
+    const tooLong = await request(`/v1/bluesky/search?q=${"x".repeat(81)}`);
+    expect(tooLong.status).toBe(400);
+    const oversized = await request("/v1/bluesky/search?q=test&limit=999");
+    expect(oversized.status).toBe(400);
+    const unauthorized = await app.handle(
+      new Request("http://localhost/v1/bluesky/search?q=test")
+    );
+    expect(unauthorized.status).toBe(401);
+    expect(queries).toEqual(["example"]);
+  });
+
+  test("search keeps post results when profiles fail and reports a total outage safely", async () => {
+    const base = fixture();
+    const { request } = fixture({
+      client: {
+        ...base.client,
+        searchActors: async () => {
+          throw new Error("private source error");
+        },
+        searchPosts: async () => ({ cursor: null, items: [] }),
+      },
+    });
+    const response = await request("/v1/bluesky/search?q=example");
+    expect(await response.json()).toEqual({
+      posts: [],
+      profiles: [],
+      unavailable: ["profiles"],
+    });
+    const offline = await base.request("/v1/bluesky/search?q=example");
+    expect(offline.status).toBe(502);
+    expect(await offline.json()).toEqual({ error: "unavailable" });
+  });
   test("separates liveness, readiness, and authenticated reads", async () => {
     const { app, health } = fixture();
     const awaitedResponse1 = await app.handle(
@@ -245,6 +309,17 @@ describe("Elysia protocol service", () => {
 });
 
 describe("protocol configuration", () => {
+  test("search concurrency is independently bounded", () => {
+    expect(readConfig({}).searchConcurrency).toBe(48);
+    expect(
+      readConfig({ PROTOCOLS_SEARCH_CONCURRENCY: "24" }).searchConcurrency
+    ).toBe(24);
+    for (const value of ["0", "65", "NaN", "1.5"]) {
+      expect(() => readConfig({ PROTOCOLS_SEARCH_CONCURRENCY: value })).toThrow(
+        "PROTOCOLS_SEARCH_CONCURRENCY"
+      );
+    }
+  });
   test("keeps Jetstream opt-in and never subscribes to the full firehose by accident", () => {
     expect(readConfig({}).jetstreamEnabled).toBe(false);
     expect(() => readConfig({ PROTOCOLS_JETSTREAM_ENABLED: "true" })).toThrow();

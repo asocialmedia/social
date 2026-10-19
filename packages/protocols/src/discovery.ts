@@ -13,6 +13,10 @@ import {
   waitForReadRetry,
 } from "./transport";
 
+export { BoundedReadQueue } from "./read-queue";
+export { SharedReadCache, createRedisReadStore } from "./shared-read-cache";
+export type { SharedReadStore } from "./shared-read-cache";
+
 export {
   matchesAvoidedTopic,
   defaultNetworkPreferences,
@@ -358,6 +362,7 @@ export {
 } from "./transport";
 
 export async function readDiscoveryPage(options: {
+  surface?: "home" | "explore";
   discoveryLevel?: number;
   topicPage?: number;
   following?: boolean;
@@ -395,6 +400,9 @@ export async function readDiscoveryPage(options: {
       }
       if (options.content) {
         query.set("content", options.content);
+      }
+      if (options.surface === "explore") {
+        query.set("surface", "explore");
       }
       if (options.profile) {
         query.set("profile", options.profile);

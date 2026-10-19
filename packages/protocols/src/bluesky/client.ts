@@ -230,6 +230,39 @@ export class BlueskyClient {
     return normalizeAuthor(data, this.allowExplicitMedia);
   }
 
+  async searchActors(query: string, limit = 6): Promise<ExternalAuthor[]> {
+    const parsed = z
+      .object({
+        limit: z.number().int().min(1).max(20),
+        query: z.string().trim().min(1).max(80),
+      })
+      .safeParse({ limit, query });
+    if (!parsed.success) {
+      throw new ProtocolError("invalid_input", "Invalid profile search");
+    }
+    const page = await this.request(
+      "app.bsky.actor.searchActors",
+      { limit: String(parsed.data.limit), q: parsed.data.query },
+      z.object({ actors: z.array(z.unknown()).max(100) }),
+      30_000
+    );
+    const authors: ExternalAuthor[] = [];
+    for (const value of page.actors) {
+      const profile = profileSchema.safeParse(value);
+      if (!profile.success) {
+        continue;
+      }
+      try {
+        authors.push(normalizeAuthor(profile.data, this.allowExplicitMedia));
+      } catch (error) {
+        if (!(error instanceof ProtocolError)) {
+          throw error;
+        }
+      }
+    }
+    return authors.slice(0, limit);
+  }
+
   async getAuthorFeed(
     actor: string,
     tab: AuthorFeedTab = "posts",
@@ -702,6 +735,13 @@ export class BlueskyClient {
         cursor: query.get("cursor") ?? undefined,
         limit: query.get("limit") ? Number(query.get("limit")) : undefined,
       };
+      if (operation === "app.bsky.actor.searchActors") {
+        return await this.rpc.call(
+          app.bsky.actor.searchActors,
+          { ...page, q: query.get("q") ?? "" },
+          options
+        );
+      }
       if (operation === "app.bsky.unspecced.getPopularFeedGenerators") {
         return await this.rpc.call(
           popularFeedsQuery,
