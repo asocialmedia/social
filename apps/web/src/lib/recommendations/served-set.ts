@@ -17,6 +17,12 @@ function keyFor(viewer: string, surface: string) {
     .digest("hex")}}`;
 }
 
+// The head cache needs the same key to count a viewer's history without
+// re-deriving the hash format in a second place.
+export function servedSetKey(viewer: string, feed: string) {
+  return keyFor(viewer, feed);
+}
+
 // Read the recently served ids for one surface. Fails open: a cache outage must
 // never block a feed read, it only means the ordering may repeat.
 export async function readServedIds(

@@ -51,7 +51,11 @@ import { nativeCandidateIds } from "./native-candidates";
 import type { NetworkFeedContext } from "./network-context";
 import { networkFeedContext } from "./network-context";
 import { signNetworkObservation } from "./network-observation";
-import { readServedIds, recordServedIds } from "./served-set";
+import {
+  readServedIds,
+  recordServedIds,
+  servedSetKey,
+} from "./served-set";
 
 const snapshotSchema = z.object({
   anchor: z.string().default(() => new Date().toISOString()),
@@ -165,13 +169,11 @@ async function readNetworkNativeFeed(
     }
     // The served count is part of the key so a viewer with history gets a fresh
     // ordering, while concurrent loads of the same page still share one read.
+    // It is keyed per surface to match the served-set the build stage reads.
+    const surfaceKey = query.get("surface") === "explore" ? "explore" : "home";
     const servedCount = userId
       ? await redis
-          .zcard(
-            `rec:served:v1:{${createHash("sha256")
-              .update(`${userId}:${contentKind}:${mode}`)
-              .digest("hex")}}`
-          )
+          .zcard(servedSetKey(userId, `${surfaceKey}:${contentKind}:${mode}`))
           .catch(() => 0)
       : 0;
     const version = userId
@@ -316,12 +318,13 @@ async function buildNetworkNativeFeed(
     }
   }
   const stopRetrieval = timing.start("retrieval");
+  // Home and Explore draw from the same pool but must not replay each other, so
+  // the served history is keyed by surface as well as by content kind and mode.
+  const servedFeed = `${exploring ? "explore" : "home"}:${contentKind}:${mode}`;
   // Only a fresh head asks what this viewer already saw; a continuation page
   // belongs to the same snapshot and must not shift under the reader.
   const served =
-    buildBatch && !cursor
-      ? await readServedIds(userId, `${contentKind}:${mode}`)
-      : [];
+    buildBatch && !cursor ? await readServedIds(userId, servedFeed) : [];
   if (buildBatch) {
     const focusedSeeds = context.selected.interests.length
       ? networkInterestTerms(context.selected.interests, context.topicScope)
@@ -460,7 +463,11 @@ async function buildNetworkNativeFeed(
           context.preferences.contentLanguages ?? [context.preferences.language]
         ) &&
         networkPostAllowed(post, context.preferences, context.topicScope) &&
-        (!context.selected.interests.length ||
+        // Explore filters against the seeds that produced the rows. Re-applying
+        // the Home interests here cancelled the broadened exploration set, so
+        // Explore returned exactly the Home page under a different cache key.
+        (exploring ||
+          !context.selected.interests.length ||
           postNetworkInterestScore(
             post,
             context.selected.interests,
@@ -652,7 +659,7 @@ async function buildNetworkNativeFeed(
   // Remember this page so the next head starts past it instead of replaying it.
   await recordServedIds(
     userId,
-    `${contentKind}:${mode}`,
+    servedFeed,
     observed.map((post) => post.id)
   );
   const stopSerialization = timing.start("serialization");
