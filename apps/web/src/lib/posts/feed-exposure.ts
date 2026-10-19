@@ -1,4 +1,4 @@
-type Surface = "home" | "gusts";
+type Surface = "home" | "gusts" | "explore";
 const RETENTION_MS = 2 * 60 * 60_000;
 const MAX_EXPOSURES = 600;
 
@@ -40,7 +40,7 @@ function readExposures(
               Boolean(
                 entry &&
                 typeof entry.id === "string" &&
-                ["home", "gusts"].includes(entry.surface) &&
+                ["home", "gusts", "explore"].includes(entry.surface) &&
                 Number.isFinite(entry.at) &&
                 entry.at > now - RETENTION_MS
               )

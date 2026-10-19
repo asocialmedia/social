@@ -6,6 +6,7 @@ import prisma, { closePrisma } from "../prisma";
 import { redis } from "../redis";
 import {
   getNetworkPersona,
+  networkPersonaCacheStats,
   clearNetworkActivity,
   readNetworkPreferences,
   recordNetworkSignal,
@@ -355,4 +356,98 @@ test("explicit exclusions persist independently of learning and downvote undo re
   });
   expect(persona.persona.avoidedTopics).not.toContain("crypto");
   expect(persona.preferences.avoidedTopics).toEqual(["furry"]);
+});
+
+test("concurrent recommendation consumers share one persona build and learning invalidates it", async () => {
+  const graphNamespace = `test:persona-cache:${crypto.randomUUID()}:`;
+  const before = networkPersonaCacheStats();
+  {
+    const values = await Promise.all(
+      Array.from({ length: 20 }, () =>
+        getNetworkPersona(gardenId, "default", { graphNamespace })
+      )
+    );
+    expect(
+      networkPersonaCacheStats().coalesced - before.coalesced
+    ).toBeGreaterThanOrEqual(19);
+    expect(
+      values.every(
+        (value) =>
+          JSON.stringify(value.profile) === JSON.stringify(values[0]?.profile)
+      )
+    ).toBe(true);
+    await recordNetworkSignal(
+      gardenId,
+      "default",
+      {
+        authorId: "asm:cache-author",
+        createdAt: Date.now(),
+        hasVideo: true,
+        kind: "bookmark",
+        tags: ["cinema"],
+      },
+      crypto.randomUUID()
+    );
+    const learned = await getNetworkPersona(gardenId, "default", {
+      graphNamespace,
+    });
+
+    expect(learned.profile.authorWeights["cache-author"]).toBeGreaterThan(0);
+    expect(learned.profile.authorWeights["asm:cache-author"]).toBe(
+      learned.profile.authorWeights["cache-author"]
+    );
+    expect(learned.persona.learnedInterests).toContain("cinema");
+    expect(learned.profile.formatAffinities?.video).toBeGreaterThan(0);
+  }
+});
+
+test("durable engagement in a second profile never leaks into the default profile's legacy history", async () => {
+  const id = crypto.randomUUID();
+  const postId = crypto.randomUUID();
+  const topic = `profileisolation${crypto.randomUUID().replaceAll("-", "")}`;
+  await prisma.orm.public.Users.create({
+    displayName: "Profile isolation",
+    id,
+    username: `isolation-${id}`,
+  });
+  try {
+    await saveNetworkPreferences(
+      id,
+      {
+        ...defaultNetworkPreferences(),
+        profiles: [
+          { id: "default", interests: [], name: "Everyday" },
+          { id: softwareProfile, interests: [], name: "Work" },
+        ],
+      },
+      0
+    );
+    await prisma.orm.public.Posts.create({
+      content: topic,
+      id: postId,
+      semanticTags: [topic],
+      userId: techId,
+    });
+    await prisma.orm.public.Votes.create({ postId, userId: id, value: 1 });
+    await recordNetworkSignal(
+      id,
+      softwareProfile,
+      {
+        authorId: `asm:${techId}`,
+        createdAt: Date.now(),
+        kind: "amplify",
+        tags: [topic],
+      },
+      `asm:${postId}`
+    );
+    const work = await getNetworkPersona(id, softwareProfile);
+    const everyday = await getNetworkPersona(id, "default");
+    expect(work.profile.tagWeights[topic]).toBeGreaterThan(0);
+    expect(everyday.profile.tagWeights[topic] ?? 0).toBe(0);
+    expect(everyday.persona.learnedInterests).not.toContain(topic);
+  } finally {
+    await prisma.orm.public.Posts.where({ id: postId }).deleteAndCount();
+    await prisma.orm.public.Users.where({ id }).deleteAndCount();
+    await redis.del(`rec:legacy-persona:v1:${id}`);
+  }
 });

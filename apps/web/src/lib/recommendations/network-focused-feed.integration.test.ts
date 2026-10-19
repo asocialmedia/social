@@ -4,6 +4,7 @@ import {
   closePrisma,
   prisma,
   readNetworkPreferences,
+  invalidateFypProfile,
   recordNetworkSignal,
   redis,
   saveNetworkPreferences,
@@ -278,6 +279,34 @@ test("a new post with a large stale score stays out of Trending until it has a r
   const latest = await read("latest", "post");
   expect(latest.page.posts.some((post) => post.id === quiet.id)).toBe(true);
   await prisma.orm.public.Votes.create({ postId: quiet.id, userId, value: 1 });
+  await invalidateFypProfile(userId);
   const reacted = await read("trending", "post");
   expect(reacted.page.posts.some((post) => post.id === quiet.id)).toBe(true);
 }, 20_000);
+
+test("concurrent placements reuse one native head and profile activity invalidates that snapshot", async () => {
+  await choose(["software"]);
+  const reads = await Promise.all(
+    Array.from({ length: 20 }, () => read("personalized", "post"))
+  );
+  expect(reads.every((result) => result.status === 200)).toBe(true);
+  expect(new Set(reads.map((result) => result.page.nextCursor)).size).toBe(1);
+  expect(
+    new Set(reads.map((result) => JSON.stringify(result.page.posts))).size
+  ).toBe(1);
+  await recordNetworkSignal(
+    userId,
+    "default",
+    {
+      authorId: "",
+      createdAt: Date.now(),
+      hasVideo: true,
+      kind: "bookmark",
+      tags: ["software"],
+    },
+    crypto.randomUUID()
+  );
+  const refreshed = await read("personalized", "post");
+  expect(refreshed.status).toBe(200);
+  expect(refreshed.page.nextCursor).not.toBe(reads[0]?.page.nextCursor);
+});

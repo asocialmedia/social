@@ -263,12 +263,13 @@ export function RecommendationTracker({
         visible = next;
         if (next) {
           const path = window.location.pathname;
-          if (path === "/" || path === "/gusts") {
-            rememberFeedExposure(
-              user?.id ?? "guest",
-              path === "/gusts" ? "gusts" : "home",
-              postId
-            );
+          if (path === "/" || path === "/gusts" || path === "/discover") {
+            let surface: "home" | "gusts" | "explore" =
+              path === "/gusts" ? "gusts" : "home";
+            if (path === "/discover") {
+              surface = "explore";
+            }
+            rememberFeedExposure(user?.id ?? "guest", surface, postId);
           }
           visibilityChanged();
         }

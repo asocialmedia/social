@@ -37,3 +37,15 @@ test("exposure history is bounded and malformed storage cannot break a feed", ()
   values.set("asm:feed-exposure:broken", "invalid");
   expect(otherFeedExposures("broken", "gusts").size).toBe(0);
 });
+
+test("Explore and Home exclude the other surface's seen posts while keeping the viewer isolated", () => {
+  rememberFeedExposure("explorer", "home", "home-post", 1000);
+  rememberFeedExposure("explorer", "explore", "novel-post", 1100);
+  expect([...otherFeedExposures("explorer", "explore", 2000)]).toEqual([
+    "home-post",
+  ]);
+  expect([...otherFeedExposures("explorer", "home", 2000)]).toEqual([
+    "novel-post",
+  ]);
+  expect(otherFeedExposures("other-explorer", "explore", 2000).size).toBe(0);
+});

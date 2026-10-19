@@ -67,7 +67,7 @@ const POSITIVE_RECOMMENDATION_EVENTS = [
   "SHARE",
 ] as const;
 
-export const FYP_PROFILE_KEY_PREFIX = "fyp-profile:v3:";
+export const FYP_PROFILE_KEY_PREFIX = "fyp-profile:v4:";
 
 interface CachedProfile extends UserProfile {
   followedAuthorIds: string[];
@@ -721,7 +721,15 @@ export async function getRecommendationProfile(
 
 export async function invalidateFypProfile(userId: string): Promise<void> {
   try {
-    await redis.del(fypProfileKey(userId));
+    await Promise.all([
+      redis.del(fypProfileKey(userId)),
+      redis.set(
+        `rec:suggestions:version:${userId}`,
+        crypto.randomUUID(),
+        "EX",
+        30 * 24 * 60 * 60
+      ),
+    ]);
   } catch (error) {
     logger.warn({ error }, "fyp profile invalidation failed");
   }

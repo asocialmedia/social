@@ -35,7 +35,7 @@ test("related interests come from observed co-occurrence for arbitrary subjects"
   graph.recordCoOccurrence(["software", "frameworks", "model releases"]);
   graph.recordCoOccurrence(["orchids", "botany", "photography"]);
   const profileFor = (tag: string) =>
-    buildUserProfile([{ authorId: "", kind: "search", tags: [tag] }], {
+    buildUserProfile([{ authorId: "", kind: "interest", tags: [tag] }], {
       knowledgeGraph: graph,
     });
   expect(profileFor("anime").expandedEntityWeights?.figurines).toBeGreaterThan(

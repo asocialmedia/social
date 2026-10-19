@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import {
   and,
   or,
@@ -21,7 +23,12 @@ import {
   NetworkPreferenceConflictError,
 } from "@asm/db";
 import type { PostData, UserProfile } from "@asm/db";
-import { networkInterestTerms } from "@asm/protocols/discovery";
+import {
+  networkInterestTerms,
+  SharedReadCache,
+  BoundedReadQueue,
+  createRedisReadStore,
+} from "@asm/protocols/discovery";
 import { z } from "zod";
 
 import {
@@ -30,6 +37,10 @@ import {
 } from "@/lib/posts/network-content-policy";
 import { isTrendingPost } from "@/lib/posts/trending-eligibility";
 
+import { exploreTopics } from "./explore-topics";
+import { reportRecommendationHealth } from "./health";
+import { diversifyExploreCandidates } from "./mix-explore";
+import type { NetworkFeedContext } from "./network-context";
 import { networkFeedContext } from "./network-context";
 import { signNetworkObservation } from "./network-observation";
 
@@ -81,28 +92,116 @@ function topicsOf(post: PostData) {
   ]);
 }
 
+const headCache = new SharedReadCache({
+  deadlineMs: 15_000,
+  parse: (value) => z.string().parse(value),
+  queue: new BoundedReadQueue({
+    concurrency: 8,
+    maxQueued: 128,
+    maxWaitMs: 5000,
+  }),
+  store: createRedisReadStore(redis),
+  ttlMs: 15_000,
+});
+
 export async function networkNativeFeed(
   request: Request,
   userId: string,
   mode: "personalized" | "trending" | "latest",
   contentKind: "post" | "gust" = "post"
 ) {
-  const query = new URL(request.url).searchParams;
-  const context = await networkFeedContext(
-    userId || undefined,
-    query.get("profile") ?? undefined
-  ).catch((error: unknown) =>
-    error instanceof NetworkPreferenceConflictError
-      ? null
-      : Promise.reject(error)
-  );
-  if (!context) {
+  try {
+    const query = new URL(request.url).searchParams;
+    const context = await networkFeedContext(
+      userId || undefined,
+      query.get("profile") ?? undefined
+    );
+    if (query.has("cursor")) {
+      return await buildNetworkNativeFeed(
+        request,
+        userId,
+        mode,
+        contentKind,
+        context
+      );
+    }
+    const version = userId
+      ? await redis.get(`rec:suggestions:version:${userId}`).catch(() => null)
+      : "guest";
+    const key = `rec:native-head:v2:{${createHash("sha256")
+      .update(
+        JSON.stringify([
+          userId,
+          context.selected.id,
+          context.revision,
+          version,
+          mode,
+          contentKind,
+          query.get("surface"),
+          query.get("take"),
+          query.get("locale"),
+        ])
+      )
+      .digest("hex")}}`;
+    const body = await headCache.read(
+      key,
+      async () => {
+        const response = await buildNetworkNativeFeed(
+          request,
+          userId,
+          mode,
+          contentKind,
+          context
+        );
+        if (!response.ok) {
+          throw new Error(`Native feed returned ${response.status}`);
+        }
+        return response.text();
+      },
+      request.signal
+    );
+    reportRecommendationHealth("native-feed", true);
+    return new Response(body, {
+      headers: {
+        "cache-control": "private, no-store",
+        "content-type": "application/json",
+        vary: "Cookie",
+      },
+    });
+  } catch (error) {
+    if (error instanceof NetworkPreferenceConflictError) {
+      return Response.json(
+        { error: "Choose an available recommendation profile" },
+        { status: 409 }
+      );
+    }
+    reportRecommendationHealth("native-feed", false, error);
     return Response.json(
-      { error: "Choose an available recommendation profile" },
-      { status: 409 }
+      { error: "Feed is temporarily unavailable" },
+      {
+        headers: { "cache-control": "private, no-store", "retry-after": "2" },
+        status: 503,
+      }
     );
   }
-  const scope = `v6:${userId || "guest"}:${context.selected.id}:${context.revision}:${context.topicScope?.version ?? "exact"}:${mode}:${contentKind}`;
+}
+
+async function buildNetworkNativeFeed(
+  request: Request,
+  userId: string,
+  mode: "personalized" | "trending" | "latest",
+  contentKind: "post" | "gust",
+  context: NetworkFeedContext
+) {
+  const query = new URL(request.url).searchParams;
+  const exploring = query.get("surface") === "explore";
+  const neighboringTopics = exploreTopics(
+    context.profile,
+    context.selected.interests,
+    context.preferences.avoidedTopics,
+    context.topicScope
+  );
+  const scope = `v8:${exploring ? "explore" : "home"}:${userId || "guest"}:${context.selected.id}:${context.revision}:${context.topicScope?.version ?? "exact"}:${mode}:${contentKind}`;
   const social = await networkSocialCandidates(userId);
   const socialById = new Map(social.native.map((entry) => [entry.id, entry]));
   const cursor = query.get("cursor");
@@ -161,7 +260,7 @@ export async function networkNativeFeed(
             ...Object.keys(context.profile.expandedEntityWeights ?? {}),
           ]),
         ].slice(0, 40);
-    let seeds = focusedSeeds;
+    let seeds = exploring ? neighboringTopics : focusedSeeds;
     if (level === 1) {
       seeds = [
         ...new Set(
@@ -174,7 +273,7 @@ export async function networkNativeFeed(
       seeds = [];
     }
     const { rawQuery } = await import("@asm/db");
-    const [relevant, exploration] = await Promise.all([
+    const [relevant, exploration, guestCurated] = await Promise.all([
       level === 1 && seeds.length === 0
         ? Promise.resolve({ rows: [] as { id: string }[] })
         : rawQuery<{ id: string }>(
@@ -189,7 +288,7 @@ export async function networkNativeFeed(
             ],
             { id: "pg/text@1" }
           ),
-      context.selected.interests.length || level > 0
+      (!exploring && context.selected.interests.length) || level > 0
         ? Promise.resolve({ rows: [] })
         : rawQuery<{ id: string }>(
             networkSql.pagedCandidates,
@@ -203,18 +302,30 @@ export async function networkNativeFeed(
             ],
             { id: "pg/text@1" }
           ),
+      !userId && mode !== "latest" && level === 0 && candidateOffset === 0
+        ? rawQuery<{ id: string }>(
+            networkSql.candidates,
+            [
+              [],
+              context.preferences.showExplicitContent,
+              "trending",
+              contentKind === "gust",
+            ],
+            { id: "pg/text@1" }
+          )
+        : Promise.resolve({ rows: [] as { id: string }[] }),
     ]);
     moreCandidates =
       relevant.rows.length === 180 || exploration.rows.length === 180;
     ids = [
-      ...new Set(
-        [...relevant.rows, ...exploration.rows.slice(0, 60)].map(
-          (row) => row.id
-        )
-      ),
-      ...(level === 0 && candidateOffset === 0
-        ? social.native.map((entry) => entry.id)
-        : []),
+      ...new Set([
+        ...guestCurated.rows.map((row) => row.id),
+        ...relevant.rows.map((row) => row.id),
+        ...exploration.rows.slice(0, 60).map((row) => row.id),
+        ...(level === 0 && candidateOffset === 0
+          ? social.native.map((entry) => entry.id)
+          : []),
+      ]),
     ].filter((id) => !seen.includes(id));
   }
   const visibility = communityVisibilityWhere(userId);
@@ -267,7 +378,8 @@ export async function networkNativeFeed(
           context.preferences.contentLanguages ?? [context.preferences.language]
         ) &&
         networkPostAllowed(post, context.preferences, context.topicScope) &&
-        (level > 0 ||
+        (exploring ||
+          level > 0 ||
           !context.selected.interests.length ||
           postNetworkInterestScore(
             post,
@@ -282,13 +394,16 @@ export async function networkNativeFeed(
     const followedAuthorIds = new Set(social.followedIds);
     const enriched = posts.map((post) => {
       const topics = topicsOf(post);
-      const fit = context.selected.interests.length
-        ? postNetworkInterestScore(
-            post,
-            context.selected.interests,
-            context.topicScope
-          )
-        : networkTopicAffinity(post.content, topics, context.profile);
+      let fit = networkTopicAffinity(post.content, topics, context.profile);
+      if (exploring) {
+        fit = postNetworkInterestScore(post, neighboringTopics);
+      } else if (context.selected.interests.length) {
+        fit = postNetworkInterestScore(
+          post,
+          context.selected.interests,
+          context.topicScope
+        );
+      }
       const candidate = {
         aura: post.aura,
         authorId: post.userId,
@@ -325,6 +440,17 @@ export async function networkNativeFeed(
         socialProofAffinity: socialById.get(post.id)?.weight,
       });
       const trend = Math.log1p(Math.max(0, post.trendingScore));
+      let mediaBoost = 0;
+      if (candidate.hasVideo) {
+        mediaBoost = 4;
+      } else if (candidate.hasImage) {
+        mediaBoost = 2;
+      }
+      const auraBoost =
+        post.aura > 0 ? Math.min(6, Math.log10(post.aura + 1) * 2) : 0;
+      const guestQualityBoost = userId
+        ? 0
+        : trend * 6 + Math.log1p(post.viewCount) * 1.5 + mediaBoost + auraBoost;
       return {
         authorId: post.userId,
         fit,
@@ -337,7 +463,9 @@ export async function networkNativeFeed(
               trend * 8 +
               geographicAffinity * 0.4 +
               (socialById.get(post.id)?.weight ?? 0) * 2
-            : nativeScore + fit * 20,
+            : nativeScore * (exploring ? 0.35 : 1) +
+              fit * 20 +
+              guestQualityBoost,
         semanticTags: topics,
       };
     });
@@ -362,7 +490,12 @@ export async function networkNativeFeed(
       while (remaining.length) {
         const page = rankFeed(
           remaining.map((item) => ({ post: item, score: item.score })),
-          { pageSize }
+          {
+            maxConsecutivePerAuthor: userId ? undefined : 1,
+            maxSingleAuthorShare: userId ? undefined : 0.15,
+            maxSingleTopicShare: userId ? undefined : 0.35,
+            pageSize,
+          }
         );
         if (!page.length) {
           break;
@@ -371,6 +504,12 @@ export async function networkNativeFeed(
         const used = new Set(page.map((item) => item.id));
         remaining = remaining.filter((item) => !used.has(item.id));
       }
+    }
+    if (exploring) {
+      const related = new Set(
+        enriched.filter((item) => item.fit > 0).map((item) => item.id)
+      );
+      ids = diversifyExploreCandidates(ids, (id) => related.has(id));
     }
     ids = ids.slice(0, 400);
     canContinue = await redis

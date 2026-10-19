@@ -305,7 +305,7 @@ describe("getPersonalizedFeedPage", () => {
     poolRows = [];
     notInterestedRows = [];
     lastPoolPredicates = [];
-    storedProfiles.set("fyp-profile:v3:user-1", JSON.stringify(CACHED_PROFILE));
+    storedProfiles.set("fyp-profile:v4:user-1", JSON.stringify(CACHED_PROFILE));
     fullPostRows = {};
   });
 
@@ -387,7 +387,7 @@ describe("getPersonalizedFeedPage", () => {
   test("serves cached profiles without rebuilding engagement history", async () => {
     const { getPersonalizedFeedPage } = await import("./feed-service");
     await getPersonalizedFeedPage({ pageSize: 20, userId: "user-1" });
-    expect(mockRedis.get).toHaveBeenCalledWith("fyp-profile:v3:user-1");
+    expect(mockRedis.get).toHaveBeenCalledWith("fyp-profile:v4:user-1");
   });
 
   test("a selected Network persona bypasses the legacy profile and isolates cursor snapshots by revision", async () => {
@@ -400,7 +400,7 @@ describe("getPersonalizedFeedPage", () => {
       pageSize: 20,
       userId: "user-1",
     });
-    expect(mockRedis.get).not.toHaveBeenCalledWith("fyp-profile:v3:user-1");
+    expect(mockRedis.get).not.toHaveBeenCalledWith("fyp-profile:v4:user-1");
     expect(
       mockRedis.get.mock.calls.some(([key]) => key.endsWith(":default:9"))
     ).toBe(true);
@@ -525,7 +525,7 @@ describe("invalidateFypProfile", () => {
   test("deletes the user's profile key under the shared prefix", async () => {
     const { invalidateFypProfile } = await import("./feed-service");
     await invalidateFypProfile("user-42");
-    expect(deletedKeys).toEqual(["fyp-profile:v3:user-42"]);
+    expect(deletedKeys).toEqual(["fyp-profile:v4:user-42"]);
   });
 
   test("swallows Redis failures so callers can fire-and-forget", async () => {

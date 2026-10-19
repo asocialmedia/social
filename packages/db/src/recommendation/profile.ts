@@ -15,6 +15,7 @@ export type ProfileSignalKind =
   | "hide"
   | "ownPost"
   | "ownGust"
+  | "interest"
   | "search"
   | "view"
   | "viewComplete"
@@ -73,10 +74,11 @@ export const SIGNAL_WEIGHTS: Record<ProfileSignalKind, number> = {
   downvote: -2,
   dwell: 1.5,
   hide: -3,
+  interest: 8,
   notInterested: -4,
   ownGust: 3,
   ownPost: 3.5,
-  search: 2.5,
+  search: 0.3,
   skip: -0.75,
   upvote: 1.5,
   view: 0.5,
@@ -92,8 +94,14 @@ function addWeight(
 }
 
 // Scales every weight so the map sums to 1.0, turning counts into distribution shares.
-function normalize(weights: Record<string, number>): Record<string, number> {
-  const total = Object.values(weights).reduce((a, b) => a + b, 0);
+function normalize(
+  weights: Record<string, number>,
+  minimumMass = 0
+): Record<string, number> {
+  const total = Math.max(
+    minimumMass,
+    Object.values(weights).reduce((a, b) => a + b, 0)
+  );
   if (total === 1) {
     return { ...weights };
   }
@@ -146,6 +154,13 @@ export function buildUserProfile(
   options?: { knowledgeGraph?: typeof globalKnowledgeGraph; now?: Date }
 ): UserProfile {
   const now = options?.now ?? new Date();
+  // A lone search keeps low confidence instead of normalizing into a complete preference.
+  const searchOnly =
+    signals.some((signal) => signal.kind === "search") &&
+    !signals.some(
+      (signal) => signal.kind !== "search" && SIGNAL_WEIGHTS[signal.kind] > 0
+    );
+  const minimumMass = searchOnly ? 6 : 0;
   const authorWeights: Record<string, number> = {};
   const tagWeights: Record<string, number> = {};
   const negativeAuthorWeights: Record<string, number> = {};
@@ -170,6 +185,7 @@ export function buildUserProfile(
   }
   const embeddingModel = [...modelMass].toSorted((a, b) => b[1] - a[1])[0]?.[0];
   const sessionTagWeights: Record<string, number> = {};
+  const seenSearchTopics = new Set<string>();
   const tasteVectors: number[][] = [];
   const tasteWeights: number[] = [];
   let positiveSignalCount = 0;
@@ -210,7 +226,21 @@ export function buildUserProfile(
       addWeight(authorWeights, signal.authorId, magnitude);
     }
 
-    const distinctTags = [...new Set(signal.tags)].filter(Boolean);
+    const distinctTags = [...new Set(signal.tags)].filter((tag) => {
+      if (!tag) {
+        return false;
+      }
+      if (signal.kind !== "search") {
+        return true;
+      }
+      const day = (signal.createdAt ?? now).toISOString().slice(0, 10);
+      const key = `${day}:${tag}`;
+      if (seenSearchTopics.has(key)) {
+        return false;
+      }
+      seenSearchTopics.add(key);
+      return true;
+    });
     for (const tag of distinctTags) {
       addWeight(tagWeights, tag, magnitude / distinctTags.length);
     }
@@ -223,8 +253,10 @@ export function buildUserProfile(
       }
     }
 
-    // Accumulate media format preferences
-    if (signal.hasVideo) {
+    // Searches and configured interests do not imply a preferred media format.
+    if (signal.kind === "search" || signal.kind === "interest") {
+      // Format preferences come from observed content interactions.
+    } else if (signal.hasVideo) {
       formatCounts.video += magnitude * 1.2;
     } else if (signal.hasAudio) {
       formatCounts.audio += magnitude;
@@ -236,6 +268,7 @@ export function buildUserProfile(
 
     // Accumulate taste vector for high-intent signals (bookmark, amplify, comment, upvote)
     if (
+      signal.kind !== "search" &&
       signal.createdAt &&
       now.getTime() - signal.createdAt.getTime() < 30 * 60_000
     ) {
@@ -271,7 +304,10 @@ export function buildUserProfile(
       : { audio: 0.1, image: 0.35, text: 0.25, video: 0.3 };
 
   // Topic distribution
-  const totalTopic = Object.values(topicCounts).reduce((a, b) => a + b, 0);
+  const totalTopic = Math.max(
+    minimumMass,
+    Object.values(topicCounts).reduce((a, b) => a + b, 0)
+  );
   const topicAffinities: Record<string, number> = {};
   if (totalTopic > 0) {
     for (const [cat, count] of Object.entries(topicCounts)) {
@@ -308,12 +344,12 @@ export function buildUserProfile(
     .slice(0, 5)
     .map(([tag]) => tag);
 
-  const normalizedTagWeights = normalize(tagWeights);
+  const normalizedTagWeights = normalize(tagWeights, minimumMass);
   const kg = options?.knowledgeGraph ?? globalKnowledgeGraph;
   const expandedEntityWeights = kg.spreadingActivation(normalizedTagWeights);
 
   return {
-    authorWeights: normalize(authorWeights),
+    authorWeights: normalize(authorWeights, minimumMass),
     embeddingModel,
     expandedEntityWeights,
     formatAffinities,

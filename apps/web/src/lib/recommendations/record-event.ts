@@ -6,6 +6,8 @@ import {
   recordNetworkSignal,
   removeNetworkSignal,
 } from "@asm/db";
+import type { ExternalPost } from "@asm/protocols/contracts";
+import { externalPostTopics } from "@asm/protocols/contracts";
 
 export type RecommendationInteractionType =
   | "BOOKMARK"
@@ -36,6 +38,7 @@ export async function recordRecommendationInteraction(input: {
       "communityId",
       "explicitContent"
     )
+      .include("postMedias", (media) => media.select("_type"))
       .where({ id: input.postId })
       .first();
     if (post) {
@@ -45,6 +48,8 @@ export async function recordRecommendationInteraction(input: {
         {
           authorId: `asm:${post.userId}`,
           createdAt: Date.now(),
+          hasImage: post.postMedias.some((media) => media._type === "IMAGE"),
+          hasVideo: post.postMedias.some((media) => media._type === "VIDEO"),
           kind: (
             {
               BOOKMARK: "bookmark",
@@ -103,5 +108,33 @@ export async function recordNegativeRecommendationInteraction(
     }
   } catch {
     // Learning failures must not fail the committed social action.
+  }
+}
+
+export async function recordExternalResponseInteraction(
+  userId: string,
+  post: ExternalPost
+): Promise<void> {
+  try {
+    const network = await getNetworkPersona(userId);
+    await recordNetworkSignal(
+      userId,
+      network.selected.id,
+      {
+        authorId: `${post.source}:${post.author.id}`,
+        createdAt: Date.now(),
+        hasImage: post.media.some((media) => media.type === "image"),
+        hasVideo: post.media.some((media) => media.type === "video"),
+        kind: "comment",
+        tags: networkContentTopics(
+          post.text,
+          externalPostTopics(post),
+          post.languages
+        ),
+      },
+      `${post.source}:${post.id}`
+    );
+  } catch {
+    // Publishing the response remains successful if optional recommendation learning fails.
   }
 }
