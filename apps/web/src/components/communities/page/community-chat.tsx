@@ -46,7 +46,7 @@ import {
   X,
 } from "lucide-react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
   useCallback,
   useEffect,
@@ -55,11 +55,17 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
-import type { CSSProperties } from "react";
+import type { CSSProperties, Dispatch, SetStateAction } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
 import { useCommunityNavigation } from "@/hooks/use-community-navigation";
 import { communityAccentStyle } from "@/lib/communities/accent";
+import { loadCommunityChatResources } from "@/lib/communities/chat-loading";
+import {
+  communityChatLocation,
+  communityChatRoomMatchesLocation,
+  navigateCommunityChat,
+} from "@/lib/communities/chat-navigation";
 import {
   captureCommunityChatAnchor,
   centerCommunityChatMessage,
@@ -169,9 +175,91 @@ function chatServerForeground() {
 export default function CommunityChat(props: CommunityChatProps) {
   const { user } = useSession();
   return (
-    <CommunityChatTimeline
-      key={`${user?.id ?? "guest"}:${props.slug}:${props.threadId ?? props.channelId}`}
+    <CommunityChatWorkspace
+      key={`${user?.id ?? "guest"}:${props.slug}`}
       {...props}
+    />
+  );
+}
+
+function CommunityChatWorkspace(props: CommunityChatProps) {
+  const pathname = usePathname();
+  const location = communityChatLocation(pathname, props.slug);
+  const channelId = location?.channelId ?? props.channelId;
+  const threadId = location ? location.threadId : props.threadId;
+  useEffect(() => {
+    if (communityChatLocation(pathname, props.slug)) {
+      document.title = threadId
+        ? "Community thread | asocialmedia"
+        : "Community chat | asocialmedia";
+    }
+  }, [pathname, props.slug, threadId]);
+  const [channels, setChannels] = useState<CommunityChatRoom[]>([]);
+  const [channelsError, setChannelsError] = useState(false);
+  const [channelAttempt, setChannelAttempt] = useState(0);
+  const channelsUpdatedAt = useRef(0);
+  const updateChannels: Dispatch<SetStateAction<CommunityChatRoom[]>> =
+    useCallback((value) => {
+      if (Array.isArray(value) && value.length === 0) {
+        channelsUpdatedAt.current = 0;
+      }
+      setChannels(value);
+    }, []);
+  useEffect(() => {
+    if (Date.now() - channelsUpdatedAt.current < 15_000) {
+      return;
+    }
+    const controller = new AbortController();
+    const load = async () => {
+      if (controller.signal.aborted) {
+        return;
+      }
+      try {
+        const response = await fetch(
+          `/api/communities/${props.slug}/chat/channels`,
+          { cache: "no-store", signal: controller.signal }
+        );
+        if (!response.ok) {
+          if (!controller.signal.aborted) {
+            setChannelsError(true);
+            if ([401, 403, 404].includes(response.status)) {
+              setChannels([]);
+              channelsUpdatedAt.current = 0;
+            }
+          }
+          return;
+        }
+        const data = (await response.json()) as ChannelResponse;
+        if (!controller.signal.aborted) {
+          setChannels(data.channels);
+          channelsUpdatedAt.current = Date.now();
+          setChannelsError(false);
+        }
+      } catch {
+        if (!controller.signal.aborted) {
+          setChannelsError(true);
+        }
+      }
+    };
+    queueMicrotask(() => {
+      void load();
+    });
+    return () => controller.abort();
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- An explicit retry reloads the channel list.
+  }, [props.slug, channelAttempt, channelId, threadId]);
+  return (
+    <CommunityChatTimeline
+      key={threadId ?? channelId}
+      {...props}
+      channelId={channelId}
+      threadId={threadId}
+      channels={channels}
+      setChannels={updateChannels}
+      channelsError={channelsError}
+      retryChannels={() => {
+        channelsUpdatedAt.current = 0;
+        setChannelAttempt((attempt) => attempt + 1);
+      }}
     />
   );
 }
@@ -185,7 +273,16 @@ function CommunityChatTimeline({
   communityName,
   membership,
   slug,
-}: CommunityChatProps) {
+  channels,
+  setChannels,
+  channelsError,
+  retryChannels,
+}: CommunityChatProps & {
+  channels: CommunityChatRoom[];
+  setChannels: Dispatch<SetStateAction<CommunityChatRoom[]>>;
+  channelsError: boolean;
+  retryChannels: () => void;
+}) {
   const router = useRouter();
   const { user } = useSession();
   const isLoggedIn = Boolean(user);
@@ -202,7 +299,6 @@ function CommunityChatTimeline({
   const lastReadSequence = useRef("0");
   const viewportAnchor = useRef<CommunityChatViewportAnchor | null>(null);
   const targetMessage = useRef<string | null>(null);
-  const [channels, setChannels] = useState<CommunityChatRoom[]>([]);
   const [threads, setThreads] = useState<CommunityChatThreadSummary[]>([]);
   const [messages, setMessages] = useState<CommunityChatMessage[]>([]);
   const [permissions, setPermissions] =
@@ -212,6 +308,8 @@ function CommunityChatTimeline({
   const [loading, setLoading] = useState(true);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [hasOlder, setHasOlder] = useState(false);
+  const [threadsError, setThreadsError] = useState(false);
+  const [threadsLoading, setThreadsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [content, setContent] = useState("");
   const [pendingDraft, setPendingDraft] = useState<PendingDraft | null>(null);
@@ -412,6 +510,8 @@ function CommunityChatTimeline({
     }
     const data = (await response.json()) as ThreadResponse;
     setThreads(data.threads);
+    setThreadsError(false);
+    setThreadsLoading(false);
   }, [threadsUrl]);
 
   const fetchChangedMessage = useCallback(
@@ -432,83 +532,62 @@ function CommunityChatTimeline({
   );
 
   useEffect(() => {
-    let cancelled = false;
-    // oxlint-disable-next-line react/set-state-in-effect -- A route change immediately clears the previous room while the next snapshot loads.
-    setLoading(true);
-    setLoadError(null);
-    setChannels([]);
-    setMessages([]);
-    setAtLatest(true);
-    atLatestRef.current = true;
-    setHasNewActivity(false);
-    latestSequence.current = "0";
-    latestChangeSequence.current = "0";
-    lastReadSequence.current = "0";
-    const load = async () => {
-      try {
-        const anchor = new URLSearchParams(window.location.search).get(
-          "message"
-        );
-        const historyQuery = new URLSearchParams({ limit: "50" });
-        if (anchor) {
-          historyQuery.set("around", anchor);
-        }
-        const [channelsResponse, messagesResponse, threadsResponse] =
-          await Promise.all([
-            fetch(channelsUrl, { cache: "no-store" }),
-            fetch(`${roomUrl}/messages?${historyQuery}`, { cache: "no-store" }),
-            fetch(threadsUrl, { cache: "no-store" }),
-          ]);
-        if (
-          !channelsResponse.ok ||
-          !messagesResponse.ok ||
-          !threadsResponse.ok
-        ) {
-          throw new Error("This conversation isn't available right now");
-        }
-        const [channelData, page, threadData] = await Promise.all([
-          channelsResponse.json() as Promise<ChannelResponse>,
-          messagesResponse.json() as Promise<ChatResponse>,
-          threadsResponse.json() as Promise<ThreadResponse>,
-        ]);
-        if (cancelled) {
-          return;
-        }
-        setChannels(channelData.channels);
-        setThreads(threadData.threads);
-        setPermissions(page.permissions);
-        setRoom(page.room);
-        setMessages(page.messages);
-        setHasOlder(page.nextBeforeSequence !== null);
-        latestSequence.current = page.room.nextSequence;
-        latestChangeSequence.current = page.room.changeSequence;
-        if (anchor) {
-          windowAtLiveTail.current =
-            page.messages.at(-1)?.sequence === page.room.nextSequence;
-          targetMessage.current = anchor;
-          atLatestRef.current = false;
-          setAtLatest(false);
-          setHasNewActivity(
-            page.messages.at(-1)?.sequence !== page.room.nextSequence
-          );
-        }
-      } catch (error) {
-        if (!cancelled) {
-          setLoadError(
-            error instanceof Error ? error.message : "Couldn't load chat"
-          );
-        }
-      } finally {
-        if (!cancelled) {
+    const controller = new AbortController();
+    const anchor = new URLSearchParams(window.location.search).get("message");
+    const historyQuery = new URLSearchParams({ limit: "50" });
+    if (anchor) {
+      historyQuery.set("around", anchor);
+    }
+    queueMicrotask(() => {
+      loadCommunityChatResources<ChatResponse, ThreadResponse>({
+        messagesUrl: `${roomUrl}/messages?${historyQuery}`,
+        onHistory: (page) => {
+          if (
+            !communityChatRoomMatchesLocation(page.room, channelId, threadId)
+          ) {
+            setLoadError("This conversation isn't available right now");
+            setLoading(false);
+            return;
+          }
+          setPermissions(page.permissions);
+          setRoom(page.room);
+          setMessages(page.messages);
+          setHasOlder(page.nextBeforeSequence !== null);
+          latestSequence.current = page.room.nextSequence;
+          latestChangeSequence.current = page.room.changeSequence;
+          if (anchor) {
+            windowAtLiveTail.current =
+              page.messages.at(-1)?.sequence === page.room.nextSequence;
+            targetMessage.current = anchor;
+            atLatestRef.current = false;
+            setAtLatest(false);
+            setHasNewActivity(
+              page.messages.at(-1)?.sequence !== page.room.nextSequence
+            );
+          }
           setLoading(false);
-        }
-      }
-    };
-    void load();
-    return () => {
-      cancelled = true;
-    };
-  }, [channelsUrl, roomUrl, threadsUrl]);
+        },
+        onHistoryError: (status) => {
+          if (status && [401, 403, 404].includes(status)) {
+            setChannels([]);
+          }
+          setLoadError("This conversation isn't available right now");
+          setLoading(false);
+        },
+        onThreads: (data) => {
+          setThreads(data.threads);
+          setThreadsLoading(false);
+        },
+        onThreadsError: () => {
+          setThreadsError(true);
+          setThreadsLoading(false);
+        },
+        signal: controller.signal,
+        threadsUrl,
+      });
+    });
+    return () => controller.abort();
+  }, [roomUrl, threadsUrl, channelId, threadId, setChannels]);
 
   const roomReady = room !== null;
   useEffect(() => {
@@ -628,6 +707,7 @@ function CommunityChatTimeline({
     refreshThreads,
     roomReady,
     roomUrl,
+    setChannels,
   ]);
 
   // oxlint-disable react/exhaustive-effect-dependencies -- Re-anchor when the bounded transcript window changes, including edits and removals.
@@ -937,7 +1017,7 @@ function CommunityChatTimeline({
       if (!desktopNavigation) {
         setCommunityNavigationOpen(false);
       }
-      router.push(`/a/${slug}/chat/${data.channel.id}`);
+      navigateCommunityChat(`/a/${slug}/chat/${data.channel.id}`);
     } catch (error) {
       setActionError(
         error instanceof Error ? error.message : "Couldn't create channel"
@@ -951,9 +1031,9 @@ function CommunityChatTimeline({
     desktopNavigation,
     newChannelName,
     newChannelType,
-    router,
     slug,
     setCommunityNavigationOpen,
+    setChannels,
   ]);
 
   useEffect(() => {
@@ -1076,7 +1156,9 @@ function CommunityChatTimeline({
         if (!response.ok || !data?.thread) {
           throw new Error(data?.error ?? "Couldn't start a thread");
         }
-        router.push(`/a/${slug}/chat/${channelId}/threads/${data.thread.id}`);
+        navigateCommunityChat(
+          `/a/${slug}/chat/${channelId}/threads/${data.thread.id}`
+        );
       } catch (error) {
         setActionError(
           error instanceof Error ? error.message : "Couldn't start a thread"
@@ -1085,7 +1167,7 @@ function CommunityChatTimeline({
         setCreatingThread(false);
       }
     },
-    [channelId, creatingThread, publicThreadName, router, slug, threadsUrl]
+    [channelId, creatingThread, publicThreadName, slug, threadsUrl]
   );
 
   const createPrivateThread = useCallback(async () => {
@@ -1126,7 +1208,9 @@ function CommunityChatTimeline({
       setMemberOptions([]);
       setMemberCursor(null);
       setSelectedMemberIds([]);
-      router.push(`/a/${slug}/chat/${channelId}/threads/${data.thread.id}`);
+      navigateCommunityChat(
+        `/a/${slug}/chat/${channelId}/threads/${data.thread.id}`
+      );
     } catch (error) {
       setActionError(
         error instanceof Error
@@ -1141,7 +1225,6 @@ function CommunityChatTimeline({
     creatingThread,
     privateThreadName,
     privateThreadStarter,
-    router,
     selectedMemberIds,
     slug,
     threadsUrl,
@@ -1340,7 +1423,10 @@ function CommunityChatTimeline({
   }, []);
 
   const sortedMessages = messages;
-  const channelName = room?.name ?? "conversation";
+  const channelName =
+    room?.name ??
+    channels.find((item) => item.id === channelId)?.name ??
+    "conversation";
   const canManage = permissions?.canManage ?? false;
   const canSend = permissions?.canSend ?? false;
   const threadRoot = threadId
@@ -1393,6 +1479,14 @@ function CommunityChatTimeline({
           </Button>
         ) : null}
       </div>
+      {channelsError ? (
+        <div className="text-muted-foreground px-5 py-2 text-xs">
+          Couldn’t load channels.{" "}
+          <button type="button" className="underline" onClick={retryChannels}>
+            Try again
+          </button>
+        </div>
+      ) : null}
       {createChannelOpen && canManage ? (
         <div
           id="community-create-channel"
@@ -1453,7 +1547,7 @@ function CommunityChatTimeline({
               if (!desktopNavigation) {
                 setCommunityNavigationOpen(false);
               }
-              router.push(`/a/${slug}/chat/${channel.id}`);
+              navigateCommunityChat(`/a/${slug}/chat/${channel.id}`);
             }}
             type="button"
           >
@@ -1481,7 +1575,30 @@ function CommunityChatTimeline({
               {parentChannelName}
             </span>
           </h2>
-          {threads.length === 0 ? (
+          {threadsLoading ? (
+            <output className="text-muted-foreground block px-3 py-2 text-xs">
+              Loading threads…
+            </output>
+          ) : null}
+          {threadsError ? (
+            <div className="text-muted-foreground px-3 py-2 text-xs">
+              Couldn’t load threads.{" "}
+              <button
+                type="button"
+                className="underline"
+                onClick={async () => {
+                  try {
+                    await refreshThreads();
+                  } catch {
+                    setThreadsError(true);
+                  }
+                }}
+              >
+                Try again
+              </button>
+            </div>
+          ) : null}
+          {!threadsLoading && !threadsError && threads.length === 0 ? (
             <p className="text-muted-foreground px-3 py-2 text-xs leading-relaxed">
               No threads yet.
             </p>
@@ -1495,7 +1612,7 @@ function CommunityChatTimeline({
                   if (!desktopNavigation) {
                     setCommunityNavigationOpen(false);
                   }
-                  router.push(
+                  navigateCommunityChat(
                     `/a/${slug}/chat/${channelId}/threads/${thread.room.id}`
                   );
                 }}
@@ -1520,45 +1637,46 @@ function CommunityChatTimeline({
     </div>
   );
 
-  const callToChat = canSend ? null : (
-    <div className="border-border/60 bg-muted/35 mx-4 mb-3 rounded-2xl border px-4 py-3 text-sm">
-      {membership || permissions?.writeRestriction === "BANNED" ? (
-        <p className="text-muted-foreground">
-          {permissions?.writeRestriction
-            ? restrictionCopy[permissions.writeRestriction]
-            : "You can read this conversation, but sending messages is unavailable right now."}
-        </p>
-      ) : (
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <p className="text-foreground font-semibold">
-              Join the conversation
-            </p>
-            <p className="text-muted-foreground mt-0.5 text-xs">
-              Become a member to write in this community.
-            </p>
+  const callToChat =
+    loading || canSend ? null : (
+      <div className="border-border/60 bg-muted/35 mx-4 mb-3 rounded-2xl border px-4 py-3 text-sm">
+        {membership || permissions?.writeRestriction === "BANNED" ? (
+          <p className="text-muted-foreground">
+            {permissions?.writeRestriction
+              ? restrictionCopy[permissions.writeRestriction]
+              : "You can read this conversation, but sending messages is unavailable right now."}
+          </p>
+        ) : (
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="text-foreground font-semibold">
+                Join the conversation
+              </p>
+              <p className="text-muted-foreground mt-0.5 text-xs">
+                Become a member to write in this community.
+              </p>
+            </div>
+            {isLoggedIn ? (
+              <JoinButton
+                className="w-auto"
+                communityId={communityId}
+                initialMembership={membership}
+                isLoggedIn
+                slug={slug}
+              />
+            ) : (
+              <Button asChild className="w-auto" size="sm" variant="premium">
+                <Link
+                  href={`/login?next=${encodeURIComponent(`/a/${slug}/chat/${channelId}${threadId ? `/threads/${threadId}` : ""}`)}`}
+                >
+                  Sign in to join
+                </Link>
+              </Button>
+            )}
           </div>
-          {isLoggedIn ? (
-            <JoinButton
-              className="w-auto"
-              communityId={communityId}
-              initialMembership={membership}
-              isLoggedIn
-              slug={slug}
-            />
-          ) : (
-            <Button asChild className="w-auto" size="sm" variant="premium">
-              <Link
-                href={`/login?next=${encodeURIComponent(`/a/${slug}/chat/${channelId}${threadId ? `/threads/${threadId}` : ""}`)}`}
-              >
-                Sign in to join
-              </Link>
-            </Button>
-          )}
-        </div>
-      )}
-    </div>
-  );
+        )}
+      </div>
+    );
 
   if (accessRevoked) {
     return (
@@ -2309,6 +2427,13 @@ function CommunityChatTimeline({
                                 <Link
                                   className="hover:bg-muted/60 mt-2 inline-flex items-center gap-1.5 rounded-full px-2.5 py-1.5 text-[11px] font-medium text-[var(--community-accent-resolved)]"
                                   href={`/a/${slug}/chat/${channelId}/threads/${linkedThread.room.id}`}
+                                  prefetch={false}
+                                  onNavigate={(event) => {
+                                    event.preventDefault();
+                                    navigateCommunityChat(
+                                      `/a/${slug}/chat/${channelId}/threads/${linkedThread.room.id}`
+                                    );
+                                  }}
                                 >
                                   <MessageCircle className="size-3.5" />
                                   {linkedThread.room.name} ·{" "}

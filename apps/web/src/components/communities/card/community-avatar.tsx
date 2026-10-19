@@ -3,7 +3,6 @@
 import Image from "next/image";
 import { useState } from "react";
 
-import { communityAccentStyle } from "@/lib/communities/accent";
 import { cn } from "@/lib/utils";
 import { getDefaultAvatar } from "@/lib/utils/image-url";
 
@@ -17,13 +16,8 @@ interface CommunityAvatarProps {
   slug: string;
 }
 
-// Community mark. Same shape and depth as the app's UserAvatar (rounded-xl with
-// the .avatar-ring 3D lip and the muted-to-background gradient backing), with
-// the outer edge swapped to the community's accent via .community-avatar-ring.
-// Falls back to a deterministic default avatar seeded by the slug when the
-// community has not uploaded one.
+// Community marks use the app’s rounded shape without an accent border.
 export default function CommunityAvatar({
-  accentColor,
   avatarUrl,
   className,
   name,
@@ -42,7 +36,7 @@ export default function CommunityAvatar({
     <Image
       alt={`${name} community`}
       className={cn(
-        "community-avatar-ring aspect-square h-fit flex-none rounded-xl",
+        "aspect-square h-fit flex-none rounded-xl",
         "bg-gradient-to-b from-[hsl(var(--muted))] to-[hsl(var(--background-alt))]",
         "object-cover",
         className
@@ -52,7 +46,6 @@ export default function CommunityAvatar({
       priority={priority}
       sizes="96px"
       src={resolvedSrc}
-      style={communityAccentStyle(accentColor)}
       unoptimized={isProxy || isDefault}
       width={size}
     />

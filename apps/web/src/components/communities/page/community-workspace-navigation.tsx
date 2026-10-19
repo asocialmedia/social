@@ -25,6 +25,7 @@ import type { ReactNode, RefObject } from "react";
 import MobileBottomNav from "@/components/layouts/navigation/mobile/mobile-bottom-nav";
 import { communityAccentStyle } from "@/lib/communities/accent";
 import { communityChatUiEnabled } from "@/lib/communities/chat-features";
+import { navigateCommunityChat } from "@/lib/communities/chat-navigation";
 import { cn } from "@/lib/utils";
 
 import CommunityAvatar from "../card/community-avatar";
@@ -88,6 +89,13 @@ export default function CommunityWorkspaceNavigation({
         <Link
           key={key}
           href={href}
+          prefetch={active === "chat" && key === "chat" ? false : undefined}
+          onNavigate={(event) => {
+            if (active === "chat" && key === "chat" && channelId) {
+              event.preventDefault();
+              navigateCommunityChat(href);
+            }
+          }}
           title={collapsed ? label : undefined}
           aria-label={collapsed ? label : undefined}
           aria-current={active === key ? "page" : undefined}

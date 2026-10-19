@@ -36,9 +36,11 @@ async function CommunityChatLanding({ params }: PageProps) {
     notFound();
   }
   const { slug } = await params;
-  const session = await getSessionFromApi();
+  const [session, community] = await Promise.all([
+    getSessionFromApi(),
+    getCommunityBySlug(slug),
+  ]);
   const userId = session?.user?.id ?? "";
-  const community = await getCommunityBySlug(slug);
   if (!community || !(await canViewCommunity(community, userId))) {
     notFound();
   }

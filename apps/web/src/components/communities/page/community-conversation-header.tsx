@@ -5,6 +5,8 @@ import { ArrowLeft, MoreHorizontal, PanelLeft } from "lucide-react";
 import Link from "next/link";
 import type { Ref } from "react";
 
+import { navigateCommunityChat } from "@/lib/communities/chat-navigation";
+
 import CommunityAvatar from "../card/community-avatar";
 import { COMMUNITY_NAVIGATION_ID } from "./community-workspace-navigation";
 
@@ -42,6 +44,11 @@ export default function CommunityConversationHeader({
           <Link
             aria-label="Back to channel"
             href={`/a/${props.slug}/chat/${props.channelId}`}
+            prefetch={false}
+            onNavigate={(event) => {
+              event.preventDefault();
+              navigateCommunityChat(`/a/${props.slug}/chat/${props.channelId}`);
+            }}
           >
             <ArrowLeft className="size-[18px]" />
           </Link>
