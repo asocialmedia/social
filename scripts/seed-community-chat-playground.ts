@@ -205,21 +205,24 @@ async function printExistingFixture(communityId: string): Promise<void> {
 async function main(): Promise<void> {
   requireLocalTestDatabase();
   const apply = process.argv.includes("--apply");
-  const owner = await prisma.orm.public.Users.select("id", "username")
+  const existingOwner = await prisma.orm.public.Users.select("id", "username")
     .where({ username: OWNER_USERNAME })
     .first();
-  if (!owner) {
-    const localUsers = await prisma.orm.public.Users.select("username")
-      .limit(20)
-      .all();
-    const guidance =
-      localUsers.length > 0
-        ? `Available local usernames (up to 20): ${localUsers.map((user) => `@${user.username}`).join(", ")}. Rerun with --owner=<exact-username>.`
-        : "No local accounts exist. Create @anny through sign-up, then rerun this seed.";
-    throw new Error(
-      `Expected existing owner account @${OWNER_USERNAME}; no account was modified. ${guidance}`
-    );
-  }
+  const owner = existingOwner ?? {
+    id: "communitychat_owner",
+    username: OWNER_USERNAME,
+  };
+  const accountsToCreate = existingOwner
+    ? TEST_MEMBERS
+    : [
+        {
+          displayName: OWNER_USERNAME,
+          email: "communitychat_owner@asocialmedia.local",
+          id: owner.id,
+          username: owner.username,
+        },
+        ...TEST_MEMBERS,
+      ];
 
   const existingCommunity = await prisma.orm.public.Communities.select(
     "id",
@@ -240,22 +243,24 @@ async function main(): Promise<void> {
     return;
   }
 
-  const testUsernames = TEST_MEMBERS.map((member) => member.username);
+  const testUsernames = accountsToCreate.map((member) => member.username);
   const existingUsers = await prisma.orm.public.Users.select("id", "username")
     .where((user) => user.username.in(testUsernames))
     .all();
   const existingUserIds = await prisma.orm.public.Users.select("id")
-    .where((user) => user.id.in(TEST_MEMBERS.map((member) => member.id)))
+    .where((user) => user.id.in(accountsToCreate.map((member) => member.id)))
     .all();
   const existingEmails = await prisma.orm.public.Users.select("email")
-    .where((user) => user.email.in(TEST_MEMBERS.map((member) => member.email)))
+    .where((user) =>
+      user.email.in(accountsToCreate.map((member) => member.email))
+    )
     .all();
   const existingAccounts = await prisma.orm.public.Accounts.select(
     "accountId",
     "providerId"
   )
     .where((account) =>
-      account.accountId.in(TEST_MEMBERS.map((member) => member.id))
+      account.accountId.in(accountsToCreate.map((member) => member.id))
     )
     .all();
   if (
@@ -283,7 +288,8 @@ async function main(): Promise<void> {
             community: FIXTURE_SLUG,
             channels: CHANNELS.length,
             owner: `@${owner.username}`,
-            testAccounts: TEST_MEMBERS.length,
+            createsOwner: !existingOwner,
+            testAccounts: accountsToCreate.length,
             threads: 2,
             testPassword: TEST_PASSWORD,
           },
@@ -298,9 +304,9 @@ async function main(): Promise<void> {
   }
 
   const accountPasswords = await Promise.all(
-    TEST_MEMBERS.map(() => hashPasswordWithScrypt(TEST_PASSWORD))
+    accountsToCreate.map(() => hashPasswordWithScrypt(TEST_PASSWORD))
   );
-  const testAccounts = TEST_MEMBERS.map((member, index) => {
+  const testAccounts = accountsToCreate.map((member, index) => {
     const password = accountPasswords[index];
     if (!password) {
       throw new Error(
@@ -329,7 +335,7 @@ async function main(): Promise<void> {
 
   await prisma.transaction(async (tx) => {
     await tx.orm.public.Users.createAll(
-      TEST_MEMBERS.map((member) => ({
+      accountsToCreate.map((member) => ({
         displayName: member.displayName,
         email: member.email,
         emailVerified: true,
@@ -784,7 +790,8 @@ async function main(): Promise<void> {
           slug: FIXTURE_SLUG,
           url: `/a/${FIXTURE_SLUG}`,
         },
-        testAccounts: TEST_MEMBERS.map(({ displayName, username }) => ({
+        ownerCreated: !existingOwner,
+        testAccounts: accountsToCreate.map(({ displayName, username }) => ({
           displayName,
           username,
         })),

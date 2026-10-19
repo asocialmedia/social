@@ -1,8 +1,8 @@
 # Community chat playground test checklist
 
-This fixture is created by `scripts/seed-community-chat-playground.ts` and is intended for the local development database only. It does not change the password or profile of the existing owner account `@anny`.
+This fixture is created by `scripts/seed-community-chat-playground.ts` and is intended for the local development database only. It reuses `@anny` when that account exists, preserving its password and profile. Otherwise it creates local `@anny` with the fixture password below, in the same transaction as the community.
 
-The owner must already exist in the local database. If `anny` is missing, the seed lists up to 20 existing usernames without writing data. Use `--owner=<exact-username>` to select another existing account; references to `anny` below then mean that selected owner. If no local accounts exist, sign up as `anny` first.
+Use `--owner=<exact-username>` to select a different owner; references to `anny` below then mean that selected owner. Running without `--apply` only previews the plan. Rerunning after a successful seed reports the existing fixture without creating duplicates.
 
 ## Test accounts
 
@@ -10,7 +10,7 @@ All fixture accounts use the local-only password `Test@1234`.
 
 | Username | Community state | What to test |
 | --- | --- | --- |
-| `anny` | Owner | Existing account; create/manage channels and moderate the community. Sign in with the credentials already set up locally. |
+| `anny` | Owner | Create/manage channels and moderate the community. Use existing local credentials if this account already existed; otherwise use `Test@1234`. |
 | `communitychat_mod` | Active moderator | Staff channel access and community chat moderation controls. |
 | `communitychat_invited` | Active member; invited to the private thread | Normal member chat and access to the private thread. |
 | `communitychat_member` | Active member; not invited to the private thread | Normal member chat and private-thread privacy. |
