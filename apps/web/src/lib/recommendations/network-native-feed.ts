@@ -39,8 +39,12 @@ import {
 import { isTrendingPost } from "@/lib/posts/trending-eligibility";
 
 import { exploreTopics } from "./explore-topics";
+import { admitFeedRead } from "./feed-admission";
+import { feedTiming } from "./feed-timing";
+import type { FeedTiming } from "./feed-timing";
 import { reportRecommendationHealth } from "./health";
 import { diversifyExploreCandidates } from "./mix-explore";
+import { nativeCandidateIds } from "./native-candidates";
 import type { NetworkFeedContext } from "./network-context";
 import { networkFeedContext } from "./network-context";
 import { signNetworkObservation } from "./network-observation";
@@ -112,18 +116,47 @@ export async function networkNativeFeed(
   contentKind: "post" | "gust" = "post"
 ) {
   try {
+    return await admitFeedRead(request, () =>
+      readNetworkNativeFeed(request, userId, mode, contentKind)
+    );
+  } catch (error) {
+    reportRecommendationHealth("native-feed", false, error);
+    return feedTiming(request).finish(
+      Response.json(
+        { error: "Feed is busy. Try again shortly." },
+        {
+          headers: { "cache-control": "private, no-store", "retry-after": "2" },
+          status: 503,
+        }
+      ),
+      "native"
+    );
+  }
+}
+
+async function readNetworkNativeFeed(
+  request: Request,
+  userId: string,
+  mode: "personalized" | "trending" | "latest",
+  contentKind: "post" | "gust"
+) {
+  const timing = feedTiming(request);
+  try {
     const query = new URL(request.url).searchParams;
-    const context = await networkFeedContext(
-      userId || undefined,
-      query.get("profile") ?? undefined
+    const context = await timing.measure("features", () =>
+      networkFeedContext(userId || undefined, query.get("profile") ?? undefined)
     );
     if (query.has("cursor")) {
-      return await buildNetworkNativeFeed(
-        request,
-        userId,
-        mode,
-        contentKind,
-        context
+      return timing.finish(
+        await buildNetworkNativeFeed(
+          request,
+          userId,
+          mode,
+          contentKind,
+          context,
+          timing
+        ),
+        "native"
       );
     }
     const version = userId
@@ -144,31 +177,37 @@ export async function networkNativeFeed(
         ])
       )
       .digest("hex")}}`;
-    const body = await headCache.read(
-      key,
-      async () => {
-        const response = await buildNetworkNativeFeed(
-          request,
-          userId,
-          mode,
-          contentKind,
-          context
-        );
-        if (!response.ok) {
-          throw new Error(`Native feed returned ${response.status}`);
-        }
-        return response.text();
-      },
-      request.signal
+    const body = await timing.measure("cache", () =>
+      headCache.read(
+        key,
+        async () => {
+          const response = await buildNetworkNativeFeed(
+            request,
+            userId,
+            mode,
+            contentKind,
+            context,
+            timing
+          );
+          if (!response.ok) {
+            throw new Error(`Native feed returned ${response.status}`);
+          }
+          return response.text();
+        },
+        request.signal
+      )
     );
     reportRecommendationHealth("native-feed", true);
-    return new Response(body, {
-      headers: {
-        "cache-control": "private, no-store",
-        "content-type": "application/json",
-        vary: "Cookie",
-      },
-    });
+    return timing.finish(
+      new Response(body, {
+        headers: {
+          "cache-control": "private, no-store",
+          "content-type": "application/json",
+          vary: "Cookie",
+        },
+      }),
+      "native"
+    );
   } catch (error) {
     if (error instanceof NetworkPreferenceConflictError) {
       return Response.json(
@@ -192,7 +231,8 @@ async function buildNetworkNativeFeed(
   userId: string,
   mode: "personalized" | "trending" | "latest",
   contentKind: "post" | "gust",
-  context: NetworkFeedContext
+  context: NetworkFeedContext,
+  timing: FeedTiming
 ) {
   const query = new URL(request.url).searchParams;
   const exploring = query.get("surface") === "explore";
@@ -209,7 +249,9 @@ async function buildNetworkNativeFeed(
     context.profile,
     "persona" in context ? context.persona.signalCount : 0
   );
-  const social = await networkSocialCandidates(userId);
+  const social = await timing.measure("graph", () =>
+    networkSocialCandidates(userId)
+  );
   const socialById = new Map(social.native.map((entry) => [entry.id, entry]));
   const cursor = query.get("cursor");
   const take = query.get("take") ?? (contentKind === "gust" ? "10" : "20");
@@ -257,6 +299,7 @@ async function buildNetworkNativeFeed(
       buildBatch = true;
     }
   }
+  const stopRetrieval = timing.start("retrieval");
   if (buildBatch) {
     const focusedSeeds = context.selected.interests.length
       ? networkInterestTerms(context.selected.interests, context.topicScope)
@@ -283,18 +326,16 @@ async function buildNetworkNativeFeed(
     const [relevant, exploration, guestCurated] = await Promise.all([
       level === 1 && seeds.length === 0
         ? Promise.resolve({ rows: [] as { id: string }[] })
-        : rawQuery<{ id: string }>(
-            networkSql.pagedCandidates,
-            [
-              seeds,
-              context.preferences.showExplicitContent,
-              mode,
-              contentKind === "gust",
-              candidateOffset,
-              anchor,
-            ],
-            { id: "pg/text@1" }
-          ),
+        : nativeCandidateIds({
+            anchor,
+            continuation: Boolean(cursor) || candidateOffset > 0 || level > 0,
+            explicit: context.preferences.showExplicitContent,
+            gust: contentKind === "gust",
+            mode,
+            offset: candidateOffset,
+            seeds,
+            signal: request.signal,
+          }),
       (!exploring && context.selected.interests.length) || level > 0
         ? Promise.resolve({ rows: [] })
         : rawQuery<{ id: string }>(
@@ -335,6 +376,8 @@ async function buildNetworkNativeFeed(
       ]),
     ].filter((id) => !seen.includes(id));
   }
+  stopRetrieval();
+  const stopHydration = timing.start("hydration");
   const visibility = communityVisibilityWhere(userId);
   const [subscriptions, blocked, hidden] = await Promise.all([
     userId ? getSubscribedCommunityIds(userId) : Promise.resolve([]),
@@ -374,6 +417,8 @@ async function buildNetworkNativeFeed(
         )
         .all()
     : [];
+  stopHydration();
+  const stopFiltering = timing.start("filtering");
   let posts = rows
     .map(mapPostData)
     .filter((post) =>
@@ -396,7 +441,9 @@ async function buildNetworkNativeFeed(
             context.topicScope
           ) > 0)
     );
+  stopFiltering();
   if (buildBatch) {
+    const stopRanking = timing.start("ranking");
     const authorSignals = await getAuraSignalsForUsers([
       ...new Set(posts.map((post) => post.userId)),
     ]);
@@ -521,6 +568,7 @@ async function buildNetworkNativeFeed(
       ids = diversifyExploreCandidates(ids, (id) => related.has(id));
     }
     ids = ids.slice(0, 400);
+    stopRanking();
     canContinue = await redis
       .set(
         `rec:network-feed:v1:${generation}`,
@@ -550,7 +598,8 @@ async function buildNetworkNativeFeed(
       ordered.push(post);
     }
   }
-  posts = await hydrateViewCounts(ordered);
+  posts = await timing.measure("hydration", () => hydrateViewCounts(ordered));
+  const stopFeatures = timing.start("features");
   const observed = await Promise.all(
     posts.map(async (post) => ({
       ...post,
@@ -579,7 +628,9 @@ async function buildNetworkNativeFeed(
         : {}),
     }))
   );
-  return Response.json(
+  stopFeatures();
+  const stopSerialization = timing.start("serialization");
+  const response = Response.json(
     {
       nextCursor:
         canContinue &&
@@ -592,4 +643,6 @@ async function buildNetworkNativeFeed(
     },
     { headers: { "cache-control": "private, no-store", vary: "Cookie" } }
   );
+  stopSerialization();
+  return response;
 }

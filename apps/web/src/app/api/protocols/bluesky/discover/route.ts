@@ -47,6 +47,7 @@ import {
 } from "@/lib/protocols/recommendations";
 import { readBlueskyDiscovery } from "@/lib/protocols/service";
 import { exploreTopics } from "@/lib/recommendations/explore-topics";
+import { feedTiming } from "@/lib/recommendations/feed-timing";
 import { diversifyExploreCandidates } from "@/lib/recommendations/mix-explore";
 import {
   networkFeedContext,
@@ -57,6 +58,7 @@ import { socialExternalRecommendations } from "@/lib/recommendations/social-exte
 
 export function GET(request: Request) {
   return protocolRoute(request, "discovery", async (id) => {
+    const timing = feedTiming(request);
     const query = new URL(request.url).searchParams;
     const mode = discoveryModeSchema.safeParse(query.get("mode") ?? "latest");
     const content = discoveryContentSchema.safeParse(
@@ -73,13 +75,12 @@ export function GET(request: Request) {
     if (!mode.success || (cursor && !z.uuid().safeParse(cursor).success)) {
       throw new ProtocolGatewayError(400, "invalid_query");
     }
-    const session = await getSessionFromApi();
+    const session = await timing.measure("auth", () => getSessionFromApi());
     if (session?.user.id) {
       await consumeProtocolBudget(session.user.id, "read", true);
     }
-    const network = await networkFeedContext(
-      session?.user.id,
-      query.get("profile") ?? undefined
+    const network = await timing.measure("features", () =>
+      networkFeedContext(session?.user.id, query.get("profile") ?? undefined)
     );
     const { profile } = network;
     const coldStart = isDiscoveryColdStart(
@@ -197,17 +198,19 @@ export function GET(request: Request) {
     const cached =
       cursor || query.get("refresh") === "1"
         ? null
-        : await cachedDiscoveryHead(cacheKey);
+        : await timing.measure("cache", () => cachedDiscoveryHead(cacheKey));
     const read = async (signal: AbortSignal) => {
-      const page = await readBlueskyDiscovery(
-        mode.data,
-        cursor,
-        signal,
-        id,
-        locale.data,
-        topics,
-        includeExplicit,
-        content.data
+      const page = await timing.measure("retrieval", () =>
+        readBlueskyDiscovery(
+          mode.data,
+          cursor,
+          signal,
+          id,
+          locale.data,
+          topics,
+          includeExplicit,
+          content.data
+        )
       );
       if (!cursor) {
         await saveDiscoveryHead(cacheKey, page).catch(() => {
@@ -245,21 +248,25 @@ export function GET(request: Request) {
         ? readExternalFeedback(session.user.id)
         : Promise.resolve(new Set<string>()),
       session?.user.id
-        ? socialExternalRecommendations(
-            session.user.id,
-            includeSocialCandidates,
-            request.signal,
-            id
+        ? timing.measure("graph", () =>
+            socialExternalRecommendations(
+              session.user.id,
+              includeSocialCandidates,
+              request.signal,
+              id
+            )
           )
         : null,
       session?.user.id
-        ? followedExternalRecommendations(
-            session.user.id,
-            includeSocialCandidates,
-            request.signal,
-            id,
-            String(network.revision),
-            includeExplicit
+        ? timing.measure("graph", () =>
+            followedExternalRecommendations(
+              session.user.id,
+              includeSocialCandidates,
+              request.signal,
+              id,
+              String(network.revision),
+              includeExplicit
+            )
           )
         : null,
     ]);
@@ -272,6 +279,7 @@ export function GET(request: Request) {
         ].map((post) => [post.id, post])
       ).values(),
     ];
+    const stopFeatures = timing.start("features");
     const metadata = new Map(
       candidates.map((post) => [
         post.id,
@@ -282,6 +290,8 @@ export function GET(request: Request) {
         ),
       ])
     );
+    stopFeatures();
+    const stopFiltering = timing.start("filtering");
     const filtered = filterExternalRecommendations(candidates, excluded).filter(
       (post) =>
         ((!coldStart && mode.data !== "trending") ||
@@ -313,6 +323,8 @@ export function GET(request: Request) {
         ) &&
         Date.parse(post.createdAt) <= Date.now() + 60_000
     );
+    stopFiltering();
+    const stopRanking = timing.start("ranking");
     let items =
       mode.data === "latest"
         ? filtered.toSorted(
@@ -336,6 +348,7 @@ export function GET(request: Request) {
       );
     }
     items = items.slice(0, 50);
+    stopRanking();
     after(async () => {
       await Promise.all(
         items
@@ -350,11 +363,14 @@ export function GET(request: Request) {
           )
       );
     });
-    const states = await externalPostStates(
-      items.map((post) => post.id),
-      session?.user.id
+    const states = await timing.measure("hydration", () =>
+      externalPostStates(
+        items.map((post) => post.id),
+        session?.user.id
+      )
     );
-    return Response.json({
+    const stopSerialization = timing.start("serialization");
+    const response = Response.json({
       ...page,
       discoveryLevel: level.data,
       items: await Promise.all(
@@ -398,5 +414,7 @@ export function GET(request: Request) {
       partial:
         page.partial || Boolean(social?.partial) || Boolean(followed?.partial),
     });
+    stopSerialization();
+    return response;
   });
 }

@@ -6,6 +6,8 @@ import {
 import { abortable, readJsonBounded } from "@asm/protocols/discovery";
 
 import { getWebLogger } from "@/lib/otel";
+import { admitFeedRead } from "@/lib/recommendations/feed-admission";
+import { feedTiming } from "@/lib/recommendations/feed-timing";
 
 import { consumeProtocolBudget, ProtocolBudgetError } from "./budget";
 import { protocolGuest } from "./guest";
@@ -76,6 +78,7 @@ export async function protocolRoute(
       ? supplied
       : crypto.randomUUID();
   const startedAt = performance.now();
+  const timing = feedTiming(request);
   const guest = protocolGuest(request);
   const headers = {
     "cache-control": "private, no-store",
@@ -83,7 +86,8 @@ export async function protocolRoute(
     "x-request-id": id,
   };
   const isSearch = operation === "search";
-  if (isSearch ? activeSearches >= 256 : active >= 128) {
+  const isFeed = operation === "discovery";
+  if (!isFeed && (isSearch ? activeSearches >= 256 : active >= 128)) {
     return Response.json(
       { error: "Bluesky is busy. Try again shortly." },
       { headers: { ...headers, "retry-after": "2" }, status: 503 }
@@ -91,29 +95,34 @@ export async function protocolRoute(
   }
   if (isSearch) {
     activeSearches += 1;
-  } else {
+  } else if (!isFeed) {
     active += 1;
   }
   let response: Response;
   let code = "ok";
   try {
-    const ip =
-      process.env.NODE_ENV === "production"
-        ? getTrustedIngressIp(request.headers)
-        : getClientIpFromHeaders(request.headers);
-    const kind = operation === "feedback" ? "feedback" : "read";
-    await abortable(
-      Promise.all([
-        consumeProtocolBudget("service", kind, false, "global"),
-        consumeProtocolBudget(guest.identity, kind, false, "guest"),
-        consumeProtocolBudget(hashViewerId(ip), kind),
-      ]),
-      AbortSignal.any([request.signal, AbortSignal.timeout(2500)])
-    );
-    response = await abortable(
-      run(id),
-      AbortSignal.any([request.signal, AbortSignal.timeout(20_000)])
-    );
+    const execute = async () => {
+      const ip =
+        process.env.NODE_ENV === "production"
+          ? getTrustedIngressIp(request.headers)
+          : getClientIpFromHeaders(request.headers);
+      const kind = operation === "feedback" ? "feedback" : "read";
+      await timing.measure("budget", () =>
+        abortable(
+          Promise.all([
+            consumeProtocolBudget("service", kind, false, "global"),
+            consumeProtocolBudget(guest.identity, kind, false, "guest"),
+            consumeProtocolBudget(hashViewerId(ip), kind),
+          ]),
+          AbortSignal.any([request.signal, AbortSignal.timeout(2500)])
+        )
+      );
+      return await abortable(
+        run(id),
+        AbortSignal.any([request.signal, AbortSignal.timeout(20_000)])
+      );
+    };
+    response = isFeed ? await admitFeedRead(request, execute) : await execute();
   } catch (error) {
     let failure = new ProtocolGatewayError(503, "dependency_unavailable");
     if (error instanceof ProtocolBudgetError) {
@@ -140,7 +149,7 @@ export async function protocolRoute(
   } finally {
     if (isSearch) {
       activeSearches -= 1;
-    } else {
+    } else if (!isFeed) {
       active -= 1;
     }
   }
@@ -170,5 +179,5 @@ export async function protocolRoute(
   } else {
     getWebLogger()?.debug(fields, "Protocol gateway request completed");
   }
-  return response;
+  return timing.finish(response, operation);
 }
