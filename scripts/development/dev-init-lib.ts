@@ -163,7 +163,16 @@ function formatPortEntry(value: unknown, fallbackContainer?: string): string {
   if (!container) {
     return "";
   }
+  if (host === "0") {
+    return "";
+  }
   return host ? `${host}->${container}` : container;
+}
+
+function joinUniquePorts(entries: string[]): string {
+  return [
+    ...new Set(entries.map((entry) => entry.trim()).filter(Boolean)),
+  ].join(", ");
 }
 
 function formatPorts(value: unknown): string {
@@ -171,10 +180,7 @@ function formatPorts(value: unknown): string {
     return value.trim();
   }
   if (Array.isArray(value)) {
-    return value
-      .map((entry) => formatPortEntry(entry))
-      .filter(Boolean)
-      .join(", ");
+    return joinUniquePorts(value.map((entry) => formatPortEntry(entry)));
   }
   const ports = asRecord(value);
   if (!ports) {
@@ -184,8 +190,8 @@ function formatPorts(value: unknown): string {
   if (direct) {
     return direct;
   }
-  return Object.entries(ports)
-    .flatMap(([containerKey, mappings]) => {
+  return joinUniquePorts(
+    Object.entries(ports).flatMap(([containerKey, mappings]) => {
       const container = containerKey.split("/")[0] ?? containerKey;
       if (Array.isArray(mappings)) {
         return mappings.map((mapping) => formatPortEntry(mapping, container));
@@ -195,8 +201,7 @@ function formatPorts(value: unknown): string {
       }
       return [formatPortEntry(mappings, container)];
     })
-    .filter(Boolean)
-    .join(", ");
+  );
 }
 
 function recordName(value: unknown): string | null {

@@ -109,6 +109,36 @@ describe("parseContainerList", () => {
     ]);
   });
 
+  test("deduplicates Docker publisher bindings and omits unpublished ports", () => {
+    const output = JSON.stringify({
+      Name: "social-storage-1",
+      Publishers: [
+        {
+          Protocol: "tcp",
+          PublishedPort: 9090,
+          TargetPort: 9000,
+          URL: "0.0.0.0",
+        },
+        {
+          Protocol: "tcp",
+          PublishedPort: 9090,
+          TargetPort: 9000,
+          URL: "::",
+        },
+        {
+          Protocol: "tcp",
+          PublishedPort: 0,
+          TargetPort: 7357,
+          URL: "",
+        },
+      ],
+      Service: "storage-dev",
+      State: "running",
+    });
+
+    expect(parseContainerList(output)[0]?.ports).toBe("9090->9000");
+  });
+
   test("reads Podman Compose array ports", () => {
     const output = JSON.stringify([
       {
