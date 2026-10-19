@@ -30,3 +30,9 @@ Native reuses the app dock inside the community drawer, with native-driven opaci
 Screenshots are in `community-dock-2026-10-19/`.
 
 Physical Android/iOS and low-end hardware performance checks remain unverified. Temporary browser CPU, media-preference and viewport overrides were reset after testing.
+
+## Reverse-close follow-up
+
+Closing now reverses the dock entrance: y=0 → 28 px and scale=1 → 0.96, with the reverse easing over 240 ms. The web modal keeps full parent opacity during that interval so the dock can complete its own exit. Its background gradient fades separately. Reduced motion retains a 100 ms fade. Native retains the modal until its native-driven exit completes, and the dock uses the matching reverse movement and easing.
+
+Browser close-button observation: the closing layer held for 0.24 s at parent opacity 1; the dock had begun moving downward and shrinking, and was already inert. Escape and reopen were also checked. Existing navigation tests, lint and type checks passed.

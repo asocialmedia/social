@@ -176,7 +176,7 @@ export default function CommunityWorkspaceNavigation({
           <SheetOverlay />
           <SheetDialogContent
             id={desktop ? undefined : COMMUNITY_NAVIGATION_ID}
-            className="community-accent-scope group data-[state=closed]:animate-out data-[state=closed]:fade-out-0 fixed inset-0 z-50 h-dvh outline-none data-[state=closed]:duration-180 motion-reduce:animate-none!"
+            className="community-accent-scope group data-[state=closed]:animate-out fixed inset-0 z-50 h-dvh outline-none data-[state=closed]:duration-240 motion-reduce:data-[state=closed]:duration-100"
             style={communityAccentStyle(accentColor)}
             onPointerDown={(event) => {
               if (event.target === event.currentTarget) {
@@ -194,7 +194,7 @@ export default function CommunityWorkspaceNavigation({
                 Switch between community posts, chat and channels.
               </SheetDescription>
             </SheetHeader>
-            <div className="panel-3d group-data-[state=open]:animate-in group-data-[state=open]:slide-in-from-left group-data-[state=closed]:animate-out group-data-[state=closed]:slide-out-to-left pointer-events-auto relative flex h-full w-80 max-w-[calc(100vw-2.75rem)] flex-col gap-0 rounded-l-none! rounded-r-3xl! pt-[env(safe-area-inset-top)] pb-[calc(env(safe-area-inset-bottom)+6rem)] group-data-[state=closed]:duration-180 group-data-[state=open]:duration-250 motion-reduce:animate-none! sm:w-96 sm:max-w-sm">
+            <div className="panel-3d group-data-[state=open]:animate-in group-data-[state=open]:slide-in-from-left group-data-[state=closed]:animate-out group-data-[state=closed]:slide-out-to-left pointer-events-auto relative flex h-full w-80 max-w-[calc(100vw-2.75rem)] flex-col gap-0 rounded-l-none! rounded-r-3xl! pt-[env(safe-area-inset-top)] pb-[calc(env(safe-area-inset-bottom)+6rem)] group-data-[state=closed]:duration-240 group-data-[state=open]:duration-250 motion-reduce:animate-none! sm:w-96 sm:max-w-sm">
               <SheetClose
                 aria-label="Close"
                 className="icon-btn-3d absolute top-[calc(env(safe-area-inset-top)+0.75rem)] right-3 flex size-11 items-center justify-center rounded-full"
@@ -212,6 +212,7 @@ export default function CommunityWorkspaceNavigation({
             </div>
             <MobileBottomNav
               hidden={false}
+              closing={!open}
               sidebar
               onNavigate={() => onOpenChange(false)}
             />

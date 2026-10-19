@@ -312,7 +312,7 @@ export function MobileBottomNav({
     // so the bar, the feed follow, the banner and the dock glide as one.
     const travel = Animated.timing(slide, {
       duration: sidebar && reduceMotion ? 100 : motionDuration,
-      easing: Easing.out(Easing.cubic),
+      easing: sidebar && hidden ? Easing.in(Easing.cubic) : Easing.out(Easing.cubic),
       isInteraction: false,
       toValue: hidden ? 1 : 0,
       useNativeDriver: Platform.OS !== "web",

@@ -7,7 +7,7 @@ import type {
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import { FileText, LockKeyhole, MessageCircle, X } from "lucide-react-native";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Animated,
@@ -57,21 +57,31 @@ export function CommunityNavigationDrawer({
   threads?: CommunityChatThreadSummary[];
 }) {
   const router = useRouter();
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+  const [closing, setClosing] = useState(false);
+  const close = () => setClosing(true);
   const reduceMotion = useReducedMotion();
   const { width } = useWindowDimensions();
   // oxlint-disable-next-line react/hook-use-state -- A stable native animation value owns the entrance.
   const [entrance] = useState(() => new Animated.Value(0));
   useEffect(() => {
     const animation = Animated.timing(entrance, {
-      duration: reduceMotion ? 100 : 250,
-      easing: Easing.out(Easing.cubic),
+      duration: reduceMotion ? 100 : 240,
+      easing: closing ? Easing.in(Easing.cubic) : Easing.out(Easing.cubic),
       isInteraction: false,
-      toValue: 1,
+      toValue: closing ? 0 : 1,
       useNativeDriver: true,
     });
-    animation.start();
+    animation.start(({ finished }) => {
+      if (finished && closing) {
+        onCloseRef.current();
+      }
+    });
     return () => animation.stop();
-  }, [entrance, reduceMotion]);
+  }, [entrance, reduceMotion, closing]);
   const insets = useSafeAreaInsets();
   const { theme, isDark } = useAppTheme();
   const accent = resolveCommunityAccentColor(accentColor, isDark);
@@ -109,7 +119,7 @@ export function CommunityNavigationDrawer({
   }, [availableChannels, slug, attempt]);
 
   const navigate = (path: `/a/${string}`) => {
-    onClose();
+    close();
     if (active === "chat") {
       router.replace(path);
     } else {
@@ -121,12 +131,12 @@ export function CommunityNavigationDrawer({
     selected && { backgroundColor: `${accent}18` },
   ];
   return (
-    <Modal visible transparent animationType="fade" onRequestClose={onClose}>
+    <Modal visible transparent animationType="fade" onRequestClose={close}>
       <View style={styles.scrim}>
         <Pressable
           accessibilityLabel="Close community sidebar"
           accessibilityRole="button"
-          onPress={onClose}
+          onPress={close}
           style={StyleSheet.absoluteFill}
         />
         <Animated.View
@@ -165,7 +175,7 @@ export function CommunityNavigationDrawer({
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Close community sidebar"
-              onPress={onClose}
+              onPress={close}
               style={styles.close}
             >
               <X color={theme.dividerText} size={22} />
@@ -180,7 +190,7 @@ export function CommunityNavigationDrawer({
               style={[...rowStyle(active === "posts"), styles.tab]}
               onPress={() => {
                 if (active === "posts") {
-                  onClose();
+                  close();
                 } else {
                   navigate(`/a/${slug}`);
                 }
@@ -315,7 +325,7 @@ export function CommunityNavigationDrawer({
             right: 0,
           }}
         />
-        <MobileBottomNav hidden={false} sidebar onNavigate={onClose} />
+        <MobileBottomNav hidden={closing} sidebar onNavigate={close} />
       </View>
     </Modal>
   );

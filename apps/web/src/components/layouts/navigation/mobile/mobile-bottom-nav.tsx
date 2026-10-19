@@ -88,8 +88,14 @@ const NavIcon: React.FC<{ active: boolean; icon: typeof Home }> = ({
 const MobileBottomNav: React.FC<{
   hidden?: boolean;
   sidebar?: boolean;
+  closing?: boolean;
   onNavigate?: () => void;
-}> = ({ sidebar = false, onNavigate, hidden: hiddenOverride }) => {
+}> = ({
+  sidebar = false,
+  closing = false,
+  onNavigate,
+  hidden: hiddenOverride,
+}) => {
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -107,8 +113,9 @@ const MobileBottomNav: React.FC<{
   // signal that drives its top bar, so the dock moves in lockstep with it.
   // Deriving a second signal here from capture-phase document events desyncs
   // from the page's own listener during bottom overscroll, which flickers both.
-  const hidden = hiddenOverride ?? hookHidden;
+  const hidden = closing || (hiddenOverride ?? hookHidden);
   const reduceMotion = useReducedMotion();
+  const hiddenY = sidebar ? 28 : "calc(100% + 1rem)";
 
   const isInsideActiveChat =
     pathname.startsWith("/messages") && Boolean(searchParams?.get("c"));
@@ -219,7 +226,9 @@ const MobileBottomNav: React.FC<{
       )}
     >
       {sidebar ? (
-        <div
+        <motion.div
+          animate={{ opacity: closing ? 0 : 1 }}
+          transition={{ duration: reduceMotion ? 0.1 : 0.24 }}
           aria-hidden
           className="community-dock-backdrop absolute inset-x-0 -top-10 bottom-0"
         />
@@ -234,8 +243,8 @@ const MobileBottomNav: React.FC<{
             ? { opacity: hidden ? 0 : 1 }
             : {
                 opacity: hidden ? 0 : 1,
-                scale: 1,
-                y: hidden ? "calc(100% + 1rem)" : 0,
+                scale: sidebar && hidden ? 0.96 : 1,
+                y: hidden ? hiddenY : 0,
               }
         }
         className="pointer-events-none relative origin-bottom"
@@ -248,7 +257,10 @@ const MobileBottomNav: React.FC<{
               }
             : false
         }
-        transition={{ duration: 0.24, ease: [0.32, 0.72, 0, 1] }}
+        transition={{
+          duration: reduceMotion ? 0.1 : 0.24,
+          ease: closing ? [1, 0, 0.68, 0.28] : [0.32, 0.72, 0, 1],
+        }}
       >
         <div className="panel-3d pointer-events-auto mx-auto flex w-fit items-center gap-0 rounded-2xl p-1 min-[360px]:gap-1.5">
           <div className="flex items-center gap-0 min-[360px]:gap-0.5">
