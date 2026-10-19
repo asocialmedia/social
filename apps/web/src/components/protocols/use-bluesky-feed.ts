@@ -39,7 +39,8 @@ export function useBlueskyFeed(
   enabled: boolean,
   viewer = "guest",
   content: DiscoveryContent = "all",
-  following = false
+  following = false,
+  surface: "home" | "explore" = "home"
 ) {
   const queryClient = useQueryClient();
   const excluded = useExternalExclusions(viewer);
@@ -47,9 +48,14 @@ export function useBlueskyFeed(
   const network = useNetworkSettings();
   const profile = network.settings.preferences.activeProfileId;
   const progressive = !following && mode !== "latest";
+  let exposureSurface: "home" | "gusts" | "explore" =
+    content === "video" ? "gusts" : "home";
+  if (surface === "explore") {
+    exposureSurface = "explore";
+  }
   const oppositeSeen = useMemo(
-    () => otherFeedExposures(viewer, content === "video" ? "gusts" : "home"),
-    [viewer, content]
+    () => otherFeedExposures(viewer, exposureSurface),
+    [viewer, exposureSurface]
   );
   const queryKey = [
     following ? "bluesky-following" : "bluesky-discovery",
@@ -59,6 +65,7 @@ export function useBlueskyFeed(
     network.scope,
     content,
     "progressive-v2",
+    surface,
   ];
   const query = useInfiniteQuery({
     ...FEED_QUERY_BEHAVIOR,
@@ -86,6 +93,7 @@ export function useBlueskyFeed(
         mode,
         profile,
         signal,
+        surface,
       };
       if (!progressive && !pageParam.cursor && content !== "video") {
         return readDiscoveryPage(options);
@@ -120,13 +128,17 @@ export function useBlueskyFeed(
     retry: false,
     staleTime: Infinity,
   });
-  useFeedEvents(enabled && ready && !query.data, () => {
-    if (query.isError) {
-      void query.refetch();
+  useFeedEvents(
+    surface !== "explore" && enabled && ready && !query.data,
+    () => {
+      if (query.isError) {
+        void query.refetch();
+      }
     }
-  });
+  );
   const probe = useNewContentProbe({
-    enabled: enabled && network.ready && Boolean(query.data),
+    enabled:
+      surface !== "explore" && enabled && network.ready && Boolean(query.data),
     eventMode: following ? undefined : mode,
     eventSource: following ? "bluesky-following" : "bluesky",
     fetchHead: async (signal) => {
@@ -185,6 +197,16 @@ export function useBlueskyFeed(
   };
   return {
     ...query,
+    data:
+      surface === "explore" && query.data
+        ? {
+            ...query.data,
+            pages: query.data.pages.map((page) => ({
+              ...page,
+              items: page.items.filter((item) => !oppositeSeen.has(item.id)),
+            })),
+          }
+        : query.data,
     newItems: probe.newItems,
     probeNow: probe.probeNow,
     showNewItems,

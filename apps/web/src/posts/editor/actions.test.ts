@@ -4,6 +4,12 @@ import type { ExternalPost } from "@asm/protocols/contracts";
 
 import { asmDbMockBase } from "../test-support/asm-db-mock";
 
+const learnInteraction = mock(() => Promise.resolve());
+mock.module("@/lib/recommendations/record-event", () => ({
+  recordExternalResponseInteraction: () => Promise.resolve(),
+  recordRecommendationInteraction: learnInteraction,
+}));
+
 const AUTHOR_ID = "author-1";
 const OTHER_USER_ID = "user-2";
 const externalSource: ExternalPost = {
@@ -74,6 +80,7 @@ const state = {
 };
 
 function resetState() {
+  learnInteraction.mockClear();
   state.attachmentClaims = [];
   state.committed = false;
   state.cacheExpirations = [];
@@ -576,6 +583,11 @@ describe("submitPost responses", () => {
       tags: [],
     } as Parameters<typeof submitPost>[0]);
 
+    expect(learnInteraction).toHaveBeenCalledWith({
+      eventType: "COMMENT",
+      postId: "post-root",
+      userId: AUTHOR_ID,
+    });
     expect(state.createdPostData?.parentPostId).toBe("post-root");
     expect(state.createdPostData?.rootPostId).toBe("post-root");
     expect(state.createdPostData?.threadTopId).toBeNull();

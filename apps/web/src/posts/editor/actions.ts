@@ -47,6 +47,10 @@ import {
   flushNotificationEvents,
   newNotificationEvents,
 } from "@/lib/notifications/deferred-events";
+import {
+  recordRecommendationInteraction,
+  recordExternalResponseInteraction,
+} from "@/lib/recommendations/record-event";
 import { getPostUrl } from "@/lib/seo/seo";
 
 // Creation rewards come from the aura economy config - the single tuning
@@ -813,6 +817,18 @@ export async function submitPost(input: CreatePostInput) {
         console.error("Failed to publish response event:", error);
       }
       void invalidateFypProfile(sessionData.user.id);
+      void recordRecommendationInteraction({
+        eventType: "COMMENT",
+        postId: newPost.parentPostId,
+        userId: sessionData.user.id,
+      });
+    }
+
+    if (newPost && externalParent) {
+      void recordExternalResponseInteraction(
+        sessionData.user.id,
+        externalParent
+      );
     }
 
     // IndexNow: fire-and-forget so Bing/Yandex discover the URL same-day.

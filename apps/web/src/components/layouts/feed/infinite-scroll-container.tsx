@@ -4,6 +4,7 @@ import { useInView } from "react-intersection-observer";
 
 interface InfiniteScrollContainerProps extends React.PropsWithChildren {
   className?: string;
+  prefetchDistance?: number;
   onBottomReached: () => void;
 }
 
@@ -14,12 +15,13 @@ export default function InfiniteScrollContainer({
   children,
   onBottomReached,
   className,
+  prefetchDistance = PREFETCH_DISTANCE_PX,
 }: InfiniteScrollContainerProps) {
   const [scrollRoot, setScrollRoot] = useState<HTMLElement | null>();
   const sentinel = useRef<HTMLDivElement | null>(null);
   const { ref: observe, inView } = useInView({
     root: scrollRoot,
-    rootMargin: `0px 0px ${PREFETCH_DISTANCE_PX}px 0px`,
+    rootMargin: `0px 0px ${prefetchDistance}px 0px`,
     skip: scrollRoot === undefined,
   });
 
@@ -51,12 +53,12 @@ export default function InfiniteScrollContainer({
     const viewport = scrollRoot?.getBoundingClientRect();
     if (
       position.top <=
-        (viewport?.bottom ?? window.innerHeight) + PREFETCH_DISTANCE_PX &&
+        (viewport?.bottom ?? window.innerHeight) + prefetchDistance &&
       position.bottom >= (viewport?.top ?? 0)
     ) {
       onBottomReached();
     }
-  }, [inView, onBottomReached, scrollRoot]);
+  }, [inView, onBottomReached, scrollRoot, prefetchDistance]);
 
   return (
     <div className={className}>

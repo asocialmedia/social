@@ -903,7 +903,7 @@ export async function transcriptionBackfillSweep(): Promise<{
     try {
       await enqueueMediaAnalyze(candidate.id, { semanticRefresh: true });
       enqueued += 1;
-      mediaLogger.info(
+      mediaLogger.debug(
         { mediaId: candidate.id },
         "transcription backfill sweep enqueued media for analyze"
       );
@@ -1082,20 +1082,7 @@ export async function registerSweepSchedulers(connectionOptions: {
     mediaLogger.error({ error: String(error) }, "sweep worker error");
   });
 
-  // Run an initial pass on worker boot so existing uncaptioned videos start processing immediately
-  void (async () => {
-    try {
-      const { enrichmentReconciliationSweep } = await import("./enrichment");
-      await enrichmentReconciliationSweep();
-      await transcriptionBackfillSweep();
-      await semanticClassificationBackfillSweep();
-    } catch (error) {
-      mediaLogger.warn(
-        { error: String(error) },
-        "initial transcription backfill pass failed"
-      );
-    }
-  })();
-
+  // New BullMQ schedulers already run immediately; existing schedules resume
+  // their interval. Keep every pass in the queue so startup cannot race it.
   return sweepWorker;
 }

@@ -6,10 +6,23 @@ import { z } from "zod";
 
 import { useRequireAuth } from "@/hooks/auth/use-require-auth";
 import { useToast } from "@/lib/gooey-toast";
+import { cn } from "@/lib/utils";
 
 const followState = z.object({ following: z.boolean() });
 
-export function ExternalFollowButton({ did }: { did: string }) {
+export function ExternalFollowButton({
+  did,
+  className,
+  initialFollowing,
+  onFollowed,
+  showForGuest = false,
+}: {
+  did: string;
+  className?: string;
+  initialFollowing?: boolean;
+  onFollowed?: () => void;
+  showForGuest?: boolean;
+}) {
   const auth = useRequireAuth();
   const client = useQueryClient();
   const { toast } = useToast();
@@ -18,6 +31,10 @@ export function ExternalFollowButton({ did }: { did: string }) {
   // does only for a signed-in reader; `isLoggedIn` is therefore true here.
   const state = useQuery({
     enabled: auth.isLoggedIn,
+    initialData:
+      initialFollowing === undefined
+        ? undefined
+        : { following: initialFollowing },
     queryFn: async ({ signal }) => {
       const response = await fetch(
         `/api/protocols/bluesky/follows?${new URLSearchParams({ actor: did })}`,
@@ -29,6 +46,7 @@ export function ExternalFollowButton({ did }: { did: string }) {
       return followState.parse(await response.json());
     },
     queryKey,
+    staleTime: 30_000,
   });
   const mutation = useMutation({
     mutationFn: async (active: boolean) => {
@@ -56,10 +74,14 @@ export function ExternalFollowButton({ did }: { did: string }) {
     onError: (error) => toast({ title: error.message, variant: "destructive" }),
     onSuccess: async (next) => {
       client.setQueryData(queryKey, next);
+      if (next.following) {
+        onFollowed?.();
+      }
       await Promise.all([
         client.invalidateQueries({ queryKey: ["external-follows"] }),
         client.invalidateQueries({ queryKey: ["bluesky-following"] }),
         client.invalidateQueries({ queryKey: ["bluesky-discovery"] }),
+        client.invalidateQueries({ queryKey: ["discovery-suggestions"] }),
       ]);
     },
   });
@@ -67,7 +89,15 @@ export function ExternalFollowButton({ did }: { did: string }) {
   // greyed button on a stranger's profile is a dead end, while no button is just
   // a page you are reading.
   if (!auth.isLoggedIn) {
-    return null;
+    return showForGuest ? (
+      <Button
+        className={className}
+        onClick={() => auth.goToLogin()}
+        variant="premium"
+      >
+        Follow
+      </Button>
+    ) : null;
   }
   let label = state.data?.following ? "Following" : "Follow";
   if (state.isError) {
@@ -75,7 +105,10 @@ export function ExternalFollowButton({ did }: { did: string }) {
   }
   return (
     <Button
-      className="h-9 rounded-full px-4 text-[13px]! sm:text-sm!"
+      className={cn(
+        "h-9 rounded-full px-4 text-[13px]! sm:text-sm!",
+        className
+      )}
       disabled={mutation.isPending || state.isPending}
       onClick={() => {
         if (state.isError) {

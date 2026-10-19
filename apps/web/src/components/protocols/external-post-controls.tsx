@@ -7,7 +7,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@asm/ui/shadui/dropdown-menu";
-import { EyeOff, MoreHorizontal, VolumeX } from "lucide-react";
+import { EyeOff, MoreHorizontal, UserRoundMinus } from "lucide-react";
 
 import { FEED_POST_ACTION } from "@/components/home/feedview/feed-post-surface";
 import ShareButton from "@/components/home/feedview/share-button";
@@ -157,6 +157,7 @@ export function ExternalPostMenu({
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="rounded-2xl! p-2">
         <DropdownMenuItem
+          className="pill-3d-hover gap-3 rounded-lg px-2 py-2"
           onSelect={() => {
             void feedback("post");
           }}
@@ -165,14 +166,18 @@ export function ExternalPostMenu({
           Not interested
         </DropdownMenuItem>
         <DropdownMenuItem
+          className="pill-3d-hover gap-3 rounded-lg px-2 py-2"
           onSelect={() => {
             void feedback("author");
           }}
         >
-          <VolumeX className="size-4" />
+          <UserRoundMinus className="size-4" />
           Mute author in asocialmedia
         </DropdownMenuItem>
-        <DropdownMenuItem asChild>
+        <DropdownMenuItem
+          asChild
+          className="pill-3d-hover gap-3 rounded-lg px-2 py-2"
+        >
           <a href={post.url} rel="noopener noreferrer" target="_blank">
             <BlueskyIcon tooltip={false} />
             Open on Bluesky

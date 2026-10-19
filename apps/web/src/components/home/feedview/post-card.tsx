@@ -403,11 +403,10 @@ const PostContent: React.FC<PostContentProps> = ({
       return;
     }
     const measure = () => {
-      const prose = element.firstElementChild;
-      const lineHeight = prose
-        ? Number(getComputedStyle(prose).lineHeight.replace("px", ""))
-        : 24;
-      setIsOverflowing(element.scrollHeight > 6 * (lineHeight || 24) + 1);
+      // Keep Show less visible while expanded; measure actual clipping when collapsed.
+      if (!isExpanded) {
+        setIsOverflowing(element.scrollHeight > element.clientHeight + 1);
+      }
     };
     // Expansion and content changes require a fresh measurement even at the same width.
     measure();

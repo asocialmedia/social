@@ -29,6 +29,15 @@ import { LinkBadge, findEmbedForUrl, hostLabel } from "../embeds/link-badge";
 const linkify = new LinkifyIt();
 const EXTERNAL_INLINE_TOKEN_PATTERN =
   /@[a-zA-Z0-9_-]+(?:\.[a-zA-Z0-9_-]+)+|#[\p{L}\p{N}_-]+/gu;
+const BLANK_LINE_PATTERN = /\r?\n(?:[\t ]*\r?\n)+/;
+const COMPACT_INLINE_TOKEN_PATTERN = new RegExp(
+  `${INLINE_TOKEN_PATTERN.source}|${BLANK_LINE_PATTERN.source}`,
+  "gu"
+);
+const COMPACT_EXTERNAL_INLINE_TOKEN_PATTERN = new RegExp(
+  `${EXTERNAL_INLINE_TOKEN_PATTERN.source}|${BLANK_LINE_PATTERN.source}`,
+  "gu"
+);
 
 interface ContentSegment {
   text?: string;
@@ -105,6 +114,7 @@ export function InlineHashtagChip({ tag }: { tag: string }) {
 
 export function PostInlineContent({
   className,
+  compactBlankLines = false,
   content,
   embeds,
   linkBadge = "preview",
@@ -113,6 +123,7 @@ export function PostInlineContent({
 }: {
   sourceSegments?: TextSegment[];
   className?: string;
+  compactBlankLines?: boolean;
   content: string;
   embeds?: LinkEmbed[];
   // "preview" resolves the embed title (post cards); "chip" renders the badge
@@ -146,6 +157,7 @@ export function PostInlineContent({
           return (
             <InlineRichText
               key={`text-${index}`}
+              compactBlankLines={compactBlankLines}
               external={Boolean(sourceSegments)}
               renderMention={
                 sourceSegments
@@ -220,9 +232,11 @@ function InlineRichText({
   text,
   renderMention,
   external = false,
+  compactBlankLines = false,
 }: {
   text: string;
   external?: boolean;
+  compactBlankLines?: boolean;
   renderMention?: (username: string) => ReactNode;
 }) {
   if (!text) {
@@ -231,9 +245,15 @@ function InlineRichText({
   const nodes: ReactNode[] = [];
   let cursor = 0;
   let key = 0;
-  for (const match of text.matchAll(
-    external ? EXTERNAL_INLINE_TOKEN_PATTERN : INLINE_TOKEN_PATTERN
-  )) {
+  let tokenPattern = external
+    ? EXTERNAL_INLINE_TOKEN_PATTERN
+    : INLINE_TOKEN_PATTERN;
+  if (compactBlankLines) {
+    tokenPattern = external
+      ? COMPACT_EXTERNAL_INLINE_TOKEN_PATTERN
+      : COMPACT_INLINE_TOKEN_PATTERN;
+  }
+  for (const match of text.matchAll(tokenPattern)) {
     const [token] = match;
     const matchIndex = match.index ?? -1;
     if (matchIndex < 0) {
@@ -242,7 +262,16 @@ function InlineRichText({
     if (matchIndex > cursor) {
       nodes.push(text.slice(cursor, matchIndex));
     }
-    if (token.startsWith("@")) {
+    if (token.startsWith("\n") || token.startsWith("\r")) {
+      nodes.push(
+        <span
+          className="block h-2 whitespace-normal"
+          key={`break-${(key += 1)}`}
+        >
+          {token}
+        </span>
+      );
+    } else if (token.startsWith("@")) {
       const username = token.slice(1);
       nodes.push(
         <InlineMention

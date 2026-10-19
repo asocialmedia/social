@@ -97,11 +97,13 @@ const UserSkeleton: React.FC = () => (
   </div>
 );
 
-const ExploreMasonrySkeleton: React.FC = () => (
+const ExploreMasonrySkeleton: React.FC<{ compact?: boolean }> = ({
+  compact = false,
+}) => (
   <div className="p-4">
-    <GustRailSkeleton />
+    {compact ? null : <GustRailSkeleton />}
     <div className="columns-2 gap-4 sm:columns-3 xl:columns-4">
-      {KEYS.map((key, index) =>
+      {(compact ? KEYS.slice(0, 4) : KEYS).map((key, index) =>
         index === 4 || index === 9 ? (
           <UserSkeleton key={key} />
         ) : (

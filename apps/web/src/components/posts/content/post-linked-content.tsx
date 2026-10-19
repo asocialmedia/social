@@ -32,6 +32,7 @@ export default function PostLinkedContent({
 }) {
   return (
     <PostInlineContent
+      compactBlankLines
       sourceSegments={sourceSegments}
       className={className}
       content={content}

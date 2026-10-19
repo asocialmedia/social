@@ -10,6 +10,7 @@ import {
   getCommentDataQuery,
   fromPrismaDateTime,
   invalidateAuraSignals,
+  invalidateFypProfile,
   mapCommentData,
   prisma,
   publishCommentCreated,
@@ -24,6 +25,7 @@ import {
   flushNotificationEvents,
   newNotificationEvents,
 } from "@/lib/notifications/deferred-events";
+import { recordRecommendationInteraction } from "@/lib/recommendations/record-event";
 
 // Deleting a comment with replies would orphan the tree, so deletes are soft:
 // the row stays (so the thread structure survives) but the content is blanked
@@ -335,6 +337,12 @@ export async function createComment(
     console.error("Failed to publish comment created event:", error);
   }
 
+  void invalidateFypProfile(params.userId);
+  void recordRecommendationInteraction({
+    eventType: "COMMENT",
+    postId: params.postId,
+    userId: params.userId,
+  });
   return comment;
 }
 
