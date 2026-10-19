@@ -7,7 +7,6 @@ import {
   toPrismaDateTime,
 } from "@asm/db";
 import { BlueskyClient } from "@asm/protocols/bluesky";
-import { externalPostSchema } from "@asm/protocols/discovery";
 
 import { getSessionFromApi } from "@/lib/auth/session";
 
@@ -45,49 +44,38 @@ export async function POST(request: Request) {
       );
     }
 
-    if (body?.externalPost) {
-      const parsed = externalPostSchema.safeParse(body.externalPost);
-      if (parsed.success) {
-        try {
-          await recordExternalPostVisit(userId, parsed.data);
-        } catch (error) {
-          console.error("Error saving external post visit in DB:", error);
-        }
-      }
+    const cached = await findExternalPost(rawUri);
+    if (cached && !cached.available) {
+      return Response.json({ error: "Post deleted" }, { status: 404 });
+    }
+    if (cached) {
+      const id = externalPostId(rawUri);
+      await prisma.orm.public.ExternalEngagements.upsert({
+        conflictOn: { externalPostId: id, userId },
+        create: {
+          amplified: false,
+          bookmarked: false,
+          externalPostId: id,
+          updatedAt: toPrismaDateTime(new Date()),
+          userId,
+        },
+        update: {
+          updatedAt: toPrismaDateTime(new Date()),
+        },
+      }).catch((error) =>
+        console.error("Error recording external engagement visit:", error)
+      );
     } else {
-      const cached = await findExternalPost(rawUri);
-      if (cached && !cached.available) {
-        return Response.json({ error: "Post deleted" }, { status: 404 });
-      }
-      if (cached) {
-        const id = externalPostId(rawUri);
-        await prisma.orm.public.ExternalEngagements.upsert({
-          conflictOn: { externalPostId: id, userId },
-          create: {
-            amplified: false,
-            bookmarked: false,
-            externalPostId: id,
-            updatedAt: toPrismaDateTime(new Date()),
-            userId,
-          },
-          update: {
-            updatedAt: toPrismaDateTime(new Date()),
-          },
-        }).catch((error) =>
-          console.error("Error recording external engagement visit:", error)
-        );
-      } else {
-        try {
-          const client = new BlueskyClient();
-          const posts = await client.getPosts([rawUri]);
-          const found = posts.find((p) => p.id === rawUri);
-          if (!found) {
-            return Response.json({ error: "Post not found" }, { status: 404 });
-          }
-          await recordExternalPostVisit(userId, found);
-        } catch {
+      try {
+        const client = new BlueskyClient();
+        const posts = await client.getPosts([rawUri]);
+        const found = posts.find((p) => p.id === rawUri);
+        if (!found) {
           return Response.json({ error: "Post not found" }, { status: 404 });
         }
+        await recordExternalPostVisit(userId, found);
+      } catch {
+        return Response.json({ error: "Post not found" }, { status: 404 });
       }
     }
 

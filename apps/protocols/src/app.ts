@@ -78,6 +78,28 @@ const statusByCode = {
 } as const;
 
 export function createProtocolsApp(options: ProtocolsAppOptions) {
+  const healthRateLimits = new Map<
+    string,
+    { count: number; resetAt: number }
+  >();
+  const isHealthRateLimited = (ip: string) => {
+    const now = Date.now();
+    const current = healthRateLimits.get(ip);
+    if (!current || now > current.resetAt) {
+      healthRateLimits.set(ip, { count: 1, resetAt: now + 60_000 });
+      if (healthRateLimits.size > 2000) {
+        for (const [k, v] of healthRateLimits) {
+          if (now > v.resetAt) {
+            healthRateLimits.delete(k);
+          }
+        }
+      }
+      return false;
+    }
+    current.count += 1;
+    return current.count > 60;
+  };
+
   const search =
     options.search ??
     createBlueskySearch({
@@ -119,8 +141,27 @@ export function createProtocolsApp(options: ProtocolsAppOptions) {
       set.status = 500;
       return { error: "internal" };
     })
-    .get("/health", () => ({ service: "protocols", status: "ok", version }))
-    .get("/ready", ({ set }) => {
+    .get("/health", ({ request, set }) => {
+      const clientIp =
+        request.headers.get("cf-connecting-ip") ??
+        request.headers.get("x-forwarded-for") ??
+        "local";
+      if (isHealthRateLimited(clientIp)) {
+        set.status = 429;
+        set.headers["retry-after"] = "60";
+        return { error: "rate_limited" };
+      }
+      return { service: "protocols", status: "ok", version };
+    })
+    .get("/ready", ({ request, set }) => {
+      const host = request.headers.get("host") ?? "";
+      if (
+        host.includes("proto.asocialmedia.cc") ||
+        request.headers.get("cf-connecting-ip")
+      ) {
+        set.status = 403;
+        return { error: "restricted" };
+      }
       const health = options.health();
       const ready = !health.draining && health.storageReady !== false;
       if (!ready) {
@@ -142,6 +183,14 @@ export function createProtocolsApp(options: ProtocolsAppOptions) {
     .group("/v1", (app) =>
       app
         .onBeforeHandle(({ request, set }) => {
+          const host = request.headers.get("host") ?? "";
+          if (
+            host.includes("proto.asocialmedia.cc") ||
+            request.headers.get("cf-connecting-ip")
+          ) {
+            set.status = 403;
+            return { error: "restricted" };
+          }
           if (!options.token) {
             set.status = 503;
             return { error: "not_configured" };

@@ -310,6 +310,7 @@ export function GET(request: Request) {
         (post) => externalNetworkInterestScore(post, exploreSeeds) > 0
       );
     }
+    items = items.slice(0, 50);
     after(async () => {
       await Promise.all(
         items
@@ -332,7 +333,7 @@ export function GET(request: Request) {
       ...page,
       discoveryLevel: level.data,
       items: await Promise.all(
-        items.slice(0, 50).map(async (post) => ({
+        items.map(async (post) => ({
           ...(social ? social.annotate(post) : post),
           ...(level.data > 0
             ? {

@@ -374,3 +374,38 @@ test("the internal discovery boundary preserves repeated interest terms and reje
   );
   expect(invalid.status).toBe(400);
 });
+
+test("blocks external requests to /v1 and /ready from external ingress", async () => {
+  const { request } = fixture();
+  const v1Blocked = await request("/v1/capabilities", {
+    host: "proto.asocialmedia.cc",
+  });
+  expect(v1Blocked.status).toBe(403);
+
+  const readyBlocked = await request("/ready", {
+    "cf-connecting-ip": "203.0.113.1",
+  });
+  expect(readyBlocked.status).toBe(403);
+
+  const healthAllowed = await request("/health", {
+    "cf-connecting-ip": "203.0.113.1",
+    host: "proto.asocialmedia.cc",
+  });
+  expect(healthAllowed.status).toBe(200);
+});
+
+test("rate limits excessive health check requests from the same external IP", async () => {
+  const { request } = fixture();
+  const ip = "198.51.100.42";
+  const burst = await Promise.all(
+    Array.from({ length: 60 }, () =>
+      request("/health", { "cf-connecting-ip": ip })
+    )
+  );
+  for (const res of burst) {
+    expect(res.status).toBe(200);
+  }
+  const rateLimited = await request("/health", { "cf-connecting-ip": ip });
+  expect(rateLimited.status).toBe(429);
+  expect(rateLimited.headers.get("retry-after")).toBe("60");
+});

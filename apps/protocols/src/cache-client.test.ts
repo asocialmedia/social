@@ -135,4 +135,89 @@ describe("createCachedBlueskyClient", () => {
     const profile = await cachedClient.getProfile("bob.bsky.social");
     expect(profile?.displayName).toBe("Bob");
   });
+
+  test("invalidate clears cache version so subsequent reads fetch fresh data", async () => {
+    const memory = new Map<string, string>();
+    const redisMock = {
+      get: mock((key: string) => Promise.resolve(memory.get(key) ?? null)),
+      set: mock((key: string, val: string, _mode: string, _ttl: number) => {
+        memory.set(key, val);
+        return Promise.resolve("OK");
+      }),
+    } as unknown as Redis;
+
+    let targetCalls = 0;
+    const mockClient = {
+      getProfile: mock((actor: string) => {
+        targetCalls += 1;
+        return Promise.resolve({
+          displayName: `Alice ${targetCalls}`,
+          handle: actor,
+        });
+      }),
+      invalidate: mock(() => {}),
+    } as unknown as BlueskyClient;
+
+    const cachedClient = createCachedBlueskyClient(mockClient, redisMock);
+
+    const first = await cachedClient.getProfile("alice.bsky.social");
+    expect(targetCalls).toBe(1);
+    expect(first?.displayName).toBe("Alice 1");
+
+    // Hit cache
+    const second = await cachedClient.getProfile("alice.bsky.social");
+    expect(targetCalls).toBe(1);
+    expect(second?.displayName).toBe("Alice 1");
+
+    // Invalidate
+    cachedClient.invalidate?.();
+
+    // Must fetch fresh data
+    const third = await cachedClient.getProfile("alice.bsky.social");
+    expect(targetCalls).toBe(2);
+    expect(third?.displayName).toBe("Alice 2");
+  });
+
+  test("in-flight read does not write stale result if invalidation occurred during read", async () => {
+    const memory = new Map<string, string>();
+    const redisMock = {
+      get: mock((key: string) => Promise.resolve(memory.get(key) ?? null)),
+      set: mock((key: string, val: string, _mode: string, _ttl: number) => {
+        memory.set(key, val);
+        return Promise.resolve("OK");
+      }),
+    } as unknown as Redis;
+
+    let targetCalls = 0;
+    const { promise: readPending, resolve: finishRead } =
+      Promise.withResolvers<boolean>();
+
+    const mockClient = {
+      getProfile: mock(async (actor: string) => {
+        targetCalls += 1;
+        await readPending;
+        return {
+          displayName: "Old Alice",
+          handle: actor,
+        };
+      }),
+      invalidate: mock(() => {}),
+    } as unknown as BlueskyClient;
+
+    const cachedClient = createCachedBlueskyClient(mockClient, redisMock);
+
+    // Start read 1
+    const readPromise = cachedClient.getProfile("alice.bsky.social");
+
+    // While read 1 is in flight, an invalidation arrives
+    cachedClient.invalidate?.();
+
+    // Now let read 1 finish
+    finishRead(true);
+    const result1 = await readPromise;
+    expect(result1?.displayName).toBe("Old Alice");
+
+    // The stale result should NOT have been written to Redis for the new generation
+    expect(memory.size).toBe(0);
+  });
 });
