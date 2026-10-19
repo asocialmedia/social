@@ -92,14 +92,21 @@ export function createExternalTopicMatcher(
     if (tags.has(topic)) {
       return 1;
     }
+    // Most persona terms are absent. Avoid compiling and running Unicode expressions for those misses.
+    const inText = text.includes(topic);
+    const inLink = linkText.includes(topic);
+    const inAlt = altTexts.some((alt) => alt.includes(topic));
+    if (!inText && !inLink && !inAlt) {
+      return domains.has(topic) ? 0.25 : 0;
+    }
     const pattern = topicPattern(topic);
-    if (pattern.test(text)) {
+    if (inText && pattern.test(text)) {
       return 0.7;
     }
-    if (pattern.test(linkText)) {
+    if (inLink && pattern.test(linkText)) {
       return 0.5;
     }
-    if (altTexts.some((alt) => pattern.test(alt))) {
+    if (inAlt && altTexts.some((alt) => pattern.test(alt))) {
       return 0.35;
     }
     return domains.has(topic) ? 0.25 : 0;

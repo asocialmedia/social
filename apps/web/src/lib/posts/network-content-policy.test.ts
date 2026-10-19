@@ -249,6 +249,9 @@ test("new accounts or accounts with no configured interests strictly do not rece
     { ...source, tags: ["yiff"] },
     { ...source, text: "Some art #nsfw" },
     { ...source, text: "Some art #furry" },
+    { ...source, text: "Got myself some new underwear 🩲" },
+    { ...source, text: "My lingerie collection" },
+    { ...source, text: "New photos on OnlyFans" },
   ];
 
   for (const post of adultPosts) {

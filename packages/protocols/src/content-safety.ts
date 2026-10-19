@@ -62,7 +62,7 @@ const EXPLICIT_HASHTAG_REGEX =
   /#(?:18\+|adult|corpse|ecchi|erotic|gore|graphic-media|hentai|lewd|nsfw|nsfwart|nudity|porn|pornography|r18|r-18|self-harm|sexual|torture|violence|xxx|furry|furryart|furryartist|furryimages|furrydrawing|digitalfurryart|nsfwfurry|furryporn|yiff|murrsuit|furaffinity|e621)\b/i;
 
 const EXPLICIT_TEXT_REGEX =
-  /\b(?:porn|pornography|xxx|hentai|ecchi|nsfw|nsfwart|yiff|furryporn|nsfwfurry|furry(?:art|artist|artwork)?|murrsuit|e621|furaffinity)\b/i;
+  /\b(?:porn|pornography|xxx|hentai|ecchi|nsfw|nsfwart|yiff|furryporn|nsfwfurry|furry(?:art|artist|artwork)?|murrsuit|e621|furaffinity|underwear|lingerie|nudes?|naked|topless|onlyfans|fansly)\b/i;
 
 export interface BlueskyContentLabels {
   author?: { labels?: readonly string[]; description?: string };

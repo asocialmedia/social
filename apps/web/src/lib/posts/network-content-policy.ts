@@ -167,6 +167,21 @@ export function networkPostAllowed(
   }
   if (
     !policy.showExplicitContent &&
+    blueskyMediaIsExplicit({
+      media: (post.attachments ?? []).map((media) => ({
+        alt: media.altText ?? "",
+      })),
+      tags: [
+        ...(post.semanticTags ?? []),
+        ...(post.tags ?? []).map((tag) => tag.name),
+      ],
+      text: post.content,
+    })
+  ) {
+    return false;
+  }
+  if (
+    !policy.showExplicitContent &&
     parseStoredEmbeds(post.embeds).some((embed) =>
       blueskyMediaIsExplicit({
         externalLink: {

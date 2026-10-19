@@ -122,6 +122,8 @@ export function rankExternalForViewer(
     profile.expandedEntityWeights
   );
   const negative = mergeTopicWeights(profile.negativeTagWeights);
+  const positiveTerms = Object.entries(positive);
+  const negativeTerms = Object.entries(negative);
   const score = (post: ExternalPost) => {
     const fit = externalNetworkInterestScore(
       post,
@@ -133,10 +135,10 @@ export function rankExternalForViewer(
       tags: [...(post.tags ?? []), ...(options.topics?.get(post.id) ?? [])],
     });
     let value = options.followedAuthors?.has(post.author.id) ? 3 : 0;
-    for (const [tag, weight] of Object.entries(positive)) {
+    for (const [tag, weight] of positiveTerms) {
       value += matchTopic(tag) * Math.log1p(Math.max(0, weight));
     }
-    for (const [tag, weight] of Object.entries(negative)) {
+    for (const [tag, weight] of negativeTerms) {
       value -= matchTopic(tag) * Math.log1p(Math.max(0, weight)) * 2;
     }
     value += Math.log1p(
