@@ -1,5 +1,10 @@
 import { ensureValidNsid } from "@atproto/syntax";
-import { Jetstream, websocketTransport } from "@bsky/jetstream";
+import {
+  Jetstream,
+  MalformedError,
+  XrpcSubscriptionError,
+  websocketTransport,
+} from "@bsky/jetstream";
 import type { LiveTransport } from "@bsky/jetstream";
 import { z } from "zod";
 
@@ -58,9 +63,11 @@ export const jetstreamEndpoints = [
   "wss://jetstream.us-west.bsky.network",
 ] as const;
 export type JetstreamEndpoint = (typeof jetstreamEndpoints)[number];
+const discoveryKinds = ["commit", "identity", "account"] as const;
 
 export interface JetstreamOptions {
   dids: string[];
+  publicDiscovery?: boolean;
   collections?: string[];
   cursor?: number;
   endpoint?: JetstreamEndpoint;
@@ -75,7 +82,7 @@ export interface JetstreamOptions {
 export function jetstreamUrl(
   options: Pick<
     JetstreamOptions,
-    "dids" | "collections" | "cursor" | "endpoint"
+    "dids" | "collections" | "cursor" | "endpoint" | "publicDiscovery"
   >
 ): string {
   const parsed = z
@@ -97,9 +104,24 @@ export function jetstreamUrl(
         .nonnegative()
         .max(Number.MAX_SAFE_INTEGER)
         .optional(),
-      dids: z.array(didSchema).min(1).max(1000),
+      dids: z.array(didSchema).max(1000),
       endpoint: z.enum(jetstreamEndpoints).default(jetstreamEndpoints[0]),
+      publicDiscovery: z.boolean().default(false),
     })
+    .refine((value) =>
+      value.publicDiscovery
+        ? value.dids.length === 0 &&
+          value.collections.every((collection) =>
+            [
+              "app.bsky.feed.post",
+              "app.bsky.actor.profile",
+              "app.bsky.actor.contentVisibilityDeclaration",
+              "app.bsky.feed.threadgate",
+              "app.bsky.feed.postgate",
+            ].includes(collection)
+          )
+        : value.dids.length > 0
+    )
     .safeParse(options);
   if (!parsed.success) {
     throw new ProtocolError(
@@ -116,6 +138,11 @@ export function jetstreamUrl(
   }
   for (const collection of [...new Set(parsed.data.collections)].toSorted()) {
     url.searchParams.append("collections", collection);
+  }
+  if (parsed.data.publicDiscovery) {
+    for (const kind of discoveryKinds) {
+      url.searchParams.append("kinds", kind);
+    }
   }
   if (parsed.data.cursor !== undefined) {
     url.searchParams.set("cursor", String(parsed.data.cursor));
@@ -234,6 +261,7 @@ export async function* streamJetstream(
         save: () => Promise.resolve(),
       },
       dids: options.dids.map((did) => didSchema.parse(did)),
+      kinds: options.publicDiscovery ? [...discoveryKinds] : undefined,
       liveTransport: boundedTransport,
       onError: () => {
         controller.abort(
@@ -268,7 +296,27 @@ export async function* streamJetstream(
       return;
     }
     if (signal.reason instanceof ProtocolError) {
+      if (
+        options.publicDiscovery &&
+        signal.reason.code === "invalid_response"
+      ) {
+        throw new ProtocolError(
+          "invalid_response",
+          "Jetstream cursor requires reconciliation"
+        );
+      }
       throw signal.reason;
+    }
+    if (
+      (options.publicDiscovery && error instanceof MalformedError) ||
+      (error instanceof XrpcSubscriptionError &&
+        (error.error === "CursorTooOld" ||
+          (options.publicDiscovery && error.error === "ConsumerTooSlow")))
+    ) {
+      throw new ProtocolError(
+        "invalid_response",
+        "Jetstream cursor requires reconciliation"
+      );
     }
     throw error instanceof ProtocolError
       ? error

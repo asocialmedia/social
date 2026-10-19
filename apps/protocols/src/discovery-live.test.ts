@@ -32,7 +32,7 @@ test("viewers share reconciliation and unchanged heads do not emit events", asyn
   await live.tick();
   expect(reads).toBe(2);
   expect(events).toHaveLength(1);
-  now += 66_000;
+  now += 24 * 60 * 60_000 + 1;
   await live.tick();
   expect(reads).toBe(2);
   live.stop();
@@ -72,4 +72,31 @@ test("Jetstream wakes active pools and replica leases prevent duplicate concurre
   expect(reads).toBe(2);
   first.stop();
   second.stop();
+});
+
+test("returning after twelve hours stays warm and a replacement worker restores anonymous scopes", async () => {
+  let now = 1_000_000;
+  const store = new MemoryDiscoveryStore();
+  let reads = 0;
+  const options = {
+    now: () => now,
+    publish: () => Promise.resolve(),
+    read: () => {
+      reads += 1;
+      return Promise.resolve({ cursor: null, items: [], partial: false });
+    },
+    store,
+  };
+  const first = createDiscoveryLive(options);
+  first.watch(watch);
+  await first.tick();
+  now += 12 * 60 * 60_000;
+  await first.tick();
+  expect(reads).toBe(2);
+  first.stop();
+  const replacement = createDiscoveryLive(options);
+  now += 21_000;
+  await replacement.tick();
+  expect(reads).toBe(3);
+  replacement.stop();
 });

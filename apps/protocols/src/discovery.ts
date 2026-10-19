@@ -30,6 +30,7 @@ import { z } from "zod";
 import {
   matchesDiscoveryLanguage,
   discoveryRelevance,
+  isFreshDiscoveryPost,
 } from "./discovery-relevance";
 import { MemoryDiscoveryStore } from "./discovery-store";
 import type { DiscoveryLease, DiscoveryStore } from "./discovery-store";
@@ -110,7 +111,7 @@ export class BlueskyDiscovery {
     this.actors = actors ? [...actors] : undefined;
     this.store = options.store ?? new MemoryDiscoveryStore();
     this.scope = createHash("sha256")
-      .update(JSON.stringify(["dynamic-v9", actors]))
+      .update(JSON.stringify(["dynamic-v14", actors]))
       .digest("hex")
       .slice(0, 16);
     this.timeoutMs = options.timeoutMs ?? 12_000;
@@ -394,10 +395,22 @@ export class BlueskyDiscovery {
         "Discovery cursor belongs to another feed"
       );
     }
+    // Focused profiles search their topics directly instead of waiting for unrelated catalog generators.
+    if (!saved && !this.actors && topics.length && this.client.searchPosts) {
+      snapshot.sources = [...new Set([topics[0], topics[1], topics.at(-1)])]
+        .filter((topic): topic is string => Boolean(topic))
+        .map((topic) => ({
+          actor: `search:${topic}`,
+          cursor: undefined,
+          exhausted: false,
+          items: [],
+        }));
+    }
     // Resolve sources from the live public catalog, then page that catalog as sources run out.
     if (
       !this.actors &&
       this.client.getSuggestedFeeds &&
+      !snapshot.catalogExhausted &&
       snapshot.catalogFeeds.length === 0 &&
       (snapshot.sources.length === 0 ||
         snapshot.sources.every(
@@ -524,7 +537,8 @@ export class BlueskyDiscovery {
             language: locale && locale !== "all" ? locale : undefined,
             limit: this.actors ? 30 : 16,
             since: new Date(
-              Date.now() - (mode === "trending" ? 2 : 7) * 86_400_000
+              Math.floor(Date.now() / 60_000) * 60_000 -
+                (mode === "trending" ? 2 : 7) * 86_400_000
             ).toISOString(),
           };
           if (content === "video" || mode === "trending") {
@@ -542,7 +556,7 @@ export class BlueskyDiscovery {
           const profile = feed
             ? null
             : await abortable(this.client.getProfile(source.actor), signal);
-          if (feed && !this.client.getFeed) {
+          if (feed && !search && !this.client.getFeed) {
             throw new ProtocolError(
               "unavailable",
               "Public feed reader is unavailable"
@@ -552,7 +566,7 @@ export class BlueskyDiscovery {
           if (search && this.client.searchPosts) {
             read = this.client.searchPosts(
               source.actor.slice(7),
-              mode === "trending" ? "top" : "latest",
+              mode !== "latest" || content === "video" ? "top" : "latest",
               options
             );
           } else if (feed && this.client.getFeed) {
@@ -563,11 +577,13 @@ export class BlueskyDiscovery {
           const page = await abortable(read, signal);
           source.items = page.items.filter(
             (post) =>
+              isFreshDiscoveryPost(post, mode) &&
               (content !== "video" ||
                 post.media.some((media) => media.type === "video")) &&
               (!profile || post.author.id === profile.id) &&
               !snapshot.seen.includes(post.id) &&
-              (mode !== "trending" || isExternalTrendingPost(post)) &&
+              ((mode !== "trending" && topics.length > 0) ||
+                isExternalTrendingPost(post)) &&
               !isAuthenticationNotice(post.text) &&
               matchesDiscoveryLanguage(post, locale) &&
               (!topics.length ||
@@ -651,6 +667,10 @@ export class BlueskyDiscovery {
     // Unconsumed buffers are checked when their own page is selected.
     const needsPolicy = (post: ExternalPost) =>
       mode !== "latest" || !directAuthors.has(post.author.id);
+    // Six concurrent policy reads is a deliberate bound on the public AppView.
+    // These calls dominate a cold page, so their results are shared through
+    // Redis (see createCachedBlueskyClient) rather than made faster by raising
+    // concurrency against an upstream we do not control.
     const allowed = new Set<string>();
     await mapBounded(
       [...new Set(items.filter(needsPolicy).map((post) => post.author.id))],
@@ -716,7 +736,9 @@ export class BlueskyDiscovery {
       items: permitted.flatMap((post) => {
         const latest = byId.get(post.id);
         return latest &&
-          (mode !== "trending" || isExternalTrendingPost(latest)) &&
+          isFreshDiscoveryPost(latest, mode) &&
+          ((mode !== "trending" && topics.length > 0) ||
+            isExternalTrendingPost(latest)) &&
           (content !== "video" ||
             latest.media.some((media) => media.type === "video")) &&
           matchesDiscoveryLanguage(latest, locale)

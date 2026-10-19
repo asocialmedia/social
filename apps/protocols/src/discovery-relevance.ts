@@ -30,6 +30,19 @@ const languageCodes: Record<string, string> = {
   zh: "cmn",
 };
 
+export function isFreshDiscoveryPost(
+  post: ExternalPost,
+  mode: "personalized" | "trending" | "latest",
+  now = Date.now()
+) {
+  const age = now - Date.parse(post.createdAt);
+  return (
+    Number.isFinite(age) &&
+    age >= -60_000 &&
+    age <= (mode === "trending" ? 2 : 7) * 86_400_000
+  );
+}
+
 export function matchesDiscoveryLanguage(post: ExternalPost, locale: string) {
   if (!locale || locale === "all") {
     return true;

@@ -37,7 +37,10 @@ export async function waitForRetry(
 
 export interface JetstreamWorkerOptions {
   store: CheckpointStore;
-  streamOptions: Pick<JetstreamOptions, "dids" | "endpoint" | "collections">;
+  streamOptions: Pick<
+    JetstreamOptions,
+    "dids" | "endpoint" | "collections" | "publicDiscovery"
+  >;
   signal: AbortSignal;
   health: ProtocolsHealth;
   logger: ProtocolLogger;
@@ -111,7 +114,7 @@ export async function runJetstreamWorker(
         if (cursor !== undefined && event.seq <= cursor) {
           continue;
         }
-        if (!tracked.has(event.did)) {
+        if (!options.streamOptions.publicDiscovery && !tracked.has(event.did)) {
           throw new ProtocolError(
             "invalid_response",
             "Jetstream returned an untracked account"

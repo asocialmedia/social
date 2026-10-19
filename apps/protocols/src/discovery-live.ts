@@ -19,6 +19,13 @@ export const discoveryWatchSchema = z.object({
   topics: discoveryTopicsSchema,
 });
 type Watch = z.infer<typeof discoveryWatchSchema>;
+const watchRetentionMs = 24 * 60 * 60_000;
+const registryKey = "live:watch-registry:v2";
+const savedWatchSchema = z
+  .array(
+    z.object({ expires: z.number().finite(), watch: discoveryWatchSchema })
+  )
+  .max(64);
 
 // Public generators also change when previously unseen authors enter their rankings.
 // Reconcile each active candidate pool once on the server, rather than per viewer.
@@ -35,6 +42,8 @@ export function createDiscoveryLive(options: {
   const now = options.now ?? Date.now;
   let running = false;
   let stopped = false;
+  let restored = false;
+  let nextRegistrySave = 0;
   return {
     invalidate: () => {
       for (const entry of watches.values()) {
@@ -51,6 +60,43 @@ export function createDiscoveryLive(options: {
       }
       running = true;
       try {
+        if (!restored) {
+          restored = true;
+          try {
+            const raw = await options.store.get(registryKey);
+            const saved = savedWatchSchema.safeParse(
+              raw ? JSON.parse(raw) : []
+            );
+            if (saved.success) {
+              for (const entry of saved.data) {
+                const id = createHash("sha256")
+                  .update(JSON.stringify(entry.watch))
+                  .digest("hex");
+                if (
+                  entry.expires > now() &&
+                  !watches.has(id) &&
+                  watches.size < 64
+                ) {
+                  watches.set(id, { ...entry, due: 0 });
+                }
+              }
+            }
+          } catch {
+            // Live viewers can rebuild the bounded registry after a storage outage.
+          }
+        }
+        if (now() >= nextRegistrySave) {
+          nextRegistrySave = now() + 10_000;
+          await options.store.set(
+            registryKey,
+            JSON.stringify(
+              [...watches.values()]
+                .filter((entry) => entry.expires > now())
+                .map(({ watch, expires }) => ({ expires, watch }))
+            ),
+            900_000
+          );
+        }
         // Limit upstream concurrency; a second tick continues the remaining pools.
         const due = [...watches.entries()]
           .filter(([, entry]) => entry.expires > now() && entry.due <= now())
@@ -125,7 +171,7 @@ export function createDiscoveryLive(options: {
               JSON.stringify(entry.watch.topics) ===
                 JSON.stringify(renewal.data.topics))
           ) {
-            entry.expires = now() + 65_000;
+            entry.expires = now() + watchRetentionMs;
           }
         }
         return;
@@ -143,12 +189,17 @@ export function createDiscoveryLive(options: {
         }
       }
       if (!watches.has(key) && watches.size >= 64) {
-        return;
+        const [oldest] = [...watches.entries()].toSorted(
+          (a, b) => a[1].expires - b[1].expires
+        );
+        if (oldest) {
+          watches.delete(oldest[0]);
+        }
       }
       const previous = watches.get(key);
       watches.set(key, {
         due: previous?.due ?? 0,
-        expires: now() + 65_000,
+        expires: now() + watchRetentionMs,
         watch: parsed.data,
       });
     },

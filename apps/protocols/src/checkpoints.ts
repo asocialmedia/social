@@ -25,7 +25,7 @@ if redis.call('GET', KEYS[1]) ~= ARGV[1] then return 0 end
 local previous = tonumber(redis.call('GET', KEYS[2]) or '-1')
 if tonumber(ARGV[2]) > previous then
   redis.call('SET', KEYS[2], ARGV[2])
-  redis.call('PUBLISH', ARGV[3], ARGV[4])
+  if ARGV[3] ~= '' then redis.call('PUBLISH', ARGV[3], ARGV[4]) end
 end
 return 1
 `;
@@ -36,16 +36,22 @@ export class RedisCheckpointStore implements CheckpointStore {
     Partial<Pick<Redis, "del">>;
   private readonly owner: string;
   private readonly leaseMs: number;
+  private readonly publishInvalidations: boolean;
 
   constructor(
     redis: Pick<Redis, "get" | "set" | "eval"> & Partial<Pick<Redis, "del">>,
-    options: Pick<JetstreamOptions, "dids" | "endpoint" | "collections"> & {
+    options: Pick<
+      JetstreamOptions,
+      "dids" | "endpoint" | "collections" | "publicDiscovery"
+    > & {
       owner?: string;
       leaseMs?: number;
+      publishInvalidations?: boolean;
     }
   ) {
     this.redis = redis;
     this.owner = options.owner ?? crypto.randomUUID();
+    this.publishInvalidations = options.publishInvalidations ?? true;
     // Default lease is 10s: short enough for quick takeover when containers
     // are replaced by Dokploy / Docker, with renewal heartbeats every 3s.
     this.leaseMs = options.leaseMs ?? 10_000;
@@ -111,7 +117,7 @@ export class RedisCheckpointStore implements CheckpointStore {
       `${this.scope}:cursor`,
       this.owner,
       event.seq,
-      "asm:protocols:invalidations",
+      this.publishInvalidations ? "asm:protocols:invalidations" : "",
       notification
     );
     if (committed !== 1) {

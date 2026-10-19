@@ -9,9 +9,11 @@ import { BlueskyDiscovery } from "./discovery";
 import {
   matchesDiscoveryLanguage,
   regionalRelevance,
+  isFreshDiscoveryPost,
 } from "./discovery-relevance";
 import { MemoryDiscoveryStore } from "./discovery-store";
 
+const fixtureTime = Date.now();
 function post(index: number, did = "did:web:example.test"): ExternalPost {
   return {
     author: {
@@ -23,7 +25,7 @@ function post(index: number, did = "did:web:example.test"): ExternalPost {
       upstreamCounts: {},
       url: "https://bsky.app/profile/example.test",
     },
-    createdAt: new Date(Date.UTC(2026, 9, 16, 0, 0, 100 - index)).toISOString(),
+    createdAt: new Date(fixtureTime - index * 1000).toISOString(),
     id: `at://${did}/app.bsky.feed.post/${index}`,
     indexedAt: "2026-10-16T00:00:00.000Z",
     labels: [],
@@ -38,6 +40,34 @@ function post(index: number, did = "did:web:example.test"): ExternalPost {
   };
 }
 const profile = post(0).author;
+
+test("discovery expires old recommendations and rejects malformed/future timestamps", () => {
+  const now = Date.now();
+  expect(
+    isFreshDiscoveryPost(
+      { ...post(0), createdAt: new Date(now - 3 * 86_400_000).toISOString() },
+      "trending",
+      now
+    )
+  ).toBe(false);
+  expect(
+    isFreshDiscoveryPost(
+      { ...post(0), createdAt: new Date(now - 8 * 86_400_000).toISOString() },
+      "personalized",
+      now
+    )
+  ).toBe(false);
+  expect(
+    isFreshDiscoveryPost({ ...post(0), createdAt: "invalid" }, "latest", now)
+  ).toBe(false);
+  expect(
+    isFreshDiscoveryPost(
+      { ...post(0), createdAt: new Date(now + 120_000).toISOString() },
+      "latest",
+      now
+    )
+  ).toBe(false);
+});
 
 function videoPost(index: number): ExternalPost {
   return {
@@ -653,6 +683,58 @@ test("personalized sources search the live corpus and cursors stay bound to thei
       "gardening",
     ])
   ).rejects.toMatchObject({ code: "invalid_input" });
+});
+
+test("a cold focused feed bypasses slow global catalogs and preserves search pagination", async () => {
+  let catalogReads = 0;
+  const cursors: (string | undefined)[] = [];
+  const discovery = new BlueskyDiscovery({
+    allowsRecommendations: async () => true,
+    getAuthorFeed: async () => ({ cursor: null, items: [] }),
+    getFeed: async () => ({
+      cursor: null,
+      items: [{ ...post(3), text: "Astronomy telescope tutorial" }],
+    }),
+    getProfile: async () => profile,
+    getSuggestedFeeds: async () => {
+      catalogReads += 1;
+      return {
+        cursor: null,
+        items: [{ displayName: "Astronomy channel", uri: publicFeed }],
+      };
+    },
+    searchPosts: async (_query, _sort, options) => {
+      cursors.push(options?.cursor);
+      return {
+        cursor: options?.cursor ? null : "next-search",
+        items: [
+          { ...post(options?.cursor ? 2 : 1), text: "Astronomy discoveries" },
+        ],
+      };
+    },
+  });
+  const head = await discovery.read("personalized", undefined, "en", [
+    "astronomy",
+  ]);
+  expect(head.items).toHaveLength(1);
+  const tail = await discovery.read(
+    "personalized",
+    head.cursor ?? undefined,
+    "en",
+    ["astronomy"]
+  );
+  expect(tail.items[0]?.id).not.toBe(head.items[0]?.id);
+  expect(tail.cursor).toBeTruthy();
+  expect(catalogReads).toBe(0);
+  expect(cursors).toEqual([undefined, "next-search"]);
+  const fallback = await discovery.read(
+    "personalized",
+    tail.cursor ?? undefined,
+    "en",
+    ["astronomy"]
+  );
+  expect(fallback.items[0]?.id).toBe(post(3).id);
+  expect(catalogReads).toBeGreaterThan(0);
 });
 
 test("video discovery searches chosen interests instead of relying only on general video feeds", async () => {

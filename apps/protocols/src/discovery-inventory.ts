@@ -1,0 +1,194 @@
+import { createHash } from "node:crypto";
+
+import type { ExternalPost } from "@asm/protocols/contracts";
+import { createExternalTopicMatcher } from "@asm/protocols/contracts";
+import {
+  blueskyMediaIsExplicit,
+  hasRestrictedDiscoveryLabels,
+  isExternalTrendingPost,
+} from "@asm/protocols/discovery";
+import type {
+  DiscoveryContent,
+  DiscoveryMode,
+  DiscoveryPage,
+} from "@asm/protocols/discovery";
+import { z } from "zod";
+
+import type { InventoryStore } from "./discovery-inventory-store";
+import {
+  discoveryRelevance,
+  matchesDiscoveryLanguage,
+  isFreshDiscoveryPost,
+} from "./discovery-relevance";
+import type { DiscoveryStore } from "./discovery-store";
+
+export { RedisInventoryStore } from "./discovery-inventory-store";
+export type { InventoryStore } from "./discovery-inventory-store";
+
+const continuationSchema = z.object({
+  scope: z.string(),
+  seen: z.array(z.string().max(2300)).max(2000),
+  sourceCursor: z.string().optional(),
+  sourceStarted: z.boolean().default(false),
+});
+
+type ReadSource = (
+  mode: DiscoveryMode,
+  cursor: string | undefined,
+  locale: string,
+  topics: string[],
+  content: DiscoveryContent
+) => Promise<DiscoveryPage>;
+
+export class DiscoveryInventory {
+  private readonly store: InventoryStore;
+  private readonly continuations: DiscoveryStore;
+  private readonly readSource?: ReadSource;
+  private readonly allowExplicit: boolean;
+  constructor(
+    store: InventoryStore,
+    continuations: DiscoveryStore,
+    readSource?: ReadSource,
+    allowExplicit = false
+  ) {
+    this.store = store;
+    this.continuations = continuations;
+    this.readSource = readSource;
+    this.allowExplicit = allowExplicit;
+  }
+
+  async read(
+    mode: DiscoveryMode,
+    cursor: string | undefined,
+    locale: string,
+    topics: string[],
+    content: DiscoveryContent
+  ): Promise<DiscoveryPage | null> {
+    const scope = createHash("sha256")
+      .update(
+        JSON.stringify([mode, locale, topics, content, this.allowExplicit])
+      )
+      .digest("hex");
+    let seen: string[] = [];
+    let sourceCursor: string | undefined;
+    let sourceStarted = false;
+    if (cursor) {
+      const raw = await this.continuations.get(`inventory:${cursor}`);
+      if (!raw) {
+        return null;
+      }
+      const saved = continuationSchema.parse(JSON.parse(raw));
+      if (saved.scope !== scope) {
+        return null;
+      }
+      ({ seen, sourceCursor, sourceStarted } = saved);
+    }
+    const now = Date.now();
+    const known = new Set(seen);
+    const posts = await this.store.read();
+    const eligible = (post: ExternalPost) => {
+      if (
+        known.has(post.id) ||
+        (!this.allowExplicit && blueskyMediaIsExplicit(post)) ||
+        hasRestrictedDiscoveryLabels(post)
+      ) {
+        return false;
+      }
+      if (!isFreshDiscoveryPost(post, mode, now)) {
+        return false;
+      }
+      if (
+        content === "video" &&
+        !post.media.some((media) => media.type === "video")
+      ) {
+        return false;
+      }
+      if (
+        (mode === "trending" || !topics.length) &&
+        !isExternalTrendingPost(post)
+      ) {
+        return false;
+      }
+      if (!matchesDiscoveryLanguage(post, locale)) {
+        return false;
+      }
+      const match = createExternalTopicMatcher(post);
+      return !topics.length || topics.some((topic) => match(topic) > 0);
+    };
+    let candidates = posts.filter(eligible);
+    let partial = false;
+    // A sparse local page must not hide deeper source pages from the reader.
+    if (
+      cursor &&
+      !candidates.length &&
+      this.readSource &&
+      (!sourceStarted || sourceCursor)
+    ) {
+      const page = await this.readSource(
+        mode,
+        sourceCursor,
+        locale,
+        topics,
+        content
+      );
+      candidates = page.items.filter(eligible);
+      sourceStarted = true;
+      sourceCursor = page.cursor ?? undefined;
+      ({ partial } = page);
+    }
+    if (!candidates.length && !cursor) {
+      return null;
+    }
+    // New arrivals replenish a continuation without recycling its previously consumed IDs.
+    const ranked = candidates
+      .map((post) => ({
+        post,
+        score:
+          mode === "latest"
+            ? Date.parse(post.createdAt)
+            : discoveryRelevance(post, topics, locale, mode),
+      }))
+      .toSorted((a, b) => b.score - a.score);
+    const selected: ExternalPost[] = [];
+    const authors = new Map<string, number>();
+    while (ranked.length && selected.length < 20) {
+      const index =
+        cursor || mode === "latest"
+          ? 0
+          : ranked.findIndex(
+              ({ post }) => (authors.get(post.author.id) ?? 0) < 2
+            );
+      const [item] = ranked.splice(Math.max(0, index), 1);
+      if (!item) {
+        break;
+      }
+      selected.push(item.post);
+      authors.set(
+        item.post.author.id,
+        (authors.get(item.post.author.id) ?? 0) + 1
+      );
+    }
+    let next: string | null = null;
+    if (
+      ranked.length ||
+      selected.length === 20 ||
+      (this.readSource && (!sourceStarted || sourceCursor))
+    ) {
+      next = crypto.randomUUID();
+      const saved = await this.continuations.set(
+        `inventory:${next}`,
+        JSON.stringify({
+          scope,
+          seen: [...seen, ...selected.map((post) => post.id)].slice(-2000),
+          sourceCursor,
+          sourceStarted,
+        }),
+        900_000
+      );
+      if (!saved) {
+        next = null;
+      }
+    }
+    return { cursor: next, items: selected, partial };
+  }
+}

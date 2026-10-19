@@ -14,6 +14,13 @@ import type { ProtocolLogger } from "./observability";
 import { createBlueskySearch } from "./search";
 
 export interface ProtocolsHealth {
+  discovery?: {
+    connected: boolean;
+    leaseHeld: boolean;
+    processedEvents: number;
+    lastEventAt: number | null;
+    queued: number;
+  };
   storageReady?: boolean;
   draining: boolean;
   jetstreamEnabled: boolean;
@@ -172,6 +179,15 @@ export function createProtocolsApp(options: ProtocolsAppOptions) {
         stream = health.connected ? "connected" : "disconnected";
       }
       return {
+        discovery: health.discovery
+          ? {
+              events: health.discovery.processedEvents,
+              lastEventAt: health.discovery.lastEventAt,
+              queued: health.discovery.queued,
+              stream: health.discovery.connected ? "connected" : "disconnected",
+              worker: health.discovery.leaseHeld ? "leader" : "standby",
+            }
+          : undefined,
         search: search.stats(),
         service: "protocols",
         status: ready ? "ready" : "not_ready",

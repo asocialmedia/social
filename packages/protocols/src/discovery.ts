@@ -13,6 +13,14 @@ import {
   waitForReadRetry,
 } from "./transport";
 
+export {
+  blueskyMediaIsExplicit,
+  hasRestrictedDiscoveryLabels,
+  isExplicitTagOrTopic,
+  postHasExplicitMedia,
+} from "./content-safety";
+export type { BlueskyContentLabels } from "./content-safety";
+export { isDiscoveryColdStart } from "./discovery-quality";
 export { BoundedReadQueue } from "./read-queue";
 export { SharedReadCache, createRedisReadStore } from "./shared-read-cache";
 export type { SharedReadStore } from "./shared-read-cache";

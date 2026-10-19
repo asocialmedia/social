@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { blueskyMediaIsExplicit } from "../content-safety";
 import { ProtocolError } from "../contracts";
 import type {
   ExternalAuthor,
@@ -126,6 +127,15 @@ export function normalizeAuthor(
   allowExplicitMedia = false
 ): ExternalAuthor {
   const labels = publicLabels(profile.labels, allowExplicitMedia);
+  if (
+    !allowExplicitMedia &&
+    blueskyMediaIsExplicit({ author: { description: profile.description } })
+  ) {
+    throw new ProtocolError(
+      "restricted",
+      "This account requires an adult-content opt-in"
+    );
+  }
   return {
     avatarUrl: mediaLink(profile.avatar),
     bannerUrl: mediaLink(profile.banner),
@@ -259,6 +269,19 @@ function normalizeMedia(embed: unknown): ExternalMedia[] {
   return [];
 }
 
+function checkedPost(
+  post: ExternalPost,
+  allowExplicitMedia: boolean
+): ExternalPost {
+  if (!allowExplicitMedia && blueskyMediaIsExplicit(post)) {
+    throw new ProtocolError(
+      "restricted",
+      "This post requires an adult-content opt-in"
+    );
+  }
+  return post;
+}
+
 export function normalizePost(
   post: BlueskyPost,
   depth = 0,
@@ -322,7 +345,7 @@ export function normalizePost(
     })
     .safeParse(post.embed);
   if (!embedded.success) {
-    return result;
+    return checkedPost(result, allowExplicitMedia);
   }
   const { data } = embedded;
   if (data.$type === "app.bsky.embed.external#view" && data.external) {
@@ -385,7 +408,7 @@ export function normalizePost(
       }
     }
   }
-  return result;
+  return checkedPost(result, allowExplicitMedia);
 }
 
 export function extractThread(

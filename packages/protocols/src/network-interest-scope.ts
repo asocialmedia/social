@@ -12,15 +12,24 @@ export function networkInterestTerms(
   interests: readonly string[],
   scope?: NetworkTopicScope
 ): string[] {
-  return [
-    ...new Set(
-      interests
-        .flatMap((root) => [root, ...(scope?.interests[root] ?? [])])
-        .map(normalizeTopic)
-    ),
-  ]
-    .filter((term) => term.length >= 2 && term.length <= 64)
-    .slice(0, 160);
+  const selected = new Set(interests.map(normalizeTopic));
+  return (
+    [
+      ...new Set(
+        interests
+          .flatMap((root) => [root, ...(scope?.interests[root] ?? [])])
+          .map(normalizeTopic)
+      ),
+    ]
+      // Short inferred letter aliases collide with prose; explicit selections and numbered names remain usable.
+      .filter(
+        (term) =>
+          term.length >= 2 &&
+          term.length <= 64 &&
+          (term.length >= 4 || /\p{N}/u.test(term) || selected.has(term))
+      )
+      .slice(0, 160)
+  );
 }
 
 type InterestMatcher = (text: string, topics: readonly string[]) => number;

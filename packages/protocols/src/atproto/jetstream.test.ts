@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 
-import { websocketTransport } from "@bsky/jetstream";
+import { MalformedError, websocketTransport } from "@bsky/jetstream";
 
 import { authorDid, eventFixture } from "../testing/fixtures";
 import {
@@ -19,6 +19,52 @@ test("subscriptions always require a bounded account set and keep account events
   expect(url.searchParams.has("kinds")).toBe(false);
   expect(url.searchParams.get("cursor")).toBe("10");
   expect(url.pathname).toBe("/xrpc/network.bsky.jetstream.subscribeEvents");
+});
+
+test("public discovery is explicit and cannot subscribe to unrelated collections or tracked DIDs", () => {
+  const url = new URL(jetstreamUrl({ dids: [], publicDiscovery: true }));
+  expect(url.searchParams.has("dids")).toBe(false);
+  expect(url.searchParams.getAll("collections")).toContain(
+    "app.bsky.feed.post"
+  );
+  expect(url.searchParams.getAll("kinds")).toEqual([
+    "commit",
+    "identity",
+    "account",
+  ]);
+  expect(() =>
+    jetstreamUrl({
+      collections: ["app.bsky.graph.follow"],
+      dids: [],
+      publicDiscovery: true,
+    })
+  ).toThrow();
+  expect(() =>
+    jetstreamUrl({ dids: [authorDid], publicDiscovery: true })
+  ).toThrow();
+});
+
+test("public discovery filters sync frames at the actual SDK subscription and reconciles undecodable replays", async () => {
+  const stream = streamJetstream({
+    dids: [],
+    publicDiscovery: true,
+    transport: {
+      async *stream(getUrl) {
+        const url = new URL(await getUrl());
+        expect(url.searchParams.getAll("kinds")).toEqual([
+          "commit",
+          "identity",
+          "account",
+        ]);
+        yield* [];
+        throw new MalformedError("wire validation failed at an old sync frame");
+      },
+    },
+  });
+  await expect(stream.next()).rejects.toMatchObject({
+    code: "invalid_response",
+    message: "Jetstream cursor requires reconciliation",
+  });
 });
 
 test("validates deletes, account events, payload bounds, and v2 cursors", () => {

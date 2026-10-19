@@ -107,3 +107,32 @@ test("generic substrings and absent relationships do not widen a focused profile
     )
   ).toBe(2);
 });
+
+test("short inferred aliases cannot admit unrelated posts while explicitly selected acronyms still work", () => {
+  const aliases: NetworkTopicScope = {
+    avoided: {},
+    interests: { typescript: ["ts", "typescript compiler"] },
+    version: "short-alias-regression",
+  };
+  expect(networkInterestTerms(["typescript"], aliases)).toEqual([
+    "typescript",
+    "typescript compiler",
+  ]);
+  expect(
+    matchesNetworkInterests("Hoppers (2026, TS)", [], ["typescript"], aliases)
+  ).toBe(false);
+  expect(
+    matchesNetworkInterests("Film clip", ["ts"], ["typescript"], aliases)
+  ).toBe(false);
+  expect(
+    matchesNetworkInterests(
+      "TypeScript compiler demonstration",
+      [],
+      ["typescript"],
+      aliases
+    )
+  ).toBe(true);
+  expect(matchesNetworkInterests("TS discussion", [], ["ts"], aliases)).toBe(
+    true
+  );
+});

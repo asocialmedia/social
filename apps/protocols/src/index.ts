@@ -72,6 +72,7 @@ export async function startProtocols() {
     leaseHeld: false,
     processedEvents: 0,
   };
+  const discoveryHealth = { ...health };
   const abort = new AbortController();
   let worker = Promise.resolve();
   let closeRedis: (() => Promise<void>) | undefined;
@@ -119,8 +120,15 @@ export async function startProtocols() {
     });
   }
   const { createCachedBlueskyClient } = await import("./cache-client");
+  const { DiscoveryInventory, RedisInventoryStore } =
+    await import("./discovery-inventory");
+  const { createDiscoveryIngestion } = await import("./discovery-ingestion");
   const { createBlueskySearch } = await import("./search");
-  const { createRedisReadStore } = await import("@asm/protocols/discovery");
+  const {
+    createRedisReadStore,
+    FEED_EVENTS_CHANNEL,
+    PROTOCOL_INVALIDATIONS_CHANNEL,
+  } = await import("@asm/protocols/discovery");
   const search = createBlueskySearch({
     client: searchClient,
     concurrency: config.searchConcurrency,
@@ -130,20 +138,174 @@ export async function startProtocols() {
   const effectiveClient = redis
     ? createCachedBlueskyClient(client, redis)
     : client;
+  const effectiveExplicitClient = redis
+    ? createCachedBlueskyClient(
+        explicitClient,
+        redis,
+        "asm:protocols:cache:explicit-v2"
+      )
+    : explicitClient;
   const discovery = new BlueskyDiscovery(effectiveClient, undefined, {
     store: redis ? new RedisDiscoveryStore(redis) : new MemoryDiscoveryStore(),
   });
-  const explicitDiscovery = new BlueskyDiscovery(explicitClient, undefined, {
-    store: redis
-      ? new RedisDiscoveryStore(redis, {
-          scope: "asm:protocols:{discovery:explicit:v1}",
+  const inventoryStore = redis ? new RedisInventoryStore(redis) : undefined;
+  const inventory =
+    inventoryStore && redis
+      ? new DiscoveryInventory(
+          inventoryStore,
+          new RedisDiscoveryStore(redis, {
+            scope: "asm:protocols:{inventory-cursors:v2}",
+          }),
+          async (mode, cursor, locale, topics, content) => {
+            const startedAt = Date.now();
+            return remember(
+              await discovery.read(mode, cursor, locale, topics, content),
+              startedAt
+            );
+          }
+        )
+      : undefined;
+  const ingestion =
+    inventoryStore && redis
+      ? createDiscoveryIngestion({
+          client: effectiveClient,
+          publish: () =>
+            redis?.publish(
+              FEED_EVENTS_CHANNEL,
+              JSON.stringify({ source: "bluesky" })
+            ),
+          publishInvalidation: (event) =>
+            redis?.publish(
+              PROTOCOL_INVALIDATIONS_CHANNEL,
+              JSON.stringify({
+                did: event.did,
+                kind: event.kind,
+                ...(event.kind === "commit" &&
+                event.commit.collection === "app.bsky.feed.post"
+                  ? {
+                      uri: `at://${event.did}/${event.commit.collection}/${event.commit.rkey}`,
+                    }
+                  : {}),
+              })
+            ),
+          store: inventoryStore,
         })
-      : new MemoryDiscoveryStore(),
-  });
+      : undefined;
+  const remember = async (
+    page: Awaited<ReturnType<typeof discovery.read>>,
+    startedAt: number
+  ) => {
+    await inventoryStore?.put(page.items, startedAt).catch(() => {
+      // A cache outage does not discard a successful upstream result.
+    });
+    return page;
+  };
+  const discover: NonNullable<
+    Parameters<typeof createProtocolsApp>[0]["discover"]
+  > = async (mode, cursor, locale = "", topics = [], content = "all") => {
+    ingestion?.watch(topics);
+    const local = await inventory
+      ?.read(mode, cursor, locale, topics, content)
+      .catch((error: unknown) => {
+        if (cursor) {
+          throw error;
+        }
+        return null;
+      });
+    if (local) {
+      return local;
+    }
+    const startedAt = Date.now();
+    return remember(
+      await discovery.read(mode, cursor, locale, topics, content),
+      startedAt
+    );
+  };
+  const explicitDiscovery = new BlueskyDiscovery(
+    effectiveExplicitClient,
+    undefined,
+    {
+      store: redis
+        ? new RedisDiscoveryStore(redis, {
+            scope: "asm:protocols:{discovery:explicit:v1}",
+          })
+        : new MemoryDiscoveryStore(),
+    }
+  );
+  const explicitInventoryStore = redis
+    ? new RedisInventoryStore(redis, "asm:protocols:{inventory:explicit:v2}")
+    : undefined;
+  const readExplicitSource = async (
+    mode: Parameters<typeof explicitDiscovery.read>[0],
+    cursor?: string,
+    locale = "",
+    topics: string[] = [],
+    content: Parameters<typeof explicitDiscovery.read>[4] = "all"
+  ) => {
+    const startedAt = Date.now();
+    const page = await explicitDiscovery.read(
+      mode,
+      cursor,
+      locale,
+      topics,
+      content
+    );
+    await explicitInventoryStore?.put(page.items, startedAt).catch(() => null);
+    return page;
+  };
+  const explicitInventory =
+    explicitInventoryStore && inventoryStore && redis
+      ? new DiscoveryInventory(
+          {
+            invalidate: (target) => explicitInventoryStore.invalidate(target),
+            put: (posts, startedAt) =>
+              explicitInventoryStore.put(posts, startedAt),
+            read: async () => {
+              const pages = await Promise.all([
+                inventoryStore.read(),
+                explicitInventoryStore.read(),
+              ]);
+              return [
+                ...new Map(
+                  pages.flat().map((post) => [post.id, post])
+                ).values(),
+              ];
+            },
+          },
+          new RedisDiscoveryStore(redis, {
+            scope: "asm:protocols:{inventory-cursors:explicit:v2}",
+          }),
+          readExplicitSource,
+          true
+        )
+      : undefined;
+  const explicitDiscover: NonNullable<
+    Parameters<typeof createProtocolsApp>[0]["discover"]
+  > = async (mode, cursor, locale = "", topics = [], content = "all") => {
+    ingestion?.watch(topics);
+    const local = await explicitInventory?.read(
+      mode,
+      cursor,
+      locale,
+      topics,
+      content
+    );
+    if (local) {
+      // Safe cached candidates can render immediately while the opt-in pool replenishes separately.
+      if (!cursor) {
+        void readExplicitSource(mode, undefined, locale, topics, content).catch(
+          () => null
+        );
+      }
+      return local;
+    }
+    return readExplicitSource(mode, cursor, locale, topics, content);
+  };
   let stopLive: (() => void) | undefined;
   if (redis) {
-    const { createDiscoveryLive } = await import("./discovery-live");
-    const { DISCOVERY_WATCH_CHANNEL, PROTOCOL_INVALIDATIONS_CHANNEL } =
+    const { createDiscoveryLive, discoveryWatchSchema } =
+      await import("./discovery-live");
+    const { DISCOVERY_WATCH_CHANNEL } =
       await import("@asm/protocols/discovery");
     const publisher = redis;
     const subscriber = redis.duplicate({ lazyConnect: true });
@@ -152,20 +314,71 @@ export async function startProtocols() {
     });
     const live = createDiscoveryLive({
       publish: (channel, message) => publisher.publish(channel, message),
-      read: ({ mode, locale, topics, content }, refresh) =>
-        refresh
+      read: async ({ mode, locale, topics, content }, refresh) => {
+        ingestion?.watch(topics);
+        const startedAt = Date.now();
+        const page = await (refresh
           ? discovery.refreshHead(mode, locale, topics, content)
-          : discovery.read(mode, undefined, locale, topics, content),
+          : discovery.read(mode, undefined, locale, topics, content));
+        await remember(page, startedAt);
+        // Replenish continuation inventory off the viewer's request path.
+        if (page.cursor) {
+          void (async () => {
+            let cursor: string | null = page.cursor;
+            for (
+              let index = 0;
+              cursor && index < 2 && !abort.signal.aborted;
+              index += 1
+            ) {
+              const began = Date.now();
+              // oxlint-disable-next-line no-await-in-loop -- continuation pages must advance in order.
+              const next = await discovery.read(
+                mode,
+                cursor,
+                locale,
+                topics,
+                content
+              );
+              // oxlint-disable-next-line no-await-in-loop -- retain each validated page before continuing.
+              await remember(next, began);
+              ({ cursor } = next);
+            }
+          })().catch(() => null);
+        }
+        return page;
+      },
       store: new RedisDiscoveryStore(redis),
     });
     subscriber.on("message", (channel, raw) => {
       if (channel === PROTOCOL_INVALIDATIONS_CHANNEL) {
-        client.invalidate();
-        explicitClient.invalidate();
+        try {
+          const event = JSON.parse(raw) as {
+            did?: string;
+            uri?: string;
+            operation?: string;
+          };
+          if (event.did) {
+            client.invalidate(event.uri ?? event.did);
+            explicitClient.invalidate(event.uri ?? event.did);
+            void inventoryStore
+              ?.invalidate(event.uri ?? event.did)
+              .catch(() => null);
+            void explicitInventoryStore
+              ?.invalidate(event.uri ?? event.did)
+              .catch(() => null);
+          }
+        } catch {
+          // Malformed notifications cannot invalidate the whole shared cache.
+        }
         live.invalidate();
       } else {
         try {
-          live.watch(JSON.parse(raw));
+          const watch: unknown = JSON.parse(raw);
+          live.watch(watch);
+          const parsed = discoveryWatchSchema.safeParse(watch);
+          if (parsed.success && parsed.data.content === "all") {
+            live.watch({ ...parsed.data, content: "video" });
+          }
         } catch {
           // Invalid watch hints carry no work.
         }
@@ -186,6 +399,7 @@ export async function startProtocols() {
       void live.tick().catch(() => {
         // A failed reconciliation is retried by the next tick.
       });
+      void ingestion?.tick();
     }, 1000);
     timer.unref();
     stopLive = () => {
@@ -196,13 +410,20 @@ export async function startProtocols() {
   }
   const app = createProtocolsApp({
     client: effectiveClient,
-    discover: (mode, cursor, locale, topics, content) =>
-      discovery.read(mode, cursor, locale, topics, content),
-    explicitClient,
-    explicitDiscover: (mode, cursor, locale, topics, content) =>
-      explicitDiscovery.read(mode, cursor, locale, topics, content),
+    discover,
+    explicitClient: effectiveExplicitClient,
+    explicitDiscover,
     health: () => ({
       ...health,
+      discovery: config.jetstreamEnabled
+        ? {
+            connected: discoveryHealth.connected,
+            lastEventAt: discoveryHealth.lastEventAt,
+            leaseHeld: discoveryHealth.leaseHeld,
+            processedEvents: discoveryHealth.processedEvents,
+            queued: ingestion?.pendingCount ?? 0,
+          }
+        : undefined,
       storageReady: redis ? redis.status === "ready" : true,
     }),
     logger,
@@ -213,7 +434,7 @@ export async function startProtocols() {
     app.listen({ hostname: config.hostname, port: config.port });
     if (redis && (config.jetstreamEnabled || (config.asmUrl && config.token))) {
       const { runFollowTracking } = await import("./follow-tracking");
-      worker = runFollowTracking({
+      const following = runFollowTracking({
         client,
         config,
         health,
@@ -225,6 +446,35 @@ export async function startProtocols() {
         redis,
         signal: abort.signal,
       });
+      const publicDiscovery =
+        config.jetstreamEnabled && ingestion
+          ? (async () => {
+              const { RedisCheckpointStore } = await import("./checkpoints");
+              const { runJetstreamWorker } = await import("./worker");
+              const streamOptions = {
+                dids: [],
+                endpoint: config.endpoint,
+                publicDiscovery: true,
+              };
+              await runJetstreamWorker({
+                health: discoveryHealth,
+                invalidate: () => {
+                  // Discovery ingestion publishes only hydrated, policy-checked updates.
+                },
+                logger,
+                processEvent: ingestion.event,
+                signal: abort.signal,
+                store: new RedisCheckpointStore(redis, {
+                  ...streamOptions,
+                  publishInvalidations: false,
+                }),
+                streamOptions,
+              });
+            })()
+          : Promise.resolve();
+      worker = (async () => {
+        await Promise.all([following, publicDiscovery]);
+      })();
     }
   } catch (error) {
     abort.abort();
