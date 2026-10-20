@@ -4,6 +4,7 @@ import { discoveryFeedPress } from "@asm/ui/lib/home-feed-controls";
 import type { LucideProps } from "lucide-react-native";
 import { ChevronDown, Clock3, Sparkles } from "lucide-react-native";
 import { useEffect, useRef, useState } from "react";
+import type { ViewInstance } from "react-native";
 import {
   Pressable,
   StyleSheet,
@@ -59,7 +60,7 @@ export function GustFeedControls({
   onChange: (tab: GustTab) => void;
 }) {
   const { width } = useWindowDimensions();
-  const trigger = useRef<View>(null);
+  const trigger = useRef<ViewInstance>(null);
   const [anchor, setAnchor] = useState<MenuAnchor | null>(null);
   const visibleAvatars = avatars.slice(0, width < 360 ? 2 : 3);
   const [discovery, setDiscovery] = useState<"latest" | "personalized">(

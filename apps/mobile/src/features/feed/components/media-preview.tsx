@@ -19,6 +19,7 @@ import {
 import type { LucideIcon } from "lucide-react-native";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ComponentProps } from "react";
+import type { ViewInstance } from "react-native";
 import {
   AppState,
   Modal,
@@ -248,7 +249,7 @@ export function MediaPreview({ request }: { request: MediaPreviewRequest }) {
   const closing = useRef(false);
   const afterClose = useRef<(() => void) | null>(null);
   const mounted = useRef(true);
-  const sheetRef = useRef<View>(null);
+  const sheetRef = useRef<ViewInstance>(null);
   const measureTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const bottomPadding = Math.max(insets.bottom, 12);
   const menuHeight = Math.min(

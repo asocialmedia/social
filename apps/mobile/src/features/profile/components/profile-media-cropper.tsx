@@ -111,7 +111,7 @@ function ProfileMediaCropper({
       Paths.cache,
       `${request.kind}-crop-${Date.now()}.${extension}`
     );
-    target.write(bytes);
+    target.writeSync(bytes);
     onFinish({
       ...request.picked,
       source: {

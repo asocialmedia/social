@@ -19,6 +19,7 @@ import {
 } from "lucide-react-native";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ReactNode, RefObject } from "react";
+import type { ScrollViewInstance } from "react-native";
 import {
   Modal,
   Pressable,
@@ -185,7 +186,7 @@ export function SecurityTab({
   email: string | null;
   emailVerified: boolean;
   hasAuthenticatorApp: boolean;
-  scrollRef: RefObject<ScrollView | null>;
+  scrollRef: RefObject<ScrollViewInstance | null>;
   twoFactorEnabled: boolean;
 }) {
   const { theme } = useAppTheme();

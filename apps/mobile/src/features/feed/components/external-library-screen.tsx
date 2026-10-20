@@ -181,7 +181,7 @@ export function ExternalLibraryScreen() {
                 Load more
               </Text>
             </Pressable>
-          ) : null
+          ) : undefined
         }
       />
     </View>

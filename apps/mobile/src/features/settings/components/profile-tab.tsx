@@ -11,6 +11,7 @@ import type { UpdateUserProfileValues } from "@asm/auth/validation";
 import { Link2, UserRound } from "lucide-react-native";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { RefObject } from "react";
+import type { ScrollViewInstance } from "react-native";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { toast } from "@/components/feedback/toast";
@@ -133,7 +134,7 @@ export function ProfileTab({
 }: {
   onChanged: () => void;
   onNavigateToAccount: () => void;
-  scrollRef: RefObject<ScrollView | null>;
+  scrollRef: RefObject<ScrollViewInstance | null>;
   user: SessionUser | null;
 }) {
   const { theme } = useAppTheme();

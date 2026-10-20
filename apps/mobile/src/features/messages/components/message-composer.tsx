@@ -21,6 +21,7 @@ import {
 // also means one slow photo does not send the rest out of order, and the ratchet
 // chain stays in step with what the peer can actually read.
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { TextInputInstance } from "react-native";
 import {
   Image,
   Keyboard,
@@ -112,7 +113,7 @@ export function MessageComposer({
 }) {
   const { isDark, theme } = useAppTheme();
   const insets = useSafeAreaInsets();
-  const fieldRef = useRef<TextInput>(null);
+  const fieldRef = useRef<TextInputInstance>(null);
   useEffect(() => {
     if (replyTo?.id) {
       fieldRef.current?.focus();

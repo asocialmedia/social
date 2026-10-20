@@ -40,7 +40,7 @@ export function TurnstileWebView({
   resetSignal = 0,
   sitekey,
 }: TurnstileWebViewProps) {
-  const webViewRef = useRef<WebView>(null);
+  const webViewRef = useRef<WebView<unknown>>(null);
   const [isReady, setIsReady] = useState(false);
 
   // Callbacks are held in a ref so a parent re-render does not rebuild the page
@@ -103,7 +103,7 @@ export function TurnstileWebView({
 
   return (
     <View style={styles.container}>
-      <WebView
+      <WebView<unknown>
         // Cloudflare requires JS, DOM storage and a stable UA for the whole
         // challenge, and warns that an inconsistent UA fails the challenge.
         domStorageEnabled

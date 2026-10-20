@@ -14,6 +14,12 @@ import {
 } from "lucide-react-native";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ComponentProps } from "react";
+import type {
+  ViewInstance,
+  NativeScrollEvent,
+  NativeSyntheticEvent,
+  ViewStyle,
+} from "react-native";
 import {
   Animated,
   Pressable,
@@ -21,11 +27,6 @@ import {
   StyleSheet,
   Text,
   View,
-} from "react-native";
-import type {
-  NativeScrollEvent,
-  NativeSyntheticEvent,
-  ViewStyle,
 } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { scheduleOnRN } from "react-native-worklets";
@@ -423,7 +424,7 @@ const MediaTile = memo(
   }) => {
     const { theme } = useAppTheme();
     const apiBase = getApiBaseUrl();
-    const tileRef = useRef<View>(null);
+    const tileRef = useRef<ViewInstance>(null);
     const router = useRouter();
     const holdOpened = useRef(false);
     const aspectRatio = mediaTileAspect(item);
@@ -1246,7 +1247,7 @@ export function ProfileFeed({
           ListEmptyComponent={
             feed.status === "success" ? (
               <EmptyProfileTab isOwnProfile={isOwnProfile} tab={tab} />
-            ) : null
+            ) : undefined
           }
           ListFooterComponent={renderFooter}
           ListHeaderComponent={

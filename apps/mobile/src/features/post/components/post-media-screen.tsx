@@ -29,6 +29,7 @@ import {
   Maximize,
 } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { ViewStyle } from "react-native";
 import {
   FlatList,
   Share,
@@ -38,7 +39,6 @@ import {
   useWindowDimensions,
   View,
 } from "react-native";
-import type { ViewStyle } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import avatarPlaceholder from "@/assets/images/avatar-placeholder.png";

@@ -154,7 +154,7 @@ function ExternalFollowingContent() {
               >
                 <Text style={{ color: theme.inputText }}>Retry</Text>
               </Pressable>
-            ) : null
+            ) : undefined
           }
           renderItem={({ item }) => (
             <View className="flex-row items-center justify-between gap-3 px-4 py-3">

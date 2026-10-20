@@ -20,6 +20,11 @@
 import { Image } from "expo-image";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type {
+  ScrollViewInstance,
+  ViewInstance,
+  LayoutChangeEvent,
+} from "react-native";
 import {
   ActivityIndicator,
   Animated,
@@ -30,7 +35,6 @@ import {
   Text,
   View,
 } from "react-native";
-import type { LayoutChangeEvent } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import errorImage from "@/assets/images/error.png";
@@ -117,8 +121,8 @@ export function PostDetailScreen({ postId }: { postId: string }) {
   } else if (showEddies && viewerId) {
     feedBottomPad = eddieBarHeight + 12;
   }
-  const scrollRef = useRef<ScrollView>(null);
-  const viewportRef = useRef<View>(null);
+  const scrollRef = useRef<ScrollViewInstance>(null);
+  const viewportRef = useRef<ViewInstance>(null);
   const [viewportBottom, setViewportBottom] = useState(
     () => Dimensions.get("window").height
   );

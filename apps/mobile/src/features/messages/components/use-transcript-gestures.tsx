@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ComponentProps } from "react";
+import type { FlatList, ViewInstance, FlatListProps } from "react-native";
 import { View } from "react-native";
-import type { FlatList, FlatListProps } from "react-native";
 import { Gesture } from "react-native-gesture-handler";
 import {
   cancelAnimation,
@@ -45,7 +45,7 @@ export function useTranscriptGestures({
   onLiveEndChange: (atLatest: boolean) => void;
 }) {
   const listRef = useAnimatedRef<FlatList<TranscriptItem>>();
-  const viewportRef = useRef<View>(null);
+  const viewportRef = useRef<ViewInstance>(null);
   const frames = useSharedValue<Record<string, MessageFrame>>({});
   const viewport = useSharedValue({ height: 0, top: 0 });
   const contentHeight = useSharedValue(0);

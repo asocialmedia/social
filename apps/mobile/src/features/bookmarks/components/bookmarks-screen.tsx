@@ -360,8 +360,8 @@ export function BookmarksScreen() {
             contentContainerStyle={{
               paddingBottom: dockHeight + insets.bottom + 24,
             }}
-            ListEmptyComponent={empty}
-            ListFooterComponent={loadingMore ? <FeedSkeletonCard /> : null}
+            ListEmptyComponent={empty ?? undefined}
+            ListFooterComponent={loadingMore ? <FeedSkeletonCard /> : undefined}
             showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
             onEndReached={() => {
               void loadMore();

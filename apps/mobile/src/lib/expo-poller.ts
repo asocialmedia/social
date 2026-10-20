@@ -12,7 +12,7 @@ export function createExpoPoller(options: {
   return new ForegroundNetworkPoller({
     ...options,
     appState: {
-      getCurrentState: () => AppState.currentState,
+      getCurrentState: () => AppState.currentState ?? null,
       subscribe: (listener) => AppState.addEventListener("change", listener),
     },
     network: {

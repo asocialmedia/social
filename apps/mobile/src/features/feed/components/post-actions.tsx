@@ -21,6 +21,7 @@ import {
 } from "lucide-react-native";
 import { useRef } from "react";
 import type { ReactNode } from "react";
+import type { ViewInstance } from "react-native";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { toast } from "@/components/feedback/toast";
@@ -579,7 +580,7 @@ export function MoreButton({
   onPress: (anchor: MenuAnchor) => void;
 }) {
   const { isDark, theme } = useAppTheme();
-  const triggerRef = useRef<View>(null);
+  const triggerRef = useRef<ViewInstance>(null);
   const pressedTone = isDark ? TRIGGER_PRESSED_DARK : TRIGGER_PRESSED_LIGHT;
   return (
     <Pressable

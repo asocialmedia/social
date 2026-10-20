@@ -28,7 +28,7 @@ export function saveCommunityWizard(
   try {
     const file = draftFile(userId);
     file.create({ overwrite: true });
-    file.write(JSON.stringify(draft));
+    file.writeSync(JSON.stringify(draft));
   } catch {
     // A storage failure must not prevent creating a community.
   }

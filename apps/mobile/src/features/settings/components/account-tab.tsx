@@ -13,6 +13,7 @@ import { useLocalSearchParams } from "expo-router";
 import { AtSign, KeyRound, Mail } from "lucide-react-native";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { RefObject } from "react";
+import type { ScrollViewInstance } from "react-native";
 import {
   Modal,
   Pressable,
@@ -112,7 +113,7 @@ export function AccountTab({
 }: {
   facts: AccountFacts;
   onChanged: () => void;
-  scrollRef: RefObject<ScrollView | null>;
+  scrollRef: RefObject<ScrollViewInstance | null>;
 }) {
   const { theme } = useAppTheme();
   const { user, refresh } = useSessionContext();
