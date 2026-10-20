@@ -1,7 +1,17 @@
 import { jetstreamEndpoints } from "@asm/protocols/jetstream";
 import type { JetstreamEndpoint } from "@asm/protocols/jetstream";
 
+import { readWorkerNodes } from "./read-worker-config";
+import type { ReadWorkerNode } from "./read-worker-config";
+
 export interface ProtocolsConfig {
+  mode: "coordinator" | "read-worker";
+  ingestionQueueEnabled: boolean;
+  workers: ReadWorkerNode[];
+  workerToken?: string;
+  workerId: string;
+  workerConcurrency: number;
+  workerTimeoutMs: number;
   searchConcurrency: number;
   asmUrl?: string;
   hostname: string;
@@ -16,6 +26,59 @@ export interface ProtocolsConfig {
 export function readConfig(
   env: Record<string, string | undefined>
 ): ProtocolsConfig {
+  const mode = env.PROTOCOLS_MODE ?? "coordinator";
+  if (mode !== "coordinator" && mode !== "read-worker") {
+    throw new Error("PROTOCOLS_MODE must be coordinator or read-worker");
+  }
+  const workers = readWorkerNodes(env.PROTOCOLS_READ_WORKERS);
+  const queueEnabled = env.PROTOCOLS_INGESTION_QUEUE_ENABLED ?? "false";
+  if (
+    !["true", "false"].includes(queueEnabled) ||
+    (queueEnabled === "true" && !env.REDIS_URL)
+  ) {
+    throw new Error(
+      "PROTOCOLS_INGESTION_QUEUE_ENABLED must be true or false and requires REDIS_URL when enabled"
+    );
+  }
+  const workerToken = env.PROTOCOLS_WORKER_TOKEN;
+  if (
+    workerToken !== undefined &&
+    !/^[A-Za-z0-9_-]{32,256}$/.test(workerToken)
+  ) {
+    throw new Error(
+      "PROTOCOLS_WORKER_TOKEN must contain 32–256 URL-safe characters"
+    );
+  }
+  const workerId = env.PROTOCOLS_WORKER_ID ?? "worker";
+  if (!/^[a-zA-Z0-9_-]{1,48}$/.test(workerId) || workerId === "local") {
+    throw new Error(
+      "PROTOCOLS_WORKER_ID must be a short node identifier other than local"
+    );
+  }
+  const workerConcurrency = Number(env.PROTOCOLS_WORKER_CONCURRENCY ?? "8");
+  const workerTimeoutMs = Number(env.PROTOCOLS_WORKER_TIMEOUT_MS ?? "1200");
+  if (
+    !Number.isInteger(workerConcurrency) ||
+    workerConcurrency < 1 ||
+    workerConcurrency > 32 ||
+    !Number.isInteger(workerTimeoutMs) ||
+    workerTimeoutMs < 250 ||
+    workerTimeoutMs > 2000
+  ) {
+    throw new Error(
+      "Worker concurrency must be 1–32 and timeout must be 250–2000ms"
+    );
+  }
+  if (
+    mode === "read-worker" &&
+    (!workerToken ||
+      workers.length ||
+      env.PROTOCOLS_JETSTREAM_ENABLED === "true")
+  ) {
+    throw new Error(
+      "Read-worker mode requires a dedicated token and no Jetstream or downstream workers"
+    );
+  }
   const port = Number(env.PROTOCOLS_PORT ?? "3012");
   const searchConcurrency = Number(env.PROTOCOLS_SEARCH_CONCURRENCY ?? "48");
   if (
@@ -75,7 +138,12 @@ export function readConfig(
     );
   }
   const redisUrl = env.REDIS_URL;
-  if (env.NODE_ENV === "production" && token && !redisUrl) {
+  if (
+    mode === "coordinator" &&
+    env.NODE_ENV === "production" &&
+    token &&
+    !redisUrl
+  ) {
     throw new Error(
       "Production discovery requires REDIS_URL for shared continuations"
     );
@@ -118,10 +186,17 @@ export function readConfig(
     dids,
     endpoint,
     hostname: env.PROTOCOLS_HOST ?? "0.0.0.0",
+    ingestionQueueEnabled: queueEnabled === "true",
     jetstreamEnabled: enabled === "true",
+    mode,
     port,
     redisUrl,
     searchConcurrency,
     token,
+    workerConcurrency,
+    workerId,
+    workerTimeoutMs,
+    workerToken,
+    workers,
   };
 }

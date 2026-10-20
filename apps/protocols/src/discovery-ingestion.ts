@@ -6,6 +6,39 @@ import type { JetstreamEvent } from "@asm/protocols/jetstream";
 
 import type { InventoryStore } from "./discovery-inventory";
 
+export interface DiscoveryHydrationOptions {
+  client: Pick<BlueskyClient, "getPosts" | "allowsRecommendations">;
+  store: InventoryStore;
+  publish: () => Promise<unknown>;
+}
+
+export async function hydrateDiscoveryBatch(
+  options: DiscoveryHydrationOptions,
+  ids: string[],
+  startedAt: number
+): Promise<number> {
+  const posts = await options.client.getPosts(ids);
+  const allowed = new Set<string>();
+  const authors = [...new Set(posts.map((post) => post.author.id))];
+  for (let offset = 0; offset < authors.length; offset += 6) {
+    await Promise.all(
+      authors.slice(offset, offset + 6).map(async (did) => {
+        if (
+          await options.client.allowsRecommendations(did).catch(() => false)
+        ) {
+          allowed.add(did);
+        }
+      })
+    );
+  }
+  const permitted = posts.filter((post) => allowed.has(post.author.id));
+  await options.store.put(permitted, startedAt);
+  if (permitted.length) {
+    await options.publish();
+  }
+  return permitted.length;
+}
+
 export function createDiscoveryIngestion(options: {
   client: Pick<
     BlueskyClient,
@@ -14,6 +47,7 @@ export function createDiscoveryIngestion(options: {
   store: InventoryStore;
   publish: () => Promise<unknown>;
   publishInvalidation?: (event: JetstreamEvent) => Promise<unknown>;
+  dispatch?: (ids: string[], startedAt: number) => Promise<boolean>;
   now?: () => number;
 }) {
   const now = options.now ?? Date.now;
@@ -99,26 +133,15 @@ export function createDiscoveryIngestion(options: {
       }
       const startedAt = now();
       try {
-        const posts = await options.client.getPosts(batch.map(([id]) => id));
-        const allowed = new Set<string>();
-        const authors = [...new Set(posts.map((post) => post.author.id))];
-        for (let offset = 0; offset < authors.length; offset += 6) {
-          await Promise.all(
-            authors.slice(offset, offset + 6).map(async (did) => {
-              if (
-                await options.client
-                  .allowsRecommendations(did)
-                  .catch(() => false)
-              ) {
-                allowed.add(did);
-              }
-            })
-          );
+        const ids = batch.map(([id]) => id);
+        let dispatched = false;
+        try {
+          dispatched = (await options.dispatch?.(ids, startedAt)) ?? false;
+        } catch {
+          // Queue loss falls back to the existing local hydration path.
         }
-        const permitted = posts.filter((post) => allowed.has(post.author.id));
-        await options.store.put(permitted, startedAt);
-        if (permitted.length) {
-          await options.publish();
+        if (!dispatched) {
+          await hydrateDiscoveryBatch(options, ids, startedAt);
         }
       } catch {
         // Bounded AppView failures retry through discovery reconciliation; raw posts remain invisible.

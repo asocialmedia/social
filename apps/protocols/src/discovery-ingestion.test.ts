@@ -132,3 +132,43 @@ test("matching posts displace general video traffic instead of starving niche in
   expect(reads[0]?.[0]).toBe(inventoryPost(999).id);
   expect(reads[0]?.length).toBeLessThanOrEqual(6);
 });
+
+test.each([true, false, "unavailable"])(
+  "ingestion dispatch %s preserves local fallback and raw-record isolation",
+  async (dispatchResult) => {
+    let localReads = 0;
+    const dispatched: string[][] = [];
+    const saved: ExternalPost[] = [];
+    const ingestion = createDiscoveryIngestion({
+      client: {
+        allowsRecommendations: () => Promise.resolve(true),
+        getPosts: () => {
+          localReads += 1;
+          return Promise.resolve([inventoryPost(0)]);
+        },
+        invalidate: () => {},
+      },
+      dispatch: (ids) => {
+        dispatched.push(ids);
+        return dispatchResult === "unavailable"
+          ? Promise.reject(new Error("Queue unavailable"))
+          : Promise.resolve(dispatchResult);
+      },
+      publish: () => Promise.resolve(),
+      store: {
+        invalidate: () => Promise.resolve(),
+        put: (posts) => {
+          saved.push(...posts);
+          return Promise.resolve();
+        },
+        read: () => Promise.resolve([]),
+      },
+    });
+    ingestion.watch(["TypeScript"]);
+    await ingestion.event(event(0));
+    await ingestion.tick();
+    expect(dispatched).toEqual([[inventoryPost(0).id]]);
+    expect(localReads).toBe(dispatchResult === true ? 0 : 1);
+    expect(saved).toHaveLength(dispatchResult === true ? 0 : 1);
+  }
+);

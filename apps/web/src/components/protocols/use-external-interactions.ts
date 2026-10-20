@@ -16,6 +16,7 @@ import {
   cachedExternalPost,
   isExternalViewerQuery,
   optimisticExternalState,
+  patchExternalState,
 } from "@/lib/protocols/external-cache";
 
 export function useExternalInteractions(
@@ -84,6 +85,7 @@ export function useExternalInteractions(
       await queryClient.cancelQueries({
         predicate: ({ queryKey: key, state: queryState }) =>
           isExternalViewerQuery(key, viewer) &&
+          queryState.fetchMeta?.fetchMore === undefined &&
           Boolean(cachedExternalPost(queryState.data, post.id)),
       });
       previous = queryClient.getQueryData<typeof state>(queryKey) ?? state;
@@ -175,12 +177,37 @@ export function useExternalInteractions(
       queryClient.setQueryData(pendingKey, false);
       void (async () => {
         try {
-          await queryClient.invalidateQueries({
-            predicate: ({ queryKey: key, state: queryState }) =>
-              isExternalViewerQuery(key, viewer) &&
-              Boolean(cachedExternalPost(queryState.data, post.id)),
-            refetchType: "active",
-          });
+          const pagination = queryClient
+            .getQueryCache()
+            .findAll({
+              predicate: ({ queryKey: key, state: queryState }) =>
+                isExternalViewerQuery(key, viewer) &&
+                queryState.fetchStatus === "fetching" &&
+                queryState.fetchMeta?.fetchMore !== undefined &&
+                Boolean(cachedExternalPost(queryState.data, post.id)),
+            })
+            .map(async (query) => {
+              await query.promise;
+              const latestState =
+                queryClient.getQueryData<typeof state>(queryKey);
+              if (latestState) {
+                queryClient.setQueryData(query.queryKey, (data: unknown) =>
+                  patchExternalState(data, post.id, latestState)
+                );
+              }
+            });
+          await Promise.all([
+            queryClient.invalidateQueries(
+              {
+                predicate: ({ queryKey: key, state: queryState }) =>
+                  isExternalViewerQuery(key, viewer) &&
+                  Boolean(cachedExternalPost(queryState.data, post.id)),
+                refetchType: "active",
+              },
+              { cancelRefetch: false }
+            ),
+            ...pagination,
+          ]);
         } catch {
           // Cache refresh failure must not change the completed action result.
         }

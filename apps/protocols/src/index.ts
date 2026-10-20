@@ -2,6 +2,7 @@
 import type RedisConnection from "ioredis";
 
 import { version } from "../package.json";
+import type { ProtocolIngestionQueue } from "./ingestion-queue";
 import { loadProtocolsEnvironment } from "./load-env";
 
 export async function startProtocols() {
@@ -15,7 +16,7 @@ export async function startProtocols() {
     serviceName: "asm-protocols",
     version,
   });
-  const logger = createLogger({ serviceName: "asm-protocols" });
+  const logger = createLogger({ serviceName: process.env.OTEL_SERVICE_NAME });
   const { readConfig } = await import("./config");
   let config: ReturnType<typeof readConfig>;
   try {
@@ -31,6 +32,23 @@ export async function startProtocols() {
     await telemetry.shutdown();
     throw error;
   }
+  if (config.mode === "read-worker") {
+    const { startReadWorker } = await import("./read-worker");
+    try {
+      return await startReadWorker(config, logger, telemetry);
+    } catch (error) {
+      await telemetry.shutdown();
+      throw error;
+    }
+  }
+  const { createReadWorkerPool } = await import("./read-worker-pool");
+  const pool = config.workers.length
+    ? createReadWorkerPool({
+        logger,
+        nodes: config.workers,
+        timeoutMs: config.workerTimeoutMs,
+      })
+    : undefined;
   const [
     { createProtocolsApp },
     { createProtocolObserver },
@@ -41,6 +59,7 @@ export async function startProtocols() {
     import("@asm/protocols/bluesky"),
   ]);
   const client = new BlueskyClient({
+    fetch: pool?.fetch,
     maxConcurrentRequests: 48,
     maxRetries: 0,
     observe: createProtocolObserver(logger),
@@ -48,12 +67,14 @@ export async function startProtocols() {
   });
   const explicitClient = new BlueskyClient({
     allowExplicitMedia: true,
+    fetch: pool?.fetch,
     maxConcurrentRequests: 24,
     maxRetries: 0,
     observe: createProtocolObserver(logger),
     timeoutMs: 2500,
   });
   const searchClient = new BlueskyClient({
+    fetch: pool?.fetch,
     maxConcurrentRequests: config.searchConcurrency,
     maxRetries: 0,
     observe: createProtocolObserver(logger),
@@ -61,6 +82,7 @@ export async function startProtocols() {
   });
   const explicitSearchClient = new BlueskyClient({
     allowExplicitMedia: true,
+    fetch: pool?.fetch,
     maxConcurrentRequests: config.searchConcurrency,
     maxRetries: 0,
     observe: createProtocolObserver(logger),
@@ -124,7 +146,8 @@ export async function startProtocols() {
   const { createCachedBlueskyClient } = await import("./cache-client");
   const { DiscoveryInventory, RedisInventoryStore } =
     await import("./discovery-inventory");
-  const { createDiscoveryIngestion } = await import("./discovery-ingestion");
+  const { createDiscoveryIngestion, hydrateDiscoveryBatch } =
+    await import("./discovery-ingestion");
   const { createBlueskySearch } = await import("./search");
   const {
     createRedisReadStore,
@@ -151,6 +174,38 @@ export async function startProtocols() {
     store: redis ? new RedisDiscoveryStore(redis) : new MemoryDiscoveryStore(),
   });
   const inventoryStore = redis ? new RedisInventoryStore(redis) : undefined;
+  let ingestionQueue: ProtocolIngestionQueue | undefined;
+  if (
+    config.ingestionQueueEnabled &&
+    redis &&
+    config.redisUrl &&
+    inventoryStore
+  ) {
+    const { createIngestionQueue } = await import("./ingestion-queue");
+    const connection = redis;
+    ingestionQueue = createIngestionQueue({
+      allowedNodes: config.workers.map((node) => node.id),
+      coordinator: true,
+      hydrate: (ids, startedAt) =>
+        hydrateDiscoveryBatch(
+          {
+            client: effectiveClient,
+            publish: () =>
+              connection.publish(
+                FEED_EVENTS_CHANNEL,
+                JSON.stringify({ source: "bluesky" })
+              ),
+            store: inventoryStore,
+          },
+          ids,
+          startedAt
+        ),
+      logger,
+      node: "local",
+      redis,
+      redisUrl: config.redisUrl,
+    });
+  }
   const inventory =
     inventoryStore && redis
       ? new DiscoveryInventory(
@@ -171,6 +226,7 @@ export async function startProtocols() {
     inventoryStore && redis
       ? createDiscoveryIngestion({
           client: effectiveClient,
+          dispatch: ingestionQueue?.enqueue,
           publish: () =>
             redis?.publish(
               FEED_EVENTS_CHANNEL,
@@ -429,7 +485,9 @@ export async function startProtocols() {
             queued: ingestion?.pendingCount ?? 0,
           }
         : undefined,
+      ingestion: ingestionQueue?.status(),
       storageReady: redis ? redis.status === "ready" : true,
+      workers: pool?.status(),
     }),
     logger,
     search,
@@ -489,6 +547,7 @@ export async function startProtocols() {
   } catch (error) {
     abort.abort();
     await stopLive?.();
+    await ingestionQueue?.close();
     client.close();
     explicitClient.close();
     search.close();
@@ -507,6 +566,7 @@ export async function startProtocols() {
       healthUrl: `http://${config.hostname}:${config.port}/health`,
       jetstreamEnabled: config.jetstreamEnabled,
       port: config.port,
+      readWorkers: config.workers.map((node) => node.id),
       readinessUrl: `http://${config.hostname}:${config.port}/ready`,
       readsEnabled: Boolean(config.token),
       trackedAccounts: config.dids.length,
@@ -527,6 +587,7 @@ export async function startProtocols() {
       health.draining = true;
       abort.abort();
       await stopLive?.();
+      await ingestionQueue?.close();
       client.close();
       explicitClient.close();
       search.close();

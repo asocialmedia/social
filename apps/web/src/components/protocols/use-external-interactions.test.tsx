@@ -2,7 +2,12 @@
 // oxlint-disable promise/avoid-new
 import { afterAll, afterEach, expect, mock, test } from "bun:test";
 
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { ExternalPost } from "@asm/protocols/contracts";
+import {
+  QueryClient,
+  QueryClientProvider,
+  QueryObserver,
+} from "@tanstack/react-query";
 import { Window } from "happy-dom";
 import { act, useEffect } from "react";
 import { createRoot } from "react-dom/client";
@@ -56,7 +61,30 @@ const initial = {
   bookmarked: false,
   comments: 0,
 };
-const post = { asm: initial, id: uri };
+const post = {
+  asm: initial,
+  author: {
+    displayName: "Alice",
+    handle: "alice.bsky.social",
+    id: "did:plc:alice",
+    labels: [],
+    source: "bluesky",
+    upstreamCounts: {},
+    url: "https://bsky.app/profile/did:plc:alice",
+  },
+  createdAt: "2026-10-20T00:00:00Z",
+  id: uri,
+  indexedAt: "2026-10-20T00:00:00Z",
+  labels: [],
+  languages: [],
+  media: [],
+  revision: "cid",
+  segments: [{ text: "Hello" }],
+  source: "bluesky",
+  text: "Hello",
+  upstreamCounts: { likes: 0, quotes: 0, replies: 0, reposts: 0 },
+  url: "https://bsky.app/profile/did:plc:alice/post/example",
+} satisfies ExternalPost;
 const pause = () =>
   new Promise<void>((resolve) => {
     setTimeout(resolve, 10);
@@ -71,6 +99,24 @@ test.each([
   "$action shares optimistic state and handles a $status response with feedback",
   async ({ action, status }) => {
     const client = new QueryClient();
+    const nextPost = { ...post, id: `${uri}-next` };
+    const page = Promise.withResolvers<{ items: (typeof post)[] }>();
+    let pageSignal: AbortSignal | undefined;
+    const feedKey = ["bluesky-discovery", "latest", "alice"];
+    const feed = new QueryObserver(client, {
+      initialData: { items: [post] },
+      queryFn: ({ signal }) => {
+        pageSignal = signal;
+        return page.promise;
+      },
+      queryKey: feedKey,
+      staleTime: Number.POSITIVE_INFINITY,
+    });
+    const unsubscribe = feed.subscribe(() => {});
+    const query = client.getQueryCache().find({ queryKey: feedKey });
+    const nextPage = query?.fetch(undefined, {
+      meta: { fetchMore: { direction: "forward" } },
+    });
     const parent = Promise.withResolvers<{ id: string }>();
     let parentSignal: AbortSignal | undefined;
     const parentKey = ["external-post", "unrelated-parent", "alice"];
@@ -129,6 +175,7 @@ test.each([
         [...host.querySelectorAll("span")].map((node) => node.dataset.pending)
       ).toEqual(["true", "true"]);
       expect(parentSignal?.aborted).toBe(false);
+      expect(pageSignal?.aborted).toBe(false);
       expect(client.getQueryState(parentKey)?.fetchStatus).toBe("fetching");
       expect(await control?.mutate({ action, active: false, uri })).toBe(false);
       await act(async () => {
@@ -154,6 +201,24 @@ test.each([
       expect(
         [...host.querySelectorAll("span")].map((node) => node.dataset.pending)
       ).toEqual(["false", "false"]);
+      expect(pageSignal?.aborted).toBe(false);
+      page.resolve({ items: [post, nextPost] });
+      await nextPage;
+      await act(pause);
+      expect(client.getQueryData(feedKey)).toMatchObject({
+        items: [
+          {
+            ...post,
+            asm: {
+              ...initial,
+              amplifications: status === 200 && action === "amplify" ? 1 : 0,
+              amplified: status === 200 && action === "amplify",
+              bookmarked: status === 200 && action === "bookmark",
+            },
+          },
+          nextPost,
+        ],
+      });
       expect(
         client.getQueryData(["external-interaction", "alice", uri])
       ).toEqual(
@@ -178,6 +243,9 @@ test.each([
         );
       }
     } finally {
+      page.resolve({ items: [post, nextPost] });
+      await nextPage;
+      unsubscribe();
       parent.resolve({ id: "unrelated-parent" });
       await parentRead;
       await act(() => root.unmount());

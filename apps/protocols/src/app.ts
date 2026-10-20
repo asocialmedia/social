@@ -14,6 +14,15 @@ import type { ProtocolLogger } from "./observability";
 import { createBlueskySearch } from "./search";
 
 export interface ProtocolsHealth {
+  ingestion?: {
+    completed: number;
+    enabled: boolean;
+    failed: number;
+    node: string;
+    permitted: boolean;
+    storageReady: boolean;
+  };
+  workers?: { id: string; active: number; cooldowns: Record<string, number> }[];
   discovery?: {
     connected: boolean;
     leaseHeld: boolean;
@@ -192,6 +201,8 @@ export function createProtocolsApp(options: ProtocolsAppOptions) {
               worker: health.discovery.leaseHeld ? "leader" : "standby",
             }
           : undefined,
+        ingestion: health.ingestion,
+        readWorkers: health.workers,
         search: search.stats(),
         service: "protocols",
         status: ready ? "ready" : "not_ready",
