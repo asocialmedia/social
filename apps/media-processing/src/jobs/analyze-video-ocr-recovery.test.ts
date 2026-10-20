@@ -173,6 +173,14 @@ test("video OCR resumes after a partial quota failure without paying for the com
     Object.assign(row.techMetadata, { semanticClassificationVersion: "old" });
     await processMediaAnalyze({ mediaId: row.id, semanticRefresh: true });
     expect(row.semanticTags).toEqual([]);
+    // An undecodable image must exhaust bounded queue retries rather than defer forever as provider work.
+    row._type = "IMAGE";
+    Object.assign(row.techMetadata, { semanticClassificationVersion: "old" });
+    await Bun.write(sourcePath, "corrupt image bytes");
+    await expect(
+      processMediaAnalyze({ mediaId: row.id, semanticRefresh: true })
+    ).rejects.toMatchObject({ name: "AnalysisRasterError" });
+    expect(row.status).toBe("READY");
   } finally {
     await rm(directory, { force: true, recursive: true });
   }

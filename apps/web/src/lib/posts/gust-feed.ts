@@ -74,7 +74,8 @@ export function advanceGustPaging(
 export function mergeGustPosts(
   previous: readonly PresentedPost[],
   native: readonly PresentedPost[],
-  external: readonly PresentedPost[]
+  external: readonly PresentedPost[],
+  sourcesPending = false
 ): PresentedPost[] {
   const candidates: PresentedPost[] = [];
   const count = Math.max(native.length, external.length);
@@ -92,6 +93,9 @@ export function mergeGustPosts(
     current.delete(post.id);
     return updated ? [updated] : [];
   });
+  if (sourcesPending) {
+    return retained.length ? retained : candidates.slice(0, 1);
+  }
   return [...retained, ...current.values()];
 }
 

@@ -1,15 +1,43 @@
 // Hydration batches finish before their successor starts; the socket handler only enqueues IDs.
 // oxlint-disable no-await-in-loop
 import type { BlueskyClient } from "@asm/protocols/bluesky";
+import { BoundedReadQueue } from "@asm/protocols/discovery";
 import { jetstreamRecordUri } from "@asm/protocols/jetstream";
 import type { JetstreamEvent } from "@asm/protocols/jetstream";
 
 import type { InventoryStore } from "./discovery-inventory";
+import { hydrationLifetimeMs, hydrationRetryDelay } from "./hydration-retry";
 
 export interface DiscoveryHydrationOptions {
   client: Pick<BlueskyClient, "getPosts" | "allowsRecommendations">;
   store: InventoryStore;
   publish: () => Promise<unknown>;
+}
+
+export function createHydrationReader(
+  client: DiscoveryHydrationOptions["client"],
+  concurrency: number
+) {
+  const abort = new AbortController();
+  const queue = new BoundedReadQueue({
+    concurrency,
+    maxQueued: 32,
+    maxWaitMs: 2000,
+  });
+  const signal = () =>
+    AbortSignal.any([abort.signal, AbortSignal.timeout(5000)]);
+  return {
+    client: {
+      allowsRecommendations: (did: string) =>
+        queue.run(() => client.allowsRecommendations(did), signal()),
+      getPosts: (ids: string[]) =>
+        queue.run(() => client.getPosts(ids), signal()),
+    },
+    close() {
+      abort.abort();
+      queue.close();
+    },
+  };
 }
 
 export async function hydrateDiscoveryBatch(
@@ -23,9 +51,8 @@ export async function hydrateDiscoveryBatch(
   for (let offset = 0; offset < authors.length; offset += 6) {
     await Promise.all(
       authors.slice(offset, offset + 6).map(async (did) => {
-        if (
-          await options.client.allowsRecommendations(did).catch(() => false)
-        ) {
+        // Lookup failures must fail the batch so queue retries cannot silently omit authors.
+        if (await options.client.allowsRecommendations(did)) {
           allowed.add(did);
         }
       })
@@ -56,6 +83,12 @@ export function createDiscoveryIngestion(options: {
     { topics: string[]; expires: number; patterns: RegExp[] }
   >();
   const pending = new Map<string, number>();
+  const retries: {
+    ids: string[];
+    startedAt: number;
+    attempts: number;
+    nextAt: number;
+  }[] = [];
   let running = false;
   return {
     async event(event: JetstreamEvent) {
@@ -76,6 +109,9 @@ export function createDiscoveryIngestion(options: {
       }
       if (event.commit.operation !== "create") {
         pending.delete(uri);
+        for (const retry of retries) {
+          retry.ids = retry.ids.filter((id) => id !== uri);
+        }
         options.client.invalidate(uri);
         await options.store.invalidate(uri);
         await options.publishInvalidation?.(event);
@@ -113,10 +149,31 @@ export function createDiscoveryIngestion(options: {
       }
     },
     get pendingCount() {
-      return pending.size;
+      return (
+        pending.size +
+        retries.reduce((count, retry) => count + retry.ids.length, 0)
+      );
     },
     async tick() {
-      if (running || !pending.size) {
+      if (running) {
+        return;
+      }
+      const timestamp = now();
+      for (let index = retries.length - 1; index >= 0; index -= 1) {
+        const retry = retries[index];
+        if (
+          retry &&
+          (!retry.ids.length ||
+            timestamp - retry.startedAt > hydrationLifetimeMs)
+        ) {
+          retries.splice(index, 1);
+        }
+      }
+      const retry = retries.find((candidate) => candidate.nextAt <= timestamp);
+      if (retry) {
+        retries.splice(retries.indexOf(retry), 1);
+      }
+      if (!retry && !pending.size) {
         return;
       }
       running = true;
@@ -127,13 +184,14 @@ export function createDiscoveryIngestion(options: {
       const general = prioritized
         .filter(([, priority]) => priority === 1)
         .slice(0, 5);
-      const batch = [...focused, ...general].slice(0, 25);
+      const batch = retry ? [] : [...focused, ...general].slice(0, 25);
       for (const [id] of batch) {
         pending.delete(id);
       }
-      const startedAt = now();
+      const startedAt = retry?.startedAt ?? timestamp;
+      const ids = retry?.ids ?? batch.map(([id]) => id);
+      const attempts = (retry?.attempts ?? 0) + 1;
       try {
-        const ids = batch.map(([id]) => id);
         let dispatched = false;
         try {
           dispatched = (await options.dispatch?.(ids, startedAt)) ?? false;
@@ -143,8 +201,22 @@ export function createDiscoveryIngestion(options: {
         if (!dispatched) {
           await hydrateDiscoveryBatch(options, ids, startedAt);
         }
-      } catch {
-        // Bounded AppView failures retry through discovery reconciliation; raw posts remain invisible.
+      } catch (error) {
+        // Retain at most four batches for three attempts, with the original invalidation fence.
+        if (
+          attempts < 3 &&
+          retries.length < 4 &&
+          now() - startedAt < hydrationLifetimeMs
+        ) {
+          retries.push({
+            attempts,
+            ids,
+            nextAt:
+              now() +
+              (hydrationRetryDelay(error) ?? 1000 * 2 ** (attempts - 1)),
+            startedAt,
+          });
+        }
       } finally {
         running = false;
       }

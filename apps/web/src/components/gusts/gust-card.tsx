@@ -663,7 +663,7 @@ export const GustCard: React.FC<GustCardProps> = ({
                   onTimeUpdate={handleTimeUpdate}
                   onWaiting={handleWaiting}
                   playsInline
-                  poster={thumbUrl}
+                  poster={shouldMountVideo ? thumbUrl : undefined}
                   preload={preloadMode}
                   ref={videoRef}
                   src={shouldMountVideo ? videoUrl : undefined}

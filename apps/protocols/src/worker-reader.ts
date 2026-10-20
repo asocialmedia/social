@@ -5,7 +5,7 @@ import {
   retryAfterMs,
 } from "@asm/protocols/discovery";
 
-import { publicReadTarget } from "./read-worker-policy";
+import { publicReadHeaders, publicReadTarget } from "./read-worker-policy";
 
 export function createWorkerReader(options: {
   concurrency?: number;
@@ -67,7 +67,7 @@ export function createWorkerReader(options: {
         ]);
         const response = await abortable(
           (options.fetch ?? globalThis.fetch)(target.href, {
-            headers: { accept: "application/json" },
+            headers: publicReadHeaders(init.headers),
             method: "GET",
             redirect: "error",
             signal,
@@ -90,19 +90,32 @@ export function createWorkerReader(options: {
           }
           body = { error: "upstream_error" };
         }
+        const expectedMissingDeclaration =
+          response.status === 400 &&
+          target.pathname === "/xrpc/com.atproto.repo.getRecord" &&
+          target.searchParams.get("collection") ===
+            "app.bsky.actor.contentVisibilityDeclaration" &&
+          target.searchParams.get("rkey") === "self" &&
+          typeof body === "object" &&
+          body !== null &&
+          "error" in body &&
+          body.error === "RecordNotFound";
+        const successfulLookup = response.ok || expectedMissingDeclaration;
         let code: "rate_limited" | "unavailable" | undefined;
-        if (!response.ok) {
+        if (!successfulLookup) {
           code = response.status === 429 ? "rate_limited" : "unavailable";
         }
         options.observe?.({
           code,
           durationMs: now() - startedAt,
           operation,
-          outcome: response.ok ? "success" : "error",
+          outcome: successfulLookup ? "success" : "error",
+          status: response.status,
         });
         return Response.json(body, {
           headers: {
             ...headers,
+            "x-asm-upstream-status": String(response.status),
             ...(retryAfter ? { "retry-after": retryAfter } : {}),
           },
           status: response.status,
@@ -113,6 +126,7 @@ export function createWorkerReader(options: {
           durationMs: now() - startedAt,
           operation,
           outcome: "error",
+          status: 502,
         });
         return Response.json(
           { error: "upstream_unavailable" },

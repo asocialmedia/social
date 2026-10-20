@@ -9,7 +9,7 @@ import { context, metrics, propagation } from "@opentelemetry/api";
 
 import type { ProtocolLogger } from "./observability";
 import type { ReadWorkerNode } from "./read-worker-config";
-import { publicReadTarget } from "./read-worker-policy";
+import { publicReadHeaders, publicReadTarget } from "./read-worker-policy";
 
 type PublicFetch = (url: string, init: RequestInit) => Promise<Response>;
 
@@ -41,6 +41,17 @@ export function createReadWorkerPool(options: {
   const duration = meter.createHistogram("asm.protocols.worker.duration", {
     unit: "ms",
   });
+  const block = (blocked: Map<string, number>, key: string, delay: number) => {
+    for (const [entry, until] of blocked) {
+      if (until <= now()) {
+        blocked.delete(entry);
+      }
+    }
+    if (blocked.size >= 512 && !blocked.has(key)) {
+      blocked.delete(blocked.keys().next().value ?? "");
+    }
+    blocked.set(key, now() + delay);
+  };
   let next = 0;
   const read: PublicFetch = async (raw, init) => {
     const target = publicReadTarget(raw);
@@ -53,8 +64,10 @@ export function createReadWorkerPool(options: {
       throw new Error("Only unauthenticated public reads may use read workers");
     }
     const attempted = new Set<string>();
+    const resource = `${target.origin}${target.pathname}:${target.searchParams.get("feed") ?? ""}`;
     let pauseMs = 1000;
     let lastStatus = 503;
+    let lastFailure: Response | undefined;
     for (let attempt = 0; attempt < Math.min(2, nodes.length); attempt += 1) {
       init.signal?.throwIfAborted();
       const ordered = [...nodes.slice(next), ...nodes.slice(0, next)];
@@ -62,7 +75,8 @@ export function createReadWorkerPool(options: {
         (candidate) =>
           !attempted.has(candidate.id) &&
           candidate.active < (candidate.url ? 8 : 256) &&
-          (candidate.blocked.get(target.origin) ?? 0) <= now()
+          (candidate.blocked.get(target.origin) ?? 0) <= now() &&
+          (candidate.blocked.get(resource) ?? 0) <= now()
       );
       if (!node) {
         break;
@@ -81,11 +95,12 @@ export function createReadWorkerPool(options: {
         upstream: target.hostname,
       };
       try {
-        const headers = new Headers({ accept: "application/json" });
+        const headers = publicReadHeaders(init.headers);
         let url = raw;
         if (node.url) {
           url = `${node.url}/v1/worker/read?${new URLSearchParams({ url: raw })}`;
           headers.set("authorization", `Bearer ${node.token}`);
+          headers.set("x-asm-worker-envelope", "1");
           propagation.inject(context.active(), headers, {
             set: (carrier, key, value) => carrier.set(key, value),
           });
@@ -102,22 +117,46 @@ export function createReadWorkerPool(options: {
         );
         const trusted =
           !node.url || response.headers.get("x-asm-read-worker") === "1";
-        lastStatus = trusted ? response.status : 503;
+        const suppliedStatus = response.headers.get("x-asm-upstream-status");
+        const upstreamStatus =
+          node.url &&
+          trusted &&
+          suppliedStatus &&
+          /^[45]\d{2}$/.test(suppliedStatus)
+            ? Number(suppliedStatus)
+            : response.status;
+        lastStatus = trusted ? upstreamStatus : 503;
         requests.add(1, { ...attributes, status: lastStatus });
         if (
           !trusted ||
-          response.status === 429 ||
-          response.status === 408 ||
-          response.status >= 500 ||
-          (node.url && response.status === 401)
+          upstreamStatus === 429 ||
+          upstreamStatus === 408 ||
+          upstreamStatus >= 500 ||
+          (node.url && upstreamStatus === 401)
         ) {
           pauseMs =
-            response.status === 429
-              ? (retryAfterMs(response.headers.get("retry-after"), now()) ??
-                30_000)
-              : 10_000;
-          node.blocked.set(target.origin, now() + pauseMs);
-          await response.body?.cancel();
+            retryAfterMs(response.headers.get("retry-after"), now()) ??
+            (upstreamStatus === 429 ? 30_000 : 10_000);
+          block(
+            node.blocked,
+            upstreamStatus === 429 || (node.url && upstreamStatus === 401)
+              ? target.origin
+              : resource,
+            pauseMs
+          );
+          if (trusted) {
+            const body = await readJsonBounded(
+              response,
+              2 * 1024 * 1024,
+              signal
+            );
+            lastFailure = Response.json(body, {
+              headers: { "retry-after": String(Math.ceil(pauseMs / 1000)) },
+              status: upstreamStatus,
+            });
+          } else {
+            await response.body?.cancel();
+          }
           options.logger.warn(
             {
               ...attributes,
@@ -130,13 +169,17 @@ export function createReadWorkerPool(options: {
           continue;
         }
         const body = await readJsonBounded(response, 2 * 1024 * 1024, signal);
-        return Response.json(body, { status: response.status });
-      } catch {
+        return Response.json(body, { status: upstreamStatus });
+      } catch (error) {
         init.signal?.throwIfAborted();
-        node.blocked.set(target.origin, now() + 10_000);
+        block(node.blocked, resource, 10_000);
         requests.add(1, { ...attributes, status: 0 });
         options.logger.warn(
-          { ...attributes, event: "worker.unavailable" },
+          {
+            ...attributes,
+            event: "worker.unavailable",
+            reason: error instanceof Error ? error.name : "unknown",
+          },
           "Protocol read worker unavailable; trying available capacity"
         );
       } finally {
@@ -144,8 +187,17 @@ export function createReadWorkerPool(options: {
         duration.record(now() - startedAt, attributes);
       }
     }
+    if (lastFailure) {
+      return lastFailure;
+    }
     const remaining = nodes
-      .map((node) => (node.blocked.get(target.origin) ?? 0) - now())
+      .map(
+        (node) =>
+          Math.max(
+            node.blocked.get(target.origin) ?? 0,
+            node.blocked.get(resource) ?? 0
+          ) - now()
+      )
       .filter((value) => value > 0);
     if (remaining.length) {
       pauseMs = Math.min(...remaining);

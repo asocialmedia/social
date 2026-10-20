@@ -271,6 +271,36 @@ describe("hashViewerId", () => {
 });
 
 describe("getClientIpFromRequest", () => {
+  test("production ignores rotatable forwarding identities and malformed ingress values", () => {
+    const previous = process.env.NODE_ENV;
+    process.env.NODE_ENV = "production";
+    try {
+      const cases: HeadersInit[] = [
+        { "x-forwarded-for": "203.0.113.9" },
+        { "x-real-ip": "203.0.113.10" },
+        { "cf-connecting-ip": "attacker", "x-forwarded-for": "203.0.113.11" },
+        { "cf-connecting-ip": "203.0.113.1, 203.0.113.2" },
+      ];
+      for (const headers of cases) {
+        expect(
+          getClientIpFromRequest(new Request("https://x.test/", { headers }))
+        ).toBe("unknown");
+      }
+      expect(
+        getClientIpFromRequest(
+          new Request("https://x.test/", {
+            headers: { "cf-connecting-ip": "2001:db8::1" },
+          })
+        )
+      ).toBe("2001:db8::1");
+    } finally {
+      if (previous === undefined) {
+        delete process.env.NODE_ENV;
+      } else {
+        process.env.NODE_ENV = previous;
+      }
+    }
+  });
   test("prefers cf-connecting-ip", () => {
     const request = new Request("https://x.test/", {
       headers: {

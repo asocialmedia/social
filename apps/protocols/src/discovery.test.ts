@@ -3,6 +3,7 @@
 import { expect, test } from "bun:test";
 
 import { BlueskyClient } from "@asm/protocols/bluesky";
+import { ProtocolError } from "@asm/protocols/contracts";
 import type { ExternalPost } from "@asm/protocols/contracts";
 
 import { BlueskyDiscovery } from "./discovery";
@@ -857,6 +858,87 @@ test("discovery advances the live catalog after its source buffers drain", async
   const second = await discovery.read("latest", first.cursor ?? undefined);
   expect(cursors).toEqual([undefined, "next-catalog"]);
   expect(second.items[0]?.id).not.toBe(first.items[0]?.id);
+});
+
+test("unavailable generators yield to the remaining live catalog instead of pinning video continuation", async () => {
+  const feeds = Array.from(
+    { length: 5 },
+    (_, index) => `${publicFeed}-${index}`
+  );
+  const discovery = new BlueskyDiscovery({
+    allowsRecommendations: async () => true,
+    getAuthorFeed: async () => ({ cursor: null, items: [] }),
+    getFeed: async (uri) => {
+      if (uri !== feeds[4]) {
+        throw new ProtocolError("unavailable", "Generator failed");
+      }
+      return { cursor: null, items: [videoPost(2)] };
+    },
+    getProfile: async () => profile,
+    getSuggestedFeeds: async () => ({
+      cursor: null,
+      items: feeds.map((uri, index) => ({
+        displayName: "Video",
+        likeCount: 100 - index,
+        uri,
+      })),
+    }),
+  });
+  const first = await discovery.read(
+    "latest",
+    undefined,
+    undefined,
+    [],
+    "video"
+  );
+  expect(first.items).toEqual([]);
+  expect(first.partial).toBe(true);
+  expect(first.cursor).toBeString();
+  const next = await discovery.read(
+    "latest",
+    first.cursor ?? undefined,
+    undefined,
+    [],
+    "video"
+  );
+  expect(next.items.map((item) => item.id)).toEqual([videoPost(2).id]);
+});
+
+test("temporary author policy failures retain unserved candidates for continuation", async () => {
+  let allowed = false;
+  const discovery = new BlueskyDiscovery(
+    {
+      allowsRecommendations: async () => {
+        if (!allowed) {
+          throw new ProtocolError("capacity", "Busy", 1);
+        }
+        return true;
+      },
+      getAuthorFeed: async () => ({ cursor: null, items: [] }),
+      getFeed: async () => ({ cursor: null, items: [videoPost(3)] }),
+      getProfile: async () => profile,
+    },
+    [publicFeed]
+  );
+  const first = await discovery.read(
+    "latest",
+    undefined,
+    undefined,
+    [],
+    "video"
+  );
+  expect(first.items).toEqual([]);
+  expect(first.partial).toBe(true);
+  expect(first.cursor).toBeString();
+  allowed = true;
+  const next = await discovery.read(
+    "latest",
+    first.cursor ?? undefined,
+    undefined,
+    [],
+    "video"
+  );
+  expect(next.items.map((item) => item.id)).toEqual([videoPost(3).id]);
 });
 
 test("author policy work is bounded by the selected page rather than the complete candidate buffers", async () => {

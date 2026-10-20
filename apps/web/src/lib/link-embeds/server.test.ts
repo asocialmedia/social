@@ -18,6 +18,11 @@ const responses = new Map<
 
 const realFetch = globalThis.fetch;
 
+mock.module("./public-http-fetch", () => ({
+  fetchPublicUrl: (url: URL, init: RequestInit) =>
+    globalThis.fetch(url.href, init),
+}));
+
 mock.module("@asm/db", () => ({
   redis: {
     get: () => Promise.resolve(null),

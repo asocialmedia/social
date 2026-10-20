@@ -5,9 +5,9 @@ import { getS3 } from "../s3";
 export class AnalysisRasterError extends Error {
   readonly attempts: number;
   readonly decodeFailures: number;
-  constructor(attempts: number, decodeFailures: number) {
+  constructor(attempts: number, decodeFailures: number, reason?: string) {
     super(
-      `No usable analysis raster (${attempts} sources tried, ${decodeFailures} decode failures)`
+      `No usable analysis raster (${attempts} sources tried, ${decodeFailures} decode failures)${reason ? `: ${reason}` : ""}`
     );
     this.name = "AnalysisRasterError";
     this.attempts = attempts;
@@ -23,6 +23,7 @@ export async function downloadAnalysisRaster(
 ): Promise<string | null> {
   const candidates = [...new Set(keys.filter(Boolean))];
   let decodeFailures = 0;
+  let reason: string | undefined;
   for (const key of candidates) {
     const inputPath = `${outputPath}-input`;
     try {
@@ -37,8 +38,12 @@ export async function downloadAnalysisRaster(
           .toColourspace("srgb")
           .jpeg({ quality: 95 })
           .toFile(outputPath);
-      } catch {
+      } catch (error) {
         decodeFailures += 1;
+        reason =
+          error instanceof Error
+            ? error.message.slice(0, 240)
+            : "Image conversion failed";
         continue;
       }
       return outputPath;
@@ -55,7 +60,7 @@ export async function downloadAnalysisRaster(
     .delete()
     .catch(() => null);
   if (candidates.length) {
-    throw new AnalysisRasterError(candidates.length, decodeFailures);
+    throw new AnalysisRasterError(candidates.length, decodeFailures, reason);
   }
   return null;
 }

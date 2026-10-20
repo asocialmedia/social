@@ -3,11 +3,13 @@
 import { expect, mock, test } from "bun:test";
 
 import { BlueskyClient } from "@asm/protocols/bluesky";
+import type { ProtocolDiagnostic } from "@asm/protocols/contracts";
 
 import { readConfig } from "./config";
 import { createReadWorkerApp } from "./read-worker";
 import { publicReadTarget } from "./read-worker-policy";
 import { createReadWorkerPool } from "./read-worker-pool";
+import { createWorkerReader } from "./worker-reader";
 
 const token = "read_worker_test_token_01234567890123456789";
 const node = { id: "us-east", token, url: "https://worker.example" };
@@ -152,6 +154,40 @@ test("worker applies upstream host cooldown across callers while independent hos
   expect(fetcher).toHaveBeenCalledTimes(3);
 });
 
+test("negotiated worker capacity errors preserve their retry delay through edge proxies", async () => {
+  const worker = createReadWorkerApp({ id: node.id, logger: logger(), token });
+  worker.drain();
+  const negotiated = request(profile);
+  negotiated.headers.set("x-asm-worker-envelope", "1");
+  const result = await worker.app.handle(negotiated);
+  expect(result.status).toBe(200);
+  expect(result.headers.get("x-asm-upstream-status")).toBe("503");
+  expect(result.headers.get("retry-after")).toBe("1");
+  expect(await result.json()).toEqual({ error: "worker_busy" });
+});
+
+test("the pool respects short capacity retry delays instead of applying a long failure cooldown", async () => {
+  let now = 0;
+  const fetcher = mock(async () =>
+    Response.json(
+      { error: "busy" },
+      { headers: { "retry-after": "1" }, status: 503 }
+    )
+  );
+  const pool = createReadWorkerPool({
+    fetch: fetcher,
+    logger: logger(),
+    nodes: [],
+    now: () => now,
+  });
+  expect((await pool.fetch(profile, {})).headers.get("retry-after")).toBe("1");
+  await pool.fetch(profile, {});
+  expect(fetcher).toHaveBeenCalledTimes(1);
+  now = 1001;
+  await pool.fetch(profile, {});
+  expect(fetcher).toHaveBeenCalledTimes(2);
+});
+
 test("worker bounds concurrency and response bodies", async () => {
   let finish: ((value: Response) => void) | undefined;
   const worker = createReadWorkerApp({
@@ -230,6 +266,77 @@ test("background transport rejects private operations and credentials", async ()
   expect(fetcher).not.toHaveBeenCalled();
 });
 
+test("missing visibility declarations remain eligible without transport failure warnings", async () => {
+  const logs = logger();
+  const worker = createReadWorkerApp({
+    fetch: () =>
+      Promise.resolve(
+        Response.json({ error: "RecordNotFound" }, { status: 400 })
+      ),
+    id: node.id,
+    logger: logs,
+    token,
+  });
+  const client = new BlueskyClient({ fetch: worker.fetch, maxRetries: 0 });
+  try {
+    expect(await client.allowsRecommendations("did:plc:alice")).toBe(true);
+    expect(logs.warn).not.toHaveBeenCalled();
+    expect(logs.debug).toHaveBeenCalledWith(
+      expect.objectContaining({ outcome: "success", status: 400 }),
+      "Protocol upstream request completed"
+    );
+  } finally {
+    client.close();
+    worker.drain();
+  }
+});
+
+test.each([
+  {
+    collection: "app.bsky.actor.profile",
+    error: "RecordNotFound",
+    status: 400,
+  },
+  {
+    collection: "app.bsky.actor.contentVisibilityDeclaration",
+    error: "InvalidRequest",
+    status: 400,
+  },
+  {
+    collection: "app.bsky.actor.contentVisibilityDeclaration",
+    error: "RecordNotFound",
+    status: 503,
+  },
+])(
+  "unexpected record failures retain status in diagnostics: %j",
+  async (failure) => {
+    const diagnostics: ProtocolDiagnostic[] = [];
+    const reader = createWorkerReader({
+      fetch: () =>
+        Promise.resolve(
+          Response.json({ error: failure.error }, { status: failure.status })
+        ),
+      observe: (diagnostic) => diagnostics.push(diagnostic),
+    });
+    const url = `https://public.api.bsky.app/xrpc/com.atproto.repo.getRecord?${new URLSearchParams(
+      {
+        collection: failure.collection,
+        repo: "did:plc:alice",
+        rkey: "self",
+      }
+    )}`;
+    expect((await reader.fetch(url, {})).status).toBe(failure.status);
+    expect(diagnostics).toEqual([
+      expect.objectContaining({
+        code: "unavailable",
+        outcome: "error",
+        status: failure.status,
+      }),
+    ]);
+    reader.drain();
+  }
+);
+
 test("pool distributes unique reads between local and remote without forwarding upstream credentials", async () => {
   const calls: string[] = [];
   const pool = createReadWorkerPool({
@@ -253,6 +360,107 @@ test("pool distributes unique reads between local and remote without forwarding 
   expect(calls[0]).toBe(profile);
   expect(calls[1]?.startsWith(node.url)).toBe(true);
 });
+
+test("a broken feed does not pause healthy feeds or post hydration on the same upstream", async () => {
+  const broken =
+    "https://public.api.bsky.app/xrpc/app.bsky.feed.getFeed?feed=at://did:plc:alice/app.bsky.feed.generator/broken";
+  const healthy =
+    "https://public.api.bsky.app/xrpc/app.bsky.feed.getFeed?feed=at://did:plc:alice/app.bsky.feed.generator/healthy";
+  const posts =
+    "https://public.api.bsky.app/xrpc/app.bsky.feed.getPosts?uris=at://did:plc:alice/app.bsky.feed.post/example";
+  const calls: string[] = [];
+  const pool = createReadWorkerPool({
+    fetch: async (url) => {
+      calls.push(url);
+      return url === broken
+        ? Response.json({ error: "UpstreamFailure" }, { status: 502 })
+        : Response.json({ posts: [] });
+    },
+    logger: logger(),
+    nodes: [],
+    now: () => 0,
+  });
+  expect((await pool.fetch(broken, {})).status).toBe(502);
+  expect((await pool.fetch(healthy, {})).status).toBe(200);
+  expect((await pool.fetch(posts, {})).status).toBe(200);
+  expect((await pool.fetch(broken, {})).status).toBe(503);
+  expect(calls).toEqual([broken, healthy, posts]);
+});
+
+test("worker upstream failures survive edge error interception without poisoning unrelated reads", async () => {
+  const upstream =
+    "https://public.api.bsky.app/xrpc/app.bsky.feed.getFeed?feed=at://did:plc:alice/app.bsky.feed.generator/broken";
+  const worker = createReadWorkerApp({
+    fetch: async () =>
+      Response.json({ error: "UpstreamFailure" }, { status: 502 }),
+    id: node.id,
+    logger: logger(),
+    token,
+  });
+  const negotiated = request(upstream);
+  negotiated.headers.set("x-asm-worker-envelope", "1");
+  const envelope = await worker.app.handle(negotiated);
+  expect(envelope.status).toBe(200);
+  expect(envelope.headers.get("x-asm-upstream-status")).toBe("502");
+  expect(await envelope.json()).toEqual({ error: "UpstreamFailure" });
+  expect((await worker.app.handle(request(upstream))).status).toBe(502);
+  const pool = createReadWorkerPool({
+    fetch: async (url, init) =>
+      url.startsWith(node.url)
+        ? worker.app.handle(new Request(url, init))
+        : Response.json({ error: "UpstreamFailure" }, { status: 502 }),
+    logger: logger(),
+    nodes: [node],
+  });
+  const result = await pool.fetch(upstream, {});
+  expect(result.status).toBe(502);
+  expect(await result.json()).toEqual({ error: "UpstreamFailure" });
+  worker.drain();
+});
+
+test.each(["fr-CA,fr;q=0.9,en;q=0.5", undefined])(
+  "local, remote and background reads preserve language %s through the header allowlist",
+  async (language) => {
+    const upstreamHeaders: Headers[] = [];
+    const upstream = async (_url: string, init: RequestInit) => {
+      upstreamHeaders.push(new Headers(init.headers));
+      return response({ feed: [] });
+    };
+    const worker = createReadWorkerApp({
+      fetch: upstream,
+      id: node.id,
+      logger: logger(),
+      token,
+    });
+    const pool = createReadWorkerPool({
+      fetch: (url, init) =>
+        url.startsWith(node.url)
+          ? worker.app.handle(new Request(url, init))
+          : upstream(url, init),
+      logger: logger(),
+      nodes: [node],
+    });
+    const headers = new Headers({
+      cookie: "private=secret",
+      "x-private-header": "secret",
+    });
+    if (language) {
+      headers.set("accept-language", language);
+    }
+    const feed =
+      "https://public.api.bsky.app/xrpc/app.bsky.feed.getFeed?feed=at://did:plc:alice/app.bsky.feed.generator/example";
+    expect((await pool.fetch(feed, { headers })).status).toBe(200);
+    expect((await pool.fetch(feed, { headers })).status).toBe(200);
+    expect((await worker.fetch(feed, { headers })).status).toBe(200);
+    expect(upstreamHeaders).toHaveLength(3);
+    for (const forwarded of upstreamHeaders) {
+      expect(Object.fromEntries(forwarded)).toEqual({
+        accept: "application/json",
+        ...(language ? { "accept-language": language } : {}),
+      });
+    }
+  }
+);
 
 test("one IP's 429 does not cool down healthy nodes or a different upstream host", async () => {
   const calls: string[] = [];

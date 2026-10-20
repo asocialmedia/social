@@ -179,15 +179,15 @@ async function resolveAnalysisSource(
         `/tmp/asm-raster-${mediaId}-${crypto.randomUUID()}.jpg`
       );
     } catch (error) {
-      if (media._type !== "VIDEO") {
-        throw new ClefDeferredError(
-          `Media raster unavailable: ${String(error)}`,
-          Date.now() + 5 * 60_000
-        );
+      if (media._type === "IMAGE") {
+        // Broken source images use the queue's bounded failure retries, not an endless provider deferral.
+        throw error;
       }
       mediaLogger.warn(
         { error: String(error), mediaId },
-        "Poster unavailable; using video samples for analysis"
+        media._type === "VIDEO"
+          ? "Poster unavailable; using video samples for analysis"
+          : "Cover unavailable; continuing audio analysis"
       );
     }
   }

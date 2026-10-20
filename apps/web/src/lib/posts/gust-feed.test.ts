@@ -152,6 +152,23 @@ test("Gust merging updates retained cards and removes excluded clips without dup
   expect(mergeGustPosts([first, second], [], [])).toEqual([]);
 });
 
+test("fast native Gust arrivals stay staged until the external page can interleave", () => {
+  const native = [clip("native-one"), clip("native-two"), clip("native-three")];
+  const external = [clip("external-one"), clip("external-two")];
+  const staged = mergeGustPosts([], native, [], true);
+  expect(staged).toEqual([native[0]]);
+  const mixed = mergeGustPosts(staged, native, external, false);
+  expect(mixed).toEqual([
+    native[0],
+    external[0],
+    native[1],
+    external[1],
+    native[2],
+  ]);
+  const nextNative = [...native, clip("native-four")];
+  expect(mergeGustPosts(mixed, nextNative, external, true)).toEqual(mixed);
+});
+
 test("sparse video continuation backs off without stopping pagination", () => {
   expect(gustPagingDelay(0)).toBe(0);
   expect(gustPagingDelay(3)).toBe(400);
