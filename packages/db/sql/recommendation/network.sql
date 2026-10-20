@@ -24,6 +24,8 @@ LIMIT 180
 // query: network.pagedCandidates
 SELECT p.id FROM posts p
 WHERE p."isGust" = $4::boolean AND p."moderated" = false
+  -- A banned author's posts would otherwise consume the retrieval window.
+  AND EXISTS (SELECT 1 FROM users u WHERE u.id = p."userId" AND u.banned = false)
   AND (NOT $4::boolean OR (p."rootPostId" IS NULL AND EXISTS (
     SELECT 1 FROM post_media m WHERE m."postId" = p.id AND m."type" = 'VIDEO'
   )))

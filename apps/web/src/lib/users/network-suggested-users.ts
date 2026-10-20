@@ -74,6 +74,20 @@ export async function networkSuggestedUsers(
     if (!relevant.length) {
       return [];
     }
+    // Name only the interests this author's posts actually match. Joining every
+    // declared interest described a single-subject author as writing about all
+    // of them, which is a false statement shown to the reader.
+    const matchedInterests = context.selected.interests.filter((interest) =>
+      relevant.some(
+        (post) =>
+          networkInterestScore(
+            post.content,
+            post.semanticTags ?? [],
+            [interest],
+            context.topicScope
+          ) > 0
+      )
+    );
     let evidence = 0;
     for (const post of relevant) {
       const ageDays = Math.max(
@@ -89,7 +103,12 @@ export async function networkSuggestedUsers(
     return [
       {
         ...mapUserData(data),
-        _reasons: [`Posts about ${context.selected.interests.join(", ")}`],
+        _reasons: [
+          `Posts about ${(matchedInterests.length
+            ? matchedInterests
+            : context.selected.interests
+          ).join(", ")}`,
+        ],
         _score: evidence * quality,
       },
     ];

@@ -154,7 +154,16 @@ async function readNetworkNativeFeed(
     const context = await timing.measure("features", () =>
       networkFeedContext(userId || undefined, query.get("profile") ?? undefined)
     );
-    if (query.has("cursor")) {
+    // An empty `?cursor=` is a malformed continuation, not a fresh head: treating
+    // the key's presence as a cursor silently restarted the feed instead of 410ing.
+    const cursorParam = query.get("cursor");
+    if (cursorParam !== null) {
+      if (cursorParam === "") {
+        return timing.finish(
+          Response.json({ error: "Refresh this feed" }, { status: 410 }),
+          "native"
+        );
+      }
       return timing.finish(
         await buildNetworkNativeFeed(
           request,
@@ -271,9 +280,15 @@ async function buildNetworkNativeFeed(
     networkSocialCandidates(userId)
   );
   const socialById = new Map(social.native.map((entry) => [entry.id, entry]));
-  const cursor = query.get("cursor");
+  const cursor = query.get("cursor") ?? undefined;
   const take = query.get("take") ?? (contentKind === "gust" ? "10" : "20");
-  const pageSize = /^[1-9]\d*$/u.test(take) ? Math.min(20, Number(take)) : 20;
+  // Clamp numerically instead of falling back: `take=0` used to mean "the default
+  // page", so a client asking for nothing got a full page.
+  const requestedTake = Math.trunc(Number(take));
+  const pageSize =
+    Number.isFinite(requestedTake) && requestedTake > 0
+      ? Math.min(20, requestedTake)
+      : 20;
   let ids: string[] = [];
   let generation = crypto.randomUUID();
   let offset = 0;
@@ -325,6 +340,12 @@ async function buildNetworkNativeFeed(
   // belongs to the same snapshot and must not shift under the reader.
   const served =
     buildBatch && !cursor ? await readServedIds(userId, servedFeed) : [];
+  // Ranking re-sorts by score, which would discard the retrieval query's
+  // served-last ordering. Demote seen ids in the score instead so a refresh
+  // reaches new posts while a thin pool still fills the page.
+  const servedSet = new Set(served);
+  const servedPenalty = (score: number, id: string) =>
+    servedSet.has(id) ? score * 0.35 : score;
   if (buildBatch) {
     const focusedSeeds = context.selected.interests.length
       ? networkInterestTerms(context.selected.interests, context.topicScope)
@@ -433,8 +454,26 @@ async function buildNetworkNativeFeed(
                 ]
               : []),
             post.moderated.eq(false),
+            // A banned author's content is removed everywhere else in the app;
+            // a feed that still ranks it is a moderation hole, not a preference.
+            post.user.some((author) => author.banned.eq(false)),
+            // A reader's own posts belong on their profile and the Latest feed,
+            // not competing with discovery in For You. The archive path already
+            // excludes self, and the two surfaces must agree.
+            ...(userId && mode !== "latest" ? [post.userId.neq(userId)] : []),
             visibility(post),
-            or(post.communityId.isNull(), post.communityId.in(subscriptions)),
+            // Membership grants access on its own: a reader who joined a PRIVATE
+            // community without also subscribing is still a member, and the
+            // visibility filter above already proves they may read it.
+            or(
+              post.communityId.isNull(),
+              post.communityId.in(subscriptions),
+              post.community.some((community) =>
+                community.communityMembers.some((member) =>
+                  and(member.status.eq("ACTIVE"), member.userId.eq(userId))
+                )
+              )
+            ),
             ...(context.preferences.showExplicitContent
               ? []
               : [post.explicitContent.eq(false)]),
@@ -463,11 +502,11 @@ async function buildNetworkNativeFeed(
           context.preferences.contentLanguages ?? [context.preferences.language]
         ) &&
         networkPostAllowed(post, context.preferences, context.topicScope) &&
-        // Explore filters against the seeds that produced the rows. Re-applying
-        // the Home interests here cancelled the broadened exploration set, so
-        // Explore returned exactly the Home page under a different cache key.
-        (exploring ||
-          !context.selected.interests.length ||
+        // Chosen interests stay an eligibility gate on Explore too: a broadened
+        // seed set decides what to retrieve, never whether a post the reader
+        // explicitly excluded may appear. Explore differs from Home through its
+        // surface-scoped served history, not by dropping this gate.
+        (!context.selected.interests.length ||
           postNetworkInterestScore(
             post,
             context.selected.interests,
@@ -546,7 +585,7 @@ async function buildNetworkNativeFeed(
         id: post.id,
         mediaKeys: post.attachments.map((media) => media.id),
         post,
-        score:
+        score: servedPenalty(
           mode === "trending"
             ? Math.min(3, fit) +
               trend * 8 +
@@ -555,6 +594,8 @@ async function buildNetworkNativeFeed(
             : nativeScore * (exploring ? 0.35 : 1) +
               fit * 20 +
               guestQualityBoost,
+          post.id
+        ),
         semanticTags: topics,
       };
     });

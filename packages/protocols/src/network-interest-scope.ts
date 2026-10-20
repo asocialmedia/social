@@ -7,12 +7,52 @@ function normalizeTopic(value: string): string {
     .replaceAll(/\s+/gu, " ");
 }
 
+// `plainto_tsquery` raises a syntax error on characters it treats as operators
+// (parentheses, `@`, `:`, `&`, `|`, `!`, quotes), so an interest saved with any
+// of them would break retrieval for that account on every request. Retrieval
+// seeds are therefore reduced to plain word runs before they reach Postgres.
+const TSQUERY_UNSAFE = /[^\p{L}\p{N}\p{M} .+#_-]+/gu;
+
+export function neutralizeSearchTerm(term: string): string {
+  return term
+    .replaceAll(TSQUERY_UNSAFE, " ")
+    .replaceAll(/\s+/gu, " ")
+    .trim();
+}
+
+// The tokenizer keeps a dotted or hyphenated compound as one lexeme (`node.js`,
+// `c++`), so a normalized "node js" would match nothing. Emit the joined form
+// only for inputs that carried a real compound separator; otherwise a declared
+// phrase like "typescript compiler" would also seed a useless run-on token.
+export function searchTermVariants(
+  term: string,
+  compound = false
+): string[] {
+  const spaced = neutralizeSearchTerm(term);
+  if (!spaced) {
+    return [];
+  }
+  const joined = spaced.replaceAll(" ", "");
+  return compound && joined !== spaced && joined.length >= 2
+    ? [spaced, joined]
+    : [spaced];
+}
+
 // Expansions are resolved from topic data. This module contains no subject vocabulary.
 export function networkInterestTerms(
   interests: readonly string[],
   scope?: NetworkTopicScope
 ): string[] {
   const selected = new Set(interests.map(normalizeTopic));
+  // Track the raw spelling alongside the normalized form so the retrieval query
+  // can also try the joined variant of a genuine dotted or hyphenated compound.
+  const raw = interests.flatMap((root) => [
+    root,
+    ...(scope?.interests[root] ?? []),
+  ]);
+  const compoundTerms = new Set(
+    raw.filter((term) => /[._-]/u.test(term)).map(normalizeTopic)
+  );
   return (
     [
       ...new Set(
@@ -28,6 +68,10 @@ export function networkInterestTerms(
           term.length <= 64 &&
           (term.length >= 4 || /\p{N}/u.test(term) || selected.has(term))
       )
+      // Postgres is the retrieval engine and treats punctuation as tsquery
+      // syntax; a term it cannot parse must be reduced, never passed through.
+      .flatMap((term) => searchTermVariants(term, compoundTerms.has(term)))
+      .filter((term) => term.length >= 2)
       .slice(0, 160)
   );
 }

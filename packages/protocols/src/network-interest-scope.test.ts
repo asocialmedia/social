@@ -136,3 +136,30 @@ test("short inferred aliases cannot admit unrelated posts while explicitly selec
     true
   );
 });
+
+// Postgres raises on tsquery operators, so a saved interest like "(x)" used to
+// take the whole feed down for that account on every request.
+test("retrieval terms are always safe for plainto_tsquery", () => {
+  const unsafe = ["(x)", "user@site", "a:b", "rock & roll", "a|b", "it's"];
+  for (const interest of unsafe) {
+    const terms = networkInterestTerms([interest]);
+    for (const term of terms) {
+      expect(term).not.toMatch(/[()@:&|!'"]/u);
+    }
+  }
+});
+
+// A dotted or hyphenated interest is one lexeme to the tokenizer, so the spaced
+// form alone retrieves nothing.
+test("compound interests keep a joined retrieval variant", () => {
+  expect(networkInterestTerms(["node.js"])).toContain("nodejs");
+  expect(networkInterestTerms(["web-development"])).toEqual(
+    expect.arrayContaining(["web development", "webdevelopment"])
+  );
+  // "c++" survives as a token the tokenizer indexes.
+  expect(networkInterestTerms(["c++"])).toEqual(["c++"]);
+  // A declared multi-word phrase is a name, not a compound: no run-on token.
+  expect(networkInterestTerms(["typescript compiler"])).not.toContain(
+    "typescriptcompiler"
+  );
+});

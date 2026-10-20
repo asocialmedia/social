@@ -330,7 +330,11 @@ export async function buildDiscoverySuggestions(
       reason: nativeSocial.has(post.id)
         ? "Amplified by people you follow"
         : (reasonFor(post.content, topics, `asm:${author.id}`) ??
-          "From accounts you follow"),
+          // A guest follows nobody, so "accounts you follow" would be a false
+          // claim. Say what the recommendation actually rests on.
+          (context.selected.interests.length
+            ? "Popular with readers like you"
+            : "Popular on asocialmedia")),
       score,
       source: "asm",
       subtitle: `@${author.username}`,
@@ -524,7 +528,9 @@ export async function buildDiscoverySuggestions(
       reason: externalSocial.has(post.id)
         ? "Amplified by people you follow"
         : (reasonFor(post.text, topics, `bluesky:${post.author.id}`) ??
-          "From accounts you follow"),
+          (context.selected.interests.length
+            ? "Popular with readers like you"
+            : "Popular on asocialmedia")),
       score,
       source: "bluesky",
       subtitle: `@${post.author.handle}`,

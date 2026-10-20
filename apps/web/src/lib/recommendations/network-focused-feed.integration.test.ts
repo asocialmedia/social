@@ -17,6 +17,9 @@ import { networkPostRecommended } from "@/lib/posts/network-content-policy";
 import { networkNativeFeed } from "./network-native-feed";
 
 const userId = crypto.randomUUID();
+// For You excludes a reader's own posts (as every other feed surface does), so
+// the fixtures are authored by someone the reader does not control.
+const authorId = crypto.randomUUID();
 const generations = new Set<string>();
 const fixtures: { id: string; isGust: boolean; topic: string }[] = [];
 let settings = { preferences: defaultNetworkPreferences(), revision: 0 };
@@ -59,11 +62,18 @@ async function read(
 }
 
 beforeAll(async () => {
-  await prisma.orm.public.Users.create({
-    displayName: "Focused feed fixture",
-    id: userId,
-    username: `focused-feed-${userId}`,
-  });
+  await prisma.orm.public.Users.createAll([
+    {
+      displayName: "Focused feed fixture",
+      id: userId,
+      username: `focused-feed-${userId}`,
+    },
+    {
+      displayName: "Focused feed author",
+      id: authorId,
+      username: `focused-author-${authorId}`,
+    },
+  ]);
   await Promise.all(
     [false, true].flatMap((isGust) =>
       ["software", "software", "politics"].map(async (topic) => {
@@ -76,7 +86,7 @@ beforeAll(async () => {
           isGust,
           semanticTags: [topic],
           trendingScore: topic === "politics" ? 1_000_000 : 10_000,
-          userId,
+          userId: authorId,
         });
         fixtures.push({ id: post.id, isGust, topic });
         await prisma.orm.public.Votes.create({
@@ -91,7 +101,7 @@ beforeAll(async () => {
             postId: post.id,
             status: "READY",
             url: "https://example.test/focused-feed.mp4",
-            userId,
+            userId: authorId,
           });
         }
       })
@@ -117,7 +127,9 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  await prisma.orm.public.Users.where({ id: userId }).delete();
+  await prisma.orm.public.Users.where((user) =>
+    user.id.in([userId, authorId])
+  ).deleteAndCount();
   const signalKeys = await redis.keys(`rec:network:v1:{${userId}:*`);
   const keys = [
     ...signalKeys,
@@ -271,13 +283,18 @@ test("a new post with a large stale score stays out of Trending until it has a r
     content: "Software tutorial with no reactions",
     semanticTags: ["software"],
     trendingScore: 9_999_999,
-    userId,
+    userId: authorId,
   });
   const trending = await read("trending", "post");
   expect(trending.page.posts.some((post) => post.id === quiet.id)).toBe(false);
   const latest = await read("latest", "post");
   expect(latest.page.posts.some((post) => post.id === quiet.id)).toBe(true);
-  await prisma.orm.public.Votes.create({ postId: quiet.id, userId, value: 1 });
+  // Trending counts the global upvotes, not one reader's own row.
+  await prisma.orm.public.Votes.create({
+    postId: quiet.id,
+    userId,
+    value: 1,
+  });
   await invalidateFypProfile(userId);
   const reacted = await read("trending", "post");
   expect(reacted.page.posts.some((post) => post.id === quiet.id)).toBe(true);
