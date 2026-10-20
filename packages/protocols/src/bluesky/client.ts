@@ -148,7 +148,7 @@ export class BlueskyClient {
   private readonly pending = new Map<string, Promise<unknown>>();
   private readonly unavailable = new Map<
     string,
-    { until: number; code: "restricted" | "unavailable" }
+    { until: number; code: "restricted" | "unavailable" | "invalid_input" }
   >();
   private active = 0;
   private blockedUntil = 0;
@@ -704,7 +704,9 @@ export class BlueskyClient {
           }
           if (
             error instanceof ProtocolError &&
-            ["restricted", "unavailable"].includes(error.code)
+            (["restricted", "unavailable"].includes(error.code) ||
+              (operation === "app.bsky.feed.getFeed" &&
+                error.code === "invalid_input"))
           ) {
             for (const [id, entry] of this.unavailable) {
               if (entry.until <= this.options.now()) {
@@ -716,11 +718,17 @@ export class BlueskyClient {
                 this.unavailable.keys().next().value ?? ""
               );
             }
+            let cooldownMs =
+              operation === "app.bsky.feed.getFeed" ? 60_000 : 5000;
+            if (error.code === "restricted" || error.code === "invalid_input") {
+              cooldownMs = 300_000;
+            }
             this.unavailable.set(resource, {
-              code: error.code === "restricted" ? "restricted" : "unavailable",
-              until:
-                this.options.now() +
-                (error.code === "restricted" ? 300_000 : 5000),
+              code:
+                error.code === "restricted" || error.code === "invalid_input"
+                  ? error.code
+                  : "unavailable",
+              until: this.options.now() + cooldownMs,
             });
           }
           throw error;
@@ -754,6 +762,7 @@ export class BlueskyClient {
         durationMs: this.options.now() - start,
         operation,
         outcome: "error",
+        resource: parameters.feed,
       });
       throw failure;
     }

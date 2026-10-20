@@ -111,7 +111,11 @@ export async function runJetstreamWorker(
         onConnected: () => {
           options.health.connected = true;
           options.logger.info(
-            { event: "jetstream.connected", trackedAccounts: tracked.size },
+            {
+              event: "jetstream.connected",
+              publicDiscovery: options.streamOptions.publicDiscovery ?? false,
+              trackedAccounts: tracked.size,
+            },
             "Jetstream connected"
           );
         },

@@ -750,3 +750,33 @@ test("a restricted public repository does not cool down other actors' social rec
   expect(await client.getPublicSocialRecords(other)).toEqual([]);
   expect(requested.filter((repo) => repo === other)).toHaveLength(3);
 });
+
+test("invalid public generators cool down across cursors while other feeds stay available", async () => {
+  let now = 0;
+  const calls: string[] = [];
+  const failed = `at://${authorDid}/app.bsky.feed.generator/deleted`;
+  const client = new BlueskyClient({
+    fetch: async (url) => {
+      const feed = new URL(url).searchParams.get("feed") ?? "";
+      calls.push(feed);
+      return feed === failed
+        ? Response.json({ error: "UnknownFeed" }, { status: 400 })
+        : Response.json({ feed: [] });
+    },
+    maxRetries: 0,
+    now: () => now,
+  });
+  await expect(client.getFeed(failed)).rejects.toMatchObject({
+    code: "invalid_input",
+  });
+  await expect(
+    client.getFeed(failed, { cursor: "another-page" })
+  ).rejects.toMatchObject({ code: "invalid_input" });
+  await client.getFeed(`at://${authorDid}/app.bsky.feed.generator/healthy`);
+  expect(calls.filter((feed) => feed === failed)).toHaveLength(1);
+  now = 300_001;
+  await expect(client.getFeed(failed)).rejects.toMatchObject({
+    code: "invalid_input",
+  });
+  expect(calls.filter((feed) => feed === failed)).toHaveLength(2);
+});

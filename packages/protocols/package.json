@@ -1,6 +1,6 @@
 {
   "name": "@asm/protocols",
-  "version": "0.1.39",
+  "version": "0.1.40",
   "private": true,
   "description": "Protocol adapters and safe external-content contracts for asocialmedia",
   "license": "AGPL-3.0",

@@ -607,7 +607,12 @@ export class BlueskyDiscovery {
         }
         succeeded += 1;
       } catch (error) {
-        if (error instanceof ProtocolError && error.code === "restricted") {
+        if (
+          error instanceof ProtocolError &&
+          (error.code === "restricted" ||
+            (source.actor.startsWith("at://") &&
+              error.code === "invalid_input"))
+        ) {
           blocked.add(source.actor);
           source.exhausted = true;
           source.items = [];

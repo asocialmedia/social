@@ -125,8 +125,25 @@ export function observeRequest<T>(
       } catch (error) {
         const code = error instanceof ProtocolError ? error.code : "internal";
         span.setStatus({ code: SpanStatusCode.ERROR, message: code });
-        logger.warn(
-          { ...correlation, code, durationMs: performance.now() - startedAt },
+        const expiredCursor =
+          error instanceof ProtocolError &&
+          error.code === "invalid_input" &&
+          [
+            "Discovery session expired",
+            "Discovery session needs refreshing",
+          ].includes(error.message);
+        const log = expiredCursor ? logger.debug : logger.warn;
+        log.call(
+          logger,
+          {
+            ...correlation,
+            code,
+            durationMs: performance.now() - startedAt,
+            reason:
+              error instanceof ProtocolError
+                ? error.message
+                : "Unexpected protocol failure",
+          },
           "Protocol request failed"
         );
         throw error;
