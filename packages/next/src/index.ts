@@ -72,6 +72,7 @@ export const config: NextConfig = {
     remotePatterns: [
       { hostname: "lh3.googleusercontent.com", protocol: "https" },
       { hostname: "avatars.githubusercontent.com", protocol: "https" },
+      { hostname: "cdn.bsky.app", pathname: "/img/**", protocol: "https" },
       { hostname: "cdn.discordapp.com", protocol: "https" },
       { hostname: "pbs.twimg.com", protocol: "https" },
       { hostname: "styles.redditmedia.com", protocol: "https" },

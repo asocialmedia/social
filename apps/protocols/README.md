@@ -124,6 +124,57 @@ Validated on 2026-10-16:
 - The running development service on port 3012 returned readiness with `stream: connected`; public profile/media reads succeeded, and the matching request log was found in the real local OpenObserve logs stream. This does not validate replay after a production outage.
 - A clean frozen-lockfile production-only install started, rejected unauthenticated reads, served a live profile, and stopped cleanly without leaking its credential. The container image has not been built locally: the installed Docker-compatible runtime fails before building with a user-namespace/pause-process error. Production deployment and production OpenObserve delivery remain unverified.
 
+## Optional remote public-read workers
+
+The coordinator can use spare VPS capacity while retaining ranking, content policy, discovery cursors, and Jetstream ownership. It distributes cache-miss public Bluesky reads across its local egress and optional remote workers. Responses still pass through the coordinator's existing Lexicon validation, normalization, safety checks and shared caches. Workers do not handle OAuth, authenticated writes, or ASM sessions. Public-read mode needs no database connection; optional background ingestion uses the coordinator's Redis and still needs no Postgres.
+
+Deploy the same protocols image on the remote VPS with these runtime variables:
+
+```dotenv
+NODE_ENV=production
+PROTOCOLS_MODE=read-worker
+PROTOCOLS_WORKER_ID=us-east
+PROTOCOLS_WORKER_TOKEN=replace_with_a_dedicated_random_token_at_least_32_characters
+PROTOCOLS_WORKER_CONCURRENCY=8
+PROTOCOLS_HOST=0.0.0.0
+PROTOCOLS_PORT=3012
+OTEL_SERVICE_NAME=asm-protocols-us-east
+OTEL_EXPORTER_OTLP_ENDPOINT=https://your-openobserve.example/api/default
+OPENOBSERVE_USER=your_ingestion_user
+OPENOBSERVE_PASSWORD=your_ingestion_password
+OPENOBSERVE_ORG=default
+OPENOBSERVE_LOG_STREAM=asm_protocols_us_east_logs
+OPENOBSERVE_METRIC_STREAM=asm_protocols_us_east_metrics
+OPENOBSERVE_TRACE_STREAM=asm_protocols_us_east_traces
+```
+
+Use a dedicated worker credential, not the coordinator's internal token. Omit `PROTOCOLS_INTERNAL_TOKEN`, `PROTOCOLS_ASM_URL`, and `PROTOCOLS_READ_WORKERS`; leave Jetstream disabled. Omit `REDIS_URL` for public reads alone. Route the worker's HTTPS domain to port 3012. `/health` is minimal public liveness; `/ready` and `/v1/worker/read` require its bearer credential. Only allowlisted public read operations on fixed Bluesky hosts are accepted. Redirects and caller headers are never forwarded upstream. Workers bound concurrency, duration and response bytes, and share upstream-host cooldowns across HTTP reads and background hydration.
+
+On the existing coordinator add a secret runtime JSON array:
+
+```dotenv
+PROTOCOLS_READ_WORKERS='[{"id":"us-east","url":"https://protoalt.asocialmedia.cc","token":"same_dedicated_worker_token"}]'
+PROTOCOLS_WORKER_TIMEOUT_MS=1200
+```
+
+An absent variable or `[]` preserves the existing direct-read path. Up to eight distinct HTTPS worker origins are supported. A local reader always remains in the pool. Nodes rotate, saturated or cooling-down nodes are skipped, and at most two attempts fit within the caller's existing deadline. Failed workers, bad deployments, invalid responses and upstream outages fall back to available capacity; upstream `Retry-After` pauses that node for that host. Content errors are not retried as infrastructure failures. Remove an array entry and restart the coordinator to retire a worker without losing inventory, sessions, continuations or follows. Workers hold no durable local state. Unexpected disappearance also triggers bounded fallback.
+
+### Optional shared ingestion
+
+Set `PROTOCOLS_INGESTION_QUEUE_ENABLED=true` on both the coordinator and remote worker. Each uses `REDIS_URL` pointing to the same Redis database; the coordinator can retain its internal address while the remote uses a reachable private or TLS endpoint. Keep credentials in Dokploy's secret environment. The worker id must match its entry in `PROTOCOLS_READ_WORKERS`.
+
+The coordinator enqueues up to 25 post references per batch. BullMQ consumers on both servers claim distinct batches, hydrate through the official Bluesky adapter, check author recommendation permission, and write bounded temporary snapshots into the shared inventory. Raw stream records remain invisible. The inventory's existing invalidation fences reject results started before a post deletion or author-policy change. Remote hydration reads current source state without a process-local snapshot cache because stream invalidations are owned by the coordinator. Final interest, language, explicit-content and ranking rules remain in the existing recommendation path.
+
+Queue admission falls back to local hydration when Redis is unavailable, enqueueing fails, or at least 256 batches are already waiting, active or delayed. Jobs expire after sixty seconds, retry up to three attempts with exponential backoff, and retain only bounded completion/failure history. Interrupted jobs are reclaimed after their fifteen-second lock expires and the stalled check runs. Queue deliveries can repeat after a crash; inventory writes use canonical post ids and invalidation timestamps.
+
+The coordinator publishes the allowed worker ids with a thirty-second TTL, refreshed every five seconds. Remote consumers check every five seconds and pause when removed, when authorization expires, or when Redis control reads fail. A pause finishes already claimed batches before retiring. Re-adding the id resumes processing. The coordinator remains a consumer even with an empty worker array. Disabling the queue flag on the coordinator restores direct local hydration; remote authorization expires automatically.
+
+Authenticated `/ready` responses include ingestion permission, Redis readiness, and completed/failed batch counts. `ingestion.completed`, `ingestion.retry`, `ingestion.reclaimed`, and storage warnings accompany per-node batch/post metrics. Trace context crosses the queue into hydration spans and the existing OTLP exporter.
+
+For manual deployment, select Dokploy's Docker provider with `ghcr.io/asocialmedia/asm-protocols:latest` and disable automatic deployment on the extra VPS. Merge and wait for CI to publish the new image before clicking Deploy. No separate image or database installation is required.
+
+Request/duration metrics identify node, operation, upstream and status. `worker.started`, `worker.cooldown`, and `worker.unavailable` events identify routing and failover; trace context propagates to workers. Give each region its own service name and OpenObserve streams. Worker logs omit credentials and query values. Monitor unique eligible candidates, 429s, latency and fallback frequency before increasing concurrency. Containers sharing one outbound IP do not create independent upstream quotas, and account limits are unaffected.
+
 ## Automated builds and releases
 
 Protocols uses the existing main-branch CI pipeline. Changes under `apps/protocols` select `asm-protocols`; shared package or root dependency changes select it with the other service images. CI builds `linux/amd64` and `linux/arm64` and publishes to `ghcr.io/<repository-owner>/asm-protocols` with `protocols-v<app-version>`, `protocols-sha-<commit>`, and `latest` tags. The GitHub Release lists the published image and its app-specific version.

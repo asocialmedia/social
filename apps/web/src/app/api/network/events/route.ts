@@ -8,6 +8,7 @@ import { z } from "zod";
 
 import { getSessionFromApi } from "@/lib/auth/session";
 import { verifyNetworkObservation } from "@/lib/recommendations/network-observation";
+import { isTrustedMutationOrigin } from "@/lib/security/request-origin";
 
 const schema = z.object({
   events: z
@@ -39,11 +40,7 @@ export async function POST(request: Request) {
   if (!session?.user.id) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
-  if (
-    request.headers.get("sec-fetch-site") === "cross-site" ||
-    (request.headers.get("origin") &&
-      request.headers.get("origin") !== new URL(request.url).origin)
-  ) {
+  if (!isTrustedMutationOrigin(request)) {
     return Response.json({ error: "Invalid origin" }, { status: 403 });
   }
   const rate = await consumeRateLimit({

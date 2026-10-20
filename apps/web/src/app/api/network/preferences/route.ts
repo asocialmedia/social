@@ -10,6 +10,7 @@ import { z } from "zod";
 
 import { getSessionFromApi } from "@/lib/auth/session";
 import { invalidateDiscoverySuggestions } from "@/lib/recommendations/suggestion-version";
+import { isTrustedMutationOrigin } from "@/lib/security/request-origin";
 
 const headers = { "cache-control": "private, no-store", vary: "Cookie" };
 
@@ -18,11 +19,7 @@ export async function DELETE(request: Request) {
   if (!session?.user.id) {
     return Response.json({ error: "Unauthorized" }, { headers, status: 401 });
   }
-  if (
-    request.headers.get("sec-fetch-site") === "cross-site" ||
-    (request.headers.get("origin") &&
-      request.headers.get("origin") !== new URL(request.url).origin)
-  ) {
+  if (!isTrustedMutationOrigin(request)) {
     return Response.json({ error: "Invalid origin" }, { headers, status: 403 });
   }
   const rate = await consumeRateLimit({
@@ -93,11 +90,7 @@ export async function PUT(request: Request) {
   if (!session?.user.id) {
     return Response.json({ error: "Unauthorized" }, { headers, status: 401 });
   }
-  if (
-    request.headers.get("sec-fetch-site") === "cross-site" ||
-    (request.headers.get("origin") &&
-      request.headers.get("origin") !== new URL(request.url).origin)
-  ) {
+  if (!isTrustedMutationOrigin(request)) {
     return Response.json({ error: "Invalid origin" }, { headers, status: 403 });
   }
   const rate = await consumeRateLimit({

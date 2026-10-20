@@ -62,6 +62,7 @@ import {
   gustPagingDelay,
   gustPagingState,
   mergeGustPosts,
+  readGustPage,
 } from "@/lib/posts/gust-feed";
 import {
   activeNetworkInterests,
@@ -332,14 +333,28 @@ const GustStream = ({ gustTab }: { gustTab: GustFeed }) => {
       } else if (gustTab === "following" && !initialPostId) {
         queryParams.mode = "following";
       }
-      if (pageParam) {
-        queryParams.cursor = pageParam;
-      } else if (initialPostId) {
-        queryParams.initialId = initialPostId;
-      }
-      return kyInstance
-        .get("/api/gusts", { searchParams: queryParams, signal })
-        .json<GustsPage>();
+      const current = queryClient.getQueryData<{
+        pages: GustsPage[];
+        pageParams: (string | null)[];
+      }>(queryKey);
+      const known = new Set(
+        current?.pages.flatMap((page) => page.posts.map((post) => post.id))
+      );
+      return readGustPage<GustsPage>(
+        (cursor) =>
+          kyInstance.get("/api/gusts", {
+            searchParams: cursor
+              ? { ...queryParams, cursor }
+              : {
+                  ...queryParams,
+                  ...(initialPostId ? { initialId: initialPostId } : {}),
+                },
+            signal,
+            throwHttpErrors: false,
+          }),
+        pageParam,
+        known
+      );
     },
     queryKey,
     ...FEED_QUERY_BEHAVIOR,
@@ -1028,7 +1043,7 @@ const GustStream = ({ gustTab }: { gustTab: GustFeed }) => {
     }
 
     if (
-      status === "error" ||
+      (status === "error" && !canFetchNextPage) ||
       (posts.length === 0 && pageError && !canFetchNextPage)
     ) {
       return (
@@ -1156,7 +1171,9 @@ const GustStream = ({ gustTab }: { gustTab: GustFeed }) => {
               );
             })}
 
-            <GustSourceRetries sources={retrySources} />
+            {!canFetchNextPage && !isFetchingNextPage ? (
+              <GustSourceRetries sources={retrySources} />
+            ) : null}
 
             {isFetchingNextPage ? (
               <div

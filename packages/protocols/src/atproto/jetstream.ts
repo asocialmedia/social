@@ -11,6 +11,7 @@ import { z } from "zod";
 
 import { didSchema } from "../bluesky/schemas";
 import { ProtocolError } from "../contracts";
+import { readJsonBounded } from "../transport";
 
 const base = {
   did: didSchema,
@@ -78,6 +79,7 @@ export interface JetstreamOptions {
   connectTimeoutMs?: number;
   transport?: LiveTransport;
   onConnected?: () => void;
+  fetch?: (input: URL, init: RequestInit) => Promise<Response>;
 }
 
 export function jetstreamUrl(
@@ -321,11 +323,50 @@ export async function* streamJetstream(
       }
       throw signal.reason;
     }
+    // The websocket SDK discards failed upgrade bodies. Confirm CursorTooOld over HTTP before resetting a durable cursor.
+    if (
+      options.cursor !== undefined &&
+      !opened &&
+      error instanceof Error &&
+      error.name === "SocketError"
+    ) {
+      try {
+        const url = new URL(subscription);
+        url.protocol = "https:";
+        const probeSignal = options.signal
+          ? AbortSignal.any([options.signal, AbortSignal.timeout(3000)])
+          : AbortSignal.timeout(3000);
+        const response = await (options.fetch ?? globalThis.fetch)(url, {
+          redirect: "error",
+          signal: probeSignal,
+        });
+        const body = await readJsonBounded(response, 4096, probeSignal);
+        if (
+          response.status === 400 &&
+          typeof body === "object" &&
+          body !== null &&
+          "error" in body &&
+          body.error === "CursorTooOld"
+        ) {
+          throw new ProtocolError(
+            "invalid_response",
+            "Jetstream cursor requires reconciliation"
+          );
+        }
+      } catch (probeError) {
+        if (probeError instanceof ProtocolError) {
+          throw probeError;
+        }
+      }
+    }
     if (
       (options.publicDiscovery &&
         error instanceof ProtocolError &&
         error.message === "Jetstream event exceeds the size limit") ||
       (options.publicDiscovery && error instanceof MalformedError) ||
+      (options.publicDiscovery &&
+        error instanceof Error &&
+        error.name === "BufferOverflowError") ||
       (error instanceof XrpcSubscriptionError &&
         (error.error === "CursorTooOld" ||
           (options.publicDiscovery && error.error === "ConsumerTooSlow")))
@@ -337,7 +378,12 @@ export async function* streamJetstream(
     }
     throw error instanceof ProtocolError
       ? error
-      : new ProtocolError("unavailable", "Jetstream connection failed");
+      : new ProtocolError(
+          "unavailable",
+          error instanceof Error
+            ? `Jetstream ${error.name}: ${error.message}`
+            : "Jetstream connection failed"
+        );
   } finally {
     clearTimeout(timer);
     controller.abort();

@@ -11,6 +11,7 @@ import { getSessionFromApi } from "@/lib/auth/session";
 import { readDiscoverySuggestions } from "@/lib/recommendations/discovery-suggestions";
 import { reportRecommendationHealth } from "@/lib/recommendations/health";
 import { invalidateDiscoverySuggestions } from "@/lib/recommendations/suggestion-version";
+import { isTrustedMutationOrigin } from "@/lib/security/request-origin";
 
 const headers = { "cache-control": "private, no-store", vary: "Cookie" };
 export async function GET(request: Request) {
@@ -58,11 +59,7 @@ export async function POST(request: Request) {
   if (!session?.user.id) {
     return new Response(null, { status: 401 });
   }
-  if (
-    request.headers.get("sec-fetch-site") === "cross-site" ||
-    (request.headers.get("origin") &&
-      request.headers.get("origin") !== new URL(request.url).origin)
-  ) {
+  if (!isTrustedMutationOrigin(request)) {
     return new Response(null, { status: 403 });
   }
   const rate = await consumeRateLimit({

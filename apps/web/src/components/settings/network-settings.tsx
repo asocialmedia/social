@@ -1,9 +1,9 @@
 "use client";
 
-import { Button } from "@asm/ui/shadui/button";
 import { ArrowLeft, ChevronRight, Network } from "lucide-react";
 import type { ComponentType } from "react";
 
+import { FeedErrorState } from "@/components/feeds/feed-error-state";
 import { useNetworkSettings } from "@/hooks/feed/use-network-settings";
 import { cn } from "@/lib/utils";
 
@@ -50,7 +50,7 @@ export default function NetworkSettings({
   onOpenSection,
   section,
 }: NetworkSettingsProps) {
-  const { settings, save, ready, isSaving, error, refetch } =
+  const { settings, save, ready, isSaving, isFetching, error, refetch } =
     useNetworkSettings({ optimistic: true });
   const { catalog, persona, preferences } = settings;
   const profile =
@@ -91,19 +91,13 @@ export default function NetworkSettings({
       return (
         <div className="flex flex-1 flex-col gap-6 px-4 pt-6 sm:px-6">
           {sectionHeader}
-          <div className="flex flex-col items-start gap-3">
-            <p className="text-destructive text-sm" role="alert">
-              {error.message}
-            </p>
-            <Button
-              onClick={() => {
-                void refetch();
-              }}
-              variant="premium"
-            >
-              Try again
-            </Button>
-          </div>
+          <FeedErrorState
+            message={error.message}
+            isRetrying={isFetching}
+            onRetry={() => {
+              void refetch();
+            }}
+          />
         </div>
       );
     }

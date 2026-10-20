@@ -70,6 +70,13 @@ function isSameOriginExemptRequest(
   method: string,
   referer: string | null
 ): boolean {
+  // Bluesky returns through a cross-site navigation; the callback validates session, nonce and OAuth state.
+  if (
+    method === "GET" &&
+    pathname === "/api/protocols/bluesky/oauth/callback"
+  ) {
+    return true;
+  }
   // Android Custom Tabs enter from an android-app referrer. This GET only
   // sets OAuth state and redirects; the provider callback validates the flow.
   if (method === "GET" && pathname === "/api/auth/expo-authorization-proxy") {

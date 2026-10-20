@@ -48,6 +48,7 @@ test.each(["ASM", "Bluesky"])(
       await act(() => root.render(<GustSourceRetries sources={sources} />));
       const buttons = host.querySelectorAll("button");
       expect(buttons.length).toBe(1);
+      expect(buttons[0].className).toContain("btn-3d");
       expect(buttons[0].textContent).toBe(`Retry ${failedSource} videos`);
       await act(() => buttons[0].click());
       for (const source of sources) {

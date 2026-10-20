@@ -5,12 +5,19 @@ import type { ExternalPost } from "@asm/protocols/contracts";
 import { externalStateSchema } from "@asm/protocols/discovery";
 import type { ExternalMutation } from "@asm/protocols/discovery";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef, useState } from "react";
+import { useEffect } from "react";
 
 import { trackNetworkAction } from "@/components/recommendations/recommendation-tracker";
 import { useRequireAuth } from "@/hooks/auth/use-require-auth";
 import { useToast } from "@/lib/gooey-toast";
-import { applyExternalStateToCaches } from "@/lib/protocols/external-cache";
+import { externalActionToast } from "@/lib/protocols/action-toast";
+import {
+  applyExternalStateToCaches,
+  cachedExternalPost,
+  isExternalViewerQuery,
+  optimisticExternalState,
+  patchExternalState,
+} from "@/lib/protocols/external-cache";
 
 export function useExternalInteractions(
   post: Pick<ExternalPost, "id" | "asm">
@@ -18,8 +25,17 @@ export function useExternalInteractions(
   const auth = useRequireAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const [pending, setPending] = useState(false);
-  const busy = useRef(false);
+  const pendingKey = [
+    "external-interaction-pending",
+    auth.user?.id ?? "guest",
+    post.id,
+  ];
+  const { data: pending } = useQuery({
+    enabled: false,
+    initialData: false,
+    queryFn: () => false,
+    queryKey: pendingKey,
+  });
   const queryKey = ["external-interaction", auth.user?.id ?? "guest", post.id];
   const { data: state } = useQuery({
     enabled: false,
@@ -39,7 +55,14 @@ export function useExternalInteractions(
     queryKey,
   });
   useEffect(() => {
-    if (post.asm) {
+    if (
+      post.asm &&
+      !queryClient.getQueryData([
+        "external-interaction-pending",
+        auth.user?.id ?? "guest",
+        post.id,
+      ])
+    ) {
       queryClient.setQueryData(
         ["external-interaction", auth.user?.id ?? "guest", post.id],
         post.asm
@@ -51,12 +74,27 @@ export function useExternalInteractions(
       auth.goToLogin();
       return false;
     }
-    if (busy.current) {
+    if (queryClient.getQueryData(pendingKey)) {
       return false;
     }
-    busy.current = true;
-    setPending(true);
+    queryClient.setQueryData(pendingKey, true);
+    const viewer = auth.user?.id ?? "guest";
+    let previous: typeof state | undefined;
+    let committed = false;
     try {
+      await queryClient.cancelQueries({
+        predicate: ({ queryKey: key, state: queryState }) =>
+          isExternalViewerQuery(key, viewer) &&
+          queryState.fetchMeta?.fetchMore === undefined &&
+          Boolean(cachedExternalPost(queryState.data, post.id)),
+      });
+      previous = queryClient.getQueryData<typeof state>(queryKey) ?? state;
+      applyExternalStateToCaches(
+        queryClient,
+        viewer,
+        post.id,
+        optimisticExternalState(previous, input)
+      );
       const response = await fetch("/api/protocols/bluesky/interactions", {
         body: JSON.stringify(input),
         headers: { "content-type": "application/json" },
@@ -75,12 +113,13 @@ export function useExternalInteractions(
       }
       const body: unknown = await response.json();
       const next = externalStateSchema.parse(body);
-      if (
+      const upstreamFailed = Boolean(
         body &&
         typeof body === "object" &&
         "upstream" in body &&
         body.upstream === "failed"
-      ) {
+      );
+      if (upstreamFailed) {
         toast({
           button: {
             onClick: async () => {
@@ -105,6 +144,10 @@ export function useExternalInteractions(
         post.id,
         next
       );
+      committed = true;
+      if (!upstreamFailed) {
+        toast(externalActionToast(input));
+      }
       if (input.action === "bookmark") {
         await queryClient.invalidateQueries({
           queryKey: ["post-feed", "bookmarks"],
@@ -119,6 +162,9 @@ export function useExternalInteractions(
       });
       return true;
     } catch (error) {
+      if (previous && !committed) {
+        applyExternalStateToCaches(queryClient, viewer, post.id, previous);
+      }
       toast({
         title:
           error instanceof Error
@@ -128,8 +174,44 @@ export function useExternalInteractions(
       });
       return false;
     } finally {
-      busy.current = false;
-      setPending(false);
+      queryClient.setQueryData(pendingKey, false);
+      void (async () => {
+        try {
+          const pagination = queryClient
+            .getQueryCache()
+            .findAll({
+              predicate: ({ queryKey: key, state: queryState }) =>
+                isExternalViewerQuery(key, viewer) &&
+                queryState.fetchStatus === "fetching" &&
+                queryState.fetchMeta?.fetchMore !== undefined &&
+                Boolean(cachedExternalPost(queryState.data, post.id)),
+            })
+            .map(async (query) => {
+              await query.promise;
+              const latestState =
+                queryClient.getQueryData<typeof state>(queryKey);
+              if (latestState) {
+                queryClient.setQueryData(query.queryKey, (data: unknown) =>
+                  patchExternalState(data, post.id, latestState)
+                );
+              }
+            });
+          await Promise.all([
+            queryClient.invalidateQueries(
+              {
+                predicate: ({ queryKey: key, state: queryState }) =>
+                  isExternalViewerQuery(key, viewer) &&
+                  Boolean(cachedExternalPost(queryState.data, post.id)),
+                refetchType: "active",
+              },
+              { cancelRefetch: false }
+            ),
+            ...pagination,
+          ]);
+        } catch {
+          // Cache refresh failure must not change the completed action result.
+        }
+      })();
     }
   };
   return { mutate, pending, state };

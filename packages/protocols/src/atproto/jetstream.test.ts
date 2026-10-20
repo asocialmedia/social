@@ -1,3 +1,5 @@
+// Async transports and HTTP fixtures preserve the SDK promise contract.
+// oxlint-disable require-await
 import { expect, test } from "bun:test";
 
 import { MalformedError, websocketTransport } from "@bsky/jetstream";
@@ -9,6 +11,80 @@ import {
   parseJetstreamEvent,
   streamJetstream,
 } from "./jetstream";
+
+test("failed upgrade confirms an expired cursor before requesting reconciliation", async () => {
+  const cause = new Error("Unexpected server response: 400");
+  const failure = new Error("WebSocket transport error", { cause });
+  failure.name = "SocketError";
+  const stream = streamJetstream({
+    cursor: 1,
+    dids: [],
+    fetch: async (input) => {
+      expect(new URL(String(input)).protocol).toBe("https:");
+      expect(new URL(String(input)).searchParams.get("cursor")).toBe("1");
+      return Response.json({ error: "CursorTooOld" }, { status: 400 });
+    },
+    publicDiscovery: true,
+    transport: {
+      async *stream() {
+        yield* [];
+        throw failure;
+      },
+    },
+  });
+  await expect(stream.next()).rejects.toMatchObject({
+    code: "invalid_response",
+    message: "Jetstream cursor requires reconciliation",
+  });
+});
+
+test("an invalid subscription does not discard its checkpoint", async () => {
+  const failure = new Error("WebSocket transport error", {
+    cause: new Error("Unexpected server response: 400"),
+  });
+  failure.name = "SocketError";
+  const stream = streamJetstream({
+    cursor: 1,
+    dids: [authorDid],
+    fetch: () =>
+      Promise.resolve(
+        Response.json({ error: "InvalidRequest" }, { status: 400 })
+      ),
+    transport: {
+      async *stream() {
+        yield* [];
+        throw failure;
+      },
+    },
+  });
+  await expect(stream.next()).rejects.toMatchObject({
+    code: "unavailable",
+    message: "Jetstream SocketError: WebSocket transport error",
+  });
+});
+
+test("public replay buffer overflow reconciles while followed-account progress stays durable", async () => {
+  for (const publicDiscovery of [true, false]) {
+    const failure = new Error(
+      "WebSocket read buffer overflowed (1048578 bytes)"
+    );
+    failure.name = "BufferOverflowError";
+    const stream = streamJetstream({
+      dids: publicDiscovery ? [] : [authorDid],
+      publicDiscovery,
+      transport: {
+        async *stream() {
+          yield* [];
+          throw failure;
+        },
+      },
+    });
+    // oxlint-disable-next-line no-await-in-loop -- each fixture checks a distinct cursor durability policy.
+    await expect(stream.next()).rejects.toMatchObject({
+      code: publicDiscovery ? "invalid_response" : "unavailable",
+    });
+  }
+});
 
 test("subscriptions always require a bounded account set and keep account events", () => {
   expect(() => jetstreamUrl({ dids: [] })).toThrow();

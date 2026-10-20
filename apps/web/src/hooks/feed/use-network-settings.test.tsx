@@ -9,6 +9,8 @@ import { act } from "react";
 mock.module("@/lib/auth/session-context", () => ({
   useSession: () => ({ user: { id: "optimistic-viewer" } }),
 }));
+const toast = mock();
+mock.module("@/lib/gooey-toast", () => ({ useToast: () => ({ toast }) }));
 const { useNetworkSettings } = await import("./use-network-settings");
 const dom = new Window({ url: "http://localhost:3000" });
 const originals = new Map<string, PropertyDescriptor | undefined>();
@@ -81,6 +83,7 @@ function Probe() {
 }
 
 test("rapid selections update immediately while serialized writes use each committed revision", async () => {
+  toast.mockClear();
   const fetchBefore = globalThis.fetch;
   const writes: {
     preferences: NetworkSettings["preferences"];
@@ -151,6 +154,9 @@ test("rapid selections update immediately while serialized writes use each commi
     expect(host.querySelector("[data-confirmed]")?.textContent).toBe(
       "software,art"
     );
+    expect(toast).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "Network settings saved" })
+    );
   } finally {
     await act(() => root.unmount());
     host.remove();
@@ -211,6 +217,12 @@ test("a failed save rolls back queued selections and the next save uses the refr
       await Bun.sleep(20);
     });
     expect(writes).toHaveLength(1);
+    expect(toast).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: "Couldn't save Network settings",
+        variant: "destructive",
+      })
+    );
     expect(host.querySelector("[data-ui]")?.textContent).toBe("");
     expect(host.querySelector("[data-confirmed]")?.textContent).toBe("");
     await act(async () => {

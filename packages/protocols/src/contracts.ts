@@ -130,6 +130,7 @@ export class ProtocolError extends Error {
 }
 
 export interface ProtocolDiagnostic {
+  resource?: string;
   operation: string;
   outcome: "success" | "error" | "cache_hit";
   durationMs: number;

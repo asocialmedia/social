@@ -1,3 +1,4 @@
+// oxlint-disable react/todo -- Async preference saves restore the prior exclusion on failure.
 "use client";
 
 import type { ExternalPost } from "@asm/protocols/contracts";
@@ -23,21 +24,29 @@ export function useExternalFeedback(post: ExternalPost | undefined) {
     const feedback = { authorId: post.author.id, postId: post.id, scope };
     const key = externalFeedbackKey(feedback);
     const update = async (remove: boolean) => {
-      if (user) {
-        const response = await fetch("/api/protocols/bluesky/feedback", {
-          body: JSON.stringify(feedback),
-          headers: { "content-type": "application/json" },
-          method: remove ? "DELETE" : "POST",
-        });
-        if (!response.ok) {
-          throw new Error("Couldn't save preference. Please try again.");
+      const store = useFeedSourceStore.getState();
+      const wasHidden = store.excluded[viewer]?.has(key) ?? false;
+      store.exclude(viewer, key, !remove);
+      try {
+        if (user) {
+          const response = await fetch("/api/protocols/bluesky/feedback", {
+            body: JSON.stringify(feedback),
+            headers: { "content-type": "application/json" },
+            method: remove ? "DELETE" : "POST",
+            signal: AbortSignal.timeout(20_000),
+          });
+          if (!response.ok) {
+            throw new Error("Couldn't save preference. Please try again.");
+          }
         }
+      } catch (error) {
+        useFeedSourceStore.getState().exclude(viewer, key, wasHidden);
+        throw error;
       }
       trackNetworkAction(
         post.id,
         remove ? "REMOVE_NOT_INTERESTED" : "NOT_INTERESTED"
       );
-      useFeedSourceStore.getState().exclude(viewer, key, !remove);
     };
     try {
       await update(false);

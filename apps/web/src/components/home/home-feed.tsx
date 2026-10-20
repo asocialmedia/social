@@ -617,6 +617,9 @@ export default function HomeFeed({
           <FeedView
             key={`${hashKey(queryKey)}:${source}`}
             externalPosts={allowExternal ? externalPosts : []}
+            sourcesPending={
+              source === "all" && (initialSourceLoading || isFetchingNextPage)
+            }
             source={source}
             cacheKey={queryKey}
             excludeIds={communityIds}

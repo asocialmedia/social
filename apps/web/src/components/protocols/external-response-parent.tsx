@@ -3,6 +3,7 @@
 import type { ExternalPost } from "@asm/protocols/contracts";
 import { Skeleton } from "@asm/ui/shadui/skeleton";
 
+import { FeedErrorState } from "@/components/feeds/feed-error-state";
 import { ResponseParentRow } from "@/components/responses/response-parent-card";
 import { externalPostView } from "@/lib/posts/presentation";
 
@@ -27,15 +28,13 @@ export function ExternalResponseParent({ uri }: { uri: string }) {
   }
   if (query.isError && !query.data) {
     return (
-      <button
-        className="text-muted-foreground mb-3 text-sm hover:underline"
-        onClick={() => {
+      <FeedErrorState
+        message="Couldn't load the original Bluesky post."
+        isRetrying={query.isFetching}
+        onRetry={() => {
           void query.refetch();
         }}
-        type="button"
-      >
-        Couldn't load original post. Retry
-      </button>
+      />
     );
   }
   return <ExternalResponseParentRow post={query.data ?? null} uri={uri} />;

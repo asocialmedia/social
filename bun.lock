@@ -178,11 +178,12 @@
     },
     "apps/protocols": {
       "name": "@asm/protocols-app",
-      "version": "0.1.39",
+      "version": "0.1.43",
       "dependencies": {
         "@asm/logger": "workspace:*",
         "@asm/protocols": "workspace:*",
         "@opentelemetry/api": "^1.9.1",
+        "bullmq": "^6.1.0",
         "dotenv": "^17.4.2",
         "elysia": "2.0.0-rc.0",
         "exact-mirror": "1.2.6",
@@ -199,7 +200,7 @@
     },
     "apps/web": {
       "name": "@asm/web",
-      "version": "1.8.58",
+      "version": "1.8.63",
       "dependencies": {
         "@asm/aggregator": "workspace:*",
         "@asm/auth": "workspace:*",
@@ -414,7 +415,7 @@
     },
     "packages/next": {
       "name": "@asm/next",
-      "version": "1.0.21",
+      "version": "1.0.22",
       "dependencies": {
         "dotenv": "^17.4.2",
         "next": "^16.3.0",
@@ -444,7 +445,7 @@
     },
     "packages/protocols": {
       "name": "@asm/protocols",
-      "version": "0.1.39",
+      "version": "0.1.43",
       "dependencies": {
         "@atproto/lex": "0.3.14",
         "@atproto/syntax": "^0.7.7",
@@ -461,7 +462,7 @@
     },
     "packages/ui": {
       "name": "@asm/ui",
-      "version": "1.0.73",
+      "version": "1.0.74",
       "dependencies": {
         "@asm/aggregator": "workspace:*",
         "@radix-ui/react-accordion": "^1.2.20",

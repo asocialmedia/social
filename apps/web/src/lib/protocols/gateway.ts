@@ -8,6 +8,7 @@ import { abortable, readJsonBounded } from "@asm/protocols/discovery";
 import { getWebLogger } from "@/lib/otel";
 import { admitFeedRead } from "@/lib/recommendations/feed-admission";
 import { feedTiming } from "@/lib/recommendations/feed-timing";
+import { isTrustedMutationOrigin } from "@/lib/security/request-origin";
 
 import { consumeProtocolBudget, ProtocolBudgetError } from "./budget";
 import { protocolGuest } from "./guest";
@@ -42,18 +43,7 @@ export async function protocolJsonBody(
   if (contentType !== "application/json") {
     throw new ProtocolGatewayError(415, "unsupported_content_type");
   }
-  if (request.headers.get("sec-fetch-site") === "cross-site") {
-    throw new ProtocolGatewayError(403, "cross_origin");
-  }
-  const origin = request.headers.get("origin");
-  const allowedOrigin =
-    process.env.NODE_ENV === "production"
-      ? process.env.NEXT_PUBLIC_URL
-      : new URL(request.url).origin;
-  if (
-    origin &&
-    origin !== (allowedOrigin ? new URL(allowedOrigin).origin : undefined)
-  ) {
+  if (!isTrustedMutationOrigin(request)) {
     throw new ProtocolGatewayError(403, "cross_origin");
   }
   try {

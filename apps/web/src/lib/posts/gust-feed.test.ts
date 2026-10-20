@@ -7,8 +7,53 @@ import {
   gustPagingDelay,
   gustPagingState,
   mergeGustPosts,
+  readGustPage,
 } from "./gust-feed";
 import { externalPostView } from "./presentation";
+
+test("an expired Gust continuation resumes from a fresh head without replaying loaded clips", async () => {
+  const cursors: (string | null)[] = [];
+  const page = await readGustPage<{
+    posts: { id: string }[];
+    nextCursor: string;
+  }>(
+    (cursor) => {
+      cursors.push(cursor);
+      return cursor
+        ? Response.json({ error: "Refresh this feed" }, { status: 410 })
+        : Response.json({
+            nextCursor: "new-continuation",
+            posts: [{ id: "seen" }, { id: "fresh" }],
+          });
+    },
+    "expired-continuation",
+    new Set(["seen"])
+  );
+  expect(cursors).toEqual(["expired-continuation", null]);
+  expect(page).toEqual({
+    nextCursor: "new-continuation",
+    posts: [{ id: "fresh" }],
+  });
+});
+
+test("Gust outages stay errors instead of looking like a completed feed", async () => {
+  await expect(
+    readGustPage(() => new Response(null, { status: 503 }), "cursor", new Set())
+  ).rejects.toThrow("503");
+});
+
+test("a refreshed Gust generation retains clips from previously cached later pages", async () => {
+  const next = {
+    nextCursor: "new-page-three",
+    posts: [{ id: "old-page-two" }, { id: "fresh" }],
+  };
+  const page = await readGustPage(
+    () => Promise.resolve(Response.json(next)),
+    "new-page-two",
+    new Set(["old-page-two"])
+  );
+  expect(page).toEqual(next);
+});
 
 test.each([0, 1])(
   "a failed Gust source %i remains retryable as its healthy peer finishes",

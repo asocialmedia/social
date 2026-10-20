@@ -4,7 +4,9 @@ import { QueryClient } from "@tanstack/react-query";
 
 import {
   applyExternalStateToCaches,
+  cachedExternalAuthor,
   patchExternalState,
+  optimisticExternalState,
 } from "./external-cache";
 
 const uri = "at://did:plc:alice/app.bsky.feed.post/first";
@@ -17,6 +19,39 @@ const previous = {
 };
 const next = { ...previous, bookmarked: true, comments: 1 };
 const post = { asm: previous, id: uri, source: "bluesky" };
+
+test("optimistic amplify toggles are idempotent, preserve bookmarks and never make counts negative", () => {
+  const amplified = optimisticExternalState(previous, {
+    action: "amplify",
+    active: true,
+    uri,
+  });
+  expect(amplified).toEqual({
+    ...previous,
+    amplifications: 1,
+    amplified: true,
+  });
+  expect(
+    optimisticExternalState(amplified, { action: "amplify", active: true, uri })
+  ).toEqual(amplified);
+  expect(
+    optimisticExternalState(amplified, {
+      action: "amplify",
+      active: false,
+      uri,
+    })
+  ).toEqual(previous);
+  expect(
+    optimisticExternalState(previous, { action: "amplify", active: false, uri })
+  ).toEqual(previous);
+  expect(
+    optimisticExternalState(amplified, {
+      action: "bookmark",
+      active: true,
+      uri,
+    })
+  ).toEqual({ ...amplified, bookmarked: true });
+});
 
 test("local mutations survive detail and author detours without replacing feed pages", () => {
   const client = new QueryClient();
@@ -69,4 +104,29 @@ test("unrelated posts keep their reference and native post identities are untouc
     pages: [{ items: [{ ...post, id: `${uri}-different` }] }],
   };
   expect(patchExternalState(unrelated, uri, next)).toBe(unrelated);
+});
+
+test("profile navigation can reuse the author already loaded in a feed or hover card", () => {
+  const author = {
+    displayName: "Alice",
+    handle: "alice.bsky.social",
+    id: "did:plc:alice",
+    labels: [],
+    source: "bluesky",
+    upstreamCounts: {},
+    url: "https://bsky.app/profile/did:plc:alice",
+  };
+  expect(
+    cachedExternalAuthor(
+      { pages: [{ items: [{ ...post, author }] }] },
+      author.id
+    )
+  ).toEqual(author);
+  expect(cachedExternalAuthor(author, author.handle)).toEqual(author);
+  expect(
+    cachedExternalAuthor(
+      { pages: [{ items: [{ ...post, author }] }] },
+      "did:plc:other"
+    )
+  ).toBeUndefined();
 });

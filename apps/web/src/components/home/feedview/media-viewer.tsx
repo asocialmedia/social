@@ -4,6 +4,7 @@
 import { clientLog } from "@asm/config/debug";
 import { Button } from "@asm/ui/shadui/button";
 import { Dialog, DialogContent, DialogTitle } from "@asm/ui/shadui/dialog";
+import { Drawer, DrawerContent, DrawerTitle } from "@asm/ui/shadui/drawer";
 import { Slider } from "@asm/ui/shadui/slider";
 import { VisuallyHidden } from "@radix-ui/react-visually-hidden";
 import { formatDate } from "date-fns";
@@ -16,7 +17,6 @@ import {
   MessageSquare,
   Pause,
   Play,
-  RotateCcw,
   Speech,
   Subtitles,
   Volume2,
@@ -31,11 +31,16 @@ import { useMediaQuery } from "usehooks-ts";
 
 import { useSession } from "@/app/(main)/session-provider";
 import Comments from "@/components/comments/thread/comments";
+import { FeedErrorState } from "@/components/feeds/feed-error-state";
+import { GustsCommentsDrawer } from "@/components/gusts/gusts-comments-drawer";
 import Spinner3D from "@/components/layouts/feedback/spinner-3d";
-import FollowButton from "@/components/layouts/user/follow-button";
 import UserAvatar from "@/components/layouts/user/user-avatar";
 import UserBadge from "@/components/layouts/user/user-badge";
 import { AiGeneratedBadge } from "@/components/media/ai-generated-badge";
+import {
+  MobileMediaActions,
+  MOBILE_MEDIA_ICON,
+} from "@/components/media/mobile-media-actions";
 import { VideoTranscriptDrawer } from "@/components/media/video-transcript-drawer";
 import { VideoTranscriptSidebar } from "@/components/media/video-transcript-sidebar";
 import AuraVoteButton from "@/components/posts/actions/aura-vote-button";
@@ -52,7 +57,6 @@ import {
   ExternalVoteButton,
 } from "@/components/protocols/external-post-controls";
 import { PostMeta } from "@/components/tags/post-meta";
-import Linkify from "@/helpers/global/linkify";
 import { formatFileName } from "@/lib/format-file-name";
 import { useToast } from "@/lib/gooey-toast";
 import {
@@ -65,7 +69,6 @@ import { getPostMediaPath, getPostPath } from "@/lib/seo/seo";
 import { useExplicitRevealed } from "@/lib/stores/explicit-reveal-store";
 import { useVideoCaptionsStore } from "@/lib/stores/video-captions-store";
 import type { Media } from "@/lib/types";
-import { getUserCount } from "@/lib/types";
 import { cn, formatNumber } from "@/lib/utils";
 import {
   getMediaImageUrl,
@@ -130,11 +133,11 @@ interface MediaViewerProps {
   standalone?: boolean;
 }
 
-/** 3D dual-border chip used by the mobile media page's control buttons. */
+// 3D dual-border chip used by the desktop media controls.
 const MOBILE_CHIP_3D =
   "bg-linear-to-b from-[#3a3f4a] to-[#23262e] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.15),inset_0_1px_2px_rgba(255,255,255,0.18),0_2px_6px_rgba(0,0,0,0.35)]";
 
-/** m:ss clock for the mobile media page's video controls. */
+// m:ss clock for the media page video controls.
 function formatPlaybackTime(seconds: number): string {
   if (!Number.isFinite(seconds) || seconds < 0) {
     return "0:00";
@@ -187,10 +190,11 @@ const MediaViewer = ({
   // and the first client render identical (the media query is only evaluated
   // after mount), so the hideControls DOM branches never cause a hydration
   // mismatch.
-  const isMobileView = useMediaQuery("(max-width: 768px)", {
+  const isMobileView = useMediaQuery("(max-width: 1023px)", {
     defaultValue: false,
     initializeWithValue: false,
   });
+  const [showMobileEddies, setShowMobileEddies] = useState(false);
   const [uiVisible, setUiVisible] = useState(true);
   const [currentIndex, setCurrentIndex] = useState(initialIndex);
   const [isDownloading, setIsDownloading] = useState(false);
@@ -859,7 +863,6 @@ const MediaViewer = ({
     );
   };
 
-  const isSelf = post ? sessionUser?.id === post.user.id : false;
   // The more-button is shown to the author and to admins so moderation is
   // reachable from the full-screen viewer too.
 
@@ -924,19 +927,14 @@ const MediaViewer = ({
           {mediaError &&
           !post?.moderated &&
           !(post?.explicitContent && !explicitRevealed) ? (
-            <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-4 bg-black/60 px-6 text-center">
-              <p className="text-sm font-medium text-white/90">
-                Couldn&apos;t load this media.
-              </p>
-              <Button
-                className="gap-2 rounded-full px-6"
-                onClick={handleRetry}
-                type="button"
-                variant="premium"
-              >
-                <RotateCcw className="size-4" />
-                Retry
-              </Button>
+            <div className="absolute inset-0 z-20 flex flex-col items-center gap-4 overflow-y-auto bg-black/60 px-6 text-center">
+              <div className="my-auto shrink-0 [&_p]:text-white/90">
+                <FeedErrorState
+                  compact
+                  message="Couldn't load this media."
+                  onRetry={handleRetry}
+                />
+              </div>
             </div>
           ) : null}
 
@@ -1014,7 +1012,7 @@ const MediaViewer = ({
             phones. Desktop keeps the floating bottom chrome below. */}
         <div
           className={cn(
-            "pointer-events-none absolute inset-x-0 bottom-0 z-30 transition-[opacity,visibility] duration-300 lg:hidden",
+            "pointer-events-none absolute inset-x-0 bottom-0 z-30 max-h-[85dvh] overflow-y-auto overscroll-contain transition-[opacity,visibility] duration-300 lg:hidden",
             !uiVisible && "invisible opacity-0"
           )}
         >
@@ -1033,13 +1031,13 @@ const MediaViewer = ({
                 >
                   <UserAvatar
                     avatarUrl={post.user?.avatarUrl}
-                    className="h-10 w-10"
+                    className="size-10 rounded-full!"
                   />
                 </Link>
                 <div className="min-w-0 flex-1">
                   <span className="flex items-center gap-1.5">
                     <Link
-                      className="block truncate font-semibold text-white hover:underline"
+                      className="block truncate text-[15px] font-semibold text-white hover:underline"
                       href={
                         (post.external
                           ? blueskyProfilePath(post.external.author.id)
@@ -1064,7 +1062,7 @@ const MediaViewer = ({
                     )}
                   </span>
                   <Link
-                    className="block truncate text-white/70 hover:underline"
+                    className="block truncate text-[13px] text-white/70 hover:underline"
                     href={
                       (post.external
                         ? blueskyProfilePath(post.external.author.id)
@@ -1077,25 +1075,16 @@ const MediaViewer = ({
                     @{post.user?.username || "unknown"}
                   </Link>
                 </div>
-                {post.external || isSelf || !post.user?.id ? null : (
-                  <FollowButton
-                    initialState={{
-                      followers: getUserCount(post.user, "followers"),
-                      isFollowedByUser: (post.user.followers || []).length > 0,
-                    }}
-                    userId={post.user.id}
-                  />
-                )}
               </div>
             ) : null}
 
             {post?.content ? (
               <div className="pointer-events-auto mt-2.5">
-                <Linkify>
-                  <p className="text-[15px] leading-relaxed wrap-break-word whitespace-pre-wrap text-white/90">
-                    {post.content}
-                  </p>
-                </Linkify>
+                <PostLinkedContent
+                  sourceSegments={post.external?.segments}
+                  className="text-[15px] text-white/90"
+                  content={post.content}
+                />
               </div>
             ) : null}
 
@@ -1126,28 +1115,11 @@ const MediaViewer = ({
             ) : null}
 
             {post ? (
-              <div className="pointer-events-auto mt-3 flex items-center justify-between border-t border-white/10 pt-3">
-                <div className="flex items-center gap-2">
-                  <button
-                    aria-label="View eddies"
-                    className={cn(
-                      "flex h-11 items-center gap-1.5 rounded-full px-3.5 transition-all duration-200 hover:brightness-110 active:translate-y-px",
-                      MOBILE_CHIP_3D
-                    )}
-                    onClick={() => router.push(getPostPath(post))}
-                    type="button"
-                  >
-                    <MessageSquare
-                      className={cn(
-                        "size-4.5",
-                        (post._count?.comments ?? 0) > 0 && "fill-current"
-                      )}
-                    />
-                    <span className="text-sm font-semibold tabular-nums">
-                      {post._count?.comments ?? 0}
-                    </span>
-                  </button>
-                  {post.external ? (
+              <MobileMediaActions
+                comments={post._count?.comments ?? 0}
+                onOpenEddies={() => setShowMobileEddies(true)}
+                vote={
+                  post.external ? (
                     <ExternalVoteButton post={post.external} />
                   ) : (
                     <AuraVoteButton
@@ -1158,17 +1130,17 @@ const MediaViewer = ({
                       }}
                       postId={post.id}
                     />
-                  )}
-                </div>
-                <div className="flex items-center gap-2">
-                  {post.external ? (
+                  )
+                }
+                share={
+                  post.external ? (
                     <ExternalShareButton
                       post={post.external}
-                      className="h-9! w-9!"
+                      className={MOBILE_MEDIA_ICON}
                     />
                   ) : (
                     <ShareButton
-                      className="h-9! w-9!"
+                      className={MOBILE_MEDIA_ICON}
                       description={post.content}
                       dialogDescription="Share this media with your network"
                       dialogTitle="Share Media"
@@ -1177,15 +1149,17 @@ const MediaViewer = ({
                       thumbnail={getShareThumbnail(post, currentMedia)}
                       title={`${post.user?.displayName || post.user?.username || "Post"} (@${post.user?.username || "unknown"}) on asocialmedia`}
                     />
-                  )}
-                  {post.external ? (
+                  )
+                }
+                bookmark={
+                  post.external ? (
                     <ExternalBookmarkButton
                       post={post.external}
-                      className="h-9! w-9!"
+                      className={MOBILE_MEDIA_ICON}
                     />
                   ) : (
                     <BookmarkButton
-                      className="h-9! w-9!"
+                      className={MOBILE_MEDIA_ICON}
                       initialState={{
                         isBookmarkedByUser: isBookmarkedByUser(
                           post,
@@ -1194,14 +1168,14 @@ const MediaViewer = ({
                       }}
                       postId={post.id}
                     />
-                  )}
-                </div>
-              </div>
+                  )
+                }
+              />
             ) : null}
 
             {currentMedia?.type === "VIDEO" ? (
-              <div className="pointer-events-auto mt-3 flex items-center justify-between border-t border-white/10 pt-3">
-                <div className="flex items-center gap-3">
+              <div className="pointer-events-auto mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-white/10 pt-3">
+                <div className="flex shrink-0 items-center gap-3">
                   <button
                     aria-label={
                       videoState.isPlaying ? "Pause video" : "Play video"
@@ -1216,19 +1190,19 @@ const MediaViewer = ({
                       <Play className="ml-0.5 size-5 fill-current" />
                     )}
                   </button>
-                  <span className="text-sm font-medium text-white tabular-nums">
+                  <span className="text-sm font-medium whitespace-nowrap text-white tabular-nums">
                     {formatPlaybackTime(videoState.currentTime)} /{" "}
                     {formatPlaybackTime(videoState.duration)}
                   </span>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="ml-auto flex shrink-0 items-center gap-2">
                   <button
                     aria-label={
                       videoState.isMuted ? "Unmute video" : "Mute video"
                     }
                     className={cn(
                       "flex h-11 w-11 items-center justify-center rounded-full transition-all duration-200 hover:brightness-110 active:translate-y-px",
-                      MOBILE_CHIP_3D
+                      "media-viewer-chip"
                     )}
                     onClick={handleVideoToggleMute}
                     type="button"
@@ -1243,7 +1217,7 @@ const MediaViewer = ({
                     aria-label="Playback speed"
                     className={cn(
                       "flex h-11 min-w-11 items-center justify-center rounded-full px-3 text-sm font-semibold transition-all duration-200 hover:brightness-110 active:translate-y-px",
-                      MOBILE_CHIP_3D
+                      "media-viewer-chip"
                     )}
                     onClick={handleVideoCycleSpeed}
                     type="button"
@@ -1252,14 +1226,13 @@ const MediaViewer = ({
                   </button>
                   {post?.external ? null : (
                     <button
+                      aria-pressed={captionsEnabled}
                       aria-label={
                         captionsEnabled ? "Disable captions" : "Enable captions"
                       }
                       className={cn(
                         "flex h-11 w-11 items-center justify-center rounded-full transition-all duration-200 hover:brightness-110 active:translate-y-px",
-                        MOBILE_CHIP_3D,
-                        captionsEnabled &&
-                          "border-orange-500/60 text-orange-400"
+                        "media-viewer-chip"
                       )}
                       onClick={handleVideoToggleCaptions}
                       type="button"
@@ -1269,11 +1242,11 @@ const MediaViewer = ({
                   )}
                   {post?.external ? null : (
                     <button
+                      aria-pressed={showTranscript}
                       aria-label="Transcript"
                       className={cn(
                         "flex h-11 w-11 items-center justify-center rounded-full transition-all duration-200 hover:brightness-110 active:translate-y-px",
-                        MOBILE_CHIP_3D,
-                        showTranscript && "border-orange-500/60 text-orange-400"
+                        "media-viewer-chip"
                       )}
                       onClick={handleVideoToggleTranscript}
                       type="button"
@@ -1285,7 +1258,7 @@ const MediaViewer = ({
                     aria-label="Fullscreen"
                     className={cn(
                       "flex h-11 w-11 items-center justify-center rounded-full transition-all duration-200 hover:brightness-110 active:translate-y-px",
-                      MOBILE_CHIP_3D
+                      "media-viewer-chip"
                     )}
                     onClick={handleVideoFullscreen}
                     type="button"
@@ -1527,6 +1500,25 @@ const MediaViewer = ({
           />
         ) : null}
       </div>
+
+      {post ? (
+        <Drawer
+          open={showMobileEddies && isMobileView}
+          onOpenChange={setShowMobileEddies}
+          shouldScaleBackground={false}
+        >
+          <DrawerContent
+            aria-describedby={undefined}
+            className="h-[75dvh] max-h-[calc(100dvh-env(safe-area-inset-top))] pb-[env(safe-area-inset-bottom)]"
+          >
+            <DrawerTitle className="sr-only">Eddies</DrawerTitle>
+            <GustsCommentsDrawer
+              post={post}
+              onClose={() => setShowMobileEddies(false)}
+            />
+          </DrawerContent>
+        </Drawer>
+      ) : null}
 
       {post ? (
         <aside className="hidden h-full w-[420px] flex-col border-l border-white/10 bg-[hsl(var(--background))] lg:flex">
