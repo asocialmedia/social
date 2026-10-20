@@ -42,14 +42,16 @@ export async function startProtocols() {
   ]);
   const client = new BlueskyClient({
     maxConcurrentRequests: 48,
+    maxRetries: 0,
     observe: createProtocolObserver(logger),
-    timeoutMs: 10_000,
+    timeoutMs: 2500,
   });
   const explicitClient = new BlueskyClient({
     allowExplicitMedia: true,
     maxConcurrentRequests: 24,
+    maxRetries: 0,
     observe: createProtocolObserver(logger),
-    timeoutMs: 10_000,
+    timeoutMs: 2500,
   });
   const searchClient = new BlueskyClient({
     maxConcurrentRequests: config.searchConcurrency,
@@ -396,6 +398,9 @@ export async function startProtocols() {
       // The subscriber reconnects in the background.
     });
     const timer = setInterval(() => {
+      if (publisher.status !== "ready") {
+        return;
+      }
       void live.tick().catch(() => {
         // A failed reconciliation is retried by the next tick.
       });
@@ -433,46 +438,51 @@ export async function startProtocols() {
   try {
     app.listen({ hostname: config.hostname, port: config.port });
     if (redis && (config.jetstreamEnabled || (config.asmUrl && config.token))) {
-      const { runFollowTracking } = await import("./follow-tracking");
-      const following = runFollowTracking({
-        client,
-        config,
-        health,
-        invalidate: (event) => {
-          client.invalidate(event?.did);
-          explicitClient.invalidate(event?.did);
-        },
-        logger,
-        redis,
-        signal: abort.signal,
-      });
-      const publicDiscovery =
-        config.jetstreamEnabled && ingestion
-          ? (async () => {
-              const { RedisCheckpointStore } = await import("./checkpoints");
-              const { runJetstreamWorker } = await import("./worker");
-              const streamOptions = {
-                dids: [],
-                endpoint: config.endpoint,
-                publicDiscovery: true,
-              };
-              await runJetstreamWorker({
-                health: discoveryHealth,
-                invalidate: () => {
-                  // Discovery ingestion publishes only hydrated, policy-checked updates.
-                },
-                logger,
-                processEvent: ingestion.event,
-                signal: abort.signal,
-                store: new RedisCheckpointStore(redis, {
-                  ...streamOptions,
-                  publishInvalidations: false,
-                }),
-                streamOptions,
-              });
-            })()
-          : Promise.resolve();
+      const connection = redis;
       worker = (async () => {
+        const { waitForStorageReady } = await import("./storage-ready");
+        if (!(await waitForStorageReady(connection, abort.signal))) {
+          return;
+        }
+        const { runFollowTracking } = await import("./follow-tracking");
+        const following = runFollowTracking({
+          client,
+          config,
+          health,
+          invalidate: (event) => {
+            client.invalidate(event?.did);
+            explicitClient.invalidate(event?.did);
+          },
+          logger,
+          redis: connection,
+          signal: abort.signal,
+        });
+        const publicDiscovery =
+          config.jetstreamEnabled && ingestion
+            ? (async () => {
+                const { RedisCheckpointStore } = await import("./checkpoints");
+                const { runJetstreamWorker } = await import("./worker");
+                const streamOptions = {
+                  dids: [],
+                  endpoint: config.endpoint,
+                  publicDiscovery: true,
+                };
+                await runJetstreamWorker({
+                  health: discoveryHealth,
+                  invalidate: () => {
+                    // Discovery ingestion publishes only hydrated, policy-checked updates.
+                  },
+                  logger,
+                  processEvent: ingestion.event,
+                  signal: abort.signal,
+                  store: new RedisCheckpointStore(connection, {
+                    ...streamOptions,
+                    publishInvalidations: false,
+                  }),
+                  streamOptions,
+                });
+              })()
+            : Promise.resolve();
         await Promise.all([following, publicDiscovery]);
       })();
     }

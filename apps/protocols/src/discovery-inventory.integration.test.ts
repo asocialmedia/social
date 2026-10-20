@@ -168,6 +168,57 @@ test("a sparse inventory continues through source pages without replaying local 
   expect(calls).toEqual([undefined, "source-page-2"]);
 });
 
+test("slow continuation sources preserve local arrivals and their retry position", async () => {
+  const first = inventoryPost(700, "outage-continuation");
+  const arrival = inventoryPost(701, "outage-continuation");
+  const recovered = inventoryPost(702, "outage-continuation");
+  await store.put([first], Date.now());
+  let healthy = false;
+  const inventory = new DiscoveryInventory(
+    store,
+    new MemoryDiscoveryStore(),
+    () =>
+      healthy
+        ? Promise.resolve({
+            cursor: null,
+            items: [first, arrival, recovered],
+            partial: false,
+          })
+        : // oxlint-disable-next-line promise/avoid-new -- a never-settling upstream exercises the foreground deadline.
+          new Promise(() => {}),
+    false,
+    20
+  );
+  const head = await inventory.read(
+    "personalized",
+    undefined,
+    "en",
+    ["outage-continuation"],
+    "all"
+  );
+  await store.put([arrival], Date.now());
+  const during = await inventory.read(
+    "personalized",
+    head?.cursor ?? undefined,
+    "en",
+    ["outage-continuation"],
+    "all"
+  );
+  expect(during?.items.map((post) => post.id)).toEqual([arrival.id]);
+  expect(during?.partial).toBe(true);
+  expect(during?.cursor).toBeTruthy();
+  healthy = true;
+  const after = await inventory.read(
+    "personalized",
+    during?.cursor ?? undefined,
+    "en",
+    ["outage-continuation"],
+    "all"
+  );
+  expect(after?.items.map((post) => post.id)).toEqual([recovered.id]);
+  expect(after?.partial).toBe(false);
+});
+
 test("snapshots older than the policy TTL expire and byte/count limits remain bounded", async () => {
   const expired = inventoryPost(500);
   await store.put([expired], Date.now() - 121_000);

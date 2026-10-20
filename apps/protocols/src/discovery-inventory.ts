@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import type { ExternalPost } from "@asm/protocols/contracts";
 import { createExternalTopicMatcher } from "@asm/protocols/contracts";
 import {
+  abortable,
   blueskyMediaIsExplicit,
   hasRestrictedDiscoveryLabels,
   isExternalTrendingPost,
@@ -45,16 +46,19 @@ export class DiscoveryInventory {
   private readonly continuations: DiscoveryStore;
   private readonly readSource?: ReadSource;
   private readonly allowExplicit: boolean;
+  private readonly sourceTimeoutMs: number;
   constructor(
     store: InventoryStore,
     continuations: DiscoveryStore,
     readSource?: ReadSource,
-    allowExplicit = false
+    allowExplicit = false,
+    sourceTimeoutMs = 1000
   ) {
     this.store = store;
     this.continuations = continuations;
     this.readSource = readSource;
     this.allowExplicit = allowExplicit;
+    this.sourceTimeoutMs = sourceTimeoutMs;
   }
 
   async read(
@@ -124,24 +128,26 @@ export class DiscoveryInventory {
       this.readSource &&
       (!sourceStarted || sourceCursor)
     ) {
-      const page = await this.readSource(
-        mode,
-        sourceCursor,
-        locale,
-        topics,
-        content
-      );
-      candidates = [
-        ...new Map(
-          [...candidates, ...page.items.filter(eligible)].map((post) => [
-            post.id,
-            post,
-          ])
-        ).values(),
-      ];
-      sourceStarted = true;
-      sourceCursor = page.cursor ?? undefined;
-      ({ partial } = page);
+      try {
+        const page = await abortable(
+          this.readSource(mode, sourceCursor, locale, topics, content),
+          AbortSignal.timeout(this.sourceTimeoutMs)
+        );
+        candidates = [
+          ...new Map(
+            [...candidates, ...page.items.filter(eligible)].map((post) => [
+              post.id,
+              post,
+            ])
+          ).values(),
+        ];
+        sourceStarted = true;
+        sourceCursor = page.cursor ?? undefined;
+        ({ partial } = page);
+      } catch {
+        // Keep the last source position retryable and serve validated local arrivals.
+        partial = true;
+      }
     }
     if (!candidates.length && !cursor) {
       return null;

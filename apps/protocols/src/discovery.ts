@@ -94,10 +94,15 @@ export class BlueskyDiscovery {
   private readonly store: DiscoveryStore;
   private readonly scope: string;
   private readonly timeoutMs: number;
+  private readonly sourceTimeoutMs: number;
   constructor(
     client: DiscoveryClient,
     actors?: string[],
-    options: { store?: DiscoveryStore; timeoutMs?: number } = {}
+    options: {
+      store?: DiscoveryStore;
+      timeoutMs?: number;
+      sourceTimeoutMs?: number;
+    } = {}
   ) {
     if (
       actors &&
@@ -115,6 +120,7 @@ export class BlueskyDiscovery {
       .digest("hex")
       .slice(0, 16);
     this.timeoutMs = options.timeoutMs ?? 12_000;
+    this.sourceTimeoutMs = options.sourceTimeoutMs ?? 2500;
     if (
       !Number.isInteger(this.timeoutMs) ||
       this.timeoutMs < 1 ||
@@ -525,6 +531,10 @@ export class BlueskyDiscovery {
         return;
       }
       try {
+        const sourceSignal = AbortSignal.any([
+          signal,
+          AbortSignal.timeout(this.sourceTimeoutMs),
+        ]);
         for (
           let attempt = 0;
           source.items.length === 0 &&
@@ -555,7 +565,10 @@ export class BlueskyDiscovery {
           }
           const profile = feed
             ? null
-            : await abortable(this.client.getProfile(source.actor), signal);
+            : await abortable(
+                this.client.getProfile(source.actor),
+                sourceSignal
+              );
           if (feed && !search && !this.client.getFeed) {
             throw new ProtocolError(
               "unavailable",
@@ -574,7 +587,7 @@ export class BlueskyDiscovery {
           } else {
             read = this.client.getAuthorFeed(source.actor, "posts", options);
           }
-          const page = await abortable(read, signal);
+          const page = await abortable(read, sourceSignal);
           source.items = page.items.filter(
             (post) =>
               isFreshDiscoveryPost(post, mode) &&

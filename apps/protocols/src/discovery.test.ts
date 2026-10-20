@@ -390,6 +390,28 @@ test("stalled discovery times out and a later read recovers", async () => {
   expect(recovered.items).toHaveLength(1);
 });
 
+test("a stalled generator cannot discard a healthy page at the overall deadline", async () => {
+  const discovery = new BlueskyDiscovery(
+    {
+      allowsRecommendations: async () => true,
+      getAuthorFeed: async () => ({ cursor: null, items: [] }),
+      getFeed: (uri) =>
+        uri.endsWith("stalled")
+          ? new Promise(() => {})
+          : Promise.resolve({ cursor: null, items: [post(1)] }),
+      getProfile: async () => profile,
+    },
+    [
+      "at://did:plc:source/app.bsky.feed.generator/stalled",
+      "at://did:plc:source/app.bsky.feed.generator/healthy",
+    ],
+    { sourceTimeoutMs: 20, timeoutMs: 500 }
+  );
+  const page = await discovery.read("trending");
+  expect(page.items.map((item) => item.id)).toEqual([post(1).id]);
+  expect(page.partial).toBe(true);
+});
+
 test("continuations retain unconsumed source posts and deduplicate original records", async () => {
   const client = {
     allowsRecommendations: async () => true,

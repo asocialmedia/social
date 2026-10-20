@@ -2,6 +2,25 @@ import { expect, mock, test } from "bun:test";
 
 import { createProtocolObserver } from "./observability";
 
+test("expected restrictions and retry scheduling do not duplicate upstream outage warnings", () => {
+  const logger = { debug: mock(), error: mock(), info: mock(), warn: mock() };
+  const observe = createProtocolObserver(logger);
+  observe({
+    code: "restricted",
+    durationMs: 5,
+    operation: "app.bsky.feed.getFeed",
+    outcome: "error",
+  });
+  observe({
+    code: "unavailable",
+    durationMs: 0,
+    operation: "read.retry",
+    outcome: "error",
+  });
+  expect(logger.warn).not.toHaveBeenCalled();
+  expect(logger.debug).toHaveBeenCalledTimes(2);
+});
+
 test("upstream outages retain metrics but aggregate repeated warnings in a bounded cooldown", () => {
   let now = 0;
   const logger = { debug: mock(), error: mock(), info: mock(), warn: mock() };

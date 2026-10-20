@@ -41,6 +41,13 @@ export function createProtocolObserver(
     upstreamRequests.add(1, attributes);
     const fields = { ...diagnostic, source: "bluesky" };
     if (diagnostic.outcome === "error") {
+      if (
+        diagnostic.code === "restricted" ||
+        diagnostic.operation === "read.retry"
+      ) {
+        logger.debug(fields, "Protocol source skipped or retry scheduled");
+        return;
+      }
       const key = `${diagnostic.operation}:${diagnostic.code ?? "unknown"}`;
       const previous = failures.get(key);
       if (previous && now() - previous.at < 30_000) {

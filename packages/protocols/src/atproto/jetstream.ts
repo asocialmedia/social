@@ -218,7 +218,11 @@ export async function* streamJetstream(
   const transport =
     options.transport ??
     websocketTransport({
-      highWaterMark: Math.min(maxBufferedBytes, 256 * 1024),
+      // Bun's ws pause/resume methods are stubs; its hard byte ceiling still rejects overflow before the watermark.
+      highWaterMark:
+        "Bun" in globalThis
+          ? maxBufferedBytes
+          : Math.min(maxBufferedBytes, 256 * 1024),
       idleTimeoutMs: false,
       maxBufferedBytes,
       onOpen: connected,
