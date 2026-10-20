@@ -15,6 +15,8 @@ const RANGE = "bytes=0-1023";
 let derivativeKey = "p1/mp4-h264.mp4";
 let upstreamResponse: () => Response = () => new Response("", { status: 404 });
 let status: "DELETED" | "READY" = "READY";
+let explicitPost = false;
+let includeExplicit = false;
 const sendCalls: GetObjectCommandLike[] = [];
 
 interface GetObjectCommandLike {
@@ -26,7 +28,7 @@ function ownershipRow() {
     comment: null,
     commentId: null,
     messageConversationId: null,
-    post: null,
+    post: { explicitContent: explicitPost },
     postId: "post_1",
     status,
     userId: "user_1",
@@ -58,6 +60,8 @@ mock.module("@asm/db", () => ({
       },
     },
   },
+  readNetworkPreferences: () =>
+    Promise.resolve({ preferences: { showExplicitContent: includeExplicit } }),
 }));
 
 mock.module("@/lib/auth/session", () => ({
@@ -106,6 +110,8 @@ function rangedGet(): Promise<Response> {
 beforeEach(() => {
   derivativeKey = "p1/mp4-h264.mp4";
   status = "READY";
+  explicitPost = false;
+  includeExplicit = false;
   upstreamResponse = () => new Response("", { status: 404 });
   sendCalls.length = 0;
   (globalThis as unknown as { fetch: unknown }).fetch = (
@@ -118,6 +124,20 @@ beforeEach(() => {
 });
 
 describe("variant route missing-object mapping", () => {
+  test("explicit variants require opt-in and never enter a public cache", async () => {
+    explicitPost = true;
+    upstreamResponse = () =>
+      new Response("partial", {
+        headers: { "Content-Range": "bytes 0-6/2048" },
+        status: 206,
+      });
+    const hidden = await rangedGet();
+    expect(hidden.status).toBe(404);
+    includeExplicit = true;
+    const allowed = await rangedGet();
+    expect(allowed.status).toBe(206);
+    expect(allowed.headers.get("Cache-Control")).toBe("private, no-store");
+  });
   test("a ranged read of an absent object answers 404, not 500", async () => {
     upstreamResponse = () => new Response("no such key", { status: 404 });
     const response = await rangedGet();

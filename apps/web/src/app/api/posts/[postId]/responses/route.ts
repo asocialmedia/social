@@ -1,6 +1,5 @@
 import {
   and,
-  findVisiblePost,
   fromPrismaDateTime,
   getPostDataQuery,
   mapPostData,
@@ -9,6 +8,11 @@ import {
 import type { ResponsesPage } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/auth/session";
+import { explicitContentEnabled } from "@/lib/posts/explicit-content-enabled";
+import {
+  findReadableThreadAnchor,
+  postsForReader,
+} from "@/lib/posts/reader-content-policy";
 
 // Responses are posts that reply to a post. Pagination walks the DIRECT
 // responses to the anchor (posts whose parent is the anchor and that are
@@ -72,7 +76,7 @@ export async function GET(
   // hold first: without it a guessed id read the thread of a post inside a
   // PRIVATE community. Returning 404 for both "missing" and "not readable"
   // avoids confirming that the post exists.
-  const anchor = await findVisiblePost(postId, userId);
+  const anchor = await findReadableThreadAnchor(postId, userId);
   if (!anchor) {
     return Response.json({ error: "Post not found" }, { status: 404 });
   }
@@ -100,7 +104,7 @@ export async function GET(
       .map(mapPostData);
     const response: ResponsesPage = {
       previousCursor: null,
-      responses: branch,
+      responses: postsForReader(branch, await explicitContentEnabled(userId)),
     };
     return Response.json(response);
   }
@@ -139,7 +143,10 @@ export async function GET(
 
   const response: ResponsesPage = {
     previousCursor: hasMore && lastTopLevel ? encodeCursor(lastTopLevel) : null,
-    responses: [...page, ...descendants],
+    responses: postsForReader(
+      [...page, ...descendants],
+      await explicitContentEnabled(userId)
+    ),
   };
 
   return Response.json(response);

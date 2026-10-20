@@ -16,6 +16,7 @@ import { connection } from "next/server";
 
 import { getSessionFromApi } from "@/lib/auth/session";
 import { networkFeedContext } from "@/lib/recommendations/network-context";
+import { safeUserDiscoveryResponse } from "@/lib/users/discovery-safety";
 import { networkSuggestedUsers } from "@/lib/users/network-suggested-users";
 import { suggestedUsersCache } from "@/lib/users/suggested-users-cache";
 import {
@@ -62,6 +63,10 @@ function isRefreshRequest(req: Request): boolean {
 }
 
 export async function GET(req: Request) {
+  return safeUserDiscoveryResponse(await readUsers(req));
+}
+
+async function readUsers(req: Request) {
   await connection();
   const startedAt = Date.now();
   try {

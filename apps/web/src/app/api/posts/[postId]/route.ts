@@ -12,6 +12,10 @@ import { createLogger } from "@asm/logger";
 
 import { getSessionFromApi } from "@/lib/auth/session";
 import { explicitContentEnabled } from "@/lib/posts/explicit-content-enabled";
+import {
+  postContentReadable,
+  postsForReader,
+} from "@/lib/posts/reader-content-policy";
 import { deletePost, updatePostModeration } from "@/posts/actions";
 import type { PostModerationChanges } from "@/posts/actions";
 
@@ -67,7 +71,7 @@ export async function GET(
       }
     }
   }
-  if (!post) {
+  if (!post || !postContentReadable(post, showExplicitContent)) {
     return Response.json({ error: "Post not found" }, { status: 404 });
   }
 
@@ -77,7 +81,10 @@ export async function GET(
     ancestors = await getPostAncestors(hydrated.parentPostId, userId);
   }
 
-  return Response.json({ ancestors, post: hydrated });
+  return Response.json({
+    ancestors: postsForReader(ancestors, showExplicitContent),
+    post: postsForReader([hydrated], showExplicitContent)[0],
+  });
 }
 
 // The post author deleting their own post. Delegates to the server action so

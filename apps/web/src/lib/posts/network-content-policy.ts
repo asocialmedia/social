@@ -47,11 +47,17 @@ export function externalNetworkInterestScore(
     score = Math.max(
       score,
       networkInterestScore(
-        `${current.text} ${current.externalLink?.title ?? ""} ${current.externalLink?.description ?? ""} ${current.media.map((media) => media.alt).join(" ")}`,
+        `${current.text} ${current.externalLink?.title ?? ""} ${current.externalLink?.description ?? ""}`,
         externalPostTopics(current),
         interests,
         scope
-      )
+      ) * (current === post ? 1 : 0.5),
+      networkInterestScore(
+        current.media.map((media) => media.alt).join(" "),
+        [],
+        interests,
+        scope
+      ) * (current === post ? 0.25 : 0.125)
     );
     current = current.quote;
   }
@@ -162,6 +168,26 @@ export function networkPostAllowed(
   scope?: NetworkTopicScope
 ): boolean {
   const policy = scopedNetworkPreferences(preferences, scope);
+  const parent = post.parentPost;
+  if (
+    parent &&
+    (parent.moderated ||
+      (!policy.showExplicitContent &&
+        (postHasExplicitMedia({
+          content: parent.content,
+          explicitContent: parent.explicitContent,
+        }) ||
+          parseStoredEmbeds(parent.embeds).some((embed) =>
+            blueskyMediaIsExplicit({
+              externalLink: {
+                description: embed.description ?? undefined,
+                title: embed.title ?? undefined,
+              },
+            })
+          ))))
+  ) {
+    return false;
+  }
   if (!policy.showExplicitContent && postHasExplicitMedia(post)) {
     return false;
   }

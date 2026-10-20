@@ -13,6 +13,8 @@ mock.module("@/lib/auth/session", () => ({
 // community-visibility gate the route now applies before returning or
 // accepting any comment.
 let postVisible = true;
+let anchorExplicit = false;
+let viewerExplicit = false;
 
 mock.module("@asm/db", () => ({
   getNetworkPersona: () => ({ selected: { id: "default" } }),
@@ -20,6 +22,7 @@ mock.module("@asm/db", () => ({
   recordNetworkSignal: () => true,
   removeNetworkSignal: () => true,
   ...asmDbMockBase,
+
   COMMENT_CREATION_AURA: 5,
   COMMENT_RECEIVED_AURA: 10,
   applyFlatAward: mock(() => Promise.resolve({ amount: 5 })),
@@ -71,6 +74,27 @@ mock.module("@asm/db", () => ({
       findMany: mock(() => Promise.resolve([])),
       findUnique: mock(() => Promise.resolve(null)),
     },
+    orm: {
+      public: {
+        Posts: {
+          where: () => {
+            const query = {
+              first: () =>
+                Promise.resolve({
+                  content: anchorExplicit ? "#porn" : "A safe post",
+                  explicitContent: false,
+                  moderated: false,
+                  semanticTags: [],
+                  user: { banned: false },
+                }),
+              include: () => query,
+              select: () => query,
+            };
+            return query;
+          },
+        },
+      },
+    },
     post: {
       findUnique: mock((args: { where: { id: string } }) => {
         if (args.where.id === "valid-post") {
@@ -82,6 +106,8 @@ mock.module("@asm/db", () => ({
   },
   publishCommentCreated: mock(() => Promise.resolve()),
   publishCommentDeleted: mock(() => Promise.resolve()),
+  readNetworkPreferences: () =>
+    Promise.resolve({ preferences: { showExplicitContent: viewerExplicit } }),
   reverseExactAura: mock(() => Promise.resolve()),
 }));
 
@@ -171,7 +197,23 @@ describe("POST /api/posts/[postId]/comments API enforcement", () => {
 describe("comment reads honor community visibility", () => {
   // Own reset: the flag above is shared, and suites must not leak state.
   beforeEach(() => {
+    mockSessionUser = { user: { id: "user-123" } };
     postVisible = true;
+    anchorExplicit = false;
+    viewerExplicit = false;
+  });
+
+  test("an unlabeled explicit anchor is hidden until the viewer opts in", async () => {
+    anchorExplicit = true;
+    const request = new Request(
+      "http://localhost/api/posts/valid-post/comments"
+    );
+    const context = { params: Promise.resolve({ postId: "valid-post" }) };
+    const hidden = await GET(request, context);
+    expect(hidden.status).toBe(404);
+    viewerExplicit = true;
+    const allowed = await GET(request, context);
+    expect(allowed.status).toBe(200);
   });
 
   // A comment list is derived from its post, so a post the viewer cannot read

@@ -1,9 +1,10 @@
-import { prisma } from "@asm/db";
+import { canViewCommunity, prisma } from "@asm/db";
 import { GetObjectCommand, S3ServiceException } from "@aws-sdk/client-s3";
 import { NextResponse } from "next/server";
 
 import { getSessionFromApi } from "@/lib/auth/session";
 import { decideMediaAccess } from "@/lib/media/media-access";
+import { mediaContentIsExplicit } from "@/lib/media/media-content-policy";
 import { mediaError, mediaJsonError } from "@/lib/media/media-responses";
 import {
   resolveDenWallpaperConversationId,
@@ -11,6 +12,7 @@ import {
 } from "@/lib/media/message-media-access";
 import { ASMOB_BUCKET, asmobClient } from "@/lib/media/object-storage";
 import { getWebLogger } from "@/lib/otel";
+import { explicitContentEnabled } from "@/lib/posts/explicit-content-enabled";
 import {
   getContentDisposition,
   isBlockedMediaMime,
@@ -32,6 +34,9 @@ export async function GET(
 
   const { mediaId } = await ctx.params;
   const media = await prisma.orm.public.PostMedia.select(
+    "safety",
+    "altText",
+    "ocrText",
     "commentId",
     "key",
     "messageConversationId",
@@ -42,9 +47,32 @@ export async function GET(
     "status",
     "userId"
   )
+    .include("post", (post) =>
+      post
+        .select("content", "semanticTags", "explicitContent")
+        .include("community", (community) => community.select("id", "_type"))
+    )
+    .include("comment", (comment) =>
+      comment
+        .select("content")
+        .include("post", (post) =>
+          post
+            .select("content", "semanticTags", "explicitContent")
+            .include("community", (community) =>
+              community.select("id", "_type")
+            )
+        )
+    )
     .where({ id: mediaId })
     .first();
   if (!media) {
+    return mediaError("Media not found", 404);
+  }
+
+  if (
+    mediaContentIsExplicit(media) &&
+    !(await explicitContentEnabled(user.id))
+  ) {
     return mediaError("Media not found", 404);
   }
 
@@ -78,12 +106,25 @@ export async function GET(
       user.id
     );
   }
-  const decision = decideMediaAccess(media, user, {
-    isConversationMember: await resolveMessageMediaMembership(
-      media.messageConversationId,
-      user.id
-    ),
-  });
+  const community = media.post?.community ?? media.comment?.post?.community;
+  const isPrivateCommunityPost = community?._type === "PRIVATE";
+  const decision = decideMediaAccess(
+    { ...media, isPrivateCommunityPost },
+    user,
+    {
+      isCommunityMember:
+        isPrivateCommunityPost && community
+          ? await canViewCommunity(
+              { id: community.id, type: community._type },
+              user.id
+            )
+          : false,
+      isConversationMember: await resolveMessageMediaMembership(
+        media.messageConversationId,
+        user.id
+      ),
+    }
+  );
   if (!decision.allowed) {
     return mediaError(
       decision.status === 401 ? "Unauthorized" : "Media not found",

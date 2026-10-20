@@ -8,8 +8,16 @@ import {
 } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/auth/session";
+import {
+  safeUserDiscoveryResponse,
+  userFollowerCounts,
+} from "@/lib/users/discovery-safety";
 
 export async function GET(request: Request) {
+  return safeUserDiscoveryResponse(await readUsers(request));
+}
+
+async function readUsers(request: Request) {
   try {
     // Guests can browse users; per-user fields simply resolve to empty.
     const session = await getSessionFromApi();
@@ -58,6 +66,7 @@ export async function GET(request: Request) {
       (row, index, allRows) =>
         allRows.findIndex((candidate) => candidate.id === row.id) === index
     );
+    const followerCounts = await userFollowerCounts();
     rows.sort((left, right) => {
       if (sortBy === "newest") {
         return (
@@ -74,12 +83,14 @@ export async function GET(request: Request) {
       if (sortBy === "posts") {
         return right.posts.total - left.posts.total;
       }
-      return right.followsFollows.length - left.followsFollows.length;
+      return (
+        (followerCounts.get(right.id) ?? 0) - (followerCounts.get(left.id) ?? 0)
+      );
     });
     const users = rows.slice(0, 20).map((user) => ({
       ...mapUserData(user),
       _count: {
-        followers: user.followsFollows.length,
+        followers: followerCounts.get(user.id) ?? 0,
         following: user.follows.total,
       },
     }));

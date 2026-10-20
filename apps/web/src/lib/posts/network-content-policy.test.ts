@@ -4,6 +4,7 @@ import type { ExternalPost } from "@asm/protocols/contracts";
 import { defaultNetworkPreferences } from "@asm/protocols/discovery";
 
 import {
+  externalNetworkInterestScore,
   externalNetworkPostAllowed,
   networkPostAllowed,
   networkPostRecommended,
@@ -39,6 +40,49 @@ const source: ExternalPost = {
   upstreamCounts: {},
   url: "https://bsky.app/profile/example.test/post/example",
 };
+
+test("native feed responses cannot expose unsafe parent previews through a safe caption", () => {
+  const view = externalPostView(source);
+  const parent = { ...view, content: "#porn", external: undefined };
+  const response = {
+    ...view,
+    content: "A safe response",
+    external: undefined,
+    parentPost: parent,
+  };
+  const preferences = defaultNetworkPreferences();
+  expect(networkPostAllowed(response, preferences)).toBe(false);
+  expect(
+    networkPostAllowed(response, { ...preferences, showExplicitContent: true })
+  ).toBe(true);
+  expect(
+    networkPostAllowed(
+      {
+        ...response,
+        parentPost: { ...parent, content: "ordinary", moderated: true },
+      },
+      { ...preferences, showExplicitContent: true }
+    )
+  ).toBe(false);
+});
+
+test("incidental alt text and quotes carry less interest evidence than the post itself", () => {
+  const primary = { ...source, text: "Engineering tutorial" };
+  const incidental = {
+    ...source,
+    media: [
+      { ...source.media[0], alt: "A character talking engineering in a story" },
+    ],
+    text: "A fiction writing prompt",
+  };
+  expect(externalNetworkInterestScore(primary, ["engineering"])).toBe(1);
+  expect(externalNetworkInterestScore(incidental, ["engineering"])).toBe(0.25);
+  expect(
+    externalNetworkPostRecommended(incidental, defaultNetworkPreferences(), [
+      "engineering",
+    ])
+  ).toBe(true);
+});
 
 test("cached recommendations obey the active profile, including media metadata and relevant quoted context", () => {
   const preferences = {

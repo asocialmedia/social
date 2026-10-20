@@ -8,6 +8,7 @@ import {
   decideMediaAccess,
   resolveOwningCommunity,
 } from "@/lib/media/media-access";
+import { mediaContentIsExplicit } from "@/lib/media/media-content-policy";
 import { mediaError } from "@/lib/media/media-responses";
 import {
   resolveDenWallpaperConversationId,
@@ -88,6 +89,9 @@ function resolveObjectKey(
 // PK lookup.
 async function getMediaOwnership(mediaId: string) {
   const ownership = await prisma.orm.public.PostMedia.select(
+    "safety",
+    "altText",
+    "ocrText",
     "commentId",
     "messageConversationId",
     "mimeType",
@@ -96,10 +100,10 @@ async function getMediaOwnership(mediaId: string) {
   )
     .include("comment", (comment) =>
       comment
-        .select("postId")
+        .select("postId", "content")
         .include("post", (post) =>
           post
-            .select("communityId")
+            .select("communityId", "content", "semanticTags", "explicitContent")
             .include("community", (community) =>
               community.select("id", "_type")
             )
@@ -107,7 +111,7 @@ async function getMediaOwnership(mediaId: string) {
     )
     .include("post", (post) =>
       post
-        .select("communityId", "explicitContent")
+        .select("communityId", "content", "semanticTags", "explicitContent")
         .include("community", (community) => community.select("id", "_type"))
     )
     .include("postMediaDerivatives", (derivative) =>
@@ -244,7 +248,7 @@ export async function GET(
   // is not public just because the row has a postId: guests can never opt in, and
   // a signed-in reader has to have switched explicit content on.
   let isExplicitPost = false;
-  if (ownership.post?.explicitContent) {
+  if (mediaContentIsExplicit(ownership)) {
     const showExplicitContent = viewer
       ? await explicitContentEnabled(viewer.id)
       : false;
