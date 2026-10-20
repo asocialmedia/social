@@ -199,7 +199,7 @@
     },
     "apps/web": {
       "name": "@asm/web",
-      "version": "1.8.58",
+      "version": "1.8.59",
       "dependencies": {
         "@asm/aggregator": "workspace:*",
         "@asm/auth": "workspace:*",
@@ -414,7 +414,7 @@
     },
     "packages/next": {
       "name": "@asm/next",
-      "version": "1.0.21",
+      "version": "1.0.22",
       "dependencies": {
         "dotenv": "^17.4.2",
         "next": "^16.3.0",
