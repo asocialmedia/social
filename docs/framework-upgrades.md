@@ -41,9 +41,9 @@ remains enabled. Native module call improvements and prebuilt Android
 `expo-modules-core` libraries come from the SDK upgrade automatically.
 
 `File.write()` and file-handle reads are now asynchronous. Multipart uploads await
-completed reads and writes;
-synchronous draft and crop operations use `writeSync()`. The Android browser
-referrer and Reanimated unmounted-view patches are carried to the new versions.
+completed reads and writes; crop completion awaits its file write, and synchronous
+drafts use `writeSync()`. The Android browser referrer and Reanimated unmounted-view
+patches are carried to the new versions.
 
 ## Validation and native builds
 
