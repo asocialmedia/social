@@ -178,6 +178,25 @@
 }
 
 @layer components {
+  .media-viewer-chip {
+    color: white;
+    background: linear-gradient(to bottom, #3a3f4a, #23262e);
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 255, 255, 0.28),
+      inset 0 1px 2px rgba(255, 255, 255, 0.3),
+      0 0 0 1px rgba(255, 255, 255, 0.12),
+      0 2px 6px rgba(0, 0, 0, 0.45);
+  }
+
+  .media-viewer-chip[aria-pressed="true"] {
+    color: #ff9500;
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 255, 255, 0.28),
+      inset 0 1px 2px rgba(255, 255, 255, 0.3),
+      0 0 0 1px rgba(249, 115, 22, 0.6),
+      0 2px 6px rgba(0, 0, 0, 0.45);
+  }
+
   .community-accent-rail {
     background-color: var(--community-accent);
   }

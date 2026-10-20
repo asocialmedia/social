@@ -199,7 +199,7 @@
     },
     "apps/web": {
       "name": "@asm/web",
-      "version": "1.8.60",
+      "version": "1.8.61",
       "dependencies": {
         "@asm/aggregator": "workspace:*",
         "@asm/auth": "workspace:*",
@@ -461,7 +461,7 @@
     },
     "packages/ui": {
       "name": "@asm/ui",
-      "version": "1.0.73",
+      "version": "1.0.74",
       "dependencies": {
         "@asm/aggregator": "workspace:*",
         "@radix-ui/react-accordion": "^1.2.20",
