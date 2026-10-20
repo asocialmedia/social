@@ -16,14 +16,18 @@ describe("kill-dev-ports", () => {
   });
 
   test("detects a running server pid on a custom port", async () => {
-    const testPort = 39876;
     const server = createServer((_req, res) => res.end("ok"));
-    await new Promise<void>((resolve) => server.listen(testPort, resolve));
-
-    const pids = await findListeningPids([testPort], []);
-    expect(pids).toContain(process.pid);
-
-    server.close();
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    try {
+      const address = server.address();
+      if (!address || typeof address === "string") {
+        throw new Error("Expected a listening TCP port");
+      }
+      const pids = await findListeningPids([address.port], []);
+      expect(pids).toContain(process.pid);
+    } finally {
+      server.close();
+    }
   });
 
   test("killStaleDevProcesses executes without error when ports are free", async () => {

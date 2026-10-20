@@ -4,6 +4,8 @@ import { mkdir } from "node:fs/promises";
 import { closePrisma, prisma, redis, toPrismaDateTime } from "@asm/db";
 import { defaultNetworkPreferences } from "@asm/protocols/discovery";
 
+import { feedObservationAudienceMatches } from "./feed-observation-audience";
+
 const count = Number(
   Bun.argv.find((arg) => arg.startsWith("--users="))?.split("=")[1] ?? 1000
 );
@@ -50,7 +52,11 @@ const viewers = Array.from({ length: count }, (_, index) => ({
   interests: cohorts[index % cohorts.length] ?? ["engineering"],
   ip: `198.18.${Math.floor(index / 250)}.${(index % 250) + 1}`,
 }));
-const scenario = Bun.argv.includes("--feed-burst") ? "feed-burst" : "browse";
+const scenario = Bun.argv.includes("--feed-burst")
+  ? "feed-burst"
+  : Bun.argv.includes("--native-burst")
+    ? "native-burst"
+    : "browse";
 const paths = [
   "/api/network/preferences",
   "/api/posts/for-you?network=1&locale=en",
@@ -69,11 +75,13 @@ const paths = [
   "/api/protocols/bluesky/discover?mode=personalized&content=video&surface=explore&locale=en",
   "/api/recommendations/suggestions",
 ];
-if (scenario === "feed-burst")
+if (scenario !== "browse")
   paths.splice(
     0,
     paths.length,
-    "/api/protocols/bluesky/discover?mode=personalized&locale=en"
+    scenario === "native-burst"
+      ? "/api/posts/for-you?network=1&locale=en"
+      : "/api/protocols/bluesky/discover?mode=personalized&locale=en"
   );
 if (followDid) paths.push("/api/protocols/bluesky/following?locale=en");
 const timings = new Map<string, number[]>();
@@ -174,6 +182,29 @@ try {
             requests += 1;
             if (!response.ok)
               errors.push({ path, status: response.status, error: body.error });
+            if (
+              response.ok &&
+              (path.startsWith("/api/posts/") ||
+                path.startsWith("/api/gusts?") ||
+                path.startsWith("/api/protocols/bluesky/discover?")) &&
+              (body.items ?? body.posts ?? []).some(
+                (post) => !feedObservationAudienceMatches(post, viewer.id)
+              )
+            ) {
+              const post = (body.items ?? body.posts ?? []).find(
+                (item) => !feedObservationAudienceMatches(item, viewer.id)
+              );
+              const hasReceipt =
+                post &&
+                typeof post === "object" &&
+                "networkRecommendationToken" in post &&
+                typeof post.networkRecommendationToken === "string";
+              errors.push({
+                path,
+                status: 0,
+                error: `Authenticated feed receipt mismatch (${hasReceipt ? "wrong audience" : "missing receipt"})`,
+              });
+            }
             if (
               path === "/api/network/preferences" &&
               response.ok &&
