@@ -2,8 +2,9 @@
 // oxlint-disable promise/prefer-await-to-then
 import { createHash } from "node:crypto";
 
+import { ProtocolError } from "@asm/protocols/contracts";
 import { metrics, context, propagation } from "@opentelemetry/api";
-import { Queue, Worker, UnrecoverableError } from "bullmq";
+import { Queue, Worker, UnrecoverableError, DelayedError } from "bullmq";
 import type Redis from "ioredis";
 import { z } from "zod";
 
@@ -34,6 +35,18 @@ const batchSchema = z.object({
 });
 
 export type HydrationBatch = z.infer<typeof batchSchema>;
+
+export function hydrationRetryDelay(error: unknown): number | undefined {
+  if (
+    error instanceof ProtocolError &&
+    ["capacity", "unavailable", "rate_limited"].includes(error.code) &&
+    error.retryAfterSeconds &&
+    Number.isFinite(error.retryAfterSeconds) &&
+    error.retryAfterSeconds > 0
+  ) {
+    return Math.min(60_000, Math.max(1000, error.retryAfterSeconds * 1000));
+  }
+}
 
 export async function runHydrationJob(
   data: unknown,
@@ -123,13 +136,31 @@ export function createIngestionQueue(options: {
       const request = new Request("http://protocols.internal/ingestion", {
         headers: parsed.success ? parsed.data.trace : undefined,
       });
-      return await observeRequest(
-        "ingestion.hydrate",
-        request,
-        job.id ?? crypto.randomUUID(),
-        options.logger,
-        () => runHydrationJob(job.data, options.hydrate)
-      );
+      try {
+        return await observeRequest(
+          "ingestion.hydrate",
+          request,
+          job.id ?? crypto.randomUUID(),
+          options.logger,
+          () => runHydrationJob(job.data, options.hydrate)
+        );
+      } catch (error) {
+        const delay = hydrationRetryDelay(error);
+        if (!delay) {
+          throw error;
+        }
+        // Cooling down is not a failed source read; the batch age check still bounds deferred work.
+        await job.moveToDelayed(Date.now() + delay, job.token);
+        options.logger.info(
+          {
+            event: "ingestion.deferred",
+            node: options.node,
+            retryAfterMs: delay,
+          },
+          "Protocol hydration waiting for read capacity"
+        );
+        throw new DelayedError();
+      }
     },
     {
       autorun: false,

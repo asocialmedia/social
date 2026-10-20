@@ -1022,7 +1022,15 @@ export class BlueskyClient {
               response.status >= 500 || response.status === 408
                 ? "unavailable"
                 : "invalid_input",
-              "Public read failed"
+              "Public read failed",
+              response.status >= 500 || response.status === 408
+                ? Math.ceil(
+                    (retryAfterMs(
+                      response.headers.get("retry-after"),
+                      this.options.now()
+                    ) ?? 5000) / 1000
+                  )
+                : undefined
             );
           }
           return Response.json(

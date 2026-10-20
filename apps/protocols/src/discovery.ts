@@ -620,11 +620,21 @@ export class BlueskyDiscovery {
         } else {
           partial = true;
           blocked.add(source.actor);
+          // A broken generator must not hold the remaining live catalog behind its failed cursor.
+          if (
+            !this.actors &&
+            source.actor.startsWith("at://") &&
+            snapshot.catalogFeeds.length > 0 &&
+            error instanceof ProtocolError &&
+            error.code === "unavailable"
+          ) {
+            source.exhausted = true;
+          }
         }
       }
     });
     signal.throwIfAborted();
-    if (succeeded === 0) {
+    if (succeeded === 0 && snapshot.catalogFeeds.length === 0) {
       throw new ProtocolError(
         "unavailable",
         "Bluesky discovery is temporarily unavailable",
@@ -641,6 +651,10 @@ export class BlueskyDiscovery {
         .flatMap((source) => source.items.map((post) => post.author.id))
     );
     const items: ExternalPost[] = [];
+    const selectedSources = new Map<
+      string,
+      (typeof snapshot.sources)[number]
+    >();
     const authorCounts = new Map<string, number>();
     while (items.length < 20) {
       const candidates = snapshot.sources.flatMap((source) =>
@@ -673,6 +687,9 @@ export class BlueskyDiscovery {
         break;
       }
       if (!snapshot.seen.includes(post.id)) {
+        if (selected) {
+          selectedSources.set(post.id, selected.source);
+        }
         items.push(post);
         snapshot.seen.push(post.id);
         authorCounts.set(
@@ -690,6 +707,7 @@ export class BlueskyDiscovery {
     // Redis (see createCachedBlueskyClient) rather than made faster by raising
     // concurrency against an upstream we do not control.
     const allowed = new Set<string>();
+    const deferredAuthors = new Set<string>();
     await mapBounded(
       [...new Set(items.filter(needsPolicy).map((post) => post.author.id))],
       async (author) => {
@@ -701,10 +719,19 @@ export class BlueskyDiscovery {
           }
         } catch {
           partial = true;
+          deferredAuthors.add(author);
         }
       },
       6
     );
+    const deferredIds = new Set<string>();
+    for (const post of items) {
+      if (needsPolicy(post) && deferredAuthors.has(post.author.id)) {
+        deferredIds.add(post.id);
+        selectedSources.get(post.id)?.items.push(post);
+      }
+    }
+    snapshot.seen = snapshot.seen.filter((id) => !deferredIds.has(id));
     const permitted = items.filter(
       (post) => !needsPolicy(post) || allowed.has(post.author.id)
     );

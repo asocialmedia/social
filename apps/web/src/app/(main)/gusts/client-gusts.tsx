@@ -443,31 +443,43 @@ const GustStream = ({ gustTab }: { gustTab: GustFeed }) => {
     network.ready,
   ]);
   const orderScope = `${gustTab}:${initialPostId ?? ""}:${source}:${user?.id ?? "guest"}:${network.scope}:${locale}`;
+  const sourcesPending =
+    includeNative &&
+    includeExternal &&
+    (nativeStatus === "pending" ||
+      externalFeed.isPending ||
+      isFetchingNativeNextPage ||
+      externalFeed.isFetchingNextPage);
   const [reel, setReel] = useState<{
     scope: string;
     native: typeof nativePosts;
     external: typeof externalPosts;
     posts: PresentedPost[];
+    pending: boolean;
   }>({
     external: externalPosts,
     native: nativePosts,
-    posts: mergeGustPosts([], nativePosts, externalPosts),
+    pending: sourcesPending,
+    posts: mergeGustPosts([], nativePosts, externalPosts, sourcesPending),
     scope: orderScope,
   });
   let { posts } = reel;
   if (
     reel.scope !== orderScope ||
     reel.native !== nativePosts ||
-    reel.external !== externalPosts
+    reel.external !== externalPosts ||
+    reel.pending !== sourcesPending
   ) {
     posts = mergeGustPosts(
       reel.scope === orderScope ? reel.posts : [],
       nativePosts,
-      externalPosts
+      externalPosts,
+      sourcesPending
     );
     setReel({
       external: externalPosts,
       native: nativePosts,
+      pending: sourcesPending,
       posts,
       scope: orderScope,
     });

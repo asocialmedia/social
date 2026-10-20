@@ -48,6 +48,10 @@ export default function UserAvatar({
   // client can resolve - the optimizer endpoint would 400 them into the
   // default-avatar fallback, so they must render unoptimized too.
   const isBlobUrl = avatarUrl?.startsWith("blob:") === true;
+  // Bluesky already serves sized avatar derivatives; avoid a second server-side CDN fetch and its timeout.
+  const isBlueskyAvatar = resolvedSrc.startsWith(
+    "https://cdn.bsky.app/img/avatar/"
+  );
 
   return (
     <Image
@@ -63,7 +67,11 @@ export default function UserAvatar({
       priority={priority}
       src={resolvedSrc}
       unoptimized={
-        isDefaultAvatar || isProxyAvatar || isBlobUrl || isGifUrl(avatarUrl)
+        isDefaultAvatar ||
+        isProxyAvatar ||
+        isBlobUrl ||
+        isBlueskyAvatar ||
+        isGifUrl(avatarUrl)
       }
       width={size ?? 48}
     />

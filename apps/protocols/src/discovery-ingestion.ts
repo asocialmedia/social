@@ -1,6 +1,7 @@
 // Hydration batches finish before their successor starts; the socket handler only enqueues IDs.
 // oxlint-disable no-await-in-loop
 import type { BlueskyClient } from "@asm/protocols/bluesky";
+import { BoundedReadQueue } from "@asm/protocols/discovery";
 import { jetstreamRecordUri } from "@asm/protocols/jetstream";
 import type { JetstreamEvent } from "@asm/protocols/jetstream";
 
@@ -10,6 +11,32 @@ export interface DiscoveryHydrationOptions {
   client: Pick<BlueskyClient, "getPosts" | "allowsRecommendations">;
   store: InventoryStore;
   publish: () => Promise<unknown>;
+}
+
+export function createHydrationReader(
+  client: DiscoveryHydrationOptions["client"],
+  concurrency: number
+) {
+  const abort = new AbortController();
+  const queue = new BoundedReadQueue({
+    concurrency,
+    maxQueued: 32,
+    maxWaitMs: 2000,
+  });
+  const signal = () =>
+    AbortSignal.any([abort.signal, AbortSignal.timeout(5000)]);
+  return {
+    client: {
+      allowsRecommendations: (did: string) =>
+        queue.run(() => client.allowsRecommendations(did), signal()),
+      getPosts: (ids: string[]) =>
+        queue.run(() => client.getPosts(ids), signal()),
+    },
+    close() {
+      abort.abort();
+      queue.close();
+    },
+  };
 }
 
 export async function hydrateDiscoveryBatch(

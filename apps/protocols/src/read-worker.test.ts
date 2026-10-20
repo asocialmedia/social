@@ -154,6 +154,40 @@ test("worker applies upstream host cooldown across callers while independent hos
   expect(fetcher).toHaveBeenCalledTimes(3);
 });
 
+test("negotiated worker capacity errors preserve their retry delay through edge proxies", async () => {
+  const worker = createReadWorkerApp({ id: node.id, logger: logger(), token });
+  worker.drain();
+  const negotiated = request(profile);
+  negotiated.headers.set("x-asm-worker-envelope", "1");
+  const result = await worker.app.handle(negotiated);
+  expect(result.status).toBe(200);
+  expect(result.headers.get("x-asm-upstream-status")).toBe("503");
+  expect(result.headers.get("retry-after")).toBe("1");
+  expect(await result.json()).toEqual({ error: "worker_busy" });
+});
+
+test("the pool respects short capacity retry delays instead of applying a long failure cooldown", async () => {
+  let now = 0;
+  const fetcher = mock(async () =>
+    Response.json(
+      { error: "busy" },
+      { headers: { "retry-after": "1" }, status: 503 }
+    )
+  );
+  const pool = createReadWorkerPool({
+    fetch: fetcher,
+    logger: logger(),
+    nodes: [],
+    now: () => now,
+  });
+  expect((await pool.fetch(profile, {})).headers.get("retry-after")).toBe("1");
+  await pool.fetch(profile, {});
+  expect(fetcher).toHaveBeenCalledTimes(1);
+  now = 1001;
+  await pool.fetch(profile, {});
+  expect(fetcher).toHaveBeenCalledTimes(2);
+});
+
 test("worker bounds concurrency and response bodies", async () => {
   let finish: ((value: Response) => void) | undefined;
   const worker = createReadWorkerApp({
@@ -325,6 +359,63 @@ test("pool distributes unique reads between local and remote without forwarding 
   await pool.fetch(profile, {});
   expect(calls[0]).toBe(profile);
   expect(calls[1]?.startsWith(node.url)).toBe(true);
+});
+
+test("a broken feed does not pause healthy feeds or post hydration on the same upstream", async () => {
+  const broken =
+    "https://public.api.bsky.app/xrpc/app.bsky.feed.getFeed?feed=at://did:plc:alice/app.bsky.feed.generator/broken";
+  const healthy =
+    "https://public.api.bsky.app/xrpc/app.bsky.feed.getFeed?feed=at://did:plc:alice/app.bsky.feed.generator/healthy";
+  const posts =
+    "https://public.api.bsky.app/xrpc/app.bsky.feed.getPosts?uris=at://did:plc:alice/app.bsky.feed.post/example";
+  const calls: string[] = [];
+  const pool = createReadWorkerPool({
+    fetch: async (url) => {
+      calls.push(url);
+      return url === broken
+        ? Response.json({ error: "UpstreamFailure" }, { status: 502 })
+        : Response.json({ posts: [] });
+    },
+    logger: logger(),
+    nodes: [],
+    now: () => 0,
+  });
+  expect((await pool.fetch(broken, {})).status).toBe(502);
+  expect((await pool.fetch(healthy, {})).status).toBe(200);
+  expect((await pool.fetch(posts, {})).status).toBe(200);
+  expect((await pool.fetch(broken, {})).status).toBe(503);
+  expect(calls).toEqual([broken, healthy, posts]);
+});
+
+test("worker upstream failures survive edge error interception without poisoning unrelated reads", async () => {
+  const upstream =
+    "https://public.api.bsky.app/xrpc/app.bsky.feed.getFeed?feed=at://did:plc:alice/app.bsky.feed.generator/broken";
+  const worker = createReadWorkerApp({
+    fetch: async () =>
+      Response.json({ error: "UpstreamFailure" }, { status: 502 }),
+    id: node.id,
+    logger: logger(),
+    token,
+  });
+  const negotiated = request(upstream);
+  negotiated.headers.set("x-asm-worker-envelope", "1");
+  const envelope = await worker.app.handle(negotiated);
+  expect(envelope.status).toBe(200);
+  expect(envelope.headers.get("x-asm-upstream-status")).toBe("502");
+  expect(await envelope.json()).toEqual({ error: "UpstreamFailure" });
+  expect((await worker.app.handle(request(upstream))).status).toBe(502);
+  const pool = createReadWorkerPool({
+    fetch: async (url, init) =>
+      url.startsWith(node.url)
+        ? worker.app.handle(new Request(url, init))
+        : Response.json({ error: "UpstreamFailure" }, { status: 502 }),
+    logger: logger(),
+    nodes: [node],
+  });
+  const result = await pool.fetch(upstream, {});
+  expect(result.status).toBe(502);
+  expect(await result.json()).toEqual({ error: "UpstreamFailure" });
+  worker.drain();
 });
 
 test.each(["fr-CA,fr;q=0.9,en;q=0.5", undefined])(

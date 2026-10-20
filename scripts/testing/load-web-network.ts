@@ -1,10 +1,12 @@
 // Run with bun --env-file=.env.test scripts/testing/load-web-network.ts --users=1000 --concurrency=32.
+// For 1000 concurrent requests, start Bun with BUN_CONFIG_MAX_HTTP_REQUESTS=1000.
 import { mkdir } from "node:fs/promises";
 
 import { closePrisma, prisma, redis, toPrismaDateTime } from "@asm/db";
 import { defaultNetworkPreferences } from "@asm/protocols/discovery";
 
 import { feedObservationAudienceMatches } from "./feed-observation-audience";
+import { requireLoadConnectionCapacity } from "./network-load-config";
 
 const count = Number(
   Bun.argv.find((arg) => arg.startsWith("--users="))?.split("=")[1] ?? 1000
@@ -22,6 +24,10 @@ if (
   concurrency > 1000
 )
   throw new Error("Invalid load bounds");
+const httpConnectionLimit = requireLoadConnectionCapacity(
+  concurrency,
+  process.env.BUN_CONFIG_MAX_HTTP_REQUESTS
+);
 if (
   !["localhost", "127.0.0.1"].includes(base.hostname) ||
   !process.env.DATABASE_URL?.includes("localhost")
@@ -256,6 +262,7 @@ try {
     usersWithExternalFollow: viewers.filter((viewer) => viewer.follow).length,
     followedActor: followDid ?? null,
     concurrency,
+    httpConnectionLimit,
     scenario,
     requests,
     elapsedMs: Math.round(performance.now() - started),

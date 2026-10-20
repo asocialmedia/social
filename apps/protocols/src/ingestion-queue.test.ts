@@ -1,6 +1,28 @@
 import { expect, test } from "bun:test";
 
-import { ingestionConnection, runHydrationJob } from "./ingestion-queue";
+import { ProtocolError } from "@asm/protocols/contracts";
+
+import {
+  hydrationRetryDelay,
+  ingestionConnection,
+  runHydrationJob,
+} from "./ingestion-queue";
+
+test("hydration waits out reader cooldowns instead of spending all retries inside them", () => {
+  expect(
+    hydrationRetryDelay(new ProtocolError("unavailable", "Recovering", 30))
+  ).toBe(30_000);
+  expect(hydrationRetryDelay(new ProtocolError("capacity", "Busy", 1))).toBe(
+    1000
+  );
+  expect(
+    hydrationRetryDelay(new ProtocolError("rate_limited", "Paused", 120))
+  ).toBe(60_000);
+  expect(
+    hydrationRetryDelay(new ProtocolError("restricted", "Denied", 30))
+  ).toBeUndefined();
+  expect(hydrationRetryDelay(new Error("Unexpected failure"))).toBeUndefined();
+});
 
 const id = "at://did:plc:alice/app.bsky.feed.post/example";
 test("queue rejects invalid jobs and expires old work before hydration", async () => {

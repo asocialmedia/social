@@ -8,6 +8,7 @@ import type { JetstreamEvent } from "@asm/protocols/jetstream";
 import { inventoryPost } from "./discovery-fixtures";
 import {
   createDiscoveryIngestion,
+  createHydrationReader,
   hydrateDiscoveryBatch,
 } from "./discovery-ingestion";
 import { runHydrationJob } from "./ingestion-queue";
@@ -138,6 +139,53 @@ test("overlapping hydration jobs retry capacity failures instead of completing w
   } finally {
     release.resolve();
     client.close();
+  }
+});
+
+test("overlapping hydration jobs share a bounded read budget without dropping authors", async () => {
+  let active = 0;
+  let peak = 0;
+  const posts = Array.from({ length: 12 }, (_, index) => inventoryPost(index));
+  const reader = createHydrationReader(
+    {
+      allowsRecommendations: async () => {
+        active += 1;
+        peak = Math.max(peak, active);
+        await Bun.sleep(2);
+        active -= 1;
+        return true;
+      },
+      getPosts: (ids) =>
+        Promise.resolve(posts.filter((post) => ids.includes(post.id))),
+    },
+    6
+  );
+  const saved: ExternalPost[] = [];
+  const hydrate = (batch: ExternalPost[]) =>
+    hydrateDiscoveryBatch(
+      {
+        client: reader.client,
+        publish: () => Promise.resolve(),
+        store: {
+          invalidate: () => Promise.resolve(),
+          put: (items) => {
+            saved.push(...items);
+            return Promise.resolve();
+          },
+          read: () => Promise.resolve(saved),
+        },
+      },
+      batch.map((post) => post.id),
+      Date.now()
+    );
+  try {
+    expect(
+      await Promise.all([hydrate(posts.slice(0, 6)), hydrate(posts.slice(6))])
+    ).toEqual([6, 6]);
+    expect(peak).toBe(6);
+    expect(new Set(saved.map((post) => post.id)).size).toBe(12);
+  } finally {
+    reader.close();
   }
 });
 

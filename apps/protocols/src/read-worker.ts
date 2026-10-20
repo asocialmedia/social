@@ -89,11 +89,22 @@ export function createReadWorkerApp(options: {
         request,
         requestId(request),
         options.logger,
-        () =>
-          reader.fetch(target.href, {
+        async () => {
+          const response = await reader.fetch(target.href, {
             headers: publicReadHeaders(request.headers),
             signal: request.signal,
-          })
+          });
+          // Carry controlled failures inside a successful response so edge proxies preserve their body and provenance.
+          if (
+            request.headers.get("x-asm-worker-envelope") === "1" &&
+            response.status >= 500
+          ) {
+            const headers = new Headers(response.headers);
+            headers.set("x-asm-upstream-status", String(response.status));
+            return new Response(response.body, { headers, status: 200 });
+          }
+          return response;
+        }
       );
     });
   return { app, drain: reader.drain, fetch: reader.fetch };
@@ -110,6 +121,7 @@ export async function startReadWorker(
   let ingestion: ProtocolIngestionQueue | undefined;
   let storage: RedisConnection | undefined;
   let hydrationClient: BlueskyClient | undefined;
+  let closeHydrationReads: (() => void) | undefined;
   const worker = createReadWorkerApp({
     background: () => ingestion?.status(),
     concurrency: config.workerConcurrency,
@@ -122,7 +134,8 @@ export async function startReadWorker(
     const { BlueskyClient } = await import("@asm/protocols/bluesky");
     const { RedisInventoryStore } = await import("./discovery-inventory-store");
     const { createIngestionQueue } = await import("./ingestion-queue");
-    const { hydrateDiscoveryBatch } = await import("./discovery-ingestion");
+    const { createHydrationReader, hydrateDiscoveryBatch } =
+      await import("./discovery-ingestion");
     const { FEED_EVENTS_CHANNEL } = await import("@asm/protocols/discovery");
     storage = new Redis(config.redisUrl, {
       commandTimeout: 2000,
@@ -160,6 +173,12 @@ export async function startReadWorker(
       timeoutMs: 2500,
     });
     hydrationClient = client;
+    // Both hydration jobs share one budget, reserving transport slots for interactive reads.
+    const hydrationReads = createHydrationReader(
+      client,
+      Math.max(1, config.workerConcurrency - 2)
+    );
+    closeHydrationReads = hydrationReads.close;
     const store = new RedisInventoryStore(connection);
     ingestion = createIngestionQueue({
       concurrency: 2,
@@ -167,7 +186,7 @@ export async function startReadWorker(
       hydrate: (ids, startedAt) =>
         hydrateDiscoveryBatch(
           {
-            client,
+            client: hydrationReads.client,
             publish: () =>
               connection.publish(
                 FEED_EVENTS_CHANNEL,
@@ -199,6 +218,7 @@ export async function startReadWorker(
   const stop = () => {
     stopping ??= (async () => {
       worker.drain();
+      closeHydrationReads?.();
       hydrationClient?.close();
       await ingestion?.close();
       storage?.disconnect();

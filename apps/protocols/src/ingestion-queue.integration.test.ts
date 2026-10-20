@@ -2,6 +2,7 @@
 // oxlint-disable no-await-in-loop
 import { expect, test } from "bun:test";
 
+import { ProtocolError } from "@asm/protocols/contracts";
 import Redis from "ioredis";
 
 import { inventoryPost } from "./discovery-fixtures";
@@ -21,6 +22,52 @@ async function until(condition: () => boolean, timeout = 8000) {
     await Bun.sleep(25);
   }
 }
+
+test.skipIf(!redisUrl)(
+  "reader cooldowns defer hydration without exhausting job attempts",
+  async () => {
+    if (!redisUrl) {
+      return;
+    }
+    const redis = new Redis(redisUrl, { maxRetriesPerRequest: 1 });
+    const scope = `protocol-hydration-cooldown-${crypto.randomUUID()}`;
+    let reads = 0;
+    const queue = createIngestionQueue({
+      coordinator: true,
+      hydrate: () => {
+        reads += 1;
+        return reads === 1
+          ? Promise.reject(
+              new ProtocolError("unavailable", "Reader recovering", 1)
+            )
+          : Promise.resolve(4);
+      },
+      logger,
+      node: "local",
+      redis,
+      redisUrl,
+      scope,
+    });
+    try {
+      await queue.worker.waitUntilReady();
+      await queue.refresh();
+      expect(await queue.enqueue([id], Date.now())).toBe(true);
+      await until(() => queue.status().completed === 1);
+      expect(reads).toBe(2);
+      expect(queue.status().failed).toBe(0);
+      const [job] = await queue.queue.getCompleted(0, 0);
+      expect(job?.returnvalue).toBe(4);
+      expect(job?.attemptsMade).toBe(1);
+    } finally {
+      await queue.worker.close(true);
+      await queue.queue.obliterate({ force: true });
+      await queue.close();
+      await redis.del(`${scope}:workers`);
+      redis.disconnect();
+    }
+  },
+  10_000
+);
 
 test.skipIf(!redisUrl)(
   "shared ingestion batches run remotely and node removal returns work to the local consumer",

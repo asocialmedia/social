@@ -115,6 +115,7 @@ export function createWorkerReader(options: {
         return Response.json(body, {
           headers: {
             ...headers,
+            "x-asm-upstream-status": String(response.status),
             ...(retryAfter ? { "retry-after": retryAfter } : {}),
           },
           status: response.status,
