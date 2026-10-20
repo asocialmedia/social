@@ -5,6 +5,7 @@ export type FeedStage =
   | "budget"
   | "auth"
   | "features"
+  | "inference"
   | "cache"
   | "retrieval"
   | "graph"

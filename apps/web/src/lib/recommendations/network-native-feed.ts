@@ -17,7 +17,7 @@ import {
   redis,
   scoreCandidate,
   networkSocialCandidates,
-  getAuraSignalsForUsers,
+  computeVisibilityWeight,
   rankFeed,
   getNotInterestedPostIds,
   NetworkPreferenceConflictError,
@@ -32,6 +32,7 @@ import {
 } from "@asm/protocols/discovery";
 import { z } from "zod";
 
+import { feedPostView } from "@/lib/posts/feed-post-view";
 import {
   networkPostAllowed,
   postNetworkInterestScore,
@@ -40,6 +41,7 @@ import {
   isGuestQualityPost,
   isTrendingPost,
 } from "@/lib/posts/trending-eligibility";
+import { uniqueFeedContent } from "@/lib/posts/unique-feed-content";
 
 import { exploreTopics } from "./explore-topics";
 import { admitFeedRead } from "./feed-admission";
@@ -105,7 +107,8 @@ const headCache = new SharedReadCache({
   deadlineMs: 15_000,
   parse: (value) => z.string().parse(value),
   queue: new BoundedReadQueue({
-    concurrency: 8,
+    // Admission already bounds foreground work to 32; a second eight-job gate serialized distinct viewers.
+    concurrency: 32,
     maxQueued: 128,
     maxWaitMs: 5000,
   }),
@@ -115,14 +118,18 @@ const headCache = new SharedReadCache({
 
 export async function networkNativeFeed(
   request: Request,
-  userId: string,
+  userId: string | (() => Promise<string>),
   mode: "personalized" | "trending" | "latest",
   contentKind: "post" | "gust" = "post"
 ) {
   try {
-    return await admitFeedRead(request, () =>
-      readNetworkNativeFeed(request, userId, mode, contentKind)
-    );
+    return await admitFeedRead(request, async () => {
+      const viewerId =
+        typeof userId === "function"
+          ? await feedTiming(request).measure("auth", userId)
+          : userId;
+      return await readNetworkNativeFeed(request, viewerId, mode, contentKind);
+    });
   } catch (error) {
     reportRecommendationHealth("native-feed", false, error);
     return feedTiming(request).finish(
@@ -184,7 +191,7 @@ async function readNetworkNativeFeed(
     const version = userId
       ? await redis.get(`rec:suggestions:version:${userId}`).catch(() => null)
       : "guest";
-    const key = `rec:native-head:v4:{${createHash("sha256")
+    const key = `rec:native-head:v7:{${createHash("sha256")
       .update(
         JSON.stringify([
           userId,
@@ -266,7 +273,7 @@ async function buildNetworkNativeFeed(
     context.topicScope
   );
   const maximumLevel = context.selected.interests.length ? 1 : 2;
-  const scope = `v11:${exploring ? "explore" : "home"}:${userId || "guest"}:${context.selected.id}:${context.revision}:${context.topicScope?.version ?? "exact"}:${mode}:${contentKind}`;
+  const scope = `v12:${exploring ? "explore" : "home"}:${userId || "guest"}:${context.selected.id}:${context.revision}:${context.topicScope?.version ?? "exact"}:${mode}:${contentKind}`;
   const coldStart = isDiscoveryColdStart(
     context.selected.interests,
     context.profile,
@@ -511,14 +518,16 @@ async function buildNetworkNativeFeed(
     );
   stopFiltering();
   if (buildBatch) {
+    const stopInference = timing.start("inference");
+    const inferredTopics = new Map(
+      posts.map((post) => [post.id, topicsOf(post)])
+    );
+    stopInference();
     const stopRanking = timing.start("ranking");
-    const authorSignals = await getAuraSignalsForUsers([
-      ...new Set(posts.map((post) => post.userId)),
-    ]);
     const followedAuthorIds = new Set(social.followedIds);
     const enriched = posts.map((post) => {
-      const topics = topicsOf(post);
-      let fit = networkTopicAffinity(post.content, topics, context.profile);
+      const topics = inferredTopics.get(post.id) ?? [];
+      let fit: number;
       if (exploring) {
         fit = postNetworkInterestScore(post, neighboringTopics);
       } else if (context.selected.interests.length) {
@@ -527,6 +536,8 @@ async function buildNetworkNativeFeed(
           context.selected.interests,
           context.topicScope
         );
+      } else {
+        fit = networkTopicAffinity(post.content, topics, context.profile);
       }
       const candidate = {
         aura: post.aura,
@@ -557,8 +568,7 @@ async function buildNetworkNativeFeed(
             : context.preferences.language)
       );
       const nativeScore = scoreCandidate(candidate, context.profile, {
-        authorVisibilityWeight:
-          authorSignals.get(post.userId)?.visibilityWeight ?? 1,
+        authorVisibilityWeight: computeVisibilityWeight(post.user.aura),
         followedAuthorIds,
         geographicAffinity,
         socialProofAffinity: socialById.get(post.id)?.weight,
@@ -596,17 +606,22 @@ async function buildNetworkNativeFeed(
       };
     });
     const hasInterests = Object.keys(context.profile.tagWeights).length > 0;
-    const eligible =
+    const eligiblePool =
       mode === "latest" && hasInterests && level === 0
         ? enriched.filter((item) => item.fit > 0)
         : enriched;
-    eligible.sort((a, b) =>
+    eligiblePool.sort((a, b) =>
       mode === "latest"
         ? b.post.createdAt.getTime() - a.post.createdAt.getTime() ||
           b.post.id.localeCompare(a.post.id)
         : b.score - a.score ||
           b.post.createdAt.getTime() - a.post.createdAt.getTime() ||
           b.post.id.localeCompare(a.post.id)
+    );
+    const eligible = uniqueFeedContent(
+      eligiblePool,
+      (item) => item.post.content,
+      (item) => item.post.parentPostId ?? ""
     );
     // Rank the whole pool once. Ranking a page at a time reset the author and
     // topic caps on every call, so a dominant author could hold their full share
@@ -666,7 +681,7 @@ async function buildNetworkNativeFeed(
   const stopFeatures = timing.start("features");
   const observed = await Promise.all(
     posts.map(async (post) => ({
-      ...post,
+      ...feedPostView(post),
       ...(level > 0
         ? { discoveryContext: { interests: context.selected.interests, level } }
         : {}),

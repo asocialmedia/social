@@ -490,6 +490,39 @@ export async function buildAndCacheProfile(
   userId: string
 ): Promise<CachedProfile> {
   const since = new Date(Date.now() - PROFILE_SIGNAL_WINDOW_MS);
+  // Empty accounts need no post/media joins; search history and follows are still read independently below.
+  const hasHistory = Boolean(
+    await prisma.orm.public.Users.select("id")
+      .where((user) =>
+        and(
+          user.id.eq(userId),
+          or(
+            user.votes.some((vote) =>
+              vote.createdAt.gte(toPrismaDateTime(since))
+            ),
+            user.bookmarks.some((bookmark) =>
+              bookmark.createdAt.gte(toPrismaDateTime(since))
+            ),
+            user.comments.some((comment) =>
+              and(
+                comment.createdAt.gte(toPrismaDateTime(since)),
+                comment.deleted.eq(false)
+              )
+            ),
+            user.commentVotes.some((vote) =>
+              vote.createdAt.gte(toPrismaDateTime(since))
+            ),
+            user.posts.some((post) =>
+              post.createdAt.gte(toPrismaDateTime(since))
+            ),
+            user.recommendationEvents.some((event) =>
+              event.createdAt.gte(toPrismaDateTime(since))
+            )
+          )
+        )
+      )
+      .first()
+  );
   const [
     votes,
     downvotes,
@@ -501,88 +534,105 @@ export async function buildAndCacheProfile(
     searches,
     followedAuthorIds,
   ] = await Promise.all([
-    prisma.orm.public.Votes.select("createdAt")
-      .include("post", (_post) => getAuthorTagsQuery())
-      .where((vote) =>
-        and(
-          vote.createdAt.gte(toPrismaDateTime(since)),
-          vote.userId.eq(userId),
-          vote.value.gt(0)
+    hasHistory
+      ? prisma.orm.public.Votes.select("createdAt")
+          .include("post", (_post) => getAuthorTagsQuery())
+          .where((vote) =>
+            and(
+              vote.createdAt.gte(toPrismaDateTime(since)),
+              vote.userId.eq(userId),
+              vote.value.gt(0)
+            )
+          )
+          .orderBy((vote) => vote.createdAt.desc())
+          .limit(PROFILE_EMBEDDING_TAKE)
+          .all()
+      : [],
+    hasHistory
+      ? prisma.orm.public.Votes.select("createdAt")
+          .include("post", (_post) => getAuthorTagsQuery())
+          .where((vote) =>
+            and(
+              vote.createdAt.gte(toPrismaDateTime(since)),
+              vote.userId.eq(userId),
+              vote.value.lt(0)
+            )
+          )
+          .orderBy((vote) => vote.createdAt.desc())
+          .limit(PROFILE_EMBEDDING_TAKE)
+          .all()
+      : [],
+    hasHistory
+      ? prisma.orm.public.Bookmarks.select("createdAt")
+          .include("post", (_post) => getAuthorTagsQuery())
+          .where((bookmark) =>
+            and(
+              bookmark.createdAt.gte(toPrismaDateTime(since)),
+              bookmark.userId.eq(userId)
+            )
+          )
+          .orderBy((bookmark) => bookmark.createdAt.desc())
+          .limit(PROFILE_EMBEDDING_TAKE)
+          .all()
+      : [],
+    hasHistory
+      ? prisma.orm.public.Comments.select("createdAt")
+          .include("post", (_post) => getAuthorTagsQuery())
+          .where((comment) =>
+            and(
+              comment.createdAt.gte(toPrismaDateTime(since)),
+              comment.deleted.eq(false),
+              comment.userId.eq(userId)
+            )
+          )
+          .orderBy((comment) => comment.createdAt.desc())
+          .limit(PROFILE_EMBEDDING_TAKE)
+          .all()
+      : [],
+    hasHistory
+      ? prisma.orm.public.CommentVotes.select("createdAt", "value")
+          .include("comment", (comment) =>
+            comment.include("post", (_post) => getAuthorTagsQuery())
+          )
+          .where((commentVote) =>
+            and(
+              commentVote.createdAt.gte(toPrismaDateTime(since)),
+              commentVote.userId.eq(userId)
+            )
+          )
+          .orderBy((commentVote) => commentVote.createdAt.desc())
+          .limit(PROFILE_EMBEDDING_TAKE)
+          .all()
+      : [],
+    hasHistory
+      ? getAuthorTagsQuery()
+          .where((post) =>
+            and(
+              post.createdAt.gte(toPrismaDateTime(since)),
+              post.userId.eq(userId)
+            )
+          )
+          .orderBy((post) => post.createdAt.desc())
+          .limit(PROFILE_EMBEDDING_TAKE)
+          .all()
+      : [],
+    hasHistory
+      ? prisma.orm.public.RecommendationEvents.select(
+          "createdAt",
+          "eventType",
+          "durationMs"
         )
-      )
-      .orderBy((vote) => vote.createdAt.desc())
-      .limit(PROFILE_EMBEDDING_TAKE)
-      .all(),
-    prisma.orm.public.Votes.select("createdAt")
-      .include("post", (_post) => getAuthorTagsQuery())
-      .where((vote) =>
-        and(
-          vote.createdAt.gte(toPrismaDateTime(since)),
-          vote.userId.eq(userId),
-          vote.value.lt(0)
-        )
-      )
-      .orderBy((vote) => vote.createdAt.desc())
-      .limit(PROFILE_EMBEDDING_TAKE)
-      .all(),
-    prisma.orm.public.Bookmarks.select("createdAt")
-      .include("post", (_post) => getAuthorTagsQuery())
-      .where((bookmark) =>
-        and(
-          bookmark.createdAt.gte(toPrismaDateTime(since)),
-          bookmark.userId.eq(userId)
-        )
-      )
-      .orderBy((bookmark) => bookmark.createdAt.desc())
-      .limit(PROFILE_EMBEDDING_TAKE)
-      .all(),
-    prisma.orm.public.Comments.select("createdAt")
-      .include("post", (_post) => getAuthorTagsQuery())
-      .where((comment) =>
-        and(
-          comment.createdAt.gte(toPrismaDateTime(since)),
-          comment.deleted.eq(false),
-          comment.userId.eq(userId)
-        )
-      )
-      .orderBy((comment) => comment.createdAt.desc())
-      .limit(PROFILE_EMBEDDING_TAKE)
-      .all(),
-    prisma.orm.public.CommentVotes.select("createdAt", "value")
-      .include("comment", (comment) =>
-        comment.include("post", (_post) => getAuthorTagsQuery())
-      )
-      .where((commentVote) =>
-        and(
-          commentVote.createdAt.gte(toPrismaDateTime(since)),
-          commentVote.userId.eq(userId)
-        )
-      )
-      .orderBy((commentVote) => commentVote.createdAt.desc())
-      .limit(PROFILE_EMBEDDING_TAKE)
-      .all(),
-    getAuthorTagsQuery()
-      .where((post) =>
-        and(post.createdAt.gte(toPrismaDateTime(since)), post.userId.eq(userId))
-      )
-      .orderBy((post) => post.createdAt.desc())
-      .limit(PROFILE_EMBEDDING_TAKE)
-      .all(),
-    prisma.orm.public.RecommendationEvents.select(
-      "createdAt",
-      "eventType",
-      "durationMs"
-    )
-      .include("post", (_post) => getAuthorTagsQuery())
-      .where((event) =>
-        and(
-          event.createdAt.gte(toPrismaDateTime(since)),
-          event.userId.eq(userId)
-        )
-      )
-      .orderBy((event) => event.createdAt.desc())
-      .limit(RECOMMENDATION_EVENT_TAKE)
-      .all(),
+          .include("post", (_post) => getAuthorTagsQuery())
+          .where((event) =>
+            and(
+              event.createdAt.gte(toPrismaDateTime(since)),
+              event.userId.eq(userId)
+            )
+          )
+          .orderBy((event) => event.createdAt.desc())
+          .limit(RECOMMENDATION_EVENT_TAKE)
+          .all()
+      : [],
     searchCache.getHistory(userId),
     fetchFollowedAuthorIds(userId),
   ]);

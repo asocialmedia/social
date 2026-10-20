@@ -91,14 +91,29 @@ function interestMatcher(
   if (existing) {
     return existing;
   }
+  const selected = new Set(interests.map(normalizeTopic));
+  const acronyms = new Set(
+    Object.values(scope?.aliases ?? {})
+      .flat()
+      .filter((alias) => /^[A-Z]{4,6}$/u.test(alias))
+      .map(normalizeTopic)
+  );
   const roots = [...new Set(interests)].map((root) => ({
     qualifiers: scope?.qualifiers?.[root] ?? [],
     terms: networkInterestTerms([root], scope).map((term) => ({
+      acronym:
+        acronyms.has(term) && !selected.has(term)
+          ? new RegExp(
+              `(?:^|[^\\p{L}\\p{N}_])(?:${term.toUpperCase()}|#${term})(?=$|[^\\p{L}\\p{N}_])`,
+              "u"
+            )
+          : undefined,
       compact: term.replaceAll(/\s+/gu, ""),
       pattern: new RegExp(
         `(?:^|[^\\p{L}\\p{N}_])${term.replaceAll(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?=$|[^\\p{L}\\p{N}_])`,
         "u"
       ),
+      text: term,
     })),
   }));
   const contextual = roots.some((root) => root.qualifiers.length > 1);
@@ -113,6 +128,7 @@ function interestMatcher(
           .match(/[\p{L}\p{N}\p{M}]+/gu) ?? [])
       : [];
     let score = 0;
+    const evidence = new Set<string>();
     for (const root of roots) {
       const matched =
         root.qualifiers.length > 1
@@ -135,10 +151,22 @@ function interestMatcher(
                 );
               })
             )
-          : root.terms.some(
-              (term) =>
-                declared.has(term.compact) || term.pattern.test(normalizedText)
-            );
+          : root.terms.some((term) => {
+              // Shared taxonomy aliases are one piece of evidence, not several independent interests.
+              if (evidence.has(term.compact)) {
+                return false;
+              }
+              if (
+                declared.has(term.compact) ||
+                (normalizedText.includes(term.text) &&
+                  term.pattern.test(normalizedText) &&
+                  (!term.acronym || term.acronym.test(text.normalize("NFKC"))))
+              ) {
+                evidence.add(term.compact);
+                return true;
+              }
+              return false;
+            });
       score += Number(matched);
     }
     return score;

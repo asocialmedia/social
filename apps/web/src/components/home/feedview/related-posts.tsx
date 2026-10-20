@@ -68,7 +68,7 @@ export default function RelatedPosts({
         if (collected.length < 4) {
           try {
             const response = await fetch(
-              "/api/protocols/bluesky/discover?limit=10&mode=popular"
+              "/api/protocols/bluesky/discover?mode=personalized"
             );
             if (response.ok) {
               const payload = (await response.json()) as {

@@ -16,11 +16,7 @@ export function reportRecommendationHealth(
       logger.info({ source }, "Recommendation source recovered");
     }
     status.set(source, { failed: false, loggedAt: previous?.loggedAt ?? 0 });
-  } else if (
-    !previous ||
-    !previous.failed ||
-    now - previous.loggedAt >= 60_000
-  ) {
+  } else if (!previous || now - previous.loggedAt >= 60_000) {
     logger.warn(
       { error, source },
       "Recommendation source unavailable; retaining independent source results"

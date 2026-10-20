@@ -13,7 +13,7 @@ export function discoveryCacheKey(
   includeExplicit = false,
   content: DiscoveryContent = "all"
 ) {
-  return `asm:web:bluesky:head:v12:${createHash("sha256")
+  return `asm:web:bluesky:head:v13:${createHash("sha256")
     .update(JSON.stringify([mode, locale, topics, includeExplicit, content]))
     .digest("hex")}`;
 }

@@ -193,7 +193,7 @@ const ExploreClient: React.FC = () => {
         .get("/api/gusts", {
           searchParams: {
             excludeModerated: "1",
-            mode: "personalized",
+            mode: "trending",
             network: "1",
             profile: network.settings.preferences.activeProfileId,
             take: "8",

@@ -12,8 +12,12 @@ const mockGetSession = mock((): { user: { id: string } } | null => ({
 let networkPreferences = defaultNetworkPreferences();
 
 const mockNetworkFeed = mock(
-  (_request: Request, _userId: string, _mode: string, _contentKind: string) =>
-    Response.json({ nextCursor: null, posts: [] })
+  (
+    _request: Request,
+    _userId: string | (() => Promise<string>),
+    _mode: string,
+    _contentKind: string
+  ) => Response.json({ nextCursor: null, posts: [] })
 );
 mock.module("@/lib/recommendations/network-native-feed", () => ({
   networkNativeFeed: mockNetworkFeed,
@@ -245,12 +249,35 @@ describe("GET /api/gusts", () => {
     await GET(request);
     expect(mockNetworkFeed).toHaveBeenCalledWith(
       request,
-      "user1",
+      expect.any(Function),
       "personalized",
       "gust"
     );
     expect(mockFindMany).not.toHaveBeenCalled();
+    expect(mockGetSession).not.toHaveBeenCalled();
+    const resolveViewer = mockNetworkFeed.mock.calls[0]?.[1];
+    if (typeof resolveViewer !== "function") {
+      throw new TypeError("Expected deferred session resolution");
+    }
+    expect(await resolveViewer()).toBe("user1");
   });
+
+  test.each(["", "&network=v8"])(
+    "Trending Gusts retain their engagement gate with query %s",
+    async (suffix) => {
+      const request = new Request(
+        `http://localhost:3000/api/gusts?mode=trending${suffix}`
+      );
+      await GET(request);
+      expect(mockNetworkFeed).toHaveBeenCalledWith(
+        request,
+        expect.any(Function),
+        "trending",
+        "gust"
+      );
+      expect(mockFindMany).not.toHaveBeenCalled();
+    }
+  );
 
   test("web Latest Gusts use the selected Network profile and a separate Gust candidate pool", async () => {
     const request = new Request(
@@ -259,7 +286,7 @@ describe("GET /api/gusts", () => {
     await GET(request);
     expect(mockNetworkFeed).toHaveBeenCalledWith(
       request,
-      "user1",
+      expect.any(Function),
       "latest",
       "gust"
     );

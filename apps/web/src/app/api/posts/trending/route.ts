@@ -19,15 +19,22 @@ import { filterNetworkFeed } from "@/lib/recommendations/filter-network-feed";
 
 export async function GET(request: Request) {
   // Guests can browse the public feed; per-user fields simply resolve to empty.
-  const session = await getSessionFromApi();
-  const userId = session?.user?.id ?? "";
 
   const url = new URL(request.url);
   if (url.searchParams.has("network")) {
     const { networkNativeFeed } =
       await import("@/lib/recommendations/network-native-feed");
-    return networkNativeFeed(request, userId, "trending");
+    return networkNativeFeed(
+      request,
+      async () => {
+        const session = await getSessionFromApi();
+        return session?.user?.id ?? "";
+      },
+      "trending"
+    );
   }
+  const session = await getSessionFromApi();
+  const userId = session?.user?.id ?? "";
   const cursor = url.searchParams.get("cursor") || undefined;
   // Explore opts out of moderated posts so its compact cards never show a
   // moderation row; the home feed still returns them.

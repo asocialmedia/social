@@ -13,6 +13,7 @@ import {
 import type { NetworkTopicScope } from "@asm/protocols/discovery";
 
 import { externalNetworkInterestScore } from "@/lib/posts/network-content-policy";
+import { uniqueFeedContent } from "@/lib/posts/unique-feed-content";
 
 export function normalizeDiscoveryTopics(topics: readonly string[]): string[] {
   return [
@@ -193,18 +194,22 @@ export function rankExternalForViewer(
           2 / (1 + hours / 24) +
           value;
   };
-  const candidates = posts
-    .filter(
-      (post) => options.mode !== "trending" || isExternalTrendingPost(post)
-    )
-    .filter(
-      (post) =>
-        options.allowExploration ||
-        !interests.length ||
-        externalNetworkInterestScore(post, interests, options.topicScope) > 0
-    )
-    .map((post) => ({ post, score: score(post) }))
-    .toSorted((first, second) => second.score - first.score);
+  const candidates = uniqueFeedContent(
+    posts
+      .filter(
+        (post) => options.mode !== "trending" || isExternalTrendingPost(post)
+      )
+      .filter(
+        (post) =>
+          options.allowExploration ||
+          !interests.length ||
+          externalNetworkInterestScore(post, interests, options.topicScope) > 0
+      )
+      .map((post) => ({ post, score: score(post) }))
+      .toSorted((first, second) => second.score - first.score),
+    (item) => item.post.text,
+    (item) => item.post.quote?.id ?? item.post.replyTo ?? ""
+  );
   const result: ExternalPost[] = [];
   const authors = new Map<string, number>();
   const topics = new Map<string, number>();

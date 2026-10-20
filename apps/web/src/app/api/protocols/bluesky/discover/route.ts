@@ -279,7 +279,7 @@ export function GET(request: Request) {
         ].map((post) => [post.id, post])
       ).values(),
     ];
-    const stopFeatures = timing.start("features");
+    const stopFeatures = timing.start("inference");
     const metadata = new Map(
       candidates.map((post) => [
         post.id,

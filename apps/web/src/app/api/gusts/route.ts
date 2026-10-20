@@ -1,5 +1,6 @@
 import {
   and,
+  communityVisibilityWhere,
   getPostDataQuery,
   hydrateViewCounts,
   mapPostData,
@@ -29,6 +30,7 @@ async function queryChronologicalGusts(
         post.postMedias.some((media) => media._type.eq("VIDEO")),
         post.isGust.eq(true),
         post.rootPostId.isNull(),
+        communityVisibilityWhere(userId)(post),
       ];
       if (excludeModerated) {
         filters.push(post.moderated.eq(false));
@@ -57,6 +59,31 @@ async function queryChronologicalGusts(
 }
 
 export async function GET(request: Request) {
+  const url = new URL(request.url);
+  const cursor = url.searchParams.get("cursor") || undefined;
+  const initialId = url.searchParams.get("initialId") || undefined;
+  const requestedMode = url.searchParams.get("mode");
+  const mode =
+    requestedMode === "personalized" || requestedMode === "trending"
+      ? requestedMode
+      : "latest";
+  if (
+    !initialId &&
+    requestedMode !== "following" &&
+    (mode !== "latest" || url.searchParams.has("network"))
+  ) {
+    const { networkNativeFeed } =
+      await import("@/lib/recommendations/network-native-feed");
+    return networkNativeFeed(
+      request,
+      async () => {
+        const session = await getSessionFromApi();
+        return session?.user?.id ?? "";
+      },
+      mode,
+      "gust"
+    );
+  }
   const session = await getSessionFromApi();
   const userId = session?.user?.id ?? "";
   const settings = userId ? await readNetworkPreferences(userId) : null;
@@ -65,10 +92,6 @@ export async function GET(request: Request) {
   const allowed = (post: Parameters<typeof networkPostAllowed>[0]) =>
     networkPostAllowed(post, preferences);
 
-  const url = new URL(request.url);
-  const cursor = url.searchParams.get("cursor") || undefined;
-  const initialId = url.searchParams.get("initialId") || undefined;
-  const mode = url.searchParams.get("mode") === "personalized";
   // Explore's trending-gusts rail opts out of moderated gusts; the reels feed
   // keeps showing them.
   const excludeModerated = url.searchParams.get("excludeModerated") === "1";
@@ -97,18 +120,6 @@ export async function GET(request: Request) {
     );
   }
 
-  // Both formats use the selected Network persona and revision-bound cursors.
-  if (!initialId && (mode || url.searchParams.has("network"))) {
-    const { networkNativeFeed } =
-      await import("@/lib/recommendations/network-native-feed");
-    return networkNativeFeed(
-      request,
-      userId,
-      mode ? "personalized" : "latest",
-      "gust"
-    );
-  }
-
   // When initialId is requested on the first page, ensure that gust is returned at the top
   if (initialId && !cursor) {
     const initialPostRow = await getPostDataQuery(prisma.orm, userId)
@@ -118,6 +129,7 @@ export async function GET(request: Request) {
           post.id.eq(initialId),
           post.isGust.eq(true),
           post.rootPostId.isNull(),
+          communityVisibilityWhere(userId)(post),
         ];
         if (excludeModerated) {
           filters.push(post.moderated.eq(false));
@@ -137,6 +149,7 @@ export async function GET(request: Request) {
           post.id.neq(initialId),
           post.isGust.eq(true),
           post.rootPostId.isNull(),
+          communityVisibilityWhere(userId)(post),
         ];
         if (excludeModerated) {
           filters.push(post.moderated.eq(false));

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 
 const hoursAgo = (hours: number) => new Date(Date.now() - hours * 3_600_000);
 
@@ -206,7 +206,7 @@ const mockPrisma = {
     public: {
       AuraLogs: emptyModel,
       Blocks: emptyModel,
-      Bookmarks: emptyModel,
+      Bookmarks: createSelectModel(() => createMockQuery(() => [])),
       CommentVotes: emptyModel,
       Comments: emptyModel,
       Follows: emptyModel,
@@ -224,7 +224,7 @@ const mockPrisma = {
           () => null
         )
       ),
-      Votes: emptyModel,
+      Votes: createSelectModel(() => createMockQuery(() => [])),
     },
   },
 };
@@ -426,6 +426,21 @@ describe("getPersonalizedFeedPage", () => {
 });
 
 describe("buildAndCacheProfile search history", () => {
+  test("an account without durable history skips joined history queries and retains the search-history path", async () => {
+    const votes = spyOn(mockPrisma.orm.public.Votes, "select");
+    const bookmarks = spyOn(mockPrisma.orm.public.Bookmarks, "select");
+    try {
+      const { buildAndCacheProfile } = await import("./feed-service");
+      await buildAndCacheProfile("empty-history");
+      expect(votes).not.toHaveBeenCalled();
+      expect(bookmarks).not.toHaveBeenCalled();
+      expect(storedProfiles.size).toBeGreaterThan(0);
+    } finally {
+      votes.mockRestore();
+      bookmarks.mockRestore();
+    }
+  });
+
   test("handles query, user, and post history entries without crashing on missing post content", async () => {
     const { buildAndCacheProfile } = await import("./feed-service");
     const historyMock = mock(() =>

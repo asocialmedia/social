@@ -17,14 +17,21 @@ const TAKE_PATTERN = /^[1-9]\d*$/;
 const PAGE_SIZE = 20;
 
 export async function GET(request: Request) {
-  const session = await getSessionFromApi();
-  const userId = session?.user?.id ?? "";
   const url = new URL(request.url);
   if (url.searchParams.has("network")) {
     const { networkNativeFeed } =
       await import("@/lib/recommendations/network-native-feed");
-    return networkNativeFeed(request, userId, "latest");
+    return networkNativeFeed(
+      request,
+      async () => {
+        const session = await getSessionFromApi();
+        return session?.user?.id ?? "";
+      },
+      "latest"
+    );
   }
+  const session = await getSessionFromApi();
+  const userId = session?.user?.id ?? "";
   const cursor = url.searchParams.get("cursor") || undefined;
   const excludeModerated = url.searchParams.get("excludeModerated") === "1";
   const takeValue = url.searchParams.get("take");

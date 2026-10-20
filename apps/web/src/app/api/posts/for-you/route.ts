@@ -71,15 +71,22 @@ async function queryArchivePosts(
 
 export async function GET(request: Request) {
   // Guests can browse the public feed; per-user fields simply resolve to empty.
-  const session = await getSessionFromApi();
-  const userId = session?.user?.id ?? "";
 
   const url = new URL(request.url);
   if (url.searchParams.has("network")) {
     const { networkNativeFeed } =
       await import("@/lib/recommendations/network-native-feed");
-    return networkNativeFeed(request, userId, "personalized");
+    return networkNativeFeed(
+      request,
+      async () => {
+        const session = await getSessionFromApi();
+        return session?.user?.id ?? "";
+      },
+      "personalized"
+    );
   }
+  const session = await getSessionFromApi();
+  const userId = session?.user?.id ?? "";
   const cursor = url.searchParams.get("cursor") || undefined;
   // "Related / more from" surfaces opt out of moderated posts so their compact
   // cards never show a moderation row; the main feed still returns them.

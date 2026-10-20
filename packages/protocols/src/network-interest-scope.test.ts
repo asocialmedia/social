@@ -72,6 +72,34 @@ test("changing dynamic evidence changes arbitrary-topic results without source c
   ).toBe(true);
 });
 
+test("overlapping taxonomy branches do not multiply a single incidental match", () => {
+  const overlapping: NetworkTopicScope = {
+    avoided: {},
+    interests: {
+      engineering: ["technology"],
+      stem: ["technology"],
+      technology: ["technology"],
+    },
+    version: "overlap",
+  };
+  expect(
+    networkInterestScore(
+      "Technology announcement",
+      [],
+      ["engineering", "technology", "stem"],
+      overlapping
+    )
+  ).toBe(1);
+  expect(
+    networkInterestScore(
+      "Engineering and technology",
+      [],
+      ["engineering", "technology", "stem"],
+      overlapping
+    )
+  ).toBe(2);
+});
+
 test("generic substrings and absent relationships do not widen a focused profile", () => {
   expect(
     matchesNetworkInterests(
@@ -135,6 +163,59 @@ test("short inferred aliases cannot admit unrelated posts while explicitly selec
   expect(matchesNetworkInterests("TS discussion", [], ["ts"], aliases)).toBe(
     true
   );
+});
+
+test("inferred acronyms do not become ordinary lowercase words in sports, plants or prose", () => {
+  const acronymScope: NetworkTopicScope = {
+    aliases: { "science and engineering": ["STEM"] },
+    avoided: {},
+    interests: { "science and engineering": ["STEM"] },
+    version: "acronym-case",
+  };
+  const interests = ["science and engineering"];
+  expect(
+    matchesNetworkInterests(
+      "Problems stem from this choice",
+      [],
+      interests,
+      acronymScope
+    )
+  ).toBe(false);
+  expect(
+    matchesNetworkInterests("A flower stem photo", [], interests, acronymScope)
+  ).toBe(false);
+  expect(
+    matchesNetworkInterests(
+      "Football stem work and footwork",
+      [],
+      interests,
+      acronymScope
+    )
+  ).toBe(false);
+  expect(
+    matchesNetworkInterests(
+      "A STEM education tutorial",
+      [],
+      interests,
+      acronymScope
+    )
+  ).toBe(true);
+  expect(
+    matchesNetworkInterests(
+      "An educational clip #stem",
+      [],
+      interests,
+      acronymScope
+    )
+  ).toBe(true);
+  expect(
+    matchesNetworkInterests(
+      "An educational clip",
+      ["stem"],
+      interests,
+      acronymScope
+    )
+  ).toBe(true);
 });
 
 // Postgres raises on tsquery operators, so a saved interest like "(x)" used to
