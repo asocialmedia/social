@@ -14,6 +14,7 @@ import { getSessionFromApi } from "@/lib/auth/session";
 import { recordDeliveryPayload } from "@/lib/media/delivery-metrics";
 import {
   decideMediaAccess,
+  isOwnedMediaDraft,
   resolveOwningCommunity,
 } from "@/lib/media/media-access";
 import { mediaContentIsExplicit } from "@/lib/media/media-content-policy";
@@ -162,9 +163,6 @@ export async function GET(
   const session = await getSessionFromApi();
   const viewer = session?.user ?? null;
   const isExplicitMedia = mediaContentIsExplicit(mappedOwnership);
-  if (isExplicitMedia && !(await explicitContentEnabled(viewer?.id ?? ""))) {
-    return mediaError("Media not found", 404);
-  }
   if (
     !mappedOwnership.postId &&
     !mappedOwnership.commentId &&
@@ -172,6 +170,13 @@ export async function GET(
   ) {
     mappedOwnership.messageConversationId ??=
       await resolveDenWallpaperConversationId(mediaId, viewer?.id);
+  }
+  if (
+    isExplicitMedia &&
+    !isOwnedMediaDraft(mappedOwnership, viewer) &&
+    !(await explicitContentEnabled(viewer?.id ?? ""))
+  ) {
+    return mediaError("Media not found", 404);
   }
   const isConversationMember = await resolveMessageMediaMembership(
     mappedOwnership.messageConversationId,

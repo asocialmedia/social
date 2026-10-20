@@ -4,6 +4,48 @@ import path from "node:path";
 const repositoryRoot = path.join(import.meta.dirname, "../..");
 
 describe("Prisma sync deployment artifact", () => {
+  test("the install context retains every workspace referenced by its copied manifests", async () => {
+    const dockerfile = await Bun.file(
+      path.join(repositoryRoot, "docker/prisma-sync.dockerfile")
+    ).text();
+    const installContext = dockerfile.split("RUN bun install")[0];
+    const copies = [
+      ...installContext.matchAll(
+        /^COPY ((?:apps|packages)\/[^/]+\/package\.json) /gm
+      ),
+    ];
+    const manifests = await Promise.all(
+      copies.map(async (copy) => {
+        const manifest: {
+          name: string;
+          dependencies?: Record<string, string>;
+          devDependencies?: Record<string, string>;
+          optionalDependencies?: Record<string, string>;
+          peerDependencies?: Record<string, string>;
+        } = await Bun.file(path.join(repositoryRoot, copy[1])).json();
+        return manifest;
+      })
+    );
+    const copiedNames = new Set(manifests.map((manifest) => manifest.name));
+    expect(copiedNames.has("@asm/db")).toBe(true);
+    for (const manifest of manifests) {
+      const dependencies = {
+        ...manifest.dependencies,
+        ...manifest.devDependencies,
+        ...manifest.optionalDependencies,
+        ...manifest.peerDependencies,
+      };
+      for (const [name, version] of Object.entries(dependencies)) {
+        if (version.startsWith("workspace:")) {
+          expect(
+            copiedNames.has(name),
+            `${manifest.name} requires missing workspace ${name}`
+          ).toBe(true);
+        }
+      }
+    }
+  });
+
   test("copies generated Prisma output from the build stage and builds the relocated score script", async () => {
     const dockerfile = await Bun.file(
       path.join(repositoryRoot, "docker/prisma-sync.dockerfile")

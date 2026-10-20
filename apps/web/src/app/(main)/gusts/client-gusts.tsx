@@ -29,13 +29,16 @@ import { useInView } from "react-intersection-observer";
 
 import { useSession } from "@/app/(main)/session-provider";
 import { AuthPromptCard } from "@/components/auth/shell/auth-prompt-card";
-import { FeedErrorState } from "@/components/feeds/feed-error-state";
 import { NewContentPill } from "@/components/feeds/new-content-pill";
 import type { NewContentAuthor } from "@/components/feeds/new-content-pill";
 import { GustCard } from "@/components/gusts/gust-card";
 import { GustCardSkeleton } from "@/components/gusts/gust-card-skeleton";
 import { GustFeedControls } from "@/components/gusts/gust-feed-controls";
 import type { GustFeed } from "@/components/gusts/gust-feed-controls";
+import {
+  GustFeedErrorState,
+  GustSourceRetries,
+} from "@/components/gusts/gust-source-retries";
 import { GustsCommentsDrawer } from "@/components/gusts/gusts-comments-drawer";
 import { MobileGustEddies } from "@/components/gusts/mobile-gust-eddies";
 import { FeedSourceMenu } from "@/components/protocols/feed-source-menu";
@@ -57,6 +60,7 @@ import {
 import {
   advanceGustPaging,
   gustPagingDelay,
+  gustPagingState,
   mergeGustPosts,
 } from "@/lib/posts/gust-feed";
 import {
@@ -305,6 +309,7 @@ const GustStream = ({ gustTab }: { gustTab: GustFeed }) => {
     fetchNextPage: fetchNativeNextPage,
     hasNextPage: hasNativeNextPage,
     isFetchedAfterMount,
+    isFetching: isFetchingNative,
     isFetchingNextPage: isFetchingNativeNextPage,
     refetch: refetchNative,
     status: nativeStatus,
@@ -482,21 +487,21 @@ const GustStream = ({ gustTab }: { gustTab: GustFeed }) => {
     setPagingProgress(currentPagingProgress);
   }
   const pagingDelay = gustPagingDelay(currentPagingProgress.emptyPages);
-  const hasNextPage = Boolean(
-    (includeNative && hasNativeNextPage) ||
-    (includeExternal && externalFeed.hasNextPage)
-  );
-  const isFetchingNextPage =
-    (includeNative && isFetchingNativeNextPage) ||
-    (includeExternal && externalFeed.isFetchingNextPage);
-  // A failed source must not stall the other one: the reel keeps advancing while
-  // at least one included source can still page. Each fetch call still checks its
-  // own error flag, so a broken source is not retried blindly.
-  const pageError =
-    includeNative && includeExternal
-      ? Boolean(nativePageError) && Boolean(externalFeed.isFetchNextPageError)
-      : (includeNative && Boolean(nativePageError)) ||
-        (includeExternal && Boolean(externalFeed.isFetchNextPageError));
+  const { canFetchNextPage, hasNextPage, isFetchingNextPage, pageError } =
+    gustPagingState([
+      {
+        enabled: includeNative,
+        hasNextPage: hasNativeNextPage,
+        isFetchNextPageError: nativePageError,
+        isFetchingNextPage: isFetchingNativeNextPage,
+      },
+      {
+        enabled: includeExternal,
+        hasNextPage: externalFeed.hasNextPage,
+        isFetchNextPageError: externalFeed.isFetchNextPageError,
+        isFetchingNextPage: externalFeed.isFetchingNextPage,
+      },
+    ]);
   const {
     refetch: refetchExternal,
     fetchNextPage: fetchExternalNextPage,
@@ -871,9 +876,8 @@ const GustStream = ({ gustTab }: { gustTab: GustFeed }) => {
     if (
       loadedPageCount > 0 &&
       (isEndVisible || posts.length - activeIndex <= 8) &&
-      hasNextPage &&
-      !isFetchingNextPage &&
-      !pageError
+      canFetchNextPage &&
+      !isFetchingNextPage
     ) {
       const timer = window.setTimeout(() => {
         void fetchNextPage();
@@ -882,12 +886,11 @@ const GustStream = ({ gustTab }: { gustTab: GustFeed }) => {
     }
   }, [
     fetchNextPage,
-    hasNextPage,
+    canFetchNextPage,
     isEndVisible,
     isFetchingNextPage,
     activeIndex,
     posts.length,
-    pageError,
     pagingDelay,
     loadedPageCount,
   ]);
@@ -982,6 +985,32 @@ const GustStream = ({ gustTab }: { gustTab: GustFeed }) => {
     }
   }, [autoOpenCreate, openComposer, user]);
 
+  const retrySources = [
+    {
+      handleRetry: () => {
+        if (nativePageError) {
+          void fetchNativeNextPage({ cancelRefetch: false });
+        } else {
+          void refetchNative();
+        }
+      },
+      hasError: includeNative && nativeStatus === "error",
+      isFetching: isFetchingNative,
+      label: "ASM",
+    },
+    {
+      handleRetry: () => {
+        if (externalPageError) {
+          void fetchExternalNextPage({ cancelRefetch: false });
+        } else {
+          void refetchExternal();
+        }
+      },
+      hasError: includeExternal && externalFeed.isError,
+      isFetching: externalFeed.isFetching,
+      label: "Bluesky",
+    },
+  ];
   const renderContent = () => {
     // Checked before the loading branches: a disabled (gated) query stays
     // "pending" forever, which would otherwise render the skeleton.
@@ -998,13 +1027,16 @@ const GustStream = ({ gustTab }: { gustTab: GustFeed }) => {
       );
     }
 
-    if (status === "error" || (posts.length === 0 && pageError)) {
+    if (
+      status === "error" ||
+      (posts.length === 0 && pageError && !canFetchNextPage)
+    ) {
       return (
-        <FeedErrorState
-          message="Couldn’t load Gusts. Please try again."
+        <GustFeedErrorState
           onRetry={() => {
             void refetch();
           }}
+          sources={retrySources}
         />
       );
     }
@@ -1124,36 +1156,7 @@ const GustStream = ({ gustTab }: { gustTab: GustFeed }) => {
               );
             })}
 
-            {pageError ? (
-              <div className="flex h-24 items-center justify-center">
-                <Button
-                  onClick={() => {
-                    if (nativePageError) {
-                      void fetchNativeNextPage({ cancelRefetch: false });
-                    }
-                    if (externalFeed.isFetchNextPageError) {
-                      void externalFeed.fetchNextPage({ cancelRefetch: false });
-                    }
-                  }}
-                >
-                  Retry loading more Gusts
-                </Button>
-              </div>
-            ) : null}
-            {includeExternal &&
-            externalFeed.isError &&
-            !externalFeed.isFetchNextPageError &&
-            posts.length ? (
-              <div className="flex h-24 items-center justify-center">
-                <Button
-                  onClick={() => {
-                    void externalFeed.refetch();
-                  }}
-                >
-                  Retry Bluesky videos
-                </Button>
-              </div>
-            ) : null}
+            <GustSourceRetries sources={retrySources} />
 
             {isFetchingNextPage ? (
               <div

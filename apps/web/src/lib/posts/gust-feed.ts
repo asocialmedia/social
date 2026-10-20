@@ -1,5 +1,24 @@
 import type { PresentedPost } from "./presentation";
 
+interface GustPageSource {
+  enabled: boolean;
+  hasNextPage: boolean | undefined;
+  isFetchNextPageError: boolean;
+  isFetchingNextPage: boolean;
+}
+
+export function gustPagingState(sources: readonly GustPageSource[]) {
+  const enabled = sources.filter((source) => source.enabled);
+  return {
+    canFetchNextPage: enabled.some(
+      (source) => source.hasNextPage && !source.isFetchNextPageError
+    ),
+    hasNextPage: enabled.some((source) => source.hasNextPage),
+    isFetchingNextPage: enabled.some((source) => source.isFetchingNextPage),
+    pageError: enabled.some((source) => source.isFetchNextPageError),
+  };
+}
+
 export interface GustPagingProgress {
   scope: string;
   pages: number;

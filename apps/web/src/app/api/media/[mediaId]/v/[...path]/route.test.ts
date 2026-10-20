@@ -17,6 +17,10 @@ let upstreamResponse: () => Response = () => new Response("", { status: 404 });
 let status: "DELETED" | "READY" = "READY";
 let explicitPost = false;
 let includeExplicit = false;
+let explicitSafety = false;
+let servePoster = false;
+let viewerId: string | null = "user_1";
+let attachment: "post" | "draft" | "comment" | "message" = "post";
 const sendCalls: GetObjectCommandLike[] = [];
 
 interface GetObjectCommandLike {
@@ -25,11 +29,19 @@ interface GetObjectCommandLike {
 
 function ownershipRow() {
   return {
+    _type: "VIDEO",
     comment: null,
-    commentId: null,
-    messageConversationId: null,
-    post: { explicitContent: explicitPost },
-    postId: "post_1",
+    commentId: attachment === "comment" ? "comment_1" : null,
+    id: "m1",
+    key: "m1/video.mp4",
+    messageConversationId: attachment === "message" ? "conversation_1" : null,
+    mimeType: "video/mp4",
+    post: attachment === "post" ? { explicitContent: explicitPost } : null,
+    postId: attachment === "post" ? "post_1" : null,
+    postMediaDerivatives: [],
+    publishedKey: "m1/published.mp4",
+    safety: { explicit: explicitSafety },
+    size: 2048,
     status,
     userId: "user_1",
   };
@@ -65,12 +77,8 @@ mock.module("@asm/db", () => ({
 }));
 
 mock.module("@/lib/auth/session", () => ({
-  getSessionFromApi: () => Promise.resolve({ user: { id: "user_1" } }),
-}));
-
-mock.module("@/lib/media/media-access", () => ({
-  decideMediaAccess: () => ({ allowed: true, status: 200 }),
-  resolveOwningCommunity: () => null,
+  getSessionFromApi: () =>
+    Promise.resolve(viewerId ? { user: { id: viewerId } } : null),
 }));
 
 mock.module("@/lib/media/message-media-access", () => ({
@@ -87,6 +95,12 @@ mock.module("@/lib/media/object-storage", () => ({
   asmobClient: {
     send: (command: GetObjectCommandLike) => {
       sendCalls.push(command);
+      if (servePoster) {
+        return Promise.resolve({
+          Body: new Response("poster").body,
+          ContentType: "image/jpeg",
+        });
+      }
       return Promise.reject(
         Object.assign(new Error("missing"), { name: "NoSuchKey" })
       );
@@ -97,6 +111,7 @@ mock.module("@/lib/media/object-storage", () => ({
 }));
 
 const { GET } = await import("./route");
+const { GET: getOriginal } = await import("../../route");
 
 function rangedGet(): Promise<Response> {
   return GET(
@@ -112,6 +127,10 @@ beforeEach(() => {
   status = "READY";
   explicitPost = false;
   includeExplicit = false;
+  explicitSafety = false;
+  servePoster = false;
+  viewerId = "user_1";
+  attachment = "post";
   upstreamResponse = () => new Response("", { status: 404 });
   sendCalls.length = 0;
   (globalThis as unknown as { fetch: unknown }).fetch = (
@@ -122,6 +141,93 @@ beforeEach(() => {
     return Promise.resolve(upstreamResponse());
   };
 });
+
+function readOriginalPoster() {
+  return getOriginal(
+    new Request("https://asocialmedia.cc/api/media/m1?thumb=1"),
+    { params: Promise.resolve({ mediaId: "m1" }) }
+  );
+}
+
+test.each([false, true])(
+  "owned draft poster is uncached with explicit classification %s",
+  async (explicit) => {
+    attachment = "draft";
+    explicitSafety = explicit;
+    derivativeKey = "m1/poster.jpg";
+    servePoster = true;
+    const poster = await readOriginalPoster();
+    expect(poster.status).toBe(200);
+    expect(await poster.text()).toBe("poster");
+    expect(poster.headers.get("Cache-Control")).toBe("private, no-store");
+    expect(sendCalls).toHaveLength(1);
+    viewerId = null;
+    const loggedOut = await readOriginalPoster();
+    expect(loggedOut.status).not.toBe(200);
+    expect(sendCalls).toHaveLength(1);
+  }
+);
+
+test("safe public posters keep immutable caching while explicit posters stay uncached", async () => {
+  servePoster = true;
+  const publicPoster = await readOriginalPoster();
+  expect(publicPoster.status).toBe(200);
+  expect(publicPoster.headers.get("Cache-Control")).toBe(
+    "public, max-age=31536000, immutable"
+  );
+  explicitSafety = true;
+  includeExplicit = true;
+  const explicitPoster = await readOriginalPoster();
+  expect(explicitPoster.status).toBe(200);
+  expect(explicitPoster.headers.get("Cache-Control")).toBe("private, no-store");
+});
+
+test.each([
+  ["variant", rangedGet],
+  [
+    "original",
+    () =>
+      getOriginal(
+        new Request("https://asocialmedia.cc/api/media/m1", {
+          headers: { Range: RANGE },
+        }),
+        { params: Promise.resolve({ mediaId: "m1" }) }
+      ),
+  ],
+] as const)(
+  "%s: explicit draft stays readable only to its uploader without browsing opt-in",
+  async (_name, read) => {
+    attachment = "draft";
+    explicitSafety = true;
+    upstreamResponse = () =>
+      new Response("partial", {
+        headers: { "Content-Range": "bytes 0-6/2048" },
+        status: 206,
+      });
+    const ownedDraft = await read();
+    expect(ownedDraft.status).toBe(206);
+    expect(await ownedDraft.text()).toBe("partial");
+    expect(ownedDraft.headers.get("Cache-Control")).toBe("private, no-store");
+    viewerId = null;
+    includeExplicit = true;
+    const guest = await read();
+    expect(guest.status).toBe(404);
+    viewerId = "other-user";
+    const stranger = await read();
+    expect(stranger.status).toBe(404);
+    viewerId = "user_1";
+    includeExplicit = false;
+    attachment = "post";
+    const published = await read();
+    expect(published.status).toBe(404);
+    attachment = "comment";
+    const comment = await read();
+    expect(comment.status).toBe(404);
+    attachment = "message";
+    const message = await read();
+    expect(message.status).toBe(404);
+  }
+);
 
 describe("variant route missing-object mapping", () => {
   test("explicit variants require opt-in and never enter a public cache", async () => {
