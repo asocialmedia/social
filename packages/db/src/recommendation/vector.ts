@@ -96,8 +96,7 @@ export function blendVectors(
   const weight = Math.min(1, Math.max(0, incomingWeight));
   const mixed = Array.from({ length: EMBEDDING_DIMENSION }).fill(0) as number[];
   for (let d = 0; d < EMBEDDING_DIMENSION; d += 1) {
-    mixed[d] =
-      (anchor[d] ?? 0) * (1 - weight) + (incoming[d] ?? 0) * weight;
+    mixed[d] = (anchor[d] ?? 0) * (1 - weight) + (incoming[d] ?? 0) * weight;
   }
   return normalizeVector(mixed);
 }

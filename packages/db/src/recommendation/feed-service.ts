@@ -267,9 +267,7 @@ export async function getSocialProofPostWeights(
   // set, so a short Redis lease removes the self-join from repeat builds. Fails
   // open: a cache outage must never block a feed read.
   const cacheKey = `rec:social-proof:v1:{${createHash("sha256")
-    .update(
-      JSON.stringify([viewerId, [...candidatePostIds].toSorted()])
-    )
+    .update(JSON.stringify([viewerId, [...candidatePostIds].toSorted()]))
     .digest("hex")}}`;
   try {
     const cached = await redis.get(cacheKey);
