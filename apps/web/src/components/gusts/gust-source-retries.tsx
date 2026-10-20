@@ -2,6 +2,8 @@
 
 import { Button } from "@asm/ui/shadui/button";
 
+import { FeedErrorState } from "@/components/feeds/feed-error-state";
+
 interface GustRetrySource {
   label: string;
   hasError: boolean;
@@ -23,4 +25,22 @@ export function GustSourceRetries({
         </Button>
       </div>
     ));
+}
+
+export function GustFeedErrorState({
+  onRetry,
+  sources,
+}: {
+  onRetry: () => void;
+  sources: readonly GustRetrySource[];
+}) {
+  return (
+    <div className="flex h-full w-full flex-col items-center justify-center overflow-y-auto">
+      <FeedErrorState
+        message="Couldn’t load Gusts. Please try again."
+        onRetry={onRetry}
+      />
+      <GustSourceRetries sources={sources} />
+    </div>
+  );
 }

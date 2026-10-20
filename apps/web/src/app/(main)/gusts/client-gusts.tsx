@@ -29,14 +29,16 @@ import { useInView } from "react-intersection-observer";
 
 import { useSession } from "@/app/(main)/session-provider";
 import { AuthPromptCard } from "@/components/auth/shell/auth-prompt-card";
-import { FeedErrorState } from "@/components/feeds/feed-error-state";
 import { NewContentPill } from "@/components/feeds/new-content-pill";
 import type { NewContentAuthor } from "@/components/feeds/new-content-pill";
 import { GustCard } from "@/components/gusts/gust-card";
 import { GustCardSkeleton } from "@/components/gusts/gust-card-skeleton";
 import { GustFeedControls } from "@/components/gusts/gust-feed-controls";
 import type { GustFeed } from "@/components/gusts/gust-feed-controls";
-import { GustSourceRetries } from "@/components/gusts/gust-source-retries";
+import {
+  GustFeedErrorState,
+  GustSourceRetries,
+} from "@/components/gusts/gust-source-retries";
 import { GustsCommentsDrawer } from "@/components/gusts/gusts-comments-drawer";
 import { MobileGustEddies } from "@/components/gusts/mobile-gust-eddies";
 import { FeedSourceMenu } from "@/components/protocols/feed-source-menu";
@@ -983,6 +985,32 @@ const GustStream = ({ gustTab }: { gustTab: GustFeed }) => {
     }
   }, [autoOpenCreate, openComposer, user]);
 
+  const retrySources = [
+    {
+      handleRetry: () => {
+        if (nativePageError) {
+          void fetchNativeNextPage({ cancelRefetch: false });
+        } else {
+          void refetchNative();
+        }
+      },
+      hasError: includeNative && nativeStatus === "error",
+      isFetching: isFetchingNative,
+      label: "ASM",
+    },
+    {
+      handleRetry: () => {
+        if (externalPageError) {
+          void fetchExternalNextPage({ cancelRefetch: false });
+        } else {
+          void refetchExternal();
+        }
+      },
+      hasError: includeExternal && externalFeed.isError,
+      isFetching: externalFeed.isFetching,
+      label: "Bluesky",
+    },
+  ];
   const renderContent = () => {
     // Checked before the loading branches: a disabled (gated) query stays
     // "pending" forever, which would otherwise render the skeleton.
@@ -1004,11 +1032,11 @@ const GustStream = ({ gustTab }: { gustTab: GustFeed }) => {
       (posts.length === 0 && pageError && !canFetchNextPage)
     ) {
       return (
-        <FeedErrorState
-          message="Couldn’t load Gusts. Please try again."
+        <GustFeedErrorState
           onRetry={() => {
             void refetch();
           }}
+          sources={retrySources}
         />
       );
     }
@@ -1128,34 +1156,7 @@ const GustStream = ({ gustTab }: { gustTab: GustFeed }) => {
               );
             })}
 
-            <GustSourceRetries
-              sources={[
-                {
-                  handleRetry: () => {
-                    if (nativePageError) {
-                      void fetchNativeNextPage({ cancelRefetch: false });
-                    } else {
-                      void refetchNative();
-                    }
-                  },
-                  hasError: includeNative && nativeStatus === "error",
-                  isFetching: isFetchingNative,
-                  label: "ASM",
-                },
-                {
-                  handleRetry: () => {
-                    if (externalPageError) {
-                      void fetchExternalNextPage({ cancelRefetch: false });
-                    } else {
-                      void refetchExternal();
-                    }
-                  },
-                  hasError: includeExternal && externalFeed.isError,
-                  isFetching: externalFeed.isFetching,
-                  label: "Bluesky",
-                },
-              ]}
-            />
+            <GustSourceRetries sources={retrySources} />
 
             {isFetchingNextPage ? (
               <div

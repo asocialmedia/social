@@ -4,7 +4,9 @@ import { Window } from "happy-dom";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 
-import { GustSourceRetries } from "./gust-source-retries";
+import { gustPagingState } from "@/lib/posts/gust-feed";
+
+import { GustFeedErrorState, GustSourceRetries } from "./gust-source-retries";
 
 const dom = new Window({ url: "http://localhost:3000" });
 const originals = new Map<string, PropertyDescriptor | undefined>();
@@ -93,3 +95,53 @@ test("both failed sources retain separate retry actions", async () => {
     await act(() => root.unmount());
   }
 });
+
+test.each(["ASM", "Bluesky"])(
+  "empty reel keeps the failed %s retry after the healthy peer is exhausted",
+  async (failedSource) => {
+    const host = dom.document.createElement("div");
+    const root = createRoot(host as unknown as HTMLElement);
+    const sharedRetry = mock(() => {});
+    const sources = ["ASM", "Bluesky"].map((label) => ({
+      enabled: true,
+      handleRetry: mock(() => {}),
+      hasError: label === failedSource,
+      hasNextPage: label === failedSource,
+      isFetchNextPageError: label === failedSource,
+      isFetching: false,
+      isFetchingNextPage: false,
+      label,
+    }));
+    const paging = gustPagingState(sources);
+    expect(paging.canFetchNextPage).toBe(false);
+    expect(paging.pageError).toBe(true);
+    try {
+      await act(() =>
+        root.render(
+          <GustFeedErrorState onRetry={sharedRetry} sources={sources} />
+        )
+      );
+      const buttons = [...host.querySelectorAll("button")];
+      expect(buttons.length).toBe(2);
+      const sourceButton = buttons.find(
+        (button) => button.textContent === `Retry ${failedSource} videos`
+      );
+      expect(sourceButton).toBeDefined();
+      await act(() => sourceButton?.click());
+      expect(sharedRetry).not.toHaveBeenCalled();
+      for (const source of sources) {
+        expect(source.handleRetry).toHaveBeenCalledTimes(
+          source.hasError ? 1 : 0
+        );
+      }
+      const sharedButton = buttons.find(
+        (button) => button.textContent === "Try again"
+      );
+      expect(sharedButton).toBeDefined();
+      await act(() => sharedButton?.click());
+      expect(sharedRetry).toHaveBeenCalledTimes(1);
+    } finally {
+      await act(() => root.unmount());
+    }
+  }
+);
