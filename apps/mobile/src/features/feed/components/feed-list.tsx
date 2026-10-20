@@ -10,6 +10,7 @@ import {
 import { Image } from "expo-image";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
+import type { FlatList } from "react-native";
 import {
   Animated,
   Platform,
@@ -18,7 +19,6 @@ import {
   Text,
   View,
 } from "react-native";
-import type { ViewToken, FlatList } from "react-native";
 import { GestureDetector } from "react-native-gesture-handler";
 import Reanimated, {
   useAnimatedScrollHandler,
@@ -36,6 +36,7 @@ import { authClient } from "@/features/auth/lib/auth-client";
 import { useSessionContext } from "@/features/auth/state/session";
 import { getApiBaseUrl } from "@/lib/api-env";
 import { haptic } from "@/lib/haptics";
+import type { ViewToken } from "@/lib/list-virtualization";
 import { LIST_VIRTUALIZATION_PROPS } from "@/lib/list-virtualization";
 import { SHOWS_SCROLL_INDICATOR } from "@/lib/scroll-indicator";
 import { useAppTheme } from "@/theme";
@@ -812,10 +813,10 @@ export const FeedList = memo(
                   showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
                   viewabilityConfig={STABLE_VIEWABILITY}
                   renderItem={renderRow}
-                  ListFooterComponent={footer}
+                  ListFooterComponent={footer ?? undefined}
                   // The spacer and editor move together; preserving the visible
                   // spacer prevents typing from scrolling the editor out of view.
-                  ListHeaderComponent={listHeader}
+                  ListHeaderComponent={listHeader ?? undefined}
                 />
               </GestureDetector>
             </Animated.View>

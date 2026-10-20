@@ -2,6 +2,7 @@ import { randomUUID } from "expo-crypto";
 import { Image } from "expo-image";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { ScrollViewInstance, TextInputInstance } from "react-native";
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -51,8 +52,8 @@ export function ExternalPostScreen() {
   const inputStyle = premiumInput(isDark, false);
   const textStyle = themeText(isDark);
   const composerOpen = useComposerStore((state) => state.isOpen);
-  const scrollRef = useRef<ScrollView>(null);
-  const inputRef = useRef<TextInput>(null);
+  const scrollRef = useRef<ScrollViewInstance>(null);
+  const inputRef = useRef<TextInputInstance>(null);
   const discussionY = useRef(0);
   const router = useRouter();
   const insets = useSafeAreaInsets();

@@ -71,6 +71,58 @@ function fixture(overrides: Partial<ProtocolsAppOptions> = {}) {
 }
 
 describe("Elysia protocol service", () => {
+  test("preserves authorization and validation over Bun's live HTTP adapter", async () => {
+    const { app } = fixture();
+    app.listen({ hostname: "127.0.0.1", port: 0 });
+    try {
+      const { server } = app;
+      if (!server) {
+        throw new Error("Protocol test server did not start");
+      }
+      const origin = `http://127.0.0.1:${server.port}`;
+      const health = await fetch(`${origin}/health`);
+      expect(health.status).toBe(200);
+      expect(health.headers.get("cache-control")).toBe("no-store");
+      const unauthorized = await fetch(`${origin}/v1/capabilities`);
+      expect(unauthorized.status).toBe(401);
+      const invalid = await fetch(
+        `${origin}/v1/bluesky/author-feed?actor=example.test&limit=0`,
+        { headers: { authorization: `Bearer ${token}` } }
+      );
+      expect(invalid.status).toBe(400);
+      expect(await invalid.json()).toEqual({ error: "invalid_input" });
+    } finally {
+      await app.stop(true);
+    }
+  });
+
+  test("validates single and repeated post URI query parameters before calling the source", async () => {
+    const base = fixture();
+    const calls: string[][] = [];
+    const { request } = fixture({
+      client: {
+        ...base.client,
+        getPosts: (uris) => {
+          calls.push([...uris]);
+          return Promise.resolve([]);
+        },
+      },
+    });
+    const first = "at://did:web:example.test/app.bsky.feed.post/first";
+    const second = "at://did:web:example.test/app.bsky.feed.post/second";
+    const single = await request(
+      `/v1/bluesky/posts?uri=${encodeURIComponent(first)}`
+    );
+    expect(single.status).toBe(200);
+    const repeated = await request(
+      `/v1/bluesky/posts?uri=${encodeURIComponent(first)}&uri=${encodeURIComponent(second)}`
+    );
+    expect(repeated.status).toBe(200);
+    const invalid = await request(`/v1/bluesky/posts?uri=${"x".repeat(513)}`);
+    expect(invalid.status).toBe(400);
+    expect(calls).toEqual([[first], [first, second]]);
+  });
+
   test("search validates inputs, preserves profile results when posts fail, and selects the media policy client", async () => {
     const queries: string[] = [];
     const base = fixture();
@@ -294,6 +346,26 @@ describe("Elysia protocol service", () => {
     const missing = await request("/missing");
     expect(missing.status).toBe(404);
     expect(await missing.json()).toEqual({ error: "not_found" });
+  });
+
+  test("maps unregistered errors without exposing private details", async () => {
+    const base = fixture();
+    const { logs, request } = fixture({
+      client: {
+        ...base.client,
+        getProfile: async () => {
+          throw new Error("private upstream credentials");
+        },
+      },
+    });
+    const response = await request("/v1/bluesky/profile?actor=example.test", {
+      "x-request-id": "failed-read",
+    });
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({ error: "internal" });
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(response.headers.get("x-request-id")).toBe("failed-read");
+    expect(logs.some((entry) => entry.level === "error")).toBe(true);
   });
 
   test("drains reads while keeping liveness reachable", async () => {

@@ -3,6 +3,7 @@ import { visibleTabScrollOffset } from "@asm/ui/lib/tab-scroll";
 import { LinearGradient } from "expo-linear-gradient";
 import type { ReactNode } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { ScrollViewInstance } from "react-native";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import Animated, {
   useAnimatedStyle,
@@ -91,7 +92,7 @@ export function FeedTabs<T extends string = HomeTab>({
 }: FeedTabsProps<T>) {
   const { theme } = useAppTheme();
   const [layouts, setLayouts] = useState<Record<string, TriggerLayout>>({});
-  const scrollRef = useRef<ScrollView>(null);
+  const scrollRef = useRef<ScrollViewInstance>(null);
   const scrollOffset = useRef(0);
   const [viewportWidth, setViewportWidth] = useState(0);
 

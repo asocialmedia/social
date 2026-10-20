@@ -452,11 +452,11 @@ export function NotificationsScreen() {
             }}
             data={active.items}
             keyExtractor={(item) => item.id}
-            ListEmptyComponent={listEmpty}
+            ListEmptyComponent={listEmpty ?? undefined}
             ListFooterComponent={
               active.status === "loading-more" ? (
                 <NotificationsSkeleton />
-              ) : null
+              ) : undefined
             }
             onEndReached={handleEndReached}
             onEndReachedThreshold={0.5}

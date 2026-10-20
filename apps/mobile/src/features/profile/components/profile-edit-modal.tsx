@@ -3,6 +3,7 @@ import type { UpdateUserProfileValues } from "@asm/auth/validation";
 import { Image } from "expo-image";
 import { X } from "lucide-react-native";
 import { useCallback, useRef, useState } from "react";
+import type { ScrollViewInstance } from "react-native";
 import {
   KeyboardAvoidingView,
   Modal,
@@ -113,7 +114,7 @@ export function ProfileEditModal({
     draftFromProfile(profile)
   );
   const [saving, setSaving] = useState(false);
-  const scrollRef = useRef<ScrollView>(null);
+  const scrollRef = useRef<ScrollViewInstance>(null);
   const bioOffset = useRef(0);
   const focusBio = useCallback(() => {
     scrollRef.current?.scrollTo({

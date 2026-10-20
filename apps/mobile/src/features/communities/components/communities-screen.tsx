@@ -697,7 +697,7 @@ export function CommunitiesScreen() {
                         color="#f97316"
                         style={styles.footer}
                       />
-                    ) : null
+                    ) : undefined
                   }
                   contentContainerStyle={[
                     styles.content,

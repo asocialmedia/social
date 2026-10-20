@@ -8,6 +8,7 @@ import { Image } from "expo-image";
 import { useRouter } from "expo-router";
 import { Clock3, Eye, Flame, Play, Search, X } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { TextInputInstance } from "react-native";
 import {
   Keyboard,
   KeyboardAvoidingView,
@@ -161,7 +162,7 @@ export function SpotlightModal() {
     }
   }
 
-  const inputRef = useRef<TextInput>(null);
+  const inputRef = useRef<TextInputInstance>(null);
 
   // Read stored auth cookie for authenticated requests.
   useEffect(() => {

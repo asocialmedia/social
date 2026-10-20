@@ -1,6 +1,6 @@
 {
   "name": "@asm/protocols-app",
-  "version": "0.1.38",
+  "version": "0.1.39",
   "private": true,
   "description": "Elysia protocol service and live network consumers for asocialmedia",
   "license": "AGPL-3.0",
@@ -15,11 +15,12 @@
     "@asm/logger": "workspace:*",
     "@asm/protocols": "workspace:*",
     "@opentelemetry/api": "^1.9.1",
-    "@sinclair/typebox": "^0.34.0",
     "dotenv": "^17.4.2",
-    "elysia": "^1.4.30",
+    "elysia": "2.0.0-rc.0",
+    "exact-mirror": "1.2.6",
     "franc-min": "^6.2.0",
     "ioredis": "^6.0.0",
+    "typebox": "1.4.2",
     "zod": "^4.4.3"
   },
   "devDependencies": {

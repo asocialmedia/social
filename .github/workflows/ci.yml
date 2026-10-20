@@ -73,10 +73,7 @@ jobs:
           path: |
             **/node_modules
             !**/node_modules/.cache
-          key: ${{ runner.os }}-node-modules-${{ hashFiles('bun.lock') }}-${{ hashFiles('**/package.json') }}
-          restore-keys: |
-            ${{ runner.os }}-node-modules-${{ hashFiles('bun.lock') }}-
-            ${{ runner.os }}-node-modules-
+          key: ${{ runner.os }}-node-modules-v2-${{ hashFiles('bunfig.toml') }}-${{ hashFiles('bun.lock') }}-${{ hashFiles('**/package.json') }}
 
       - name: Restore Turbo cache
         uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
@@ -310,6 +307,21 @@ jobs:
           delete-only-untagged-versions: true
           token: ${{ secrets.GITHUB_TOKEN }}
 
+  dokploy-preflight:
+    name: Check Dokploy credentials (read only)
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Validate Dokploy credentials and Prisma application access
+        env:
+          DOKPLOY_API_URL: ${{ secrets.DOKPLOY_API_URL }}
+          DOKPLOY_API_TOKEN: ${{ secrets.DOKPLOY_API_TOKEN }}
+          DOKPLOY_PRISMA_APP_ID: ${{ secrets.DOKPLOY_PRISMA_APP_ID }}
+        run: bash scripts/ci/prisma-sync-deploy.sh --check
+
   prisma-sync:
     name: Prisma schema sync
     needs:
@@ -340,6 +352,14 @@ jobs:
               prNumber: Number('${{ needs.detect-pr-merge.outputs.merge-pr-number }}'),
               hasAppChanges: '${{ needs.determine-build-matrix.outputs.has-app-changes }}',
             })
+
+      - name: Validate Dokploy credentials and Prisma application access
+        if: steps.resolve-prisma.outputs.should-run == 'true'
+        env:
+          DOKPLOY_API_URL: ${{ secrets.DOKPLOY_API_URL }}
+          DOKPLOY_API_TOKEN: ${{ secrets.DOKPLOY_API_TOKEN }}
+          DOKPLOY_PRISMA_APP_ID: ${{ secrets.DOKPLOY_PRISMA_APP_ID }}
+        run: bash scripts/ci/prisma-sync-deploy.sh --check
 
       - name: Print Prisma sync context
         if: steps.resolve-prisma.outputs.should-run == 'true'
@@ -458,10 +478,7 @@ jobs:
           path: |
             **/node_modules
             !**/node_modules/.cache
-          key: ${{ runner.os }}-node-modules-${{ hashFiles('bun.lock') }}-${{ hashFiles('**/package.json') }}
-          restore-keys: |
-            ${{ runner.os }}-node-modules-${{ hashFiles('bun.lock') }}-
-            ${{ runner.os }}-node-modules-
+          key: ${{ runner.os }}-node-modules-v2-${{ hashFiles('bunfig.toml') }}-${{ hashFiles('bun.lock') }}-${{ hashFiles('**/package.json') }}
 
       - name: Install dependencies
         if: steps.node-modules-restore.outputs.cache-hit != 'true'

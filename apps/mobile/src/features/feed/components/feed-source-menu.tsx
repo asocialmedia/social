@@ -2,6 +2,7 @@ import type { FeedSource } from "@asm/protocols/discovery";
 import { feedSourceLabels } from "@asm/protocols/discovery";
 import { Check, SlidersHorizontal } from "lucide-react-native";
 import { useRef, useState } from "react";
+import type { ViewInstance } from "react-native";
 import { Pressable, View } from "react-native";
 
 import { useAppTheme } from "@/theme";
@@ -14,7 +15,7 @@ export function FeedSourceMenu(_props: { following: boolean }) {
   const { theme } = useAppTheme();
   const source = useFeedSourceStore((state) => state.source);
   const setSource = useFeedSourceStore((state) => state.setSource);
-  const trigger = useRef<View>(null);
+  const trigger = useRef<ViewInstance>(null);
   const [anchor, setAnchor] = useState<MenuAnchor | null>(null);
   return (
     <View>

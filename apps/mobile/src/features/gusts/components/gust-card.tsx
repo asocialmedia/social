@@ -33,7 +33,7 @@ import {
   VolumeX,
 } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { GestureResponderEvent } from "react-native";
+import type { ViewInstance, GestureResponderEvent } from "react-native";
 import {
   AppState,
   Pressable,
@@ -225,7 +225,7 @@ export function GustCard({
   const wasPlayingRef = useRef(false);
   const lastTapRef = useRef<number | null>(null);
   const singleTapTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const moreRef = useRef<View>(null);
+  const moreRef = useRef<ViewInstance>(null);
 
   const router = useRouter();
   const vote = useGustVote(post, viewerId, isActive);

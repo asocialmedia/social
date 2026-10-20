@@ -95,7 +95,7 @@ export function UnreadMessageObserver() {
             });
           };
           const subscription = AppState.addEventListener("change", reconcile);
-          reconcile(AppState.currentState);
+          reconcile(AppState.currentState ?? "unknown");
           stop = () => {
             poller.stop();
             stopPresence?.();

@@ -6,7 +6,7 @@ import {
 } from "@asm/protocols/bluesky";
 import type { BlueskyClient } from "@asm/protocols/bluesky";
 import { ProtocolError } from "@asm/protocols/contracts";
-import { Elysia, t } from "elysia";
+import { Elysia, NotFound, ParseError, ValidationError, t } from "elysia";
 
 import { version } from "../package.json";
 import { observeRequest, requestId } from "./observability";
@@ -125,22 +125,26 @@ export function createProtocolsApp(options: ProtocolsAppOptions) {
       set.headers["x-request-id"] = requestId(request);
       set.headers["cache-control"] = "no-store";
     })
-    .onError(({ code, error, set }) => {
-      if (error instanceof ProtocolError) {
-        set.status = statusByCode[error.code];
-        if (error.retryAfterSeconds) {
-          set.headers["retry-after"] = String(error.retryAfterSeconds);
-        }
-        return { error: error.code };
+    .onError(ProtocolError, ({ error, set }) => {
+      set.status = statusByCode[error.code];
+      if (error.retryAfterSeconds) {
+        set.headers["retry-after"] = String(error.retryAfterSeconds);
       }
-      if (code === "NOT_FOUND") {
-        set.status = 404;
-        return { error: "not_found" };
-      }
-      if (code === "VALIDATION" || code === "PARSE") {
-        set.status = 400;
-        return { error: "invalid_input" };
-      }
+      return { error: error.code };
+    })
+    .onError(NotFound, ({ set }) => {
+      set.status = 404;
+      return { error: "not_found" };
+    })
+    .onError(ValidationError, ({ set }) => {
+      set.status = 400;
+      return { error: "invalid_input" };
+    })
+    .onError(ParseError, ({ set }) => {
+      set.status = 400;
+      return { error: "invalid_input" };
+    })
+    .onError(({ set }) => {
       options.logger.error(
         { code: "internal" },
         "Protocol HTTP handler failed"
@@ -230,6 +234,19 @@ export function createProtocolsApp(options: ProtocolsAppOptions) {
         .get("/capabilities", () => ({ protocols: [blueskyCapabilities] }))
         .get(
           "/bluesky/search",
+          {
+            query: t.Object({
+              kind: t.Optional(
+                t.Union([
+                  t.Literal("all"),
+                  t.Literal("user"),
+                  t.Literal("post"),
+                ])
+              ),
+              limit: t.Optional(t.Integer({ maximum: 10, minimum: 1 })),
+              q: t.String({ maxLength: 80, minLength: 1 }),
+            }),
+          },
           ({ query, request, set }) =>
             observeRequest(
               "bluesky.search",
@@ -244,23 +261,19 @@ export function createProtocolsApp(options: ProtocolsAppOptions) {
                   new URL(request.url).searchParams.get("explicit") === "1",
                   request.signal
                 )
-            ),
-          {
-            query: t.Object({
-              kind: t.Optional(
-                t.Union([
-                  t.Literal("all"),
-                  t.Literal("user"),
-                  t.Literal("post"),
-                ])
-              ),
-              limit: t.Optional(t.Integer({ maximum: 10, minimum: 1 })),
-              q: t.String({ maxLength: 80, minLength: 1 }),
-            }),
-          }
+            )
         )
         .get(
           "/bluesky/posts",
+          {
+            query: t.Object({
+              recommendations: t.Optional(t.Literal("1")),
+              uri: t.Array(t.String({ maxLength: 512 }), {
+                maxItems: 25,
+                minItems: 1,
+              }),
+            }),
+          },
           ({ query, request, set }) =>
             observeRequest(
               "bluesky.posts",
@@ -298,45 +311,10 @@ export function createProtocolsApp(options: ProtocolsAppOptions) {
                 );
                 return posts.filter((post) => allowed.has(post.author.id));
               }
-            ),
-          {
-            query: t.Object({
-              recommendations: t.Optional(t.Literal("1")),
-              uri: t.Array(t.String({ maxLength: 512 }), {
-                maxItems: 25,
-                minItems: 1,
-              }),
-            }),
-          }
+            )
         )
         .get(
           "/bluesky/discover",
-          ({ query, request, set }) =>
-            observeRequest(
-              "bluesky.discover",
-              request,
-              String(set.headers["x-request-id"]),
-              options.logger,
-              () => {
-                if (!options.discover) {
-                  throw new ProtocolError(
-                    "unavailable",
-                    "Discovery is not configured"
-                  );
-                }
-                const discover =
-                  new URL(request.url).searchParams.get("explicit") === "1"
-                    ? (options.explicitDiscover ?? options.discover)
-                    : options.discover;
-                return discover(
-                  query.mode ?? "latest",
-                  query.cursor,
-                  query.locale,
-                  query.topic,
-                  query.content
-                );
-              }
-            ),
           {
             query: t.Object({
               content: t.Optional(
@@ -362,10 +340,41 @@ export function createProtocolsApp(options: ProtocolsAppOptions) {
                 })
               ),
             }),
-          }
+          },
+          ({ query, request, set }) =>
+            observeRequest(
+              "bluesky.discover",
+              request,
+              String(set.headers["x-request-id"]),
+              options.logger,
+              () => {
+                if (!options.discover) {
+                  throw new ProtocolError(
+                    "unavailable",
+                    "Discovery is not configured"
+                  );
+                }
+                const discover =
+                  new URL(request.url).searchParams.get("explicit") === "1"
+                    ? (options.explicitDiscover ?? options.discover)
+                    : options.discover;
+                return discover(
+                  query.mode ?? "latest",
+                  query.cursor,
+                  query.locale,
+                  query.topic,
+                  query.content
+                );
+              }
+            )
         )
         .get(
           "/bluesky/profile",
+          {
+            query: t.Object({
+              actor: t.String({ maxLength: 2048, minLength: 3 }),
+            }),
+          },
           ({ query, request, set }) =>
             observeRequest(
               "bluesky.profile",
@@ -373,18 +382,10 @@ export function createProtocolsApp(options: ProtocolsAppOptions) {
               String(set.headers["x-request-id"]),
               options.logger,
               () => clientFor(request).getProfile(query.actor)
-            ),
-          {
-            query: t.Object({
-              actor: t.String({ maxLength: 2048, minLength: 3 }),
-            }),
-          }
+            )
         )
         .get(
           "/bluesky/account-status",
-          async ({ query, request }) => ({
-            status: await readBlueskyAccountStatus(query.actor, request.signal),
-          }),
           {
             query: t.Object({
               actor: t.String({
@@ -392,10 +393,27 @@ export function createProtocolsApp(options: ProtocolsAppOptions) {
                 pattern: "^did:(plc|web):[A-Za-z0-9._:%-]+$",
               }),
             }),
-          }
+          },
+          async ({ query, request }) => ({
+            status: await readBlueskyAccountStatus(query.actor, request.signal),
+          })
         )
         .get(
           "/bluesky/author-feed",
+          {
+            query: t.Object({
+              actor: t.String({ maxLength: 2048, minLength: 3 }),
+              pins: t.Optional(t.Literal("0")),
+              tab: t.Optional(
+                t.Union([
+                  t.Literal("posts"),
+                  t.Literal("replies"),
+                  t.Literal("media"),
+                ])
+              ),
+              ...pageQuery,
+            }),
+          },
           ({ query, request, set }) =>
             observeRequest(
               "bluesky.author_feed",
@@ -413,24 +431,16 @@ export function createProtocolsApp(options: ProtocolsAppOptions) {
                     limit: query.limit,
                   }
                 )
-            ),
-          {
-            query: t.Object({
-              actor: t.String({ maxLength: 2048, minLength: 3 }),
-              pins: t.Optional(t.Literal("0")),
-              tab: t.Optional(
-                t.Union([
-                  t.Literal("posts"),
-                  t.Literal("replies"),
-                  t.Literal("media"),
-                ])
-              ),
-              ...pageQuery,
-            }),
-          }
+            )
         )
         .get(
           "/bluesky/feed",
+          {
+            query: t.Object({
+              feed: t.String({ maxLength: 2300, minLength: 1 }),
+              ...pageQuery,
+            }),
+          },
           ({ query, request, set }) =>
             observeRequest(
               "bluesky.feed",
@@ -443,16 +453,15 @@ export function createProtocolsApp(options: ProtocolsAppOptions) {
                   language: query.language,
                   limit: query.limit,
                 })
-            ),
-          {
-            query: t.Object({
-              feed: t.String({ maxLength: 2300, minLength: 1 }),
-              ...pageQuery,
-            }),
-          }
+            )
         )
         .get(
           "/bluesky/post",
+          {
+            query: t.Object({
+              uri: t.String({ maxLength: 2300, minLength: 1 }),
+            }),
+          },
           ({ query, request, set }) =>
             observeRequest(
               "bluesky.post",
@@ -460,15 +469,16 @@ export function createProtocolsApp(options: ProtocolsAppOptions) {
               String(set.headers["x-request-id"]),
               options.logger,
               () => clientFor(request).getPost(query.uri)
-            ),
-          {
-            query: t.Object({
-              uri: t.String({ maxLength: 2300, minLength: 1 }),
-            }),
-          }
+            )
         )
         .get(
           "/bluesky/thread",
+          {
+            query: t.Object({
+              depth: t.Optional(t.Integer({ maximum: 10, minimum: 0 })),
+              uri: t.String({ maxLength: 2300, minLength: 1 }),
+            }),
+          },
           ({ query, request, set }) =>
             observeRequest(
               "bluesky.thread",
@@ -488,13 +498,7 @@ export function createProtocolsApp(options: ProtocolsAppOptions) {
                   query.depth === undefined ? 3 : Number(query.depth)
                 );
               }
-            ),
-          {
-            query: t.Object({
-              depth: t.Optional(t.Integer({ maximum: 10, minimum: 0 })),
-              uri: t.String({ maxLength: 2300, minLength: 1 }),
-            }),
-          }
+            )
         )
     );
 }

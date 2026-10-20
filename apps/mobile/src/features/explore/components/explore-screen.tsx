@@ -20,6 +20,7 @@ import {
   useSyncExternalStore,
 } from "react";
 import type { Ref } from "react";
+import type { ScrollViewInstance, ScrollViewProps } from "react-native";
 import {
   ActivityIndicator,
   Animated,
@@ -29,7 +30,6 @@ import {
   Text,
   View,
 } from "react-native";
-import type { ScrollViewProps } from "react-native";
 import { GestureDetector } from "react-native-gesture-handler";
 import {
   createAnimatedComponent,
@@ -610,7 +610,7 @@ const ExploreTabContent = memo(
 
     const { nativeScrollGesture } = pull;
     const renderScrollComponent = useCallback(
-      (props: ScrollViewProps & { ref?: Ref<ScrollView> }) => (
+      (props: ScrollViewProps & { ref?: Ref<ScrollViewInstance> }) => (
         <GestureDetector gesture={nativeScrollGesture}>
           <ScrollView {...props} />
         </GestureDetector>
@@ -887,9 +887,9 @@ const ExploreTabContent = memo(
                 onScroll={handleContentScroll}
                 scrollEventThrottle={16}
                 showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
-                ListHeaderComponent={header}
-                ListEmptyComponent={empty}
-                ListFooterComponent={footer}
+                ListHeaderComponent={header ?? undefined}
+                ListEmptyComponent={empty ?? undefined}
+                ListFooterComponent={footer ?? undefined}
                 renderItem={({ item, index }) => (
                   <View
                     style={activeTab === "people" ? undefined : styles.gridCell}

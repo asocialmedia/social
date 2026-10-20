@@ -1,7 +1,7 @@
 import type { RefObject } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { ScrollViewInstance, ViewInstance } from "react-native";
 import { Keyboard, Pressable, Text, View } from "react-native";
-import type { ScrollView } from "react-native";
 
 import { AnimatedWordCounter } from "@/components/feedback/animated-word-counter";
 import { premiumInput } from "@/components/surface/recipes";
@@ -25,14 +25,14 @@ export function ProfileBioEditor({
 }: {
   value: string;
   onChangeText: (value: string) => void;
-  scrollRef?: RefObject<ScrollView | null>;
+  scrollRef?: RefObject<ScrollViewInstance | null>;
   onFocus?: () => void;
 }) {
   const [mentions, setMentions] = useState<MentionPick[]>([]);
   const [preview, setPreview] = useState(false);
   const { theme, isDark } = useAppTheme();
   const [focused, setFocused] = useState(false);
-  const fieldRef = useRef<View>(null);
+  const fieldRef = useRef<ViewInstance>(null);
   const scrollIntoView = useCallback(() => {
     if (onFocus) {
       onFocus();

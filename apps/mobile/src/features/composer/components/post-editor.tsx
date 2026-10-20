@@ -24,6 +24,7 @@ import {
 } from "lucide-react-native";
 import type { ComponentType } from "react";
 import { useRef, useState } from "react";
+import type { ViewInstance } from "react-native";
 import {
   ActivityIndicator,
   Modal,
@@ -356,7 +357,7 @@ export function PostEditor({
     x: number;
     y: number;
   } | null>(null);
-  const moreAnchorRef = useRef<View>(null);
+  const moreAnchorRef = useRef<ViewInstance>(null);
   const [altTarget, setAltTarget] = useState<string | null>(null);
   const [publishing, setPublishing] = useState(false);
   // One key per composed post, reused across retries of that post.

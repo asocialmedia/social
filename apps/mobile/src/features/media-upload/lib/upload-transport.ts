@@ -83,9 +83,9 @@ export async function putFilePart(options: {
   const handle = source.open();
   try {
     handle.offset = options.start;
-    const bytes = handle.readBytes(options.end - options.start);
+    const bytes = await handle.readBytes(options.end - options.start);
     partFile.create({ overwrite: true });
-    partFile.write(bytes);
+    await partFile.write(bytes);
   } finally {
     handle.close();
   }

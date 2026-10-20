@@ -9,8 +9,8 @@ import { Image } from "expo-image";
 import * as Linking from "expo-linking";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode, Ref } from "react";
+import type { ScrollViewInstance, ScrollViewProps } from "react-native";
 import { Animated, ScrollView, StyleSheet, Text, View } from "react-native";
-import type { ScrollViewProps } from "react-native";
 import { GestureDetector } from "react-native-gesture-handler";
 import {
   createAnimatedComponent,
@@ -154,7 +154,7 @@ export const HnFeedTab = memo(
     const { nativeScrollGesture } = pull;
     // Attach Native to the actual ScrollView, not FlashList's outer View.
     const renderScrollComponent = useCallback(
-      (props: ScrollViewProps & { ref?: Ref<ScrollView> }) => (
+      (props: ScrollViewProps & { ref?: Ref<ScrollViewInstance> }) => (
         <GestureDetector gesture={nativeScrollGesture}>
           <ScrollView {...props} />
         </GestureDetector>
@@ -363,8 +363,8 @@ export const HnFeedTab = memo(
               }}
               data={stories}
               keyExtractor={hnStoryKey}
-              ListEmptyComponent={empty}
-              ListFooterComponent={footer}
+              ListEmptyComponent={empty ?? undefined}
+              ListFooterComponent={footer ?? undefined}
               onEndReached={fetchNext}
               onEndReachedThreshold={0.5}
               onScroll={handleScroll}

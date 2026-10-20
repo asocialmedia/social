@@ -6,8 +6,12 @@
 // target and the screen scrolls the active ScrollView to it once the tab has
 // rendered.
 import type { ReactNode, RefObject } from "react";
+import type {
+  ScrollViewInstance,
+  LayoutChangeEvent,
+  ViewStyle,
+} from "react-native";
 import { View } from "react-native";
-import type { LayoutChangeEvent, ScrollView, ViewStyle } from "react-native";
 
 import type { SettingsTab } from "./settings-tabs";
 
@@ -66,7 +70,7 @@ export function SectionAnchor({
 // then scrolls.
 export function scrollToSection(
   sectionId: string,
-  refs: Record<SettingsTab, RefObject<ScrollView | null>>
+  refs: Record<SettingsTab, RefObject<ScrollViewInstance | null>>
 ): void {
   let attempts = 0;
   const tick = () => {

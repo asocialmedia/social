@@ -11,7 +11,7 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { ScrollView, StyleSheet, View } from "react-native";
-import type { ScrollView as ScrollViewType } from "react-native";
+import type { ScrollViewInstance as ScrollViewType } from "react-native";
 
 import { authClient } from "@/features/auth/lib/auth-client";
 import { useSessionContext } from "@/features/auth/state/session";
