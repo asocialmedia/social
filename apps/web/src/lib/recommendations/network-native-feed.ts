@@ -51,11 +51,7 @@ import { nativeCandidateIds } from "./native-candidates";
 import type { NetworkFeedContext } from "./network-context";
 import { networkFeedContext } from "./network-context";
 import { signNetworkObservation } from "./network-observation";
-import {
-  readServedIds,
-  recordServedIds,
-  servedSetKey,
-} from "./served-set";
+import { readServedIds, recordServedIds, servedSetKey } from "./served-set";
 
 const snapshotSchema = z.object({
   anchor: z.string().default(() => new Date().toISOString()),
@@ -588,12 +584,12 @@ async function buildNetworkNativeFeed(
         score: servedPenalty(
           mode === "trending"
             ? Math.min(3, fit) +
-              trend * 8 +
-              geographicAffinity * 0.4 +
-              (socialById.get(post.id)?.weight ?? 0) * 2
+                trend * 8 +
+                geographicAffinity * 0.4 +
+                (socialById.get(post.id)?.weight ?? 0) * 2
             : nativeScore * (exploring ? 0.35 : 1) +
-              fit * 20 +
-              guestQualityBoost,
+                fit * 20 +
+                guestQualityBoost,
           post.id
         ),
         semanticTags: topics,

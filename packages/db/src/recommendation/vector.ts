@@ -80,6 +80,28 @@ export function computeCentroid(
   return normalizeVector(accumulated);
 }
 
+// Blend two taste vectors, giving `incoming` the requested share of the result
+// and re-normalising. Used to let in-session interest lead the long-term anchor.
+export function blendVectors(
+  anchor: number[],
+  incoming: number[],
+  incomingWeight: number
+): number[] {
+  if (
+    anchor.length !== EMBEDDING_DIMENSION ||
+    incoming.length !== EMBEDDING_DIMENSION
+  ) {
+    return anchor;
+  }
+  const weight = Math.min(1, Math.max(0, incomingWeight));
+  const mixed = Array.from({ length: EMBEDDING_DIMENSION }).fill(0) as number[];
+  for (let d = 0; d < EMBEDDING_DIMENSION; d += 1) {
+    mixed[d] =
+      (anchor[d] ?? 0) * (1 - weight) + (incoming[d] ?? 0) * weight;
+  }
+  return normalizeVector(mixed);
+}
+
 // Fast deterministic token hash mapping for 384-dimensional bag-of-words
 // and subword 3-gram representations. Zero external dependencies, < 0.2ms latency.
 export function generateLocalEmbedding(text: string): number[] {

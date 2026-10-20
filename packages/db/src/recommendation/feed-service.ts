@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { createLogger } from "@asm/logger";
 import { and, or } from "@prisma/orm-postgres/orm-client";
 // For-You feed service: fetches a fresh candidate pool, builds (and caches)
@@ -56,6 +58,7 @@ const COLLABORATIVE_SOURCE_TAKE = 100;
 const COLLABORATIVE_PEER_EVENT_TAKE = 2000;
 const COLLABORATIVE_CANDIDATE_EVENT_TAKE = 5000;
 const SOCIAL_PROOF_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+const SOCIAL_PROOF_CACHE_SECONDS = 120;
 const SOCIAL_PROOF_EVENT_TAKE = 2000;
 const SOCIAL_PROOF_SATURATION = 3;
 const POSITIVE_RECOMMENDATION_EVENTS = [
@@ -260,6 +263,49 @@ export async function getSocialProofPostWeights(
     return new Map();
   }
 
+  // Social proof depends only on the viewer's follow graph and the candidate
+  // set, so a short Redis lease removes the self-join from repeat builds. Fails
+  // open: a cache outage must never block a feed read.
+  const cacheKey = `rec:social-proof:v1:{${createHash("sha256")
+    .update(
+      JSON.stringify([viewerId, [...candidatePostIds].toSorted()])
+    )
+    .digest("hex")}}`;
+  try {
+    const cached = await redis.get(cacheKey);
+    if (cached) {
+      const parsed = JSON.parse(cached) as [string, number][];
+      if (Array.isArray(parsed)) {
+        return new Map(parsed);
+      }
+    }
+  } catch {
+    // Fall through to the database.
+  }
+
+  const weights = await computeSocialProofWeights(
+    viewerId,
+    candidatePostIds,
+    now
+  );
+  try {
+    await redis.set(
+      cacheKey,
+      JSON.stringify([...weights]),
+      "EX",
+      SOCIAL_PROOF_CACHE_SECONDS
+    );
+  } catch {
+    // Best effort only.
+  }
+  return weights;
+}
+
+async function computeSocialProofWeights(
+  viewerId: string,
+  candidatePostIds: string[],
+  now: Date
+): Promise<Map<string, number>> {
   const since = new Date(now.getTime() - SOCIAL_PROOF_WINDOW_MS);
   const [amplifications, comments] = await Promise.all([
     prisma.orm.public.Votes.select("createdAt", "postId", "userId")

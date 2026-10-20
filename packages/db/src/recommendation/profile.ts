@@ -3,7 +3,7 @@
 // per-topic affinities, format preferences, topic clusters, and a 384-dimensional taste vector.
 
 import { globalKnowledgeGraph } from "./knowledge-graph";
-import { computeCentroid, EMBEDDING_DIMENSION } from "./vector";
+import { blendVectors, computeCentroid, EMBEDDING_DIMENSION } from "./vector";
 
 export type ProfileSignalKind =
   | "amplify"
@@ -86,6 +86,13 @@ export const SIGNAL_WEIGHTS: Record<ProfileSignalKind, number> = {
   view: 0.5,
   viewComplete: 2.5,
 };
+
+// The window that makes a signal "in-session". A reader pivoting interests is
+// visible in the last half hour, well before the 7-day profile centroid moves.
+export const SESSION_WINDOW_MS = 30 * 60_000;
+// In-session taste leads so a pivot takes effect immediately, but the long-term
+// centroid still anchors the vector against one stray click.
+export const SESSION_VECTOR_WEIGHT = 0.7;
 
 function addWeight(
   weights: Record<string, number>,
@@ -190,6 +197,10 @@ export function buildUserProfile(
   const seenSearchTopics = new Set<string>();
   const tasteVectors: number[][] = [];
   const tasteWeights: number[] = [];
+  // Short-horizon vectors, so a reader who pivots mid-session is reflected
+  // before the long-term centroid would catch up.
+  const sessionVectors: number[][] = [];
+  const sessionWeights: number[] = [];
   let positiveSignalCount = 0;
 
   for (const signal of signals) {
@@ -286,6 +297,14 @@ export function buildUserProfile(
     ) {
       tasteVectors.push(signal.embedding);
       tasteWeights.push(magnitude);
+      if (
+        signal.kind !== "search" &&
+        signal.createdAt &&
+        now.getTime() - signal.createdAt.getTime() < SESSION_WINDOW_MS
+      ) {
+        sessionVectors.push(signal.embedding);
+        sessionWeights.push(magnitude);
+      }
     }
   }
 
@@ -318,7 +337,20 @@ export function buildUserProfile(
   }
 
   // Taste vector centroid
-  const tasteVector = computeCentroid(tasteVectors, tasteWeights);
+  // Dual-tier taste: the long-term centroid is the anchor, and an in-session
+  // centroid pulls it toward what the reader is doing right now. With no
+  // session signals the long-term vector is returned untouched. With no
+  // embeddings at all this stays a zero vector, which callers already treat as
+  // "no signal" rather than as a missing field.
+  const longTermVector = computeCentroid(tasteVectors, tasteWeights);
+  const tasteVector =
+    sessionVectors.length > 0
+      ? blendVectors(
+          longTermVector,
+          computeCentroid(sessionVectors, sessionWeights),
+          SESSION_VECTOR_WEIGHT
+        )
+      : longTermVector;
 
   // Dominant topic & preferred format summary
   let dominantTopic = "general";

@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 
+import { SESSION_VECTOR_WEIGHT } from "./profile";
 import {
+  blendVectors,
   computeCentroid,
   cosineSimilarity,
   EMBEDDING_DIMENSION,
@@ -56,5 +58,44 @@ describe("vector math", () => {
 
     const simDifferent = cosineSimilarity(e1, e3);
     expect(simDifferent).toBeLessThan(0.7);
+  });
+});
+
+const axis = (index: number) => {
+  const vector = Array.from({ length: EMBEDDING_DIMENSION }).fill(
+    0
+  ) as number[];
+  vector[index] = 1;
+  return vector;
+};
+
+describe("blendVectors", () => {
+  test("weights the incoming session vector and re-normalises", () => {
+    const blended = blendVectors(axis(0), axis(1), SESSION_VECTOR_WEIGHT);
+    // The mix is 0.3 anchor / 0.7 session, then renormalised to unit length.
+    const scale = Math.hypot(0.3, 0.7);
+    expect(blended[0]).toBeCloseTo(0.3 / scale, 6);
+    expect(blended[1]).toBeCloseTo(0.7 / scale, 6);
+    expect(Math.hypot(...blended)).toBeCloseTo(1, 6);
+  });
+
+  test("a zero weight keeps the long-term anchor", () => {
+    const blended = blendVectors(axis(0), axis(1), 0);
+    expect(blended[0]).toBeCloseTo(1, 6);
+    expect(blended[1]).toBeCloseTo(0, 6);
+  });
+
+  test("an in-session pivot moves similarity toward the new subject", () => {
+    const longTerm = axis(0);
+    const pivoted = axis(1);
+    const blended = blendVectors(longTerm, pivoted, SESSION_VECTOR_WEIGHT);
+    const before = cosineSimilarity(longTerm, pivoted);
+    const after = cosineSimilarity(blended, pivoted);
+    expect(before).toBeCloseTo(0, 6);
+    expect(after).toBeGreaterThan(0.9);
+  });
+
+  test("mismatched dimensions fall back to the anchor", () => {
+    expect(blendVectors(axis(0), [1, 2, 3], 0.7)).toEqual(axis(0));
   });
 });

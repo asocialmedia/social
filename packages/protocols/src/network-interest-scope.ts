@@ -14,20 +14,14 @@ function normalizeTopic(value: string): string {
 const TSQUERY_UNSAFE = /[^\p{L}\p{N}\p{M} .+#_-]+/gu;
 
 export function neutralizeSearchTerm(term: string): string {
-  return term
-    .replaceAll(TSQUERY_UNSAFE, " ")
-    .replaceAll(/\s+/gu, " ")
-    .trim();
+  return term.replaceAll(TSQUERY_UNSAFE, " ").replaceAll(/\s+/gu, " ").trim();
 }
 
 // The tokenizer keeps a dotted or hyphenated compound as one lexeme (`node.js`,
 // `c++`), so a normalized "node js" would match nothing. Emit the joined form
 // only for inputs that carried a real compound separator; otherwise a declared
 // phrase like "typescript compiler" would also seed a useless run-on token.
-export function searchTermVariants(
-  term: string,
-  compound = false
-): string[] {
+export function searchTermVariants(term: string, compound = false): string[] {
   const spaced = neutralizeSearchTerm(term);
   if (!spaced) {
     return [];
