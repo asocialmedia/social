@@ -502,12 +502,16 @@ export async function GET(
       );
       // A private community's poster must not be retained by the browser at
       // all: access can be revoked (the member leaves), and a 24h-cached frame
-      // would keep rendering after that. Public post media stays immutable, and
-      // other private media (comment/message drafts) keeps its short cache.
+      // would keep rendering after that. Explicit frames and unlinked drafts
+      // also need fresh access checks; safe public post media stays immutable.
       let posterCacheControl = "private, max-age=86400";
       if (ownership.postId && !isPrivateCommunityPost && !isExplicitPost) {
         posterCacheControl = "public, max-age=31536000, immutable";
-      } else if (isPrivateCommunityPost) {
+      } else if (
+        isPrivateCommunityPost ||
+        isExplicitPost ||
+        isOwnedMediaDraft(ownership, viewer)
+      ) {
         posterCacheControl = "private, no-store";
       }
       return new NextResponse(posterObject.Body as ReadableStream, {

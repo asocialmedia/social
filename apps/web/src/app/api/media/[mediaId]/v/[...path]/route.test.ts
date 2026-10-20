@@ -18,6 +18,7 @@ let status: "DELETED" | "READY" = "READY";
 let explicitPost = false;
 let includeExplicit = false;
 let explicitSafety = false;
+let servePoster = false;
 let viewerId: string | null = "user_1";
 let attachment: "post" | "draft" | "comment" | "message" = "post";
 const sendCalls: GetObjectCommandLike[] = [];
@@ -94,6 +95,12 @@ mock.module("@/lib/media/object-storage", () => ({
   asmobClient: {
     send: (command: GetObjectCommandLike) => {
       sendCalls.push(command);
+      if (servePoster) {
+        return Promise.resolve({
+          Body: new Response("poster").body,
+          ContentType: "image/jpeg",
+        });
+      }
       return Promise.reject(
         Object.assign(new Error("missing"), { name: "NoSuchKey" })
       );
@@ -121,6 +128,7 @@ beforeEach(() => {
   explicitPost = false;
   includeExplicit = false;
   explicitSafety = false;
+  servePoster = false;
   viewerId = "user_1";
   attachment = "post";
   upstreamResponse = () => new Response("", { status: 404 });
@@ -132,6 +140,46 @@ beforeEach(() => {
     expect(init.headers.Range).toBe(RANGE);
     return Promise.resolve(upstreamResponse());
   };
+});
+
+function readOriginalPoster() {
+  return getOriginal(
+    new Request("https://asocialmedia.cc/api/media/m1?thumb=1"),
+    { params: Promise.resolve({ mediaId: "m1" }) }
+  );
+}
+
+test.each([false, true])(
+  "owned draft poster is uncached with explicit classification %s",
+  async (explicit) => {
+    attachment = "draft";
+    explicitSafety = explicit;
+    derivativeKey = "m1/poster.jpg";
+    servePoster = true;
+    const poster = await readOriginalPoster();
+    expect(poster.status).toBe(200);
+    expect(await poster.text()).toBe("poster");
+    expect(poster.headers.get("Cache-Control")).toBe("private, no-store");
+    expect(sendCalls).toHaveLength(1);
+    viewerId = null;
+    const loggedOut = await readOriginalPoster();
+    expect(loggedOut.status).not.toBe(200);
+    expect(sendCalls).toHaveLength(1);
+  }
+);
+
+test("safe public posters keep immutable caching while explicit posters stay uncached", async () => {
+  servePoster = true;
+  const publicPoster = await readOriginalPoster();
+  expect(publicPoster.status).toBe(200);
+  expect(publicPoster.headers.get("Cache-Control")).toBe(
+    "public, max-age=31536000, immutable"
+  );
+  explicitSafety = true;
+  includeExplicit = true;
+  const explicitPoster = await readOriginalPoster();
+  expect(explicitPoster.status).toBe(200);
+  expect(explicitPoster.headers.get("Cache-Control")).toBe("private, no-store");
 });
 
 test.each([
