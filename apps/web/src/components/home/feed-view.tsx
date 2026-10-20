@@ -42,6 +42,7 @@ interface FeedViewProps {
   respectInterests?: boolean;
   externalPosts?: ExternalPost[];
   source?: FeedSource;
+  sourcesPending?: boolean;
   cacheKey?: QueryKey;
   // Extra ids to drop from the rendered feed, applied to both the server list
   // and every cache-synced update. Used when a leading segment already shows a
@@ -62,6 +63,7 @@ export const FeedView: React.FC<FeedViewProps> = ({
   posts: initialPosts,
   externalPosts = EMPTY_EXTERNAL_POSTS,
   source = "all",
+  sourcesPending = false,
   cacheKey = DEFAULT_FEED_CACHE_KEY,
   excludeIds,
   excludePostId,
@@ -375,27 +377,40 @@ export const FeedView: React.FC<FeedViewProps> = ({
       network.settings.topicScope,
     ]
   );
+  // Stage arrivals until both sources finish so page-sized native batches do not get locked ahead of their peers.
+  const stagedGroups = useMemo(() => {
+    if (!sourcesPending) {
+      return mixedGroups;
+    }
+    return mixedGroups.slice(0, 1);
+  }, [mixedGroups, sourcesPending]);
   const [orderedFeed, setOrderedFeed] = useState({
-    input: mixedGroups,
-    items: mixedGroups,
+    input: stagedGroups,
+    items: stagedGroups,
     sortBy,
     source,
   });
   let visibleGroups = orderedFeed.items;
   if (
-    orderedFeed.input !== mixedGroups ||
+    orderedFeed.input !== stagedGroups ||
     orderedFeed.sortBy !== sortBy ||
     orderedFeed.source !== source
   ) {
+    const incoming =
+      sourcesPending && orderedFeed.items.length
+        ? mixedGroups.filter((item) =>
+            orderedFeed.items.some((previous) => previous.id === item.id)
+          )
+        : stagedGroups;
     visibleGroups =
       orderedFeed.sortBy === sortBy && orderedFeed.source === source
-        ? reconcileFeedOrder(orderedFeed.items, mixedGroups, [
+        ? reconcileFeedOrder(orderedFeed.items, incoming, [
             threadGroups.map((group) => `asm:${group.id}`),
             externalPosts.map((post) => `bluesky:${post.id}`),
           ])
-        : mixedGroups;
+        : incoming;
     setOrderedFeed({
-      input: mixedGroups,
+      input: stagedGroups,
       items: visibleGroups,
       sortBy,
       source,

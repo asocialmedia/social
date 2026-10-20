@@ -44,6 +44,10 @@ export function RecentActivityCard({
     mutationKey: key,
     onError: (error) => toast({ title: error.message, variant: "destructive" }),
     onSuccess: (settings) => {
+      toast({
+        description: "This profile can start learning again.",
+        title: "Recent activity cleared",
+      });
       client.setQueryData(key, settings);
       window.dispatchEvent(new Event("network:settings-changed"));
       const channel =

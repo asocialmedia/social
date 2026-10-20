@@ -1,6 +1,5 @@
 "use client";
 
-import { Button } from "@asm/ui/shadui/button";
 import { useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft } from "lucide-react";
 import { useSearchParams, useRouter } from "next/navigation";
@@ -10,6 +9,7 @@ import ClientPost, {
   HeaderBannerWash,
 } from "@/app/(main)/posts/[postId]/client-post";
 import { useSession } from "@/app/(main)/session-provider";
+import { FeedErrorState } from "@/components/feeds/feed-error-state";
 import MediaViewer from "@/components/home/feedview/media-viewer";
 import MediaRouteSkeleton from "@/components/layouts/skeletons/media-route-skeleton";
 import PostDetailSkeleton from "@/components/layouts/skeletons/post-detail-skeleton";
@@ -140,14 +140,13 @@ export function ExternalPostPage() {
         </div>
       </div>
       {query.isError ? (
-        <Button
-          onClick={() => {
+        <FeedErrorState
+          message="Couldn't load this Bluesky post."
+          isRetrying={query.isFetching}
+          onRetry={() => {
             void query.refetch();
           }}
-          variant="ghost"
-        >
-          Couldn&apos;t load post. Retry
-        </Button>
+        />
       ) : null}
       {query.isSuccess ? (
         <>

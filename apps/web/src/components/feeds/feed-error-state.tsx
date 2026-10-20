@@ -5,9 +5,11 @@ import Image from "next/image";
 export function FeedErrorState({
   message,
   onRetry,
+  isRetrying = false,
 }: {
   message: string;
   onRetry: () => void;
+  isRetrying?: boolean;
 }) {
   return (
     <div className="flex min-h-72 w-full flex-1 flex-col items-center justify-center gap-4 p-6 text-center">
@@ -23,6 +25,7 @@ export function FeedErrorState({
         {message}
       </p>
       <Button
+        disabled={isRetrying}
         className="rounded-full"
         onClick={onRetry}
         type="button"

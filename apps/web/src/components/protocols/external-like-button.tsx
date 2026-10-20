@@ -89,7 +89,12 @@ export function ExternalLikeButton({
     retry: false,
     staleTime: 30_000,
   });
-  const mutation = useMutation({
+  const mutation = useMutation<
+    z.infer<typeof likeSchema>,
+    Error,
+    boolean,
+    { previous: z.infer<typeof likeSchema> | undefined }
+  >({
     mutationFn: async (active: boolean) => {
       const response = await fetch("/api/protocols/bluesky/likes", {
         body: JSON.stringify({ active, uri: post.id }),
@@ -107,9 +112,36 @@ export function ExternalLikeButton({
       return likeSchema.parse(await response.json());
     },
     mutationKey: key,
-    onError: (error) => toast({ title: error.message, variant: "destructive" }),
+    onError: (error, _active, context) => {
+      if (context?.previous) {
+        client.setQueryData(key, context.previous);
+      } else {
+        void client.resetQueries({ exact: true, queryKey: key });
+      }
+      toast({ title: error.message, variant: "destructive" });
+    },
+    onMutate: async (active) => {
+      await client.cancelQueries({ queryKey: key });
+      const previous = client.getQueryData<z.infer<typeof likeSchema>>(key);
+      const liked = previous?.liked ?? false;
+      const likes = previous?.likes ?? post.upstreamCounts.likes ?? null;
+      client.setQueryData(key, {
+        liked: active,
+        likes:
+          likes === null
+            ? null
+            : Math.max(0, likes + Number(active) - Number(liked)),
+      });
+      return { previous };
+    },
     onSuccess: (next) => {
       client.setQueryData(key, next);
+      toast({
+        description: next.liked
+          ? "Your like was synced to Bluesky."
+          : "Your Bluesky like was removed.",
+        title: next.liked ? "Liked on Bluesky" : "Like removed",
+      });
       if (next.liked) {
         trackNetworkAction(post.id, "VOTE");
       }
@@ -131,6 +163,7 @@ export function ExternalLikeButton({
       <Tooltip>
         <TooltipTrigger asChild>
           <button
+            data-bluesky-like
             aria-label={label}
             aria-pressed={canLike ? liked : undefined}
             className={cn(

@@ -127,7 +127,10 @@ export async function readBlueskyProfileResource(
     await response.body?.cancel();
     throw new ProtocolGatewayError(
       [400, 403, 404, 429].includes(response.status) ? response.status : 503,
-      "profile_unavailable"
+      "profile_unavailable",
+      Math.ceil(
+        (retryAfterMs(response.headers.get("retry-after")) ?? 2000) / 1000
+      )
     );
   }
   const data = await readJsonBounded(response, 2 * 1024 * 1024, boundedSignal);

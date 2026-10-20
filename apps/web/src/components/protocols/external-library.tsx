@@ -8,6 +8,7 @@ import { useState } from "react";
 import { z } from "zod";
 
 import { useSession } from "@/app/(main)/session-provider";
+import { FeedErrorState } from "@/components/feeds/feed-error-state";
 import FeedViewSkeleton from "@/components/layouts/skeletons/feed-view-skeleton";
 
 import { BlueskyPostCard } from "./bluesky-post-card";
@@ -66,14 +67,13 @@ export function ExternalLibrary() {
       </div>
       {library.isPending ? <FeedViewSkeleton /> : null}
       {library.isError ? (
-        <Button
-          onClick={() => {
+        <FeedErrorState
+          message="Couldn't load your saved Bluesky posts."
+          isRetrying={library.isFetching}
+          onRetry={() => {
             void library.refetch();
           }}
-          variant="ghost"
-        >
-          Couldn't load posts. Retry
-        </Button>
+        />
       ) : null}
       {library.data?.pages
         .flatMap((page) => page.items)
@@ -102,7 +102,7 @@ export function ExternalLibrary() {
           onClick={() => {
             void library.fetchNextPage();
           }}
-          variant="ghost"
+          variant="premium-neutral"
         >
           Load more
         </Button>

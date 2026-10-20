@@ -17,6 +17,7 @@ import {
 import { useRef, useState } from "react";
 
 import { useSession } from "@/lib/auth/session-context";
+import { useToast } from "@/lib/gooey-toast";
 
 const GUEST: NetworkSettings = {
   catalog: [],
@@ -42,6 +43,7 @@ async function readSettings(): Promise<NetworkSettings> {
 }
 
 export function useNetworkSettings(options: { optimistic?: boolean } = {}) {
+  const { toast } = useToast();
   const { user } = useSession();
   const client = useQueryClient();
   const queryKey = ["network-settings", user?.id ?? "guest"];
@@ -91,8 +93,13 @@ export function useNetworkSettings(options: { optimistic?: boolean } = {}) {
       return response.json();
     },
     mutationKey: queryKey,
-    onError: async (_error, variables) => {
+    onError: async (error, variables) => {
       if (variables.epoch === epoch.current) {
+        toast({
+          description: error.message,
+          title: "Couldn't save Network settings",
+          variant: "destructive",
+        });
         epoch.current += 1;
         setDraft(null);
         await client.invalidateQueries({ queryKey });
@@ -102,6 +109,12 @@ export function useNetworkSettings(options: { optimistic?: boolean } = {}) {
       await client.cancelQueries({ queryKey });
     },
     onSuccess: (value, variables) => {
+      if (variables.sequence === sequence.current) {
+        toast({
+          description: "Your feeds will use these preferences.",
+          title: "Network settings saved",
+        });
+      }
       client.setQueryData(queryKey, value);
       setDraft((current) =>
         current?.sequence === variables.sequence ? null : current

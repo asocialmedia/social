@@ -17,6 +17,7 @@ import UserAvatar from "@/components/layouts/user/user-avatar";
 import { PostInlineContent } from "@/components/posts/content/post-inline-content";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { blueskyProfilePath } from "@/lib/protocols/paths";
+import { readProtocolResource } from "@/lib/protocols/read-resource";
 import { formatNumber } from "@/lib/utils";
 import { getSecureImageUrl } from "@/lib/utils/image-url";
 
@@ -34,16 +35,13 @@ export function ExternalAuthorTooltip({
   const mobile = useMediaQuery("(max-width: 767px)");
   const profile = useQuery({
     enabled: open && !mobile,
-    queryFn: async ({ signal }) => {
-      const response = await fetch(
-        `/api/protocols/bluesky/profile?${new URLSearchParams({ actor: author.id })}`,
-        { signal }
-      );
-      if (!response.ok) {
-        throw new Error("Couldn't load this Bluesky profile");
-      }
-      return externalAuthorSchema.parse(await response.json());
-    },
+    queryFn: async ({ signal }) =>
+      externalAuthorSchema.parse(
+        await readProtocolResource(
+          `/api/protocols/bluesky/profile?${new URLSearchParams({ actor: author.id })}`,
+          signal
+        )
+      ),
     queryKey: ["bluesky-author-preview", author.id],
     retry: false,
     staleTime: 60_000,

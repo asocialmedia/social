@@ -18,7 +18,9 @@ mock.module("@/components/home/feedview/post-card", () => ({
   ),
 }));
 mock.module("@/components/protocols/bluesky-post-card", () => ({
-  BlueskyPostCard: () => null,
+  BlueskyPostCard: ({ post }: { post: ExternalPost }) => (
+    <div data-post-id={post.id}>{post.id}</div>
+  ),
 }));
 mock.module("@/components/recommendations/recommendation-tracker", () => ({
   RecommendationTracker: ({ children }: { children: ReactNode }) => children,
@@ -102,7 +104,12 @@ function createFeed() {
     render: (
       posts: ReturnType<typeof post>[],
       cacheKey = ["post-feed", "latest"],
-      trending = false
+      trending = false,
+      options: {
+        external?: ExternalPost[];
+        sourcesPending?: boolean;
+        source?: "all" | "asm";
+      } = {}
     ) =>
       act(() =>
         root.render(
@@ -110,7 +117,9 @@ function createFeed() {
             <FeedView
               cacheKey={cacheKey}
               posts={posts}
-              source="asm"
+              externalPosts={options.external}
+              sourcesPending={options.sourcesPending}
+              source={options.source ?? "asm"}
               sortBy="server"
               trending={trending}
             />
@@ -177,4 +186,62 @@ test("a queued cache update from the outgoing feed cannot overwrite the incoming
     await Bun.sleep(5);
   });
   expect(feed.ids()).toEqual(["trending"]);
+});
+
+test("mixed sources stage a page-sized arrival until both peers finish, then interleave it", async () => {
+  const feed = createFeed();
+  const native = Array.from({ length: 10 }, (_, index) =>
+    post(`native-${index}`)
+  );
+  const external = Array.from({ length: 20 }, (_, index) => ({
+    ...source,
+    id: `${source.id}${index}`,
+  }));
+  const key = ["post-feed", "for-you"];
+  await feed.render(native, key, false, {
+    source: "all",
+    sourcesPending: true,
+  });
+  expect(feed.ids()).toEqual(["native-0"]);
+  await feed.render(native, key, false, {
+    external,
+    source: "all",
+    sourcesPending: false,
+  });
+  expect(feed.ids().slice(0, 5)).toEqual([
+    "native-0",
+    external[0].id,
+    external[1].id,
+    "native-1",
+    external[2].id,
+  ]);
+  const before = feed.ids();
+  const moreNative = [
+    ...native,
+    ...Array.from({ length: 5 }, (_, index) => post(`next-${index}`)),
+  ];
+  await feed.render(moreNative, key, false, {
+    external,
+    source: "all",
+    sourcesPending: true,
+  });
+  expect(feed.ids()).toEqual(before);
+  const moreExternal = [
+    ...external,
+    ...Array.from({ length: 10 }, (_, index) => ({
+      ...source,
+      id: `${source.id}next${index}`,
+    })),
+  ];
+  await feed.render(moreNative, key, false, {
+    external: moreExternal,
+    source: "all",
+    sourcesPending: false,
+  });
+  expect(feed.ids().slice(before.length, before.length + 4)).toEqual([
+    "next-0",
+    moreExternal[20].id,
+    moreExternal[21].id,
+    "next-1",
+  ]);
 });

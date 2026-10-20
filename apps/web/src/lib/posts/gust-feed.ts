@@ -1,5 +1,24 @@
 import type { PresentedPost } from "./presentation";
 
+// A cached reel can outlive its server snapshot; recover its continuation without replaying loaded clips.
+export async function readGustPage<Page extends { posts: { id: string }[] }>(
+  read: (cursor: string | null) => Promise<Response>,
+  cursor: string | null,
+  known: ReadonlySet<string>
+): Promise<Page> {
+  let response = await read(cursor);
+  if (response.status === 410 && cursor) {
+    await response.body?.cancel();
+    response = await read(null);
+  }
+  if (!response.ok) {
+    await response.body?.cancel();
+    throw new Error(`Couldn't load Gusts (${response.status}). Please retry.`);
+  }
+  const page: Page = await response.json();
+  return { ...page, posts: page.posts.filter((post) => !known.has(post.id)) };
+}
+
 interface GustPageSource {
   enabled: boolean;
   hasNextPage: boolean | undefined;

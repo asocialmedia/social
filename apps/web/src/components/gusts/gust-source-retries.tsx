@@ -20,7 +20,11 @@ export function GustSourceRetries({
     .filter((source) => source.hasError)
     .map((source) => (
       <div className="flex h-24 items-center justify-center" key={source.label}>
-        <Button disabled={source.isFetching} onClick={source.handleRetry}>
+        <Button
+          disabled={source.isFetching}
+          onClick={source.handleRetry}
+          variant="premium"
+        >
           Retry {source.label} videos
         </Button>
       </div>

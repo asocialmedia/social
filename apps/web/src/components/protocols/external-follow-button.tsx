@@ -48,7 +48,12 @@ export function ExternalFollowButton({
     queryKey,
     staleTime: 30_000,
   });
-  const mutation = useMutation({
+  const mutation = useMutation<
+    z.infer<typeof followState>,
+    Error,
+    boolean,
+    { previous: z.infer<typeof followState> | undefined }
+  >({
     mutationFn: async (active: boolean) => {
       const response = await fetch("/api/protocols/bluesky/follows", {
         body: JSON.stringify({ active, actor: did }),
@@ -71,8 +76,27 @@ export function ExternalFollowButton({
       }
       return followState.parse(await response.json());
     },
-    onError: (error) => toast({ title: error.message, variant: "destructive" }),
+    onError: (error, active, context) => {
+      client.setQueryData(
+        queryKey,
+        context?.previous ?? { following: !active }
+      );
+      toast({ title: error.message, variant: "destructive" });
+    },
+    onMutate: async (active) => {
+      await client.cancelQueries({ queryKey });
+      const previous =
+        client.getQueryData<z.infer<typeof followState>>(queryKey);
+      client.setQueryData(queryKey, { following: active });
+      return { previous };
+    },
     onSuccess: async (next) => {
+      toast({
+        description: next.following
+          ? "Posts from this Bluesky account can appear in Following."
+          : "Removed from your asocialmedia follows.",
+        title: next.following ? "Following in asocialmedia" : "Unfollowed",
+      });
       window.dispatchEvent(new Event("network:learned"));
       client.setQueryData(queryKey, next);
       if (next.following) {

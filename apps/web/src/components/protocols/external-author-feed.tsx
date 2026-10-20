@@ -1,14 +1,17 @@
 "use client";
+
 import { externalPostSchema } from "@asm/protocols/discovery";
 import { Button } from "@asm/ui/shadui/button";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { z } from "zod";
 
 import { useSession } from "@/app/(main)/session-provider";
+import { FeedErrorState } from "@/components/feeds/feed-error-state";
 import InfiniteScrollContainer from "@/components/layouts/feed/infinite-scroll-container";
 import FeedViewSkeleton from "@/components/layouts/skeletons/feed-view-skeleton";
 import LoadMoreSkeleton from "@/components/layouts/skeletons/load-more-skeleton";
 import { FEED_QUERY_BEHAVIOR } from "@/lib/posts/feed-cache";
+import { readProtocolResource } from "@/lib/protocols/read-resource";
 
 import { BlueskyPostCard } from "./bluesky-post-card";
 
@@ -36,13 +39,12 @@ export function ExternalAuthorFeed({
       if (pageParam) {
         params.set("cursor", pageParam);
       }
-      const response = await fetch(`/api/protocols/bluesky/profile?${params}`, {
-        signal,
-      });
-      if (!response.ok) {
-        throw new Error("Couldn't load posts");
-      }
-      return pageSchema.parse(await response.json());
+      return pageSchema.parse(
+        await readProtocolResource(
+          `/api/protocols/bluesky/profile?${params}`,
+          signal
+        )
+      );
     },
     queryKey: ["bluesky-author-feed", actor, tab, user?.id ?? "guest"],
     retry: false,
@@ -52,15 +54,13 @@ export function ExternalAuthorFeed({
   }
   if (query.isError && !query.data) {
     return (
-      <Button
-        className="m-4"
-        variant="ghost"
-        onClick={() => {
+      <FeedErrorState
+        message="Couldn't load this account’s posts."
+        isRetrying={query.isFetching}
+        onRetry={() => {
           void query.refetch();
         }}
-      >
-        Couldn't load posts. Retry
-      </Button>
+      />
     );
   }
   const posts = [
@@ -94,7 +94,7 @@ export function ExternalAuthorFeed({
           onClick={() => {
             void query.fetchNextPage();
           }}
-          variant="ghost"
+          variant="premium-neutral"
         >
           Load more posts
         </Button>

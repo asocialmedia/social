@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { z } from "zod";
 
+import { FeedErrorState } from "@/components/feeds/feed-error-state";
 import { useRequireAuth } from "@/hooks/auth/use-require-auth";
 import { useToast } from "@/lib/gooey-toast";
 import { blueskyProfilePath } from "@/lib/protocols/paths";
@@ -55,6 +56,10 @@ export function ExternalFollowingList() {
     },
     onError: (error) => toast({ title: error.message, variant: "destructive" }),
     onSuccess: async (did) => {
+      toast({
+        description: "Removed from your asocialmedia follows.",
+        title: "Unfollowed",
+      });
       window.dispatchEvent(new Event("network:learned"));
       client.setQueryData(["external-follow", user?.id, did], {
         following: false,
@@ -79,14 +84,13 @@ export function ExternalFollowingList() {
         </p>
       ) : null}
       {query.isError ? (
-        <Button
-          variant="ghost"
-          onClick={() => {
+        <FeedErrorState
+          message="Couldn't load followed Bluesky accounts."
+          isRetrying={query.isFetching}
+          onRetry={() => {
             void query.refetch();
           }}
-        >
-          Retry followed accounts
-        </Button>
+        />
       ) : null}
       {query.data?.authors.length === 0 ? (
         <p className="text-muted-foreground text-sm">

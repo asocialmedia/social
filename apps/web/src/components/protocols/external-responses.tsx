@@ -7,6 +7,7 @@ import { useInfiniteQuery } from "@tanstack/react-query";
 import { useCallback, useMemo } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
+import { FeedErrorState } from "@/components/feeds/feed-error-state";
 import LoadMoreSkeleton from "@/components/layouts/skeletons/load-more-skeleton";
 import ResponseItem from "@/components/responses/response-item";
 import {
@@ -85,15 +86,13 @@ export function ExternalResponses({ uri }: { uri: string }) {
       <h2 className="px-4 pb-3 font-semibold">Responses on asocialmedia</h2>
       {query.isPending ? <LoadMoreSkeleton /> : null}
       {query.isError ? (
-        <Button
-          className="mx-4 mb-4"
-          onClick={() => {
+        <FeedErrorState
+          message="Couldn't load responses."
+          isRetrying={query.isFetching}
+          onRetry={() => {
             void query.refetch();
           }}
-          variant="ghost"
-        >
-          Couldn't load responses. Retry
-        </Button>
+        />
       ) : null}
       {query.isSuccess && items.length === 0 ? (
         <p className="text-muted-foreground px-4 pb-6 text-sm">
@@ -134,7 +133,7 @@ export function ExternalResponses({ uri }: { uri: string }) {
           onClick={() => {
             void query.fetchNextPage();
           }}
-          variant="ghost"
+          variant="premium-neutral"
         >
           More responses
         </Button>

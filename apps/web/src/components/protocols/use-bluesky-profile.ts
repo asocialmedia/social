@@ -2,22 +2,33 @@
 
 import type { ExternalAuthor } from "@asm/protocols/contracts";
 import { externalAuthorSchema } from "@asm/protocols/discovery";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+
+import { cachedExternalAuthor } from "@/lib/protocols/external-cache";
+import { readProtocolResource } from "@/lib/protocols/read-resource";
 
 export function useBlueskyProfile(actor: string, initialData?: ExternalAuthor) {
+  const client = useQueryClient();
   return useQuery({
     enabled: Boolean(actor),
-    initialData,
+    initialData: () => {
+      if (initialData) {
+        return initialData;
+      }
+      for (const [, data] of client.getQueriesData({})) {
+        const author = cachedExternalAuthor(data, actor);
+        if (author) {
+          return author;
+        }
+      }
+    },
     initialDataUpdatedAt: 0,
     queryFn: async ({ signal }) => {
-      const response = await fetch(
+      const data = await readProtocolResource(
         `/api/protocols/bluesky/profile?${new URLSearchParams({ actor })}`,
-        { signal }
+        signal
       );
-      if (!response.ok) {
-        throw new Error("Couldn't load profile");
-      }
-      return externalAuthorSchema.parse(await response.json());
+      return externalAuthorSchema.parse(data);
     },
     queryKey: ["bluesky-profile", actor],
     retry: false,
