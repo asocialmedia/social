@@ -23,9 +23,8 @@ export async function hydrateDiscoveryBatch(
   for (let offset = 0; offset < authors.length; offset += 6) {
     await Promise.all(
       authors.slice(offset, offset + 6).map(async (did) => {
-        if (
-          await options.client.allowsRecommendations(did).catch(() => false)
-        ) {
+        // Lookup failures must fail the batch so queue retries cannot silently omit authors.
+        if (await options.client.allowsRecommendations(did)) {
           allowed.add(did);
         }
       })

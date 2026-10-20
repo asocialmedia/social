@@ -1,10 +1,16 @@
-import { expect, test } from "bun:test";
+import { expect, mock, test } from "bun:test";
 
+import { BlueskyClient } from "@asm/protocols/bluesky";
+import { ProtocolError } from "@asm/protocols/contracts";
 import type { ExternalPost } from "@asm/protocols/contracts";
 import type { JetstreamEvent } from "@asm/protocols/jetstream";
 
 import { inventoryPost } from "./discovery-fixtures";
-import { createDiscoveryIngestion } from "./discovery-ingestion";
+import {
+  createDiscoveryIngestion,
+  hydrateDiscoveryBatch,
+} from "./discovery-ingestion";
+import { runHydrationJob } from "./ingestion-queue";
 
 const event = (
   index: number,
@@ -20,6 +26,119 @@ const event = (
   kind: "commit",
   seq: index,
   time: new Date().toISOString(),
+});
+
+test.each(["capacity", "unavailable", "rate_limited"] as const)(
+  "permission read %s fails the job before inventory writes and permits a complete retry",
+  async (code) => {
+    const posts = [inventoryPost(0), inventoryPost(1), inventoryPost(2)];
+    const error = new ProtocolError(code, "Temporary permission failure");
+    let fail = true;
+    const put = mock(() => Promise.resolve());
+    const publish = mock(() => Promise.resolve());
+    const hydrate = (ids: string[], startedAt: number) =>
+      hydrateDiscoveryBatch(
+        {
+          client: {
+            allowsRecommendations: (did) => {
+              if (fail && did === posts[2]?.author.id) {
+                return Promise.reject(error);
+              }
+              return Promise.resolve(did !== posts[1]?.author.id);
+            },
+            getPosts: () => Promise.resolve(posts),
+          },
+          publish,
+          store: {
+            invalidate: () => Promise.resolve(),
+            put,
+            read: () => Promise.resolve([]),
+          },
+        },
+        ids,
+        startedAt
+      );
+    const batch = { ids: posts.map((post) => post.id), startedAt: 10_000 };
+    await expect(runHydrationJob(batch, hydrate, () => 10_000)).rejects.toBe(
+      error
+    );
+    expect(put).not.toHaveBeenCalled();
+    expect(publish).not.toHaveBeenCalled();
+    fail = false;
+    expect(await runHydrationJob(batch, hydrate, () => 10_000)).toBe(2);
+    expect(put).toHaveBeenCalledTimes(1);
+    expect(put).toHaveBeenCalledWith([posts[0], posts[2]], batch.startedAt);
+    expect(publish).toHaveBeenCalledTimes(1);
+  }
+);
+
+test("overlapping hydration jobs retry capacity failures instead of completing with omitted authors", async () => {
+  const saturated = Promise.withResolvers<undefined>();
+  const release = Promise.withResolvers<undefined>();
+  let reads = 0;
+  const client = new BlueskyClient({
+    fetch: async (url) => {
+      reads += 1;
+      if (reads === 8) {
+        saturated.resolve();
+      }
+      await release.promise;
+      const did = new URL(url).searchParams.get("repo");
+      return Response.json({
+        cid: "bafyreibfn4d6xedoe6jixkcl266v2fhiwga2x3zzsnq6yawnago2kb5ouu",
+        uri: `at://${did}/app.bsky.actor.contentVisibilityDeclaration/self`,
+        value: { hideFromAlgorithmicRecommendations: false },
+      });
+    },
+    maxConcurrentRequests: 8,
+    maxRetries: 0,
+  });
+  const posts = Array.from({ length: 12 }, (_, index) => inventoryPost(index));
+  const saved: ExternalPost[] = [];
+  const hydrate = (ids: string[], startedAt: number) =>
+    hydrateDiscoveryBatch(
+      {
+        client: {
+          allowsRecommendations: (did) => client.allowsRecommendations(did),
+          getPosts: () =>
+            Promise.resolve(posts.filter((post) => ids.includes(post.id))),
+        },
+        publish: () => Promise.resolve(),
+        store: {
+          invalidate: () => Promise.resolve(),
+          put: (permitted) => {
+            saved.push(...permitted);
+            return Promise.resolve();
+          },
+          read: () => Promise.resolve(saved),
+        },
+      },
+      ids,
+      startedAt
+    );
+  const batches = [posts.slice(0, 6), posts.slice(6)].map((batch) => ({
+    ids: batch.map((post) => post.id),
+    startedAt: 10_000,
+  }));
+  try {
+    const pending = Promise.allSettled(
+      batches.map((batch) => runHydrationJob(batch, hydrate, () => 10_000))
+    );
+    await saturated.promise;
+    release.resolve();
+    const results = await pending;
+    expect(results[0]).toEqual({ status: "fulfilled", value: 6 });
+    expect(results[1]).toMatchObject({
+      reason: { code: "capacity" },
+      status: "rejected",
+    });
+    expect(saved.map((post) => post.id)).toEqual(batches[0]?.ids ?? []);
+    expect(await runHydrationJob(batches[1], hydrate, () => 10_000)).toBe(6);
+    expect(saved.map((post) => post.id)).toEqual(posts.map((post) => post.id));
+  } finally {
+    release.resolve();
+    client.close();
+  }
 });
 
 test("raw stream posts stay invisible until bounded hydration and author-policy checks succeed", async () => {

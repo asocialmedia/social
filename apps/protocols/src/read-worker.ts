@@ -13,7 +13,7 @@ import {
   requestId,
 } from "./observability";
 import type { ProtocolLogger } from "./observability";
-import { publicReadTarget } from "./read-worker-policy";
+import { publicReadHeaders, publicReadTarget } from "./read-worker-policy";
 import { createWorkerReader } from "./worker-reader";
 
 export function createReadWorkerApp(options: {
@@ -89,7 +89,11 @@ export function createReadWorkerApp(options: {
         request,
         requestId(request),
         options.logger,
-        () => reader.fetch(target.href, { signal: request.signal })
+        () =>
+          reader.fetch(target.href, {
+            headers: publicReadHeaders(request.headers),
+            signal: request.signal,
+          })
       );
     });
   return { app, drain: reader.drain, fetch: reader.fetch };

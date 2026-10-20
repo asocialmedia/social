@@ -10,6 +10,15 @@ const publicOperations = new Set([
   "com.atproto.repo.getRecord",
 ]);
 
+export function publicReadHeaders(input?: HeadersInit): Headers {
+  const headers = new Headers({ accept: "application/json" });
+  const language = new Headers(input).get("accept-language");
+  if (language) {
+    headers.set("accept-language", language);
+  }
+  return headers;
+}
+
 // Workers can read only these fixed public services; credentials, redirects and arbitrary destinations never cross this boundary.
 export function publicReadTarget(raw: string): URL | undefined {
   if (raw.length > 16_384) {

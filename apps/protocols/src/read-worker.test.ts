@@ -254,6 +254,50 @@ test("pool distributes unique reads between local and remote without forwarding 
   expect(calls[1]?.startsWith(node.url)).toBe(true);
 });
 
+test.each(["fr-CA,fr;q=0.9,en;q=0.5", undefined])(
+  "local, remote and background reads preserve language %s through the header allowlist",
+  async (language) => {
+    const upstreamHeaders: Headers[] = [];
+    const upstream = async (_url: string, init: RequestInit) => {
+      upstreamHeaders.push(new Headers(init.headers));
+      return response({ feed: [] });
+    };
+    const worker = createReadWorkerApp({
+      fetch: upstream,
+      id: node.id,
+      logger: logger(),
+      token,
+    });
+    const pool = createReadWorkerPool({
+      fetch: (url, init) =>
+        url.startsWith(node.url)
+          ? worker.app.handle(new Request(url, init))
+          : upstream(url, init),
+      logger: logger(),
+      nodes: [node],
+    });
+    const headers = new Headers({
+      cookie: "private=secret",
+      "x-private-header": "secret",
+    });
+    if (language) {
+      headers.set("accept-language", language);
+    }
+    const feed =
+      "https://public.api.bsky.app/xrpc/app.bsky.feed.getFeed?feed=at://did:plc:alice/app.bsky.feed.generator/example";
+    expect((await pool.fetch(feed, { headers })).status).toBe(200);
+    expect((await pool.fetch(feed, { headers })).status).toBe(200);
+    expect((await worker.fetch(feed, { headers })).status).toBe(200);
+    expect(upstreamHeaders).toHaveLength(3);
+    for (const forwarded of upstreamHeaders) {
+      expect(Object.fromEntries(forwarded)).toEqual({
+        accept: "application/json",
+        ...(language ? { "accept-language": language } : {}),
+      });
+    }
+  }
+);
+
 test("one IP's 429 does not cool down healthy nodes or a different upstream host", async () => {
   const calls: string[] = [];
   const pool = createReadWorkerPool({

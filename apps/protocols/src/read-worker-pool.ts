@@ -9,7 +9,7 @@ import { context, metrics, propagation } from "@opentelemetry/api";
 
 import type { ProtocolLogger } from "./observability";
 import type { ReadWorkerNode } from "./read-worker-config";
-import { publicReadTarget } from "./read-worker-policy";
+import { publicReadHeaders, publicReadTarget } from "./read-worker-policy";
 
 type PublicFetch = (url: string, init: RequestInit) => Promise<Response>;
 
@@ -81,7 +81,7 @@ export function createReadWorkerPool(options: {
         upstream: target.hostname,
       };
       try {
-        const headers = new Headers({ accept: "application/json" });
+        const headers = publicReadHeaders(init.headers);
         let url = raw;
         if (node.url) {
           url = `${node.url}/v1/worker/read?${new URLSearchParams({ url: raw })}`;

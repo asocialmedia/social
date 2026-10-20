@@ -5,7 +5,7 @@ import {
   retryAfterMs,
 } from "@asm/protocols/discovery";
 
-import { publicReadTarget } from "./read-worker-policy";
+import { publicReadHeaders, publicReadTarget } from "./read-worker-policy";
 
 export function createWorkerReader(options: {
   concurrency?: number;
@@ -67,7 +67,7 @@ export function createWorkerReader(options: {
         ]);
         const response = await abortable(
           (options.fetch ?? globalThis.fetch)(target.href, {
-            headers: { accept: "application/json" },
+            headers: publicReadHeaders(init.headers),
             method: "GET",
             redirect: "error",
             signal,
