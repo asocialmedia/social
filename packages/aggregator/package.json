@@ -1,6 +1,6 @@
 {
   "name": "@asm/aggregator",
-  "version": "1.0.12",
+  "version": "1.0.13",
   "private": true,
   "description": "Aggregator service for asocialmedia",
   "scripts": {
@@ -9,7 +9,7 @@
   "dependencies": {
     "@asm/db": "workspace:*",
     "ky": "^2.0.2",
-    "next": "^16.3.0",
+    "next": "^16.3.8",
     "react": "19.3.0"
   },
   "devDependencies": {

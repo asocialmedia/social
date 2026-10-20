@@ -29,6 +29,94 @@ const event = (
   time: new Date().toISOString(),
 });
 
+test.each([false, "queue-error"])(
+  "local fallback %s retains transient failures until cooldown ends with the original fence",
+  async (dispatch) => {
+    let now = 10_000;
+    let reads = 0;
+    const put = mock(() => Promise.resolve());
+    const ingestion = createDiscoveryIngestion({
+      client: {
+        allowsRecommendations: () =>
+          reads === 1
+            ? Promise.reject(new ProtocolError("unavailable", "Cooldown", 5))
+            : Promise.resolve(true),
+        getPosts: () => {
+          reads += 1;
+          return Promise.resolve([inventoryPost(0)]);
+        },
+        invalidate() {},
+      },
+      dispatch: () =>
+        dispatch === "queue-error"
+          ? Promise.reject(new Error("Queue unavailable"))
+          : Promise.resolve(false),
+      now: () => now,
+      publish: () => Promise.resolve(),
+      store: {
+        invalidate: () => Promise.resolve(),
+        put,
+        read: () => Promise.resolve([]),
+      },
+    });
+    ingestion.watch(["TypeScript"]);
+    await ingestion.event(event(0));
+    await ingestion.tick();
+    expect(ingestion.pendingCount).toBe(1);
+    expect(put).not.toHaveBeenCalled();
+    now = 14_999;
+    await ingestion.tick();
+    expect(reads).toBe(1);
+    now = 15_000;
+    await ingestion.tick();
+    expect(put).toHaveBeenCalledWith(
+      [expect.objectContaining({ id: inventoryPost(0).id })],
+      10_000
+    );
+    expect(ingestion.pendingCount).toBe(0);
+  }
+);
+
+test("local retries stop after three failures and deletion removes deferred candidates", async () => {
+  let now = 10_000;
+  const getPosts = mock(() =>
+    Promise.reject(new ProtocolError("unavailable", "Retry", 1))
+  );
+  const put = mock(() => Promise.resolve());
+  const ingestion = createDiscoveryIngestion({
+    client: {
+      allowsRecommendations: () => Promise.resolve(true),
+      getPosts,
+      invalidate() {},
+    },
+    now: () => now,
+    publish: () => Promise.resolve(),
+    store: {
+      invalidate: () => Promise.resolve(),
+      put,
+      read: () => Promise.resolve([]),
+    },
+  });
+  ingestion.watch(["TypeScript"]);
+  await ingestion.event(event(0));
+  await ingestion.tick();
+  now += 1000;
+  await ingestion.tick();
+  now += 1000;
+  await ingestion.tick();
+  expect(ingestion.pendingCount).toBe(0);
+  expect(getPosts).toHaveBeenCalledTimes(3);
+  await ingestion.event(event(1));
+  await ingestion.tick();
+  expect(ingestion.pendingCount).toBe(1);
+  await ingestion.event(event(1, "delete"));
+  now += 1000;
+  await ingestion.tick();
+  expect(ingestion.pendingCount).toBe(0);
+  expect(getPosts).toHaveBeenCalledTimes(4);
+  expect(put).not.toHaveBeenCalled();
+});
+
 test.each(["capacity", "unavailable", "rate_limited"] as const)(
   "permission read %s fails the job before inventory writes and permits a complete retry",
   async (code) => {
