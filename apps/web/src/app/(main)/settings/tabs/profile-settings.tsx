@@ -34,6 +34,7 @@ import {
   AvatarInput,
   BannerInput,
 } from "@/components/profile/profile-media-inputs";
+import SettingsFooterArt from "@/components/settings/settings-footer-art";
 import {
   ORANGE_GRADIENT_CLASS,
   SettingsCard,
@@ -411,7 +412,7 @@ export default function ProfileSettings({
     : (croppedAvatarUrl ?? avatarState.url ?? avatarPlaceholder.src);
 
   return (
-    <div className="space-y-6 px-4 py-6 sm:px-6">
+    <div className="flex flex-1 flex-col gap-6 px-4 pt-6 sm:px-6">
       <SettingsSectionHeader
         description="How you appear across asocialmedia"
         icon={UserRound}
@@ -521,6 +522,7 @@ export default function ProfileSettings({
           </div>
         </form>
       </Form>
+      <SettingsFooterArt className="-mx-4 mt-auto sm:-mx-6" tab="profile" />
     </div>
   );
 }

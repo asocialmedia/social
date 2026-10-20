@@ -64,7 +64,45 @@ afterEach(() => {
   globalThis.fetch = realFetch;
 });
 
-const { resolveLinkEmbed } = await import("./server");
+const { resolveLinkEmbed, fetchEmbedImage } = await import("./server");
+
+test("image body timeouts fail before a successful response can be streamed", async () => {
+  globalThis.fetch = (() =>
+    new Response(
+      new ReadableStream({
+        start(controller) {
+          controller.enqueue(new Uint8Array([1, 2, 3]));
+          controller.error(new DOMException("Body timed out", "TimeoutError"));
+        },
+      }),
+      { headers: { "content-type": "image/jpeg" } }
+    )) as unknown as typeof fetch;
+  expect(await fetchEmbedImage("https://example.com/image.jpg")).toBeNull();
+});
+
+test("images reject overflow, empty bodies and active SVG while preserving complete raster bytes", async () => {
+  responses.set("https://example.com/image", {
+    body: "raster",
+    contentType: "image/webp",
+  });
+  const image = await fetchEmbedImage("https://example.com/image");
+  expect(new TextDecoder().decode(image?.body)).toBe("raster");
+  responses.set("https://example.com/image", {
+    body: "",
+    contentType: "image/png",
+  });
+  expect(await fetchEmbedImage("https://example.com/image")).toBeNull();
+  responses.set("https://example.com/image", {
+    body: "<svg/>",
+    contentType: "image/svg+xml",
+  });
+  expect(await fetchEmbedImage("https://example.com/image")).toBeNull();
+  responses.set("https://example.com/image", {
+    body: "a".repeat(8 * 1024 * 1024 + 1),
+    contentType: "image/png",
+  });
+  expect(await fetchEmbedImage("https://example.com/image")).toBeNull();
+});
 
 function ytVideoUrl(id: string): string {
   return `https://www.youtube.com/oembed?format=json&url=${encodeURIComponent(`https://www.youtube.com/watch?v=${id}`)}`;

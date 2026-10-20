@@ -7,10 +7,15 @@
 import { Image } from "expo-image";
 import { useRouter } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Linking, Pressable, StyleSheet, Text, View } from "react-native";
 
 import avatarPlaceholder from "@/assets/images/avatar-placeholder.png";
 import { resolveCommunityAccentColor } from "@/features/communities/lib/community-accents";
+import { BlueskyIcon } from "@/features/feed/components/bluesky-icon";
+import {
+  ExternalBookmarkAction,
+  ExternalPostActions,
+} from "@/features/feed/components/external-post-actions";
 import type { MenuAnchor } from "@/features/feed/components/more-menu";
 import {
   BookmarkToggle,
@@ -96,6 +101,11 @@ export function PostDetailCard({
     ? resolveProfileImageUrl(author.avatarUrl, apiBase)
     : null;
 
+  const openSourceAuthor = () => {
+    if (post.external) {
+      void Linking.openURL(post.external.author.url);
+    }
+  };
   const requireLogin = () => {
     router.push("/(auth)/login");
   };
@@ -157,7 +167,8 @@ export function PostDetailCard({
           style={[styles.leftRail, { backgroundColor: railColor }]}
         />
       ) : null}
-      {!hasThreadParent && post.parentPostId ? (
+      {!hasThreadParent &&
+      (post.parentPostId || post.externalParent || post.external?.quote) ? (
         <ResponseParentRow post={post} />
       ) : null}
 
@@ -196,7 +207,7 @@ export function PostDetailCard({
         </Pressable>
       ) : null}
 
-      {hasThreadParent ? (
+      {hasThreadParent || post.external?.quote ? (
         <View style={styles.mainRow}>
           <View style={styles.rail}>
             <View
@@ -235,11 +246,15 @@ export function PostDetailCard({
                 >
                   {displayName}
                 </Text>
-                <UserBadge
-                  badge={author?.badge}
-                  badges={author?.badges}
-                  communityRoles={author?.communityMemberships}
-                />
+                {post.external ? (
+                  <BlueskyIcon />
+                ) : (
+                  <UserBadge
+                    badge={author?.badge}
+                    badges={author?.badges}
+                    communityRoles={author?.communityMemberships}
+                  />
+                )}
                 <Text
                   numberOfLines={1}
                   style={[styles.handle, { color: theme.dividerText }]}
@@ -306,15 +321,20 @@ export function PostDetailCard({
               <View style={styles.detailNameRow}>
                 <Text
                   numberOfLines={1}
+                  onPress={post.external ? openSourceAuthor : undefined}
                   style={[styles.detailName, { color: theme.inputText }]}
                 >
                   {displayName}
                 </Text>
-                <UserBadge
-                  badge={author?.badge}
-                  badges={author?.badges}
-                  communityRoles={author?.communityMemberships}
-                />
+                {post.external ? (
+                  <BlueskyIcon />
+                ) : (
+                  <UserBadge
+                    badge={author?.badge}
+                    badges={author?.badges}
+                    communityRoles={author?.communityMemberships}
+                  />
+                )}
                 <Text
                   numberOfLines={1}
                   style={[styles.detailDate, { color: theme.dividerText }]}
@@ -324,6 +344,7 @@ export function PostDetailCard({
               </View>
               <Text
                 numberOfLines={1}
+                onPress={post.external ? openSourceAuthor : undefined}
                 style={[styles.detailHandle, { color: theme.dividerText }]}
               >
                 @{username}
@@ -331,12 +352,16 @@ export function PostDetailCard({
             </View>
             <View style={styles.detailMore}>
               <MoreButton onPress={(anchor) => onMore(post, anchor)} />
-              <BookmarkToggle
-                initialBookmarked={isBookmarkedByUser(post, viewerId)}
-                onRequireLogin={requireLogin}
-                postId={post.id}
-                viewerId={viewerId ?? null}
-              />
+              {post.external ? (
+                <ExternalBookmarkAction post={post.external} />
+              ) : (
+                <BookmarkToggle
+                  initialBookmarked={isBookmarkedByUser(post, viewerId)}
+                  onRequireLogin={requireLogin}
+                  postId={post.id}
+                  viewerId={viewerId ?? null}
+                />
+              )}
             </View>
           </View>
           <View style={styles.detailContent}>
@@ -413,7 +438,11 @@ function DetailBody({
         <>
           {post.content ? (
             <View style={styles.body}>
-              <BioContent apiBase={apiBase} bio={post.content} />
+              <BioContent
+                sourceSegments={post.external?.segments}
+                apiBase={apiBase}
+                bio={post.content}
+              />
             </View>
           ) : null}
 
@@ -496,32 +525,45 @@ function DetailBody({
         </>
       )}
 
-      <View style={styles.actions}>
-        <VoteCluster
-          aura={post.aura ?? 0}
-          authorName={
-            post.user?.displayName || post.user?.username || "unknown"
-          }
-          onRequireLogin={requireLogin}
-          postId={post.id}
-          userVote={getUserVote(post)}
-          viewerId={viewerId ?? null}
+      {post.external?.unavailableQuote ? (
+        <Text style={{ color: theme.dividerText }}>
+          Quoted post unavailable
+        </Text>
+      ) : null}
+      {post.external ? (
+        <ExternalPostActions
+          hideBookmark={hideBookmark}
+          post={post.external}
+          onDiscussion={onToggleEddies}
         />
-        <CommentButton count={commentCount} onPress={onToggleEddies} />
-        <RespondButton count={responseCount} post={post} />
-        <ViewsBadge count={post.viewCount ?? 0} postId={post.id} />
-        <View style={styles.actionCluster}>
-          <ShareButton onPress={() => onShare(post)} />
-          {hideBookmark ? null : (
-            <BookmarkToggle
-              initialBookmarked={isBookmarkedByUser(post, viewerId)}
-              onRequireLogin={requireLogin}
-              postId={post.id}
-              viewerId={viewerId ?? null}
-            />
-          )}
+      ) : (
+        <View style={styles.actions}>
+          <VoteCluster
+            aura={post.aura ?? 0}
+            authorName={
+              post.user?.displayName || post.user?.username || "unknown"
+            }
+            onRequireLogin={requireLogin}
+            postId={post.id}
+            userVote={getUserVote(post)}
+            viewerId={viewerId ?? null}
+          />
+          <CommentButton count={commentCount} onPress={onToggleEddies} />
+          <RespondButton count={responseCount} post={post} />
+          <ViewsBadge count={post.viewCount ?? 0} postId={post.id} />
+          <View style={styles.actionCluster}>
+            <ShareButton onPress={() => onShare(post)} />
+            {hideBookmark ? null : (
+              <BookmarkToggle
+                initialBookmarked={isBookmarkedByUser(post, viewerId)}
+                onRequireLogin={requireLogin}
+                postId={post.id}
+                viewerId={viewerId ?? null}
+              />
+            )}
+          </View>
         </View>
-      </View>
+      )}
     </View>
   );
 }

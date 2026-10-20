@@ -1,17 +1,34 @@
 "use client";
 
 import type { PostsPage } from "@asm/db";
+import type { FeedSource } from "@asm/protocols/discovery";
+import {
+  discoveryMode,
+  feedAvailability,
+  filterExternalRecommendations,
+  isExternalTrendingPost,
+} from "@asm/protocols/discovery";
+import { Button } from "@asm/ui/shadui/button";
 import noFeedImage from "@assets/general/nofeed.png";
-import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  hashKey,
+  useInfiniteQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import Image from "next/image";
 import { useCallback, useMemo, useRef } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
+import { FeedErrorState } from "@/components/feeds/feed-error-state";
 import { NewContentPill } from "@/components/feeds/new-content-pill";
 import InfiniteScrollContainer from "@/components/layouts/feed/infinite-scroll-container";
 import FeedViewSkeleton from "@/components/layouts/skeletons/feed-view-skeleton";
 import LoadMoreSkeleton from "@/components/layouts/skeletons/load-more-skeleton";
+import { useBlueskyFeed } from "@/components/protocols/use-bluesky-feed";
+import { useDiscoveryLocale } from "@/hooks/feed/use-discovery-locale";
+import { useNetworkSettings } from "@/hooks/feed/use-network-settings";
 import { useNewContentProbe } from "@/hooks/feed/use-new-content-probe";
+import { useSeamlessFeedHead } from "@/hooks/feed/use-seamless-feed-head";
 import kyInstance from "@/lib/ky";
 import {
   nextFeedSegment,
@@ -22,6 +39,12 @@ import {
   prependPostsToFeedCache,
   scrollFeedToTop,
 } from "@/lib/posts/feed-cache";
+import { activeNetworkInterests } from "@/lib/posts/network-content-policy";
+import { isTrendingPost } from "@/lib/posts/trending-eligibility";
+import {
+  useFeedSourceStore,
+  useExternalExclusions,
+} from "@/store/feed-source-store";
 
 import { FeedView } from "./feed-view";
 import FeedEnd from "./feedview/feed-end";
@@ -33,6 +56,7 @@ interface HomeFeedProps {
   // before opening up to the wider platform.
   communitySlug?: string;
   excludePostId?: string;
+  relatedExternal?: boolean;
   variant?: "latest" | "personalized" | "trending" | "global";
 }
 
@@ -85,9 +109,42 @@ export default function HomeFeed({
   variant = "personalized",
   excludePostId,
   communitySlug,
+  relatedExternal = false,
 }: HomeFeedProps) {
   const { user } = useSession();
+  const selectedSource = useFeedSourceStore((state) => state.source);
+  const excluded = useExternalExclusions(user?.id ?? "guest");
+  const allowExternal = !communitySlug && (!excludePostId || relatedExternal);
+  let source = allowExternal ? selectedSource : "asm";
+  if (relatedExternal) {
+    source = "all";
+  }
+  const includeBluesky = source !== "asm";
+  const external = useBlueskyFeed(
+    discoveryMode(variant),
+    allowExternal && includeBluesky,
+    user?.id ?? "guest"
+  );
+  const externalPosts = useMemo(
+    () =>
+      filterExternalRecommendations(
+        external.data?.pages.flatMap((page) => page.items) ?? [],
+        excluded
+      ).filter(
+        (post) =>
+          post.id !== excludePostId &&
+          (variant !== "trending" || isExternalTrendingPost(post))
+      ),
+    [external.data, excluded, excludePostId, variant]
+  );
   const isTrending = variant === "trending";
+  const network = useNetworkSettings();
+  const { locale } = useDiscoveryLocale();
+  const networkParams = {
+    locale,
+    network: network.scope,
+    profile: network.settings.preferences.activeProfileId,
+  };
   const isLatest = variant === "latest";
   const isPersonalized = variant === "personalized" || variant === "global";
   let feedKey = "for-you";
@@ -101,10 +158,19 @@ export default function HomeFeed({
   }
   const isRankedFeed = feedIsRanked(variant);
   const probeSupportsSingleRow = probeOrdersNewestFirst(variant);
-  const queryKey = useMemo(
-    () => ["post-feed", feedKey, user?.id ?? "guest"],
-    [feedKey, user?.id]
-  );
+  const queryKey = useMemo(() => {
+    const key = [
+      "post-feed",
+      feedKey,
+      user?.id ?? "guest",
+      network.scope,
+      locale,
+    ];
+    if (isTrending) {
+      key.push("engaged-v1");
+    }
+    return key;
+  }, [feedKey, user?.id, network.scope, locale, isTrending]);
 
   // The community segment reuses the community feed's exact query key, so the
   // page shares one cache entry with the community page's own feed (no separate
@@ -167,16 +233,22 @@ export default function HomeFeed({
     data,
     fetchNextPage,
     hasNextPage: globalHasNextPage,
+    isFetchedAfterMount,
     isFetching,
     isFetchingNextPage: isFetchingNextGlobalPage,
     status: globalStatus,
   } = useInfiniteQuery({
-    enabled: globalEnabled,
+    enabled: globalEnabled && source !== "bluesky" && network.ready,
     getNextPageParam: (lastPage) => lastPage.nextCursor,
     initialPageParam: null as string | null,
     queryFn: async ({ pageParam }: { pageParam: string | null }) => {
       const result = await kyInstance
-        .get(endpoint, pageParam ? { searchParams: { cursor: pageParam } } : {})
+        .get(endpoint, {
+          searchParams: {
+            ...networkParams,
+            ...(pageParam ? { cursor: pageParam } : {}),
+          },
+        })
         .json<PostsPage>();
       return result;
     },
@@ -206,20 +278,37 @@ export default function HomeFeed({
 
   // The first global fetch after the community segment finishes; counted as a
   // pending page so the end-of-feed marker does not flash before it lands.
-  const globalInitialLoading = globalEnabled && globalStatus === "pending";
+  const globalInitialLoading =
+    source !== "bluesky" && globalEnabled && globalStatus === "pending";
+  const externalInitialLoading =
+    allowExternal && includeBluesky && external.isPending;
   const hasNextPage =
-    communityStillLeading || globalInitialLoading || Boolean(globalHasNextPage);
+    (source !== "bluesky" &&
+      (communityStillLeading ||
+        globalInitialLoading ||
+        Boolean(globalHasNextPage))) ||
+    (allowExternal && source !== "asm" && Boolean(external.hasNextPage));
 
   const queryClient = useQueryClient();
   const feedRootRef = useRef<HTMLDivElement>(null);
 
   // Head-only probe: new posts from other people collect in `newPosts` and are
   // surfaced as an avatar badge. The rendered feed and its scroll position stay
-  // exactly where they are until the viewer taps the badge. The probe is about
+  // exactly where they are until the viewer returns to the top or taps the badge. The probe is about
   // the global feed, so it stays off while a community segment leads.
-  const { clearNewItems, newItems: newPosts } = useNewContentProbe({
-    enabled: !excludePostId && !communitySlug,
-    fetchHead: async () => {
+  const {
+    clearNewItems,
+    newItems: newPosts,
+    probeNow,
+  } = useNewContentProbe({
+    enabled:
+      network.ready &&
+      globalStatus === "success" &&
+      !excludePostId &&
+      !communitySlug &&
+      source !== "bluesky",
+    eventSource: "asm",
+    fetchHead: async (signal) => {
       // Cheap first, and only where it is sound: one row answers "did anything
       // arrive?" on a recency-ordered feed. The full head page - twenty
       // viewer-resolved posts, their vote and bookmark joins, and a view count
@@ -230,52 +319,98 @@ export default function HomeFeed({
       // be sitting at the top.
       if (probeSupportsSingleRow && globalPosts.length > 0) {
         const head = await kyInstance
-          .get(endpoint, { searchParams: { take: 1 } })
+          .get(endpoint, {
+            searchParams: { ...networkParams, take: 1 },
+            signal,
+          })
           .json<PostsPage>();
         if (globalPosts.some((post) => post.id === head.posts[0]?.id)) {
           return [];
         }
       }
-      const fresh = await kyInstance.get(endpoint).json<PostsPage>();
-      return fresh.posts;
+      let probeEndpoint = endpoint;
+      if (isRankedFeed && !isTrending) {
+        probeEndpoint = "/api/posts/latest";
+      }
+      const fresh = await kyInstance
+        .get(probeEndpoint, {
+          searchParams: networkParams,
+          signal,
+        })
+        .json<PostsPage>();
+      return isTrending ? fresh.posts.filter(isTrendingPost) : fresh.posts;
     },
+    intervalMs: isRankedFeed ? 180_000 : 90_000,
     order: isRankedFeed ? "ranked" : "newest-first",
+    // A cold fetch already supplies the head; cached returns need a probe.
+    probeOnMount: !isFetchedAfterMount,
+    resetKey: `${feedKey}:${user?.id ?? "guest"}:${network.scope}:${locale}`,
     visible: globalPosts,
   });
 
-  const handleBottomReached = useCallback(() => {
-    const segment = nextFeedSegment({
-      communityExhausted,
-      globalHasNextPage: Boolean(globalHasNextPage),
-      hasCommunityLead,
-    });
-    if (segment === "community") {
-      if (!isFetchingNextCommunityPage) {
-        fetchNextCommunityPage();
+  const handleBottomReached = useCallback(
+    (retry = false) => {
+      if (
+        allowExternal &&
+        source !== "asm" &&
+        external.hasNextPage &&
+        !external.isFetching &&
+        (!external.isError || retry)
+      ) {
+        void external.fetchNextPage({ cancelRefetch: false });
       }
-      return;
-    }
-    if (segment === "global" && !isFetching) {
-      fetchNextPage();
-    }
-  }, [
-    communityExhausted,
-    fetchNextCommunityPage,
-    fetchNextPage,
-    globalHasNextPage,
-    hasCommunityLead,
-    isFetching,
-    isFetchingNextCommunityPage,
-  ]);
+      if (source === "bluesky") {
+        return;
+      }
+      const segment = nextFeedSegment({
+        communityExhausted,
+        globalHasNextPage: Boolean(globalHasNextPage),
+        hasCommunityLead,
+      });
+      if (segment === "community") {
+        if (!isFetchingNextCommunityPage) {
+          fetchNextCommunityPage({ cancelRefetch: false });
+        }
+        return;
+      }
+      if (segment === "global" && !isFetching) {
+        fetchNextPage({ cancelRefetch: false });
+      }
+    },
+    [
+      allowExternal,
+      source,
+      external,
+      communityExhausted,
+      fetchNextCommunityPage,
+      fetchNextPage,
+      globalHasNextPage,
+      hasCommunityLead,
+      isFetching,
+      isFetchingNextCommunityPage,
+    ]
+  );
 
   // Merge the probed posts straight into the head of the cached feed, then
   // bring the viewer up to meet them. No refetch and no skeleton: the feed is
   // already on screen, we only reveal what the probe found.
+  // Merge the probed posts straight into the head of the cached feed, then
+  // optionally bring the viewer up to meet them.
+  const revealNewPosts = useCallback(
+    (opts: { scrollToTop?: boolean } = {}) => {
+      clearNewItems();
+      prependPostsToFeedCache(queryClient, queryKey, newPosts);
+      external.showNewItems();
+      if (opts.scrollToTop) {
+        scrollFeedToTop(feedRootRef.current);
+      }
+    },
+    [clearNewItems, newPosts, queryClient, queryKey, external]
+  );
+
   const showNewPosts = useCallback(() => {
-    clearNewItems();
-    prependPostsToFeedCache(queryClient, queryKey, newPosts);
-    scrollFeedToTop(feedRootRef.current);
-  }, [clearNewItems, newPosts, queryClient, queryKey]);
+    revealNewPosts({ scrollToTop: true });
+  }, [revealNewPosts]);
 
   // A community segment that is still loading leads the render; a failed
   // community fetch degrades to the global feed rather than blanking the page,
@@ -284,13 +419,51 @@ export default function HomeFeed({
     Boolean(communitySlug) && communityStatus === "pending";
   const communityFailed = Boolean(communitySlug) && communityStatus === "error";
   const showCommunitySection = hasCommunityLead && !communityFailed;
-  const hasAnyPosts = showCommunitySection || visibleGlobalPosts.length > 0;
+  const hasAnyPosts =
+    showCommunitySection ||
+    (source !== "bluesky" && visibleGlobalPosts.length > 0) ||
+    (allowExternal && source !== "asm" && externalPosts.length > 0);
+
+  const availability = feedAvailability({
+    count: hasAnyPosts ? 1 : 0,
+    externalEnabled: allowExternal && includeBluesky,
+    externalError: external.isError,
+    externalLoading: external.isPending,
+    nativeEnabled: source !== "bluesky",
+    nativeError: communityFailed || globalStatus === "error",
+    nativeLoading: communityPending || globalStatus === "pending",
+  });
+  useSeamlessFeedHead({
+    count:
+      (source === "bluesky" ? 0 : newPosts.length) +
+      (source === "asm" ? 0 : external.newItems.length),
+    enabled: !excludePostId && !communitySlug && hasAnyPosts,
+    merge: () => revealNewPosts({ scrollToTop: false }),
+    probe: () =>
+      Promise.all([
+        probeNow(),
+        source === "asm" ? Promise.resolve() : external.probeNow(),
+      ]),
+    root: feedRootRef,
+  });
+
+  if (availability === "error") {
+    return (
+      <FeedErrorState
+        message="Couldn’t load your feed. Please try again."
+        onRetry={() => {
+          void external.refetch();
+          void queryClient.invalidateQueries({ queryKey });
+        }}
+      />
+    );
+  }
 
   // Block on a skeleton only while nothing at all can be shown yet: a resolved
   // community segment renders immediately even if the global feed is still in
   // flight behind it.
-  if (!hasAnyPosts && (communityPending || globalStatus === "pending")) {
-    return <FeedViewSkeleton />;
+  if (availability === "loading") {
+    return <FeedViewSkeleton source={source} />;
   }
 
   let emptyTitle = "No personalized Fleets to show here.";
@@ -302,6 +475,11 @@ export default function HomeFeed({
   } else if (isLatest) {
     emptyTitle = "No Fleets yet.";
     emptyDescription = "The latest Fleets will appear here.";
+  }
+  if (activeNetworkInterests(network.settings.preferences).length) {
+    emptyTitle = "No Fleets match this profile yet.";
+    emptyDescription =
+      "Try another profile or add interests in Network settings.";
   }
 
   if (!hasAnyPosts && !hasNextPage && globalStatus === "success") {
@@ -345,26 +523,71 @@ export default function HomeFeed({
   const isFetchingNextPage =
     isFetchingNextCommunityPage ||
     isFetchingNextGlobalPage ||
-    globalInitialLoading;
+    (allowExternal && includeBluesky && external.isFetchingNextPage);
+  const initialSourceLoading = globalInitialLoading || externalInitialLoading;
+  const sourceFetching =
+    (source !== "bluesky" && isFetching) ||
+    (allowExternal && includeBluesky && external.isFetching);
+  const sourceFailed =
+    (source !== "bluesky" && (communityFailed || globalStatus === "error")) ||
+    (allowExternal && includeBluesky && external.isError);
+  const feedComplete =
+    !hasNextPage &&
+    !communityPending &&
+    !initialSourceLoading &&
+    !isFetchingNextPage &&
+    !sourceFetching &&
+    !sourceFailed;
+
+  let nextSkeletonSource: FeedSource = "all";
+  if (external.isFetchingNextPage) {
+    nextSkeletonSource = "bluesky";
+  } else if (isFetchingNextGlobalPage) {
+    nextSkeletonSource = source;
+  }
 
   return (
     <div className="relative" ref={feedRootRef}>
-      {!excludePostId && !communitySlug && newPosts.length > 0 ? (
-        <div className="pointer-events-none sticky top-3 z-20 flex justify-center">
+      {!excludePostId &&
+      !communitySlug &&
+      ((source !== "bluesky" && newPosts.length > 0) ||
+        (source !== "asm" && external.newItems.length > 0)) ? (
+        <div className="pointer-events-none sticky top-3 z-20 -mb-10 flex justify-center">
           <NewContentPill
             authors={[
-              ...new Map(
-                newPosts.map((post) => [
-                  post.userId,
-                  {
-                    avatarUrl: post.user?.avatarUrl,
-                    id: post.userId,
-                    username: post.user?.username,
-                  },
-                ])
-              ).values(),
+              ...new Map([
+                ...(source === "bluesky"
+                  ? []
+                  : newPosts.map(
+                      (post) =>
+                        [
+                          post.userId,
+                          {
+                            avatarUrl: post.user?.avatarUrl,
+                            id: post.userId,
+                            username: post.user?.username,
+                          },
+                        ] as const
+                    )),
+                ...(source === "asm"
+                  ? []
+                  : external.newItems.map(
+                      (post) =>
+                        [
+                          post.author.id,
+                          {
+                            avatarUrl: post.author.avatarUrl ?? null,
+                            id: post.author.id,
+                            username: post.author.handle,
+                          },
+                        ] as const
+                    )),
+              ]).values(),
             ]}
-            count={newPosts.length}
+            count={
+              (source === "bluesky" ? 0 : newPosts.length) +
+              (source === "asm" ? 0 : external.newItems.length)
+            }
             noun="post"
             onClick={showNewPosts}
           />
@@ -375,6 +598,7 @@ export default function HomeFeed({
             here already belongs to the community being read. */}
         {showCommunitySection ? (
           <FeedView
+            key={hashKey(communityQueryKey)}
             cacheKey={communityQueryKey}
             excludePostId={excludePostId}
             posts={leadPosts}
@@ -389,18 +613,38 @@ export default function HomeFeed({
             More from asocialmedia
           </h3>
         ) : null}
-        {visibleGlobalPosts.length > 0 ? (
+        {hasAnyPosts ? (
           <FeedView
+            key={`${hashKey(queryKey)}:${source}`}
+            externalPosts={allowExternal ? externalPosts : []}
+            source={source}
             cacheKey={queryKey}
             excludeIds={communityIds}
             excludePostId={excludePostId}
             posts={visibleGlobalPosts}
+            respectInterests
+            showEmpty={false}
+            trending={isTrending}
             showCommunityReason={isTrending || isPersonalized}
             sortBy={isTrending || isPersonalized ? "server" : "newest"}
           />
         ) : null}
-        {isFetchingNextPage ? <LoadMoreSkeleton /> : null}
-        {hasAnyPosts && !hasNextPage ? <FeedEnd /> : null}
+        {initialSourceLoading ? (
+          <FeedViewSkeleton
+            source={externalInitialLoading ? "bluesky" : source}
+          />
+        ) : null}
+        {isFetchingNextPage && !initialSourceLoading ? (
+          <LoadMoreSkeleton count={4} source={nextSkeletonSource} />
+        ) : null}
+        {hasNextPage && !isFetchingNextPage && !initialSourceLoading ? (
+          <div className="flex justify-center p-4">
+            <Button onClick={() => handleBottomReached(true)} variant="ghost">
+              {external.isError ? "Retry loading posts" : "Load more posts"}
+            </Button>
+          </div>
+        ) : null}
+        {hasAnyPosts && feedComplete ? <FeedEnd /> : null}
       </InfiniteScrollContainer>
     </div>
   );

@@ -26,6 +26,10 @@ case "${app}" in
     app_id="${DOKPLOY_MEDIA_APP_ID:-}"
     health_url="${MEDIA_HEALTH_URL:-}"
     ;;
+  protocols)
+    app_id="${DOKPLOY_PROTOCOLS_APP_ID:-}"
+    health_url="${PROTOCOLS_HEALTH_URL:-}"
+    ;;
 esac
 
 deploy_enabled="false"

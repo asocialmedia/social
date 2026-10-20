@@ -1,5 +1,6 @@
 import {
   and,
+  communityVisibilityWhere,
   getPostDataQuery,
   hydrateViewCounts,
   mapPostData,
@@ -8,6 +9,8 @@ import {
 import type { PostsPage } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/auth/session";
+import { explicitContentEnabled } from "@/lib/posts/explicit-content-enabled";
+import { postsForReader } from "@/lib/posts/reader-content-policy";
 
 // The Responses tab on a profile: posts that reply to another post. Keyed on
 // rootPostId (set for every response) so responses still list after their
@@ -26,7 +29,14 @@ export async function GET(
   const { userId } = await ctx.params;
 
   let query = getPostDataQuery(prisma.orm, viewerId)
-    .where((post) => and(post.rootPostId.isNotNull(), post.userId.eq(userId)))
+    .where((post) =>
+      and(
+        post.rootPostId.isNotNull(),
+        post.userId.eq(userId),
+        communityVisibilityWhere(viewerId)(post),
+        post.moderated.eq(false)
+      )
+    )
     .orderBy((post) => post.createdAt.desc());
   if (cursor) {
     // Prisma 8 cursors are keyset seeks built from the values passed in, so
@@ -51,7 +61,7 @@ export async function GET(
   const hydrated = await hydrateViewCounts(posts.slice(0, pageSize));
   const data: PostsPage = {
     nextCursor,
-    posts: hydrated,
+    posts: postsForReader(hydrated, await explicitContentEnabled(viewerId)),
   };
   return Response.json(data);
 }

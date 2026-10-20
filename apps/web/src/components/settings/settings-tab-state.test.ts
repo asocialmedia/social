@@ -4,6 +4,9 @@ import {
   adjacentSettingsTab,
   getSettingsTab,
   isSettingsTab,
+  SETTINGS_TAB_LABELS,
+  settingsDocumentTitle,
+  settingsTabLabel,
 } from "./settings-tab-state";
 
 describe("settings tab state", () => {
@@ -49,7 +52,8 @@ describe("settings tab state", () => {
 
   test("swipes stop at the first and last settings tabs", () => {
     expect(adjacentSettingsTab("profile", -1)).toBeNull();
-    expect(adjacentSettingsTab("personalization", 1)).toBeNull();
+    expect(adjacentSettingsTab("personalization", 1)).toBe("network");
+    expect(adjacentSettingsTab("network", 1)).toBeNull();
   });
 
   test("falls back safely for missing or untrusted tab values", () => {
@@ -57,5 +61,46 @@ describe("settings tab state", () => {
     expect(getSettingsTab(new URLSearchParams("tab=unknown"))).toBe("profile");
     expect(isSettingsTab("security")).toBe(true);
     expect(isSettingsTab("unknown")).toBe(false);
+  });
+
+  test("titles the document with the open tab", () => {
+    expect(settingsDocumentTitle("profile", null)).toBe(
+      "Profile - asocialmedia"
+    );
+    expect(settingsDocumentTitle("account", null)).toBe(
+      "Account - asocialmedia"
+    );
+    expect(settingsDocumentTitle("personalization", null)).toBe(
+      "Personalization - asocialmedia"
+    );
+  });
+
+  test("titles the document with the open Network section instead of the tab", () => {
+    expect(settingsDocumentTitle("network", null)).toBe(
+      "Network - asocialmedia"
+    );
+    expect(settingsDocumentTitle("network", "content")).toBe(
+      "Content & media - asocialmedia"
+    );
+    expect(settingsDocumentTitle("network", "moderation")).toBe(
+      "Moderation & content filters - asocialmedia"
+    );
+    expect(settingsDocumentTitle("network", "languages")).toBe(
+      "Languages - asocialmedia"
+    );
+    // A section only names the document while Network is the open tab.
+    expect(settingsDocumentTitle("privacy", "content")).toBe(
+      "Privacy - asocialmedia"
+    );
+    // An unknown section still says Network rather than leaking the slug.
+    expect(settingsDocumentTitle("network", "nope")).toBe(
+      "Network - asocialmedia"
+    );
+  });
+
+  test("one label per tab, shared by the strip, the search chip and the title", () => {
+    expect(settingsTabLabel("network")).toBe("Network");
+    expect(SETTINGS_TAB_LABELS.profile).toBe("Profile");
+    expect(Object.keys(SETTINGS_TAB_LABELS)).toHaveLength(6);
   });
 });

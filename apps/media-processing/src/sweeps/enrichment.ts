@@ -34,10 +34,14 @@ export function missingEnrichmentStages(
   }
 ): string[] {
   const enabled = enabledOptions ?? {
-    embedding: workerEnv.EMBEDDING_ENABLED,
-    multimodal: workerEnv.MULTIMODAL_EMBEDDING_ENABLED,
-    ocr: workerEnv.OCR_ENABLED,
-    transcription: workerEnv.WHISPER_ENABLED,
+    embedding: workerEnv.EMBEDDING_ENABLED && Boolean(workerEnv.GEMINI_API_KEY),
+    multimodal:
+      workerEnv.MULTIMODAL_EMBEDDING_ENABLED &&
+      Boolean(workerEnv.GEMINI_API_KEY),
+    ocr:
+      workerEnv.OCR_ENABLED && Boolean(workerEnv.GOOGLE_CLOUD_VISION_API_KEY),
+    transcription:
+      workerEnv.WHISPER_ENABLED && Boolean(workerEnv.GEMINI_API_KEY),
   };
   const missing: string[] = [];
   if (
@@ -80,7 +84,10 @@ export function missingEnrichmentStages(
 export async function enrichmentReconciliationSweep(): Promise<{
   enqueued: number;
 }> {
-  if (!workerEnv.BACKFILL_ENABLED) {
+  if (
+    !workerEnv.BACKFILL_ENABLED ||
+    (!workerEnv.GEMINI_API_KEY && !workerEnv.GOOGLE_CLOUD_VISION_API_KEY)
+  ) {
     return { enqueued: 0 };
   }
   const counts = await getQueue(MEDIA_ANALYZE_QUEUE).getJobCounts(

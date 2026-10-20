@@ -1,13 +1,20 @@
 "use client";
 
-import type { PostData, PostsPage } from "@asm/db";
+import type { PostsPage } from "@asm/db";
+import type { ExternalPost } from "@asm/protocols/contracts";
 import { useInfiniteQuery } from "@tanstack/react-query";
-import { Flame, MessageSquare, Newspaper, ShieldAlert } from "lucide-react";
+import {
+  Eye,
+  Flame,
+  MessageSquare,
+  Newspaper,
+  Play,
+  ShieldAlert,
+} from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import type React from "react";
 import { useCallback, useMemo } from "react";
-import { MdPlayArrow } from "react-icons/md";
 
 import { useSession } from "@/app/(main)/session-provider";
 import { ROW_HOVER_CLASS } from "@/components/home/sidebars/right/sidebar-styles";
@@ -15,15 +22,21 @@ import InfiniteScrollContainer from "@/components/layouts/feed/infinite-scroll-c
 import FollowButton from "@/components/layouts/user/follow-button";
 import UserAvatar from "@/components/layouts/user/user-avatar";
 import UserBadge from "@/components/layouts/user/user-badge";
+import { PostEngagementCount } from "@/components/posts/actions/post-engagement-count";
 import ExplicitContentGate from "@/components/posts/content/explicit-content-gate";
 import {
   embedImageProxyUrl,
   useEmbedImageError,
 } from "@/components/posts/embeds/embed-utils";
+import { BlueskyIcon } from "@/components/protocols/bluesky-icon";
+import { useBlueskyProfile } from "@/components/protocols/use-bluesky-profile";
 import { useUserDataQuery } from "@/hooks/users/use-user-data-query";
 import { getAuraFlameClass } from "@/lib/aura/aura";
 import kyInstance from "@/lib/ky";
 import { parseStoredEmbeds } from "@/lib/link-embeds/shared";
+import { externalAuthorView, externalPostView } from "@/lib/posts/presentation";
+import type { PresentedPost as PostData } from "@/lib/posts/presentation";
+import { blueskyProfilePath } from "@/lib/protocols/paths";
 import { getPostPath } from "@/lib/seo/seo";
 import { getUserCount, getUserPostCount } from "@/lib/types";
 import { cn, formatNumber, formatRelativeDate } from "@/lib/utils";
@@ -44,35 +57,6 @@ const PostRowSkeleton: React.FC = () => (
   </div>
 );
 
-// Compact relative timestamp with an explicit "ago" suffix (e.g. "5m ago")
-const getRelativeAgo = (from: Date | string) => {
-  try {
-    const dateObj = typeof from === "string" ? new Date(from) : from;
-    if (Number.isNaN(dateObj.getTime())) {
-      return formatRelativeDate(from);
-    }
-    const diffMs = Date.now() - dateObj.getTime();
-    const diffMinutes = Math.max(0, Math.floor(diffMs / (60 * 1000)));
-    if (diffMinutes < 1) {
-      return "just now";
-    }
-    if (diffMinutes < 60) {
-      return `${diffMinutes}m ago`;
-    }
-    const diffHours = Math.floor(diffMinutes / 60);
-    if (diffHours < 24) {
-      return `${diffHours}h ago`;
-    }
-    const diffDays = Math.floor(diffHours / 24);
-    if (diffDays < 30) {
-      return `${diffDays}d ago`;
-    }
-    return formatRelativeDate(from);
-  } catch {
-    return formatRelativeDate(from);
-  }
-};
-
 interface AuthorPostRowProps {
   post: PostData;
 }
@@ -90,10 +74,10 @@ const AuthorPostRow: React.FC<AuthorPostRowProps> = ({ post }) => {
       <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-lg bg-black shadow-xs">
         {post.explicitContent ? (
           <ExplicitContentGate
-            revealKey={post.id}
             className="h-full w-full"
             compact
             label="Explicit"
+            revealKey={post.id}
           >
             <Image
               alt="Post media"
@@ -115,8 +99,8 @@ const AuthorPostRow: React.FC<AuthorPostRowProps> = ({ post }) => {
           />
         )}
         {firstMedia.type === "VIDEO" && !post.explicitContent ? (
-          <span className="absolute inset-0 m-auto flex size-6 items-center justify-center rounded-full bg-black/40 backdrop-blur-xs">
-            <MdPlayArrow className="h-4 w-4 text-white" />
+          <span className="absolute inset-0 m-auto flex size-5 items-center justify-center rounded-full bg-black/40 backdrop-blur-xs">
+            <Play className="h-3 w-3 fill-white text-white" />
           </span>
         ) : null}
       </div>
@@ -149,13 +133,16 @@ const AuthorPostRow: React.FC<AuthorPostRowProps> = ({ post }) => {
           imgElement
         )}
         {isYoutube && !post.explicitContent ? (
-          <span className="absolute inset-0 m-auto flex size-6 items-center justify-center rounded-full bg-black/40 backdrop-blur-xs">
-            <MdPlayArrow className="h-4 w-4 text-white" />
+          <span className="absolute inset-0 m-auto flex size-5 items-center justify-center rounded-full bg-black/40 backdrop-blur-xs">
+            <Play className="h-3 w-3 fill-white text-white" />
           </span>
         ) : null}
       </div>
     );
   }
+
+  const destination = getPostPath(post);
+  const commentsCount = post._count?.comments ?? 0;
 
   return (
     <Link
@@ -163,7 +150,7 @@ const AuthorPostRow: React.FC<AuthorPostRowProps> = ({ post }) => {
         "group flex items-center gap-2.5 rounded-lg px-2.5 py-2",
         ROW_HOVER_CLASS
       )}
-      href={getPostPath(post)}
+      href={destination}
     >
       {thumbnail}
       <span className="min-w-0 flex-1">
@@ -171,12 +158,17 @@ const AuthorPostRow: React.FC<AuthorPostRowProps> = ({ post }) => {
           <span className="block truncate text-sm font-semibold">
             {post.user?.displayName || post.user?.username || "Anonymous"}
           </span>
-          <UserBadge
-            badge={post.user?.badge}
-            badges={post.user?.badges}
-            communityRoles={post.user?.communityMemberships}
-          />
+          {post.external ? (
+            <BlueskyIcon />
+          ) : (
+            <UserBadge
+              badge={post.user?.badge}
+              badges={post.user?.badges}
+              communityRoles={post.user?.communityMemberships}
+            />
+          )}
         </span>
+
         {post.moderated ? (
           <span className="text-muted-foreground mt-0.5 flex items-center gap-1.5 text-sm leading-snug font-medium">
             <ShieldAlert className="size-3.5 shrink-0" />
@@ -184,31 +176,37 @@ const AuthorPostRow: React.FC<AuthorPostRowProps> = ({ post }) => {
           </span>
         ) : (
           <span className="text-muted-foreground mt-0.5 line-clamp-2 block max-h-10 overflow-hidden text-sm leading-snug font-medium">
-            {post.content || "View post"}
+            {post.content ||
+              (post.attachments?.length ? "Media post" : "View post")}
           </span>
         )}
+
         <span className="text-muted-foreground mt-1 flex items-center gap-2 text-xs transition-colors group-hover:text-inherit">
           <span className="shrink-0" suppressHydrationWarning>
-            {getRelativeAgo(post.createdAt)}
+            {formatRelativeDate(post.createdAt)}
           </span>
-          <span className="flex shrink-0 items-center gap-0.5">
-            <Flame
-              className={cn(
-                "h-3 w-3 transition-colors group-hover:text-inherit",
-                getAuraFlameClass(post.aura)
-              )}
-            />
-            {formatNumber(post.aura)}
-          </span>
+          <PostEngagementCount
+            aura={post.aura}
+            className="flex shrink-0 items-center gap-0.5"
+            iconClassName="h-3 w-3 transition-colors group-hover:text-inherit"
+            likeCount={
+              post.external
+                ? (post.external.upstreamCounts.likes ?? null)
+                : undefined
+            }
+          />
           <span className="flex shrink-0 items-center gap-0.5">
             <MessageSquare
-              className={cn(
-                "h-3 w-3",
-                post._count.comments > 0 && "fill-current"
-              )}
+              className={cn("h-3 w-3", commentsCount > 0 && "fill-current")}
             />
-            {formatNumber(post._count.comments)}
+            {formatNumber(commentsCount)}
           </span>
+          {post.viewCount !== undefined && post.viewCount > 0 ? (
+            <span className="flex shrink-0 items-center gap-0.5">
+              <Eye className="h-3 w-3" />
+              {formatNumber(post.viewCount)}
+            </span>
+          ) : null}
         </span>
       </span>
     </Link>
@@ -217,15 +215,27 @@ const AuthorPostRow: React.FC<AuthorPostRowProps> = ({ post }) => {
 
 const PostAuthorSidebar: React.FC<PostAuthorSidebarProps> = ({ post }) => {
   const { user: currentUser } = useSession();
-  const { data: liveUser } = useUserDataQuery(post.user);
+  const { data: liveUser } = useUserDataQuery(post.user, !post.external);
+  const { data: externalAuthor } = useBlueskyProfile(
+    post.external?.author.id ?? "",
+    post.external?.author
+  );
 
-  const author = liveUser;
+  const author =
+    post.external && externalAuthor
+      ? externalAuthorView(externalAuthor)
+      : liveUser;
   const isOwnProfile = author.id === currentUser?.id;
   const isFollowedByUser = Boolean(author.followers?.length);
   const followerInfo = {
-    followers: getUserCount(author, "followers"),
+    followers:
+      externalAuthor?.upstreamCounts.followers ??
+      getUserCount(author, "followers"),
     isFollowedByUser,
   };
+
+  const isExternal = Boolean(post.external);
+  const authorActor = post.external?.author.id || post.external?.author.handle;
 
   const {
     data,
@@ -235,32 +245,78 @@ const PostAuthorSidebar: React.FC<PostAuthorSidebarProps> = ({ post }) => {
     isFetchingNextPage,
     status,
   } = useInfiniteQuery({
-    getNextPageParam: (lastPage) => lastPage.nextCursor,
+    enabled: isExternal ? Boolean(authorActor) : Boolean(author.id),
+    getNextPageParam: (lastPage: { nextCursor: string | null }) =>
+      lastPage.nextCursor ?? undefined,
     initialPageParam: null as string | null,
-    queryFn: ({ pageParam }: { pageParam: string | null }) =>
-      kyInstance
+    queryFn: async ({ pageParam, signal }) => {
+      if (isExternal && authorActor) {
+        const params = new URLSearchParams({
+          actor: authorActor,
+          limit: "25",
+          tab: "posts",
+        });
+        if (pageParam) {
+          params.set("cursor", pageParam);
+        }
+        const response = await fetch(
+          `/api/protocols/bluesky/profile?${params.toString()}`,
+          { signal }
+        );
+        if (!response.ok) {
+          throw new Error("Couldn't load external posts");
+        }
+        const payload = (await response.json()) as {
+          cursor?: string | null;
+          items?: ExternalPost[];
+        };
+        return {
+          nextCursor: payload.cursor ?? null,
+          posts: (payload.items ?? []).map(externalPostView),
+        };
+      }
+      return kyInstance
         .get(
           `/api/users/${author.id}/posts`,
           pageParam
-            ? { searchParams: { cursor: pageParam, excludeModerated: "1" } }
-            : { searchParams: { excludeModerated: "1" } }
+            ? {
+                searchParams: { cursor: pageParam, excludeModerated: "1" },
+                signal,
+              }
+            : { searchParams: { excludeModerated: "1" }, signal }
         )
-        .json<PostsPage>(),
-    queryKey: ["post-author-posts", author.id, post.id],
+        .json<PostsPage>();
+    },
+    queryKey: [
+      "post-author-posts",
+      isExternal ? `bluesky:${authorActor}` : author.id,
+      post.id,
+    ],
     staleTime: 1000 * 60,
   });
 
-  const posts = useMemo(
-    () =>
-      data?.pages
-        .flatMap((page) => page.posts)
-        .filter((item) => item.id !== post.id) || [],
-    [data?.pages, post.id]
-  );
+  const posts = useMemo(() => {
+    const raw = data?.pages.flatMap((page) => page.posts) || [];
+    const seen = new Set<string>();
+    const result: PostData[] = [];
+    for (const item of raw) {
+      if (
+        item.id === post.id ||
+        (post.external && (item as PostData).external?.id === post.external.id)
+      ) {
+        continue;
+      }
+      if (!seen.has(item.id)) {
+        seen.add(item.id);
+        result.push(item);
+      }
+    }
+    return result;
+  }, [data?.pages, post.id, post.external]);
 
   const handleBottomReached = useCallback(() => {
     if (hasNextPage && !isFetching) {
-      fetchNextPage();
+      void fetchNextPage();
     }
   }, [hasNextPage, isFetching, fetchNextPage]);
 
@@ -314,7 +370,11 @@ const PostAuthorSidebar: React.FC<PostAuthorSidebarProps> = ({ post }) => {
               "group flex flex-col gap-2 rounded-xl px-2.5 py-2.5",
               ROW_HOVER_CLASS
             )}
-            href={`/users/${author.username}`}
+            href={
+              (post.external
+                ? blueskyProfilePath(post.external.author.id)
+                : undefined) ?? `/users/${author.username}`
+            }
           >
             <div className="flex items-start gap-3">
               <UserAvatar avatarUrl={author.avatarUrl} className="h-11 w-11" />
@@ -323,11 +383,15 @@ const PostAuthorSidebar: React.FC<PostAuthorSidebarProps> = ({ post }) => {
                   <span className="block truncate font-bold group-hover:underline">
                     {author.displayName || author.username}
                   </span>
-                  <UserBadge
-                    badge={author.badge}
-                    badges={author.badges}
-                    communityRoles={author.communityMemberships}
-                  />
+                  {post.external ? (
+                    <BlueskyIcon />
+                  ) : (
+                    <UserBadge
+                      badge={author.badge}
+                      badges={author.badges}
+                      communityRoles={author.communityMemberships}
+                    />
+                  )}
                 </span>
                 <span className="text-muted-foreground block truncate text-xs transition-colors group-hover:text-inherit">
                   @{author.username}
@@ -342,33 +406,51 @@ const PostAuthorSidebar: React.FC<PostAuthorSidebarProps> = ({ post }) => {
             <div className="text-muted-foreground flex items-center gap-3 text-xs">
               <span>
                 <span className="text-foreground font-semibold">
-                  {formatNumber(getUserPostCount(author))}
+                  {post.external &&
+                  externalAuthor?.upstreamCounts.posts === undefined
+                    ? "…"
+                    : formatNumber(
+                        externalAuthor?.upstreamCounts.posts ??
+                          getUserPostCount(author)
+                      )}
                 </span>{" "}
                 Posts
               </span>
               <span>
                 <span className="text-foreground font-semibold">
-                  {formatNumber(followerInfo.followers)}
+                  {post.external &&
+                  externalAuthor?.upstreamCounts.followers === undefined
+                    ? "…"
+                    : formatNumber(followerInfo.followers)}
                 </span>{" "}
                 Followers
               </span>
-              <span className="flex items-center gap-1">
-                <Flame
-                  className={cn("h-3.5 w-3.5", getAuraFlameClass(author.aura))}
-                />
-                <span className="text-foreground font-semibold">
-                  {formatNumber(author.aura)}
-                </span>{" "}
-                Aura
-              </span>
+              {post.external ? null : (
+                <span className="flex items-center gap-1">
+                  <Flame
+                    className={cn(
+                      "h-3.5 w-3.5",
+                      getAuraFlameClass(author.aura)
+                    )}
+                  />
+                  <span className="text-foreground font-semibold">
+                    {formatNumber(author.aura)}
+                  </span>{" "}
+                  Aura
+                </span>
+              )}
             </div>
           </Link>
 
           <div className="px-2 pt-3 pb-1">
-            {isOwnProfile ? (
+            {isOwnProfile || post.external ? (
               <Link
                 className="follow-btn-3d flex h-8 w-full items-center justify-center rounded-md px-3 text-sm"
-                href={`/users/${author.username}`}
+                href={
+                  (post.external
+                    ? blueskyProfilePath(post.external.author.id)
+                    : undefined) ?? `/users/${author.username}`
+                }
               >
                 View profile
               </Link>
@@ -386,9 +468,20 @@ const PostAuthorSidebar: React.FC<PostAuthorSidebarProps> = ({ post }) => {
           // More from the author
         }
         <div className="sidebar-subcard rounded-2xl p-2">
-          <div className="flex items-center gap-2 px-2 pt-0.5 pb-2">
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-linear-to-b from-[#ff9500] to-[#e65500] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]">
-              <Newspaper className="h-4 w-4" />
+          <div className="flex items-center gap-2 px-2 pt-0.5 pb-1">
+            <div
+              className={cn(
+                "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-white",
+                post.external
+                  ? "bg-linear-to-b from-[#1185fe] to-[#0060df] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(0,80,200,0.45),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)] dark:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(0,80,200,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]"
+                  : "bg-linear-to-b from-[#ff9500] to-[#e65500] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.45),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)] dark:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]"
+              )}
+            >
+              {post.external ? (
+                <BlueskyIcon className="h-4 w-4 fill-white text-white" />
+              ) : (
+                <Newspaper className="h-4 w-4" />
+              )}
             </div>
             <div className="min-w-0 flex-1">
               <p className="text-sm leading-tight font-semibold">More from</p>
@@ -398,12 +491,16 @@ const PostAuthorSidebar: React.FC<PostAuthorSidebarProps> = ({ post }) => {
             </div>
             <Link
               className="text-muted-foreground hover:text-primary shrink-0 text-[11px] font-medium transition-colors"
-              href={`/users/${author.username}`}
+              href={
+                (post.external
+                  ? blueskyProfilePath(post.external.author.id)
+                  : undefined) ?? `/users/${author.username}`
+              }
             >
               View all
             </Link>
           </div>
-          <div className="pt-2 pb-1">{postsBody}</div>
+          <div className="pb-1">{postsBody}</div>
         </div>
       </div>
     </aside>

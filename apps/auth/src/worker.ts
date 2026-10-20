@@ -583,7 +583,7 @@ if (import.meta.main) {
   const shutdown = createWorkerShutdown({
     drain: async () => {
       await clearWorkerHealth(healthPath);
-      await Promise.all([
+      await Promise.allSettled([
         ...workers.map((worker) => worker.close()),
         heartbeatPulse?.dispose(),
         sweepPulse?.dispose(),
@@ -593,7 +593,7 @@ if (import.meta.main) {
       // An in-flight heartbeat may finish during draining; remove its last write as well.
       await clearWorkerHealth(healthPath);
       clearMessageSearchKeyCache();
-      await Promise.all([
+      await Promise.allSettled([
         closeMessageSearchPool(),
         closePrisma(),
         telemetry.shutdown(),
@@ -608,7 +608,10 @@ if (import.meta.main) {
         clearInterval(messageSearchSweepTimer);
       }
     },
-    timeoutMs: readWorkerInteger("WORKER_SHUTDOWN_TIMEOUT_MS", 30_000, 120_000),
+    timeoutMs:
+      process.env.NODE_ENV === "development"
+        ? 3000
+        : readWorkerInteger("WORKER_SHUTDOWN_TIMEOUT_MS", 30_000, 120_000),
   });
 
   let exitRequested = false;
@@ -617,6 +620,12 @@ if (import.meta.main) {
       return;
     }
     exitRequested = true;
+    const forceExitTimer = setTimeout(() => {
+      logger.warn({ signal }, "worker force exiting after shutdown timeout");
+      process.exit(failed ? 1 : 0);
+    }, 4000);
+    forceExitTimer.unref();
+
     logger.info({ signal }, "shutting down worker");
     try {
       const outcome = await shutdown();

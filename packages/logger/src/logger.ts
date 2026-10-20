@@ -113,7 +113,9 @@ export function createLogger(options: LoggerOptions = {}): Logger {
 
   const streams = buildStreams(resolved);
   const destination =
-    streams.length === 1 ? streams[0] : pino.multistream(streams);
+    streams.length === 1
+      ? streams[0]
+      : pino.multistream(streams.map((stream) => ({ level: "trace", stream })));
 
   return pino(
     {

@@ -1,5 +1,6 @@
 "use client";
 
+import type { TextSegment } from "@asm/protocols/contracts";
 import LinkifyIt from "linkify-it";
 import { Hash } from "lucide-react";
 import Link from "next/link";
@@ -8,6 +9,7 @@ import type { ReactNode } from "react";
 import UserAvatar from "@/components/layouts/user/user-avatar";
 import type { LinkEmbed } from "@/lib/link-embeds/shared";
 import { INLINE_TOKEN_PATTERN } from "@/lib/posts/inline-meta";
+import { blueskyProfilePath } from "@/lib/protocols/paths";
 import { cn } from "@/lib/utils";
 
 import { LinkBadge, findEmbedForUrl, hostLabel } from "../embeds/link-badge";
@@ -25,6 +27,17 @@ import { LinkBadge, findEmbedForUrl, hostLabel } from "../embeds/link-badge";
 // Callers that want enriched mentions pass `renderMention`.
 
 const linkify = new LinkifyIt();
+const EXTERNAL_INLINE_TOKEN_PATTERN =
+  /@[a-zA-Z0-9_-]+(?:\.[a-zA-Z0-9_-]+)+|#[\p{L}\p{N}_-]+/gu;
+const BLANK_LINE_PATTERN = /\r?\n(?:[\t ]*\r?\n)+/;
+const COMPACT_INLINE_TOKEN_PATTERN = new RegExp(
+  `${INLINE_TOKEN_PATTERN.source}|${BLANK_LINE_PATTERN.source}`,
+  "gu"
+);
+const COMPACT_EXTERNAL_INLINE_TOKEN_PATTERN = new RegExp(
+  `${EXTERNAL_INLINE_TOKEN_PATTERN.source}|${BLANK_LINE_PATTERN.source}`,
+  "gu"
+);
 
 interface ContentSegment {
   text?: string;
@@ -53,10 +66,12 @@ function segmentContent(content: string): ContentSegment[] {
 // wrap this themselves via `renderMention`.
 export function InlineMentionChip({
   avatarUrl,
+  href,
   user,
   username,
 }: {
   avatarUrl?: string | null;
+  href?: string;
   // Mirrors UserAvatar's own `user` prop shape (avatarUrl required when
   // present) so a resolved UserData passes through without a cast.
   user?: {
@@ -69,7 +84,7 @@ export function InlineMentionChip({
   return (
     <Link
       className="meta-chip meta-chip-mention inline-flex max-w-full items-center gap-1.5 align-middle text-xs"
-      href={`/users/${username}`}
+      href={href ?? `/users/${username}`}
       onClick={(event) => event.stopPropagation()}
     >
       <UserAvatar
@@ -99,12 +114,18 @@ export function InlineHashtagChip({ tag }: { tag: string }) {
 
 export function PostInlineContent({
   className,
+  compactBlankLines = false,
   content,
   embeds,
   linkBadge = "preview",
   renderMention,
+  sourceSegments,
+  source,
 }: {
+  sourceSegments?: TextSegment[];
+  source?: "asm" | "bluesky";
   className?: string;
+  compactBlankLines?: boolean;
   content: string;
   embeds?: LinkEmbed[];
   // "preview" resolves the embed title (post cards); "chip" renders the badge
@@ -114,7 +135,12 @@ export function PostInlineContent({
   // username and returns the node to render in its place.
   renderMention?: (username: string) => ReactNode;
 }) {
-  const segments = segmentContent(content);
+  const segments = sourceSegments
+    ? sourceSegments.map((segment) => ({
+        text: segment.text,
+        url: segment.href,
+      }))
+    : segmentContent(content);
   if (segments.length === 0) {
     segments.push({ text: content });
   }
@@ -128,25 +154,58 @@ export function PostInlineContent({
         className
       )}
     >
-      {segments.map((segment, index) =>
-        segment.url === undefined ? (
-          <InlineRichText
-            key={`text-${index}`}
-            renderMention={renderMention}
-            text={segment.text ?? ""}
-          />
-        ) : (
+      {segments.map((segment, index) => {
+        if (segment.url === undefined) {
+          return (
+            <InlineRichText
+              key={`text-${index}`}
+              compactBlankLines={compactBlankLines}
+              external={Boolean(sourceSegments) || source === "bluesky"}
+              renderMention={
+                sourceSegments || source === "bluesky"
+                  ? (username) => (
+                      <InlineMentionChip
+                        href={blueskyProfilePath(username)}
+                        username={username}
+                      />
+                    )
+                  : renderMention
+              }
+              text={segment.text ?? ""}
+            />
+          );
+        }
+        if (sourceSegments && segment.text?.startsWith("@")) {
+          const destination = new URL(segment.url);
+          if (
+            destination.hostname === "bsky.app" &&
+            destination.pathname.startsWith("/profile/")
+          ) {
+            const actor = decodeURIComponent(
+              destination.pathname.slice("/profile/".length)
+            );
+            return (
+              <InlineMentionChip
+                key={`mention-${index}`}
+                href={blueskyProfilePath(actor)}
+                username={segment.text.slice(1)}
+              />
+            );
+          }
+        }
+        let title = findEmbedForUrl(segment.url, embeds)?.title;
+        if (linkBadge === "chip") {
+          title = hostLabel(segment.url);
+        }
+        return (
           <LinkBadge
+            index={index}
             key={`${segment.url}-${index}`}
-            title={
-              linkBadge === "chip"
-                ? hostLabel(segment.url)
-                : findEmbedForUrl(segment.url, embeds)?.title
-            }
+            title={title}
             url={segment.url}
           />
-        )
-      )}
+        );
+      })}
     </p>
   );
 }
@@ -174,8 +233,12 @@ function InlineMention({
 function InlineRichText({
   text,
   renderMention,
+  external = false,
+  compactBlankLines = false,
 }: {
   text: string;
+  external?: boolean;
+  compactBlankLines?: boolean;
   renderMention?: (username: string) => ReactNode;
 }) {
   if (!text) {
@@ -184,7 +247,15 @@ function InlineRichText({
   const nodes: ReactNode[] = [];
   let cursor = 0;
   let key = 0;
-  for (const match of text.matchAll(INLINE_TOKEN_PATTERN)) {
+  let tokenPattern = external
+    ? EXTERNAL_INLINE_TOKEN_PATTERN
+    : INLINE_TOKEN_PATTERN;
+  if (compactBlankLines) {
+    tokenPattern = external
+      ? COMPACT_EXTERNAL_INLINE_TOKEN_PATTERN
+      : COMPACT_INLINE_TOKEN_PATTERN;
+  }
+  for (const match of text.matchAll(tokenPattern)) {
     const [token] = match;
     const matchIndex = match.index ?? -1;
     if (matchIndex < 0) {
@@ -193,7 +264,16 @@ function InlineRichText({
     if (matchIndex > cursor) {
       nodes.push(text.slice(cursor, matchIndex));
     }
-    if (token.startsWith("@")) {
+    if (token.startsWith("\n") || token.startsWith("\r")) {
+      nodes.push(
+        <span
+          className="block h-2 whitespace-normal"
+          key={`break-${(key += 1)}`}
+        >
+          {token}
+        </span>
+      );
+    } else if (token.startsWith("@")) {
       const username = token.slice(1);
       nodes.push(
         <InlineMention

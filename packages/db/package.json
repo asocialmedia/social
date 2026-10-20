@@ -1,6 +1,6 @@
 {
   "name": "@asm/db",
-  "version": "1.2.71",
+  "version": "1.3.2",
   "private": true,
   "description": "asocialmedia database & cache package",
   "license": "AGPL-3.0",
@@ -40,6 +40,7 @@
     "@asm/config": "workspace:*",
     "@asm/logger": "workspace:*",
     "@asm/notifications": "workspace:*",
+    "@asm/protocols": "workspace:*",
     "@aws-sdk/client-s3": "^3.1109.0",
     "@prisma/orm-postgres": "8.0.0-rc.14",
     "@smithy/node-http-handler": "^4.10.0",
@@ -47,10 +48,13 @@
     "bullmq": "^6.1.0",
     "cross-env": "^10.1.0",
     "date-fns": "^4.4.0",
+    "franc-min": "^6.2.0",
     "ioredis": "^6.0.0",
-    "jose": "^6.2.8",
+    "jose": "^6.2.12",
     "pg": "8.18.0",
     "temporal-polyfill": "^1.0.5",
+    "wink-eng-lite-web-model": "^1.8.1",
+    "wink-nlp": "^2.4.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {

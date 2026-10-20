@@ -6,6 +6,11 @@ const APP_ENTRIES = [
     dockerfile: "./apps/media-processing/Dockerfile",
     image: "asm-media-processing",
   },
+  {
+    app: "protocols",
+    dockerfile: "./apps/protocols/Dockerfile",
+    image: "asm-protocols",
+  },
 ];
 
 // Shared code or build config invalidates every image.

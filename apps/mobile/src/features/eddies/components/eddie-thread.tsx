@@ -86,7 +86,7 @@ const RAIL_GEOMETRY_SEED = { avatarCenter: AVATAR_CENTER, commentTop: 0 };
 // The entry list is pure data so it can be unit tested, which means the glyph
 // lives with the panel. This row is the one place that hand-builds a single
 // entry, so it takes the glyph from the same map.
-const DELETE_ENTRY: MoreMenuEntry[] = [
+export const DELETE_ENTRY: MoreMenuEntry[] = [
   {
     action: { type: "delete" },
     destructive: true,
@@ -106,7 +106,7 @@ const DELETE_ENTRY: MoreMenuEntry[] = [
 // run is a View (top/bottom, always resolves) and the SVG carries ONLY the
 // fixed-size turn, with no percentage dimension and no negative origin to be
 // clipped at the viewport edge.
-function EddieRail({
+export function EddieRail({
   avatarCenter,
   isLast,
 }: {
@@ -197,7 +197,7 @@ function EddieImage({
   );
 }
 
-interface RowHandlers {
+export interface RowHandlers {
   onDelete: (commentId: string) => void;
   onLayoutRow: (commentId: string, yWithinParent: number) => void;
   onMore: (commentId: string, anchor: MenuAnchor) => void;
@@ -232,7 +232,7 @@ function offsetWithin(
 // comments should resolve to the same answer.
 const rowOffsetRegistry = new Map<string, number>();
 
-function EddieRow({
+export function EddieRow({
   apiBase,
   handlers,
   inlineReplyFor,
@@ -263,6 +263,11 @@ function EddieRow({
   const hasChildren = node.children.length > 0;
   const replying = inlineReplyFor === comment.id;
   const isOwn = Boolean(viewerId && commentUser?.id === viewerId);
+  const isBluesky =
+    (comment as { source?: string }).source === "bluesky" ||
+    comment.id.startsWith("at://") ||
+    Boolean(commentUser?.id?.startsWith("did:"));
+  const isExternal = postId.startsWith("at://") || isBluesky;
   const attachments = (comment.attachments ?? []).filter(
     (media) =>
       media && (media.type === "IMAGE" || media.mimeType?.startsWith("image/"))
@@ -342,11 +347,23 @@ function EddieRow({
                   >
                     {name}
                   </Text>
-                  <UserBadge
-                    badge={commentUser?.badge}
-                    badges={commentUser?.badges}
-                    communityRoles={commentUser?.communityMemberships}
-                  />
+                  {isBluesky ? (
+                    <Text
+                      style={{
+                        color: "#0285FF",
+                        fontFamily: "SofiaProBold",
+                        fontSize: 11,
+                      }}
+                    >
+                      Bluesky
+                    </Text>
+                  ) : (
+                    <UserBadge
+                      badge={commentUser?.badge}
+                      badges={commentUser?.badges}
+                      communityRoles={commentUser?.communityMemberships}
+                    />
+                  )}
                   <Text
                     numberOfLines={1}
                     style={[styles.commentHandle, { color: theme.dividerText }]}
@@ -385,27 +402,33 @@ function EddieRow({
               ))}
           {isDeleted ? null : (
             <View style={styles.commentActions}>
-              <VoteCluster
-                aura={comment.aura ?? 0}
-                authorName={name}
-                commentId={comment.id}
-                onRequireLogin={() => handlers.onRequireLogin()}
-                postId={postId}
-                userVote={comment.votes?.[0]?.value ?? 0}
-                viewerId={viewerId ?? null}
-              />
-              <Pressable
-                accessibilityLabel="Reply to eddie"
-                accessibilityRole="button"
-                hitSlop={6}
-                onPress={() => handlers.onReply(node)}
-                style={styles.replyBtn}
-              >
-                <CornerDownRight color={theme.dividerText} size={14} />
-                <Text style={[styles.replyText, { color: theme.dividerText }]}>
-                  Reply
-                </Text>
-              </Pressable>
+              {isExternal ? null : (
+                <VoteCluster
+                  aura={comment.aura ?? 0}
+                  authorName={name}
+                  commentId={comment.id}
+                  onRequireLogin={() => handlers.onRequireLogin()}
+                  postId={postId}
+                  userVote={comment.votes?.[0]?.value ?? 0}
+                  viewerId={viewerId ?? null}
+                />
+              )}
+              {isExternal ? null : (
+                <Pressable
+                  accessibilityLabel="Reply to eddie"
+                  accessibilityRole="button"
+                  hitSlop={6}
+                  onPress={() => handlers.onReply(node)}
+                  style={styles.replyBtn}
+                >
+                  <CornerDownRight color={theme.dividerText} size={14} />
+                  <Text
+                    style={[styles.replyText, { color: theme.dividerText }]}
+                  >
+                    Reply
+                  </Text>
+                </Pressable>
+              )}
             </View>
           )}
         </View>
@@ -723,7 +746,7 @@ export function EddieThread({
     }
     setDeleting(true);
     try {
-      await deleteEddie(deleteTarget);
+      await deleteEddie(deleteTarget, postId);
       setComments((current) => withDeletedEddie(current, deleteTarget));
       setDeleteTarget(null);
     } catch (error) {
@@ -918,6 +941,7 @@ const styles = StyleSheet.create({
     gap: 10,
     paddingBottom: 6,
     paddingLeft: 16,
+    paddingRight: 16,
     paddingTop: 10,
     position: "relative",
   },
@@ -1055,19 +1079,13 @@ const styles = StyleSheet.create({
   },
   replyBtn: {
     alignItems: "center",
-    borderRadius: 9999,
     flexDirection: "row",
     gap: 4,
-    height: 32,
-    paddingHorizontal: 8,
+    paddingHorizontal: 6,
+    paddingVertical: 4,
   },
-  // paddingTop matches the comment row's own, so the inline composer's 40px
-  // avatar centres on AVATAR_CENTER (30px) exactly where the rail elbow lands.
-  // Without it the elbow pointed above the avatar and the indent looked broken.
   replyComposer: {
-    paddingBottom: 4,
     paddingLeft: REPLY_INDENT,
-    paddingTop: 10,
     position: "relative",
   },
   replyText: {
@@ -1082,13 +1100,9 @@ const styles = StyleSheet.create({
   },
   section: {
     borderTopWidth: 1,
-    paddingBottom: 16,
-    paddingTop: 2,
   },
   sectionReels: {
     borderTopWidth: 0,
-    marginTop: 0,
-    paddingTop: 0,
   },
   skeletonAvatar: {
     borderRadius: 12,
@@ -1097,23 +1111,20 @@ const styles = StyleSheet.create({
   },
   skeletonBar: {
     borderRadius: 4,
-    height: 14,
-    marginTop: 6,
+    height: 12,
   },
   skeletonBody: {
     flex: 1,
-    minWidth: 0,
+    gap: 8,
   },
   skeletonList: {
-    gap: 4,
-    marginTop: 12,
+    gap: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
   },
   skeletonRow: {
-    alignItems: "center",
     flexDirection: "row",
-    gap: 10,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
+    gap: 12,
   },
   stateText: {
     fontFamily: "SofiaProReg",
@@ -1138,3 +1149,5 @@ const styles = StyleSheet.create({
     width: RAIL_STROKE,
   },
 });
+
+export { styles as eddieThreadStyles };

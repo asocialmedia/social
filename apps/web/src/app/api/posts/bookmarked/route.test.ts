@@ -20,6 +20,17 @@ let bookmarkRows = [
     userId: USER_ID,
   },
 ];
+let externalEngagementRows: {
+  externalPost: {
+    available: boolean;
+    checkedAt: Date;
+    snapshot: Record<string, unknown> | null;
+    uri: string;
+  } | null;
+  externalPostId: string;
+  updatedAt: Date;
+}[] = [];
+
 let postRows = [
   {
     content: "hello world",
@@ -43,10 +54,27 @@ function createBookmarkQuery(): BookmarkQuery {
   };
 }
 
+interface ExternalQuery {
+  all: () => Promise<typeof externalEngagementRows>;
+  include: () => ExternalQuery;
+  orderBy: () => ExternalQuery;
+  select: () => ExternalQuery;
+}
+
+function createExternalQuery(): ExternalQuery {
+  return {
+    all: () => Promise.resolve([...externalEngagementRows]),
+    include: () => createExternalQuery(),
+    orderBy: () => createExternalQuery(),
+    select: () => createExternalQuery(),
+  };
+}
+
 const mockPrisma = {
   orm: {
     public: {
       Bookmarks: { select: () => createBookmarkQuery() },
+      ExternalEngagements: { where: () => createExternalQuery() },
     },
   },
 };
@@ -55,6 +83,7 @@ const mockHydrate = mock((posts: unknown[]) => posts);
 
 mock.module("@asm/db", () => ({
   ...asmDbMockBase,
+  externalPostStates: () => Promise.resolve(new Map()),
   getPostDataQuery: () => ({
     where: (
       predicate: (post: {
@@ -97,6 +126,7 @@ describe("GET /api/posts/bookmarked", () => {
         userId: USER_ID,
       },
     ];
+    externalEngagementRows = [];
     postRows = [
       {
         content: "hello world",
@@ -160,31 +190,112 @@ describe("GET /api/posts/bookmarked", () => {
       {
         createdAt: new Date("2026-01-02T00:00:00Z"),
         id: "bookmark1",
-        postId: POST_ID,
+        postId: "post1",
         userId: USER_ID,
       },
     ];
     postRows = [
       {
-        content: "older",
-        id: POST_ID,
+        content: "second post",
+        id: "post2",
         user: { id: "author1", username: "author1" },
         userId: "author1",
       },
       {
-        content: "newer",
-        id: "post2",
-        user: { id: "author2", username: "author2" },
-        userId: "author2",
+        content: "first post",
+        id: "post1",
+        user: { id: "author1", username: "author1" },
+        userId: "author1",
       },
     ];
 
     const res = await GET(new Request("http://localhost/api/posts/bookmarked"));
 
     expect(res.status).toBe(200);
-    const body = await res.json();
+    const body = (await res.json()) as { posts: { id: string }[] };
+    expect(body.posts.map((post) => post.id)).toEqual(["post2", "post1"]);
+  });
+
+  test("interleaves bookmarked Bluesky posts in bookmark order", async () => {
+    bookmarkRows = [
+      {
+        createdAt: new Date("2026-01-02T00:00:00Z"),
+        id: "bookmark1",
+        postId: "post1",
+        userId: USER_ID,
+      },
+    ];
+    externalEngagementRows = [
+      {
+        externalPost: {
+          available: true,
+          checkedAt: new Date("2026-01-04T00:00:00Z"),
+          snapshot: {
+            author: {
+              displayName: "Alice",
+              handle: "alice.bsky.social",
+              id: "did:plc:alice",
+              labels: [],
+              source: "bluesky",
+              upstreamCounts: {},
+              url: "https://bsky.app/profile/did:plc:alice",
+            },
+            createdAt: "2026-01-01T00:00:00.000Z",
+            id: "at://did:plc:alice/app.bsky.feed.post/123",
+            indexedAt: "2026-01-01T00:00:00.000Z",
+            labels: [],
+            languages: [],
+            media: [],
+            revision: "revision",
+            segments: [],
+            source: "bluesky",
+            text: "bluesky post content",
+            upstreamCounts: { likes: 0, quotes: 0, replies: 0, reposts: 0 },
+            url: "https://bsky.app/profile/did:plc:alice/post/123",
+          },
+          uri: "at://did:plc:alice/app.bsky.feed.post/123",
+        },
+        externalPostId: "ext1",
+        updatedAt: new Date("2026-01-04T00:00:00Z"),
+      },
+    ];
+    postRows = [
+      {
+        content: "first post",
+        id: "post1",
+        user: { id: "author1", username: "author1" },
+        userId: "author1",
+      },
+    ];
+
+    const res = await GET(new Request("http://localhost/api/posts/bookmarked"));
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { posts: { id: string }[] };
+    expect(body.posts.map((post) => post.id)).toEqual([
+      "at://did:plc:alice/app.bsky.feed.post/123",
+      "post1",
+    ]);
+  });
+  test("a malformed saved Bluesky snapshot cannot break native bookmarks", async () => {
+    externalEngagementRows = [
+      {
+        externalPost: {
+          available: true,
+          checkedAt: new Date(),
+          snapshot: { media: null, source: "bluesky" },
+          uri: "at://did:plc:alice/app.bsky.feed.post/broken",
+        },
+        externalPostId: "broken",
+        updatedAt: new Date(),
+      },
+    ];
+    const response = await GET(
+      new Request("http://localhost/api/posts/bookmarked")
+    );
+    expect(response.status).toBe(200);
+    const body = await response.json();
     expect(body.posts.map((post: { id: string }) => post.id)).toEqual([
-      "post2",
       POST_ID,
     ]);
   });

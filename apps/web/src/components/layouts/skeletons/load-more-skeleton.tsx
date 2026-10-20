@@ -1,20 +1,88 @@
-import type { PostPreviewSource } from "@asm/ui/lib/post-preview-layout";
+"use client";
 
-import { PostCardSkeleton } from "./post-card-skeleton";
+import type { FeedSource } from "@asm/protocols/discovery";
+import type { PostPreviewSource } from "@asm/ui/lib/post-preview-layout";
+import { Separator } from "@asm/ui/shadui/separator";
+import { useEffect, useState } from "react";
+
+import {
+  DYNAMIC_SKELETON_PROFILES,
+  PostCardSkeleton,
+} from "./post-card-skeleton";
 
 export default function LoadMoreSkeleton({
+  count = 4,
+  dynamic = true,
   posts,
-}: { posts?: readonly PostPreviewSource[] } = {}) {
+  rotate = true,
+  rotateIntervalMs = 4200,
+  source = "all",
+}: {
+  count?: number;
+  dynamic?: boolean;
+  posts?: readonly PostPreviewSource[];
+  rotate?: boolean;
+  rotateIntervalMs?: number;
+  source?: FeedSource;
+} = {}) {
+  const [cycle, setCycle] = useState(0);
+
+  useEffect(() => {
+    if (
+      !rotate ||
+      !dynamic ||
+      (posts && posts.length > 0) ||
+      (typeof window !== "undefined" &&
+        window.matchMedia("(prefers-reduced-motion: reduce)").matches)
+    ) {
+      return;
+    }
+    const timer = setInterval(() => {
+      setCycle((prev) => (prev + 1) % DYNAMIC_SKELETON_PROFILES.length);
+    }, rotateIntervalMs);
+    return () => clearInterval(timer);
+  }, [dynamic, posts, rotate, rotateIntervalMs]);
+
+  const items = posts?.length
+    ? posts
+    : Array.from<undefined>({ length: count });
+
   return (
-    <div className="flex flex-col">
-      {(posts?.length ? posts : [undefined, undefined]).map((post, index) => (
-        <div
-          className="border-border/60 border-b bg-[hsl(var(--background-alt))]"
-          key={`load-more-${index}`}
-        >
-          <PostCardSkeleton post={post} />
-        </div>
-      ))}
+    <div
+      aria-busy="true"
+      aria-label={
+        source === "bluesky" ? "Loading Bluesky posts" : "Loading more posts"
+      }
+      className="flex flex-col overflow-hidden"
+    >
+      {items.map((post, index) => {
+        const isBluesky =
+          source === "bluesky" ||
+          (source === "all" && index % 2 === 1) ||
+          Boolean(post && "external" in post && post.external);
+        const profile =
+          !post && dynamic
+            ? DYNAMIC_SKELETON_PROFILES[
+                (index + cycle) % DYNAMIC_SKELETON_PROFILES.length
+              ]
+            : undefined;
+        return (
+          <div
+            className="animate-skeleton-morph flex flex-col transition-all duration-700 ease-in-out"
+            key={`load-more-${index}-${cycle}`}
+          >
+            <PostCardSkeleton
+              dynamic={dynamic}
+              index={index}
+              isBluesky={isBluesky}
+              post={post}
+              profile={profile}
+              source={source}
+            />
+            <Separator className="bg-border/60" />
+          </div>
+        );
+      })}
     </div>
   );
 }

@@ -4,34 +4,28 @@ import type { PostData, PostsPage } from "@asm/db";
 import { Button } from "@asm/ui/shadui/button";
 import noMediaImage from "@assets/general/nomedia.png";
 import { useInfiniteQuery } from "@tanstack/react-query";
-import {
-  Clapperboard,
-  Eye,
-  Flame,
-  Loader2,
-  Play,
-  Plus,
-  RefreshCw,
-} from "lucide-react";
+import { Clapperboard, Eye, Flame, Play, Plus } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
-import React, {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import React, { useCallback, useMemo, useRef, useState } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
+import { FeedErrorState } from "@/components/feeds/feed-error-state";
 import InfiniteScrollContainer from "@/components/layouts/feed/infinite-scroll-container";
 import UserAvatar from "@/components/layouts/user/user-avatar";
 import UserBadge from "@/components/layouts/user/user-badge";
+import { useBlueskyFeed } from "@/components/protocols/use-bluesky-feed";
+import { RecommendationTracker } from "@/components/recommendations/recommendation-tracker";
 import { useRequireAuth } from "@/hooks/auth/use-require-auth";
+import { useNetworkSettings } from "@/hooks/feed/use-network-settings";
 import { getAuraFlameClass } from "@/lib/aura/aura";
 import kyInstance from "@/lib/ky";
+import { networkPostRecommended } from "@/lib/posts/network-content-policy";
+import { mixExplorePosts } from "@/lib/recommendations/mix-explore";
 import { cn, formatNumber } from "@/lib/utils";
 import { getMediaProxyUrl } from "@/lib/utils/image-url";
+
+import { ExploreNetworkPost } from "./explore-network-cards";
 
 const VIDEO_HOVER_DELAY = 150;
 
@@ -208,9 +202,15 @@ const ExploreGustTile = ({ post }: { post: PostData }) => {
 export const ExploreGustsGrid: React.FC = () => {
   const { user } = useSession();
   const { goToLogin } = useRequireAuth();
-  const feedRootRef = useRef<HTMLDivElement>(null);
-  const newestIdRef = useRef<string | null>(null);
-  const [newGustsCount, setNewGustsCount] = useState(0);
+  const network = useNetworkSettings();
+  const remote = useBlueskyFeed(
+    "personalized",
+    true,
+    user?.id ?? "guest",
+    "video",
+    false,
+    "explore"
+  );
 
   const {
     data,
@@ -218,102 +218,64 @@ export const ExploreGustsGrid: React.FC = () => {
     hasNextPage,
     isFetching,
     isFetchingNextPage,
-    refetch,
     status,
+    refetch,
   } = useInfiniteQuery({
+    enabled: network.ready,
     getNextPageParam: (lastPage: PostsPage) => lastPage.nextCursor,
     initialPageParam: null as string | null,
-    queryFn: ({ pageParam }) =>
+    queryFn: ({ pageParam, signal }) =>
       kyInstance
-        .get(
-          "/api/gusts",
-          pageParam
-            ? {
-                searchParams: {
-                  cursor: pageParam,
-                  excludeModerated: "1",
-                  take: "12",
-                },
-              }
-            : { searchParams: { excludeModerated: "1", take: "12" } }
-        )
+        .get("/api/gusts", {
+          searchParams: {
+            ...(pageParam ? { cursor: pageParam } : {}),
+            excludeModerated: "1",
+            mode: "personalized",
+            network: "1",
+            profile: network.settings.preferences.activeProfileId,
+            surface: "explore",
+            take: "12",
+          },
+          signal,
+        })
         .json<PostsPage>(),
-    queryKey: ["explore-gusts-grid"],
-    staleTime: 30 * 1000,
+    queryKey: ["explore-gusts-grid", user?.id ?? "guest", network.scope],
+    refetchOnWindowFocus: false,
+    staleTime: Infinity,
   });
 
   const posts = useMemo(
-    () => data?.pages.flatMap((page) => page.posts) || [],
-    [data?.pages]
+    () =>
+      (data?.pages.flatMap((page) => page.posts) || []).filter((post) =>
+        networkPostRecommended(
+          post,
+          network.settings.preferences,
+          network.settings.topicScope
+        )
+      ),
+    [data?.pages, network.settings]
   );
 
-  useEffect(() => {
-    if (posts.length > 0 && !newestIdRef.current) {
-      newestIdRef.current = posts[0].id;
-    }
-  }, [posts]);
-
-  // Poll quietly for the newest gust id. When a brand-new one appears, show a
-  // pill; the grid and the user's scroll position stay untouched until tapped.
-  // If the grid is currently empty, refetch right away so new Gusts actually
-  // become visible instead of waiting for a manual refresh.
-  useEffect(() => {
-    const interval = window.setInterval(() => {
-      void (async () => {
-        try {
-          const fresh = await kyInstance
-            .get("/api/gusts", {
-              searchParams: { excludeModerated: "1", take: "12" },
-            })
-            .json<PostsPage>();
-          const newest = fresh.posts[0]?.id;
-          if (!newest || newest === newestIdRef.current) {
-            return;
-          }
-          newestIdRef.current = newest;
-          const knownIds = new Set(posts.map((p) => p.id));
-          let count = 0;
-          for (const post of fresh.posts) {
-            if (knownIds.has(post.id)) {
-              break;
-            }
-            count += 1;
-          }
-          if (count === 0) {
-            return;
-          }
-          if (posts.length === 0) {
-            await refetch();
-            setNewGustsCount(0);
-            return;
-          }
-          setNewGustsCount(count);
-        } catch {
-          // Best-effort polling; ignore transient failures
-        }
-      })();
-    }, 45 * 1000);
-    return () => window.clearInterval(interval);
-  }, [posts, refetch]);
-
+  const externalPosts = useMemo(
+    () =>
+      remote.data?.pages
+        .flatMap((page) => page.items)
+        .filter((post) => post.media.some((media) => media.type === "video")) ??
+      [],
+    [remote.data]
+  );
+  const mixed = useMemo(
+    () => mixExplorePosts(posts, externalPosts),
+    [posts, externalPosts]
+  );
   const handleBottomReached = useCallback(() => {
     if (hasNextPage && !isFetching) {
       fetchNextPage();
     }
-  }, [fetchNextPage, hasNextPage, isFetching]);
-
-  const showNewGusts = useCallback(async () => {
-    setNewGustsCount(0);
-    await refetch();
-    let node: HTMLElement | null = feedRootRef.current;
-    while (node) {
-      if (node.scrollHeight > node.clientHeight) {
-        node.scrollTo({ behavior: "smooth", top: 0 });
-        break;
-      }
-      node = node.parentElement;
+    if (remote.hasNextPage && !remote.isFetching) {
+      void remote.fetchNextPage();
     }
-  }, [refetch]);
+  }, [fetchNextPage, hasNextPage, isFetching, remote]);
 
   const handleCreateGust = useCallback(() => {
     if (!user) {
@@ -323,7 +285,7 @@ export const ExploreGustsGrid: React.FC = () => {
     window.location.href = "/gusts?create=true";
   }, [goToLogin, user]);
 
-  if (status === "pending") {
+  if ((status === "pending" || remote.isPending) && !mixed.length) {
     return (
       <div className="grid grid-cols-2 gap-3 p-4 sm:grid-cols-3 md:grid-cols-4 md:gap-4">
         {Array.from({ length: 8 }).map((_, i) => (
@@ -337,15 +299,19 @@ export const ExploreGustsGrid: React.FC = () => {
     );
   }
 
-  if (status === "error") {
+  if (status === "error" && !mixed.length) {
     return (
-      <p className="text-destructive px-4 py-12 text-center text-sm">
-        Couldn't load Gusts right now. Please try again.
-      </p>
+      <FeedErrorState
+        message="Couldn’t load Gusts right now. Please try again."
+        onRetry={() => {
+          void refetch();
+          void remote.refetch();
+        }}
+      />
     );
   }
 
-  if (posts.length === 0) {
+  if (mixed.length === 0 && !remote.isPending) {
     return (
       <div className="flex flex-col items-center justify-center gap-3 px-4 py-16 text-center">
         <Image
@@ -361,6 +327,16 @@ export const ExploreGustsGrid: React.FC = () => {
           Explore short-form video clips or share your own high-energy video
           with the community!
         </p>
+        {remote.isError ? (
+          <Button
+            variant="premium"
+            onClick={() => {
+              void remote.refetch();
+            }}
+          >
+            Retry Bluesky videos
+          </Button>
+        ) : null}
         <Button className="mt-2" onClick={handleCreateGust} variant="premium">
           <Plus className="mr-1.5 size-4" />
           Create the First Gust
@@ -370,28 +346,51 @@ export const ExploreGustsGrid: React.FC = () => {
   }
 
   return (
-    <div className="relative" ref={feedRootRef}>
-      {newGustsCount > 0 ? (
-        <div className="pointer-events-none sticky top-3 z-20 flex justify-center">
-          <button
-            className="rail-3d-btn pointer-events-auto flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-medium"
-            onClick={showNewGusts}
-            type="button"
-          >
-            <RefreshCw className="size-4" />
-            {newGustsCount} new gust{newGustsCount === 1 ? "" : "s"}
-          </button>
-        </div>
-      ) : null}
-      <InfiniteScrollContainer onBottomReached={handleBottomReached}>
+    <div className="relative">
+      <InfiniteScrollContainer
+        onBottomReached={handleBottomReached}
+        prefetchDistance={1500}
+      >
         <div className="grid grid-cols-2 gap-3 p-4 sm:grid-cols-3 md:grid-cols-4 md:gap-4">
-          {posts.map((post) => (
-            <ExploreGustTile key={post.id} post={post} />
-          ))}
+          {mixed.map((entry) =>
+            entry.source === "asm" ? (
+              <RecommendationTracker
+                key={`asm:${entry.post.id}`}
+                postId={entry.post.id}
+                networkSource="asm"
+                networkToken={entry.post.networkRecommendationToken}
+              >
+                <ExploreGustTile post={entry.post} />
+              </RecommendationTracker>
+            ) : (
+              <ExploreNetworkPost
+                key={`bluesky:${entry.post.id}`}
+                post={entry.post}
+                gust
+              />
+            )
+          )}
         </div>
-        {isFetchingNextPage ? (
-          <div className="flex justify-center py-6">
-            <Loader2 className="text-primary animate-spin" />
+        {remote.isError ? (
+          <div className="flex justify-center p-4">
+            <Button
+              variant="premium"
+              onClick={() => {
+                void remote.refetch();
+              }}
+            >
+              Retry Bluesky videos
+            </Button>
+          </div>
+        ) : null}
+        {isFetchingNextPage || remote.isFetching ? (
+          <div className="grid grid-cols-2 gap-3 p-4 sm:grid-cols-3 md:grid-cols-4">
+            {[0, 1, 2, 3].map((index) => (
+              <div
+                key={`gust-loading-${index}`}
+                className="bg-muted/40 aspect-9/16 animate-pulse rounded-2xl"
+              />
+            ))}
           </div>
         ) : null}
       </InfiniteScrollContainer>

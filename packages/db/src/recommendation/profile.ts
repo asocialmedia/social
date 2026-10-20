@@ -3,11 +3,12 @@
 // per-topic affinities, format preferences, topic clusters, and a 384-dimensional taste vector.
 
 import { globalKnowledgeGraph } from "./knowledge-graph";
-import { computeCentroid, EMBEDDING_DIMENSION } from "./vector";
+import { blendVectors, computeCentroid, EMBEDDING_DIMENSION } from "./vector";
 
 export type ProfileSignalKind =
   | "amplify"
   | "bookmark"
+  | "follow"
   | "comment"
   | "commentVote"
   | "upvote"
@@ -15,6 +16,7 @@ export type ProfileSignalKind =
   | "hide"
   | "ownPost"
   | "ownGust"
+  | "interest"
   | "search"
   | "view"
   | "viewComplete"
@@ -72,16 +74,25 @@ export const SIGNAL_WEIGHTS: Record<ProfileSignalKind, number> = {
   commentVote: 1,
   downvote: -2,
   dwell: 1.5,
+  follow: 3,
   hide: -3,
+  interest: 8,
   notInterested: -4,
   ownGust: 3,
   ownPost: 3.5,
-  search: 2.5,
+  search: 0.3,
   skip: -0.75,
   upvote: 1.5,
   view: 0.5,
   viewComplete: 2.5,
 };
+
+// The window that makes a signal "in-session". A reader pivoting interests is
+// visible in the last half hour, well before the 7-day profile centroid moves.
+export const SESSION_WINDOW_MS = 30 * 60_000;
+// In-session taste leads so a pivot takes effect immediately, but the long-term
+// centroid still anchors the vector against one stray click.
+export const SESSION_VECTOR_WEIGHT = 0.7;
 
 function addWeight(
   weights: Record<string, number>,
@@ -92,8 +103,14 @@ function addWeight(
 }
 
 // Scales every weight so the map sums to 1.0, turning counts into distribution shares.
-function normalize(weights: Record<string, number>): Record<string, number> {
-  const total = Object.values(weights).reduce((a, b) => a + b, 0);
+function normalize(
+  weights: Record<string, number>,
+  minimumMass = 0
+): Record<string, number> {
+  const total = Math.max(
+    minimumMass,
+    Object.values(weights).reduce((a, b) => a + b, 0)
+  );
   if (total === 1) {
     return { ...weights };
   }
@@ -146,6 +163,13 @@ export function buildUserProfile(
   options?: { knowledgeGraph?: typeof globalKnowledgeGraph; now?: Date }
 ): UserProfile {
   const now = options?.now ?? new Date();
+  // A lone search keeps low confidence instead of normalizing into a complete preference.
+  const searchOnly =
+    signals.some((signal) => signal.kind === "search") &&
+    !signals.some(
+      (signal) => signal.kind !== "search" && SIGNAL_WEIGHTS[signal.kind] > 0
+    );
+  const minimumMass = searchOnly ? 6 : 0;
   const authorWeights: Record<string, number> = {};
   const tagWeights: Record<string, number> = {};
   const negativeAuthorWeights: Record<string, number> = {};
@@ -170,8 +194,13 @@ export function buildUserProfile(
   }
   const embeddingModel = [...modelMass].toSorted((a, b) => b[1] - a[1])[0]?.[0];
   const sessionTagWeights: Record<string, number> = {};
+  const seenSearchTopics = new Set<string>();
   const tasteVectors: number[][] = [];
   const tasteWeights: number[] = [];
+  // Short-horizon vectors, so a reader who pivots mid-session is reflected
+  // before the long-term centroid would catch up.
+  const sessionVectors: number[][] = [];
+  const sessionWeights: number[] = [];
   let positiveSignalCount = 0;
 
   for (const signal of signals) {
@@ -210,7 +239,21 @@ export function buildUserProfile(
       addWeight(authorWeights, signal.authorId, magnitude);
     }
 
-    const distinctTags = [...new Set(signal.tags)].filter(Boolean);
+    const distinctTags = [...new Set(signal.tags)].filter((tag) => {
+      if (!tag) {
+        return false;
+      }
+      if (signal.kind !== "search") {
+        return true;
+      }
+      const day = (signal.createdAt ?? now).toISOString().slice(0, 10);
+      const key = `${day}:${tag}`;
+      if (seenSearchTopics.has(key)) {
+        return false;
+      }
+      seenSearchTopics.add(key);
+      return true;
+    });
     for (const tag of distinctTags) {
       addWeight(tagWeights, tag, magnitude / distinctTags.length);
     }
@@ -223,8 +266,10 @@ export function buildUserProfile(
       }
     }
 
-    // Accumulate media format preferences
-    if (signal.hasVideo) {
+    // Searches and configured interests do not imply a preferred media format.
+    if (signal.kind === "search" || signal.kind === "interest") {
+      // Format preferences come from observed content interactions.
+    } else if (signal.hasVideo) {
       formatCounts.video += magnitude * 1.2;
     } else if (signal.hasAudio) {
       formatCounts.audio += magnitude;
@@ -236,6 +281,7 @@ export function buildUserProfile(
 
     // Accumulate taste vector for high-intent signals (bookmark, amplify, comment, upvote)
     if (
+      signal.kind !== "search" &&
       signal.createdAt &&
       now.getTime() - signal.createdAt.getTime() < 30 * 60_000
     ) {
@@ -251,6 +297,14 @@ export function buildUserProfile(
     ) {
       tasteVectors.push(signal.embedding);
       tasteWeights.push(magnitude);
+      if (
+        signal.kind !== "search" &&
+        signal.createdAt &&
+        now.getTime() - signal.createdAt.getTime() < SESSION_WINDOW_MS
+      ) {
+        sessionVectors.push(signal.embedding);
+        sessionWeights.push(magnitude);
+      }
     }
   }
 
@@ -271,7 +325,10 @@ export function buildUserProfile(
       : { audio: 0.1, image: 0.35, text: 0.25, video: 0.3 };
 
   // Topic distribution
-  const totalTopic = Object.values(topicCounts).reduce((a, b) => a + b, 0);
+  const totalTopic = Math.max(
+    minimumMass,
+    Object.values(topicCounts).reduce((a, b) => a + b, 0)
+  );
   const topicAffinities: Record<string, number> = {};
   if (totalTopic > 0) {
     for (const [cat, count] of Object.entries(topicCounts)) {
@@ -280,7 +337,20 @@ export function buildUserProfile(
   }
 
   // Taste vector centroid
-  const tasteVector = computeCentroid(tasteVectors, tasteWeights);
+  // Dual-tier taste: the long-term centroid is the anchor, and an in-session
+  // centroid pulls it toward what the reader is doing right now. With no
+  // session signals the long-term vector is returned untouched. With no
+  // embeddings at all this stays a zero vector, which callers already treat as
+  // "no signal" rather than as a missing field.
+  const longTermVector = computeCentroid(tasteVectors, tasteWeights);
+  const tasteVector =
+    sessionVectors.length > 0
+      ? blendVectors(
+          longTermVector,
+          computeCentroid(sessionVectors, sessionWeights),
+          SESSION_VECTOR_WEIGHT
+        )
+      : longTermVector;
 
   // Dominant topic & preferred format summary
   let dominantTopic = "general";
@@ -308,12 +378,12 @@ export function buildUserProfile(
     .slice(0, 5)
     .map(([tag]) => tag);
 
-  const normalizedTagWeights = normalize(tagWeights);
+  const normalizedTagWeights = normalize(tagWeights, minimumMass);
   const kg = options?.knowledgeGraph ?? globalKnowledgeGraph;
   const expandedEntityWeights = kg.spreadingActivation(normalizedTagWeights);
 
   return {
-    authorWeights: normalize(authorWeights),
+    authorWeights: normalize(authorWeights, minimumMass),
     embeddingModel,
     expandedEntityWeights,
     formatAffinities,

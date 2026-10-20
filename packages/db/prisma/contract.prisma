@@ -42,6 +42,81 @@ namespace public {
     @@map("communities")
   }
 
+  model ExternalAuthors {
+    did String @id
+    handle String
+    displayName String
+    status String @default("active")
+    nextCheckAt Timestamp(3) @default(now())
+    follows ExternalFollows[]
+
+    @@index([nextCheckAt])
+    @@map("external_authors")
+  }
+
+  model ExternalFollows {
+    userId String
+    authorDid String
+    createdAt Timestamp(3) @default(now())
+    user Users @relation(fields: [userId], references: [id], onDelete: Cascade)
+    author ExternalAuthors @relation(fields: [authorDid], references: [did], onDelete: Cascade)
+
+    @@id([userId, authorDid])
+    @@index([authorDid])
+    @@map("external_follows")
+  }
+
+  model ExternalPosts {
+    id String @id
+    source String
+    uri String
+    authorId String
+    snapshot Jsonb?
+    available Boolean @default(true)
+    checkedAt Timestamp(3) @default(now())
+    createdAt Timestamp(3) @default(now())
+    engagements ExternalEngagements[]
+    comments ExternalComments[]
+    responses Posts[]
+
+    @@unique([source, uri])
+    @@index([authorId])
+    @@map("external_posts")
+  }
+
+  model ExternalEngagements {
+    userId String
+    externalPostId String
+    bookmarked Boolean @default(false)
+    amplified Boolean @default(false)
+    createdAt Timestamp(3) @default(now())
+    updatedAt Timestamp(3) @default(now())
+    user Users @relation(fields: [userId], references: [id], onDelete: Cascade)
+    externalPost ExternalPosts @relation(fields: [externalPostId], references: [id], onDelete: Cascade)
+
+    @@id([userId, externalPostId])
+    @@index([userId, bookmarked, updatedAt, externalPostId], map: "external_engagement_bookmarks_idx")
+    @@index([userId, amplified, updatedAt, externalPostId], map: "external_engagement_amplified_idx")
+    @@index([externalPostId, amplified], map: "external_engagement_post_idx")
+    @@map("external_engagements")
+  }
+
+  model ExternalComments {
+    id String @id @default(uuid())
+    userId String
+    externalPostId String
+    requestId String
+    content String
+    deleted Boolean @default(false)
+    createdAt Timestamp(3) @default(now())
+    user Users @relation(fields: [userId], references: [id], onDelete: Cascade)
+    externalPost ExternalPosts @relation(fields: [externalPostId], references: [id], onDelete: Cascade)
+
+    @@unique([userId, requestId])
+    @@index([externalPostId, createdAt, id], map: "external_comments_page_idx")
+    @@map("external_comments")
+  }
+
   model Posts {
     id                                     String                 @id(map: "posts_pkey") @default(uuid())
     content                                String
@@ -61,6 +136,7 @@ namespace public {
     embeddingFingerprint                   String?
     semanticTags                           String[]?
     parentPostId                           String?
+    externalParentId                       String?
     rootPostId                             String?
     threadTopId                            String?
     communityId                            String?
@@ -80,6 +156,7 @@ namespace public {
     communityPostSharesCommunityPostShares CommunityPostShares[]  @relation(name: "community_post_shares_sourcePostId_fkey")
     community                              Communities?           @relation(fields: [communityId], references: [id], onDelete: SetNull, onUpdate: Cascade, map: "posts_communityId_fkey", index: false)
     parentPost                             Posts?                 @relation(name: "posts_parentPostId_fkey", fields: [parentPostId], references: [id], onDelete: SetNull, onUpdate: Cascade, map: "posts_parentPostId_fkey", index: false)
+    externalParent                         ExternalPosts?         @relation(fields: [externalParentId], references: [id], onDelete: SetNull)
     posts                                  Posts[]                @relation(name: "posts_parentPostId_fkey")
     user                                   Users                  @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "posts_userId_fkey", index: false)
 
@@ -294,9 +371,14 @@ namespace public {
     lastLoginMethod                   String?
     twoFactorEnabled                  Boolean                      @default(false)
     groupAddPolicy                    pg.enum(GroupAddPolicy)      @default("FOLLOWING_ONLY")
+    networkPreferences                Jsonb?
+    networkPreferencesRevision        Int                          @default(0)
     hNBookmarks                       HNBookmark[]
     accounts                          Accounts[]
     bookmarks                         Bookmarks[]
+    externalEngagements               ExternalEngagements[]
+    externalComments                  ExternalComments[]
+    externalFollows                   ExternalFollows[]
     commentVotes                      CommentVotes[]
     comments                          Comments[]
     communities                       Communities[]

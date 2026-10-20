@@ -1,3 +1,6 @@
+// oxlint-disable eslint/max-classes-per-file
+import { defaultNetworkPreferences } from "@asm/protocols/discovery";
+
 export const EMBEDDING_DIMENSION = 384;
 
 // Shared @asm/db mock surface for the posts/editor test suites. Both suites
@@ -13,8 +16,6 @@ export class BadgeLimitError extends Error {
 
 export const asmDbMockBase = {
   AMPLIFY_RECEIVE_AURA: 3,
-  // Mirrors packages/db/src/aura/config.ts so aura math over attachments
-  // behaves like production (calculateAuraReward reads base/perItem/max).
   ATTACHMENT_BONUSES: {
     AUDIO: { base: 25, max: 16, perItem: 8 },
     IMAGE: { base: 20, max: 25, perItem: 5 },
@@ -27,6 +28,9 @@ export const asmDbMockBase = {
   COMMENT_CREATION_AURA: 1,
   COMMENT_RECEIVED_AURA: 1,
   EMBEDDING_DIMENSION,
+  ExternalInteractionError: class extends Error {
+    override name = "ExternalInteractionError";
+  },
   FOLLOW_GAINED_AURA: 10,
   FOLLOW_GIVEN_AURA: 1,
   HN_SHARE_BONUS_AURA: 15,
@@ -52,28 +56,81 @@ export const asmDbMockBase = {
   enqueuePostAnalyze: () => Promise.resolve(),
   enqueuePostDeleted: () => Promise.resolve(),
   enqueueShitposterCheck: () => Promise.resolve(),
+  externalComments: () => Promise.resolve({ cursor: null, items: [] }),
+  externalLibrary: () => Promise.resolve({ cursor: null, items: [] }),
+  externalPostId: (uri: string) => `external-post-${uri}`,
+  externalPostStates: () => Promise.resolve(new Map()),
+  externalResponses: () => Promise.resolve({ cursor: null, items: [] }),
+  findExternalPost: () => Promise.resolve(null),
+  findVisiblePost: () => Promise.resolve(null),
   fromPrismaDateTime: (value: Date): Date => value,
   generateLocalEmbedding: (): number[] =>
     Array.from({ length: EMBEDDING_DIMENSION ?? 384 }).fill(0) as number[],
+  getClientIpFromHeaders: () => "127.0.0.1",
   getCommentDataInclude: () => ({ user: true }),
+  getCommentDataQuery: () => ({
+    where: () => ({ all: () => Promise.resolve([]) }),
+  }),
   getCommunityRoleSelect: () => ({ select: { role: true } }),
+  getNetworkPersona: () =>
+    Promise.resolve({
+      preferences: defaultNetworkPreferences(),
+      profile: { authorWeights: {}, tagWeights: {} },
+      revision: 0,
+      selected: { id: "default", interests: [], name: "Everyday" },
+    }),
+  getPersonalizedFeedPage: () =>
+    Promise.resolve({ items: [], nextCursor: null }),
   getPostDataInclude: () => ({ user: true }),
   getPostDataQuery: () => ({
     where: () => ({ first: () => Promise.resolve(null) }),
   }),
   getPrivateUserSelect: () => ({}),
   getPublicUserSelect: () => ({}),
+  getSubscribedCommunityIds: () => Promise.resolve([]),
+  getTrustedIngressIp: () => "127.0.0.1",
   getUserDataSelect: () => ({}),
   grantBadge: () => Promise.resolve(true),
+  hashViewerId: () => "test-viewer",
+  hydrateViewCounts: (items: unknown[]) => Promise.resolve(items),
   invalidateAuraSignals: () => Promise.resolve(),
   invalidateCommunityPostAggregates: () => Promise.resolve(),
   invalidateCommunityStats: () => Promise.resolve(),
   invalidateFypProfile: () => Promise.resolve(),
+  mapCommentData: (value: Record<string, unknown>) => value,
   mapPostData: (value: Record<string, unknown>) => value,
   markUserOnline: () => Promise.resolve(),
   messageConversationInclude: {},
+  mutateExternalPost: () =>
+    Promise.resolve({
+      amplifications: 0,
+      amplified: false,
+      bookmarked: false,
+      comments: 0,
+    }),
   notifyCommunitySubscribers: () => Promise.resolve([]),
   postViewsCache: {},
+  prisma: {
+    orm: {
+      public: {
+        Accounts: {
+          create: () => Promise.resolve({}),
+          where: () => ({
+            deleteAndCount: () => Promise.resolve({ count: 1 }),
+            first: () => Promise.resolve(null),
+            updateAndCount: () => Promise.resolve({ count: 1 }),
+          }),
+        },
+        ExternalEngagements: {
+          upsert: () => Promise.resolve({}),
+          where: () => ({
+            all: () => Promise.resolve([]),
+            first: () => Promise.resolve(null),
+          }),
+        },
+      },
+    },
+  },
   publishCommentCreated: () => Promise.resolve(),
   publishCommentDeleted: () => Promise.resolve(),
   publishConversationRead: () => Promise.resolve(),
@@ -82,15 +139,28 @@ export const asmDbMockBase = {
   publishResponseDeleted: () => Promise.resolve(),
   publishTrendingSnapshot: () => Promise.resolve(),
   publishTypingStarted: () => Promise.resolve(),
+  readNetworkPreferences: () =>
+    Promise.resolve({ preferences: defaultNetworkPreferences(), revision: 0 }),
+  recordExternalPostVisit: () => Promise.resolve("snapshot-id"),
   redis: {
     del: () => Promise.resolve(),
     get: () => Promise.resolve(null),
+    pipeline: () => ({
+      exec: () => Promise.resolve([]),
+      zadd: () => ({}),
+    }),
     set: () => Promise.resolve("OK"),
     srem: () => Promise.resolve(),
+    zadd: () => Promise.resolve(1),
+    zrem: () => Promise.resolve(1),
+    zremrangebyrank: () => Promise.resolve(0),
+    zrevrange: () => Promise.resolve([]),
   },
+  refreshExternalPost: () => Promise.resolve(),
   rememberRankingImpression: () => Promise.resolve(),
   resolveLastRankingContext: () => Promise.resolve(null),
   resolveRankingContext: () => Promise.resolve(null),
+  retainExternalResponse: () => Promise.resolve("external-source-id"),
   reverseExactAura: () => Promise.resolve(),
   revokeBadge: () => Promise.resolve(true),
   schedulePublishedNotificationCleanup: () => Promise.resolve(),
@@ -109,5 +179,6 @@ export const asmDbMockBase = {
     increment: () => Promise.resolve(1),
     reset: () => Promise.resolve(),
   },
+  upsertExternalPostSnapshot: () => Promise.resolve("snapshot-id"),
   userCache: {},
 };

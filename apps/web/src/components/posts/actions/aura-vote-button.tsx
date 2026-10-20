@@ -5,18 +5,27 @@ import type { QueryKey } from "@tanstack/react-query";
 import { HTTPError } from "ky";
 import { ArrowBigDown, ArrowBigUp, Flame } from "lucide-react";
 import { useCallback } from "react";
+import type { ReactNode } from "react";
 
+import { trackNetworkAction } from "@/components/recommendations/recommendation-tracker";
 import { useRequireAuth } from "@/hooks/auth/use-require-auth";
-import { getAuraFlameClass } from "@/lib/aura/aura";
 import { useToast } from "@/lib/gooey-toast";
 import kyInstance from "@/lib/ky";
 import {
   applyAuraToCaches,
   applyCommentAuraToCaches,
 } from "@/lib/posts/cache-sync";
-import { cn, formatNumber } from "@/lib/utils";
+import { cn } from "@/lib/utils";
+
+import { PostEngagementCount } from "./post-engagement-count";
 
 interface AuraVoteButtonProps {
+  engagement?: ReactNode;
+  controller?: {
+    state: VoteInfo;
+    vote: (value: number) => void;
+    pending?: boolean;
+  };
   authorName: string;
   className?: string;
   // When set, the vote targets a comment eddie instead of a post. The rest of
@@ -26,6 +35,7 @@ interface AuraVoteButtonProps {
   expandable?: boolean;
   initialState: VoteInfo;
   layout?: "inline" | "menu";
+  likeCount?: number | null;
   postId: string;
 }
 
@@ -40,13 +50,16 @@ function calculateVoteChange(oldVote: number, newVote: number): number {
 }
 
 export default function AuraVoteButton({
+  engagement,
   authorName,
+  controller,
   className,
   commentId,
   expandable = true,
   initialState,
   postId,
   layout = "inline",
+  likeCount,
 }: AuraVoteButtonProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -60,7 +73,8 @@ export default function AuraVoteButton({
     ? `/api/comments/${commentId}/vote`
     : `/api/posts/${postId}/votes`;
 
-  const { data } = useQuery({
+  const { data: nativeData } = useQuery({
+    enabled: !controller,
     initialData: initialState,
     queryFn: () => kyInstance.get(voteEndpoint).json<VoteInfo>(),
     queryKey,
@@ -72,6 +86,7 @@ export default function AuraVoteButton({
     staleTime: 5 * 60 * 1000,
   });
 
+  const data = controller?.state ?? nativeData;
   const { mutate, isPending } = useMutation<
     { serverResponse: VoteInfo; voteAttempted: number },
     Error,
@@ -137,6 +152,16 @@ export default function AuraVoteButton({
     // oxlint-disable-next-line react/no-unstable-nested-components
     onSuccess: (result, _newVote) => {
       const { serverResponse } = result;
+      if (!commentId) {
+        window.dispatchEvent(new Event("network:learned"));
+        trackNetworkAction(
+          postId,
+          serverResponse.userVote === -1 ? "DOWNVOTE" : "REMOVE_DOWNVOTE"
+        );
+        if (serverResponse.userVote === 1) {
+          trackNetworkAction(postId, "VOTE");
+        }
+      }
       queryClient.setQueryData<VoteInfo>(queryKey, {
         aura: serverResponse.aura,
         userVote: serverResponse.userVote,
@@ -193,15 +218,23 @@ export default function AuraVoteButton({
       goToLogin();
       return;
     }
-    mutate(1);
-  }, [goToLogin, isLoggedIn, mutate]);
+    if (controller) {
+      controller.vote(1);
+    } else {
+      mutate(1);
+    }
+  }, [controller, goToLogin, isLoggedIn, mutate]);
   const handleVoteDown = useCallback(() => {
     if (!isLoggedIn) {
       goToLogin();
       return;
     }
-    mutate(-1);
-  }, [goToLogin, isLoggedIn, mutate]);
+    if (controller) {
+      controller.vote(-1);
+    } else {
+      mutate(-1);
+    }
+  }, [controller, goToLogin, isLoggedIn, mutate]);
 
   const baseButtonClasses =
     "group inline-flex h-7 sm:h-7.5 items-center justify-center rounded-full border-0 px-1.5 sm:px-2 font-medium text-xs sm:text-[13px] text-muted-foreground outline-none transition-all duration-200 ease-out active:translate-y-px";
@@ -244,7 +277,7 @@ export default function AuraVoteButton({
           <button
             aria-pressed={data.userVote === value}
             className="focus-visible:ring-ring flex min-h-11 items-center justify-center rounded-xl px-3 outline-none focus-visible:ring-2 active:opacity-60 disabled:opacity-50"
-            disabled={isPending}
+            disabled={isPending || controller?.pending}
             key={value}
             onClick={action}
             type="button"
@@ -327,16 +360,14 @@ export default function AuraVoteButton({
           ) : null}
         </button>
       </div>
-      <span
-        className="text-muted-foreground flex h-7 items-center gap-1 rounded-full px-1.5 text-xs font-semibold tabular-nums sm:h-7.5 sm:px-2 sm:text-[13px]"
-        title="Aura"
-      >
-        <Flame
-          aria-hidden="true"
-          className={cn("h-4 w-4 sm:h-5 sm:w-5", getAuraFlameClass(data.aura))}
+      {engagement ?? (
+        <PostEngagementCount
+          aura={data.aura}
+          className="text-muted-foreground flex h-7 items-center gap-1 rounded-full px-1.5 text-xs font-semibold tabular-nums sm:h-7.5 sm:px-2 sm:text-[13px]"
+          iconClassName="h-4 w-4 sm:h-5 sm:w-5"
+          likeCount={likeCount}
         />
-        {formatNumber(data.aura)}
-      </span>
+      )}
     </div>
   );
 }

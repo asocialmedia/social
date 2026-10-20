@@ -1,6 +1,6 @@
 {
   "name": "@asocialmedia/social",
-  "version": "1.10.77",
+  "version": "1.12.18",
   "private": true,
   "homepage": "https://asocialmedia.cc",
   "license": "AGPL-3.0",
@@ -20,7 +20,7 @@
     "dep:check": "bunx sherif -f",
     "mob:dev": "bun --cwd apps/mobile dev:android",
     "test": "bun scripts/testing/run-tests.ts",
-    "dev": "turbo dev",
+    "dev": "bun run predev && turbo dev",
     "mob": "bun --cwd apps/mobile start",
     "db:prebuild-dm-indexes": "bun run --cwd packages/db --env-file=../../.env.test src/messages/prebuild-indexes.ts",
     "docker:clean": "docker compose -f docker/docker-compose.dev.yml down -v && docker volume rm asmdev-postgres18-data asmdev-redis-data asmdev-asmob-data asmdev-redisinsight-data && rm -f .dev-init",

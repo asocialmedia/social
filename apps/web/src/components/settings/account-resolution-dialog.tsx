@@ -484,7 +484,7 @@ export function AccountResolutionDialog({
           <DialogDescription>
             {complete
               ? "Sign in again using the profile you kept."
-              : "This sign-in method or email already belongs to another ASM account. Review both profiles before changing anything."}
+              : "This sign-in method or email already belongs to another asocialmedia account. Review both profiles before changing anything."}
           </DialogDescription>
         </DialogHeader>
         {complete ? (

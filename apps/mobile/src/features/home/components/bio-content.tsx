@@ -1,3 +1,4 @@
+import type { TextSegment } from "@asm/protocols/contracts";
 // Bio renderer for the profile popup: web's PostInlineContent in chip mode
 // (post-inline-content.tsx with linkBadge="chip"). URLs become link pills
 // (platform glyph or host-initial tile + host label), @mentions become
@@ -187,7 +188,12 @@ function BioPiece({
   const { theme } = useAppTheme();
   switch (segment.type) {
     case "url": {
-      return <LinkChip title={titles[segment.url]} url={segment.url} />;
+      return (
+        <LinkChip
+          title={segment.label ?? titles[segment.url]}
+          url={segment.url}
+        />
+      );
     }
     case "mention": {
       return <MentionChip username={segment.username} />;
@@ -217,7 +223,9 @@ export function BioContent({
   clampLength,
   textColor,
   textSize,
+  sourceSegments,
 }: {
+  sourceSegments?: TextSegment[];
   apiBase: string;
   bio: string;
   // Long bodies collapse behind Show more/less, mirroring web's ~6-line
@@ -231,7 +239,15 @@ export function BioContent({
 }) {
   const [expanded, setExpanded] = useState(false);
   const { theme } = useAppTheme();
-  const full = useMemo(() => segmentBioContent(bio), [bio]);
+  const full = useMemo<BioSegment[]>(
+    () =>
+      sourceSegments?.map((segment) =>
+        segment.href
+          ? { label: segment.text, type: "url", url: segment.href }
+          : { text: segment.text, type: "text" }
+      ) ?? segmentBioContent(bio),
+    [bio, sourceSegments]
+  );
   const { clamped, visible: segments } = useMemo(() => {
     if (clampLength === undefined || expanded || bio.length <= clampLength) {
       return { clamped: false, visible: full };
@@ -241,6 +257,9 @@ export function BioContent({
   const [titles, setTitles] = useState<Record<string, string>>({});
 
   useEffect(() => {
+    if (sourceSegments) {
+      return;
+    }
     const urls: string[] = [];
     for (const segment of full) {
       if (segment.type === "url" && !urls.includes(segment.url)) {
@@ -284,7 +303,7 @@ export function BioContent({
     return () => {
       cancelled = true;
     };
-  }, [apiBase, full]);
+  }, [apiBase, full, sourceSegments]);
 
   return (
     <View>

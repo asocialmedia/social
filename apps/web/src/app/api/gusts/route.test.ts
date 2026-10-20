@@ -1,11 +1,26 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { defaultNetworkPreferences } from "@asm/protocols/discovery";
+
 import { asmDbMockBase } from "@/posts/test-support/asm-db-mock";
 
 import { GET } from "./route";
 
 const mockGetSession = mock((): { user: { id: string } } | null => ({
   user: { id: "user1" },
+}));
+let networkPreferences = defaultNetworkPreferences();
+
+const mockNetworkFeed = mock(
+  (
+    _request: Request,
+    _userId: string | (() => Promise<string>),
+    _mode: string,
+    _contentKind: string
+  ) => Response.json({ nextCursor: null, posts: [] })
+);
+mock.module("@/lib/recommendations/network-native-feed", () => ({
+  networkNativeFeed: mockNetworkFeed,
 }));
 
 const mockFollowingGustsPage = mock(() =>
@@ -19,7 +34,9 @@ const sampleGusts = [
   {
     attachments: [{ id: "m1", type: "VIDEO" }],
     aura: 10,
+    content: "A landscape clip",
     createdAt: new Date("2026-01-01T10:00:00Z"),
+    explicitContent: false,
     id: "gust1",
     isGust: true,
     user: { id: "u1", username: "alice" },
@@ -27,7 +44,9 @@ const sampleGusts = [
   {
     attachments: [{ id: "m2", type: "VIDEO" }],
     aura: 25,
+    content: "A landscape clip",
     createdAt: new Date("2026-01-01T09:00:00Z"),
+    explicitContent: false,
     id: "gust2",
     isGust: true,
     user: { id: "u2", username: "bob" },
@@ -100,6 +119,7 @@ interface PostQuery {
       };
       isGust: { eq: (value: boolean) => unknown };
       moderated: { eq: (value: boolean) => unknown };
+      explicitContent: { eq: (value: boolean) => unknown };
       postMedias: {
         some: (
           predicate: (media: {
@@ -157,6 +177,7 @@ function createPostQuery(): PostQuery {
     orderBy: () => query,
     where: (predicate) => {
       predicate({
+        explicitContent: { eq: () => ({}) },
         id: {
           desc: () => ({}),
           eq: (id) => (state.id = id),
@@ -200,6 +221,8 @@ mock.module("@asm/db", () => ({
       },
     },
   },
+  readNetworkPreferences: () =>
+    Promise.resolve({ preferences: networkPreferences, revision: 0 }),
 }));
 
 mock.module("@/lib/auth/session", () => ({
@@ -208,6 +231,8 @@ mock.module("@/lib/auth/session", () => ({
 
 describe("GET /api/gusts", () => {
   beforeEach(() => {
+    networkPreferences = defaultNetworkPreferences();
+    mockNetworkFeed.mockClear();
     mockPostList = [...sampleGusts];
     lastFindManyArgs = null;
     mockFindMany.mockClear();
@@ -215,6 +240,105 @@ describe("GET /api/gusts", () => {
     mockHydrateViewCounts.mockClear();
     mockGetSession.mockClear();
     mockGetSession.mockImplementation(() => ({ user: { id: "user1" } }));
+  });
+
+  test("personalized Gusts use the same Network ranking path as fleets without requiring a client opt-in flag", async () => {
+    const request = new Request(
+      "http://localhost:3000/api/gusts?mode=personalized&profile=default"
+    );
+    await GET(request);
+    expect(mockNetworkFeed).toHaveBeenCalledWith(
+      request,
+      expect.any(Function),
+      "personalized",
+      "gust"
+    );
+    expect(mockFindMany).not.toHaveBeenCalled();
+    expect(mockGetSession).not.toHaveBeenCalled();
+    const resolveViewer = mockNetworkFeed.mock.calls[0]?.[1];
+    if (typeof resolveViewer !== "function") {
+      throw new TypeError("Expected deferred session resolution");
+    }
+    expect(await resolveViewer()).toBe("user1");
+  });
+
+  test.each(["", "&network=v8"])(
+    "Trending Gusts retain their engagement gate with query %s",
+    async (suffix) => {
+      const request = new Request(
+        `http://localhost:3000/api/gusts?mode=trending${suffix}`
+      );
+      await GET(request);
+      expect(mockNetworkFeed).toHaveBeenCalledWith(
+        request,
+        expect.any(Function),
+        "trending",
+        "gust"
+      );
+      expect(mockFindMany).not.toHaveBeenCalled();
+    }
+  );
+
+  test("web Latest Gusts use the selected Network profile and a separate Gust candidate pool", async () => {
+    const request = new Request(
+      "http://localhost:3000/api/gusts?network=v2:default:2&profile=default"
+    );
+    await GET(request);
+    expect(mockNetworkFeed).toHaveBeenCalledWith(
+      request,
+      expect.any(Function),
+      "latest",
+      "gust"
+    );
+  });
+
+  test("new accounts and guests receive no adult Gusts until explicitly opted in", async () => {
+    mockPostList = sampleGusts.map((post, index) => ({
+      ...post,
+      _count: { bookmarks: 0, comments: 0, responses: 0, vote: 5 },
+      explicitContent: index === 0,
+    }));
+    const first = await GET(new Request("http://localhost:3000/api/gusts"));
+    const firstPage = await first.json();
+    expect(firstPage.posts.map((post: { id: string }) => post.id)).toEqual([
+      "gust2",
+    ]);
+    mockGetSession.mockImplementationOnce(() => null);
+    const guest = await GET(new Request("http://localhost:3000/api/gusts"));
+    const guestPage = await guest.json();
+    expect(guestPage.posts.map((post: { id: string }) => post.id)).toEqual([
+      "gust2",
+    ]);
+    networkPreferences = { ...networkPreferences, showExplicitContent: true };
+    const optedIn = await GET(new Request("http://localhost:3000/api/gusts"));
+    const optedInPage = await optedIn.json();
+    expect(optedInPage.posts).toHaveLength(2);
+  });
+
+  test("compound topic exclusions apply on Gust pages and cannot be bypassed by initialId", async () => {
+    networkPreferences = { ...networkPreferences, avoidedTopics: ["furry"] };
+    mockPostList = sampleGusts.map((post, index) => ({
+      ...post,
+      content: index === 0 ? "#FurryArt #furryimages" : "A landscape",
+    }));
+    const response = await GET(
+      new Request("http://localhost:3000/api/gusts?initialId=gust1")
+    );
+    const page = await response.json();
+    expect(page.posts.map((post: { id: string }) => post.id)).toEqual([
+      "gust2",
+    ]);
+  });
+
+  test("filtering preserves the served-page cursor so an excluded page can advance", async () => {
+    networkPreferences = { ...networkPreferences, avoidedTopics: ["furry"] };
+    mockPostList = Array.from({ length: 12 }, (_, index) => ({
+      ...sampleGusts[0],
+      content: "#furryart",
+      id: `gust_${index}`,
+    }));
+    const response = await GET(new Request("http://localhost:3000/api/gusts"));
+    expect(await response.json()).toEqual({ nextCursor: "gust_9", posts: [] });
   });
 
   test("fetches short-form video Gusts with isGust or video attachment filter", async () => {
@@ -266,7 +390,11 @@ describe("GET /api/gusts", () => {
     });
   });
 
-  test("allows guests to browse gusts without authentication", async () => {
+  test("allows guests to browse engaged gusts without authentication", async () => {
+    mockPostList = sampleGusts.map((post) => ({
+      ...post,
+      _count: { bookmarks: 0, comments: 0, responses: 0, vote: 5 },
+    }));
     mockGetSession.mockImplementationOnce(() => null);
 
     const req = new Request("http://localhost:3000/api/gusts");

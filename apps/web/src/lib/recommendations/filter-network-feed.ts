@@ -1,0 +1,32 @@
+import { readNetworkPreferences } from "@asm/db";
+import { defaultNetworkPreferences } from "@asm/protocols/discovery";
+import type { NetworkTopicScope } from "@asm/protocols/discovery";
+
+import {
+  activeNetworkInterests,
+  networkPostRecommended,
+} from "@/lib/posts/network-content-policy";
+import type { PresentedPost } from "@/lib/posts/presentation";
+import { isGuestQualityPost } from "@/lib/posts/trending-eligibility";
+
+// Legacy archive and secondary-feed requests enforce the same account policy.
+export async function filterNetworkFeed<T extends PresentedPost>(
+  posts: T[],
+  userId: string
+): Promise<T[]> {
+  const settings = userId ? await readNetworkPreferences(userId) : null;
+  const preferences = settings?.preferences ?? defaultNetworkPreferences();
+  const interests = activeNetworkInterests(preferences);
+  let scope: NetworkTopicScope | undefined;
+  if (userId && (interests.length || preferences.avoidedTopics.length)) {
+    const { networkTopicScope } = await import("@asm/db");
+    scope = await networkTopicScope(interests, preferences.avoidedTopics);
+  }
+  return posts.filter(
+    (post) =>
+      networkPostRecommended(post, preferences, scope) &&
+      // A guest has no persona to personalise with, so quality is the gate:
+      // proven engagement, not the current hot list.
+      (Boolean(userId) || isGuestQualityPost(post))
+  );
+}

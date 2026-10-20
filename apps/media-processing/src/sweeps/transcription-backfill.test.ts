@@ -1,6 +1,48 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 let backfillEnabled = true;
+let geminiApiKey: string | undefined = "mock-gemini-key";
+let whisperEnabled = true;
+const sweepProcessors: ((job: { name: string }) => Promise<unknown>)[] = [];
+let enrichmentPasses = 0;
+const schedules: { every: number; name: string }[] = [];
+const infoLogs: { fields: Record<string, unknown>; message: string }[] = [];
+
+mock.module("bullmq", () => ({
+  Queue: function Queue() {
+    return {
+      upsertJobScheduler(name: string, options: { every: number }) {
+        schedules.push({ ...options, name });
+        return Promise.resolve();
+      },
+    };
+  },
+  Worker: function Worker(
+    _name: string,
+    processor: (job: { name: string }) => Promise<unknown>
+  ) {
+    sweepProcessors.push(processor);
+    return { on: () => {} };
+  },
+}));
+
+mock.module("./enrichment", () => ({
+  enrichmentReconciliationSweep: () => {
+    enrichmentPasses += 1;
+    return Promise.resolve({ enqueued: 0 });
+  },
+}));
+
+mock.module("../log", () => ({
+  mediaLogger: {
+    debug: () => {},
+    error: () => {},
+    info: (fields: Record<string, unknown>, message: string) => {
+      infoLogs.push({ fields, message });
+    },
+    warn: () => {},
+  },
+}));
 
 mock.module("../env", () => ({
   keys: {},
@@ -8,6 +50,12 @@ mock.module("../env", () => ({
   workerEnv: {
     get BACKFILL_ENABLED() {
       return backfillEnabled;
+    },
+    get GEMINI_API_KEY() {
+      return geminiApiKey;
+    },
+    get WHISPER_ENABLED() {
+      return whisperEnabled;
     },
   },
 }));
@@ -69,6 +117,7 @@ mock.module("@asm/db", () => ({
 const {
   MAX_TRANSCRIPTION_BACKFILL_ATTEMPTS,
   TRANSCRIPTION_BACKFILL_RETRY_WINDOW_MS,
+  registerSweepSchedulers,
   semanticClassificationBackfillSweep,
   transcriptionBackfillSweep,
 } = await import("./index");
@@ -76,9 +125,12 @@ const {
 describe("transcriptionBackfillSweep loop prevention", () => {
   beforeEach(() => {
     backfillEnabled = true;
+    geminiApiKey = "mock-gemini-key";
+    whisperEnabled = true;
     candidateRows = [];
     enqueuedIds.length = 0;
     semanticRefreshIds.length = 0;
+    infoLogs.length = 0;
   });
 
   test("enqueues fresh candidates with no prior transcription metadata", async () => {
@@ -90,6 +142,12 @@ describe("transcriptionBackfillSweep loop prevention", () => {
     const result = await transcriptionBackfillSweep();
     expect(result.enqueued).toBe(2);
     expect(enqueuedIds).toEqual(["fresh-video-1", "fresh-video-2"]);
+    expect(infoLogs).toEqual([
+      {
+        fields: { count: 2 },
+        message: "transcription backfill sweep enqueued media",
+      },
+    ]);
   });
 
   test("skips media permanently classified as no_audio or silent", async () => {
@@ -215,6 +273,88 @@ describe("transcriptionBackfillSweep loop prevention", () => {
     expect(enqueuedIds).toHaveLength(0);
   });
 
+  test("returns 0 and performs no work when GEMINI_API_KEY is not configured", async () => {
+    geminiApiKey = undefined;
+    candidateRows = [{ id: "fresh-vid", techMetadata: null }];
+
+    const result = await transcriptionBackfillSweep();
+    expect(result.enqueued).toBe(0);
+    expect(enqueuedIds).toHaveLength(0);
+  });
+
+  test("returns 0 and performs no work when WHISPER_ENABLED is false", async () => {
+    whisperEnabled = false;
+    candidateRows = [{ id: "fresh-vid", techMetadata: null }];
+
+    const result = await transcriptionBackfillSweep();
+    expect(result.enqueued).toBe(0);
+    expect(enqueuedIds).toHaveLength(0);
+  });
+
+  test("skips media permanently classified as skipped in transcription or analysisStages", async () => {
+    candidateRows = [
+      {
+        id: "skipped-vid-1",
+        techMetadata: {
+          transcription: {
+            attemptedAt: new Date().toISOString(),
+            status: "skipped",
+          },
+        },
+      },
+      {
+        id: "skipped-vid-2",
+        techMetadata: {
+          analysisStages: {
+            transcription: {
+              status: "skipped",
+              version: 1,
+            },
+          },
+        },
+      },
+    ];
+
+    const result = await transcriptionBackfillSweep();
+    expect(result.enqueued).toBe(0);
+    expect(enqueuedIds).toHaveLength(0);
+  });
+
+  test("respects analysisStages.transcription attempts and retry windows", async () => {
+    candidateRows = [
+      {
+        id: "recent-analysis-failure",
+        techMetadata: {
+          analysisStages: {
+            transcription: {
+              attemptedAt: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
+              attempts: 1,
+              status: "failed",
+            },
+          },
+        },
+      },
+      {
+        id: "exhausted-analysis-failure",
+        techMetadata: {
+          analysisStages: {
+            transcription: {
+              attemptedAt: new Date(
+                Date.now() - 24 * 60 * 60 * 1000
+              ).toISOString(),
+              attempts: MAX_TRANSCRIPTION_BACKFILL_ATTEMPTS,
+              status: "failed",
+            },
+          },
+        },
+      },
+    ];
+
+    const result = await transcriptionBackfillSweep();
+    expect(result.enqueued).toBe(0);
+    expect(enqueuedIds).toHaveLength(0);
+  });
+
   test("backfills media that has not received the current semantic classifier", async () => {
     candidateRows = [
       { id: "legacy-image", techMetadata: null },
@@ -230,5 +370,45 @@ describe("transcriptionBackfillSweep loop prevention", () => {
 
     expect(result.enqueued).toBe(1);
     expect(semanticRefreshIds).toEqual(["legacy-image"]);
+  });
+
+  test("startup and restarts leave backfills to the scheduled worker", async () => {
+    candidateRows = [{ id: "uncaptioned-video", techMetadata: null }];
+    schedules.length = 0;
+    enrichmentPasses = 0;
+    sweepProcessors.length = 0;
+    const connection = {
+      maxRetriesPerRequest: null,
+      url: "redis://localhost:6379",
+    };
+
+    await registerSweepSchedulers(connection);
+    await registerSweepSchedulers(connection);
+    // Allow any detached startup pass to run before checking for duplicate work.
+    await Bun.sleep(0);
+
+    expect(enqueuedIds).toEqual([]);
+    expect(enrichmentPasses).toBe(0);
+    expect(schedules).toContainEqual({
+      every: 30 * 60 * 1000,
+      name: "media-transcription-backfill",
+    });
+    expect(schedules).toContainEqual({
+      every: 30 * 60 * 1000,
+      name: "media-semantic-classification-backfill",
+    });
+    expect(schedules).toContainEqual({
+      every: 60_000,
+      name: "media-enrichment-reconcile",
+    });
+    const sweepProcessor = sweepProcessors.at(-1);
+    if (!sweepProcessor) {
+      throw new Error("Sweep worker was not registered");
+    }
+
+    await sweepProcessor({ name: "media-transcription-backfill" });
+    expect(enqueuedIds).toEqual(["uncaptioned-video"]);
+    await sweepProcessor({ name: "media-enrichment-reconcile" });
+    expect(enrichmentPasses).toBe(1);
   });
 });

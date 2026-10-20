@@ -152,7 +152,8 @@ async function resolveAnalysisSource(
     !media.transcript &&
     !transcriptionComplete(media.techMetadata) &&
     transcriptionRetryEligible(media.techMetadata) &&
-    workerEnv.WHISPER_ENABLED;
+    workerEnv.WHISPER_ENABLED &&
+    Boolean(workerEnv.GEMINI_API_KEY);
 
   const rasterKeys = [
     ...["poster", "cover", "md", "sm", "thumb"].flatMap((kind) =>
@@ -363,35 +364,54 @@ export function processMediaAnalyze(
           !source.transcript &&
           !transcriptionComplete(source.techMetadata) &&
           transcriptionRetryEligible(source.techMetadata) &&
-          workerEnv.WHISPER_ENABLED &&
-          avLocalPath &&
           (source.type === "VIDEO" || source.type === "AUDIO")
         ) {
-          transcriptionAttempted = true;
-          try {
-            transcription = await transcribeMediaAudio(
-              avLocalPath,
-              jobData.mediaId
-            );
-            if (transcription) {
-              await prisma.orm.public.PostMedia.where({
-                id: jobData.mediaId,
-              }).update({
-                ...(transcription.transcript
-                  ? { transcript: transcription.transcript }
-                  : {}),
-                ...(transcription.captionsKey
-                  ? { captionsKey: transcription.captionsKey }
-                  : {}),
-              });
-              await patchMediaAnalysisStage(jobData.mediaId, "transcription", {
-                status: transcription.status,
-                version: 1,
-              });
+          if (
+            workerEnv.WHISPER_ENABLED &&
+            Boolean(workerEnv.GEMINI_API_KEY) &&
+            avLocalPath
+          ) {
+            transcriptionAttempted = true;
+            try {
+              transcription = await transcribeMediaAudio(
+                avLocalPath,
+                jobData.mediaId
+              );
+              if (transcription) {
+                await prisma.orm.public.PostMedia.where({
+                  id: jobData.mediaId,
+                }).update({
+                  ...(transcription.transcript
+                    ? { transcript: transcription.transcript }
+                    : {}),
+                  ...(transcription.captionsKey
+                    ? { captionsKey: transcription.captionsKey }
+                    : {}),
+                });
+                await patchMediaAnalysisStage(
+                  jobData.mediaId,
+                  "transcription",
+                  {
+                    status: transcription.status,
+                    version: 1,
+                  }
+                );
+              }
+            } catch (error) {
+              transcriptionError = error;
+              mediaLogger.warn(
+                { error: String(error) },
+                "transcription failed"
+              );
             }
-          } catch (error) {
-            transcriptionError = error;
-            mediaLogger.warn({ error: String(error) }, "transcription failed");
+          } else if (!workerEnv.WHISPER_ENABLED || !workerEnv.GEMINI_API_KEY) {
+            await patchMediaAnalysisStage(jobData.mediaId, "transcription", {
+              reason: workerEnv.WHISPER_ENABLED
+                ? "missing_gemini_api_key"
+                : "whisper_disabled",
+              status: "skipped",
+              version: 1,
+            });
           }
         }
 
@@ -509,6 +529,20 @@ export function processMediaAnalyze(
             attempts: prevAttempts + 1,
             ...(transcription.error ? { error: transcription.error } : {}),
             status: transcription.status,
+          };
+        } else if (
+          isAudioVideo &&
+          (!workerEnv.WHISPER_ENABLED || !workerEnv.GEMINI_API_KEY) &&
+          !source.transcript &&
+          !transcriptionComplete(source.techMetadata)
+        ) {
+          transcriptionMeta = {
+            attemptedAt: new Date().toISOString(),
+            attempts: prevAttempts + 1,
+            error: workerEnv.WHISPER_ENABLED
+              ? "missing_gemini_api_key"
+              : "whisper_disabled",
+            status: "skipped" as const,
           };
         } else if (
           isAudioVideo &&

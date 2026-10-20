@@ -42,7 +42,7 @@ export function accountLinkErrorMessage(code: string): string {
       "social_account_already_linked",
     ].includes(normalized)
   ) {
-    return "That provider belongs to another ASM account. Sign in to that account to manage it.";
+    return "That provider belongs to another asocialmedia account. Sign in to that account to manage it.";
   }
   if (
     ["failed_to_unlink_last_account", "cannot_unlink_last_method"].includes(
@@ -58,7 +58,7 @@ export function accountLinkErrorMessage(code: string): string {
       "oauth_email_not_verified",
     ].includes(normalized)
   ) {
-    return "Sign in to your existing ASM account, then connect this provider in Settings.";
+    return "Sign in to your existing asocialmedia account, then connect this provider in Settings.";
   }
   if (["access_denied", "provider_flow_failed"].includes(normalized)) {
     return "The provider did not complete account linking. Please try again.";

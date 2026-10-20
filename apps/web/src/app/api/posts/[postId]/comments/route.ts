@@ -1,6 +1,5 @@
 import {
   and,
-  findVisiblePost,
   getCommentDataQuery,
   invalidateFypProfile,
   mapCommentData,
@@ -10,6 +9,11 @@ import type { CommentsPage } from "@asm/db";
 
 import { createComment } from "@/components/comments/data/comment-service";
 import { getSessionFromApi } from "@/lib/auth/session";
+import { explicitContentEnabled } from "@/lib/posts/explicit-content-enabled";
+import {
+  findReadableThreadAnchor,
+  commentsForReader,
+} from "@/lib/posts/reader-content-policy";
 
 export async function POST(
   request: Request,
@@ -102,7 +106,7 @@ export async function GET(
   // A comment list is derived from its post, so the post's visibility gate must
   // hold first: without it a guessed id read the thread of a post inside a
   // PRIVATE community.
-  if (!(await findVisiblePost(postId, userId))) {
+  if (!(await findReadableThreadAnchor(postId, userId))) {
     return Response.json({ error: "Post not found" }, { status: 404 });
   }
   const url = new URL(request.url);
@@ -146,7 +150,10 @@ export async function GET(
       : [];
 
   const response: CommentsPage = {
-    comments: [...page, ...descendants],
+    comments: await commentsForReader(
+      [...page, ...descendants],
+      await explicitContentEnabled(userId)
+    ),
     previousCursor:
       hasMore && lastTopLevel ? encodeCommentCursor(lastTopLevel) : null,
   };

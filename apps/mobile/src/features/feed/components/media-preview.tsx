@@ -1,3 +1,4 @@
+import { externalReplyTarget } from "@asm/protocols/discovery";
 import { BottomSheet, Host } from "@expo/ui";
 import { Directory, File, Paths } from "expo-file-system";
 import { Image } from "expo-image";
@@ -80,6 +81,8 @@ import {
 } from "../lib/media-url";
 import { useMediaPreviewStore } from "../state/media-preview-store";
 import type { MediaPreviewRequest } from "../state/media-preview-store";
+import { useExternalFeedback } from "../state/use-external-feedback";
+import { useExternalInteractions } from "../state/use-external-interactions";
 import { usePostEngagement } from "../state/use-post-engagement";
 import { MediaSheetContent } from "./media-sheet-content";
 
@@ -289,13 +292,48 @@ export function MediaPreview({ request }: { request: MediaPreviewRequest }) {
     );
   }, [previewTarget, targetHeight, targetWidth, targetX, targetY]);
   const { bounds, media, post } = request;
-  const { engagement, toggleBookmark, vote } = usePostEngagement({
+  const nativeEngagement = usePostEngagement({
     aura: post.aura ?? 0,
     initialBookmarked: isBookmarkedByUser(post, user?.id),
     postId: post.id,
     userVote: getUserVote(post),
-    viewerId: user?.id ?? null,
+    viewerId: post.external ? null : (user?.id ?? null),
   });
+  const externalInteraction = useExternalInteractions(
+    post.external ?? { id: post.id }
+  );
+  const externalFeedback = useExternalFeedback(
+    post.external ?? { author: { id: post.userId ?? "" }, id: post.id }
+  );
+  const engagement = post.external
+    ? {
+        aura: externalInteraction.state.amplifications,
+        isBookmarkedByUser: externalInteraction.state.bookmarked,
+        userVote: externalInteraction.state.amplified ? 1 : 0,
+      }
+    : nativeEngagement.engagement;
+  const toggleBookmark = async () => {
+    await (post.external
+      ? externalInteraction.mutate({
+          action: "bookmark",
+          active: !externalInteraction.state.bookmarked,
+          uri: post.external.id,
+        })
+      : nativeEngagement.toggleBookmark());
+  };
+  const vote = async (value: 1 | -1) => {
+    if (post.external) {
+      await (value === 1
+        ? externalInteraction.mutate({
+            action: "amplify",
+            active: !externalInteraction.state.amplified,
+            uri: post.external.id,
+          })
+        : externalFeedback("post"));
+    } else {
+      await nativeEngagement.vote(value);
+    }
+  };
   const finishClose = useCallback(() => {
     if (useMediaPreviewStore.getState().request === request) {
       useMediaPreviewStore.getState().close();
@@ -386,6 +424,9 @@ export function MediaPreview({ request }: { request: MediaPreviewRequest }) {
     }
   };
   const download = async () => {
+    if (post.external && media.type === "VIDEO") {
+      throw new Error("Open the source post to save this video");
+    }
     const descriptor = mediaDownloadDescriptor(getApiBaseUrl(), media);
     const directory = new Directory(Paths.cache, "media-actions");
     directory.create({ idempotent: true, intermediates: true });
@@ -460,7 +501,8 @@ export function MediaPreview({ request }: { request: MediaPreviewRequest }) {
   const share = async () => {
     if (!(await Sharing.isAvailableAsync())) {
       await Share.share({
-        message: `https://asocialmedia.cc/posts/${post.id}`,
+        message:
+          post.external?.url ?? `https://asocialmedia.cc/posts/${post.id}`,
       });
       return;
     }
@@ -489,7 +531,14 @@ export function MediaPreview({ request }: { request: MediaPreviewRequest }) {
       action: () =>
         requireUser(() =>
           close(() =>
-            useComposerStore.getState().open("post", replyTargetFromPost(post))
+            useComposerStore
+              .getState()
+              .open(
+                "post",
+                post.external
+                  ? externalReplyTarget(post.external)
+                  : replyTargetFromPost(post)
+              )
           )
         ),
       icon: CornerDownRight,
@@ -500,10 +549,17 @@ export function MediaPreview({ request }: { request: MediaPreviewRequest }) {
         requireUser(() => {
           haptic();
           close(() =>
-            router.push({
-              params: { eddie: "1", postId: post.id },
-              pathname: "/posts/[postId]",
-            })
+            router.push(
+              post.external
+                ? {
+                    params: { uri: post.external.id },
+                    pathname: "/external-post",
+                  }
+                : {
+                    params: { eddie: "1", postId: post.id },
+                    pathname: "/posts/[postId]",
+                  }
+            )
           );
         }),
       icon: MessageSquare,
@@ -523,20 +579,37 @@ export function MediaPreview({ request }: { request: MediaPreviewRequest }) {
       action: () => {
         haptic();
         close(() =>
-          router.push({
-            params: {
-              index: String(
-                Math.max(
-                  0,
-                  (post.attachments ?? []).findIndex(
-                    (item) => item.id === media.id
-                  )
-                )
-              ),
-              postId: post.id,
-            },
-            pathname: "/posts/[postId]/media/[index]",
-          })
+          router.push(
+            post.external
+              ? {
+                  params: {
+                    index: String(
+                      Math.max(
+                        0,
+                        (post.attachments ?? []).findIndex(
+                          (item) => item.id === media.id
+                        )
+                      )
+                    ),
+                    uri: post.external.id,
+                  },
+                  pathname: "/external-media",
+                }
+              : {
+                  params: {
+                    index: String(
+                      Math.max(
+                        0,
+                        (post.attachments ?? []).findIndex(
+                          (item) => item.id === media.id
+                        )
+                      )
+                    ),
+                    postId: post.id,
+                  },
+                  pathname: "/posts/[postId]/media/[index]",
+                }
+          )
         );
       },
       icon: Maximize2,

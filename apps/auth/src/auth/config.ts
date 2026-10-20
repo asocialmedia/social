@@ -3,6 +3,11 @@ import type { EmailService } from "@asm/auth/core";
 
 import { env } from "../../env";
 import {
+  notifyNewClientLogin,
+  notifySocialAccount,
+  notifyTwoFactorChanged,
+} from "../email/notify";
+import {
   sendPasswordResetEmail,
   sendTwoFactorOTP,
   sendVerificationEmail,
@@ -57,6 +62,41 @@ const emailService: EmailService = {
 export const auth = createAuthConfig({
   emailService,
   environment: env.NODE_ENV === "test" ? "development" : env.NODE_ENV,
+  // Advisory: notify.ts never throws and retries in the background, so linking
+  // an account cannot fail because of a mail problem.
+  notifyNewClientLogin: ({
+    browser,
+    city,
+    country,
+    ipAddress,
+    recipient,
+    signedInAt,
+  }) => {
+    notifyNewClientLogin(
+      recipient,
+      { browser, city, country, ipAddress, signedInAt },
+      { source: "session-create-hook" }
+    );
+  },
+  notifySocialAccount: ({ accountName, action, provider, recipient }) => {
+    notifySocialAccount(
+      recipient,
+      {
+        accountName,
+        action,
+        changedAt: new Date().toISOString(),
+        provider,
+      },
+      { source: "account-link-hook" }
+    );
+  },
+  notifyTwoFactorChanged: ({ change, method, recipient }) => {
+    notifyTwoFactorChanged(
+      recipient,
+      { change, changedAt: new Date().toISOString(), method },
+      { source: "two-factor-hook" }
+    );
+  },
   sendTwoFactorOTP: async ({ email, otp }) => {
     const result = await sendTwoFactorOTP(email, otp);
     if (!result.success) {

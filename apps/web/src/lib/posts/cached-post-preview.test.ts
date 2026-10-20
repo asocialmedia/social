@@ -19,9 +19,11 @@ test("post-route placeholders find full or short ids in paginated feed caches", 
       },
     ],
   };
-  expect(cachedPostPreview(cache, "7e422386")).toBe(portraitPost);
-  expect(cachedPostPreview(cache, "7e422386-full-id")).toBe(portraitPost);
-  expect(cachedPostPreview({ post: portraitPost }, "7e422386")).toBe(
+  expect(cachedPostPreview(cache, "7e422386")).toMatchObject(portraitPost);
+  expect(cachedPostPreview(cache, "7e422386-full-id")).toMatchObject(
+    portraitPost
+  );
+  expect(cachedPostPreview({ post: portraitPost }, "7e422386")).toMatchObject(
     portraitPost
   );
 });
@@ -37,4 +39,13 @@ test("unrelated cache entries and overly broad prefixes do not supply media hint
     cachedPostPreview({ id: "7e422386", name: "an account" }, "7e422386")
   ).toBeUndefined();
   expect(cachedPostPreview(null, "7e422386")).toBeUndefined();
+});
+
+test("repeated snapshots of an incomplete persisted post keep a stable normalized reference", () => {
+  const record = { ...portraitPost };
+  const first = cachedPostPreview(record, record.id);
+  expect(cachedPostPreview(record, record.id)).toBe(first);
+  const replaced = { ...record, content: "updated" };
+  expect(cachedPostPreview(replaced, record.id)).not.toBe(first);
+  expect(cachedPostPreview(replaced, record.id)?.content).toBe("updated");
 });

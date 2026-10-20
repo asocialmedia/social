@@ -1,6 +1,7 @@
 "use client";
 
 import { Button } from "@asm/ui/shadui/button";
+import { Skeleton } from "@asm/ui/shadui/skeleton";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Flame, Hash, RefreshCw, TrendingUp } from "lucide-react";
 import Link from "next/link";
@@ -10,17 +11,47 @@ import { useCallback } from "react";
 import { useSession } from "@/app/(main)/session-provider";
 import UserAvatar from "@/components/layouts/user/user-avatar";
 import UserBadge from "@/components/layouts/user/user-badge";
+import { BlueskyIcon } from "@/components/protocols/bluesky-icon";
+import { useNetworkSettings } from "@/hooks/feed/use-network-settings";
 import { getAuraFlameClass } from "@/lib/aura/aura";
 import { cn, formatNumber, truncateUsername } from "@/lib/utils";
 
 import { APPLE_CARD_CLASS, ROW_HOVER_CLASS } from "./sidebar-styles";
 import { getTrendingFeed } from "./trending-actions";
-import type { TrendingFeed, TrendingItem } from "./trending-actions";
+import type {
+  TrendingBlueskyTopic,
+  TrendingFeed,
+  TrendingItem,
+} from "./trending-actions";
+import { filterTrendingForInterests } from "./trending-utils";
 
 // The sidebar rail is fixed-width, and a valid username can be 50 characters, so
 // the handle is clipped to a length that keeps the aura figure beside it on one
 // line. A `min-w-0 truncate` wrapper below is the responsive backstop.
 const TOP_AURA_USERNAME_MAX_LENGTH = 18;
+
+function getBlueskyTopicHref(item: TrendingBlueskyTopic): string {
+  if (!item.link) {
+    return `https://bsky.app/search?q=${encodeURIComponent(item.topic)}`;
+  }
+  if (item.link.startsWith("http://") || item.link.startsWith("https://")) {
+    return item.link;
+  }
+  const normalizedPath = item.link.startsWith("/")
+    ? item.link
+    : `/${item.link}`;
+  return `https://bsky.app${normalizedPath}`;
+}
+
+function getTrendingItemKey(item: TrendingItem): string {
+  if (item.type === "hashtag") {
+    return item.hashtag;
+  }
+  if (item.type === "bluesky_topic") {
+    return `bsky-${item.topic}`;
+  }
+  return item.userId;
+}
 
 const TrendingTopicsSkeleton = () => (
   <div className={APPLE_CARD_CLASS}>
@@ -74,6 +105,40 @@ const TrendingRow: React.FC<TrendingRowProps> = ({ item }) => {
     );
   }
 
+  if (item.type === "bluesky_topic") {
+    const href = getBlueskyTopicHref(item);
+
+    return (
+      <a
+        className={cn(
+          "group flex items-center gap-2.5 rounded-lg px-2.5 py-2",
+          ROW_HOVER_CLASS
+        )}
+        href={href}
+        rel="noopener noreferrer"
+        target="_blank"
+      >
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-sky-500/30 bg-sky-500/10 text-sky-500 transition-colors group-hover:bg-sky-500/20">
+          <BlueskyIcon className="size-4 text-sky-500" tooltip={false} />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="flex items-center gap-1.5">
+            <span className="block min-w-0 truncate text-sm font-medium">
+              {item.displayName || item.topic}
+            </span>
+            <BlueskyIcon
+              className="size-3.5 shrink-0 text-sky-500"
+              tooltip={false}
+            />
+          </span>
+          <span className="text-muted-foreground block truncate text-xs transition-colors group-hover:text-inherit">
+            {item.description || "Trending on Bluesky"}
+          </span>
+        </span>
+      </a>
+    );
+  }
+
   return (
     <Link
       className={cn(
@@ -107,28 +172,38 @@ const TrendingRow: React.FC<TrendingRowProps> = ({ item }) => {
 const TrendingTopics: React.FC = () => {
   const queryClient = useQueryClient();
   const { user } = useSession();
+  const network = useNetworkSettings();
   const isLoggedIn = Boolean(user);
   const { data, isError, isFetching, isLoading } = useQuery<TrendingFeed>({
     queryFn: () => getTrendingFeed(false),
-    // Key bumped when the payload gained the topAura section so cached data
-    // with the old shape (a plain array) is discarded and refetched.
-    queryKey: ["trending-feed", "v2"],
+    // Key bumped when Bluesky trending topics were introduced into the feed.
+    queryKey: ["trending-feed", "v3"],
     staleTime: 5 * 60 * 1000,
   });
 
-  const items = data?.items ?? [];
+  const selected = network.settings.preferences.profiles.find(
+    (profile) => profile.id === network.settings.preferences.activeProfileId
+  );
+  const items = filterTrendingForInterests(
+    data?.items ?? [],
+    selected?.interests.length
+      ? selected.interests
+      : network.settings.persona.learnedInterests,
+    network.settings.preferences.avoidedTopics,
+    network.settings.topicScope
+  );
   const topAura = data?.topAura ?? [];
 
   const handleRefresh = useCallback(async () => {
     try {
       const fresh = await getTrendingFeed(true);
-      queryClient.setQueryData(["trending-feed", "v2"], fresh);
+      queryClient.setQueryData(["trending-feed", "v3"], fresh);
     } catch {
       // Leave the existing error/empty state intact if the refresh fails
     }
   }, [queryClient]);
 
-  if (isLoading) {
+  if (isLoading || !network.ready) {
     return <TrendingTopicsSkeleton />;
   }
 
@@ -146,9 +221,11 @@ const TrendingTopics: React.FC = () => {
             size="icon"
             variant="ghost"
           >
-            <RefreshCw
-              className={cn("h-3.5 w-3.5", isFetching && "animate-spin")}
-            />
+            {isFetching ? (
+              <Skeleton className="size-3.5" />
+            ) : (
+              <RefreshCw className="size-3.5" />
+            )}
           </Button>
         ) : null}
       </div>
@@ -163,20 +240,19 @@ const TrendingTopics: React.FC = () => {
             onClick={handleRefresh}
             variant="ghost"
           >
-            <RefreshCw
-              className={cn("h-3.5 w-3.5", isFetching && "animate-spin")}
-            />
+            {isFetching ? (
+              <Skeleton className="size-3.5" />
+            ) : (
+              <RefreshCw className="size-3.5" />
+            )}
             Retry
           </Button>
         </div>
       ) : null}
       {!isError && items.length > 0 ? (
         <div className="flex flex-col gap-0.5">
-          {items.slice(0, 6).map((item) => (
-            <TrendingRow
-              item={item}
-              key={item.type === "hashtag" ? item.hashtag : item.userId}
-            />
+          {items.slice(0, 7).map((item) => (
+            <TrendingRow item={item} key={getTrendingItemKey(item)} />
           ))}
         </div>
       ) : null}

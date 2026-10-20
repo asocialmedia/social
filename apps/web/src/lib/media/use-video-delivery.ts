@@ -5,6 +5,8 @@ import type { RefObject } from "react";
 
 import { getMediaVariantUrl } from "@/lib/utils/image-url";
 
+import { hlsPlaybackMode } from "./hls-playback";
+
 async function resumeVideo(video: HTMLVideoElement) {
   try {
     await video.play();
@@ -17,41 +19,67 @@ async function loadHls() {
   return await import("hls.js");
 }
 
+export async function preloadVideoDelivery() {
+  await loadHls().catch(() => null);
+}
+
 // Codec probing happens after hydration. Browsers without AV1 decoding keep
 // the compatible source; the proxy also falls back while modern work is queued.
 export function useVideoDelivery(
   videoRef: RefObject<HTMLVideoElement | null>,
   mediaId: string | undefined,
   enabled: boolean,
-  hasHls = false
+  hasHls = false,
+  playbackIntent?: RefObject<boolean>,
+  externalPlaylist?: string
 ) {
   useEffect(() => {
     const video = videoRef.current;
-    if (!video || !mediaId || !enabled) {
+    if (!video || (!mediaId && !externalPlaylist) || !enabled) {
       return;
     }
-    const fallback = getMediaVariantUrl(mediaId, "mp4-h264.mp4");
+    const fallback = externalPlaylist
+      ? undefined
+      : getMediaVariantUrl(mediaId ?? "", "mp4-h264.mp4");
+    const playlist =
+      externalPlaylist ?? getMediaVariantUrl(mediaId ?? "", "hls/master.m3u8");
     let destroyed = false;
     let hls: { destroy: () => void } | undefined;
-    if (hasHls && !video.canPlayType("application/vnd.apple.mpegurl")) {
+    const shouldResume = () =>
+      !destroyed && (playbackIntent ? playbackIntent.current : !video.paused);
+    if (hasHls || externalPlaylist) {
       void (async () => {
         try {
           const { default: Hls } = await loadHls();
-          if (destroyed || !Hls.isSupported()) {
+          if (destroyed) {
+            return;
+          }
+          const mode = hlsPlaybackMode(
+            Hls.isSupported(),
+            Boolean(video.canPlayType("application/vnd.apple.mpegurl"))
+          );
+          if (mode === "native") {
+            video.src = playlist;
+            if (shouldResume()) {
+              void resumeVideo(video);
+            }
+            return;
+          }
+          if (mode === "unsupported") {
             return;
           }
           const instance = new Hls({
             capLevelToPlayerSize: true,
             enableWorker: true,
-            maxBufferLength: 8,
-            maxBufferSize: 8 * 1024 * 1024,
-            maxMaxBufferLength: 16,
-            startLevel: -1,
+            maxBufferLength: 4,
+            maxBufferSize: 4 * 1024 * 1024,
+            maxMaxBufferLength: 8,
+            startFragPrefetch: true,
+            startLevel: 0,
           });
           hls = instance;
-          const shouldResume = !video.paused;
           instance.on(Hls.Events.MANIFEST_PARSED, () => {
-            if (shouldResume && !destroyed) {
+            if (shouldResume()) {
               void resumeVideo(video);
             }
           });
@@ -59,26 +87,27 @@ export function useVideoDelivery(
             if (data.fatal) {
               instance.destroy();
               const wasPlaying = !video.paused;
+              if (!fallback || destroyed) {
+                return;
+              }
               video.src = fallback;
-              if (wasPlaying || shouldResume) {
+              if (!destroyed && (wasPlaying || shouldResume())) {
                 void resumeVideo(video);
               }
             }
           });
+          instance.loadSource(playlist);
           instance.attachMedia(video);
-          instance.loadSource(getMediaVariantUrl(mediaId, "hls/master.m3u8"));
         } catch {
           // The progressive source stays available if loading HLS fails.
         }
       })();
-    } else if (hasHls) {
-      video.src = getMediaVariantUrl(mediaId, "hls/master.m3u8");
     } else if (video.canPlayType('video/webm; codecs="av01.0.08M.08,opus"')) {
-      video.src = getMediaVariantUrl(mediaId, "webm-av1.webm");
+      video.src = getMediaVariantUrl(mediaId ?? "", "webm-av1.webm");
     }
     return () => {
       destroyed = true;
       hls?.destroy();
     };
-  }, [enabled, hasHls, mediaId, videoRef]);
+  }, [enabled, externalPlaylist, hasHls, mediaId, playbackIntent, videoRef]);
 }

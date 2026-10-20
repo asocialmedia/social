@@ -1,5 +1,6 @@
 import {
   and,
+  communityVisibilityWhere,
   getPostDataQuery,
   hydrateViewCounts,
   mapPostData,
@@ -8,6 +9,7 @@ import {
 import { NextResponse } from "next/server";
 
 import { getSessionFromApi } from "@/lib/auth/session";
+import { explicitContentEnabled } from "@/lib/posts/explicit-content-enabled";
 
 // Exported for test parity: related-ranking.test.ts asserts against this
 // exact scorer so the ranking contract cannot silently drift from the math
@@ -38,6 +40,10 @@ export async function GET(
 ): Promise<Response> {
   const session = await getSessionFromApi();
   const userId = session?.user?.id ?? "";
+  // Related posts are a feed surface: they must honour the same visibility and
+  // explicit-content policy as every other feed, or a known id becomes a bypass.
+  const visibility = communityVisibilityWhere(userId);
+  const showExplicitContent = await explicitContentEnabled(userId);
 
   const { postId } = await context.params;
   if (!postId) {
@@ -48,13 +54,21 @@ export async function GET(
   // the not-found path: their content is hidden everywhere else, so ranking
   // recommendations against them would leak semantic features.
   const originPost = await prisma.orm.public.Posts.select(
+    "explicitContent",
     "embedding",
     "id",
     "isGust",
     "semanticTags"
   )
     .include("postMedias", (media) => media.select("semanticTags"))
-    .where((post) => and(post.id.eq(postId), post.moderated.eq(false)))
+    .where((post) =>
+      and(
+        post.id.eq(postId),
+        post.moderated.eq(false),
+        visibility(post),
+        ...(showExplicitContent ? [] : [post.explicitContent.eq(false)])
+      )
+    )
     .first();
 
   if (!originPost) {
@@ -83,7 +97,9 @@ export async function GET(
         post.id.neq(postId),
         post.isGust.eq(Boolean(originPost.isGust)),
         post.moderated.eq(false),
-        post.rootPostId.isNull()
+        post.rootPostId.isNull(),
+        visibility(post),
+        ...(showExplicitContent ? [] : [post.explicitContent.eq(false)])
       )
     )
     .orderBy((post) => post.createdAt.desc())
@@ -112,7 +128,9 @@ export async function GET(
           post.id.notIn([postId, ...candidates.map((c) => c.id)]),
           post.isGust.eq(Boolean(originPost.isGust)),
           post.moderated.eq(false),
-          post.rootPostId.isNull()
+          post.rootPostId.isNull(),
+          visibility(post),
+          ...(showExplicitContent ? [] : [post.explicitContent.eq(false)])
         )
       )
       .orderBy((post) => post.createdAt.desc())
@@ -166,7 +184,7 @@ export async function GET(
 
   const rankedIds = scored.slice(0, take).map((entry) => entry.candidate.id);
   const rankedRows = await getPostDataQuery(prisma.orm, userId)
-    .where((post) => post.id.in(rankedIds))
+    .where((post) => and(post.id.in(rankedIds), visibility(post)))
     .all();
   const rankedById = new Map(
     rankedRows.map((row) => [row.id, mapPostData(row)])

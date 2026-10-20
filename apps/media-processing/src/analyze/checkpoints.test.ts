@@ -3,6 +3,7 @@ import { expect, test } from "bun:test";
 import {
   analysisStageComplete,
   transcriptionComplete,
+  transcriptionRetryEligible,
   mediaEmbeddingComplete,
   classificationFingerprint,
 } from "./checkpoints";
@@ -23,11 +24,33 @@ test("completed empty OCR and silent transcription survive retries", () => {
       analysisStages: { transcription: { status: "no_audio" } },
     })
   ).toBe(true);
+  expect(
+    transcriptionComplete({
+      analysisStages: { transcription: { status: "skipped" } },
+    })
+  ).toBe(true);
+  expect(transcriptionComplete({ transcription: { status: "skipped" } })).toBe(
+    true
+  );
   expect(transcriptionComplete({ transcription: { status: "failed" } })).toBe(
     false
   );
   expect(transcriptionComplete(null)).toBe(false);
 });
+
+test("skipped transcription is terminal and not retry-eligible", () => {
+  expect(
+    transcriptionRetryEligible({
+      analysisStages: { transcription: { status: "skipped" } },
+    })
+  ).toBe(false);
+  expect(
+    transcriptionRetryEligible({
+      transcription: { status: "skipped" },
+    })
+  ).toBe(false);
+});
+
 test("video sampling covers the clip and bounds short or invalid durations", () => {
   expect(sampleTimes(100)).toEqual([10, 40, 70, 90]);
   expect(sampleTimes(0)).toEqual([0]);

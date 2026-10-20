@@ -6,10 +6,40 @@ import type React from "react";
 import { useEffect, useRef } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
+import {
+  canonicalExposureFeed,
+  rememberFeedExposure,
+} from "@/lib/posts/feed-exposure";
+import { isRecommendationVisible } from "@/lib/posts/recommendation-visibility";
+import { recordFeedRenderTiming } from "@/lib/recommendations/feed-render-timing";
 
-type RecommendationEventType = EngagementEventType | "NOT_INTERESTED";
+type RecommendationEventType =
+  | EngagementEventType
+  | "NOT_INTERESTED"
+  | "DOWNVOTE"
+  | "REMOVE_DOWNVOTE"
+  | "REMOVE_NOT_INTERESTED"
+  | "VOTE"
+  | "BOOKMARK"
+  | "COMMENT";
+const networkReceipts = new Map<
+  string,
+  { networkToken: string; networkSource?: string }
+>();
+
+export function trackNetworkAction(
+  postId: string,
+  eventType: RecommendationEventType
+): void {
+  const receipt = networkReceipts.get(postId);
+  if (receipt && receipt.networkSource !== "asm") {
+    trackRecommendationEvent({ ...receipt, eventType, postId });
+  }
+}
 
 interface RecommendationEvent {
+  networkToken?: string;
+  networkSource?: string;
   eventId?: string;
   requestId?: string;
   durationMs?: number;
@@ -29,14 +59,50 @@ async function flushEvents(): Promise<void> {
   flushInFlight = true;
   const events = eventQueue.splice(0, MAX_QUEUE_SIZE);
   try {
-    const response = await fetch("/api/recommendations/events", {
-      body: JSON.stringify({ events }),
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      keepalive: true,
-      method: "POST",
-    });
-    if (!response.ok && response.status !== 401) {
+    const nativeEvents = events.filter(
+      (event) =>
+        (!event.networkSource || event.networkSource === "asm") &&
+        ![
+          "DOWNVOTE",
+          "REMOVE_DOWNVOTE",
+          "REMOVE_NOT_INTERESTED",
+          "VOTE",
+          "BOOKMARK",
+          "COMMENT",
+        ].includes(event.eventType)
+    );
+    const networkEvents = events.filter((event) => event.networkToken);
+    const responses = await Promise.all([
+      ...(nativeEvents.length
+        ? [
+            fetch("/api/recommendations/events", {
+              body: JSON.stringify({ events: nativeEvents }),
+              credentials: "include",
+              headers: { "Content-Type": "application/json" },
+              keepalive: true,
+              method: "POST",
+            }),
+          ]
+        : []),
+      ...(networkEvents.length
+        ? [
+            fetch("/api/network/events", {
+              body: JSON.stringify({ events: networkEvents }),
+              credentials: "include",
+              headers: { "Content-Type": "application/json" },
+              keepalive: true,
+              method: "POST",
+            }).then(async (response) => {
+              const result = response.ok ? await response.clone().json() : null;
+              if (result?.accepted > 0) {
+                window.dispatchEvent(new Event("network:learned"));
+              }
+              return response;
+            }),
+          ]
+        : []),
+    ]);
+    if (responses.some((response) => !response.ok && response.status !== 401)) {
       eventQueue = [...events, ...eventQueue].slice(-MAX_QUEUE_SIZE);
     }
   } catch {
@@ -74,6 +140,8 @@ export function trackRecommendationEvent(event: RecommendationEvent): void {
 // undone reliably if the viewer taps Undo. Surfaces (the self-healing FeedView,
 // the gust reel) listen for this and remove the id locally.
 export function markRecommendationNotInterested(postId: string): void {
+  window.dispatchEvent(new Event("network:learned"));
+  trackNetworkAction(postId, "NOT_INTERESTED");
   if (typeof window !== "undefined") {
     window.dispatchEvent(
       new CustomEvent("recommendation:not-interested", {
@@ -86,6 +154,8 @@ export function markRecommendationNotInterested(postId: string): void {
 // The inverse of markRecommendationNotInterested: undo restores the post to
 // every surface showing it, so a mis-tap does not require a reload.
 export function clearRecommendationNotInterested(postId: string): void {
+  window.dispatchEvent(new Event("network:learned"));
+  trackNetworkAction(postId, "REMOVE_NOT_INTERESTED");
   if (typeof window !== "undefined") {
     window.dispatchEvent(
       new CustomEvent("recommendation:interested", {
@@ -102,6 +172,9 @@ if (typeof window !== "undefined") {
 }
 
 interface RecommendationTrackerProps {
+  exposureFeed?: string;
+  networkToken?: string;
+  networkSource?: string;
   children: React.ReactNode;
   // Layout pass-through. Full-height media (the gust reel) needs this wrapper to
   // forward the parent's height so the card is sized from the available space
@@ -112,6 +185,9 @@ interface RecommendationTrackerProps {
 }
 
 export function RecommendationTracker({
+  exposureFeed,
+  networkToken,
+  networkSource,
   children,
   className,
   postId,
@@ -121,15 +197,34 @@ export function RecommendationTracker({
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (!user || !containerRef.current || typeof window === "undefined") {
+    if (!containerRef.current || typeof window === "undefined") {
       return;
+    }
+    if (networkToken) {
+      networkReceipts.delete(postId);
+      networkReceipts.set(postId, { networkSource, networkToken });
+      if (networkReceipts.size > 500) {
+        const oldest = networkReceipts.keys().next().value;
+        if (oldest) {
+          networkReceipts.delete(oldest);
+        }
+      }
     }
     const element = containerRef.current;
     let visible = false;
     let timer: ReturnType<typeof setInterval> | null = null;
-    const session = new EngagementSession((event) =>
-      trackRecommendationEvent({ ...event, postId, requestId })
-    );
+    const session = new EngagementSession((event) => {
+      if (!user) {
+        return;
+      }
+      trackRecommendationEvent({
+        ...event,
+        networkSource,
+        networkToken,
+        postId,
+        requestId,
+      });
+    });
     const sample = () => {
       const video = element.querySelector("video");
       session.sample(
@@ -163,9 +258,7 @@ export function RecommendationTracker({
     };
     const observer = new IntersectionObserver(
       ([entry]) => {
-        const next = Boolean(
-          entry?.isIntersecting && entry.intersectionRatio >= 0.6
-        );
+        const next = isRecommendationVisible(entry);
         if (next === visible) {
           return;
         }
@@ -174,10 +267,26 @@ export function RecommendationTracker({
         }
         visible = next;
         if (next) {
+          const path = window.location.pathname;
+          if (path === "/" || path === "/gusts" || path === "/discover") {
+            let surface: "home" | "gusts" | "explore" =
+              path === "/gusts" ? "gusts" : "home";
+            if (path === "/discover") {
+              surface = "explore";
+            }
+            recordFeedRenderTiming(surface, exposureFeed ?? "default");
+            rememberFeedExposure(
+              user?.id ?? "guest",
+              surface,
+              postId,
+              Date.now(),
+              exposureFeed ? canonicalExposureFeed(exposureFeed) : undefined
+            );
+          }
           visibilityChanged();
         }
       },
-      { threshold: 0.6 }
+      { threshold: [0, 0.1, 0.25, 0.5, 0.6] }
     );
     observer.observe(element);
     document.addEventListener("visibilitychange", visibilityChanged);
@@ -186,7 +295,7 @@ export function RecommendationTracker({
       document.removeEventListener("visibilitychange", visibilityChanged);
       stop(true);
     };
-  }, [postId, requestId, user]);
+  }, [exposureFeed, postId, requestId, user, networkToken, networkSource]);
 
   return (
     <div className={className} ref={containerRef}>

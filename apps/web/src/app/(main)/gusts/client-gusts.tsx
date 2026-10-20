@@ -1,28 +1,24 @@
 "use client";
-
 import type { GustsPage, UserData } from "@asm/db";
+import { filterExternalRecommendations } from "@asm/protocols/discovery";
 import {
   advanceGustHeader,
   followingGustAvatars,
 } from "@asm/ui/lib/gust-header";
 import { Button } from "@asm/ui/shadui/button";
+import { Skeleton } from "@asm/ui/shadui/skeleton";
 import noMediaImage from "@assets/general/nomedia.png";
 import {
   useInfiniteQuery,
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import {
-  ChevronDown,
-  ChevronLeft,
-  ChevronUp,
-  Loader2,
-  Plus,
-} from "lucide-react";
-import { AnimatePresence, motion } from "motion/react";
+import { ChevronDown, ChevronLeft, ChevronUp, Plus } from "lucide-react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import Image from "next/image";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import React, {
+  Activity,
   useCallback,
   useEffect,
   useMemo,
@@ -33,6 +29,7 @@ import { useInView } from "react-intersection-observer";
 
 import { useSession } from "@/app/(main)/session-provider";
 import { AuthPromptCard } from "@/components/auth/shell/auth-prompt-card";
+import { FeedErrorState } from "@/components/feeds/feed-error-state";
 import { NewContentPill } from "@/components/feeds/new-content-pill";
 import type { NewContentAuthor } from "@/components/feeds/new-content-pill";
 import { GustCard } from "@/components/gusts/gust-card";
@@ -41,17 +38,40 @@ import { GustFeedControls } from "@/components/gusts/gust-feed-controls";
 import type { GustFeed } from "@/components/gusts/gust-feed-controls";
 import { GustsCommentsDrawer } from "@/components/gusts/gusts-comments-drawer";
 import { MobileGustEddies } from "@/components/gusts/mobile-gust-eddies";
+import { FeedSourceMenu } from "@/components/protocols/feed-source-menu";
+import { useBlueskyFeed } from "@/components/protocols/use-bluesky-feed";
+import { useExternalPost } from "@/components/protocols/use-external-post";
 import { RecommendationTracker } from "@/components/recommendations/recommendation-tracker";
 import { useRequireAuth } from "@/hooks/auth/use-require-auth";
+import { useDiscoveryLocale } from "@/hooks/feed/use-discovery-locale";
+import { useFeedExposures } from "@/hooks/feed/use-feed-exposures";
+import { useNetworkSettings } from "@/hooks/feed/use-network-settings";
 import { useNewContentProbe } from "@/hooks/feed/use-new-content-probe";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import kyInstance from "@/lib/ky";
+import { preloadVideoDelivery } from "@/lib/media/use-video-delivery";
 import {
   FEED_QUERY_BEHAVIOR,
   prependPostsToFeedCache,
 } from "@/lib/posts/feed-cache";
+import {
+  advanceGustPaging,
+  gustPagingDelay,
+  mergeGustPosts,
+} from "@/lib/posts/gust-feed";
+import {
+  activeNetworkInterests,
+  networkPostAllowed,
+  networkPostRecommended,
+} from "@/lib/posts/network-content-policy";
+import { externalPostView } from "@/lib/posts/presentation";
+import type { PresentedPost } from "@/lib/posts/presentation";
 import { cn, isEditableTarget } from "@/lib/utils";
 import { useComposerStore } from "@/store/composer-store";
+import {
+  useFeedSourceStore,
+  useExternalExclusions,
+} from "@/store/feed-source-store";
 
 interface ClientGustsProps {
   loggedInUserData: UserData | null;
@@ -104,24 +124,49 @@ function GustTab({
 }
 
 export const ClientGusts: React.FC<ClientGustsProps> = () => {
+  const params = useSearchParams();
+  const { user } = useSession();
+  const requested = params.get("tab");
+  let active: GustFeed = user ? "personalized" : "latest";
+  if (
+    requested === "following" ||
+    requested === "personalized" ||
+    requested === "latest"
+  ) {
+    active = requested;
+  }
+  const [visited, setVisited] = useState<ReadonlySet<GustFeed>>(
+    () => new Set([active])
+  );
+  if (!visited.has(active)) {
+    setVisited(new Set([...visited, active]));
+  }
+  return (
+    <div className="relative flex min-w-0 flex-1">
+      {(["latest", "personalized", "following"] as const).map((tab) => (
+        <Activity key={tab} mode={active === tab ? "visible" : "hidden"}>
+          {visited.has(tab) ? <GustStream gustTab={tab} /> : null}
+        </Activity>
+      ))}
+    </div>
+  );
+};
+
+const GustStream = ({ gustTab }: { gustTab: GustFeed }) => {
+  const reducedMotion = useReducedMotion();
   const searchParams = useSearchParams();
   const pathname = usePathname();
   const router = useRouter();
   const initialPostId = searchParams.get("id");
+  const externalId = initialPostId?.startsWith("at://") ? initialPostId : "";
+  const deepLink = useExternalPost(externalId);
   const { user } = useSession();
+  const oppositeSeen = useFeedExposures(user?.id ?? "guest", "gusts", gustTab);
   const { goToLogin } = useRequireAuth();
   const openComposer = useComposerStore((state) => state.openComposer);
   const autoOpenCreate = searchParams.get("create") === "true";
   const queryClient = useQueryClient();
   const isLoggedIn = Boolean(user);
-  const requestedTab = searchParams.get("tab");
-  const defaultTab = isLoggedIn ? "personalized" : "latest";
-  const gustTab =
-    requestedTab === "latest" ||
-    requestedTab === "personalized" ||
-    requestedTab === "following"
-      ? requestedTab
-      : defaultTab;
   const isPersonalized = gustTab === "personalized" && !initialPostId;
   // For you is ranked from the viewer's own watch/amplify signals, so it is
   // account-only. A guest who opens it gets a sign-in prompt instead of a
@@ -134,15 +179,15 @@ export const ClientGusts: React.FC<ClientGustsProps> = () => {
     (value: GustFeed) => {
       const nextParams = new URLSearchParams(searchParams.toString());
       nextParams.delete("id");
-      if (value === defaultTab) {
-        nextParams.delete("tab");
-      } else {
-        nextParams.set("tab", value);
-      }
+      nextParams.set("tab", value);
       const query = nextParams.toString();
-      router.push(query ? `${pathname}?${query}` : pathname);
+      window.history.pushState(
+        null,
+        "",
+        query ? `${pathname}?${query}` : pathname
+      );
     },
-    [defaultTab, pathname, router, searchParams]
+    [pathname, searchParams]
   );
 
   const [activeIndex, setActiveIndex] = useState(0);
@@ -212,30 +257,70 @@ export const ClientGusts: React.FC<ClientGustsProps> = () => {
   // sentinel flips inView when it enters the viewport, which paginates even
   // when the list is too short to scroll.
   const { inView: isEndVisible, ref: endSentinelRef } = useInView({
-    rootMargin: "200px",
+    rootMargin: "3000px",
   });
 
+  const source = useFeedSourceStore((state) => state.source);
+  const network = useNetworkSettings();
+  const { locale } = useDiscoveryLocale();
+  const excluded = useExternalExclusions(user?.id ?? "guest");
+  const includeNative =
+    !externalId &&
+    (Boolean(initialPostId) || source !== "bluesky" || gustTab === "following");
+  const includeExternal =
+    !gatedPersonalized &&
+    gustTab !== "following" &&
+    !initialPostId &&
+    source !== "asm";
+  useEffect(() => {
+    if (!gatedPersonalized) {
+      void preloadVideoDelivery();
+    }
+  }, [gatedPersonalized]);
+  const handleUnavailable = useCallback((postId: string) => {
+    setHiddenPostIds((previous) => new Set([...previous, postId]));
+  }, []);
+  const externalFeed = useBlueskyFeed(
+    gustTab === "personalized" ? "personalized" : "latest",
+    includeExternal,
+    user?.id ?? "guest",
+    "video"
+  );
+
   const queryKey = useMemo(
-    () => ["gusts-feed", initialPostId, gustTab, user?.id ?? "guest"],
-    [gustTab, initialPostId, user?.id]
+    () => [
+      "gusts-feed",
+      externalId ? null : initialPostId,
+      gustTab,
+      user?.id ?? "guest",
+      network.scope,
+      locale,
+    ],
+    [gustTab, initialPostId, externalId, user?.id, network.scope, locale]
   );
 
   // Infinite query for gusts
   const {
     data,
-    fetchNextPage,
-    hasNextPage,
-    isFetchingNextPage,
-    refetch,
-    status,
+    fetchNextPage: fetchNativeNextPage,
+    hasNextPage: hasNativeNextPage,
+    isFetchedAfterMount,
+    isFetchingNextPage: isFetchingNativeNextPage,
+    refetch: refetchNative,
+    status: nativeStatus,
+    isFetchNextPageError: nativePageError,
   } = useInfiniteQuery({
-    enabled: !gatedPersonalized,
-    getNextPageParam: (lastPage) => lastPage.nextCursor,
+    enabled:
+      !gatedPersonalized && includeNative && !externalId && network.ready,
+    getNextPageParam: (lastPage: GustsPage) => lastPage.nextCursor,
     initialPageParam: null as string | null,
-    queryFn: ({ pageParam }: { pageParam: string | null }) => {
+    queryFn: ({ pageParam, signal }) => {
       // Moderated gusts never render in the stream (same as the explore rail).
       const queryParams: Record<string, string> = {
         excludeModerated: "1",
+        locale,
+        profile: network.settings.preferences.activeProfileId,
+        ...(initialPostId ? {} : { network: network.scope }),
       };
       if (isPersonalized) {
         queryParams.mode = "personalized";
@@ -248,36 +333,243 @@ export const ClientGusts: React.FC<ClientGustsProps> = () => {
         queryParams.initialId = initialPostId;
       }
       return kyInstance
-        .get("/api/gusts", { searchParams: queryParams })
+        .get("/api/gusts", { searchParams: queryParams, signal })
         .json<GustsPage>();
     },
     queryKey,
     ...FEED_QUERY_BEHAVIOR,
   });
 
-  // Reset the reel position after switching between Latest and For you. The
-  // microtask keeps the state update out of the effect's synchronous phase.
-  // The new-content badge resets through the probe's resetKey.
-  useEffect(() => {
-    queueMicrotask(() => {
-      setActiveIndex(0);
-      setHeaderVisible(true);
-      headerScroll.current = { anchor: 0, visible: true };
-    });
-    containerRef.current?.scrollTo({ top: 0 });
-    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- gustTab is intentionally a change signal for the new query
-  }, [gustTab]);
-
-  const posts = useMemo(
+  const nativePosts = useMemo(
     () =>
-      (data?.pages.flatMap((page) => page.posts) || [])
-        // Drop moderated stragglers from stale cached pages so a gust that
-        // gets moderated mid-session disappears instead of lingering.
-        .filter((post) => !post.moderated)
-        .filter((post) => !hiddenPostIds.has(post.id))
-        .filter((post) => post.attachments.some((m) => m.type === "VIDEO")),
-    [data?.pages, hiddenPostIds]
+      includeNative && !externalId && network.ready
+        ? [
+            ...new Map(
+              (data?.pages.flatMap((page) => page.posts) ?? []).map((post) => [
+                post.id,
+                post,
+              ])
+            ).values(),
+          ].filter(
+            (post) =>
+              !post.moderated &&
+              !hiddenPostIds.has(post.id) &&
+              (!isPersonalized || !oppositeSeen.has(post.id)) &&
+              (gustTab === "following" || initialPostId
+                ? networkPostAllowed(
+                    post,
+                    network.settings.preferences,
+                    network.settings.topicScope
+                  )
+                : networkPostRecommended(
+                    post,
+                    network.settings.preferences,
+                    network.settings.topicScope
+                  )) &&
+              post.attachments.some((media) => media.type === "VIDEO")
+          )
+        : [],
+    [
+      data,
+      includeNative,
+      externalId,
+      hiddenPostIds,
+      oppositeSeen,
+      isPersonalized,
+      gustTab,
+      initialPostId,
+      network.settings.preferences,
+      network.settings.topicScope,
+      network.ready,
+    ]
   );
+  const externalPosts = useMemo(() => {
+    if (!network.ready) {
+      return [];
+    }
+    let candidates = includeExternal
+      ? (externalFeed.data?.pages.flatMap((page) => page.items) ?? [])
+      : [];
+    if (externalId) {
+      candidates = deepLink.data ? [deepLink.data] : [];
+    }
+    return filterExternalRecommendations(candidates, excluded)
+      .filter((post) => !isPersonalized || !oppositeSeen.has(post.id))
+      .filter((post) => post.media.some((media) => media.type === "video"))
+      .map((post) => ({ ...externalPostView(post), isGust: true }))
+      .filter((post) =>
+        externalId
+          ? networkPostAllowed(
+              post,
+              network.settings.preferences,
+              network.settings.topicScope
+            )
+          : networkPostRecommended(
+              post,
+              network.settings.preferences,
+              network.settings.topicScope
+            )
+      );
+  }, [
+    externalId,
+    deepLink.data,
+    includeExternal,
+    externalFeed.data,
+    excluded,
+    oppositeSeen,
+    isPersonalized,
+    network.settings.preferences,
+    network.settings.topicScope,
+    network.ready,
+  ]);
+  const orderScope = `${gustTab}:${initialPostId ?? ""}:${source}:${user?.id ?? "guest"}:${network.scope}:${locale}`;
+  const [reel, setReel] = useState<{
+    scope: string;
+    native: typeof nativePosts;
+    external: typeof externalPosts;
+    posts: PresentedPost[];
+  }>({
+    external: externalPosts,
+    native: nativePosts,
+    posts: mergeGustPosts([], nativePosts, externalPosts),
+    scope: orderScope,
+  });
+  let { posts } = reel;
+  if (
+    reel.scope !== orderScope ||
+    reel.native !== nativePosts ||
+    reel.external !== externalPosts
+  ) {
+    posts = mergeGustPosts(
+      reel.scope === orderScope ? reel.posts : [],
+      nativePosts,
+      externalPosts
+    );
+    setReel({
+      external: externalPosts,
+      native: nativePosts,
+      posts,
+      scope: orderScope,
+    });
+  }
+  const loadedPageCount =
+    (includeNative ? (data?.pages.length ?? 0) : 0) +
+    (includeExternal ? (externalFeed.data?.pages.length ?? 0) : 0);
+  // Count what the servers returned, not what survived client-side policy and
+  // exposure filtering. Otherwise a strict filter looks like an empty page and
+  // pins the reel in permanent backoff.
+  const serverRows =
+    (data?.pages.flatMap((page) => page.posts).length ?? 0) +
+    (externalFeed.data?.pages.flatMap((page) => page.items).length ?? 0);
+  const [pagingProgress, setPagingProgress] = useState({
+    emptyPages: 0,
+    pages: loadedPageCount,
+    scope: orderScope,
+    visible: serverRows,
+  });
+  let currentPagingProgress = pagingProgress;
+  if (
+    pagingProgress.scope !== orderScope ||
+    pagingProgress.pages !== loadedPageCount ||
+    pagingProgress.visible !== serverRows
+  ) {
+    currentPagingProgress = advanceGustPaging(
+      pagingProgress,
+      orderScope,
+      loadedPageCount,
+      serverRows
+    );
+    setPagingProgress(currentPagingProgress);
+  }
+  const pagingDelay = gustPagingDelay(currentPagingProgress.emptyPages);
+  const hasNextPage = Boolean(
+    (includeNative && hasNativeNextPage) ||
+    (includeExternal && externalFeed.hasNextPage)
+  );
+  const isFetchingNextPage =
+    (includeNative && isFetchingNativeNextPage) ||
+    (includeExternal && externalFeed.isFetchingNextPage);
+  // A failed source must not stall the other one: the reel keeps advancing while
+  // at least one included source can still page. Each fetch call still checks its
+  // own error flag, so a broken source is not retried blindly.
+  const pageError =
+    includeNative && includeExternal
+      ? Boolean(nativePageError) && Boolean(externalFeed.isFetchNextPageError)
+      : (includeNative && Boolean(nativePageError)) ||
+        (includeExternal && Boolean(externalFeed.isFetchNextPageError));
+  const {
+    refetch: refetchExternal,
+    fetchNextPage: fetchExternalNextPage,
+    hasNextPage: hasExternalNextPage,
+    isFetchNextPageError: externalPageError,
+    showNewItems: showExternalNewItems,
+  } = externalFeed;
+  const { refetch: refetchDeepLink } = deepLink;
+  const fetchNextPage = useCallback(async () => {
+    await Promise.all([
+      includeNative && hasNativeNextPage && !nativePageError
+        ? fetchNativeNextPage({ cancelRefetch: false })
+        : undefined,
+      includeExternal && hasExternalNextPage && !externalPageError
+        ? fetchExternalNextPage({ cancelRefetch: false })
+        : undefined,
+    ]);
+  }, [
+    includeNative,
+    hasNativeNextPage,
+    nativePageError,
+    fetchNativeNextPage,
+    includeExternal,
+    hasExternalNextPage,
+    externalPageError,
+    fetchExternalNextPage,
+  ]);
+  const refetch = useCallback(async () => {
+    await Promise.all([
+      includeNative && !externalId ? refetchNative() : undefined,
+      includeExternal ? refetchExternal() : undefined,
+      externalId ? refetchDeepLink() : undefined,
+    ]);
+  }, [
+    includeNative,
+    externalId,
+    refetchNative,
+    includeExternal,
+    refetchExternal,
+    refetchDeepLink,
+  ]);
+  let status = nativeStatus;
+  if (externalId) {
+    ({ status } = deepLink);
+  } else if (
+    (includeNative && nativeStatus === "pending") ||
+    (includeExternal && externalFeed.isPending)
+  ) {
+    status = "pending";
+  } else if (
+    (includeNative && nativeStatus === "error") ||
+    (includeExternal && externalFeed.isError)
+  ) {
+    status = "error";
+  } else {
+    status = "success";
+  }
+  if (posts.length) {
+    status = "success";
+  }
+  const [positionScope, setPositionScope] = useState(orderScope);
+  if (positionScope !== orderScope) {
+    setPositionScope(orderScope);
+    setActiveIndex(0);
+    setIsCommentsOpen(false);
+  }
+  const scrollScope = useRef(orderScope);
+  useEffect(() => {
+    if (scrollScope.current !== orderScope) {
+      scrollScope.current = orderScope;
+      containerRef.current?.scrollTo({ top: 0 });
+    }
+  }, [orderScope]);
 
   const followingPreview = useQuery({
     enabled: isLoggedIn && gustTab !== "following",
@@ -287,11 +579,13 @@ export const ClientGusts: React.FC<ClientGustsProps> = () => {
           searchParams: { excludeModerated: "1", mode: "following", take: "5" },
         })
         .json<GustsPage>(),
-    queryKey: ["following-gust-preview", user?.id ?? "guest"],
+    queryKey: ["following-gust-preview", user?.id ?? "guest", network.scope],
     staleTime: 60_000,
   });
   const orderedFollowingAvatars = followingGustAvatars(
-    gustTab === "following" ? posts : (followingPreview.data?.posts ?? []),
+    gustTab === "following"
+      ? nativePosts
+      : (followingPreview.data?.posts ?? []),
     gustTab === "following" ? activeIndex : 0
   );
   const followingPeople = useQuery({
@@ -317,25 +611,73 @@ export const ClientGusts: React.FC<ClientGustsProps> = () => {
   // badge without replacing the reel or moving the viewer. Only the badge tap
   // merges them in. The video filter matches what the reel actually renders.
   const { clearNewItems, newItems: newGusts } = useNewContentProbe({
-    enabled: !initialPostId,
-    fetchHead: async () => {
+    enabled:
+      gustTab === "following" &&
+      includeNative &&
+      !initialPostId &&
+      !gatedPersonalized &&
+      network.ready &&
+      nativeStatus === "success",
+    fetchHead: async (signal) => {
       const queryParams: Record<string, string> = {
         excludeModerated: "1",
+        locale,
+        network: network.scope,
+        profile: network.settings.preferences.activeProfileId,
       };
-      if (isPersonalized) {
-        queryParams.mode = "personalized";
-      } else if (gustTab === "following" && !initialPostId) {
+      if (gustTab === "following" && !initialPostId) {
         queryParams.mode = "following";
       }
+      // Following gust heads are newest-first, so a single row answers "is there
+      // anything new". Only pay for a hydrated page when the answer is yes.
+      const probe = await kyInstance
+        .get("/api/gusts", {
+          searchParams: { ...queryParams, take: "1" },
+          signal,
+        })
+        .json<GustsPage>();
+      const [newest] = probe.posts;
+      if (!newest || nativePosts.some((post) => post.id === newest.id)) {
+        return [];
+      }
       const fresh = await kyInstance
-        .get("/api/gusts", { searchParams: queryParams })
+        .get("/api/gusts", { searchParams: queryParams, signal })
         .json<GustsPage>();
       return fresh.posts;
     },
-    filter: (post) => post.attachments.some((media) => media.type === "VIDEO"),
-    resetKey: `${gustTab}:${initialPostId ?? ""}`,
-    visible: posts,
+    filter: (post) =>
+      post.attachments.some((media) => media.type === "VIDEO") &&
+      (gustTab === "following"
+        ? networkPostAllowed(
+            post,
+            network.settings.preferences,
+            network.settings.topicScope
+          )
+        : networkPostRecommended(
+            post,
+            network.settings.preferences,
+            network.settings.topicScope
+          )),
+    probeOnMount: !isFetchedAfterMount,
+    resetKey: orderScope,
+    visible: nativePosts,
   });
+
+  const allNewGusts = [
+    ...newGusts,
+    ...externalFeed.newItems
+      .map((post) => ({
+        ...externalPostView(post),
+        isGust: true,
+      }))
+      .filter((post) =>
+        networkPostRecommended(
+          post,
+          network.settings.preferences,
+          network.settings.topicScope
+        )
+      ),
+  ];
 
   // Pull-to-refresh deliberately updates the visible reel: it is the explicit
   // "show me now" gesture. New clips that arrive on their own wait behind the
@@ -360,12 +702,39 @@ export const ClientGusts: React.FC<ClientGustsProps> = () => {
   }, [isRefreshing, refetch]);
 
   // Jump to the very first gust and merge the probed clips into the reel.
+  // Prepend the probed clips without tearing the reel down. Emptying the merged
+  // list forced a rebuild from scratch, which unmounted every mounted video and
+  // smooth-scrolled from the current clip all the way back to the top.
   const showNewGusts = useCallback(() => {
     prependPostsToFeedCache(queryClient, queryKey, newGusts);
     clearNewItems();
-    setActiveIndex(0);
-    containerRef.current?.scrollTo({ behavior: "smooth", top: 0 });
-  }, [clearNewItems, newGusts, queryClient, queryKey]);
+    showExternalNewItems();
+    const prepended = new Map(newGusts.map((post) => [post.id, post]));
+    setReel((current) => ({
+      ...current,
+      // Keep the clip being watched first in its new slot so the offset stays
+      // valid, then let the merge place the new clips ahead of it.
+      posts: [
+        ...newGusts,
+        ...current.posts.filter((post) => !prepended.has(post.id)),
+      ],
+    }));
+    if (activeIndex <= 1) {
+      setActiveIndex(0);
+      containerRef.current?.scrollTo({ behavior: "smooth", top: 0 });
+    } else {
+      // The reader is deep in the reel: keep their position, the new clips are
+      // reachable by swiping up rather than yanking them out of the feed.
+      setActiveIndex((index) => index + newGusts.length);
+    }
+  }, [
+    activeIndex,
+    clearNewItems,
+    newGusts,
+    queryClient,
+    queryKey,
+    showExternalNewItems,
+  ]);
 
   // Kept in sync so the wheel/touch listeners (attached once) can consult the
   // current value without re-binding on every fetch state change.
@@ -497,25 +866,31 @@ export const ClientGusts: React.FC<ClientGustsProps> = () => {
     // oxlint-disable-next-line react/exhaustive-effect-dependencies -- posts.length intentionally re-runs this effect so new gust cards get observed
   }, [posts.length]);
 
-  // A bottom sentinel drives pagination instead of watching the last card, so
-  // the feed keeps loading even when a page holds very few gusts - the
-  // sentinel is already visible at the bottom of short content, so the next
-  // page is fetched immediately (and every page after that until the API runs
-  // out).
+  // Continue sparse pages while the reader is near the end, with one bounded read and backoff.
   useEffect(() => {
-    if (isEndVisible && hasNextPage && !isFetchingNextPage) {
-      void fetchNextPage();
+    if (
+      loadedPageCount > 0 &&
+      (isEndVisible || posts.length - activeIndex <= 8) &&
+      hasNextPage &&
+      !isFetchingNextPage &&
+      !pageError
+    ) {
+      const timer = window.setTimeout(() => {
+        void fetchNextPage();
+      }, pagingDelay);
+      return () => window.clearTimeout(timer);
     }
-  }, [fetchNextPage, hasNextPage, isEndVisible, isFetchingNextPage]);
-
-  // When the visible list is empty (e.g. the first page held no video gusts)
-  // but more pages exist, keep loading until something appears or the feed is
-  // exhausted instead of showing the empty state prematurely.
-  useEffect(() => {
-    if (posts.length === 0 && hasNextPage && !isFetchingNextPage) {
-      void fetchNextPage();
-    }
-  }, [fetchNextPage, hasNextPage, isFetchingNextPage, posts.length]);
+  }, [
+    fetchNextPage,
+    hasNextPage,
+    isEndVisible,
+    isFetchingNextPage,
+    activeIndex,
+    posts.length,
+    pageError,
+    pagingDelay,
+    loadedPageCount,
+  ]);
 
   // Keyboard navigation
   const handleToggleMute = useCallback(() => {
@@ -576,7 +951,7 @@ export const ClientGusts: React.FC<ClientGustsProps> = () => {
   // keeps the "recently viewed" order fresh. Guests don't have history.
   const activePost = posts[activeIndex];
   useEffect(() => {
-    if (!isLoggedIn || !activePost) {
+    if (!isLoggedIn || !activePost || activePost.external) {
       return;
     }
     const recordVisit = async () => {
@@ -623,6 +998,17 @@ export const ClientGusts: React.FC<ClientGustsProps> = () => {
       );
     }
 
+    if (status === "error" || (posts.length === 0 && pageError)) {
+      return (
+        <FeedErrorState
+          message="Couldn’t load Gusts. Please try again."
+          onRetry={() => {
+            void refetch();
+          }}
+        />
+      );
+    }
+
     if (status === "pending") {
       return (
         <div className="flex h-full w-full items-center justify-center">
@@ -644,6 +1030,11 @@ export const ClientGusts: React.FC<ClientGustsProps> = () => {
     }
 
     if (posts.length === 0) {
+      const focused =
+        gustTab !== "following" &&
+        !initialPostId &&
+        !externalId &&
+        activeNetworkInterests(network.settings.preferences).length > 0;
       return (
         <div className="flex h-full w-full flex-col items-center justify-center p-6 text-center">
           <Image
@@ -654,14 +1045,18 @@ export const ClientGusts: React.FC<ClientGustsProps> = () => {
             src={noMediaImage}
             width={128}
           />
-          <h2 className="text-foreground text-xl font-bold">No Gusts yet</h2>
+          <h2 className="text-foreground text-xl font-bold">
+            {focused ? "No Gusts match this profile yet" : "No Gusts yet"}
+          </h2>
           <p className="text-muted-foreground mt-1 max-w-sm text-sm">
-            Be the first to share a high-energy short-form video clip with the
-            community!
+            {focused
+              ? "Try another profile or add interests in Network settings."
+              : "Be the first to share a high-energy short-form video clip with the community!"}
           </p>
+
           <Button className="mt-5" onClick={handleOpenUpload} variant="premium">
             <Plus className="mr-1.5 size-4" />
-            Create the First Gust
+            {focused ? "Create a Gust" : "Create the First Gust"}
           </Button>
         </div>
       );
@@ -669,7 +1064,7 @@ export const ClientGusts: React.FC<ClientGustsProps> = () => {
 
     return (
       <div className="flex h-full w-full max-w-6xl items-center justify-center gap-4 py-0 sm:px-2 sm:py-3 md:px-6">
-        <div className="relative h-full w-full max-w-4xl transition-[width] duration-300 ease-out">
+        <div className="relative isolate h-full w-full max-w-4xl transition-[width] duration-300 ease-out">
           {/* Vertical Snap Stream */}
           <div
             className="hide-native-scrollbar h-full w-full snap-y snap-mandatory overflow-y-auto overscroll-y-contain"
@@ -704,8 +1099,11 @@ export const ClientGusts: React.FC<ClientGustsProps> = () => {
                   }}
                 >
                   <RecommendationTracker
+                    exposureFeed={gustTab}
                     className="h-full w-full"
                     postId={post.id}
+                    networkSource={post.external?.source}
+                    networkToken={post.external?.networkRecommendationToken}
                     requestId={post.recommendation?.requestId}
                   >
                     <GustCard
@@ -717,6 +1115,7 @@ export const ClientGusts: React.FC<ClientGustsProps> = () => {
                       isMuted={isMuted}
                       onOpenComments={() => setIsCommentsOpen(true)}
                       onToggleMute={handleToggleMute}
+                      onUnavailable={handleUnavailable}
                       post={post}
                       shouldMountVideo={shouldMount}
                     />
@@ -725,9 +1124,44 @@ export const ClientGusts: React.FC<ClientGustsProps> = () => {
               );
             })}
 
-            {isFetchingNextPage ? (
+            {pageError ? (
               <div className="flex h-24 items-center justify-center">
-                <Loader2 className="text-primary size-6 animate-spin" />
+                <Button
+                  onClick={() => {
+                    if (nativePageError) {
+                      void fetchNativeNextPage({ cancelRefetch: false });
+                    }
+                    if (externalFeed.isFetchNextPageError) {
+                      void externalFeed.fetchNextPage({ cancelRefetch: false });
+                    }
+                  }}
+                >
+                  Retry loading more Gusts
+                </Button>
+              </div>
+            ) : null}
+            {includeExternal &&
+            externalFeed.isError &&
+            !externalFeed.isFetchNextPageError &&
+            posts.length ? (
+              <div className="flex h-24 items-center justify-center">
+                <Button
+                  onClick={() => {
+                    void externalFeed.refetch();
+                  }}
+                >
+                  Retry Bluesky videos
+                </Button>
+              </div>
+            ) : null}
+
+            {isFetchingNextPage ? (
+              <div
+                aria-busy="true"
+                aria-label="Loading more Gusts"
+                className="flex h-full w-full snap-start snap-always items-center justify-center py-0 sm:h-[98%] sm:py-2"
+              >
+                <GustCardSkeleton />
               </div>
             ) : null}
 
@@ -790,7 +1224,7 @@ export const ClientGusts: React.FC<ClientGustsProps> = () => {
           inert={!headerShown}
           data-gust-header
           className={cn(
-            "absolute top-3.5 right-16 left-16 z-30 flex min-h-11 justify-center transition-[opacity,transform] duration-200 motion-reduce:transform-none md:top-2.5",
+            "absolute top-6.5 right-16 left-16 z-30 flex min-h-11 justify-center transition-[opacity,transform] duration-200 motion-reduce:transform-none md:top-5.5",
             !headerShown && "pointer-events-none -translate-y-4 opacity-0"
           )}
         >
@@ -816,6 +1250,17 @@ export const ClientGusts: React.FC<ClientGustsProps> = () => {
           )}
         </div>
 
+        <div
+          aria-hidden={!headerShown}
+          inert={!headerShown}
+          className={cn(
+            "absolute top-4 right-4 z-30 transition-[opacity,transform] duration-200 motion-reduce:transform-none md:top-3.5",
+            !headerShown && "pointer-events-none -translate-y-4 opacity-0"
+          )}
+        >
+          <FeedSourceMenu following={gustTab === "following"} />
+        </div>
+
         {renderContent()}
 
         {/* Pull-to-refresh indicator (mobile) */}
@@ -824,34 +1269,33 @@ export const ClientGusts: React.FC<ClientGustsProps> = () => {
             height: pullDistance > 0 || isRefreshing ? pullDistance : 0,
             opacity: pullDistance > 0 || isRefreshing ? 1 : 0,
           }}
-          className="absolute top-14 right-0 left-0 z-20 flex items-start justify-center overflow-hidden"
+          className="absolute top-20 right-0 left-0 z-20 flex items-start justify-center overflow-hidden"
           style={{ height: pullDistance || 0 }}
         >
           <div className="rail-3d-btn mt-1 flex h-10 w-10 items-center justify-center rounded-full">
-            {isRefreshing ? (
-              <Loader2 className="text-primary size-5 animate-spin" />
-            ) : (
-              <Loader2
-                className="text-primary size-5"
-                style={{ transform: `rotate(${pullDistance * 2}deg)` }}
-              />
-            )}
+            <Skeleton
+              aria-label={isRefreshing ? "Refreshing Gusts" : "Pull to refresh"}
+              className="size-5 rounded-md"
+            />
           </div>
         </motion.div>
 
         {/* New gust pill */}
         <AnimatePresence>
-          {newGusts.length > 0 && !(isCommentsOpen && isMobile) ? (
+          {gustTab === "following" &&
+          allNewGusts.length > 0 &&
+          !(isCommentsOpen && isMobile) ? (
             <motion.div
               animate={{ opacity: 1, y: 0 }}
-              className="absolute top-16 left-1/2 z-30 -translate-x-1/2"
-              exit={{ opacity: 0, y: -12 }}
-              initial={{ opacity: 0, y: -12 }}
+              className="pointer-events-none absolute top-20 left-1/2 z-30 -translate-x-1/2"
+              exit={{ opacity: 0 }}
+              initial={false}
+              transition={reducedMotion ? { duration: 0 } : undefined}
             >
               <NewContentPill
                 authors={[
                   ...new Map<string, NewContentAuthor>(
-                    newGusts.map((post) => [
+                    allNewGusts.map((post) => [
                       post.userId,
                       {
                         avatarUrl: post.user?.avatarUrl,
@@ -861,7 +1305,7 @@ export const ClientGusts: React.FC<ClientGustsProps> = () => {
                     ])
                   ).values(),
                 ]}
-                count={newGusts.length}
+                count={allNewGusts.length}
                 noun="gust"
                 onClick={showNewGusts}
               />

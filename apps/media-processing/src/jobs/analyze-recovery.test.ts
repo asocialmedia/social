@@ -63,6 +63,7 @@ mock.module("@asm/db", () => ({
 mock.module("../env", () => ({
   workerEnv: {
     EMBEDDING_ENABLED: false,
+    GEMINI_API_KEY: "test-key-no-network",
     MULTIMODAL_EMBEDDING_ENABLED: false,
     WHISPER_ENABLED: true,
   },

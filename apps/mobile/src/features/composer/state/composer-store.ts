@@ -20,6 +20,7 @@ import type { MentionPick } from "../lib/inline-relations";
 export type ComposerMode = "gust" | "post";
 
 export interface ReplyTarget {
+  externalParentUri?: string;
   attachments?: FeedMedia[];
   avatarUrl: string | null;
   badge?: string | null;

@@ -1,6 +1,11 @@
+// oxlint-disable react/todo -- Polling releases its overlap guard after successful and failed reads.
 "use client";
 
+import { createFeedReadScheduler } from "@asm/protocols/discovery";
+import type { DiscoveryMode } from "@asm/protocols/discovery";
 import { useCallback, useEffect, useRef, useState } from "react";
+
+import { useFeedEvents } from "./use-feed-events";
 
 // Any feed item the hook can key on. PostData satisfies this.
 export interface NewContentItem {
@@ -39,15 +44,18 @@ export function findUnseenRankedItems<T extends NewContentItem>(
 }
 
 interface UseNewContentProbeOptions<T extends NewContentItem> {
+  eventSource?: "asm" | "bluesky" | "bluesky-following";
+  eventMode?: DiscoveryMode;
   // Skip probing entirely (e.g. a deep-linked detail feed that is not the
   // active timeline).
   enabled?: boolean;
   // Fetches ONLY the first page. Keeping this separate from the feed's
   // useInfiniteQuery is what lets a cached list stay on screen untouched.
-  fetchHead: () => Promise<T[]>;
+  fetchHead: (signal: AbortSignal) => Promise<T[]>;
   // Drops items that should never be surfaced as new (gusts only render video).
   filter?: (item: T) => boolean;
   intervalMs?: number;
+  probeOnMount?: boolean;
   // How the feed orders its rows, and the whole reason the cheap "did anything
   // arrive?" shortcut is conditional. "newest-first" (the default) can answer
   // it from the head row alone; "ranked" cannot, so the whole page has to be
@@ -64,17 +72,21 @@ interface UseNewContentProbeOptions<T extends NewContentItem> {
 interface UseNewContentProbeResult<T> {
   clearNewItems: () => void;
   newItems: T[];
+  probeNow: () => Promise<void>;
 }
 
 // Twitter-style new-content detection: probe the head in the background, then
 // hold the unseen posts in local state so the visible feed and its scroll
-// position never move until the viewer taps the badge. The caller decides how
-// to merge (prepend) and scroll on tap.
+// position never move until the caller reveals them, either on a badge click
+// or when the reader returns to the top of the feed.
 export function useNewContentProbe<T extends NewContentItem>({
   enabled = true,
+  eventSource,
+  eventMode,
   fetchHead,
   filter,
-  intervalMs = 45_000,
+  intervalMs = 90_000,
+  probeOnMount = true,
   order = "newest-first",
   resetKey,
   visible,
@@ -85,14 +97,32 @@ export function useNewContentProbe<T extends NewContentItem>({
     items: T[];
     key: UseNewContentProbeOptions<T>["resetKey"];
   }>({ items: [], key: resetKey });
-  const newItems = badge.key === resetKey ? badge.items : [];
+  const visibleIds = new Set(visible.map((item) => item.id));
+  const newItems =
+    badge.key === resetKey
+      ? badge.items.filter((item) => !visibleIds.has(item.id))
+      : [];
 
   // Latest values live in refs so the polling interval keeps one stable
   // identity and is not torn down/recreated on every render.
   const visibleRef = useRef(visible);
   const fetchHeadRef = useRef(fetchHead);
   const filterRef = useRef(filter);
+  const probeRef = useRef<() => Promise<void>>(() => Promise.resolve());
   const ranked = order === "ranked";
+  const scheduleRef = useRef<() => void>(() => {
+    // Wait until the enabled probe installs its scheduler.
+  });
+  useFeedEvents(enabled && Boolean(eventSource), (change) => {
+    if (
+      change.source === "connected" ||
+      ((change.source === eventSource ||
+        (eventSource === "bluesky" && change.source === "bluesky-following")) &&
+        (!change.mode || change.mode === eventMode))
+    ) {
+      scheduleRef.current();
+    }
+  });
 
   useEffect(() => {
     visibleRef.current = visible;
@@ -107,19 +137,29 @@ export function useNewContentProbe<T extends NewContentItem>({
     if (!enabled) {
       return;
     }
-
+    let active = true;
+    let inFlight = false;
+    let lastAutomaticProbeAt = Date.now();
+    const controller = new AbortController();
     const probe = async () => {
-      const { current } = visibleRef;
-      if (current.length === 0) {
+      if (inFlight || !active || document.visibilityState === "hidden") {
         return;
       }
       let fresh: T[];
+      inFlight = true;
       try {
-        fresh = await fetchHeadRef.current();
+        fresh = await fetchHeadRef.current(controller.signal);
       } catch {
         // Best-effort probe; keep the current feed on transient failures.
         return;
+      } finally {
+        inFlight = false;
       }
+      if (!active) {
+        return;
+      }
+      // The feed may have loaded or merged posts while this read was pending.
+      const { current } = visibleRef;
       const { current: filterFn } = filterRef;
       const candidates = filterFn ? fresh.filter(filterFn) : fresh;
       if (!ranked) {
@@ -137,22 +177,60 @@ export function useNewContentProbe<T extends NewContentItem>({
         ? findUnseenRankedItems(candidates, knownIds)
         : findUnseenItems(candidates, knownIds);
       if (unseen.length > 0) {
-        setBadge({ items: unseen, key: resetKey });
+        setBadge((previous) => ({
+          items: [
+            ...new Map(
+              [...unseen, ...(previous.key === resetKey ? previous.items : [])]
+                .filter((item) => !knownIds.has(item.id))
+                .map((item) => [item.id, item])
+            ).values(),
+          ].slice(0, 20),
+          key: resetKey,
+        }));
       }
     };
 
     // Probe immediately so returning to a cached tab surfaces an existing
     // backlog right away instead of waiting a full interval.
-    void probe();
-    const interval = window.setInterval(() => {
+    if (probeOnMount) {
       void probe();
+    }
+    probeRef.current = probe;
+    const automaticProbe = () => {
+      if (Date.now() - lastAutomaticProbeAt < intervalMs) {
+        return Promise.resolve();
+      }
+      lastAutomaticProbeAt = Date.now();
+      return probe();
+    };
+    const scheduler = createFeedReadScheduler(automaticProbe);
+    scheduleRef.current = scheduler.schedule;
+    const onVisible = () => {
+      void automaticProbe();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("network:learned", scheduler.schedule);
+    const interval = window.setInterval(() => {
+      void automaticProbe();
     }, intervalMs);
-    return () => window.clearInterval(interval);
-  }, [enabled, intervalMs, ranked, resetKey]);
+    return () => {
+      active = false;
+      scheduler.stop();
+      scheduleRef.current = () => {
+        // Ignore events after this probe stops.
+      };
+      controller.abort();
+      probeRef.current = () => Promise.resolve();
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("network:learned", scheduler.schedule);
+      window.clearInterval(interval);
+    };
+  }, [enabled, intervalMs, probeOnMount, ranked, resetKey]);
 
   const clearNewItems = useCallback(() => {
     setBadge((previous) => ({ ...previous, items: [] }));
   }, []);
 
-  return { clearNewItems, newItems };
+  const probeNow = useCallback(() => probeRef.current(), []);
+  return { clearNewItems, newItems, probeNow };
 }

@@ -186,6 +186,133 @@
     background-color: var(--community-accent-dark);
   }
 
+  .btn-3d-bluesky {
+    color: white;
+    font-weight: 600;
+    background: linear-gradient(to bottom, #159dff, #0866df);
+    box-shadow:
+      inset 0 0 0 1px rgb(255 255 255 / 28%),
+      inset 0 1.5px 2px rgb(255 255 255 / 50%),
+      0 0 0 1px #0758bf,
+      0 1px 1px rgb(255 255 255 / 45%),
+      0 4px 10px -3px rgb(0 70 180 / 35%);
+    transition:
+      background 150ms,
+      transform 150ms;
+  }
+
+  .btn-3d-bluesky:hover {
+    background: linear-gradient(to bottom, #39adff, #0875ee);
+    transform: translateY(-1px);
+  }
+
+  .btn-3d-bluesky:active {
+    transform: translateY(1px);
+  }
+
+  .btn-3d-bluesky:focus-visible {
+    outline: 2px solid #159dff;
+    outline-offset: 3px;
+  }
+
+  .btn-3d-bluesky:disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
+    transform: none;
+    box-shadow:
+      inset 0 0 0 1px rgb(255 255 255 / 15%),
+      0 0 0 1px #0758bf;
+  }
+
+  .btn-3d-white {
+    color: #0866df;
+    font-weight: 700;
+    background: linear-gradient(to bottom, #ffffff, #eaf2fd);
+    border-radius: 12px;
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 255, 255, 0.95),
+      inset 0 1.5px 2px #ffffff,
+      0 0 0 1px rgba(7, 88, 191, 0.25),
+      0 1px 2px rgba(0, 0, 0, 0.12),
+      0 3px 8px rgba(0, 50, 150, 0.22);
+    transition: all 150ms ease;
+  }
+
+  .btn-3d-white:hover {
+    background: linear-gradient(to bottom, #ffffff, #f2f7ff);
+    transform: translateY(-1px);
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 255, 255, 1),
+      inset 0 2px 3px #ffffff,
+      0 0 0 1px rgba(7, 88, 191, 0.35),
+      0 2px 4px rgba(0, 0, 0, 0.15),
+      0 5px 12px rgba(0, 50, 150, 0.28);
+  }
+
+  .btn-3d-white:active {
+    background: linear-gradient(to bottom, #e2edfd, #d5e5fc);
+    transform: translateY(1px);
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 255, 255, 0.7),
+      inset 0 1px 2px rgba(0, 0, 0, 0.1),
+      0 0 0 1px rgba(7, 88, 191, 0.25),
+      0 1px 2px rgba(0, 0, 0, 0.08);
+  }
+
+  .btn-3d-white:disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
+    transform: none;
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 255, 255, 0.6),
+      0 0 0 1px rgba(7, 88, 191, 0.2);
+  }
+
+  .btn-3d-sponsor {
+    color: #ffffff;
+    font-weight: 600;
+    text-shadow: 0 1px 1px rgba(0, 0, 0, 0.25);
+    background: linear-gradient(to bottom, #ea4aaa, #c92f8d);
+    border-radius: 12px;
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 255, 255, 0.35),
+      inset 0 1.5px 2px rgba(255, 255, 255, 0.6),
+      0 0 0 1px rgba(180, 20, 110, 0.85),
+      0 1px 1px rgba(255, 255, 255, 0.4),
+      0 3px 6px rgba(234, 74, 170, 0.25);
+    transition: all 150ms ease;
+  }
+
+  .btn-3d-sponsor:hover {
+    background: linear-gradient(to bottom, #f05bb3, #d43b9a);
+    transform: translateY(-1px);
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 255, 255, 0.45),
+      inset 0 2px 3px rgba(255, 255, 255, 0.75),
+      0 0 0 1px rgba(180, 20, 110, 0.85),
+      0 2px 3px rgba(255, 255, 255, 0.5),
+      0 5px 10px rgba(234, 74, 170, 0.35);
+  }
+
+  .btn-3d-sponsor:active {
+    background: linear-gradient(to bottom, #d43b9a, #b3257c);
+    transform: translateY(1px);
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 255, 255, 0.2),
+      inset 0 1px 2px rgba(0, 0, 0, 0.15),
+      0 0 0 1px rgba(180, 20, 110, 0.85),
+      0 1px 2px rgba(0, 0, 0, 0.08);
+  }
+
+  .btn-3d-sponsor:disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
+    transform: none;
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 255, 255, 0.2),
+      0 0 0 1px rgba(180, 20, 110, 0.6);
+  }
+
   .btn-3d {
     font-size: 18px;
     font-weight: 600;
@@ -474,6 +601,26 @@
       0 1px 1px rgba(255, 255, 255, 0.8);
   }
 
+  /* Light mode. The rule above is a dark fill with white hairlines, so without
+     this the select rendered as a black bar on the light settings page. Same
+     construction as .premium-input in light mode: a soft inset, a black ring at
+     low opacity, and a bright lip, rather than the inverted dark recipe. */
+  :root:not(.dark) .premium-select {
+    color: hsl(var(--foreground));
+    background-color: hsl(var(--background));
+    box-shadow:
+      inset 0 1px 2px rgba(0, 0, 0, 0.06),
+      0 0 0 1px rgba(0, 0, 0, 0.1),
+      0 1px 1px rgba(0, 0, 0, 0.03);
+  }
+
+  :root:not(.dark) .premium-select:focus {
+    box-shadow:
+      inset 0 1px 2px rgba(0, 0, 0, 0.06),
+      0 0 0 1px hsl(var(--primary) / 0.5),
+      0 0 0 3px hsl(var(--primary) / 0.15);
+  }
+
   .panel-3d {
     background: hsl(var(--background-alt));
     border: 1px solid rgba(0, 0, 0, 0.12);
@@ -514,6 +661,106 @@
       0 1px 3px rgba(0, 0, 0, 0.06);
   }
 
+  /* A segmented control built from the same dual border as the rest of the app:
+     the track is recessed (inner shadow plus a hard outer hairline), and the
+     chosen segment is a separate raised object with its own outer edge, bright
+     top lip and one small directional shadow. Used by the spotlight's network
+     switcher. */
+  .segmented-3d {
+    background: linear-gradient(
+      to bottom,
+      hsl(var(--muted)),
+      hsl(var(--background-alt))
+    );
+    box-shadow:
+      inset 0 2px 3px rgba(0, 0, 0, 0.1),
+      inset 0 0 0 1px rgba(0, 0, 0, 0.06),
+      0 1px 1px rgba(255, 255, 255, 0.7);
+  }
+
+  .dark .segmented-3d {
+    background: linear-gradient(to bottom, #1d1d1d, #262626);
+    box-shadow:
+      inset 0 2px 4px rgba(0, 0, 0, 0.45),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.06),
+      0 1px 1px rgba(255, 255, 255, 0.04);
+  }
+
+  /* The same recess, carried on the Bluesky surface: a slightly deeper blue
+     well, with its light coming from the top lip only. Deliberately no dark
+     ring, because a black outline on blue reads as a foreign edge. */
+  .segmented-3d-on-brand {
+    background: linear-gradient(
+      to bottom,
+      rgba(2, 46, 112, 0.34),
+      rgba(2, 46, 112, 0.18)
+    );
+    box-shadow:
+      inset 0 1px 2px rgba(0, 26, 70, 0.28),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.32),
+      0 1px 1px rgba(255, 255, 255, 0.26);
+  }
+
+  .segment-3d {
+    color: hsl(var(--foreground));
+    background: linear-gradient(
+      to bottom,
+      hsl(var(--background)),
+      hsl(var(--card))
+    );
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 255, 255, 0.9),
+      inset 0 1.5px 2px rgba(255, 255, 255, 1),
+      0 0 0 1px rgba(0, 0, 0, 0.12),
+      0 1px 2px rgba(0, 0, 0, 0.12);
+  }
+
+  .dark .segment-3d {
+    color: hsl(var(--foreground));
+    background: linear-gradient(to bottom, #3d3d3d, #2b2b2b);
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 255, 255, 0.14),
+      inset 0 1.5px 2px rgba(255, 255, 255, 0.18),
+      0 0 0 1px rgba(0, 0, 0, 0.5),
+      0 1px 2px rgba(0, 0, 0, 0.4);
+  }
+
+  .segment-3d-orange {
+    color: #ffffff;
+    text-shadow: 0 1px 1px rgba(0, 0, 0, 0.2);
+    background: linear-gradient(to bottom, #ff9500, #e65500);
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 255, 255, 0.28),
+      inset 0 1.5px 2px rgba(255, 255, 255, 0.5),
+      0 0 0 1px rgba(170, 60, 0, 0.95),
+      0 1px 1px rgba(255, 255, 255, 0.4),
+      0 2px 4px rgba(0, 0, 0, 0.14);
+  }
+
+  .segment-3d-bluesky {
+    color: #ffffff;
+    background: linear-gradient(to bottom, #159dff, #0866df);
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 255, 255, 0.3),
+      inset 0 1.5px 2px rgba(255, 255, 255, 0.5),
+      0 0 0 1px #0758bf,
+      0 1px 1px rgba(255, 255, 255, 0.4),
+      0 2px 4px rgba(0, 70, 180, 0.24);
+  }
+
+  /* The chosen segment inside the Bluesky dialog: white fill, blue ink, so it
+     is unmistakably the selected key on a blue panel. Its separation comes from
+     the white fill and a soft blue shadow rather than a black ring, because a
+     black outline on blue reads as a foreign edge. */
+  .segment-3d-on-brand {
+    color: #0866df;
+    background: linear-gradient(to bottom, #ffffff, #e9f2ff);
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 255, 255, 1),
+      inset 0 1.5px 2px #ffffff,
+      0 1px 2px rgba(1, 32, 85, 0.32);
+  }
+
   .tabs-segment-3d[data-state="active"] {
     color: hsl(var(--foreground));
     background: linear-gradient(
@@ -551,11 +798,89 @@
       0 1px 1px rgba(0, 0, 0, 0.04);
   }
 
+  /* A chosen item: the same 3D construction as .orange-3d-surface, in the neutral
+     surface tone rather than a colour. Four layers, which is what makes it read as
+     a raised object instead of a flat rectangle: a hard outer ring (the edge), a
+     bright inner lip along the top (light catching the bevel), a soft fill that is
+     lighter than the page, and one small directional shadow. The label stays
+     foreground ink, so selection is carried by depth rather than by a hue. */
+  .chip-3d-raised {
+    color: hsl(var(--foreground));
+    background: linear-gradient(
+      to bottom,
+      hsl(var(--background)),
+      hsl(var(--muted))
+    );
+    border: 1px solid rgba(0, 0, 0, 0.14);
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 255, 255, 0.7),
+      inset 0 1.5px 2px rgba(255, 255, 255, 0.9),
+      inset 0 -1px 2px rgba(0, 0, 0, 0.04),
+      0 1px 2px rgba(0, 0, 0, 0.08);
+  }
+
+  .dark .chip-3d-raised {
+    color: hsl(var(--foreground));
+    background: linear-gradient(to bottom, #3a3a3a, #2a2a2a);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 255, 255, 0.08),
+      inset 0 1.5px 2px rgba(255, 255, 255, 0.14),
+      inset 0 -1px 2px rgba(0, 0, 0, 0.3),
+      0 1px 2px rgba(0, 0, 0, 0.4);
+  }
+
+  /* Feathers the edge of a horizontally scrolling strip so a partially visible
+     item reads as "there is more" instead of a label sliced at the boundary.
+     The masks are applied to the strip itself, so the fade travels with the
+     content and nothing is painted over the text. The attributes are set by
+     useHorizontalDragScroll. */
+  .tab-strip-fade {
+    --tab-fade-from: 0px;
+    --tab-fade-to: 0px;
+    mask-image: linear-gradient(
+      to right,
+      transparent 0,
+      #000 var(--tab-fade-from),
+      #000 calc(100% - var(--tab-fade-to)),
+      transparent 100%
+    );
+  }
+
+  .tab-strip-fade[data-overflow-start] {
+    --tab-fade-from: 1.5rem;
+  }
+
+  .tab-strip-fade[data-overflow-end] {
+    --tab-fade-to: 1.5rem;
+  }
+
   .dark .chip-3d {
     border: 1px solid rgba(255, 255, 255, 0.1);
     box-shadow:
       inset 0 1px 1px rgba(255, 255, 255, 0.05),
       0 1px 1px rgba(0, 0, 0, 0.2);
+  }
+
+  /* A chip or card that sits ON a brand surface. Same dual border, tinted to
+     the panel behind it rather than to black, so it reads as placed. */
+  .chip-3d-on-brand {
+    color: #ffffff;
+    background: rgba(255, 255, 255, 0.16);
+    border: 1px solid rgba(255, 255, 255, 0.38);
+    box-shadow:
+      inset 0 1px 1px rgba(255, 255, 255, 0.34),
+      inset 0 -1px 2px rgba(0, 25, 70, 0.16),
+      0 1px 2px rgba(0, 30, 80, 0.18);
+  }
+
+  .surface-3d-on-brand {
+    background: rgba(255, 255, 255, 0.13);
+    border: 1px solid rgba(255, 255, 255, 0.32);
+    box-shadow:
+      inset 0 1px 1px rgba(255, 255, 255, 0.32),
+      inset 0 -1px 2px rgba(0, 25, 70, 0.16),
+      0 1px 2px rgba(0, 30, 80, 0.18);
   }
 
   .explore-recommended-chip {
@@ -647,48 +972,74 @@
       0 2px 5px rgba(0, 0, 0, 0.2);
   }
 
-  .premium-switch {
-    background-color: hsl(var(--muted));
+  .premium-switch,
+  .switch-3d {
+    background-color: #212124;
+    border: 1px solid rgba(255, 255, 255, 0.1);
     box-shadow:
-      inset 0 2px 3px rgba(0, 0, 0, 0.18),
-      0 0 0 1px rgba(0, 0, 0, 0.08),
+      inset 0 2px 4px rgba(0, 0, 0, 0.45),
+      inset 0 0 0 1px rgba(0, 0, 0, 0.25),
       0 1px 1px rgba(255, 255, 255, 0.05);
+    transition: all 0.2s cubic-bezier(0.25, 1, 0.5, 1);
   }
 
-  .premium-switch[data-state="checked"] {
+  .premium-switch[data-state="checked"],
+  .switch-3d[data-state="checked"] {
     background: linear-gradient(to bottom, #ff9500, #e65500);
+    border-color: rgba(170, 60, 0, 0.95);
     box-shadow:
-      inset 0 0 0 1px rgba(255, 255, 255, 0.25),
-      inset 0 1.5px 2px rgba(255, 255, 255, 0.5),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.35),
+      inset 0 1.5px 2px rgba(255, 255, 255, 0.6),
       0 0 0 1px rgba(170, 60, 0, 0.95),
-      0 1px 1px rgba(255, 255, 255, 0.5),
-      0 2px 4px rgba(0, 0, 0, 0.2);
+      0 1px 2px rgba(255, 255, 255, 0.4),
+      0 3px 6px rgba(0, 0, 0, 0.25);
   }
 
-  :root:not(.dark) .premium-switch {
-    background-color: hsl(var(--background));
+  :root:not(.dark) .premium-switch,
+  :root:not(.dark) .switch-3d {
+    background-color: #e2e4e8;
+    border: 1px solid rgba(0, 0, 0, 0.12);
     box-shadow:
-      inset 0 1px 2px rgba(0, 0, 0, 0.08),
-      0 0 0 1px rgba(0, 0, 0, 0.12),
-      0 1px 1px rgba(0, 0, 0, 0.03);
+      inset 0 2px 3px rgba(0, 0, 0, 0.15),
+      inset 0 0 0 1px rgba(0, 0, 0, 0.05),
+      0 1px 1px rgba(255, 255, 255, 0.8);
   }
 
-  :root:not(.dark) .premium-switch[data-state="checked"] {
+  :root:not(.dark) .premium-switch[data-state="checked"],
+  :root:not(.dark) .switch-3d[data-state="checked"] {
     background: linear-gradient(to bottom, #ff9500, #e65500);
+    border-color: rgba(230, 85, 0, 0.85);
     box-shadow:
-      inset 0 0 0 1px rgba(255, 255, 255, 0.5),
-      inset 0 1.5px 2px rgba(255, 255, 255, 0.65),
-      0 0 0 1px rgba(230, 85, 0, 0.32),
-      0 1px 2px rgba(190, 75, 0, 0.24),
-      0 3px 7px -2px rgba(190, 75, 0, 0.26);
+      inset 0 0 0 1px rgba(255, 255, 255, 0.55),
+      inset 0 1.5px 2px rgba(255, 255, 255, 0.75),
+      0 0 0 1px rgba(230, 85, 0, 0.35),
+      0 1px 2px rgba(190, 75, 0, 0.25),
+      0 3px 7px -2px rgba(190, 75, 0, 0.3);
   }
 
-  .premium-switch > span {
-    background: #ffffff;
+  .premium-switch > span,
+  .switch-3d > span,
+  .switch-3d-thumb {
+    background: linear-gradient(to bottom, #ffffff, #edf0f5);
+    border: 1px solid rgba(0, 0, 0, 0.12);
     box-shadow:
-      inset 0 0 0 1px rgba(255, 255, 255, 0.6),
-      0 1px 2px rgba(0, 0, 0, 0.25),
-      0 2px 4px rgba(0, 0, 0, 0.12);
+      inset 0 1px 1.5px #ffffff,
+      inset 0 -1px 1px rgba(0, 0, 0, 0.08),
+      0 2px 4px rgba(0, 0, 0, 0.25),
+      0 1px 2px rgba(0, 0, 0, 0.15);
+    transition: transform 0.2s cubic-bezier(0.25, 1, 0.5, 1);
+  }
+
+  .premium-switch[data-state="checked"] > span,
+  .switch-3d[data-state="checked"] > span,
+  .switch-3d[data-state="checked"] .switch-3d-thumb {
+    background: linear-gradient(to bottom, #ffffff, #fff7ed);
+    border: 1px solid rgba(170, 60, 0, 0.18);
+    box-shadow:
+      inset 0 1px 1.5px #ffffff,
+      inset 0 -1px 1px rgba(230, 85, 0, 0.15),
+      0 2px 4px rgba(0, 0, 0, 0.25),
+      0 1px 2px rgba(170, 60, 0, 0.2);
   }
 
   .premium-slider-track {
@@ -944,5 +1295,64 @@
       0 0 0 1px rgba(230, 85, 0, 0.32),
       0 1px 2px rgba(190, 75, 0, 0.24),
       0 3px 7px -2px rgba(190, 75, 0, 0.26);
+  }
+  .bluesky-3d-surface {
+    color: #ffffff;
+    background: linear-gradient(to bottom, #159dff, #0866df);
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 255, 255, 0.28),
+      inset 0 1.5px 2px rgba(255, 255, 255, 0.5),
+      0 0 0 1px #0758bf,
+      0 1px 1px rgba(255, 255, 255, 0.4),
+      0 3px 5px rgba(0, 70, 180, 0.2);
+  }
+
+  :root:not(.dark) .bluesky-3d-surface {
+    color: #ffffff;
+    background: linear-gradient(to bottom, #159dff, #0866df);
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 255, 255, 0.5),
+      inset 0 1.5px 2px rgba(255, 255, 255, 0.65),
+      0 0 0 1px rgba(8, 102, 223, 0.4),
+      0 1px 2px rgba(0, 70, 180, 0.25),
+      0 3px 7px -2px rgba(0, 70, 180, 0.3);
+  }
+
+  /* A white button that sits ON a brand-coloured surface (the Bluesky tooltip).
+     White fill would disappear against a white page, so the dual border does the
+     separating: a bright inner lip on the top edge, then a ring in the surface's
+     own blue, one step darker than the fill behind it. Tinted to the parent
+     rather than to black, which is what keeps it looking placed instead of
+     stamped on. */
+  .btn-3d-on-brand {
+    color: #0866df;
+    font-weight: 600;
+    background: linear-gradient(to bottom, #ffffff, #eef5ff);
+    border-radius: 12px;
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 255, 255, 1),
+      inset 0 1.5px 2px #ffffff,
+      0 0 0 1px rgba(3, 55, 130, 0.55),
+      0 1px 2px rgba(0, 40, 100, 0.3);
+    transition:
+      background-color 150ms ease,
+      box-shadow 150ms ease;
+  }
+
+  .btn-3d-on-brand:hover {
+    background: linear-gradient(to bottom, #ffffff, #e2eeff);
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 255, 255, 1),
+      inset 0 1.5px 2px #ffffff,
+      0 0 0 1px rgba(3, 55, 130, 0.7),
+      0 2px 3px rgba(0, 40, 100, 0.35);
+  }
+
+  .btn-3d-on-brand:active {
+    background: linear-gradient(to bottom, #dceaff, #cfe1ff);
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 255, 255, 0.8),
+      inset 0 1px 2px rgba(0, 40, 100, 0.28),
+      0 0 0 1px rgba(3, 55, 130, 0.7);
   }
 }

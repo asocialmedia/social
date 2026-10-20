@@ -1,4 +1,4 @@
-import type { PostData, UserData } from "@asm/db";
+import type { UserData } from "@asm/db";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -19,6 +19,7 @@ import type * as React from "react";
 import { useCallback, useRef, useState } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
+import { ExternalPostMenu } from "@/components/protocols/external-post-controls";
 import {
   clearRecommendationNotInterested,
   markRecommendationNotInterested,
@@ -28,6 +29,7 @@ import { useToast } from "@/lib/gooey-toast";
 import { canModeratePost } from "@/lib/moderation/moderation";
 import { setPopupOpen } from "@/lib/popup-tracker";
 import { getPostAttachments } from "@/lib/posts/post-normalize";
+import type { PresentedPost as PostData } from "@/lib/posts/presentation";
 import { toggleAltReveal, useAltRevealed } from "@/lib/stores/alt-reveal-store";
 import { useVideoCaptionsStore } from "@/lib/stores/video-captions-store";
 import { cn } from "@/lib/utils";
@@ -57,7 +59,7 @@ interface PostMoreButtonProps {
   iconClassName?: string;
 }
 
-export default function PostMoreButton({
+function NativePostMoreButton({
   post,
   className,
   iconClassName,
@@ -358,5 +360,17 @@ export default function PostMoreButton({
         tags={post.tags ?? []}
       />
     </>
+  );
+}
+
+export default function PostMoreButton(props: PostMoreButtonProps) {
+  return props.post.external ? (
+    <ExternalPostMenu
+      post={props.post.external}
+      className={props.className}
+      iconClassName={props.iconClassName}
+    />
+  ) : (
+    <NativePostMoreButton {...props} />
   );
 }

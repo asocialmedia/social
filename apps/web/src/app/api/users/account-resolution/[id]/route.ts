@@ -6,6 +6,11 @@ import {
 import { z } from "zod";
 
 import {
+  accountNotices,
+  noticeTimestamp,
+  queueNotice,
+} from "@/lib/auth/account-notices";
+import {
   finishAccountResolution,
   getAccountReview,
   loadAccountReview,
@@ -152,7 +157,40 @@ async function handle(request: Request, context: Context) {
       await setupAccountForResolution(id, pending, input.side, input.password);
       return Response.json({ saved: true });
     }
+
+    // Read account profiles before finishing resolution so that account details
+    // (usernames, email addresses) remain available after the retired user is deleted.
+    const resolved = await getAccountReview(id, pending.state);
     const result = await finishAccountResolution(id, pending, input);
+
+    // The resolution is committed. Notify every address that belonged to either
+    // side, since only the keeper survives and the retired mailbox may be the
+    // one the person can still read.
+    const completedAt = noticeTimestamp();
+    const keptSide =
+      input.keepUserId === pending.state.userId
+        ? resolved.current
+        : resolved.other;
+    const removedSide =
+      input.keepUserId === pending.state.userId
+        ? resolved.other
+        : resolved.current;
+    for (const side of [resolved.current, resolved.other]) {
+      const recipient = side.email;
+      if (!recipient) {
+        continue;
+      }
+      queueNotice(() =>
+        accountNotices.accountMerged({
+          completedAt,
+          keptUsername: keptSide.username,
+          mode: input.mode,
+          recipient,
+          removedUsername: removedSide.username,
+        })
+      );
+    }
+
     return Response.json({ complete: true, ...result });
   } catch (error) {
     if (error instanceof AccountResolutionError) {

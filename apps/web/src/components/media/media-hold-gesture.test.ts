@@ -109,6 +109,21 @@ test("grid holds select the touched image or video, including source-backed vide
   expect(
     findHeldMedia(window.document.body as unknown as Element, media)
   ).toBeNull();
+
+  // External images whose img src matches thumbnailKey instead of full media.id
+  const externalMedia = [
+    {
+      id: "https://cdn.bsky.app/original",
+      thumbnailKey: "https://cdn.bsky.app/thumb",
+    },
+  ];
+  window.document.body.innerHTML =
+    '<button><img src="https://cdn.bsky.app/thumb"></button>';
+  const externalImg = window.document.querySelector("img");
+  expect(
+    findHeldMedia(externalImg as unknown as Element, externalMedia)?.index
+  ).toBe(0);
+
   void window.happyDOM.close();
 });
 

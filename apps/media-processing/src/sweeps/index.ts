@@ -832,7 +832,11 @@ export const TRANSCRIPTION_BACKFILL_RETRY_WINDOW_MS = 6 * 60 * 60 * 1000; // 6 h
 export async function transcriptionBackfillSweep(): Promise<{
   enqueued: number;
 }> {
-  if (!workerEnv.BACKFILL_ENABLED) {
+  if (
+    !workerEnv.BACKFILL_ENABLED ||
+    !workerEnv.WHISPER_ENABLED ||
+    !workerEnv.GEMINI_API_KEY
+  ) {
     return { enqueued: 0 };
   }
   const candidates = await prisma.orm.public.PostMedia.select(
@@ -860,10 +864,17 @@ export async function transcriptionBackfillSweep(): Promise<{
       candidate.techMetadata && typeof candidate.techMetadata === "object"
         ? (candidate.techMetadata as Record<string, unknown>)
         : null;
-    const trans =
-      tech?.transcription && typeof tech.transcription === "object"
-        ? (tech.transcription as Record<string, unknown>)
+    const stages =
+      tech?.analysisStages && typeof tech.analysisStages === "object"
+        ? (tech.analysisStages as Record<string, unknown>)
         : null;
+    const trans =
+      (stages?.transcription && typeof stages.transcription === "object"
+        ? (stages.transcription as Record<string, unknown>)
+        : null) ??
+      (tech?.transcription && typeof tech.transcription === "object"
+        ? (tech.transcription as Record<string, unknown>)
+        : null);
 
     if (trans) {
       const status = typeof trans.status === "string" ? trans.status : "";
@@ -871,7 +882,8 @@ export async function transcriptionBackfillSweep(): Promise<{
       if (
         status === "no_audio" ||
         status === "silent" ||
-        status === "completed"
+        status === "completed" ||
+        status === "skipped"
       ) {
         continue;
       }
@@ -891,7 +903,7 @@ export async function transcriptionBackfillSweep(): Promise<{
     try {
       await enqueueMediaAnalyze(candidate.id, { semanticRefresh: true });
       enqueued += 1;
-      mediaLogger.info(
+      mediaLogger.debug(
         { mediaId: candidate.id },
         "transcription backfill sweep enqueued media for analyze"
       );
@@ -1070,20 +1082,7 @@ export async function registerSweepSchedulers(connectionOptions: {
     mediaLogger.error({ error: String(error) }, "sweep worker error");
   });
 
-  // Run an initial pass on worker boot so existing uncaptioned videos start processing immediately
-  void (async () => {
-    try {
-      const { enrichmentReconciliationSweep } = await import("./enrichment");
-      await enrichmentReconciliationSweep();
-      await transcriptionBackfillSweep();
-      await semanticClassificationBackfillSweep();
-    } catch (error) {
-      mediaLogger.warn(
-        { error: String(error) },
-        "initial transcription backfill pass failed"
-      );
-    }
-  })();
-
+  // New BullMQ schedulers already run immediately; existing schedules resume
+  // their interval. Keep every pass in the queue so startup cannot race it.
   return sweepWorker;
 }

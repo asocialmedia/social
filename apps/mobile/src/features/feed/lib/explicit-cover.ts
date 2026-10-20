@@ -14,7 +14,7 @@ export function explicitCoverUrl(
     return null;
   }
   return isVideoMedia(media)
-    ? mediaPosterUrl(apiBase, media.id)
+    ? mediaPosterUrl(apiBase, media.id, media.thumbnailKey)
     : mediaVariantUrl(apiBase, media.id, "md-webp.webp");
 }
 

@@ -1,31 +1,27 @@
 "use client";
 
-import type { Session, User } from "@asm/auth/core";
 import type React from "react";
-import { createContext, useContext } from "react";
 
-// oxlint-disable-next-line no-redeclare -- context idiom: type shares its name with the runtime context
-interface SessionContext {
-  session: Session | null;
-  user: User | null;
-}
+import { FeedCacheProvider } from "@/components/feeds/feed-cache-provider";
+import { NetworkSettingsSync } from "@/components/feeds/network-settings-sync";
+import { SessionContext } from "@/lib/auth/session-context";
+import type { SessionContextValue } from "@/lib/auth/session-context";
 
-const SessionContext = createContext<SessionContext | null>(null);
+export { useSession } from "@/lib/auth/session-context";
 
 export default function SessionProvider({
   children,
   value,
-}: React.PropsWithChildren<{ value: SessionContext | null }>) {
+}: React.PropsWithChildren<{ value: SessionContextValue | null }>) {
   return (
-    <SessionContext.Provider value={value}>{children}</SessionContext.Provider>
+    <SessionContext.Provider value={value}>
+      <FeedCacheProvider
+        key={value?.user?.id ?? "guest"}
+        viewer={value?.user?.id ?? "guest"}
+      >
+        <NetworkSettingsSync />
+        {children}
+      </FeedCacheProvider>
+    </SessionContext.Provider>
   );
-}
-
-export function useSession(): SessionContext {
-  const context = useContext(SessionContext);
-  if (!context) {
-    // Guests browse without a session; every consumer must handle a null user.
-    return { session: null, user: null };
-  }
-  return context;
 }

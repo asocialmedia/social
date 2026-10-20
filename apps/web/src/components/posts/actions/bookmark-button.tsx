@@ -16,6 +16,7 @@ import kyInstance from "@/lib/ky";
 import { cn } from "@/lib/utils";
 
 interface BookmarkButtonProps {
+  controller?: { state: BookmarkInfo; toggle: () => void; pending?: boolean };
   className?: string;
   // The trigger sizes itself (h-7 w-7, sm:h-7.5) and its icon with it. A caller
   // that renders a larger touch target - the gust rail, the media viewer - must
@@ -34,6 +35,7 @@ const BookmarkXIcon = <BookmarkX />;
 
 export default function BookmarkButton({
   className,
+  controller,
   iconClassName,
   kind = "post",
   postId,
@@ -44,7 +46,8 @@ export default function BookmarkButton({
   const queryClient = useQueryClient();
   const { isLoggedIn, goToLogin } = useRequireAuth();
   const queryKey: QueryKey = ["bookmark-info", postId];
-  const { data } = useQuery({
+  const { data: nativeData } = useQuery({
+    enabled: !controller,
     initialData: initialState,
     queryFn: () =>
       kyInstance.get(`/api/posts/${postId}/bookmark`).json<BookmarkInfo>(),
@@ -52,6 +55,7 @@ export default function BookmarkButton({
     staleTime: Number.POSITIVE_INFINITY,
   });
 
+  const data = controller?.state ?? nativeData;
   const { mutate, isPending } = useMutation({
     mutationFn: () =>
       data.isBookmarkedByUser
@@ -100,15 +104,19 @@ export default function BookmarkButton({
       goToLogin();
       return;
     }
-    mutate();
-  }, [goToLogin, isLoggedIn, mutate]);
+    if (controller) {
+      controller.toggle();
+    } else {
+      mutate();
+    }
+  }, [controller, goToLogin, isLoggedIn, mutate]);
 
   if (layout === "menu") {
     return (
       <button
         aria-pressed={data.isBookmarkedByUser}
         className={MEDIA_MENU_ACTION_CLASS}
-        disabled={isPending}
+        disabled={isPending || controller?.pending}
         onClick={handleBookmark}
         type="button"
       >

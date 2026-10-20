@@ -1,8 +1,8 @@
 "use client";
 
 import type { PostPreviewSource } from "@asm/ui/lib/post-preview-layout";
-import { useQueryClient } from "@tanstack/react-query";
-import { useParams } from "next/navigation";
+import { notifyManager, useQueryClient } from "@tanstack/react-query";
+import { useParams, useSearchParams } from "next/navigation";
 import { useCallback, useSyncExternalStore } from "react";
 
 import { cachedPostPreview } from "@/lib/posts/cached-post-preview";
@@ -15,11 +15,23 @@ export function CachedPostCardSkeleton({
   post?: PostPreviewSource | null;
 }) {
   const params = useParams<{ postId?: string }>();
+  const searchParams = useSearchParams();
   const queryClient = useQueryClient();
-  const id = params?.postId;
+  const id = params?.postId ?? searchParams.get("uri");
   const cache = queryClient.getQueryCache();
   const subscribe = useCallback(
-    (notify: () => void) => cache.subscribe(notify),
+    (notify: () => void) => {
+      const scheduledNotify = notifyManager.batchCalls(notify);
+      return cache.subscribe((event) => {
+        // Query observers register during render; only data changes can alter this preview.
+        if (
+          event.type === "removed" ||
+          (event.type === "updated" && event.action.type === "success")
+        ) {
+          scheduledNotify();
+        }
+      });
+    },
     [cache]
   );
   const getPreview = useCallback(() => {

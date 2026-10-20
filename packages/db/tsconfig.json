@@ -1,6 +1,8 @@
 {
   "extends": "@asm/config/nextjs.config.json",
   "compilerOptions": {
+    "declaration": false,
+    "declarationMap": false,
     "strictNullChecks": true,
     "strict": true,
     "esModuleInterop": true,

@@ -1,5 +1,11 @@
-import { searchCommunitiesForSearch, searchPosts, searchUsers } from "@asm/db";
+import { readNetworkPreferences } from "@asm/db";
+import { ProtocolError } from "@asm/protocols/contracts";
 import { connection } from "next/server";
+import { z } from "zod";
+
+import { getSessionFromApi } from "@/lib/auth/session";
+import { cachedSpotlightSearch } from "@/lib/search/cached-search";
+import { guestSearchBudget } from "@/lib/search/guest-budget";
 
 export async function GET(request: Request) {
   // Public search popup; no account needed. Search results must never be baked
@@ -10,21 +16,62 @@ export async function GET(request: Request) {
   await connection();
 
   const url = new URL(request.url);
-  const q = url.searchParams.get("q")?.trim() ?? "";
-  const limit = Math.min(
-    Math.max(Math.trunc(Number(url.searchParams.get("limit") ?? "6")), 1),
-    20
-  );
+  const headers = {
+    "cache-control": "private, no-store",
+    "x-content-type-options": "nosniff",
+  };
+  const parsed = z
+    .object({
+      kind: z.enum(["all", "user", "post", "community"]).default("all"),
+      limit: z.coerce.number().int().min(1).max(20).default(6),
+      q: z.string().trim().max(80).default(""),
+    })
+    .safeParse(Object.fromEntries(url.searchParams));
+  if (!parsed.success) {
+    return Response.json({ error: "Invalid search" }, { headers, status: 400 });
+  }
+  const { q, kind, limit } = parsed.data;
 
-  if (!q) {
-    return Response.json({ communities: [], posts: [], users: [] });
+  if (q.length < 2) {
+    return Response.json(
+      { communities: [], posts: [], users: [] },
+      { headers }
+    );
   }
 
-  const [users, posts, communities] = await Promise.all([
-    searchUsers(q, limit),
-    searchPosts(q, limit),
-    searchCommunitiesForSearch(q, limit),
-  ]);
+  const budget = await guestSearchBudget(request);
+  if (budget.response) {
+    return budget.response;
+  }
+  try {
+    const session = await getSessionFromApi();
+    const settings = session?.user?.id
+      ? await readNetworkPreferences(session.user.id)
+      : null;
+    const excludeExplicit = !settings?.preferences.showExplicitContent;
 
-  return Response.json({ communities, posts, users });
+    return Response.json(
+      await cachedSpotlightSearch(
+        q,
+        kind,
+        limit,
+        request.signal,
+        excludeExplicit
+      ),
+      { headers: budget.headers }
+    );
+  } catch (error) {
+    const busy = error instanceof ProtocolError && error.code === "capacity";
+    return Response.json(
+      {
+        error: busy
+          ? "Search is busy. Try again shortly."
+          : "Search is temporarily unavailable.",
+      },
+      {
+        headers: new Headers([...budget.headers, ["retry-after", "1"]]),
+        status: 503,
+      }
+    );
+  }
 }

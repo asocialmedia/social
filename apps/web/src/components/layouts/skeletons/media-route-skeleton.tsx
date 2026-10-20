@@ -1,6 +1,6 @@
 import { Skeleton } from "@asm/ui/shadui/skeleton";
 
-import { PostCardSkeleton } from "./post-only-loading-skeleton";
+import { CachedPostCardSkeleton } from "./cached-post-card-skeleton";
 
 // Fullscreen media-route placeholder. /posts/[id]/media/[index] opens the
 // viewer as a standalone fullscreen screen (media stage on the left, post
@@ -55,7 +55,7 @@ export default function MediaRouteSkeleton() {
           loading state matches the post content that renders once it loads */}
       <aside className="hidden h-full w-95 flex-col border-l border-white/10 bg-[hsl(var(--background))] lg:flex">
         <div className="flex-1 overflow-y-auto">
-          <PostCardSkeleton />
+          <CachedPostCardSkeleton />
         </div>
       </aside>
     </div>

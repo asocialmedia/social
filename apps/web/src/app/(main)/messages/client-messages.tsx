@@ -14,6 +14,7 @@ import { MessageIdentityLocked } from "@/components/messages/message-identity-re
 import { MessageThread } from "@/components/messages/message-thread";
 import { MessagesErrorState } from "@/components/messages/messages-error-state";
 import { MessagesSkeleton } from "@/components/messages/messages-skeleton";
+import { useGoBack } from "@/hooks/use-go-back";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { conversationListLayout } from "@/lib/messages/conversation-list-layout";
 import { cn } from "@/lib/utils";
@@ -21,12 +22,13 @@ import { useMessagesSidebarStore } from "@/store/messages-sidebar-store";
 
 export default function ClientMessages() {
   const searchParams = useSearchParams();
+  const goBack = useGoBack();
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col">
       {searchParams.get("c") ? null : (
         <div className="shrink-0">
-          <MobileTopBar />
+          <MobileTopBar onBack={goBack} />
         </div>
       )}
       <MessagesPanes />

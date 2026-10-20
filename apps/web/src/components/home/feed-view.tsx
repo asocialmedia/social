@@ -1,26 +1,47 @@
 "use client";
 
 import type { PostData } from "@asm/db";
+import type { ExternalPost } from "@asm/protocols/contracts";
+import { mixFeedItems, isExternalTrendingPost } from "@asm/protocols/discovery";
+import type { FeedSource } from "@asm/protocols/discovery";
 import { Separator } from "@asm/ui/shadui/separator";
-import { useQueryClient } from "@tanstack/react-query";
+import { hashKey, useQueryClient } from "@tanstack/react-query";
 import type { QueryKey } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 
+import { BlueskyPostCard } from "@/components/protocols/bluesky-post-card";
 import { RecommendationTracker } from "@/components/recommendations/recommendation-tracker";
+import { useFeedExposures } from "@/hooks/feed/use-feed-exposures";
+import { useNetworkSettings } from "@/hooks/feed/use-network-settings";
+import { useSession } from "@/lib/auth/session-context";
 import {
   forceInvalidatePostFeeds,
   repairStalePostCaches,
 } from "@/lib/posts/cache-sync";
 import { filterFeedPosts } from "@/lib/posts/feed-cache";
+import { reconcileFeedOrder } from "@/lib/posts/feed-order";
+import {
+  networkPostAllowed,
+  externalNetworkPostAllowed,
+  networkPostRecommended,
+  externalNetworkPostRecommended,
+} from "@/lib/posts/network-content-policy";
 import { normalizePostsData } from "@/lib/posts/post-normalize";
+import { isTrendingPost } from "@/lib/posts/trending-eligibility";
 
 import { groupPostsIntoThreads } from "./feed-thread-group";
 import PostCard from "./feedview/post-card";
 
+const EMPTY_EXTERNAL_POSTS: ExternalPost[] = [];
 const DEFAULT_FEED_CACHE_KEY: QueryKey = ["post-feed", "for-you"];
 
 interface FeedViewProps {
+  trending?: boolean;
+  showEmpty?: boolean;
+  respectInterests?: boolean;
+  externalPosts?: ExternalPost[];
+  source?: FeedSource;
   cacheKey?: QueryKey;
   // Extra ids to drop from the rendered feed, applied to both the server list
   // and every cache-synced update. Used when a leading segment already shows a
@@ -39,15 +60,27 @@ interface FeedViewProps {
 
 export const FeedView: React.FC<FeedViewProps> = ({
   posts: initialPosts,
+  externalPosts = EMPTY_EXTERNAL_POSTS,
+  source = "all",
   cacheKey = DEFAULT_FEED_CACHE_KEY,
   excludeIds,
   excludePostId,
   showCommunity = true,
   showCommunityReason = false,
   sortBy = "newest",
+  respectInterests = false,
+  trending = false,
+  showEmpty = true,
 }) => {
   const MemoizedPostCard = useMemo(() => React.memo(PostCard), []);
   const queryClient = useQueryClient();
+  const network = useNetworkSettings();
+  const { user } = useSession();
+  const oppositeSeen = useFeedExposures(
+    user?.id ?? "guest",
+    "home",
+    String(cacheKey[1])
+  );
   const router = useRouter();
   const normalizedInitial = useMemo(
     () =>
@@ -86,37 +119,40 @@ export const FeedView: React.FC<FeedViewProps> = ({
   }, [queryClient, router]);
 
   useEffect(() => {
-    const unsubscribe = queryClient.getQueryCache().subscribe(() => {
-      setTimeout(() => {
-        const feedQueries = queryClient.getQueriesData<{
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const queryHash = hashKey(cacheKey);
+    const unsubscribe = queryClient.getQueryCache().subscribe((event) => {
+      if (
+        event.type !== "updated" ||
+        event.action.type !== "success" ||
+        event.query.queryHash !== queryHash
+      ) {
+        return;
+      }
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        const feed = queryClient.getQueryData<{
           pages: { posts: PostData[] }[];
-        }>({
-          queryKey: cacheKey,
-        });
+        }>(cacheKey);
 
-        if (feedQueries.length > 0) {
+        if (feed) {
           const updatedPosts = filterFeedPosts(
-            normalizePostsData(
-              feedQueries.flatMap(
-                ([, data]) => data?.pages?.flatMap((page) => page.posts) || []
-              )
-            ),
+            normalizePostsData(feed.pages.flatMap((page) => page.posts)),
             { dismissedIds, excludeIds, excludePostId }
           );
 
-          if (updatedPosts.length) {
-            const uniquePosts = [
-              ...new Map(updatedPosts.map((post) => [post.id, post])).values(),
-            ];
-            // eslint-disable-next-line react-compiler -- reflect cache updates into local feed state
-            setPosts(uniquePosts);
-          }
+          const uniquePosts = [
+            ...new Map(updatedPosts.map((post) => [post.id, post])).values(),
+          ];
+          // eslint-disable-next-line react-compiler -- reflect cache updates into local feed state
+          setPosts(uniquePosts);
         }
       }, 0);
     });
 
     return () => {
       unsubscribe();
+      clearTimeout(timer);
     };
   }, [cacheKey, dismissedIds, excludeIds, excludePostId, queryClient]);
 
@@ -215,12 +251,11 @@ export const FeedView: React.FC<FeedViewProps> = ({
       excludeIds,
       excludePostId,
     });
-    const initialFirstId = safeInitial[0]?.id;
-    const currentFirstId = posts[0]?.id;
     if (
-      safeInitial.length > 0 &&
-      (posts.length === 0 ||
-        (initialFirstId && currentFirstId !== initialFirstId))
+      syncInputs === null ||
+      syncInputs.initialPosts !== normalizedInitial ||
+      syncInputs.excludeIds !== excludeIds ||
+      syncInputs.excludePostId !== excludePostId
     ) {
       const uniquePosts = [
         ...new Map(safeInitial.map((post) => [post.id, post])).values(),
@@ -258,44 +293,168 @@ export const FeedView: React.FC<FeedViewProps> = ({
   }, [posts, excludeIds, excludePostId, dismissedIds, sortBy]);
 
   const threadGroups = useMemo(
-    () => groupPostsIntoThreads(sortedPosts),
-    [sortedPosts]
+    () =>
+      groupPostsIntoThreads(
+        sortedPosts.filter(
+          (post) =>
+            (!trending || isTrendingPost(post)) &&
+            network.ready &&
+            (!respectInterests || !oppositeSeen.has(post.id)) &&
+            (respectInterests
+              ? networkPostRecommended(
+                  post,
+                  network.settings.preferences,
+                  network.settings.topicScope
+                )
+              : networkPostAllowed(
+                  post,
+                  network.settings.preferences,
+                  network.settings.topicScope
+                ))
+        )
+      ),
+    [
+      sortedPosts,
+      trending,
+      network.ready,
+      network.settings.preferences,
+      network.settings.topicScope,
+      respectInterests,
+      oppositeSeen,
+    ]
   );
 
+  const mixedGroups = useMemo(
+    () =>
+      mixFeedItems(
+        threadGroups,
+        externalPosts.filter(
+          (post) =>
+            (!trending || isExternalTrendingPost(post)) &&
+            network.ready &&
+            (!respectInterests || !oppositeSeen.has(post.id)) &&
+            (respectInterests
+              ? externalNetworkPostRecommended(
+                  post,
+                  network.settings.preferences,
+                  undefined,
+                  network.settings.topicScope
+                )
+              : externalNetworkPostAllowed(
+                  post,
+                  network.settings.preferences,
+                  network.settings.topicScope
+                ))
+        ),
+        {
+          createdAt: (group) => {
+            let latest = "";
+            for (const post of group.posts) {
+              const createdAt = new Date(post.createdAt).toISOString();
+              if (createdAt > latest) {
+                latest = createdAt;
+              }
+            }
+            return latest;
+          },
+          id: (group) => group.id,
+          latest: sortBy === "newest",
+          source,
+        }
+      ),
+    [
+      externalPosts,
+      trending,
+      oppositeSeen,
+      respectInterests,
+      network.ready,
+      sortBy,
+      source,
+      threadGroups,
+      network.settings.preferences,
+      network.settings.topicScope,
+    ]
+  );
+  const [orderedFeed, setOrderedFeed] = useState({
+    input: mixedGroups,
+    items: mixedGroups,
+    sortBy,
+    source,
+  });
+  let visibleGroups = orderedFeed.items;
+  if (
+    orderedFeed.input !== mixedGroups ||
+    orderedFeed.sortBy !== sortBy ||
+    orderedFeed.source !== source
+  ) {
+    visibleGroups =
+      orderedFeed.sortBy === sortBy && orderedFeed.source === source
+        ? reconcileFeedOrder(orderedFeed.items, mixedGroups, [
+            threadGroups.map((group) => `asm:${group.id}`),
+            externalPosts.map((post) => `bluesky:${post.id}`),
+          ])
+        : mixedGroups;
+    setOrderedFeed({
+      input: mixedGroups,
+      items: visibleGroups,
+      sortBy,
+      source,
+    });
+  }
   return (
     <div className="flex flex-col">
-      {threadGroups.map((group) => (
-        <div className="flex flex-col" key={group.id}>
-          {group.posts.map((post, index) => {
-            const isFirst = index === 0;
-            const isLast = index === group.posts.length - 1;
-            const hasThreadParent = !isFirst;
-            const hasThreadChild = !isLast;
+      {visibleGroups.map((entry) => {
+        if (entry.kind === "bluesky") {
+          return (
+            <div className="flex flex-col" key={entry.id}>
+              <BlueskyPostCard
+                exposureFeed={String(cacheKey[1])}
+                isJoined={true}
+                post={entry.value}
+              />
+              <Separator className="bg-border/60" />
+            </div>
+          );
+        }
+        const group = entry.value;
+        return (
+          <div className="flex flex-col" key={group.id}>
+            {group.posts.map((post, index) => {
+              const isFirst = index === 0;
+              const isLast = index === group.posts.length - 1;
+              const hasThreadParent = !isFirst;
+              const hasThreadChild = !isLast;
 
-            return (
-              <RecommendationTracker
-                key={post.id}
-                postId={post.id}
-                requestId={post.recommendation?.requestId}
-              >
-                <MemoizedPostCard
-                  hasThreadChild={hasThreadChild}
-                  hasThreadParent={hasThreadParent}
-                  isJoined={true}
-                  post={post}
-                  showCommunity={showCommunity}
-                  showCommunityReason={showCommunityReason}
-                />
-              </RecommendationTracker>
-            );
-          })}
-          <Separator className="bg-border/60" />
-        </div>
-      ))}
-      {threadGroups.length === 0 && (
+              return (
+                <RecommendationTracker
+                  exposureFeed={String(cacheKey[1])}
+                  key={post.id}
+                  postId={post.id}
+                  networkToken={post.networkRecommendationToken}
+                  networkSource="asm"
+                  requestId={post.recommendation?.requestId}
+                >
+                  <MemoizedPostCard
+                    hasThreadChild={hasThreadChild}
+                    hasThreadParent={hasThreadParent}
+                    isJoined={true}
+                    post={post}
+                    showCommunity={showCommunity}
+                    showCommunityReason={showCommunityReason}
+                  />
+                </RecommendationTracker>
+              );
+            })}
+            <Separator className="bg-border/60" />
+          </div>
+        );
+      })}
+      {showEmpty && mixedGroups.length === 0 && (
         <div className="flex flex-col items-center justify-center py-6 sm:py-8">
           <p className="text-muted-foreground text-center text-sm sm:text-base">
-            No posts to show here. Follow someone or create your first post.
+            {trending
+              ? "Nothing is trending yet. Trending only shows posts that have already earned engagement."
+              : "No posts to show here. Follow someone or create your first post."}
           </p>
         </div>
       )}

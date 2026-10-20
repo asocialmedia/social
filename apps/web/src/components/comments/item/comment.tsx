@@ -10,7 +10,9 @@ import UserBadge from "@/components/layouts/user/user-badge";
 import UserTooltip from "@/components/layouts/user/user-tooltip";
 import AuraVoteButton from "@/components/posts/actions/aura-vote-button";
 import PostLinkedContent from "@/components/posts/content/post-linked-content";
+import { BlueskyIcon } from "@/components/protocols/bluesky-icon";
 import { useRequireAuth } from "@/hooks/auth/use-require-auth";
+import { blueskyProfilePath } from "@/lib/protocols/paths";
 import type { Media } from "@/lib/types";
 import { cn, formatRelativeDate } from "@/lib/utils";
 import { getSecureImageUrl } from "@/lib/utils/image-url";
@@ -46,17 +48,22 @@ type CommentWithExtras = CommentData & {
     mimeType?: string;
     thumbnailKey?: string | null;
   }[];
+  source?: "asm" | "bluesky";
   votes?: { userId: string; value: number }[];
 };
 
 interface CommentItemProps {
+  localActions?: {
+    pending: boolean;
+    delete: (commentId?: string) => Promise<boolean>;
+  };
   applyCreated: (comment: CommentData) => void;
   applyDeleted: (comment: CommentData) => void;
   // Marks the last sibling so its rail segment terminates at the avatar center
   // (the connection point) instead of running the full height of the thread.
   isLast?: boolean;
   node: CommentNode;
-  post: PostData;
+  post: PostData | { id: string };
 }
 
 export default function CommentItem({
@@ -65,6 +72,7 @@ export default function CommentItem({
   isLast = false,
   node,
   post,
+  localActions,
 }: CommentItemProps) {
   const { comment, children, depth } = node;
   const { user } = useSession();
@@ -73,6 +81,10 @@ export default function CommentItem({
   const [showReply, setShowReply] = useState(false);
 
   const commentWithExtras = comment as CommentWithExtras;
+  const isBluesky =
+    commentWithExtras.source === "bluesky" ||
+    comment.id.startsWith("at://") ||
+    (Boolean(comment.user?.id) && comment.user.id.startsWith("did:"));
   const commentUser = comment.user;
   const username = commentUser?.username ?? "unknown";
   const displayName = commentUser?.displayName || username;
@@ -126,17 +138,54 @@ export default function CommentItem({
     [shared, showReply]
   );
 
+  let avatarNode = (
+    <CommentAvatarFallback
+      className="relative z-10 h-10 w-10"
+      src={undefined}
+    />
+  );
+  if (!comment.deleted && commentUser) {
+    const avatarFallback = (
+      <CommentAvatarFallback
+        className="h-10 w-10"
+        src={
+          commentUser.avatarUrl
+            ? getSecureImageUrl(commentUser.avatarUrl)
+            : undefined
+        }
+      />
+    );
+    avatarNode = isBluesky ? (
+      <Link
+        aria-label={`View @${username}'s profile`}
+        className="relative z-10 shrink-0"
+        href={blueskyProfilePath(commentUser.id)}
+      >
+        {avatarFallback}
+      </Link>
+    ) : (
+      <UserTooltip user={commentUser}>
+        <Link
+          aria-label={`View @${username}'s profile`}
+          className="relative z-10 shrink-0"
+          href={`/users/${username}`}
+        >
+          {avatarFallback}
+        </Link>
+      </UserTooltip>
+    );
+  }
+
   return (
     <div
-      className={`relative scroll-mt-4 ${hasRail ? "pl-8" : ""}`}
-      id={`comment-${comment.id}`}
+      className={cn(
+        "group/comment relative transition-colors",
+        hasRail && "pl-8"
+      )}
     >
-      {/* Rail connector for this reply: A unified SVG drawing the continuous rail
-          and rounded branch. Centered on the parent avatar column (RAIL_X = 16),
-          it smoothly bends with a generous circular arc into this reply's
-          avatar (at LEVEL_PAD = 32, AVATAR_CENTER = 24). If this is the last
-          sibling, the stroke terminates cleanly at the avatar without extending
-          past it. Otherwise, the through-rail continues down to subsequent siblings. */}
+      {/* Rail connector: connects parent rail down to this reply's avatar.
+          Terminates at avatar center on the last sibling; runs to 100% when
+          more siblings follow below so they stay connected to the parent rail. */}
       {hasRail && (
         <svg
           aria-hidden="true"
@@ -194,29 +243,7 @@ export default function CommentItem({
           </svg>
         )}
         <div className="flex gap-2.5">
-          {comment.deleted || !commentUser ? (
-            <CommentAvatarFallback
-              className="relative z-10 h-10 w-10"
-              src={undefined}
-            />
-          ) : (
-            <UserTooltip user={commentUser}>
-              <Link
-                aria-label={`View @${username}'s profile`}
-                className="relative z-10 shrink-0"
-                href={`/users/${username}`}
-              >
-                <CommentAvatarFallback
-                  className="h-10 w-10"
-                  src={
-                    commentUser.avatarUrl
-                      ? getSecureImageUrl(commentUser.avatarUrl)
-                      : undefined
-                  }
-                />
-              </Link>
-            </UserTooltip>
-          )}
+          {avatarNode}
 
           <div className="min-w-0 flex-1">
             <div className="flex min-w-0 items-center gap-2 text-sm">
@@ -226,22 +253,39 @@ export default function CommentItem({
                 </span>
               ) : (
                 <>
-                  <UserTooltip user={commentUser}>
+                  {isBluesky ? (
                     <Link
                       className="text-foreground truncate font-semibold hover:underline"
-                      href={`/users/${username}`}
+                      href={blueskyProfilePath(commentUser.id)}
                     >
                       {displayName}
                     </Link>
-                  </UserTooltip>
-                  <UserBadge
-                    badge={commentUser.badge}
-                    badges={[...(commentUser.badges ?? [])]}
-                    communityRoles={commentUser.communityMemberships}
-                  />
+                  ) : (
+                    <UserTooltip user={commentUser}>
+                      <Link
+                        className="text-foreground truncate font-semibold hover:underline"
+                        href={`/users/${username}`}
+                      >
+                        {displayName}
+                      </Link>
+                    </UserTooltip>
+                  )}
+                  {isBluesky ? (
+                    <BlueskyIcon className="inline size-3.5 shrink-0 text-sky-500" />
+                  ) : (
+                    <UserBadge
+                      badge={commentUser.badge}
+                      badges={[...(commentUser.badges ?? [])]}
+                      communityRoles={commentUser.communityMemberships}
+                    />
+                  )}
                   <Link
                     className="text-muted-foreground truncate hover:underline"
-                    href={`/users/${username}`}
+                    href={
+                      isBluesky
+                        ? blueskyProfilePath(commentUser.id)
+                        : `/users/${username}`
+                    }
                   >
                     @{username}
                   </Link>
@@ -272,27 +316,42 @@ export default function CommentItem({
 
             {!isDeleted && (
               <div className="mt-1 flex flex-wrap items-center gap-1">
-                <AuraVoteButton
-                  authorName={displayName}
-                  commentId={comment.id}
-                  expandable={false}
-                  initialState={{
-                    aura: comment.aura ?? 0,
-                    userVote: commentWithExtras.votes?.[0]?.value ?? 0,
-                  }}
-                  postId={post.id}
-                />
-                <button
-                  aria-label="Reply to eddie"
-                  className="pill-3d-hover text-muted-foreground inline-flex h-8 items-center gap-1 rounded-full border-0 px-2 text-xs font-medium active:translate-y-px"
-                  onClick={handleReplyOpen}
-                  type="button"
-                >
-                  <CornerDownRight className="size-3.5" />
-                  Reply
-                </button>
+                {localActions ||
+                isBluesky ||
+                (typeof post?.id === "string" &&
+                  post.id.startsWith("at://")) ? null : (
+                  <>
+                    <AuraVoteButton
+                      authorName={displayName}
+                      commentId={comment.id}
+                      expandable={false}
+                      initialState={{
+                        aura: comment.aura ?? 0,
+                        userVote: commentWithExtras.votes?.[0]?.value ?? 0,
+                      }}
+                      postId={post.id}
+                    />
+                    <button
+                      aria-label="Reply to eddie"
+                      className="pill-3d-hover text-muted-foreground inline-flex h-8 items-center gap-1 rounded-full border-0 px-2 text-xs font-medium active:translate-y-px"
+                      onClick={handleReplyOpen}
+                      type="button"
+                    >
+                      <CornerDownRight className="size-3.5" />
+                      Reply
+                    </button>
+                  </>
+                )}
                 {isOwnComment && (
                   <CommentMoreButton
+                    controller={
+                      localActions
+                        ? {
+                            delete: () => localActions.delete(comment.id),
+                            pending: localActions.pending,
+                          }
+                        : undefined
+                    }
                     applyDeleted={applyDeleted}
                     className="h-7 w-7 rounded-full opacity-0 transition-opacity group-hover/comment:opacity-100"
                     comment={comment}
@@ -376,6 +435,7 @@ export default function CommentItem({
               applyDeleted={applyDeleted}
               isLast={index === children.length - 1}
               key={child.comment.id}
+              localActions={localActions}
               node={child}
               post={post}
             />

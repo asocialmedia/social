@@ -37,6 +37,7 @@ export interface CreatePostPayload {
   mediaIds: string[];
   mentions: string[];
   parentPostId?: string;
+  externalParentUri?: string;
   tags: string[];
 }
 
@@ -97,6 +98,43 @@ export async function createEddie(
   input: { content: string; mediaIds?: string[]; parentId?: string },
   signal?: AbortSignal
 ): Promise<FeedComment> {
+  const isExternal = postId.startsWith("at://") || postId.startsWith("at%3A");
+  if (isExternal) {
+    const rawUri = postId.startsWith("at%3A")
+      ? decodeURIComponent(postId)
+      : postId;
+    const { mutateExternal } =
+      await import("@/features/feed/lib/external-interactions");
+    await mutateExternal({
+      action: "comment",
+      content: input.content,
+      requestId: crypto.randomUUID(),
+      uri: rawUri,
+    });
+    const { authClient } = await import("@/features/auth/lib/auth-client");
+    const session = await authClient.getSession();
+    logInfo("eddie.created", {
+      attachments: input.mediaIds?.length ?? 0,
+      external: true,
+      reply: Boolean(input.parentId),
+    });
+    return {
+      content: input.content,
+      createdAt: new Date().toISOString(),
+      deleted: false,
+      id: `local-${Date.now()}`,
+      parentId: input.parentId ?? null,
+      postId: rawUri,
+      user: {
+        avatarUrl: session?.user?.avatarUrl ?? null,
+        displayName:
+          session?.user?.displayName || session?.user?.username || "You",
+        id: session?.user?.id || "viewer",
+        username: session?.user?.username || "you",
+      },
+    };
+  }
+
   const path = `/api/posts/${encodeURIComponent(postId)}/comments`;
   for (let attempt = 1; ; attempt += 1) {
     try {
@@ -133,7 +171,22 @@ export async function createEddie(
 
 // Deleting is idempotent server-side (an already-deleted eddie answers
 // success), so it retries freely.
-export async function deleteEddie(commentId: string): Promise<void> {
+export async function deleteEddie(
+  commentId: string,
+  uri?: string
+): Promise<void> {
+  if (uri && (uri.startsWith("at://") || uri.startsWith("at%3A"))) {
+    const rawUri = uri.startsWith("at%3A") ? decodeURIComponent(uri) : uri;
+    const { mutateExternal } =
+      await import("@/features/feed/lib/external-interactions");
+    await mutateExternal({
+      action: "delete_comment",
+      commentId,
+      uri: rawUri,
+    });
+    logInfo("eddie.deleted", { external: true });
+    return;
+  }
   await withRetry(
     () =>
       apiJson(`/api/comments/${encodeURIComponent(commentId)}`, {

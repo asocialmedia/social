@@ -188,6 +188,15 @@ export function hasRedisPong(output: string) {
   return output.trim() === "PONG";
 }
 
+export function parseComposePublishedPort(output: string) {
+  const binding = output.trim().split(/\r?\n/)[0] ?? "";
+  const match = binding.match(/^(?:\S+:)?(?<port>\d+)$/);
+  const port = Number(match?.groups?.port);
+  return Number.isInteger(port) && port > 0 && port <= 65_535
+    ? port
+    : undefined;
+}
+
 export function getMissingBuckets(
   buckets: string[],
   requiredBuckets: string[]

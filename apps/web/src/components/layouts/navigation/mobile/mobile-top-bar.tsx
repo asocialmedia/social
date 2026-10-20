@@ -18,13 +18,17 @@ import { useUnreadNotificationCount } from "@/hooks/notifications/use-unread-not
 import kyInstance from "@/lib/ky";
 import { cn } from "@/lib/utils";
 
-const MobileTopBar: React.FC<{ backHref?: string }> = ({ backHref }) => {
+const MobileTopBar: React.FC<{
+  backHref?: string;
+  onBack?: () => void;
+}> = ({ backHref, onBack }) => {
   const { user } = useSession();
   const { openSpotlight } = useSpotlight();
   const { data: notificationData } = useUnreadNotificationCount();
 
   const pathname = usePathname();
   const isNotifications = pathname.startsWith("/notifications");
+  const canGoBack = Boolean(backHref || onBack);
 
   const unreadCount = notificationData?.unreadCount ?? 0;
 
@@ -58,14 +62,24 @@ const MobileTopBar: React.FC<{ backHref?: string }> = ({ backHref }) => {
       <div
         className={cn(
           "flex shrink-0 items-center gap-2",
-          backHref ? "w-auto" : "w-10"
+          canGoBack ? "w-auto" : "w-10"
         )}
       >
+        {onBack ? (
+          <button
+            aria-label="Go back"
+            className="icon-btn-3d flex size-8 items-center justify-center rounded-full"
+            onClick={onBack}
+            type="button"
+          >
+            <ArrowLeft className="size-4" />
+          </button>
+        ) : null}
         {backHref ? (
           <Link
-            href={backHref}
             aria-label="Back to profile"
             className="icon-btn-3d flex size-8 items-center justify-center rounded-full"
+            href={backHref}
           >
             <ArrowLeft className="size-4" />
           </Link>

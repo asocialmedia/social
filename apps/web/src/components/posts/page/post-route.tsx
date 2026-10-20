@@ -1,4 +1,6 @@
 import {
+  and,
+  communityVisibilityWhere,
   getPostAncestors,
   getPostDataQuery,
   mapPostData,
@@ -15,11 +17,16 @@ import ClientPost from "@/app/(main)/posts/[postId]/client-post";
 import JsonLd from "@/components/seo/json-ld";
 import { getUserData } from "@/hooks/users/use-user-data";
 import { getSessionFromApi } from "@/lib/auth/session";
+import { explicitContentEnabled } from "@/lib/posts/explicit-content-enabled";
 import {
   POST_MATCH_CANDIDATE_LIMIT,
   selectPostMatch,
 } from "@/lib/posts/post-match";
 import type { PostMatchIdentity } from "@/lib/posts/post-match";
+import {
+  postContentReadable,
+  postsForReader,
+} from "@/lib/posts/reader-content-policy";
 import { getRecentPostsForCrawl } from "@/lib/posts/server-feed";
 import {
   absoluteUrl,
@@ -46,7 +53,17 @@ export const getPost = cache(
     identity: PostMatchIdentity = {}
   ) => {
     const postQuery = getPostDataQuery(prisma.orm, loggedInUser);
-    const postRow = await postQuery.where({ id: postId }).first();
+    const visible = communityVisibilityWhere(loggedInUser);
+    const postRow = await postQuery
+      .where((candidate) =>
+        and(
+          candidate.id.eq(postId),
+          visible(candidate),
+          candidate.moderated.eq(false),
+          candidate.user.some((author) => author.banned.eq(false))
+        )
+      )
+      .first();
     let post = postRow ? mapPostData(postRow) : null;
 
     if (!post && postId.length >= 8) {
@@ -55,17 +72,25 @@ export const getPost = cache(
       // (or the requested media row) pick the intended one, instead of 404ing
       // on an ambiguous prefix.
       const matches = await postQuery
-        .where((candidate) => candidate.id.ilike(`${postId}%`))
+        .where((candidate) =>
+          and(
+            visible(candidate),
+            candidate.id.ilike(`${postId}%`),
+            candidate.moderated.eq(false),
+            candidate.user.some((author) => author.banned.eq(false))
+          )
+        )
         .limit(POST_MATCH_CANDIDATE_LIMIT)
         .all();
       post = selectPostMatch(matches.map(mapPostData), identity);
     }
 
-    if (!post) {
+    const includeExplicit = await explicitContentEnabled(loggedInUser);
+    if (!post || !postContentReadable(post, includeExplicit)) {
       notFound();
     }
 
-    return post;
+    return postsForReader([post], includeExplicit)[0];
   }
 );
 
@@ -190,9 +215,13 @@ export async function PostRoute({ params }: { params: PostRouteParams }) {
 
   const userData = session?.user ? await getUserData(session.user.id) : null;
 
-  const ancestors = post.parentPostId
+  const ancestorPosts = post.parentPostId
     ? await getPostAncestors(post.parentPostId, session?.user?.id ?? "")
     : [];
+  const ancestors = postsForReader(
+    ancestorPosts,
+    await explicitContentEnabled(session?.user?.id ?? "")
+  );
 
   const authorUsername = post.user?.username || "unknown";
   const authorDisplayName =

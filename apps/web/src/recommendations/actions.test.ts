@@ -128,11 +128,15 @@ const mockPrisma = {
 
 mock.module("@asm/db", () => ({
   and: (...expressions: EventExpression[]) => expressions,
+  getNetworkPersona: () => Promise.resolve({ selected: { id: "default" } }),
   invalidateFypProfile: (userId: string): Promise<void> => {
     invalidatedUsers.push(userId);
     return Promise.resolve();
   },
+  networkContentTopics: () => [],
   prisma: mockPrisma,
+  recordNetworkSignal: () => Promise.resolve(true),
+  removeNetworkSignal: () => Promise.resolve(true),
   resolveLastRankingContext: () => Promise.resolve(null),
 }));
 

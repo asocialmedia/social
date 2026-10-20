@@ -4,7 +4,7 @@ import { createJSONStorage, persist } from "zustand/middleware";
 import type { StateStorage } from "zustand/middleware";
 
 export type HomeTab = "following" | "latest" | "personalized" | "trending";
-export type ExploreTab = "for-you" | "people" | "gusts" | "trending";
+export type ExploreTab = "for-you" | "gusts" | "trending";
 export type ProfileTab =
   | "posts"
   | "gusts"
@@ -53,7 +53,6 @@ export const HOME_TABS: ReadonlySet<HomeTab> = new Set([
 ]);
 export const EXPLORE_TABS: ReadonlySet<ExploreTab> = new Set([
   "for-you",
-  "people",
   "gusts",
   "trending",
 ]);

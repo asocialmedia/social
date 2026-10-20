@@ -3,7 +3,7 @@ import { headers as nextHeaders } from "next/headers";
 import { connection } from "next/server";
 import { cache } from "react";
 
-import { authInternalHeaders, getAuthBaseUrl } from "@/lib/auth/auth-internal";
+import { authSessionHeaders, getAuthBaseUrl } from "@/lib/auth/auth-internal";
 import {
   hasBearerToken,
   hasSessionCookie,
@@ -41,6 +41,7 @@ export const getSessionFromApi = cache(async (): Promise<SessionResponse> => {
     authorization: hasBearer ? authHeader : undefined,
     client: hdrs.get("x-asm-client") === "mobile" ? "mobile" : "web",
     cookie: hasCookie ? cookie : undefined,
+    ingress: hdrs,
     requestId: hdrs.get("x-request-id") ?? undefined,
   });
 });
@@ -48,6 +49,7 @@ export const getSessionFromApi = cache(async (): Promise<SessionResponse> => {
 async function fetchSession(options: {
   client: "mobile" | "web";
   requestId?: string;
+  ingress: Pick<Headers, "get">;
   authorization?: string;
   cookie?: string;
 }): Promise<SessionResponse> {
@@ -69,7 +71,7 @@ async function fetchSession(options: {
     const sessionRes = await fetch(sessionUrl, {
       cache: "no-store",
       credentials: "include",
-      headers: authInternalHeaders(forwardHeaders),
+      headers: authSessionHeaders(options.ingress, forwardHeaders),
       method: "GET",
     });
 

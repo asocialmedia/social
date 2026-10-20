@@ -1,8 +1,11 @@
 "use client";
 
+import type { ExternalAuthor } from "@asm/protocols/contracts";
+import { matchesAvoidedTopic } from "@asm/protocols/discovery";
 import { Input } from "@asm/ui/shadui/input";
+import { Skeleton } from "@asm/ui/shadui/skeleton";
 import noFollowImage from "@assets/general/nofollow.png";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { RefreshCw, Search, X } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import Image from "next/image";
@@ -10,9 +13,16 @@ import type React from "react";
 import { useCallback, useMemo, useState } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
+import { useNetworkSettings } from "@/hooks/feed/use-network-settings";
 import useDebounce from "@/hooks/use-debounce";
+import {
+  useDiscoverySuggestions,
+  useSearchLearning,
+} from "@/hooks/use-discovery-suggestions";
 import kyInstance from "@/lib/ky";
+import { blueskyProfilePath } from "@/lib/protocols/paths";
 
+import { ExploreNetworkAccount } from "./explore-network-cards";
 import ExplorePeopleSkeleton from "./explore-people-skeleton";
 import ExploreUserCard from "./explore-user-card";
 import type { ExploreUser } from "./explore-user-card";
@@ -33,36 +43,14 @@ const PEOPLE_SEARCH_DEBOUNCE_MS = 300;
 // leaving the tab.
 const ExplorePeople: React.FC = () => {
   const { user: sessionUser } = useSession();
+  const network = useNetworkSettings();
   const isLoggedIn = Boolean(sessionUser);
-  const queryClient = useQueryClient();
+  const suggestions = useDiscoverySuggestions();
+  const learnSearch = useSearchLearning();
 
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebounce(search, PEOPLE_SEARCH_DEBOUNCE_MS);
   const isSearching = debouncedSearch.trim().length > 0;
-
-  // Discovery: ranked suggestions when signed in, trending otherwise. Both
-  // audiences get the tab - guests just see the public ranking.
-  const source: "suggested" | "trending" = isLoggedIn
-    ? "suggested"
-    : "trending";
-  const {
-    data: people,
-    isFetching: isFetchingPeople,
-    status: discoveryStatus,
-  } = useQuery({
-    enabled: !isSearching,
-    placeholderData: (previousData) => previousData,
-    queryFn: async (): Promise<ExploreUser[]> => {
-      const res = await kyInstance
-        .get(
-          isLoggedIn ? "/api/users/suggested?limit=12" : "/api/users/trending"
-        )
-        .json<ExploreUser[]>();
-      return res;
-    },
-    queryKey: ["explore-people", source],
-    staleTime: 60 * 1000,
-  });
 
   // Search: the explore search endpoint is open to guests and returns the
   // full user payload for name/username matches.
@@ -71,8 +59,7 @@ const ExplorePeople: React.FC = () => {
     isFetching: isFetchingSearch,
     status: searchStatus,
   } = useQuery({
-    enabled: isSearching,
-    placeholderData: (previousData) => previousData,
+    enabled: isSearching && network.ready,
     queryFn: async (): Promise<ExploreUser[]> => {
       const res = await kyInstance
         .get("/api/explore/search", {
@@ -85,32 +72,74 @@ const ExplorePeople: React.FC = () => {
         .json<PeopleSearchResponse>();
       return res.users;
     },
-    queryKey: ["explore-people-search", debouncedSearch.trim()],
+    queryKey: [
+      "explore-people-search",
+      debouncedSearch.trim(),
+      sessionUser?.id ?? "guest",
+      network.scope,
+    ],
     staleTime: 60 * 1000,
   });
 
   const searchResults = useMemo(() => searchData ?? [], [searchData]);
 
-  const handleRefreshPeople = useCallback(async () => {
-    // Bypass the server-side cache; the fresh ranking replaces the query
-    // data in place so the grid never flashes to skeletons.
-    try {
-      const res = await kyInstance
-        .get("/api/users/suggested?limit=12&refresh=1")
-        .json<ExploreUser[]>();
-      queryClient.setQueryData(["explore-people", "suggested"], res);
-    } catch {
-      void queryClient.invalidateQueries({
-        queryKey: ["explore-people", "suggested"],
-      });
-    }
-  }, [queryClient]);
+  const remoteSearch = useQuery({
+    enabled: isSearching && network.ready && debouncedSearch.trim().length >= 2,
+    queryFn: ({ signal }) =>
+      kyInstance
+        .get("/api/protocols/bluesky/search", {
+          searchParams: { kind: "user", q: debouncedSearch.trim() },
+          signal,
+        })
+        .json<{ profiles: ExternalAuthor[] }>(),
+    queryKey: [
+      "explore-people-network-search",
+      debouncedSearch.trim(),
+      sessionUser?.id ?? "guest",
+      network.scope,
+    ],
+    retry: false,
+    staleTime: 30_000,
+  });
+  const remoteAccounts = (remoteSearch.data?.profiles ?? [])
+    .filter(
+      (author) =>
+        !matchesAvoidedTopic(
+          `${author.displayName} ${author.description ?? ""}`,
+          author.labels,
+          network.settings.preferences.avoidedTopics
+        )
+    )
+    .map((author) => ({
+      avatarUrl: author.avatarUrl ?? null,
+      bannerUrl: author.bannerUrl ?? null,
+      displayName: author.displayName || author.handle,
+      followers: author.upstreamCounts.followers ?? 0,
+      following: false,
+      handle: author.handle,
+      href: blueskyProfilePath(author.id),
+      id: author.id,
+      reason: "Search match",
+      source: "bluesky" as const,
+    }));
+  const handleRefreshPeople = useCallback(() => {
+    void suggestions.refetch();
+  }, [suggestions]);
 
-  const status = isSearching ? searchStatus : discoveryStatus;
+  const status = isSearching ? searchStatus : suggestions.status;
   const showDiscoveryHeader = !isSearching;
-  const isFetching = isSearching ? isFetchingSearch : isFetchingPeople;
-  const list = isSearching ? searchResults : (people ?? []);
-  const isEmpty = status === "success" && list.length === 0;
+  const isFetching = isSearching
+    ? isFetchingSearch || remoteSearch.isFetching
+    : suggestions.isFetching;
+  const list = isSearching ? searchResults : [];
+  const accounts = isSearching
+    ? remoteAccounts
+    : (suggestions.data?.accounts ?? []);
+  const isEmpty =
+    status === "success" &&
+    list.length === 0 &&
+    accounts.length === 0 &&
+    !remoteSearch.isFetching;
   let emptyHint = "Try a different name or @username";
   if (!isSearching) {
     emptyHint = isLoggedIn
@@ -127,7 +156,7 @@ const ExplorePeople: React.FC = () => {
         />
       );
     }
-    if (status === "error") {
+    if (status === "error" && !accounts.length) {
       return (
         <p className="text-destructive px-4 py-8 text-center">
           An error occurred while loading people.
@@ -178,15 +207,15 @@ const ExplorePeople: React.FC = () => {
               <button
                 aria-label="Refresh suggestions"
                 className="rail-3d-btn flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium disabled:opacity-50"
-                disabled={isFetchingPeople}
+                disabled={suggestions.isFetching}
                 onClick={handleRefreshPeople}
                 type="button"
               >
-                <RefreshCw
-                  className={`h-3.5 w-3.5 ${
-                    isFetchingPeople ? "animate-spin" : ""
-                  }`}
-                />
+                {suggestions.isFetching ? (
+                  <Skeleton className="size-3.5 rounded-full" />
+                ) : (
+                  <RefreshCw className="size-3.5" />
+                )}
                 Refresh
               </button>
             ) : null}
@@ -194,6 +223,12 @@ const ExplorePeople: React.FC = () => {
         ) : null}
 
         <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,12rem),1fr))] items-start gap-4">
+          {accounts.map((account) => (
+            <ExploreNetworkAccount
+              key={`${account.source}:${account.id}`}
+              account={account}
+            />
+          ))}
           {list.map((entry, index) => (
             <ExploreUserCard
               highlight={index < recommendedCount}
@@ -221,7 +256,7 @@ const ExplorePeople: React.FC = () => {
         {isLoggedIn ? (
           <div className="relative mb-4 hidden md:block">
             {isFetching && isSearching ? (
-              <span className="border-primary/30 border-t-primary absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 animate-spin rounded-full border-2" />
+              <Skeleton className="absolute top-1/2 left-3 size-4 -translate-y-1/2 rounded-full" />
             ) : (
               <Search className="text-muted-foreground absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2" />
             )}
@@ -230,6 +265,11 @@ const ExplorePeople: React.FC = () => {
               autoComplete="off"
               className="focus-visible:ring-primary h-10 py-2.5 pr-9 pl-9 transition-all duration-300 ease-in-out focus-visible:ring-2"
               onChange={(event) => setSearch(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  void learnSearch(debouncedSearch.trim());
+                }
+              }}
               placeholder="Search people by name or @username"
               type="text"
               value={search}
@@ -247,6 +287,16 @@ const ExplorePeople: React.FC = () => {
           </div>
         ) : null}
 
+        {remoteSearch.isError && isSearching ? (
+          <p className="text-muted-foreground mb-3 text-xs">
+            Bluesky search is temporarily unavailable.
+          </p>
+        ) : null}
+        {suggestions.data?.partial && !isSearching ? (
+          <p className="text-muted-foreground mb-3 text-xs">
+            Some network suggestions are temporarily unavailable.
+          </p>
+        ) : null}
         {body}
       </motion.div>
     </AnimatePresence>

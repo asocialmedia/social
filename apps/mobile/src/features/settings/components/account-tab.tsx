@@ -778,8 +778,8 @@ export function AccountTab({
             title="Sign-in methods"
           />
           <Text style={[styles.note, { color: theme.dividerText }]}>
-            Connect another provider to sign in to this same ASM account. Your
-            posts and messages stay here.
+            Connect another provider to sign in to this same asocialmedia
+            account. Your posts and messages stay here.
           </Text>
           <View style={styles.providerGrid}>
             {SOCIAL_PROVIDERS.map((provider) => (

@@ -49,3 +49,5 @@ re/
 google-services.json
 .agents/
 *.bun-build
+artifacts/
+ref/

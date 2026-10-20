@@ -477,7 +477,7 @@ const ShareButton = ({
     if (isLoading) {
       return (
         <div className="flex items-center justify-center py-4">
-          <div className="border-primary h-4 w-4 animate-spin rounded-full border-2 border-t-transparent" />
+          <div className="bg-primary/10 h-4 w-4 animate-pulse rounded-md" />
         </div>
       );
     }

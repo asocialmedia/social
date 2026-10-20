@@ -4,10 +4,12 @@ import {
   hydrateViewCounts,
   mapPostData,
   prisma,
+  readNetworkPreferences,
 } from "@asm/db";
 import type { PostsPage } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/auth/session";
+import { networkPostAllowed } from "@/lib/posts/network-content-policy";
 
 export async function GET(request: Request) {
   const session = await getSessionFromApi();
@@ -17,6 +19,8 @@ export async function GET(request: Request) {
   const userId = session.user.id;
 
   const url = new URL(request.url);
+  const settings = await readNetworkPreferences(userId);
+  const showExplicit = settings.preferences.showExplicitContent;
   const cursor = url.searchParams.get("cursor") || undefined;
   const pageSize = 20;
 
@@ -25,6 +29,7 @@ export async function GET(request: Request) {
       and(
         post.userId.neq(userId),
         post.isGust.eq(false),
+        ...(showExplicit ? [] : [post.explicitContent.eq(false)]),
         post.user.some((user) =>
           user.followsFollows.some((follow) => follow.followerId.eq(userId))
         )
@@ -54,7 +59,9 @@ export async function GET(request: Request) {
   const hydrated = await hydrateViewCounts(posts.slice(0, pageSize));
   const data: PostsPage = {
     nextCursor,
-    posts: hydrated,
+    posts: hydrated.filter((post) =>
+      networkPostAllowed(post, settings.preferences)
+    ),
   };
   return Response.json(data);
 }

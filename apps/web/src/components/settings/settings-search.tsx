@@ -13,6 +13,7 @@ export type SettingsTab =
   | "account"
   | "privacy"
   | "security"
+  | "network"
   | "personalization";
 
 interface SettingsEntry {
@@ -25,6 +26,72 @@ interface SettingsEntry {
 }
 
 const SETTINGS_CATALOG: SettingsEntry[] = [
+  {
+    description: "Recommendation profiles and the active one",
+    id: "network-profiles",
+    keywords: [
+      "network",
+      "recommendations",
+      "profiles",
+      "persona",
+      "active profile",
+      "switch profile",
+    ],
+    label: "Recommendation profiles",
+    sectionId: "settings-network-profiles",
+    tab: "network",
+  },
+  {
+    description: "Interests that shape what this profile discovers",
+    id: "network-interests",
+    keywords: [
+      "network",
+      "interests",
+      "topics",
+      "persona",
+      "recommendations",
+      "discovery",
+    ],
+    label: "Interests",
+    sectionId: "settings-network-interests",
+    tab: "network",
+  },
+  {
+    description: "Explicit 18+ content and topics you avoid",
+    id: "network-moderation",
+    keywords: [
+      "network",
+      "explicit",
+      "18+",
+      "nsfw",
+      "sensitive",
+      "avoid",
+      "not interested",
+      "muted",
+      "blocked",
+      "filters",
+      "moderation",
+    ],
+    label: "Moderation & content filters",
+    sectionId: "settings-network-explicit",
+    tab: "network",
+  },
+  {
+    description: "Content language and regional preference",
+    id: "network-languages",
+    keywords: [
+      "network",
+      "language",
+      "languages",
+      "region",
+      "regional",
+      "country",
+      "locale",
+    ],
+    label: "Languages and region",
+    sectionId: "settings-network-region",
+    tab: "network",
+  },
   {
     description: "Light, dark or your device appearance",
     id: "appearance",
@@ -194,6 +261,7 @@ const SETTINGS_CATALOG: SettingsEntry[] = [
 
 const TAB_LABELS: Record<SettingsTab, string> = {
   account: "Account",
+  network: "Network",
   personalization: "Personalization",
   privacy: "Privacy",
   profile: "Profile",

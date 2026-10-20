@@ -1,9 +1,9 @@
 "use client";
 
-import type { PostData } from "@asm/db";
 import type { ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import type { PresentedPost as PostData } from "@/lib/posts/presentation";
 import type { Media } from "@/lib/types";
 
 import { createMediaHoldGesture, findHeldMedia } from "./media-hold-gesture";

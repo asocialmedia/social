@@ -14,13 +14,27 @@ import {
 } from "@asm/db/recommendation/trending-snapshot";
 
 import { getSessionFromApi } from "@/lib/auth/session";
+import { isTrendingPost } from "@/lib/posts/trending-eligibility";
+import { filterNetworkFeed } from "@/lib/recommendations/filter-network-feed";
 
 export async function GET(request: Request) {
   // Guests can browse the public feed; per-user fields simply resolve to empty.
-  const session = await getSessionFromApi();
-  const userId = session?.user?.id ?? "";
 
   const url = new URL(request.url);
+  if (url.searchParams.has("network")) {
+    const { networkNativeFeed } =
+      await import("@/lib/recommendations/network-native-feed");
+    return networkNativeFeed(
+      request,
+      async () => {
+        const session = await getSessionFromApi();
+        return session?.user?.id ?? "";
+      },
+      "trending"
+    );
+  }
+  const session = await getSessionFromApi();
+  const userId = session?.user?.id ?? "";
   const cursor = url.searchParams.get("cursor") || undefined;
   // Explore opts out of moderated posts so its compact cards never show a
   // moderation row; the home feed still returns them.
@@ -174,7 +188,13 @@ export async function GET(request: Request) {
         vary: "Cookie",
       };
 
-  return Response.json(data, { headers: responseHeaders });
+  return Response.json(
+    {
+      ...data,
+      posts: await filterNetworkFeed(data.posts.filter(isTrendingPost), userId),
+    },
+    { headers: responseHeaders }
+  );
 }
 
 type PostRow = ReturnType<typeof mapPostData>;

@@ -1,15 +1,19 @@
 import {
   and,
-  getPersonalizedFeedPage,
+  communityVisibilityWhere,
   getPostDataQuery,
   hydrateViewCounts,
   mapPostData,
   prisma,
+  readNetworkPreferences,
 } from "@asm/db";
 import type { PostsPage } from "@asm/db";
+import { defaultNetworkPreferences } from "@asm/protocols/discovery";
 
 import { getSessionFromApi } from "@/lib/auth/session";
 import { followingGustsPage } from "@/lib/gusts/following";
+import { networkPostAllowed } from "@/lib/posts/network-content-policy";
+import { filterNetworkFeed } from "@/lib/recommendations/filter-network-feed";
 
 const TAKE_PATTERN = /^[1-9]\d*$/;
 
@@ -17,7 +21,8 @@ async function queryChronologicalGusts(
   userId: string,
   excludeModerated: boolean,
   cursor: string | undefined,
-  limit: number
+  limit: number,
+  excludeExplicit = true
 ) {
   let query = getPostDataQuery(prisma.orm, userId)
     .where((post) => {
@@ -25,9 +30,13 @@ async function queryChronologicalGusts(
         post.postMedias.some((media) => media._type.eq("VIDEO")),
         post.isGust.eq(true),
         post.rootPostId.isNull(),
+        communityVisibilityWhere(userId)(post),
       ];
       if (excludeModerated) {
         filters.push(post.moderated.eq(false));
+      }
+      if (excludeExplicit) {
+        filters.push(post.explicitContent.eq(false));
       }
       return and(...filters);
     })
@@ -50,13 +59,39 @@ async function queryChronologicalGusts(
 }
 
 export async function GET(request: Request) {
-  const session = await getSessionFromApi();
-  const userId = session?.user?.id ?? "";
-
   const url = new URL(request.url);
   const cursor = url.searchParams.get("cursor") || undefined;
   const initialId = url.searchParams.get("initialId") || undefined;
-  const mode = url.searchParams.get("mode") === "personalized";
+  const requestedMode = url.searchParams.get("mode");
+  const mode =
+    requestedMode === "personalized" || requestedMode === "trending"
+      ? requestedMode
+      : "latest";
+  if (
+    !initialId &&
+    requestedMode !== "following" &&
+    (mode !== "latest" || url.searchParams.has("network"))
+  ) {
+    const { networkNativeFeed } =
+      await import("@/lib/recommendations/network-native-feed");
+    return networkNativeFeed(
+      request,
+      async () => {
+        const session = await getSessionFromApi();
+        return session?.user?.id ?? "";
+      },
+      mode,
+      "gust"
+    );
+  }
+  const session = await getSessionFromApi();
+  const userId = session?.user?.id ?? "";
+  const settings = userId ? await readNetworkPreferences(userId) : null;
+  const preferences = settings?.preferences ?? defaultNetworkPreferences();
+  const excludeExplicit = !preferences.showExplicitContent;
+  const allowed = (post: Parameters<typeof networkPostAllowed>[0]) =>
+    networkPostAllowed(post, preferences);
+
   // Explore's trending-gusts rail opts out of moderated gusts; the reels feed
   // keeps showing them.
   const excludeModerated = url.searchParams.get("excludeModerated") === "1";
@@ -78,37 +113,11 @@ export async function GET(request: Request) {
       userId,
     });
     return Response.json(
-      { ...data, mode: "following" },
+      { ...data, mode: "following", posts: data.posts.filter(allowed) },
       {
         headers: { "cache-control": "private, no-cache", vary: "Cookie" },
       }
     );
-  }
-
-  // Personalized Gusts use the same user persona as fleet recommendations,
-  // but the candidate set is constrained to video Gusts. Deep links with an
-  // initial id stay chronological so the requested Gust remains first.
-  if (mode && userId && !initialId && (!cursor || cursor.startsWith("fyp."))) {
-    const personalized = await getPersonalizedFeedPage({
-      contentKind: "gust",
-      cursor,
-      excludeModerated,
-      includeVisited: true,
-      pageSize,
-      userId,
-    });
-    if (personalized.posts.length > 0) {
-      const data: PostsPage = {
-        nextCursor: personalized.nextCursor ?? personalized.anchorCursor,
-        posts: await hydrateViewCounts(personalized.posts),
-      };
-      return Response.json(data, {
-        headers: {
-          "cache-control": "private, no-cache",
-          vary: "Cookie",
-        },
-      });
-    }
   }
 
   // When initialId is requested on the first page, ensure that gust is returned at the top
@@ -120,9 +129,13 @@ export async function GET(request: Request) {
           post.id.eq(initialId),
           post.isGust.eq(true),
           post.rootPostId.isNull(),
+          communityVisibilityWhere(userId)(post),
         ];
         if (excludeModerated) {
           filters.push(post.moderated.eq(false));
+        }
+        if (excludeExplicit) {
+          filters.push(post.explicitContent.eq(false));
         }
         return and(...filters);
       })
@@ -136,9 +149,13 @@ export async function GET(request: Request) {
           post.id.neq(initialId),
           post.isGust.eq(true),
           post.rootPostId.isNull(),
+          communityVisibilityWhere(userId)(post),
         ];
         if (excludeModerated) {
           filters.push(post.moderated.eq(false));
+        }
+        if (excludeExplicit) {
+          filters.push(post.explicitContent.eq(false));
         }
         return and(...filters);
       })
@@ -154,7 +171,7 @@ export async function GET(request: Request) {
 
     const data: PostsPage = {
       nextCursor,
-      posts: hydrated,
+      posts: hydrated.filter(allowed),
     };
     const responseHeaders = userId
       ? { "cache-control": "private, no-cache", vary: "Cookie" }
@@ -175,13 +192,15 @@ export async function GET(request: Request) {
       userId,
       excludeModerated,
       chronologicalCursor,
-      pageSize + 1
+      pageSize + 1,
+      excludeExplicit
     )) ??
     (await queryChronologicalGusts(
       userId,
       excludeModerated,
       undefined,
-      pageSize + 1
+      pageSize + 1,
+      excludeExplicit
     )) ??
     [];
 
@@ -189,7 +208,7 @@ export async function GET(request: Request) {
   const nextCursor = posts.length > pageSize ? posts[pageSize - 1].id : null;
   const data: PostsPage = {
     nextCursor,
-    posts: hydrated,
+    posts: await filterNetworkFeed(hydrated, userId),
   };
   const responseHeaders = userId
     ? { "cache-control": "private, no-cache", vary: "Cookie" }

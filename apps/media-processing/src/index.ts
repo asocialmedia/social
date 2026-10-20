@@ -407,15 +407,27 @@ if (import.meta.main) {
       return;
     }
     running = false;
+    const forceExitTimer = setTimeout(() => {
+      mediaLogger.warn(
+        {},
+        "media-processing force exiting after shutdown timeout"
+      );
+      process.exit(0);
+    }, 3500);
+    forceExitTimer.unref();
+
     mediaLogger.info({}, "media-processing shutting down");
     healthServer.stop(true);
-    await Promise.allSettled([
-      scanWorker.close(),
-      processWorker.close(),
-      analyzeWorker.close(),
-      sweepWorker.close(),
+    await Promise.race([
+      Promise.allSettled([
+        scanWorker.close(),
+        processWorker.close(),
+        analyzeWorker.close(),
+        sweepWorker.close(),
+      ]),
+      Bun.sleep(2500),
     ]);
-    await closeQueueConnections();
+    await closeQueueConnections().catch(() => null);
     await (telemetry as Telemetry).shutdown().catch(() => null);
     process.exit(0);
   };

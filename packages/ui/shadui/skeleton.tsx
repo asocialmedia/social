@@ -7,7 +7,10 @@ const Skeleton = ({
   ...props
 }: React.HTMLAttributes<HTMLDivElement>) => (
   <div
-    className={cn("bg-primary/10 animate-pulse rounded-md", className)}
+    className={cn(
+      "bg-primary/10 animate-pulse rounded-md motion-reduce:animate-none",
+      className
+    )}
     {...props}
   />
 );

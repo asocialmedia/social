@@ -35,3 +35,13 @@ test("an animated fallback stays concealed when a still derivative is unavailabl
   expect(supportsExplicitBlur("android", 36)).toBe(true);
   expect(supportsExplicitBlur("ios", "18")).toBe(true);
 });
+
+test("a concealed Bluesky video parent uses its poster rather than the HLS playlist", () => {
+  expect(
+    explicitCoverUrl("https://example.test", {
+      id: "https://video.bsky.app/playlist.m3u8",
+      thumbnailKey: "https://video.bsky.app/thumbnail.jpg",
+      type: "VIDEO",
+    })
+  ).toBe("https://video.bsky.app/thumbnail.jpg");
+});

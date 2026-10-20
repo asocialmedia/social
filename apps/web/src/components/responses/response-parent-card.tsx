@@ -1,6 +1,7 @@
 // oxlint-disable jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions
 
 import type { PostParentData } from "@asm/db";
+import type { ExternalPost } from "@asm/protocols/contracts";
 import { ImageOff } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
@@ -12,9 +13,11 @@ import UserAvatar from "@/components/layouts/user/user-avatar";
 import UserBadge from "@/components/layouts/user/user-badge";
 import PostLinkedContent from "@/components/posts/content/post-linked-content";
 import PostLinkEmbeds from "@/components/posts/embeds/link-embeds";
+import { BlueskyIcon } from "@/components/protocols/bluesky-icon";
 import { communityAccentStyle } from "@/lib/communities/accent";
 import { isInteractiveTarget } from "@/lib/interactive-target";
 import { parseStoredEmbeds } from "@/lib/link-embeds/shared";
+import { blueskyProfilePath } from "@/lib/protocols/paths";
 import { getPostPath } from "@/lib/seo/seo";
 import { cn, formatRelativeDate } from "@/lib/utils";
 import { getMediaProxyUrl } from "@/lib/utils/image-url";
@@ -25,6 +28,7 @@ interface ResponseParentCardProps {
   // tombstone so the thread stays readable.
   parent: PostParentData | null;
   parentPostId: string;
+  external?: ExternalPost;
 }
 
 // The parent post rendered as the top node of a mini-thread: a full-width row
@@ -34,13 +38,14 @@ interface ResponseParentCardProps {
 export function ResponseParentRow({
   parent,
   parentPostId,
+  external,
 }: ResponseParentCardProps) {
   const router = useRouter();
   const [natural, setNatural] = useState<{
     width: number;
     height: number;
   } | null>(null);
-  const href = parent
+  let href = parent
     ? getPostPath({
         community: parent.community,
         content: parent.content,
@@ -48,6 +53,9 @@ export function ResponseParentRow({
         isGust: parent.isGust,
       })
     : `/posts/${parentPostId}`;
+  if (external) {
+    href = `/network/bluesky?uri=${encodeURIComponent(external.id)}`;
+  }
 
   const handleRowClick = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
@@ -89,6 +97,9 @@ export function ResponseParentRow({
   }
 
   const username = parent.user?.username ?? "unknown";
+  const profileHref = external
+    ? blueskyProfilePath(external.author.id)
+    : `/users/${username}`;
   const displayName = parent.user?.displayName || username;
   const media = parent.attachments?.[0];
   const embeds = parseStoredEmbeds(parent.embeds);
@@ -122,7 +133,7 @@ export function ResponseParentRow({
           <Link
             aria-label={`View @${username}'s profile`}
             className="relative z-10 shrink-0"
-            href={`/users/${username}`}
+            href={profileHref}
           >
             <UserAvatar
               className="h-9 w-9 sm:h-10 sm:w-10"
@@ -152,6 +163,7 @@ export function ResponseParentRow({
             >
               {displayName}
             </Link>
+            {external ? <BlueskyIcon /> : null}
             <UserBadge
               badge={parent.user?.badge}
               badges={parent.user?.badges}
@@ -159,7 +171,7 @@ export function ResponseParentRow({
             />
             <Link
               className="text-muted-foreground truncate hover:underline"
-              href={`/users/${username}`}
+              href={profileHref}
             >
               @{username}
             </Link>
@@ -179,7 +191,11 @@ export function ResponseParentRow({
           </div>
           {parent.content ? (
             <div className="mt-1 line-clamp-6">
-              <PostLinkedContent content={parent.content} embeds={embeds} />
+              <PostLinkedContent
+                content={parent.content}
+                embeds={embeds}
+                sourceSegments={external?.segments}
+              />
             </div>
           ) : null}
           {media ? (
@@ -205,10 +221,13 @@ export function ResponseParentRow({
                   }
                 }}
                 sizes="(max-width: 640px) 100vw, 512px"
-                src={getMediaProxyUrl({
-                  id: media.id,
-                  type: media.type as string,
-                })}
+                src={
+                  external?.media[0]?.thumbnailUrl ??
+                  getMediaProxyUrl({
+                    id: media.id,
+                    type: media.type as string,
+                  })
+                }
                 unoptimized
               />
             </div>

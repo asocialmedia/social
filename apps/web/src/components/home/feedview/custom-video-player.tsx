@@ -31,6 +31,7 @@ import {
   VideoTranscriptDrawer,
 } from "@/components/media/video-transcript-drawer";
 import type { TranscriptCue } from "@/components/media/video-transcript-drawer";
+import { hlsPlaybackMode } from "@/lib/media/hls-playback";
 import { useVideoCaptionsStore } from "@/lib/stores/video-captions-store";
 import { useVideoMuteStore } from "@/lib/stores/video-mute-store";
 import { cn, isEditableTarget } from "@/lib/utils";
@@ -268,8 +269,10 @@ export const CustomVideoPlayer = ({
   }, [captionsEnabled, cues, currentTime]);
 
   const toggleTranscript = useCallback(() => {
-    setShowTranscript((prev) => !prev);
-  }, []);
+    if (mediaId) {
+      setShowTranscript((prev) => !prev);
+    }
+  }, [mediaId]);
 
   const hlsInstanceRef = useRef<InstanceType<typeof Hls> | null>(null);
   const [hlsReady, setHlsReady] = useState(false);
@@ -348,27 +351,29 @@ export const CustomVideoPlayer = ({
     if (!video || !hlsSrc) {
       return;
     }
-    if (video.canPlayType("application/vnd.apple.mpegurl")) {
-      if (video.src !== hlsSrc) {
-        video.src = hlsSrc;
-      }
-      hlsPendingRef.current = false;
-      setHlsReady(true);
-      return;
-    }
     let cancelled = false;
     hlsPendingRef.current = true;
     void (async () => {
       const HlsCtor = await getHlsConstructor();
-      if (cancelled || !video || !HlsCtor || !HlsCtor.isSupported()) {
+      if (cancelled) {
+        return;
+      }
+      const mode = hlsPlaybackMode(
+        HlsCtor?.isSupported() ?? false,
+        Boolean(video.canPlayType("application/vnd.apple.mpegurl"))
+      );
+      if (mode === "native") {
+        video.src = hlsSrc;
         hlsPendingRef.current = false;
-        // HLS unavailable: ensure progressive src is used
-        if (
-          !cancelled &&
-          video &&
-          !HlsCtor?.isSupported() &&
-          video.src !== src
-        ) {
+        setHlsReady(true);
+        if (autoPlay) {
+          void attemptPlay();
+        }
+        return;
+      }
+      if (!HlsCtor || mode === "unsupported") {
+        hlsPendingRef.current = false;
+        if (video.src !== src) {
           video.src = src;
         }
         return;
@@ -407,7 +412,7 @@ export const CustomVideoPlayer = ({
       hls.on(HlsCtor.Events.ERROR, (_event, data) => {
         if (data.fatal) {
           const fallback = video.dataset.fallbackSrc;
-          if (fallback) {
+          if (fallback && fallback !== hlsSrc) {
             hls.destroy();
             hlsInstanceRef.current = null;
             video.src = fallback;

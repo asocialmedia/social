@@ -1,6 +1,9 @@
 import { commentChannel, parseCommentEvent, subscribeToChannel } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/auth/session";
+import { findReadableThreadAnchor } from "@/lib/posts/reader-content-policy";
+import { serialThreadDelivery } from "@/lib/posts/serial-thread-delivery";
+import { threadStreamContent } from "@/lib/posts/thread-stream-policy";
 
 // Server-Sent Events fan-out for real-time eddies. Every comment write is
 // published to the post's Redis channel; each open stream here subscribes to
@@ -19,6 +22,9 @@ export async function GET(
   }
 
   const { postId } = await ctx.params;
+  if (!(await findReadableThreadAnchor(postId, user.id))) {
+    return Response.json({ error: "Post not found" }, { status: 404 });
+  }
   const channel = commentChannel(postId);
   const encoder = new TextEncoder();
 
@@ -55,18 +61,42 @@ export async function GET(
         }
       };
 
-      const onMessage = (_chan: string, raw: string) => {
-        const event = parseCommentEvent(raw);
-        if (!event) {
-          return;
-        }
-        try {
-          controller.enqueue(
-            encoder.encode(`event: comment\ndata: ${raw}\n\n`)
-          );
-        } catch {
+      const deliver = serialThreadDelivery(
+        async (raw: string) => {
+          if (closed) {
+            return;
+          }
+          const event = parseCommentEvent(raw);
+          if (!event) {
+            return;
+          }
+          try {
+            if (!(await findReadableThreadAnchor(postId, user.id))) {
+              await close();
+              return;
+            }
+            const payload = await threadStreamContent(
+              event.comment,
+              user.id,
+              true
+            );
+            if (!payload) {
+              return;
+            }
+            const safeEvent = JSON.stringify({ ...event, comment: payload });
+            controller.enqueue(
+              encoder.encode(`event: comment\ndata: ${safeEvent}\n\n`)
+            );
+          } catch {
+            void close();
+          }
+        },
+        () => {
           void close();
         }
+      );
+      const onMessage = (_channel: string, raw: string) => {
+        void deliver(raw);
       };
 
       // Keep the connection alive through proxies and detect dead sockets so

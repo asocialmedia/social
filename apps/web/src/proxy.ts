@@ -293,6 +293,7 @@ async function holdsAcceptedCredential(
   return await hasVerifiedSession({
     authorization: request.headers.get("authorization") || "",
     cookie: request.headers.get("cookie") || "",
+    ingress: request.headers,
   });
 }
 

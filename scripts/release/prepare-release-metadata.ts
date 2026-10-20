@@ -73,6 +73,9 @@ async function getWorkspaceVersions(
   const mediaProcessing = await readVersionFromPackage(
     path.join(repoRoot, "apps/media-processing/package.json")
   );
+  const protocols = await readVersionFromPackage(
+    path.join(repoRoot, "apps/protocols/package.json")
+  );
   const mobile =
     (await readVersionFromAppJson(
       path.join(repoRoot, "apps/mobile/app.json")
@@ -87,6 +90,7 @@ async function getWorkspaceVersions(
     ...(auth ? { auth } : {}),
     ...(mediaProcessing ? { mediaProcessing } : {}),
     ...(mobile ? { mobile } : {}),
+    ...(protocols ? { protocols } : {}),
   };
 }
 
@@ -188,6 +192,10 @@ export async function generateReleaseNotesFile(
       app: "Media Processing",
       image: `ghcr.io/${env.GITHUB_REPOSITORY_OWNER || "asocialmedia"}/asm-media-processing`,
     },
+    protocols: {
+      app: "Protocols Service",
+      image: `ghcr.io/${env.GITHUB_REPOSITORY_OWNER || "asocialmedia"}/asm-protocols`,
+    },
     web: {
       app: "Web Application",
       image: `ghcr.io/${env.GITHUB_REPOSITORY_OWNER || "asocialmedia"}/asm-web`,
@@ -197,12 +205,13 @@ export async function generateReleaseNotesFile(
   for (const app of selectedApps) {
     const info = appDisplayNames[app];
     if (info) {
-      const appVersion =
-        app === "web"
-          ? versions.web
-          : app === "auth"
-            ? versions.auth
-            : versions.mediaProcessing;
+      const appVersions: Record<string, string | undefined> = {
+        auth: versions.auth,
+        "media-processing": versions.mediaProcessing,
+        protocols: versions.protocols,
+        web: versions.web,
+      };
+      const appVersion = appVersions[app];
       containers.push({
         app: info.app,
         image: info.image,

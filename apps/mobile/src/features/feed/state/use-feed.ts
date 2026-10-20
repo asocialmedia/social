@@ -12,7 +12,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { authClient } from "@/features/auth/lib/auth-client";
 import { getApiBaseUrl } from "@/lib/api-env";
-import { createExpoPoller } from "@/lib/expo-poller";
 import { logWarn } from "@/lib/telemetry";
 
 import type { FeedVariant } from "../lib/feed-api";
@@ -23,6 +22,7 @@ import {
   fetchFeedPage,
   isRankedFeed,
 } from "../lib/feed-api";
+import { subscribeFeedReads } from "../lib/feed-events";
 import type { FeedPost } from "../lib/feed-types";
 import {
   filterFeedPosts,
@@ -41,7 +41,6 @@ import {
 } from "./feed-store";
 
 // Head probe interval, mirroring web useNewContentProbe.
-const PROBE_INTERVAL_MS = 20_000;
 
 export type FeedStatus =
   | "error"
@@ -126,7 +125,7 @@ export function useFeedTab({
 
   // Load new rows above the retained feed; native anchoring preserves the reader.
   // Only the foreground tab probes, with a cheap head-id check on chronological feeds.
-  const pollerRef = useRef<ReturnType<typeof createExpoPoller> | null>(null);
+  const pollerRef = useRef<{ stop: () => void } | null>(null);
   const probeKey = useRef<string | null>(null);
   const probeCancel = useRef<(() => void) | null>(null);
 
@@ -217,13 +216,10 @@ export function useFeedTab({
         }
       };
       probeKey.current = key;
-      pollerRef.current = createExpoPoller({
-        intervalMs: PROBE_INTERVAL_MS,
-        onPoll: probe,
-      });
-      pollerRef.current.start();
+      pollerRef.current = { stop: subscribeFeedReads(userId, "asm", probe) };
+      void probe();
     },
-    [stopProbe, variant]
+    [stopProbe, userId, variant]
   );
 
   const runFetch = useCallback(

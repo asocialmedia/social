@@ -1,6 +1,6 @@
 "use client";
 
-import type { PostData, UserData } from "@asm/db";
+import type { UserData } from "@asm/db";
 import { isRapidGustTap } from "@asm/ui/lib/aura-burst";
 import { DropdownMenuItem } from "@asm/ui/shadui/dropdown-menu";
 import {
@@ -41,9 +41,17 @@ import ExplicitContentGate from "@/components/posts/content/explicit-content-gat
 import ModeratedNotice from "@/components/posts/content/moderated-notice";
 import PostLinkedContent from "@/components/posts/content/post-linked-content";
 import ViewTracker from "@/components/posts/effects/view-counter";
+import { BlueskyIcon } from "@/components/protocols/bluesky-icon";
+import { ExternalAuthorTooltip } from "@/components/protocols/external-author-tooltip";
+import {
+  ExternalBookmarkButton,
+  ExternalPostMenu,
+} from "@/components/protocols/external-post-controls";
 import { PostMeta } from "@/components/tags/post-meta";
 import { useVideoDelivery } from "@/lib/media/use-video-delivery";
 import { getPostAttachments } from "@/lib/posts/post-normalize";
+import type { PresentedPost } from "@/lib/posts/presentation";
+import { blueskyProfilePath } from "@/lib/protocols/paths";
 import { toggleAltReveal, useAltRevealed } from "@/lib/stores/alt-reveal-store";
 import { useExplicitRevealed } from "@/lib/stores/explicit-reveal-store";
 import { useVideoCaptionsStore } from "@/lib/stores/video-captions-store";
@@ -62,16 +70,18 @@ interface GustCardProps {
   interactive?: boolean;
   commentsOpen?: boolean;
   isActive: boolean;
+  onUnavailable?: (postId: string) => void;
   isMuted: boolean;
   onOpenComments: () => void;
   onToggleMute: () => void;
-  post: PostData;
+  post: PresentedPost;
   shouldMountVideo?: boolean;
 }
 
 export const GustCard: React.FC<GustCardProps> = ({
   post,
   isActive,
+  onUnavailable,
   isMuted,
   onToggleMute,
   onOpenComments,
@@ -80,10 +90,13 @@ export const GustCard: React.FC<GustCardProps> = ({
   shouldMountVideo = true,
 }) => {
   const { user } = useSession();
+  const { external } = post;
+  const sourceVideo = external?.media.find((media) => media.type === "video");
   const attachments = getPostAttachments(post);
   const videoMedia = attachments.find((m) => m.type === "VIDEO");
 
   const videoRef = useRef<HTMLVideoElement>(null);
+  const playbackIntent = useRef(false);
   const speedTargetRef = useRef<HTMLButtonElement>(null);
   const [progress, setProgress] = useState(0);
   const [videoAspectRatio, setVideoAspectRatio] = useState(9 / 16);
@@ -114,6 +127,7 @@ export const GustCard: React.FC<GustCardProps> = ({
     // feed item. VideoTranscriptDrawer loads its own cues independently
     // when opened.
     if (
+      external ||
       !captionsEnabled ||
       !isActive ||
       !shouldMountVideo ||
@@ -147,6 +161,7 @@ export const GustCard: React.FC<GustCardProps> = ({
       cancelled = true;
     };
   }, [
+    external,
     captionsEnabled,
     isActive,
     post.moderated,
@@ -268,14 +283,18 @@ export const GustCard: React.FC<GustCardProps> = ({
   const authorUsername = post.user?.username || "unknown";
   const authorName =
     post.user?.displayName || post.user?.username || "Anonymous";
-  const authorProfileHref = post.user?.username
+  let authorProfileHref = post.user?.username
     ? `/users/${post.user.username}`
     : "#";
+  if (external) {
+    authorProfileHref = blueskyProfilePath(external.author.id);
+  }
 
   // Shared vote state so the rail button and the double-tap gesture stay in
   // sync (same ["vote-info", postId] cache entry).
   const { amplify } = useGustVote({
     authorName,
+    external,
     initialState: {
       aura: post.aura,
       userVote: post.vote?.[0]?.value ?? 0,
@@ -303,9 +322,11 @@ export const GustCard: React.FC<GustCardProps> = ({
         !sharedExplicitRevealed
       ) {
         // Keep the clip paused behind the blur until the viewer taps Continue.
+        playbackIntent.current = false;
         video.pause();
         return;
       }
+      playbackIntent.current = true;
       void (async () => {
         try {
           await video.play();
@@ -314,6 +335,7 @@ export const GustCard: React.FC<GustCardProps> = ({
         }
       })();
     } else {
+      playbackIntent.current = false;
       video.pause();
       // Reset the clip to the start so it never resumes mid-way when it
       // becomes active again. The progress bar and buffering spinner are
@@ -322,6 +344,7 @@ export const GustCard: React.FC<GustCardProps> = ({
     }
 
     return () => {
+      playbackIntent.current = false;
       try {
         video.pause();
       } catch {
@@ -346,9 +369,11 @@ export const GustCard: React.FC<GustCardProps> = ({
         return;
       }
       if (document.hidden) {
-        wasPlayingBeforeHideRef.current = !video.paused;
+        wasPlayingBeforeHideRef.current = playbackIntent.current;
+        playbackIntent.current = false;
         video.pause();
       } else if (isActive && wasPlayingBeforeHideRef.current) {
+        playbackIntent.current = true;
         void (async () => {
           try {
             await video.play();
@@ -432,6 +457,7 @@ export const GustCard: React.FC<GustCardProps> = ({
     }
 
     if (video.paused) {
+      playbackIntent.current = true;
       void (async () => {
         try {
           await video.play();
@@ -441,6 +467,7 @@ export const GustCard: React.FC<GustCardProps> = ({
         }
       })();
     } else {
+      playbackIntent.current = false;
       video.pause();
       triggerPlayPauseIcon("pause");
     }
@@ -492,18 +519,22 @@ export const GustCard: React.FC<GustCardProps> = ({
     videoRef,
     videoMedia?.id,
     shouldMountVideo &&
-      isActive &&
       (!post.explicitContent || explicitRevealed || sharedExplicitRevealed),
-    videoMedia?.hasHls
+    videoMedia?.hasHls,
+    playbackIntent,
+    sourceVideo?.url
   );
 
   if (!videoMedia) {
     return null;
   }
 
-  const thumbUrl = getMediaProxyUrl(videoMedia);
-  const videoUrl = getMediaVideoUrl(videoMedia.id);
+  const thumbUrl = external
+    ? sourceVideo?.thumbnailUrl
+    : getMediaProxyUrl(videoMedia);
+  const videoUrl = external ? undefined : getMediaVideoUrl(videoMedia.id);
   const canFollow = Boolean(
+    !external &&
     user &&
     post.user &&
     user.id !== post.user.id &&
@@ -617,6 +648,16 @@ export const GustCard: React.FC<GustCardProps> = ({
                       );
                     }
                   }}
+                  onError={(event) => {
+                    const code = event.currentTarget.error?.code;
+                    if (
+                      !external &&
+                      !videoMedia.hasHls &&
+                      (code === 3 || code === 4)
+                    ) {
+                      onUnavailable?.(post.id);
+                    }
+                  }}
                   onCanPlay={handleCanPlay}
                   onPlaying={handlePlaying}
                   onTimeUpdate={handleTimeUpdate}
@@ -627,7 +668,7 @@ export const GustCard: React.FC<GustCardProps> = ({
                   ref={videoRef}
                   src={shouldMountVideo ? videoUrl : undefined}
                 >
-                  {shouldMountVideo ? (
+                  {shouldMountVideo && !external ? (
                     <track
                       default={captionsEnabled}
                       kind="subtitles"
@@ -753,14 +794,25 @@ export const GustCard: React.FC<GustCardProps> = ({
             />
           </div>
           <div className="flex items-center gap-3">
-            <UserTooltip user={post.user}>
-              <Link href={authorProfileHref}>
-                <UserAvatar
-                  avatarUrl={post.user?.avatarUrl}
-                  className="size-10 shrink-0 rounded-xl ring-2 ring-white/60"
-                />
-              </Link>
-            </UserTooltip>
+            {external ? (
+              <ExternalAuthorTooltip author={external.author}>
+                <Link href={authorProfileHref}>
+                  <UserAvatar
+                    avatarUrl={external.author.avatarUrl}
+                    className="size-10 shrink-0 rounded-xl ring-2 ring-white/60"
+                  />
+                </Link>
+              </ExternalAuthorTooltip>
+            ) : (
+              <UserTooltip user={post.user}>
+                <Link href={authorProfileHref}>
+                  <UserAvatar
+                    avatarUrl={post.user?.avatarUrl}
+                    className="size-10 shrink-0 rounded-xl ring-2 ring-white/60"
+                  />
+                </Link>
+              </UserTooltip>
+            )}
             <div className="min-w-0">
               <div className="flex items-center gap-2">
                 <Link
@@ -769,11 +821,15 @@ export const GustCard: React.FC<GustCardProps> = ({
                 >
                   {authorName}
                 </Link>
-                <UserBadge
-                  badge={post.user?.badge}
-                  badges={post.user?.badges}
-                  communityRoles={post.user?.communityMemberships}
-                />
+                {external ? (
+                  <BlueskyIcon />
+                ) : (
+                  <UserBadge
+                    badge={post.user?.badge}
+                    badges={post.user?.badges}
+                    communityRoles={post.user?.communityMemberships}
+                  />
+                )}
                 {canFollow && post.user ? (
                   <FollowButton
                     className="h-7 shrink-0 rounded-full px-3 text-xs"
@@ -802,6 +858,7 @@ export const GustCard: React.FC<GustCardProps> = ({
                   !captionExpanded && "line-clamp-3"
                 )}
                 content={post.content}
+                sourceSegments={external?.segments}
               />
               {post.content.length > 80 ? (
                 <button
@@ -847,11 +904,15 @@ export const GustCard: React.FC<GustCardProps> = ({
             </div>
           ) : null}
 
-          <div className="flex items-center gap-1.5 text-xs font-semibold text-white/85 drop-shadow">
-            <Eye className="size-4" />
-            <span className="tabular-nums">{formatNumber(post.viewCount)}</span>
-            <span className="text-white/60">views</span>
-          </div>
+          {external ? null : (
+            <div className="flex items-center gap-1.5 text-xs font-semibold text-white/85 drop-shadow">
+              <Eye className="size-4" />
+              <span className="tabular-nums">
+                {formatNumber(post.viewCount)}
+              </span>
+              <span className="text-white/60">views</span>
+            </div>
+          )}
         </div>
 
         {/* Right action rail */}
@@ -859,6 +920,7 @@ export const GustCard: React.FC<GustCardProps> = ({
           {/* Amplify (upvote) */}
           <GustVoteButton
             authorName={authorName}
+            external={external}
             direction="up"
             initialState={{
               aura: post.aura,
@@ -871,6 +933,7 @@ export const GustCard: React.FC<GustCardProps> = ({
           {/* Mute author (downvote) */}
           <GustVoteButton
             authorName={authorName}
+            external={external}
             direction="down"
             initialState={{
               aura: post.aura,
@@ -917,47 +980,64 @@ export const GustCard: React.FC<GustCardProps> = ({
             dialogDescription="Share this gust with your network"
             dialogTitle="Share Gust"
             iconClassName="size-5!"
-            postId={post.id}
-            shareUrl={`${typeof window === "undefined" ? "" : window.location.origin}/gusts?id=${post.id}`}
+            postId={external ? undefined : post.id}
+            shareUrl={`${typeof window === "undefined" ? "" : window.location.origin}/gusts?id=${encodeURIComponent(post.id)}`}
             thumbnail={thumbUrl}
             title={`${authorName} (@${authorUsername})'s Gust on asocialmedia`}
           />
 
           {/* Bookmark */}
-          <BookmarkButton
-            className={cn(
-              "rail-3d-btn flex h-11! w-11! items-center justify-center rounded-full p-0 transition-transform hover:scale-105 active:scale-95",
-              isBookmarked && "rail-3d-btn-gold"
-            )}
-            iconClassName="size-5!"
-            initialState={{
-              isBookmarkedByUser: isBookmarked,
-            }}
-            kind="gust"
-            postId={post.id}
-          />
+          {external ? (
+            <ExternalBookmarkButton
+              post={external}
+              kind="gust"
+              iconClassName="size-5!"
+              className="rail-3d-btn flex h-11! w-11! items-center justify-center rounded-full p-0 transition-transform hover:scale-105 active:scale-95"
+            />
+          ) : (
+            <BookmarkButton
+              className={cn(
+                "rail-3d-btn flex h-11! w-11! items-center justify-center rounded-full p-0 transition-transform hover:scale-105 active:scale-95",
+                isBookmarked && "rail-3d-btn-gold"
+              )}
+              iconClassName="size-5!"
+              initialState={{
+                isBookmarkedByUser: isBookmarked,
+              }}
+              kind="gust"
+              postId={post.id}
+            />
+          )}
 
-          <PostMoreButton
-            className="rail-3d-btn flex h-11! w-11! items-center justify-center rounded-full p-0 transition-transform hover:scale-105 active:scale-95"
-            extraItems={
-              !post.moderated && videoMedia ? (
-                <DropdownMenuItem
-                  className="pill-3d-hover rounded-md px-2 py-2"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    toggleTranscript();
-                  }}
-                >
-                  <span className="flex items-center gap-3">
-                    <Speech className="size-4" />
-                    {showTranscript ? "Hide transcript" : "View transcript"}
-                  </span>
-                </DropdownMenuItem>
-              ) : null
-            }
-            iconClassName="size-5!"
-            post={post}
-          />
+          {external ? (
+            <ExternalPostMenu
+              post={external}
+              iconClassName="size-5!"
+              className="rail-3d-btn flex h-11! w-11! items-center justify-center rounded-full p-0 transition-transform hover:scale-105 active:scale-95"
+            />
+          ) : (
+            <PostMoreButton
+              className="rail-3d-btn flex h-11! w-11! items-center justify-center rounded-full p-0 transition-transform hover:scale-105 active:scale-95"
+              extraItems={
+                !post.moderated && videoMedia ? (
+                  <DropdownMenuItem
+                    className="pill-3d-hover rounded-md px-2 py-2"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      toggleTranscript();
+                    }}
+                  >
+                    <span className="flex items-center gap-3">
+                      <Speech className="size-4" />
+                      {showTranscript ? "Hide transcript" : "View transcript"}
+                    </span>
+                  </DropdownMenuItem>
+                ) : null
+              }
+              iconClassName="size-5!"
+              post={post}
+            />
+          )}
 
           {/* Mute / unmute (aligned below the More button); no video to mute on
               a moderated gust */}
@@ -999,7 +1079,7 @@ export const GustCard: React.FC<GustCardProps> = ({
           </div>
         )}
 
-        {!post.moderated && videoMedia ? (
+        {!external && !post.moderated && videoMedia ? (
           <VideoTranscriptDrawer
             currentTime={currentTime}
             isOpen={showTranscript}
@@ -1017,7 +1097,7 @@ export const GustCard: React.FC<GustCardProps> = ({
         ) : null}
       </div>
 
-      {isActive ? <ViewTracker postId={post.id} /> : null}
+      {isActive && !external ? <ViewTracker postId={post.id} /> : null}
     </div>
   );
 };

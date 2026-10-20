@@ -15,6 +15,9 @@ import { createLogger } from "@asm/logger";
 import { connection } from "next/server";
 
 import { getSessionFromApi } from "@/lib/auth/session";
+import { networkFeedContext } from "@/lib/recommendations/network-context";
+import { safeUserDiscoveryResponse } from "@/lib/users/discovery-safety";
+import { networkSuggestedUsers } from "@/lib/users/network-suggested-users";
 import { suggestedUsersCache } from "@/lib/users/suggested-users-cache";
 import {
   buildViewerInterests,
@@ -60,6 +63,10 @@ function isRefreshRequest(req: Request): boolean {
 }
 
 export async function GET(req: Request) {
+  return safeUserDiscoveryResponse(await readUsers(req));
+}
+
+async function readUsers(req: Request) {
   await connection();
   const startedAt = Date.now();
   try {
@@ -114,6 +121,14 @@ export async function GET(req: Request) {
       return Response.json(guestUsers, {
         headers: { "Cache-Control": "public, max-age=60", "X-Cache": "N/A" },
       });
+    }
+
+    const network = await networkFeedContext(user.id);
+    if (network.selected.interests.length) {
+      return Response.json(
+        await networkSuggestedUsers(user.id, limit, network),
+        { headers: { "cache-control": "private, no-store", vary: "Cookie" } }
+      );
     }
 
     // Refresh bypasses cache but still respects rate limit

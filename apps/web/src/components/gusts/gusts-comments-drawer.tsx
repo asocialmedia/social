@@ -1,14 +1,15 @@
 "use client";
 
-import type { PostData } from "@asm/db";
 import { X } from "lucide-react";
 import React from "react";
 
 import Comments from "@/components/comments/thread/comments";
+import { ExternalDiscussion } from "@/components/protocols/external-discussion";
+import type { PresentedPost } from "@/lib/posts/presentation";
 
 interface GustsCommentsDrawerProps {
   onClose: () => void;
-  post: PostData;
+  post: PresentedPost;
 }
 
 // Pure comments panel: a slim close row on top and the full eddie stream below.
@@ -33,7 +34,11 @@ export const GustsCommentsDrawer: React.FC<GustsCommentsDrawerProps> = ({
 
     {/* Eddie stream + input */}
     <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4 [&_form]:mt-0 [&_form]:mb-3">
-      <Comments post={post} reels />
+      {post.external ? (
+        <ExternalDiscussion post={post.external} />
+      ) : (
+        <Comments post={post} reels />
+      )}
     </div>
   </div>
 );

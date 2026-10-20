@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { createLogger } from "@asm/logger";
 import { and, or } from "@prisma/orm-postgres/orm-client";
 // For-You feed service: fetches a fresh candidate pool, builds (and caches)
@@ -56,6 +58,7 @@ const COLLABORATIVE_SOURCE_TAKE = 100;
 const COLLABORATIVE_PEER_EVENT_TAKE = 2000;
 const COLLABORATIVE_CANDIDATE_EVENT_TAKE = 5000;
 const SOCIAL_PROOF_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+const SOCIAL_PROOF_CACHE_SECONDS = 120;
 const SOCIAL_PROOF_EVENT_TAKE = 2000;
 const SOCIAL_PROOF_SATURATION = 3;
 const POSITIVE_RECOMMENDATION_EVENTS = [
@@ -67,7 +70,7 @@ const POSITIVE_RECOMMENDATION_EVENTS = [
   "SHARE",
 ] as const;
 
-export const FYP_PROFILE_KEY_PREFIX = "fyp-profile:v3:";
+export const FYP_PROFILE_KEY_PREFIX = "fyp-profile:v4:";
 
 interface CachedProfile extends UserProfile {
   followedAuthorIds: string[];
@@ -118,6 +121,8 @@ export interface PersonalizedFeedPage {
 }
 
 export interface GetPersonalizedFeedOptions {
+  networkProfile?: UserProfile;
+  networkScope?: string;
   contentKind?: "post" | "gust";
   cursor?: string;
   excludeModerated?: boolean;
@@ -258,6 +263,47 @@ export async function getSocialProofPostWeights(
     return new Map();
   }
 
+  // Social proof depends only on the viewer's follow graph and the candidate
+  // set, so a short Redis lease removes the self-join from repeat builds. Fails
+  // open: a cache outage must never block a feed read.
+  const cacheKey = `rec:social-proof:v1:{${createHash("sha256")
+    .update(JSON.stringify([viewerId, [...candidatePostIds].toSorted()]))
+    .digest("hex")}}`;
+  try {
+    const cached = await redis.get(cacheKey);
+    if (cached) {
+      const parsed = JSON.parse(cached) as [string, number][];
+      if (Array.isArray(parsed)) {
+        return new Map(parsed);
+      }
+    }
+  } catch {
+    // Fall through to the database.
+  }
+
+  const weights = await computeSocialProofWeights(
+    viewerId,
+    candidatePostIds,
+    now
+  );
+  try {
+    await redis.set(
+      cacheKey,
+      JSON.stringify([...weights]),
+      "EX",
+      SOCIAL_PROOF_CACHE_SECONDS
+    );
+  } catch {
+    // Best effort only.
+  }
+  return weights;
+}
+
+async function computeSocialProofWeights(
+  viewerId: string,
+  candidatePostIds: string[],
+  now: Date
+): Promise<Map<string, number>> {
   const since = new Date(now.getTime() - SOCIAL_PROOF_WINDOW_MS);
   const [amplifications, comments] = await Promise.all([
     prisma.orm.public.Votes.select("createdAt", "postId", "userId")
@@ -444,6 +490,39 @@ export async function buildAndCacheProfile(
   userId: string
 ): Promise<CachedProfile> {
   const since = new Date(Date.now() - PROFILE_SIGNAL_WINDOW_MS);
+  // Empty accounts need no post/media joins; search history and follows are still read independently below.
+  const hasHistory = Boolean(
+    await prisma.orm.public.Users.select("id")
+      .where((user) =>
+        and(
+          user.id.eq(userId),
+          or(
+            user.votes.some((vote) =>
+              vote.createdAt.gte(toPrismaDateTime(since))
+            ),
+            user.bookmarks.some((bookmark) =>
+              bookmark.createdAt.gte(toPrismaDateTime(since))
+            ),
+            user.comments.some((comment) =>
+              and(
+                comment.createdAt.gte(toPrismaDateTime(since)),
+                comment.deleted.eq(false)
+              )
+            ),
+            user.commentVotes.some((vote) =>
+              vote.createdAt.gte(toPrismaDateTime(since))
+            ),
+            user.posts.some((post) =>
+              post.createdAt.gte(toPrismaDateTime(since))
+            ),
+            user.recommendationEvents.some((event) =>
+              event.createdAt.gte(toPrismaDateTime(since))
+            )
+          )
+        )
+      )
+      .first()
+  );
   const [
     votes,
     downvotes,
@@ -455,88 +534,105 @@ export async function buildAndCacheProfile(
     searches,
     followedAuthorIds,
   ] = await Promise.all([
-    prisma.orm.public.Votes.select("createdAt")
-      .include("post", (_post) => getAuthorTagsQuery())
-      .where((vote) =>
-        and(
-          vote.createdAt.gte(toPrismaDateTime(since)),
-          vote.userId.eq(userId),
-          vote.value.gt(0)
+    hasHistory
+      ? prisma.orm.public.Votes.select("createdAt")
+          .include("post", (_post) => getAuthorTagsQuery())
+          .where((vote) =>
+            and(
+              vote.createdAt.gte(toPrismaDateTime(since)),
+              vote.userId.eq(userId),
+              vote.value.gt(0)
+            )
+          )
+          .orderBy((vote) => vote.createdAt.desc())
+          .limit(PROFILE_EMBEDDING_TAKE)
+          .all()
+      : [],
+    hasHistory
+      ? prisma.orm.public.Votes.select("createdAt")
+          .include("post", (_post) => getAuthorTagsQuery())
+          .where((vote) =>
+            and(
+              vote.createdAt.gte(toPrismaDateTime(since)),
+              vote.userId.eq(userId),
+              vote.value.lt(0)
+            )
+          )
+          .orderBy((vote) => vote.createdAt.desc())
+          .limit(PROFILE_EMBEDDING_TAKE)
+          .all()
+      : [],
+    hasHistory
+      ? prisma.orm.public.Bookmarks.select("createdAt")
+          .include("post", (_post) => getAuthorTagsQuery())
+          .where((bookmark) =>
+            and(
+              bookmark.createdAt.gte(toPrismaDateTime(since)),
+              bookmark.userId.eq(userId)
+            )
+          )
+          .orderBy((bookmark) => bookmark.createdAt.desc())
+          .limit(PROFILE_EMBEDDING_TAKE)
+          .all()
+      : [],
+    hasHistory
+      ? prisma.orm.public.Comments.select("createdAt")
+          .include("post", (_post) => getAuthorTagsQuery())
+          .where((comment) =>
+            and(
+              comment.createdAt.gte(toPrismaDateTime(since)),
+              comment.deleted.eq(false),
+              comment.userId.eq(userId)
+            )
+          )
+          .orderBy((comment) => comment.createdAt.desc())
+          .limit(PROFILE_EMBEDDING_TAKE)
+          .all()
+      : [],
+    hasHistory
+      ? prisma.orm.public.CommentVotes.select("createdAt", "value")
+          .include("comment", (comment) =>
+            comment.include("post", (_post) => getAuthorTagsQuery())
+          )
+          .where((commentVote) =>
+            and(
+              commentVote.createdAt.gte(toPrismaDateTime(since)),
+              commentVote.userId.eq(userId)
+            )
+          )
+          .orderBy((commentVote) => commentVote.createdAt.desc())
+          .limit(PROFILE_EMBEDDING_TAKE)
+          .all()
+      : [],
+    hasHistory
+      ? getAuthorTagsQuery()
+          .where((post) =>
+            and(
+              post.createdAt.gte(toPrismaDateTime(since)),
+              post.userId.eq(userId)
+            )
+          )
+          .orderBy((post) => post.createdAt.desc())
+          .limit(PROFILE_EMBEDDING_TAKE)
+          .all()
+      : [],
+    hasHistory
+      ? prisma.orm.public.RecommendationEvents.select(
+          "createdAt",
+          "eventType",
+          "durationMs"
         )
-      )
-      .orderBy((vote) => vote.createdAt.desc())
-      .limit(PROFILE_EMBEDDING_TAKE)
-      .all(),
-    prisma.orm.public.Votes.select("createdAt")
-      .include("post", (_post) => getAuthorTagsQuery())
-      .where((vote) =>
-        and(
-          vote.createdAt.gte(toPrismaDateTime(since)),
-          vote.userId.eq(userId),
-          vote.value.lt(0)
-        )
-      )
-      .orderBy((vote) => vote.createdAt.desc())
-      .limit(PROFILE_EMBEDDING_TAKE)
-      .all(),
-    prisma.orm.public.Bookmarks.select("createdAt")
-      .include("post", (_post) => getAuthorTagsQuery())
-      .where((bookmark) =>
-        and(
-          bookmark.createdAt.gte(toPrismaDateTime(since)),
-          bookmark.userId.eq(userId)
-        )
-      )
-      .orderBy((bookmark) => bookmark.createdAt.desc())
-      .limit(PROFILE_EMBEDDING_TAKE)
-      .all(),
-    prisma.orm.public.Comments.select("createdAt")
-      .include("post", (_post) => getAuthorTagsQuery())
-      .where((comment) =>
-        and(
-          comment.createdAt.gte(toPrismaDateTime(since)),
-          comment.deleted.eq(false),
-          comment.userId.eq(userId)
-        )
-      )
-      .orderBy((comment) => comment.createdAt.desc())
-      .limit(PROFILE_EMBEDDING_TAKE)
-      .all(),
-    prisma.orm.public.CommentVotes.select("createdAt", "value")
-      .include("comment", (comment) =>
-        comment.include("post", (_post) => getAuthorTagsQuery())
-      )
-      .where((commentVote) =>
-        and(
-          commentVote.createdAt.gte(toPrismaDateTime(since)),
-          commentVote.userId.eq(userId)
-        )
-      )
-      .orderBy((commentVote) => commentVote.createdAt.desc())
-      .limit(PROFILE_EMBEDDING_TAKE)
-      .all(),
-    getAuthorTagsQuery()
-      .where((post) =>
-        and(post.createdAt.gte(toPrismaDateTime(since)), post.userId.eq(userId))
-      )
-      .orderBy((post) => post.createdAt.desc())
-      .limit(PROFILE_EMBEDDING_TAKE)
-      .all(),
-    prisma.orm.public.RecommendationEvents.select(
-      "createdAt",
-      "eventType",
-      "durationMs"
-    )
-      .include("post", (_post) => getAuthorTagsQuery())
-      .where((event) =>
-        and(
-          event.createdAt.gte(toPrismaDateTime(since)),
-          event.userId.eq(userId)
-        )
-      )
-      .orderBy((event) => event.createdAt.desc())
-      .limit(RECOMMENDATION_EVENT_TAKE)
-      .all(),
+          .include("post", (_post) => getAuthorTagsQuery())
+          .where((event) =>
+            and(
+              event.createdAt.gte(toPrismaDateTime(since)),
+              event.userId.eq(userId)
+            )
+          )
+          .orderBy((event) => event.createdAt.desc())
+          .limit(RECOMMENDATION_EVENT_TAKE)
+          .all()
+      : [],
     searchCache.getHistory(userId),
     fetchFollowedAuthorIds(userId),
   ]);
@@ -698,7 +794,9 @@ export async function buildAndCacheProfile(
   return profile;
 }
 
-async function getProfile(userId: string): Promise<CachedProfile> {
+export async function getRecommendationProfile(
+  userId: string
+): Promise<CachedProfile> {
   try {
     const cached = await redis.get(fypProfileKey(userId));
     if (cached) {
@@ -717,7 +815,15 @@ async function getProfile(userId: string): Promise<CachedProfile> {
 
 export async function invalidateFypProfile(userId: string): Promise<void> {
   try {
-    await redis.del(fypProfileKey(userId));
+    await Promise.all([
+      redis.del(fypProfileKey(userId)),
+      redis.set(
+        `rec:suggestions:version:${userId}`,
+        crypto.randomUUID(),
+        "EX",
+        30 * 24 * 60 * 60
+      ),
+    ]);
   } catch (error) {
     logger.warn({ error }, "fyp profile invalidation failed");
   }
@@ -763,9 +869,15 @@ export async function getPersonalizedFeedPage(
   const notInterestedPostIds = await getNotInterestedPostIds(userId);
 
   const contentKind = options.contentKind ?? "post";
+  const { networkProfile } = options;
   const visibilityPredicate = communityVisibilityWhere(userId);
   const [profile, viewerSession, blocks] = await Promise.all([
-    getProfile(userId),
+    networkProfile
+      ? fetchFollowedAuthorIds(userId).then((followedAuthorIds) => ({
+          ...networkProfile,
+          followedAuthorIds,
+        }))
+      : getRecommendationProfile(userId),
     prisma.orm.public.Sessions.select("country")
       .where({ userId })
       .orderBy((session) => session.updatedAt.desc())
@@ -850,7 +962,7 @@ export async function getPersonalizedFeedPage(
         }
         return and(...predicates);
       });
-  const snapshotKey = `rec:fyp:v3:${rankingAssignment(userId).variant}:${userId}:${contentKind}:${timestamp}:${excludeModerated}:${Boolean(options.excludeExplicit)}:${includeVisited}`;
+  const snapshotKey = `rec:fyp:v3:${rankingAssignment(userId).variant}:${userId}:${contentKind}:${timestamp}:${excludeModerated}:${Boolean(options.excludeExplicit)}:${includeVisited}:${options.networkScope ?? "legacy"}`;
   if (cursor) {
     const cached = await redis.get(snapshotKey).catch(() => null);
     if (cached) {

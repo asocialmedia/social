@@ -2,7 +2,6 @@
 // Compiler would otherwise try to memoize across parent renders
 // oxlint-disable react/exhaustive-effect-dependencies -- cached image checks use media.id intentionally
 
-import type { PostData } from "@asm/db";
 import { mediaAspect } from "@asm/ui/lib/post-preview-layout";
 import noMediaImage from "@assets/general/nomedia.png";
 import {
@@ -29,6 +28,7 @@ import {
 } from "@/components/media/video-transcript-drawer";
 import type { TranscriptCue } from "@/components/media/video-transcript-drawer";
 import { useVideoDelivery } from "@/lib/media/use-video-delivery";
+import type { PresentedPost as PostData } from "@/lib/posts/presentation";
 import { getPostMediaPath, getPostPath } from "@/lib/seo/seo";
 import { useAltRevealed } from "@/lib/stores/alt-reveal-store";
 import { useVideoCaptionsStore } from "@/lib/stores/video-captions-store";
@@ -78,6 +78,7 @@ const VIDEO_HOVER_DELAY = 350;
 // "Show all" collapse. The first attachment is always the tall left tile and
 // the rest fill the right side. 6+ keeps the collapsible uniform grid.
 const FEED_BENTO_LAYOUTS: Record<number, { cols: string; spans: string[] }> = {
+  2: { cols: "grid-cols-2", spans: ["", ""] },
   3: { cols: "grid-cols-2", spans: ["row-span-2", "", ""] },
   4: { cols: "grid-cols-3", spans: ["row-span-2", "col-span-2", "", ""] },
   5: { cols: "grid-cols-3", spans: ["row-span-2", "", "", "", ""] },
@@ -267,8 +268,7 @@ export const VideoPreview = ({
   onDimensionsChange,
 }: {
   autoPlay?: boolean;
-  /** Stretch to the parent box (uniform grid cells) instead of sizing by
-   * natural aspect - the parent supplies width AND height, video covers. */
+  // Stretch to the parent box for uniform grid cells.
   fill?: boolean;
   media: Media;
   onDimensionsChange?: (dims: { h: number; w: number }) => void;
@@ -292,11 +292,13 @@ export const VideoPreview = ({
   useVideoDelivery(
     videoRef,
     media.id,
-    isHovered || isVideoActive,
-    media.hasHls
+    isHovered || autoPlay,
+    media.hasHls,
+    previewStartedRef
   );
 
   const [isFailed, setIsFailed] = useState(false);
+  const [posterFailed, setPosterFailed] = useState(false);
   // Minimal hover controls: playback state, current time and clip duration.
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -338,6 +340,7 @@ export const VideoPreview = ({
 
   useEffect(() => {
     if (
+      !media.id.startsWith("https://") &&
       showCaptions &&
       (isHovered || autoPlay || isVideoActive) &&
       fetchedCues.length === 0
@@ -473,8 +476,7 @@ export const VideoPreview = ({
   const handleVideoPause = useCallback(() => setIsPlaying(false), []);
 
   const handlePosterError = useCallback(() => {
-    setIsFailed(true);
-    setIsVideoActive(false);
+    setPosterFailed(true);
   }, []);
 
   const handleVideoError = useCallback(() => {
@@ -542,7 +544,7 @@ export const VideoPreview = ({
           // Ignore seek aborts
         }
       }
-      if (previewStartedRef.current && autoPlay) {
+      if (previewStartedRef.current && (autoPlay || isHoveredRef.current)) {
         void (async () => {
           try {
             await video.play();
@@ -649,40 +651,55 @@ export const VideoPreview = ({
         muted={isMuted}
         onDurationChange={handleDurationChange}
         onError={handleVideoError}
+        onCanPlay={async () => {
+          if (previewStartedRef.current && (autoPlay || isHoveredRef.current)) {
+            try {
+              await videoRef.current?.play();
+            } catch {
+              // A new gesture can retry playback if the browser blocks it.
+            }
+          }
+        }}
         onLoadedMetadata={handleLoadedMetadata}
         onPause={handleVideoPause}
         onPlay={handleVideoPlay}
         onPlaying={handlePlaying}
         onTimeUpdate={handleTimeUpdate}
         playsInline
-        preload={autoPlay ? "metadata" : "none"}
-        src={isHovered || autoPlay ? getMediaVideoUrl(media.id) : undefined}
+        preload={autoPlay || posterFailed ? "metadata" : "none"}
+        src={
+          !media.hasHls && (isHovered || autoPlay)
+            ? getMediaVideoUrl(media.id)
+            : undefined
+        }
       />
-      <Image
-        alt="Video preview"
-        className={cn(
-          "absolute inset-0 h-full w-full rounded-lg object-cover transition-opacity duration-500 ease-[cubic-bezier(0.16,1,0.3,1)]",
-          isVideoActive ? "opacity-0" : "opacity-100"
-        )}
-        fill
-        loading="eager"
-        onError={handlePosterError}
-        onLoad={(event) => {
-          if (
-            (!storedW || !storedH) &&
-            event.currentTarget.naturalWidth > 0 &&
-            event.currentTarget.naturalHeight > 0
-          ) {
-            handleDimensionsUpdate({
-              h: event.currentTarget.naturalHeight,
-              w: event.currentTarget.naturalWidth,
-            });
-          }
-        }}
-        sizes="(max-width: 768px) 100vw, 640px"
-        src={getMediaProxyUrl(media)}
-        unoptimized
-      />
+      {posterFailed ? null : (
+        <Image
+          alt="Video preview"
+          className={cn(
+            "absolute inset-0 h-full w-full rounded-lg object-cover transition-opacity duration-500 ease-[cubic-bezier(0.16,1,0.3,1)]",
+            isVideoActive ? "opacity-0" : "opacity-100"
+          )}
+          fill
+          loading="eager"
+          onError={handlePosterError}
+          onLoad={(event) => {
+            if (
+              (!storedW || !storedH) &&
+              event.currentTarget.naturalWidth > 0 &&
+              event.currentTarget.naturalHeight > 0
+            ) {
+              handleDimensionsUpdate({
+                h: event.currentTarget.naturalHeight,
+                w: event.currentTarget.naturalWidth,
+              });
+            }
+          }}
+          sizes="(max-width: 768px) 100vw, 640px"
+          src={getMediaProxyUrl(media)}
+          unoptimized
+        />
+      )}
       <div
         className={cn(
           "absolute top-2 right-2 transition-opacity duration-300",
@@ -843,13 +860,23 @@ const SingleImagePreview = ({
   }, [media, natural, hasStoredDims]);
 
   const dims = natural;
+  const ratio = mediaAspect(
+    dims ? { height: dims.h, width: dims.w } : media,
+    animated ? 1 : 4 / 3
+  );
+  const frameStyle = {
+    aspectRatio: ratio,
+    width: `min(100%, calc(var(--preview-max-height) * ${ratio}))`,
+  };
+  const frameClassName =
+    "relative max-w-full overflow-hidden rounded-xl [--preview-max-height:380px] sm:[--preview-max-height:480px]";
 
   if (isFailed) {
     return (
-      <div className="bg-muted/20 relative flex max-h-95 w-full items-center justify-center overflow-hidden rounded-xl sm:max-h-120">
+      <div className={cn(frameClassName, "bg-muted/20")} style={frameStyle}>
         <Image
           alt="Attachment unavailable"
-          className="h-auto max-h-95 w-full object-contain opacity-60 sm:max-h-120"
+          className="h-full w-full object-contain opacity-60"
           height={600}
           sizes="(max-width: 768px) 100vw, 640px"
           src={noMediaImage}
@@ -859,33 +886,14 @@ const SingleImagePreview = ({
     );
   }
 
-  // Single images always show full height without cropping (no object-cover
-  // + w-full). Height-capped and left-pinned with w-fit so the frame
-  // shrink-wraps to the image width - matches vertical post behaviour: full
-  // height visible, right gap is fine, wide images still expand to near-full
-  // width via w-auto max-w-full.
+  // Reserve the same frame as the loading skeleton before image bytes arrive.
   const previewContent = (
     <div
       className={cn(
-        "bg-muted/20 relative block overflow-hidden rounded-xl shadow-xs transition-shadow duration-300 hover:shadow-md",
-        // All single images are height-capped and left-pinned with w-fit so the
-        // frame shrink-wraps to the image width. This prevents top/bottom
-        // cropping (object-cover + w-full) and matches vertical post behaviour:
-        // show full height, left-aligned, right gap is fine.
-        animated
-          ? "w-full max-sm:w-[min(100%,calc(380px*var(--media-aspect)))] sm:w-fit"
-          : "w-fit max-w-full"
+        frameClassName,
+        "bg-muted/20 shadow-xs transition-shadow duration-300 hover:shadow-md"
       )}
-      style={
-        animated
-          ? ({
-              "--media-aspect": mediaAspect(
-                dims ? { height: dims.h, width: dims.w } : media,
-                1
-              ),
-            } as React.CSSProperties)
-          : undefined
-      }
+      style={frameStyle}
     >
       {isLoading ? (
         <div className="bg-muted/40 absolute inset-0 animate-pulse rounded-xl" />
@@ -894,10 +902,7 @@ const SingleImagePreview = ({
       <img
         alt="Attachment"
         className={cn(
-          "rounded-xl object-contain",
-          "h-auto max-h-95 w-auto max-w-full sm:max-h-120",
-          animated &&
-            "max-sm:aspect-[var(--media-aspect)] max-sm:max-h-none max-sm:w-full",
+          "block h-full w-full rounded-xl object-contain",
           isLoading ? "opacity-0" : "asm-media-reveal"
         )}
         decoding="async"
@@ -932,10 +937,7 @@ const SingleImagePreview = ({
   return interactive ? (
     <button
       aria-label="View attachment"
-      className={cn(
-        "block max-w-full cursor-pointer text-left",
-        animated ? "w-full sm:w-fit" : "w-fit"
-      )}
+      className="block w-full max-w-full cursor-pointer text-left"
       onClick={onSelect}
       type="button"
     >
@@ -1101,10 +1103,10 @@ export const MediaPreviews = ({
   const initialCount = 3;
   // Post page (autoPlay/detail) should always show all media in bento, no collapse.
   const isDetailBento = (detail || autoPlayVideos) && attachments.length >= 5;
-  // Feed cards with 3-5 attachments show a composed bento (no "Show all"
+  // Feed cards with 2-5 attachments show a composed bento (no "Show all"
   // collapse); 6+ keeps the collapsible uniform grid.
   const isFeedBento =
-    !isDetailBento && attachments.length >= 3 && attachments.length <= 5;
+    !isDetailBento && attachments.length >= 2 && attachments.length <= 5;
   const visibleAttachments =
     isDetailBento || showAll ? attachments : attachments.slice(0, initialCount);
   const remainingAttachments = attachments.slice(initialCount);
@@ -1563,8 +1565,9 @@ export const MediaPreviews = ({
           <motion.div
             className={cn(
               "grid gap-2",
-              "auto-rows-32.5",
-              !isMobile && "sm:auto-rows-45",
+              attachments.length === 2
+                ? "auto-rows-42 sm:auto-rows-64"
+                : cn("auto-rows-32.5", !isMobile && "sm:auto-rows-45"),
               FEED_BENTO_LAYOUTS[attachments.length]?.cols
             )}
           >

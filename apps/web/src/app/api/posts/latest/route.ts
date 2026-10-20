@@ -5,18 +5,33 @@ import {
   hydrateViewCounts,
   mapPostData,
   prisma,
+  readNetworkPreferences,
 } from "@asm/db";
 import type { PostsPage } from "@asm/db";
+import { defaultNetworkPreferences } from "@asm/protocols/discovery";
 
 import { getSessionFromApi } from "@/lib/auth/session";
+import { filterNetworkFeed } from "@/lib/recommendations/filter-network-feed";
 
 const TAKE_PATTERN = /^[1-9]\d*$/;
 const PAGE_SIZE = 20;
 
 export async function GET(request: Request) {
+  const url = new URL(request.url);
+  if (url.searchParams.has("network")) {
+    const { networkNativeFeed } =
+      await import("@/lib/recommendations/network-native-feed");
+    return networkNativeFeed(
+      request,
+      async () => {
+        const session = await getSessionFromApi();
+        return session?.user?.id ?? "";
+      },
+      "latest"
+    );
+  }
   const session = await getSessionFromApi();
   const userId = session?.user?.id ?? "";
-  const url = new URL(request.url);
   const cursor = url.searchParams.get("cursor") || undefined;
   const excludeModerated = url.searchParams.get("excludeModerated") === "1";
   const takeValue = url.searchParams.get("take");
@@ -26,6 +41,10 @@ export async function GET(request: Request) {
       : 0;
   const pageSize =
     requestedTake > 0 ? Math.min(requestedTake, PAGE_SIZE) : PAGE_SIZE;
+
+  const settings = userId ? await readNetworkPreferences(userId) : null;
+  const preferences = settings?.preferences ?? defaultNetworkPreferences();
+  const excludeExplicit = !preferences.showExplicitContent;
 
   // Latest is the global timeline: global posts (communityId null, which
   // includes reshares) plus the posts of communities the viewer subscribes to,
@@ -40,6 +59,9 @@ export async function GET(request: Request) {
       const filters = [post.isGust.eq(false)];
       if (excludeModerated) {
         filters.push(post.moderated.eq(false));
+      }
+      if (excludeExplicit) {
+        filters.push(post.explicitContent.eq(false));
       }
       if (subscribedCommunityIds.length > 0) {
         filters.push(
@@ -72,7 +94,7 @@ export async function GET(request: Request) {
   const data: PostsPage = {
     nextCursor:
       posts.length > pageSize ? (posts[pageSize - 1]?.id ?? null) : null,
-    posts: hydrated,
+    posts: await filterNetworkFeed(hydrated, userId),
   };
   const responseHeaders = userId
     ? { "cache-control": "private, no-cache", vary: "Cookie" }

@@ -2,7 +2,6 @@
 
 // oxlint-disable jsx-a11y/prefer-tag-over-role -- Vaul requires its div handle for pointer capture and has no asChild API
 
-import type { PostData } from "@asm/db";
 import {
   Drawer,
   DrawerHandle,
@@ -15,6 +14,7 @@ import { Volume2, VolumeX } from "lucide-react";
 import { useState } from "react";
 
 import { useMediaQuery } from "@/hooks/use-media-query";
+import type { PresentedPost } from "@/lib/posts/presentation";
 
 import { GustsCommentsDrawer } from "./gusts-comments-drawer";
 
@@ -31,7 +31,7 @@ export function MobileGustEddies({
   isMuted: boolean;
   onToggleMute: () => void;
   onClose: () => void;
-  post: PostData;
+  post: PresentedPost;
 }) {
   const isMobile = useMediaQuery("(max-width: 767px)");
   const [snap, setSnap] = useState<string | number | null>(0.5);

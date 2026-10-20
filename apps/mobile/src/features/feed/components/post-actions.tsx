@@ -14,6 +14,7 @@ import {
   CornerDownRight,
   Eye,
   Flame,
+  Heart,
   MessageSquare,
   MoreHorizontal,
   Share2,
@@ -68,6 +69,12 @@ function ActionLabel({
 }
 
 interface VoteClusterProps {
+  likeCount?: number | null;
+  controller?: {
+    aura: number;
+    userVote: number;
+    vote: (value: 1 | -1) => void;
+  };
   aura: number;
   // Web passes this down from its post card
   // (`apps/web/src/components/posts/actions/aura-vote-button.tsx`) and names the
@@ -94,8 +101,10 @@ export function VoteCluster({
   aura: initialAura,
   authorName,
   commentId,
+  controller,
   inactiveColor,
   labelColor,
+  likeCount,
   onRequireLogin,
   postId,
   size = 28,
@@ -112,15 +121,21 @@ export function VoteCluster({
   // mount to fetch a value it already had, once per card, which is where the
   // request flood came from. `initialBookmarked` is deliberately left out: the
   // bookmark toggle owns that field, and claiming it here would reset it.
-  const { engagement, vote } = usePostEngagement({
+  const nativeEngagement = usePostEngagement({
     aura: initialAura,
     commentId,
     postId,
     userVote: initialVote,
-    viewerId,
+    viewerId: controller ? null : viewerId,
   });
+  const engagement = controller ?? nativeEngagement.engagement;
+  const { vote } = nativeEngagement;
 
   const cast = async (value: 1 | -1) => {
+    if (controller) {
+      controller.vote(value);
+      return;
+    }
     if (!viewerId) {
       onRequireLogin();
       return;
@@ -180,6 +195,13 @@ export function VoteCluster({
   const upActive = userVote === 1;
   const downActive = userVote === -1;
   const idleColor = inactiveColor ?? theme.dividerText;
+  let countLabel = `Aura: ${aura}`;
+  if (likeCount !== undefined) {
+    countLabel =
+      likeCount === null
+        ? "Likes on Bluesky unavailable"
+        : `Likes on Bluesky: ${likeCount}`;
+  }
   return (
     <View style={styles.voteCluster}>
       <View style={styles.votePair}>
@@ -212,19 +234,29 @@ export function VoteCluster({
           />
         </VoteButton>
       </View>
-      <Flame
-        color={flame.color}
-        fill={flame.filled ? flame.color : "none"}
-        size={glyph}
-      />
-      <ActionLabel color={labelColor} fontSize={labelSize}>
-        {formatNumber(aura)}
-      </ActionLabel>
+      <View
+        accessible
+        accessibilityLabel={countLabel}
+        style={styles.voteCluster}
+      >
+        {likeCount === undefined ? (
+          <Flame
+            color={flame.color}
+            fill={flame.filled ? flame.color : "none"}
+            size={glyph}
+          />
+        ) : (
+          <Heart color={idleColor} size={glyph} />
+        )}
+        <ActionLabel color={labelColor} fontSize={labelSize}>
+          {likeCount === null ? "—" : formatNumber(likeCount ?? aura)}
+        </ActionLabel>
+      </View>
     </View>
   );
 }
 
-function VoteButton({
+export function VoteButton({
   active,
   children,
   colors,
@@ -293,6 +325,14 @@ interface BookmarkToggleProps {
   viewerId: string | null;
 }
 
+export function PostActionRow({ children }: { children: ReactNode }) {
+  return (
+    <View className="mt-3 w-full flex-row items-center justify-between">
+      {children}
+    </View>
+  );
+}
+
 export function BookmarkToggle({
   inactiveColor,
   initialBookmarked,
@@ -301,7 +341,6 @@ export function BookmarkToggle({
   size = 28,
   viewerId,
 }: BookmarkToggleProps) {
-  const { theme } = useAppTheme();
   // Same story as the vote cluster: the payload already says whether this
   // viewer bookmarked the post, so the old per-mount GET /bookmark was
   // refetching a known value on every card.
@@ -343,14 +382,40 @@ export function BookmarkToggle({
   };
 
   return (
-    <Pressable
-      accessibilityLabel={bookmarked ? "Remove bookmark" : "Bookmark"}
-      accessibilityRole="button"
-      hitSlop={6}
+    <BookmarkAction
+      active={bookmarked}
+      inactiveColor={inactiveColor}
       onPress={toggle}
+      size={size}
+    />
+  );
+}
+
+export function BookmarkAction({
+  active,
+  disabled,
+  inactiveColor,
+  onPress,
+  size = 28,
+}: {
+  active: boolean;
+  disabled?: boolean;
+  inactiveColor?: string;
+  onPress: () => void;
+  size?: number;
+}) {
+  const { theme } = useAppTheme();
+  return (
+    <Pressable
+      accessibilityLabel={active ? "Remove bookmark" : "Bookmark"}
+      accessibilityRole="button"
+      accessibilityState={{ disabled, selected: active }}
+      disabled={disabled}
+      hitSlop={6}
+      onPress={onPress}
       style={[styles.iconHit, { height: size, width: size }]}
     >
-      {bookmarked ? (
+      {active ? (
         // Web's active bookmark fills the button with a full-strength amber
         // gradient plus the same dual-border recipe as the vote buttons
         // (gradient background, inset lip above it, matching ring). The previous
