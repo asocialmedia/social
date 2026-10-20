@@ -1,9 +1,33 @@
 import { describe, expect, test } from "bun:test";
 
-import { decideMediaAccess, resolveOwningCommunity } from "./media-access";
+import {
+  decideMediaAccess,
+  isOwnedMediaDraft,
+  resolveOwningCommunity,
+} from "./media-access";
 
 const viewer = { id: "user-1" };
 const other = { id: "user-2" };
+
+test("only the uploader's unlinked draft is separate from browsing preferences", () => {
+  const draft = { commentId: null, postId: null, userId: viewer.id };
+  expect(isOwnedMediaDraft(draft, viewer)).toBe(true);
+  expect(isOwnedMediaDraft(draft, other)).toBe(false);
+  expect(isOwnedMediaDraft(draft, null)).toBe(false);
+  expect(isOwnedMediaDraft({ ...draft, userId: null }, viewer)).toBe(false);
+  expect(isOwnedMediaDraft({ ...draft, postId: "published" }, viewer)).toBe(
+    false
+  );
+  expect(isOwnedMediaDraft({ ...draft, commentId: "comment" }, viewer)).toBe(
+    false
+  );
+  expect(
+    isOwnedMediaDraft(
+      { ...draft, messageConversationId: "conversation" },
+      viewer
+    )
+  ).toBe(false);
+});
 
 describe("decideMediaAccess", () => {
   test("post-linked media is public to everyone including guests", () => {

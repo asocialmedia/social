@@ -6,6 +6,7 @@ import { getSessionFromApi } from "@/lib/auth/session";
 import { recordDeliveryPayload } from "@/lib/media/delivery-metrics";
 import {
   decideMediaAccess,
+  isOwnedMediaDraft,
   resolveOwningCommunity,
 } from "@/lib/media/media-access";
 import { mediaContentIsExplicit } from "@/lib/media/media-content-policy";
@@ -247,15 +248,15 @@ export async function GET(
   // Media bytes follow the post's own visibility. An explicit post's attachment
   // is not public just because the row has a postId: guests can never opt in, and
   // a signed-in reader has to have switched explicit content on.
-  let isExplicitPost = false;
-  if (mediaContentIsExplicit(ownership)) {
+  const isExplicitPost = mediaContentIsExplicit(ownership);
+  // Browsing preferences do not hide an uploader's own unlinked composer draft.
+  if (isExplicitPost && !isOwnedMediaDraft(ownership, viewer)) {
     const showExplicitContent = viewer
       ? await explicitContentEnabled(viewer.id)
       : false;
     if (!showExplicitContent) {
       return mediaError("Media not found", 404);
     }
-    isExplicitPost = true;
   }
   // Explicit media is never stored publicly, even for an opted-in reader: the
   // next viewer may not be opted in, so every cache-control below also checks
