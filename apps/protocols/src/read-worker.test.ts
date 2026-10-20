@@ -3,11 +3,13 @@
 import { expect, mock, test } from "bun:test";
 
 import { BlueskyClient } from "@asm/protocols/bluesky";
+import type { ProtocolDiagnostic } from "@asm/protocols/contracts";
 
 import { readConfig } from "./config";
 import { createReadWorkerApp } from "./read-worker";
 import { publicReadTarget } from "./read-worker-policy";
 import { createReadWorkerPool } from "./read-worker-pool";
+import { createWorkerReader } from "./worker-reader";
 
 const token = "read_worker_test_token_01234567890123456789";
 const node = { id: "us-east", token, url: "https://worker.example" };
@@ -229,6 +231,77 @@ test("background transport rejects private operations and credentials", async ()
   );
   expect(fetcher).not.toHaveBeenCalled();
 });
+
+test("missing visibility declarations remain eligible without transport failure warnings", async () => {
+  const logs = logger();
+  const worker = createReadWorkerApp({
+    fetch: () =>
+      Promise.resolve(
+        Response.json({ error: "RecordNotFound" }, { status: 400 })
+      ),
+    id: node.id,
+    logger: logs,
+    token,
+  });
+  const client = new BlueskyClient({ fetch: worker.fetch, maxRetries: 0 });
+  try {
+    expect(await client.allowsRecommendations("did:plc:alice")).toBe(true);
+    expect(logs.warn).not.toHaveBeenCalled();
+    expect(logs.debug).toHaveBeenCalledWith(
+      expect.objectContaining({ outcome: "success", status: 400 }),
+      "Protocol upstream request completed"
+    );
+  } finally {
+    client.close();
+    worker.drain();
+  }
+});
+
+test.each([
+  {
+    collection: "app.bsky.actor.profile",
+    error: "RecordNotFound",
+    status: 400,
+  },
+  {
+    collection: "app.bsky.actor.contentVisibilityDeclaration",
+    error: "InvalidRequest",
+    status: 400,
+  },
+  {
+    collection: "app.bsky.actor.contentVisibilityDeclaration",
+    error: "RecordNotFound",
+    status: 503,
+  },
+])(
+  "unexpected record failures retain status in diagnostics: %j",
+  async (failure) => {
+    const diagnostics: ProtocolDiagnostic[] = [];
+    const reader = createWorkerReader({
+      fetch: () =>
+        Promise.resolve(
+          Response.json({ error: failure.error }, { status: failure.status })
+        ),
+      observe: (diagnostic) => diagnostics.push(diagnostic),
+    });
+    const url = `https://public.api.bsky.app/xrpc/com.atproto.repo.getRecord?${new URLSearchParams(
+      {
+        collection: failure.collection,
+        repo: "did:plc:alice",
+        rkey: "self",
+      }
+    )}`;
+    expect((await reader.fetch(url, {})).status).toBe(failure.status);
+    expect(diagnostics).toEqual([
+      expect.objectContaining({
+        code: "unavailable",
+        outcome: "error",
+        status: failure.status,
+      }),
+    ]);
+    reader.drain();
+  }
+);
 
 test("pool distributes unique reads between local and remote without forwarding upstream credentials", async () => {
   const calls: string[] = [];
