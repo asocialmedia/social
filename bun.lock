@@ -178,7 +178,7 @@
     },
     "apps/protocols": {
       "name": "@asm/protocols-app",
-      "version": "0.1.40",
+      "version": "0.1.41",
       "dependencies": {
         "@asm/logger": "workspace:*",
         "@asm/protocols": "workspace:*",
@@ -199,7 +199,7 @@
     },
     "apps/web": {
       "name": "@asm/web",
-      "version": "1.8.61",
+      "version": "1.8.62",
       "dependencies": {
         "@asm/aggregator": "workspace:*",
         "@asm/auth": "workspace:*",
@@ -444,7 +444,7 @@
     },
     "packages/protocols": {
       "name": "@asm/protocols",
-      "version": "0.1.40",
+      "version": "0.1.41",
       "dependencies": {
         "@atproto/lex": "0.3.14",
         "@atproto/syntax": "^0.7.7",

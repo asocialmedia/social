@@ -29,12 +29,24 @@ export function ExternalProfilePage() {
     );
   }
   return (
-    <ClientProfile
-      key={query.data.id}
-      communityRoles={[]}
-      loggedInUserData={null}
-      userData={externalAuthorView(query.data)}
-      external={query.data}
-    />
+    <>
+      {query.isError ? (
+        <FeedErrorState
+          compact
+          message="Couldn't refresh this Bluesky profile. Showing cached details."
+          isRetrying={query.isFetching}
+          onRetry={() => {
+            void query.refetch();
+          }}
+        />
+      ) : null}
+      <ClientProfile
+        key={query.data.id}
+        communityRoles={[]}
+        loggedInUserData={null}
+        userData={externalAuthorView(query.data)}
+        external={query.data}
+      />
+    </>
   );
 }

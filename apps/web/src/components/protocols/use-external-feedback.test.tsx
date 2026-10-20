@@ -59,6 +59,7 @@ const post: ExternalPost = {
   },
   createdAt: "2026-10-20T00:00:00Z",
   id: "at://did:plc:alice/app.bsky.feed.post/example",
+  indexedAt: "2026-10-20T00:00:00Z",
   labels: [],
   languages: [],
   media: [],
@@ -66,7 +67,7 @@ const post: ExternalPost = {
   segments: [{ text: "Hello" }],
   source: "bluesky",
   text: "Hello",
-  upstreamCounts: {},
+  upstreamCounts: { likes: 0, quotes: 0, replies: 0, reposts: 0 },
   url: "https://bsky.app/profile/did:plc:alice/post/example",
 };
 

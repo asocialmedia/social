@@ -927,9 +927,10 @@ const MediaViewer = ({
           {mediaError &&
           !post?.moderated &&
           !(post?.explicitContent && !explicitRevealed) ? (
-            <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-4 bg-black/60 px-6 text-center">
-              <div className="[&_p]:text-white/90">
+            <div className="absolute inset-0 z-20 flex flex-col items-center gap-4 overflow-y-auto bg-black/60 px-6 text-center">
+              <div className="my-auto shrink-0 [&_p]:text-white/90">
                 <FeedErrorState
+                  compact
                   message="Couldn't load this media."
                   onRetry={handleRetry}
                 />

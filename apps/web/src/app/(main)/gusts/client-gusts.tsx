@@ -337,11 +337,8 @@ const GustStream = ({ gustTab }: { gustTab: GustFeed }) => {
         pages: GustsPage[];
         pageParams: (string | null)[];
       }>(queryKey);
-      const pageIndex = current?.pageParams.indexOf(pageParam) ?? -1;
-      const previousPages =
-        pageIndex >= 0 ? current?.pages.slice(0, pageIndex) : current?.pages;
       const known = new Set(
-        previousPages?.flatMap((page) => page.posts.map((post) => post.id))
+        current?.pages.flatMap((page) => page.posts.map((post) => post.id))
       );
       return readGustPage<GustsPage>(
         (cursor) =>

@@ -50,7 +50,7 @@ export default function NetworkSettings({
   onOpenSection,
   section,
 }: NetworkSettingsProps) {
-  const { settings, save, ready, isSaving, error, refetch } =
+  const { settings, save, ready, isSaving, isFetching, error, refetch } =
     useNetworkSettings({ optimistic: true });
   const { catalog, persona, preferences } = settings;
   const profile =
@@ -93,7 +93,7 @@ export default function NetworkSettings({
           {sectionHeader}
           <FeedErrorState
             message={error.message}
-            isRetrying={false}
+            isRetrying={isFetching}
             onRetry={() => {
               void refetch();
             }}

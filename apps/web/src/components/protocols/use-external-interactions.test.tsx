@@ -71,6 +71,16 @@ test.each([
   "$action shares optimistic state and handles a $status response with feedback",
   async ({ action, status }) => {
     const client = new QueryClient();
+    const parent = Promise.withResolvers<{ id: string }>();
+    let parentSignal: AbortSignal | undefined;
+    const parentKey = ["external-post", "unrelated-parent", "alice"];
+    const parentRead = client.fetchQuery({
+      queryFn: ({ signal }) => {
+        parentSignal = signal;
+        return parent.promise;
+      },
+      queryKey: parentKey,
+    });
     const host = dom.document.createElement("div");
     const root = createRoot(host as unknown as HTMLElement);
     let respond: ((response: Response) => void) | undefined;
@@ -118,6 +128,8 @@ test.each([
       expect(
         [...host.querySelectorAll("span")].map((node) => node.dataset.pending)
       ).toEqual(["true", "true"]);
+      expect(parentSignal?.aborted).toBe(false);
+      expect(client.getQueryState(parentKey)?.fetchStatus).toBe("fetching");
       expect(await control?.mutate({ action, active: false, uri })).toBe(false);
       await act(async () => {
         respond?.(
@@ -166,6 +178,8 @@ test.each([
         );
       }
     } finally {
+      parent.resolve({ id: "unrelated-parent" });
+      await parentRead;
       await act(() => root.unmount());
       client.clear();
     }

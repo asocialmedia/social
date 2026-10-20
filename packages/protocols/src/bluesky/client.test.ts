@@ -751,6 +751,26 @@ test("a restricted public repository does not cool down other actors' social rec
   expect(requested.filter((repo) => repo === other)).toHaveLength(3);
 });
 
+test("an invalid continuation does not cool down a healthy feed head", async () => {
+  const requested: string[] = [];
+  const feed = `at://${authorDid}/app.bsky.feed.generator/healthy`;
+  const client = new BlueskyClient({
+    fetch: async (raw) => {
+      const url = new URL(raw);
+      requested.push(url.search);
+      return url.searchParams.has("cursor")
+        ? Response.json({ error: "InvalidCursor" }, { status: 400 })
+        : Response.json({ feed: [] });
+    },
+    maxRetries: 0,
+  });
+  await expect(
+    client.getFeed(feed, { cursor: "expired" })
+  ).rejects.toMatchObject({ code: "invalid_input" });
+  await expect(client.getFeed(feed)).resolves.toMatchObject({ items: [] });
+  expect(requested).toHaveLength(2);
+});
+
 test("invalid public generators cool down across cursors while other feeds stay available", async () => {
   let now = 0;
   const calls: string[] = [];

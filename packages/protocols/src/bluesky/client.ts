@@ -706,7 +706,8 @@ export class BlueskyClient {
             error instanceof ProtocolError &&
             (["restricted", "unavailable"].includes(error.code) ||
               (operation === "app.bsky.feed.getFeed" &&
-                error.code === "invalid_input"))
+                error.code === "invalid_input" &&
+                !parameters.cursor))
           ) {
             for (const [id, entry] of this.unavailable) {
               if (entry.until <= this.options.now()) {

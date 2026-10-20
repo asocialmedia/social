@@ -13,6 +13,7 @@ import { useToast } from "@/lib/gooey-toast";
 import { externalActionToast } from "@/lib/protocols/action-toast";
 import {
   applyExternalStateToCaches,
+  cachedExternalPost,
   isExternalViewerQuery,
   optimisticExternalState,
 } from "@/lib/protocols/external-cache";
@@ -81,7 +82,9 @@ export function useExternalInteractions(
     let committed = false;
     try {
       await queryClient.cancelQueries({
-        predicate: ({ queryKey: key }) => isExternalViewerQuery(key, viewer),
+        predicate: ({ queryKey: key, state: queryState }) =>
+          isExternalViewerQuery(key, viewer) &&
+          Boolean(cachedExternalPost(queryState.data, post.id)),
       });
       previous = queryClient.getQueryData<typeof state>(queryKey) ?? state;
       applyExternalStateToCaches(
@@ -170,6 +173,18 @@ export function useExternalInteractions(
       return false;
     } finally {
       queryClient.setQueryData(pendingKey, false);
+      void (async () => {
+        try {
+          await queryClient.invalidateQueries({
+            predicate: ({ queryKey: key, state: queryState }) =>
+              isExternalViewerQuery(key, viewer) &&
+              Boolean(cachedExternalPost(queryState.data, post.id)),
+            refetchType: "active",
+          });
+        } catch {
+          // Cache refresh failure must not change the completed action result.
+        }
+      })();
     }
   };
   return { mutate, pending, state };

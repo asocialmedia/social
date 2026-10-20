@@ -42,6 +42,19 @@ test("Gust outages stay errors instead of looking like a completed feed", async 
   ).rejects.toThrow("503");
 });
 
+test("a refreshed Gust generation retains clips from previously cached later pages", async () => {
+  const next = {
+    nextCursor: "new-page-three",
+    posts: [{ id: "old-page-two" }, { id: "fresh" }],
+  };
+  const page = await readGustPage(
+    () => Promise.resolve(Response.json(next)),
+    "new-page-two",
+    new Set(["old-page-two"])
+  );
+  expect(page).toEqual(next);
+});
+
 test.each([0, 1])(
   "a failed Gust source %i remains retryable as its healthy peer finishes",
   (failedIndex) => {

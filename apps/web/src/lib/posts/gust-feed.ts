@@ -7,16 +7,20 @@ export async function readGustPage<Page extends { posts: { id: string }[] }>(
   known: ReadonlySet<string>
 ): Promise<Page> {
   let response = await read(cursor);
+  let recovered = false;
   if (response.status === 410 && cursor) {
     await response.body?.cancel();
     response = await read(null);
+    recovered = true;
   }
   if (!response.ok) {
     await response.body?.cancel();
     throw new Error(`Couldn't load Gusts (${response.status}). Please retry.`);
   }
   const page: Page = await response.json();
-  return { ...page, posts: page.posts.filter((post) => !known.has(post.id)) };
+  return recovered
+    ? { ...page, posts: page.posts.filter((post) => !known.has(post.id)) }
+    : page;
 }
 
 interface GustPageSource {
