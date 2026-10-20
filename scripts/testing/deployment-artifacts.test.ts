@@ -4,6 +4,21 @@ import path from "node:path";
 const repositoryRoot = path.join(import.meta.dirname, "../..");
 
 describe("Prisma sync deployment artifact", () => {
+  test("native dependency caches cannot restore an older lockfile or linker layout", async () => {
+    const workflow = await Bun.file(
+      path.join(repositoryRoot, ".github/workflows/ci.yml")
+    ).text();
+    const cacheSteps = workflow.match(
+      /      - name: Restore node_modules\n[\s\S]*?(?=\n      - name:)/g
+    );
+    expect(cacheSteps).toHaveLength(2);
+    for (const step of cacheSteps ?? []) {
+      expect(step).toContain("hashFiles('bunfig.toml')");
+      expect(step).toContain("hashFiles('bun.lock')");
+      expect(step).not.toContain("restore-keys:");
+    }
+  });
+
   test("the install context retains every workspace referenced by its copied manifests", async () => {
     const dockerfile = await Bun.file(
       path.join(repositoryRoot, "docker/prisma-sync.dockerfile")

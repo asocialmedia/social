@@ -43,3 +43,45 @@ dokploy_base_url() {
 dokploy_curl() {
   curl --proto '=https' --proto-redir '=https' "$@"
 }
+
+dokploy_api_request() {
+  local response_file http_status transport_status
+  response_file=$(mktemp) || return 1
+  transport_status=0
+  http_status=$(dokploy_curl --silent --show-error \
+    --connect-timeout 10 --max-time 60 \
+    --output "${response_file}" --write-out '%{http_code}' "$@") || transport_status=$?
+
+  if [ "${transport_status}" -ne 0 ]; then
+    rm -f "${response_file}"
+    echo "Dokploy API request failed before receiving a successful response (curl exit ${transport_status})." >&2
+    return 1
+  fi
+
+  case "${http_status}" in
+    2??)
+      cat "${response_file}"
+      rm -f "${response_file}"
+      ;;
+    401)
+      rm -f "${response_file}"
+      echo "Dokploy authentication failed (HTTP 401). Refresh the DOKPLOY_API_TOKEN Actions secret using an API key from the same instance configured by DOKPLOY_API_URL." >&2
+      return 77
+      ;;
+    403)
+      rm -f "${response_file}"
+      echo "Dokploy authorization failed (HTTP 403). Check that DOKPLOY_API_TOKEN has access to the target application and organization." >&2
+      return 77
+      ;;
+    3??)
+      rm -f "${response_file}"
+      echo "Dokploy API returned a redirect (HTTP ${http_status}). Set DOKPLOY_API_URL to the final HTTPS API instance; credentials were not forwarded." >&2
+      return 1
+      ;;
+    *)
+      rm -f "${response_file}"
+      echo "Dokploy API request failed (HTTP ${http_status})." >&2
+      return 1
+      ;;
+  esac
+}
