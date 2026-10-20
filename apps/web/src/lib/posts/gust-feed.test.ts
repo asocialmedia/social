@@ -5,9 +5,39 @@ import type { ExternalPost } from "@asm/protocols/contracts";
 import {
   advanceGustPaging,
   gustPagingDelay,
+  gustPagingState,
   mergeGustPosts,
 } from "./gust-feed";
 import { externalPostView } from "./presentation";
+
+test.each([0, 1])(
+  "a failed Gust source %i remains retryable as its healthy peer finishes",
+  (failedIndex) => {
+    const sources = [0, 1].map((index) => ({
+      enabled: true,
+      hasNextPage: true,
+      isFetchNextPageError: index === failedIndex,
+      isFetchingNextPage: false,
+    }));
+    expect(gustPagingState(sources)).toEqual({
+      canFetchNextPage: true,
+      hasNextPage: true,
+      isFetchingNextPage: false,
+      pageError: true,
+    });
+    sources[1 - failedIndex].hasNextPage = false;
+    expect(gustPagingState(sources)).toEqual({
+      canFetchNextPage: false,
+      hasNextPage: true,
+      isFetchingNextPage: false,
+      pageError: true,
+    });
+    sources[failedIndex].isFetchNextPageError = false;
+    expect(gustPagingState(sources).canFetchNextPage).toBe(true);
+    sources[failedIndex].enabled = false;
+    expect(gustPagingState(sources).hasNextPage).toBe(false);
+  }
+);
 
 test("empty Gust pages track sparse progress and visible clips or a changed profile reset it", () => {
   let progress = { emptyPages: 0, pages: 0, scope: "software", visible: 0 };
