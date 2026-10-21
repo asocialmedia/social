@@ -62,7 +62,7 @@ export interface TrendingFeed {
   topAura: TrendingAuraUser[];
 }
 
-const BLUESKY_TRENDING_KEY = "trending:bluesky:topics";
+const BLUESKY_TRENDING_KEY = "trending:bluesky:topics:v2";
 const BLUESKY_TRENDING_TTL = 600; // 10 minutes
 
 export async function fetchBlueskyTrendingTopics(
@@ -106,7 +106,7 @@ export async function fetchBlueskyTrendingTopics(
     const rawTopics = Array.isArray(data.topics) ? data.topics : [];
     const topics: TrendingBlueskyTopic[] = rawTopics
       .filter((t) => typeof t?.topic === "string" && t.topic.trim().length > 0)
-      .slice(0, 5)
+      .slice(0, 20)
       .map((t) => ({
         description: t.description?.trim() || undefined,
         displayName: t.displayName?.trim() || t.topic.trim(),
@@ -251,7 +251,7 @@ export async function getTrendingFeed(
     .toSorted((a, b) => b.count - a.count)
     .slice(0, 10);
 
-  const items = weaveTrendingItems(asmItems, blueskyTopics, 7);
+  const items = weaveTrendingItems(asmItems, blueskyTopics, 30);
 
   // Top Aura displays the platform's highest aura earners regardless of
   // mentions, ensuring high-standing members are always recognized.

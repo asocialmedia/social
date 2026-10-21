@@ -5,6 +5,7 @@ import { ImageResponse } from "next/og";
 
 import { canSatoriRenderAvatar, avatarInitial } from "@/lib/seo/og-avatar";
 import { getOgFontOptions } from "@/lib/seo/og-fonts";
+import { ogMediaDataUrl } from "@/lib/seo/og-media";
 import { excerpt, toAbsoluteUrl } from "@/lib/seo/seo";
 
 export const alt = "asocialmedia post";
@@ -182,10 +183,17 @@ export default async function Image({
   }
 
   const showMedia = getCardMedia(post, index);
+  const mediaUrl = showMedia
+    ? await ogMediaDataUrl(
+        toAbsoluteUrl(
+          `/api/media/${showMedia.id}${showMedia.type === "VIDEO" ? "?thumb=1" : ""}`
+        )
+      )
+    : null;
 
   const content = excerpt(
     post.content,
-    showMedia ? CONTENT_MAX_WITH_MEDIA : CONTENT_MAX
+    mediaUrl ? CONTENT_MAX_WITH_MEDIA : CONTENT_MAX
   );
 
   // Avatar and media are served through the app proxy (buckets are private).
@@ -203,22 +211,20 @@ export default async function Image({
 
   const showVideoThumb = showMedia?.type === "VIDEO";
 
-  const mediaBlock = showMedia
-    ? {
-        // Video thumbnails use the extracted frame's own dimensions so the
-        // card never distorts the crop.
-        height: showVideoThumb
-          ? (showMedia.thumbnailHeight ?? 630)
-          : (showMedia.height ?? 630),
-        src:
-          toAbsoluteUrl(
-            `/api/media/${showMedia.id}${showVideoThumb ? "?thumb=1" : ""}`
-          ) ?? "",
-        width: showVideoThumb
-          ? (showMedia.thumbnailWidth ?? 520)
-          : (showMedia.width ?? 520),
-      }
-    : null;
+  const mediaBlock =
+    showMedia && mediaUrl
+      ? {
+          // Video thumbnails use the extracted frame's own dimensions so the
+          // card never distorts the crop.
+          height: showVideoThumb
+            ? (showMedia.thumbnailHeight ?? 630)
+            : (showMedia.height ?? 630),
+          src: mediaUrl,
+          width: showVideoThumb
+            ? (showMedia.thumbnailWidth ?? 520)
+            : (showMedia.width ?? 520),
+        }
+      : null;
 
   const ogFonts = getOgFontOptions();
 

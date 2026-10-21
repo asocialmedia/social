@@ -2,11 +2,10 @@
 
 import { Button } from "@asm/ui/shadui/button";
 import { Skeleton } from "@asm/ui/shadui/skeleton";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Flame, Hash, RefreshCw, TrendingUp } from "lucide-react";
 import Link from "next/link";
 import type React from "react";
-import { useCallback } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
 import UserAvatar from "@/components/layouts/user/user-avatar";
@@ -174,10 +173,10 @@ const TrendingTopics: React.FC = () => {
   const { user } = useSession();
   const network = useNetworkSettings();
   const isLoggedIn = Boolean(user);
+  const queryKey = ["trending-feed", "v4", user?.id ?? "guest"];
   const { data, isError, isFetching, isLoading } = useQuery<TrendingFeed>({
     queryFn: () => getTrendingFeed(false),
-    // Key bumped when Bluesky trending topics were introduced into the feed.
-    queryKey: ["trending-feed", "v3"],
+    queryKey,
     staleTime: 5 * 60 * 1000,
   });
 
@@ -194,14 +193,13 @@ const TrendingTopics: React.FC = () => {
   );
   const topAura = data?.topAura ?? [];
 
-  const handleRefresh = useCallback(async () => {
-    try {
-      const fresh = await getTrendingFeed(true);
-      queryClient.setQueryData(["trending-feed", "v3"], fresh);
-    } catch {
-      // Leave the existing error/empty state intact if the refresh fails
-    }
-  }, [queryClient]);
+  const refresh = useMutation({
+    mutationFn: () => getTrendingFeed(true),
+    onSuccess: (fresh) => queryClient.setQueryData(queryKey, fresh),
+  });
+  const refreshing = isFetching || refresh.isPending;
+  const failedToLoad = !data && isError;
+  const handleRefresh = () => refresh.mutate();
 
   if (isLoading || !network.ready) {
     return <TrendingTopicsSkeleton />;
@@ -216,12 +214,12 @@ const TrendingTopics: React.FC = () => {
           <Button
             aria-label="Refresh trending"
             className="pill-3d-hover text-muted-foreground ml-auto h-6 w-6 rounded-full"
-            disabled={isFetching}
+            disabled={refreshing}
             onClick={handleRefresh}
             size="icon"
             variant="ghost"
           >
-            {isFetching ? (
+            {refreshing ? (
               <Skeleton className="size-3.5" />
             ) : (
               <RefreshCw className="size-3.5" />
@@ -229,18 +227,18 @@ const TrendingTopics: React.FC = () => {
           </Button>
         ) : null}
       </div>
-      {isError ? (
+      {failedToLoad ? (
         <div className="px-2.5 py-2">
           <p className="text-muted-foreground text-sm">
             Couldn&apos;t load trending topics right now.
           </p>
           <Button
             className="pill-3d-hover text-muted-foreground mt-2 h-7 rounded-full px-3 text-xs"
-            disabled={isFetching}
+            disabled={refreshing}
             onClick={handleRefresh}
             variant="ghost"
           >
-            {isFetching ? (
+            {refreshing ? (
               <Skeleton className="size-3.5" />
             ) : (
               <RefreshCw className="size-3.5" />
@@ -249,19 +247,26 @@ const TrendingTopics: React.FC = () => {
           </Button>
         </div>
       ) : null}
-      {!isError && items.length > 0 ? (
+      {data && (isError || refresh.isError) ? (
+        <output className="text-muted-foreground block px-2.5 py-2 text-xs">
+          Couldn&apos;t refresh. Showing the last loaded topics.
+        </output>
+      ) : null}
+      {!failedToLoad && items.length > 0 ? (
         <div className="flex flex-col gap-0.5">
           {items.slice(0, 7).map((item) => (
             <TrendingRow item={item} key={getTrendingItemKey(item)} />
           ))}
         </div>
       ) : null}
-      {!isError && items.length === 0 ? (
+      {!failedToLoad && items.length === 0 ? (
         <p className="text-muted-foreground px-2.5 py-2 text-sm">
-          Nothing trending right now.
+          {data?.items.length
+            ? "No trending topics match your current interests yet."
+            : "No trending topics are available right now."}
         </p>
       ) : null}
-      {!isError && topAura.length > 0 ? (
+      {!failedToLoad && topAura.length > 0 ? (
         <>
           <div className="border-border/60 mt-2 flex items-center gap-2 border-t px-2 pt-2 pb-1">
             <Flame className="h-4 w-4 shrink-0 fill-red-500 text-red-500" />
