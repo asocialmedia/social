@@ -22,6 +22,7 @@ import { useSessionContext } from "@/features/auth/state/session";
 import { fetchConversationList } from "@/features/messages/lib/client";
 import type { ConversationListItem } from "@/features/messages/lib/client";
 import { useSharedPostDraft } from "@/features/messages/state/shared-post-draft";
+import { externalShareUrl } from "@/features/network/lib/network-paths";
 import {
   SettingsButton,
   SettingsInput,
@@ -37,6 +38,9 @@ import type { FeedPost } from "../lib/feed-types";
 import { socialShareTargets } from "../lib/share-targets";
 
 export function getSharePostUrl(post: FeedPost): string {
+  if (post.external) {
+    return externalShareUrl(post.external.id);
+  }
   const shortId = post.id.length > 8 ? post.id.slice(0, 8) : post.id;
   const path = post.community?.slug
     ? `/a/${post.community.slug}/posts/${shortId}`
@@ -84,6 +88,9 @@ function ShareDialog({
   const caption = post.content?.slice(0, 160) || "Post on asocialmedia";
   useEffect(() => {
     let active = true;
+    if (post.external) {
+      return;
+    }
     void (async () => {
       try {
         const rows = await fetchShareStats(post.id, {
@@ -100,7 +107,7 @@ function ShareDialog({
     return () => {
       active = false;
     };
-  }, [post.id]);
+  }, [post.id, post.external]);
   const loadMessages = async (cursor?: string) => {
     setLoading(true);
     setLoadError(null);
@@ -121,6 +128,9 @@ function ShareDialog({
     setLoading(false);
   };
   const recordShare = async (platform: string) => {
+    if (post.external) {
+      return;
+    }
     try {
       await submitShare(post.id, platform, {
         apiBase: getApiBaseUrl(),

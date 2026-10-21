@@ -41,6 +41,7 @@ import { toast } from "@/components/feedback/toast";
 import { authClient } from "@/features/auth/lib/auth-client";
 import { useSessionContext } from "@/features/auth/state/session";
 import { useComposerStore } from "@/features/composer/state/composer-store";
+import { FeedSourceMenu } from "@/features/feed/components/feed-source-menu";
 import { MoreMenu } from "@/features/feed/components/more-menu";
 import type {
   MenuAnchor,
@@ -50,12 +51,16 @@ import type {
 import { ShareSheet } from "@/features/feed/components/share-sheet";
 import type { FeedPost } from "@/features/feed/lib/feed-types";
 import { viewBatcher } from "@/features/feed/lib/view-batcher";
+import { useFeedSourceStore } from "@/features/feed/state/feed-source-store";
 import { resolveGustResumeTab } from "@/features/feed/state/tab-store";
 import {
   useHomeTabMemoryReady,
   useTabStore,
 } from "@/features/feed/state/tab-store-native";
 import { useVideoCaptionsStore } from "@/features/feed/state/video-captions-store";
+import { networkRequest } from "@/features/network/lib/network-api";
+import { trackNetworkObservation } from "@/features/network/lib/network-learning";
+import { externalShareUrl } from "@/features/network/lib/network-paths";
 import { PROD_API_URL } from "@/lib/api-base";
 import { getApiBaseUrl } from "@/lib/api-env";
 import { haptic } from "@/lib/haptics";
@@ -120,7 +125,7 @@ function gustMoreEntries(options: {
 }): MoreMenuEntry[] {
   const { captionsOn, post, showingAlt, transcriptOpen, viewerId } = options;
   const entries: MoreMenuEntry[] = [];
-  if (!post.moderated) {
+  if (!post.moderated && !post.external) {
     entries.push(
       {
         action: { type: "toggle-captions" },
@@ -337,7 +342,7 @@ export function GustsScreen() {
   }, []);
 
   useEffect(() => {
-    if (!activeId || !focused) {
+    if (!activeId || activeId.startsWith("at://") || !focused) {
       return;
     }
     void (async () => {
@@ -404,6 +409,38 @@ export function GustsScreen() {
   };
 
   const hidePost = (post: FeedPost) => {
+    if (post.external) {
+      const payload = {
+        authorId: post.external.author.id,
+        postId: post.id,
+        scope: "post",
+      };
+      const save = async (remove: boolean) => {
+        await networkRequest("/api/protocols/bluesky/feedback", {
+          body: JSON.stringify(payload),
+          method: remove ? "DELETE" : "POST",
+        });
+        useFeedSourceStore
+          .getState()
+          .exclude(viewerId ?? "guest", `post:${post.id}`, !remove);
+      };
+      const saveFeedback = async () => {
+        try {
+          await save(false);
+          toast({
+            button: { onClick: () => save(true), title: "Undo" },
+            title: "Not interested",
+          });
+        } catch {
+          toast({
+            title: "Couldn't save preference. Try again.",
+            variant: "destructive",
+          });
+        }
+      };
+      void saveFeedback();
+      return;
+    }
     feed.hide(post.id);
     logInfo("gusts.not_interested", {});
     void (async () => {
@@ -586,15 +623,24 @@ export function GustsScreen() {
         <GustCard
           apiBase={apiBase}
           captionsOn={captionsOn}
-          onRecommendationEvent={(event) =>
+          onRecommendationEvent={(event) => {
+            if (item.external) {
+              trackNetworkObservation(
+                viewerId ?? "guest",
+                item,
+                event.eventType,
+                event.durationMs
+              );
+              return;
+            }
             queueRef.current?.push(
               event.eventType,
               item.id,
               event.durationMs,
               undefined,
               item.recommendation?.requestId
-            )
-          }
+            );
+          }}
           eddiesOpen={eddiesPostId === item.id}
           previewProgress={eddiePreviewProgress}
           pageHeight={pageHeight}
@@ -607,7 +653,14 @@ export function GustsScreen() {
           mountVideo={shouldMountVideo(index, safeIndex)}
           onCloseTranscript={() => setTranscriptPostId(null)}
           onMore={(post, anchor) => setMoreTarget({ anchor, post })}
-          onOpenEddies={(post) => setEddiesPostId(post.id)}
+          onOpenEddies={(post) =>
+            post.external
+              ? router.push({
+                  params: { uri: post.id },
+                  pathname: "/external-post",
+                })
+              : setEddiesPostId(post.id)
+          }
           onShare={(post) => setSharePost(post)}
           onToggleAlt={() =>
             setAltVisibleIds((current) => {
@@ -640,6 +693,7 @@ export function GustsScreen() {
       safeIndex,
       transcriptPostId,
       viewerId,
+      router,
     ]
   );
 
@@ -777,7 +831,7 @@ export function GustsScreen() {
                 <GustTabs active={tab} onChange={changeTab} />
               )}
             </View>
-            <View pointerEvents="none" style={styles.backBalance} />
+            <FeedSourceMenu following={tab === "following"} />
           </Animated.View>
 
           {feed.newItems.length > 0 && !initialId ? (
@@ -809,7 +863,11 @@ export function GustsScreen() {
         description="Share this gust with your network"
         onClose={() => setSharePost(null)}
         post={sharePost}
-        shareUrl={(post) => gustShareUrl(PROD_API_URL, post.id)}
+        shareUrl={(post) =>
+          post.external
+            ? externalShareUrl(post.id)
+            : gustShareUrl(PROD_API_URL, post.id)
+        }
         title="Share Gust"
       />
       <MoreMenu

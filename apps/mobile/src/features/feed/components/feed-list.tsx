@@ -2,6 +2,10 @@ import {
   discoveryMode,
   feedAvailability,
   filterExternalRecommendations,
+  externalNetworkPostAllowed,
+  externalNetworkPostRecommended,
+  networkPostAllowed,
+  networkPostRecommended,
 } from "@asm/protocols/discovery";
 // One tab's feed list: thread-grouped post cards in a FlatList with
 // pull-refresh, infinite scroll, per-tab scroll memory (restores position
@@ -34,6 +38,8 @@ import { AuthPromptCard } from "@/components/auth/auth-prompt-card";
 import { usePullToRefresh } from "@/components/feedback/use-pull-to-refresh";
 import { authClient } from "@/features/auth/lib/auth-client";
 import { useSessionContext } from "@/features/auth/state/session";
+import { useFeedExposures } from "@/features/network/state/feed-exposures";
+import { useNetworkSettings } from "@/features/network/state/use-network-settings";
 import { getApiBaseUrl } from "@/lib/api-env";
 import { haptic } from "@/lib/haptics";
 import type { ViewToken } from "@/lib/list-virtualization";
@@ -41,6 +47,7 @@ import { LIST_VIRTUALIZATION_PROPS } from "@/lib/list-virtualization";
 import { SHOWS_SCROLL_INDICATOR } from "@/lib/scroll-indicator";
 import { useAppTheme } from "@/theme";
 
+import { externalPostView } from "../lib/external-post-view";
 import type { FeedVariant } from "../lib/feed-api";
 import { feedPrefetchUrls } from "../lib/feed-prefetch";
 import { incomingFeedRows } from "../lib/feed-rows";
@@ -166,6 +173,7 @@ export const FeedList = memo(
     const isActive = active ?? enabled;
     const { theme } = useAppTheme();
     const { user } = useSessionContext();
+    const network = useNetworkSettings();
     const selectedSource = useFeedSourceStore((state) => state.source);
     const source = selectedSource;
     const excluded = useExternalExclusions(userId ?? "guest");
@@ -180,10 +188,34 @@ export const FeedList = memo(
     const externalPosts = useMemo(
       () =>
         filterExternalRecommendations(
-          external.pages.flatMap((page) => page.items),
+          external.pages
+            .flatMap((page) => page.items)
+            .filter(
+              (post) =>
+                network.ready &&
+                (variant === "following"
+                  ? externalNetworkPostAllowed(
+                      post,
+                      network.settings.preferences,
+                      network.settings.topicScope
+                    )
+                  : externalNetworkPostRecommended(
+                      post,
+                      network.settings.preferences,
+                      undefined,
+                      network.settings.topicScope
+                    ))
+            ),
           excluded
         ),
-      [external.pages, excluded]
+      [
+        external.pages,
+        excluded,
+        network.ready,
+        network.settings.preferences,
+        network.settings.topicScope,
+        variant,
+      ]
     );
     const listRef = useRef<FlatList<TimelineRow>>(null);
     const previousSource = useRef(source);
@@ -194,7 +226,9 @@ export const FeedList = memo(
       }
     }, [source]);
     const scrollOffset = useSharedValue(
-      scrollMemory.get(`home:${variant}:${userId ?? "guest"}`) ?? 0
+      scrollMemory.get(
+        `home:${variant}:${userId ?? "guest"}:${network.scope}:${network.locale}`
+      ) ?? 0
     );
     const scrollActive = useSharedValue(false);
     const userScrolling = useSharedValue(false);
@@ -229,14 +263,43 @@ export const FeedList = memo(
       fetchNext,
       hasMore,
       newItems,
-      posts,
+      posts: unfilteredPosts,
       refresh,
       showNewPosts,
       status,
       undoDismiss,
     } = useFeedTab({ active: isActive, enabled, userId, variant });
 
-    useFeedImpressions(posts, latestVisibleRef, isActive, user?.id);
+    const posts = useMemo(
+      () =>
+        unfilteredPosts.filter(
+          (post) =>
+            network.ready &&
+            (variant === "following"
+              ? networkPostAllowed(
+                  post,
+                  network.settings.preferences,
+                  network.settings.topicScope
+                )
+              : networkPostRecommended(
+                  post,
+                  network.settings.preferences,
+                  network.settings.topicScope
+                ))
+        ),
+      [
+        unfilteredPosts,
+        network.ready,
+        network.settings.preferences,
+        network.settings.topicScope,
+        variant,
+      ]
+    );
+    const impressionPosts = useMemo(
+      () => [...posts, ...externalPosts.map(externalPostView)],
+      [posts, externalPosts]
+    );
+    useFeedImpressions(impressionPosts, latestVisibleRef, isActive, user?.id);
 
     const overflow = usePostOverflow({
       onDeleted: (postId) => {
@@ -410,7 +473,11 @@ export const FeedList = memo(
         // Enqueue synchronously; read fresh credentials once when the batch
         // flushes, rather than storing an expiring cookie for this list's lifetime.
         if (ids.size > 0) {
+          useFeedExposures.getState().remember(userId ?? "guest", [...ids]);
           for (const id of ids) {
+            if (id.startsWith("at://")) {
+              continue;
+            }
             viewBatcher.mark(id, {
               apiBase: getApiBaseUrl(),
               getCookie: () => authClient.getCookie(),
@@ -421,7 +488,7 @@ export const FeedList = memo(
         // Exactly one tile autoplays, the topmost visible video of this tab.
         setAutoplayPostId(autoplayPostId);
       },
-      []
+      [userId]
     );
 
     const handleViewableItemsChanged = useCallback(
@@ -430,7 +497,10 @@ export const FeedList = memo(
         let autoplayPostId: string | null = null;
         const ordered = orderByIndex(viewableItems);
         for (const item of ordered) {
-          const post = nativePostForRow(item.item);
+          const post =
+            item.item.kind === "bluesky"
+              ? externalPostView(item.item.value)
+              : nativePostForRow(item.item);
           if (post) {
             ids.add(post.id);
             if (!autoplayPostId && hasVideoAttachment(post)) {
@@ -707,14 +777,16 @@ export const FeedList = memo(
 
     const authors: PillAuthor[] = [
       ...new Map(
-        newItems.map((post) => [
-          post.userId,
-          {
-            avatarUrl: post.user?.avatarUrl,
-            id: post.userId,
-            username: post.user?.username,
-          },
-        ])
+        [...newItems, ...external.newItems.map(externalPostView)].map(
+          (post) => [
+            post.userId,
+            {
+              avatarUrl: post.user?.avatarUrl,
+              id: post.userId,
+              username: post.user?.username,
+            },
+          ]
+        )
       ).values(),
     ];
 
@@ -821,13 +893,19 @@ export const FeedList = memo(
               </GestureDetector>
             </Animated.View>
             {pull.loader}
-            {source !== "bluesky" && newItems.length > 0 ? (
+            {(source === "bluesky" ? 0 : newItems.length) +
+              (source === "asm" ? 0 : external.newItems.length) >
+            0 ? (
               <NewContentPill
                 authors={authors}
-                count={newItems.length}
+                count={
+                  (source === "bluesky" ? 0 : newItems.length) +
+                  (source === "asm" ? 0 : external.newItems.length)
+                }
                 onPress={() => {
                   haptic();
                   showNewPosts();
+                  external.acceptNew();
                   listRef.current?.scrollToOffset({
                     animated: true,
                     offset: 0,

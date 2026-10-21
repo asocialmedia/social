@@ -7,7 +7,7 @@
 import { Image } from "expo-image";
 import { useRouter } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
-import { Linking, Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import avatarPlaceholder from "@/assets/images/avatar-placeholder.png";
 import { resolveCommunityAccentColor } from "@/features/communities/lib/community-accents";
@@ -103,7 +103,10 @@ export function PostDetailCard({
 
   const openSourceAuthor = () => {
     if (post.external) {
-      void Linking.openURL(post.external.author.url);
+      router.push({
+        params: { actor: post.external.author.id },
+        pathname: "/external-profile",
+      });
     }
   };
   const requireLogin = () => {
@@ -439,6 +442,7 @@ function DetailBody({
           {post.content ? (
             <View style={styles.body}>
               <BioContent
+                compactBlankLines
                 sourceSegments={post.external?.segments}
                 apiBase={apiBase}
                 bio={post.content}

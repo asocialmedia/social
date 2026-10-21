@@ -88,7 +88,7 @@
     },
     "apps/mobile": {
       "name": "@asocialmedia/mobile",
-      "version": "0.2.36",
+      "version": "0.2.37",
       "dependencies": {
         "@asm/auth": "workspace:*",
         "@asm/db": "workspace:*",
@@ -100,6 +100,7 @@
         "@expo/dom-webview": "~58.0.2",
         "@expo/ui": "~58.0.21",
         "@expo/vector-icons": "^15.1.1",
+        "@formatjs/intl-displaynames": "^7.3.15",
         "@lobehub/expo-better-auth-passkey": "^1.0.2",
         "@noble/ciphers": "^2.4.0",
         "@noble/curves": "^2.4.0",
@@ -179,7 +180,7 @@
     },
     "apps/protocols": {
       "name": "@asm/protocols-app",
-      "version": "0.1.49",
+      "version": "0.1.50",
       "dependencies": {
         "@asm/logger": "workspace:*",
         "@asm/protocols": "workspace:*",
@@ -201,7 +202,7 @@
     },
     "apps/web": {
       "name": "@asm/web",
-      "version": "1.8.73",
+      "version": "1.8.74",
       "dependencies": {
         "@asm/aggregator": "workspace:*",
         "@asm/auth": "workspace:*",
@@ -448,7 +449,7 @@
     },
     "packages/protocols": {
       "name": "@asm/protocols",
-      "version": "0.1.49",
+      "version": "0.1.50",
       "dependencies": {
         "@atproto/lex": "0.3.14",
         "@atproto/syntax": "^0.7.7",
@@ -1136,6 +1137,12 @@
     "@floating-ui/react-dom": ["@floating-ui/react-dom@2.1.9", "", { "dependencies": { "@floating-ui/dom": "^1.8.0" }, "peerDependencies": { "react": ">=16.8.0", "react-dom": ">=16.8.0" } }, "sha512-JDjEFGCpImxDCA7JJKviA0M9+RtmJdj0m/NVU5IMgBK+AmZouAQQ7/+2GLH0GXXY0YMw9oXPB8hKdbPYg5QLYg=="],
 
     "@floating-ui/utils": ["@floating-ui/utils@0.2.12", "", {}, "sha512-HpCo8tmWzLVad5s2d19EhAz5zqrrQ6s69qd6moPMQvkOuSwDT1YgRfWSVuc4ennqrgv3OHppiOGMQ7oC13yIww=="],
+
+    "@formatjs/fast-memoize": ["@formatjs/fast-memoize@3.1.7", "", {}, "sha512-zXfhLpvA6T7+efdt9JLbBwZ00tT7NsBMDVnDu8rpHeNNv8KfRZAMo2gkG0k9lK/Nzc//3kJ9pImsfuJxk3KhUA=="],
+
+    "@formatjs/intl-displaynames": ["@formatjs/intl-displaynames@7.3.15", "", { "dependencies": { "@formatjs/intl-localematcher": "0.9.0" } }, "sha512-U26iRwxxnD4aZY+aDiSEV5Ym/7Db5S9OxKQ4c3T+WFFIj+DPKEQLh+tC++dMH1SuEa8CSWvPJkpaADa+WHn3qA=="],
+
+    "@formatjs/intl-localematcher": ["@formatjs/intl-localematcher@0.9.0", "", { "dependencies": { "@formatjs/fast-memoize": "3.1.7" } }, "sha512-Z7TD3ssNry1Av1dVDoq/mzpxGyxqWwU0ClWEo+BB3k0JQTeQvUGmeK9WZGYvlqStS0UqkaKXk3dfjsb6NaHAxw=="],
 
     "@grpc/grpc-js": ["@grpc/grpc-js@1.14.5", "", { "dependencies": { "@grpc/proto-loader": "^0.8.0", "@js-sdsl/ordered-map": "^4.4.2" } }, "sha512-7VZM+SVdEcUUqSQeNI3zM8Qs/BhQKZndPo2h5VkYkAM8Iz0wJIa8mKV5ekQGqG8UUsnkQ0NMxIxwkIHYvj0qOw=="],
 

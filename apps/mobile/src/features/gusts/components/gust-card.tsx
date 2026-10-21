@@ -52,6 +52,7 @@ import avatarPlaceholder from "@/assets/images/avatar-placeholder.png";
 import { Spinner3D } from "@/components/feedback/spinner-3d";
 import { authClient } from "@/features/auth/lib/auth-client";
 import { subscribeEddieCreated } from "@/features/eddies/lib/eddie-events";
+import { ExternalLikeAction } from "@/features/feed/components/external-like-action";
 import type { MenuAnchor } from "@/features/feed/components/more-menu";
 import {
   isExplicitRevealed,
@@ -232,7 +233,9 @@ export function GustCard({
   const bookmark = useGustBookmark(post, viewerId, isActive);
   const follow = useGustFollow(post, viewerId);
 
-  const posterUri = video ? mediaPosterUrl(apiBase, video.id) : null;
+  const posterUri = video
+    ? mediaPosterUrl(apiBase, video.id, video.thumbnailKey)
+    : null;
   const hasFrame = source !== null && frameSource === source;
 
   const recommendationCallback = useRef(onRecommendationEvent);
@@ -414,7 +417,10 @@ export function GustCard({
   // active card: the stored WebVTT track, else the transcript spread over
   // the clip.
   const wantsCues =
-    isActive && video !== undefined && (captionsOn || transcriptOpen);
+    !post.external &&
+    isActive &&
+    video !== undefined &&
+    (captionsOn || transcriptOpen);
   useEffect(() => {
     if (!wantsCues || fetchedCues !== null || !video) {
       return;
@@ -528,6 +534,13 @@ export function GustCard({
     }
   }, [suspended]);
   const openAuthorProfile = () => {
+    if (post.external) {
+      router.push({
+        params: { actor: post.external.author.id },
+        pathname: "/external-profile",
+      });
+      return;
+    }
     if (
       !isActive ||
       suspended ||
@@ -874,6 +887,8 @@ export function GustCard({
                 <BioContent
                   apiBase={apiBase}
                   bio={content}
+                  compactBlankLines
+                  sourceSegments={post.external?.segments}
                   textColor="rgba(255, 255, 255, 0.95)"
                   textSize={{ fontSize: 12, lineHeight: CAPTION_LINE }}
                 />
@@ -930,19 +945,28 @@ export function GustCard({
             </View>
           ) : null}
 
-          <View style={styles.viewsRow}>
-            <Eye color="rgba(255, 255, 255, 0.85)" size={16} />
-            <Text style={styles.views}>
-              {formatNumber(views)}
-              <Text style={styles.viewsLabel}> views</Text>
+          {post.external ? (
+            <Text style={styles.handle}>
+              Bluesky · follows and discussion in ASM
             </Text>
-          </View>
+          ) : (
+            <View style={styles.viewsRow}>
+              <Eye color="rgba(255, 255, 255, 0.85)" size={16} />
+              <Text style={styles.views}>
+                {formatNumber(views)}
+                <Text style={styles.viewsLabel}> views</Text>
+              </Text>
+            </View>
+          )}
         </View>
 
         <View
           pointerEvents={eddiesOpen ? "none" : "box-none"}
           style={[styles.rail, eddiesOpen && styles.hidden]}
         >
+          {post.external ? (
+            <ExternalLikeAction post={post.external} color="white" size={22} />
+          ) : null}
           <View style={styles.railItem}>
             <RailButton
               accessibilityLabel={
@@ -1042,7 +1066,7 @@ export function GustCard({
           <SeekBar duration={duration} onSeek={seek} progress={progress} />
         )}
 
-        {transcriptOpen && isActive ? (
+        {!post.external && transcriptOpen && isActive ? (
           <TranscriptDrawer
             cues={cues}
             currentTime={currentTime}

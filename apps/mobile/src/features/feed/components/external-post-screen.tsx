@@ -6,7 +6,6 @@ import type { ScrollViewInstance, TextInputInstance } from "react-native";
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
-  Linking,
   Platform,
   Pressable,
   ScrollView,
@@ -34,14 +33,16 @@ import { PostDetailHeader } from "@/features/post/components/post-detail-header"
 import { getApiBaseUrl } from "@/lib/api-env";
 import { useAppTheme } from "@/theme";
 
+import { cachedExternalPost } from "../lib/external-cache";
 import { readExternal } from "../lib/external-interactions";
 import { useExternalInteractions } from "../state/use-external-interactions";
 import { BlueskyPostCard } from "./bluesky-post-card";
+import { ExternalResponses } from "./external-responses";
 import { MoreMenu } from "./more-menu";
 import type { MenuAnchor } from "./more-menu";
 
 const noop = () => {
-  /* empty */
+  // Layout notification is not needed for this standalone thread.
 };
 
 export function ExternalPostScreen() {
@@ -61,7 +62,12 @@ export function ExternalPostScreen() {
 
   const [data, setData] = useState<Awaited<
     ReturnType<typeof readExternal>
-  > | null>(null);
+  > | null>(() => {
+    const cached = cachedExternalPost(uri, user?.id ?? "guest");
+    return cached
+      ? { comments: { cursor: null, items: [] }, post: cached }
+      : null;
+  });
   const [error, setError] = useState(false);
   const [content, setContent] = useState("");
   const requestId = useRef(randomUUID());
@@ -169,7 +175,10 @@ export function ExternalPostScreen() {
     onMore: (commentId, anchor) => setMenu({ anchor, commentId }),
     onOpenAuthor: (username) => {
       if (username.startsWith("did:") || username.includes(".")) {
-        void Linking.openURL(`https://bsky.app/profile/${username}`);
+        router.push({
+          params: { actor: username },
+          pathname: "/external-profile",
+        });
       } else {
         router.push(`/users/${username}` as "/");
       }
@@ -206,6 +215,14 @@ export function ExternalPostScreen() {
       style={{ backgroundColor: theme.containerBg, flex: 1 }}
     >
       <PostDetailHeader
+        title={
+          data?.post?.author.displayName
+            ? `${data.post.author.displayName}’s post`
+            : "Bluesky post"
+        }
+        subtitle={
+          data?.post?.author.handle ? `@${data.post.author.handle}` : "Bluesky"
+        }
         onBack={() =>
           router.canGoBack() ? router.back() : router.replace("/")
         }
@@ -381,6 +398,10 @@ export function ExternalPostScreen() {
             ) : null}
           </View>
         ) : null}
+        <ExternalResponses
+          key={`${uri}:${data?.post?.asm?.responses ?? 0}`}
+          uri={uri}
+        />
       </ScrollView>
 
       <MoreMenu

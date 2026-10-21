@@ -1,10 +1,11 @@
 // oxlint-disable react/todo -- Async mutations release request guards in finally, including failed requests.
-import type { ExternalPost } from "@asm/protocols/contracts";
 import { useRouter } from "expo-router";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { FlatList, Pressable, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { useSessionContext } from "@/features/auth/state/session";
+import { useProtocolPages } from "@/features/network/state/use-protocol-pages";
 import { useAppTheme } from "@/theme";
 
 import {
@@ -13,81 +14,33 @@ import {
 } from "../lib/external-interactions";
 import { BlueskyPostCard } from "./bluesky-post-card";
 
-interface Item {
-  uri: string;
-  post: ExternalPost | null;
-}
 export function ExternalLibraryScreen() {
   const { theme } = useAppTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const [kind, setKind] = useState<"bookmarks" | "amplified">("bookmarks");
-  const [items, setItems] = useState<Item[]>([]);
-  const [cursor, setCursor] = useState<{
-    updatedAt: string;
-    externalPostId: string;
-  } | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(false);
-  const busy = useRef(false);
-  const activeRequest = useRef<AbortController | null>(null);
-  const load = useCallback(
-    async (after: typeof cursor, signal?: AbortSignal) => {
-      if (busy.current) {
-        return;
+  const { user } = useSessionContext();
+  const pages = useProtocolPages(
+    `external-library:${user?.id ?? "guest"}:${kind}`,
+    async (
+      cursor: { updatedAt: string; externalPostId: string } | null,
+      signal
+    ) => {
+      const query = new URLSearchParams({ kind });
+      if (cursor) {
+        query.set("cursor", JSON.stringify(cursor));
       }
-      busy.current = true;
-      const controller = new AbortController();
-      activeRequest.current = controller;
-      const requestSignal = signal
-        ? AbortSignal.any([signal, controller.signal])
-        : controller.signal;
-      setLoading(true);
-      try {
-        const query = new URLSearchParams({ kind });
-        if (after) {
-          query.set("cursor", JSON.stringify(after));
-        }
-        const page = externalLibrarySchema.parse(
-          await externalRequest(query, { signal: requestSignal })
-        );
-        if (!requestSignal.aborted && activeRequest.current === controller) {
-          setItems((current) =>
-            after ? [...current, ...page.items].slice(-400) : page.items
-          );
-          setCursor(page.cursor);
-          setError(false);
-        }
-      } catch {
-        if (!requestSignal.aborted && activeRequest.current === controller) {
-          setError(true);
-        }
-      } finally {
-        if (activeRequest.current === controller) {
-          busy.current = false;
-          setLoading(false);
-        }
-      }
+      return externalLibrarySchema.parse(
+        await externalRequest(query, { signal })
+      );
     },
-    [kind]
+    Boolean(user)
   );
-  useEffect(() => {
-    const controller = new AbortController();
-    queueMicrotask(() => {
-      if (!controller.signal.aborted) {
-        busy.current = false;
-        activeRequest.current?.abort();
-        setItems([]);
-        setCursor(null);
-        void load(null, controller.signal);
-      }
-    });
-    return () => {
-      controller.abort();
-      activeRequest.current?.abort();
-      activeRequest.current = null;
-    };
-  }, [load]);
+  const items = [
+    ...new Map(pages.items.map((item) => [item.uri, item])).values(),
+  ];
+  const loading = pages.loading || pages.loadingMore;
+  const { error } = pages;
   return (
     <View
       style={{ backgroundColor: theme.cardBg, flex: 1, paddingTop: insets.top }}
@@ -128,7 +81,7 @@ export function ExternalLibraryScreen() {
       {error ? (
         <Pressable
           onPress={() => {
-            void load(null);
+            void pages.refresh();
           }}
         >
           <Text className="p-4" style={{ color: theme.dividerText }}>
@@ -167,11 +120,11 @@ export function ExternalLibraryScreen() {
           </Text>
         }
         ListFooterComponent={
-          cursor ? (
+          pages.hasMore ? (
             <Pressable
               disabled={loading}
               onPress={() => {
-                void load(cursor);
+                void pages.fetchNext();
               }}
             >
               <Text

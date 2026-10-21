@@ -1,3 +1,4 @@
+import type { ExternalAuthor } from "@asm/protocols/contracts";
 import { profileMutualLabel } from "@asm/ui/lib/profile-mutuals";
 import type { UserListMutual } from "@asm/ui/lib/user-list";
 import { FontAwesome6 } from "@expo/vector-icons";
@@ -19,6 +20,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { UserAvatar } from "@/components/avatar/user-avatar";
 import { Gradient3D } from "@/components/surface/gradient-3d";
+import { BlueskyIcon } from "@/features/feed/components/bluesky-icon";
 import { BioContent } from "@/features/home/components/bio-content";
 import {
   formatJoinedDate,
@@ -141,6 +143,7 @@ function getEditButtonStyles(isDark: boolean) {
 }
 
 export function ProfileHeader({
+  external,
   canMessage,
   canFollow,
   isFollowing,
@@ -150,6 +153,7 @@ export function ProfileHeader({
   onMessage,
   profile,
 }: {
+  external?: ExternalAuthor;
   canFollow: boolean;
   canMessage: boolean;
   isFollowing: boolean;
@@ -167,7 +171,7 @@ export function ProfileHeader({
   const avatar = resolveProfileImageUrl(profile.avatarUrl, apiBase);
   const socials = getSocialLinks(profile);
   const flame = getAuraFlameStyle(profile.aura);
-  const joined = formatJoinedDate(profile.createdAt);
+  const joined = external ? "" : formatJoinedDate(profile.createdAt);
   const followStyles = getFollowButtonStyles(isDark);
   const grayStyles = getGrayButtonStyles(isDark);
   const editStyles = getEditButtonStyles(isDark);
@@ -239,11 +243,15 @@ export function ProfileHeader({
               <Text style={[styles.name, { color: theme.inputText }]}>
                 {profile.displayName || profile.username}
               </Text>
-              <UserBadge
-                badge={profile.badge}
-                badges={profile.badges}
-                communityRoles={profile.communityMemberships}
-              />
+              {external ? (
+                <BlueskyIcon />
+              ) : (
+                <UserBadge
+                  badge={profile.badge}
+                  badges={profile.badges}
+                  communityRoles={profile.communityMemberships}
+                />
+              )}
             </View>
             <Text style={[styles.username, { color: theme.dividerText }]}>
               @{profile.username}
@@ -299,17 +307,18 @@ export function ProfileHeader({
                       ]}
                     >
                       {isFollowing ? "Following" : "Follow"}
+                      {external ? " in ASM" : ""}
                     </Text>
                   </Gradient3D>
                 </Pressable>
                 <Pressable
                   accessibilityLabel="Message"
                   accessibilityRole="button"
-                  disabled={!canMessage}
+                  disabled={!external && !canMessage}
                   onPress={onMessage}
                   style={({ pressed }) => [
                     styles.buttonPressable,
-                    !canMessage && styles.disabled,
+                    !external && !canMessage && styles.disabled,
                     { transform: [{ translateY: pressed ? 1 : 0 }] },
                   ]}
                 >
@@ -325,7 +334,7 @@ export function ProfileHeader({
                         { color: grayStyles.textColor },
                       ]}
                     >
-                      Message
+                      {external ? "Open on Bluesky" : "Message"}
                     </Text>
                   </Gradient3D>
                 </Pressable>
@@ -358,10 +367,12 @@ export function ProfileHeader({
             mutualCount={profile.mutuals?.counts.following}
             kind="following"
             onPress={() =>
-              router.push({
-                params: { username: profile.username },
-                pathname: "/users/[username]/following",
-              })
+              external
+                ? undefined
+                : router.push({
+                    params: { username: profile.username },
+                    pathname: "/users/[username]/following",
+                  })
             }
             value={formatNumber(profile._count.following)}
           />
@@ -371,10 +382,12 @@ export function ProfileHeader({
             mutualCount={profile.mutuals?.counts.followers}
             kind="followers"
             onPress={() =>
-              router.push({
-                params: { username: profile.username },
-                pathname: "/users/[username]/followers",
-              })
+              external
+                ? undefined
+                : router.push({
+                    params: { username: profile.username },
+                    pathname: "/users/[username]/followers",
+                  })
             }
             value={formatNumber(profile._count.followers)}
           />
@@ -385,10 +398,12 @@ export function ProfileHeader({
               size={18}
             />
             <Text style={[styles.inlineValue, { color: theme.inputText }]}>
-              {formatNumber(profile.aura)}
+              {formatNumber(
+                external ? (external.upstreamCounts.posts ?? 0) : profile.aura
+              )}
             </Text>
             <Text style={[styles.inlineLabel, { color: theme.dividerText }]}>
-              Aura
+              {external ? "Posts on Bluesky" : "Aura"}
             </Text>
           </View>
         </View>

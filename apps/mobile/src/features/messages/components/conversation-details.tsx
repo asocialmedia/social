@@ -1,3 +1,4 @@
+// oxlint-disable eslint/no-await-in-loop -- Reconciliation follows opaque cursors sequentially and decrypts one bounded page at a time.
 import { Host, Slider, Switch } from "@expo/ui";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
@@ -43,6 +44,7 @@ import {
 import { getApiBaseUrl } from "@/lib/api-env";
 import { useAppTheme } from "@/theme";
 
+import { mergeSharedReferencePages } from "../lib/shared-reference-pages";
 import { DenAvatar } from "./den-avatar";
 import { DenRoster } from "./den-roster";
 import { DenSettings } from "./den-settings";
@@ -53,6 +55,7 @@ import { MessageImage } from "./messages-primitives";
 
 export function ConversationDetails({
   conversation,
+  contentRevision,
   userId,
   prefs,
   getBaseKeys,
@@ -62,6 +65,7 @@ export function ConversationDetails({
   onRefresh,
 }: {
   conversation: MessageConversationData;
+  contentRevision: string;
   userId: string;
   prefs: ConversationPrefs;
   getBaseKeys: (id: string) => Promise<Uint8Array[]>;
@@ -100,6 +104,28 @@ export function ConversationDetails({
   const [sharedRevision, setSharedRevision] = useState(0);
   const [cursor, setCursor] = useState<string | undefined>();
   const pending = useRef(false);
+  const sharedScope = `${userId}:${conversation.id}:${kind}`;
+  const pageCache = useRef(
+    new Map<
+      string,
+      {
+        pages: Map<
+          string,
+          { rows: typeof references; page: SharedConversationPage }
+        >;
+        token: string;
+      }
+    >()
+  );
+  const sharedToken = `${conversation.updatedAt}:${contentRevision}:${sharedRevision}`;
+  const [renderedScope, setRenderedScope] = useState(sharedScope);
+  if (renderedScope !== sharedScope) {
+    setRenderedScope(sharedScope);
+    setReferences([]);
+    setShared(null);
+    setCursor(undefined);
+    setViewerIndex(null);
+  }
   const isDen = conversationKind(conversation) === "DEN";
   const peer = conversation.members.find(
     (member) => member.userId !== userId
@@ -155,82 +181,106 @@ export function ConversationDetails({
           apiBase: getApiBaseUrl(),
           cookie: await authClient.getCookie(),
         };
-        const page = await fetchSharedConversationItems(
-          conversation.id,
-          kind,
-          options,
-          cursor,
-          controller.signal
-        );
-        const ids = new Map(
-          page.items.map((item) => [
-            item.messageId,
-            { id: item.messageId, revision: item.revision },
-          ])
-        );
-        const hydrated = await hydrateSearchHits(
-          conversation.id,
-          [...ids.values()],
-          options,
-          controller.signal
-        );
-        const keys = await getBaseKeys(conversation.id);
-        const rows: typeof references = [];
-        for (const item of page.items) {
-          const message = hydrated.messages.find(
-            (row) => row.id === item.messageId
+        const held = pageCache.current.get(sharedScope);
+        const refresh = held && held.token !== sharedToken;
+        const cursors: (string | undefined)[] = refresh
+          ? [undefined]
+          : [cursor];
+        const loaded = refresh
+          ? new Map<
+              string,
+              { rows: typeof references; page: SharedConversationPage }
+            >()
+          : new Map(held?.pages);
+        for (let pageIndex = 0; pageIndex < cursors.length; pageIndex += 1) {
+          const pageCursor = cursors[pageIndex];
+          const page = await fetchSharedConversationItems(
+            conversation.id,
+            kind,
+            options,
+            pageCursor,
+            controller.signal
           );
-          if (!message || message.deletedAt) {
-            continue;
-          }
-          for (const key of keys) {
-            try {
-              const payload = decryptMessageWithBaseKey(
-                key,
-                message.senderId,
-                conversation.id,
-                message
-              );
-              let url: string | null = null;
-              let postId: string | null = null;
-              let label = payload.content ?? "Shared item";
-              if (kind === "media" && payload.type === "media") {
-                url = getMediaImages(payload)[item.ordinal]?.url ?? null;
-                label = payload.content || "Shared image";
+          const ids = new Map(
+            page.items.map((item) => [
+              item.messageId,
+              { id: item.messageId, revision: item.revision },
+            ])
+          );
+          const hydrated = await hydrateSearchHits(
+            conversation.id,
+            [...ids.values()],
+            options,
+            controller.signal
+          );
+          const keys = await getBaseKeys(conversation.id);
+          const rows: typeof references = [];
+          for (const item of page.items) {
+            const message = hydrated.messages.find(
+              (row) => row.id === item.messageId
+            );
+            if (!message || message.deletedAt) {
+              continue;
+            }
+            for (const key of keys) {
+              try {
+                const payload = decryptMessageWithBaseKey(
+                  key,
+                  message.senderId,
+                  conversation.id,
+                  message
+                );
+                let url: string | null = null;
+                let postId: string | null = null;
+                let label = payload.content ?? "Shared item";
+                if (kind === "media" && payload.type === "media") {
+                  url = getMediaImages(payload)[item.ordinal]?.url ?? null;
+                  label = payload.content || "Shared image";
+                }
+                if (kind === "post") {
+                  postId =
+                    payload.type === "post" ? payload.postId : item.requiredId;
+                  label = payload.content || "Shared post";
+                }
+                if (kind === "link") {
+                  const links =
+                    payload.content?.match(/https?:\/\/[^\s<>]+/g) ?? [];
+                  url = links[item.ordinal] ?? null;
+                  label = url ?? "Shared link";
+                }
+                rows.push({
+                  key: `${item.messageId}:${item.ordinal}`,
+                  label,
+                  messageId: item.messageId,
+                  postId,
+                  url,
+                });
+                break;
+              } catch {
+                // A different readable epoch may own this reference.
               }
-              if (kind === "post") {
-                postId =
-                  payload.type === "post" ? payload.postId : item.requiredId;
-                label = payload.content || "Shared post";
-              }
-              if (kind === "link") {
-                const links =
-                  payload.content?.match(/https?:\/\/[^\s<>]+/g) ?? [];
-                url = links[item.ordinal] ?? null;
-                label = url ?? "Shared link";
-              }
-              rows.push({
-                key: `${item.messageId}:${item.ordinal}`,
-                label,
-                messageId: item.messageId,
-                postId,
-                url,
-              });
-              break;
-            } catch {
-              // A different readable epoch may own this reference.
             }
           }
-        }
-        if (!controller.signal.aborted) {
-          setShared(page);
-          setReferences(rows);
-          if (
-            hydrated.deferredIds.length ||
-            hydrated.unavailableIds.length ||
-            rows.length < page.items.length
-          ) {
-            setError("Some shared items could not be read. Try again.");
+          if (!controller.signal.aborted) {
+            loaded.set(pageCursor ?? "head", { page, rows });
+            if (refresh && page.nextCursor && pageIndex + 1 < held.pages.size) {
+              cursors.push(page.nextCursor);
+            }
+            if (pageIndex + 1 === cursors.length) {
+              pageCache.current.set(sharedScope, {
+                pages: loaded,
+                token: sharedToken,
+              });
+              setShared([...loaded.values()].at(-1)?.page ?? page);
+              setReferences(mergeSharedReferencePages(loaded.values()));
+            }
+            if (
+              hydrated.deferredIds.length ||
+              hydrated.unavailableIds.length ||
+              rows.length < page.items.length
+            ) {
+              setError("Some shared items could not be read. Try again.");
+            }
           }
         }
       } catch {
@@ -244,7 +294,16 @@ export function ConversationDetails({
     };
     void load();
     return () => controller.abort();
-  }, [conversation.id, cursor, getBaseKeys, kind, tab, sharedRevision]);
+  }, [
+    sharedScope,
+    sharedToken,
+    conversation.id,
+    cursor,
+    getBaseKeys,
+    kind,
+    tab,
+    sharedRevision,
+  ]);
   const handleWritePrefs = async (
     patch: Parameters<typeof updateConversationPrefs>[1]
   ) => {

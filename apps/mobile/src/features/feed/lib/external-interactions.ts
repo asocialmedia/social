@@ -55,12 +55,14 @@ export async function externalRequest(
   return (await response.json()) as unknown;
 }
 export async function mutateExternal(input: ExternalMutation) {
-  return externalStateSchema.parse(
-    await externalRequest(new URLSearchParams(), {
-      body: JSON.stringify(input),
-      method: "POST",
-    })
-  );
+  return externalStateSchema
+    .extend({ upstream: z.enum(["synced", "failed", "not_linked"]).optional() })
+    .parse(
+      await externalRequest(new URLSearchParams(), {
+        body: JSON.stringify(input),
+        method: "POST",
+      })
+    );
 }
 export async function readExternal(
   uri: string,

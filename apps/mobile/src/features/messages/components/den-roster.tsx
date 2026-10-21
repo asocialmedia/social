@@ -7,6 +7,8 @@ import { UserAvatar } from "@/components/avatar/user-avatar";
 import { premiumInput } from "@/components/surface/recipes";
 import { authClient } from "@/features/auth/lib/auth-client";
 import {
+  denPersonUnavailable,
+  fetchRecentDenPeople,
   changeDenMember,
   searchMessageUsers,
 } from "@/features/messages/lib/client";
@@ -48,16 +50,19 @@ export function DenRoster({
   const canManage = information?.canManage === true;
   const owner = information?.membership.role === "OWNER";
   useEffect(() => {
-    if (!adding || !query.trim()) {
+    if (!adding) {
       return;
     }
     let active = true;
     const timer = setTimeout(async () => {
       try {
-        const found = await searchMessageUsers(query.trim(), {
+        const options = {
           apiBase: getApiBaseUrl(),
           cookie: await authClient.getCookie(),
-        });
+        };
+        const found = query.trim()
+          ? await searchMessageUsers(query.trim(), options, "den")
+          : await fetchRecentDenPeople(userId, options);
         if (active) {
           setPeople(found);
           setError(null);
@@ -72,7 +77,7 @@ export function DenRoster({
       active = false;
       clearTimeout(timer);
     };
-  }, [adding, query]);
+  }, [adding, query, userId]);
   const mutate = async (
     targetId: string,
     action: Parameters<typeof changeDenMember>[1]["action"]
@@ -181,7 +186,7 @@ export function DenRoster({
             .map((person) => (
               <Pressable
                 key={person.id}
-                disabled={busy}
+                disabled={busy || Boolean(denPersonUnavailable(person))}
                 accessibilityLabel={`Add ${person.displayName}`}
                 onPress={() => {
                   void mutate(person.id, "add");
@@ -200,8 +205,13 @@ export function DenRoster({
                 />
                 <Text style={{ ...textStyle, flex: 1 }}>
                   {person.displayName}
+                  {denPersonUnavailable(person)
+                    ? ` · ${denPersonUnavailable(person)}`
+                    : ""}
                 </Text>
-                <Text style={{ color: "#ff9500" }}>Add</Text>
+                <Text style={{ color: "#ff9500" }}>
+                  {denPersonUnavailable(person) ? "Unavailable" : "Add"}
+                </Text>
               </Pressable>
             ))
         : members

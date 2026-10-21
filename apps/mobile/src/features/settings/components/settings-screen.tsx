@@ -18,6 +18,7 @@ import { useSessionContext } from "@/features/auth/state/session";
 import { FeedTabs } from "@/features/feed/components/feed-tabs";
 import { MobileBottomNav } from "@/features/home/components/mobile-bottom-nav";
 import { MobileHeader } from "@/features/home/components/mobile-header";
+import { NetworkTab } from "@/features/network/components/network-tab";
 import { getApiBaseUrl } from "@/lib/api-env";
 import { haptic } from "@/lib/haptics";
 import { useAppTheme } from "@/theme";
@@ -68,6 +69,7 @@ export function SettingsScreen() {
   const scrollRefs = useMemo(
     () => ({
       account: { current: null as ScrollViewType | null },
+      network: { current: null as ScrollViewType | null },
       personalization: { current: null as ScrollViewType | null },
       privacy: { current: null as ScrollViewType | null },
       profile: { current: null as ScrollViewType | null },
@@ -228,6 +230,7 @@ export function SettingsScreen() {
           </ScrollView>
         )}
         <MemoPersonalizationTab scrollRef={scrollRefs.personalization} />
+        <NetworkTab scrollRef={scrollRefs.network} />
       </SettingsPager>
 
       <MobileBottomNav />

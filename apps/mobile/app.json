@@ -2,14 +2,18 @@
   "expo": {
     "name": "asocialmedia",
     "slug": "asocialmedia",
-    "version": "0.2.36",
+    "version": "0.2.37",
     "description": "The social network that knows you back. A feed that learns your taste, Aura that remembers what you contribute, and communities you have to earn.",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "asocialmedia",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "associatedDomains": ["webcredentials:asocialmedia.cc"],
+      "associatedDomains": [
+        "webcredentials:asocialmedia.cc",
+        "applinks:asocialmedia.cc",
+        "applinks:www.asocialmedia.cc"
+      ],
       "bundleIdentifier": "cc.asocialmedia.mobile",
       "supportsTablet": true
     },
@@ -21,7 +25,24 @@
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            {
+              "scheme": "https",
+              "host": "asocialmedia.cc"
+            },
+            {
+              "scheme": "https",
+              "host": "www.asocialmedia.cc"
+            }
+          ],
+          "category": ["BROWSABLE", "DEFAULT"]
+        }
+      ]
     },
     "web": {
       "output": "static",

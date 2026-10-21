@@ -32,7 +32,7 @@ function external(id: string) {
   };
 }
 
-test("event reads prepend new rows without replacing loaded pages or continuation cursors", async () => {
+test("event reads buffer new rows until acceptance without replacing loaded pages or continuation cursors", async () => {
   const old = external("old");
   const older = external("older");
   const fresh = external("new");
@@ -48,6 +48,12 @@ test("event reads prepend new rows without replacing loaded pages or continuatio
   await store.fetchNext();
   const [, tail] = store.snapshot().pages;
   await store.probe();
+  expect(store.snapshot().pages[0]?.items.map((item) => item.id)).toEqual([
+    old.id,
+  ]);
+  expect(store.snapshot().newItems.map((item) => item.id)).toEqual([fresh.id]);
+  store.acceptNew();
+  expect(store.snapshot().newItems).toEqual([]);
   expect(store.snapshot().pages[0]?.items.map((item) => item.id)).toEqual([
     fresh.id,
     old.id,
