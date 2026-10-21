@@ -163,7 +163,9 @@ const MobileBottomNav: React.FC<{ hidden?: boolean }> = ({
         aria-label={label}
         className={className}
         href={href}
-        onNavigate={(event) => reselectFeedNavigation(href, pathname, event)}
+        onNavigate={(event) =>
+          reselectFeedNavigation(href, pathname, event, searchParams)
+        }
         key={href}
       >
         {inner}

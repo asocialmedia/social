@@ -297,7 +297,9 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({ userData }) => {
       <Link
         className={className}
         href={href}
-        onNavigate={(event) => reselectFeedNavigation(href, pathname, event)}
+        onNavigate={(event) =>
+          reselectFeedNavigation(href, pathname, event, searchParams)
+        }
         key={href}
       >
         {inner}
@@ -352,7 +354,9 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({ userData }) => {
           aria-label={label}
           className={className}
           href={href}
-          onNavigate={(event) => reselectFeedNavigation(href, pathname, event)}
+          onNavigate={(event) =>
+            reselectFeedNavigation(href, pathname, event, searchParams)
+          }
         >
           {icon}
         </Link>
