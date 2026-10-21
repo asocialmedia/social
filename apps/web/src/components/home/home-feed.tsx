@@ -495,6 +495,18 @@ export default function HomeFeed({
     root: feedRootRef,
   });
 
+  const manualContinuation =
+    hasNextPage &&
+    !isFetching &&
+    !external.isFetching &&
+    !isFetchingCommunity ? (
+      <div className="flex justify-center p-4">
+        <Button onClick={() => handleBottomReached(true)} variant="premium">
+          Load more posts
+        </Button>
+      </div>
+    ) : null;
+
   if (!network.ready && network.isError) {
     return (
       <FeedErrorState
@@ -509,10 +521,13 @@ export default function HomeFeed({
 
   if (availability === "error") {
     return (
-      <FeedErrorState
-        message="We couldn’t load your feed right now. Please try again in a moment."
-        onRetry={retryFailedSources}
-      />
+      <div>
+        <FeedErrorState
+          message="We couldn’t load your feed right now. Please try again in a moment."
+          onRetry={retryFailedSources}
+        />
+        {manualContinuation}
+      </div>
     );
   }
 
@@ -566,10 +581,13 @@ export default function HomeFeed({
 
   if (!hasAnyPosts && (globalStatus === "error" || external.isError)) {
     return (
-      <FeedErrorState
-        message="We couldn’t load your feed right now. Please try again in a moment."
-        onRetry={retryFailedSources}
-      />
+      <div>
+        <FeedErrorState
+          message="We couldn’t load your feed right now. Please try again in a moment."
+          onRetry={retryFailedSources}
+        />
+        {manualContinuation}
+      </div>
     );
   }
 
@@ -698,13 +716,9 @@ export default function HomeFeed({
             onRetry={retryFailedSources}
           />
         ) : null}
-        {hasNextPage && !isFetchingNextPage && !initialSourceLoading ? (
-          <div className="flex justify-center p-4">
-            <Button onClick={() => handleBottomReached(true)} variant="premium">
-              Load more posts
-            </Button>
-          </div>
-        ) : null}
+        {!isFetchingNextPage && !initialSourceLoading
+          ? manualContinuation
+          : null}
         {hasAnyPosts && feedComplete ? <FeedEnd /> : null}
       </InfiniteScrollContainer>
     </div>

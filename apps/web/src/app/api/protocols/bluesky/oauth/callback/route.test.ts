@@ -29,6 +29,9 @@ mock.module("@/lib/protocols/oauth", () => ({
   createBlueskyOAuthClient: () => ({ callback }),
   finishBlueskyOAuth: finish,
 }));
+mock.module("@/lib/protocols/native-oauth", () => ({
+  nativeBlueskyCallback: () => Promise.resolve(null),
+}));
 const { GET } = await import("./route");
 const request = () =>
   new Request(

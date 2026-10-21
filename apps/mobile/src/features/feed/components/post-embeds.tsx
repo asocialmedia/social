@@ -36,6 +36,7 @@ import { parseStoredEmbeds } from "../lib/link-embeds";
 import { mediaImageUrl, mediaPosterUrl } from "../lib/media-url";
 import { BlueskyIcon } from "./bluesky-icon";
 import { CommunityAttribution } from "./community-attribution";
+import { ExternalResponseParent } from "./external-response-parent";
 import { PostLinkEmbeds } from "./post-link-embeds";
 
 // `.hn-story-solid` panel shadows, light + dark.
@@ -67,27 +68,7 @@ export function ResponseParentRow({ post }: { post: FeedPost }) {
 
   if (post.externalParent && !external) {
     const { uri } = post.externalParent;
-    return (
-      <Pressable
-        accessibilityRole="link"
-        accessibilityLabel="View the Bluesky post being responded to"
-        className="mb-3 px-4 py-2"
-        onPress={(event) => {
-          event.stopPropagation();
-          router.push({ params: { uri }, pathname: "/external-post" });
-        }}
-      >
-        <Text
-          style={{
-            color: theme.dividerText,
-            fontFamily: "SofiaProMed",
-            fontSize: 12,
-          }}
-        >
-          Responding to a Bluesky post ↗
-        </Text>
-      </Pressable>
-    );
+    return <ExternalResponseParent uri={uri} />;
   }
 
   if (post.parentPostId && !parent) {
@@ -154,7 +135,10 @@ export function ResponseParentRow({ post }: { post: FeedPost }) {
       return;
     }
     if (external) {
-      void Linking.openURL(external.author.url);
+      router.push({
+        params: { actor: external.author.id },
+        pathname: "/external-profile",
+      });
       return;
     }
     router.push({

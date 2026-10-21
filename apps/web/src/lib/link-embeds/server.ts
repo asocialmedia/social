@@ -180,7 +180,12 @@ async function guardedFetch(
 // Reads at most maxBytes from a response body before truncating, so a huge
 // or endless body cannot pin worker memory.
 function capStream(
-  body: ReadableStream<Uint8Array>,
+  body: {
+    getReader: () => {
+      read: () => Promise<ReadableStreamReadResult<Uint8Array>>;
+      cancel: () => Promise<void>;
+    };
+  },
   maxBytes: number,
   rejectOverflow = false
 ): ReadableStream<Uint8Array> {

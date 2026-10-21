@@ -29,6 +29,7 @@ import { authClient } from "@/features/auth/lib/auth-client";
 import { linkProvider } from "@/features/auth/lib/link-provider";
 import { useInstall } from "@/features/auth/state/install";
 import { useSessionContext } from "@/features/auth/state/session";
+import { BlueskyConnectCard } from "@/features/network/components/bluesky-connect-card";
 import { getApiBaseUrl } from "@/lib/api-env";
 import { SHOWS_SCROLL_INDICATOR } from "@/lib/scroll-indicator";
 import { useAppTheme } from "@/theme";
@@ -847,6 +848,10 @@ export function AccountTab({
           </SettingsCard>
         </SectionAnchor>
       )}
+      <BlueskyConnectCard
+        emailVerified={facts.emailVerified}
+        onChanged={onChanged}
+      />
       <Modal
         animationType="fade"
         onRequestClose={() => setProviderToConfirm(null)}

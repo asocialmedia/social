@@ -5,6 +5,7 @@ import {
   normalizePostsData,
 } from "@/features/feed/lib/feed-types";
 import type { ExploreTab } from "@/features/feed/state/tab-store";
+import { appendNetworkQuery } from "@/features/network/lib/network-query";
 import { withAuthHeaders } from "@/lib/auth-headers";
 import { getWithTimeout } from "@/lib/http-get";
 
@@ -145,7 +146,7 @@ export function buildExploreGustsPath(cursor: string | null): string {
 
 function get(path: string, options: ApiCallOptions): Promise<Response> {
   return getWithTimeout(
-    `${options.apiBase}${path}`,
+    `${options.apiBase}${appendNetworkQuery(path, options.network)}`,
     { headers: withAuthHeaders({}, options.cookie) },
     { baseFetch: options.baseFetch ?? fetch, timeoutMs: options.timeoutMs }
   );

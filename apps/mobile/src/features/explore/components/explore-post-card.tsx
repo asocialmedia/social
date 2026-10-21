@@ -8,6 +8,7 @@ import {
   ConcealedImageCover,
   ConcealedMediaCover,
 } from "@/features/feed/components/concealed-media-cover";
+import { ExternalVoteAction } from "@/features/feed/components/external-post-actions";
 import { VoteCluster } from "@/features/feed/components/post-actions";
 import { VideoTile } from "@/features/feed/components/post-media";
 import { extractInlineMeta } from "@/features/feed/lib/feed-types";
@@ -136,6 +137,7 @@ export function ExplorePostCard({
         apiBase={apiBase}
         autoPlayEnabled
         exclusiveAutoplay
+        observationPost={post}
         media={media}
         onPressPreview={onPress}
         postId={post.id}
@@ -189,6 +191,7 @@ export function ExplorePostCard({
                 key={post.id}
                 apiBase={apiBase}
                 bio={post.content}
+                sourceSegments={post.external?.segments}
                 clampLength={180}
                 textSize={styles.content}
               />
@@ -223,11 +226,17 @@ export function ExplorePostCard({
                       post.user?.username ??
                       "Anonymous"}
                   </Text>
-                  <UserBadge
-                    badge={post.user?.badge}
-                    badges={post.user?.badges}
-                    communityRoles={post.user?.communityMemberships}
-                  />
+                  {post.external ? (
+                    <Text style={{ color: theme.dividerText, fontSize: 11 }}>
+                      Bluesky
+                    </Text>
+                  ) : (
+                    <UserBadge
+                      badge={post.user?.badge}
+                      badges={post.user?.badges}
+                      communityRoles={post.user?.communityMemberships}
+                    />
+                  )}
                 </View>
                 <Text
                   numberOfLines={1}
@@ -239,16 +248,20 @@ export function ExplorePostCard({
             </View>
           </View>
           <View style={styles.footer}>
-            <VoteCluster
-              aura={post.aura ?? 0}
-              authorName={
-                post.user?.displayName ?? post.user?.username ?? "unknown"
-              }
-              onRequireLogin={onRequireLogin}
-              postId={post.id}
-              userVote={post.vote?.[0]?.value ?? 0}
-              viewerId={viewerId}
-            />
+            {post.external ? (
+              <ExternalVoteAction post={post.external} />
+            ) : (
+              <VoteCluster
+                aura={post.aura ?? 0}
+                authorName={
+                  post.user?.displayName ?? post.user?.username ?? "unknown"
+                }
+                onRequireLogin={onRequireLogin}
+                postId={post.id}
+                userVote={post.vote?.[0]?.value ?? 0}
+                viewerId={viewerId}
+              />
+            )}
           </View>
         </>
       )}

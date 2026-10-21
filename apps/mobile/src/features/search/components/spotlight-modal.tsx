@@ -6,6 +6,7 @@
 // oxlint-disable react/set-state-in-effect
 import { Image } from "expo-image";
 import { useRouter } from "expo-router";
+import type { Href } from "expo-router";
 import { Clock3, Eye, Flame, Play, Search, X } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { TextInputInstance } from "react-native";
@@ -36,14 +37,19 @@ import {
   formatNumber,
   getAuraFlameStyle,
 } from "@/features/home/components/profile-utils";
+import { DiscoverySuggestions } from "@/features/network/components/discovery-suggestions";
+import { DiscoverySafetyControl } from "@/features/network/components/network-tab";
+import { nativeNetworkPath } from "@/features/network/lib/network-paths";
+import { learnNetworkSearch } from "@/features/network/state/use-discovery-suggestions";
+import { SettingsButton } from "@/features/settings/components/settings-ui";
 import { getApiBaseUrl } from "@/lib/api-env";
 import { SHOWS_SCROLL_INDICATOR } from "@/lib/scroll-indicator";
 import { useAppTheme } from "@/theme";
 
+import { recentNetworkSearchScope } from "../lib/recent-search-scope";
 import {
   clearSearchHistory,
   fetchSearchHistoryRaw,
-  fetchSpotlight,
   recordSearchPost,
   recordSearchQuery,
   recordSearchUser,
@@ -53,7 +59,6 @@ import type {
   SearchCommunityResult,
   SearchPostResult,
   SearchUserResult,
-  SpotlightResponse,
 } from "../lib/search-api";
 import {
   formatSearchTime,
@@ -62,14 +67,13 @@ import {
 } from "../lib/search-history";
 import type { SearchHistoryItem } from "../lib/search-history";
 import { useSearchStore } from "../state/search-store";
-
-const EMPTY_RESULTS: SpotlightResponse = {
-  communities: [],
-  posts: [],
-  users: [],
-};
+import { useNetworkSearch } from "../state/use-network-search";
+import type { SearchKind, SearchSource } from "../state/use-network-search";
+import { useRecentNetworkSearches } from "../state/use-recent-network-searches";
 
 export interface SpotlightResultItem {
+  href?: string;
+  source?: "asm" | "bluesky";
   aura?: number;
   authorUsername?: string;
   avatarUrl?: string | null;
@@ -137,8 +141,17 @@ export function SpotlightModal() {
 
   const { user } = useSessionContext();
   const [query, setQuery] = useState(initialQuery);
-  const [loading, setLoading] = useState(false);
-  const [results, setResults] = useState<SpotlightResponse>(EMPTY_RESULTS);
+  const [source, setSource] = useState<SearchSource>("all");
+  const [kind, setKind] = useState<SearchKind>("all");
+  const search = useNetworkSearch(query, source, kind, isOpen);
+  const results = search.asm;
+  const loading = search.asmLoading || search.remoteLoading;
+  const recent = useRecentNetworkSearches(
+    recentNetworkSearchScope(
+      user?.id ?? "guest",
+      search.network.settings.preferences.activeProfileId
+    )
+  );
   const [history, setHistory] = useState<
     { item: SearchHistoryItem; key: string }[]
   >([]);
@@ -208,40 +221,6 @@ export function SpotlightModal() {
     }
   }, [isOpen, loadHistory]);
 
-  // Debounced search query fetching spotlight results.
-  useEffect(() => {
-    const trimmed = query.trim();
-    if (!trimmed || !isOpen) {
-      setResults(EMPTY_RESULTS);
-      setLoading(false);
-      return;
-    }
-
-    let cancelled = false;
-    setLoading(true);
-    const timer = setTimeout(() => {
-      void (async () => {
-        try {
-          const nextResults = await fetchSpotlight(trimmed, options);
-          if (!cancelled) {
-            setResults(nextResults);
-            setLoading(false);
-          }
-        } catch {
-          if (!cancelled) {
-            setResults(EMPTY_RESULTS);
-            setLoading(false);
-          }
-        }
-      })();
-    }, 250);
-
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
-  }, [isOpen, options, query]);
-
   const handleClose = useCallback(() => {
     Keyboard.dismiss();
     close();
@@ -249,6 +228,56 @@ export function SpotlightModal() {
 
   const handleSelectItem = useCallback(
     (item: SpotlightResultItem) => {
+      const itemSource = item.source ?? "asm";
+      if (item.type !== "history") {
+        void learnNetworkSearch(
+          user?.id ?? "guest",
+          query,
+          item.type === "user"
+            ? {
+                id: item.href?.includes("actor=")
+                  ? (new URL(
+                      item.href,
+                      "https://asocialmedia.cc"
+                    ).searchParams.get("actor") ?? item.id)
+                  : (item.rawUser?.id ?? item.id),
+                source: itemSource,
+              }
+            : undefined
+        );
+      }
+      let targetHref = item.href;
+      if (!targetHref && item.rawUser) {
+        targetHref = `/users/${encodeURIComponent(item.rawUser.username)}`;
+      }
+      if (!targetHref && item.rawCommunity) {
+        targetHref = `/a/${encodeURIComponent(item.rawCommunity.slug)}`;
+      }
+      if (!targetHref && item.rawPost) {
+        targetHref = item.rawPost.isGust
+          ? `/gusts?id=${encodeURIComponent(item.rawPost.id)}`
+          : `/posts/${encodeURIComponent(item.rawPost.id)}`;
+      }
+      if (targetHref) {
+        recent.remember(
+          query || item.displayName,
+          itemSource,
+          {
+            explicit: item.explicitContent,
+            href: targetHref,
+            label: item.displayName,
+          },
+          kind
+        );
+      }
+      if (item.href) {
+        const path = nativeNetworkPath(item.href);
+        if (path) {
+          handleClose();
+          router.push(path as Href);
+        }
+        return;
+      }
       if (item.type === "history") {
         setQuery(item.displayName);
         return;
@@ -316,7 +345,7 @@ export function SpotlightModal() {
         }
       }
     },
-    [handleClose, loadHistory, options, router, user]
+    [handleClose, loadHistory, options, router, user, query, recent, kind]
   );
 
   const handleSubmitQuery = useCallback(() => {
@@ -325,6 +354,8 @@ export function SpotlightModal() {
       return;
     }
     Keyboard.dismiss();
+    recent.remember(trimmed, source);
+    void learnNetworkSearch(user?.id ?? "guest", trimmed);
     if (user) {
       void (async () => {
         const count =
@@ -335,7 +366,7 @@ export function SpotlightModal() {
         await loadHistory();
       })();
     }
-  }, [loadHistory, options, query, results, user]);
+  }, [loadHistory, options, query, results, user, recent, source]);
 
   const handleRemoveHistoryItem = useCallback(
     (key: string) => {
@@ -362,6 +393,31 @@ export function SpotlightModal() {
   // Builds unified search result items matching web's Spotlight.buildItems.
   const buildItems = useCallback((): SpotlightResultItem[] => {
     const items: SpotlightResultItem[] = [];
+    for (const author of search.bluesky.profiles) {
+      items.push({
+        avatarUrl: author.avatarUrl,
+        displayName: author.displayName,
+        href: `/network/bluesky/profile?${new URLSearchParams({ actor: author.id })}`,
+        id: `bluesky-user-${author.id}`,
+        meta: "Bluesky",
+        source: "bluesky",
+        subtitle: `@${author.handle}`,
+        type: "user",
+      });
+    }
+    for (const post of search.bluesky.posts) {
+      items.push({
+        avatarUrl: post.author.avatarUrl,
+        createdAt: post.createdAt,
+        displayName: post.text,
+        href: `/network/bluesky?${new URLSearchParams({ uri: post.id })}`,
+        id: `bluesky-post-${post.id}`,
+        meta: "Bluesky",
+        source: "bluesky",
+        subtitle: `@${post.author.handle} · Bluesky`,
+        type: "post",
+      });
+    }
 
     for (const community of results.communities) {
       items.push({
@@ -413,7 +469,7 @@ export function SpotlightModal() {
     }
 
     return items;
-  }, [results, user]);
+  }, [results, user, search.bluesky]);
 
   // Builds history suggestions matching web's Spotlight.buildSuggestions.
   const buildSuggestions = useCallback(
@@ -539,7 +595,10 @@ export function SpotlightModal() {
 
   const trimmedQuery = query.trim();
   const hasQuery = trimmedQuery.length > 0;
-  const items = hasQuery ? buildItems() : buildSuggestions(query);
+  let items = source === "bluesky" ? [] : buildSuggestions(query);
+  if (hasQuery) {
+    items = buildItems();
+  }
   const hasItems = items.length > 0;
 
   const dividerBorderColor = isDark
@@ -650,6 +709,128 @@ export function SpotlightModal() {
               keyboardShouldPersistTaps="handled"
               showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
             >
+              <View className="gap-2 px-3 py-2">
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  keyboardShouldPersistTaps="handled"
+                >
+                  <View className="flex-row gap-2">
+                    {(
+                      [
+                        { label: "Both networks", value: "all" },
+                        { label: "asocialmedia", value: "asm" },
+                        { label: "Bluesky", value: "bluesky" },
+                      ] as const
+                    ).map((entry) => (
+                      <SettingsButton
+                        key={entry.value}
+                        label={entry.label}
+                        size="sm"
+                        tone={source === entry.value ? "primary" : "gray"}
+                        onPress={() => setSource(entry.value)}
+                      />
+                    ))}
+                  </View>
+                </ScrollView>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  keyboardShouldPersistTaps="handled"
+                >
+                  <View className="flex-row gap-2">
+                    {(
+                      [
+                        { label: "All", value: "all" },
+                        { label: "People", value: "user" },
+                        { label: "Posts", value: "post" },
+                        { label: "Communities", value: "community" },
+                      ] as const
+                    ).map((entry) => (
+                      <SettingsButton
+                        key={entry.value}
+                        label={entry.label}
+                        size="sm"
+                        tone={kind === entry.value ? "primary" : "gray"}
+                        onPress={() => setKind(entry.value)}
+                      />
+                    ))}
+                  </View>
+                </ScrollView>
+              </View>
+              <DiscoverySafetyControl />
+              {search.asmError || search.remoteError ? (
+                <View className="gap-2 p-4">
+                  <Text selectable style={{ color: text.muted }}>
+                    {[search.asmError, search.remoteError]
+                      .filter(Boolean)
+                      .join(" ")}
+                  </Text>
+                  <SettingsButton
+                    label="Retry search"
+                    tone="gray"
+                    size="sm"
+                    onPress={() => search.retry()}
+                  />
+                </View>
+              ) : null}
+              {hasQuery ? null : (
+                <>
+                  <DiscoverySuggestions
+                    enabled={isOpen}
+                    showInterests
+                    onQuery={setQuery}
+                    onClose={handleClose}
+                  />
+                  <View className="gap-2 p-4">
+                    {recent.items
+                      .filter(
+                        (item) => source === "all" || item.source === source
+                      )
+                      .map((item) => (
+                        <View
+                          key={`${item.at}:${item.source}`}
+                          className="flex-row items-center gap-2"
+                        >
+                          <View className="flex-1">
+                            <SettingsButton
+                              size="sm"
+                              tone="gray"
+                              label={`${item.label ?? item.query} · ${item.source}`}
+                              onPress={() => {
+                                setSource(item.source);
+                                setKind(item.kind);
+                                if (item.href) {
+                                  const path = nativeNetworkPath(item.href);
+                                  if (path) {
+                                    handleClose();
+                                    router.push(path as Href);
+                                  }
+                                } else {
+                                  setQuery(item.query);
+                                }
+                              }}
+                            />
+                          </View>
+                          <SettingsButton
+                            size="sm"
+                            tone="gray"
+                            label="Remove recent"
+                            onPress={() => recent.remove(item.at)}
+                          />
+                        </View>
+                      ))}
+                    {recent.items.length ? (
+                      <SettingsButton
+                        tone="gray"
+                        size="sm"
+                        label="Clear local recents"
+                        onPress={() => recent.clear()}
+                      />
+                    ) : null}
+                  </View>
+                </>
+              )}
               {/* Skeletons on loading */}
               {loading && hasQuery ? (
                 <View style={styles.resultsGroup}>
@@ -677,7 +858,7 @@ export function SpotlightModal() {
               ) : null}
 
               {/* Search Results / Suggestions */}
-              {!loading && hasItems ? (
+              {hasItems ? (
                 <View style={styles.resultsGroup}>
                   {!hasQuery && history.length > 0 ? (
                     <View style={styles.historyHeader}>

@@ -1,9 +1,15 @@
+import {
+  externalNetworkPostAllowed,
+  externalNetworkPostRecommended,
+} from "@asm/protocols/discovery";
 import type { DiscoveryMode } from "@asm/protocols/discovery";
 import { useEffect, useMemo, useSyncExternalStore } from "react";
 
 import { authClient } from "@/features/auth/lib/auth-client";
+import { useNetworkSettings } from "@/features/network/state/use-network-settings";
 import { getApiBaseUrl } from "@/lib/api-env";
 
+import type { BlueskyReadContext } from "../lib/bluesky-feed";
 import { createBlueskyFeed } from "../lib/bluesky-feed";
 import { subscribeFeedReads } from "../lib/feed-events";
 import { useExternalFollowRevision } from "./use-external-follow";
@@ -12,8 +18,13 @@ export function useBlueskyFeed(
   mode: DiscoveryMode,
   enabled: boolean,
   viewer?: string,
-  following = false
+  following = false,
+  context: Pick<BlueskyReadContext, "content" | "surface"> = {}
 ) {
+  const network = useNetworkSettings();
+  const active = enabled && network.ready;
+  const { content, surface } = context;
+  const profile = network.settings.preferences.activeProfileId;
   const revision = useExternalFollowRevision(
     (state) => state.revisions[viewer ?? "guest"] ?? 0
   );
@@ -32,9 +43,25 @@ export function useBlueskyFeed(
             },
           });
         },
-        following
+        following,
+        {
+          content,
+          locale: network.locale,
+          profile,
+          scope: network.scope,
+          surface,
+        }
       ),
-    [mode, viewer, following]
+    [
+      mode,
+      viewer,
+      following,
+      network.scope,
+      network.locale,
+      content,
+      surface,
+      profile,
+    ]
   );
   const state = useSyncExternalStore(
     store.subscribe,
@@ -42,13 +69,13 @@ export function useBlueskyFeed(
     store.snapshot
   );
   useEffect(() => {
-    if (enabled) {
+    if (active) {
       store.activate();
     }
     return store.pause;
-  }, [enabled, store]);
+  }, [active, store]);
   useEffect(() => {
-    if (!enabled) {
+    if (!active) {
       return;
     }
     return subscribeFeedReads(
@@ -60,17 +87,35 @@ export function useBlueskyFeed(
       },
       following ? undefined : mode
     );
-  }, [enabled, mode, store, viewer, following]);
+  }, [active, mode, store, viewer, following]);
   useEffect(() => {
-    if (enabled && revision > 0) {
+    if (active && revision > 0) {
       void store.refresh();
     }
-  }, [enabled, revision, store]);
+  }, [active, revision, store]);
   useEffect(() => store.dispose, [store]);
   return {
     ...state,
+    acceptNew: store.acceptNew,
     fetchNext: store.fetchNext,
     hasMore: Boolean(state.pages.at(-1)?.cursor),
+    newItems: state.newItems.filter(
+      (post) =>
+        network.ready &&
+        (following
+          ? externalNetworkPostAllowed(
+              post,
+              network.settings.preferences,
+              network.settings.topicScope
+            )
+          : externalNetworkPostRecommended(
+              post,
+              network.settings.preferences,
+              undefined,
+              network.settings.topicScope
+            ))
+    ),
+    posts: state.pages.flatMap((page) => page.items),
     refresh: store.refresh,
   };
 }

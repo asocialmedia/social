@@ -1,3 +1,4 @@
+import type { ExternalPost } from "@asm/protocols/contracts";
 import {
   canRetryRead,
   FeedReadError,
@@ -6,7 +7,16 @@ import {
 } from "@asm/protocols/discovery";
 import type { DiscoveryMode, DiscoveryPage } from "@asm/protocols/discovery";
 
+export interface BlueskyReadContext {
+  scope?: string;
+  content?: "all" | "video";
+  locale?: string;
+  profile?: string;
+  surface?: "home" | "explore";
+}
+
 interface DiscoveryState {
+  newItems: ExternalPost[];
   error: string | null;
   loadingMore: boolean;
   pages: DiscoveryPage[];
@@ -17,11 +27,13 @@ export function createBlueskyFeed(
   apiBase: string,
   mode: DiscoveryMode,
   baseFetch: (url: string, init: RequestInit) => Promise<Response> = fetch,
-  following = false
+  following = false,
+  context: BlueskyReadContext = {}
 ) {
   let state: DiscoveryState = {
     error: null,
     loadingMore: false,
+    newItems: [],
     pages: [],
     status: "loading",
   };
@@ -53,6 +65,7 @@ export function createBlueskyFeed(
     });
     try {
       const options = {
+        ...context,
         baseUrl: apiBase,
         cursor,
         fetch: baseFetch,
@@ -60,21 +73,33 @@ export function createBlueskyFeed(
         mode,
         signal: current.signal,
       };
-      const page = replace
-        ? await readDiscoveryPage(options)
-        : await readDiscoveryWindow(
-            options,
-            new Set(
-              state.pages.flatMap((entry) => entry.items.map((item) => item.id))
+      let expired = false;
+      const page = await (
+        replace
+          ? readDiscoveryPage(options)
+          : readDiscoveryWindow(
+              options,
+              new Set(
+                state.pages.flatMap((entry) =>
+                  entry.items.map((item) => item.id)
+                )
+              )
             )
-          );
+      ).catch(async (error: unknown) => {
+        if (cursor && error instanceof FeedReadError && error.status === 410) {
+          expired = true;
+          return await readDiscoveryPage({ ...options, cursor: null });
+        }
+        throw error;
+      });
       if (generation !== requestGeneration || current.signal.aborted) {
         return;
       }
       failedRead = null;
       retryable = false;
       update({
-        pages: replace ? [page] : [...state.pages, page],
+        newItems: replace ? [] : state.newItems,
+        pages: replace || expired ? [page] : [...state.pages, page],
         status: "success",
       });
     } catch (error) {
@@ -117,6 +142,7 @@ export function createBlueskyFeed(
     headController = current;
     try {
       const page = await readDiscoveryPage({
+        ...context,
         baseUrl: apiBase,
         cursor: null,
         fetch: baseFetch,
@@ -131,12 +157,13 @@ export function createBlueskyFeed(
       const known = new Set(
         state.pages.flatMap((entry) => entry.items.map((item) => item.id))
       );
-      const fresh = page.items.filter((item) => !known.has(item.id));
-      const [first, ...rest] = state.pages;
+      const pending = new Set(state.newItems.map((post) => post.id));
+      const fresh = page.items.filter(
+        (item) => !known.has(item.id) && !pending.has(item.id)
+      );
+      const [first] = state.pages;
       if (first && fresh.length) {
-        update({
-          pages: [{ ...first, items: [...fresh, ...first.items] }, ...rest],
-        });
+        update({ newItems: [...fresh, ...state.newItems].slice(0, 100) });
       }
     } catch {
       // A background failure retains both the visible content and continuation cursor.
@@ -147,6 +174,18 @@ export function createBlueskyFeed(
     }
   };
   return {
+    acceptNew: () => {
+      const [first, ...rest] = state.pages;
+      if (first && state.newItems.length) {
+        update({
+          newItems: [],
+          pages: [
+            { ...first, items: [...state.newItems, ...first.items] },
+            ...rest,
+          ],
+        });
+      }
+    },
     activate: () => {
       clearTimeout(expiry);
       if (
@@ -161,7 +200,13 @@ export function createBlueskyFeed(
       cancel();
       failedRead = null;
       retryable = false;
-      update({ error: null, loadingMore: false, pages: [], status: "loading" });
+      update({
+        error: null,
+        loadingMore: false,
+        newItems: [],
+        pages: [],
+        status: "loading",
+      });
     },
     fetchNext: () => {
       const cursor = state.pages.at(-1)?.cursor;
@@ -175,7 +220,7 @@ export function createBlueskyFeed(
       update({ loadingMore: false });
       clearTimeout(expiry);
       expiry = setTimeout(
-        () => update({ pages: [], status: "loading" }),
+        () => update({ newItems: [], pages: [], status: "loading" }),
         120_000
       );
       expiry.unref?.();

@@ -4,6 +4,8 @@
 // (authClient.getCookie). Pure and injectable for testing: cookie, apiBase
 // and baseFetch come from the caller, mirroring profile-data.ts.
 
+import type { NetworkRequestContext } from "@/features/network/lib/network-query";
+import { appendNetworkQuery } from "@/features/network/lib/network-query";
 import { withAuthHeaders } from "@/lib/auth-headers";
 import { getWithTimeout } from "@/lib/http-get";
 
@@ -13,6 +15,7 @@ import { parseWavePeaks } from "./waveform";
 import type { WavePeaks } from "./waveform";
 
 export interface ApiCallOptions {
+  network?: NetworkRequestContext;
   apiBase: string;
   baseFetch?: typeof fetch;
   cookie?: string;
@@ -43,11 +46,18 @@ function callFeedApi(
     method: options.method ?? "GET",
   } satisfies RequestInit;
   return (options.method ?? "GET").toUpperCase() === "GET"
-    ? getWithTimeout(`${options.apiBase}${path}`, request, {
-        baseFetch,
-        timeoutMs: options.timeoutMs,
-      })
-    : baseFetch(`${options.apiBase}${path}`, request);
+    ? getWithTimeout(
+        `${options.apiBase}${appendNetworkQuery(path, options.network)}`,
+        request,
+        {
+          baseFetch,
+          timeoutMs: options.timeoutMs,
+        }
+      )
+    : baseFetch(
+        `${options.apiBase}${appendNetworkQuery(path, options.network)}`,
+        request
+      );
 }
 
 async function readJson(response: Response): Promise<unknown> {

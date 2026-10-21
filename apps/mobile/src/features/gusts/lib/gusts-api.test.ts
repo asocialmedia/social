@@ -7,6 +7,7 @@ import {
   defaultGustTab,
   fetchGustsPage,
   gustShareUrl,
+  gustFeedSource,
   isPlayableGust,
   mergeGustPages,
   parseGustTab,
@@ -14,6 +15,16 @@ import {
   setNotInterested,
   submitRecommendationEvents,
 } from "./gusts-api";
+
+test("explicit Gust links select their provider regardless of the feed source preference", () => {
+  for (const source of ["all", "asm", "bluesky"] as const) {
+    expect(gustFeedSource(source, "native-gust")).toBe("asm");
+    expect(
+      gustFeedSource(source, "at://did:plc:author/app.bsky.feed.post/gust")
+    ).toBe("bluesky");
+    expect(gustFeedSource(source, null)).toBe(source);
+  }
+});
 
 function gust(id: string, extra: Partial<FeedPost> = {}): FeedPost {
   return {

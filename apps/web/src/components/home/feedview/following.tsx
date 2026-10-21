@@ -137,6 +137,16 @@ export default function FollowingFeed() {
 
   const nativeHasMore = source !== "bluesky" && hasNextPage;
   const externalHasMore = source !== "asm" && external.hasNextPage;
+  const manualContinuation =
+    (nativeHasMore || externalHasMore) &&
+    !isFetching &&
+    !external.isFetching ? (
+      <div className="flex justify-center p-4">
+        <Button variant="premium" onClick={() => handleBottomReached(true)}>
+          Load more posts
+        </Button>
+      </div>
+    ) : null;
   const availability = feedAvailability({
     count:
       (source === "bluesky" ? 0 : posts.length) +
@@ -185,13 +195,16 @@ export default function FollowingFeed() {
 
   if (availability === "error") {
     return (
-      <FeedErrorState
-        message="We couldn’t load posts from the people you follow. Please try again."
-        onRetry={() => {
-          void queryClient.invalidateQueries({ queryKey });
-          void external.refetch();
-        }}
-      />
+      <div>
+        <FeedErrorState
+          message="We couldn’t load posts from the people you follow. Please try again."
+          onRetry={() => {
+            void queryClient.invalidateQueries({ queryKey });
+            void external.refetch();
+          }}
+        />
+        {manualContinuation}
+      </div>
     );
   }
 
@@ -270,15 +283,7 @@ export default function FollowingFeed() {
         {isFetchingNextPage || external.isFetchingNextPage ? (
           <LoadMoreSkeleton />
         ) : null}
-        {(nativeHasMore || externalHasMore) &&
-        !isFetching &&
-        !external.isFetching ? (
-          <div className="flex justify-center p-4">
-            <Button variant="premium" onClick={() => handleBottomReached(true)}>
-              Load more posts
-            </Button>
-          </div>
-        ) : null}
+        {manualContinuation}
         {posts.length + externalPosts.length > 0 &&
         !nativeHasMore &&
         !externalHasMore ? (

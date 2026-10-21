@@ -1,3 +1,8 @@
+import {
+  networkPostAllowed,
+  networkPostRecommended,
+} from "@asm/protocols/discovery";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 // Per-tab feed data hook: infinite cursor pages, pull-refresh, the
 // new-content head probe, and session dismissals with undo. Mirrors web's
 // HomeFeed + useNewContentProbe behavior without React Query: fresh cache
@@ -8,14 +13,14 @@
 // data is kept in a ref so Undo restores it without a refetch, exactly like
 // web's removedPostsRef.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-
 import { authClient } from "@/features/auth/lib/auth-client";
+import { useNetworkSettings } from "@/features/network/state/use-network-settings";
 import { getApiBaseUrl } from "@/lib/api-env";
 import { logWarn } from "@/lib/telemetry";
 
 import type { FeedVariant } from "../lib/feed-api";
 import {
+  FeedApiError,
   feedHeadIdIsChangeSignal,
   fetchFeedHead,
   fetchFeedHeadId,
@@ -59,7 +64,7 @@ interface UseFeedTabOptions {
 
 export function useFeedTab({
   active: activeOverride,
-  enabled,
+  enabled: requestedEnabled,
   userId,
   variant,
 }: UseFeedTabOptions): {
@@ -76,8 +81,10 @@ export function useFeedTab({
   status: FeedStatus;
   undoDismiss: (postId: string) => void;
 } {
-  const active = activeOverride ?? enabled;
-  const cacheKey = `${variant}:${userId ?? "guest"}`;
+  const network = useNetworkSettings();
+  const enabled = requestedEnabled && network.ready;
+  const active = (activeOverride ?? enabled) && network.ready;
+  const cacheKey = `${variant}:${userId ?? "guest"}:${network.scope}:${network.locale}`;
   const [, setTick] = useState(0);
   const [dismissedIds, setDismissedIds] = useState<ReadonlySet<string>>(
     () => new Set()
@@ -155,7 +162,7 @@ export function useFeedTab({
           }
           const apiBase = getApiBaseUrl();
           const cookie = await authClient.getCookie();
-          const options = { apiBase, cookie };
+          const options = { apiBase, cookie, network: network.request };
           const known = new Set(
             flattenUniquePosts(feedCache.get(key).pages).map((post) => post.id)
           );
@@ -219,7 +226,7 @@ export function useFeedTab({
       pollerRef.current = { stop: subscribeFeedReads(userId, "asm", probe) };
       void probe();
     },
-    [stopProbe, userId, variant]
+    [stopProbe, userId, variant, network.request]
   );
 
   const runFetch = useCallback(
@@ -244,10 +251,21 @@ export function useFeedTab({
       try {
         const apiBase = getApiBaseUrl();
         const cookie = await authClient.getCookie();
-        const page = await fetchFeedPage(variant, headCursor, {
-          apiBase,
-          cookie,
-        });
+        const options = { apiBase, cookie, network: network.request };
+        let expired = false;
+        const page = await fetchFeedPage(variant, headCursor, options).catch(
+          async (cursorError: unknown) => {
+            if (
+              headCursor &&
+              cursorError instanceof FeedApiError &&
+              cursorError.status === 410
+            ) {
+              expired = true;
+              return await fetchFeedPage(variant, null, options);
+            }
+            throw cursorError;
+          }
+        );
         const current = feedCache.get(cacheKey);
         if (mode === "replace" && !manual && current.pages.length > 0) {
           feedCache.patch(cacheKey, {
@@ -266,7 +284,7 @@ export function useFeedTab({
             page.posts,
             page.nextCursor,
             { dismissedIds: undefined },
-            mode === "append"
+            mode === "append" && !expired
           );
         }
         // First paint landed: the head probe may start now (it never races
@@ -305,7 +323,7 @@ export function useFeedTab({
         }
       }
     },
-    [active, cacheKey, startProbe, variant]
+    [active, cacheKey, startProbe, variant, network.request]
   );
 
   useEffect(() => {
@@ -373,6 +391,10 @@ export function useFeedTab({
   }, [cacheKey, enabled, runFetch]);
 
   const refresh = useCallback(() => {
+    if (!network.ready) {
+      void network.refetch();
+      return;
+    }
     if (!enabled) {
       return;
     }
@@ -381,7 +403,7 @@ export function useFeedTab({
     setNewItems([]);
     feedCache.invalidate(cacheKey);
     void runFetch("replace", null, true);
-  }, [cacheKey, enabled, runFetch, stopProbe]);
+  }, [cacheKey, enabled, network, runFetch, stopProbe]);
 
   const clearNewItems = useCallback(() => {
     setNewItems([]);
@@ -431,15 +453,29 @@ export function useFeedTab({
   return {
     clearNewItems,
     dismissPost,
-    error,
+    error: network.ready ? error : (network.error ?? null),
     fetchNext,
     hasMore,
     incomingIds,
-    newItems,
+    newItems: newItems.filter(
+      (post) =>
+        network.ready &&
+        (variant === "following"
+          ? networkPostAllowed(
+              post,
+              network.settings.preferences,
+              network.settings.topicScope
+            )
+          : networkPostRecommended(
+              post,
+              network.settings.preferences,
+              network.settings.topicScope
+            ))
+    ),
     posts,
     refresh,
     showNewPosts,
-    status,
+    status: !network.ready && network.error ? "error" : status,
     undoDismiss,
   };
 }

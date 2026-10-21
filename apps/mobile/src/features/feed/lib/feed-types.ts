@@ -99,6 +99,8 @@ export interface FeedParentPost {
 }
 
 export interface FeedPost {
+  networkRecommendationToken?: string;
+  discoveryContext?: ExternalPost["discoveryContext"];
   external?: ExternalPost;
   externalParent?: { uri: string } | null;
   externalParentId?: string | null;

@@ -18,7 +18,9 @@ import { InstallVerificationGate } from "@/features/auth/components/install-veri
 import { SessionRevocationGuard } from "@/features/auth/components/session-revocation-guard";
 import { InstallProvider } from "@/features/auth/state/install";
 import { SessionProvider } from "@/features/auth/state/session";
+import { ExternalAuthorPreview } from "@/features/feed/components/external-author-preview";
 import { MediaPreviewLauncher } from "@/features/feed/components/media-preview-launcher";
+import { NetworkSettingsSync } from "@/features/network/state/use-network-settings";
 import { PushRegistrar } from "@/features/notifications/components/push-registrar";
 import { getApiBaseUrl } from "@/lib/api-env";
 import { loadInstallToken } from "@/lib/install-credentials";
@@ -194,6 +196,8 @@ export default function RootLayout() {
                   {/* Native push registration + tap routing. Inside the session
                 provider so it can react to sign-in/out. */}
                   <PushRegistrar />
+                  <NetworkSettingsSync />
+                  <ExternalAuthorPreview />
                   {/* Real-time session revocation listener (SSE stream). Terminates
                 the local session immediately if revoked remotely or on 401. */}
                   <SessionRevocationGuard />

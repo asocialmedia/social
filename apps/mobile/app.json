@@ -2,14 +2,18 @@
   "expo": {
     "name": "asocialmedia",
     "slug": "asocialmedia",
-    "version": "0.2.36",
+    "version": "0.2.39",
     "description": "The social network that knows you back. A feed that learns your taste, Aura that remembers what you contribute, and communities you have to earn.",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "asocialmedia",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "associatedDomains": ["webcredentials:asocialmedia.cc"],
+      "associatedDomains": [
+        "webcredentials:asocialmedia.cc",
+        "applinks:asocialmedia.cc",
+        "applinks:www.asocialmedia.cc"
+      ],
       "bundleIdentifier": "cc.asocialmedia.mobile",
       "supportsTablet": true
     },
@@ -21,7 +25,226 @@
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            {
+              "scheme": "https",
+              "host": "asocialmedia.cc",
+              "pathPrefix": "/posts/"
+            },
+            {
+              "scheme": "https",
+              "host": "asocialmedia.cc",
+              "pathPrefix": "/users/"
+            },
+            {
+              "scheme": "https",
+              "host": "asocialmedia.cc",
+              "pathPrefix": "/a/"
+            },
+            {
+              "scheme": "https",
+              "host": "asocialmedia.cc",
+              "pathPrefix": "/messages/"
+            },
+            {
+              "scheme": "https",
+              "host": "asocialmedia.cc",
+              "pathPrefix": "/hashtag/"
+            },
+            {
+              "scheme": "https",
+              "host": "asocialmedia.cc",
+              "pathPrefix": "/network/bluesky"
+            },
+            {
+              "scheme": "https",
+              "host": "asocialmedia.cc",
+              "path": "/"
+            },
+            {
+              "scheme": "https",
+              "host": "asocialmedia.cc",
+              "path": "/messages"
+            },
+            {
+              "scheme": "https",
+              "host": "asocialmedia.cc",
+              "path": "/settings"
+            },
+            {
+              "scheme": "https",
+              "host": "asocialmedia.cc",
+              "path": "/gusts"
+            },
+            {
+              "scheme": "https",
+              "host": "asocialmedia.cc",
+              "path": "/discover"
+            },
+            {
+              "scheme": "https",
+              "host": "asocialmedia.cc",
+              "path": "/bookmarks"
+            },
+            {
+              "scheme": "https",
+              "host": "asocialmedia.cc",
+              "path": "/history"
+            },
+            {
+              "scheme": "https",
+              "host": "asocialmedia.cc",
+              "path": "/notifications"
+            },
+            {
+              "scheme": "https",
+              "host": "asocialmedia.cc",
+              "path": "/communities"
+            },
+            {
+              "scheme": "https",
+              "host": "asocialmedia.cc",
+              "path": "/login"
+            },
+            {
+              "scheme": "https",
+              "host": "asocialmedia.cc",
+              "path": "/external-post"
+            },
+            {
+              "scheme": "https",
+              "host": "asocialmedia.cc",
+              "path": "/external-profile"
+            },
+            {
+              "scheme": "https",
+              "host": "asocialmedia.cc",
+              "path": "/external-media"
+            },
+            {
+              "scheme": "https",
+              "host": "asocialmedia.cc",
+              "path": "/external-library"
+            },
+            {
+              "scheme": "https",
+              "host": "asocialmedia.cc",
+              "path": "/external-following"
+            },
+            {
+              "scheme": "https",
+              "host": "www.asocialmedia.cc",
+              "pathPrefix": "/posts/"
+            },
+            {
+              "scheme": "https",
+              "host": "www.asocialmedia.cc",
+              "pathPrefix": "/users/"
+            },
+            {
+              "scheme": "https",
+              "host": "www.asocialmedia.cc",
+              "pathPrefix": "/a/"
+            },
+            {
+              "scheme": "https",
+              "host": "www.asocialmedia.cc",
+              "pathPrefix": "/messages/"
+            },
+            {
+              "scheme": "https",
+              "host": "www.asocialmedia.cc",
+              "pathPrefix": "/hashtag/"
+            },
+            {
+              "scheme": "https",
+              "host": "www.asocialmedia.cc",
+              "pathPrefix": "/network/bluesky"
+            },
+            {
+              "scheme": "https",
+              "host": "www.asocialmedia.cc",
+              "path": "/"
+            },
+            {
+              "scheme": "https",
+              "host": "www.asocialmedia.cc",
+              "path": "/messages"
+            },
+            {
+              "scheme": "https",
+              "host": "www.asocialmedia.cc",
+              "path": "/settings"
+            },
+            {
+              "scheme": "https",
+              "host": "www.asocialmedia.cc",
+              "path": "/gusts"
+            },
+            {
+              "scheme": "https",
+              "host": "www.asocialmedia.cc",
+              "path": "/discover"
+            },
+            {
+              "scheme": "https",
+              "host": "www.asocialmedia.cc",
+              "path": "/bookmarks"
+            },
+            {
+              "scheme": "https",
+              "host": "www.asocialmedia.cc",
+              "path": "/history"
+            },
+            {
+              "scheme": "https",
+              "host": "www.asocialmedia.cc",
+              "path": "/notifications"
+            },
+            {
+              "scheme": "https",
+              "host": "www.asocialmedia.cc",
+              "path": "/communities"
+            },
+            {
+              "scheme": "https",
+              "host": "www.asocialmedia.cc",
+              "path": "/login"
+            },
+            {
+              "scheme": "https",
+              "host": "www.asocialmedia.cc",
+              "path": "/external-post"
+            },
+            {
+              "scheme": "https",
+              "host": "www.asocialmedia.cc",
+              "path": "/external-profile"
+            },
+            {
+              "scheme": "https",
+              "host": "www.asocialmedia.cc",
+              "path": "/external-media"
+            },
+            {
+              "scheme": "https",
+              "host": "www.asocialmedia.cc",
+              "path": "/external-library"
+            },
+            {
+              "scheme": "https",
+              "host": "www.asocialmedia.cc",
+              "path": "/external-following"
+            }
+          ],
+          "category": ["BROWSABLE", "DEFAULT"]
+        }
+      ]
     },
     "web": {
       "output": "static",

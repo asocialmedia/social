@@ -271,13 +271,26 @@ export const ExploreGustsGrid: React.FC = () => {
     () => mixExplorePosts(posts, externalPosts),
     [posts, externalPosts]
   );
+  const visibleIds = useMemo(
+    () => ({
+      asm: new Set(posts.map((post) => post.id)),
+      bluesky: new Set(externalPosts.map((post) => post.id)),
+    }),
+    [posts, externalPosts]
+  );
+
   const handleBottomReached = useCallback(
     (manual = false) => {
       if (
         hasNextPage &&
         !isFetching &&
         (manual || status !== "error") &&
-        (manual || canAutoContinueFeed(data?.pages, (page) => page.posts))
+        (manual ||
+          canAutoContinueFeed(
+            data?.pages,
+            (page) => page.posts,
+            visibleIds.asm
+          ))
       ) {
         void fetchNextPage({ cancelRefetch: false });
       }
@@ -286,12 +299,24 @@ export const ExploreGustsGrid: React.FC = () => {
         !remote.isFetching &&
         (manual || !remote.isError) &&
         (manual ||
-          canAutoContinueFeed(remote.data?.pages, (page) => page.items))
+          canAutoContinueFeed(
+            remote.data?.pages,
+            (page) => page.items,
+            visibleIds.bluesky
+          ))
       ) {
         void remote.fetchNextPage({ cancelRefetch: false });
       }
     },
-    [fetchNextPage, hasNextPage, isFetching, remote, status, data?.pages]
+    [
+      fetchNextPage,
+      hasNextPage,
+      isFetching,
+      remote,
+      status,
+      data?.pages,
+      visibleIds,
+    ]
   );
 
   const handleCreateGust = useCallback(() => {
@@ -301,6 +326,15 @@ export const ExploreGustsGrid: React.FC = () => {
     }
     window.location.href = "/gusts?create=true";
   }, [goToLogin, user]);
+
+  const manualContinuation =
+    (hasNextPage || remote.hasNextPage) && !isFetching && !remote.isFetching ? (
+      <div className="flex justify-center p-4">
+        <Button variant="premium" onClick={() => handleBottomReached(true)}>
+          Load more Gusts
+        </Button>
+      </div>
+    ) : null;
 
   if (!network.ready && network.isError) {
     return (
@@ -320,17 +354,25 @@ export const ExploreGustsGrid: React.FC = () => {
 
   if ((status === "error" || remote.isError) && !mixed.length) {
     return (
-      <FeedErrorState
-        message="Couldn’t load Gusts right now. Please try again."
-        onRetry={() => {
-          void refetch();
-          void remote.refetch();
-        }}
-      />
+      <div>
+        <FeedErrorState
+          message="Couldn’t load Gusts right now. Please try again."
+          onRetry={() => {
+            void refetch();
+            void remote.refetch();
+          }}
+        />
+        {manualContinuation}
+      </div>
     );
   }
 
-  if (mixed.length === 0 && !remote.isPending) {
+  if (
+    mixed.length === 0 &&
+    !remote.isPending &&
+    !hasNextPage &&
+    !remote.hasNextPage
+  ) {
     return (
       <div className="flex flex-col items-center justify-center gap-3 px-4 py-16 text-center">
         <Image
@@ -414,15 +456,7 @@ export const ExploreGustsGrid: React.FC = () => {
         {isFetchingNextPage || remote.isFetching ? (
           <ExploreGustsSkeleton count={4} />
         ) : null}
-        {(hasNextPage || remote.hasNextPage) &&
-        !isFetching &&
-        !remote.isFetching ? (
-          <div className="flex justify-center p-4">
-            <Button variant="premium" onClick={() => handleBottomReached(true)}>
-              Load more Gusts
-            </Button>
-          </div>
-        ) : null}
+        {manualContinuation}
       </InfiniteScrollContainer>
     </div>
   );

@@ -11,7 +11,7 @@
 import { mediaReshareLabel } from "@asm/media";
 import { useRouter } from "expo-router";
 import { memo, useMemo, useState } from "react";
-import { Linking, Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 import type { GestureResponderEvent } from "react-native";
 
 import avatarPlaceholder from "@/assets/images/avatar-placeholder.png";
@@ -48,6 +48,7 @@ import { buildMoreEntries } from "../lib/more-entries";
 import { useMediaPreviewStore } from "../state/media-preview-store";
 import { useVideoCaptionsStore } from "../state/video-captions-store";
 import { CommunityAttribution } from "./community-attribution";
+import { useExternalAuthorPreview } from "./external-author-preview";
 import type { MenuAnchor } from "./more-menu";
 import {
   BookmarkToggle,
@@ -208,7 +209,10 @@ export const PostCard = memo(
     const openAuthor = (event: GestureResponderEvent) => {
       event.stopPropagation();
       if (post.external) {
-        void Linking.openURL(post.external.author.url);
+        router.push({
+          params: { actor: post.external.author.id },
+          pathname: "/external-profile",
+        });
         return;
       }
       if (!author?.username) {
@@ -371,6 +375,14 @@ export const PostCard = memo(
                       accessibilityLabel={`Open ${displayName}'s profile`}
                       accessibilityRole="link"
                       disabled={!author?.username}
+                      onLongPress={
+                        post.external
+                          ? () =>
+                              useExternalAuthorPreview
+                                .getState()
+                                .open(post.external?.author.id ?? "")
+                          : undefined
+                      }
                       onPress={openAuthor}
                       onPressIn={prefetchAuthor}
                       style={styles.authorIdentity}

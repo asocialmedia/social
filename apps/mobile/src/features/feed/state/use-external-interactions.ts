@@ -7,6 +7,7 @@ import { create } from "zustand";
 
 import { toast } from "@/components/feedback/toast";
 import { useSessionContext } from "@/features/auth/state/session";
+import { invalidateProtocolResources } from "@/features/network/state/use-protocol-resource";
 
 import { mutateExternal } from "../lib/external-interactions";
 
@@ -68,7 +69,17 @@ export function useExternalInteractions(
     busy.current = true;
     setPending(true);
     try {
-      update(key, await mutateExternal(input));
+      const next = await mutateExternal(input);
+      update(key, next);
+      invalidateProtocolResources(`external-responses:${user.id}:${post.id}`);
+      invalidateProtocolResources("external-library:");
+      if (next.upstream === "failed") {
+        toast({
+          button: { onClick: () => mutate(input), title: "Retry" },
+          description: "Retry or reconnect Bluesky in Account settings.",
+          title: "Saved in asocialmedia; Bluesky sync failed",
+        });
+      }
       return true;
     } catch (error) {
       toast({

@@ -15,7 +15,11 @@ interface ResponseFixture {
 
 async function runDeployment(
   responses: ResponseFixture[],
-  options: { checkOnly?: boolean; script?: string } = {}
+  options: {
+    checkOnly?: boolean;
+    env?: Record<string, string>;
+    script?: string;
+  } = {}
 ) {
   const directory = await mkdtemp(path.join(tmpdir(), "asm-dokploy-ci-"));
   try {
@@ -61,6 +65,7 @@ process.exit(response.transportStatus ?? 0);
           DOKPLOY_TEST_QUEUE: queue,
           DOKPLOY_TEST_REQUESTS: requests,
           PATH: `${directory}${path.delimiter}${process.env.PATH ?? ""}`,
+          ...options.env,
         },
         stderr: "pipe",
         stdout: "pipe",
@@ -206,6 +211,98 @@ describe("Dokploy deployment authentication", () => {
     expect(result.exitCode).not.toBe(0);
     expect(result.stderr).toContain("HTTP 401");
     expect(result.stdout).not.toContain("deploy triggered");
+  });
+
+  const protocolsApplication = {
+    applicationId: "us-east-protocols",
+    dockerImage: "ghcr.io/asocialmedia/asm-protocols:latest",
+    sourceType: "docker",
+  };
+  const regionalOptions = {
+    env: {
+      DOKPLOY_API_TOKEN: "us-east-token",
+      DOKPLOY_API_URL: "https://us-east.example.test/api",
+      DOKPLOY_APP_ID: protocolsApplication.applicationId,
+    },
+    script: "scripts/ci/deploy-protocols-region.sh",
+  };
+
+  test("regional protocols deploys use only that region's credentials and application", async () => {
+    const result = await runDeployment(
+      [
+        { body: protocolsApplication, status: 200 },
+        { body: {}, status: 200 },
+      ],
+      regionalOptions
+    );
+    expect(result.exitCode).toBe(0);
+    expect(result.calls).toHaveLength(2);
+    for (const request of result.calls) {
+      expect(request).toContain("x-api-key: us-east-token");
+      expect(request).not.toContain(`x-api-key: ${fakeToken}`);
+      expect(
+        request.some((value) =>
+          value.startsWith("https://us-east.example.test/api/")
+        )
+      ).toBe(true);
+    }
+    expect(result.calls[0]).toContain("applicationId=us-east-protocols");
+    expect(result.calls[1]).toContain(
+      JSON.stringify({ applicationId: "us-east-protocols" })
+    );
+    expect(result.stdout).not.toContain("us-east-token");
+  });
+
+  test("regional preflight verifies the target without posting a deployment", async () => {
+    const result = await runDeployment(
+      [{ body: protocolsApplication, status: 200 }],
+      { ...regionalOptions, checkOnly: true }
+    );
+    expect(result.exitCode).toBe(0);
+    expect(result.calls).toHaveLength(1);
+    expect(result.calls[0]).not.toContain("POST");
+  });
+
+  for (const variable of [
+    "DOKPLOY_API_URL",
+    "DOKPLOY_API_TOKEN",
+    "DOKPLOY_APP_ID",
+  ]) {
+    test(`regional deploy refuses missing ${variable} instead of silently skipping`, async () => {
+      const result = await runDeployment([], {
+        ...regionalOptions,
+        env: { ...regionalOptions.env, [variable]: "" },
+      });
+      expect(result.exitCode).not.toBe(0);
+      expect(result.calls).toHaveLength(0);
+      expect(result.stderr).toContain(variable);
+    });
+  }
+
+  for (const invalid of [
+    { applicationId: "other-app" },
+    { sourceType: "github" },
+    { dockerImage: "ghcr.io/asocialmedia/asm-auth:latest" },
+  ]) {
+    test(`regional deploy refuses an unexpected target ${JSON.stringify(invalid)}`, async () => {
+      const result = await runDeployment(
+        [{ body: { ...protocolsApplication, ...invalid }, status: 200 }],
+        regionalOptions
+      );
+      expect(result.exitCode).not.toBe(0);
+      expect(result.calls).toHaveLength(1);
+      expect(result.calls[0]).not.toContain("POST");
+    });
+  }
+
+  test("regional deploy does not post after failed authentication", async () => {
+    const result = await runDeployment(
+      [{ body: {}, status: 401 }],
+      regionalOptions
+    );
+    expect(result.exitCode).not.toBe(0);
+    expect(result.calls).toHaveLength(1);
+    expect(result.stderr).toContain("HTTP 401");
   });
 
   test("release workflows authenticate before building Prisma images", async () => {
