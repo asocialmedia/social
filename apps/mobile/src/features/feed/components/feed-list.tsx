@@ -654,15 +654,18 @@ export const FeedList = memo(
       [externalPosts, incomingIds, posts, source, variant]
     );
     const externalPending = source !== "asm" && external.status === "loading";
-    const availability = feedAvailability({
-      count: rows.length,
-      externalEnabled: source !== "asm",
-      externalError: external.status === "error",
-      externalLoading: externalPending,
-      nativeEnabled: source !== "bluesky",
-      nativeError: status === "error",
-      nativeLoading: status === "loading" || (status === "idle" && enabled),
-    });
+    const preferencesFailed = !network.ready && Boolean(network.error);
+    const availability = preferencesFailed
+      ? "error"
+      : feedAvailability({
+          count: rows.length,
+          externalEnabled: source !== "asm",
+          externalError: external.status === "error",
+          externalLoading: externalPending,
+          nativeEnabled: source !== "bluesky",
+          nativeError: status === "error",
+          nativeLoading: status === "loading" || (status === "idle" && enabled),
+        });
     const combinedHasMore =
       (source !== "bluesky" && hasMore) ||
       (source !== "asm" && external.hasMore);
@@ -729,13 +732,19 @@ export const FeedList = memo(
                 selectable
                 style={[styles.errorBody, { color: theme.dividerText }]}
               >
-                Your feed is temporarily unavailable.
+                {preferencesFailed
+                  ? "We couldn’t load your feed preferences. Please try again."
+                  : "Your feed is temporarily unavailable."}
               </Text>
               <Pressable
                 accessibilityRole="button"
                 onPress={() => {
-                  void refresh();
-                  void external.refresh();
+                  if (preferencesFailed) {
+                    void network.refetch();
+                  } else {
+                    void refresh();
+                    void external.refresh();
+                  }
                 }}
               >
                 <Text style={{ color: theme.inputText, padding: 12 }}>

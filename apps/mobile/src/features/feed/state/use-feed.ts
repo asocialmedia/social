@@ -391,6 +391,10 @@ export function useFeedTab({
   }, [cacheKey, enabled, runFetch]);
 
   const refresh = useCallback(() => {
+    if (!network.ready) {
+      void network.refetch();
+      return;
+    }
     if (!enabled) {
       return;
     }
@@ -399,7 +403,7 @@ export function useFeedTab({
     setNewItems([]);
     feedCache.invalidate(cacheKey);
     void runFetch("replace", null, true);
-  }, [cacheKey, enabled, runFetch, stopProbe]);
+  }, [cacheKey, enabled, network, runFetch, stopProbe]);
 
   const clearNewItems = useCallback(() => {
     setNewItems([]);
@@ -449,7 +453,7 @@ export function useFeedTab({
   return {
     clearNewItems,
     dismissPost,
-    error,
+    error: network.ready ? error : (network.error ?? null),
     fetchNext,
     hasMore,
     incomingIds,
@@ -471,7 +475,7 @@ export function useFeedTab({
     posts,
     refresh,
     showNewPosts,
-    status,
+    status: !network.ready && network.error ? "error" : status,
     undoDismiss,
   };
 }

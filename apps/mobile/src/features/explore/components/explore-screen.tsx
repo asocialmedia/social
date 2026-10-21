@@ -819,14 +819,17 @@ const ExploreTabContent = memo(
           return (
             <ExplorePostCard
               onPress={() =>
-                router.push({
-                  params: item.post.external
-                    ? { uri: item.post.id }
-                    : { postId: item.post.id },
-                  pathname: item.post.external
-                    ? "/external-post"
-                    : "/posts/[postId]",
-                })
+                router.push(
+                  item.post.external
+                    ? {
+                        params: { uri: item.post.id },
+                        pathname: "/external-post",
+                      }
+                    : {
+                        params: { postId: item.post.id },
+                        pathname: "/posts/[postId]",
+                      }
+                )
               }
               onRequireLogin={() => router.push("/(auth)/login")}
               post={item.post}

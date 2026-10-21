@@ -33,6 +33,7 @@ import { logInfo, logWarn } from "@/lib/telemetry";
 
 import {
   fetchGustsPage,
+  gustFeedSource,
   isPlayableGust,
   mergeGustPages,
 } from "../lib/gusts-api";
@@ -319,7 +320,8 @@ export function useGustsFeed(options: {
   userId: string | null;
 }) {
   const network = useNetworkSettings();
-  const source = useFeedSourceStore((state) => state.source);
+  const selectedSource = useFeedSourceStore((state) => state.source);
+  const source = gustFeedSource(selectedSource, options.initialId);
   const exclusions = useExternalExclusions(network.viewer);
   const externalId = options.initialId?.startsWith("at://")
     ? options.initialId
@@ -421,12 +423,16 @@ export function useGustsFeed(options: {
   ) {
     status = "ready";
   }
-  if (!externalId && !posts.length && bothFailed) {
+  if (
+    (!network.ready && network.error) ||
+    (!externalId && !posts.length && bothFailed)
+  ) {
     status = "error";
   }
   return {
     ...asm,
-    error: detail.error ?? remote.error,
+    error:
+      (network.ready ? null : network.error) ?? detail.error ?? remote.error,
     fetchNext: async () => {
       if (externalId) {
         return;
@@ -453,6 +459,10 @@ export function useGustsFeed(options: {
     ),
     posts,
     refresh: async () => {
+      if (!network.ready) {
+        await network.refetch();
+        return;
+      }
       setOrder({ ids: [], key });
       if (externalId) {
         await detail.refetch();
@@ -464,6 +474,10 @@ export function useGustsFeed(options: {
       ]);
     },
     retry: () => {
+      if (!network.ready) {
+        void network.refetch();
+        return;
+      }
       if (externalId) {
         void detail.refetch();
       } else {

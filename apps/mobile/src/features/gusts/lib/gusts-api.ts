@@ -15,6 +15,16 @@ import { getWithTimeout } from "@/lib/http-get";
 
 export type GustTab = "following" | "latest" | "personalized";
 
+export function gustFeedSource(
+  selected: "all" | "asm" | "bluesky",
+  initialId: string | null
+): "all" | "asm" | "bluesky" {
+  if (!initialId) {
+    return selected;
+  }
+  return initialId.startsWith("at://") ? "bluesky" : "asm";
+}
+
 // Web's default: For you when signed in, Latest for guests.
 export function defaultGustTab(isLoggedIn: boolean): GustTab {
   return isLoggedIn ? "personalized" : "latest";

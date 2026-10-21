@@ -87,6 +87,7 @@ export function useProtocolPages<T, Cursor>(
     refresh: async () => {
       pending.current?.abort();
       pending.current = null;
+      setLoadingMore(false);
       setExtra({ key, pages: [] });
       setMoreError(null);
       await first.refetch();

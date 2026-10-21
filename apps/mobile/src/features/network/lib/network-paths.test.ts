@@ -1,8 +1,48 @@
 import { expect, test } from "bun:test";
 
+import config from "../../../../app.json";
 import { externalShareUrl, nativeNetworkPath } from "./network-paths";
 
 const uri = "at://did:plc:alice/app.bsky.feed.post/123";
+
+test("Android keeps email actions and unsupported paths in the browser", () => {
+  const claims = config.expo.android.intentFilters.flatMap(
+    (filter) => filter.data
+  );
+  const claimed = (path: string) =>
+    claims.some(
+      (entry) =>
+        ("path" in entry && entry.path === path) ||
+        ("pathPrefix" in entry &&
+          typeof entry.pathPrefix === "string" &&
+          path.startsWith(entry.pathPrefix))
+    );
+  for (const path of [
+    "/verify-email",
+    "/reset-password/confirm",
+    "/reset-password",
+    "/unsupported",
+  ]) {
+    expect(claimed(path)).toBe(false);
+  }
+  for (const path of [
+    "/posts/123",
+    "/a/code/posts/123",
+    "/gusts",
+    "/network/bluesky",
+    "/messages/join/invite",
+    "/",
+  ]) {
+    expect(claimed(path)).toBe(true);
+    expect(
+      nativeNetworkPath(
+        path === "/network/bluesky"
+          ? `${path}?uri=${encodeURIComponent(uri)}`
+          : path
+      )
+    ).not.toBeNull();
+  }
+});
 test("canonical external shares return to the ASM discussion and media", () => {
   const shared = externalShareUrl(uri);
   expect(nativeNetworkPath(shared)).toBe(

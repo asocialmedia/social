@@ -46,6 +46,7 @@ import { getApiBaseUrl } from "@/lib/api-env";
 import { SHOWS_SCROLL_INDICATOR } from "@/lib/scroll-indicator";
 import { useAppTheme } from "@/theme";
 
+import { recentNetworkSearchScope } from "../lib/recent-search-scope";
 import {
   clearSearchHistory,
   fetchSearchHistoryRaw,
@@ -146,7 +147,10 @@ export function SpotlightModal() {
   const results = search.asm;
   const loading = search.asmLoading || search.remoteLoading;
   const recent = useRecentNetworkSearches(
-    `${user?.id ?? "guest"}:${search.network.scope}`
+    recentNetworkSearchScope(
+      user?.id ?? "guest",
+      search.network.settings.preferences.activeProfileId
+    )
   );
   const [history, setHistory] = useState<
     { item: SearchHistoryItem; key: string }[]
