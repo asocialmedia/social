@@ -272,9 +272,7 @@ export default function FollowingFeed() {
         ) : null}
         {(nativeHasMore || externalHasMore) &&
         !isFetching &&
-        !external.isFetching &&
-        status !== "error" &&
-        !external.isError ? (
+        !external.isFetching ? (
           <div className="flex justify-center p-4">
             <Button variant="premium" onClick={() => handleBottomReached(true)}>
               Load more posts

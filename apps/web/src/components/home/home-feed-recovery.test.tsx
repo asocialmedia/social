@@ -7,6 +7,32 @@ import { act } from "react";
 import type { ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 
+import { externalPostView } from "@/lib/posts/presentation";
+
+let communityShouldFail = true;
+const requestGlobal = mock(() => ({ nextCursor: "next", posts: [] }));
+const requestCommunity = mock(() => {
+  if (communityShouldFail) {
+    throw new Error("Community temporarily unavailable");
+  }
+  return { nextCursor: null, posts: [] };
+});
+mock.module("@/lib/ky", () => ({
+  default: {
+    get: (url: string) => ({
+      json: () => {
+        if (url === "/api/posts/trending") {
+          return requestGlobal();
+        }
+        if (url === "/api/communities/example/posts") {
+          return requestCommunity();
+        }
+        throw new Error(`Unexpected request: ${url}`);
+      },
+    }),
+  },
+}));
+
 const retryExternal = mock(() => Promise.resolve());
 const external = {
   data: {
@@ -137,6 +163,129 @@ test("a failed continuation keeps loaded posts, shows the shared illustrated err
     expect(retryExternal).not.toHaveBeenCalled();
     await act(() => retry?.click());
     expect(retryExternal).toHaveBeenCalledTimes(1);
+  } finally {
+    await act(() => root.unmount());
+    client.clear();
+  }
+});
+
+test.each([true, false])(
+  "community failure retries its own query with global posts %s",
+  async (hasGlobalPosts) => {
+    communityShouldFail = true;
+    requestCommunity.mockClear();
+    const externalRequests = retryExternal.mock.calls.length;
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const nativePost = {
+      ...externalPostView({
+        author: {
+          displayName: "Author",
+          handle: "example.test",
+          id: "author",
+          source: "bluesky",
+          upstreamCounts: {},
+          url: "https://bsky.app/profile/example.test",
+        },
+        createdAt: "2026-10-21T00:00:00Z",
+        id: "native-loaded",
+        labels: [],
+        languages: [],
+        media: [],
+        revision: "test",
+        segments: [{ text: "Loaded post" }],
+        source: "bluesky",
+        text: "Loaded post",
+        upstreamCounts: {},
+        url: "https://bsky.app/profile/example.test/post/example",
+      }),
+      external: undefined,
+    };
+    client.setQueryData(["post-feed", "latest", "guest", "test", "en"], {
+      pageParams: [null],
+      pages: [{ nextCursor: null, posts: hasGlobalPosts ? [nativePost] : [] }],
+    });
+    const host = dom.document.createElement("div");
+    const root = createRoot(host);
+    try {
+      await act(() =>
+        root.render(
+          <QueryClientProvider client={client}>
+            <HomeFeed communitySlug="example" variant="latest" />
+          </QueryClientProvider>
+        )
+      );
+      await act(async () => {
+        await Bun.sleep(25);
+      });
+      expect(requestCommunity).toHaveBeenCalledTimes(1);
+      expect(host.querySelector('[role="alert"]')).not.toBeNull();
+      if (hasGlobalPosts) {
+        expect(host.querySelector("[data-loaded]")).not.toBeNull();
+      }
+      communityShouldFail = false;
+      await act(() =>
+        [...host.querySelectorAll("button")]
+          .find((button) => button.textContent === "Try again")
+          ?.click()
+      );
+      await act(async () => {
+        await Bun.sleep(25);
+      });
+      expect(requestCommunity).toHaveBeenCalledTimes(2);
+      expect(
+        client.getQueryState(["community-feed", "example", "new"])?.status
+      ).toBe("success");
+      expect(retryExternal.mock.calls.length).toBe(externalRequests);
+      expect(host.querySelector('[role="alert"]')).toBeNull();
+    } finally {
+      await act(() => root.unmount());
+      client.clear();
+    }
+  }
+);
+
+test("manual continuation advances a healthy sparse source while its peer remains failed", async () => {
+  requestGlobal.mockClear();
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  client.setQueryData(
+    ["post-feed", "trending", "guest", "test", "en", "engaged-v1"],
+    {
+      pageParams: [null, "one", "two"],
+      pages: ["one", "two", "three"].map((nextCursor) => ({
+        nextCursor,
+        posts: [],
+      })),
+    }
+  );
+  const host = dom.document.createElement("div");
+  const root = createRoot(host);
+  try {
+    await act(() =>
+      root.render(
+        <QueryClientProvider client={client}>
+          <HomeFeed variant="trending" />
+        </QueryClientProvider>
+      )
+    );
+    await act(() =>
+      [...host.querySelectorAll("button")]
+        .find((button) => button.textContent === "Reach end")
+        ?.click()
+    );
+    expect(requestGlobal).not.toHaveBeenCalled();
+    const more = [...host.querySelectorAll("button")].find(
+      (button) => button.textContent === "Load more posts"
+    );
+    expect(more).toBeDefined();
+    await act(() => more?.click());
+    await act(async () => {
+      await Bun.sleep(25);
+    });
+    expect(requestGlobal).toHaveBeenCalledTimes(1);
   } finally {
     await act(() => root.unmount());
     client.clear();

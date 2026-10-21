@@ -416,9 +416,7 @@ export const ExploreGustsGrid: React.FC = () => {
         ) : null}
         {(hasNextPage || remote.hasNextPage) &&
         !isFetching &&
-        !remote.isFetching &&
-        !remote.isError &&
-        status !== "error" ? (
+        !remote.isFetching ? (
           <div className="flex justify-center p-4">
             <Button variant="premium" onClick={() => handleBottomReached(true)}>
               Load more Gusts
