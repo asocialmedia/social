@@ -1,4 +1,3 @@
-# actionlint config — using GitHub-hosted runners only (ubuntu-latest)
-# No self-hosted runner labels required; previous Blacksmith label backed up to actionlint.yaml.bak
 self-hosted-runner:
-  labels: []
+  labels:
+    - blacksmith-2vcpu-ubuntu-2404
