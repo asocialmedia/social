@@ -168,10 +168,16 @@ test("overlapping hydration jobs retry capacity failures instead of completing w
   const client = new BlueskyClient({
     fetch: async (url) => {
       reads += 1;
-      if (reads === 8) {
+      if (reads === 16) {
         saturated.resolve();
       }
       await release.promise;
+      if (url.includes("app.bsky.actor.getProfile")) {
+        return Response.json({
+          did: new URL(url).searchParams.get("actor"),
+          handle: "fixture.test",
+        });
+      }
       const did = new URL(url).searchParams.get("repo");
       return Response.json({
         cid: "bafyreibfn4d6xedoe6jixkcl266v2fhiwga2x3zzsnq6yawnago2kb5ouu",
@@ -179,7 +185,7 @@ test("overlapping hydration jobs retry capacity failures instead of completing w
         value: { hideFromAlgorithmicRecommendations: false },
       });
     },
-    maxConcurrentRequests: 8,
+    maxConcurrentRequests: 16,
     maxRetries: 0,
   });
   const posts = Array.from({ length: 12 }, (_, index) => inventoryPost(index));

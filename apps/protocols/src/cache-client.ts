@@ -41,7 +41,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 export function createCachedBlueskyClient(
   client: BlueskyClient,
   redis?: Redis,
-  scope = "asm:protocols:cache:safe-v2"
+  scope = "asm:protocols:cache:safe-v3"
 ): BlueskyClient {
   if (!redis) {
     return client;

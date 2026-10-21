@@ -47,6 +47,7 @@ export class DiscoveryInventory {
   private readonly readSource?: ReadSource;
   private readonly allowExplicit: boolean;
   private readonly sourceTimeoutMs: number;
+  private readonly replenishing = new Set<string>();
   constructor(
     store: InventoryStore,
     continuations: DiscoveryStore,
@@ -121,10 +122,42 @@ export class DiscoveryInventory {
     };
     let candidates = posts.filter(eligible);
     let partial = false;
+    // Deliver verified arrivals immediately; a sparse page must not wait on a broken generator.
+    if (
+      cursor &&
+      candidates.length > 0 &&
+      candidates.length < 20 &&
+      this.readSource &&
+      (!sourceStarted || sourceCursor)
+    ) {
+      partial = true;
+      const key = `${scope}:${sourceCursor ?? "head"}`;
+      const { readSource } = this;
+      if (!this.replenishing.has(key) && this.replenishing.size < 8) {
+        this.replenishing.add(key);
+        const startedAt = Date.now();
+        void (async () => {
+          try {
+            const page = await readSource(
+              mode,
+              sourceCursor,
+              locale,
+              topics,
+              content
+            );
+            await this.store.put(page.items, startedAt);
+          } catch {
+            // A failed background refill leaves existing verified arrivals and the cursor usable.
+          } finally {
+            this.replenishing.delete(key);
+          }
+        })();
+      }
+    }
     // A sparse local page must not hide deeper source pages from the reader.
     if (
       cursor &&
-      candidates.length < 20 &&
+      candidates.length === 0 &&
       this.readSource &&
       (!sourceStarted || sourceCursor)
     ) {

@@ -176,7 +176,7 @@ export async function startReadWorker(
     // Both hydration jobs share one budget, reserving transport slots for interactive reads.
     const hydrationReads = createHydrationReader(
       client,
-      Math.max(1, config.workerConcurrency - 2)
+      Math.max(1, Math.floor((config.workerConcurrency - 2) / 2))
     );
     closeHydrationReads = hydrationReads.close;
     const store = new RedisInventoryStore(connection);

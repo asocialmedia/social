@@ -5,18 +5,58 @@ export function uniqueFeedContent<T>(
   context: (item: T) => string = () => ""
 ): T[] {
   const seen = new Set<string>();
+  const prompts = new Set<string>();
+  const substantial: { context: string; words: Set<string> }[] = [];
   return items.filter((item) => {
-    const text = content(item)
+    const raw = content(item).normalize("NFKC");
+    const text = raw
       .normalize("NFKC")
       .toLowerCase()
       .replaceAll(/\s+/gu, " ")
       .trim();
+    const firstLine =
+      raw
+        .split(/\n/u)[0]
+        ?.toLowerCase()
+        .replaceAll(/[^\p{L}\p{N}\s]/gu, "")
+        .replaceAll(/\s+/gu, " ")
+        .trim() ?? "";
+    const prompt =
+      raw.includes("\n") &&
+      firstLine.length >= 16 &&
+      firstLine.split(" ").length >= 3
+        ? firstLine
+        : "";
+    if (prompt && prompts.has(prompt)) {
+      return false;
+    }
+    if (prompt) {
+      prompts.add(prompt);
+    }
     if (text.length < 64) {
       return true;
     }
     const key = `${context(item)}\n${text}`;
     if (seen.has(key)) {
       return false;
+    }
+    const words = new Set(text.match(/[\p{L}\p{N}]+/gu));
+    if (
+      words.size >= 12 &&
+      substantial.some((entry) => {
+        if (entry.context !== context(item)) {
+          return false;
+        }
+        const overlap = [...words].filter((word) =>
+          entry.words.has(word)
+        ).length;
+        return overlap / (words.size + entry.words.size - overlap) >= 0.85;
+      })
+    ) {
+      return false;
+    }
+    if (words.size >= 12) {
+      substantial.push({ context: context(item), words });
     }
     seen.add(key);
     return true;

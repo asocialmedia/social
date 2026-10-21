@@ -11,6 +11,29 @@ test.each(["porn", "sexual", "graphic-media", "nudity", "nsfw", "adult"])(
   }
 );
 
+test("unlabelled fetish accounts and figurative sexual labels require explicit opt-in", () => {
+  for (const post of [
+    {
+      author: {
+        description:
+          "Funny little fetish artist | no minors | 21 male | dms open",
+      },
+    },
+    { author: { displayName: "Barry's Furry Corner" } },
+    { labels: ["sexual-figurative"] },
+    { labels: ["sexualized-figurative"] },
+    { text: "Inflation kink commission" },
+  ]) {
+    expect(blueskyMediaIsExplicit(post)).toBe(true);
+  }
+  expect(
+    blueskyMediaIsExplicit({
+      author: { description: "Anime and character artist" },
+      text: "Bun boy art for a friend",
+    })
+  ).toBe(false);
+});
+
 test.each(["!warn", "!no-unauthenticated", "!hide", "spam", "custom-label"])(
   "%s is not reclassified as explicit media",
   (label) => {

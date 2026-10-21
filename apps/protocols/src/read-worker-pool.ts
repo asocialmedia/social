@@ -28,12 +28,14 @@ export function createReadWorkerPool(options: {
       blocked: new Map<string, number>(),
       id: "local",
       token: "",
+      transportFailures: 0,
       url: "",
     },
     ...options.nodes.map((node) => ({
       ...node,
       active: 0,
       blocked: new Map<string, number>(),
+      transportFailures: 0,
     })),
   ];
   const meter = metrics.getMeter("asm-protocols");
@@ -65,6 +67,7 @@ export function createReadWorkerPool(options: {
     }
     const attempted = new Set<string>();
     const resource = `${target.origin}${target.pathname}:${target.searchParams.get("feed") ?? ""}`;
+    const operationKey = `${target.origin}${target.pathname}`;
     let pauseMs = 1000;
     let lastStatus = 503;
     let lastFailure: Response | undefined;
@@ -76,6 +79,7 @@ export function createReadWorkerPool(options: {
           !attempted.has(candidate.id) &&
           candidate.active < (candidate.url ? 8 : 256) &&
           (candidate.blocked.get(target.origin) ?? 0) <= now() &&
+          (candidate.blocked.get(operationKey) ?? 0) <= now() &&
           (candidate.blocked.get(resource) ?? 0) <= now()
       );
       if (!node) {
@@ -125,6 +129,12 @@ export function createReadWorkerPool(options: {
           /^[45]\d{2}$/.test(suppliedStatus)
             ? Number(suppliedStatus)
             : response.status;
+        const workerAuthFailure = Boolean(
+          node.url && trusted && response.status === 401 && !suppliedStatus
+        );
+        if (trusted) {
+          node.transportFailures = 0;
+        }
         lastStatus = trusted ? upstreamStatus : 503;
         requests.add(1, { ...attributes, status: lastStatus });
         if (
@@ -132,24 +142,31 @@ export function createReadWorkerPool(options: {
           upstreamStatus === 429 ||
           upstreamStatus === 408 ||
           upstreamStatus >= 500 ||
-          (node.url && upstreamStatus === 401)
+          (node.url && upstreamStatus === 403) ||
+          workerAuthFailure
         ) {
+          let defaultPauseMs = 10_000;
+          if (upstreamStatus === 403) {
+            defaultPauseMs = 300_000;
+          } else if (upstreamStatus === 429) {
+            defaultPauseMs = 30_000;
+          }
           pauseMs =
             retryAfterMs(response.headers.get("retry-after"), now()) ??
-            (upstreamStatus === 429 ? 30_000 : 10_000);
-          block(
-            node.blocked,
-            upstreamStatus === 429 || (node.url && upstreamStatus === 401)
-              ? target.origin
-              : resource,
-            pauseMs
-          );
+            defaultPauseMs;
+          let cooldownKey = resource;
+          if (upstreamStatus === 429 || workerAuthFailure) {
+            cooldownKey = target.origin;
+          } else if (upstreamStatus === 403) {
+            cooldownKey = operationKey;
+          }
+          block(node.blocked, cooldownKey, pauseMs);
           if (trusted) {
             const body = await readJsonBounded(
               response,
               2 * 1024 * 1024,
               signal
-            );
+            ).catch(() => ({ error: "UpstreamUnavailable" }));
             lastFailure = Response.json(body, {
               headers: { "retry-after": String(Math.ceil(pauseMs / 1000)) },
               status: upstreamStatus,
@@ -168,11 +185,25 @@ export function createReadWorkerPool(options: {
           );
           continue;
         }
-        const body = await readJsonBounded(response, 2 * 1024 * 1024, signal);
+        const body = await readJsonBounded(
+          response,
+          2 * 1024 * 1024,
+          signal
+        ).catch((error: unknown) => {
+          if (response.ok) {
+            throw error;
+          }
+          return { error: "UpstreamRejected" };
+        });
         return Response.json(body, { status: upstreamStatus });
       } catch (error) {
         init.signal?.throwIfAborted();
-        block(node.blocked, resource, 10_000);
+        node.transportFailures += 1;
+        block(
+          node.blocked,
+          node.url && node.transportFailures >= 3 ? target.origin : resource,
+          node.url && node.transportFailures >= 3 ? 30_000 : 10_000
+        );
         requests.add(1, { ...attributes, status: 0 });
         options.logger.warn(
           {
@@ -195,6 +226,7 @@ export function createReadWorkerPool(options: {
         (node) =>
           Math.max(
             node.blocked.get(target.origin) ?? 0,
+            node.blocked.get(operationKey) ?? 0,
             node.blocked.get(resource) ?? 0
           ) - now()
       )

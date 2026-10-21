@@ -100,6 +100,7 @@ export function createDiscoveryLive(options: {
         // Limit upstream concurrency; a second tick continues the remaining pools.
         const due = [...watches.entries()]
           .filter(([, entry]) => entry.expires > now() && entry.due <= now())
+          .toSorted(([, first], [, second]) => first.due - second.due)
           .slice(0, 2);
         await Promise.all(
           due.map(async ([id, entry]) => {

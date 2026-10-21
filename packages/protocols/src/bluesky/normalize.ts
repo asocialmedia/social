@@ -129,7 +129,7 @@ export function normalizeAuthor(
   const labels = publicLabels(profile.labels, allowExplicitMedia);
   if (
     !allowExplicitMedia &&
-    blueskyMediaIsExplicit({ author: { description: profile.description } })
+    blueskyMediaIsExplicit({ author: { ...profile, labels } })
   ) {
     throw new ProtocolError(
       "restricted",

@@ -481,16 +481,20 @@ test("one failed source does not hide healthy sources or persist anything", asyn
 
 test("visibility lookup distinguishes no declaration from an outage", async () => {
   const missing = new BlueskyClient({
-    fetch: async () =>
-      Response.json({ error: "RecordNotFound" }, { status: 400 }),
+    fetch: async (url) =>
+      url.includes("app.bsky.actor.getProfile")
+        ? Response.json({ did: profile.id, handle: "fixture.test" })
+        : Response.json({ error: "RecordNotFound" }, { status: 400 }),
   });
   expect(await missing.allowsRecommendations(profile.id)).toBe(true);
   const hidden = new BlueskyClient({
-    fetch: async () =>
-      Response.json({
-        uri: `at://${profile.id}/app.bsky.actor.contentVisibilityDeclaration/self`,
-        value: { hideFromAlgorithmicRecommendations: true },
-      }),
+    fetch: async (url) =>
+      url.includes("app.bsky.actor.getProfile")
+        ? Response.json({ did: profile.id, handle: "fixture.test" })
+        : Response.json({
+            uri: `at://${profile.id}/app.bsky.actor.contentVisibilityDeclaration/self`,
+            value: { hideFromAlgorithmicRecommendations: true },
+          }),
   });
   expect(await hidden.allowsRecommendations(profile.id)).toBe(false);
   const offline = new BlueskyClient({
