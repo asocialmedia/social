@@ -8,6 +8,14 @@ import sharp from "sharp";
 const directory = await mkdtemp(path.join(tmpdir(), "asm-raster-fallback-"));
 const validPath = path.join(directory, "valid.png");
 const invalidPath = path.join(directory, "invalid.webp");
+const legacyPath = path.join(directory, "legacy.webp");
+const legacy = await sharp({
+  create: { background: "green", channels: 3, height: 12, width: 15 },
+})
+  .webp()
+  .toBuffer();
+legacy.writeUInt32LE(legacy.length - 20, 8);
+await Bun.write(legacyPath, legacy);
 await sharp({
   create: { background: "red", channels: 3, height: 16, width: 20 },
 })
@@ -24,6 +32,9 @@ mock.module("../s3", () => ({
       }
       if (key === "valid") {
         return Bun.file(validPath);
+      }
+      if (key === "legacy") {
+        return Bun.file(legacyPath);
       }
       return Bun.file(path.join(directory, "missing"));
     },
@@ -58,4 +69,14 @@ test("exhausted sources report decode versus storage failures and remove partial
   expect(await Bun.file(output).exists()).toBe(false);
   expect(await Bun.file(`${output}-input`).exists()).toBe(false);
   expect(await downloadAnalysisRaster([], output)).toBeNull();
+});
+
+test("analysis repairs the exact legacy WebP header without modifying stored bytes", async () => {
+  const output = path.join(directory, "repaired.jpg");
+  expect(await downloadAnalysisRaster(["legacy"], output)).toBe(output);
+  const metadata = await sharp(output).metadata();
+  expect(metadata.format).toBe("jpeg");
+  expect(
+    Buffer.from(await Bun.file(legacyPath).arrayBuffer()).equals(legacy)
+  ).toBe(true);
 });

@@ -36,6 +36,7 @@ if (import.meta.main) {
     MEDIA_PROCESS_QUEUE,
     MEDIA_ANALYZE_QUEUE,
     MEDIA_SCAN_QUEUE,
+    EXTERNAL_MEDIA_SAFETY_QUEUE,
     prisma,
   } = await import("@asm/db");
   const { MEDIA_JOB_NAMES } = await import("@asm/media");
@@ -50,6 +51,8 @@ if (import.meta.main) {
   const { processMedia } = await import("./jobs/process");
   const { processMediaCleanup } = await import("./jobs/cleanup");
   const { processMediaAnalyze } = await import("./jobs/analyze");
+  const { processExternalMediaSafety } =
+    await import("./jobs/external-media-safety");
   const { workerEnv } = await import("./env");
   const { getS3 } = await import("./s3");
   const { withTimeout } = await import("./transcode/ffmpeg");
@@ -62,6 +65,39 @@ if (import.meta.main) {
     maxRetriesPerRequest: null,
     url: workerEnv.REDIS_URL,
   });
+
+  const externalSafetyWorker = new Worker(
+    EXTERNAL_MEDIA_SAFETY_QUEUE,
+    async (job) => {
+      try {
+        await withAnalysisLane(true, () =>
+          processExternalMediaSafety(job.data)
+        );
+      } catch (error) {
+        if (error instanceof ClefDeferredError && job.token) {
+          await job.moveToDelayed(
+            Math.min(error.retryAt, Date.now() + 15 * 60_000),
+            job.token
+          );
+          throw new DelayedError();
+        }
+        throw error;
+      }
+    },
+    { concurrency: 2, connection: bullConnection(), lockDuration: 120_000 }
+  );
+  externalSafetyWorker.on("error", (error) =>
+    mediaLogger.warn(
+      { error: String(error) },
+      "External media safety queue unavailable"
+    )
+  );
+  externalSafetyWorker.on("failed", (job, error) =>
+    mediaLogger.warn(
+      { error: String(error), jobId: job?.id },
+      "External media remains withheld pending safety assessment"
+    )
+  );
 
   // Two pools: scan is I/O-bound (ClamAV + hash + strip), process is
   // CPU/ffmpeg-bound. Splitting eliminates head-of-line where a burst of
@@ -423,6 +459,7 @@ if (import.meta.main) {
         scanWorker.close(),
         processWorker.close(),
         analyzeWorker.close(),
+        externalSafetyWorker.close(),
         sweepWorker.close(),
       ]),
       Bun.sleep(2500),

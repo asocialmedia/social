@@ -21,6 +21,7 @@ import {
 } from "@asm/db";
 import type { Models } from "@asm/db";
 import type { MediaAnalyzeJobData } from "@asm/media";
+import { UnrecoverableError } from "bullmq";
 
 import {
   analysisStageComplete,
@@ -28,6 +29,8 @@ import {
   mediaEmbeddingComplete,
   transcriptionComplete,
   transcriptionRetryEligible,
+  rasterRetryEligible,
+  rasterSourceFingerprint,
 } from "../analyze/checkpoints";
 import { classifyMediaConcepts } from "../analyze/classify";
 import { prepareClefImage, ClefDeferredError } from "../analyze/clef";
@@ -38,7 +41,10 @@ import {
 } from "../analyze/embedding";
 import { extractImageText } from "../analyze/ocr";
 import { ProviderBudgetDeferredError } from "../analyze/provider-budget";
-import { downloadAnalysisRaster } from "../analyze/raster-source";
+import {
+  downloadAnalysisRaster,
+  AnalysisRasterError,
+} from "../analyze/raster-source";
 import { SEMANTIC_CLASSIFICATION_VERSION } from "../analyze/semantic-version";
 import { transcribeMediaAudio } from "../analyze/transcribe";
 import { extractVideoSamples } from "../analyze/video-samples";
@@ -168,6 +174,14 @@ async function resolveAnalysisSource(
       : []),
   ];
 
+  const rasterFingerprint = rasterSourceFingerprint(rasterKeys);
+  if (
+    media._type === "IMAGE" &&
+    !rasterRetryEligible(media.techMetadata, rasterFingerprint)
+  ) {
+    return null;
+  }
+
   let rasterLocalPath: string | null = null;
   if (
     rasterKeys.length &&
@@ -180,7 +194,21 @@ async function resolveAnalysisSource(
       );
     } catch (error) {
       if (media._type === "IMAGE") {
-        // Broken source images use the queue's bounded failure retries, not an endless provider deferral.
+        if (
+          error instanceof AnalysisRasterError &&
+          error.decodeFailures === error.attempts
+        ) {
+          await patchMediaAnalysisStage(mediaId, "raster", {
+            fingerprint: rasterFingerprint,
+            reason: "unsupported-or-corrupt-image",
+            retryAt: Date.now() + 24 * 60 * 60_000,
+            status: "unavailable",
+          });
+          throw new UnrecoverableError(
+            "All stored image sources failed decoding; analysis waits for a source repair"
+          );
+        }
+        // Missing storage remains retryable; decoding failure never marks the asset safe.
         throw error;
       }
       mediaLogger.warn(

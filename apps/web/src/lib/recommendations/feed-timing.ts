@@ -10,6 +10,7 @@ export type FeedStage =
   | "retrieval"
   | "graph"
   | "filtering"
+  | "safety"
   | "ranking"
   | "hydration"
   | "serialization";

@@ -86,7 +86,7 @@ export function FeedCacheProvider({
       throttleTime: 1000,
     });
     return {
-      buster: "web-feeds-v3",
+      buster: "web-feeds-v4",
       dehydrateOptions: {
         shouldDehydrateQuery: (
           query: Parameters<typeof shouldPersistFeed>[0]

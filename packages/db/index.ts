@@ -221,3 +221,9 @@ export * from "./src/recommendation/attribution";
 export * from "./src/recommendation/retrieval-benchmark";
 export * from "./src/recommendation/experiment-report";
 export * from "./src/protocols/external-follows";
+export {
+  filterExternalMediaSafety,
+  externalMediaSafetyInput,
+  EXTERNAL_MEDIA_SAFETY_QUEUE,
+  EXTERNAL_MEDIA_SAFETY_VERSION,
+} from "./src/external-media-safety";

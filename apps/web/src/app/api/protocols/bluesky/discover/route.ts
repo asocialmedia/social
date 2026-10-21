@@ -6,6 +6,7 @@ import {
   networkLanguageMatches,
   recordSharedTopicRelations,
   redis,
+  filterExternalMediaSafety,
 } from "@asm/db";
 import { externalPostTopics } from "@asm/protocols/contracts";
 import {
@@ -26,6 +27,7 @@ import {
   externalNetworkPostRecommended,
   externalNetworkInterestScore,
 } from "@/lib/posts/network-content-policy";
+import { uniqueFeedContent } from "@/lib/posts/unique-feed-content";
 import { blueskyMediaIsExplicit } from "@/lib/protocols/content-labels";
 import {
   cachedDiscoveryHead,
@@ -292,7 +294,15 @@ export function GET(request: Request) {
     );
     stopFeatures();
     const stopFiltering = timing.start("filtering");
-    const filtered = filterExternalRecommendations(candidates, excluded).filter(
+    const safetyChecked = includeExplicit
+      ? candidates
+      : await timing.measure("safety", () =>
+          filterExternalMediaSafety(candidates)
+        );
+    const filtered = filterExternalRecommendations(
+      safetyChecked,
+      excluded
+    ).filter(
       (post) =>
         ((!coldStart && mode.data !== "trending") ||
           isExternalTrendingPost(post)) &&
@@ -347,7 +357,11 @@ export function GET(request: Request) {
         (post) => externalNetworkInterestScore(post, exploreSeeds) > 0
       );
     }
-    items = items.slice(0, 50);
+    items = uniqueFeedContent(
+      items,
+      (post) => post.text,
+      (post) => post.quote?.id ?? post.replyRoot ?? ""
+    ).slice(0, 50);
     stopRanking();
     after(async () => {
       await Promise.all(

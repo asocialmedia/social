@@ -22,11 +22,15 @@ import {
 import { MEDIA_PIPELINE_VERSION } from "@asm/media";
 import { Worker } from "bullmq";
 
-import { transcriptionComplete } from "../analyze/checkpoints";
+import {
+  transcriptionComplete,
+  rasterRetryEligible,
+} from "../analyze/checkpoints";
 import { SEMANTIC_CLASSIFICATION_VERSION } from "../analyze/semantic-version";
 import { resolveWorkerMediaLimits, workerEnv } from "../env";
 import { mediaLogger } from "../log";
 import { getS3 } from "../s3";
+import { prepareLegacyWebpRepair } from "../transcode/legacy-webp";
 
 const SWEEP_BATCH = Number(process.env.MEDIA_BACKFILL_BATCH ?? 50);
 const GC_BATCH = Number(process.env.MEDIA_LEGACY_GC_BATCH ?? 200);
@@ -511,6 +515,51 @@ export async function storageIntegritySweep(): Promise<{
         );
         continue;
       }
+      if (servedAlive && servedKey.endsWith(".webp")) {
+        const source = getS3().file(servedKey);
+        const header = Buffer.from(await source.slice(0, 12).arrayBuffer());
+        if (
+          header.toString("ascii", 0, 4) === "RIFF" &&
+          header.toString("ascii", 8, 12) !== "WEBP"
+        ) {
+          const stat = await source.stat();
+          if (stat.size <= 50 * 1024 * 1024) {
+            const repair = await prepareLegacyWebpRepair(
+              Buffer.from(await source.arrayBuffer()),
+              row.id
+            );
+            if (repair) {
+              await getS3()
+                .file(repair.key)
+                .write(repair.bytes, { type: "image/webp" });
+              const updated = await prisma.orm.public.PostMedia.where({
+                id: row.id,
+                key: row.key,
+                publishedKey: row.publishedKey,
+                status: "READY",
+              }).updateAndCount({
+                key: repair.key,
+                publishedKey: repair.key,
+                sha256: repair.hash,
+                size: repair.bytes.length,
+              });
+              if (updated > 0) {
+                await enqueueMediaProcess(row.id, {
+                  jobIdSuffix: `legacy-webp-${Date.now()}`,
+                });
+                await enqueueMediaAnalyze(row.id, { semanticRefresh: true });
+                healed += 1;
+                repointed += 1;
+                mediaLogger.info(
+                  { mediaId: row.id },
+                  "storage-integrity repaired a validated legacy WebP header and retained its damaged source"
+                );
+              }
+              continue;
+            }
+          }
+        }
+      }
       if (!servedAlive && goneKeys.length > 0) {
         // The object the route serves is gone. Before writing the row off, look
         // for ANY copy of the bytes a rescan could still promote.
@@ -962,7 +1011,7 @@ export async function semanticClassificationBackfillSweep(): Promise<{
           : null;
       return (
         metadata?.semanticClassificationVersion !==
-        SEMANTIC_CLASSIFICATION_VERSION
+          SEMANTIC_CLASSIFICATION_VERSION && rasterRetryEligible(metadata)
       );
     })
     .slice(0, SWEEP_BATCH);

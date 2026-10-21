@@ -2,6 +2,7 @@ import { afterEach, expect, mock, test } from "bun:test";
 
 mock.module("server-only", () => ({}));
 mock.module("@asm/db", () => ({
+  filterExternalMediaSafety: <T>(posts: T[]) => Promise.resolve(posts),
   readNetworkPreferences: () => Promise.resolve(null),
 }));
 mock.module("@/lib/auth/session", () => ({

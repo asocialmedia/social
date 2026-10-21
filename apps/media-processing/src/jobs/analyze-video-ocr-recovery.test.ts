@@ -173,13 +173,19 @@ test("video OCR resumes after a partial quota failure without paying for the com
     Object.assign(row.techMetadata, { semanticClassificationVersion: "old" });
     await processMediaAnalyze({ mediaId: row.id, semanticRefresh: true });
     expect(row.semanticTags).toEqual([]);
-    // An undecodable image must exhaust bounded queue retries rather than defer forever as provider work.
+    // Unchanged corrupt sources stop repeated queue retries and scheduled backfills.
     row._type = "IMAGE";
     Object.assign(row.techMetadata, { semanticClassificationVersion: "old" });
     await Bun.write(sourcePath, "corrupt image bytes");
     await expect(
       processMediaAnalyze({ mediaId: row.id, semanticRefresh: true })
-    ).rejects.toMatchObject({ name: "AnalysisRasterError" });
+    ).rejects.toMatchObject({ name: "UnrecoverableError" });
+    expect(stages.raster).toMatchObject({ status: "unavailable" });
+    const beforeRetry = downloads;
+    await expect(
+      processMediaAnalyze({ mediaId: row.id, semanticRefresh: true })
+    ).resolves.toEqual({ outcome: "skipped" });
+    expect(downloads).toBe(beforeRetry);
     expect(row.status).toBe("READY");
   } finally {
     await rm(directory, { force: true, recursive: true });

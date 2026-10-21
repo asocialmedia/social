@@ -48,6 +48,7 @@ mock.module("@/lib/auth/session", () => ({
 mock.module("@asm/db", () => ({
   externalFollowAuthors: () => Promise.resolve([]),
   externalPostStates: () => Promise.resolve(new Map()),
+  filterExternalMediaSafety: (posts: ExternalPost[]) => Promise.resolve(posts),
   getClientIpFromHeaders: () => "127.0.0.1",
   getNetworkPersona: persona,
   getTrustedIngressIp: () => "127.0.0.1",
