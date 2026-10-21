@@ -58,6 +58,10 @@ import {
   prependPostsToFeedCache,
 } from "@/lib/posts/feed-cache";
 import {
+  consumeFeedTop,
+  subscribeFeedTopRequests,
+} from "@/lib/posts/feed-top-request";
+import {
   advanceGustPaging,
   gustPagingDelay,
   gustPagingState,
@@ -180,21 +184,6 @@ const GustStream = ({ gustTab }: { gustTab: GustFeed }) => {
   const gatedPersonalized =
     gustTab !== "latest" && !initialPostId && !isLoggedIn;
 
-  const handleTabChange = useCallback(
-    (value: GustFeed) => {
-      const nextParams = new URLSearchParams(searchParams.toString());
-      nextParams.delete("id");
-      nextParams.set("tab", value);
-      const query = nextParams.toString();
-      window.history.pushState(
-        null,
-        "",
-        query ? `${pathname}?${query}` : pathname
-      );
-    },
-    [pathname, searchParams]
-  );
-
   const [activeIndex, setActiveIndex] = useState(0);
   const [headerVisible, setHeaderVisible] = useState(true);
   const headerScroll = useRef({ anchor: 0, visible: true });
@@ -258,6 +247,42 @@ const GustStream = ({ gustTab }: { gustTab: GustFeed }) => {
 
   const containerRef = useRef<HTMLDivElement>(null);
   const itemRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const scrollToFeedTop = useCallback(() => {
+    containerRef.current?.scrollTo({
+      behavior: reducedMotion ? "auto" : "smooth",
+      top: 0,
+    });
+    setHeaderVisible(true);
+  }, [reducedMotion]);
+  useEffect(
+    () =>
+      subscribeFeedTopRequests(() => {
+        if (consumeFeedTop(`gusts:${gustTab}`)) {
+          scrollToFeedTop();
+        }
+      }),
+    [gustTab, scrollToFeedTop]
+  );
+
+  const handleTabChange = useCallback(
+    (value: GustFeed) => {
+      if (value === gustTab && !initialPostId) {
+        scrollToFeedTop();
+        return;
+      }
+      const nextParams = new URLSearchParams(searchParams.toString());
+      nextParams.delete("id");
+      nextParams.set("tab", value);
+      const query = nextParams.toString();
+      window.history.pushState(
+        null,
+        "",
+        query ? `${pathname}?${query}` : pathname
+      );
+    },
+    [gustTab, initialPostId, pathname, scrollToFeedTop, searchParams]
+  );
+
   // The app-wide infinite-scroll pattern (same hook the feeds use): a bottom
   // sentinel flips inView when it enters the viewport, which paginates even
   // when the list is too short to scroll.

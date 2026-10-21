@@ -38,6 +38,7 @@ import { useFeedScrollMemory } from "@/hooks/feed/use-feed-scroll-memory";
 import { useFeedSwipeNavigation } from "@/hooks/feed/use-feed-swipe-navigation";
 import { useFeedTabSelection } from "@/hooks/feed/use-feed-tab-selection";
 import { useHideOnScroll } from "@/hooks/use-hide-on-scroll";
+import { requestFeedTop } from "@/lib/posts/feed-top-request";
 import { useFeedSourceStore } from "@/store/feed-source-store";
 import {
   HOME_TABS,
@@ -95,6 +96,7 @@ const ClientHome: React.FC<ClientHomeProps> = () => {
       const nextParams = new URLSearchParams(window.location.search);
       const currentTab = nextParams.get("tab");
       if (value === (isTabValue(HOME_TABS, currentTab) ? currentTab : tab)) {
+        requestFeedTop(`home:${value}`);
         return;
       }
       selectTab(value);
@@ -167,6 +169,7 @@ const ClientHome: React.FC<ClientHomeProps> = () => {
                   active={tab === "personalized"}
                   layoutId="home-tab-indicator"
                   value="personalized"
+                  onReselect={() => handleTabChange("personalized")}
                 >
                   For you
                 </AnimatedTabTrigger>
@@ -174,6 +177,7 @@ const ClientHome: React.FC<ClientHomeProps> = () => {
                   active={tab === "latest"}
                   layoutId="home-tab-indicator"
                   value="latest"
+                  onReselect={() => handleTabChange("latest")}
                 >
                   Latest
                 </AnimatedTabTrigger>
@@ -181,6 +185,7 @@ const ClientHome: React.FC<ClientHomeProps> = () => {
                   active={tab === "trending"}
                   layoutId="home-tab-indicator"
                   value="trending"
+                  onReselect={() => handleTabChange("trending")}
                 >
                   Trending
                 </AnimatedTabTrigger>
@@ -188,6 +193,7 @@ const ClientHome: React.FC<ClientHomeProps> = () => {
                   active={tab === "following"}
                   layoutId="home-tab-indicator"
                   value="following"
+                  onReselect={() => handleTabChange("following")}
                 >
                   Following
                 </AnimatedTabTrigger>

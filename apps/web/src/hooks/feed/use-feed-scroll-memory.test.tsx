@@ -4,6 +4,10 @@ import { Window } from "happy-dom";
 import { act, useRef } from "react";
 import { createRoot } from "react-dom/client";
 
+import {
+  clearFeedTopRequest,
+  requestFeedTop,
+} from "@/lib/posts/feed-top-request";
 import { useFeedPositionStore } from "@/store/feed-position-store";
 
 import { useFeedScrollMemory } from "./use-feed-scroll-memory";
@@ -34,6 +38,7 @@ for (const [key, value] of Object.entries({
 
 const cleanups: (() => Promise<void>)[] = [];
 beforeEach(async () => {
+  clearFeedTopRequest();
   await useFeedPositionStore.persist.rehydrate();
   useFeedPositionStore.getState().resetFeedPositions();
   frames.clear();
@@ -178,4 +183,21 @@ test("user input takes over from a pending restore instead of fighting the reade
   await feed.scroll(400);
   await feed.flushFrames();
   expect(feed.container()?.scrollTop).toBe(400);
+});
+
+test("reselecting the visible source-scoped tab cancels restoration and scrolls its own container", async () => {
+  const key = "home:latest:bluesky:en";
+  useFeedPositionStore.getState().saveFeedPosition(key, {
+    anchorOffset: 0,
+    anchorPostId: null,
+    scrollTop: 1600,
+    updatedAt: Date.now(),
+  });
+  const feed = createFeed();
+  await feed.render(key);
+  expect(feed.container()?.scrollTop).toBe(1600);
+  await act(() => requestFeedTop("home:latest"));
+  expect(feed.container()?.scrollTop).toBe(0);
+  await feed.flushFrames();
+  expect(feed.container()?.scrollTop).toBe(0);
 });

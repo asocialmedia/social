@@ -43,6 +43,7 @@ import { useBookmarkCount } from "@/hooks/posts/use-bookmark-count";
 import { useOpenComposer } from "@/hooks/use-open-composer";
 import { useUserDataQuery } from "@/hooks/users/use-user-data-query";
 import { useUnreadMessageCount } from "@/lib/messages/use-unread-messages";
+import { reselectFeedNavigation } from "@/lib/posts/feed-navigation";
 import { cn, isRouteActive } from "@/lib/utils";
 import { useActiveCommunityStore } from "@/store/active-community-store";
 import { useSidebarStore } from "@/store/sidebar-store";
@@ -293,7 +294,12 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({ userData }) => {
     }
 
     return (
-      <Link className={className} href={href} key={href}>
+      <Link
+        className={className}
+        href={href}
+        onNavigate={(event) => reselectFeedNavigation(href, pathname, event)}
+        key={href}
+      >
         {inner}
       </Link>
     );
@@ -342,7 +348,12 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({ userData }) => {
           {icon}
         </button>
       ) : (
-        <Link aria-label={label} className={className} href={href}>
+        <Link
+          aria-label={label}
+          className={className}
+          href={href}
+          onNavigate={(event) => reselectFeedNavigation(href, pathname, event)}
+        >
           {icon}
         </Link>
       );
