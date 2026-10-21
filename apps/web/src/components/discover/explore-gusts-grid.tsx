@@ -20,11 +20,13 @@ import { useRequireAuth } from "@/hooks/auth/use-require-auth";
 import { useNetworkSettings } from "@/hooks/feed/use-network-settings";
 import { getAuraFlameClass } from "@/lib/aura/aura";
 import kyInstance from "@/lib/ky";
+import { canAutoContinueFeed } from "@/lib/posts/feed-pagination";
 import { networkPostRecommended } from "@/lib/posts/network-content-policy";
 import { mixExplorePosts } from "@/lib/recommendations/mix-explore";
 import { cn, formatNumber } from "@/lib/utils";
 import { getMediaProxyUrl } from "@/lib/utils/image-url";
 
+import { ExploreGustsSkeleton } from "./explore-gusts-skeleton";
 import { ExploreMasonry } from "./explore-masonry";
 import { ExploreNetworkPost } from "./explore-network-cards";
 
@@ -100,16 +102,7 @@ const ExploreGustTile = ({ post }: { post: PostData }) => {
 
   return (
     <Link
-      className="group relative block w-full overflow-hidden rounded-2xl bg-neutral-900 shadow-xs transition-all duration-300 hover:-translate-y-1 hover:shadow-xl"
-      style={{
-        aspectRatio:
-          videoMedia.width && videoMedia.height
-            ? Math.max(
-                0.55,
-                Math.min(1.4, videoMedia.width / videoMedia.height)
-              )
-            : 9 / 16,
-      }}
+      className="group relative block aspect-9/16 w-full overflow-hidden rounded-2xl bg-neutral-900 shadow-xs transition-all duration-300 hover:-translate-y-1 hover:shadow-xl"
       href={`/gusts?id=${post.id}`}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
@@ -278,14 +271,28 @@ export const ExploreGustsGrid: React.FC = () => {
     () => mixExplorePosts(posts, externalPosts),
     [posts, externalPosts]
   );
-  const handleBottomReached = useCallback(() => {
-    if (hasNextPage && !isFetching) {
-      fetchNextPage();
-    }
-    if (remote.hasNextPage && !remote.isFetching) {
-      void remote.fetchNextPage();
-    }
-  }, [fetchNextPage, hasNextPage, isFetching, remote]);
+  const handleBottomReached = useCallback(
+    (manual = false) => {
+      if (
+        hasNextPage &&
+        !isFetching &&
+        (manual || status !== "error") &&
+        (manual || canAutoContinueFeed(data?.pages, (page) => page.posts))
+      ) {
+        void fetchNextPage({ cancelRefetch: false });
+      }
+      if (
+        remote.hasNextPage &&
+        !remote.isFetching &&
+        (manual || !remote.isError) &&
+        (manual ||
+          canAutoContinueFeed(remote.data?.pages, (page) => page.items))
+      ) {
+        void remote.fetchNextPage({ cancelRefetch: false });
+      }
+    },
+    [fetchNextPage, hasNextPage, isFetching, remote, status, data?.pages]
+  );
 
   const handleCreateGust = useCallback(() => {
     if (!user) {
@@ -295,21 +302,23 @@ export const ExploreGustsGrid: React.FC = () => {
     window.location.href = "/gusts?create=true";
   }, [goToLogin, user]);
 
-  if ((status === "pending" || remote.isPending) && !mixed.length) {
+  if (!network.ready && network.isError) {
     return (
-      <div className="grid grid-cols-2 gap-3 p-4 sm:grid-cols-3 md:grid-cols-4 md:gap-4">
-        {Array.from({ length: 8 }).map((_, i) => (
-          <div
-            className="bg-muted/40 aspect-9/16 w-full animate-pulse rounded-2xl"
-            // eslint-disable-next-line react/no-array-index-key -- skeleton placeholders
-            key={i}
-          />
-        ))}
-      </div>
+      <FeedErrorState
+        message="We couldn’t load your feed preferences. Please try again."
+        onRetry={() => {
+          void network.refetch();
+        }}
+        isRetrying={network.isFetching}
+      />
     );
   }
 
-  if (status === "error" && !mixed.length) {
+  if ((status === "pending" || remote.isPending) && !mixed.length) {
+    return <ExploreGustsSkeleton count={8} />;
+  }
+
+  if ((status === "error" || remote.isError) && !mixed.length) {
     return (
       <FeedErrorState
         message="Couldn’t load Gusts right now. Please try again."
@@ -383,26 +392,37 @@ export const ExploreGustsGrid: React.FC = () => {
             )}
           </ExploreMasonry>
         </div>
-        {remote.isError ? (
-          <div className="flex justify-center p-4">
-            <Button
-              variant="premium"
-              onClick={() => {
-                void remote.refetch();
-              }}
-            >
-              Retry Bluesky videos
-            </Button>
-          </div>
+        {remote.isError || status === "error" ? (
+          <FeedErrorState
+            compact
+            message="Some Gusts couldn’t load. Please try again in a moment."
+            onRetry={() => {
+              if (remote.isError) {
+                if (remote.hasNextPage) {
+                  void remote.fetchNextPage({ cancelRefetch: false });
+                } else {
+                  void remote.refetch();
+                }
+              }
+              if (status === "error") {
+                void refetch();
+              }
+            }}
+            isRetrying={isFetching || remote.isFetching}
+          />
         ) : null}
         {isFetchingNextPage || remote.isFetching ? (
-          <div className="grid grid-cols-2 gap-3 p-4 sm:grid-cols-3 md:grid-cols-4">
-            {[0, 1, 2, 3].map((index) => (
-              <div
-                key={`gust-loading-${index}`}
-                className="bg-muted/40 aspect-9/16 animate-pulse rounded-2xl"
-              />
-            ))}
+          <ExploreGustsSkeleton count={4} />
+        ) : null}
+        {(hasNextPage || remote.hasNextPage) &&
+        !isFetching &&
+        !remote.isFetching &&
+        !remote.isError &&
+        status !== "error" ? (
+          <div className="flex justify-center p-4">
+            <Button variant="premium" onClick={() => handleBottomReached(true)}>
+              Load more Gusts
+            </Button>
           </div>
         ) : null}
       </InfiniteScrollContainer>

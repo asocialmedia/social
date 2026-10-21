@@ -245,3 +245,26 @@ test("mixed sources stage a page-sized arrival until both peers finish, then int
     "next-1",
   ]);
 });
+
+test("a slow or continually paging peer cannot keep successfully loaded posts staged forever", async () => {
+  const feed = createFeed();
+  const native = Array.from({ length: 6 }, (_, index) =>
+    post(`healthy-${index}`)
+  );
+  await feed.render(native, ["post-feed", "bounded-stage"], false, {
+    source: "all",
+    sourcesPending: true,
+  });
+  expect(feed.ids()).toHaveLength(1);
+  await act(async () => {
+    await Bun.sleep(650);
+  });
+  expect(feed.ids()).toEqual(native.map((item) => item.id));
+  await feed.render(
+    [...native, post("next-page")],
+    ["post-feed", "bounded-stage"],
+    false,
+    { source: "all", sourcesPending: true }
+  );
+  expect(feed.ids()).toContain("next-page");
+});

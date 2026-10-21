@@ -7,11 +7,13 @@ export function FeedErrorState({
   onRetry,
   isRetrying = false,
   compact = false,
+  retryLabel = "Try again",
 }: {
   message: string;
   onRetry: () => void;
   isRetrying?: boolean;
   compact?: boolean;
+  retryLabel?: string;
 }) {
   return (
     <div
@@ -41,7 +43,7 @@ export function FeedErrorState({
         type="button"
         variant="premium"
       >
-        Try again
+        {isRetrying ? "Trying again…" : retryLabel}
       </Button>
     </div>
   );

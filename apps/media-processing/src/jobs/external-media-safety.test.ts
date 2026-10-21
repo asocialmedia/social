@@ -96,3 +96,77 @@ test("private hosts, credentials, non-image routes and stale jobs never trigger 
   });
   expect(reads).toBe(0);
 });
+
+test("Bluesky video thumbnails follow only validated image redirects and then receive a real assessment", async () => {
+  const urls: string[] = [];
+  const destination =
+    "https://video.cdn.bsky.app/hls/did:plc:artist/cid/thumbnail.jpg";
+  globalThis.fetch = Object.assign(
+    mock((url: string | URL | Request, init?: RequestInit) => {
+      urls.push(String(url));
+      expect(init?.redirect).toBe("manual");
+      return Promise.resolve(
+        urls.length === 1
+          ? new Response(null, {
+              headers: { location: destination },
+              status: 302,
+            })
+          : new Response(jpeg)
+      );
+    }),
+    { preconnect: originalFetch.preconnect }
+  );
+  await processExternalMediaSafety({
+    ...input,
+    images: [
+      "https://video.bsky.app/watch/did%3Aplc%3Aartist/cid/thumbnail.jpg",
+    ],
+  });
+  expect(urls).toHaveLength(2);
+  expect(urls[1]).toBe(destination);
+  expect(values.get(input.key)).toBe("safe");
+});
+
+test.each([
+  "http://127.0.0.1/thumbnail.jpg",
+  "https://video.cdn.bsky.app.evil.test/hls/a/b/thumbnail.jpg",
+  "https://video.cdn.bsky.app/hls/a/b/playlist.m3u8",
+])(
+  "unsafe redirect destinations never receive a request or publish a safe verdict: %s",
+  async (location) => {
+    globalThis.fetch = Object.assign(
+      mock(() => {
+        reads += 1;
+        return Promise.resolve(
+          new Response(null, { headers: { location }, status: 302 })
+        );
+      }),
+      { preconnect: originalFetch.preconnect }
+    );
+    await expect(processExternalMediaSafety(input)).rejects.toThrow(
+      "Unsupported"
+    );
+    expect(reads).toBe(1);
+    expect(values.has(input.key)).toBe(false);
+  }
+);
+
+test("a redirect loop stops after a bounded number of validated hops", async () => {
+  globalThis.fetch = Object.assign(
+    mock(() => {
+      reads += 1;
+      return Promise.resolve(
+        new Response(null, {
+          headers: { location: input.images[0] },
+          status: 302,
+        })
+      );
+    }),
+    { preconnect: originalFetch.preconnect }
+  );
+  await expect(processExternalMediaSafety(input)).rejects.toThrow(
+    "unavailable"
+  );
+  expect(reads).toBe(4);
+  expect(values.has(input.key)).toBe(false);
+});

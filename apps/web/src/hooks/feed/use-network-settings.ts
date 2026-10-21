@@ -31,10 +31,15 @@ const GUEST: NetworkSettings = {
   revision: 0,
 };
 
-async function readSettings(): Promise<NetworkSettings> {
+async function readSettings({
+  signal,
+}: {
+  signal: AbortSignal;
+}): Promise<NetworkSettings> {
   const response = await fetch("/api/network/preferences", {
     cache: "no-store",
     credentials: "include",
+    signal: AbortSignal.any([signal, AbortSignal.timeout(10_000)]),
   });
   if (!response.ok) {
     throw new Error("Couldn't load network preferences");

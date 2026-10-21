@@ -150,6 +150,7 @@ test.skipIf(!redisUrl)(
     }
     const redis = new Redis(redisUrl, { maxRetriesPerRequest: 1 });
     const scope = `protocol-hydration-test-${crypto.randomUUID()}`;
+    await redis.ping();
     const nodes = ["remote"];
     const primary = createIngestionQueue({
       allowedNodes: nodes,

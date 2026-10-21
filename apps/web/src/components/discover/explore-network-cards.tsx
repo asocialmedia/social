@@ -80,11 +80,7 @@ export function ExploreNetworkPost({
     ? `/gusts?id=${encodeURIComponent(post.id)}`
     : `/network/bluesky?uri=${encodeURIComponent(post.id)}`;
   let aspectRatio = "4 / 5";
-  if (gust && media?.width && media.height) {
-    aspectRatio = String(
-      Math.max(0.55, Math.min(1.4, media.width / media.height))
-    );
-  } else if (gust) {
+  if (gust) {
     aspectRatio = "9 / 16";
   } else if (media?.width && media.height) {
     aspectRatio = `${media.width} / ${media.height}`;

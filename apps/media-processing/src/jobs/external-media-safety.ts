@@ -24,7 +24,9 @@ export function externalSafetyImageUrl(raw: string): URL {
         url.pathname
       )) ||
     (url.hostname === "video.bsky.app" &&
-      /^\/watch\/[^/]+\/[^/]+\/thumbnail.jpg$/u.test(url.pathname));
+      /^\/watch\/[^/]+\/[^/]+\/thumbnail\.jpg$/u.test(url.pathname)) ||
+    (url.hostname === "video.cdn.bsky.app" &&
+      /^\/hls\/[^/]+\/[^/]+\/thumbnail\.jpg$/u.test(url.pathname));
   if (
     url.protocol !== "https:" ||
     !supported ||
@@ -39,10 +41,23 @@ export function externalSafetyImageUrl(raw: string): URL {
 }
 
 async function downloadImage(raw: string, output: string) {
-  const response = await fetch(externalSafetyImageUrl(raw), {
-    redirect: "error",
-    signal: AbortSignal.timeout(8000),
-  });
+  const signal = AbortSignal.timeout(8000);
+  let url = externalSafetyImageUrl(raw);
+  let response = await fetch(url, { redirect: "manual", signal });
+  for (
+    let hop = 0;
+    hop < 3 && response.status >= 300 && response.status < 400;
+    hop += 1
+  ) {
+    const location = response.headers.get("location");
+    await response.body?.cancel();
+    if (!location) {
+      throw new Error("External safety image redirect has no destination");
+    }
+    url = externalSafetyImageUrl(new URL(location, url).href);
+    // oxlint-disable-next-line no-await-in-loop -- validate every redirect before connecting to its destination.
+    response = await fetch(url, { redirect: "manual", signal });
+  }
   if (
     !response.ok ||
     Number(response.headers.get("content-length")) > 2 * 1024 * 1024

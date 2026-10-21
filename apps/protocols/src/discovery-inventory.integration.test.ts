@@ -172,6 +172,11 @@ test("slow continuation sources preserve local arrivals and their retry position
   const first = inventoryPost(700, "outage-continuation");
   const arrival = inventoryPost(701, "outage-continuation");
   const recovered = inventoryPost(702, "outage-continuation");
+  const stalled = Promise.withResolvers<{
+    cursor: null;
+    items: (typeof first)[];
+    partial: false;
+  }>();
   await store.put([first], Date.now());
   let healthy = false;
   const inventory = new DiscoveryInventory(
@@ -184,8 +189,7 @@ test("slow continuation sources preserve local arrivals and their retry position
             items: [first, arrival, recovered],
             partial: false,
           })
-        : // oxlint-disable-next-line promise/avoid-new -- a never-settling upstream exercises the foreground deadline.
-          new Promise(() => {}),
+        : stalled.promise,
     false,
     20
   );
@@ -208,6 +212,8 @@ test("slow continuation sources preserve local arrivals and their retry position
   expect(during?.partial).toBe(true);
   expect(during?.cursor).toBeTruthy();
   healthy = true;
+  stalled.reject(new Error("source unavailable"));
+  await Bun.sleep(0);
   const after = await inventory.read(
     "personalized",
     during?.cursor ?? undefined,
