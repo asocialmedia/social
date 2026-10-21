@@ -29,6 +29,7 @@ export type { InventoryStore } from "./discovery-inventory-store";
 const continuationSchema = z.object({
   scope: z.string(),
   seen: z.array(z.string().max(2300)).max(2000),
+  sourceChain: z.string().optional(),
   sourceCursor: z.string().optional(),
   sourceStarted: z.boolean().default(false),
 });
@@ -77,6 +78,7 @@ export class DiscoveryInventory {
     let seen: string[] = [];
     let sourceCursor: string | undefined;
     let sourceStarted = false;
+    let sourceChain: string = crypto.randomUUID();
     if (cursor) {
       const raw = await this.continuations.get(`inventory:${cursor}`);
       if (!raw) {
@@ -87,6 +89,18 @@ export class DiscoveryInventory {
         return null;
       }
       ({ seen, sourceCursor, sourceStarted } = saved);
+      sourceChain = saved.sourceChain ?? cursor;
+    }
+    const refillKey = (position: string | undefined) =>
+      `inventory-refill:${scope}:${sourceChain}:${position ?? "head"}`;
+    if (cursor && (!sourceStarted || sourceCursor)) {
+      const completed = await this.continuations.get(refillKey(sourceCursor));
+      if (completed) {
+        const saved = continuationSchema.parse(JSON.parse(completed));
+        if (saved.scope === scope) {
+          ({ sourceCursor, sourceStarted } = saved);
+        }
+      }
     }
     const now = Date.now();
     const known = new Set(seen);
@@ -136,16 +150,27 @@ export class DiscoveryInventory {
       if (!this.replenishing.has(key) && this.replenishing.size < 8) {
         this.replenishing.add(key);
         const startedAt = Date.now();
+        const position = sourceCursor;
         void (async () => {
           try {
             const page = await readSource(
               mode,
-              sourceCursor,
+              position,
               locale,
               topics,
               content
             );
             await this.store.put(page.items, startedAt);
+            await this.continuations.set(
+              refillKey(position),
+              JSON.stringify({
+                scope,
+                seen: [],
+                sourceCursor: page.cursor ?? undefined,
+                sourceStarted: true,
+              }),
+              900_000
+            );
           } catch {
             // A failed background refill leaves existing verified arrivals and the cursor usable.
           } finally {
@@ -226,6 +251,7 @@ export class DiscoveryInventory {
         JSON.stringify({
           scope,
           seen: [...seen, ...selected.map((post) => post.id)].slice(-2000),
+          sourceChain,
           sourceCursor,
           sourceStarted,
         }),

@@ -5,15 +5,35 @@ import type { ExternalPost } from "@asm/protocols/contracts";
 const values = new Map<string, string>();
 const jobs: unknown[] = [];
 let unavailable = false;
+let claimGate: Promise<undefined> | undefined;
+let addGate: Promise<undefined> | undefined;
+let addFails = false;
+let claimFailsAfterSet = false;
 mock.module("./redis", () => ({
   redis: {
     del: (key: string) => Promise.resolve(Number(values.delete(key))),
-    eval: (_script: string, _count: number, key: string) => {
-      if (values.has(key)) {
-        return Promise.resolve(0);
+    eval: async (
+      _script: string,
+      count: number,
+      key: string,
+      ...args: string[]
+    ) => {
+      if (count === 1) {
+        if (values.get(key) === args[0]) {
+          values.delete(key);
+          return 1;
+        }
+        return 0;
       }
-      values.set(key, "1");
-      return Promise.resolve(1);
+      await claimGate;
+      if (values.has(key)) {
+        return 0;
+      }
+      values.set(key, args[1]);
+      if (claimFailsAfterSet) {
+        throw new Error("claim acknowledgement lost");
+      }
+      return 1;
     },
     mget: (...keys: string[]) =>
       unavailable
@@ -23,9 +43,12 @@ mock.module("./redis", () => ({
 }));
 mock.module("../queue", () => ({
   getQueue: () => ({
-    add: (_name: string, input: unknown) => {
+    add: async (_name: string, input: unknown) => {
+      await addGate;
+      if (addFails) {
+        throw new Error("queue offline");
+      }
       jobs.push(input);
-      return Promise.resolve();
     },
     getWaitingCount: () => Promise.resolve(0),
   }),
@@ -69,6 +92,10 @@ beforeEach(() => {
   values.clear();
   jobs.length = 0;
   unavailable = false;
+  claimGate = undefined;
+  addGate = undefined;
+  addFails = false;
+  claimFailsAfterSet = false;
 });
 
 test("unlabelled media is withheld and queued once; only an explicit safe verdict releases it", async () => {
@@ -97,4 +124,50 @@ test("changed image references cannot reuse an earlier safe verdict", async () =
   values.set(externalMediaSafetyInput(image).key, "safe");
   const edited = { ...image, media: post("replacement").media };
   expect(await filterExternalMediaSafety([edited])).toEqual([]);
+});
+
+test("a late claim after admission timeout is released without queuing stale work", async () => {
+  const image = post("late-claim");
+  const claim = Promise.withResolvers<undefined>();
+  claimGate = claim.promise;
+  expect(await filterExternalMediaSafety([image])).toEqual([]);
+  claim.resolve();
+  await Bun.sleep(0);
+  expect(values.has(`${externalMediaSafetyInput(image).key}:queued`)).toBe(
+    false
+  );
+  expect(jobs).toHaveLength(0);
+  claimGate = undefined;
+  await filterExternalMediaSafety([image]);
+  expect(jobs).toHaveLength(1);
+});
+
+test("an in-flight queue addition keeps its successful claim and failed additions release it", async () => {
+  const image = post("late-add");
+  const addition = Promise.withResolvers<undefined>();
+  addGate = addition.promise;
+  await filterExternalMediaSafety([image]);
+  addition.resolve();
+  await Bun.sleep(0);
+  expect(values.has(`${externalMediaSafetyInput(image).key}:queued`)).toBe(
+    true
+  );
+  expect(jobs).toHaveLength(1);
+  addGate = undefined;
+  addFails = true;
+  const failed = post("failed-add");
+  await filterExternalMediaSafety([failed]);
+  expect(values.has(`${externalMediaSafetyInput(failed).key}:queued`)).toBe(
+    false
+  );
+});
+
+test("a claim acknowledgement failure releases only this admission's claim", async () => {
+  const image = post("lost-acknowledgement");
+  claimFailsAfterSet = true;
+  await filterExternalMediaSafety([image]);
+  expect(values.has(`${externalMediaSafetyInput(image).key}:queued`)).toBe(
+    false
+  );
+  expect(jobs).toHaveLength(0);
 });

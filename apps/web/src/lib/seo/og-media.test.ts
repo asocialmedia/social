@@ -51,3 +51,24 @@ test("missing, private, malformed and oversized media produce a usable text-only
   }
   expect(await ogMediaDataUrl(null)).toBeNull();
 });
+
+test("social-card loader rejects foreign origins, credentials, and non-media paths before fetching", async () => {
+  let calls = 0;
+  globalThis.fetch = Object.assign(
+    () => {
+      calls += 1;
+      return Promise.resolve(new Response());
+    },
+    { preconnect: originalFetch.preconnect }
+  );
+  for (const url of [
+    "http://127.0.0.1/api/media/id",
+    "https://evil.test/api/media/id",
+    "https://user:pass@asocialmedia.cc/api/media/id",
+    "https://asocialmedia.cc/api/internal/protocols/follows",
+  ]) {
+    // oxlint-disable-next-line no-await-in-loop -- each URL must be rejected before fetch is invoked.
+    expect(await ogMediaDataUrl(url)).toBeNull();
+  }
+  expect(calls).toBe(0);
+});

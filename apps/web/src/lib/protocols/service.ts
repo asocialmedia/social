@@ -34,6 +34,12 @@ async function applyViewerMediaPolicy(url: URL, includeExplicit?: boolean) {
   }
 }
 
+function applyExternalMediaSafety(url: URL, posts: ExternalPost[]) {
+  return url.searchParams.get("explicit") === "1"
+    ? posts
+    : filterExternalMediaSafety(posts);
+}
+
 export async function readBlueskySearch(
   query: string,
   signal: AbortSignal,
@@ -84,10 +90,7 @@ export async function readBlueskySearch(
     .parse(await readJsonBounded(response, 1024 * 1024, bounded));
   return {
     ...result,
-    posts:
-      url.searchParams.get("explicit") === "1"
-        ? result.posts
-        : await filterExternalMediaSafety(result.posts),
+    posts: await applyExternalMediaSafety(url, result.posts),
   };
 }
 
@@ -152,10 +155,7 @@ export async function readBlueskyProfileResource(
     .parse(data);
   return {
     ...page,
-    items:
-      url.searchParams.get("explicit") === "1"
-        ? page.items
-        : await filterExternalMediaSafety(page.items),
+    items: await applyExternalMediaSafety(url, page.items),
   };
 }
 
@@ -288,9 +288,7 @@ export async function readBlueskyPosts(
     .array(externalPostSchema)
     .max(25)
     .parse(await readJsonBounded(response, 2 * 1024 * 1024, boundedSignal));
-  return url.searchParams.get("explicit") === "1"
-    ? posts
-    : await filterExternalMediaSafety(posts);
+  return applyExternalMediaSafety(url, posts);
 }
 
 export async function readBlueskyThread(

@@ -22,7 +22,10 @@ import type {
   TrendingFeed,
   TrendingItem,
 } from "./trending-actions";
-import { filterTrendingForInterests } from "./trending-utils";
+import {
+  filterTrendingForInterests,
+  mergeTrendingFeed,
+} from "./trending-utils";
 
 // The sidebar rail is fixed-width, and a valid username can be 50 characters, so
 // the handle is clipped to a length that keeps the aura figure beside it on one
@@ -175,7 +178,11 @@ const TrendingTopics: React.FC = () => {
   const isLoggedIn = Boolean(user);
   const queryKey = ["trending-feed", "v4", user?.id ?? "guest"];
   const { data, isError, isFetching, isLoading } = useQuery<TrendingFeed>({
-    queryFn: () => getTrendingFeed(false),
+    queryFn: async () =>
+      mergeTrendingFeed(
+        queryClient.getQueryData<TrendingFeed>(queryKey),
+        await getTrendingFeed(false)
+      ),
     queryKey,
     staleTime: 5 * 60 * 1000,
   });
@@ -195,7 +202,10 @@ const TrendingTopics: React.FC = () => {
 
   const refresh = useMutation({
     mutationFn: () => getTrendingFeed(true),
-    onSuccess: (fresh) => queryClient.setQueryData(queryKey, fresh),
+    onSuccess: (fresh) =>
+      queryClient.setQueryData<TrendingFeed>(queryKey, (previous) =>
+        mergeTrendingFeed(previous, fresh)
+      ),
   });
   const refreshing = isFetching || refresh.isPending;
   const failedToLoad = !data && isError;
@@ -247,9 +257,9 @@ const TrendingTopics: React.FC = () => {
           </Button>
         </div>
       ) : null}
-      {data && (isError || refresh.isError) ? (
+      {data && (isError || refresh.isError || data.unavailable.length > 0) ? (
         <output className="text-muted-foreground block px-2.5 py-2 text-xs">
-          Couldn&apos;t refresh. Showing the last loaded topics.
+          Some sources couldn&apos;t refresh. Keeping their last loaded results.
         </output>
       ) : null}
       {!failedToLoad && items.length > 0 ? (

@@ -1,5 +1,5 @@
 import { afterAll, expect, mock, test } from "bun:test";
-import { mkdtemp, readdir, rm } from "node:fs/promises";
+import { mkdtemp, readdir, rm, truncate } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -32,6 +32,9 @@ mock.module("../s3", () => ({
       }
       if (key === "valid") {
         return Bun.file(validPath);
+      }
+      if (key === "oversized") {
+        return Bun.file(path.join(directory, "oversized.riff"));
       }
       if (key === "legacy") {
         return Bun.file(legacyPath);
@@ -79,4 +82,16 @@ test("analysis repairs the exact legacy WebP header without modifying stored byt
   expect(
     Buffer.from(await Bun.file(legacyPath).arrayBuffer()).equals(legacy)
   ).toBe(true);
+});
+
+test("oversized non-WebP RIFF files skip in-memory repair and fall back to a valid image", async () => {
+  const input = path.join(directory, "oversized.riff");
+  await Bun.write(input, "RIFF0000WAVE");
+  await truncate(input, 50 * 1024 * 1024 + 1);
+  const output = path.join(directory, "bounded.jpg");
+  expect(await downloadAnalysisRaster(["oversized", "valid"], output)).toBe(
+    output
+  );
+  const metadata = await sharp(output).metadata();
+  expect(metadata.format).toBe("jpeg");
 });

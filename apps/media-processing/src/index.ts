@@ -355,33 +355,34 @@ if (import.meta.main) {
       if (new URL(request.url).pathname === "/metrics") {
         try {
           const queues = await Promise.all(
-            [MEDIA_SCAN_QUEUE, MEDIA_PROCESS_QUEUE, MEDIA_ANALYZE_QUEUE].map(
-              async (name) => {
-                const queue = getQueue(name);
-                const oldest = await queue.getJobs(
-                  ["wait", "prioritized", "delayed"],
-                  0,
-                  99,
-                  true
-                );
-                return {
-                  counts: await queue.getJobCounts(
-                    "wait",
-                    "prioritized",
-                    "delayed",
-                    "active",
-                    "failed"
-                  ),
-                  name,
-                  pendingSampleSize: oldest.length,
-                  sampledOldestPendingAgeMs: oldest.length
-                    ? Math.max(
-                        ...oldest.map((job) => Date.now() - job.timestamp)
-                      )
-                    : 0,
-                };
-              }
-            )
+            [
+              MEDIA_SCAN_QUEUE,
+              MEDIA_PROCESS_QUEUE,
+              MEDIA_ANALYZE_QUEUE,
+              EXTERNAL_MEDIA_SAFETY_QUEUE,
+            ].map(async (name) => {
+              const queue = getQueue(name);
+              const oldest = await queue.getJobs(
+                ["wait", "prioritized", "delayed"],
+                0,
+                99,
+                true
+              );
+              return {
+                counts: await queue.getJobCounts(
+                  "wait",
+                  "prioritized",
+                  "delayed",
+                  "active",
+                  "failed"
+                ),
+                name,
+                pendingSampleSize: oldest.length,
+                sampledOldestPendingAgeMs: oldest.length
+                  ? Math.max(...oldest.map((job) => Date.now() - job.timestamp))
+                  : 0,
+              };
+            })
           );
           return Response.json({
             coverage: await getMediaAnalysisCoverage(),
@@ -421,7 +422,8 @@ if (import.meta.main) {
             running &&
             scanWorker.isRunning() &&
             processWorker.isRunning() &&
-            analyzeWorker.isRunning();
+            analyzeWorker.isRunning() &&
+            externalSafetyWorker.isRunning();
           return Response.json(
             { status: ready ? "ready" : "not-ready" },
             { status: ready ? 200 : 503 }

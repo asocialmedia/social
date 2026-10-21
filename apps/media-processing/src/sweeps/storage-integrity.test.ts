@@ -323,6 +323,7 @@ mock.module("../s3", () => ({
     file: (key: string) => ({
       arrayBuffer: () =>
         Promise.resolve(Uint8Array.from(state().objects.get(key) ?? []).buffer),
+      exists: () => Promise.resolve(state().present.has(key)),
       slice: (start: number, end: number) => ({
         arrayBuffer: () =>
           Promise.resolve(

@@ -55,3 +55,75 @@ test("verified sparse arrivals return before an unresolved source refill and kee
   }
   pending.resolve({ cursor: null, items: [], partial: false });
 });
+
+test("completed background refills preserve their next source position across inventory instances", async () => {
+  const posts = Array.from({ length: 23 }, (_, index) =>
+    inventoryPost(index, "TypeScript")
+  );
+  const continuations = new MemoryDiscoveryStore();
+  const positions: (string | undefined)[] = [];
+  const source = (_mode: string, position: string | undefined) => {
+    positions.push(position);
+    return Promise.resolve(
+      position === undefined
+        ? {
+            cursor: "next-page",
+            items: [inventoryPost(24, "TypeScript")],
+            partial: false,
+          }
+        : {
+            cursor: null,
+            items: [inventoryPost(25, "TypeScript")],
+            partial: false,
+          }
+    );
+  };
+  const store = {
+    invalidate: () => Promise.resolve(),
+    put: (arrivals: ExternalPost[]) => {
+      posts.push(...arrivals);
+      return Promise.resolve();
+    },
+    read: () => Promise.resolve(posts),
+  };
+  const first = new DiscoveryInventory(store, continuations, source);
+  const head = await first.read(
+    "personalized",
+    undefined,
+    "en",
+    ["TypeScript"],
+    "all"
+  );
+  const sparse = await first.read(
+    "personalized",
+    head?.cursor ?? undefined,
+    "en",
+    ["TypeScript"],
+    "all"
+  );
+  await Bun.sleep(0);
+  const second = new DiscoveryInventory(store, continuations, source);
+  const arrival = await second.read(
+    "personalized",
+    sparse?.cursor ?? undefined,
+    "en",
+    ["TypeScript"],
+    "all"
+  );
+  await Bun.sleep(0);
+  const last = await second.read(
+    "personalized",
+    arrival?.cursor ?? undefined,
+    "en",
+    ["TypeScript"],
+    "all"
+  );
+  expect(positions).toEqual([undefined, "next-page"]);
+  expect(arrival?.items.map((post) => post.id)).toEqual([
+    inventoryPost(24, "TypeScript").id,
+  ]);
+  expect(last?.items.map((post) => post.id)).toEqual([
+    inventoryPost(25, "TypeScript").id,
+  ]);
+  expect(last?.cursor).toBeNull();
+});

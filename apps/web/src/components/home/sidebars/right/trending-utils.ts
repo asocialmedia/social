@@ -6,6 +6,7 @@ import type { NetworkTopicScope } from "@asm/protocols/discovery";
 
 import type {
   TrendingAuraUser,
+  TrendingFeed,
   TrendingBlueskyTopic,
   TrendingHashtag,
   TrendingItem,
@@ -111,4 +112,35 @@ export function weaveTrendingItems(
   }
 
   return result;
+}
+
+function sourceOf(item: TrendingItem) {
+  if (item.type === "hashtag") {
+    return "hashtags";
+  }
+  return item.type === "mention" ? "mentions" : "bluesky";
+}
+
+export function mergeTrendingFeed(
+  previous: TrendingFeed | undefined,
+  fresh: TrendingFeed
+): TrendingFeed {
+  if (!previous || !fresh.unavailable.length) {
+    return fresh;
+  }
+  const retained = previous.items.filter((item) =>
+    fresh.unavailable.includes(sourceOf(item))
+  );
+  const items = [...fresh.items, ...retained];
+  return {
+    ...fresh,
+    items: weaveTrendingItems(
+      items.filter((item) => item.type !== "bluesky_topic"),
+      items.filter((item) => item.type === "bluesky_topic"),
+      30
+    ),
+    topAura: fresh.unavailable.includes("aura")
+      ? previous.topAura
+      : fresh.topAura,
+  };
 }

@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 import type { ExternalPost } from "@asm/protocols/contracts";
 import { abortable } from "@asm/protocols/discovery";
@@ -64,19 +64,31 @@ export async function filterExternalMediaSafety(
         AbortSignal.timeout(250)
       );
       if (waiting < 500) {
+        const admission = AbortSignal.timeout(250);
         await abortable(
           Promise.all(
             pending.slice(0, Math.max(0, 500 - waiting)).map(async (input) => {
-              const claimed = await redis.eval(
-                "if redis.call('EXISTS', KEYS[1]) == 1 then return 0 end local n = tonumber(redis.call('GET', KEYS[2]) or '0') if n >= 500 then return 0 end redis.call('SET', KEYS[1], '1', 'EX', 900) redis.call('INCR', KEYS[2]) redis.call('EXPIRE', KEYS[2], 900) return 1",
-                2,
-                `${input.key}:queued`,
-                `external:media-safety:admission:${Math.floor(Date.now() / 900_000)}`
-              );
-              if (Number(claimed) !== 1) {
-                return;
-              }
+              const claimKey = `${input.key}:queued`;
+              const owner = randomUUID();
+              const release = () =>
+                redis.eval(
+                  "if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) end return 0",
+                  1,
+                  claimKey,
+                  owner
+                );
               try {
+                const claimed = await redis.eval(
+                  "if redis.call('EXISTS', KEYS[1]) == 1 then return 0 end local n = tonumber(redis.call('GET', KEYS[2]) or '0') if n >= 500 then return 0 end redis.call('SET', KEYS[1], ARGV[1], 'EX', 900) redis.call('INCR', KEYS[2]) redis.call('EXPIRE', KEYS[2], 900) return 1",
+                  2,
+                  claimKey,
+                  `external:media-safety:admission:${Math.floor(Date.now() / 900_000)}`,
+                  owner
+                );
+                if (Number(claimed) !== 1) {
+                  return;
+                }
+                admission.throwIfAborted();
                 await queue.add(
                   "assess",
                   { ...input, queuedAt: Date.now() },
@@ -89,11 +101,11 @@ export async function filterExternalMediaSafety(
                   }
                 );
               } catch {
-                await redis.del(`${input.key}:queued`);
+                await release();
               }
             })
           ),
-          AbortSignal.timeout(250)
+          admission
         );
       }
     }

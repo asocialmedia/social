@@ -46,10 +46,14 @@ export async function prepareLegacyWebpRepair(source: Buffer, mediaId: string) {
   }
   const bytes = Buffer.from(source);
   bytes.write("WEBP", 8, "ascii");
-  await sharp(bytes, { limitInputPixels: 100_000_000 })
-    .resize(2048, 2048, { fit: "inside", withoutEnlargement: true })
-    .png()
-    .toBuffer();
+  try {
+    await sharp(bytes, { limitInputPixels: 100_000_000 })
+      .resize(2048, 2048, { fit: "inside", withoutEnlargement: true })
+      .png()
+      .toBuffer();
+  } catch {
+    return null;
+  }
   const hash = createHash("sha256").update(bytes).digest("hex");
   return { bytes, hash, key: publishedKey(mediaId, "webp", hash) };
 }

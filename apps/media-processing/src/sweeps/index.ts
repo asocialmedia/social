@@ -529,9 +529,12 @@ export async function storageIntegritySweep(): Promise<{
               row.id
             );
             if (repair) {
-              await getS3()
-                .file(repair.key)
-                .write(repair.bytes, { type: "image/webp" });
+              const repairedObject = getS3().file(repair.key);
+              if (!(await repairedObject.exists())) {
+                await repairedObject.write(repair.bytes, {
+                  type: "image/webp",
+                });
+              }
               const updated = await prisma.orm.public.PostMedia.where({
                 id: row.id,
                 key: row.key,
@@ -554,8 +557,8 @@ export async function storageIntegritySweep(): Promise<{
                   { mediaId: row.id },
                   "storage-integrity repaired a validated legacy WebP header and retained its damaged source"
                 );
+                continue;
               }
-              continue;
             }
           }
         }

@@ -42,13 +42,14 @@ const persona = mock((_userId: string, requestedProfileId?: string) => {
   });
 });
 const read = mock(() => Promise.resolve(upstream));
+const safety = mock((posts: ExternalPost[]) => Promise.resolve(posts));
 mock.module("@/lib/auth/session", () => ({
   getSessionFromApi: () => Promise.resolve(session),
 }));
 mock.module("@asm/db", () => ({
   externalFollowAuthors: () => Promise.resolve([]),
   externalPostStates: () => Promise.resolve(new Map()),
-  filterExternalMediaSafety: (posts: ExternalPost[]) => Promise.resolve(posts),
+  filterExternalMediaSafety: safety,
   getClientIpFromHeaders: () => "127.0.0.1",
   getNetworkPersona: persona,
   getTrustedIngressIp: () => "127.0.0.1",
@@ -123,6 +124,7 @@ function post(id: string, text: string, video = false): ExternalPost {
 }
 
 beforeEach(() => {
+  safety.mockClear();
   session = { user: { id: "reader" } };
   preferences = {
     ...defaultNetworkPreferences(),
@@ -382,4 +384,22 @@ test("adult opt-in permits labeled media while avoid topics remain enforced", as
   expect(page.items.map((entry: { id: string }) => entry.id)).toEqual([
     adult.id,
   ]);
+});
+
+test("off-topic candidates are removed before visual safety admission", async () => {
+  const response = await GET(
+    new Request(
+      "http://localhost/api/protocols/bluesky/discover?mode=personalized&content=all"
+    )
+  );
+  expect(response.status).toBe(200);
+  const assessed = safety.mock.calls.flatMap(([posts]) =>
+    posts.map((entry) => entry.id)
+  );
+  expect(assessed).toContain(
+    "at://did:plc:fixture/app.bsky.feed.post/software"
+  );
+  expect(assessed).not.toContain(
+    "at://did:plc:fixture/app.bsky.feed.post/politics"
+  );
 });

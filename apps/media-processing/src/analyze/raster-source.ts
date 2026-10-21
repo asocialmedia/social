@@ -36,6 +36,7 @@ export async function downloadAnalysisRaster(
         await Bun.file(inputPath).slice(0, 12).arrayBuffer()
       );
       if (
+        Bun.file(inputPath).size <= 50 * 1024 * 1024 &&
         header.toString("ascii", 0, 4) === "RIFF" &&
         header.toString("ascii", 8, 12) !== "WEBP"
       ) {

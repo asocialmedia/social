@@ -1,3 +1,4 @@
+import { siteConfig } from "@asm/ui/meta/site";
 import sharp from "sharp";
 
 // Resolve public bytes before Satori renders; missing/private assets fall back to a text card.
@@ -9,7 +10,16 @@ export async function ogMediaDataUrl(
   }
   const limit = 5 * 1024 * 1024;
   try {
-    const response = await fetch(url, {
+    const target = new URL(url);
+    if (
+      target.origin !== new URL(siteConfig.url).origin ||
+      target.username ||
+      target.password ||
+      !target.pathname.startsWith("/api/media/")
+    ) {
+      return null;
+    }
+    const response = await fetch(target, {
       redirect: "error",
       signal: AbortSignal.timeout(3000),
     });

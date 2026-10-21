@@ -3,6 +3,7 @@ import { expect, test } from "bun:test";
 import {
   filterTrendingForInterests,
   weaveTrendingItems,
+  mergeTrendingFeed,
 } from "./trending-utils";
 import type { TrendingItem } from "./trending-utils";
 
@@ -57,4 +58,33 @@ test("retains relevant topics beyond the global sidebar cutoff before interest f
   expect(filterTrendingForInterests(candidates, ["anime"], ["anime"])).toEqual(
     []
   );
+});
+
+test("failed Trending sources preserve only their loaded sections; successful empty refreshes clear them", () => {
+  const topic: TrendingItem = {
+    displayName: "Anime",
+    source: "bluesky",
+    topic: "anime",
+    type: "bluesky_topic",
+  };
+  const hashtag: TrendingItem = { count: 2, hashtag: "#art", type: "hashtag" };
+  const previous = { items: [topic, hashtag], topAura: [], unavailable: [] };
+  expect(
+    mergeTrendingFeed(previous, {
+      items: [],
+      topAura: [],
+      unavailable: ["bluesky"],
+    }).items
+  ).toEqual([topic]);
+  expect(
+    mergeTrendingFeed(previous, {
+      items: [],
+      topAura: [],
+      unavailable: ["hashtags", "bluesky", "mentions", "aura"],
+    }).items
+  ).toEqual([hashtag, topic]);
+  expect(
+    mergeTrendingFeed(previous, { items: [], topAura: [], unavailable: [] })
+      .items
+  ).toEqual([]);
 });

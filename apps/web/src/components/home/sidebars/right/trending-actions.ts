@@ -60,6 +60,7 @@ export type TrendingItem =
 export interface TrendingFeed {
   items: TrendingItem[];
   topAura: TrendingAuraUser[];
+  unavailable: ("hashtags" | "mentions" | "bluesky" | "aura")[];
 }
 
 const BLUESKY_TRENDING_KEY = "trending:bluesky:topics:v2";
@@ -132,15 +133,7 @@ export async function fetchBlueskyTrendingTopics(
     return topics;
   } catch (error) {
     console.error("Error fetching Bluesky trending topics:", error);
-    try {
-      const stale = await redis.get(BLUESKY_TRENDING_KEY);
-      if (stale) {
-        return JSON.parse(stale) as TrendingBlueskyTopic[];
-      }
-    } catch {
-      // ignore
-    }
-    return [];
+    throw error;
   }
 }
 
@@ -197,7 +190,7 @@ async function getTopMentionedUsers(): Promise<TrendingMention[]> {
     );
   } catch (error) {
     console.error("Error fetching top mentioned users:", error);
-    return [];
+    throw error;
   }
 }
 
@@ -229,20 +222,38 @@ async function getTopAuraUsers(): Promise<TrendingAuraUser[]> {
     }));
   } catch (error) {
     console.error("Error fetching top aura users:", error);
-    return [];
+    throw error;
   }
 }
 
 export async function getTrendingFeed(
   bypassCache = false
 ): Promise<TrendingFeed> {
-  const [topics, mentions, topAura, blueskyTopics] = await Promise.all([
+  const results = await Promise.allSettled([
     getTrendingTopics(bypassCache),
     getTopMentionedUsers(),
     getTopAuraUsers(),
     fetchBlueskyTrendingTopics(bypassCache),
   ]);
 
+  const [topicResult, mentionResult, auraResult, blueskyResult] = results;
+  const unavailable: TrendingFeed["unavailable"] = [];
+  for (const [index, source] of (
+    ["hashtags", "mentions", "aura", "bluesky"] as const
+  ).entries()) {
+    if (results[index].status === "rejected") {
+      unavailable.push(source);
+    }
+  }
+  if (unavailable.length === results.length) {
+    throw new Error("Trending sources are unavailable");
+  }
+  const topics = topicResult.status === "fulfilled" ? topicResult.value : [];
+  const mentions =
+    mentionResult.status === "fulfilled" ? mentionResult.value : [];
+  const topAura = auraResult.status === "fulfilled" ? auraResult.value : [];
+  const blueskyTopics =
+    blueskyResult.status === "fulfilled" ? blueskyResult.value : [];
   const hashtags: TrendingHashtag[] = topics
     .slice(0, 5)
     .map(({ hashtag, count }) => ({ count, hashtag, type: "hashtag" }));
@@ -255,5 +266,5 @@ export async function getTrendingFeed(
 
   // Top Aura displays the platform's highest aura earners regardless of
   // mentions, ensuring high-standing members are always recognized.
-  return { items, topAura: selectTopAuraUsers(topAura, mentions) };
+  return { items, topAura: selectTopAuraUsers(topAura, mentions), unavailable };
 }

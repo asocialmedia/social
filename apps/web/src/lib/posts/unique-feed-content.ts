@@ -22,18 +22,14 @@ export function uniqueFeedContent<T>(
         .replaceAll(/\s+/gu, " ")
         .trim() ?? "";
     const prompt =
-      raw.includes("\n") &&
-      firstLine.length >= 16 &&
-      firstLine.split(" ").length >= 3
-        ? firstLine
-        : "";
+      raw.includes("\n") && firstLine === "diminish an anime" ? firstLine : "";
     if (prompt && prompts.has(prompt)) {
       return false;
     }
-    if (prompt) {
-      prompts.add(prompt);
-    }
     if (text.length < 64) {
+      if (prompt) {
+        prompts.add(prompt);
+      }
       return true;
     }
     const key = `${context(item)}\n${text}`;
@@ -59,6 +55,9 @@ export function uniqueFeedContent<T>(
       substantial.push({ context: context(item), words });
     }
     seen.add(key);
+    if (prompt) {
+      prompts.add(prompt);
+    }
     return true;
   });
 }

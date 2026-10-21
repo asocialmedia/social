@@ -294,13 +294,8 @@ export function GET(request: Request) {
     );
     stopFeatures();
     const stopFiltering = timing.start("filtering");
-    const safetyChecked = includeExplicit
-      ? candidates
-      : await timing.measure("safety", () =>
-          filterExternalMediaSafety(candidates)
-        );
-    const filtered = filterExternalRecommendations(
-      safetyChecked,
+    const eligibleCandidates = filterExternalRecommendations(
+      candidates,
       excluded
     ).filter(
       (post) =>
@@ -334,6 +329,11 @@ export function GET(request: Request) {
         Date.parse(post.createdAt) <= Date.now() + 60_000
     );
     stopFiltering();
+    const filtered = includeExplicit
+      ? eligibleCandidates
+      : await timing.measure("safety", () =>
+          filterExternalMediaSafety(eligibleCandidates)
+        );
     const stopRanking = timing.start("ranking");
     let items =
       mode.data === "latest"
