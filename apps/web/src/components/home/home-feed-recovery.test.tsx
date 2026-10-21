@@ -246,48 +246,56 @@ test.each([true, false])(
   }
 );
 
-test("manual continuation advances a healthy sparse source while its peer remains failed", async () => {
-  requestGlobal.mockClear();
-  const client = new QueryClient({
-    defaultOptions: { queries: { retry: false } },
-  });
-  client.setQueryData(
-    ["post-feed", "trending", "guest", "test", "en", "engaged-v1"],
-    {
-      pageParams: [null, "one", "two"],
-      pages: ["one", "two", "three"].map((nextCursor) => ({
-        nextCursor,
-        posts: [],
-      })),
+test.each([true, false])(
+  "manual continuation advances a healthy sparse source while its peer remains failed (cached content: %s)",
+  async (hasCachedContent) => {
+    const previousData = external.data;
+    if (!hasCachedContent) {
+      external.data = { pages: [{ items: [] }] };
     }
-  );
-  const host = dom.document.createElement("div");
-  const root = createRoot(host);
-  try {
-    await act(() =>
-      root.render(
-        <QueryClientProvider client={client}>
-          <HomeFeed variant="trending" />
-        </QueryClientProvider>
-      )
-    );
-    await act(() =>
-      [...host.querySelectorAll("button")]
-        .find((button) => button.textContent === "Reach end")
-        ?.click()
-    );
-    expect(requestGlobal).not.toHaveBeenCalled();
-    const more = [...host.querySelectorAll("button")].find(
-      (button) => button.textContent === "Load more posts"
-    );
-    expect(more).toBeDefined();
-    await act(() => more?.click());
-    await act(async () => {
-      await Bun.sleep(25);
+    requestGlobal.mockClear();
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
     });
-    expect(requestGlobal).toHaveBeenCalledTimes(1);
-  } finally {
-    await act(() => root.unmount());
-    client.clear();
+    client.setQueryData(
+      ["post-feed", "trending", "guest", "test", "en", "engaged-v1"],
+      {
+        pageParams: [null, "one", "two"],
+        pages: ["one", "two", "three"].map((nextCursor) => ({
+          nextCursor,
+          posts: [],
+        })),
+      }
+    );
+    const host = dom.document.createElement("div");
+    const root = createRoot(host);
+    try {
+      await act(() =>
+        root.render(
+          <QueryClientProvider client={client}>
+            <HomeFeed variant="trending" />
+          </QueryClientProvider>
+        )
+      );
+      await act(() =>
+        [...host.querySelectorAll("button")]
+          .find((button) => button.textContent === "Reach end")
+          ?.click()
+      );
+      expect(requestGlobal).not.toHaveBeenCalled();
+      const more = [...host.querySelectorAll("button")].find(
+        (button) => button.textContent === "Load more posts"
+      );
+      expect(more).toBeDefined();
+      await act(() => more?.click());
+      await act(async () => {
+        await Bun.sleep(25);
+      });
+      expect(requestGlobal).toHaveBeenCalledTimes(1);
+    } finally {
+      await act(() => root.unmount());
+      client.clear();
+      external.data = previousData;
+    }
   }
-});
+);
