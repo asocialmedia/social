@@ -4,9 +4,11 @@ import type { TextSegment } from "@asm/protocols/contracts";
 import LinkifyIt from "linkify-it";
 import { Hash } from "lucide-react";
 import Link from "next/link";
-import type { ReactNode } from "react";
+import type { ReactNode, Ref } from "react";
+import { useInView } from "react-intersection-observer";
 
 import UserAvatar from "@/components/layouts/user/user-avatar";
+import { useBlueskyProfile } from "@/components/protocols/use-bluesky-profile";
 import type { LinkEmbed } from "@/lib/link-embeds/shared";
 import { INLINE_TOKEN_PATTERN } from "@/lib/posts/inline-meta";
 import { blueskyProfilePath } from "@/lib/protocols/paths";
@@ -65,11 +67,13 @@ function segmentContent(content: string): ContentSegment[] {
 // hover card and no lookup - callers that have the user (or want a tooltip)
 // wrap this themselves via `renderMention`.
 export function InlineMentionChip({
+  anchorRef,
   avatarUrl,
   href,
   user,
   username,
 }: {
+  anchorRef?: Ref<HTMLAnchorElement>;
   avatarUrl?: string | null;
   href?: string;
   // Mirrors UserAvatar's own `user` prop shape (avatarUrl required when
@@ -85,6 +89,7 @@ export function InlineMentionChip({
     <Link
       className="meta-chip meta-chip-mention inline-flex max-w-full items-center gap-1.5 align-middle text-xs"
       href={href ?? `/users/${username}`}
+      ref={anchorRef}
       onClick={(event) => event.stopPropagation()}
     >
       <UserAvatar
@@ -95,6 +100,25 @@ export function InlineMentionChip({
       />
       <span className="truncate">@{username}</span>
     </Link>
+  );
+}
+
+function BlueskyMention({
+  actor,
+  username,
+}: {
+  actor: string;
+  username: string;
+}) {
+  const { ref, inView } = useInView({ rootMargin: "300px", triggerOnce: true });
+  const profile = useBlueskyProfile(actor, undefined, inView);
+  return (
+    <InlineMentionChip
+      anchorRef={ref}
+      avatarUrl={profile.data?.avatarUrl}
+      href={blueskyProfilePath(actor)}
+      username={username}
+    />
   );
 }
 
@@ -164,10 +188,7 @@ export function PostInlineContent({
               renderMention={
                 sourceSegments || source === "bluesky"
                   ? (username) => (
-                      <InlineMentionChip
-                        href={blueskyProfilePath(username)}
-                        username={username}
-                      />
+                      <BlueskyMention actor={username} username={username} />
                     )
                   : renderMention
               }
@@ -185,9 +206,9 @@ export function PostInlineContent({
               destination.pathname.slice("/profile/".length)
             );
             return (
-              <InlineMentionChip
+              <BlueskyMention
                 key={`mention-${index}`}
-                href={blueskyProfilePath(actor)}
+                actor={actor}
                 username={segment.text.slice(1)}
               />
             );

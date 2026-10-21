@@ -7,10 +7,14 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { cachedExternalAuthor } from "@/lib/protocols/external-cache";
 import { readProtocolResource } from "@/lib/protocols/read-resource";
 
-export function useBlueskyProfile(actor: string, initialData?: ExternalAuthor) {
+export function useBlueskyProfile(
+  actor: string,
+  initialData?: ExternalAuthor,
+  enabled = true
+) {
   const client = useQueryClient();
   return useQuery({
-    enabled: Boolean(actor),
+    enabled: Boolean(actor) && enabled,
     initialData: () => {
       if (initialData) {
         return initialData;

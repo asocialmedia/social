@@ -25,6 +25,7 @@ import { mixExplorePosts } from "@/lib/recommendations/mix-explore";
 import { cn, formatNumber } from "@/lib/utils";
 import { getMediaProxyUrl } from "@/lib/utils/image-url";
 
+import { ExploreMasonry } from "./explore-masonry";
 import { ExploreNetworkPost } from "./explore-network-cards";
 
 const VIDEO_HOVER_DELAY = 150;
@@ -99,7 +100,16 @@ const ExploreGustTile = ({ post }: { post: PostData }) => {
 
   return (
     <Link
-      className="group relative aspect-9/16 w-full overflow-hidden rounded-2xl bg-neutral-900 shadow-xs transition-all duration-300 hover:-translate-y-1 hover:shadow-xl"
+      className="group relative block w-full overflow-hidden rounded-2xl bg-neutral-900 shadow-xs transition-all duration-300 hover:-translate-y-1 hover:shadow-xl"
+      style={{
+        aspectRatio:
+          videoMedia.width && videoMedia.height
+            ? Math.max(
+                0.55,
+                Math.min(1.4, videoMedia.width / videoMedia.height)
+              )
+            : 9 / 16,
+      }}
       href={`/gusts?id=${post.id}`}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
@@ -351,25 +361,27 @@ export const ExploreGustsGrid: React.FC = () => {
         onBottomReached={handleBottomReached}
         prefetchDistance={1500}
       >
-        <div className="grid grid-cols-2 gap-3 p-4 sm:grid-cols-3 md:grid-cols-4 md:gap-4">
-          {mixed.map((entry) =>
-            entry.source === "asm" ? (
-              <RecommendationTracker
-                key={`asm:${entry.post.id}`}
-                postId={entry.post.id}
-                networkSource="asm"
-                networkToken={entry.post.networkRecommendationToken}
-              >
-                <ExploreGustTile post={entry.post} />
-              </RecommendationTracker>
-            ) : (
-              <ExploreNetworkPost
-                key={`bluesky:${entry.post.id}`}
-                post={entry.post}
-                gust
-              />
-            )
-          )}
+        <div className="p-4">
+          <ExploreMasonry scope={`${user?.id ?? "guest"}:${network.scope}`}>
+            {mixed.map((entry) =>
+              entry.source === "asm" ? (
+                <RecommendationTracker
+                  key={`asm:${entry.post.id}`}
+                  postId={entry.post.id}
+                  networkSource="asm"
+                  networkToken={entry.post.networkRecommendationToken}
+                >
+                  <ExploreGustTile post={entry.post} />
+                </RecommendationTracker>
+              ) : (
+                <ExploreNetworkPost
+                  key={`bluesky:${entry.post.id}`}
+                  post={entry.post}
+                  gust
+                />
+              )
+            )}
+          </ExploreMasonry>
         </div>
         {remote.isError ? (
           <div className="flex justify-center p-4">

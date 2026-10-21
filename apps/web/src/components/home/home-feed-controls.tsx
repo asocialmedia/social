@@ -91,7 +91,7 @@ export function HomeFeedControls({
   );
   return (
     <div
-      className="flex flex-1 items-center justify-center font-sans md:hidden"
+      className="flex min-w-0 items-center justify-center font-sans md:hidden"
       data-home-feed-controls
     >
       <DropdownMenu

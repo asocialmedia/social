@@ -112,3 +112,43 @@ test("Bluesky profile bios resolve complete handles inside ASM without local use
   expect(html).not.toContain("/users/");
   expect(html).toContain("https://vercel.com");
 });
+
+test("post facets and profile bio mention pills reuse the resolved Bluesky avatar", () => {
+  const client = new QueryClient();
+  const author = {
+    avatarUrl:
+      "https://cdn.bsky.app/img/avatar/plain/did:plc:scientist/avatar@jpeg",
+    displayName: "Scientist",
+    handle: "scientist.bsky.social",
+    id: "did:plc:scientist",
+    labels: [],
+    source: "bluesky",
+    upstreamCounts: {},
+    url: "https://bsky.app/profile/did:plc:scientist",
+  };
+  client.setQueryData(["bluesky-profile", author.id], author);
+  client.setQueryData(["bluesky-profile", author.handle], author);
+  const html = renderToStaticMarkup(
+    <QueryClientProvider client={client}>
+      <PostInlineContent
+        content="@scientist.bsky.social"
+        sourceSegments={[
+          {
+            href: "https://bsky.app/profile/did:plc:scientist",
+            text: "@scientist.bsky.social",
+          },
+        ]}
+      />
+      <PostInlineContent
+        content="Research by @scientist.bsky.social"
+        source="bluesky"
+      />
+    </QueryClientProvider>
+  );
+  expect(
+    html.match(/avatar%40jpeg|avatar@jpeg/g)?.length
+  ).toBeGreaterThanOrEqual(2);
+  expect(html).not.toContain("/api/users/username/");
+  expect(html).toContain("actor=did%3Aplc%3Ascientist");
+  client.clear();
+});
