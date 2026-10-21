@@ -10,7 +10,7 @@ import { createRoot } from "react-dom/client";
 import { externalPostView } from "@/lib/posts/presentation";
 
 let communityShouldFail = true;
-const requestGlobal = mock(async () => ({ nextCursor: "next", posts: [] }));
+const requestGlobal = mock(() => ({ nextCursor: "next", posts: [] }));
 const requestCommunity = mock(() => {
   if (communityShouldFail) {
     throw new Error("Community temporarily unavailable");
@@ -248,21 +248,43 @@ test.each([true, false])(
 
 test("manual continuation advances a healthy sparse source while its peer remains failed", async () => {
   requestGlobal.mockClear();
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  client.setQueryData(["post-feed", "trending", "guest", "test", "en", "engaged-v1"], {
-    pageParams: [null, "one", "two"],
-    pages: ["one", "two", "three"].map((nextCursor) => ({ nextCursor, posts: [] })),
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
   });
+  client.setQueryData(
+    ["post-feed", "trending", "guest", "test", "en", "engaged-v1"],
+    {
+      pageParams: [null, "one", "two"],
+      pages: ["one", "two", "three"].map((nextCursor) => ({
+        nextCursor,
+        posts: [],
+      })),
+    }
+  );
   const host = dom.document.createElement("div");
   const root = createRoot(host);
   try {
-    await act(() => root.render(<QueryClientProvider client={client}><HomeFeed variant="trending" /></QueryClientProvider>));
-    await act(() => [...host.querySelectorAll("button")].find((button) => button.textContent === "Reach end")?.click());
+    await act(() =>
+      root.render(
+        <QueryClientProvider client={client}>
+          <HomeFeed variant="trending" />
+        </QueryClientProvider>
+      )
+    );
+    await act(() =>
+      [...host.querySelectorAll("button")]
+        .find((button) => button.textContent === "Reach end")
+        ?.click()
+    );
     expect(requestGlobal).not.toHaveBeenCalled();
-    const more = [...host.querySelectorAll("button")].find((button) => button.textContent === "Load more posts");
+    const more = [...host.querySelectorAll("button")].find(
+      (button) => button.textContent === "Load more posts"
+    );
     expect(more).toBeDefined();
     await act(() => more?.click());
-    await act(async () => { await Bun.sleep(25); });
+    await act(async () => {
+      await Bun.sleep(25);
+    });
     expect(requestGlobal).toHaveBeenCalledTimes(1);
   } finally {
     await act(() => root.unmount());

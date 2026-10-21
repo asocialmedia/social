@@ -698,9 +698,7 @@ export default function HomeFeed({
             onRetry={retryFailedSources}
           />
         ) : null}
-        {hasNextPage &&
-        !isFetchingNextPage &&
-        !initialSourceLoading ? (
+        {hasNextPage && !isFetchingNextPage && !initialSourceLoading ? (
           <div className="flex justify-center p-4">
             <Button onClick={() => handleBottomReached(true)} variant="premium">
               Load more posts
