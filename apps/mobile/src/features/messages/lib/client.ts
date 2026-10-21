@@ -99,7 +99,9 @@ export interface ConversationListResponse {
   nextCursor: string | null;
 }
 
+export type GroupAddRefusal = "NO_DIRECT_ADDS" | "NOT_FOLLOWING_YOU";
 export interface SearchUserResult {
+  addRefusal?: GroupAddRefusal | null;
   avatarUrl: string | null;
   badge: string | null;
   badges: string[];
@@ -587,10 +589,11 @@ export async function editMessage(
 
 export async function searchMessageUsers(
   query: string,
-  options: ApiCallOptions
+  options: ApiCallOptions,
+  context: "message" | "den" = "message"
 ): Promise<SearchUserResult[]> {
   const json = await request<{ users: SearchUserResult[] }>(
-    `/api/messages/search?q=${encodeURIComponent(query)}`,
+    `/api/messages/search?q=${encodeURIComponent(query)}&context=${context}`,
     options
   );
   return json.users;
@@ -1274,4 +1277,70 @@ export function setConversationWallpaperUpload(
       ...(mediaId ? { body: JSON.stringify({ mediaId }) } : {}),
     }
   );
+}
+
+export async function fetchGroupAddEligibility(
+  ids: readonly string[],
+  options: ApiCallOptions
+) {
+  if (!ids.length) {
+    return {};
+  }
+  const result = await request<{
+    eligibility: { id: string; refusal: GroupAddRefusal | null }[];
+  }>(
+    `/api/messages/dens/add-eligibility?ids=${encodeURIComponent(ids.join(","))}`,
+    options
+  );
+  return Object.fromEntries(
+    result.eligibility.map((entry) => [entry.id, entry.refusal])
+  );
+}
+export async function fetchRecentDenPeople(
+  viewer: string,
+  options: ApiCallOptions
+): Promise<SearchUserResult[]> {
+  const conversations = await fetchConversationList(options);
+  const candidates = new Map<string, SearchUserResult>();
+  for (const item of conversations.items) {
+    for (const member of item.conversation.members) {
+      if (
+        member.userId === viewer ||
+        member.leftAt ||
+        candidates.has(member.userId)
+      ) {
+        continue;
+      }
+      candidates.set(member.userId, {
+        avatarUrl: member.user.avatarUrl,
+        badge: null,
+        badges: [],
+        displayName: member.user.displayName,
+        hasIdentity: true,
+        id: member.userId,
+        username: member.user.username,
+      });
+    }
+  }
+  const people = [...candidates.values()].slice(0, 8);
+  const eligibility = await fetchGroupAddEligibility(
+    people.map((person) => person.id),
+    options
+  );
+  return people.map((person) => ({
+    ...person,
+    addRefusal: eligibility[person.id] ?? null,
+  }));
+}
+export function denPersonUnavailable(person: SearchUserResult) {
+  if (!person.hasIdentity) {
+    return "Hasn't set up Messages yet";
+  }
+  if (person.addRefusal === "NO_DIRECT_ADDS") {
+    return "Doesn't allow being added to groups";
+  }
+  if (person.addRefusal === "NOT_FOLLOWING_YOU") {
+    return "Only lets people they follow add them";
+  }
+  return null;
 }

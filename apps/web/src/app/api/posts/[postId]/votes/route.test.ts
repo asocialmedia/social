@@ -411,6 +411,7 @@ const mockPrisma = {
 mock.module("@asm/db", () => mockDb());
 
 mock.module("@/lib/recommendations/record-event", () => ({
+  recordNegativeRecommendationInteraction: () => Promise.resolve(),
   recordRecommendationInteraction: () => Promise.resolve(),
 }));
 

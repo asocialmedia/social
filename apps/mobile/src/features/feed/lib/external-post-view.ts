@@ -61,6 +61,7 @@ export function externalPostView(post: ExternalPost): FeedPost {
     })),
     content: post.text,
     createdAt: post.createdAt,
+    discoveryContext: post.discoveryContext,
     embeds: post.externalLink
       ? JSON.stringify([
           {
@@ -82,6 +83,7 @@ export function externalPostView(post: ExternalPost): FeedPost {
       Boolean(post.text && EXPLICIT_HASHTAG_REGEX.test(post.text)),
     external: post,
     id: post.id,
+    networkRecommendationToken: post.networkRecommendationToken,
     user: {
       avatarUrl: post.author.avatarUrl ?? null,
       displayName: post.author.displayName,

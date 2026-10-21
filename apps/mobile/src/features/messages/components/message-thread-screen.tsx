@@ -1161,6 +1161,12 @@ export function MessageThreadScreen({
       {detailsOpen && currentConversation && userId ? (
         <ConversationDetails
           conversation={currentConversation}
+          contentRevision={messages
+            .map(
+              (message) =>
+                `${message.id}:${message.revision}:${message.deletedAt ?? ""}`
+            )
+            .join("|")}
           userId={userId}
           prefs={prefs}
           getBaseKeys={getBaseKeys}

@@ -9,6 +9,7 @@ import { redis } from "@asm/db";
 import { abortable } from "@asm/protocols/discovery";
 
 import { parseOgMeta } from "./og-parse";
+import { fetchPublicUrl } from "./public-http-fetch";
 import {
   extractPostUrls,
   isPrivateOrReservedHost,
@@ -44,10 +45,8 @@ interface CacheEntry {
 // Defense in depth against server-side request forgery: every hop of every
 // fetch must pass (1) scheme + hostname checks, (2) DNS resolution where ALL
 // resolved addresses fall in public ranges, (3) response content-type checks
-// at the call sites. The DNS check has the classic rebinding TOCTOU window;
-// mitigated by re-validating the final response URL and by the size/type
-// caps - the guard exists to make internal probing impractical, not to build
-// a perfect firewall.
+// at the call sites. The transport also validates DNS at socket connection,
+// so a changed DNS answer cannot redirect the actual connection into private space.
 
 interface GuardedUrl {
   fetchUrl: URL;
@@ -126,9 +125,9 @@ async function guardedFetch(
     if (!guarded) {
       return null;
     }
-    let response: Response;
+    let response: Awaited<ReturnType<typeof fetchPublicUrl>>;
     try {
-      response = await fetch(guarded.fetchUrl.href, {
+      response = await fetchPublicUrl(guarded.fetchUrl, {
         headers: {
           accept: "text/html,application/json;q=0.9,*/*;q=0.5",
           // Spoofed only as far as required to receive og metadata that
@@ -181,7 +180,12 @@ async function guardedFetch(
 // Reads at most maxBytes from a response body before truncating, so a huge
 // or endless body cannot pin worker memory.
 function capStream(
-  body: ReadableStream<Uint8Array>,
+  body: {
+    getReader: () => {
+      read: () => Promise<ReadableStreamReadResult<Uint8Array>>;
+      cancel: () => Promise<void>;
+    };
+  },
   maxBytes: number,
   rejectOverflow = false
 ): ReadableStream<Uint8Array> {

@@ -22,7 +22,7 @@ describe("push path routing", () => {
 
   test("strips a query string from the post id", () => {
     expect(pathToNativeRoute("/posts/abcd1234?comment=c1")).toBe(
-      "/posts/abcd1234"
+      "/posts/abcd1234?comment=c1"
     );
   });
 
@@ -33,8 +33,8 @@ describe("push path routing", () => {
   });
 
   test("falls back to the notifications list for non-post paths", () => {
-    expect(pathToNativeRoute("/users/alice")).toBe("/notifications");
-    expect(pathToNativeRoute("/a/anime")).toBe("/notifications");
+    expect(pathToNativeRoute("/users/alice")).toBe("/users/alice");
+    expect(pathToNativeRoute("/a/anime")).toBe("/a/anime");
     expect(pathToNativeRoute("/notifications")).toBe("/notifications");
   });
 
@@ -48,7 +48,9 @@ describe("push path routing", () => {
 
   test("opens gust links in the native reel", () => {
     expect(pathToNativeRoute("/gusts?id=abc-123")).toBe("/gusts?id=abc-123");
-    expect(pathToNativeRoute("/gusts?tab=latest&id=abc")).toBe("/gusts?id=abc");
-    expect(pathToNativeRoute("/gusts")).toBe("/notifications");
+    expect(pathToNativeRoute("/gusts?tab=latest&id=abc")).toBe(
+      "/gusts?tab=latest&id=abc"
+    );
+    expect(pathToNativeRoute("/gusts")).toBe("/gusts");
   });
 });

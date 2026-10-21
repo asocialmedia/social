@@ -9,6 +9,7 @@ export const SETTINGS_TABS = [
   "privacy",
   "personalization",
   "security",
+  "network",
 ] as const;
 
 export type SettingsTab = (typeof SETTINGS_TABS)[number];
@@ -22,6 +23,7 @@ export const SETTINGS_TAB_DEFS = [
   { label: "Privacy", value: "privacy" },
   { label: "Security", value: "security" },
   { label: "Personalization", value: "personalization" },
+  { label: "Network", value: "network" },
 ] as const satisfies readonly { label: string; value: SettingsTab }[];
 
 export interface SettingsTabMeta {
@@ -36,6 +38,11 @@ export const SETTINGS_TAB_META: Record<SettingsTab, SettingsTabMeta> = {
     description: "Your username, email and sign-in methods",
     label: "Account",
     title: "Account",
+  },
+  network: {
+    description: "Profiles, interests, moderation and languages",
+    label: "Network",
+    title: "Network",
   },
   personalization: {
     description: "Theme and appearance",

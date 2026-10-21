@@ -35,6 +35,7 @@ import { requestPasswordReset } from "@/features/auth/lib/auth-api";
 import { authClient } from "@/features/auth/lib/auth-client";
 import { useInstall } from "@/features/auth/state/install";
 import { useSessionContext } from "@/features/auth/state/session";
+import { networkRequest } from "@/features/network/lib/network-api";
 import {
   registerForPushNotifications,
   unregisterPushNotifications,
@@ -433,6 +434,10 @@ export function SecurityTab({
       });
       return;
     }
+    void credentialNotice({
+      codeCount: result.data.backupCodes.length,
+      kind: "backup-codes",
+    });
     setTotpSetup({
       backupCodes: result.data.backupCodes,
       uri: result.data.totpURI,
@@ -493,6 +498,11 @@ export function SecurityTab({
     }
     setIsPasskeyDialogOpen(false);
     setPasskeyName("");
+    void credentialNotice({
+      action: "added",
+      kind: "passkey",
+      passkeyName: name.trim() || "This device",
+    });
     await refreshPasskeys();
     toast({
       description: "You can now use this passkey to sign in.",
@@ -515,6 +525,12 @@ export function SecurityTab({
         variant: "destructive",
       });
     } else {
+      void credentialNotice({
+        action: "removed",
+        kind: "passkey",
+        passkeyName:
+          passkeys.find((entry) => entry.id === id)?.name || "This device",
+      });
       await refreshPasskeys();
       toast({ title: "Passkey removed" });
     }
@@ -1670,3 +1686,18 @@ const styles = StyleSheet.create({
     gap: 8,
   },
 });
+
+async function credentialNotice(
+  payload:
+    | { kind: "backup-codes"; codeCount: number }
+    | { kind: "passkey"; action: "added" | "removed"; passkeyName: string }
+) {
+  try {
+    await networkRequest("/api/users/credential-notice", {
+      body: JSON.stringify(payload),
+      method: "POST",
+    });
+  } catch {
+    // Advisory mail failures do not undo a credential change.
+  }
+}

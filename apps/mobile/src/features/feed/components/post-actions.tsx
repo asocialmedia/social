@@ -70,6 +70,7 @@ function ActionLabel({
 }
 
 interface VoteClusterProps {
+  engagement?: ReactNode;
   likeCount?: number | null;
   controller?: {
     aura: number;
@@ -106,6 +107,7 @@ export function VoteCluster({
   inactiveColor,
   labelColor,
   likeCount,
+  engagement: upstreamEngagement,
   onRequireLogin,
   postId,
   size = 28,
@@ -235,24 +237,26 @@ export function VoteCluster({
           />
         </VoteButton>
       </View>
-      <View
-        accessible
-        accessibilityLabel={countLabel}
-        style={styles.voteCluster}
-      >
-        {likeCount === undefined ? (
-          <Flame
-            color={flame.color}
-            fill={flame.filled ? flame.color : "none"}
-            size={glyph}
-          />
-        ) : (
-          <Heart color={idleColor} size={glyph} />
-        )}
-        <ActionLabel color={labelColor} fontSize={labelSize}>
-          {likeCount === null ? "—" : formatNumber(likeCount ?? aura)}
-        </ActionLabel>
-      </View>
+      {upstreamEngagement ?? (
+        <View
+          accessible
+          accessibilityLabel={countLabel}
+          style={styles.voteCluster}
+        >
+          {likeCount === undefined ? (
+            <Flame
+              color={flame.color}
+              fill={flame.filled ? flame.color : "none"}
+              size={glyph}
+            />
+          ) : (
+            <Heart color={idleColor} size={glyph} />
+          )}
+          <ActionLabel color={labelColor} fontSize={labelSize}>
+            {likeCount === null ? "—" : formatNumber(likeCount ?? aura)}
+          </ActionLabel>
+        </View>
+      )}
     </View>
   );
 }

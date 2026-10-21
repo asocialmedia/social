@@ -2,14 +2,16 @@
 // oxlint-disable promise/prefer-await-to-then
 import { createHash } from "node:crypto";
 
-import { ProtocolError } from "@asm/protocols/contracts";
 import { metrics, context, propagation } from "@opentelemetry/api";
 import { Queue, Worker, UnrecoverableError, DelayedError } from "bullmq";
 import type Redis from "ioredis";
 import { z } from "zod";
 
+import { hydrationLifetimeMs, hydrationRetryDelay } from "./hydration-retry";
 import { observeRequest } from "./observability";
 import type { ProtocolLogger } from "./observability";
+
+export { hydrationRetryDelay } from "./hydration-retry";
 
 const queueName = "asm-protocols-hydration-v1";
 const nodesKey = "asm:protocols:hydration:workers:v1";
@@ -24,6 +26,7 @@ const batchSchema = z.object({
     )
     .min(1)
     .max(25),
+  scheduledAt: z.number().int().positive().optional(),
   startedAt: z.number().int().positive(),
   trace: z
     .object({
@@ -36,15 +39,12 @@ const batchSchema = z.object({
 
 export type HydrationBatch = z.infer<typeof batchSchema>;
 
-export function hydrationRetryDelay(error: unknown): number | undefined {
-  if (
-    error instanceof ProtocolError &&
-    ["capacity", "unavailable", "rate_limited"].includes(error.code) &&
-    error.retryAfterSeconds &&
-    Number.isFinite(error.retryAfterSeconds) &&
-    error.retryAfterSeconds > 0
-  ) {
-    return Math.min(60_000, Math.max(1000, error.retryAfterSeconds * 1000));
+export class HydrationRescheduleError extends Error {
+  readonly batch: HydrationBatch;
+  constructor(batch: HydrationBatch) {
+    super("Hydration scheduling window expired");
+    this.name = "HydrationRescheduleError";
+    this.batch = batch;
   }
 }
 
@@ -57,11 +57,22 @@ export async function runHydrationJob(
   if (!parsed.success) {
     throw new UnrecoverableError("Invalid protocol hydration batch");
   }
+  const timestamp = now();
   if (
-    parsed.data.startedAt < now() - 60_000 ||
-    parsed.data.startedAt > now() + 10_000
+    parsed.data.startedAt > timestamp + 10_000 ||
+    (parsed.data.scheduledAt ?? 0) > timestamp + 10_000
   ) {
-    return 0;
+    throw new UnrecoverableError("Invalid protocol hydration timestamp");
+  }
+  if (parsed.data.startedAt < timestamp - hydrationLifetimeMs) {
+    throw new UnrecoverableError("Protocol hydration lifetime expired");
+  }
+  if ((parsed.data.scheduledAt ?? parsed.data.startedAt) < timestamp - 60_000) {
+    // Refresh scheduling without changing the source timestamp used by inventory invalidation fences.
+    throw new HydrationRescheduleError({
+      ...parsed.data,
+      scheduledAt: timestamp,
+    });
   }
   return await hydrate(parsed.data.ids, parsed.data.startedAt);
 }
@@ -145,11 +156,15 @@ export function createIngestionQueue(options: {
           () => runHydrationJob(job.data, options.hydrate)
         );
       } catch (error) {
-        const delay = hydrationRetryDelay(error);
+        const reschedule = error instanceof HydrationRescheduleError;
+        const delay = reschedule ? 1000 : hydrationRetryDelay(error);
         if (!delay) {
           throw error;
         }
-        // Cooling down is not a failed source read; the batch age check still bounds deferred work.
+        if (reschedule) {
+          await job.updateData(error.batch);
+        }
+        // Rescheduling and cooling down do not consume failure attempts; source lifetime still bounds the job.
         await job.moveToDelayed(Date.now() + delay, job.token);
         options.logger.info(
           {
@@ -279,7 +294,12 @@ export function createIngestionQueue(options: {
           ([key]) => key === "traceparent" || key === "tracestate"
         )
       );
-      const data = batchSchema.parse({ ids, startedAt, trace });
+      const data = batchSchema.parse({
+        ids,
+        scheduledAt: Date.now(),
+        startedAt,
+        trace,
+      });
       const jobId = createHash("sha256")
         .update(JSON.stringify([ids, startedAt]))
         .digest("hex");

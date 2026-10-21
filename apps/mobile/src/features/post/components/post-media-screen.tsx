@@ -99,6 +99,7 @@ import { TranscriptDrawer } from "@/features/gusts/components/transcript-drawer"
 import { BioContent } from "@/features/home/components/bio-content";
 import { resolveProfileImageUrl } from "@/features/home/components/profile-utils";
 import { UserBadge } from "@/features/home/components/user-badge";
+import { externalShareUrl } from "@/features/network/lib/network-paths";
 import { getApiBaseUrl } from "@/lib/api-env";
 import { imageCachePolicy } from "@/lib/image-cache";
 import { SHOWS_SCROLL_INDICATOR } from "@/lib/scroll-indicator";
@@ -989,7 +990,7 @@ export function PostMediaScreen({
             onPress={() => {
               if (post.external) {
                 void Share.share({
-                  message: `${post.content}\n${post.external.url}`,
+                  message: `${post.content}\n${externalShareUrl(post.external.id)}`,
                 });
               } else {
                 setShareOpen(true);
@@ -1101,6 +1102,7 @@ export function PostMediaScreen({
             {post.content ? (
               <View style={styles.contentWrap}>
                 <BioContent
+                  compactBlankLines
                   sourceSegments={post.external?.segments}
                   apiBase={apiBase}
                   bio={post.content}
@@ -1182,7 +1184,7 @@ export function PostMediaScreen({
                   onPress={() => {
                     if (post.external) {
                       void Share.share({
-                        message: `${post.content}\n${post.external.url}`,
+                        message: `${post.content}\n${externalShareUrl(post.external.id)}`,
                       });
                     } else {
                       setShareOpen(true);

@@ -9,6 +9,8 @@ import { authClient } from "@/features/auth/lib/auth-client";
 import { useSessionContext } from "@/features/auth/state/session";
 import { uploadMedia } from "@/features/media-upload/lib/upload-client";
 import {
+  denPersonUnavailable,
+  fetchRecentDenPeople,
   createDen,
   ensureConversationKeys,
   fetchConversationDetail,
@@ -101,7 +103,7 @@ export function DenDialog({
   useEffect(() => {
     let active = true;
     const timer = setTimeout(async () => {
-      if (!query.trim()) {
+      if (!query.trim() && mode === "join") {
         setPeople([]);
         setPreview(null);
         return;
@@ -126,7 +128,9 @@ export function DenDialog({
             }
           }
         } else {
-          const result = await searchMessageUsers(query.trim(), options);
+          const result = query.trim()
+            ? await searchMessageUsers(query.trim(), options, "den")
+            : await fetchRecentDenPeople(user?.id ?? "", options);
           if (active) {
             setPeople(result);
           }
@@ -148,7 +152,7 @@ export function DenDialog({
       active = false;
       clearTimeout(timer);
     };
-  }, [mode, query]);
+  }, [mode, query, user?.id]);
   const handleSubmit = async () => {
     if (pending.current || !privateKey || !user) {
       return;
@@ -318,9 +322,7 @@ export function DenDialog({
         accessibilityLabel={
           mode === "create" ? "Find den members" : "Den invite code"
         }
-        placeholder={
-          mode === "create" ? "Search people you follow…" : "Enter invite code"
-        }
+        placeholder={mode === "create" ? "Search people…" : "Enter invite code"}
         value={query}
         onChangeText={setQuery}
         autoCapitalize={mode === "join" ? "characters" : "none"}
@@ -333,7 +335,11 @@ export function DenDialog({
       {mode === "create"
         ? people.map((person) => (
             <Pressable
-              disabled={busy || Boolean(createdId)}
+              disabled={
+                busy ||
+                Boolean(createdId) ||
+                Boolean(denPersonUnavailable(person))
+              }
               accessibilityLabel={`Select ${person.displayName}`}
               key={person.id}
               onPress={() =>
@@ -360,6 +366,9 @@ export function DenDialog({
                 }}
               >
                 {person.displayName}
+                {denPersonUnavailable(person)
+                  ? ` · ${denPersonUnavailable(person)}`
+                  : ""}
               </Text>
               <Text style={{ color: theme.inputText }}>
                 {selected.some((entry) => entry.id === person.id) ? "✓" : "+"}

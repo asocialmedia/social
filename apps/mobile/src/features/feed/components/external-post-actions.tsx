@@ -6,10 +6,12 @@ import { Share, View } from "react-native";
 
 import { useSessionContext } from "@/features/auth/state/session";
 import { useComposerStore } from "@/features/composer/state/composer-store";
+import { externalShareUrl } from "@/features/network/lib/network-paths";
 import { useAppTheme } from "@/theme";
 
 import { useExternalFeedback } from "../state/use-external-feedback";
 import { useExternalInteractions } from "../state/use-external-interactions";
+import { ExternalLikeAction } from "./external-like-action";
 import {
   BookmarkAction,
   CountButton,
@@ -56,7 +58,9 @@ export function ExternalPostActions({
       <View className="flex-row items-center gap-1">
         <ShareButton
           onPress={() => {
-            void Share.share({ message: `${post.text}\n${post.url}` });
+            void Share.share({
+              message: `${post.text}\n${externalShareUrl(post.id)}`,
+            });
           }}
         />
         {hideBookmark ? null : <ExternalBookmarkAction post={post} />}
@@ -109,6 +113,13 @@ export function ExternalVoteAction({
   const feedback = useExternalFeedback(post);
   return (
     <VoteCluster
+      engagement={
+        <ExternalLikeAction
+          post={post}
+          color={labelColor ?? inactiveColor}
+          size={size ? Math.round(size * 0.57) : 16}
+        />
+      }
       likeCount={post.upstreamCounts.likes ?? null}
       inactiveColor={inactiveColor}
       labelColor={labelColor}

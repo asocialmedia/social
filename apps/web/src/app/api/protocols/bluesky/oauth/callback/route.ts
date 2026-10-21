@@ -7,6 +7,7 @@ import {
   queueNotice,
 } from "@/lib/auth/account-notices";
 import { getSessionFromApi } from "@/lib/auth/session";
+import { nativeBlueskyCallback } from "@/lib/protocols/native-oauth";
 import {
   blueskyOAuthOrigin,
   createBlueskyOAuthClient,
@@ -32,6 +33,10 @@ export async function GET(request: Request) {
       },
       status: 303,
     });
+  }
+  const native = await nativeBlueskyCallback(request);
+  if (native) {
+    return native;
   }
   const target = new URL("/settings?tab=account", origin);
   const session = await getSessionFromApi();

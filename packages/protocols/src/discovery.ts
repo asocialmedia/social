@@ -501,3 +501,25 @@ export {
   recordPublicSocialSnapshot,
   readPublicSocialGraph,
 } from "./public-social-graph";
+
+export {
+  recommendedAccountSchema,
+  recommendedPostSchema,
+  discoverySuggestionsSchema,
+} from "./suggestions";
+export type {
+  RecommendedAccount,
+  RecommendedPost,
+  DiscoverySuggestions,
+} from "./suggestions";
+
+export {
+  activeNetworkInterests,
+  networkPostAllowed,
+  networkPostRecommended,
+  externalNetworkPostAllowed,
+  externalNetworkPostRecommended,
+  externalNetworkInterestScore,
+  postNetworkInterestScore,
+} from "./network-content-policy";
+export type { NetworkPolicyPost } from "./network-content-policy";

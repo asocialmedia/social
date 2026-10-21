@@ -4,6 +4,7 @@ import { ProtocolError } from "@asm/protocols/contracts";
 
 import {
   hydrationRetryDelay,
+  HydrationRescheduleError,
   ingestionConnection,
   runHydrationJob,
 } from "./ingestion-queue";
@@ -25,7 +26,7 @@ test("hydration waits out reader cooldowns instead of spending all retries insid
 });
 
 const id = "at://did:plc:alice/app.bsky.feed.post/example";
-test("queue rejects invalid jobs and expires old work before hydration", async () => {
+test("queue rejects invalid jobs and reschedules delayed work without refreshing its source fence", async () => {
   const reads: string[][] = [];
   const hydrate = (ids: string[]) => {
     reads.push(ids);
@@ -38,21 +39,37 @@ test("queue rejects invalid jobs and expires old work before hydration", async (
       () => 10_000
     )
   ).rejects.toThrow("Invalid protocol hydration batch");
-  expect(
+  let rescheduled: HydrationRescheduleError | undefined;
+  try {
     await runHydrationJob(
       { ids: [id], startedAt: 10_000 },
       hydrate,
       () => 80_000
-    )
-  ).toBe(0);
-  expect(
-    await runHydrationJob(
-      { ids: [id], startedAt: 20_001 },
-      hydrate,
-      () => 10_000
-    )
-  ).toBe(0);
+    );
+  } catch (error) {
+    if (!(error instanceof HydrationRescheduleError)) {
+      throw error;
+    }
+    rescheduled = error;
+  }
+  expect(rescheduled?.batch).toMatchObject({
+    scheduledAt: 80_000,
+    startedAt: 10_000,
+  });
   expect(reads).toHaveLength(0);
+  expect(await runHydrationJob(rescheduled?.batch, hydrate, () => 80_000)).toBe(
+    1
+  );
+  await expect(
+    runHydrationJob({ ids: [id], startedAt: 20_001 }, hydrate, () => 10_000)
+  ).rejects.toThrow("Invalid protocol hydration timestamp");
+  await expect(
+    runHydrationJob(
+      { ids: [id], scheduledAt: 310_001, startedAt: 10_000 },
+      hydrate,
+      () => 310_001
+    )
+  ).rejects.toThrow("lifetime expired");
   expect(
     await runHydrationJob(
       { ids: [id], startedAt: 10_000 },
@@ -60,7 +77,7 @@ test("queue rejects invalid jobs and expires old work before hydration", async (
       () => 10_000
     )
   ).toBe(1);
-  expect(reads).toEqual([[id]]);
+  expect(reads).toEqual([[id], [id]]);
 });
 
 test("Redis queue connections preserve URL credentials, database and TLS", () => {

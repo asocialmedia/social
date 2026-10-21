@@ -3,6 +3,25 @@ import { describe, expect, test } from "bun:test";
 import { getClientIpFromHeaders } from "./client-ip";
 
 describe("getClientIpFromHeaders", () => {
+  test("production rejects forwarding fallback identities and invalid ingress addresses", () => {
+    const cases: HeadersInit[] = [
+      { "x-forwarded-for": "203.0.113.1, 198.51.100.2" },
+      { "x-real-ip": "198.51.100.3" },
+      { "cf-connecting-ip": "chosen-bucket", "x-real-ip": "198.51.100.4" },
+      { "cf-connecting-ip": "203.0.113.1, 203.0.113.2" },
+    ];
+    for (const headers of cases) {
+      expect(getClientIpFromHeaders(new Headers(headers), true)).toBe(
+        "unknown"
+      );
+    }
+    expect(
+      getClientIpFromHeaders(
+        new Headers({ "cf-connecting-ip": "2001:db8::1" }),
+        true
+      )
+    ).toBe("2001:db8::1");
+  });
   test("prefers cf-connecting-ip over any forwarding header", () => {
     const headers = new Headers({
       "cf-connecting-ip": "203.0.113.9",

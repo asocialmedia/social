@@ -1,12 +1,19 @@
 import type { ExternalPost } from "@asm/protocols/contracts";
 import { useRouter } from "expo-router";
-import { ArrowUpRight, EyeOff, UserPlus, VolumeX } from "lucide-react-native";
-import { memo, useMemo, useState } from "react";
+import {
+  ArrowUpRight,
+  EyeOff,
+  UserPlus,
+  UserRoundMinus,
+} from "lucide-react-native";
+import { memo, useEffect, useMemo, useState } from "react";
 import { Linking, Share } from "react-native";
 
 import { useSessionContext } from "@/features/auth/state/session";
+import { externalShareUrl } from "@/features/network/lib/network-paths";
 import { PostDetailCard } from "@/features/post/components/post-detail-card";
 
+import { rememberExternalPost } from "../lib/external-cache";
 import { externalPostView } from "../lib/external-post-view";
 import { useExternalFeedback } from "../state/use-external-feedback";
 import { useExternalFollow } from "../state/use-external-follow";
@@ -29,6 +36,10 @@ export const BlueskyPostCard = memo(
     const view = useMemo(() => externalPostView(post), [post]);
     const { user } = useSessionContext();
     const router = useRouter();
+    useEffect(
+      () => rememberExternalPost(post, user?.id ?? "guest"),
+      [post, user?.id]
+    );
     const [menuPost, setMenuPost] = useState(post);
     const feedback = useExternalFeedback(menuPost);
     const [anchor, setAnchor] = useState<MenuAnchor | null>(null);
@@ -45,7 +56,9 @@ export const BlueskyPostCard = memo(
         ? onDiscussion()
         : router.push({ params: { uri: post.id }, pathname: "/external-post" });
     const share = () => {
-      void Share.share({ message: `${post.text}\n${post.url}` });
+      void Share.share({
+        message: `${post.text}\n${externalShareUrl(post.id)}`,
+      });
     };
     return (
       <>
@@ -90,7 +103,7 @@ export const BlueskyPostCard = memo(
             { action: { type: "post" }, icon: EyeOff, label: "Not interested" },
             {
               action: { type: "author" },
-              icon: VolumeX,
+              icon: UserRoundMinus,
               label: "Mute author in asocialmedia",
             },
             {

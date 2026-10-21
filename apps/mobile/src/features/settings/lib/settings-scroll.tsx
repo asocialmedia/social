@@ -101,6 +101,58 @@ export interface SettingsSearchEntry {
 
 export const SETTINGS_CATALOG: SettingsSearchEntry[] = [
   {
+    description: "Connect or reconnect your Bluesky account",
+    id: "bluesky",
+    keywords: ["bluesky", "network", "connect", "oauth"],
+    label: "Bluesky connection",
+    sectionId: "settings-bluesky-connection",
+    tab: "account",
+  },
+  ...[
+    {
+      description: "Create and switch recommendation personas",
+      id: "profiles",
+      keywords: ["network", "persona", "profiles"],
+      label: "Recommendation profiles",
+      sectionId: "settings-network-profiles",
+    },
+    {
+      description: "Choose topics to discover",
+      id: "interests",
+      keywords: ["network", "interests", "topics"],
+      label: "Interests and topics",
+      sectionId: "settings-network-interests",
+    },
+    {
+      description: "Learned interests and activity reset",
+      id: "activity",
+      keywords: ["learning", "activity", "reset"],
+      label: "Recent learning",
+      sectionId: "settings-network-activity",
+    },
+    {
+      description: "18+ content opt-in",
+      id: "explicit",
+      keywords: ["adult", "sensitive", "18+", "moderation"],
+      label: "Explicit content",
+      sectionId: "settings-network-explicit",
+    },
+    {
+      description: "Not interested and excluded subjects",
+      id: "avoid",
+      keywords: ["avoid", "filter", "topics", "mute"],
+      label: "Avoid topics",
+      sectionId: "settings-network-avoid",
+    },
+    {
+      description: "Content languages and regional relevance",
+      id: "languages",
+      keywords: ["language", "region", "country"],
+      label: "Languages and region",
+      sectionId: "settings-network-region",
+    },
+  ].map((entry) => ({ ...entry, tab: "network" as const })),
+  {
     description: "Light, dark or your device appearance",
     id: "appearance",
     keywords: ["theme", "light", "dark", "system", "personalization"],
@@ -259,6 +311,7 @@ export const SETTINGS_CATALOG: SettingsSearchEntry[] = [
 
 export const TAB_LABELS: Record<SettingsTab, string> = {
   account: "Account",
+  network: "Network",
   personalization: "Personalization",
   privacy: "Privacy",
   profile: "Profile",

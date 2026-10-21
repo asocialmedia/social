@@ -42,6 +42,7 @@ import noMediaImage from "@/assets/images/nomedia.png";
 import nosearchImage from "@/assets/images/nosearch.png";
 import { Gradient3D } from "@/components/surface/gradient-3d";
 import { authClient } from "@/features/auth/lib/auth-client";
+import { useNetworkPlayback } from "@/features/network/state/use-network-playback";
 import { imageCachePolicy } from "@/lib/image-cache";
 import {
   APPLE_PANEL_SHADOWS,
@@ -501,6 +502,7 @@ export function VideoTile({
   apiBase,
   autoPlayEnabled,
   exclusiveAutoplay = false,
+  observationPost,
   media,
   onPressPreview,
   postId,
@@ -512,6 +514,7 @@ export function VideoTile({
   autoPlayEnabled?: boolean;
   // Explore releases the previous decoder as soon as another preview owns playback.
   exclusiveAutoplay?: boolean;
+  observationPost?: FeedPost;
   media: FeedMedia;
   onPressPreview?: () => void;
   postId: string;
@@ -575,7 +578,9 @@ export function VideoTile({
       created.timeUpdateEventInterval = 0.25;
     }
   );
-  // SDK 57 recreates the player when its source changes. Event state belongs
+  const observedPost = useContext(MediaPostContext);
+  useNetworkPlayback(observationPost ?? observedPost, player, visible);
+  // SDK 58 recreates the player when its source changes. Event state belongs
   // to that instance; an old playing/error event must not describe the next one.
   const [playback, setPlayback] = useState(() => ({
     isPlaying: player.playing,

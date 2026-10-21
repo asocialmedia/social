@@ -2,6 +2,7 @@ import type { ApiCallOptions } from "@/features/feed/lib/feed-api";
 import { FeedApiError } from "@/features/feed/lib/feed-api";
 import type { FeedPost, PostsPage } from "@/features/feed/lib/feed-types";
 import { normalizePostsData } from "@/features/feed/lib/feed-types";
+import { appendNetworkQuery } from "@/features/network/lib/network-query";
 // Gusts API layer, ported from web's client-gusts query and the routes it
 // rides: GET /api/gusts (personalized / chronological / deep-link pages),
 // POST /api/posts/visit (history), POST/DELETE /api/users/:id/followers,
@@ -70,11 +71,18 @@ function request(
     method: options.method ?? "GET",
   } satisfies RequestInit;
   return (options.method ?? "GET").toUpperCase() === "GET"
-    ? getWithTimeout(`${options.apiBase}${path}`, init, {
-        baseFetch,
-        timeoutMs: options.timeoutMs,
-      })
-    : baseFetch(`${options.apiBase}${path}`, init);
+    ? getWithTimeout(
+        `${options.apiBase}${appendNetworkQuery(path, options.network)}`,
+        init,
+        {
+          baseFetch,
+          timeoutMs: options.timeoutMs,
+        }
+      )
+    : baseFetch(
+        `${options.apiBase}${appendNetworkQuery(path, options.network)}`,
+        init
+      );
 }
 
 async function readJson(response: Response): Promise<unknown> {
@@ -260,5 +268,8 @@ export function gustVideoUrl(
   mediaId: string,
   hasHls = false
 ): string {
+  if (mediaId.startsWith("https://")) {
+    return mediaId;
+  }
   return `${apiBase.replace(/\/+$/, "")}/api/media/${mediaId}/v/${hasHls ? "hls/master.m3u8" : "mp4-h264.mp4"}?d=4`;
 }

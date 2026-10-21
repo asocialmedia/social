@@ -4,7 +4,15 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useAppTheme } from "@/theme";
 
-export function PostDetailHeader({ onBack }: { onBack: () => void }) {
+export function PostDetailHeader({
+  onBack,
+  title = "Post",
+  subtitle,
+}: {
+  onBack: () => void;
+  title?: string;
+  subtitle?: string;
+}) {
   const { theme } = useAppTheme();
   const insets = useSafeAreaInsets();
   return (
@@ -35,8 +43,16 @@ export function PostDetailHeader({ onBack }: { onBack: () => void }) {
           fontWeight: "normal",
         }}
       >
-        Post
+        {title}
       </Text>
+      {subtitle ? (
+        <Text
+          numberOfLines={1}
+          style={{ color: theme.dividerText, flexShrink: 1 }}
+        >
+          {subtitle}
+        </Text>
+      ) : null}
     </View>
   );
 }
