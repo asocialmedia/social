@@ -112,7 +112,7 @@ export async function runFollowTracking(options: {
     });
     if (!response.ok) {
       await response.body?.cancel();
-      throw new Error("ASM follow registry unavailable");
+      throw new Error(`ASM follow registry HTTP ${response.status}`);
     }
     return registrySchema.parse(
       await readJsonBounded(response, 4 * 1024 * 1024, requestSignal)
@@ -150,7 +150,7 @@ export async function runFollowTracking(options: {
     });
     await response.body?.cancel();
     if (!response.ok) {
-      throw new Error("ASM lifecycle reconciliation failed");
+      throw new Error(`ASM lifecycle reconciliation HTTP ${response.status}`);
     }
   };
   const followedCollections = [
@@ -286,10 +286,16 @@ export async function runFollowTracking(options: {
             })
           );
         }
-      } catch {
+      } catch (error) {
         if (!signal.aborted) {
           options.logger.warn(
-            { event: "jetstream.registry_retry" },
+            {
+              event: "jetstream.registry_retry",
+              reason:
+                error instanceof Error
+                  ? error.message.slice(0, 160)
+                  : "unknown",
+            },
             "ASM follow tracking will retry; existing subscriptions remain active"
           );
         }

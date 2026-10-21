@@ -6,8 +6,43 @@ import {
   transcriptionRetryEligible,
   mediaEmbeddingComplete,
   classificationFingerprint,
+  rasterRetryEligible,
+  rasterSourceFingerprint,
 } from "./checkpoints";
 import { sampleTimes } from "./video-samples";
+
+test("permanent raster failures wait for a changed source or daily recovery probe", () => {
+  const fingerprint = rasterSourceFingerprint([
+    "poster",
+    "original",
+    "original",
+  ]);
+  const metadata = {
+    analysisStages: {
+      raster: {
+        fingerprint,
+        retryAt: Date.now() + 86_400_000,
+        status: "unavailable",
+      },
+    },
+  };
+  expect(rasterRetryEligible(metadata)).toBe(false);
+  expect(rasterRetryEligible(metadata, fingerprint)).toBe(false);
+  expect(
+    rasterRetryEligible(
+      metadata,
+      rasterSourceFingerprint(["repaired", "original"])
+    )
+  ).toBe(true);
+  expect(
+    rasterRetryEligible({
+      analysisStages: {
+        raster: { ...metadata.analysisStages.raster, retryAt: Date.now() - 1 },
+      },
+    })
+  ).toBe(true);
+  expect(rasterRetryEligible(null)).toBe(true);
+});
 
 test("completed empty OCR and silent transcription survive retries", () => {
   expect(

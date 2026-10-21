@@ -5,6 +5,37 @@ import { MemoryDiscoveryStore } from "./discovery-store";
 
 const watch = { locale: "en", mode: "latest", topics: [] };
 
+test("busy refreshed scopes cannot starve older waiting interests", async () => {
+  let now = 1_000_000;
+  const read: string[] = [];
+  const live = createDiscoveryLive({
+    now: () => now,
+    publish: () => Promise.resolve(),
+    read: (scope) => {
+      read.push(scope.topics[0] ?? "");
+      return Promise.resolve({ cursor: null, items: [], partial: false });
+    },
+    store: new MemoryDiscoveryStore(),
+  });
+  for (const topic of ["anime", "software", "gardening", "science", "music"]) {
+    live.watch({ ...watch, topics: [topic] });
+  }
+  await live.tick();
+  now += 21_000;
+  live.invalidate();
+  now += 2100;
+  await live.tick();
+  await live.tick();
+  expect(read.slice(0, 5)).toEqual([
+    "anime",
+    "software",
+    "gardening",
+    "science",
+    "music",
+  ]);
+  live.stop();
+});
+
 test("viewers share reconciliation and unchanged heads do not emit events", async () => {
   let now = 1_000_000;
   let reads = 0;

@@ -22,6 +22,7 @@ import { useState } from "react";
 
 import { AnimatedTabTrigger } from "@/components/home/feedview/animated-tab-trigger";
 import UserAvatar from "@/components/layouts/user/user-avatar";
+import { useFeedReselect } from "@/hooks/feed/use-feed-reselect";
 import kyInstance from "@/lib/ky";
 import { cn } from "@/lib/utils";
 import type { HomeTab } from "@/store/tab-store";
@@ -85,9 +86,12 @@ export function HomeFeedControls({
 }) {
   const reducedMotion = useReducedMotion();
   const [menuOpen, setMenuOpen] = useState(false);
+  const reselectDiscovery = useFeedReselect(active === discovery, () =>
+    onChange(discovery)
+  );
   return (
     <div
-      className="flex flex-1 items-center justify-center font-sans md:hidden"
+      className="flex min-w-0 items-center justify-center font-sans md:hidden"
       data-home-feed-controls
     >
       <DropdownMenu
@@ -105,6 +109,7 @@ export function HomeFeedControls({
         <DropdownMenuTrigger asChild>
           <button
             type="button"
+            {...reselectDiscovery}
             aria-label={`${discovery === "personalized" ? "For you" : "Trending"}, choose Fleets feed`}
             className={cn(
               "relative flex min-h-11 items-center gap-1 px-3 text-sm",
@@ -157,6 +162,7 @@ export function HomeFeedControls({
           className="data-[state=active]:px-3"
           layoutId="home-mobile-tab-indicator"
           value="latest"
+          onReselect={() => onChange("latest")}
         >
           Latest
         </AnimatedTabTrigger>
@@ -165,6 +171,7 @@ export function HomeFeedControls({
           className="data-[state=active]:px-3"
           layoutId="home-mobile-tab-indicator"
           value="following"
+          onReselect={() => onChange("following")}
           indicatorClassName="w-[60%] min-w-12"
         >
           Following

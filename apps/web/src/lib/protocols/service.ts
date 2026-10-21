@@ -1,5 +1,5 @@
 import "server-only";
-import { readNetworkPreferences } from "@asm/db";
+import { readNetworkPreferences, filterExternalMediaSafety } from "@asm/db";
 import type { ExternalPost } from "@asm/protocols/contracts";
 import {
   abortable,
@@ -32,6 +32,12 @@ async function applyViewerMediaPolicy(url: URL, includeExplicit?: boolean) {
   if (settings?.preferences.showExplicitContent) {
     url.searchParams.set("explicit", "1");
   }
+}
+
+function applyExternalMediaSafety(url: URL, posts: ExternalPost[]) {
+  return url.searchParams.get("explicit") === "1"
+    ? posts
+    : filterExternalMediaSafety(posts);
 }
 
 export async function readBlueskySearch(
@@ -75,13 +81,17 @@ export async function readBlueskySearch(
       )
     );
   }
-  return z
+  const result = z
     .object({
       posts: z.array(externalPostSchema).max(10),
       profiles: z.array(externalAuthorSchema).max(10),
       unavailable: z.array(z.enum(["profiles", "posts"])),
     })
     .parse(await readJsonBounded(response, 1024 * 1024, bounded));
+  return {
+    ...result,
+    posts: await applyExternalMediaSafety(url, result.posts),
+  };
 }
 
 export async function readBlueskyProfileResource(
@@ -134,14 +144,19 @@ export async function readBlueskyProfileResource(
     );
   }
   const data = await readJsonBounded(response, 2 * 1024 * 1024, boundedSignal);
-  return kind === "profile"
-    ? externalAuthorSchema.parse(data)
-    : z
-        .object({
-          cursor: z.string().nullable(),
-          items: z.array(externalPostSchema).max(50),
-        })
-        .parse(data);
+  if (kind === "profile") {
+    return externalAuthorSchema.parse(data);
+  }
+  const page = z
+    .object({
+      cursor: z.string().nullable(),
+      items: z.array(externalPostSchema).max(50),
+    })
+    .parse(data);
+  return {
+    ...page,
+    items: await applyExternalMediaSafety(url, page.items),
+  };
 }
 
 export async function readBlueskyDiscovery(
@@ -269,10 +284,11 @@ export async function readBlueskyPosts(
     await response.body?.cancel();
     throw new ProtocolGatewayError(503, "upstream_unavailable");
   }
-  return z
+  const posts = z
     .array(externalPostSchema)
     .max(25)
     .parse(await readJsonBounded(response, 2 * 1024 * 1024, boundedSignal));
+  return applyExternalMediaSafety(url, posts);
 }
 
 export async function readBlueskyThread(
@@ -327,7 +343,21 @@ export async function readBlueskyThread(
   if (!parsed.success) {
     throw new ProtocolGatewayError(503, "invalid_upstream_response");
   }
-  return parsed.data;
+  if (url.searchParams.get("explicit") === "1") {
+    return parsed.data;
+  }
+  const safe = await filterExternalMediaSafety([
+    ...(parsed.data.post ? [parsed.data.post] : []),
+    ...parsed.data.replies,
+  ]);
+  const allowed = new Set(safe.map((post) => post.id));
+  return {
+    post:
+      parsed.data.post && allowed.has(parsed.data.post.id)
+        ? parsed.data.post
+        : null,
+    replies: parsed.data.replies.filter((post) => allowed.has(post.id)),
+  };
 }
 
 export async function verifyBlueskyFollowTarget(

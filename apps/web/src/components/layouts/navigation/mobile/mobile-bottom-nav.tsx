@@ -20,6 +20,7 @@ import { useRequireAuth } from "@/hooks/auth/use-require-auth";
 import { useHideOnPageScroll } from "@/hooks/use-hide-on-scroll";
 import { useOpenComposer } from "@/hooks/use-open-composer";
 import { useUnreadMessageCount } from "@/lib/messages/use-unread-messages";
+import { reselectFeedNavigation } from "@/lib/posts/feed-navigation";
 import { cn, formatNumber, isRouteActive } from "@/lib/utils";
 
 interface MobileNavItem {
@@ -158,7 +159,15 @@ const MobileBottomNav: React.FC<{ hidden?: boolean }> = ({
     }
 
     return (
-      <Link aria-label={label} className={className} href={href} key={href}>
+      <Link
+        aria-label={label}
+        className={className}
+        href={href}
+        onNavigate={(event) =>
+          reselectFeedNavigation(href, pathname, event, searchParams)
+        }
+        key={href}
+      >
         {inner}
       </Link>
     );

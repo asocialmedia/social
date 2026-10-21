@@ -71,6 +71,54 @@ function fixture(overrides: Partial<ProtocolsAppOptions> = {}) {
 }
 
 describe("Elysia protocol service", () => {
+  test("recommendation batch reads distinguish transient author failures from explicit denials", async () => {
+    const post = {
+      ...author,
+      author,
+      createdAt: new Date().toISOString(),
+      id: "at://did:plc:alice/app.bsky.feed.post/example",
+      indexedAt: new Date().toISOString(),
+      labels: [],
+      languages: ["en"],
+      media: [],
+      revision: "cid",
+      segments: [],
+      source: "bluesky" as const,
+      text: "TypeScript",
+      upstreamCounts: { likes: 10, quotes: 0, replies: 0, reposts: 0 },
+    };
+    for (const transient of [true, false]) {
+      const { request } = fixture({
+        client: {
+          allowsRecommendations: async () => {
+            if (transient) {
+              throw new ProtocolError(
+                "unavailable",
+                "temporary profile outage"
+              );
+            }
+            return false;
+          },
+          getAuthorFeed: async () => ({ cursor: null, items: [] }),
+          getFeed: async () => ({ cursor: null, items: [] }),
+          getPost: async () => null,
+          getPostThread: async () => ({ post: null, replies: [] }),
+          getPosts: async () => [post],
+          getProfile: async () => author,
+        },
+      });
+      // oxlint-disable-next-line no-await-in-loop -- verify denial and transport-failure response contracts independently.
+      const response = await request(
+        `/v1/bluesky/posts?uri=${encodeURIComponent(post.id)}&recommendations=1`
+      );
+      expect(response.status).toBe(transient ? 502 : 200);
+      if (!transient) {
+        // oxlint-disable-next-line no-await-in-loop -- consume only the successful policy response.
+        expect(await response.json()).toEqual([]);
+      }
+    }
+  });
+
   test("preserves authorization and validation over Bun's live HTTP adapter", async () => {
     const { app } = fixture();
     app.listen({ hostname: "127.0.0.1", port: 0 });

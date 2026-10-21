@@ -61,6 +61,7 @@ export const asmDbMockBase = {
   externalPostId: (uri: string) => `external-post-${uri}`,
   externalPostStates: () => Promise.resolve(new Map()),
   externalResponses: () => Promise.resolve({ cursor: null, items: [] }),
+  filterExternalMediaSafety: <T>(posts: T[]) => Promise.resolve(posts),
   findExternalPost: () => Promise.resolve(null),
   findVisiblePost: () => Promise.resolve(null),
   fromPrismaDateTime: (value: Date): Date => value,

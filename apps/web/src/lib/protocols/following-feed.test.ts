@@ -29,6 +29,7 @@ mock.module("@asm/db", () => ({
         status: "active",
       }))
     ),
+  filterExternalMediaSafety: (posts: ExternalPost[]) => Promise.resolve(posts),
   redis: {
     get: (key: string) => Promise.resolve(cache.get(key) ?? null),
     set: (key: string, value: string) => {

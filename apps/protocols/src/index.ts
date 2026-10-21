@@ -283,6 +283,7 @@ export async function startProtocols() {
     effectiveExplicitClient,
     undefined,
     {
+      allowExplicit: true,
       store: redis
         ? new RedisDiscoveryStore(redis, {
             scope: "asm:protocols:{discovery:explicit:v1}",
@@ -436,6 +437,10 @@ export async function startProtocols() {
           const parsed = discoveryWatchSchema.safeParse(watch);
           if (parsed.success && parsed.data.content === "all") {
             live.watch({ ...parsed.data, content: "video" });
+            if (parsed.data.mode === "personalized") {
+              // Mix fresh arrivals into the same temporary inventory without delaying the ranked reader.
+              live.watch({ ...parsed.data, mode: "latest" });
+            }
           }
         } catch {
           // Invalid watch hints carry no work.

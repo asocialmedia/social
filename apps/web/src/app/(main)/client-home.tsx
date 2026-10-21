@@ -38,6 +38,7 @@ import { useFeedScrollMemory } from "@/hooks/feed/use-feed-scroll-memory";
 import { useFeedSwipeNavigation } from "@/hooks/feed/use-feed-swipe-navigation";
 import { useFeedTabSelection } from "@/hooks/feed/use-feed-tab-selection";
 import { useHideOnScroll } from "@/hooks/use-hide-on-scroll";
+import { requestFeedTop } from "@/lib/posts/feed-top-request";
 import { useFeedSourceStore } from "@/store/feed-source-store";
 import {
   HOME_TABS,
@@ -95,6 +96,7 @@ const ClientHome: React.FC<ClientHomeProps> = () => {
       const nextParams = new URLSearchParams(window.location.search);
       const currentTab = nextParams.get("tab");
       if (value === (isTabValue(HOME_TABS, currentTab) ? currentTab : tab)) {
+        requestFeedTop(`home:${value}`);
         return;
       }
       selectTab(value);
@@ -155,7 +157,8 @@ const ClientHome: React.FC<ClientHomeProps> = () => {
             <CollapsibleTopBar hidden={hideTopBar}>
               <MobileTopBar />
             </CollapsibleTopBar>
-            <div className="border-border/60 relative flex items-center border-b py-1.5">
+            <div className="border-border/60 relative grid grid-cols-[2.75rem_minmax(0,1fr)_2.75rem] items-center border-b py-1.5 md:flex">
+              <div aria-hidden className="md:hidden" />
               <HomeFeedControls
                 active={tab}
                 discovery={discovery}
@@ -167,6 +170,7 @@ const ClientHome: React.FC<ClientHomeProps> = () => {
                   active={tab === "personalized"}
                   layoutId="home-tab-indicator"
                   value="personalized"
+                  onReselect={() => handleTabChange("personalized")}
                 >
                   For you
                 </AnimatedTabTrigger>
@@ -174,6 +178,7 @@ const ClientHome: React.FC<ClientHomeProps> = () => {
                   active={tab === "latest"}
                   layoutId="home-tab-indicator"
                   value="latest"
+                  onReselect={() => handleTabChange("latest")}
                 >
                   Latest
                 </AnimatedTabTrigger>
@@ -181,6 +186,7 @@ const ClientHome: React.FC<ClientHomeProps> = () => {
                   active={tab === "trending"}
                   layoutId="home-tab-indicator"
                   value="trending"
+                  onReselect={() => handleTabChange("trending")}
                 >
                   Trending
                 </AnimatedTabTrigger>
@@ -188,15 +194,18 @@ const ClientHome: React.FC<ClientHomeProps> = () => {
                   active={tab === "following"}
                   layoutId="home-tab-indicator"
                   value="following"
+                  onReselect={() => handleTabChange("following")}
                 >
                   Following
                 </AnimatedTabTrigger>
               </TabsList>
-              <FeedSourceMenu following={tab === "following"} />
+              <div className="flex items-center justify-center">
+                <FeedSourceMenu following={tab === "following"} />
+              </div>
               {/* Gutter between the settings button and the column edge. It lives
                   here rather than on the button because `ml-auto` on the search
                   cluster below zeroes out a sibling margin-right at xl. */}
-              <div aria-hidden className="w-2 shrink-0" />
+              <div aria-hidden className="hidden w-2 shrink-0 md:block" />
               {/* xl:hidden: the right sidebar owns the search bar from xl up;
                   this header copy serves the md-xl gap. */}
               <div className="ml-auto hidden min-w-0 items-center gap-2 pr-1.5 md:flex xl:hidden">

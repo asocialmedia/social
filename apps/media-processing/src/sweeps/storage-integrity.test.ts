@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import sharp from "sharp";
+
 // Storage-integrity sweep: the self-healing net for READY rows whose objects
 // are gone from storage while their derivative ROWS are all still there.
 //
@@ -11,6 +13,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 // let one bad row stop the batch.
 
 interface SweepRow {
+  status?: string;
   customThumbnailKey: null | string;
   id: string;
   key: string;
@@ -38,6 +41,7 @@ interface UpdateCall {
 }
 
 interface SharedState {
+  objects: Map<string, Buffer>;
   backfillEnabled: boolean;
   derivatives: Record<string, DerivativeRow[]>;
   enqueued: EnqueueCall[];
@@ -70,6 +74,7 @@ function seed(): SharedState {
     backfillEnabled: true,
     derivatives: {},
     enqueued: [],
+    objects: new Map(),
     present: new Set<string>(),
     probes: [],
     queries: 0,
@@ -316,6 +321,17 @@ function unreachableError(): Error {
 mock.module("../s3", () => ({
   getS3: () => ({
     file: (key: string) => ({
+      arrayBuffer: () =>
+        Promise.resolve(Uint8Array.from(state().objects.get(key) ?? []).buffer),
+      exists: () => Promise.resolve(state().present.has(key)),
+      slice: (start: number, end: number) => ({
+        arrayBuffer: () =>
+          Promise.resolve(
+            Uint8Array.from(
+              (state().objects.get(key) ?? Buffer.alloc(0)).subarray(start, end)
+            ).buffer
+          ),
+      }),
       stat: () => {
         const current = state();
         current.probes.push(key);
@@ -343,8 +359,13 @@ mock.module("../s3", () => ({
             : Promise.reject(missingKeyError());
         }
         return current.present.has(key)
-          ? Promise.resolve({ size: 1 })
+          ? Promise.resolve({ size: state().objects.get(key)?.length ?? 1 })
           : Promise.reject(missingKeyError());
+      },
+      write: (bytes: Buffer) => {
+        state().objects.set(key, bytes);
+        state().present.add(key);
+        return Promise.resolve(bytes.length);
       },
     }),
   }),
@@ -359,6 +380,7 @@ function row(id: string, overrides: Partial<SweepRow> = {}): SweepRow {
     key: `${id}/original`,
     originalKey: null,
     publishedKey: `${id}/published`,
+    status: "READY",
     thumbnailKey: null,
     ...overrides,
   };
@@ -379,6 +401,30 @@ const CLEAN = {
 };
 
 describe("storage-integrity sweep", () => {
+  test("repairable legacy WebP sources publish a new key and retain the damaged bytes", async () => {
+    const original = await sharp({
+      create: { background: "red", channels: 3, height: 20, width: 30 },
+    })
+      .webp()
+      .toBuffer();
+    const damaged = Buffer.from(original);
+    damaged.writeUInt32LE(damaged.length - 20, 8);
+    const current = state();
+    const key = "media/legacy/original.webp";
+    current.rows = [row("legacy", { key, publishedKey: key })];
+    current.present.add(key);
+    current.objects.set(key, damaged);
+    const result = await storageIntegritySweep();
+    expect(result.repointed).toBe(1);
+    const updated = current.updates[0]?.data;
+    expect(updated?.key).toStartWith("media/legacy/original-");
+    expect(updated?.publishedKey).toBe(updated?.key);
+    expect(current.objects.get(String(updated?.key))?.equals(original)).toBe(
+      true
+    );
+    expect(current.objects.get(key)?.equals(damaged)).toBe(true);
+    expect(current.enqueued[0]?.mediaId).toBe("legacy");
+  });
   test("a healthy row is verified and left alone", async () => {
     const current = state();
     current.rows = [row("m1")];

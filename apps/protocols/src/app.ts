@@ -312,9 +312,7 @@ export function createProtocolsApp(options: ProtocolsAppOptions) {
                 const allowed = new Set(
                   await Promise.all(
                     authors.map(async (author) =>
-                      (await client
-                        .allowsRecommendations?.(author)
-                        .catch(() => false))
+                      (await client.allowsRecommendations?.(author))
                         ? author
                         : ""
                     )

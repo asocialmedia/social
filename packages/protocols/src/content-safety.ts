@@ -11,6 +11,10 @@ const EXPLICIT_MEDIA_LABELS = new Set([
   "r-18",
   "self-harm",
   "sexual",
+  "sexual-figurative",
+  "sexualized-figurative",
+  "suggestive",
+  "fetish",
   "torture",
   "violence",
   "xxx",
@@ -62,10 +66,15 @@ const EXPLICIT_HASHTAG_REGEX =
   /#(?:18\+|adult|corpse|ecchi|erotic|gore|graphic-media|hentai|lewd|nsfw|nsfwart|nudity|porn|pornography|r18|r-18|self-harm|sexual|torture|violence|xxx|furry|furryart|furryartist|furryimages|furrydrawing|digitalfurryart|nsfwfurry|furryporn|yiff|murrsuit|furaffinity|e621)\b/i;
 
 const EXPLICIT_TEXT_REGEX =
-  /\b(?:porn|pornography|xxx|hentai|ecchi|nsfw|nsfwart|yiff|furryporn|nsfwfurry|furry(?:art|artist|artwork)?|murrsuit|e621|furaffinity|underwear|lingerie|nudes?|naked|topless|onlyfans|fansly)\b/i;
+  /\b(?:porn|pornography|xxx|hentai|ecchi|nsfw|nsfwart|yiff|furryporn|nsfwfurry|furry(?:art|artist|artwork)?|murrsuit|e621|furaffinity|fetish|inflation kink|vore|underwear|lingerie|nudes?|naked|topless|onlyfans|fansly)\b/i;
 
 export interface BlueskyContentLabels {
-  author?: { labels?: readonly string[]; description?: string };
+  author?: {
+    labels?: readonly string[];
+    description?: string;
+    displayName?: string;
+    handle?: string;
+  };
   media?: readonly { alt?: string }[];
   externalLink?: { title?: string; description?: string; url?: string };
   quote?: BlueskyContentLabels;
@@ -115,6 +124,8 @@ export function blueskyMediaIsExplicit(post: BlueskyContentLabels): boolean {
     const text = [
       current.text,
       current.author?.description,
+      current.author?.displayName,
+      current.author?.handle,
       current.externalLink?.title,
       current.externalLink?.description,
       current.externalLink?.url,
@@ -125,7 +136,7 @@ export function blueskyMediaIsExplicit(post: BlueskyContentLabels): boolean {
     if (
       EXPLICIT_HASHTAG_REGEX.test(text) ||
       EXPLICIT_TEXT_REGEX.test(text) ||
-      /(?:^|[^\p{L}\p{N}])(?:18\s*\+|adults?[- ]only|sexually explicit)(?=$|[^\p{L}\p{N}])/iu.test(
+      /(?:^|[^\p{L}\p{N}])(?:18\s*\+|adults?[- ]only|no minors|minors? (?:do not interact|dni)|sexually explicit)(?=$|[^\p{L}\p{N}])/iu.test(
         text
       )
     ) {

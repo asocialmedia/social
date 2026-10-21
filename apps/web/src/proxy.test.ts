@@ -399,6 +399,35 @@ describe("install-token gate", () => {
     }
   }
 
+  test("service reconciliation reaches its own bearer authentication without exempting adjacent mutations", async () => {
+    await withSecret(async () => {
+      const response = await proxy(
+        makeRequest(
+          "https://asocialmedia.cc/api/internal/protocols/follows",
+          { authorization: "Bearer service-token", host: "asocialmedia.cc" },
+          "POST"
+        )
+      );
+      expect(response.status).toBe(200);
+      const adjacent = await proxy(
+        makeRequest(
+          "https://asocialmedia.cc/api/internal/protocols/follows/other",
+          { host: "asocialmedia.cc" },
+          "POST"
+        )
+      );
+      expect(adjacent.status).toBe(403);
+      const crossSite = await proxy(
+        makeRequest(
+          "https://asocialmedia.cc/api/internal/protocols/follows",
+          { host: "asocialmedia.cc", origin: "https://evil.example" },
+          "POST"
+        )
+      );
+      expect(crossSite.status).toBe(403);
+    });
+  });
+
   test("blocks a scripted mutation that presents no token", async () => {
     await withSecret(async () => {
       const res = await proxy(

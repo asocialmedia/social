@@ -47,3 +47,13 @@ test("repair rejects healthy images, unrelated RIFF data and truncated legacy ch
   truncated.writeUInt32LE(truncated.length, 16);
   expect(await prepareLegacyWebpRepair(truncated, "id")).toBeNull();
 });
+
+test("structurally valid legacy chunks with undecodable image bytes are not repairable", async () => {
+  const invalid = Buffer.alloc(32);
+  invalid.write("RIFF", 0);
+  invalid.writeUInt32LE(24, 4);
+  invalid.writeUInt32LE(12, 8);
+  invalid.write("VP8 ", 12);
+  invalid.writeUInt32LE(12, 16);
+  expect(await prepareLegacyWebpRepair(invalid, "invalid-codec")).toBeNull();
+});

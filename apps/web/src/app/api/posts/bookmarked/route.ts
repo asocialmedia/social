@@ -6,11 +6,17 @@ import {
   hydrateViewCounts,
   mapPostData,
   prisma,
+  readNetworkPreferences,
+  filterExternalMediaSafety,
 } from "@asm/db";
 import type { PostData, PostsPage } from "@asm/db";
-import { externalPostSchema } from "@asm/protocols/discovery";
+import {
+  externalPostSchema,
+  defaultNetworkPreferences,
+} from "@asm/protocols/discovery";
 
 import { getSessionFromApi } from "@/lib/auth/session";
+import { networkPostAllowed } from "@/lib/posts/network-content-policy";
 import { externalPostView } from "@/lib/posts/presentation";
 import type { PresentedPost } from "@/lib/posts/presentation";
 
@@ -124,9 +130,24 @@ export async function GET(request: Request) {
   const allItems = [...asmItems, ...bskyItems].toSorted(
     (a, b) => b.timestamp - a.timestamp
   );
-  const orderedPosts = allItems.map((item) => item.post);
+  const orderedPosts: PresentedPost[] = allItems.map((item) => item.post);
 
-  const hydrated = orderedPosts;
+  const settings = await readNetworkPreferences(user.id);
+  const preferences = settings?.preferences ?? defaultNetworkPreferences();
+  const external = orderedPosts.flatMap((post) =>
+    post.external ? [post.external] : []
+  );
+  const safe = new Set(
+    (preferences.showExplicitContent
+      ? external
+      : await filterExternalMediaSafety(external)
+    ).map((post) => post.id)
+  );
+  const hydrated = orderedPosts.filter(
+    (post) =>
+      networkPostAllowed(post, preferences) &&
+      (!post.external || safe.has(post.external.id))
+  );
   const data: PostsPage = {
     nextCursor: null,
     posts: hydrated,

@@ -97,6 +97,7 @@ export function ExternalAuthorTooltip({
               <PostInlineContent
                 className="line-clamp-4 text-sm whitespace-pre-line"
                 content={person.description}
+                source="bluesky"
                 linkBadge="chip"
               />
             ) : null}

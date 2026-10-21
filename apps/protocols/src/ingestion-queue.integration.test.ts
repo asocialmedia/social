@@ -34,7 +34,14 @@ test.skipIf(!redisUrl)(
     const scope = `protocol-hydration-real-cooldown-${crypto.randomUUID()}`;
     let reads = 0;
     const client = new BlueskyClient({
-      fetch: () => {
+      fetch: (input) => {
+        if (
+          new URL(String(input)).pathname.endsWith("/app.bsky.actor.getProfile")
+        ) {
+          return Promise.resolve(
+            Response.json({ did: "did:plc:alice", handle: "alice.bsky.social" })
+          );
+        }
         reads += 1;
         return Promise.resolve(
           reads === 1

@@ -30,6 +30,41 @@ const request = (url: string, credential = token) =>
     { headers: { authorization: `Bearer ${credential}` } }
   );
 
+test("one worker's search denial retries locally and leaves its profile capacity available", async () => {
+  let remoteSearches = 0;
+  let remoteProfiles = 0;
+  const pool = createReadWorkerPool({
+    fetch: async (raw) => {
+      if (raw.startsWith(node.url)) {
+        const upstream = new URL(raw).searchParams.get("url") ?? "";
+        if (upstream.includes("searchPosts")) {
+          remoteSearches += 1;
+          return Response.json(
+            { error: "Forbidden" },
+            {
+              headers: {
+                "x-asm-read-worker": "1",
+                "x-asm-upstream-status": "403",
+              },
+              status: 403,
+            }
+          );
+        }
+        remoteProfiles += 1;
+      }
+      return response({ posts: [] });
+    },
+    logger: logger(),
+    nodes: [node],
+  });
+  await pool.fetch(profile, {});
+  expect((await pool.fetch(search, {})).status).toBe(200);
+  expect((await pool.fetch(search, {})).status).toBe(200);
+  await pool.fetch(profile, {});
+  expect(remoteSearches).toBe(1);
+  expect(remoteProfiles).toBe(1);
+});
+
 test("read workers start without Redis and reject coordinator dependencies", () => {
   expect(
     readConfig({
@@ -63,6 +98,43 @@ test("read workers start without Redis and reject coordinator dependencies", () 
   expect(() =>
     readConfig({ NODE_ENV: "production", PROTOCOLS_INTERNAL_TOKEN: token })
   ).toThrow("REDIS_URL");
+});
+
+test("non-JSON upstream denials stay restricted and a generator's 401 cannot disable unrelated worker capacity", async () => {
+  const denied = createReadWorkerPool({
+    fetch: async () => new Response("<html>Forbidden</html>", { status: 403 }),
+    logger: logger(),
+    nodes: [],
+  });
+  expect((await denied.fetch(search, {})).status).toBe(403);
+  const fetcher = mock(async (url: string) =>
+    url.startsWith(node.url)
+      ? Response.json(
+          { error: "AuthRequired" },
+          {
+            headers: {
+              "x-asm-read-worker": "1",
+              "x-asm-upstream-status": "401",
+            },
+            status: 401,
+          }
+        )
+      : response({ did: "did:plc:alice" })
+  );
+  const pool = createReadWorkerPool({
+    fetch: fetcher,
+    logger: logger(),
+    nodes: [node],
+  });
+  await pool.fetch(profile, {});
+  const feed =
+    "https://public.api.bsky.app/xrpc/app.bsky.feed.getFeed?feed=at://did:plc:test/app.bsky.feed.generator/private";
+  expect((await pool.fetch(feed, {})).status).toBe(401);
+  expect(
+    pool.status().find((entry) => entry.id === node.id)?.cooldowns[
+      "https://public.api.bsky.app"
+    ]
+  ).toBeUndefined();
 });
 
 test("node configuration rejects duplicate, insecure and credential-bearing origins without exposing secrets", () => {
@@ -269,9 +341,11 @@ test("background transport rejects private operations and credentials", async ()
 test("missing visibility declarations remain eligible without transport failure warnings", async () => {
   const logs = logger();
   const worker = createReadWorkerApp({
-    fetch: () =>
+    fetch: (url) =>
       Promise.resolve(
-        Response.json({ error: "RecordNotFound" }, { status: 400 })
+        url.includes("app.bsky.actor.getProfile")
+          ? Response.json({ did: "did:plc:alice", handle: "alice.test" })
+          : Response.json({ error: "RecordNotFound" }, { status: 400 })
       ),
     id: node.id,
     logger: logs,

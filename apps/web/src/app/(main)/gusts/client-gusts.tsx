@@ -6,7 +6,6 @@ import {
   followingGustAvatars,
 } from "@asm/ui/lib/gust-header";
 import { Button } from "@asm/ui/shadui/button";
-import { Skeleton } from "@asm/ui/shadui/skeleton";
 import noMediaImage from "@assets/general/nomedia.png";
 import {
   useInfiniteQuery,
@@ -41,6 +40,7 @@ import {
 } from "@/components/gusts/gust-source-retries";
 import { GustsCommentsDrawer } from "@/components/gusts/gusts-comments-drawer";
 import { MobileGustEddies } from "@/components/gusts/mobile-gust-eddies";
+import Spinner3D from "@/components/layouts/feedback/spinner-3d";
 import { FeedSourceMenu } from "@/components/protocols/feed-source-menu";
 import { useBlueskyFeed } from "@/components/protocols/use-bluesky-feed";
 import { useExternalPost } from "@/components/protocols/use-external-post";
@@ -57,6 +57,10 @@ import {
   FEED_QUERY_BEHAVIOR,
   prependPostsToFeedCache,
 } from "@/lib/posts/feed-cache";
+import {
+  consumeFeedTop,
+  subscribeFeedTopRequests,
+} from "@/lib/posts/feed-top-request";
 import {
   advanceGustPaging,
   gustPagingDelay,
@@ -180,21 +184,6 @@ const GustStream = ({ gustTab }: { gustTab: GustFeed }) => {
   const gatedPersonalized =
     gustTab !== "latest" && !initialPostId && !isLoggedIn;
 
-  const handleTabChange = useCallback(
-    (value: GustFeed) => {
-      const nextParams = new URLSearchParams(searchParams.toString());
-      nextParams.delete("id");
-      nextParams.set("tab", value);
-      const query = nextParams.toString();
-      window.history.pushState(
-        null,
-        "",
-        query ? `${pathname}?${query}` : pathname
-      );
-    },
-    [pathname, searchParams]
-  );
-
   const [activeIndex, setActiveIndex] = useState(0);
   const [headerVisible, setHeaderVisible] = useState(true);
   const headerScroll = useRef({ anchor: 0, visible: true });
@@ -258,6 +247,42 @@ const GustStream = ({ gustTab }: { gustTab: GustFeed }) => {
 
   const containerRef = useRef<HTMLDivElement>(null);
   const itemRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const scrollToFeedTop = useCallback(() => {
+    containerRef.current?.scrollTo({
+      behavior: reducedMotion ? "auto" : "smooth",
+      top: 0,
+    });
+    setHeaderVisible(true);
+  }, [reducedMotion]);
+  useEffect(
+    () =>
+      subscribeFeedTopRequests(() => {
+        if (consumeFeedTop(`gusts:${gustTab}`)) {
+          scrollToFeedTop();
+        }
+      }),
+    [gustTab, scrollToFeedTop]
+  );
+
+  const handleTabChange = useCallback(
+    (value: GustFeed) => {
+      if (value === gustTab && !initialPostId) {
+        scrollToFeedTop();
+        return;
+      }
+      const nextParams = new URLSearchParams(searchParams.toString());
+      nextParams.delete("id");
+      nextParams.set("tab", value);
+      const query = nextParams.toString();
+      window.history.pushState(
+        null,
+        "",
+        query ? `${pathname}?${query}` : pathname
+      );
+    },
+    [gustTab, initialPostId, pathname, scrollToFeedTop, searchParams]
+  );
+
   // The app-wide infinite-scroll pattern (same hook the feeds use): a bottom
   // sentinel flips inView when it enters the viewport, which paginates even
   // when the list is too short to scroll.
@@ -1221,76 +1246,49 @@ const GustStream = ({ gustTab }: { gustTab: GustFeed }) => {
     <>
       {/* Main Gusts Container */}
       <div className="relative flex min-w-0 flex-1 justify-center overflow-hidden bg-[hsl(var(--background-alt))]">
-        {/* Floating back button (mobile, over the video) */}
-        <button
-          aria-label="Go back"
-          inert={!headerShown}
-          className={cn(
-            "rail-3d-btn absolute top-4 left-4 z-30 flex h-10 w-10 items-center justify-center rounded-full transition-[opacity,transform] duration-200 md:hidden",
-            !headerShown && "pointer-events-none -translate-y-4 opacity-0"
-          )}
-          onClick={() => router.back()}
-          type="button"
-        >
-          <ChevronLeft className="size-5" />
-        </button>
-
-        {/* Floating back button (desktop, top-left corner). Matches the left
-            sidebar's collapse button (size-9, size-4.5 chevron) so the two sit
-            on the same level. */}
-        <button
-          aria-label="Go back"
-          inert={!headerShown}
-          className={cn(
-            "icon-btn-3d absolute top-3.5 left-4 z-30 hidden size-9 items-center justify-center rounded-full transition-[opacity,transform] duration-200 md:flex",
-            !headerShown && "pointer-events-none -translate-y-4 opacity-0"
-          )}
-          onClick={() => router.back()}
-          type="button"
-        >
-          <ChevronLeft className="size-4.5" />
-        </button>
-
         <div
           aria-hidden={!headerShown}
           inert={!headerShown}
           data-gust-header
           className={cn(
-            "absolute top-6.5 right-16 left-16 z-30 flex min-h-11 justify-center transition-[opacity,transform] duration-200 motion-reduce:transform-none md:top-5.5",
+            "absolute top-4 right-4 left-4 z-30 grid min-h-11 grid-cols-[2.5rem_minmax(0,1fr)_2.5rem] items-center gap-1 transition-[opacity,transform] duration-200 motion-reduce:transform-none md:top-3.5",
             !headerShown && "pointer-events-none -translate-y-4 opacity-0"
           )}
         >
-          {isLoggedIn ? (
-            <GustFeedControls
-              active={gustTab}
-              avatars={followingAvatars}
-              onChange={handleTabChange}
-            />
-          ) : (
-            <div className="flex items-center gap-2">
-              <GustTab
-                active={gustTab === "latest"}
-                label="Latest"
-                onClick={() => handleTabChange("latest")}
+          <button
+            aria-label="Go back"
+            className="icon-btn-3d flex size-10 items-center justify-center rounded-full md:size-9"
+            onClick={() => router.back()}
+            type="button"
+          >
+            <ChevronLeft className="size-5 md:size-4.5" />
+          </button>
+          <div className="flex min-w-0 items-center justify-center">
+            {isLoggedIn ? (
+              <GustFeedControls
+                active={gustTab}
+                avatars={followingAvatars}
+                onChange={handleTabChange}
               />
-              <GustTab
-                active={gustTab === "personalized"}
-                label="For you"
-                onClick={() => handleTabChange("personalized")}
-              />
-            </div>
-          )}
-        </div>
+            ) : (
+              <div className="flex items-center gap-2">
+                <GustTab
+                  active={gustTab === "latest"}
+                  label="Latest"
+                  onClick={() => handleTabChange("latest")}
+                />
+                <GustTab
+                  active={gustTab === "personalized"}
+                  label="For you"
+                  onClick={() => handleTabChange("personalized")}
+                />
+              </div>
+            )}
+          </div>
 
-        <div
-          aria-hidden={!headerShown}
-          inert={!headerShown}
-          className={cn(
-            "absolute top-4 right-4 z-30 transition-[opacity,transform] duration-200 motion-reduce:transform-none md:top-3.5",
-            !headerShown && "pointer-events-none -translate-y-4 opacity-0"
-          )}
-        >
-          <FeedSourceMenu following={gustTab === "following"} />
+          <div className="flex items-center justify-center">
+            <FeedSourceMenu following={gustTab === "following"} />
+          </div>
         </div>
 
         {renderContent()}
@@ -1298,17 +1296,13 @@ const GustStream = ({ gustTab }: { gustTab: GustFeed }) => {
         {/* Pull-to-refresh indicator (mobile) */}
         <motion.div
           animate={{
-            height: pullDistance > 0 || isRefreshing ? pullDistance : 0,
+            height: isRefreshing ? 64 : pullDistance,
             opacity: pullDistance > 0 || isRefreshing ? 1 : 0,
           }}
           className="absolute top-20 right-0 left-0 z-20 flex items-start justify-center overflow-hidden"
-          style={{ height: pullDistance || 0 }}
         >
           <div className="rail-3d-btn mt-1 flex h-10 w-10 items-center justify-center rounded-full">
-            <Skeleton
-              aria-label={isRefreshing ? "Refreshing Gusts" : "Pull to refresh"}
-              className="size-5 rounded-md"
-            />
+            <Spinner3D className="size-5" />
           </div>
         </motion.div>
 

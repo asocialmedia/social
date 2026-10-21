@@ -1,5 +1,48 @@
 import { createHash } from "node:crypto";
 
+export function rasterSourceFingerprint(keys: readonly string[]): string {
+  return createHash("sha256")
+    .update(JSON.stringify([...new Set(keys.filter(Boolean))]))
+    .digest("hex");
+}
+
+export function rasterRetryEligible(
+  metadata: unknown,
+  fingerprint?: string
+): boolean {
+  if (
+    !metadata ||
+    typeof metadata !== "object" ||
+    !("analysisStages" in metadata)
+  ) {
+    return true;
+  }
+  const stages = metadata.analysisStages;
+  if (!stages || typeof stages !== "object" || !("raster" in stages)) {
+    return true;
+  }
+  const { raster } = stages;
+  if (
+    !raster ||
+    typeof raster !== "object" ||
+    !("status" in raster) ||
+    raster.status !== "unavailable"
+  ) {
+    return true;
+  }
+  if (
+    "retryAt" in raster &&
+    typeof raster.retryAt === "number" &&
+    raster.retryAt <= Date.now()
+  ) {
+    return true;
+  }
+  return (
+    fingerprint !== undefined &&
+    (!("fingerprint" in raster) || raster.fingerprint !== fingerprint)
+  );
+}
+
 export function analysisStageComplete(
   metadata: unknown,
   stage: string,

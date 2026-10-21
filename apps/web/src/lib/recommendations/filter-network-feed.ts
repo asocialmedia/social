@@ -1,4 +1,4 @@
-import { readNetworkPreferences } from "@asm/db";
+import { readNetworkPreferences, filterExternalMediaSafety } from "@asm/db";
 import { defaultNetworkPreferences } from "@asm/protocols/discovery";
 import type { NetworkTopicScope } from "@asm/protocols/discovery";
 
@@ -22,8 +22,18 @@ export async function filterNetworkFeed<T extends PresentedPost>(
     const { networkTopicScope } = await import("@asm/db");
     scope = await networkTopicScope(interests, preferences.avoidedTopics);
   }
+  const external = posts.flatMap((post) =>
+    post.external ? [post.external] : []
+  );
+  const safeExternal = new Set(
+    (preferences.showExplicitContent
+      ? external
+      : await filterExternalMediaSafety(external)
+    ).map((post) => post.id)
+  );
   return posts.filter(
     (post) =>
+      (!post.external || safeExternal.has(post.external.id)) &&
       networkPostRecommended(post, preferences, scope) &&
       // A guest has no persona to personalise with, so quality is the gate:
       // proven engagement, not the current hot list.

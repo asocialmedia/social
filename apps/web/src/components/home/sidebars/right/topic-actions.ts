@@ -55,7 +55,7 @@ async function getTrendingTopicsFromDb(): Promise<TrendingTopic[]> {
       .toSorted((left, right) => right.count - left.count);
   } catch (error) {
     console.error("Error executing trending topics query:", error);
-    return [];
+    throw error;
   }
 }
 

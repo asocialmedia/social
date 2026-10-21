@@ -152,6 +152,10 @@ const INSTALL_TOKEN_EXEMPT_PATHS = [
 ];
 
 function isInstallTokenExemptPath(pathname: string): boolean {
+  // This exact service route authenticates its bearer token before reading or changing registry state.
+  if (pathname === "/api/internal/protocols/follows") {
+    return true;
+  }
   return INSTALL_TOKEN_EXEMPT_PATHS.some(
     (exempt) =>
       pathname === exempt ||

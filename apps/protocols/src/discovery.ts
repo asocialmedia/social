@@ -18,6 +18,7 @@ import {
   isAuthFeedUri,
   isAuthenticationNotice,
   isExternalTrendingPost,
+  blueskyMediaIsExplicit,
   waitForReadRetry,
 } from "@asm/protocols/discovery";
 import type {
@@ -95,6 +96,7 @@ export class BlueskyDiscovery {
   private readonly scope: string;
   private readonly timeoutMs: number;
   private readonly sourceTimeoutMs: number;
+  private readonly allowExplicit: boolean;
   constructor(
     client: DiscoveryClient,
     actors?: string[],
@@ -102,6 +104,7 @@ export class BlueskyDiscovery {
       store?: DiscoveryStore;
       timeoutMs?: number;
       sourceTimeoutMs?: number;
+      allowExplicit?: boolean;
     } = {}
   ) {
     if (
@@ -115,8 +118,9 @@ export class BlueskyDiscovery {
     this.client = client;
     this.actors = actors ? [...actors] : undefined;
     this.store = options.store ?? new MemoryDiscoveryStore();
+    this.allowExplicit = options.allowExplicit ?? false;
     this.scope = createHash("sha256")
-      .update(JSON.stringify(["dynamic-v14", actors]))
+      .update(JSON.stringify(["dynamic-v15", actors, this.allowExplicit]))
       .digest("hex")
       .slice(0, 16);
     this.timeoutMs = options.timeoutMs ?? 12_000;
@@ -403,7 +407,7 @@ export class BlueskyDiscovery {
     }
     // Focused profiles search their topics directly instead of waiting for unrelated catalog generators.
     if (!saved && !this.actors && topics.length && this.client.searchPosts) {
-      snapshot.sources = [...new Set([topics[0], topics[1], topics.at(-1)])]
+      snapshot.sources = [...new Set(topics)]
         .filter((topic): topic is string => Boolean(topic))
         .map((topic) => ({
           actor: `search:${topic}`,
@@ -461,7 +465,14 @@ export class BlueskyDiscovery {
             ...rotated,
           ].map((feed) => [feed.uri, feed])
         ).values(),
-      ].filter((feed) => !isAuthFeed(feed));
+      ].filter(
+        (feed) =>
+          !isAuthFeed(feed) &&
+          (this.allowExplicit ||
+            !blueskyMediaIsExplicit({
+              text: `${feed.displayName} ${feed.description ?? ""} ${feed.uri}`,
+            }))
+      );
       if (content === "video") {
         feeds.sort(
           (a, b) =>
@@ -525,114 +536,118 @@ export class BlueskyDiscovery {
     let partial = false;
     let succeeded = 0;
     const blocked = new Set<string>();
-    await mapBounded(snapshot.sources, async (source) => {
-      if (source.exhausted && source.items.length === 0) {
-        succeeded += 1;
-        return;
-      }
-      try {
-        const sourceSignal = AbortSignal.any([
-          signal,
-          AbortSignal.timeout(this.sourceTimeoutMs),
-        ]);
-        for (
-          let attempt = 0;
-          source.items.length === 0 &&
-          !source.exhausted &&
-          attempt < (content === "video" || mode === "trending" ? 3 : 1);
-          attempt += 1
-        ) {
-          const options = {
-            cursor: source.cursor,
-            language: locale && locale !== "all" ? locale : undefined,
-            limit: this.actors ? 30 : 16,
-            since: new Date(
-              Math.floor(Date.now() / 60_000) * 60_000 -
-                (mode === "trending" ? 2 : 7) * 86_400_000
-            ).toISOString(),
-          };
-          if (content === "video" || mode === "trending") {
-            options.limit = 50;
+    await mapBounded(
+      snapshot.sources,
+      async (source) => {
+        if (source.exhausted && source.items.length === 0) {
+          succeeded += 1;
+          return;
+        }
+        try {
+          const sourceSignal = AbortSignal.any([
+            signal,
+            AbortSignal.timeout(this.sourceTimeoutMs),
+          ]);
+          for (
+            let attempt = 0;
+            source.items.length === 0 &&
+            !source.exhausted &&
+            attempt < (content === "video" || mode === "trending" ? 3 : 1);
+            attempt += 1
+          ) {
+            const options = {
+              cursor: source.cursor,
+              language: locale && locale !== "all" ? locale : undefined,
+              limit: this.actors ? 30 : 16,
+              since: new Date(
+                Math.floor(Date.now() / 60_000) * 60_000 -
+                  (mode === "trending" ? 2 : 7) * 86_400_000
+              ).toISOString(),
+            };
+            if (content === "video" || mode === "trending") {
+              options.limit = 50;
+            }
+            const search = source.actor.startsWith("search:");
+            const feed = source.actor.startsWith("at://") || search;
+            if (feed && isAuthFeedUri(source.actor)) {
+              blocked.add(source.actor);
+              source.exhausted = true;
+              source.items = [];
+              succeeded += 1;
+              return;
+            }
+            const profile = feed
+              ? null
+              : await abortable(
+                  this.client.getProfile(source.actor),
+                  sourceSignal
+                );
+            if (feed && !search && !this.client.getFeed) {
+              throw new ProtocolError(
+                "unavailable",
+                "Public feed reader is unavailable"
+              );
+            }
+            let read;
+            if (search && this.client.searchPosts) {
+              read = this.client.searchPosts(
+                source.actor.slice(7),
+                mode !== "latest" || content === "video" ? "top" : "latest",
+                options
+              );
+            } else if (feed && this.client.getFeed) {
+              read = this.client.getFeed(source.actor, options);
+            } else {
+              read = this.client.getAuthorFeed(source.actor, "posts", options);
+            }
+            const page = await abortable(read, sourceSignal);
+            source.items = page.items.filter(
+              (post) =>
+                isFreshDiscoveryPost(post, mode) &&
+                (content !== "video" ||
+                  post.media.some((media) => media.type === "video")) &&
+                (!profile || post.author.id === profile.id) &&
+                !snapshot.seen.includes(post.id) &&
+                ((mode !== "trending" && topics.length > 0) ||
+                  isExternalTrendingPost(post)) &&
+                !isAuthenticationNotice(post.text) &&
+                matchesDiscoveryLanguage(post, locale) &&
+                (!topics.length ||
+                  topics.some((topic) => externalTopicMatch(post, topic) > 0))
+            );
+            source.cursor = page.cursor ?? undefined;
+            source.exhausted = !page.cursor;
           }
-          const search = source.actor.startsWith("search:");
-          const feed = source.actor.startsWith("at://") || search;
-          if (feed && isAuthFeedUri(source.actor)) {
+          succeeded += 1;
+        } catch (error) {
+          if (
+            error instanceof ProtocolError &&
+            (error.code === "restricted" ||
+              (source.actor.startsWith("at://") &&
+                error.code === "invalid_input"))
+          ) {
             blocked.add(source.actor);
             source.exhausted = true;
             source.items = [];
             succeeded += 1;
-            return;
-          }
-          const profile = feed
-            ? null
-            : await abortable(
-                this.client.getProfile(source.actor),
-                sourceSignal
-              );
-          if (feed && !search && !this.client.getFeed) {
-            throw new ProtocolError(
-              "unavailable",
-              "Public feed reader is unavailable"
-            );
-          }
-          let read;
-          if (search && this.client.searchPosts) {
-            read = this.client.searchPosts(
-              source.actor.slice(7),
-              mode !== "latest" || content === "video" ? "top" : "latest",
-              options
-            );
-          } else if (feed && this.client.getFeed) {
-            read = this.client.getFeed(source.actor, options);
           } else {
-            read = this.client.getAuthorFeed(source.actor, "posts", options);
-          }
-          const page = await abortable(read, sourceSignal);
-          source.items = page.items.filter(
-            (post) =>
-              isFreshDiscoveryPost(post, mode) &&
-              (content !== "video" ||
-                post.media.some((media) => media.type === "video")) &&
-              (!profile || post.author.id === profile.id) &&
-              !snapshot.seen.includes(post.id) &&
-              ((mode !== "trending" && topics.length > 0) ||
-                isExternalTrendingPost(post)) &&
-              !isAuthenticationNotice(post.text) &&
-              matchesDiscoveryLanguage(post, locale) &&
-              (!topics.length ||
-                topics.some((topic) => externalTopicMatch(post, topic) > 0))
-          );
-          source.cursor = page.cursor ?? undefined;
-          source.exhausted = !page.cursor;
-        }
-        succeeded += 1;
-      } catch (error) {
-        if (
-          error instanceof ProtocolError &&
-          (error.code === "restricted" ||
-            (source.actor.startsWith("at://") &&
-              error.code === "invalid_input"))
-        ) {
-          blocked.add(source.actor);
-          source.exhausted = true;
-          source.items = [];
-          succeeded += 1;
-        } else {
-          partial = true;
-          blocked.add(source.actor);
-          // A broken generator must not hold the remaining live catalog behind its failed cursor.
-          if (
-            !this.actors &&
-            source.actor.startsWith("at://") &&
-            snapshot.catalogFeeds.length > 0 &&
-            error instanceof ProtocolError &&
-            error.code === "unavailable"
-          ) {
-            source.exhausted = true;
+            partial = true;
+            blocked.add(source.actor);
+            // A broken generator must not hold the remaining live catalog behind its failed cursor.
+            if (
+              !this.actors &&
+              source.actor.startsWith("at://") &&
+              snapshot.catalogFeeds.length > 0 &&
+              error instanceof ProtocolError &&
+              error.code === "unavailable"
+            ) {
+              source.exhausted = true;
+            }
           }
         }
-      }
-    });
+      },
+      5
+    );
     signal.throwIfAborted();
     if (succeeded === 0 && snapshot.catalogFeeds.length === 0) {
       throw new ProtocolError(

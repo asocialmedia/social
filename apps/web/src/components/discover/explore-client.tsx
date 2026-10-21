@@ -23,7 +23,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSession } from "@/app/(main)/session-provider";
 import { AuthPromptCard } from "@/components/auth/shell/auth-prompt-card";
 import CommunityAvatar from "@/components/communities/card/community-avatar";
-import { DiscoverySafetyControl } from "@/components/feeds/discovery-safety-control";
 import { AnimatedTabTrigger } from "@/components/home/feedview/animated-tab-trigger";
 import TrendingTopics from "@/components/home/sidebars/right/trending-topics";
 import { FeedScrollbar } from "@/components/layouts/feed/feed-scrollbar";
@@ -63,6 +62,7 @@ import type { ExploreTab } from "@/store/tab-store";
 import { ExploreGuestSearch } from "./explore-guest-search";
 import { ExploreGustsGrid } from "./explore-gusts-grid";
 import { ExploreGustsRail } from "./explore-gusts-rail";
+import { ExploreMasonry } from "./explore-masonry";
 import ExploreMasonrySkeleton from "./explore-masonry-skeleton";
 import {
   ExploreNetworkAccount,
@@ -196,7 +196,7 @@ const ExploreClient: React.FC = () => {
             mode: "trending",
             network: "1",
             profile: network.settings.preferences.activeProfileId,
-            take: "8",
+            take: "24",
           },
           signal,
         })
@@ -206,6 +206,28 @@ const ExploreClient: React.FC = () => {
     queryKey: ["explore-top-gusts", sessionUser?.id ?? "guest", network.scope],
     staleTime: 60 * 1000,
   });
+
+  const remoteGusts = useBlueskyFeed(
+    "trending",
+    network.ready && activeTab !== "gusts" && !debouncedSearch.trim(),
+    sessionUser?.id ?? "guest",
+    "video",
+    false,
+    "explore"
+  );
+  const trendingRemoteGusts = useMemo(
+    () =>
+      (remoteGusts.data?.pages.flatMap((page) => page.items) ?? []).filter(
+        (post) =>
+          externalNetworkPostRecommended(
+            post,
+            network.settings.preferences,
+            undefined,
+            network.settings.topicScope
+          )
+      ),
+    [remoteGusts.data, network.settings]
+  );
 
   const queryKey = useMemo(
     () => [
@@ -369,7 +391,7 @@ const ExploreClient: React.FC = () => {
 
   // Interleave user cards into the post stream (Pinterest-style).
   const items = useMemo(() => {
-    const result: React.ReactNode[] = [];
+    const result: React.ReactElement[] = [];
     let postIndex = 0;
     let userIndex = 0;
 
@@ -460,7 +482,9 @@ const ExploreClient: React.FC = () => {
     (status === "pending" ||
       (!debouncedSearch.trim() && remote.isPending) ||
       (debouncedSearch.trim().length >= 2 && remoteSearch.isPending)) &&
-    !mixed.length
+    !mixed.length &&
+    !gusts.length &&
+    !trendingRemoteGusts.length
   ) {
     body = <ExploreMasonrySkeleton />;
   } else if (status === "error" && !mixed.length) {
@@ -469,7 +493,11 @@ const ExploreClient: React.FC = () => {
         An error occurred while loading content.
       </p>
     );
-  } else if (items.length === 0) {
+  } else if (
+    items.length === 0 &&
+    !gusts.length &&
+    !trendingRemoteGusts.length
+  ) {
     body = (
       <div className="flex flex-col items-center justify-center gap-3 px-4 py-16 text-center">
         <Image
@@ -504,9 +532,11 @@ const ExploreClient: React.FC = () => {
           transition={{ duration: 0.18, ease: "easeOut" }}
         >
           {/* Top Gusts rail on explore feed */}
-          {!debouncedSearch.trim() && gusts.length > 0 ? (
+          {!debouncedSearch.trim() &&
+          (gusts.length > 0 || trendingRemoteGusts.length > 0) ? (
             <ExploreGustsRail
               gusts={gusts}
+              external={trendingRemoteGusts}
               onViewAll={() => handleTabChange("gusts")}
             />
           ) : null}
@@ -546,9 +576,15 @@ const ExploreClient: React.FC = () => {
           ) : null}
 
           {/* Masonry Post Stream */}
-          <div className="columns-2 gap-4 sm:columns-3 xl:columns-4">
+          {!debouncedSearch.trim() &&
+          (gusts.length > 0 || trendingRemoteGusts.length > 0) ? (
+            <h2 className="text-foreground mb-4 text-base font-semibold">
+              More to explore
+            </h2>
+          ) : null}
+          <ExploreMasonry scope={JSON.stringify(queryKey)}>
             {items}
-          </div>
+          </ExploreMasonry>
         </motion.div>
       </AnimatePresence>
     );
@@ -680,7 +716,6 @@ const ExploreClient: React.FC = () => {
                   </AnimatedTabTrigger>
                 ))}
               </TabsList>
-              <DiscoverySafetyControl />
               {isLoggedIn && activeTab !== "gusts" ? (
                 <div className="hidden w-60 shrink-0 md:block xl:hidden">
                   {searchField}

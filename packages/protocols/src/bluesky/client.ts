@@ -213,13 +213,28 @@ export class BlueskyClient {
 
   async allowsRecommendations(did: string): Promise<boolean> {
     const actor = actorSchema.parse(did);
-    const result = await this.request(
+    const visibility = this.request(
       "content_visibility",
       { actor },
       z.object({ allowed: z.boolean() }),
       30_000
     );
-    return result.allowed;
+    const profile = (async () => {
+      if (this.allowExplicitMedia) {
+        return true;
+      }
+      try {
+        await this.getProfile(actor);
+        return true;
+      } catch (error) {
+        if (error instanceof ProtocolError && error.code === "restricted") {
+          return false;
+        }
+        throw error;
+      }
+    })();
+    const [result, safeAuthor] = await Promise.all([visibility, profile]);
+    return result.allowed && safeAuthor;
   }
 
   async getProfile(actor: string): Promise<ExternalAuthor> {

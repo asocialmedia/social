@@ -13,6 +13,7 @@ import { motion, useReducedMotion } from "motion/react";
 import { useId, useState } from "react";
 
 import UserAvatar from "@/components/layouts/user/user-avatar";
+import { useFeedReselect } from "@/hooks/feed/use-feed-reselect";
 import { cn } from "@/lib/utils";
 
 export type GustFeed = "following" | "latest" | "personalized";
@@ -40,6 +41,9 @@ export function GustFeedControls({
     setDiscovery(selected);
   }
   const [menuOpen, setMenuOpen] = useState(false);
+  const reselectDiscovery = useFeedReselect(active === selected, () =>
+    onChange(selected)
+  );
   const alternative = selected === "latest" ? "personalized" : "latest";
   const AlternativeIcon = alternative === "latest" ? Clock3 : Sparkles;
   const text = selected === "latest" ? "Latest" : "For you";
@@ -70,6 +74,7 @@ export function GustFeedControls({
       >
         <DropdownMenuTrigger asChild>
           <button
+            {...reselectDiscovery}
             aria-label={`${text}, choose Gusts feed`}
             className={cn(
               control,

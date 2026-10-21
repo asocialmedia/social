@@ -1,7 +1,7 @@
 // oxlint-disable no-await-in-loop -- merge heads must be replenished before choosing the next chronological item.
 import { createHash } from "node:crypto";
 
-import { externalFollowAuthors } from "@asm/db";
+import { externalFollowAuthors, filterExternalMediaSafety } from "@asm/db";
 import type { ExternalPost } from "@asm/protocols/contracts";
 import {
   externalPostSchema,
@@ -148,7 +148,12 @@ export async function readFollowingFeed(
       ? discoveryPageSchema.safeParse(JSON.parse(rawHead))
       : null;
     if (cached?.success) {
-      return cached.data;
+      return includeExplicit
+        ? cached.data
+        : {
+            ...cached.data,
+            items: await filterExternalMediaSafety(cached.data.items),
+          };
     }
   }
   if (cachedOnly) {
