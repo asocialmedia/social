@@ -2,12 +2,14 @@
 
 import type { PostsPage } from "@asm/db";
 import { feedAvailability } from "@asm/protocols/discovery";
+import { Button } from "@asm/ui/shadui/button";
 import noFeedImage from "@assets/general/nofeed.png";
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import Image from "next/image";
 import { useCallback, useMemo, useRef } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
+import { FeedErrorState } from "@/components/feeds/feed-error-state";
 import { NewContentPill } from "@/components/feeds/new-content-pill";
 import { FeedView } from "@/components/home/feed-view";
 import FeedEnd from "@/components/home/feedview/feed-end";
@@ -23,6 +25,7 @@ import {
   prependPostsToFeedCache,
   scrollFeedToTop,
 } from "@/lib/posts/feed-cache";
+import { canAutoContinueFeed } from "@/lib/posts/feed-pagination";
 import { useFeedSourceStore } from "@/store/feed-source-store";
 
 export default function FollowingFeed() {
@@ -93,14 +96,38 @@ export default function FollowingFeed() {
     visible: posts,
   });
 
-  const handleBottomReached = useCallback(() => {
-    if (source !== "asm" && external.hasNextPage && !external.isFetching) {
-      void external.fetchNextPage();
-    }
-    if (source !== "bluesky" && hasNextPage && !isFetching) {
-      fetchNextPage({ cancelRefetch: false });
-    }
-  }, [fetchNextPage, hasNextPage, isFetching, source, external]);
+  const handleBottomReached = useCallback(
+    (manual = false) => {
+      if (
+        source !== "asm" &&
+        external.hasNextPage &&
+        !external.isFetching &&
+        (manual || !external.isError) &&
+        (manual ||
+          canAutoContinueFeed(external.data?.pages, (page) => page.items))
+      ) {
+        void external.fetchNextPage({ cancelRefetch: false });
+      }
+      if (
+        source !== "bluesky" &&
+        hasNextPage &&
+        !isFetching &&
+        (manual || status !== "error") &&
+        (manual || canAutoContinueFeed(data?.pages, (page) => page.posts))
+      ) {
+        fetchNextPage({ cancelRefetch: false });
+      }
+    },
+    [
+      fetchNextPage,
+      hasNextPage,
+      isFetching,
+      source,
+      external,
+      status,
+      data?.pages,
+    ]
+  );
 
   const showNewPosts = useCallback(() => {
     clearNewItems();
@@ -121,6 +148,17 @@ export default function FollowingFeed() {
     nativeError: status === "error",
     nativeLoading: status === "pending",
   });
+  if (!network.ready && network.isError) {
+    return (
+      <FeedErrorState
+        message="We couldn’t load your feed preferences. Please try again."
+        onRetry={() => {
+          void network.refetch();
+        }}
+        isRetrying={network.isFetching}
+      />
+    );
+  }
   if (availability === "loading") {
     return <FeedViewSkeleton />;
   }
@@ -147,18 +185,13 @@ export default function FollowingFeed() {
 
   if (availability === "error") {
     return (
-      <p className="text-destructive text-center">
-        Couldn't load Following.{" "}
-        <button
-          type="button"
-          onClick={() => {
-            void queryClient.invalidateQueries({ queryKey });
-            void external.refetch();
-          }}
-        >
-          Retry
-        </button>
-      </p>
+      <FeedErrorState
+        message="We couldn’t load posts from the people you follow. Please try again."
+        onRetry={() => {
+          void queryClient.invalidateQueries({ queryKey });
+          void external.refetch();
+        }}
+      />
     );
   }
 
@@ -200,17 +233,32 @@ export default function FollowingFeed() {
         </div>
       ) : null}
       {source !== "asm" && external.isError ? (
-        <p className="text-muted-foreground p-3 text-center text-sm">
-          Bluesky is temporarily unavailable.{" "}
-          <button
-            type="button"
-            onClick={() => {
-              /* empty */
-            }}
-          >
-            Retry
-          </button>
-        </p>
+        <FeedErrorState
+          compact
+          message="Bluesky posts couldn’t load right now. Please try again in a moment."
+          isRetrying={external.isFetching}
+          onRetry={() => {
+            if (external.hasNextPage) {
+              void external.fetchNextPage({ cancelRefetch: false });
+            } else {
+              void external.refetch();
+            }
+          }}
+        />
+      ) : null}
+      {source !== "bluesky" && status === "error" ? (
+        <FeedErrorState
+          compact
+          message="Some posts couldn’t load right now. Please try again."
+          isRetrying={isFetching}
+          onRetry={() => {
+            if (hasNextPage) {
+              void fetchNextPage({ cancelRefetch: false });
+            } else {
+              void queryClient.invalidateQueries({ queryKey });
+            }
+          }}
+        />
       ) : null}
       <InfiniteScrollContainer onBottomReached={handleBottomReached}>
         <FeedView
@@ -221,6 +269,17 @@ export default function FollowingFeed() {
         />
         {isFetchingNextPage || external.isFetchingNextPage ? (
           <LoadMoreSkeleton />
+        ) : null}
+        {(nativeHasMore || externalHasMore) &&
+        !isFetching &&
+        !external.isFetching &&
+        status !== "error" &&
+        !external.isError ? (
+          <div className="flex justify-center p-4">
+            <Button variant="premium" onClick={() => handleBottomReached(true)}>
+              Load more posts
+            </Button>
+          </div>
         ) : null}
         {posts.length + externalPosts.length > 0 &&
         !nativeHasMore &&

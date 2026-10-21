@@ -48,7 +48,7 @@ export class DiscoveryInventory {
   private readonly readSource?: ReadSource;
   private readonly allowExplicit: boolean;
   private readonly sourceTimeoutMs: number;
-  private readonly replenishing = new Set<string>();
+  private readonly replenishing = new Map<string, Promise<DiscoveryPage>>();
   constructor(
     store: InventoryStore,
     continuations: DiscoveryStore,
@@ -136,33 +136,31 @@ export class DiscoveryInventory {
     };
     let candidates = posts.filter(eligible);
     let partial = false;
-    // Deliver verified arrivals immediately; a sparse page must not wait on a broken generator.
-    if (
-      cursor &&
-      candidates.length > 0 &&
-      candidates.length < 20 &&
-      this.readSource &&
-      (!sourceStarted || sourceCursor)
-    ) {
-      partial = true;
-      const key = `${scope}:${sourceCursor ?? "head"}`;
+    const refill = () => {
+      if (!this.readSource) {
+        return;
+      }
+      const key = refillKey(sourceCursor);
+      const existing = this.replenishing.get(key);
+      if (existing) {
+        return existing;
+      }
+      if (this.replenishing.size >= 8) {
+        return;
+      }
+      const startedAt = Date.now();
+      const position = sourceCursor;
       const { readSource } = this;
-      if (!this.replenishing.has(key) && this.replenishing.size < 8) {
-        this.replenishing.add(key);
-        const startedAt = Date.now();
-        const position = sourceCursor;
-        void (async () => {
-          try {
-            const page = await readSource(
-              mode,
-              position,
-              locale,
-              topics,
-              content
-            );
-            await this.store.put(page.items, startedAt);
+      const pending = (async () => {
+        try {
+          const page = await abortable(
+            readSource(mode, position, locale, topics, content),
+            AbortSignal.timeout(15_000)
+          );
+          await this.store.put(page.items, startedAt);
+          if (!page.partial || page.cursor) {
             await this.continuations.set(
-              refillKey(position),
+              key,
               JSON.stringify({
                 scope,
                 seen: [],
@@ -171,13 +169,28 @@ export class DiscoveryInventory {
               }),
               900_000
             );
-          } catch {
-            // A failed background refill leaves existing verified arrivals and the cursor usable.
-          } finally {
-            this.replenishing.delete(key);
           }
-        })();
-      }
+          return page;
+        } finally {
+          this.replenishing.delete(key);
+        }
+      })();
+      this.replenishing.set(key, pending);
+      return pending;
+    };
+    // Deliver verified arrivals immediately while preserving completed work beyond the foreground deadline.
+    if (
+      cursor &&
+      candidates.length > 0 &&
+      candidates.length < 20 &&
+      this.readSource &&
+      (!sourceStarted || sourceCursor)
+    ) {
+      partial = true;
+      // oxlint-disable-next-line promise/prefer-await-to-then -- sparse arrivals return while refill completion persists independently.
+      void refill()?.catch(() => {
+        // Keep the previous source position retryable after a failed refill.
+      });
     }
     // A sparse local page must not hide deeper source pages from the reader.
     if (
@@ -187,8 +200,12 @@ export class DiscoveryInventory {
       (!sourceStarted || sourceCursor)
     ) {
       try {
+        const pending = refill();
+        if (!pending) {
+          throw new Error("Inventory refill capacity unavailable");
+        }
         const page = await abortable(
-          this.readSource(mode, sourceCursor, locale, topics, content),
+          pending,
           AbortSignal.timeout(this.sourceTimeoutMs)
         );
         candidates = [
@@ -199,8 +216,10 @@ export class DiscoveryInventory {
             ])
           ).values(),
         ];
-        sourceStarted = true;
-        sourceCursor = page.cursor ?? undefined;
+        if (!page.partial || page.cursor) {
+          sourceStarted = true;
+          sourceCursor = page.cursor ?? undefined;
+        }
         ({ partial } = page);
       } catch {
         // Keep the last source position retryable and serve validated local arrivals.

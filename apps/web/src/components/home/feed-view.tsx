@@ -12,6 +12,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 
 import { BlueskyPostCard } from "@/components/protocols/bluesky-post-card";
 import { RecommendationTracker } from "@/components/recommendations/recommendation-tracker";
+import { useBoundedSourcePending } from "@/hooks/feed/use-bounded-source-pending";
 import { useFeedExposures } from "@/hooks/feed/use-feed-exposures";
 import { useNetworkSettings } from "@/hooks/feed/use-network-settings";
 import { useSession } from "@/lib/auth/session-context";
@@ -63,7 +64,7 @@ export const FeedView: React.FC<FeedViewProps> = ({
   posts: initialPosts,
   externalPosts = EMPTY_EXTERNAL_POSTS,
   source = "all",
-  sourcesPending = false,
+  sourcesPending: pendingSources = false,
   cacheKey = DEFAULT_FEED_CACHE_KEY,
   excludeIds,
   excludePostId,
@@ -74,6 +75,7 @@ export const FeedView: React.FC<FeedViewProps> = ({
   trending = false,
   showEmpty = true,
 }) => {
+  const sourcesPending = useBoundedSourcePending(pendingSources);
   const MemoizedPostCard = useMemo(() => React.memo(PostCard), []);
   const queryClient = useQueryClient();
   const network = useNetworkSettings();

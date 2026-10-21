@@ -28,6 +28,7 @@ import { useInView } from "react-intersection-observer";
 
 import { useSession } from "@/app/(main)/session-provider";
 import { AuthPromptCard } from "@/components/auth/shell/auth-prompt-card";
+import { FeedErrorState } from "@/components/feeds/feed-error-state";
 import { NewContentPill } from "@/components/feeds/new-content-pill";
 import type { NewContentAuthor } from "@/components/feeds/new-content-pill";
 import { GustCard } from "@/components/gusts/gust-card";
@@ -46,6 +47,7 @@ import { useBlueskyFeed } from "@/components/protocols/use-bluesky-feed";
 import { useExternalPost } from "@/components/protocols/use-external-post";
 import { RecommendationTracker } from "@/components/recommendations/recommendation-tracker";
 import { useRequireAuth } from "@/hooks/auth/use-require-auth";
+import { useBoundedSourcePending } from "@/hooks/feed/use-bounded-source-pending";
 import { useDiscoveryLocale } from "@/hooks/feed/use-discovery-locale";
 import { useFeedExposures } from "@/hooks/feed/use-feed-exposures";
 import { useNetworkSettings } from "@/hooks/feed/use-network-settings";
@@ -468,13 +470,11 @@ const GustStream = ({ gustTab }: { gustTab: GustFeed }) => {
     network.ready,
   ]);
   const orderScope = `${gustTab}:${initialPostId ?? ""}:${source}:${user?.id ?? "guest"}:${network.scope}:${locale}`;
-  const sourcesPending =
+  const sourcesPending = useBoundedSourcePending(
     includeNative &&
-    includeExternal &&
-    (nativeStatus === "pending" ||
-      externalFeed.isPending ||
-      isFetchingNativeNextPage ||
-      externalFeed.isFetchingNextPage);
+      includeExternal &&
+      (nativeStatus === "pending" || externalFeed.isPending)
+  );
   const [reel, setReel] = useState<{
     scope: string;
     native: typeof nativePosts;
@@ -1064,6 +1064,17 @@ const GustStream = ({ gustTab }: { gustTab: GustFeed }) => {
     },
   ];
   const renderContent = () => {
+    if (!network.ready && network.isError) {
+      return (
+        <FeedErrorState
+          message="We couldn’t load your feed preferences. Please try again."
+          onRetry={() => {
+            void network.refetch();
+          }}
+          isRetrying={network.isFetching}
+        />
+      );
+    }
     // Checked before the loading branches: a disabled (gated) query stays
     // "pending" forever, which would otherwise render the skeleton.
     if (gatedPersonalized) {
