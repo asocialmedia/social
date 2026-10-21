@@ -6,12 +6,14 @@ import { nativeNetworkPath } from "@/features/network/lib/network-paths";
 
 import type { SearchKind, SearchSource } from "./use-network-search";
 
+const normalizeRecentLabel = (label: string) => label.slice(0, 280);
+
 const recentSchema = z.object({
   at: z.number(),
   explicit: z.boolean().optional(),
   href: z.string().max(2048).optional(),
   kind: z.enum(["all", "user", "post", "community"]).default("all"),
-  label: z.string().max(280).optional(),
+  label: z.string().transform(normalizeRecentLabel).optional(),
   query: z.string().max(80),
   source: z.enum(["all", "asm", "bluesky"]),
 });
@@ -55,7 +57,7 @@ export function useRecentNetworkSearches(viewer: string) {
       active = false;
     };
   }, [viewer]);
-  const save = (items: RecentNetworkSearch[]) => {
+  const save = async (items: RecentNetworkSearch[]) => {
     values.set(viewer, items);
     setData({ items, viewer });
     try {
@@ -63,7 +65,7 @@ export function useRecentNetworkSearches(viewer: string) {
         Paths.document,
         `asm-network-search-${encodeURIComponent(viewer)}.json`
       );
-      file.write(JSON.stringify(items));
+      await file.write(JSON.stringify(items));
     } catch {
       // Recent searches are best effort; navigation remains available.
     }
@@ -86,11 +88,12 @@ export function useRecentNetworkSearches(viewer: string) {
         query: query.trim().slice(0, 80),
         source,
         ...target,
+        label: target ? normalizeRecentLabel(target.label) : undefined,
       };
       if (!item.query) {
         return;
       }
-      save(
+      void save(
         [
           item,
           ...(values.get(viewer) ?? []).filter((previous) =>

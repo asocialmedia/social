@@ -114,6 +114,7 @@ import { selectExploreAutoplayPost } from "../lib/explore-autoplay";
 import { exploreCache, exploreCacheKey } from "../lib/explore-cache";
 import type { ExploreData } from "../lib/explore-cache";
 import { hydrateExploreCache } from "../lib/explore-cache-native";
+import { exploreDisplayStatus } from "../lib/explore-display-status";
 import { exploreFeedTabs, explorePageIndex } from "../lib/explore-navigation";
 import { ExploreBadge } from "./explore-badge";
 import { ExploreFeedControls } from "./explore-feed-controls";
@@ -445,12 +446,27 @@ const ExploreTabContent = memo(
         isGust: true,
       }))
     ).filter(eligible);
-    let status: "error" | "loading" | "success" = "loading";
-    if (resource.data) {
-      status = "success";
-    } else if (resource.error) {
-      status = "error";
+    let blueskyStatus: typeof remote.status | undefined;
+    if (!deferredSearch && activeTab !== "people") {
+      blueskyStatus = remote.status;
+    } else if (deferredSearch.length >= 2) {
+      blueskyStatus = "success";
+      if (remoteSearch.remoteLoading) {
+        blueskyStatus = "loading";
+      } else if (remoteSearch.remoteError) {
+        blueskyStatus = "error";
+      }
     }
+    const status = exploreDisplayStatus(
+      posts.length > 0 ||
+        users.length > 0 ||
+        (activeTab === "people" &&
+          Boolean(deferredSearch) &&
+          remoteSearch.bluesky.profiles.length > 0) ||
+        (activeTab !== "gusts" && activeTab !== "people" && gusts.length > 0),
+      resource,
+      blueskyStatus
+    );
     const refreshing = resource.pending === "refresh";
     const loadingMore = resource.pending === "append";
     const [newItems, setNewItems] = useState<FeedPost[]>([]);
@@ -1009,11 +1025,11 @@ const ExploreTabContent = memo(
     }
 
     let footer: React.ReactNode = null;
-    if (resource.error && resource.data) {
+    if (resource.error && status === "success") {
       footer = (
         <View style={styles.errorState}>
           <Text style={[styles.errorText, { color: theme.errorBannerText }]}>
-            Could not update Explore. Your saved items are still available.
+            Some ASM results couldn't load. Available results are still shown.
           </Text>
           <Pressable
             accessibilityRole="button"

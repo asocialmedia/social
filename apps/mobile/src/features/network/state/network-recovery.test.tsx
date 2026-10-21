@@ -32,6 +32,8 @@ mock.module("@/lib/api-env", () => ({
 }));
 mock.module("@/lib/telemetry", () => ({ logWarn() {} }));
 const files = new Map<string, string>();
+const historyFile = (viewer: string) =>
+  `asm-network-search-${encodeURIComponent(viewer)}.json`;
 mock.module("expo-file-system", () => ({
   File: class {
     readonly name: string;
@@ -43,6 +45,7 @@ mock.module("expo-file-system", () => ({
     }
     write(contents: string) {
       files.set(this.name, contents);
+      return Promise.resolve();
     }
   },
   Paths: { document: "memory" },
@@ -201,6 +204,59 @@ test("recent searches keep one persistent file through preference revisions and 
       await Bun.sleep(10);
     });
     expect(recent?.items[0]?.query).toBe("animation");
+  } finally {
+    await act(() => root.unmount());
+  }
+});
+
+test("long result labels survive a cold history read without dropping other recents", async () => {
+  let recent: ReturnType<typeof useRecentNetworkSearches> | undefined;
+  function Probe({ viewer }: { viewer: string }) {
+    const value = useRecentNetworkSearches(viewer);
+    useEffect(() => {
+      recent = value;
+    }, [value]);
+    return null;
+  }
+  const root = createRoot(document.createElement("div"));
+  const showHistory = async (viewer: string) => {
+    await act(async () => {
+      root.render(<Probe viewer={viewer} />);
+      await Promise.resolve();
+    });
+    await act(async () => {
+      await Bun.sleep(10);
+    });
+  };
+  try {
+    await showHistory("long-label-writer");
+    await act(() => recent?.remember("previous search", "asm"));
+    await act(() =>
+      recent?.remember("long post", "bluesky", {
+        href: "/network/bluesky?uri=at%3A%2F%2Fdid%3Aplc%3Aexample%2Fapp.bsky.feed.post%2F1",
+        label: "long Bluesky post ".repeat(40),
+      })
+    );
+    expect(recent?.items).toHaveLength(2);
+    expect(recent?.items[0]?.label).toHaveLength(280);
+    const saved = files.get(historyFile("long-label-writer"));
+    expect(saved).toBeDefined();
+    const entries = JSON.parse(saved ?? "[]");
+    expect(entries[0].label).toHaveLength(280);
+    // A fresh cache key forces a disk read, as on the next app launch.
+    files.set(historyFile("long-label-reader"), saved ?? "[]");
+    await showHistory("long-label-reader");
+    expect(recent?.items.map((item) => item.query)).toEqual([
+      "long post",
+      "previous search",
+    ]);
+    // Recover older files that were saved before labels were normalized.
+    entries[0].label = "legacy long post ".repeat(40);
+    files.set(historyFile("legacy-label-reader"), JSON.stringify(entries));
+    await showHistory("legacy-label-reader");
+    expect(recent?.items).toHaveLength(2);
+    expect(recent?.items[0]?.label).toHaveLength(280);
+    expect(recent?.items[1]?.query).toBe("previous search");
   } finally {
     await act(() => root.unmount());
   }
