@@ -370,6 +370,21 @@ const ExploreClient: React.FC = () => {
       ),
     [posts, remotePosts, homeSeen, debouncedSearch, network.settings]
   );
+  const visibleIds = useMemo(
+    () => ({
+      asm: new Set(
+        mixed
+          .filter((entry) => entry.source === "asm")
+          .map((entry) => entry.post.id)
+      ),
+      bluesky: new Set(
+        mixed
+          .filter((entry) => entry.source === "bluesky")
+          .map((entry) => entry.post.id)
+      ),
+    }),
+    [mixed]
+  );
 
   const handleFollowed = useCallback(
     (userId: string) => {
@@ -615,7 +630,8 @@ const ExploreClient: React.FC = () => {
       hasNextPage &&
       !isFetching &&
       (manual || status !== "error") &&
-      (manual || canAutoContinueFeed(data?.pages, (page) => page.posts))
+      (manual ||
+        canAutoContinueFeed(data?.pages, (page) => page.posts, visibleIds.asm))
     ) {
       void fetchNextPage({ cancelRefetch: false });
     }
@@ -623,7 +639,12 @@ const ExploreClient: React.FC = () => {
       remote.hasNextPage &&
       !remote.isFetching &&
       (manual || !remote.isError) &&
-      (manual || canAutoContinueFeed(remote.data?.pages, (page) => page.items))
+      (manual ||
+        canAutoContinueFeed(
+          remote.data?.pages,
+          (page) => page.items,
+          visibleIds.bluesky
+        ))
     ) {
       void remote.fetchNextPage({ cancelRefetch: false });
     }

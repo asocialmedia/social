@@ -185,7 +185,9 @@ export default function HomeFeed({
     data: communityData,
     fetchNextPage: fetchNextCommunityPage,
     hasNextPage: communityHasNextPage,
+    isFetching: isFetchingCommunity,
     isFetchingNextPage: isFetchingNextCommunityPage,
+    refetch: refetchCommunity,
     status: communityStatus,
   } = useInfiniteQuery({
     enabled: Boolean(communitySlug),
@@ -429,6 +431,41 @@ export default function HomeFeed({
   const communityPending =
     Boolean(communitySlug) && communityStatus === "pending";
   const communityFailed = Boolean(communitySlug) && communityStatus === "error";
+  const retryFailedSources = useCallback(() => {
+    if (communityFailed) {
+      if (communityHasNextPage) {
+        void fetchNextCommunityPage({ cancelRefetch: false });
+      } else {
+        void refetchCommunity({ cancelRefetch: false });
+      }
+    }
+    if (allowExternal && external.isError) {
+      if (external.hasNextPage) {
+        void external.fetchNextPage({ cancelRefetch: false });
+      } else {
+        void external.refetch();
+      }
+    }
+    if (globalStatus === "error") {
+      if (globalHasNextPage) {
+        void fetchNextPage({ cancelRefetch: false });
+      } else {
+        void queryClient.invalidateQueries({ queryKey });
+      }
+    }
+  }, [
+    allowExternal,
+    communityFailed,
+    communityHasNextPage,
+    external,
+    fetchNextCommunityPage,
+    fetchNextPage,
+    globalHasNextPage,
+    globalStatus,
+    queryClient,
+    queryKey,
+    refetchCommunity,
+  ]);
   const showCommunitySection = hasCommunityLead && !communityFailed;
   const hasAnyPosts =
     showCommunitySection ||
@@ -474,10 +511,7 @@ export default function HomeFeed({
     return (
       <FeedErrorState
         message="We couldn’t load your feed right now. Please try again in a moment."
-        onRetry={() => {
-          void external.refetch();
-          void queryClient.invalidateQueries({ queryKey });
-        }}
+        onRetry={retryFailedSources}
       />
     );
   }
@@ -534,10 +568,7 @@ export default function HomeFeed({
     return (
       <FeedErrorState
         message="We couldn’t load your feed right now. Please try again in a moment."
-        onRetry={() => {
-          void external.refetch();
-          void queryClient.invalidateQueries({ queryKey });
-        }}
+        onRetry={retryFailedSources}
       />
     );
   }
@@ -548,7 +579,7 @@ export default function HomeFeed({
     (allowExternal && includeBluesky && external.isFetchingNextPage);
   const initialSourceLoading = globalInitialLoading || externalInitialLoading;
   const sourceFetching =
-    (source !== "bluesky" && isFetching) ||
+    (source !== "bluesky" && (isFetching || isFetchingCommunity)) ||
     (allowExternal && includeBluesky && external.isFetching);
   const sourceFailed =
     (source !== "bluesky" && (communityFailed || globalStatus === "error")) ||
@@ -664,22 +695,7 @@ export default function HomeFeed({
           <FeedErrorState
             compact
             message="Some posts couldn’t load. Your loaded posts are still here—please try again."
-            onRetry={() => {
-              if (external.isError) {
-                if (external.hasNextPage) {
-                  void external.fetchNextPage({ cancelRefetch: false });
-                } else {
-                  void external.refetch();
-                }
-              }
-              if (globalStatus === "error") {
-                if (globalHasNextPage) {
-                  void fetchNextPage({ cancelRefetch: false });
-                } else {
-                  void queryClient.invalidateQueries({ queryKey });
-                }
-              }
-            }}
+            onRetry={retryFailedSources}
           />
         ) : null}
         {hasNextPage &&
