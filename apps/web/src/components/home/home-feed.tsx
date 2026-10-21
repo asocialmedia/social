@@ -39,6 +39,7 @@ import {
   prependPostsToFeedCache,
   scrollFeedToTop,
 } from "@/lib/posts/feed-cache";
+import { canAutoContinueFeed } from "@/lib/posts/feed-pagination";
 import { activeNetworkInterests } from "@/lib/posts/network-content-policy";
 import { isTrendingPost } from "@/lib/posts/trending-eligibility";
 import {
@@ -184,11 +185,13 @@ export default function HomeFeed({
     data: communityData,
     fetchNextPage: fetchNextCommunityPage,
     hasNextPage: communityHasNextPage,
+    isFetching: isFetchingCommunity,
     isFetchingNextPage: isFetchingNextCommunityPage,
+    refetch: refetchCommunity,
     status: communityStatus,
   } = useInfiniteQuery({
     enabled: Boolean(communitySlug),
-    getNextPageParam: (lastPage) => lastPage.nextCursor,
+    getNextPageParam: (lastPage: PostsPage) => lastPage.nextCursor,
     initialPageParam: null as string | null,
     queryFn: ({ pageParam }: { pageParam: string | null }) =>
       kyInstance
@@ -239,15 +242,16 @@ export default function HomeFeed({
     status: globalStatus,
   } = useInfiniteQuery({
     enabled: globalEnabled && source !== "bluesky" && network.ready,
-    getNextPageParam: (lastPage) => lastPage.nextCursor,
+    getNextPageParam: (lastPage: PostsPage) => lastPage.nextCursor,
     initialPageParam: null as string | null,
-    queryFn: async ({ pageParam }: { pageParam: string | null }) => {
+    queryFn: async ({ pageParam, signal }) => {
       const result = await kyInstance
         .get(endpoint, {
           searchParams: {
             ...networkParams,
             ...(pageParam ? { cursor: pageParam } : {}),
           },
+          signal,
         })
         .json<PostsPage>();
       return result;
@@ -355,7 +359,9 @@ export default function HomeFeed({
         source !== "asm" &&
         external.hasNextPage &&
         !external.isFetching &&
-        (!external.isError || retry)
+        (!external.isError || retry) &&
+        (retry ||
+          canAutoContinueFeed(external.data?.pages, (page) => page.items))
       ) {
         void external.fetchNextPage({ cancelRefetch: false });
       }
@@ -373,7 +379,12 @@ export default function HomeFeed({
         }
         return;
       }
-      if (segment === "global" && !isFetching) {
+      if (
+        segment === "global" &&
+        !isFetching &&
+        (globalStatus !== "error" || retry) &&
+        (retry || canAutoContinueFeed(data?.pages, (page) => page.posts))
+      ) {
         fetchNextPage({ cancelRefetch: false });
       }
     },
@@ -381,6 +392,8 @@ export default function HomeFeed({
       allowExternal,
       source,
       external,
+      data?.pages,
+      globalStatus,
       communityExhausted,
       fetchNextCommunityPage,
       fetchNextPage,
@@ -418,6 +431,41 @@ export default function HomeFeed({
   const communityPending =
     Boolean(communitySlug) && communityStatus === "pending";
   const communityFailed = Boolean(communitySlug) && communityStatus === "error";
+  const retryFailedSources = useCallback(() => {
+    if (communityFailed) {
+      if (communityHasNextPage) {
+        void fetchNextCommunityPage({ cancelRefetch: false });
+      } else {
+        void refetchCommunity({ cancelRefetch: false });
+      }
+    }
+    if (allowExternal && external.isError) {
+      if (external.hasNextPage) {
+        void external.fetchNextPage({ cancelRefetch: false });
+      } else {
+        void external.refetch();
+      }
+    }
+    if (globalStatus === "error") {
+      if (globalHasNextPage) {
+        void fetchNextPage({ cancelRefetch: false });
+      } else {
+        void queryClient.invalidateQueries({ queryKey });
+      }
+    }
+  }, [
+    allowExternal,
+    communityFailed,
+    communityHasNextPage,
+    external,
+    fetchNextCommunityPage,
+    fetchNextPage,
+    globalHasNextPage,
+    globalStatus,
+    queryClient,
+    queryKey,
+    refetchCommunity,
+  ]);
   const showCommunitySection = hasCommunityLead && !communityFailed;
   const hasAnyPosts =
     showCommunitySection ||
@@ -447,14 +495,23 @@ export default function HomeFeed({
     root: feedRootRef,
   });
 
+  if (!network.ready && network.isError) {
+    return (
+      <FeedErrorState
+        message="We couldn’t load your feed preferences. Please try again."
+        onRetry={() => {
+          void network.refetch();
+        }}
+        isRetrying={network.isFetching}
+      />
+    );
+  }
+
   if (availability === "error") {
     return (
       <FeedErrorState
-        message="Couldn’t load your feed. Please try again."
-        onRetry={() => {
-          void external.refetch();
-          void queryClient.invalidateQueries({ queryKey });
-        }}
+        message="We couldn’t load your feed right now. Please try again in a moment."
+        onRetry={retryFailedSources}
       />
     );
   }
@@ -482,7 +539,7 @@ export default function HomeFeed({
       "Try another profile or add interests in Network settings.";
   }
 
-  if (!hasAnyPosts && !hasNextPage && globalStatus === "success") {
+  if (availability === "empty" && !hasNextPage) {
     return (
       <div className="flex flex-col items-center justify-center gap-3 px-4 py-10 text-center">
         <Image
@@ -507,16 +564,12 @@ export default function HomeFeed({
     );
   }
 
-  if (!hasAnyPosts && globalStatus === "error") {
+  if (!hasAnyPosts && (globalStatus === "error" || external.isError)) {
     return (
-      <div className="p-4 text-center">
-        <p className="text-destructive text-sm sm:text-base">
-          An error occurred while loading posts.
-        </p>
-        <p className="text-muted-foreground/70 mt-2 text-xs sm:text-sm">
-          Please try refreshing the page.
-        </p>
-      </div>
+      <FeedErrorState
+        message="We couldn’t load your feed right now. Please try again in a moment."
+        onRetry={retryFailedSources}
+      />
     );
   }
 
@@ -526,7 +579,7 @@ export default function HomeFeed({
     (allowExternal && includeBluesky && external.isFetchingNextPage);
   const initialSourceLoading = globalInitialLoading || externalInitialLoading;
   const sourceFetching =
-    (source !== "bluesky" && isFetching) ||
+    (source !== "bluesky" && (isFetching || isFetchingCommunity)) ||
     (allowExternal && includeBluesky && external.isFetching);
   const sourceFailed =
     (source !== "bluesky" && (communityFailed || globalStatus === "error")) ||
@@ -617,9 +670,7 @@ export default function HomeFeed({
           <FeedView
             key={`${hashKey(queryKey)}:${source}`}
             externalPosts={allowExternal ? externalPosts : []}
-            sourcesPending={
-              source === "all" && (initialSourceLoading || isFetchingNextPage)
-            }
+            sourcesPending={source === "all" && initialSourceLoading}
             source={source}
             cacheKey={queryKey}
             excludeIds={communityIds}
@@ -640,10 +691,17 @@ export default function HomeFeed({
         {isFetchingNextPage && !initialSourceLoading ? (
           <LoadMoreSkeleton count={4} source={nextSkeletonSource} />
         ) : null}
+        {sourceFailed && !sourceFetching ? (
+          <FeedErrorState
+            compact
+            message="Some posts couldn’t load. Your loaded posts are still here—please try again."
+            onRetry={retryFailedSources}
+          />
+        ) : null}
         {hasNextPage && !isFetchingNextPage && !initialSourceLoading ? (
           <div className="flex justify-center p-4">
-            <Button onClick={() => handleBottomReached(true)} variant="ghost">
-              {external.isError ? "Retry loading posts" : "Load more posts"}
+            <Button onClick={() => handleBottomReached(true)} variant="premium">
+              Load more posts
             </Button>
           </div>
         ) : null}

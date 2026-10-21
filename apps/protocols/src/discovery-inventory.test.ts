@@ -127,3 +127,132 @@ test("completed background refills preserve their next source position across in
   ]);
   expect(last?.cursor).toBeNull();
 });
+
+test("an empty inventory retains a refill that finishes after the foreground timeout, including its next cursor", async () => {
+  const posts = Array.from({ length: 20 }, (_, index) =>
+    inventoryPost(index, "TypeScript")
+  );
+  const pending = Promise.withResolvers<{
+    cursor: string;
+    items: ExternalPost[];
+    partial: false;
+  }>();
+  const positions: (string | undefined)[] = [];
+  const source = (_mode: string, position: string | undefined) => {
+    positions.push(position);
+    return position === undefined
+      ? pending.promise
+      : Promise.resolve({ cursor: null, items: [], partial: false });
+  };
+  const store = {
+    invalidate: () => Promise.resolve(),
+    put: (arrivals: ExternalPost[]) => {
+      posts.push(...arrivals);
+      return Promise.resolve();
+    },
+    read: () => Promise.resolve(posts),
+  };
+  const continuations = new MemoryDiscoveryStore();
+  const first = new DiscoveryInventory(store, continuations, source, false, 10);
+  const head = await first.read(
+    "personalized",
+    undefined,
+    "en",
+    ["TypeScript"],
+    "all"
+  );
+  const waiting = await first.read(
+    "personalized",
+    head?.cursor ?? undefined,
+    "en",
+    ["TypeScript"],
+    "all"
+  );
+  expect(waiting?.items).toEqual([]);
+  expect(waiting?.partial).toBe(true);
+  expect(waiting?.cursor).toBeTruthy();
+  const arrival = inventoryPost(21, "TypeScript");
+  pending.resolve({ cursor: "source-next", items: [arrival], partial: false });
+  await Bun.sleep(0);
+  const second = new DiscoveryInventory(
+    store,
+    continuations,
+    source,
+    false,
+    10
+  );
+  const resumed = await second.read(
+    "personalized",
+    waiting?.cursor ?? undefined,
+    "en",
+    ["TypeScript"],
+    "all"
+  );
+  expect(resumed?.items.map((item) => item.id)).toEqual([arrival.id]);
+  expect(positions.filter((position) => position === undefined)).toHaveLength(
+    1
+  );
+  await Bun.sleep(0);
+  const tail = await second.read(
+    "personalized",
+    resumed?.cursor ?? undefined,
+    "en",
+    ["TypeScript"],
+    "all"
+  );
+  expect(tail?.cursor).toBeNull();
+  expect(positions).toEqual([undefined, "source-next"]);
+});
+
+test("a partial source response without a continuation cannot mark the inventory exhausted", async () => {
+  const posts = Array.from({ length: 20 }, (_, index) =>
+    inventoryPost(index, "TypeScript")
+  );
+  let healthy = false;
+  const store = {
+    invalidate: () => Promise.resolve(),
+    put: (arrivals: ExternalPost[]) => {
+      posts.push(...arrivals);
+      return Promise.resolve();
+    },
+    read: () => Promise.resolve(posts),
+  };
+  const inventory = new DiscoveryInventory(
+    store,
+    new MemoryDiscoveryStore(),
+    () =>
+      Promise.resolve({
+        cursor: null,
+        items: healthy ? [inventoryPost(22, "TypeScript")] : [],
+        partial: !healthy,
+      })
+  );
+  const head = await inventory.read(
+    "personalized",
+    undefined,
+    "en",
+    ["TypeScript"],
+    "all"
+  );
+  const outage = await inventory.read(
+    "personalized",
+    head?.cursor ?? undefined,
+    "en",
+    ["TypeScript"],
+    "all"
+  );
+  expect(outage?.partial).toBe(true);
+  expect(outage?.cursor).toBeTruthy();
+  healthy = true;
+  const recovered = await inventory.read(
+    "personalized",
+    outage?.cursor ?? undefined,
+    "en",
+    ["TypeScript"],
+    "all"
+  );
+  expect(recovered?.items.map((post) => post.id)).toEqual([
+    inventoryPost(22, "TypeScript").id,
+  ]);
+  expect(recovered?.cursor).toBeNull();
+});

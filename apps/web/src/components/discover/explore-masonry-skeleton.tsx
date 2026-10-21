@@ -1,4 +1,8 @@
+"use client";
+
 import { Skeleton } from "@asm/ui/shadui/skeleton";
+
+import { ExploreMasonry } from "./explore-masonry";
 
 // Mirrors the explore page: an open "Trending Gusts" heading and
 // horizontal row of 9:16 gust tiles followed
@@ -24,7 +28,7 @@ const GustRailSkeleton: React.FC = () => (
   <section className="mb-6 space-y-3">
     <div className="flex items-center justify-between gap-3">
       <div className="flex min-w-0 items-center gap-2.5">
-        <Skeleton className="size-4.5 rounded-full" />
+        <Skeleton className="size-9 rounded-xl" />
         <Skeleton className="h-4 w-28 rounded-md" />
       </div>
       <Skeleton className="h-4 w-16 rounded-md" />
@@ -45,7 +49,7 @@ const PostSkeleton: React.FC<{ aspect: number; isGust?: boolean }> = ({
   aspect,
   isGust = false,
 }) => (
-  <div className="sidebar-subcard mb-4 break-inside-avoid overflow-hidden rounded-2xl">
+  <div className="surface-3d mb-4 break-inside-avoid overflow-hidden rounded-2xl!">
     <div className="bg-muted/20 relative w-full overflow-hidden">
       <Skeleton
         className="w-full rounded-none"
@@ -78,7 +82,7 @@ const PostSkeleton: React.FC<{ aspect: number; isGust?: boolean }> = ({
 // Matches the real ExploreUserCard: banner, overlapping avatar, name +
 // username, bio line, follower stats, then the follow button.
 const UserSkeleton: React.FC = () => (
-  <div className="sidebar-subcard mb-4 break-inside-avoid overflow-hidden rounded-2xl">
+  <div className="surface-3d mb-4 break-inside-avoid overflow-hidden rounded-2xl!">
     <Skeleton className="h-20 w-full rounded-none" />
     <div className="p-3">
       <Skeleton className="-mt-9 h-11 w-11 rounded-xl" />
@@ -102,7 +106,7 @@ const ExploreMasonrySkeleton: React.FC<{ compact?: boolean }> = ({
 }) => (
   <div className="p-4">
     {compact ? null : <GustRailSkeleton />}
-    <div className="columns-2 gap-4 sm:columns-3 xl:columns-4">
+    <ExploreMasonry scope="explore-loading">
       {(compact ? KEYS.slice(0, 4) : KEYS).map((key, index) =>
         index === 4 || index === 9 ? (
           <UserSkeleton key={key} />
@@ -114,7 +118,7 @@ const ExploreMasonrySkeleton: React.FC<{ compact?: boolean }> = ({
           />
         )
       )}
-    </div>
+    </ExploreMasonry>
   </div>
 );
 

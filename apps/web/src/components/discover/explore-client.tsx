@@ -4,7 +4,6 @@ import type { PostData, PostsPage, SearchCommunityResult } from "@asm/db";
 import type { ExternalPost } from "@asm/protocols/contracts";
 import { Button } from "@asm/ui/shadui/button";
 import { Input } from "@asm/ui/shadui/input";
-import { Skeleton } from "@asm/ui/shadui/skeleton";
 import { Tabs, TabsContent, TabsList } from "@asm/ui/shadui/tabs";
 import noFollowImage from "@assets/general/nofollow.png";
 import {
@@ -23,6 +22,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSession } from "@/app/(main)/session-provider";
 import { AuthPromptCard } from "@/components/auth/shell/auth-prompt-card";
 import CommunityAvatar from "@/components/communities/card/community-avatar";
+import { FeedErrorState } from "@/components/feeds/feed-error-state";
 import { AnimatedTabTrigger } from "@/components/home/feedview/animated-tab-trigger";
 import TrendingTopics from "@/components/home/sidebars/right/trending-topics";
 import { FeedScrollbar } from "@/components/layouts/feed/feed-scrollbar";
@@ -43,6 +43,7 @@ import useDebounce from "@/hooks/use-debounce";
 import { useDiscoverySuggestions } from "@/hooks/use-discovery-suggestions";
 import { useHideOnScroll } from "@/hooks/use-hide-on-scroll";
 import kyInstance from "@/lib/ky";
+import { canAutoContinueFeed } from "@/lib/posts/feed-pagination";
 import {
   externalNetworkPostAllowed,
   externalNetworkPostRecommended,
@@ -369,6 +370,21 @@ const ExploreClient: React.FC = () => {
       ),
     [posts, remotePosts, homeSeen, debouncedSearch, network.settings]
   );
+  const visibleIds = useMemo(
+    () => ({
+      asm: new Set(
+        mixed
+          .filter((entry) => entry.source === "asm")
+          .map((entry) => entry.post.id)
+      ),
+      bluesky: new Set(
+        mixed
+          .filter((entry) => entry.source === "bluesky")
+          .map((entry) => entry.post.id)
+      ),
+    }),
+    [mixed]
+  );
 
   const handleFollowed = useCallback(
     (userId: string) => {
@@ -477,27 +493,48 @@ const ExploreClient: React.FC = () => {
     activeTab,
   ]);
 
+  const hasGustRail =
+    !debouncedSearch.trim() &&
+    (gusts.length > 0 || trendingRemoteGusts.length > 0);
   let body: React.ReactNode;
-  if (
+  if (!network.ready && network.isError) {
+    body = (
+      <FeedErrorState
+        message="We couldn’t load your feed preferences. Please try again."
+        onRetry={() => {
+          void network.refetch();
+        }}
+        isRetrying={network.isFetching}
+      />
+    );
+  } else if (
     (status === "pending" ||
       (!debouncedSearch.trim() && remote.isPending) ||
       (debouncedSearch.trim().length >= 2 && remoteSearch.isPending)) &&
     !mixed.length &&
-    !gusts.length &&
-    !trendingRemoteGusts.length
+    !hasGustRail
   ) {
     body = <ExploreMasonrySkeleton />;
-  } else if (status === "error" && !mixed.length) {
-    body = (
-      <p className="text-destructive px-4 py-8 text-center">
-        An error occurred while loading content.
-      </p>
-    );
   } else if (
-    items.length === 0 &&
-    !gusts.length &&
-    !trendingRemoteGusts.length
+    (status === "error" ||
+      (!debouncedSearch.trim() && remote.isError) ||
+      (debouncedSearch.trim().length >= 2 && remoteSearch.isError)) &&
+    !mixed.length &&
+    !hasGustRail
   ) {
+    body = (
+      <FeedErrorState
+        message="We couldn’t load recommendations right now. Please try again in a moment."
+        onRetry={() => {
+          void queryClient.refetchQueries({ queryKey });
+          void remote.refetch();
+          if (debouncedSearch.trim()) {
+            void remoteSearch.refetch();
+          }
+        }}
+      />
+    );
+  } else if (items.length === 0 && !hasGustRail) {
     body = (
       <div className="flex flex-col items-center justify-center gap-3 px-4 py-16 text-center">
         <Image
@@ -532,8 +569,7 @@ const ExploreClient: React.FC = () => {
           transition={{ duration: 0.18, ease: "easeOut" }}
         >
           {/* Top Gusts rail on explore feed */}
-          {!debouncedSearch.trim() &&
-          (gusts.length > 0 || trendingRemoteGusts.length > 0) ? (
+          {hasGustRail ? (
             <ExploreGustsRail
               gusts={gusts}
               external={trendingRemoteGusts}
@@ -576,8 +612,7 @@ const ExploreClient: React.FC = () => {
           ) : null}
 
           {/* Masonry Post Stream */}
-          {!debouncedSearch.trim() &&
-          (gusts.length > 0 || trendingRemoteGusts.length > 0) ? (
+          {hasGustRail ? (
             <h2 className="text-foreground mb-4 text-base font-semibold">
               More to explore
             </h2>
@@ -590,58 +625,60 @@ const ExploreClient: React.FC = () => {
     );
   }
 
-  const loadMore = () => {
-    if (hasNextPage && !isFetching && status !== "error") {
-      void fetchNextPage();
+  const loadMore = (manual = false) => {
+    if (
+      hasNextPage &&
+      !isFetching &&
+      (manual || status !== "error") &&
+      (manual ||
+        canAutoContinueFeed(data?.pages, (page) => page.posts, visibleIds.asm))
+    ) {
+      void fetchNextPage({ cancelRefetch: false });
     }
     if (
       remote.hasNextPage &&
       !remote.isFetching &&
-      !remote.isFetchNextPageError
+      (manual || !remote.isError) &&
+      (manual ||
+        canAutoContinueFeed(
+          remote.data?.pages,
+          (page) => page.items,
+          visibleIds.bluesky
+        ))
     ) {
-      void remote.fetchNextPage();
+      void remote.fetchNextPage({ cancelRefetch: false });
     }
   };
   const feedContinuation = (
     <div>
       {!debouncedSearch.trim() && (isFetching || remote.isFetching) ? (
-        <output
-          aria-label="Loading more posts"
-          className="grid grid-cols-2 gap-4 px-4 py-3 sm:grid-cols-3 xl:grid-cols-4"
-        >
-          {[0, 1, 2, 3].map((key) => (
-            <div key={key} className="surface-3d space-y-3 rounded-2xl p-3">
-              <div className="flex items-center gap-2">
-                <Skeleton className="size-8 rounded-xl" />
-                <Skeleton className="h-3 w-20" />
-              </div>
-              <Skeleton className="h-3 w-full" />
-              <Skeleton className="h-3 w-2/3" />
-            </div>
-          ))}
-        </output>
+        <ExploreMasonrySkeleton compact />
       ) : null}
-      {remote.isError ? (
-        <div className="flex justify-center p-4">
-          <Button
-            variant="premium"
-            onClick={() => {
-              void remote.refetch();
-            }}
-          >
-            Retry Bluesky
-          </Button>
-        </div>
-      ) : null}
-      {status === "error" && mixed.length ? (
-        <div className="flex justify-center p-4">
-          <Button
-            variant="premium"
-            onClick={() => {
+      {remote.isError || status === "error" ? (
+        <FeedErrorState
+          compact
+          message="Some recommendations couldn’t load. Please try again in a moment."
+          isRetrying={isFetching || remote.isFetching}
+          onRetry={() => {
+            if (remote.isError) {
+              if (remote.hasNextPage) {
+                void remote.fetchNextPage({ cancelRefetch: false });
+              } else {
+                void remote.refetch();
+              }
+            }
+            if (status === "error") {
               void queryClient.refetchQueries({ queryKey });
-            }}
-          >
-            Retry ASM
+            }
+          }}
+        />
+      ) : null}
+      {(hasNextPage || remote.hasNextPage) &&
+      !isFetching &&
+      !remote.isFetching ? (
+        <div className="flex justify-center p-4">
+          <Button variant="premium" onClick={() => loadMore(true)}>
+            Load more posts
           </Button>
         </div>
       ) : null}

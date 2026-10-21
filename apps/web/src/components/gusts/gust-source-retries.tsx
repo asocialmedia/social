@@ -1,7 +1,5 @@
 "use client";
 
-import { Button } from "@asm/ui/shadui/button";
-
 import { FeedErrorState } from "@/components/feeds/feed-error-state";
 
 interface GustRetrySource {
@@ -19,15 +17,14 @@ export function GustSourceRetries({
   return sources
     .filter((source) => source.hasError)
     .map((source) => (
-      <div className="flex h-24 items-center justify-center" key={source.label}>
-        <Button
-          disabled={source.isFetching}
-          onClick={source.handleRetry}
-          variant="premium"
-        >
-          Retry {source.label} videos
-        </Button>
-      </div>
+      <FeedErrorState
+        compact
+        key={source.label}
+        message={`${source.label} videos couldn’t load right now. Please try again.`}
+        isRetrying={source.isFetching}
+        onRetry={source.handleRetry}
+        retryLabel={`Retry ${source.label} videos`}
+      />
     ));
 }
 
