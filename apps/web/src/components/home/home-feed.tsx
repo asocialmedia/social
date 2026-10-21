@@ -699,7 +699,6 @@ export default function HomeFeed({
           />
         ) : null}
         {hasNextPage &&
-        !sourceFailed &&
         !isFetchingNextPage &&
         !initialSourceLoading ? (
           <div className="flex justify-center p-4">

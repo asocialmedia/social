@@ -675,9 +675,7 @@ const ExploreClient: React.FC = () => {
       ) : null}
       {(hasNextPage || remote.hasNextPage) &&
       !isFetching &&
-      !remote.isFetching &&
-      !remote.isError &&
-      status !== "error" ? (
+      !remote.isFetching ? (
         <div className="flex justify-center p-4">
           <Button variant="premium" onClick={() => loadMore(true)}>
             Load more posts
