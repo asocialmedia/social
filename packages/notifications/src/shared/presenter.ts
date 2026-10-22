@@ -77,6 +77,18 @@ const TYPE_META: Record<
     badge: { from: "#34d399", to: "#0d9488" },
     icon: "MessageCircle",
   },
+  COMMUNITY_JOIN_APPROVED: {
+    badge: { from: "#34d399", to: "#0d9488" },
+    icon: "Users",
+  },
+  COMMUNITY_JOIN_DECLINED: {
+    badge: { from: "#a78bfa", to: "#4f46e5" },
+    icon: "Users",
+  },
+  COMMUNITY_JOIN_REQUEST: {
+    badge: { from: "#a78bfa", to: "#4f46e5" },
+    icon: "UserPlus",
+  },
   COMMUNITY_POST: {
     badge: { from: "#a78bfa", to: "#4f46e5" },
     icon: "LayoutGrid",
@@ -205,6 +217,15 @@ function getAction(notification: NotificationRecord): string {
         ? `${notification.count} new fleets posted in a/${slug}`
         : `posted a new fleet in a/${slug}`;
     }
+    case "COMMUNITY_JOIN_REQUEST": {
+      return `requested to join a/${notification.community?.slug ?? ""}`;
+    }
+    case "COMMUNITY_JOIN_APPROVED": {
+      return `approved your request to join a/${notification.community?.slug ?? ""}`;
+    }
+    case "COMMUNITY_JOIN_DECLINED": {
+      return `declined your request to join a/${notification.community?.slug ?? ""}`;
+    }
     case "COMMUNITY_CHAT": {
       return notification.community
         ? `new activity in a/${notification.community.slug}`
@@ -256,6 +277,16 @@ function getAction(notification: NotificationRecord): string {
 export function getNotificationTarget(
   notification: NotificationRecord
 ): NotificationTarget {
+  if (
+    [
+      "COMMUNITY_JOIN_REQUEST",
+      "COMMUNITY_JOIN_APPROVED",
+      "COMMUNITY_JOIN_DECLINED",
+    ].includes(notification.type) &&
+    notification.community
+  ) {
+    return { kind: "community", slug: notification.community.slug };
+  }
   if (notification.type === "COMMUNITY_CHAT" && notification.community) {
     return { kind: "communityChat", slug: notification.community.slug };
   }

@@ -12,6 +12,7 @@ import type { CommunityRoleValue } from "@/lib/communities/client";
 import { formatNumber } from "@/lib/utils";
 
 import CommunityAvatar from "../card/community-avatar";
+import CommunityJoinRequests from "./community-join-requests";
 import JoinButton from "./join-button";
 import CommunityNotifyButton from "./notify-button";
 
@@ -23,7 +24,11 @@ interface CommunityHeaderProps {
   slugRef: (element: HTMLDivElement | null) => void;
   slugStyle: MotionStyle;
   detailsStyle: MotionStyle;
-  community: CommunityData;
+  community: Pick<
+    CommunityData,
+    "id" | "slug" | "name" | "avatarUrl" | "bannerUrl" | "accentColor" | "type"
+  >;
+  canReadContent?: boolean;
   membership: {
     role: CommunityRoleValue;
     status: "ACTIVE" | "PENDING";
@@ -48,6 +53,7 @@ export default function CommunityHeader({
   membership,
   members,
   subscribed,
+  canReadContent = true,
 }: CommunityHeaderProps) {
   const { user } = useSession();
   const isLoggedIn = Boolean(user);
@@ -115,26 +121,34 @@ export default function CommunityHeader({
               An owner cannot leave their own community, so the Join pill is
               dead weight for them - but the bell stays, because a subscribed
               owner is still notified when other members post. */}
-          <motion.div
-            className="pointer-events-auto flex flex-wrap items-center justify-end gap-2 pb-1"
-            style={detailsStyle}
-          >
-            {membership?.role === "OWNER" ? null : (
-              <JoinButton
-                className="w-auto"
+          {canReadContent ? (
+            <motion.div
+              className="pointer-events-auto flex flex-wrap items-center justify-end gap-2 pb-1"
+              style={detailsStyle}
+            >
+              {community.type !== "PUBLIC" &&
+              membership?.status === "ACTIVE" &&
+              (membership.role === "OWNER" ||
+                membership.role === "MODERATOR") ? (
+                <CommunityJoinRequests slug={community.slug} />
+              ) : null}
+              {membership?.role === "OWNER" ? null : (
+                <JoinButton
+                  className="w-auto"
+                  communityId={community.id}
+                  initialMembership={membership}
+                  isLoggedIn={isLoggedIn}
+                  slug={community.slug}
+                />
+              )}
+              <CommunityNotifyButton
                 communityId={community.id}
-                initialMembership={membership}
+                initialSubscribed={subscribed}
                 isLoggedIn={isLoggedIn}
                 slug={community.slug}
               />
-            )}
-            <CommunityNotifyButton
-              communityId={community.id}
-              initialSubscribed={subscribed}
-              isLoggedIn={isLoggedIn}
-              slug={community.slug}
-            />
-          </motion.div>
+            </motion.div>
+          ) : null}
         </div>
 
         <div className="mt-3">
@@ -153,6 +167,14 @@ export default function CommunityHeader({
             >
               a/{community.slug}
             </motion.div>
+            {community.type === "PRIVATE" ? (
+              <motion.span
+                className="chip-3d shrink-0 px-1.5 text-[10px]"
+                style={detailsStyle}
+              >
+                Private
+              </motion.span>
+            ) : null}
             <motion.span className="shrink-0" style={detailsStyle}>
               · {formatNumber(members)} member{members === 1 ? "" : "s"}
             </motion.span>

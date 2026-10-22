@@ -96,7 +96,8 @@ const TYPE_META: {
     value: "RESTRICTED",
   },
   {
-    description: "Only approved users can view and post",
+    description:
+      "Discoverable by everyone; approval is required to read posts and chat",
     label: "Private",
     value: "PRIVATE",
   },

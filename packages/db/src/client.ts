@@ -1,7 +1,10 @@
 import type { ResultType } from "@prisma/orm-postgres/components/runtime";
 import { and } from "@prisma/orm-postgres/orm-client";
 
-import { communityVisibilityWhere } from "./communities/visibility";
+import {
+  communityContentVisibilityWhere,
+  communityVisibilityWhere,
+} from "./communities/visibility";
 import type { PrismaOrm } from "./prisma";
 import { fromPrismaDateTime } from "./prisma";
 
@@ -71,7 +74,10 @@ export function getPublicUserQuery(orm: PrismaOrm, loggedInUserId: string) {
         .where((member) =>
           and(
             member.status.eq("ACTIVE"),
-            member.role.in(["OWNER", "MODERATOR", "MEMBER"])
+            member.role.in(["OWNER", "MODERATOR", "MEMBER"]),
+            member.community.some(
+              communityContentVisibilityWhere(loggedInUserId)
+            )
           )
         )
         .select("role")
@@ -208,7 +214,10 @@ export function getPrivateUserQuery(orm: PrismaOrm, loggedInUserId: string) {
         .where((member) =>
           and(
             member.status.eq("ACTIVE"),
-            member.role.in(["OWNER", "MODERATOR", "MEMBER"])
+            member.role.in(["OWNER", "MODERATOR", "MEMBER"]),
+            member.community.some(
+              communityContentVisibilityWhere(loggedInUserId)
+            )
           )
         )
         .select("role")
@@ -311,7 +320,10 @@ export function getPostDataQuery(orm: PrismaOrm, loggedInUserId: string) {
                 .where((member) =>
                   and(
                     member.status.eq("ACTIVE"),
-                    member.role.in(["OWNER", "MODERATOR", "MEMBER"])
+                    member.role.in(["OWNER", "MODERATOR", "MEMBER"]),
+                    member.community.some(
+                      communityContentVisibilityWhere(loggedInUserId)
+                    )
                   )
                 )
                 .select("role")
@@ -607,8 +619,9 @@ export type NotificationQueryData = ResultType<
 
 export interface NotificationData extends Omit<
   NotificationQueryData,
-  "_type" | "createdAt" | "issuer"
+  "_type" | "createdAt" | "issuer" | "membershipRequestId"
 > {
+  membershipRequestId?: string | null;
   createdAt: Date;
   issuer: NonNullable<NotificationQueryData["issuer"]>;
   type: NotificationQueryData["_type"];
@@ -621,10 +634,20 @@ export function mapNotificationData(
   if (!issuer) {
     throw new Error(`Notification ${notification.id} has no issuer`);
   }
+  const visibleIssuer =
+    _type === "COMMUNITY_JOIN_DECLINED" && rest.community
+      ? {
+          avatarUrl: null,
+          displayName: rest.community.name,
+          id: rest.community.id,
+          username: rest.community.slug,
+        }
+      : issuer;
   return {
     ...rest,
     createdAt: fromPrismaDateTime(createdAt),
-    issuer,
+    issuer: visibleIssuer,
+    issuerId: visibleIssuer.id,
     type: _type,
   };
 }
@@ -745,7 +768,8 @@ export function getMessageConversationDataQuery(orm: PrismaOrm) {
                 .where((member) =>
                   and(
                     member.status.eq("ACTIVE"),
-                    member.role.in(["OWNER", "MODERATOR", "MEMBER"])
+                    member.role.in(["OWNER", "MODERATOR", "MEMBER"]),
+                    member.community.some(communityContentVisibilityWhere(""))
                   )
                 )
                 .select("role")

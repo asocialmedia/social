@@ -80,6 +80,7 @@ import CommunityRoleBadge, {
 import CommunityChannelSettings from "./community-channel-settings";
 import CommunityChatMessageActions from "./community-chat-message-actions";
 import CommunityConversationHeader from "./community-conversation-header";
+import CommunityJoinRequests from "./community-join-requests";
 import CommunityWorkspaceNavigation, {
   communityNavigationRowClassName,
 } from "./community-workspace-navigation";
@@ -93,6 +94,7 @@ interface CommunityChatProps {
   communityId: string;
   communityName: string;
   memberCount: number;
+  canReviewRequests?: boolean;
   membership: {
     role: "MEMBER" | "MODERATOR" | "OWNER" | "PARTICIPANT";
     status: "ACTIVE" | "PENDING";
@@ -265,6 +267,7 @@ function CommunityChatWorkspace(props: CommunityChatProps) {
 }
 
 function CommunityChatTimeline({
+  canReviewRequests,
   accentColor,
   avatarUrl,
   channelId,
@@ -1452,6 +1455,11 @@ function CommunityChatTimeline({
 
   const channelList = (
     <div className="flex min-h-0 flex-1 flex-col">
+      {canManage && canReviewRequests ? (
+        <div className="border-border/50 shrink-0 border-b px-3 py-1">
+          <CommunityJoinRequests slug={slug} openOnLink={false} />
+        </div>
+      ) : null}
       <div className="flex min-h-12 shrink-0 items-center justify-between gap-2 pr-2 pl-5">
         <h2 className="text-muted-foreground flex items-baseline gap-2 text-xs font-semibold">
           Channels{" "}

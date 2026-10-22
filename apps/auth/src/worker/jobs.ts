@@ -184,6 +184,15 @@ async function deliverNotificationPush(
     // Deleted (or already cleaned up) between creation and delivery.
     return;
   }
+  if (
+    [
+      "COMMUNITY_JOIN_REQUEST",
+      "COMMUNITY_JOIN_APPROVED",
+      "COMMUNITY_JOIN_DECLINED",
+    ].includes(selectedNotification._type)
+  ) {
+    return;
+  }
   const { _type, ...notificationFields } = selectedNotification;
   const notification = {
     ...notificationFields,

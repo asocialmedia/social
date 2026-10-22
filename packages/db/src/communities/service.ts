@@ -32,8 +32,15 @@ import {
   DEFAULT_COMMUNITY_ACCENT,
   isCommunityAccent,
 } from "./constants";
+import { CommunityError } from "./errors";
 import { communityFeedSince, readCommunityFeedSelection } from "./feed-filters";
 import type { CommunityPostFilters } from "./feed-filters";
+import {
+  assertCommunityRequestRate,
+  communityUserIsBanned,
+  notifyCommunityJoinRequest,
+  deliverCommunityMembershipNotifications,
+} from "./membership-policy";
 import { isValidCommunitySlug, normalizeCommunitySlug } from "./slug";
 
 const logger = createLogger({ serviceName: "communities" });
@@ -126,23 +133,7 @@ export interface CreateCommunityInput {
   type?: "PUBLIC" | "RESTRICTED" | "PRIVATE";
 }
 
-export class CommunityError extends Error {
-  code:
-    | "ALREADY_MEMBER"
-    | "AURA_TOO_LOW"
-    | "FORBIDDEN"
-    | "INVALID_ROLE"
-    | "INVALID_SLUG"
-    | "LIMIT_REACHED"
-    | "MOD_LIMIT_REACHED"
-    | "NOT_FOUND"
-    | "SLUG_TAKEN";
-  constructor(code: CommunityError["code"], message: string) {
-    super(message);
-    this.code = code;
-    this.name = "CommunityError";
-  }
-}
+export { CommunityError } from "./errors";
 
 function isUniqueConstraintError(error: unknown): boolean {
   const code = (error as { code?: unknown } | null)?.code;
@@ -179,7 +170,7 @@ async function claimUserMutation(
   return claimed === 1 ? undefined : claimUserMutation(transaction, userId);
 }
 
-async function claimCommunityMutation(
+export async function claimCommunityMutation(
   transaction: PrismaTransaction,
   communityId: string
 ): Promise<void> {
@@ -480,7 +471,8 @@ export async function isCommunityModerator(
   const membership = await getMembership(communityId, userId);
   return (
     membership?.status === "ACTIVE" &&
-    (membership.role === "OWNER" || membership.role === "MODERATOR")
+    (membership.role === "OWNER" || membership.role === "MODERATOR") &&
+    !(await communityUserIsBanned(communityId, userId))
   );
 }
 
@@ -495,7 +487,10 @@ export async function canViewCommunity(
     return false;
   }
   const membership = await getMembership(community.id, userId);
-  return membership?.status === "ACTIVE";
+  return (
+    membership?.status === "ACTIVE" &&
+    !(await communityUserIsBanned(community.id, userId))
+  );
 }
 
 export async function canViewCommunityById(
@@ -538,8 +533,12 @@ export async function joinCommunity(
   }
 
   const status = community._type === "PUBLIC" ? "ACTIVE" : "PENDING";
+  let requestId: string | undefined;
   await prisma.transaction(async (transaction) => {
     await claimCommunityMutation(transaction, communityId);
+    if (await communityUserIsBanned(communityId, userId, transaction.orm)) {
+      throw new CommunityError("FORBIDDEN", "You cannot join this community");
+    }
     const currentMembership =
       await transaction.orm.public.CommunityMembers.select("id", "status")
         .where((member) =>
@@ -549,7 +548,14 @@ export async function joinCommunity(
     if (currentMembership?.status === "ACTIVE") {
       throw new CommunityError("ALREADY_MEMBER", "You are already a member");
     }
-    await transaction.orm.public.CommunityMembers.upsert({
+    if (currentMembership?.status === "PENDING") {
+      requestId = currentMembership.id;
+      return;
+    }
+    if (status === "PENDING") {
+      await assertCommunityRequestRate(communityId, userId);
+    }
+    const request = await transaction.orm.public.CommunityMembers.upsert({
       conflictOn: { communityId, userId },
       create: {
         communityId,
@@ -559,6 +565,14 @@ export async function joinCommunity(
       },
       update: { status },
     });
+    requestId = request.id;
+    if (status === "PENDING") {
+      await notifyCommunityJoinRequest(transaction, {
+        communityId,
+        requestId: request.id,
+        userId,
+      });
+    }
     if (status === "ACTIVE") {
       const communityState = await transaction.orm.public.Communities.select(
         "activeMemberCount"
@@ -585,6 +599,9 @@ export async function joinCommunity(
     }
   });
 
+  if (requestId && status === "PENDING") {
+    await deliverCommunityMembershipNotifications(communityId, requestId);
+  }
   logger.info({ communityId, status, userId }, "community join");
   return { status };
 }
@@ -875,8 +892,9 @@ export async function getSubscribedCommunityIds(
 export async function approveMember(
   communityId: string,
   actorId: string,
-  targetUserId: string
-): Promise<void> {
+  targetUserId: string,
+  expectedRequestId?: string
+): Promise<boolean> {
   if (!(await isCommunityModerator(communityId, actorId))) {
     throw new CommunityError(
       "FORBIDDEN",
@@ -891,20 +909,55 @@ export async function approveMember(
     throw new CommunityError("NOT_FOUND", "Community not found");
   }
 
-  await prisma.transaction(async (transaction) => {
+  let notificationRequestId: string | undefined;
+  let approvedTargetUserId = targetUserId;
+  const applied = await prisma.transaction(async (transaction) => {
     await claimCommunityMutation(transaction, communityId);
+    const actor = await transaction.orm.public.CommunityMembers.select(
+      "role",
+      "status"
+    )
+      .where((row) =>
+        and(row.communityId.eq(communityId), row.userId.eq(actorId))
+      )
+      .first();
+    if (
+      actor?.status !== "ACTIVE" ||
+      !["OWNER", "MODERATOR"].includes(actor.role)
+    ) {
+      throw new CommunityError(
+        "FORBIDDEN",
+        "Only community staff can approve requests"
+      );
+    }
+    if (await communityUserIsBanned(communityId, actorId, transaction.orm)) {
+      throw new CommunityError("FORBIDDEN", "You cannot manage this community");
+    }
     const pendingMembership =
-      await transaction.orm.public.CommunityMembers.select("id")
+      await transaction.orm.public.CommunityMembers.select("id", "userId")
         .where((member) =>
           and(
             member.communityId.eq(communityId),
             member.status.eq("PENDING"),
-            member.userId.eq(targetUserId)
+            expectedRequestId
+              ? member.id.eq(expectedRequestId)
+              : member.userId.eq(targetUserId)
           )
         )
         .first();
     if (!pendingMembership) {
-      return;
+      return false;
+    }
+    notificationRequestId = pendingMembership.id;
+    const approvedUserId = pendingMembership.userId;
+    approvedTargetUserId = approvedUserId;
+    if (
+      await communityUserIsBanned(communityId, approvedUserId, transaction.orm)
+    ) {
+      throw new CommunityError(
+        "FORBIDDEN",
+        "This person cannot join the community"
+      );
     }
     const communityState = await transaction.orm.public.Communities.select(
       "activeMemberCount"
@@ -925,25 +978,47 @@ export async function approveMember(
         and(
           member.communityId.eq(communityId),
           member.status.eq("PENDING"),
-          member.userId.eq(targetUserId)
+          member.id.eq(pendingMembership.id)
         )
     ).updateAndCount({ status: "ACTIVE" });
     if (updated > 0) {
       await transaction.orm.public.Communities.where({
         id: communityId,
       }).update({ activeMemberCount: communityState.activeMemberCount + 1 });
+      await transaction.orm.public.Notifications.create({
+        _type: "COMMUNITY_JOIN_APPROVED",
+        communityId,
+        issuerId: actorId,
+        membershipRequestId: pendingMembership.id,
+        recipientId: approvedUserId,
+      });
       await grantCommunityJoinBonus(transaction, {
         communityId,
         ownerId: community.ownerId,
-        userId: targetUserId,
+        userId: approvedUserId,
       });
     }
+    return updated > 0;
   });
 
-  logger.info(
-    { actorId, communityId, targetUserId },
-    "community member approved"
-  );
+  if (applied) {
+    logger.info(
+      {
+        actorId,
+        communityId,
+        requestId: notificationRequestId,
+        targetUserId: approvedTargetUserId,
+      },
+      "community member approved"
+    );
+  }
+  if (notificationRequestId) {
+    await deliverCommunityMembershipNotifications(
+      communityId,
+      notificationRequestId
+    );
+  }
+  return applied;
 }
 
 export type AssignableCommunityRole = "MEMBER" | "MODERATOR" | "PARTICIPANT";
@@ -1037,6 +1112,7 @@ export async function setMemberRole(
 }
 
 export interface ListCommunitiesOptions {
+  includePrivate?: boolean;
   cursor?: string;
   categories?: string[];
   limit?: number;
@@ -1067,6 +1143,7 @@ function compareCommunityActivity(left: CommunityData, right: CommunityData) {
 }
 
 async function queryCommunityRows(options: {
+  includePrivate?: boolean;
   cursor?: string;
   limit: number;
   orderByMemberCount?: boolean;
@@ -1078,7 +1155,9 @@ async function queryCommunityRows(options: {
     : null;
   const rows = await getCommunitySelect()
     .where((community) => {
-      const conditions = [community._type.neq("PRIVATE")];
+      const conditions = options.includePrivate
+        ? []
+        : [community._type.neq("PRIVATE")];
       if (pattern) {
         conditions.push(
           or(
@@ -1124,6 +1203,7 @@ export async function listCommunities(
   const topics = options.categories?.filter(Boolean) ?? [];
   const result = await queryCommunityRows({
     cursor: options.cursor,
+    includePrivate: options.includePrivate,
     limit: limit + 1,
     topics,
   });
@@ -1144,13 +1224,15 @@ export interface CommunitySearchResult {
 
 export async function searchCommunities(
   query: string,
-  limit = 10
+  limit = 10,
+  includePrivate = false
 ): Promise<CommunitySearchResult> {
   const q = query.trim();
   if (!q) {
     return { communities: [], total: 0 };
   }
   const result = await queryCommunityRows({
+    includePrivate,
     limit: Math.min(Math.max(limit, 1), 25),
     orderByMemberCount: true,
     query: q,
@@ -1158,14 +1240,16 @@ export async function searchCommunities(
   return result;
 }
 
-export async function getCommunityCategoryCounts(): Promise<
-  Record<string, number>
-> {
+export async function getCommunityCategoryCounts(
+  includePrivate = false
+): Promise<Record<string, number>> {
   const filtered = COMMUNITY_CATEGORIES.filter(
     (category) => category.key !== "all" && !category.hidden
   );
   const communities = await prisma.orm.public.Communities.select("topics")
-    .where((community) => community._type.neq("PRIVATE"))
+    .where((community) =>
+      includePrivate ? community.id.isNotNull() : community._type.neq("PRIVATE")
+    )
     .all();
   const result: Record<string, number> = { all: communities.length };
   for (const category of filtered) {

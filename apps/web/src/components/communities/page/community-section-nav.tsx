@@ -9,6 +9,7 @@ import { COMMUNITY_NAVIGATION_ID } from "./community-workspace-navigation";
 
 interface CommunitySectionNavProps {
   identity?: ReactNode;
+  showSections?: boolean;
   active: "chat" | "posts";
   accentColor: string;
   channelId?: string;
@@ -20,6 +21,7 @@ interface CommunitySectionNavProps {
 
 export default function CommunitySectionNav({
   active,
+  showSections = true,
   identity,
   accentColor,
   channelId,
@@ -50,11 +52,13 @@ export default function CommunitySectionNav({
         </Button>
       ) : null}
       {identity}
-      <CommunitySectionLinks
-        active={active}
-        channelId={channelId}
-        slug={slug}
-      />
+      {showSections ? (
+        <CommunitySectionLinks
+          active={active}
+          channelId={channelId}
+          slug={slug}
+        />
+      ) : null}
     </nav>
   );
 }

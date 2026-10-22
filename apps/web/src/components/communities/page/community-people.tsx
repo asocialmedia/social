@@ -1,7 +1,6 @@
 "use client";
 
 import type { CommunityData } from "@asm/db";
-import { Button } from "@asm/ui/shadui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -11,10 +10,7 @@ import {
 import { Fragment, useCallback, useState } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
-import {
-  useApproveMemberMutation,
-  useSetMemberRoleMutation,
-} from "@/communities/mutations";
+import { useSetMemberRoleMutation } from "@/communities/mutations";
 import RowBannerWash from "@/components/layouts/shell/row-banner-wash";
 import UserAvatar from "@/components/layouts/user/user-avatar";
 import { useCommunityMembersQuery } from "@/lib/communities/client";
@@ -27,6 +23,7 @@ import { useToast } from "@/lib/gooey-toast";
 import CommunityRoleBadge, {
   isCommunityBadgedRole,
 } from "../card/community-role-badge";
+import CommunityJoinRequests from "./community-join-requests";
 
 // How many names the card shows before "Show more". The rest are already in
 // the response (the query asks for the roster page size), so expanding is a
@@ -73,14 +70,12 @@ function PersonRow({
   canAppointModerator,
   canManage,
   member,
-  onApprove,
   onRoleChange,
   onSelf,
 }: {
   canAppointModerator: boolean;
   canManage: boolean;
   member: CommunityMemberRow;
-  onApprove: (userId: string) => void;
   onRoleChange: (
     userId: string,
     role: AssignableCommunityRole,
@@ -134,17 +129,6 @@ function PersonRow({
             @{member.user.username}
           </span>
         </a>
-
-        {isPending ? (
-          <Button
-            className="h-6 shrink-0 rounded-full px-2.5! py-0! text-[11px]!"
-            onClick={() => onApprove(member.user.id)}
-            size="sm"
-            variant="premium"
-          >
-            Approve
-          </Button>
-        ) : null}
 
         {editable ? (
           <DropdownMenu>
@@ -207,12 +191,10 @@ export function CommunityPeople({
   const { user } = useSession();
   const { toast } = useToast();
   const [showAll, setShowAll] = useState(false);
-  const [showPending, setShowPending] = useState(false);
 
   // Public communities never hold pending members, so the requests view is
   // offered only where approval actually gates entry.
   const supportsJoinRequests = communityType !== "PUBLIC";
-  const viewingRequests = showPending && canModerate && supportsJoinRequests;
 
   const membersQuery = useCommunityMembersQuery(slug, {
     // Moderators see the FULL roster, including plain participants, so a new
@@ -224,23 +206,9 @@ export function CommunityPeople({
     limit: 50,
     // Pending and active are separate lists; the route ignores pending unless
     // the caller can moderate.
-    pending: viewingRequests,
+    pending: false,
   });
-  const approveMutation = useApproveMemberMutation(slug);
   const roleMutation = useSetMemberRoleMutation(slug);
-
-  const handleApprove = useCallback(
-    (userId: string) => {
-      approveMutation.mutate(
-        { communityId, userId },
-        {
-          onSuccess: () =>
-            toast({ description: "Member approved", title: "Approved" }),
-        }
-      );
-    },
-    [approveMutation, communityId, toast]
-  );
 
   const handleRoleChange = useCallback(
     (userId: string, role: AssignableCommunityRole, message: string) => {
@@ -260,9 +228,7 @@ export function CommunityPeople({
   const isOwner = actorRole === "OWNER";
   const canManageRoles = canModerate;
 
-  const ordered = viewingRequests
-    ? members
-    : [...members].toSorted(byRoleThenAge);
+  const ordered = [...members].toSorted(byRoleThenAge);
   const visible = showAll ? ordered : ordered.slice(0, VISIBLE_LIMIT);
   const hiddenCount = ordered.length - visible.length;
 
@@ -284,14 +250,14 @@ export function CommunityPeople({
   } else if (ordered.length === 0) {
     body = (
       <p className="text-muted-foreground px-1.5 py-1 text-xs">
-        {viewingRequests ? "No pending requests" : "No members yet"}
+        No members yet
       </p>
     );
   } else {
     body = (
       <ul className="flex flex-col gap-0.5">
         {visible.map((member, index) => {
-          const label = viewingRequests ? null : groupLabel(member.role);
+          const label = groupLabel(member.role);
           const previous = index > 0 ? visible[index - 1] : undefined;
           const showGroupLabel =
             label !== null &&
@@ -307,7 +273,6 @@ export function CommunityPeople({
                 canAppointModerator={isOwner}
                 canManage={canManageRoles}
                 member={member}
-                onApprove={handleApprove}
                 onRoleChange={handleRoleChange}
                 onSelf={member.user.id === user?.id}
               />
@@ -321,23 +286,15 @@ export function CommunityPeople({
   return (
     <section className="sidebar-subcard rounded-2xl p-2">
       <div className="flex items-center gap-2 px-1.5 pt-1.5 pb-1">
-        <h2 className="text-foreground flex-1 text-sm font-semibold">
-          {viewingRequests ? "Join requests" : "People"}
-        </h2>
+        <h2 className="text-foreground flex-1 text-sm font-semibold">People</h2>
         {canModerate && supportsJoinRequests ? (
-          <button
-            className="text-muted-foreground hover:text-foreground text-[11px] font-medium transition-colors"
-            onClick={() => setShowPending((prev) => !prev)}
-            type="button"
-          >
-            {viewingRequests ? "View people" : "Requests"}
-          </button>
+          <CommunityJoinRequests slug={slug} openOnLink={false} />
         ) : null}
       </div>
 
       {body}
 
-      {!viewingRequests && hiddenCount > 0 ? (
+      {hiddenCount > 0 ? (
         <button
           className="text-muted-foreground hover:text-foreground mt-0.5 w-full px-1.5 py-1.5 text-left text-[11px] font-medium transition-colors hover:underline"
           onClick={() => setShowAll(true)}

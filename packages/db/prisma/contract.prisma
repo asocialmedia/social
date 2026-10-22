@@ -513,6 +513,7 @@ namespace public {
 
     @@index([communityId, role], map: "community_members_communityId_role_idx")
     @@index([communityId, status], map: "community_members_communityId_status_idx")
+    @@index([communityId, status, createdAt, id], map: "community_members_request_page_idx")
     @@unique([communityId, userId], map: "community_members_communityId_userId_key")
     @@index([userId], map: "community_members_userId_idx")
     @@index([userId, status, createdAt], map: "community_members_userId_status_createdAt_idx")
@@ -1379,6 +1380,7 @@ namespace public {
     createdAt      Timestamp(3)              @default(now())
     communityId    String?
     conversationId String?
+    membershipRequestId String?
     count          Int                       @default(1)
     comment        Comments?                 @relation(fields: [commentId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "notifications_commentId_fkey")
     community      Communities?              @relation(fields: [communityId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "notifications_communityId_fkey", index: false)
@@ -1723,6 +1725,9 @@ namespace public {
     DEN_MESSAGE = "DEN_MESSAGE"
     DEN_MEMBERSHIP_ENDED = "DEN_MEMBERSHIP_ENDED"
     COMMUNITY_CHAT = "COMMUNITY_CHAT"
+    COMMUNITY_JOIN_REQUEST = "COMMUNITY_JOIN_REQUEST"
+    COMMUNITY_JOIN_APPROVED = "COMMUNITY_JOIN_APPROVED"
+    COMMUNITY_JOIN_DECLINED = "COMMUNITY_JOIN_DECLINED"
   }
 
   native_enum CommunityChatRoomKind {

@@ -7,7 +7,7 @@ import {
   isSubscribedToCommunity,
 } from "@asm/db";
 import type { Metadata } from "next";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { connection } from "next/server";
 import { Suspense } from "react";
 
@@ -45,8 +45,11 @@ async function CommunityChatThreadPage({ params }: PageProps) {
     getCommunityBySlug(slug),
   ]);
   const userId = session?.user?.id ?? "";
-  if (!community || !(await canViewCommunity(community, userId))) {
+  if (!community) {
     notFound();
+  }
+  if (!(await canViewCommunity(community, userId))) {
+    redirect(`/a/${slug}`);
   }
 
   let channelAccess: Awaited<ReturnType<typeof getCommunityChatRoomAccess>>;
@@ -79,6 +82,7 @@ async function CommunityChatThreadPage({ params }: PageProps) {
 
   return (
     <CommunityPage
+      viewerId={userId}
       channelId={channelId}
       community={community}
       membership={membership}

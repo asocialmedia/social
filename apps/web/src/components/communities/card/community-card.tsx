@@ -29,6 +29,7 @@ export default function CommunityCard({
 }) {
   const [bannerFailed, setBannerFailed] = useState(false);
   const { members, posts } = community._count;
+  const isPrivate = community.type === "PRIVATE";
   const hasBanner = Boolean(community.bannerUrl) && !bannerFailed;
 
   return (
@@ -72,6 +73,11 @@ export default function CommunityCard({
             a hard horizontal line behind the mark. */}
         <div className="absolute inset-x-0 bottom-0 h-16 bg-gradient-to-b from-transparent to-[hsl(var(--background-alt))]" />
 
+        {isPrivate ? (
+          <Badge className="absolute top-3 left-3" variant="secondary">
+            Private
+          </Badge>
+        ) : null}
         {community.mature ? (
           // Badge brings the app's 3D chip surface (chip-3d: hairline edge plus
           // the inner lip). `variant="outline"` is deliberate: the other variants
@@ -119,19 +125,21 @@ export default function CommunityCard({
         </p>
 
         <div className="text-muted-foreground border-border/60 mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 border-t pt-3 text-[13px] sm:mt-3.5 sm:gap-x-5 sm:pt-3.5">
-          <span
-            className="flex items-center gap-1.5"
-            title="Community aura - the total aura of every post in this community"
-          >
-            <Flame
-              aria-hidden="true"
-              className={cn("size-4 shrink-0", getAuraFlameClass(aura))}
-            />
-            <span className="text-foreground font-semibold tabular-nums">
-              {formatNumber(aura)}
+          {isPrivate ? null : (
+            <span
+              className="flex items-center gap-1.5"
+              title="Community aura - the total aura of every post in this community"
+            >
+              <Flame
+                aria-hidden="true"
+                className={cn("size-4 shrink-0", getAuraFlameClass(aura))}
+              />
+              <span className="text-foreground font-semibold tabular-nums">
+                {formatNumber(aura)}
+              </span>
+              <span className="sr-only">aura</span>
             </span>
-            <span className="sr-only">aura</span>
-          </span>
+          )}
           <span className="flex items-center gap-1.5" title="Members">
             <Users
               aria-hidden="true"
@@ -143,17 +151,19 @@ export default function CommunityCard({
             </span>
             <span className="sr-only">members</span>
           </span>
-          <span className="flex items-center gap-1.5" title="Posts">
-            <LayoutGrid
-              aria-hidden="true"
-              className="text-primary size-4 shrink-0"
-              fill="currentColor"
-            />
-            <span className="text-foreground font-semibold tabular-nums">
-              {formatNumber(posts)}
+          {isPrivate ? null : (
+            <span className="flex items-center gap-1.5" title="Posts">
+              <LayoutGrid
+                aria-hidden="true"
+                className="text-primary size-4 shrink-0"
+                fill="currentColor"
+              />
+              <span className="text-foreground font-semibold tabular-nums">
+                {formatNumber(posts)}
+              </span>
+              <span className="sr-only">posts</span>
             </span>
-            <span className="sr-only">posts</span>
-          </span>
+          )}
 
           {/* Age of the community, filling the stat row's trailing space. It
               stays muted while the stats above are bold and coloured, so it

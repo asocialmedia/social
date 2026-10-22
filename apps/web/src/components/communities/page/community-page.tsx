@@ -1,10 +1,16 @@
 "use client";
 
-import type { CommunityData, CommunityStats } from "@asm/db";
+import type {
+  CommunityData,
+  CommunityStats,
+  getCommunityPreview,
+} from "@asm/db";
 import {
   communityFeedSearchParams,
   readCommunityFeedSelection,
 } from "@asm/db/communities";
+import { Button } from "@asm/ui/shadui/button";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -27,11 +33,13 @@ import CommunityChannelShortcuts from "./community-channel-shortcuts";
 import CommunityChat from "./community-chat";
 import CommunityMatureGate from "./community-mature-gate";
 import CommunityPostsWorkspace from "./community-posts-workspace";
+import CommunityPrivateLanding from "./community-private-landing";
 import CommunitySidebar from "./community-sidebar";
 import { CommunityWorkspacePortalContext } from "./community-workspace-context";
 import CommunityWorkspaceNavigation from "./community-workspace-navigation";
 
 interface ClientCommunityProps {
+  viewerId?: string;
   community: CommunityData;
   membership: {
     role: CommunityRoleValue;
@@ -58,11 +66,56 @@ export default function ClientCommunity({
   view = "posts",
   channelId,
   threadId,
+  viewerId,
 }: ClientCommunityProps) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const { user } = useSession();
+  const queryClient = useQueryClient();
+  const privatePreview = useQuery({
+    enabled: community.type === "PRIVATE",
+    queryFn: async () => {
+      const response = await fetch(`/api/communities/${slug}/preview`, {
+        cache: "no-store",
+      });
+      if (!response.ok) {
+        throw new Error("Couldn't verify community access");
+      }
+      return response.json() as Promise<
+        NonNullable<Awaited<ReturnType<typeof getCommunityPreview>>>
+      >;
+    },
+    queryKey: ["community-preview", slug, user?.id ?? ""],
+    refetchInterval: 30_000,
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: "always",
+  });
+  const lostPrivateAccess =
+    community.type === "PRIVATE" &&
+    (privatePreview.data?.permissions.canReadContent === false ||
+      (user?.id ?? "") !== viewerId);
+  useEffect(() => {
+    if (lostPrivateAccess) {
+      for (const queryKey of [
+        ["community-feed", slug],
+        ["post-feed"],
+        ["post"],
+        ["related-posts"],
+        ["liked-posts"],
+        ["post-author-posts"],
+        ["post-history"],
+        ["notifications"],
+        ["community", slug],
+        ["community-members", slug],
+        ["community-chat", slug],
+      ]) {
+        queryClient.removeQueries({ queryKey });
+      }
+      router.refresh();
+    }
+  }, [lostPrivateAccess, queryClient, router, slug]);
+
   const sectionScope = communitySectionScope(user?.id, slug);
   const rememberSection = useCommunitySectionStore((state) => state.remember);
   useEffect(() => {
@@ -109,7 +162,14 @@ export default function ClientCommunity({
   //
   // `canPost` mirrors the header's own gate: only an ACTIVE member may publish
   // into the community, and anything else must fall back to the global composer.
-  const canPost = membership?.status === "ACTIVE";
+  const canPost =
+    membership?.status === "ACTIVE" &&
+    !lostPrivateAccess &&
+    (community.type !== "PRIVATE" ||
+      Boolean(
+        privatePreview.data?.permissions.canReadContent &&
+        !privatePreview.isError
+      ));
   useEffect(() => {
     setActiveCommunity(
       {
@@ -159,6 +219,42 @@ export default function ClientCommunity({
   }, [router]);
 
   const isBlocked = community.mature && !matureAccepted;
+
+  if (community.type === "PRIVATE" && privatePreview.isError) {
+    return (
+      <div role="alert" className="p-6 text-sm">
+        <p>Couldn't verify community access.</p>
+        <Button
+          className="mt-3 min-h-11"
+          variant="ghost"
+          onClick={() => {
+            void privatePreview.refetch();
+          }}
+        >
+          Try again
+        </Button>
+      </div>
+    );
+  }
+
+  if (
+    lostPrivateAccess ||
+    (community.type === "PRIVATE" && !privatePreview.data)
+  ) {
+    if (privatePreview.data) {
+      return (
+        <CommunityPrivateLanding
+          initialPreview={privatePreview.data}
+          viewerId={user?.id ?? ""}
+        />
+      );
+    }
+    return (
+      <output className="text-muted-foreground p-6 text-sm">
+        Checking community access…
+      </output>
+    );
+  }
 
   return (
     <CommunityWorkspacePortalContext.Provider value={workspaceElement}>
@@ -227,6 +323,12 @@ export default function ClientCommunity({
                   communityName={community.name}
                   membership={membership}
                   memberCount={stats.members}
+                  canReviewRequests={
+                    community.type !== "PUBLIC" &&
+                    membership?.status === "ACTIVE" &&
+                    (membership.role === "OWNER" ||
+                      membership.role === "MODERATOR")
+                  }
                   slug={slug}
                   threadId={threadId}
                 />

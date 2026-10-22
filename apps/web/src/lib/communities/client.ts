@@ -111,6 +111,7 @@ export function useInfiniteCommunitiesQuery({
       kyInstance
         .get("/api/communities", {
           searchParams: {
+            visibility: "discoverable",
             ...(search ? { q: search } : {}),
             ...(category && category !== "all" ? { category } : {}),
             ...(pageParam ? { cursor: pageParam } : {}),

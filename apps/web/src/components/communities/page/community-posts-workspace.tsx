@@ -8,7 +8,7 @@ import {
   useTransform,
 } from "motion/react";
 import { useCallback, useEffect, useLayoutEffect, useRef } from "react";
-import type { ComponentProps, Ref } from "react";
+import type { ComponentProps, ReactNode, Ref } from "react";
 
 import { FeedScrollbar } from "@/components/layouts/feed/feed-scrollbar";
 import { useCommunityHeaderIdentity } from "@/hooks/use-community-header-identity";
@@ -29,14 +29,17 @@ type CommunityPostsWorkspaceProps = Omit<
   | "slugStyle"
   | "detailsStyle"
 > & {
-  navigationOpen: boolean;
-  navigationModalOpen: boolean;
-  onOpenNavigation: () => void;
-  navigationTriggerRef: Ref<HTMLButtonElement>;
+  children?: ReactNode;
+  navigationOpen?: boolean;
+  navigationModalOpen?: boolean;
+  onOpenNavigation?: () => void;
+  navigationTriggerRef?: Ref<HTMLButtonElement>;
 };
 
 export default function CommunityPostsWorkspace({
   community,
+  children,
+  canReadContent = true,
   navigationOpen,
   navigationModalOpen,
   onOpenNavigation,
@@ -171,6 +174,7 @@ export default function CommunityPostsWorkspace({
           <div ref={headerRef}>
             <CommunityHeader
               community={community}
+              canReadContent={canReadContent}
               {...headerProps}
               avatarRef={avatarRef}
               avatarStyle={avatarStyle}
@@ -184,6 +188,7 @@ export default function CommunityPostsWorkspace({
           <div className="relative z-20 bg-[hsl(var(--background-alt))]">
             <CommunitySectionNav
               active="posts"
+              showSections={canReadContent}
               accentColor={community.accentColor}
               slug={community.slug}
               navigationOpen={navigationOpen}
@@ -220,7 +225,10 @@ export default function CommunityPostsWorkspace({
       >
         <motion.div aria-hidden="true" style={{ height: spacerHeight }} />
         <motion.div className="min-h-[calc(100%_-_3rem)]" style={{ y: feedY }}>
-          <CommunityFeed slug={community.slug} scrollRef={scrollRef} />
+          {children ??
+            (canReadContent ? (
+              <CommunityFeed slug={community.slug} scrollRef={scrollRef} />
+            ) : null)}
         </motion.div>
       </section>
       <FeedScrollbar containerRef={scrollRef} />

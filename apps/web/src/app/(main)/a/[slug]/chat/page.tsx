@@ -41,8 +41,11 @@ async function CommunityChatLanding({ params }: PageProps) {
     getCommunityBySlug(slug),
   ]);
   const userId = session?.user?.id ?? "";
-  if (!community || !(await canViewCommunity(community, userId))) {
+  if (!community) {
     notFound();
+  }
+  if (!(await canViewCommunity(community, userId))) {
+    redirect(`/a/${slug}`);
   }
   const { channels } = await listCommunityChatChannels(community.id, userId);
   const [firstChannel] = channels;

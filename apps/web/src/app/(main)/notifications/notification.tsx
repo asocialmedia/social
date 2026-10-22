@@ -21,6 +21,7 @@ import {
 import Link from "next/link";
 import type React from "react";
 
+import { CommunityRequestNotificationActions } from "@/components/communities/page/community-join-requests";
 import UserAvatar from "@/components/layouts/user/user-avatar";
 import { getPostPath } from "@/lib/seo/seo";
 import { cn, formatRelativeDate } from "@/lib/utils";
@@ -145,6 +146,25 @@ const TYPE_CONFIG: Record<NotificationType, TypeConfig> = {
   // Batched community activity: one rolling row per community, naming it and
   // how many posts have landed since the row was last read. Links to the
   // community so the reader lands in the space, not on a single post.
+  COMMUNITY_JOIN_APPROVED: {
+    action: (n) => `approved your request to join a/${n.community?.slug ?? ""}`,
+    badgeClass: "bg-primary",
+    href: (n) => (n.community ? `/a/${n.community.slug}` : "/communities"),
+    icon: Users,
+  },
+  COMMUNITY_JOIN_DECLINED: {
+    action: (n) => `declined your request to join a/${n.community?.slug ?? ""}`,
+    badgeClass: "bg-muted-foreground",
+    href: (n) => (n.community ? `/a/${n.community.slug}` : "/communities"),
+    icon: Users,
+  },
+  COMMUNITY_JOIN_REQUEST: {
+    action: (n) => `requested to join a/${n.community?.slug ?? ""}`,
+    badgeClass: "bg-primary",
+    href: (n) =>
+      n.community ? `/a/${n.community.slug}?requests=1` : "/communities",
+    icon: UserPlus,
+  },
   COMMUNITY_POST: {
     // A folded row spans several authors, so the headline is community-level and
     // carries no subject; only the single-post row is attributed to its author
@@ -417,47 +437,57 @@ export default function Notification({ notification }: NotificationProps) {
       : [notification.issuer];
 
   return (
-    <div
-      className={cn(
-        "group flex items-start gap-3 px-4 py-3 transition-colors duration-150",
-        notification.read
-          ? "hover:bg-[hsl(var(--muted))]"
-          : "bg-[hsl(var(--primary)/0.07)] hover:bg-[hsl(var(--primary)/0.11)]"
-      )}
-    >
-      <Link className="flex min-w-0 flex-1 items-start gap-3" href={href}>
-        <NotificationAvatars
-          badgeClass={config.badgeClass}
-          icon={Icon}
-          issuers={issuers}
-          type={notification.type}
-        />
-
-        <div className="min-w-0 flex-1">
-          <NotificationHeadline
-            action={action}
-            batchCount={
-              notification.type === "COMMUNITY_POST" ? notification.count : 0
-            }
-            communitySuffixText={communitySuffix(notification)}
-            denLabelText={denLabel(notification)}
-            denVerbText={denVerb(notification)}
-            isEddie={Boolean(notification.comment)}
+    <div>
+      <div
+        className={cn(
+          "group flex items-start gap-3 px-4 py-3 transition-colors duration-150",
+          notification.read
+            ? "hover:bg-[hsl(var(--muted))]"
+            : "bg-[hsl(var(--primary)/0.07)] hover:bg-[hsl(var(--primary)/0.11)]"
+        )}
+      >
+        <Link className="flex min-w-0 flex-1 items-start gap-3" href={href}>
+          <NotificationAvatars
+            badgeClass={config.badgeClass}
+            icon={Icon}
             issuers={issuers}
             type={notification.type}
           />
 
-          {notification.post ? (
-            <p className="text-muted-foreground mt-1 line-clamp-2 text-sm">
-              {notification.post.content}
-            </p>
-          ) : null}
+          <div className="min-w-0 flex-1">
+            <NotificationHeadline
+              action={action}
+              batchCount={
+                notification.type === "COMMUNITY_POST" ? notification.count : 0
+              }
+              communitySuffixText={communitySuffix(notification)}
+              denLabelText={denLabel(notification)}
+              denVerbText={denVerb(notification)}
+              isEddie={Boolean(notification.comment)}
+              issuers={issuers}
+              type={notification.type}
+            />
 
-          <span className="text-muted-foreground/70 mt-1 block text-xs">
-            {formatRelativeDate(notification.createdAt)}
-          </span>
-        </div>
-      </Link>
+            {notification.post ? (
+              <p className="text-muted-foreground mt-1 line-clamp-2 text-sm">
+                {notification.post.content}
+              </p>
+            ) : null}
+
+            <span className="text-muted-foreground/70 mt-1 block text-xs">
+              {formatRelativeDate(notification.createdAt)}
+            </span>
+          </div>
+        </Link>
+      </div>
+      {notification.type === "COMMUNITY_JOIN_REQUEST" &&
+      notification.community &&
+      notification.membershipRequestId ? (
+        <CommunityRequestNotificationActions
+          slug={notification.community.slug}
+          requestId={notification.membershipRequestId}
+        />
+      ) : null}
     </div>
   );
 }

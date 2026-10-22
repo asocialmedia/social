@@ -1,5 +1,6 @@
 import {
   and,
+  communityNotificationVisibilityWhere,
   getNotificationDataQuery,
   mapNotificationData,
   prisma,
@@ -13,6 +14,8 @@ export async function GET(req: NextRequest) {
   try {
     const cursor = req.nextUrl.searchParams.get("cursor") || undefined;
     const type = req.nextUrl.searchParams.get("type");
+    const includeMembership =
+      req.nextUrl.searchParams.get("membership") === "1";
     const pageSize = 10;
     const session = await getSessionFromApi();
     if (!session?.user) {
@@ -20,9 +23,17 @@ export async function GET(req: NextRequest) {
     }
     const userId = session.user.id;
     let notificationQuery = getNotificationDataQuery(prisma.orm)
+      .where(communityNotificationVisibilityWhere(userId))
       .where((notification) =>
         and(
           notification.recipientId.eq(userId),
+          ...(includeMembership
+            ? []
+            : [
+                notification._type.neq("COMMUNITY_JOIN_REQUEST"),
+                notification._type.neq("COMMUNITY_JOIN_APPROVED"),
+                notification._type.neq("COMMUNITY_JOIN_DECLINED"),
+              ]),
           ...(type === "mentions" ? [notification._type.eq("MENTION")] : [])
         )
       )
@@ -54,7 +65,9 @@ export async function GET(req: NextRequest) {
       nextCursor,
       notifications: notifications.slice(0, pageSize),
     };
-    return Response.json(data);
+    return Response.json(data, {
+      headers: { "cache-control": "private, no-store", vary: "Cookie" },
+    });
   } catch (error) {
     console.error(error);
     return Response.json({ error: "Internal server error" }, { status: 500 });

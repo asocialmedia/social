@@ -1,8 +1,7 @@
-import { canViewCommunity, prisma } from "@asm/db";
+import { prisma } from "@asm/db";
 import { GetObjectCommand } from "@aws-sdk/client-s3";
 import { NextResponse } from "next/server";
 
-import { getSessionFromApi } from "@/lib/auth/session";
 import { ASMOB_BUCKET, asmobClient } from "@/lib/media/object-storage";
 
 const IMAGE_CONTENT_TYPES = new Set([
@@ -54,8 +53,6 @@ export async function GET(
   context: { params: Promise<{ communityId: string }> }
 ) {
   const { communityId } = await context.params;
-  const session = await getSessionFromApi();
-  const userId = session?.user?.id ?? "";
 
   const community = await prisma.orm.public.Communities.select(
     "avatarKey",
@@ -68,19 +65,6 @@ export async function GET(
     return new NextResponse("Avatar not found", { status: 404 });
   }
   const { avatarKey } = community;
-
-  // A PRIVATE community's avatar is part of its members-only surface; guests
-  // and non-members get the same 404 as a missing image.
-  const isPrivate = community._type === "PRIVATE";
-  if (
-    isPrivate &&
-    !(await canViewCommunity(
-      { id: community.id, type: community._type },
-      userId
-    ))
-  ) {
-    return new NextResponse("Avatar not found", { status: 404 });
-  }
 
   try {
     const response = await asmobClient.send(
@@ -105,10 +89,7 @@ export async function GET(
     headers.set("X-Content-Type-Options", "nosniff");
     // A members-only image must never enter a shared cache, or a cached copy
     // could be served to a viewer the gate just denied.
-    headers.set(
-      "Cache-Control",
-      isPrivate ? "no-store" : "public, max-age=31536000"
-    );
+    headers.set("Cache-Control", "public, max-age=60, must-revalidate");
     headers.set("Accept-Ranges", "bytes");
     if (response.ContentLength) {
       headers.set("Content-Length", response.ContentLength.toString());

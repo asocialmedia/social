@@ -14,7 +14,10 @@ export * from "./src/communities/constants";
 export * from "./src/communities/media";
 export * from "./src/communities/service";
 export * from "./src/communities/slug";
-export { communityVisibilityWhere } from "./src/communities/visibility";
+export {
+  communityVisibilityWhere,
+  communityNotificationVisibilityWhere,
+} from "./src/communities/visibility";
 export {
   DEN_INVITE_CODE_ALPHABET,
   DEN_INVITE_DURATION_DAYS,
@@ -232,3 +235,5 @@ export * from "./src/messages/prebuild-lifecycle";
 export * from "./src/messages/lifecycle-cleanup";
 export * from "./src/messages/chat-export";
 export * from "./src/messages/chat-export-worker";
+
+export * from "./src/communities/membership-requests";
