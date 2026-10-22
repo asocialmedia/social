@@ -8,6 +8,19 @@ export interface HeaderIdentityGeometry {
   targetScale: number;
 }
 
+export function communityHeaderFrame(
+  height: number,
+  progress: number,
+  compact: number
+) {
+  const amount = Math.max(0, Math.min(1, progress));
+  return {
+    feedY: height * (compact - amount),
+    layerY: -height * amount,
+    spacerHeight: 48 + height * (1 - compact),
+  };
+}
+
 export function communityIdentityTransform(
   geometry: HeaderIdentityGeometry,
   progress: number

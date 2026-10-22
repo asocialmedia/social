@@ -1,10 +1,10 @@
 "use client";
 
 import {
-  motion,
   useMotionValue,
   useReducedMotion,
-  useScroll,
+  animate,
+  motion,
   useTransform,
 } from "motion/react";
 import { useCallback, useEffect, useLayoutEffect, useRef } from "react";
@@ -13,6 +13,7 @@ import type { ComponentProps, Ref } from "react";
 import { FeedScrollbar } from "@/components/layouts/feed/feed-scrollbar";
 import { useCommunityHeaderIdentity } from "@/hooks/use-community-header-identity";
 import { attachCommunityHeaderSnap } from "@/lib/communities/header-snap";
+import { communityHeaderFrame } from "@/lib/communities/header-transform";
 
 import CommunityFeed from "./community-feed";
 import CommunityHeader from "./community-header";
@@ -44,20 +45,24 @@ export default function CommunityPostsWorkspace({
 }: CommunityPostsWorkspaceProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const headerRef = useRef<HTMLDivElement>(null);
-  const stickyRef = useRef<HTMLDivElement>(null);
+  const layerRef = useRef<HTMLDivElement>(null);
   const destinationRef = useRef<HTMLDivElement>(null);
-  const getBoundary = useCallback(() => stickyRef.current, []);
+  const getBoundary = useCallback(() => layerRef.current, []);
   const reducedMotion = useReducedMotion();
   const headerHeight = useMotionValue(0);
-  const stickyTop = useTransform(headerHeight, (height) => -height);
-  const { scrollY } = useScroll({ container: scrollRef });
-  const rawProgress = useTransform(() => {
-    const height = headerHeight.get();
-    const fraction =
-      height > 0 ? Math.max(0, Math.min(1, scrollY.get() / height)) : 0;
-    return reducedMotion ? Number(fraction >= 1) : fraction;
-  });
-  const progress = rawProgress;
+  const progress = useMotionValue(0);
+  const layoutCompact = useMotionValue(0);
+  const animationRef = useRef<{ stop: () => void } | null>(null);
+  const frame = useTransform(() =>
+    communityHeaderFrame(
+      headerHeight.get(),
+      progress.get(),
+      layoutCompact.get()
+    )
+  );
+  const layerY = useTransform(() => frame.get().layerY);
+  const spacerHeight = useTransform(() => frame.get().spacerHeight);
+  const feedY = useTransform(() => frame.get().feedY);
   const {
     attachSource: avatarRef,
     attachTarget: avatarTargetRef,
@@ -83,14 +88,47 @@ export default function CommunityPostsWorkspace({
     if (!viewport || navigationModalOpen) {
       return;
     }
-    return attachCommunityHeaderSnap({
-      getHeaderHeight: () => headerHeight.get(),
+    const detach = attachCommunityHeaderSnap({
+      initialCompact: layoutCompact.get() === 1 || viewport.scrollTop > 2,
       interactionTarget: window,
-      reducedMotion: Boolean(reducedMotion),
-      supportsScrollEnd: "onscrollend" in viewport,
+      onCompactChange: (compact) => {
+        const endpoint = Number(compact);
+        if (layoutCompact.get() === endpoint) {
+          return;
+        }
+        animationRef.current?.stop();
+        layoutCompact.set(endpoint);
+        if (compact && viewport.scrollTop > 0) {
+          viewport.scrollTo({
+            behavior: "instant",
+            top: Math.max(0, viewport.scrollTop - headerHeight.get()),
+          });
+        }
+        if (reducedMotion) {
+          progress.set(endpoint);
+        } else {
+          animationRef.current = animate(progress, endpoint, {
+            damping: 44,
+            mass: 0.7,
+            stiffness: 500,
+            type: "spring",
+          });
+        }
+      },
       viewport,
     });
-  }, [headerHeight, navigationModalOpen, reducedMotion]);
+    return () => {
+      detach();
+      animationRef.current?.stop();
+      progress.set(layoutCompact.get());
+    };
+  }, [
+    headerHeight,
+    layoutCompact,
+    navigationModalOpen,
+    progress,
+    reducedMotion,
+  ]);
 
   useLayoutEffect(() => {
     const header = headerRef.current;
@@ -123,18 +161,12 @@ export default function CommunityPostsWorkspace({
   }, [headerHeight, measureAvatar, measureName, measureSlug]);
 
   return (
-    <div className="relative min-h-0 flex-1">
-      <section
-        aria-label={`${community.name} posts`}
-        className="hide-native-scrollbar relative h-full [scroll-padding-top:48px] overflow-x-hidden overflow-y-auto overscroll-y-contain pb-24 lg:pb-0"
-        ref={scrollRef}
-        // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- This scroll region must support keyboard scrolling independently of the fixed page shell.
-        tabIndex={0}
-      >
+    <div className="relative min-h-0 flex-1 overflow-hidden">
+      <div className="pointer-events-none absolute inset-x-0 top-0 z-20">
         <motion.div
-          ref={stickyRef}
-          className="sticky z-20"
-          style={{ top: stickyTop }}
+          className="pointer-events-none relative bg-[hsl(var(--background-alt))]"
+          ref={layerRef}
+          style={{ y: layerY }}
         >
           <div ref={headerRef}>
             <CommunityHeader
@@ -178,7 +210,18 @@ export default function CommunityPostsWorkspace({
             />
           </div>
         </motion.div>
-        <CommunityFeed slug={community.slug} scrollRef={scrollRef} />
+      </div>
+      <section
+        aria-label={`${community.name} posts`}
+        className="hide-native-scrollbar relative h-full [scroll-padding-top:48px] overflow-x-hidden overflow-y-auto overscroll-y-contain pb-24 [overflow-anchor:none] lg:pb-0"
+        ref={scrollRef}
+        // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- This scroll region must support keyboard scrolling independently of the fixed page shell.
+        tabIndex={0}
+      >
+        <motion.div aria-hidden="true" style={{ height: spacerHeight }} />
+        <motion.div className="min-h-[calc(100%_-_3rem)]" style={{ y: feedY }}>
+          <CommunityFeed slug={community.slug} scrollRef={scrollRef} />
+        </motion.div>
       </section>
       <FeedScrollbar containerRef={scrollRef} />
     </div>

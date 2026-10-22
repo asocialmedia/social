@@ -1,6 +1,25 @@
 import { expect, test } from "bun:test";
 
-import { communityIdentityTransform } from "./header-transform";
+import {
+  communityHeaderFrame,
+  communityIdentityTransform,
+} from "./header-transform";
+
+test("switching layout preserves feed position even when an animation reverses midway", () => {
+  for (const height of [228, 286]) {
+    for (const progress of [0, 0.2, 0.5, 0.8, 1]) {
+      const expanded = communityHeaderFrame(height, progress, 0);
+      const compact = communityHeaderFrame(height, progress, 1);
+      expect(expanded.spacerHeight + expanded.feedY).toBeCloseTo(
+        compact.spacerHeight + compact.feedY
+      );
+      expect(compact.spacerHeight).toBe(48);
+    }
+    const settled = communityHeaderFrame(height, 1, 1);
+    expect(settled.layerY + height).toBe(0);
+    expect(settled.feedY).toBe(0);
+  }
+});
 
 test("the original identity starts at its full position, size, and visible width", () => {
   expect(

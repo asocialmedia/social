@@ -51,7 +51,7 @@ export default function CommunitySectionNav({
           aria-controls={COMMUNITY_NAVIGATION_ID}
           aria-expanded={navigationOpen}
           aria-haspopup="dialog"
-          className="my-auto size-11 shrink-0 rounded-full xl:hidden"
+          className="pointer-events-auto my-auto size-11 shrink-0 rounded-full xl:hidden"
           variant="ghost"
           size="icon"
           onClick={onOpenNavigation}
@@ -67,7 +67,7 @@ export default function CommunitySectionNav({
           <Link
             aria-current={active === link.key ? "page" : undefined}
             className={cn(
-              "relative flex min-w-14 shrink-0 items-center justify-center rounded-t-lg px-3 text-sm font-semibold transition-colors",
+              "pointer-events-auto relative flex min-w-14 shrink-0 items-center justify-center rounded-t-lg px-3 text-sm font-semibold transition-colors",
               active === link.key
                 ? "text-foreground"
                 : "text-muted-foreground hover:text-foreground hover:bg-muted/50"

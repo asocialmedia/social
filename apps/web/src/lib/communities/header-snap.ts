@@ -1,162 +1,104 @@
-interface HeaderSnapViewport extends EventTarget {
+interface HeaderViewport extends EventTarget {
   scrollTop: number;
-  scrollHeight: number;
-  clientHeight: number;
-  scrollTo: (options: ScrollToOptions) => void;
 }
-
-const SCROLL_KEYS = new Set([
-  "ArrowUp",
-  "ArrowDown",
-  "PageUp",
-  "PageDown",
-  "Home",
-  "End",
-  " ",
-]);
 
 export function attachCommunityHeaderSnap({
   viewport,
   interactionTarget,
-  getHeaderHeight,
-  reducedMotion,
-  supportsScrollEnd,
+  initialCompact = viewport.scrollTop > 2,
+  onCompactChange,
 }: {
-  viewport: HeaderSnapViewport;
+  viewport: HeaderViewport;
   interactionTarget: EventTarget;
-  getHeaderHeight: () => number;
-  reducedMotion: boolean;
-  supportsScrollEnd: boolean;
+  initialCompact?: boolean;
+  onCompactChange: (compact: boolean) => void;
 }) {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  let snapping = false;
-  let armed = false;
-  let moved = false;
-  const pointers = new Set<number>();
-  const keys = new Set<string>();
-  const clearTimer = () => {
-    clearTimeout(timer);
-    timer = undefined;
-  };
-  const settle = () => {
-    clearTimer();
-    if (!armed || !moved || snapping || pointers.size || keys.size) {
-      return;
-    }
-    armed = false;
-    moved = false;
-    const height = getHeaderHeight();
-    const position = viewport.scrollTop;
-    if (height <= 0 || position <= 1 || position >= height - 1) {
-      return;
-    }
-    // Only settle inside the header's transition range; reading posts stays free.
-    const target = position < height / 2 ? 0 : height;
-    if (target > viewport.scrollHeight - viewport.clientHeight) {
-      return;
-    }
-    snapping = true;
-    viewport.scrollTo({
-      behavior: reducedMotion ? "instant" : "smooth",
-      top: target,
-    });
-  };
-  const schedule = () => {
-    clearTimer();
-    if (!armed || !moved || snapping) {
-      return;
-    }
-    if (!supportsScrollEnd) {
-      timer = setTimeout(settle, 160);
+  let compact = initialCompact;
+  let touchY: number | null = null;
+  onCompactChange(compact);
+  const change = (next: boolean) => {
+    if (compact !== next) {
+      compact = next;
+      onCompactChange(next);
     }
   };
-  const interrupt = () => {
-    clearTimer();
-    armed = false;
-    moved = false;
-    if (snapping) {
-      snapping = false;
-      viewport.scrollTo({ behavior: "instant", top: viewport.scrollTop });
+  const intent = (down: boolean) => {
+    if (down) {
+      change(true);
+    } else if (viewport.scrollTop <= 1) {
+      change(false);
     }
   };
-  const beginInteraction = () => {
-    interrupt();
-    armed = true;
-  };
-  const scroll = () => {
-    if (!armed || snapping) {
+  const wheel = (event: Event) => {
+    const wheelEvent = event as WheelEvent;
+    if (
+      wheelEvent.ctrlKey ||
+      Math.abs(wheelEvent.deltaY) <= Math.abs(wheelEvent.deltaX)
+    ) {
       return;
     }
-    moved = true;
-    schedule();
-  };
-  const scrollEnd = () => {
-    if (snapping) {
-      snapping = false;
-      return;
-    }
-    if (armed && moved && !pointers.size && !keys.size) {
-      clearTimer();
-      timer = setTimeout(settle, 120);
-    }
+    intent(wheelEvent.deltaY > 0);
   };
   const pointerDown = (event: Event) => {
-    pointers.add((event as PointerEvent).pointerId);
-    beginInteraction();
-  };
-  const pointerUp = (event: Event) => {
-    if (pointers.delete((event as PointerEvent).pointerId)) {
-      schedule();
+    const pointer = event as PointerEvent;
+    if (pointer.pointerType === "touch" || pointer.pointerType === "pen") {
+      touchY = pointer.clientY;
     }
   };
+  const pointerMove = (event: Event) => {
+    if (touchY === null) {
+      return;
+    }
+    const y = (event as PointerEvent).clientY;
+    if (Math.abs(y - touchY) >= 6) {
+      intent(y < touchY);
+      touchY = y;
+    }
+  };
+  const pointerUp = () => {
+    touchY = null;
+  };
   const keyDown = (event: Event) => {
-    const { key } = event as KeyboardEvent;
+    const keyboard = event as KeyboardEvent;
     const target = event.target as HTMLElement | null;
     if (
       event.defaultPrevented ||
       target?.isContentEditable ||
-      ["INPUT", "TEXTAREA", "SELECT"].includes(target?.tagName ?? "")
+      ["INPUT", "TEXTAREA", "SELECT", "BUTTON", "A"].includes(
+        target?.tagName ?? ""
+      )
     ) {
       return;
     }
-    if (SCROLL_KEYS.has(key)) {
-      if (!keys.has(key)) {
-        beginInteraction();
-      }
-      keys.add(key);
+    if (["ArrowDown", "PageDown", "End", " "].includes(keyboard.key)) {
+      intent(!(keyboard.key === " " && keyboard.shiftKey));
+    } else if (["ArrowUp", "PageUp", "Home"].includes(keyboard.key)) {
+      intent(false);
     }
   };
-  const keyUp = (event: Event) => {
-    if (keys.delete((event as KeyboardEvent).key)) {
-      schedule();
+  const scroll = () => {
+    if (viewport.scrollTop > 2) {
+      change(true);
     }
   };
-  const blur = () => {
-    pointers.clear();
-    keys.clear();
-    interrupt();
-  };
-  viewport.addEventListener("scroll", scroll, { passive: true });
-  viewport.addEventListener("scrollend", scrollEnd);
+  viewport.addEventListener("wheel", wheel, { passive: true });
   viewport.addEventListener("pointerdown", pointerDown, { passive: true });
-  viewport.addEventListener("wheel", beginInteraction, { passive: true });
+  viewport.addEventListener("pointermove", pointerMove, { passive: true });
   viewport.addEventListener("keydown", keyDown);
+  viewport.addEventListener("scroll", scroll, { passive: true });
   interactionTarget.addEventListener("pointerup", pointerUp, { passive: true });
   interactionTarget.addEventListener("pointercancel", pointerUp, {
     passive: true,
   });
-  interactionTarget.addEventListener("keyup", keyUp);
-  interactionTarget.addEventListener("blur", blur);
+  interactionTarget.addEventListener("blur", pointerUp);
   return () => {
-    interrupt();
-    viewport.removeEventListener("scroll", scroll);
-    viewport.removeEventListener("scrollend", scrollEnd);
+    viewport.removeEventListener("wheel", wheel);
     viewport.removeEventListener("pointerdown", pointerDown);
-    viewport.removeEventListener("wheel", beginInteraction);
+    viewport.removeEventListener("pointermove", pointerMove);
     viewport.removeEventListener("keydown", keyDown);
+    viewport.removeEventListener("scroll", scroll);
     interactionTarget.removeEventListener("pointerup", pointerUp);
     interactionTarget.removeEventListener("pointercancel", pointerUp);
-    interactionTarget.removeEventListener("keyup", keyUp);
-    interactionTarget.removeEventListener("blur", blur);
+    interactionTarget.removeEventListener("blur", pointerUp);
   };
 }

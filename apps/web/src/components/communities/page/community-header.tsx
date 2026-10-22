@@ -116,7 +116,7 @@ export default function CommunityHeader({
               dead weight for them - but the bell stays, because a subscribed
               owner is still notified when other members post. */}
           <motion.div
-            className="flex flex-wrap items-center justify-end gap-2 pb-1"
+            className="pointer-events-auto flex flex-wrap items-center justify-end gap-2 pb-1"
             style={detailsStyle}
           >
             {membership?.role === "OWNER" ? null : (
