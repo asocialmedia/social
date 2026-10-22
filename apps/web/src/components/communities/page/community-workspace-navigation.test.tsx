@@ -89,3 +89,23 @@ test("Posts exposes the same drawer without removing its direct section tabs", (
   expect(html).toContain('href="/a/table/chat"');
   expect(html).toContain('href="/a/table"');
 });
+
+test("compact Posts identity shares its section bar with the sidebar and direct Chat link", () => {
+  const html = renderToStaticMarkup(
+    <CommunitySectionNav
+      accentColor="forest"
+      active="posts"
+      slug="table"
+      identity={<span aria-hidden="true">The Open Table · a/table</span>}
+      navigationOpen
+      onOpenNavigation={() => {}}
+      navigationTriggerRef={createRef()}
+    />
+  );
+  expect(html).toContain("The Open Table · a/table");
+  expect(html).toContain('aria-expanded="true"');
+  expect(html).toContain('aria-controls="community-workspace-navigation"');
+  expect(html).toContain('aria-current="page"');
+  expect(html).toContain('href="/a/table/chat"');
+  expect(html.match(/<nav\b/g)).toHaveLength(1);
+});

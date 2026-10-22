@@ -1,7 +1,7 @@
 import { Button } from "@asm/ui/shadui/button";
 import { PanelLeft } from "lucide-react";
 import Link from "next/link";
-import type { Ref } from "react";
+import type { ReactNode, Ref } from "react";
 
 import { communityAccentStyle } from "@/lib/communities/accent";
 import { communityChatUiEnabled } from "@/lib/communities/chat-features";
@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils";
 import { COMMUNITY_NAVIGATION_ID } from "./community-workspace-navigation";
 
 interface CommunitySectionNavProps {
+  identity?: ReactNode;
   active: "chat" | "posts";
   accentColor: string;
   channelId?: string;
@@ -21,6 +22,7 @@ interface CommunitySectionNavProps {
 
 export default function CommunitySectionNav({
   active,
+  identity,
   accentColor,
   channelId,
   slug,
@@ -58,13 +60,14 @@ export default function CommunitySectionNav({
           <PanelLeft />
         </Button>
       ) : null}
+      {identity}
       {links
         .filter((link) => link.key !== "chat" || communityChatUiEnabled)
         .map((link) => (
           <Link
             aria-current={active === link.key ? "page" : undefined}
             className={cn(
-              "relative flex min-w-20 items-center justify-center rounded-t-lg px-3 text-sm font-semibold transition-colors",
+              "relative flex min-w-14 shrink-0 items-center justify-center rounded-t-lg px-3 text-sm font-semibold transition-colors",
               active === link.key
                 ? "text-foreground"
                 : "text-muted-foreground hover:text-foreground hover:bg-muted/50"

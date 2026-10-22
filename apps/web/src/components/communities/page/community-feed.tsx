@@ -18,7 +18,6 @@ import { useCallback, useEffect, useMemo, useRef } from "react";
 import { FeedView } from "@/components/home/feed-view";
 import { AnimatedTabTrigger } from "@/components/home/feedview/animated-tab-trigger";
 import FeedEnd from "@/components/home/feedview/feed-end";
-import { FeedScrollbar } from "@/components/layouts/feed/feed-scrollbar";
 import InfiniteScrollContainer from "@/components/layouts/feed/infinite-scroll-container";
 import FeedViewSkeleton from "@/components/layouts/skeletons/feed-view-skeleton";
 import LoadMoreSkeleton from "@/components/layouts/skeletons/load-more-skeleton";
@@ -33,14 +32,21 @@ import CommunityPostFilters, {
 // The community's own feed. Native posts only, sorted by new or top. Reuses
 // the global FeedView so the card, media, voting and comments behave exactly
 // as they do everywhere else.
-export default function CommunityFeed({ slug }: { slug: string }) {
+export default function CommunityFeed({
+  slug,
+  scrollRef,
+}: {
+  slug: string;
+  scrollRef: React.RefObject<HTMLDivElement | null>;
+}) {
   const searchParams = useSearchParams();
   const pathname = usePathname();
   const selection = readCommunityFeedSelection(searchParams);
   const { sort } = selection;
   const filterParams = communityFeedSearchParams(selection).toString();
   const filtered = communityPostFilterCount(selection) > 0;
-  const feedScrollRef = useRef<HTMLDivElement>(null);
+  const controlsRef = useRef<HTMLDivElement>(null);
+  const previousSelection = useRef(`${slug}:${filterParams}`);
 
   const queryKey = useMemo(
     () => ["community-feed", slug, sort, filterParams],
@@ -57,9 +63,17 @@ export default function CommunityFeed({ slug }: { slug: string }) {
     [pathname, searchParams]
   );
   useEffect(() => {
-    feedScrollRef.current?.scrollTo({ top: 0 });
-    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- A new selection resets the scrolling viewport even when its element is reused.
-  }, [filterParams, slug]);
+    const selectionKey = `${slug}:${filterParams}`;
+    if (previousSelection.current === selectionKey) {
+      return;
+    }
+    previousSelection.current = selectionKey;
+    const viewport = scrollRef.current;
+    const controls = controlsRef.current;
+    if (viewport && controls) {
+      viewport.scrollTo({ top: controls.offsetTop - 48 });
+    }
+  }, [filterParams, slug, scrollRef]);
 
   const {
     data,
@@ -170,11 +184,14 @@ export default function CommunityFeed({ slug }: { slug: string }) {
 
   return (
     <Tabs
-      className="flex min-h-0 flex-1 flex-col"
+      className="flex min-h-[calc(100%_-_3rem)] flex-col"
       onValueChange={handleSortChange}
       value={sort}
     >
-      <div className="border-border/60 flex items-center justify-between gap-2 border-b pr-3">
+      <div
+        ref={controlsRef}
+        className="border-border/60 flex items-center justify-between gap-2 border-b pr-3"
+      >
         <TabsList className="flex h-full items-center gap-0 bg-transparent p-0">
           <AnimatedTabTrigger
             active={sort === "new"}
@@ -201,22 +218,12 @@ export default function CommunityFeed({ slug }: { slug: string }) {
         onChange={updateSelection}
       />
 
-      <div className="relative min-h-0 flex-1">
-        <div className="relative h-full">
-          <div
-            className="hide-native-scrollbar h-full overflow-x-hidden overflow-y-auto pb-24 lg:pb-0"
-            ref={feedScrollRef}
-          >
-            <TabsContent className="mt-0" value="new">
-              {body}
-            </TabsContent>
-            <TabsContent className="mt-0" value="top">
-              {body}
-            </TabsContent>
-          </div>
-          <FeedScrollbar containerRef={feedScrollRef} />
-        </div>
-      </div>
+      <TabsContent className="mt-0" value="new">
+        {body}
+      </TabsContent>
+      <TabsContent className="mt-0" value="top">
+        {body}
+      </TabsContent>
     </Tabs>
   );
 }

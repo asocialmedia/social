@@ -15,10 +15,8 @@ import { useActiveCommunityStore } from "@/store/active-community-store";
 
 import CommunityChannelShortcuts from "./community-channel-shortcuts";
 import CommunityChat from "./community-chat";
-import CommunityFeed from "./community-feed";
-import CommunityHeader from "./community-header";
 import CommunityMatureGate from "./community-mature-gate";
-import CommunitySectionNav from "./community-section-nav";
+import CommunityPostsWorkspace from "./community-posts-workspace";
 import CommunitySidebar from "./community-sidebar";
 import CommunityWorkspaceNavigation from "./community-workspace-navigation";
 
@@ -192,23 +190,15 @@ export default function ClientCommunity({
                 />
               )
             ) : (
-              <>
-                <CommunityHeader
-                  community={community}
-                  members={stats.members}
-                  membership={membership}
-                  subscribed={subscribed}
-                />
-                <CommunitySectionNav
-                  accentColor={community.accentColor}
-                  active="posts"
-                  slug={slug}
-                  navigationOpen={navigation.open}
-                  onOpenNavigation={() => navigation.setOpen(true)}
-                  navigationTriggerRef={navigationTriggerRef}
-                />
-                <CommunityFeed slug={slug} />
-              </>
+              <CommunityPostsWorkspace
+                community={community}
+                members={stats.members}
+                membership={membership}
+                subscribed={subscribed}
+                navigationOpen={navigation.open}
+                onOpenNavigation={() => navigation.setOpen(true)}
+                navigationTriggerRef={navigationTriggerRef}
+              />
             )}
           </div>
 
