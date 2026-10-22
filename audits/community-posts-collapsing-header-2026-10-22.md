@@ -37,3 +37,9 @@ The same identity elements live in an absolute workspace overlay. Their measured
 Layout reserves either the expanded header or the compact 48-pixel bar, switching once per transition. A compensating feed transform preserves visual position across that single layout change, including reversals during animation. Only transforms, ancillary opacity, and text inset clipping animate. The spacer height changes at the state boundary, not on animation frames. No new permanent will-change layers, blur effects, per-scroll geometry measurement, or React scroll state were added. Reduced motion switches immediately.
 
 The new controller tests cover immediate wheel/touch/keyboard transitions, no repeated updates during post scrolling, expansion only at the top, zoom/horizontal-gesture exclusion, scrollbar fallback, and cleanup. Frame geometry tests cover feed continuity across reversals and a stationary settled bar. Browser/device visual and frame-time verification remains unavailable due to the previously recorded URL policy; low-end device smoothness is not claimed as measured.
+
+## Keep feed controls visible after collapse
+
+The New/Top/Filters toolbar and active-filter summary now form one CSS-sticky group below the compact 48px community bar, with the same rule at every responsive width. Native wheel/touch momentum can continue scrolling posts without taking these controls beneath the header. No new scroll listener, gesture interception, or animation is introduced. Filter changes now reset the feed to scroll top zero rather than calculating a target from a moving controls offset. The compact header state remains unchanged by this reset.
+
+Twenty-two header, navigation, and filter regression tests passed; repository formatting/lint and type checks passed. Browser viewport/device visual verification remains blocked by the recorded URL policy.

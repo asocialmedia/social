@@ -45,7 +45,6 @@ export default function CommunityFeed({
   const { sort } = selection;
   const filterParams = communityFeedSearchParams(selection).toString();
   const filtered = communityPostFilterCount(selection) > 0;
-  const controlsRef = useRef<HTMLDivElement>(null);
   const previousSelection = useRef(`${slug}:${filterParams}`);
 
   const queryKey = useMemo(
@@ -69,10 +68,7 @@ export default function CommunityFeed({
     }
     previousSelection.current = selectionKey;
     const viewport = scrollRef.current;
-    const controls = controlsRef.current;
-    if (viewport && controls) {
-      viewport.scrollTo({ top: controls.offsetTop - 48 });
-    }
+    viewport?.scrollTo({ behavior: "instant", top: 0 });
   }, [filterParams, slug, scrollRef]);
 
   const {
@@ -188,35 +184,34 @@ export default function CommunityFeed({
       onValueChange={handleSortChange}
       value={sort}
     >
-      <div
-        ref={controlsRef}
-        className="border-border/60 flex items-center justify-between gap-2 border-b pr-3"
-      >
-        <TabsList className="flex h-full items-center gap-0 bg-transparent p-0">
-          <AnimatedTabTrigger
-            active={sort === "new"}
-            layoutId={`community-tab-${slug}`}
-            value="new"
-          >
-            New
-          </AnimatedTabTrigger>
-          <AnimatedTabTrigger
-            active={sort === "top"}
-            layoutId={`community-tab-${slug}`}
-            value="top"
-          >
-            Top
-          </AnimatedTabTrigger>
-        </TabsList>
-        <CommunityPostFilters
+      <div className="sticky top-12 z-10 shrink-0 bg-[hsl(var(--background-alt))]">
+        <div className="border-border/60 flex items-center justify-between gap-2 border-b pr-3">
+          <TabsList className="flex h-full items-center gap-0 bg-transparent p-0">
+            <AnimatedTabTrigger
+              active={sort === "new"}
+              layoutId={`community-tab-${slug}`}
+              value="new"
+            >
+              New
+            </AnimatedTabTrigger>
+            <AnimatedTabTrigger
+              active={sort === "top"}
+              layoutId={`community-tab-${slug}`}
+              value="top"
+            >
+              Top
+            </AnimatedTabTrigger>
+          </TabsList>
+          <CommunityPostFilters
+            selection={selection}
+            onChange={updateSelection}
+          />
+        </div>
+        <CommunityPostFilterSummary
           selection={selection}
           onChange={updateSelection}
         />
       </div>
-      <CommunityPostFilterSummary
-        selection={selection}
-        onChange={updateSelection}
-      />
 
       <TabsContent className="mt-0" value="new">
         {body}
