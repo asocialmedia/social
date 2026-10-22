@@ -8,11 +8,12 @@ import {
   useSpring,
   useTransform,
 } from "motion/react";
-import { useCallback, useLayoutEffect, useRef } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef } from "react";
 import type { ComponentProps, Ref } from "react";
 
 import { FeedScrollbar } from "@/components/layouts/feed/feed-scrollbar";
 import { useCommunityHeaderIdentity } from "@/hooks/use-community-header-identity";
+import { attachCommunityHeaderSnap } from "@/lib/communities/header-snap";
 
 import CommunityFeed from "./community-feed";
 import CommunityHeader from "./community-header";
@@ -80,6 +81,20 @@ export default function CommunityPostsWorkspace({
     style: slugStyle,
   } = useCommunityHeaderIdentity(progress, getBoundary, "text");
   const detailsOpacity = useTransform(progress, [0, 0.5], [1, 0]);
+
+  useEffect(() => {
+    const viewport = scrollRef.current;
+    if (!viewport || navigationOpen) {
+      return;
+    }
+    return attachCommunityHeaderSnap({
+      getHeaderHeight: () => headerHeight.get(),
+      interactionTarget: window,
+      reducedMotion: Boolean(reducedMotion),
+      supportsScrollEnd: "onscrollend" in viewport,
+      viewport,
+    });
+  }, [headerHeight, navigationOpen, reducedMotion]);
 
   useLayoutEffect(() => {
     const header = headerRef.current;

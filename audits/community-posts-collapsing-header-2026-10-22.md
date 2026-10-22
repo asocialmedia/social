@@ -13,3 +13,9 @@ Validation:
 - Browser verification was blocked by the browser tool's URL security policy when selecting the existing localhost community page. No alternative browser access was attempted.
 
 Visual acceptance still required: expanded/collapsed/reversed scrolling at 320px, phone, tablet, and desktop widths; long names; both themes; reduced motion; keyboard Page Up/Down; filter changes; sidebar open/close; infinite loading. No visual performance measurements or native device testing are claimed. This change targets responsive web; native code is unchanged.
+
+## Scroll settling
+
+When scrolling ends inside the header's transition range, the viewport smoothly settles to the nearer expanded or compact endpoint. This preserves the original identity transform and the transcript's normal scroll position beyond that range. Native scroll completion events are preferred; older browsers use one 160 ms idle timer. Held pointers and scroll keys defer settling, new wheel/touch/key input interrupts it, and opening the sidebar or unmounting removes the controller. Reduced motion uses an instant settle. No scroll-driven React state or new frame loop was added.
+
+Seven snap controller tests cover both endpoints, unrestricted post reading, unreachable destinations, held touch/key input, fresh-input cancellation, reduced motion, fallback idle handling, and disposal. Together with the transform tests, 11 tests passed. Lint and repository type checks passed. Browser visual verification remains blocked by the previously recorded URL policy; smooth-scroll feel on actual browsers and devices remains unverified.
