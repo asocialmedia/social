@@ -1,10 +1,32 @@
 import { expect, test } from "bun:test";
 
 import {
+  isCommunityPath,
   communityChatLocation,
   communityChatRoomMatchesLocation,
   isCommunityChatPath,
 } from "./chat-navigation";
+
+test("community rail stays active on Posts, channels, and threads without matching similarly named communities", () => {
+  for (const path of [
+    "/a/table",
+    "/a/table/",
+    "/a/table/chat",
+    "/a/table/chat/general",
+    "/a/table/chat/general/threads/discussion",
+  ]) {
+    expect(isCommunityPath(path, "table")).toBe(true);
+  }
+  for (const path of [
+    "/a/tabletop",
+    "/a/tabletop/chat/general",
+    "/a/other/chat/general",
+    "/communities",
+    "/messages/table",
+  ]) {
+    expect(isCommunityPath(path, "table")).toBe(false);
+  }
+});
 
 test("community conversations use their own navigation without obscuring the composer", () => {
   for (const path of [

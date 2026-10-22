@@ -1,5 +1,10 @@
 import type { CommunityChatRoom } from "@asm/messages";
 
+export function isCommunityPath(pathname: string, slug: string): boolean {
+  const root = `/a/${slug}`;
+  return pathname === root || pathname.startsWith(`${root}/`);
+}
+
 export function isCommunityChatPath(pathname: string): boolean {
   return /^\/a\/[^/]+\/chat(?:\/[^/]+(?:\/threads\/[^/]+)?)?\/?$/u.test(
     pathname
