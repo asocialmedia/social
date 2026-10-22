@@ -30,6 +30,8 @@ export function attachCommunityHeaderSnap({
 }) {
   let timer: ReturnType<typeof setTimeout> | undefined;
   let snapping = false;
+  let armed = false;
+  let moved = false;
   const pointers = new Set<number>();
   const keys = new Set<string>();
   const clearTimer = () => {
@@ -38,10 +40,11 @@ export function attachCommunityHeaderSnap({
   };
   const settle = () => {
     clearTimer();
-    snapping = false;
-    if (pointers.size || keys.size) {
+    if (!armed || !moved || snapping || pointers.size || keys.size) {
       return;
     }
+    armed = false;
+    moved = false;
     const height = getHeaderHeight();
     const position = viewport.scrollTop;
     if (height <= 0 || position <= 1 || position >= height - 1) {
@@ -60,20 +63,46 @@ export function attachCommunityHeaderSnap({
   };
   const schedule = () => {
     clearTimer();
+    if (!armed || !moved || snapping) {
+      return;
+    }
     if (!supportsScrollEnd) {
       timer = setTimeout(settle, 160);
     }
   };
   const interrupt = () => {
     clearTimer();
+    armed = false;
+    moved = false;
     if (snapping) {
       snapping = false;
       viewport.scrollTo({ behavior: "instant", top: viewport.scrollTop });
     }
   };
+  const beginInteraction = () => {
+    interrupt();
+    armed = true;
+  };
+  const scroll = () => {
+    if (!armed || snapping) {
+      return;
+    }
+    moved = true;
+    schedule();
+  };
+  const scrollEnd = () => {
+    if (snapping) {
+      snapping = false;
+      return;
+    }
+    if (armed && moved && !pointers.size && !keys.size) {
+      clearTimer();
+      timer = setTimeout(settle, 120);
+    }
+  };
   const pointerDown = (event: Event) => {
     pointers.add((event as PointerEvent).pointerId);
-    interrupt();
+    beginInteraction();
   };
   const pointerUp = (event: Event) => {
     if (pointers.delete((event as PointerEvent).pointerId)) {
@@ -91,8 +120,10 @@ export function attachCommunityHeaderSnap({
       return;
     }
     if (SCROLL_KEYS.has(key)) {
+      if (!keys.has(key)) {
+        beginInteraction();
+      }
       keys.add(key);
-      interrupt();
     }
   };
   const keyUp = (event: Event) => {
@@ -105,10 +136,10 @@ export function attachCommunityHeaderSnap({
     keys.clear();
     interrupt();
   };
-  viewport.addEventListener("scroll", schedule, { passive: true });
-  viewport.addEventListener("scrollend", settle);
+  viewport.addEventListener("scroll", scroll, { passive: true });
+  viewport.addEventListener("scrollend", scrollEnd);
   viewport.addEventListener("pointerdown", pointerDown, { passive: true });
-  viewport.addEventListener("wheel", interrupt, { passive: true });
+  viewport.addEventListener("wheel", beginInteraction, { passive: true });
   viewport.addEventListener("keydown", keyDown);
   interactionTarget.addEventListener("pointerup", pointerUp, { passive: true });
   interactionTarget.addEventListener("pointercancel", pointerUp, {
@@ -118,10 +149,10 @@ export function attachCommunityHeaderSnap({
   interactionTarget.addEventListener("blur", blur);
   return () => {
     interrupt();
-    viewport.removeEventListener("scroll", schedule);
-    viewport.removeEventListener("scrollend", settle);
+    viewport.removeEventListener("scroll", scroll);
+    viewport.removeEventListener("scrollend", scrollEnd);
     viewport.removeEventListener("pointerdown", pointerDown);
-    viewport.removeEventListener("wheel", interrupt);
+    viewport.removeEventListener("wheel", beginInteraction);
     viewport.removeEventListener("keydown", keyDown);
     interactionTarget.removeEventListener("pointerup", pointerUp);
     interactionTarget.removeEventListener("pointercancel", pointerUp);

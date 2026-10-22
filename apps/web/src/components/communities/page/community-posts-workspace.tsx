@@ -5,7 +5,6 @@ import {
   useMotionValue,
   useReducedMotion,
   useScroll,
-  useSpring,
   useTransform,
 } from "motion/react";
 import { useCallback, useEffect, useLayoutEffect, useRef } from "react";
@@ -30,6 +29,7 @@ type CommunityPostsWorkspaceProps = Omit<
   | "detailsStyle"
 > & {
   navigationOpen: boolean;
+  navigationModalOpen: boolean;
   onOpenNavigation: () => void;
   navigationTriggerRef: Ref<HTMLButtonElement>;
 };
@@ -37,6 +37,7 @@ type CommunityPostsWorkspaceProps = Omit<
 export default function CommunityPostsWorkspace({
   community,
   navigationOpen,
+  navigationModalOpen,
   onOpenNavigation,
   navigationTriggerRef,
   ...headerProps
@@ -56,12 +57,7 @@ export default function CommunityPostsWorkspace({
       height > 0 ? Math.max(0, Math.min(1, scrollY.get() / height)) : 0;
     return reducedMotion ? Number(fraction >= 1) : fraction;
   });
-  const easedProgress = useSpring(rawProgress, {
-    damping: 42,
-    mass: 0.5,
-    stiffness: 420,
-  });
-  const progress = reducedMotion ? rawProgress : easedProgress;
+  const progress = rawProgress;
   const {
     attachSource: avatarRef,
     attachTarget: avatarTargetRef,
@@ -84,7 +80,7 @@ export default function CommunityPostsWorkspace({
 
   useEffect(() => {
     const viewport = scrollRef.current;
-    if (!viewport || navigationOpen) {
+    if (!viewport || navigationModalOpen) {
       return;
     }
     return attachCommunityHeaderSnap({
@@ -94,7 +90,7 @@ export default function CommunityPostsWorkspace({
       supportsScrollEnd: "onscrollend" in viewport,
       viewport,
     });
-  }, [headerHeight, navigationOpen, reducedMotion]);
+  }, [headerHeight, navigationModalOpen, reducedMotion]);
 
   useLayoutEffect(() => {
     const header = headerRef.current;

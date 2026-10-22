@@ -196,6 +196,7 @@ export default function ClientCommunity({
                 membership={membership}
                 subscribed={subscribed}
                 navigationOpen={navigation.open}
+                navigationModalOpen={navigation.open && !navigation.desktop}
                 onOpenNavigation={() => navigation.setOpen(true)}
                 navigationTriggerRef={navigationTriggerRef}
               />
