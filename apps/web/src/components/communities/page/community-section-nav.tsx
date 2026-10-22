@@ -1,12 +1,10 @@
 import { Button } from "@asm/ui/shadui/button";
 import { PanelLeft } from "lucide-react";
-import Link from "next/link";
 import type { ReactNode, Ref } from "react";
 
 import { communityAccentStyle } from "@/lib/communities/accent";
-import { communityChatUiEnabled } from "@/lib/communities/chat-features";
-import { cn } from "@/lib/utils";
 
+import CommunitySectionLinks from "./community-section-links";
 import { COMMUNITY_NAVIGATION_ID } from "./community-workspace-navigation";
 
 interface CommunitySectionNavProps {
@@ -30,15 +28,6 @@ export default function CommunitySectionNav({
   onOpenNavigation,
   navigationTriggerRef,
 }: CommunitySectionNavProps) {
-  const links = [
-    { href: `/a/${slug}`, key: "posts" as const, label: "Posts" },
-    {
-      href: channelId ? `/a/${slug}/chat/${channelId}` : `/a/${slug}/chat`,
-      key: "chat" as const,
-      label: "Chat",
-    },
-  ];
-
   return (
     <nav
       aria-label={`${slug} community sections`}
@@ -61,29 +50,11 @@ export default function CommunitySectionNav({
         </Button>
       ) : null}
       {identity}
-      {links
-        .filter((link) => link.key !== "chat" || communityChatUiEnabled)
-        .map((link) => (
-          <Link
-            aria-current={active === link.key ? "page" : undefined}
-            className={cn(
-              "pointer-events-auto relative flex min-w-14 shrink-0 items-center justify-center rounded-t-lg px-3 text-sm font-semibold transition-colors",
-              active === link.key
-                ? "text-foreground"
-                : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
-            )}
-            href={link.href}
-            key={link.key}
-          >
-            {link.label}
-            {active === link.key ? (
-              <span
-                aria-hidden="true"
-                className="absolute inset-x-3 bottom-0 h-0.5 rounded-full bg-[var(--community-accent-resolved)]"
-              />
-            ) : null}
-          </Link>
-        ))}
+      <CommunitySectionLinks
+        active={active}
+        channelId={channelId}
+        slug={slug}
+      />
     </nav>
   );
 }

@@ -48,14 +48,16 @@ export default function CommunityPostFilters({
   };
   const trigger = (
     <Button
-      className="min-h-11 rounded-full! px-4"
-      variant="premium-neutral"
+      className="text-muted-foreground hover:text-foreground min-h-11 gap-2 rounded-lg px-3 text-sm font-medium"
+      variant="ghost"
       aria-label={`Filter community posts${count ? `, ${count} active` : ""}`}
     >
-      <SlidersHorizontal aria-hidden="true" />
+      <SlidersHorizontal aria-hidden="true" className="size-4" />
       Filters
       {count ? (
-        <span className="chip-3d rounded-full! px-1.5 text-xs">{count}</span>
+        <span className="bg-muted text-foreground inline-flex size-5 items-center justify-center rounded-full text-xs tabular-nums">
+          {count}
+        </span>
       ) : null}
     </Button>
   );
@@ -74,9 +76,9 @@ export default function CommunityPostFilters({
     >
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h2 className="text-base font-bold">Find your kind of post</h2>
+          <h2 className="text-base font-bold">Filter posts</h2>
           <p className="text-muted-foreground mt-1 text-xs">
-            Mix filters to explore this community.
+            Choose what appears in this community’s feed.
           </p>
         </div>
         <Button

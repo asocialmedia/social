@@ -72,6 +72,9 @@ test("chat header keeps thread back navigation and provides an explicit mobile d
   expect(html).toContain('aria-label="Toggle community sidebar"');
   expect(html).toContain('aria-controls="community-workspace-navigation"');
   expect(html).toContain('aria-expanded="false"');
+  expect(html).toContain('href="/a/table"');
+  expect(html).toContain('aria-label="table community sections"');
+  expect(html).toContain('aria-current="page"');
 });
 
 test("Posts exposes the same drawer without removing its direct section tabs", () => {

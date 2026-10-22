@@ -21,14 +21,17 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import type { ReactNode, RefObject } from "react";
+import { useContext } from "react";
 
 import MobileBottomNav from "@/components/layouts/navigation/mobile/mobile-bottom-nav";
+import { useCommunitySectionLinks } from "@/hooks/use-community-section-links";
 import { communityAccentStyle } from "@/lib/communities/accent";
 import { communityChatUiEnabled } from "@/lib/communities/chat-features";
 import { navigateCommunityChat } from "@/lib/communities/chat-navigation";
 import { cn } from "@/lib/utils";
 
 import CommunityAvatar from "../card/community-avatar";
+import { CommunityWorkspacePortalContext } from "./community-workspace-context";
 
 export const communityNavigationRowClassName =
   "group relative mb-0.5 flex min-h-11 w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm leading-5 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-ring";
@@ -60,14 +63,14 @@ export default function CommunityWorkspaceNavigation({
   slug: string;
   triggerRef: RefObject<HTMLButtonElement | null>;
 }) {
+  const workspaceElement = useContext(CommunityWorkspacePortalContext);
+  const { postsHref, chatHref } = useCommunitySectionLinks(slug, channelId);
   const links = [
-    { href: `/a/${slug}`, icon: FileText, key: "posts", label: "Posts" },
+    { href: postsHref, icon: FileText, key: "posts", label: "Posts" },
     ...(communityChatUiEnabled
       ? [
           {
-            href: channelId
-              ? `/a/${slug}/chat/${channelId}`
-              : `/a/${slug}/chat`,
+            href: chatHref,
             icon: MessageCircle,
             key: "chat",
             label: "Chat",
@@ -91,6 +94,9 @@ export default function CommunityWorkspaceNavigation({
           href={href}
           prefetch={active === "chat" && key === "chat" ? false : undefined}
           onNavigate={(event) => {
+            if (!desktop) {
+              onOpenChange(false);
+            }
             if (active === "chat" && key === "chat" && channelId) {
               event.preventDefault();
               navigateCommunityChat(href);
@@ -99,11 +105,6 @@ export default function CommunityWorkspaceNavigation({
           title={collapsed ? label : undefined}
           aria-label={collapsed ? label : undefined}
           aria-current={active === key ? "page" : undefined}
-          onClick={() => {
-            if (!desktop) {
-              onOpenChange(false);
-            }
-          }}
           className={cn(
             "focus-visible:outline-ring flex min-h-11 min-w-11 items-center justify-center gap-2 text-sm transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px]",
             collapsed ? "rounded-xl px-3" : "flex-1 border-b-2 px-1",
@@ -192,57 +193,59 @@ export default function CommunityWorkspaceNavigation({
         ) : null}
       </aside>
       <Sheet open={!desktop && open} onOpenChange={onOpenChange}>
-        <SheetPortal>
-          <SheetOverlay />
-          <SheetDialogContent
-            id={desktop ? undefined : COMMUNITY_NAVIGATION_ID}
-            className="community-accent-scope group data-[state=closed]:animate-out fixed inset-0 z-50 h-dvh outline-none data-[state=closed]:duration-240 motion-reduce:data-[state=closed]:duration-100"
-            style={communityAccentStyle(accentColor)}
-            onPointerDown={(event) => {
-              if (event.target === event.currentTarget) {
-                onOpenChange(false);
-              }
-            }}
-            onCloseAutoFocus={(event) => {
-              event.preventDefault();
-              triggerRef.current?.focus();
-            }}
-          >
-            <SheetHeader className="sr-only">
-              <SheetTitle>{communityName} navigation</SheetTitle>
-              <SheetDescription>
-                Switch between community posts, chat and channels.
-              </SheetDescription>
-            </SheetHeader>
-            <div className="panel-3d group-data-[state=open]:animate-in group-data-[state=open]:slide-in-from-left group-data-[state=closed]:animate-out group-data-[state=closed]:slide-out-to-left pointer-events-auto relative flex h-full w-80 max-w-[calc(100vw-2.75rem)] flex-col gap-0 rounded-l-none! rounded-r-2xl! pt-[env(safe-area-inset-top)] pb-[calc(env(safe-area-inset-bottom)+6rem)] group-data-[state=closed]:duration-240 group-data-[state=open]:duration-250 motion-reduce:animate-none!">
-              <SheetClose
-                aria-label="Close"
-                className="icon-btn-3d absolute top-[calc(env(safe-area-inset-top)+0.75rem)] right-3 flex size-11 items-center justify-center rounded-full"
-              >
-                <X className="size-4" />
-              </SheetClose>
-              <div className="border-border/50 flex min-h-16 shrink-0 items-center gap-3 border-b py-3 pr-16 pl-4">
-                {identity}
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-semibold">
-                    {communityName}
-                  </p>
-                  <p className="text-muted-foreground truncate text-xs">
-                    a/{slug}
-                  </p>
+        {workspaceElement ? (
+          <SheetPortal container={workspaceElement}>
+            <SheetOverlay className="absolute bg-black/35" />
+            <SheetDialogContent
+              id={desktop ? undefined : COMMUNITY_NAVIGATION_ID}
+              className="community-accent-scope group data-[state=closed]:animate-out absolute inset-0 z-50 h-full overflow-hidden outline-none data-[state=closed]:duration-240 motion-reduce:data-[state=closed]:duration-100"
+              style={communityAccentStyle(accentColor)}
+              onPointerDown={(event) => {
+                if (event.target === event.currentTarget) {
+                  onOpenChange(false);
+                }
+              }}
+              onCloseAutoFocus={(event) => {
+                event.preventDefault();
+                triggerRef.current?.focus();
+              }}
+            >
+              <SheetHeader className="sr-only">
+                <SheetTitle>{communityName} navigation</SheetTitle>
+                <SheetDescription>
+                  Switch between community posts, chat and channels.
+                </SheetDescription>
+              </SheetHeader>
+              <div className="panel-3d group-data-[state=open]:animate-in group-data-[state=open]:slide-in-from-left group-data-[state=closed]:animate-out group-data-[state=closed]:slide-out-to-left pointer-events-auto relative flex h-full w-80 max-w-[calc(100%_-_2.75rem)] flex-col gap-0 rounded-l-none! rounded-r-2xl! pt-[env(safe-area-inset-top)] pb-[calc(env(safe-area-inset-bottom)+6rem)] group-data-[state=closed]:duration-240 group-data-[state=open]:duration-250 motion-reduce:animate-none!">
+                <SheetClose
+                  aria-label="Close"
+                  className="icon-btn-3d absolute top-[calc(env(safe-area-inset-top)+0.75rem)] right-3 flex size-11 items-center justify-center rounded-full"
+                >
+                  <X className="size-4" />
+                </SheetClose>
+                <div className="border-border/50 flex min-h-16 shrink-0 items-center gap-3 border-b py-3 pr-16 pl-4">
+                  {identity}
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold">
+                      {communityName}
+                    </p>
+                    <p className="text-muted-foreground truncate text-xs">
+                      a/{slug}
+                    </p>
+                  </div>
                 </div>
+                {sectionLinks(false)}
+                {navigation}
               </div>
-              {sectionLinks(false)}
-              {navigation}
-            </div>
-            <MobileBottomNav
-              hidden={false}
-              closing={!open}
-              sidebar
-              onNavigate={() => onOpenChange(false)}
-            />
-          </SheetDialogContent>
-        </SheetPortal>
+              <MobileBottomNav
+                hidden={false}
+                closing={!open}
+                sidebar
+                onNavigate={() => onOpenChange(false)}
+              />
+            </SheetDialogContent>
+          </SheetPortal>
+        ) : null}
       </Sheet>
     </>
   );

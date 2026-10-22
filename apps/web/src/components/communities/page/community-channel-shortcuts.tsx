@@ -110,7 +110,7 @@ function ChannelShortcuts({
         <Link
           key={channel.id}
           href={`/a/${slug}/chat/${channel.id}`}
-          onClick={onNavigate}
+          onNavigate={onNavigate}
           className={`${communityNavigationRowClassName} text-foreground/80 hover:bg-muted/60 hover:text-foreground`}
         >
           <MessageCircle className="size-4 shrink-0" />

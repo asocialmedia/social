@@ -1,23 +1,34 @@
 "use client";
 
 import type { CommunityData, CommunityStats } from "@asm/db";
-import { useRouter } from "next/navigation";
+import {
+  communityFeedSearchParams,
+  readCommunityFeedSelection,
+} from "@asm/db/communities";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { useSession } from "@/app/(main)/session-provider";
 import MobileBottomNav from "@/components/layouts/navigation/mobile/mobile-bottom-nav";
 import MobileTopBar from "@/components/layouts/navigation/mobile/mobile-top-bar";
 import { useCommunityChatViewport } from "@/hooks/use-community-chat-viewport";
 import { useCommunityNavigation } from "@/hooks/use-community-navigation";
 import { communityChatUiEnabled } from "@/lib/communities/chat-features";
+import { communityChatLocation } from "@/lib/communities/chat-navigation";
 import type { CommunityRoleValue } from "@/lib/communities/client";
 import { cn } from "@/lib/utils";
 import { useActiveCommunityStore } from "@/store/active-community-store";
+import {
+  communitySectionScope,
+  useCommunitySectionStore,
+} from "@/store/community-section-store";
 
 import CommunityChannelShortcuts from "./community-channel-shortcuts";
 import CommunityChat from "./community-chat";
 import CommunityMatureGate from "./community-mature-gate";
 import CommunityPostsWorkspace from "./community-posts-workspace";
 import CommunitySidebar from "./community-sidebar";
+import { CommunityWorkspacePortalContext } from "./community-workspace-context";
 import CommunityWorkspaceNavigation from "./community-workspace-navigation";
 
 interface ClientCommunityProps {
@@ -49,9 +60,40 @@ export default function ClientCommunity({
   threadId,
 }: ClientCommunityProps) {
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const { user } = useSession();
+  const sectionScope = communitySectionScope(user?.id, slug);
+  const rememberSection = useCommunitySectionStore((state) => state.remember);
+  useEffect(() => {
+    if (view === "posts") {
+      const filters = communityFeedSearchParams(
+        readCommunityFeedSelection(searchParams)
+      ).toString();
+      rememberSection(sectionScope, {
+        postsHref: `/a/${slug}${filters ? `?${filters}` : ""}`,
+      });
+    } else {
+      const location = communityChatLocation(pathname, slug);
+      if (location) {
+        rememberSection(sectionScope, {
+          chatHref: `/a/${slug}/chat/${location.channelId}`,
+        });
+      }
+    }
+  }, [pathname, rememberSection, searchParams, sectionScope, slug, view]);
   const navigation = useCommunityNavigation();
   const navigationTriggerRef = useRef<HTMLButtonElement>(null);
   const chatViewportRef = useCommunityChatViewport(view === "chat");
+  const [workspaceElement, setWorkspaceElement] =
+    useState<HTMLDivElement | null>(null);
+  const attachWorkspace = useCallback(
+    (element: HTMLDivElement | null) => {
+      chatViewportRef.current = element;
+      setWorkspaceElement(element);
+    },
+    [chatViewportRef]
+  );
   const [matureAccepted, setMatureAccepted] = useState(false);
   const hasRecorded = useRef(false);
   const setActiveCommunity = useActiveCommunityStore(
@@ -119,14 +161,14 @@ export default function ClientCommunity({
   const isBlocked = community.mature && !matureAccepted;
 
   return (
-    <>
+    <CommunityWorkspacePortalContext.Provider value={workspaceElement}>
       {/* The community renders either way; when gated it is blurred and made
           inert so the gate reads as a popup over the real page rather than
           replacing it. `overflow-hidden` also clips the blur's soft bleed. */}
       <div
-        ref={chatViewportRef}
+        ref={attachWorkspace}
         className={cn(
-          "relative flex min-h-0 min-w-0 flex-1 overflow-hidden",
+          "relative isolate flex min-h-0 min-w-0 flex-1 overflow-hidden",
           view === "chat" &&
             "fixed inset-x-0 top-[var(--community-chat-top,0px)] z-20 h-[var(--community-chat-height,100dvh)] md:relative md:inset-auto md:z-auto md:h-full"
         )}
@@ -219,9 +261,8 @@ export default function ClientCommunity({
             onLeave={handleLeave}
           />
         ) : null}
+        {view === "posts" ? <MobileBottomNav /> : null}
       </div>
-
-      {view === "posts" ? <MobileBottomNav /> : null}
-    </>
+    </CommunityWorkspacePortalContext.Provider>
   );
 }

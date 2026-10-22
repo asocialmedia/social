@@ -8,6 +8,7 @@ import type { Ref } from "react";
 import { navigateCommunityChat } from "@/lib/communities/chat-navigation";
 
 import CommunityAvatar from "../card/community-avatar";
+import CommunitySectionLinks from "./community-section-links";
 import { COMMUNITY_NAVIGATION_ID } from "./community-workspace-navigation";
 
 interface Props {
@@ -54,7 +55,10 @@ export default function CommunityConversationHeader({
           </Link>
         </Button>
       ) : null}
-      <h1 className="sr-only">{props.communityName} chat</h1>
+      <h1 className="sr-only">
+        {props.communityName} · {props.thread ? "Thread" : "Chat"} ·{" "}
+        {props.channelName}
+      </h1>
       <Button
         aria-expanded={props.channelsOpen}
         aria-controls={COMMUNITY_NAVIGATION_ID}
@@ -72,7 +76,7 @@ export default function CommunityConversationHeader({
         <CommunityAvatar
           accentColor={props.accentColor}
           avatarUrl={props.avatarUrl}
-          className="size-9 shrink-0"
+          className="hidden size-7 shrink-0 lg:block"
           name={props.communityName}
           slug={props.slug}
         />
@@ -80,11 +84,12 @@ export default function CommunityConversationHeader({
           <span className="text-foreground block truncate text-[15px] font-bold">
             {props.communityName}
           </span>
-          <span className="text-muted-foreground flex items-center gap-1 text-xs">
+          <span
+            className="text-muted-foreground flex items-center gap-1 text-xs"
+            title={props.channelName}
+          >
             <span className="truncate">
-              {props.reconnecting
-                ? "Reconnecting…"
-                : `${props.thread ? "Thread" : "Chat"} · ${props.channelName}`}
+              {props.reconnecting ? "Reconnecting…" : props.channelName}
             </span>
           </span>
         </span>
@@ -98,6 +103,16 @@ export default function CommunityConversationHeader({
       >
         <MoreHorizontal className="size-5" />
       </Button>
+      <nav
+        aria-label={`${props.slug} community sections`}
+        className="flex h-12 shrink-0"
+      >
+        <CommunitySectionLinks
+          active="chat"
+          channelId={props.channelId}
+          slug={props.slug}
+        />
+      </nav>
     </header>
   );
 }
