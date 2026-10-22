@@ -77,7 +77,7 @@ test("chat header keeps thread back navigation and provides an explicit mobile d
   expect(html).toContain('aria-current="page"');
 });
 
-test("Posts exposes the same drawer without removing its direct section tabs", () => {
+test("Posts exposes its drawer and a single labelled chat icon", () => {
   const html = renderToStaticMarkup(
     <CommunitySectionNav
       accentColor="forest"
@@ -90,7 +90,9 @@ test("Posts exposes the same drawer without removing its direct section tabs", (
   );
   expect(html).toContain('aria-label="Open community sidebar"');
   expect(html).toContain('href="/a/table/chat"');
-  expect(html).toContain('href="/a/table"');
+  expect(html).not.toContain('href="/a/table"');
+  expect(html).toContain('aria-label="Open community chat"');
+  expect(html).not.toContain(">Chat<");
 });
 
 test("compact Posts identity shares its section bar with the sidebar and direct Chat link", () => {
@@ -108,7 +110,7 @@ test("compact Posts identity shares its section bar with the sidebar and direct 
   expect(html).toContain("The Open Table · a/table");
   expect(html).toContain('aria-expanded="true"');
   expect(html).toContain('aria-controls="community-workspace-navigation"');
-  expect(html).toContain('aria-current="page"');
+  expect(html).not.toContain('href="/a/table"');
   expect(html).toContain('href="/a/table/chat"');
   expect(html.match(/<nav\b/g)).toHaveLength(1);
 });

@@ -13,7 +13,7 @@ import errorImage from "@assets/general/error.png";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { usePathname, useSearchParams } from "next/navigation";
 import type React from "react";
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { FeedView } from "@/components/home/feed-view";
 import { AnimatedTabTrigger } from "@/components/home/feedview/animated-tab-trigger";
@@ -22,8 +22,10 @@ import InfiniteScrollContainer from "@/components/layouts/feed/infinite-scroll-c
 import FeedViewSkeleton from "@/components/layouts/skeletons/feed-view-skeleton";
 import LoadMoreSkeleton from "@/components/layouts/skeletons/load-more-skeleton";
 import EmptyFeedState from "@/components/profile/empty-feed-state";
+import { useHideOnScroll } from "@/hooks/use-hide-on-scroll";
 import kyInstance from "@/lib/ky";
 import { FEED_QUERY_BEHAVIOR } from "@/lib/posts/feed-cache";
+import { cn } from "@/lib/utils";
 
 import CommunityPostFilters, {
   CommunityPostFilterSummary,
@@ -39,6 +41,10 @@ export default function CommunityFeed({
   slug: string;
   scrollRef: React.RefObject<HTMLDivElement | null>;
 }) {
+  const scrollHidden = useHideOnScroll(scrollRef, 2);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [toolbarFocused, setToolbarFocused] = useState(false);
+  const toolbarHidden = scrollHidden && !filtersOpen && !toolbarFocused;
   const searchParams = useSearchParams();
   const pathname = usePathname();
   const selection = readCommunityFeedSelection(searchParams);
@@ -184,39 +190,57 @@ export default function CommunityFeed({
       onValueChange={handleSortChange}
       value={sort}
     >
-      <div className="sticky top-12 z-10 shrink-0 bg-[hsl(var(--background-alt))]">
-        <div className="border-border/60 flex items-center justify-between gap-2 border-b pr-3">
-          <TabsList className="flex h-full items-center gap-0 bg-transparent p-0">
-            <AnimatedTabTrigger
-              active={sort === "new"}
-              layoutId={`community-tab-${slug}`}
-              value="new"
-            >
-              New
-            </AnimatedTabTrigger>
-            <AnimatedTabTrigger
-              active={sort === "top"}
-              layoutId={`community-tab-${slug}`}
-              value="top"
-            >
-              Top
-            </AnimatedTabTrigger>
-          </TabsList>
-          <CommunityPostFilters
+      <div className="pointer-events-none sticky top-12 z-30 shrink-0 overflow-hidden">
+        <div
+          aria-hidden={toolbarHidden || undefined}
+          inert={toolbarHidden || undefined}
+          className={cn(
+            "bg-background transition-transform duration-200 ease-out motion-reduce:transition-none",
+            toolbarHidden
+              ? "pointer-events-none -translate-y-full"
+              : "pointer-events-auto translate-y-0"
+          )}
+          onFocusCapture={() => setToolbarFocused(true)}
+          onBlurCapture={(event) => {
+            if (!event.currentTarget.contains(event.relatedTarget)) {
+              setToolbarFocused(false);
+            }
+          }}
+        >
+          <div className="border-border/60 flex items-center justify-between gap-2 border-b pr-3">
+            <TabsList className="flex h-full items-center gap-0 bg-transparent p-0">
+              <AnimatedTabTrigger
+                active={sort === "new"}
+                layoutId={`community-tab-${slug}`}
+                value="new"
+              >
+                New
+              </AnimatedTabTrigger>
+              <AnimatedTabTrigger
+                active={sort === "top"}
+                layoutId={`community-tab-${slug}`}
+                value="top"
+              >
+                Top
+              </AnimatedTabTrigger>
+            </TabsList>
+            <CommunityPostFilters
+              onOpenChange={setFiltersOpen}
+              selection={selection}
+              onChange={updateSelection}
+            />
+          </div>
+          <CommunityPostFilterSummary
             selection={selection}
             onChange={updateSelection}
           />
         </div>
-        <CommunityPostFilterSummary
-          selection={selection}
-          onChange={updateSelection}
-        />
       </div>
 
-      <TabsContent className="mt-0" value="new">
+      <TabsContent className="relative isolate z-0 mt-0" value="new">
         {body}
       </TabsContent>
-      <TabsContent className="mt-0" value="top">
+      <TabsContent className="relative isolate z-0 mt-0" value="top">
         {body}
       </TabsContent>
     </Tabs>

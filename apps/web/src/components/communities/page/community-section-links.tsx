@@ -1,5 +1,7 @@
 "use client";
 
+import { Button } from "@asm/ui/shadui/button";
+import { MessageCircle } from "lucide-react";
 import Link from "next/link";
 
 import { useCommunitySectionLinks } from "@/hooks/use-community-section-links";
@@ -17,6 +19,20 @@ export default function CommunitySectionLinks({
   slug: string;
 }) {
   const { postsHref, chatHref } = useCommunitySectionLinks(slug, channelId);
+  if (active === "posts") {
+    return communityChatUiEnabled ? (
+      <Button
+        asChild
+        className="pointer-events-auto my-auto size-11 shrink-0 rounded-full"
+        size="icon"
+        variant="ghost"
+      >
+        <Link aria-label="Open community chat" href={chatHref} title="Chat">
+          <MessageCircle aria-hidden="true" className="size-5" />
+        </Link>
+      </Button>
+    ) : null;
+  }
   const links = [
     { href: postsHref, key: "posts" as const, label: "Posts" },
     {

@@ -27,3 +27,11 @@ Browser access was previously rejected by the browser tool's URL policy. No work
 Manual acceptance should include widths 320, 390, 768, 1100, and 1440px; both themes; root sidebar expanded/collapsed; Posts-to-Chat-to-Posts with active filters; channel/thread back navigation; drawer Escape/backdrop/close/focus behavior; the reverse dock animation; guest and revoked-access states; long community/channel names; and filtered/empty feeds. Exact Posts scroll-anchor restoration across route switches is not added by this change.
 
 Final automated results: 26 regression tests across five files plus one separate DOM integration test passed (104 assertions total). The DOM test runs separately because it stubs the app dock and installs a temporary DOM environment. The normal mobile dock now belongs to the workspace stacking context, keeping it beneath the local modal while its existing dock animation remains intact. Formatting/lint passed; type checks are also required by the commit hook.
+
+## Directional feed toolbar and simplified Posts header
+
+The Posts header now has one 44px chat icon action with an accessible name and the remembered channel destination; its redundant Posts self-link and visible Chat text are removed. Chat retains the return route to Posts.
+
+The filter toolbar reuses the existing feed-scroller direction hook. It slides out upward on downward scrolling and returns on upward scrolling, with a reduced-motion override. Focused controls and an open filter panel keep it visible. Hidden controls are inert, excluded from accessibility navigation, and pointer-transparent. The toolbar uses the opaque theme background and z-30; post panels establish isolated z-0 stacking contexts so author avatars cannot paint over it. No opacity animation or additional scroll-position geometry measurement was introduced.
+
+A separate DOM integration test validates the direction hook through StrictMode remounting. Updated component tests verify the single chat icon, sidebar access, and retained Chat-to-Posts navigation. Alongside filter and header suites, 23 tests passed. Lint and type checks are required before commit. Browser visual acceptance remains unverified because of the previously recorded URL policy.

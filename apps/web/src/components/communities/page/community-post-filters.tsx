@@ -31,7 +31,9 @@ import { useMediaQuery } from "@/hooks/use-media-query";
 export default function CommunityPostFilters({
   selection,
   onChange,
+  onOpenChange,
 }: {
+  onOpenChange?: (open: boolean) => void;
   selection: CommunityFeedSelection;
   onChange: (selection: CommunityFeedSelection) => void;
 }) {
@@ -40,11 +42,15 @@ export default function CommunityPostFilters({
   const id = useId();
   const count = communityPostFilterCount(selection);
   const mobile = useMediaQuery("(max-width: 767px)");
+  const changeOpen = (value: boolean) => {
+    setOpen(value);
+    onOpenChange?.(value);
+  };
   const handleOpenChange = (value: boolean) => {
     if (value) {
       setDraft(selection);
     }
-    setOpen(value);
+    changeOpen(value);
   };
   const trigger = (
     <Button
@@ -71,7 +77,7 @@ export default function CommunityPostFilters({
             new URLSearchParams({ ...draft, q: draft.query })
           )
         );
-        setOpen(false);
+        changeOpen(false);
       }}
     >
       <div className="flex items-start justify-between gap-3">
@@ -87,7 +93,7 @@ export default function CommunityPostFilters({
           size="icon"
           className="size-11 shrink-0 rounded-full"
           aria-label="Close filters"
-          onClick={() => setOpen(false)}
+          onClick={() => changeOpen(false)}
         >
           <X />
         </Button>
