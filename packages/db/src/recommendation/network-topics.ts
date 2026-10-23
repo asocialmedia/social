@@ -21,7 +21,7 @@ import { SHARED_TOPIC_GRAPH_PREFIX } from "./shared-topic-graph";
 const sql = readSqlBundle(source, { topics: ["catalog"] }).topics;
 const provider = createKnowledgeTopicProvider();
 const pending = new Map<string, Promise<NetworkTopicPage>>();
-const cachePrefix = "rec:topic-taxonomy:v3:";
+const cachePrefix = "rec:topic-taxonomy:v4:";
 const scopeMemo = new Map<
   string,
   { at: number; scope: NetworkTopicScope; hydrated: boolean }
