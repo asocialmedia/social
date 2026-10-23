@@ -153,9 +153,7 @@ test.each(["read", "retain", "partial"] as const)(
       watch,
     };
     const pending = warmDiscoveryInventory(options);
-    await (failure === "partial"
-      ? pending
-      : expect(pending).rejects.toThrow());
+    await (failure === "partial" ? pending : expect(pending).rejects.toThrow());
     recovered = true;
     await warmDiscoveryInventory({
       ...options,
