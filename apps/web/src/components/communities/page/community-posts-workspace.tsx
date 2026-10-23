@@ -7,13 +7,20 @@ import {
   motion,
   useTransform,
 } from "motion/react";
-import { useCallback, useEffect, useLayoutEffect, useRef } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import type { ComponentProps, ReactNode, Ref } from "react";
 
 import { FeedScrollbar } from "@/components/layouts/feed/feed-scrollbar";
 import { useCommunityHeaderIdentity } from "@/hooks/use-community-header-identity";
 import { attachCommunityHeaderSnap } from "@/lib/communities/header-snap";
 import { communityHeaderFrame } from "@/lib/communities/header-transform";
+import { cn } from "@/lib/utils";
 
 import CommunityFeed from "./community-feed";
 import CommunityHeader from "./community-header";
@@ -55,6 +62,11 @@ export default function CommunityPostsWorkspace({
   const headerHeight = useMotionValue(0);
   const progress = useMotionValue(0);
   const layoutCompact = useMotionValue(0);
+  // Commit header clearance before paint; animated transforms use Motion's frame loop.
+  const [headerLayout, setHeaderLayout] = useState({
+    compact: false,
+    height: 0,
+  });
   const animationRef = useRef<{ stop: () => void } | null>(null);
   const frame = useTransform(() =>
     communityHeaderFrame(
@@ -64,7 +76,6 @@ export default function CommunityPostsWorkspace({
     )
   );
   const layerY = useTransform(() => frame.get().layerY);
-  const spacerHeight = useTransform(() => frame.get().spacerHeight);
   const feedY = useTransform(() => frame.get().feedY);
   const {
     attachSource: avatarRef,
@@ -101,6 +112,7 @@ export default function CommunityPostsWorkspace({
         }
         animationRef.current?.stop();
         layoutCompact.set(endpoint);
+        setHeaderLayout((current) => ({ ...current, compact }));
         if (compact && viewport.scrollTop > 0) {
           viewport.scrollTo({
             behavior: "instant",
@@ -140,7 +152,11 @@ export default function CommunityPostsWorkspace({
       return;
     }
     const measure = () => {
-      headerHeight.set(header.offsetHeight);
+      const height = header.offsetHeight;
+      headerHeight.set(height);
+      setHeaderLayout((current) =>
+        current.height === height ? current : { ...current, height }
+      );
       measureAvatar();
       measureName();
       measureSlug();
@@ -164,8 +180,13 @@ export default function CommunityPostsWorkspace({
   }, [headerHeight, measureAvatar, measureName, measureSlug]);
 
   return (
-    <div className="relative min-h-0 flex-1 overflow-hidden">
-      <div className="pointer-events-none absolute inset-x-0 top-0 z-20">
+    <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
+      <div
+        className={cn(
+          "pointer-events-none inset-x-0 top-0 z-20 shrink-0",
+          headerLayout.height > 0 ? "absolute" : "relative"
+        )}
+      >
         <motion.div
           className="pointer-events-none relative bg-[hsl(var(--background-alt))]"
           ref={layerRef}
@@ -218,12 +239,20 @@ export default function CommunityPostsWorkspace({
       </div>
       <section
         aria-label={`${community.name} posts`}
-        className="hide-native-scrollbar relative h-full [scroll-padding-top:48px] overflow-x-hidden overflow-y-auto overscroll-y-contain pb-24 [overflow-anchor:none] lg:pb-0"
+        className="hide-native-scrollbar relative min-h-0 flex-1 [scroll-padding-top:48px] overflow-x-hidden overflow-y-auto overscroll-y-contain pb-24 [overflow-anchor:none] lg:pb-0"
         ref={scrollRef}
         // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- This scroll region must support keyboard scrolling independently of the fixed page shell.
         tabIndex={0}
       >
-        <motion.div aria-hidden="true" style={{ height: spacerHeight }} />
+        <div
+          aria-hidden="true"
+          style={{
+            height:
+              headerLayout.height > 0
+                ? 48 + (headerLayout.compact ? 0 : headerLayout.height)
+                : 0,
+          }}
+        />
         <motion.div className="min-h-[calc(100%_-_3rem)]" style={{ y: feedY }}>
           {children ??
             (canReadContent ? (
