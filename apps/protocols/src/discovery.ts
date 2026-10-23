@@ -456,6 +456,9 @@ export class BlueskyDiscovery {
           return [];
         }
       });
+      const relatedUris = new Set(
+        related.flatMap((matches) => matches.map((feed) => feed.uri))
+      );
       const feeds = [
         ...new Map(
           [
@@ -476,10 +479,20 @@ export class BlueskyDiscovery {
       if (content === "video") {
         feeds.sort(
           (a, b) =>
+            Number(relatedUris.has(b.uri)) - Number(relatedUris.has(a.uri)) ||
             Number(b.contentMode === "app.bsky.feed.defs#contentModeVideo") -
               Number(a.contentMode === "app.bsky.feed.defs#contentModeVideo") ||
             (b.likeCount ?? 0) - (a.likeCount ?? 0)
         );
+        const videoIndex = feeds.findIndex(
+          (feed) => feed.contentMode === "app.bsky.feed.defs#contentModeVideo"
+        );
+        if (videoIndex >= 4) {
+          const [video] = feeds.splice(videoIndex, 1);
+          if (video) {
+            feeds.splice(3, 0, video);
+          }
+        }
       }
       snapshot.catalogFeeds = feeds.slice(4).map((feed) => feed.uri);
       snapshot.sources = feeds.slice(0, 4).map((feed) => ({

@@ -1,5 +1,6 @@
 "use client";
 
+import { Skeleton } from "@asm/ui/shadui/skeleton";
 import { useLayoutEffect, useRef, useState } from "react";
 import type { ReactElement } from "react";
 
@@ -9,9 +10,11 @@ import { placeExploreItems } from "@/lib/recommendations/explore-masonry";
 export function ExploreMasonry({
   children,
   scope,
+  loading = false,
 }: {
   children: readonly ReactElement[];
   scope: string;
+  loading?: boolean;
 }) {
   const root = useRef<HTMLDivElement>(null);
   const [count, setCount] = useState(2);
@@ -71,6 +74,27 @@ export function ExploreMasonry({
               {byId.get(id)}
             </div>
           ))}
+          {loading ? (
+            <div
+              aria-busy="true"
+              aria-label="Loading more recommendations"
+              className="space-y-4"
+            >
+              {[0, 1].map((placeholder) => (
+                <div
+                  className="surface-3d overflow-hidden rounded-2xl!"
+                  key={placeholder}
+                >
+                  <Skeleton className="aspect-4/5 w-full rounded-none" />
+                  <div className="space-y-2.5 p-3">
+                    <Skeleton className="h-3.5 w-full" />
+                    <Skeleton className="h-3.5 w-2/3" />
+                    <Skeleton className="h-8 w-24" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : null}
         </div>
       ))}
     </div>

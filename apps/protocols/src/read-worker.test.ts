@@ -638,3 +638,64 @@ test("removing every remote node leaves successful local reads and validation in
   ).toBe("did:plc:alice");
   client.close();
 });
+
+const publicFeed = (name: string) =>
+  `https://public.api.bsky.app/xrpc/app.bsky.feed.getFeed?feed=at://did:plc:test/app.bsky.feed.generator/${name}`;
+
+test("a failed worker operation cools down across distinct feeds while another operation remains available", async () => {
+  const remote: string[] = [];
+  const pool = createReadWorkerPool({
+    fetch: async (url) => {
+      if (url.startsWith(node.url)) {
+        const upstream = new URL(url).searchParams.get("url") ?? "";
+        remote.push(upstream);
+        if (upstream.includes("getFeed?")) {
+          throw new TypeError("worker transport unavailable");
+        }
+      }
+      return response({ feed: [] });
+    },
+    logger: logger(),
+    nodes: [node],
+    now: () => 0,
+  });
+  await pool.fetch(profile, {});
+  expect((await pool.fetch(publicFeed("first"), {})).status).toBe(200);
+  expect((await pool.fetch(publicFeed("second"), {})).status).toBe(200);
+  await pool.fetch(profile, {});
+  await pool.fetch(profile, {});
+  expect(remote.filter((url) => url.includes("getFeed?"))).toHaveLength(1);
+  expect(remote.some((url) => url.includes("getProfile?"))).toBe(true);
+});
+
+test("three remote transport failures pause every operation on that origin until cooldown expires", async () => {
+  let now = 0;
+  const remote: string[] = [];
+  const pool = createReadWorkerPool({
+    fetch: async (url) => {
+      if (url.startsWith(node.url)) {
+        remote.push(new URL(url).searchParams.get("url") ?? "");
+        throw new TypeError("worker offline");
+      }
+      return response({ ok: true });
+    },
+    logger: logger(),
+    nodes: [node],
+    now: () => now,
+  });
+  await pool.fetch(profile, {});
+  const root = "https://public.api.bsky.app/xrpc/";
+  await pool.fetch(profile, {});
+  await pool.fetch(
+    `${root}app.bsky.feed.getPosts?uris=at://did:plc:test/app.bsky.feed.post/one`,
+    {}
+  );
+  await pool.fetch(publicFeed("first"), {});
+  expect(remote).toHaveLength(3);
+  const authorFeed = `${root}app.bsky.feed.getAuthorFeed?actor=did:plc:alice`;
+  await pool.fetch(authorFeed, {});
+  expect(remote).toHaveLength(3);
+  now = 30_001;
+  await pool.fetch(authorFeed, {});
+  expect(remote).toHaveLength(4);
+});

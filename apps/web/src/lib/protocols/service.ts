@@ -243,7 +243,8 @@ export async function readBlueskyPosts(
   uris: string[],
   signal?: AbortSignal,
   requestId?: string,
-  recommendations = false
+  recommendations = false,
+  requireComplete = false
 ) {
   const service = process.env.PROTOCOLS_SERVICE_URL;
   const token = process.env.PROTOCOLS_INTERNAL_TOKEN;
@@ -263,6 +264,9 @@ export async function readBlueskyPosts(
   }
   if (recommendations) {
     url.searchParams.set("recommendations", "1");
+  }
+  if (requireComplete) {
+    url.searchParams.set("presence", "1");
   }
   await applyViewerMediaPolicy(url);
   const boundedSignal = signal
@@ -288,7 +292,11 @@ export async function readBlueskyPosts(
     .array(externalPostSchema)
     .max(25)
     .parse(await readJsonBounded(response, 2 * 1024 * 1024, boundedSignal));
-  return applyExternalMediaSafety(url, posts);
+  const safe = await applyExternalMediaSafety(url, posts);
+  if (requireComplete && safe.length !== posts.length) {
+    throw new ProtocolGatewayError(503, "media_assessment_pending", 2);
+  }
+  return safe;
 }
 
 export async function readBlueskyThread(

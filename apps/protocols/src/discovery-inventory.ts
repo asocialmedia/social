@@ -78,7 +78,7 @@ export class DiscoveryInventory {
     let seen: string[] = [];
     let sourceCursor: string | undefined;
     let sourceStarted = false;
-    let sourceChain: string = crypto.randomUUID();
+    let sourceChain = `head:${Math.floor(Date.now() / 20_000)}`;
     if (cursor) {
       const raw = await this.continuations.get(`inventory:${cursor}`);
       if (!raw) {
@@ -93,7 +93,7 @@ export class DiscoveryInventory {
     }
     const refillKey = (position: string | undefined) =>
       `inventory-refill:${scope}:${sourceChain}:${position ?? "head"}`;
-    if (cursor && (!sourceStarted || sourceCursor)) {
+    if (!sourceStarted || sourceCursor) {
       const completed = await this.continuations.get(refillKey(sourceCursor));
       if (completed) {
         const saved = continuationSchema.parse(JSON.parse(completed));
@@ -150,9 +150,27 @@ export class DiscoveryInventory {
       }
       const startedAt = Date.now();
       const position = sourceCursor;
+      const owner = crypto.randomUUID();
       const { readSource } = this;
       const pending = (async () => {
+        let claimed = false;
         try {
+          claimed = await this.continuations.acquire(key, owner);
+          if (!claimed) {
+            throw new Error("Inventory refill is already running");
+          }
+          const completed = await this.continuations.get(key);
+          if (completed) {
+            const saved = continuationSchema.parse(JSON.parse(completed));
+            if (saved.scope === scope) {
+              const arrivals = await this.store.read();
+              return {
+                cursor: saved.sourceCursor ?? null,
+                items: arrivals.filter(eligible).slice(0, 20),
+                partial: false,
+              };
+            }
+          }
           const page = await abortable(
             readSource(mode, position, locale, topics, content),
             AbortSignal.timeout(15_000)
@@ -167,26 +185,32 @@ export class DiscoveryInventory {
                 sourceCursor: page.cursor ?? undefined,
                 sourceStarted: true,
               }),
-              900_000
+              900_000,
+              { key, owner }
             );
           }
           return page;
         } finally {
-          this.replenishing.delete(key);
+          try {
+            if (claimed) {
+              await this.continuations.release(key, owner);
+            }
+          } finally {
+            this.replenishing.delete(key);
+          }
         }
       })();
       this.replenishing.set(key, pending);
       return pending;
     };
-    // Deliver verified arrivals immediately while preserving completed work beyond the foreground deadline.
+    // Replenish while at least a page remains, before the reader consumes the inventory.
     if (
-      cursor &&
       candidates.length > 0 &&
-      candidates.length < 20 &&
+      candidates.length <= 40 &&
       this.readSource &&
       (!sourceStarted || sourceCursor)
     ) {
-      partial = true;
+      partial = candidates.length < 20;
       // oxlint-disable-next-line promise/prefer-await-to-then -- sparse arrivals return while refill completion persists independently.
       void refill()?.catch(() => {
         // Keep the previous source position retryable after a failed refill.

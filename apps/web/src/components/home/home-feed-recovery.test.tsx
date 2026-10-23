@@ -10,7 +10,12 @@ import { createRoot } from "react-dom/client";
 import { externalPostView } from "@/lib/posts/presentation";
 
 let communityShouldFail = true;
-const requestGlobal = mock(() => ({ nextCursor: "next", posts: [] }));
+const requestGlobal = mock(
+  (): {
+    nextCursor: string | null;
+    posts: ReturnType<typeof externalPostView>[];
+  } => ({ nextCursor: "next", posts: [] })
+);
 const requestCommunity = mock(() => {
   if (communityShouldFail) {
     throw new Error("Community temporarily unavailable");
@@ -21,7 +26,7 @@ mock.module("@/lib/ky", () => ({
   default: {
     get: (url: string) => ({
       json: () => {
-        if (url === "/api/posts/trending") {
+        if (url === "/api/posts/trending" || url === "/api/posts/latest") {
           return requestGlobal();
         }
         if (url === "/api/communities/example/posts") {
@@ -169,9 +174,14 @@ test("a failed continuation keeps loaded posts, shows the shared illustrated err
   }
 });
 
-test.each([true, false])(
-  "community failure retries its own query with global posts %s",
-  async (hasGlobalPosts) => {
+test.each([
+  { hasGlobalPosts: true, retryLabel: "Try again" },
+  { hasGlobalPosts: false, retryLabel: "Try again" },
+  { hasGlobalPosts: true, retryLabel: "Load more posts" },
+  { hasGlobalPosts: false, retryLabel: "Load more posts" },
+])(
+  "community failure retries its own query through %s",
+  async ({ hasGlobalPosts, retryLabel }) => {
     communityShouldFail = true;
     requestCommunity.mockClear();
     const externalRequests = retryExternal.mock.calls.length;
@@ -202,9 +212,19 @@ test.each([true, false])(
       }),
       external: undefined,
     };
+    requestGlobal.mockClear();
+    requestGlobal.mockImplementation(() => ({
+      nextCursor: null,
+      posts: [nativePost],
+    }));
     client.setQueryData(["post-feed", "latest", "guest", "test", "en"], {
       pageParams: [null],
-      pages: [{ nextCursor: null, posts: hasGlobalPosts ? [nativePost] : [] }],
+      pages: [
+        {
+          nextCursor: "next-global",
+          posts: hasGlobalPosts ? [nativePost] : [],
+        },
+      ],
     });
     const host = dom.document.createElement("div");
     const root = createRoot(host);
@@ -224,10 +244,10 @@ test.each([true, false])(
       if (hasGlobalPosts) {
         expect(host.querySelector("[data-loaded]")).not.toBeNull();
       }
-      communityShouldFail = false;
+      communityShouldFail = retryLabel === "Load more posts";
       await act(() =>
         [...host.querySelectorAll("button")]
-          .find((button) => button.textContent === "Try again")
+          .find((button) => button.textContent === retryLabel)
           ?.click()
       );
       await act(async () => {
@@ -236,18 +256,27 @@ test.each([true, false])(
       expect(requestCommunity).toHaveBeenCalledTimes(2);
       expect(
         client.getQueryState(["community-feed", "example", "new"])?.status
-      ).toBe("success");
+      ).toBe(communityShouldFail ? "error" : "success");
       expect(retryExternal.mock.calls.length).toBe(externalRequests);
-      expect(host.querySelector('[role="alert"]')).toBeNull();
+      if (retryLabel === "Load more posts") {
+        expect(requestGlobal).toHaveBeenCalledTimes(1);
+        expect(host.querySelector("[data-loaded]") !== null).toBe(true);
+      } else {
+        expect(host.querySelector('[role="alert"]') === null).toBe(true);
+      }
     } finally {
       await act(() => root.unmount());
       client.clear();
+      requestGlobal.mockImplementation(() => ({
+        nextCursor: "next",
+        posts: [],
+      }));
     }
   }
 );
 
 test.each([true, false])(
-  "manual continuation advances a healthy sparse source while its peer remains failed (cached content: %s)",
+  "sparse continuation remains automatic with loaded content and retryable without it (cached content: %s)",
   async (hasCachedContent) => {
     const previousData = external.data;
     if (!hasCachedContent) {
@@ -282,12 +311,14 @@ test.each([true, false])(
           .find((button) => button.textContent === "Reach end")
           ?.click()
       );
-      expect(requestGlobal).not.toHaveBeenCalled();
+      expect(requestGlobal).toHaveBeenCalledTimes(hasCachedContent ? 1 : 0);
       const more = [...host.querySelectorAll("button")].find(
         (button) => button.textContent === "Load more posts"
       );
       expect(more).toBeDefined();
-      await act(() => more?.click());
+      if (!hasCachedContent) {
+        await act(() => more?.click());
+      }
       await act(async () => {
         await Bun.sleep(25);
       });

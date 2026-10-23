@@ -20,3 +20,12 @@ export function canAutoContinueFeed<Page>(
   }
   return emptyTail < 3;
 }
+
+// Sparse pages retain automatic continuation, with backoff instead of a permanent stop.
+export function feedContinuationDelay<Page>(
+  pages: readonly Page[] | undefined,
+  items: (page: Page) => readonly { id: string }[],
+  visibleIds?: ReadonlySet<string>
+): number {
+  return canAutoContinueFeed(pages, items, visibleIds) ? 0 : 2000;
+}

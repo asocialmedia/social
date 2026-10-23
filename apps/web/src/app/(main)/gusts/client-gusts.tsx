@@ -20,6 +20,7 @@ import React, {
   Activity,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -39,6 +40,10 @@ import {
   GustFeedErrorState,
   GustSourceRetries,
 } from "@/components/gusts/gust-source-retries";
+import {
+  GustStreamSlot,
+  useGustStreamSlots,
+} from "@/components/gusts/gust-stream-slot";
 import { GustsCommentsDrawer } from "@/components/gusts/gusts-comments-drawer";
 import { MobileGustEddies } from "@/components/gusts/mobile-gust-eddies";
 import Spinner3D from "@/components/layouts/feedback/spinner-3d";
@@ -554,6 +559,27 @@ const GustStream = ({ gustTab }: { gustTab: GustFeed }) => {
         isFetchingNextPage: externalFeed.isFetchingNextPage,
       },
     ]);
+  const streamSlots = useGustStreamSlots(
+    posts.map((post) => post.id),
+    hasNextPage,
+    orderScope
+  );
+  const prependAnchor = useRef<{ id: string; offset: number } | null>(null);
+  useLayoutEffect(() => {
+    const anchor = prependAnchor.current;
+    const container = containerRef.current;
+    if (!anchor || !container) {
+      return;
+    }
+    const index = posts.findIndex((post) => post.id === anchor.id);
+    const element = itemRefs.current[index];
+    if (element) {
+      container.scrollTo({
+        top: element.offsetTop - container.offsetTop - anchor.offset,
+      });
+      prependAnchor.current = null;
+    }
+  }, [posts]);
   const {
     refetch: refetchExternal,
     fetchNextPage: fetchExternalNextPage,
@@ -763,6 +789,15 @@ const GustStream = ({ gustTab }: { gustTab: GustFeed }) => {
   // list forced a rebuild from scratch, which unmounted every mounted video and
   // smooth-scrolled from the current clip all the way back to the top.
   const showNewGusts = useCallback(() => {
+    const watched = posts[activeIndex];
+    const element = itemRefs.current[activeIndex];
+    const container = containerRef.current;
+    if (activeIndex > 1 && watched && element && container) {
+      prependAnchor.current = {
+        id: watched.id,
+        offset: element.offsetTop - container.offsetTop - container.scrollTop,
+      };
+    }
     prependPostsToFeedCache(queryClient, queryKey, newGusts);
     clearNewItems();
     showExternalNewItems();
@@ -782,12 +817,22 @@ const GustStream = ({ gustTab }: { gustTab: GustFeed }) => {
     } else {
       // The reader is deep in the reel: keep their position, the new clips are
       // reachable by swiping up rather than yanking them out of the feed.
-      setActiveIndex((index) => index + newGusts.length);
+      const nextPosts = [
+        ...newGusts,
+        ...posts.filter((post) => !prepended.has(post.id)),
+      ];
+      setActiveIndex(
+        Math.max(
+          0,
+          nextPosts.findIndex((post) => post.id === watched?.id)
+        )
+      );
     }
   }, [
     activeIndex,
     clearNewItems,
     newGusts,
+    posts,
     queryClient,
     queryKey,
     showExternalNewItems,
@@ -910,8 +955,8 @@ const GustStream = ({ gustTab }: { gustTab: GustFeed }) => {
       }
     );
 
-    const elements = itemRefs.current;
-    for (const el of elements) {
+    for (const [index] of posts.entries()) {
+      const el = itemRefs.current[index];
       if (el) {
         observer.observe(el);
       }
@@ -920,8 +965,7 @@ const GustStream = ({ gustTab }: { gustTab: GustFeed }) => {
     return () => {
       observer.disconnect();
     };
-    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- posts.length intentionally re-runs this effect so new gust cards get observed
-  }, [posts.length]);
+  }, [posts]);
 
   // Continue sparse pages while the reader is near the end, with one bounded read and backoff.
   useEffect(() => {
@@ -1179,21 +1223,37 @@ const GustStream = ({ gustTab }: { gustTab: GustFeed }) => {
             }}
             ref={containerRef}
           >
-            {posts.map((post, idx) => {
+            {streamSlots.map((slot, idx) => {
+              const post = slot.id === null ? null : posts[idx];
+              if (!post) {
+                return (
+                  <GustStreamSlot
+                    pending
+                    loading={isFetchingNextPage}
+                    key={slot.key}
+                  >
+                    {pageError && !isFetchingNextPage ? (
+                      <GustSourceRetries sources={retrySources} />
+                    ) : (
+                      <GustCardSkeleton />
+                    )}
+                  </GustStreamSlot>
+                );
+              }
               const isCurrentActive = activeIndex === idx;
               const distance = Math.abs(idx - activeIndex);
-              const shouldMount = isCurrentActive || distance <= 1;
+              const shouldMount = isCurrentActive || distance <= 2;
 
               return (
-                <div
-                  className="flex h-full w-full snap-start snap-always items-center justify-center py-0 sm:h-[98%] sm:py-2"
-                  data-index={idx}
-                  key={post.id}
+                <GustStreamSlot
+                  index={idx}
+                  key={slot.key}
                   ref={(el) => {
                     itemRefs.current[idx] = el;
                   }}
                 >
                   <RecommendationTracker
+                    key={post.id}
                     exposureFeed={gustTab}
                     className="h-full w-full"
                     postId={post.id}
@@ -1215,22 +1275,12 @@ const GustStream = ({ gustTab }: { gustTab: GustFeed }) => {
                       shouldMountVideo={shouldMount}
                     />
                   </RecommendationTracker>
-                </div>
+                </GustStreamSlot>
               );
             })}
 
-            {!canFetchNextPage && !isFetchingNextPage ? (
+            {!hasNextPage && !isFetchingNextPage ? (
               <GustSourceRetries sources={retrySources} />
-            ) : null}
-
-            {isFetchingNextPage ? (
-              <div
-                aria-busy="true"
-                aria-label="Loading more Gusts"
-                className="flex h-full w-full snap-start snap-always items-center justify-center py-0 sm:h-[98%] sm:py-2"
-              >
-                <GustCardSkeleton />
-              </div>
             ) : null}
 
             {/* Pagination sentinel: triggers the next page even when the feed

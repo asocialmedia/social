@@ -35,6 +35,7 @@ import {
   asmobClient,
   generatePresignedUrl,
 } from "@/lib/media/object-storage";
+import { mediaRequestWasCancelled } from "@/lib/media/request-cancellation";
 import { getWebLogger } from "@/lib/otel";
 import { explicitContentEnabled } from "@/lib/posts/explicit-content-enabled";
 
@@ -428,7 +429,7 @@ export async function GET(
   } catch (error) {
     // Client disconnected mid-stream (seek, scroll away, close): the request
     // is already gone, so answer with a bare 499 instead of a scary 500.
-    if (error instanceof DOMException && error.name === "AbortError") {
+    if (mediaRequestWasCancelled(error, request.signal)) {
       return new Response(null, { status: 499 });
     }
     // A READY row whose fallback/original bytes are gone from storage (crash

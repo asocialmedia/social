@@ -201,7 +201,9 @@ export function createReadWorkerPool(options: {
         node.transportFailures += 1;
         block(
           node.blocked,
-          node.url && node.transportFailures >= 3 ? target.origin : resource,
+          node.url && node.transportFailures >= 3
+            ? target.origin
+            : operationKey,
           node.url && node.transportFailures >= 3 ? 30_000 : 10_000
         );
         requests.add(1, { ...attributes, status: 0 });

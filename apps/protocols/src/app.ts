@@ -278,6 +278,7 @@ export function createProtocolsApp(options: ProtocolsAppOptions) {
           "/bluesky/posts",
           {
             query: t.Object({
+              presence: t.Optional(t.Literal("1")),
               recommendations: t.Optional(t.Literal("1")),
               uri: t.Array(t.String({ maxLength: 512 }), {
                 maxItems: 25,
@@ -299,7 +300,10 @@ export function createProtocolsApp(options: ProtocolsAppOptions) {
                     "Post reads unavailable"
                   );
                 }
-                const posts = await client.getPosts(query.uri);
+                const posts = await client.getPosts(
+                  query.uri,
+                  query.presence === "1"
+                );
                 if (query.recommendations !== "1") {
                   return posts;
                 }

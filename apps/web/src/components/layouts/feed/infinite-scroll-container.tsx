@@ -5,6 +5,7 @@ import { useInView } from "react-intersection-observer";
 interface InfiniteScrollContainerProps extends React.PropsWithChildren {
   className?: string;
   prefetchDistance?: number;
+  continuationDelay?: number;
   onBottomReached: () => void;
 }
 
@@ -16,9 +17,22 @@ export default function InfiniteScrollContainer({
   onBottomReached,
   className,
   prefetchDistance = PREFETCH_DISTANCE_PX,
+  continuationDelay = 0,
 }: InfiniteScrollContainerProps) {
   const [scrollRoot, setScrollRoot] = useState<HTMLElement | null>();
   const sentinel = useRef<HTMLDivElement | null>(null);
+  const pending = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const latest = useRef(onBottomReached);
+  useEffect(() => {
+    latest.current = onBottomReached;
+  }, [onBottomReached]);
+  useEffect(
+    () => () => {
+      clearTimeout(pending.current ?? undefined);
+      pending.current = null;
+    },
+    []
+  );
   const { ref: observe, inView } = useInView({
     root: scrollRoot,
     rootMargin: `0px 0px ${prefetchDistance}px 0px`,
@@ -45,6 +59,8 @@ export default function InfiniteScrollContainer({
 
   useEffect(() => {
     if (!inView || !sentinel.current || scrollRoot === undefined) {
+      clearTimeout(pending.current ?? undefined);
+      pending.current = null;
       return;
     }
     // A newly appended page can move the sentinel before the observer updates.
@@ -56,9 +72,38 @@ export default function InfiniteScrollContainer({
         (viewport?.bottom ?? window.innerHeight) + prefetchDistance &&
       position.bottom >= (viewport?.top ?? 0)
     ) {
-      onBottomReached();
+      if (continuationDelay === 0) {
+        clearTimeout(pending.current ?? undefined);
+        pending.current = null;
+        onBottomReached();
+        return;
+      }
+      if (pending.current === null) {
+        pending.current = setTimeout(() => {
+          pending.current = null;
+          const current = sentinel.current?.getBoundingClientRect();
+          const bounds = scrollRoot?.getBoundingClientRect();
+          if (
+            current &&
+            current.top <=
+              (bounds?.bottom ?? window.innerHeight) + prefetchDistance &&
+            current.bottom >= (bounds?.top ?? 0)
+          ) {
+            latest.current();
+          }
+        }, continuationDelay);
+      }
+    } else {
+      clearTimeout(pending.current ?? undefined);
+      pending.current = null;
     }
-  }, [inView, onBottomReached, scrollRoot, prefetchDistance]);
+  }, [
+    inView,
+    onBottomReached,
+    scrollRoot,
+    prefetchDistance,
+    continuationDelay,
+  ]);
 
   return (
     <div className={className}>

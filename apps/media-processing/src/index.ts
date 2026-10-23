@@ -47,6 +47,8 @@ if (import.meta.main) {
     await import("./analyze/provider-budget");
   const { OcrDeferredError } = await import("./analyze/ocr");
   const { processPostAnalyze } = await import("./jobs/analyze-post");
+  const { warmExternalMediaSafety } =
+    await import("./jobs/warm-external-media-safety");
   const { processMediaScan } = await import("./jobs/scan");
   const { processMedia } = await import("./jobs/process");
   const { processMediaCleanup } = await import("./jobs/cleanup");
@@ -70,7 +72,7 @@ if (import.meta.main) {
     EXTERNAL_MEDIA_SAFETY_QUEUE,
     async (job) => {
       try {
-        await withAnalysisLane(true, () =>
+        await withAnalysisLane(false, () =>
           processExternalMediaSafety(job.data)
         );
       } catch (error) {
@@ -98,6 +100,28 @@ if (import.meta.main) {
       "External media remains withheld pending safety assessment"
     )
   );
+  let safetyWarmupRunning = false;
+  const warmSafety = async () => {
+    if (safetyWarmupRunning) {
+      return;
+    }
+    safetyWarmupRunning = true;
+    try {
+      await warmExternalMediaSafety();
+    } catch (error) {
+      mediaLogger.warn(
+        { error: String(error) },
+        "External media safety warmup unavailable"
+      );
+    } finally {
+      safetyWarmupRunning = false;
+    }
+  };
+  const safetyWarmupTimer = setInterval(() => {
+    void warmSafety();
+  }, 10_000);
+  safetyWarmupTimer.unref();
+  void warmSafety();
 
   // Two pools: scan is I/O-bound (ClamAV + hash + strip), process is
   // CPU/ffmpeg-bound. Splitting eliminates head-of-line where a burst of
@@ -445,6 +469,7 @@ if (import.meta.main) {
       return;
     }
     running = false;
+    clearInterval(safetyWarmupTimer);
     const forceExitTimer = setTimeout(() => {
       mediaLogger.warn(
         {},

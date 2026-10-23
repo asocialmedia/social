@@ -1,78 +1,88 @@
-import { expect, mock, test } from "bun:test";
+import { beforeEach, expect, mock, test } from "bun:test";
 
-let offline = false;
-const reads: unknown[][] = [];
-const proof = {
-  avatarUrl: null,
-  displayName: "Friend",
-  id: "friend",
-  username: "friend",
-};
-const source = {
-  id: "at://did:plc:fixture/app.bsky.feed.post/source",
-  sources: [proof],
-  weight: 0.5,
-};
-mock.module("@asm/db", () => ({
-  networkSocialCandidates: () =>
-    Promise.resolve({
-      external: [source],
-      followedIds: ["friend"],
-      native: [],
-    }),
-  redis: {
-    get: () => Promise.resolve(null),
-    publish: () => Promise.resolve(0),
-    set: () => Promise.resolve("OK"),
-  },
+const candidates = Array.from({ length: 30 }, (_, index) => ({
+  id: `post-${index}`,
+  sources: [],
+  weight: index / 30,
 }));
-mock.module("@/lib/protocols/service", () => ({
-  readBlueskyDiscovery: () =>
-    Promise.resolve({ cursor: null, items: [], partial: false }),
-  readBlueskyPosts: (...args: unknown[]) => {
-    reads.push(args);
-    return offline
-      ? Promise.reject(new Error("offline"))
-      : Promise.resolve([{ id: source.id, text: "Fresh upstream version" }]);
-  },
+const hydrate = mock((_ids: string[], _signal: AbortSignal) =>
+  Promise.resolve([])
+);
+const background: (() => Promise<void>)[] = [];
+mock.module("@asm/db", () => ({
+  networkSocialCandidates: () => Promise.resolve({ external: candidates }),
+}));
+mock.module("@/lib/protocols/service", () => ({ readBlueskyPosts: hydrate }));
+mock.module("next/server", () => ({
+  after: (work: () => Promise<void>) => background.push(work),
 }));
 const { socialExternalRecommendations } = await import("./social-external");
-
-test("source candidates are reread live with recommendation opt-outs enforced and preserve ASM attribution", async () => {
-  const signal = AbortSignal.timeout(1000);
-  const result = await socialExternalRecommendations(
-    "viewer",
-    true,
-    signal,
-    "request"
-  );
-  expect(reads[0]).toEqual([[source.id], signal, "request", true]);
-  expect(result.items[0]?.text).toBe("Fresh upstream version");
-  expect(
-    result.annotate({ id: source.id, text: "Upstream" }).recommendationSources
-  ).toEqual([proof]);
+beforeEach(() => {
+  hydrate.mockClear();
+  background.length = 0;
+  hydrate.mockImplementation(() => Promise.resolve([]));
 });
 
-test("source failure keeps the regular discovery page usable and continuations do not reread old social candidates", async () => {
-  offline = true;
-  const signal = AbortSignal.timeout(1000);
+test("followed amplifications hydrate the strongest candidates inside the protocol batch limit", async () => {
+  await socialExternalRecommendations(
+    "viewer",
+    true,
+    new AbortController().signal,
+    "test"
+  );
+  const [[ids, signal]] = hydrate.mock.calls;
+  expect(ids).toHaveLength(25);
+  expect(ids[0]).toBe("post-29");
+  expect(ids).not.toContain("post-0");
+  expect(signal).toBeInstanceOf(AbortSignal);
+  expect(background).toHaveLength(0);
+});
+
+test("optional graph failures warm in the background instead of failing healthy discovery", async () => {
+  hydrate.mockImplementation(() =>
+    Promise.reject(new Error("temporary outage"))
+  );
   const result = await socialExternalRecommendations(
     "viewer",
     true,
-    signal,
-    "request"
+    new AbortController().signal,
+    "test"
   );
   expect(result.partial).toBe(true);
   expect(result.items).toEqual([]);
+  expect(background).toHaveLength(1);
+  await background[0]();
+  expect(hydrate).toHaveBeenCalledTimes(2);
+});
 
-  offline = false;
-  reads.length = 0;
-  const skipped = await socialExternalRecommendations(
+test("continuation annotations do not rehydrate graph candidates", async () => {
+  const result = await socialExternalRecommendations(
     "viewer",
     false,
-    signal,
-    "request"
+    new AbortController().signal,
+    "test"
   );
-  expect(skipped.items).toEqual([]);
-  expect(reads.length).toBe(0);
+  expect(hydrate).not.toHaveBeenCalled();
+  expect(result.weights.size).toBe(30);
+});
+
+test("optional hydration cannot hold discovery past its deadline when a policy read ignores cancellation", async () => {
+  const stalled = Promise.withResolvers<never[]>();
+  hydrate.mockImplementation(() => stalled.promise);
+  const result = await Promise.race([
+    socialExternalRecommendations(
+      "viewer",
+      true,
+      new AbortController().signal,
+      "test"
+    ),
+    Bun.sleep(1600),
+  ]);
+  try {
+    expect(result).toBeDefined();
+    expect(result).toMatchObject({ items: [], partial: true });
+    expect(background).toHaveLength(1);
+  } finally {
+    stalled.resolve([]);
+  }
 });

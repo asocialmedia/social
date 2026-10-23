@@ -25,7 +25,7 @@ import {
   prependPostsToFeedCache,
   scrollFeedToTop,
 } from "@/lib/posts/feed-cache";
-import { canAutoContinueFeed } from "@/lib/posts/feed-pagination";
+import { feedContinuationDelay } from "@/lib/posts/feed-pagination";
 import { useFeedSourceStore } from "@/store/feed-source-store";
 
 export default function FollowingFeed() {
@@ -102,9 +102,7 @@ export default function FollowingFeed() {
         source !== "asm" &&
         external.hasNextPage &&
         !external.isFetching &&
-        (manual || !external.isError) &&
-        (manual ||
-          canAutoContinueFeed(external.data?.pages, (page) => page.items))
+        (manual || !external.isError)
       ) {
         void external.fetchNextPage({ cancelRefetch: false });
       }
@@ -112,21 +110,12 @@ export default function FollowingFeed() {
         source !== "bluesky" &&
         hasNextPage &&
         !isFetching &&
-        (manual || status !== "error") &&
-        (manual || canAutoContinueFeed(data?.pages, (page) => page.posts))
+        (manual || status !== "error")
       ) {
         fetchNextPage({ cancelRefetch: false });
       }
     },
-    [
-      fetchNextPage,
-      hasNextPage,
-      isFetching,
-      source,
-      external,
-      status,
-      data?.pages,
-    ]
+    [fetchNextPage, hasNextPage, isFetching, source, external, status]
   );
 
   const showNewPosts = useCallback(() => {
@@ -139,6 +128,7 @@ export default function FollowingFeed() {
   const externalHasMore = source !== "asm" && external.hasNextPage;
   const manualContinuation =
     (nativeHasMore || externalHasMore) &&
+    (status === "error" || external.isError) &&
     !isFetching &&
     !external.isFetching ? (
       <div className="flex justify-center p-4">
@@ -273,7 +263,17 @@ export default function FollowingFeed() {
           }}
         />
       ) : null}
-      <InfiniteScrollContainer onBottomReached={handleBottomReached}>
+      <InfiniteScrollContainer
+        continuationDelay={Math.max(
+          nativeHasMore
+            ? feedContinuationDelay(data?.pages, (page) => page.posts)
+            : 0,
+          externalHasMore
+            ? feedContinuationDelay(external.data?.pages, (page) => page.items)
+            : 0
+        )}
+        onBottomReached={handleBottomReached}
+      >
         <FeedView
           cacheKey={queryKey}
           posts={posts}

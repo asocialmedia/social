@@ -39,7 +39,7 @@ import {
   prependPostsToFeedCache,
   scrollFeedToTop,
 } from "@/lib/posts/feed-cache";
-import { canAutoContinueFeed } from "@/lib/posts/feed-pagination";
+import { feedContinuationDelay } from "@/lib/posts/feed-pagination";
 import { activeNetworkInterests } from "@/lib/posts/network-content-policy";
 import { isTrendingPost } from "@/lib/posts/trending-eligibility";
 import {
@@ -359,9 +359,7 @@ export default function HomeFeed({
         source !== "asm" &&
         external.hasNextPage &&
         !external.isFetching &&
-        (!external.isError || retry) &&
-        (retry ||
-          canAutoContinueFeed(external.data?.pages, (page) => page.items))
+        (!external.isError || retry)
       ) {
         void external.fetchNextPage({ cancelRefetch: false });
       }
@@ -382,8 +380,7 @@ export default function HomeFeed({
       if (
         segment === "global" &&
         !isFetching &&
-        (globalStatus !== "error" || retry) &&
-        (retry || canAutoContinueFeed(data?.pages, (page) => page.posts))
+        (globalStatus !== "error" || retry)
       ) {
         fetchNextPage({ cancelRefetch: false });
       }
@@ -392,7 +389,6 @@ export default function HomeFeed({
       allowExternal,
       source,
       external,
-      data?.pages,
       globalStatus,
       communityExhausted,
       fetchNextCommunityPage,
@@ -439,14 +435,14 @@ export default function HomeFeed({
         void refetchCommunity({ cancelRefetch: false });
       }
     }
-    if (allowExternal && external.isError) {
+    if (allowExternal && includeBluesky && external.isError) {
       if (external.hasNextPage) {
         void external.fetchNextPage({ cancelRefetch: false });
       } else {
         void external.refetch();
       }
     }
-    if (globalStatus === "error") {
+    if (source !== "bluesky" && globalStatus === "error") {
       if (globalHasNextPage) {
         void fetchNextPage({ cancelRefetch: false });
       } else {
@@ -455,6 +451,8 @@ export default function HomeFeed({
     }
   }, [
     allowExternal,
+    includeBluesky,
+    source,
     communityFailed,
     communityHasNextPage,
     external,
@@ -471,6 +469,9 @@ export default function HomeFeed({
     showCommunitySection ||
     (source !== "bluesky" && visibleGlobalPosts.length > 0) ||
     (allowExternal && source !== "asm" && externalPosts.length > 0);
+  const sourceFailed =
+    (source !== "bluesky" && (communityFailed || globalStatus === "error")) ||
+    (allowExternal && includeBluesky && external.isError);
 
   const availability = feedAvailability({
     count: hasAnyPosts ? 1 : 0,
@@ -497,11 +498,22 @@ export default function HomeFeed({
 
   const manualContinuation =
     hasNextPage &&
+    sourceFailed &&
     !isFetching &&
     !external.isFetching &&
     !isFetchingCommunity ? (
       <div className="flex justify-center p-4">
-        <Button onClick={() => handleBottomReached(true)} variant="premium">
+        <Button
+          onClick={() => {
+            if (communityFailed) {
+              retryFailedSources();
+              handleBottomReached();
+            } else {
+              handleBottomReached(true);
+            }
+          }}
+          variant="premium"
+        >
           Load more posts
         </Button>
       </div>
@@ -579,7 +591,7 @@ export default function HomeFeed({
     );
   }
 
-  if (!hasAnyPosts && (globalStatus === "error" || external.isError)) {
+  if (!hasAnyPosts && sourceFailed) {
     return (
       <div>
         <FeedErrorState
@@ -599,9 +611,6 @@ export default function HomeFeed({
   const sourceFetching =
     (source !== "bluesky" && (isFetching || isFetchingCommunity)) ||
     (allowExternal && includeBluesky && external.isFetching);
-  const sourceFailed =
-    (source !== "bluesky" && (communityFailed || globalStatus === "error")) ||
-    (allowExternal && includeBluesky && external.isError);
   const feedComplete =
     !hasNextPage &&
     !communityPending &&
@@ -664,7 +673,17 @@ export default function HomeFeed({
           />
         </div>
       ) : null}
-      <InfiniteScrollContainer onBottomReached={handleBottomReached}>
+      <InfiniteScrollContainer
+        continuationDelay={Math.max(
+          source !== "bluesky" && globalHasNextPage
+            ? feedContinuationDelay(data?.pages, (page) => page.posts)
+            : 0,
+          allowExternal && includeBluesky && external.hasNextPage
+            ? feedContinuationDelay(external.data?.pages, (page) => page.items)
+            : 0
+        )}
+        onBottomReached={handleBottomReached}
+      >
         {/* Community segment leads. `showCommunity={false}` because every post
             here already belongs to the community being read. */}
         {showCommunitySection ? (

@@ -1,8 +1,20 @@
 import { expect, test } from "bun:test";
 
-import { canAutoContinueFeed } from "./feed-pagination";
+import { canAutoContinueFeed, feedContinuationDelay } from "./feed-pagination";
 
 const items = (page: { id: string }[]) => page;
+
+test("sparse feeds resume automatically with a delay instead of requiring a button", () => {
+  expect(feedContinuationDelay([[{ id: "first" }], [], [], []], items)).toBe(
+    2000
+  );
+  expect(
+    feedContinuationDelay(
+      [[{ id: "first" }], [], [], [], [{ id: "second" }]],
+      items
+    )
+  ).toBe(0);
+});
 
 test("sparse and repeated continuations stop automatic loading without dropping the cursor", () => {
   expect(canAutoContinueFeed([[{ id: "first" }], [], []], items)).toBe(true);

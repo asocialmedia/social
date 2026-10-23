@@ -29,6 +29,7 @@ export function ExternalResponseParent({ uri }: { uri: string }) {
   if (query.isError && !query.data) {
     return (
       <FeedErrorState
+        compact
         message="Couldn't load the original Bluesky post."
         isRetrying={query.isFetching}
         onRetry={() => {

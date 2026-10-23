@@ -1,5 +1,6 @@
 import { afterAll, afterEach, expect, mock, test } from "bun:test";
 
+import type { FeedChange } from "@asm/protocols/discovery";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Window } from "happy-dom";
 import { act } from "react";
@@ -7,7 +8,12 @@ import { createRoot } from "react-dom/client";
 
 import { useNewContentProbe } from "./use-new-content-probe";
 
-mock.module("./use-feed-events", () => ({ useFeedEvents: () => {} }));
+let feedEvent: (change: FeedChange) => void = () => {};
+mock.module("./use-feed-events", () => ({
+  useFeedEvents: (_enabled: boolean, onEvent: typeof feedEvent) => {
+    feedEvent = onEvent;
+  },
+}));
 
 const dom = new Window({ url: "http://localhost:3000" });
 const originals = new Map<string, PropertyDescriptor | undefined>();
@@ -233,4 +239,24 @@ test("ranked-head churn cannot accumulate hundreds of pending posts", async () =
     await probe.probe();
   }
   expect(probe.items()?.split(",")).toHaveLength(20);
+});
+
+test("mode-specific live arrivals wake the Home badge before the long polling interval", async () => {
+  const fetchHead = mock(() =>
+    Promise.resolve([{ id: "arrived" }, { id: "known" }])
+  );
+  const probe = createProbe();
+  await probe.render({
+    eventSource: "asm",
+    fetchHead,
+    intervalMs: 180_000,
+    probeOnMount: false,
+    visible: [{ id: "known" }],
+  });
+  await act(async () => {
+    feedEvent({ mode: "personalized", source: "asm" });
+    await Bun.sleep(1550);
+  });
+  expect(fetchHead).toHaveBeenCalledTimes(1);
+  expect(probe.items()).toBe("arrived");
 });

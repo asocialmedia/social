@@ -143,7 +143,8 @@ test("video catalogs prioritize declared video feeds and retain topic discovery"
   });
   await discovery.read("personalized", undefined, "", ["science"], "video");
   expect(queries).toEqual(["video", "science"]);
-  expect(sources[0]).toEndWith("feed5");
+  expect(sources[0]).toEndWith("topic");
+  expect(sources[1]).toEndWith("feed5");
   expect(sources.some((uri) => uri.endsWith("topic"))).toBe(true);
 });
 
@@ -1004,4 +1005,88 @@ test("distinct cold discovery scopes queue behind the active load bound", async 
   expect(pages).toHaveLength(16);
   expect(pages.every((page) => page.items.length === 1)).toBe(true);
   expect(peak).toBeLessThanOrEqual(8);
+});
+
+test("popular general video catalogs cannot displace the selected profile's topical generators", async () => {
+  const reads: string[] = [];
+  const topical = "at://did:plc:source/app.bsky.feed.generator/anime";
+  const discovery = new BlueskyDiscovery({
+    allowsRecommendations: async () => true,
+    getAuthorFeed: async () => ({ cursor: null, items: [] }),
+    getFeed: async (uri) => {
+      reads.push(uri);
+      return {
+        cursor: null,
+        items:
+          uri === topical ? [{ ...videoPost(1), text: "Anime animation" }] : [],
+      };
+    },
+    getProfile: async () => profile,
+    getSuggestedFeeds: async (options) => ({
+      cursor: null,
+      items:
+        options?.query === "anime"
+          ? [{ displayName: "Anime", uri: topical }]
+          : Array.from({ length: 10 }, (_, index) => ({
+              contentMode: "app.bsky.feed.defs#contentModeVideo",
+              displayName: `Popular ${index}`,
+              likeCount: 10_000,
+              uri: `at://did:plc:source/app.bsky.feed.generator/global${index}`,
+            })),
+    }),
+  });
+  const page = await discovery.read(
+    "personalized",
+    undefined,
+    "en",
+    ["anime"],
+    "video"
+  );
+  expect(reads[0]).toBe(topical);
+  expect(reads).toHaveLength(4);
+  expect(page.items.map((item) => item.id)).toEqual([videoPost(1).id]);
+});
+
+test("topic-heavy video discovery reserves a declared video generator alongside topical sources", async () => {
+  const reads: string[] = [];
+  const video = "at://did:plc:source/app.bsky.feed.generator/declared-video";
+  const discovery = new BlueskyDiscovery({
+    allowsRecommendations: async () => true,
+    getAuthorFeed: async () => ({ cursor: null, items: [] }),
+    getFeed: async (uri) => {
+      reads.push(uri);
+      return {
+        cursor: null,
+        items:
+          uri === video ? [{ ...videoPost(1), text: "Anime animation" }] : [],
+      };
+    },
+    getProfile: async () => profile,
+    getSuggestedFeeds: async (options) => ({
+      cursor: null,
+      items:
+        options?.query === "video"
+          ? [
+              {
+                contentMode: "app.bsky.feed.defs#contentModeVideo",
+                displayName: "Videos",
+                uri: video,
+              },
+            ]
+          : Array.from({ length: 2 }, (_, index) => ({
+              displayName: `Topic ${index}`,
+              uri: `at://did:plc:source/app.bsky.feed.generator/${options?.query}${index}`,
+            })),
+    }),
+  });
+  const page = await discovery.read(
+    "personalized",
+    undefined,
+    "en",
+    ["anime", "manga"],
+    "video"
+  );
+  expect(reads).toHaveLength(4);
+  expect(reads[3]).toBe(video);
+  expect(page.items.map((item) => item.id)).toEqual([videoPost(1).id]);
 });
