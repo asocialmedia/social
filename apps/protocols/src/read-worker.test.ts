@@ -638,3 +638,32 @@ test("removing every remote node leaves successful local reads and validation in
   ).toBe("did:plc:alice");
   client.close();
 });
+
+const publicFeed = (name: string) =>
+  `https://public.api.bsky.app/xrpc/app.bsky.feed.getFeed?feed=at://did:plc:test/app.bsky.feed.generator/${name}`;
+
+test("a failed worker operation cools down across distinct feeds while another operation remains available", async () => {
+  const remote: string[] = [];
+  const pool = createReadWorkerPool({
+    fetch: async (url) => {
+      if (url.startsWith(node.url)) {
+        const upstream = new URL(url).searchParams.get("url") ?? "";
+        remote.push(upstream);
+        if (upstream.includes("getFeed?")) {
+          throw new TypeError("worker transport unavailable");
+        }
+      }
+      return response({ feed: [] });
+    },
+    logger: logger(),
+    nodes: [node],
+    now: () => 0,
+  });
+  await pool.fetch(profile, {});
+  expect((await pool.fetch(publicFeed("first"), {})).status).toBe(200);
+  expect((await pool.fetch(publicFeed("second"), {})).status).toBe(200);
+  await pool.fetch(profile, {});
+  await pool.fetch(profile, {});
+  expect(remote.filter((url) => url.includes("getFeed?"))).toHaveLength(1);
+  expect(remote.some((url) => url.includes("getProfile?"))).toBe(true);
+});

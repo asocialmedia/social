@@ -456,6 +456,9 @@ export class BlueskyDiscovery {
           return [];
         }
       });
+      const relatedUris = new Set(
+        related.flatMap((matches) => matches.map((feed) => feed.uri))
+      );
       const feeds = [
         ...new Map(
           [
@@ -476,6 +479,7 @@ export class BlueskyDiscovery {
       if (content === "video") {
         feeds.sort(
           (a, b) =>
+            Number(relatedUris.has(b.uri)) - Number(relatedUris.has(a.uri)) ||
             Number(b.contentMode === "app.bsky.feed.defs#contentModeVideo") -
               Number(a.contentMode === "app.bsky.feed.defs#contentModeVideo") ||
             (b.likeCount ?? 0) - (a.likeCount ?? 0)

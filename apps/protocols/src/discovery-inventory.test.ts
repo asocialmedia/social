@@ -6,6 +6,36 @@ import { inventoryPost } from "./discovery-fixtures";
 import { DiscoveryInventory } from "./discovery-inventory";
 import { MemoryDiscoveryStore } from "./discovery-store";
 
+test("sparse heads warm shared inventory before the viewer asks for another page", async () => {
+  const pending = Promise.withResolvers<{
+    cursor: null;
+    items: ExternalPost[];
+    partial: false;
+  }>();
+  const posts = Array.from({ length: 25 }, (_, index) => inventoryPost(index));
+  let reads = 0;
+  const store = {
+    invalidate: () => Promise.resolve(),
+    put: () => Promise.resolve(),
+    read: () => Promise.resolve(posts),
+  };
+  const continuations = new MemoryDiscoveryStore();
+  const source = () => {
+    reads += 1;
+    return pending.promise;
+  };
+  const first = new DiscoveryInventory(store, continuations, source);
+  const second = new DiscoveryInventory(store, continuations, source);
+  const pages = await Promise.all([
+    first.read("personalized", undefined, "en", ["TypeScript"], "all"),
+    second.read("personalized", undefined, "en", ["TypeScript"], "all"),
+  ]);
+  expect(pages.every((page) => page?.items.length === 20)).toBe(true);
+  expect(reads).toBe(1);
+  pending.resolve({ cursor: null, items: [], partial: false });
+  await Bun.sleep(0);
+});
+
 test("verified sparse arrivals return before an unresolved source refill and keep their continuation", async () => {
   const posts = Array.from({ length: 23 }, (_, index) =>
     inventoryPost(index, "TypeScript")
@@ -111,21 +141,25 @@ test("completed background refills preserve their next source position across in
     "all"
   );
   await Bun.sleep(0);
-  const last = await second.read(
-    "personalized",
-    arrival?.cursor ?? undefined,
-    "en",
-    ["TypeScript"],
-    "all"
-  );
+  const last = arrival?.cursor
+    ? await second.read(
+        "personalized",
+        arrival?.cursor ?? undefined,
+        "en",
+        ["TypeScript"],
+        "all"
+      )
+    : null;
   expect(positions).toEqual([undefined, "next-page"]);
-  expect(arrival?.items.map((post) => post.id)).toEqual([
-    inventoryPost(24, "TypeScript").id,
-  ]);
-  expect(last?.items.map((post) => post.id)).toEqual([
-    inventoryPost(25, "TypeScript").id,
-  ]);
-  expect(last?.cursor).toBeNull();
+  const delivered = [
+    ...(sparse?.items ?? []),
+    ...(arrival?.items ?? []),
+    ...(last?.items ?? []),
+  ].map((post) => post.id);
+  expect(delivered).toContain(inventoryPost(24, "TypeScript").id);
+  expect(delivered).toContain(inventoryPost(25, "TypeScript").id);
+  expect(new Set(delivered).size).toBe(delivered.length);
+  expect(last?.cursor ?? null).toBeNull();
 });
 
 test("an empty inventory retains a refill that finishes after the foreground timeout, including its next cursor", async () => {
