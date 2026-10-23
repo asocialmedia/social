@@ -16,6 +16,7 @@ export function useSeamlessFeedHead({
 }) {
   const latest = useRef({ count, merge, probe });
   const requested = useRef(false);
+  const canMergeAtHead = useRef<() => boolean>(() => false);
 
   useEffect(() => {
     latest.current = { count, merge, probe };
@@ -53,13 +54,12 @@ export function useSeamlessFeedHead({
 
     const isAtHead = (top: number, feedHeadOffset: number) =>
       top <= feedHeadOffset + 48;
+    canMergeAtHead.current = () =>
+      Boolean(root.current?.checkVisibility()) &&
+      isAtHead(scrollContainer.scrollTop, getFeedHeadOffset());
 
     const requestHead = () => {
-      const feedHeadOffset = getFeedHeadOffset();
-      if (
-        !isAtHead(scrollContainer.scrollTop, feedHeadOffset) ||
-        !root.current?.checkVisibility()
-      ) {
+      if (!canMergeAtHead.current()) {
         return;
       }
       requested.current = true;
@@ -107,6 +107,7 @@ export function useSeamlessFeedHead({
 
     return () => {
       requested.current = false;
+      canMergeAtHead.current = () => false;
       scrollContainer.removeEventListener("scroll", onScroll);
       scrollContainer.removeEventListener("wheel", onWheel);
       scrollContainer.removeEventListener("touchend", onTouchEnd);
@@ -114,13 +115,13 @@ export function useSeamlessFeedHead({
   }, [enabled, root]);
 
   useEffect(() => {
-    if (
-      enabled &&
-      count > 0 &&
-      requested.current &&
-      root.current?.checkVisibility()
-    ) {
-      merge();
+    if (!enabled || count === 0 || !requested.current) {
+      return;
     }
-  }, [enabled, count, merge, root]);
+    if (!canMergeAtHead.current()) {
+      requested.current = false;
+      return;
+    }
+    merge();
+  }, [enabled, count, merge]);
 }

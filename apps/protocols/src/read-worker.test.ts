@@ -765,3 +765,81 @@ test("repeated operation failures back off despite healthy peers and allow only 
   await pool.fetch(publicFeed("healthy-2"), {});
   expect(feedCalls()).toBeGreaterThan(3);
 });
+
+test("a hanging remote-first attempt reserves enough of the caller deadline for local fallback", async () => {
+  let primed = false;
+  const order: string[] = [];
+  const pool = createReadWorkerPool({
+    fetch: async (url, init) => {
+      if (url.startsWith(node.url)) {
+        order.push("remote");
+        return new Promise<Response>((_resolve, reject) => {
+          init.signal?.addEventListener(
+            "abort",
+            () => reject(init.signal?.reason),
+            { once: true }
+          );
+        });
+      }
+      if (!primed) {
+        primed = true;
+        return response({ primed: true });
+      }
+      order.push("local");
+      await Bun.sleep(900);
+      return response({ fallback: true });
+    },
+    localReserveMs: 1300,
+    logger: logger(),
+    nodes: [node],
+    requestTimeoutMs: 2500,
+    timeoutMs: 1800,
+  });
+  await pool.fetch(profile, {});
+  const result = await pool.fetch(publicFeed("reserved"), {
+    signal: AbortSignal.timeout(2500),
+  });
+  expect(await result.json()).toEqual({ fallback: true });
+  expect(order).toEqual(["remote", "local"]);
+});
+
+test("a remote fallback retains its configured timeout when local capacity rejects immediately", async () => {
+  const pool = createReadWorkerPool({
+    fetch: async (url) => {
+      if (url.startsWith(node.url)) {
+        await Bun.sleep(1400);
+        return response({ remote: true });
+      }
+      return response({ error: "RateLimited" }, 429);
+    },
+    localReserveMs: 1300,
+    logger: logger(),
+    nodes: [node],
+    requestTimeoutMs: 2500,
+    timeoutMs: 1800,
+  });
+  const result = await pool.fetch(profile, {
+    signal: AbortSignal.timeout(2500),
+  });
+  expect(await result.json()).toEqual({ remote: true });
+});
+
+test("a remote-first failure uses reserved local capacity before a second remote node", async () => {
+  const order: string[] = [];
+  const pool = createReadWorkerPool({
+    fetch: async (url) => {
+      order.push(url);
+      if (url.startsWith(node.url)) {
+        throw new TypeError("offline");
+      }
+      return response({ ok: true });
+    },
+    logger: logger(),
+    nodes: [node, { ...node, id: "other", url: "https://other.example" }],
+  });
+  await pool.fetch(profile, {});
+  await pool.fetch(publicFeed("fallback"), {});
+  expect(order).toHaveLength(3);
+  expect(order[1]?.startsWith(node.url)).toBe(true);
+  expect(order[2]).toBe(publicFeed("fallback"));
+});

@@ -42,10 +42,13 @@ export async function startProtocols() {
     }
   }
   const { createReadWorkerPool } = await import("./read-worker-pool");
+  const readTimeoutMs = 2500;
   const pool = config.workers.length
     ? createReadWorkerPool({
+        localReserveMs: 1300,
         logger,
         nodes: config.workers,
+        requestTimeoutMs: readTimeoutMs,
         timeoutMs: config.workerTimeoutMs,
       })
     : undefined;
@@ -63,7 +66,7 @@ export async function startProtocols() {
     maxConcurrentRequests: 48,
     maxRetries: 0,
     observe: createProtocolObserver(logger),
-    timeoutMs: 2500,
+    timeoutMs: readTimeoutMs,
   });
   const explicitClient = new BlueskyClient({
     allowExplicitMedia: true,
@@ -71,14 +74,14 @@ export async function startProtocols() {
     maxConcurrentRequests: 24,
     maxRetries: 0,
     observe: createProtocolObserver(logger),
-    timeoutMs: 2500,
+    timeoutMs: readTimeoutMs,
   });
   const searchClient = new BlueskyClient({
     fetch: pool?.fetch,
     maxConcurrentRequests: config.searchConcurrency,
     maxRetries: 0,
     observe: createProtocolObserver(logger),
-    timeoutMs: 2500,
+    timeoutMs: readTimeoutMs,
   });
   const explicitSearchClient = new BlueskyClient({
     allowExplicitMedia: true,
@@ -86,7 +89,7 @@ export async function startProtocols() {
     maxConcurrentRequests: config.searchConcurrency,
     maxRetries: 0,
     observe: createProtocolObserver(logger),
-    timeoutMs: 2500,
+    timeoutMs: readTimeoutMs,
   });
   const health = {
     connected: false,

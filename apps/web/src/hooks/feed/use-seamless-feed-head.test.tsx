@@ -220,3 +220,46 @@ test.each([false, true])(
     }
   }
 );
+
+test("a layout shift above the head cannot reveal a late response below the current head", async () => {
+  const host = dom.document.createElement("div");
+  host.style.overflowY = "auto";
+  dom.document.body.append(host);
+  const root = createRoot(host as unknown as HTMLElement);
+  const merge = mock(() => null);
+  const probe = mock(() => Promise.resolve());
+  let offset = 200;
+  function Feed({ count }: { count: number }) {
+    const ref = useRef<HTMLDivElement>(null);
+    useSeamlessFeedHead({ count, enabled: true, merge, probe, root: ref });
+    return <div ref={ref}>Posts</div>;
+  }
+  try {
+    await act(() => root.render(<Feed count={0} />));
+    const feed = host.firstElementChild;
+    if (!feed) {
+      throw new Error("Missing feed");
+    }
+    Object.defineProperty(feed, "getBoundingClientRect", {
+      value: () => ({ top: offset - host.scrollTop }),
+    });
+    host.scrollTop = 200;
+    await act(() => host.dispatchEvent(new dom.Event("scroll")));
+    await act(() =>
+      host.dispatchEvent(new dom.WheelEvent("wheel", { deltaY: -100 }))
+    );
+    expect(probe).toHaveBeenCalledTimes(1);
+    // The composer collapses without the reader scrolling or a scroll event.
+    offset = 0;
+    await act(() => root.render(<Feed count={1} />));
+    expect(merge).not.toHaveBeenCalled();
+    await act(() => {
+      host.scrollTop = 0;
+      host.dispatchEvent(new dom.Event("scroll"));
+    });
+    expect(merge).toHaveBeenCalledTimes(1);
+  } finally {
+    await act(() => root.unmount());
+    host.remove();
+  }
+});

@@ -19,6 +19,8 @@ export function createReadWorkerPool(options: {
   fetch?: PublicFetch;
   now?: () => number;
   timeoutMs?: number;
+  requestTimeoutMs?: number;
+  localReserveMs?: number;
 }) {
   const fetcher = options.fetch ?? globalThis.fetch;
   const now = options.now ?? Date.now;
@@ -70,26 +72,47 @@ export function createReadWorkerPool(options: {
       throw new Error("Only unauthenticated public reads may use read workers");
     }
     const attempted = new Set<string>();
+    const deadline = now() + (options.requestTimeoutMs ?? 2500);
     const resource = `${target.origin}${target.pathname}:${target.searchParams.get("feed") ?? ""}`;
     const operationKey = `${target.origin}${target.pathname}`;
     let pauseMs = 1000;
     let lastStatus = 503;
     let lastFailure: Response | undefined;
+    const available = (candidate: (typeof nodes)[number]) =>
+      !attempted.has(candidate.id) &&
+      candidate.active < (candidate.url ? 8 : 256) &&
+      (candidate.blocked.get(target.origin) ?? 0) <= now() &&
+      (candidate.blocked.get(operationKey) ?? 0) <= now() &&
+      (candidate.blocked.get(resource) ?? 0) <= now() &&
+      !candidate.recovering.has(operationKey);
     for (let attempt = 0; attempt < Math.min(2, nodes.length); attempt += 1) {
       init.signal?.throwIfAborted();
+      const remainingMs = deadline - now();
+      if (remainingMs <= 0) {
+        break;
+      }
       const ordered = [...nodes.slice(next), ...nodes.slice(0, next)];
-      const node = ordered.find(
-        (candidate) =>
-          !attempted.has(candidate.id) &&
-          candidate.active < (candidate.url ? 8 : 256) &&
-          (candidate.blocked.get(target.origin) ?? 0) <= now() &&
-          (candidate.blocked.get(operationKey) ?? 0) <= now() &&
-          (candidate.blocked.get(resource) ?? 0) <= now() &&
-          !candidate.recovering.has(operationKey)
-      );
+      const node =
+        (attempt > 0
+          ? nodes.find((candidate) => !candidate.url && available(candidate))
+          : undefined) ?? ordered.find(available);
       if (!node) {
         break;
       }
+      // A remote-first read must leave a usable local attempt inside the caller's budget.
+      const reserveMs =
+        attempt === 0 &&
+        node.url &&
+        nodes.some((candidate) => !candidate.url && available(candidate))
+          ? (options.localReserveMs ?? 1300)
+          : 0;
+      const attemptTimeoutMs = Math.max(
+        1,
+        Math.min(
+          node.url ? (options.timeoutMs ?? 1800) : remainingMs,
+          remainingMs - reserveMs
+        )
+      );
       next = (nodes.indexOf(node) + 1) % nodes.length;
       attempted.add(node.id);
       node.active += 1;
@@ -99,7 +122,7 @@ export function createReadWorkerPool(options: {
       const startedAt = now();
       const signal = AbortSignal.any([
         ...(init.signal ? [init.signal] : []),
-        AbortSignal.timeout(node.url ? (options.timeoutMs ?? 1800) : 2500),
+        AbortSignal.timeout(attemptTimeoutMs),
       ]);
       const attributes = {
         node: node.id,
