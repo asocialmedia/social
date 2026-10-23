@@ -250,7 +250,7 @@ export default function FollowingFeed() {
           />
         </div>
       ) : null}
-      {external.newItems.length ? (
+      {source !== "asm" && external.newItems.length ? (
         <div className="pointer-events-none sticky top-3 z-20 -mb-10 flex justify-center">
           <NewContentPill
             authors={external.newItems.map((post) => ({
