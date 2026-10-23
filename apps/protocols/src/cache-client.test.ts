@@ -357,3 +357,33 @@ test("safe and adult-enabled clients never share cached post snapshots", async (
   expect(safeFirst[0]?.labels).toEqual([]);
   expect(adultRepeat[0]?.labels).toEqual(["porn"]);
 });
+
+test("strict presence reads cannot reuse a presentation snapshot that omitted a post", async () => {
+  const memory = new Map<string, string>();
+  const store = {
+    get: (key: string) => Promise.resolve(memory.get(key) ?? null),
+    set: (key: string, value: string) => {
+      memory.set(key, value);
+      return Promise.resolve("OK");
+    },
+  } as unknown as Redis;
+  const reads: boolean[] = [];
+  const client = createCachedBlueskyClient(
+    {
+      getPosts: (_uris: string[], complete = false) => {
+        reads.push(complete);
+        return complete
+          ? Promise.reject(new Error("media assessment pending"))
+          : Promise.resolve([inventoryPost(1)]);
+      },
+    } as unknown as BlueskyClient,
+    store
+  );
+  const ids = [inventoryPost(1).id, inventoryPost(2).id];
+  expect(await client.getPosts(ids)).toHaveLength(1);
+  await expect(client.getPosts(ids, true)).rejects.toThrow(
+    "media assessment pending"
+  );
+  expect(await client.getPosts(ids)).toHaveLength(1);
+  expect(reads).toEqual([false, true]);
+});

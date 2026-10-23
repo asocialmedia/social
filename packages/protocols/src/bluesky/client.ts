@@ -521,7 +521,10 @@ export class BlueskyClient {
     return posts.find((post) => post.id === uri) ?? null;
   }
 
-  async getPosts(uris: string[]): Promise<ExternalPost[]> {
+  async getPosts(
+    uris: string[],
+    requireComplete = false
+  ): Promise<ExternalPost[]> {
     const parsed = z.array(postUriSchema).min(1).max(25).safeParse(uris);
     if (!parsed.success) {
       throw new ProtocolError("invalid_input", "Invalid Bluesky posts");
@@ -535,13 +538,19 @@ export class BlueskyClient {
     const posts: ExternalPost[] = [];
     for (const value of page.posts) {
       const post = postViewSchema.safeParse(value);
+      if (!post.success && requireComplete) {
+        throw new ProtocolError(
+          "invalid_response",
+          "Post lookup could not verify source visibility"
+        );
+      }
       if (!post.success || !parsed.data.includes(post.data.uri)) {
         continue;
       }
       try {
         posts.push(normalizePost(post.data, 0, this.allowExplicitMedia));
       } catch (error) {
-        if (!(error instanceof ProtocolError)) {
+        if (requireComplete || !(error instanceof ProtocolError)) {
           throw error;
         }
       }

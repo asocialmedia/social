@@ -119,7 +119,7 @@ async function readCurrent(uris: string[], request: Request, id: string) {
   try {
     return {
       posts: uris.length
-        ? await readBlueskyPosts(uris, request.signal, id)
+        ? await readBlueskyPosts(uris, request.signal, id, false, true)
         : [],
       verified: true,
     };

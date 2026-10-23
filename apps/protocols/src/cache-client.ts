@@ -316,14 +316,15 @@ export function createCachedBlueskyClient(
       }
 
       if (prop === "getPosts") {
-        return async (uris: string[]) =>
+        return async (uris: string[], requireComplete = false) =>
           await readThrough<Awaited<ReturnType<BlueskyClient["getPosts"]>>>({
             decode: (value) =>
               Array.isArray(value)
                 ? (value as Awaited<ReturnType<BlueskyClient["getPosts"]>>)
                 : null,
-            key: () => keys.posts(generation, uris),
-            load: () => target.getPosts(uris),
+            key: () =>
+              `${keys.posts(generation, uris)}${requireComplete ? ":presence" : ""}`,
+            load: () => target.getPosts(uris, requireComplete),
             retain: (value) => value.length > 0,
             targets: uris,
             ttlSeconds: postsTtlSeconds,

@@ -800,3 +800,32 @@ test("invalid public generators cool down across cursors while other feeds stay 
   });
   expect(calls.filter((feed) => feed === failed)).toHaveLength(2);
 });
+
+test("strict presence lookups distinguish restricted source posts from confirmed absence", async () => {
+  const client = new BlueskyClient({
+    fetch: async () =>
+      Response.json({
+        posts: [
+          {
+            ...postFixture,
+            labels: [
+              {
+                cts: "2026-10-16T10:00:00.000Z",
+                src: authorDid,
+                uri: postFixture.uri,
+                val: "!hide",
+              },
+            ],
+          },
+        ],
+      }),
+  });
+  expect(await client.getPosts([postFixture.uri])).toEqual([]);
+  await expect(client.getPosts([postFixture.uri], true)).rejects.toMatchObject({
+    code: "restricted",
+  });
+  const missing = new BlueskyClient({
+    fetch: async () => Response.json({ posts: [] }),
+  });
+  expect(await missing.getPosts([postFixture.uri], true)).toEqual([]);
+});

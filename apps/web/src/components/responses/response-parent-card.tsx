@@ -53,8 +53,8 @@ export function ResponseParentRow({
         isGust: parent.isGust,
       })
     : `/posts/${parentPostId}`;
-  if (external) {
-    href = `/network/bluesky?uri=${encodeURIComponent(external.id)}`;
+  if (external || parentPostId.startsWith("at://")) {
+    href = `/network/bluesky?uri=${encodeURIComponent(external?.id ?? parentPostId)}`;
   }
 
   const handleRowClick = useCallback(
@@ -89,8 +89,20 @@ export function ResponseParentRow({
             className="bg-border -mt-1 -mb-3 w-0.5 flex-1"
           />
         </div>
-        <div className="text-muted-foreground flex min-w-0 flex-1 items-center pb-1.5 text-xs italic sm:pb-2 sm:text-sm">
-          This post is unavailable
+        <div className="surface-3d mb-3 min-w-0 flex-1 rounded-xl! px-3 py-2.5 text-xs sm:text-sm">
+          <p className="text-foreground font-medium">
+            This post is unavailable
+          </p>
+          <p className="text-muted-foreground mt-1 text-xs">
+            The original may have been removed or made private. This response is
+            still available.
+          </p>
+          <Link
+            className="text-primary mt-2 inline-block text-xs font-medium hover:underline"
+            href={href}
+          >
+            Check original post
+          </Link>
         </div>
       </div>
     );
@@ -270,7 +282,12 @@ export default function ResponseParentCard({
         )}
       >
         <ImageOff className="size-3.5 shrink-0" />
-        <span>This post is unavailable</span>
+        <div>
+          <p className="font-medium">This post is unavailable</p>
+          <p className="mt-1">
+            The original may have been removed or made private.
+          </p>
+        </div>
       </div>
     );
   }

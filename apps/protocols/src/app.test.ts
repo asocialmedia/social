@@ -529,3 +529,25 @@ test("rate limits excessive health check requests from the same external IP", as
   expect(rateLimited.status).toBe(429);
   expect(rateLimited.headers.get("retry-after")).toBe("60");
 });
+
+test("batch presence requests forward strict completeness to the upstream client", async () => {
+  const { client: defaults } = fixture();
+  const seen: boolean[] = [];
+  const { request } = fixture({
+    client: {
+      ...defaults,
+      getPosts: async (_uris, complete = false) => {
+        seen.push(complete);
+        return [];
+      },
+    },
+  });
+  const uri = encodeURIComponent(
+    "at://did:plc:alice/app.bsky.feed.post/example"
+  );
+  const presentation = await request(`/v1/bluesky/posts?uri=${uri}`);
+  const presence = await request(`/v1/bluesky/posts?uri=${uri}&presence=1`);
+  expect(presentation.status).toBe(200);
+  expect(presence.status).toBe(200);
+  expect(seen).toEqual([false, true]);
+});

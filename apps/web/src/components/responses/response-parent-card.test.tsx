@@ -148,4 +148,16 @@ describe("response source community rail", () => {
     expect(html).not.toContain("response-source-community-rail");
     expect(html).toContain("This post is unavailable");
   });
+
+  test("an unavailable external source retains its Bluesky recovery link without source metadata", () => {
+    const uri = "at://did:plc:alice/app.bsky.feed.post/source";
+    const html = renderSource(
+      <ResponseParentRow parent={null} parentPostId={uri} />
+    );
+    expect(html).toContain("surface-3d");
+    expect(html).toContain("This response is still available.");
+    expect(html).toContain("Check original post");
+    expect(html).toContain(`/network/bluesky?uri=${encodeURIComponent(uri)}`);
+    expect(html).not.toContain("/posts/at:");
+  });
 });

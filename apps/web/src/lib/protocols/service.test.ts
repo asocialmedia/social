@@ -1,8 +1,10 @@
 import { afterEach, expect, mock, test } from "bun:test";
 
 mock.module("server-only", () => ({}));
+let withholdMedia = false;
 mock.module("@asm/db", () => ({
-  filterExternalMediaSafety: <T>(posts: T[]) => Promise.resolve(posts),
+  filterExternalMediaSafety: <T>(posts: T[]) =>
+    Promise.resolve(withholdMedia ? [] : posts),
   readNetworkPreferences: () => Promise.resolve(null),
 }));
 mock.module("@/lib/auth/session", () => ({
@@ -21,11 +23,13 @@ class ProtocolGatewayError extends Error {
   }
 }
 mock.module("./gateway", () => ({ ProtocolGatewayError }));
-const { readBlueskyProfileResource } = await import("./service");
+const { readBlueskyProfileResource, readBlueskyPosts } =
+  await import("./service");
 const originalFetch = globalThis.fetch;
 const originalService = process.env.PROTOCOLS_SERVICE_URL;
 const originalToken = process.env.PROTOCOLS_INTERNAL_TOKEN;
 afterEach(() => {
+  withholdMedia = false;
   globalThis.fetch = originalFetch;
   if (originalService === undefined) {
     delete process.env.PROTOCOLS_SERVICE_URL;
@@ -64,3 +68,48 @@ test.each(["profile", "author-feed"] as const)(
     ).rejects.toMatchObject({ retryAfter: 4, status: 503 });
   }
 );
+
+test("withheld media is retryable and confirmed source absence remains empty", async () => {
+  process.env.PROTOCOLS_SERVICE_URL = "http://protocols.test";
+  process.env.PROTOCOLS_INTERNAL_TOKEN = "test-fixture";
+  const uri = "at://did:plc:author/app.bsky.feed.post/example";
+  const post = {
+    author: {
+      displayName: "Author",
+      handle: "author.bsky.social",
+      id: "did:plc:author",
+      labels: [],
+      source: "bluesky",
+      upstreamCounts: {},
+      url: "https://bsky.app/profile/did:plc:author",
+    },
+    createdAt: "2026-10-16T10:00:00.000Z",
+    id: uri,
+    indexedAt: "2026-10-16T10:00:00.000Z",
+    labels: [],
+    languages: ["en"],
+    media: [],
+    revision: "cid",
+    segments: [{ text: "Existing original" }],
+    source: "bluesky",
+    text: "Existing original",
+    upstreamCounts: { likes: 0, quotes: 0, replies: 0, reposts: 0 },
+    url: "https://bsky.app/profile/did:plc:author/post/example",
+  };
+  let present = true;
+  globalThis.fetch = Object.assign(
+    mock((url: string | URL | Request) => {
+      expect(new URL(String(url)).searchParams.get("presence")).toBe("1");
+      return Promise.resolve(Response.json(present ? [post] : []));
+    }),
+    { preconnect: originalFetch.preconnect }
+  );
+  withholdMedia = true;
+  await expect(
+    readBlueskyPosts([uri], undefined, "test", false, true)
+  ).rejects.toMatchObject({ code: "media_assessment_pending", status: 503 });
+  present = false;
+  expect(await readBlueskyPosts([uri], undefined, "test", false, true)).toEqual(
+    []
+  );
+});
