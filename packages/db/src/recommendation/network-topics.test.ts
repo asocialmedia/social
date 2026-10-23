@@ -1,4 +1,5 @@
 import { afterAll, expect, mock, test } from "bun:test";
+import { createHash } from "node:crypto";
 
 import * as realRedis from "../redis";
 
@@ -80,6 +81,42 @@ test("concurrent requests share upstream work and cached topic data", async () =
     knowledgeTopicPage({ parent: "Uncached branch" }),
   ]);
   expect(requests - before).toBe(3);
+});
+
+test("legacy cached categories cannot bypass the current provider filter", async () => {
+  const root = "Legacy anime";
+  related.set(root, ["Anime series", "HTTP redirects"]);
+  const digest = createHash("sha256").update(root.toLowerCase()).digest("hex");
+  const oldKey = `rec:topic-taxonomy:v3:browse:${digest}`;
+  const legacy = JSON.stringify({
+    aliases: [],
+    items: [
+      {
+        aliases: [],
+        id: "Category:Anime and manga redirects",
+        label: "Anime and manga redirects",
+        source: "wikimedia",
+      },
+    ],
+    parent: root,
+    partial: false,
+    relatedTerms: ["anime and manga redirects"],
+  });
+  saved.set(oldKey, legacy);
+  const before = requests;
+  const page = await knowledgeTopicPage({ parent: root });
+  expect(requests - before).toBe(3);
+  expect(page.items.map((item) => item.label)).toEqual([
+    "Anime series",
+    "HTTP redirects",
+  ]);
+  expect(saved.get(oldKey)).toBe(legacy);
+  const warmRequests = requests;
+  expect(await knowledgeTopicPage({ parent: root })).toEqual(page);
+  expect(requests).toBe(warmRequests);
+  const scope = await networkTopicScope([root], []);
+  expect(scope.related?.[root]).not.toContain("anime and manga redirects");
+  expect(scope.related?.[root]).toContain("http redirects");
 });
 
 test("autocomplete mixes real ASM tags and observed network subjects", async () => {

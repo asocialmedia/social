@@ -54,7 +54,11 @@ const entitiesSchema = z.object({
 
 function topic(title: string, description?: string): NetworkTopic | null {
   const label = title.replace(/^Category:/u, "").trim();
-  if (label.length < 2 || label.length > 64) {
+  if (
+    label.length < 2 ||
+    label.length > 64 ||
+    (title.startsWith("Category:") && /\bredirects?$/iu.test(label))
+  ) {
     return null;
   }
   return { aliases: [], description, id: title, label, source: "wikimedia" };
@@ -325,8 +329,9 @@ export function createKnowledgeTopicProvider(
         relatedTerms:
           children.status === "fulfilled"
             ? children.value
-                .map((entry) => entry.title.replace(/^Category:/u, ""))
-                .filter((label) => label.length >= 2 && label.length <= 64)
+                .map((entry) => topic(entry.title))
+                .filter((entry): entry is NetworkTopic => entry !== null)
+                .map((entry) => entry.label)
                 .slice(0, 200)
             : [],
         requiresContext: resolved.requiresContext,

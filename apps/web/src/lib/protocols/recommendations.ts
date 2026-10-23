@@ -35,7 +35,7 @@ export function normalizeDiscoveryTopics(topics: readonly string[]): string[] {
 export function isRetrievalTopic(topic: string): boolean {
   return (
     topic.length <= 64 &&
-    !/(?:^|\b)(?:category|portal|wikipedia|lists?|outlines?|stubs?|glossar(?:y|ies)|templates?)(?:\b|:)|\bby (?:country|period|type)\b/iu.test(
+    !/(?:^|\b)(?:category|portal|wikipedia|lists?|outlines?|stubs?|glossar(?:y|ies)|templates?)(?:\b|:)|\bby (?:country|period|type|medium|source|studio|composer|director|writer|year|date|genre|setting)\b/iu.test(
       topic
     )
   );
@@ -85,7 +85,7 @@ export function discoveryTopics(
         (weights[tag] ?? 0) >= 0.15 &&
         (negative[tag] ?? 0) < (weights[tag] ?? 0)
     ),
-  ]);
+  ]).filter(isRetrievalTopic);
   const related = normalizeDiscoveryTopics(
     Object.entries(profile.expandedEntityWeights ?? {})
       .filter(
@@ -94,7 +94,9 @@ export function discoveryTopics(
       )
       .toSorted((a, b) => b[1] - a[1])
       .map(([topic]) => topic)
-  ).find((topic) => !direct.includes(topic));
+  )
+    .filter(isRetrievalTopic)
+    .find((topic) => !direct.includes(topic));
   return related ? [...direct.slice(0, 4), related] : direct.slice(0, 5);
 }
 

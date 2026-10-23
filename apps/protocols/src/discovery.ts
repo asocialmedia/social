@@ -36,25 +36,24 @@ import {
 import { MemoryDiscoveryStore } from "./discovery-store";
 import type { DiscoveryLease, DiscoveryStore } from "./discovery-store";
 
+const sourceSchema = z.object({
+  actor: z.string().max(2048),
+  cursor: z.string().max(4096).optional(),
+  exhausted: z.boolean(),
+  items: z.array(externalPostSchema).max(50),
+});
+
 const snapshotSchema = z.object({
   catalogCursor: z.string().max(4096).optional(),
   catalogExhausted: z.boolean().default(false),
   catalogFeeds: z.array(z.string().max(2048)).max(50).default([]),
   content: discoveryContentSchema.default("all"),
+  deferredSources: z.array(sourceSchema).max(50).default([]),
   locale: z.string().default(""),
   mode: discoveryModeSchema,
   page: z.number().int().min(0).max(1000),
   seen: z.array(z.string().max(512)).max(400),
-  sources: z
-    .array(
-      z.object({
-        actor: z.string().max(2048),
-        cursor: z.string().max(4096).optional(),
-        exhausted: z.boolean(),
-        items: z.array(externalPostSchema).max(50),
-      })
-    )
-    .max(10),
+  sources: z.array(sourceSchema).max(10),
   topics: discoveryTopicsSchema.default([]),
 });
 
@@ -94,6 +93,7 @@ export class BlueskyDiscovery {
   private readonly actors?: string[];
   private readonly store: DiscoveryStore;
   private readonly scope: string;
+  private readonly legacyScope: string;
   private readonly timeoutMs: number;
   private readonly sourceTimeoutMs: number;
   private readonly allowExplicit: boolean;
@@ -119,10 +119,13 @@ export class BlueskyDiscovery {
     this.actors = actors ? [...actors] : undefined;
     this.store = options.store ?? new MemoryDiscoveryStore();
     this.allowExplicit = options.allowExplicit ?? false;
-    this.scope = createHash("sha256")
-      .update(JSON.stringify(["dynamic-v15", actors, this.allowExplicit]))
-      .digest("hex")
-      .slice(0, 16);
+    const scopeFor = (version: string) =>
+      createHash("sha256")
+        .update(JSON.stringify([version, actors, this.allowExplicit]))
+        .digest("hex")
+        .slice(0, 16);
+    this.scope = scopeFor("dynamic-v16");
+    this.legacyScope = scopeFor("dynamic-v15");
     this.timeoutMs = options.timeoutMs ?? 12_000;
     this.sourceTimeoutMs = options.sourceTimeoutMs ?? 2500;
     if (
@@ -186,6 +189,21 @@ export class BlueskyDiscovery {
 
   private snapshotKey(cursor: string): string {
     return `${this.scope}:snapshot:${cursor}`;
+  }
+
+  private async readSnapshot(cursor: string, signal: AbortSignal) {
+    const current = await abortable(
+      this.store.get(this.snapshotKey(cursor)),
+      signal
+    );
+    // Import old cursors, but only write new snapshots where old replicas cannot strip deferred state.
+    return (
+      current ??
+      (await abortable(
+        this.store.get(`${this.legacyScope}:snapshot:${cursor}`),
+        signal
+      ))
+    );
   }
 
   async refreshHead(
@@ -275,10 +293,7 @@ export class BlueskyDiscovery {
     if (cached) {
       return cached;
     }
-    if (
-      cursor &&
-      !(await abortable(this.store.get(this.snapshotKey(cursor)), signal))
-    ) {
+    if (cursor && !(await this.readSnapshot(cursor, signal))) {
       throw new ProtocolError("invalid_input", "Discovery session expired");
     }
     const lease = { key, owner: crypto.randomUUID() };
@@ -360,9 +375,7 @@ export class BlueskyDiscovery {
     topics: string[],
     content: DiscoveryContent
   ): Promise<DiscoveryPage> {
-    const stored = cursor
-      ? await abortable(this.store.get(this.snapshotKey(cursor)), signal)
-      : null;
+    const stored = cursor ? await this.readSnapshot(cursor, signal) : null;
     if (cursor && !stored) {
       throw new ProtocolError("invalid_input", "Discovery session expired");
     }
@@ -382,6 +395,7 @@ export class BlueskyDiscovery {
       catalogExhausted: false,
       catalogFeeds: [],
       content,
+      deferredSources: [],
       locale,
       mode,
       page: 0,
@@ -422,6 +436,7 @@ export class BlueskyDiscovery {
       this.client.getSuggestedFeeds &&
       !snapshot.catalogExhausted &&
       snapshot.catalogFeeds.length === 0 &&
+      snapshot.deferredSources.length === 0 &&
       (snapshot.sources.length === 0 ||
         snapshot.sources.every(
           (source) => source.exhausted && source.items.length === 0
@@ -646,6 +661,28 @@ export class BlueskyDiscovery {
           } else {
             partial = true;
             blocked.add(source.actor);
+            const unavailable =
+              error instanceof ProtocolError
+                ? error.code === "unavailable"
+                : error instanceof Error &&
+                  (error.name === "AbortError" ||
+                    error.name === "TimeoutError");
+            // An unavailable search endpoint must not prevent discovery from trying public generators.
+            if (
+              !this.actors &&
+              this.client.getSuggestedFeeds &&
+              (!snapshot.catalogExhausted ||
+                snapshot.catalogFeeds.length > 0 ||
+                snapshot.deferredSources.length > 0 ||
+                snapshot.sources.some(
+                  (candidate) => !candidate.actor.startsWith("search:")
+                )) &&
+              source.actor.startsWith("search:") &&
+              unavailable
+            ) {
+              source.exhausted = true;
+              succeeded += 1;
+            }
             // A broken generator must not hold the remaining live catalog behind its failed cursor.
             if (
               !this.actors &&
@@ -662,7 +699,11 @@ export class BlueskyDiscovery {
       5
     );
     signal.throwIfAborted();
-    if (succeeded === 0 && snapshot.catalogFeeds.length === 0) {
+    if (
+      succeeded === 0 &&
+      snapshot.catalogFeeds.length === 0 &&
+      snapshot.deferredSources.length === 0
+    ) {
       throw new ProtocolError(
         "unavailable",
         "Bluesky discovery is temporarily unavailable",
@@ -771,10 +812,28 @@ export class BlueskyDiscovery {
     }
     snapshot.seen = snapshot.seen.slice(-400);
     snapshot.page += 1;
+    // Sparse video generators retain their position while other public sources get a turn.
+    if (
+      !this.actors &&
+      content === "video" &&
+      snapshot.sources.every((source) => source.items.length === 0) &&
+      (snapshot.catalogFeeds.length > 0 || snapshot.deferredSources.length > 0)
+    ) {
+      const waiting = snapshot.sources.filter((source) => !source.exhausted);
+      snapshot.sources =
+        snapshot.catalogFeeds.length > 0
+          ? snapshot.catalogFeeds
+              .splice(0, 4)
+              .map((actor) => ({ actor, exhausted: false, items: [] }))
+          : snapshot.deferredSources.splice(0, 4);
+      snapshot.deferredSources.push(...waiting);
+    }
     const hasMore =
       snapshot.page < 1000 &&
       ((!this.actors &&
-        (!snapshot.catalogExhausted || snapshot.catalogFeeds.length > 0)) ||
+        (!snapshot.catalogExhausted ||
+          snapshot.catalogFeeds.length > 0 ||
+          snapshot.deferredSources.length > 0)) ||
         snapshot.sources.some(
           (source) => source.items.length > 0 || !source.exhausted
         ));
