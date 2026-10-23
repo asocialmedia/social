@@ -17,7 +17,7 @@ interface Workflow {
   >;
 }
 
-test("workflows use base runners and avoid Blacksmith paid storage actions", async () => {
+test("web and Android use four-core runners while other jobs keep base runners and storage", async () => {
   for (const filename of [
     "ci.yml",
     "deploy-protocols.yml",
@@ -28,8 +28,23 @@ test("workflows use base runners and avoid Blacksmith paid storage actions", asy
         path.resolve(import.meta.dir, "../../.github/workflows", filename)
       ).text()
     ) as Workflow;
-    for (const job of Object.values(workflow.jobs)) {
-      expect(job["runs-on"]).toBe("blacksmith-2vcpu-ubuntu-2404");
+    for (const [name, job] of Object.entries(workflow.jobs)) {
+      if (filename === "ci.yml" && name === "build-and-push") {
+        const expression = job["runs-on"].replace(/^\$\{\{|\}\}$/g, "").trim();
+        for (const app of ["web", "auth", "protocols", "media-processing"]) {
+          expect(runInNewContext(expression, { matrix: { app } })).toBe(
+            app === "web"
+              ? "blacksmith-4vcpu-ubuntu-2404"
+              : "blacksmith-2vcpu-ubuntu-2404"
+          );
+        }
+      } else {
+        expect(job["runs-on"]).toBe(
+          filename === "ci.yml" && name === "build-mobile-apk"
+            ? "blacksmith-4vcpu-ubuntu-2404"
+            : "blacksmith-2vcpu-ubuntu-2404"
+        );
+      }
       for (const step of job.steps) {
         expect(step.uses ?? "").not.toMatch(/^useblacksmith\//);
         if (step.uses?.startsWith("docker/build-push-action@")) {

@@ -2,10 +2,24 @@ import { expect, test } from "bun:test";
 
 import determineBuildMatrix from "./determine-build-matrix.cjs";
 
-async function select(files: string[]) {
+interface FileChange {
+  filename: string;
+  changes?: number;
+  patch?: string;
+  status?: string;
+}
+
+async function select(files: (string | FileChange)[], source = "pr") {
+  const changes = files.map((file) =>
+    typeof file === "string" ? { filename: file } : file
+  );
   const outputs: Record<string, string> = {};
   await determineBuildMatrix({
-    context: { repo: { owner: "asocialmedia", repo: "social" } },
+    context: {
+      payload: source === "push" ? { after: "after", before: "before" } : {},
+      repo: { owner: "asocialmedia", repo: "social" },
+      sha: "after",
+    },
     core: {
       info: () => {},
       setOutput: (name: string, value: string) => {
@@ -14,10 +28,16 @@ async function select(files: string[]) {
       warning: () => {},
     },
     github: {
-      paginate: () => files.map((filename) => ({ filename })),
-      rest: { pulls: { listFiles: () => ({ data: [] }) } },
+      paginate: () => changes,
+      rest: {
+        pulls: { listFiles: () => ({ data: [] }) },
+        repos: {
+          compareCommitsWithBasehead: () => ({ data: { files: changes } }),
+          getCommit: () => ({ data: { files: changes } }),
+        },
+      },
     },
-    prNumber: 7,
+    prNumber: source === "pr" ? 7 : undefined,
   });
   return outputs;
 }
@@ -35,6 +55,99 @@ test("a protocols app change selects its publishable image without a mobile buil
   });
   expect(outputs["selected-apps"]).toBe("protocols");
   expect(outputs["has-mobile-changes"]).toBe("false");
+});
+
+const rootVersion: FileChange = {
+  changes: 2,
+  filename: "package.json",
+  patch:
+    '@@ -1,5 +1,5 @@\n {\n   "name": "@asocialmedia/social",\n-  "version": "1.12.75",\n+  "version": "1.12.80",\n   "private": true,',
+  status: "modified",
+};
+const workspaceVersions: FileChange = {
+  changes: 4,
+  filename: "bun.lock",
+  patch:
+    '@@ -180,5 +180,5 @@\n     "apps/protocols": {\n       "name": "@asm/protocols-app",\n-      "version": "0.1.58",\n+      "version": "0.1.63",\n       "dependencies": {\n@@ -449,5 +449,5 @@\n     "packages/protocols": {\n       "name": "@asm/protocols",\n-      "version": "0.1.58",\n+      "version": "0.1.63",\n       "dependencies": {',
+  status: "modified",
+};
+
+test.each(["pr", "push", "initial"])(
+  "release metadata in a %s skips Android without suppressing service images",
+  async (source) => {
+    const outputs = await select(
+      [
+        "apps/protocols/src/discovery.ts",
+        "packages/protocols/src/bluesky/client.ts",
+        rootVersion,
+        workspaceVersions,
+      ],
+      source
+    );
+    expect(outputs["has-mobile-changes"]).toBe("false");
+    expect(outputs["selected-apps"]?.split(",")).toEqual([
+      "web",
+      "auth",
+      "media-processing",
+      "protocols",
+    ]);
+  }
+);
+
+test.each([
+  "apps/mobile/src/app/index.tsx",
+  "apps/mobile/app.config.ts",
+  "apps/mobile/package.json",
+  "apps/mobile/scripts/build-android-apk.ts",
+])(
+  "mobile input %s still builds Android alongside version-only stamps",
+  async (file) => {
+    const outputs = await select([file, rootVersion, workspaceVersions]);
+    expect(outputs["has-mobile-changes"]).toBe("true");
+  }
+);
+
+test.each(["package.json", "bun.lock"])(
+  "real dependencies in %s still build Android",
+  async (filename) => {
+    const file: FileChange = {
+      changes: 2,
+      filename,
+      patch:
+        '@@ -10,2 +10,2 @@\n-    "react-native": "0.87.0",\n+    "react-native": "0.88.0",',
+      status: "modified",
+    };
+    const outputs = await select([
+      file,
+      rootVersion.filename === filename ? workspaceVersions : rootVersion,
+    ]);
+    expect(outputs["has-mobile-changes"]).toBe("true");
+  }
+);
+
+test.each([
+  { ...rootVersion, patch: undefined },
+  { ...rootVersion, changes: 4 },
+  { ...rootVersion, status: "added" },
+  { ...rootVersion, changes: undefined },
+  {
+    ...workspaceVersions,
+    changes: 2,
+    patch:
+      '@@ -10,2 +10,2 @@\n-      "version": "1.0.0",\n+      "version": "1.0.1",',
+  },
+])("unverifiable metadata retains the Android build (%j)", async (change) => {
+  const outputs = await select([change]);
+  expect(outputs["has-mobile-changes"]).toBe("true");
+});
+
+test("a capped push file list retains the Android build", async () => {
+  const files = Array.from({ length: 298 }, (_, i) => `docs/${i}.md`);
+  const outputs = await select(
+    [...files, rootVersion, workspaceVersions],
+    "push"
+  );
+  expect(outputs["has-mobile-changes"]).toBe("true");
 });
 
 test("shared protocol changes rebuild all service images", async () => {
