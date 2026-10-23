@@ -1,7 +1,6 @@
 "use client";
 
 import type { getCommunityPreview } from "@asm/db";
-import { Badge } from "@asm/ui/shadui/badge";
 import { Button } from "@asm/ui/shadui/button";
 import { Card } from "@asm/ui/shadui/card";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -101,7 +100,7 @@ export default function CommunityPrivateLanding({
         subscribed={false}
         canReadContent={false}
       >
-        <div className="grid items-start gap-6 px-4 pt-2 pb-6 sm:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)] sm:gap-8 sm:px-6 sm:pt-4">
+        <div className="max-w-xl px-4 pt-2 pb-6 sm:px-6 sm:pt-4">
           <section
             aria-labelledby="community-members-only"
             aria-busy={busy}
@@ -195,31 +194,6 @@ export default function CommunityPrivateLanding({
                 </div>
               ) : null}
             </Card>
-          </section>
-          <section
-            aria-labelledby="community-public-about"
-            className="min-w-0 px-1 sm:pt-1"
-          >
-            <h2 className="text-sm font-semibold" id="community-public-about">
-              About this community
-            </h2>
-            <p className="text-muted-foreground mt-3 text-sm leading-relaxed wrap-break-word whitespace-pre-wrap">
-              {community.description}
-            </p>
-            {community.topics?.length ? (
-              <ul aria-label="Topics" className="mt-4 flex flex-wrap gap-2">
-                {community.topics.map((topic) => (
-                  <li className="max-w-full" key={topic}>
-                    <Badge
-                      className="max-w-full rounded-full! px-2.5 py-1 font-normal wrap-break-word whitespace-normal"
-                      variant="outline"
-                    >
-                      {topic}
-                    </Badge>
-                  </li>
-                ))}
-              </ul>
-            ) : null}
           </section>
         </div>
       </CommunityPostsWorkspace>

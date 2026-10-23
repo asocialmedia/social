@@ -169,12 +169,15 @@ async function render() {
   await settle();
 }
 
-test("guest sees a public about and sign-in prompt without content navigation", async () => {
+test("guest sees a sign-in prompt without an about section or content navigation", async () => {
   await render();
   expect(dom.document.body.textContent).toContain(
     "Posts are for members of this community."
   );
-  expect(dom.document.body.textContent).toContain("Public about information");
+  expect(dom.document.body.textContent).not.toContain(
+    "Public about information"
+  );
+  expect(dom.document.querySelector("#community-public-about")).toBeNull();
   expect(dom.document.querySelector('a[href*="/chat"]')).toBeNull();
   await act(() => button("Sign in to request access").click());
   expect(goToLogin).toHaveBeenCalledTimes(1);
