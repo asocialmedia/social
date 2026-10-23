@@ -85,7 +85,7 @@ export function discoveryTopics(
         (weights[tag] ?? 0) >= 0.15 &&
         (negative[tag] ?? 0) < (weights[tag] ?? 0)
     ),
-  ]);
+  ]).filter(isRetrievalTopic);
   const related = normalizeDiscoveryTopics(
     Object.entries(profile.expandedEntityWeights ?? {})
       .filter(
@@ -94,7 +94,9 @@ export function discoveryTopics(
       )
       .toSorted((a, b) => b[1] - a[1])
       .map(([topic]) => topic)
-  ).find((topic) => !direct.includes(topic));
+  )
+    .filter(isRetrievalTopic)
+    .find((topic) => !direct.includes(topic));
   return related ? [...direct.slice(0, 4), related] : direct.slice(0, 5);
 }
 

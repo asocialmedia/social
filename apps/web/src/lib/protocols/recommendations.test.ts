@@ -464,3 +464,53 @@ test("a short descendant is not mistaken for an alias of a long selected interes
   expect(topics).not.toContain("math");
   expect(topics).not.toContain("science");
 });
+
+test("profile-only retrieval filters administrative weights before limiting direct topics", () => {
+  const learned: UserProfile = {
+    authorWeights: {},
+    tagWeights: {
+      "HTTP redirects": 1,
+      animation: 4,
+      anime: 5,
+      "anime by composer": 9,
+      "anime by date": 6,
+      "anime by medium": 8,
+      "anime by source": 7,
+      "anime by studio": 10,
+      "anime film": 2,
+      manga: 3,
+    },
+  };
+  expect(discoveryTopics(learned)).toEqual([
+    "anime",
+    "animation",
+    "manga",
+    "anime film",
+    "http redirects",
+  ]);
+});
+
+test("profile-only retrieval skips excluded related candidates before choosing a later valid topic", () => {
+  const learned: UserProfile = {
+    authorWeights: {},
+    expandedEntityWeights: {
+      "anime by medium": 9,
+      "anime by studio": 10,
+      "tv anime": 8,
+    },
+    tagWeights: {
+      animation: 4,
+      anime: 5,
+      "anime film": 2,
+      "anime series": 1,
+      manga: 3,
+    },
+  };
+  expect(discoveryTopics(learned)).toEqual([
+    "anime",
+    "animation",
+    "manga",
+    "anime film",
+    "tv anime",
+  ]);
+});
