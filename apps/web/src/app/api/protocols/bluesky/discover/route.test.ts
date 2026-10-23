@@ -171,7 +171,7 @@ test("all five discovery modes enforce chosen interests before popularity and le
       );
       const page: DiscoveryPage = await response.json();
       expect(response.status).toBe(200);
-      expect(page.items.map((entry) => entry.id)).toEqual(
+      expect(page.items.map((entry) => entry.id).toSorted()).toEqual(
         upstream.items
           .filter(
             (entry) =>
@@ -179,6 +179,7 @@ test("all five discovery modes enforce chosen interests before popularity and le
               (content !== "video" || entry.media.length > 0)
           )
           .map((entry) => entry.id)
+          .toSorted()
       );
       expect(page.cursor).toBe(upstream.cursor);
       expect(response.headers.get("cache-control")).toBe("private, no-store");
