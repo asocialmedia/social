@@ -47,6 +47,18 @@ export async function warmDiscoveryInventory(options: {
       return;
     }
     let cursor: string | null = saved.cursor ?? options.head.cursor;
+    const chainHead = saved.cursor ? saved.head : head;
+    if (
+      !cursor ||
+      !(await options.store.set(
+        key,
+        JSON.stringify({ cursor, head: chainHead }),
+        300_000,
+        lease
+      ))
+    ) {
+      return;
+    }
     for (let index = 0; cursor && index < 2; index += 1) {
       options.signal.throwIfAborted();
       const startedAt = Date.now();
@@ -77,7 +89,7 @@ export async function warmDiscoveryInventory(options: {
       if (
         !(await options.store.set(
           key,
-          JSON.stringify({ cursor, head }),
+          JSON.stringify({ cursor, head: chainHead }),
           cursor ? 300_000 : 60_000,
           lease
         ))
