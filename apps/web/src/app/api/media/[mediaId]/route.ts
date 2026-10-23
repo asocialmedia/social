@@ -680,7 +680,10 @@ export async function GET(
     // finished; the request is already gone so there is nothing meaningful to
     // send back. Return a bare 499 (client closed request) instead of logging
     // a scary 500 or re-throwing into the framework.
-    if (error instanceof DOMException && error.name === "AbortError") {
+    if (
+      request.signal.aborted ||
+      (error instanceof Error && error.name === "AbortError")
+    ) {
       return new Response(null, { status: 499 });
     }
     // A row whose stored object vanished from storage (crash between publish
