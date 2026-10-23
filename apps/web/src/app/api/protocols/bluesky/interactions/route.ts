@@ -274,10 +274,7 @@ export function GET(request: Request) {
     if (!posts.verified) {
       throw new ProtocolGatewayError(503, "source_read_failed");
     }
-    let post =
-      posts.posts.find((entry) => entry.id === uri.data) ??
-      thread?.post ??
-      null;
+    let post = posts.posts.find((entry) => entry.id === uri.data) ?? null;
     if (post && thread?.post) {
       post = {
         ...post,

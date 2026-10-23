@@ -6,6 +6,8 @@ let reads = 0;
 let available = true;
 let offline = false;
 let threadReplies: unknown[] = [];
+let cachedThreadPost = false;
+let retained = false;
 let libraryUris: string[] = [];
 const withheld = new Set<string>();
 const refreshes: { uri: string; post: unknown }[] = [];
@@ -54,7 +56,7 @@ mock.module("@/lib/protocols/service", () => ({
       return Promise.reject(new Error("Source unavailable"));
     }
     return Promise.resolve({
-      post: available ? post : null,
+      post: available || cachedThreadPost ? post : null,
       replies: available ? threadReplies : [],
     });
   },
@@ -69,7 +71,7 @@ mock.module("@asm/db", () => ({
     }),
   externalPostStates: () => Promise.resolve(new Map()),
   externalResponses: () => Promise.resolve({ cursor: null, items: [] }),
-  findExternalPost: () => Promise.resolve(null),
+  findExternalPost: () => Promise.resolve(retained ? {} : null),
   getClientIpFromHeaders: () => "127.0.0.1",
   getNetworkPersona: () => Promise.resolve({ selected: { id: "default" } }),
   getTrustedIngressIp: () => "127.0.0.1",
@@ -116,6 +118,8 @@ beforeEach(() => {
   available = true;
   offline = false;
   threadReplies = [];
+  cachedThreadPost = false;
+  retained = false;
   libraryUris = [];
   withheld.clear();
   refreshes.length = 0;
@@ -201,6 +205,23 @@ test("a verified source absence still renders the preserved discussion", async (
     comments: { cursor: null, items: [] },
     post: null,
   });
+});
+
+test("a cached thread cannot resurrect an original whose absence was verified", async () => {
+  available = false;
+  cachedThreadPost = true;
+  retained = true;
+  const response = await GET(
+    new Request(
+      `http://localhost/api/protocols/bluesky/interactions?${new URLSearchParams({ uri })}`
+    )
+  );
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual({
+    comments: { cursor: null, items: [] },
+    post: null,
+  });
+  expect(refreshes).toEqual([{ post: null, uri }]);
 });
 
 test.each(["bookmarks", "amplified"])(
