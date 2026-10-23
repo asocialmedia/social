@@ -430,19 +430,20 @@ test("catalog administrative labels never displace useful interest queries", () 
   expect(topics).toEqual(["engineering"]);
 });
 
-test("retrieval skips taxonomy partitions and redirects while retaining real concepts", () => {
+test("retrieval skips taxonomy partitions while retaining real concepts", () => {
   const topics = [
     "anime by medium",
     "anime by studio",
     "anime debuts by date",
     "anime by composer",
-    "anime and manga redirects",
+    "HTTP redirects",
     "anime series",
     "japanese animation",
     "tv anime",
     "painting by numbers",
   ];
   expect(topics.filter(isRetrievalTopic)).toEqual([
+    "HTTP redirects",
     "anime series",
     "japanese animation",
     "tv anime",

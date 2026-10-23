@@ -48,12 +48,12 @@ test("Explore excludes taxonomy partitions before limiting useful related querie
       related: {
         anime: [
           ...administrative,
-          "anime and manga redirects",
+          "HTTP redirects",
           "anime series",
           "tv anime",
         ],
       },
       version: "taxonomy-regression",
     })
-  ).toEqual(["anime series", "tv anime"]);
+  ).toEqual(["HTTP redirects", "anime series", "tv anime"]);
 });

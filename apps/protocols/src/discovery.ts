@@ -93,6 +93,7 @@ export class BlueskyDiscovery {
   private readonly actors?: string[];
   private readonly store: DiscoveryStore;
   private readonly scope: string;
+  private readonly legacyScope: string;
   private readonly timeoutMs: number;
   private readonly sourceTimeoutMs: number;
   private readonly allowExplicit: boolean;
@@ -118,10 +119,13 @@ export class BlueskyDiscovery {
     this.actors = actors ? [...actors] : undefined;
     this.store = options.store ?? new MemoryDiscoveryStore();
     this.allowExplicit = options.allowExplicit ?? false;
-    this.scope = createHash("sha256")
-      .update(JSON.stringify(["dynamic-v15", actors, this.allowExplicit]))
-      .digest("hex")
-      .slice(0, 16);
+    const scopeFor = (version: string) =>
+      createHash("sha256")
+        .update(JSON.stringify([version, actors, this.allowExplicit]))
+        .digest("hex")
+        .slice(0, 16);
+    this.scope = scopeFor("dynamic-v16");
+    this.legacyScope = scopeFor("dynamic-v15");
     this.timeoutMs = options.timeoutMs ?? 12_000;
     this.sourceTimeoutMs = options.sourceTimeoutMs ?? 2500;
     if (
@@ -185,6 +189,21 @@ export class BlueskyDiscovery {
 
   private snapshotKey(cursor: string): string {
     return `${this.scope}:snapshot:${cursor}`;
+  }
+
+  private async readSnapshot(cursor: string, signal: AbortSignal) {
+    const current = await abortable(
+      this.store.get(this.snapshotKey(cursor)),
+      signal
+    );
+    // Import old cursors, but only write new snapshots where old replicas cannot strip deferred state.
+    return (
+      current ??
+      (await abortable(
+        this.store.get(`${this.legacyScope}:snapshot:${cursor}`),
+        signal
+      ))
+    );
   }
 
   async refreshHead(
@@ -274,10 +293,7 @@ export class BlueskyDiscovery {
     if (cached) {
       return cached;
     }
-    if (
-      cursor &&
-      !(await abortable(this.store.get(this.snapshotKey(cursor)), signal))
-    ) {
+    if (cursor && !(await this.readSnapshot(cursor, signal))) {
       throw new ProtocolError("invalid_input", "Discovery session expired");
     }
     const lease = { key, owner: crypto.randomUUID() };
@@ -359,9 +375,7 @@ export class BlueskyDiscovery {
     topics: string[],
     content: DiscoveryContent
   ): Promise<DiscoveryPage> {
-    const stored = cursor
-      ? await abortable(this.store.get(this.snapshotKey(cursor)), signal)
-      : null;
+    const stored = cursor ? await this.readSnapshot(cursor, signal) : null;
     if (cursor && !stored) {
       throw new ProtocolError("invalid_input", "Discovery session expired");
     }
@@ -657,7 +671,12 @@ export class BlueskyDiscovery {
             if (
               !this.actors &&
               this.client.getSuggestedFeeds &&
-              !snapshot.catalogExhausted &&
+              (!snapshot.catalogExhausted ||
+                snapshot.catalogFeeds.length > 0 ||
+                snapshot.deferredSources.length > 0 ||
+                snapshot.sources.some(
+                  (candidate) => !candidate.actor.startsWith("search:")
+                )) &&
               source.actor.startsWith("search:") &&
               unavailable
             ) {

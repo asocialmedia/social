@@ -100,3 +100,34 @@ test("a topic expands from either relationship source while recording partial fa
   expect(result.items.map((entry) => entry.label)).toEqual(["Observed child"]);
   expect(result.partial).toBe(true);
 });
+
+test("administrative redirect categories are excluded without rejecting article concepts", async () => {
+  const provider = createKnowledgeTopicProvider({
+    fetch: (input) => {
+      const url = new URL(String(input));
+      if (url.searchParams.get("list") === "categorymembers") {
+        return Response.json({
+          query: {
+            categorymembers: [
+              { ns: 14, title: "Category:Anime and manga redirects" },
+              { ns: 0, title: "HTTP redirects" },
+              { ns: 14, title: "Category:Anime series" },
+            ],
+          },
+        });
+      }
+      return new Response("offline", { status: 503 });
+    },
+  });
+  const roots = await provider.browse();
+  expect(roots.items.map((entry) => entry.label)).toEqual([
+    "HTTP redirects",
+    "Anime series",
+  ]);
+  const related = await provider.browse("anime");
+  expect(related.items.map((entry) => entry.label)).toEqual([
+    "HTTP redirects",
+    "Anime series",
+  ]);
+  expect(related.relatedTerms).toEqual(["HTTP redirects", "Anime series"]);
+});

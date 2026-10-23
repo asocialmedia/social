@@ -1,6 +1,7 @@
 // Async fixtures preserve the public client promise contract.
 // oxlint-disable require-await, promise/avoid-new, no-await-in-loop
 import { expect, test } from "bun:test";
+import { createHash } from "node:crypto";
 
 import { BlueskyClient } from "@asm/protocols/bluesky";
 import { ProtocolError } from "@asm/protocols/contracts";
@@ -15,6 +16,13 @@ import {
 import { MemoryDiscoveryStore } from "./discovery-store";
 
 const fixtureTime = Date.now();
+function defaultDiscoveryScope(version: string) {
+  return createHash("sha256")
+    .update(JSON.stringify([version, undefined, false]))
+    .digest("hex")
+    .slice(0, 16);
+}
+
 function post(index: number, did = "did:web:example.test"): ExternalPost {
   return {
     author: {
@@ -1248,6 +1256,7 @@ test("unavailable focused search yields to public generators rather than pinning
     "video"
   );
   expect(next.items.map((item) => item.id)).toEqual([videoPost(4).id]);
+  expect(next.cursor).toBeNull();
   expect(searchReads).toBe(2);
 });
 
@@ -1288,4 +1297,133 @@ test("a focused search source timeout still permits generator continuation", asy
     "video"
   );
   expect(next.items.map((item) => item.id)).toEqual([videoPost(6).id]);
+  expect(next.cursor).toBeNull();
+});
+
+test.each(["all", "video"] as const)(
+  "unavailable searches yield through the final catalog batch and terminate (%s)",
+  async (content) => {
+    const feeds = Array.from(
+      { length: 5 },
+      (_, index) => `${publicFeed}-${index}`
+    );
+    const readFeeds: string[] = [];
+    let searchReads = 0;
+    const discovery = new BlueskyDiscovery({
+      allowsRecommendations: async () => true,
+      getAuthorFeed: async () => ({ cursor: null, items: [] }),
+      getFeed: async (uri) => {
+        readFeeds.push(uri);
+        return {
+          cursor: null,
+          items: [{ ...videoPost(feeds.indexOf(uri)), text: "Anime clip" }],
+        };
+      },
+      getProfile: async () => profile,
+      getSuggestedFeeds: async () => ({
+        cursor: null,
+        items: feeds.map((uri, index) => ({
+          displayName: "Anime",
+          likeCount: 100 - index,
+          uri,
+        })),
+      }),
+      searchPosts: async () => {
+        searchReads += 1;
+        throw new ProtocolError("unavailable", "Search endpoint cooling down");
+      },
+    });
+    const first = await discovery.read(
+      "personalized",
+      undefined,
+      "en",
+      ["anime"],
+      content
+    );
+    expect(first.cursor).toBeString();
+    const second = await discovery.read(
+      "personalized",
+      first.cursor ?? undefined,
+      "en",
+      ["anime"],
+      content
+    );
+    expect(second.items).toHaveLength(4);
+    expect(second.cursor).toBeString();
+    const last = await discovery.read(
+      "personalized",
+      second.cursor ?? undefined,
+      "en",
+      ["anime"],
+      content
+    );
+    expect(last.items).toHaveLength(1);
+    expect(last.cursor).toBeNull();
+    expect(
+      new Set([...second.items, ...last.items].map((item) => item.id)).size
+    ).toBe(5);
+    expect(readFeeds.toSorted()).toEqual(feeds.toSorted());
+    expect(searchReads).toBe(2);
+  }
+);
+
+test("legacy cursors migrate into an isolated snapshot scope across replicas", async () => {
+  const store = new MemoryDiscoveryStore();
+  const legacyScope = defaultDiscoveryScope("dynamic-v15");
+  const newScope = defaultDiscoveryScope("dynamic-v16");
+  const cursor = crypto.randomUUID();
+  const legacyKey = `${legacyScope}:snapshot:${cursor}`;
+  const legacy = JSON.stringify({
+    catalogExhausted: true,
+    catalogFeeds: [],
+    content: "video",
+    locale: "en",
+    mode: "latest",
+    page: 1,
+    seen: [videoPost(1).id],
+    sources: [
+      {
+        actor: publicFeed,
+        cursor: "existing-page",
+        exhausted: false,
+        items: [],
+      },
+    ],
+    topics: [],
+  });
+  await store.set(legacyKey, legacy, 900_000);
+  const reads: (string | undefined)[] = [];
+  const client = {
+    allowsRecommendations: async () => true,
+    getAuthorFeed: async () => ({ cursor: null, items: [] }),
+    getFeed: async (_uri: string, options?: { cursor?: string }) => {
+      reads.push(options?.cursor);
+      return options?.cursor === "existing-page"
+        ? { cursor: "last-page", items: [videoPost(2)] }
+        : { cursor: null, items: [videoPost(3)] };
+    },
+    getProfile: async () => profile,
+  };
+  const migrated = await new BlueskyDiscovery(client, undefined, {
+    store,
+  }).read("latest", cursor, "en", [], "video");
+  expect(migrated.items.map((item) => item.id)).toEqual([videoPost(2).id]);
+  expect(migrated.cursor).toBeString();
+  expect(
+    await store.get(`${newScope}:snapshot:${migrated.cursor}`)
+  ).toBeString();
+  expect(
+    await store.get(`${legacyScope}:snapshot:${migrated.cursor}`)
+  ).toBeNull();
+  expect(await store.get(legacyKey)).toBe(legacy);
+  const resumed = await new BlueskyDiscovery(client, undefined, { store }).read(
+    "latest",
+    migrated.cursor ?? undefined,
+    "en",
+    [],
+    "video"
+  );
+  expect(resumed.items.map((item) => item.id)).toEqual([videoPost(3).id]);
+  expect(resumed.cursor).toBeNull();
+  expect(reads).toEqual(["existing-page", "last-page"]);
 });
