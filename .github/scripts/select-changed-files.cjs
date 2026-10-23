@@ -1,6 +1,7 @@
 // Resolves the changed file paths for a push to main.
 //
-// Returns { files, truncated }. `truncated` is true when the API capped the
+// Returns { changes, files, truncated }; changes retains GitHub patch metadata.
+// `truncated` is true when the API capped the
 // file list, meaning `files` is incomplete and callers must fail closed (build
 // everything) rather than risk omitting a change that should have triggered a
 // build.
@@ -25,7 +26,11 @@ async function selectChangedFiles({ github, context, owner, repo, prNumber }) {
       pull_number: prNumber,
       repo,
     });
-    return { files: files.map((file) => file.filename), truncated: false };
+    return {
+      changes: files,
+      files: files.map((file) => file.filename),
+      truncated: false,
+    };
   }
 
   const { before, after } = context.payload;
@@ -37,6 +42,7 @@ async function selectChangedFiles({ github, context, owner, repo, prNumber }) {
     });
     const files = comparison.data.files || [];
     return {
+      changes: files,
       files: files.map((file) => file.filename),
       truncated: files.length >= FILE_LIST_CAP,
     };
@@ -49,6 +55,7 @@ async function selectChangedFiles({ github, context, owner, repo, prNumber }) {
   });
   const files = commit.data.files || [];
   return {
+    changes: files,
     files: files.map((file) => file.filename),
     truncated: files.length >= FILE_LIST_CAP,
   };
