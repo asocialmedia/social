@@ -54,7 +54,7 @@ export async function startProtocols() {
     : undefined;
   const [
     { createProtocolsApp },
-    { createProtocolObserver },
+    { createProtocolObserver, createDiscoveryWarmupFailureReporter },
     { BlueskyClient },
   ] = await Promise.all([
     import("./app"),
@@ -367,9 +367,11 @@ export async function startProtocols() {
   if (redis) {
     const { createDiscoveryLive, discoveryWatchSchema } =
       await import("./discovery-live");
+    const { warmDiscoveryInventory } = await import("./discovery-warmup");
     const { DISCOVERY_WATCH_CHANNEL } =
       await import("@asm/protocols/discovery");
     const publisher = redis;
+    const reportWarmupFailure = createDiscoveryWarmupFailureReporter(logger);
     const subscriber = redis.duplicate({ lazyConnect: true });
     subscriber.on("error", () => {
       // Existing health and storage logging owns Redis availability reporting.
@@ -395,28 +397,16 @@ export async function startProtocols() {
           : selectedDiscovery.read(mode, undefined, locale, topics, content));
         await retain(page, startedAt);
         // Replenish continuation inventory off the viewer's request path.
-        if (page.cursor) {
-          void (async () => {
-            let cursor: string | null = page.cursor;
-            for (
-              let index = 0;
-              cursor && index < 2 && !abort.signal.aborted;
-              index += 1
-            ) {
-              const began = Date.now();
-              // oxlint-disable-next-line no-await-in-loop -- continuation pages must advance in order.
-              const next = await selectedDiscovery.read(
-                mode,
-                cursor,
-                locale,
-                topics,
-                content
-              );
-              // oxlint-disable-next-line no-await-in-loop -- retain each validated page before continuing.
-              await retain(next, began);
-              ({ cursor } = next);
-            }
-          })().catch(() => null);
+        if (selectedInventory) {
+          void warmDiscoveryInventory({
+            head: page,
+            read: (cursor) =>
+              selectedDiscovery.read(mode, cursor, locale, topics, content),
+            retain: (next, began) => selectedInventory.put(next.items, began),
+            signal: abort.signal,
+            store: new RedisDiscoveryStore(redis),
+            watch: { content, explicit, locale, mode, topics },
+          }).catch(reportWarmupFailure);
         }
         return page;
       },
