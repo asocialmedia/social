@@ -7,6 +7,7 @@ import {
   fromPrismaDateTime,
   getTrendingUserIds,
   grantShitposterBadgeIfQualified,
+  isCommunityModerator,
   listDevicePushTokens,
   listPushSubscriptions,
   POST_VIEWS_KEY_PREFIX,
@@ -170,7 +171,7 @@ async function deliverNotificationPush(
         .include("parent", (parent) => parent.select("userId"))
     )
     .include("community", (community) =>
-      community.select("accentColor", "id", "name", "slug")
+      community.select("accentColor", "id", "name", "slug", "_type")
     )
     // The den a den row names, and nothing else about it: the push body says
     // which room a message landed in, and never quotes the message (this server
@@ -185,13 +186,35 @@ async function deliverNotificationPush(
     return;
   }
   if (
-    [
-      "COMMUNITY_JOIN_REQUEST",
-      "COMMUNITY_JOIN_APPROVED",
-      "COMMUNITY_JOIN_DECLINED",
-    ].includes(selectedNotification._type)
+    ["COMMUNITY_JOIN_APPROVED", "COMMUNITY_JOIN_DECLINED"].includes(
+      selectedNotification._type
+    )
   ) {
     return;
+  }
+  const isJoinRequest = selectedNotification._type === "COMMUNITY_JOIN_REQUEST";
+  if (isJoinRequest) {
+    const { communityId, membershipRequestId, recipientId, issuerId } =
+      selectedNotification;
+    if (
+      selectedNotification.read ||
+      selectedNotification.community?._type !== "PRIVATE" ||
+      !communityId ||
+      !membershipRequestId
+    ) {
+      return;
+    }
+    const request = await prisma.orm.public.CommunityMembers.select("id")
+      .where({
+        communityId,
+        id: membershipRequestId,
+        status: "PENDING",
+        userId: issuerId,
+      })
+      .first();
+    if (!request || !(await isCommunityModerator(communityId, recipientId))) {
+      return;
+    }
   }
   const { _type, ...notificationFields } = selectedNotification;
   const notification = {
@@ -206,14 +229,17 @@ async function deliverNotificationPush(
   const result = await dispatchNotificationPush(
     { ...notification, issuer },
     {
+      // Membership request review is currently available on the website only.
       listDeviceTokens: (userId) =>
-        listDevicePushTokens(userId).then((rows) =>
-          rows.map((row) => ({
-            platform: row.platform,
-            provider: row.provider,
-            token: row.token,
-          }))
-        ),
+        isJoinRequest
+          ? Promise.resolve([])
+          : listDevicePushTokens(userId).then((rows) =>
+              rows.map((row) => ({
+                platform: row.platform,
+                provider: row.provider,
+                token: row.token,
+              }))
+            ),
       listSubscriptions: (userId) => listPushSubscriptions(userId),
       logger: {
         error: (message, meta) => log.error(meta ?? {}, message),

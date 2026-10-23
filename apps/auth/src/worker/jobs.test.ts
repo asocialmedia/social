@@ -1,5 +1,55 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import type {
+  DispatchDeps,
+  PushDelivery,
+  PushDispatchResult,
+} from "@asm/notifications/server";
+import type {
+  NotificationCommunity,
+  NotificationRecord,
+} from "@asm/notifications/shared";
+
+type StoredNotification = Omit<
+  NotificationRecord,
+  "type" | "createdAt" | "community"
+> & {
+  _type: NotificationRecord["type"];
+  createdAt: Date;
+  community:
+    | (NotificationCommunity & { _type: "PRIVATE" | "PUBLIC" | "RESTRICTED" })
+    | null;
+};
+function joinRequestNotification(): StoredNotification {
+  return {
+    _type: "COMMUNITY_JOIN_REQUEST",
+    comment: null,
+    commentId: null,
+    community: {
+      _type: "PRIVATE",
+      id: "community-1",
+      name: "Private community",
+      slug: "private",
+    },
+    communityId: "community-1",
+    count: 1,
+    createdAt: new Date(),
+    id: "notif-request",
+    issuer: {
+      avatarUrl: null,
+      displayName: "Applicant",
+      id: "applicant-1",
+      username: "applicant",
+    },
+    issuerId: "applicant-1",
+    membershipRequestId: "request-1",
+    post: null,
+    postId: null,
+    read: false,
+    recipientId: "staff-1",
+  };
+}
+
 describe("worker job processors", () => {
   const deletedObjects: string[] = [];
   const deletedUserIds: string[] = [];
@@ -63,13 +113,44 @@ describe("worker job processors", () => {
   });
   const mockResetDelete = mock(() => 3);
   const mockAliasDelete = mock(() => 2);
+  let notificationRow: StoredNotification | null = null;
+  const mockNotificationFirst = mock(() => Promise.resolve(notificationRow));
+  const mockRequestFirst = mock((): Promise<{ id: string } | null> =>
+    Promise.resolve({ id: "request-1" })
+  );
+  const mockRequestWhere = mock((_where: Record<string, string>) => ({
+    first: mockRequestFirst,
+  }));
+  const mockIsCommunityModerator = mock(() => Promise.resolve(true));
+  const mockDeviceTokens = mock(() =>
+    Promise.resolve([
+      {
+        platform: "android",
+        provider: "fcm",
+        token: "device-token",
+      },
+    ])
+  );
+  let retryablePush = false;
+  const mockDispatch = mock(
+    (
+      _notification: PushDelivery,
+      _deps: DispatchDeps
+    ): Promise<PushDispatchResult> =>
+      Promise.resolve({
+        device: { failed: 0, sent: 0, unregistered: [] },
+        retryable: retryablePush,
+        web: { expired: [], failed: 0, sent: 1 },
+      })
+  );
   const mockPrisma = {
     orm: {
       public: {
+        CommunityMembers: { select: () => ({ where: mockRequestWhere }) },
         Notifications: {
           where: () => {
             const builder = {
-              first: () => Promise.resolve(null),
+              first: mockNotificationFirst,
               include: () => builder,
             };
             return builder;
@@ -106,10 +187,9 @@ describe("worker job processors", () => {
     },
   };
 
-  // Push delivery is out of scope here; the processors only need it to
-  // resolve without touching a transport.
+  // Exercise the worker's delivery policy without contacting push services.
   mock.module("@asm/notifications/server", () => ({
-    dispatchNotificationPush: mock(() => Promise.resolve()),
+    dispatchNotificationPush: mockDispatch,
   }));
 
   mock.module("@asm/db", () => ({
@@ -126,7 +206,8 @@ describe("worker job processors", () => {
     fromPrismaDateTime: (value: Date) => value,
     getTrendingUserIds: mock(() => Promise.resolve(["user-1"])),
     grantShitposterBadgeIfQualified: mockGrantShitposter,
-    listDevicePushTokens: mock(() => Promise.resolve([])),
+    isCommunityModerator: mockIsCommunityModerator,
+    listDevicePushTokens: mockDeviceTokens,
     listPushSubscriptions: mock(() => Promise.resolve([])),
     prisma: mockPrisma,
     pruneDevicePushTokens: mock(() => Promise.resolve(0)),
@@ -157,6 +238,14 @@ describe("worker job processors", () => {
     mockUserDelete.mockClear();
     mockResetDelete.mockClear();
     mockAliasDelete.mockClear();
+    notificationRow = null;
+    retryablePush = false;
+    mockDispatch.mockClear();
+    mockNotificationFirst.mockClear();
+    mockRequestWhere.mockClear();
+    mockRequestFirst.mockClear();
+    mockIsCommunityModerator.mockClear();
+    mockDeviceTokens.mockClear();
   });
 
   test("processPostDeleted deletes media objects and rows and clears view keys", async () => {
@@ -330,6 +419,126 @@ describe("worker job processors", () => {
       "notif-1"
     );
     expect(unreadNotificationCache.decrement).toHaveBeenCalledWith("user-1");
+  });
+
+  test("private join requests push to current staff through browser registrations", async () => {
+    const { processNotificationCreated } = await import("./jobs");
+    notificationRow = joinRequestNotification();
+    await processNotificationCreated({
+      notificationId: notificationRow.id,
+      recipientId: "staff-1",
+    });
+    expect(mockRequestWhere).toHaveBeenCalledWith({
+      communityId: "community-1",
+      id: "request-1",
+      status: "PENDING",
+      userId: "applicant-1",
+    });
+    expect(mockIsCommunityModerator).toHaveBeenCalledWith(
+      "community-1",
+      "staff-1"
+    );
+    expect(mockDispatch).toHaveBeenCalledTimes(1);
+    const [delivery] = mockDispatch.mock.calls;
+    expect(delivery?.[0]).toMatchObject({
+      membershipRequestId: "request-1",
+      recipientId: "staff-1",
+      type: "COMMUNITY_JOIN_REQUEST",
+    });
+    expect(await delivery?.[1].listDeviceTokens("staff-1")).toEqual([]);
+    expect(mockDeviceTokens).not.toHaveBeenCalled();
+  });
+
+  test("withdrawn or already-decided request IDs cannot trigger a push", async () => {
+    const { processNotificationCreated } = await import("./jobs");
+    notificationRow = joinRequestNotification();
+    mockRequestFirst.mockResolvedValueOnce(null);
+    await processNotificationCreated({
+      notificationId: notificationRow.id,
+      recipientId: "staff-1",
+    });
+    expect(mockDispatch).not.toHaveBeenCalled();
+    expect(mockIsCommunityModerator).not.toHaveBeenCalled();
+  });
+
+  test("staff removal, demotion, or bans suppress queued request pushes", async () => {
+    const { processNotificationCreated } = await import("./jobs");
+    notificationRow = joinRequestNotification();
+    mockIsCommunityModerator.mockResolvedValueOnce(false);
+    await processNotificationCreated({
+      notificationId: notificationRow.id,
+      recipientId: "staff-1",
+    });
+    expect(mockDispatch).not.toHaveBeenCalled();
+  });
+
+  test("read requests and requests without current private-community context stay in-app only", async () => {
+    const { processNotificationCreated } = await import("./jobs");
+    const read = { ...joinRequestNotification(), read: true };
+    const missingRequest = {
+      ...joinRequestNotification(),
+      membershipRequestId: null,
+    };
+    const missingCommunity = { ...joinRequestNotification(), community: null };
+    const restricted = joinRequestNotification();
+    if (restricted.community) {
+      restricted.community._type = "RESTRICTED";
+    }
+    for (const row of [read, missingRequest, missingCommunity, restricted]) {
+      notificationRow = row;
+      // oxlint-disable-next-line eslint/no-await-in-loop -- Each delivery reads the shared notification fixture.
+      await processNotificationCreated({
+        notificationId: row.id,
+        recipientId: "staff-1",
+      });
+    }
+    expect(mockDispatch).not.toHaveBeenCalled();
+    expect(mockRequestFirst).not.toHaveBeenCalled();
+  });
+
+  test("approval and decline decisions remain in-app only", async () => {
+    const { processNotificationCreated } = await import("./jobs");
+    for (const type of [
+      "COMMUNITY_JOIN_APPROVED",
+      "COMMUNITY_JOIN_DECLINED",
+    ] as const) {
+      notificationRow = { ...joinRequestNotification(), _type: type };
+      // oxlint-disable-next-line eslint/no-await-in-loop -- Each delivery reads the shared notification fixture.
+      await processNotificationCreated({
+        notificationId: notificationRow.id,
+        recipientId: "staff-1",
+      });
+    }
+    expect(mockDispatch).not.toHaveBeenCalled();
+  });
+
+  test("other notification types retain native push delivery", async () => {
+    const { processNotificationCreated } = await import("./jobs");
+    notificationRow = { ...joinRequestNotification(), _type: "FOLLOW" };
+    await processNotificationCreated({
+      notificationId: notificationRow.id,
+      recipientId: "staff-1",
+    });
+    const [delivery] = mockDispatch.mock.calls;
+    expect(await delivery?.[1].listDeviceTokens("staff-1")).toHaveLength(1);
+    expect(mockDeviceTokens).toHaveBeenCalledWith("staff-1");
+  });
+
+  test("retryable push outages retain the notification ID for unread deduplication", async () => {
+    const { processNotificationCreated } = await import("./jobs");
+    const { unreadNotificationCache } = await import("@asm/db");
+    notificationRow = joinRequestNotification();
+    retryablePush = true;
+    await expect(
+      processNotificationCreated({
+        notificationId: notificationRow.id,
+        recipientId: "staff-1",
+      })
+    ).rejects.toThrow("Push dispatch infrastructure unavailable");
+    expect(unreadNotificationCache.incrementOnce).toHaveBeenCalledWith(
+      "staff-1",
+      "notif-request"
+    );
   });
 
   test("processShitposterCheck returns true when the badge is granted", async () => {
