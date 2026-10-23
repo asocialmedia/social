@@ -41,7 +41,30 @@ const sourceSchema = z.object({
   cursor: z.string().max(4096).optional(),
   exhausted: z.boolean(),
   items: z.array(externalPostSchema).max(50),
+  searchWindow: z
+    .object({ since: z.iso.datetime(), until: z.iso.datetime() })
+    .optional(),
 });
+
+function discoveryLookbackMs(mode: DiscoveryMode) {
+  return (mode === "trending" ? 2 : 7) * 86_400_000;
+}
+
+function earlierSearchWindow(
+  mode: DiscoveryMode,
+  previous?: { since: string; until: string }
+) {
+  const now = Math.floor(Date.now() / 60_000) * 60_000;
+  const earliest = now - discoveryLookbackMs(mode);
+  const until = previous ? Date.parse(previous.since) : now;
+  if (until <= earliest) {
+    return;
+  }
+  return {
+    since: new Date(Math.max(earliest, until - 86_400_000)).toISOString(),
+    until: new Date(until).toISOString(),
+  };
+}
 
 const snapshotSchema = z.object({
   catalogCursor: z.string().max(4096).optional(),
@@ -55,6 +78,7 @@ const snapshotSchema = z.object({
   seen: z.array(z.string().max(512)).max(400),
   sources: z.array(sourceSchema).max(10),
   topics: discoveryTopicsSchema.default([]),
+  windowedSearches: z.array(z.string().max(2048)).max(10).default([]),
 });
 
 type DiscoveryClient = Pick<
@@ -93,7 +117,7 @@ export class BlueskyDiscovery {
   private readonly actors?: string[];
   private readonly store: DiscoveryStore;
   private readonly scope: string;
-  private readonly legacyScope: string;
+  private readonly legacyScopes: string[];
   private readonly timeoutMs: number;
   private readonly sourceTimeoutMs: number;
   private readonly allowExplicit: boolean;
@@ -124,8 +148,8 @@ export class BlueskyDiscovery {
         .update(JSON.stringify([version, actors, this.allowExplicit]))
         .digest("hex")
         .slice(0, 16);
-    this.scope = scopeFor("dynamic-v16");
-    this.legacyScope = scopeFor("dynamic-v15");
+    this.scope = scopeFor("dynamic-v17");
+    this.legacyScopes = ["dynamic-v16", "dynamic-v15"].map(scopeFor);
     this.timeoutMs = options.timeoutMs ?? 12_000;
     this.sourceTimeoutMs = options.sourceTimeoutMs ?? 2500;
     if (
@@ -196,14 +220,20 @@ export class BlueskyDiscovery {
       this.store.get(this.snapshotKey(cursor)),
       signal
     );
-    // Import old cursors, but only write new snapshots where old replicas cannot strip deferred state.
-    return (
-      current ??
-      (await abortable(
-        this.store.get(`${this.legacyScope}:snapshot:${cursor}`),
+    // Older readers must not strip retained source cursors or search windows during a rolling deploy.
+    if (current) {
+      return current;
+    }
+    for (const scope of this.legacyScopes) {
+      const saved = await abortable(
+        this.store.get(`${scope}:snapshot:${cursor}`),
         signal
-      ))
-    );
+      );
+      if (saved) {
+        return saved;
+      }
+    }
+    return null;
   }
 
   async refreshHead(
@@ -407,6 +437,7 @@ export class BlueskyDiscovery {
         items: [],
       })),
       topics,
+      windowedSearches: [],
     };
     if (
       snapshot.content !== content ||
@@ -436,7 +467,7 @@ export class BlueskyDiscovery {
       this.client.getSuggestedFeeds &&
       !snapshot.catalogExhausted &&
       snapshot.catalogFeeds.length === 0 &&
-      snapshot.deferredSources.length === 0 &&
+      snapshot.deferredSources.every((source) => source.searchWindow) &&
       (snapshot.sources.length === 0 ||
         snapshot.sources.every(
           (source) => source.exhausted && source.items.length === 0
@@ -532,6 +563,9 @@ export class BlueskyDiscovery {
             ]),
           ]
             .filter((topic): topic is string => Boolean(topic))
+            .filter(
+              (topic) => !snapshot.windowedSearches.includes(`search:${topic}`)
+            )
             .map((topic) => ({
               actor: `search:${topic}`,
               cursor: undefined,
@@ -554,6 +588,9 @@ export class BlueskyDiscovery {
         exhausted: false,
         items: [],
       }));
+    }
+    if (snapshot.sources.length === 0 && snapshot.deferredSources.length > 0) {
+      snapshot.sources = snapshot.deferredSources.splice(0, 4);
     }
     if (snapshot.sources.length === 0) {
       throw new ProtocolError(
@@ -584,13 +621,18 @@ export class BlueskyDiscovery {
             attempt += 1
           ) {
             const options = {
-              cursor: source.cursor,
+              cursor: source.searchWindow ? undefined : source.cursor,
               language: locale && locale !== "all" ? locale : undefined,
               limit: this.actors ? 30 : 16,
-              since: new Date(
-                Math.floor(Date.now() / 60_000) * 60_000 -
-                  (mode === "trending" ? 2 : 7) * 86_400_000
-              ).toISOString(),
+              since:
+                source.searchWindow?.since ??
+                new Date(
+                  Math.floor(Date.now() / 60_000) * 60_000 -
+                    discoveryLookbackMs(mode)
+                ).toISOString(),
+              ...(source.searchWindow
+                ? { until: source.searchWindow.until }
+                : {}),
             };
             if (content === "video" || mode === "trending") {
               options.limit = 50;
@@ -643,11 +685,40 @@ export class BlueskyDiscovery {
                 (!topics.length ||
                   topics.some((topic) => externalTopicMatch(post, topic) > 0))
             );
-            source.cursor = page.cursor ?? undefined;
-            source.exhausted = !page.cursor;
+            if (source.searchWindow) {
+              // Each bounded public date query samples a day without requiring its denied opaque cursor.
+              source.searchWindow = earlierSearchWindow(
+                mode,
+                source.searchWindow
+              );
+              source.cursor = undefined;
+              source.exhausted = !source.searchWindow;
+            } else {
+              source.cursor = page.cursor ?? undefined;
+              source.exhausted = !page.cursor;
+            }
           }
           succeeded += 1;
         } catch (error) {
+          if (
+            !this.actors &&
+            content === "video" &&
+            source.actor.startsWith("search:") &&
+            source.cursor &&
+            !source.searchWindow &&
+            error instanceof ProtocolError &&
+            (error.code === "restricted" || error.code === "invalid_input")
+          ) {
+            source.searchWindow = earlierSearchWindow(mode);
+            if (!snapshot.windowedSearches.includes(source.actor)) {
+              snapshot.windowedSearches.push(source.actor);
+            }
+            source.cursor = undefined;
+            source.exhausted = !source.searchWindow;
+            partial = true;
+            succeeded += 1;
+            return;
+          }
           if (
             error instanceof ProtocolError &&
             (error.code === "restricted" ||
@@ -667,6 +738,17 @@ export class BlueskyDiscovery {
                 : error instanceof Error &&
                   (error.name === "AbortError" ||
                     error.name === "TimeoutError");
+            if (
+              !this.actors &&
+              this.client.getSuggestedFeeds &&
+              source.searchWindow &&
+              unavailable
+            ) {
+              // Save the failing window while healthy catalog sources get a turn.
+              snapshot.deferredSources.push({ ...source });
+              source.exhausted = true;
+              succeeded += 1;
+            }
             // An unavailable search endpoint must not prevent discovery from trying public generators.
             if (
               !this.actors &&
@@ -678,6 +760,7 @@ export class BlueskyDiscovery {
                   (candidate) => !candidate.actor.startsWith("search:")
                 )) &&
               source.actor.startsWith("search:") &&
+              !source.searchWindow &&
               unavailable
             ) {
               source.exhausted = true;
@@ -817,7 +900,11 @@ export class BlueskyDiscovery {
       !this.actors &&
       content === "video" &&
       snapshot.sources.every((source) => source.items.length === 0) &&
-      (snapshot.catalogFeeds.length > 0 || snapshot.deferredSources.length > 0)
+      (snapshot.catalogFeeds.length > 0 ||
+        (snapshot.deferredSources.length > 0 &&
+          (snapshot.catalogExhausted ||
+            snapshot.sources.some((source) => !source.exhausted) ||
+            snapshot.deferredSources.some((source) => !source.searchWindow))))
     ) {
       const waiting = snapshot.sources.filter((source) => !source.exhausted);
       snapshot.sources =

@@ -1367,63 +1367,358 @@ test.each(["all", "video"] as const)(
   }
 );
 
-test("legacy cursors migrate into an isolated snapshot scope across replicas", async () => {
-  const store = new MemoryDiscoveryStore();
-  const legacyScope = defaultDiscoveryScope("dynamic-v15");
-  const newScope = defaultDiscoveryScope("dynamic-v16");
-  const cursor = crypto.randomUUID();
-  const legacyKey = `${legacyScope}:snapshot:${cursor}`;
-  const legacy = JSON.stringify({
-    catalogExhausted: true,
-    catalogFeeds: [],
-    content: "video",
-    locale: "en",
-    mode: "latest",
-    page: 1,
-    seen: [videoPost(1).id],
-    sources: [
-      {
-        actor: publicFeed,
-        cursor: "existing-page",
-        exhausted: false,
-        items: [],
+test.each(["personalized", "trending"] as const)(
+  "denied %s video search cursors use bounded date windows across replicas",
+  async (mode) => {
+    const days = mode === "trending" ? 2 : 7;
+    const store = new MemoryDiscoveryStore();
+    const windows: { since: string; until: string }[] = [];
+    let searchReads = 0;
+    let catalogReads = 0;
+    let failWindow = true;
+    let failedUntil: string | undefined;
+    const excludedAuthor = "did:web:excluded.test";
+    const client = {
+      allowsRecommendations: async (author: string) =>
+        author !== excludedAuthor,
+      getAuthorFeed: async () => ({ cursor: null, items: [] }),
+      getFeed: async () => ({
+        cursor: null,
+        items: [{ ...videoPost(90), text: "Anime animation" }],
+      }),
+      getProfile: async () => profile,
+      getSuggestedFeeds: async () => {
+        catalogReads += 1;
+        return {
+          cursor: null,
+          items: [{ displayName: "Anime", uri: publicFeed }],
+        };
       },
-    ],
-    topics: [],
-  });
-  await store.set(legacyKey, legacy, 900_000);
-  const reads: (string | undefined)[] = [];
-  const client = {
-    allowsRecommendations: async () => true,
-    getAuthorFeed: async () => ({ cursor: null, items: [] }),
-    getFeed: async (_uri: string, options?: { cursor?: string }) => {
-      reads.push(options?.cursor);
-      return options?.cursor === "existing-page"
-        ? { cursor: "last-page", items: [videoPost(2)] }
-        : { cursor: null, items: [videoPost(3)] };
-    },
-    getProfile: async () => profile,
-  };
-  const migrated = await new BlueskyDiscovery(client, undefined, {
-    store,
-  }).read("latest", cursor, "en", [], "video");
-  expect(migrated.items.map((item) => item.id)).toEqual([videoPost(2).id]);
-  expect(migrated.cursor).toBeString();
-  expect(
-    await store.get(`${newScope}:snapshot:${migrated.cursor}`)
-  ).toBeString();
-  expect(
-    await store.get(`${legacyScope}:snapshot:${migrated.cursor}`)
-  ).toBeNull();
-  expect(await store.get(legacyKey)).toBe(legacy);
-  const resumed = await new BlueskyDiscovery(client, undefined, { store }).read(
-    "latest",
-    migrated.cursor ?? undefined,
-    "en",
-    [],
-    "video"
-  );
-  expect(resumed.items.map((item) => item.id)).toEqual([videoPost(3).id]);
-  expect(resumed.cursor).toBeNull();
-  expect(reads).toEqual(["existing-page", "last-page"]);
-});
+      searchPosts: async (
+        _query: string,
+        _sort: "top" | "latest",
+        options?: { cursor?: string; since?: string; until?: string }
+      ) => {
+        searchReads += 1;
+        if (options?.cursor) {
+          throw new ProtocolError(
+            "restricted",
+            "Search pagination unavailable"
+          );
+        }
+        if (options?.since && options.until) {
+          if (failWindow) {
+            failWindow = false;
+            failedUntil = options.until;
+            throw new ProtocolError("unavailable", "Temporary window outage");
+          }
+          windows.push({ since: options.since, until: options.until });
+          return {
+            cursor: "also-denied",
+            items: [
+              { ...videoPost(1), text: "Anime animation" },
+              { ...videoPost(1 + windows.length), text: "Anime animation" },
+              {
+                ...videoPost(100 + windows.length),
+                text: "Unrelated gardening",
+              },
+              {
+                ...videoPost(200 + windows.length),
+                languages: ["ja"],
+                text: "Anime animation",
+              },
+              {
+                ...post(300 + windows.length, excludedAuthor),
+                media: videoPost(300 + windows.length).media,
+                text: "Anime animation",
+              },
+            ],
+          };
+        }
+        return {
+          cursor: "denied-page",
+          items: [{ ...videoPost(1), text: "Anime animation" }],
+        };
+      },
+    };
+    let page = await new BlueskyDiscovery(client, undefined, { store }).read(
+      mode,
+      undefined,
+      "en",
+      ["anime"],
+      "video"
+    );
+    const ids = page.items.map((item) => item.id);
+    const failed = await new BlueskyDiscovery(client, undefined, {
+      store,
+    }).read(mode, page.cursor ?? undefined, "en", ["anime"], "video");
+    expect(failed.items).toHaveLength(0);
+    const unavailable = await new BlueskyDiscovery(client, undefined, {
+      store,
+    }).read(mode, failed.cursor ?? undefined, "en", ["anime"], "video");
+    expect(unavailable.items).toHaveLength(0);
+    expect(unavailable.cursor).toBeString();
+    page = unavailable;
+    for (let index = 0; index < days + 3 && page.cursor; index += 1) {
+      page = await new BlueskyDiscovery(client, undefined, { store }).read(
+        mode,
+        page.cursor,
+        "en",
+        ["anime"],
+        "video"
+      );
+      ids.push(...page.items.map((item) => item.id));
+    }
+    expect(windows).toHaveLength(days);
+    expect(searchReads).toBe(days + 3);
+    expect(windows[0]?.until).toBe(failedUntil);
+    expect(catalogReads).toBeGreaterThan(0);
+    expect(page.cursor).toBeNull();
+    expect(ids).toHaveLength(days + 2);
+    expect(new Set(ids).size).toBe(ids.length);
+    for (let index = 0; index < windows.length; index += 1) {
+      const window = windows[index];
+      const duration =
+        Date.parse(window?.until ?? "") - Date.parse(window?.since ?? "");
+      expect(duration).toBeGreaterThan(0);
+      expect(duration).toBeLessThanOrEqual(86_400_000);
+      if (index > 0) {
+        expect(window?.until).toBe(windows[index - 1]?.since);
+      }
+    }
+  }
+);
+
+test.each(["unavailable", "timeout"])(
+  "failed search windows yield to every catalog batch and retain their position (%s)",
+  async (failure) => {
+    const store = new MemoryDiscoveryStore();
+    const cursor = crypto.randomUUID();
+    const until = new Date(
+      Math.floor(Date.now() / 60_000) * 60_000
+    ).toISOString();
+    const since = new Date(Date.parse(until) - 86_400_000).toISOString();
+    await store.set(
+      `${defaultDiscoveryScope("dynamic-v17")}:snapshot:${cursor}`,
+      JSON.stringify({
+        catalogExhausted: false,
+        catalogFeeds: [],
+        content: "video",
+        locale: "en",
+        mode: "personalized",
+        page: 2,
+        seen: [],
+        sources: [
+          {
+            actor: "search:anime",
+            exhausted: false,
+            items: [],
+            searchWindow: { since, until },
+          },
+        ],
+        topics: ["anime"],
+        windowedSearches: ["search:anime"],
+      }),
+      900_000
+    );
+    let recover = false;
+    const windows: (string | undefined)[] = [];
+    const feeds = Array.from({ length: 5 }, (_, i) => `${publicFeed}${i}`);
+    const visited: string[] = [];
+    const client = {
+      allowsRecommendations: async () => true,
+      getAuthorFeed: async () => ({ cursor: null, items: [] }),
+      getFeed: async (uri: string) => {
+        visited.push(uri);
+        return {
+          cursor: null,
+          items: [
+            { ...videoPost(10 + feeds.indexOf(uri)), text: "Anime animation" },
+          ],
+        };
+      },
+      getProfile: async () => profile,
+      getSuggestedFeeds: async () => ({
+        cursor: null,
+        items: feeds.map((uri) => ({ displayName: "Anime", uri })),
+      }),
+      searchPosts: async (
+        _q: string,
+        _s: "latest" | "top",
+        options?: { since?: string }
+      ) => {
+        windows.push(options?.since);
+        if (!recover) {
+          if (failure === "timeout") {
+            throw new DOMException("Window timeout", "TimeoutError");
+          }
+          throw new ProtocolError("unavailable", "Window outage");
+        }
+        return {
+          cursor: null,
+          items: [{ ...videoPost(99), text: "Anime animation" }],
+        };
+      },
+    };
+    let next: string | undefined = cursor;
+    const ids: string[] = [];
+    for (let index = 0; index < 4; index += 1) {
+      const page = await new BlueskyDiscovery(client, undefined, {
+        store,
+      }).read("personalized", next, "en", ["anime"], "video");
+      ids.push(...page.items.map((p) => p.id));
+      expect(page.cursor).toBeString();
+      next = page.cursor ?? undefined;
+    }
+    expect(visited.toSorted()).toEqual(feeds.toSorted());
+    expect(ids).toHaveLength(5);
+    expect(windows).toEqual([since, since]);
+    recover = true;
+    const recovered = await new BlueskyDiscovery(client, undefined, {
+      store,
+    }).read("personalized", next, "en", ["anime"], "video");
+    expect(recovered.items.map((p) => p.id)).toEqual([videoPost(99).id]);
+    expect(windows[2]).toBe(since);
+  }
+);
+
+test.each([null, "next-empty-catalog"])(
+  "empty catalogs restore a failed search window before recovery (%s)",
+  async (catalogCursor) => {
+    const store = new MemoryDiscoveryStore();
+    const cursor = crypto.randomUUID();
+    const until = new Date(
+      Math.floor(Date.now() / 60_000) * 60_000
+    ).toISOString();
+    const since = new Date(Date.parse(until) - 86_400_000).toISOString();
+    await store.set(
+      `${defaultDiscoveryScope("dynamic-v17")}:snapshot:${cursor}`,
+      JSON.stringify({
+        catalogExhausted: false,
+        catalogFeeds: [],
+        content: "video",
+        locale: "en",
+        mode: "personalized",
+        page: 2,
+        seen: [],
+        sources: [
+          {
+            actor: "search:anime",
+            exhausted: false,
+            items: [],
+            searchWindow: { since, until },
+          },
+        ],
+        topics: ["anime"],
+        windowedSearches: ["search:anime"],
+      }),
+      900_000
+    );
+    let recover = false;
+    let catalogs = 0;
+    const windows: (string | undefined)[] = [];
+    const client = {
+      allowsRecommendations: async () => true,
+      getAuthorFeed: async () => ({ cursor: null, items: [] }),
+      getProfile: async () => profile,
+      getSuggestedFeeds: async () => {
+        catalogs += 1;
+        return { cursor: catalogCursor, items: [] };
+      },
+      searchPosts: async (
+        _q: string,
+        _s: "latest" | "top",
+        options?: { since?: string }
+      ) => {
+        windows.push(options?.since);
+        if (!recover) {
+          throw new ProtocolError("unavailable", "Temporary window outage");
+        }
+        return {
+          cursor: null,
+          items: [{ ...videoPost(99), text: "Anime animation" }],
+        };
+      },
+    };
+    let next: string | undefined = cursor;
+    for (let index = 0; index < 2; index += 1) {
+      const page = await new BlueskyDiscovery(client, undefined, {
+        store,
+      }).read("personalized", next, "en", ["anime"], "video");
+      expect(page.items).toHaveLength(0);
+      expect(page.cursor).toBeString();
+      next = page.cursor ?? undefined;
+    }
+    expect(catalogs).toBeGreaterThan(0);
+    recover = true;
+    const page = await new BlueskyDiscovery(client, undefined, { store }).read(
+      "personalized",
+      next,
+      "en",
+      ["anime"],
+      "video"
+    );
+    expect(page.items.map((p) => p.id)).toEqual([videoPost(99).id]);
+    expect(windows.slice(0, 3)).toEqual([since, since, since]);
+  }
+);
+
+test.each(["dynamic-v15", "dynamic-v16"])(
+  "%s cursors migrate into an isolated snapshot scope across replicas",
+  async (version) => {
+    const store = new MemoryDiscoveryStore();
+    const legacyScope = defaultDiscoveryScope(version);
+    const newScope = defaultDiscoveryScope("dynamic-v17");
+    const cursor = crypto.randomUUID();
+    const legacyKey = `${legacyScope}:snapshot:${cursor}`;
+    const legacy = JSON.stringify({
+      catalogExhausted: true,
+      catalogFeeds: [],
+      content: "video",
+      locale: "en",
+      mode: "latest",
+      page: 1,
+      seen: [videoPost(1).id],
+      sources: [
+        {
+          actor: publicFeed,
+          cursor: "existing-page",
+          exhausted: false,
+          items: [],
+        },
+      ],
+      topics: [],
+    });
+    await store.set(legacyKey, legacy, 900_000);
+    const reads: (string | undefined)[] = [];
+    const client = {
+      allowsRecommendations: async () => true,
+      getAuthorFeed: async () => ({ cursor: null, items: [] }),
+      getFeed: async (_uri: string, options?: { cursor?: string }) => {
+        reads.push(options?.cursor);
+        return options?.cursor === "existing-page"
+          ? { cursor: "last-page", items: [videoPost(2)] }
+          : { cursor: null, items: [videoPost(3)] };
+      },
+      getProfile: async () => profile,
+    };
+    const migrated = await new BlueskyDiscovery(client, undefined, {
+      store,
+    }).read("latest", cursor, "en", [], "video");
+    expect(migrated.items.map((item) => item.id)).toEqual([videoPost(2).id]);
+    expect(migrated.cursor).toBeString();
+    expect(
+      await store.get(`${newScope}:snapshot:${migrated.cursor}`)
+    ).toBeString();
+    expect(
+      await store.get(`${legacyScope}:snapshot:${migrated.cursor}`)
+    ).toBeNull();
+    expect(await store.get(legacyKey)).toBe(legacy);
+    const resumed = await new BlueskyDiscovery(client, undefined, {
+      store,
+    }).read("latest", migrated.cursor ?? undefined, "en", [], "video");
+    expect(resumed.items.map((item) => item.id)).toEqual([videoPost(3).id]);
+    expect(resumed.cursor).toBeNull();
+    expect(reads).toEqual(["existing-page", "last-page"]);
+  }
+);

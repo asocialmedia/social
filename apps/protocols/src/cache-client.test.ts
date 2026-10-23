@@ -7,6 +7,40 @@ import { createCachedBlueskyClient } from "./cache-client";
 import { inventoryPost } from "./discovery-fixtures";
 
 describe("createCachedBlueskyClient", () => {
+  test("search date windows do not collide and matching reads share the cache", async () => {
+    const memory = new Map<string, string>();
+    const redis = {
+      get: (key: string) => Promise.resolve(memory.get(key) ?? null),
+      set: (key: string, value: string) => {
+        memory.set(key, value);
+        return Promise.resolve("OK");
+      },
+    } as unknown as Redis;
+    let reads = 0;
+    const target = {
+      searchPosts: () => {
+        reads += 1;
+        return { cursor: null, items: [inventoryPost(reads)] };
+      },
+    } as unknown as BlueskyClient;
+    const first = createCachedBlueskyClient(target, redis);
+    const second = createCachedBlueskyClient(target, redis);
+    const since = "2026-10-18T00:00:00.000Z";
+    const window = { since, until: "2026-10-19T00:00:00.000Z" };
+    const pages = await Promise.all([
+      first.searchPosts("anime", "top", window),
+      first.searchPosts("anime", "top", window),
+    ]);
+    expect(reads).toBe(1);
+    expect(await second.searchPosts("anime", "top", window)).toEqual(pages[0]);
+    const other = await second.searchPosts("anime", "top", {
+      since,
+      until: "2026-10-20T00:00:00.000Z",
+    });
+    expect(reads).toBe(2);
+    expect(other.items[0]?.id).not.toBe(pages[0]?.items[0]?.id);
+  });
+
   test("a concurrent cold burst coalesces one read and feed options never collide", async () => {
     const memory = new Map<string, string>();
     const redisMock = {
