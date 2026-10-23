@@ -660,11 +660,15 @@ test("discovery search sends its freshness window to AppView", async () => {
       expect(new URL(url).searchParams.get("since")).toBe(
         "2026-10-18T00:00:00.000Z"
       );
+      expect(new URL(url).searchParams.get("until")).toBe(
+        "2026-10-19T00:00:00.000Z"
+      );
       return Response.json({ posts: [] });
     },
   });
   await client.searchPosts("engineering", "latest", {
     since: "2026-10-18T00:00:00.000Z",
+    until: "2026-10-19T00:00:00.000Z",
   });
   client.close();
 });
@@ -749,6 +753,64 @@ test("a restricted public repository does not cool down other actors' social rec
   });
   expect(await client.getPublicSocialRecords(other)).toEqual([]);
   expect(requested.filter((repo) => repo === other)).toHaveLength(3);
+});
+
+test("a denied search cursor does not cool down its healthy head", async () => {
+  let now = 0;
+  let reads = 0;
+  const client = new BlueskyClient({
+    fetch: async (raw) => {
+      reads += 1;
+      return new URL(raw).searchParams.has("cursor")
+        ? new Response(null, { status: 403 })
+        : Response.json({ cursor: "denied-page", posts: [] });
+    },
+    maxRetries: 0,
+    now: () => now,
+  });
+  await client.searchPosts("anime", "top");
+  await expect(
+    client.searchPosts("anime", "top", { cursor: "denied-page" })
+  ).rejects.toMatchObject({ code: "restricted" });
+  await expect(client.searchPosts("anime", "top")).resolves.toMatchObject({
+    cursor: "denied-page",
+  });
+  expect(reads).toBe(2);
+  now = 20_000;
+  await expect(client.searchPosts("anime", "top")).resolves.toMatchObject({
+    cursor: "denied-page",
+  });
+  await expect(
+    client.searchPosts("anime", "top", { cursor: "denied-page" })
+  ).rejects.toMatchObject({ code: "restricted" });
+  expect(reads).toBe(3);
+  client.close();
+});
+
+test("search date windows still honor the upstream rate-limit pause", async () => {
+  let reads = 0;
+  const client = new BlueskyClient({
+    fetch: async () => {
+      reads += 1;
+      return new Response(null, {
+        headers: { "retry-after": "30" },
+        status: 429,
+      });
+    },
+    maxRetries: 0,
+    now: () => 0,
+  });
+  await expect(client.searchPosts("anime", "top")).rejects.toMatchObject({
+    code: "rate_limited",
+  });
+  await expect(
+    client.searchPosts("anime", "top", { until: "2026-10-19T00:00:00.000Z" })
+  ).rejects.toMatchObject({ code: "rate_limited" });
+  await expect(client.searchPosts("software", "top")).rejects.toMatchObject({
+    code: "rate_limited",
+  });
+  expect(reads).toBe(1);
+  client.close();
 });
 
 test("an invalid continuation does not cool down a healthy feed head", async () => {

@@ -103,6 +103,7 @@ const pageOptionsSchema = z.object({
     .optional(),
   limit: z.number().int().min(1).max(50).default(20),
   since: z.iso.datetime().optional(),
+  until: z.iso.datetime().optional(),
 });
 export interface FeedReadOptions {
   includePins?: boolean;
@@ -110,6 +111,7 @@ export interface FeedReadOptions {
   cursor?: string;
   language?: string;
   since?: string;
+  until?: string;
 }
 export type AuthorFeedTab = "posts" | "replies" | "media";
 
@@ -484,6 +486,7 @@ export class BlueskyClient {
         q: parsedQuery.data,
         sort,
         ...(parsed.data.since ? { since: parsed.data.since } : {}),
+        ...(parsed.data.until ? { until: parsed.data.until } : {}),
         ...(parsed.data.cursor ? { cursor: parsed.data.cursor } : {}),
         ...(parsed.data.language
           ? { lang: parsed.data.language.split("-")[0] ?? "en" }
@@ -627,7 +630,10 @@ export class BlueskyClient {
     const query = new URLSearchParams(parameters);
     query.sort();
     const key = `${this.generation}:${operation}:${language ?? ""}:${query}`;
-    const resource = `${operation}:${parameters.feed ?? parameters.actor ?? parameters.repo ?? parameters.q ?? ""}:${parameters.collection ?? ""}`;
+    const resource =
+      operation === "app.bsky.feed.searchPosts"
+        ? `${operation}:${query}`
+        : `${operation}:${parameters.feed ?? parameters.actor ?? parameters.repo ?? ""}:${parameters.collection ?? ""}`;
     const resourceFailure = this.unavailable.get(resource);
     if (resourceFailure && resourceFailure.until > this.options.now()) {
       throw new ProtocolError(
@@ -929,6 +935,7 @@ export class BlueskyClient {
             q: query.get("q") ?? "",
             since: query.get("since") ?? undefined,
             sort: query.get("sort") ?? "top",
+            until: query.get("until") ?? undefined,
           },
           options
         );
