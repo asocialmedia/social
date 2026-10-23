@@ -251,7 +251,7 @@ test("failed inventory writes cannot skip a page", async () => {
   expect(reads).toEqual(["first", "first"]);
 });
 
-test("explicit policy, locale and topics keep separate warmup positions", async () => {
+test("explicit policy, locale, topics, content and mode keep separate warmup positions", async () => {
   const store = new MemoryDiscoveryStore();
   const reads: string[] = [];
   const options = {
@@ -278,7 +278,15 @@ test("explicit policy, locale and topics keep separate warmup positions", async 
     ...options,
     watch: { ...watch, topics: ["software"] },
   });
-  expect(reads).toEqual(["first", "first", "first", "first"]);
+  await warmDiscoveryInventory({
+    ...options,
+    watch: { ...watch, content: "all" },
+  });
+  await warmDiscoveryInventory({
+    ...options,
+    watch: { ...watch, mode: "latest" },
+  });
+  expect(reads).toEqual(["first", "first", "first", "first", "first", "first"]);
 });
 
 test("partial empty results retain their continuation for the next refresh", async () => {

@@ -54,7 +54,7 @@ export async function startProtocols() {
     : undefined;
   const [
     { createProtocolsApp },
-    { createProtocolObserver },
+    { createProtocolObserver, createDiscoveryWarmupFailureReporter },
     { BlueskyClient },
   ] = await Promise.all([
     import("./app"),
@@ -371,6 +371,7 @@ export async function startProtocols() {
     const { DISCOVERY_WATCH_CHANNEL } =
       await import("@asm/protocols/discovery");
     const publisher = redis;
+    const reportWarmupFailure = createDiscoveryWarmupFailureReporter(logger);
     const subscriber = redis.duplicate({ lazyConnect: true });
     subscriber.on("error", () => {
       // Existing health and storage logging owns Redis availability reporting.
@@ -405,7 +406,7 @@ export async function startProtocols() {
             signal: abort.signal,
             store: new RedisDiscoveryStore(redis),
             watch: { content, explicit, locale, mode, topics },
-          }).catch(() => null);
+          }).catch(reportWarmupFailure);
         }
         return page;
       },

@@ -26,6 +26,24 @@ const requestDuration = meter.createHistogram(
   { unit: "ms" }
 );
 
+export function createDiscoveryWarmupFailureReporter(
+  logger: ProtocolLogger,
+  now = Date.now
+) {
+  let lastWarningAt: number | undefined;
+  return () => {
+    const at = now();
+    if (lastWarningAt !== undefined && at - lastWarningAt < 30_000) {
+      return;
+    }
+    lastWarningAt = at;
+    logger.warn(
+      { event: "discovery.inventory.warmup_failed" },
+      "Discovery inventory warmup failed"
+    );
+  };
+}
+
 export function createProtocolObserver(
   logger: ProtocolLogger,
   now = Date.now

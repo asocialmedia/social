@@ -2,7 +2,36 @@ import { expect, mock, test } from "bun:test";
 
 import { ProtocolError } from "@asm/protocols/contracts";
 
-import { createProtocolObserver, observeRequest } from "./observability";
+import {
+  createDiscoveryWarmupFailureReporter,
+  createProtocolObserver,
+  observeRequest,
+} from "./observability";
+
+test("detached warmup failures emit sanitized warnings with a cooldown", async () => {
+  let now = 0;
+  const logger = { debug: mock(), error: mock(), info: mock(), warn: mock() };
+  const report = createDiscoveryWarmupFailureReporter(logger, () => now);
+  await Promise.reject(new Error("sensitive cursor and stored payload")).catch(
+    report
+  );
+  report();
+  now = 29_999;
+  report();
+  expect(logger.warn).toHaveBeenCalledTimes(1);
+  now = 30_000;
+  report();
+  expect(logger.warn.mock.calls).toEqual([
+    [
+      { event: "discovery.inventory.warmup_failed" },
+      "Discovery inventory warmup failed",
+    ],
+    [
+      { event: "discovery.inventory.warmup_failed" },
+      "Discovery inventory warmup failed",
+    ],
+  ]);
+});
 
 test("normal discovery expiry is debug telemetry while malformed requests still warn", async () => {
   const logger = { debug: mock(), error: mock(), info: mock(), warn: mock() };
