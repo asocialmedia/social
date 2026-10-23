@@ -277,7 +277,7 @@ export default function ResponseParentCard({
     return (
       <div
         className={cn(
-          "border-border/60 bg-muted/40 text-muted-foreground flex items-center gap-2 rounded-xl border px-3 py-2 text-xs",
+          "surface-3d text-muted-foreground flex items-center gap-2 rounded-xl! px-3 py-2 text-xs",
           className
         )}
       >
@@ -287,6 +287,16 @@ export default function ResponseParentCard({
           <p className="mt-1">
             The original may have been removed or made private.
           </p>
+          <Link
+            className="text-primary mt-2 inline-block font-medium hover:underline"
+            href={
+              parentPostId.startsWith("at://")
+                ? `/network/bluesky?uri=${encodeURIComponent(parentPostId)}`
+                : `/posts/${parentPostId}`
+            }
+          >
+            Check original post
+          </Link>
         </div>
       </div>
     );

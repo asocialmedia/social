@@ -229,6 +229,12 @@ const ExploreClient: React.FC = () => {
       ),
     [remoteGusts.data, network.settings]
   );
+  const {
+    fetchNextPage: fetchNextTrendingGusts,
+    hasNextPage: hasMoreTrendingGusts,
+    isFetching: fetchingTrendingGusts,
+    isError: trendingGustsError,
+  } = remoteGusts;
   useEffect(() => {
     if (remoteGusts.newItems.length) {
       remoteGusts.showNewItems();
@@ -239,20 +245,28 @@ const ExploreClient: React.FC = () => {
       activeTab === "gusts" ||
       debouncedSearch.trim() ||
       trendingRemoteGusts.length >= 12 ||
-      !remoteGusts.hasNextPage ||
-      remoteGusts.isFetching ||
-      remoteGusts.isError
+      !hasMoreTrendingGusts ||
+      fetchingTrendingGusts ||
+      trendingGustsError
     ) {
       return;
     }
     const timer = window.setTimeout(
       () => {
-        void remoteGusts.fetchNextPage({ cancelRefetch: false });
+        void fetchNextTrendingGusts({ cancelRefetch: false });
       },
       trendingRemoteGusts.length ? 250 : 1500
     );
     return () => window.clearTimeout(timer);
-  }, [activeTab, debouncedSearch, trendingRemoteGusts.length, remoteGusts]);
+  }, [
+    activeTab,
+    debouncedSearch,
+    trendingRemoteGusts.length,
+    hasMoreTrendingGusts,
+    fetchingTrendingGusts,
+    trendingGustsError,
+    fetchNextTrendingGusts,
+  ]);
 
   const queryKey = useMemo(
     () => [

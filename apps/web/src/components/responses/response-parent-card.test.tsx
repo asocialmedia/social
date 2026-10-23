@@ -6,7 +6,7 @@ import { AppRouterContext } from "next/dist/shared/lib/app-router-context.shared
 import type { ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import { ResponseParentRow } from "./response-parent-card";
+import ResponseParentCard, { ResponseParentRow } from "./response-parent-card";
 
 const router = {
   back: () => {},
@@ -48,6 +48,20 @@ const parent: PostParentData = {
 };
 
 describe("response source community rail", () => {
+  test.each([parent.id, "at://did:plc:alice/app.bsky.feed.post/source"])(
+    "a compact unavailable source retains a recovery link for %s",
+    (id) => {
+      const html = renderSource(
+        <ResponseParentCard parent={null} parentPostId={id} />
+      );
+      expect(html).toContain("Check original post");
+      expect(html).toContain(
+        id.startsWith("at://")
+          ? `/network/bluesky?uri=${encodeURIComponent(id)}`
+          : `/posts/${id}`
+      );
+    }
+  );
   test("Bluesky source uses the shared full parent row, rail and internal profile route", () => {
     const source: ExternalPost = {
       author: {

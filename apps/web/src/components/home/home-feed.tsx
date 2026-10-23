@@ -498,7 +498,12 @@ export default function HomeFeed({
     !external.isFetching &&
     !isFetchingCommunity ? (
       <div className="flex justify-center p-4">
-        <Button onClick={() => handleBottomReached(true)} variant="premium">
+        <Button
+          onClick={() =>
+            communityFailed ? retryFailedSources() : handleBottomReached(true)
+          }
+          variant="premium"
+        >
           Load more posts
         </Button>
       </div>

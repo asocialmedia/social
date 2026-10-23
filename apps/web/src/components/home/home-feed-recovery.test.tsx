@@ -169,9 +169,13 @@ test("a failed continuation keeps loaded posts, shows the shared illustrated err
   }
 });
 
-test.each([true, false])(
-  "community failure retries its own query with global posts %s",
-  async (hasGlobalPosts) => {
+test.each([
+  { hasGlobalPosts: true, retryLabel: "Try again" },
+  { hasGlobalPosts: false, retryLabel: "Try again" },
+  { hasGlobalPosts: true, retryLabel: "Load more posts" },
+])(
+  "community failure retries its own query through %s",
+  async ({ hasGlobalPosts, retryLabel }) => {
     communityShouldFail = true;
     requestCommunity.mockClear();
     const externalRequests = retryExternal.mock.calls.length;
@@ -204,7 +208,12 @@ test.each([true, false])(
     };
     client.setQueryData(["post-feed", "latest", "guest", "test", "en"], {
       pageParams: [null],
-      pages: [{ nextCursor: null, posts: hasGlobalPosts ? [nativePost] : [] }],
+      pages: [
+        {
+          nextCursor: hasGlobalPosts ? "next-global" : null,
+          posts: hasGlobalPosts ? [nativePost] : [],
+        },
+      ],
     });
     const host = dom.document.createElement("div");
     const root = createRoot(host);
@@ -227,7 +236,7 @@ test.each([true, false])(
       communityShouldFail = false;
       await act(() =>
         [...host.querySelectorAll("button")]
-          .find((button) => button.textContent === "Try again")
+          .find((button) => button.textContent === retryLabel)
           ?.click()
       );
       await act(async () => {
@@ -238,7 +247,7 @@ test.each([true, false])(
         client.getQueryState(["community-feed", "example", "new"])?.status
       ).toBe("success");
       expect(retryExternal.mock.calls.length).toBe(externalRequests);
-      expect(host.querySelector('[role="alert"]')).toBeNull();
+      expect(host.querySelector('[role="alert"]') === null).toBe(true);
     } finally {
       await act(() => root.unmount());
       client.clear();
