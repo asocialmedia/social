@@ -167,6 +167,7 @@ export function GET(request: Request) {
         DISCOVERY_WATCH_CHANNEL,
         JSON.stringify({
           content: content.data,
+          explicit: includeExplicit,
           locale: locale.data,
           mode: mode.data,
           topics,
@@ -181,6 +182,7 @@ export function GET(request: Request) {
           DISCOVERY_WATCH_CHANNEL,
           JSON.stringify({
             content: "video",
+            explicit: includeExplicit,
             locale: locale.data,
             mode: mode.data,
             topics: neighbors.slice(0, 5),

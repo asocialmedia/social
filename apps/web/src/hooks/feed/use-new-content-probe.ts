@@ -103,7 +103,9 @@ export function useNewContentProbe<T extends NewContentItem>({
   const visibleIds = new Set(visible.map((item) => item.id));
   const newItems =
     badge.key === resetKey
-      ? badge.items.filter((item) => !visibleIds.has(item.id))
+      ? badge.items.filter(
+          (item) => !visibleIds.has(item.id) && (!filter || filter(item))
+        )
       : [];
 
   // Latest values live in refs so the polling interval keeps one stable

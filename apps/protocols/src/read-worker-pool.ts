@@ -19,6 +19,8 @@ export function createReadWorkerPool(options: {
   fetch?: PublicFetch;
   now?: () => number;
   timeoutMs?: number;
+  requestTimeoutMs?: number;
+  localReserveMs?: number;
 }) {
   const fetcher = options.fetch ?? globalThis.fetch;
   const now = options.now ?? Date.now;
@@ -27,6 +29,8 @@ export function createReadWorkerPool(options: {
       active: 0,
       blocked: new Map<string, number>(),
       id: "local",
+      operationFailures: new Map<string, { count: number; at: number }>(),
+      recovering: new Set<string>(),
       token: "",
       transportFailures: 0,
       url: "",
@@ -35,6 +39,8 @@ export function createReadWorkerPool(options: {
       ...node,
       active: 0,
       blocked: new Map<string, number>(),
+      operationFailures: new Map<string, { count: number; at: number }>(),
+      recovering: new Set<string>(),
       transportFailures: 0,
     })),
   ];
@@ -66,32 +72,57 @@ export function createReadWorkerPool(options: {
       throw new Error("Only unauthenticated public reads may use read workers");
     }
     const attempted = new Set<string>();
+    const deadline = now() + (options.requestTimeoutMs ?? 2500);
     const resource = `${target.origin}${target.pathname}:${target.searchParams.get("feed") ?? ""}`;
     const operationKey = `${target.origin}${target.pathname}`;
     let pauseMs = 1000;
     let lastStatus = 503;
     let lastFailure: Response | undefined;
+    const available = (candidate: (typeof nodes)[number]) =>
+      !attempted.has(candidate.id) &&
+      candidate.active < (candidate.url ? 8 : 256) &&
+      (candidate.blocked.get(target.origin) ?? 0) <= now() &&
+      (candidate.blocked.get(operationKey) ?? 0) <= now() &&
+      (candidate.blocked.get(resource) ?? 0) <= now() &&
+      !candidate.recovering.has(operationKey);
     for (let attempt = 0; attempt < Math.min(2, nodes.length); attempt += 1) {
       init.signal?.throwIfAborted();
+      const remainingMs = deadline - now();
+      if (remainingMs <= 0) {
+        break;
+      }
       const ordered = [...nodes.slice(next), ...nodes.slice(0, next)];
-      const node = ordered.find(
-        (candidate) =>
-          !attempted.has(candidate.id) &&
-          candidate.active < (candidate.url ? 8 : 256) &&
-          (candidate.blocked.get(target.origin) ?? 0) <= now() &&
-          (candidate.blocked.get(operationKey) ?? 0) <= now() &&
-          (candidate.blocked.get(resource) ?? 0) <= now()
-      );
+      const node =
+        (attempt > 0
+          ? nodes.find((candidate) => !candidate.url && available(candidate))
+          : undefined) ?? ordered.find(available);
       if (!node) {
         break;
       }
+      // A remote-first read must leave a usable local attempt inside the caller's budget.
+      const reserveMs =
+        attempt === 0 &&
+        node.url &&
+        nodes.some((candidate) => !candidate.url && available(candidate))
+          ? (options.localReserveMs ?? 1300)
+          : 0;
+      const attemptTimeoutMs = Math.max(
+        1,
+        Math.min(
+          node.url ? (options.timeoutMs ?? 1800) : remainingMs,
+          remainingMs - reserveMs
+        )
+      );
       next = (nodes.indexOf(node) + 1) % nodes.length;
       attempted.add(node.id);
       node.active += 1;
+      if (node.operationFailures.has(operationKey)) {
+        node.recovering.add(operationKey);
+      }
       const startedAt = now();
       const signal = AbortSignal.any([
         ...(init.signal ? [init.signal] : []),
-        AbortSignal.timeout(node.url ? (options.timeoutMs ?? 1200) : 2500),
+        AbortSignal.timeout(attemptTimeoutMs),
       ]);
       const attributes = {
         node: node.id,
@@ -195,28 +226,51 @@ export function createReadWorkerPool(options: {
           }
           return { error: "UpstreamRejected" };
         });
+        node.operationFailures.delete(operationKey);
         return Response.json(body, { status: upstreamStatus });
       } catch (error) {
         init.signal?.throwIfAborted();
         node.transportFailures += 1;
-        block(
-          node.blocked,
-          node.url && node.transportFailures >= 3
-            ? target.origin
-            : operationKey,
-          node.url && node.transportFailures >= 3 ? 30_000 : 10_000
+        for (const [key, failure] of node.operationFailures) {
+          if (now() - failure.at > 5 * 60_000) {
+            node.operationFailures.delete(key);
+          }
+        }
+        const failures =
+          (node.operationFailures.get(operationKey)?.count ?? 0) + 1;
+        if (
+          node.operationFailures.size >= 512 &&
+          !node.operationFailures.has(operationKey)
+        ) {
+          node.operationFailures.delete(
+            node.operationFailures.keys().next().value ?? ""
+          );
+        }
+        node.operationFailures.set(operationKey, {
+          at: now(),
+          count: failures,
+        });
+        const operationPauseMs = Math.min(
+          120_000,
+          10_000 * 2 ** Math.min(failures - 1, 4)
         );
+        block(node.blocked, operationKey, operationPauseMs);
+        if (node.url && node.transportFailures >= 3) {
+          block(node.blocked, target.origin, 30_000);
+        }
         requests.add(1, { ...attributes, status: 0 });
         options.logger.warn(
           {
             ...attributes,
             event: "worker.unavailable",
             reason: error instanceof Error ? error.name : "unknown",
+            retryAfterMs: operationPauseMs,
           },
           "Protocol read worker unavailable; trying available capacity"
         );
       } finally {
         node.active -= 1;
+        node.recovering.delete(operationKey);
         duration.record(now() - startedAt, attributes);
       }
     }

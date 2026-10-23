@@ -166,6 +166,29 @@ test("pagination is adopted immediately even when the first post stays the same"
   expect(feed.ids()).toEqual(["first", "next"]);
 });
 
+test("revealing a mixed buffered head prepends actual rendered cards and preserves the old tail", async () => {
+  const feed = createFeed();
+  const key = ["post-feed", "latest"];
+  const first = post("first");
+  const older = post("older");
+  const remote = { ...source, id: `${source.id}-first` };
+  await feed.render([first, older], key, false, {
+    external: [remote],
+    source: "all",
+  });
+  const tail = feed.ids();
+  const fresh = post("fresh");
+  const remoteHead = { ...source, id: `${source.id}-head` };
+  await feed.render([fresh, first, older], key, false, {
+    external: [remoteHead, remote],
+    source: "all",
+  });
+  expect(new Set(feed.ids().slice(0, 2))).toEqual(
+    new Set([fresh.id, remoteHead.id])
+  );
+  expect(feed.ids().slice(2)).toEqual(tail);
+});
+
 test("a queued cache update from the outgoing feed cannot overwrite the incoming feed", async () => {
   const feed = createFeed();
   const latestKey = ["post-feed", "latest"];

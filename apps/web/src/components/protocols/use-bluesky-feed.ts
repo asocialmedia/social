@@ -168,6 +168,7 @@ export function useBlueskyFeed(
       return head.items;
     },
     filter: (post) =>
+      (following || !oppositeSeen.has(post.id)) &&
       !excluded.has(`post:${post.id}`) &&
       !excluded.has(`author:${post.author.id}`) &&
       (mode !== "trending" || isExternalTrendingPost(post)) &&
@@ -185,7 +186,7 @@ export function useBlueskyFeed(
           )),
     intervalMs: mode === "latest" || following ? 90_000 : 180_000,
     order: mode === "latest" ? "newest-first" : "ranked",
-    probeOnMount: !query.isFetchedAfterMount,
+    probeOnMount: true,
     resetKey: `${following}:${mode}:${viewer}:${locale}:${network.scope}:${content}:${surface}`,
     visible: query.data?.pages.flatMap((page) => page.items) ?? [],
   });

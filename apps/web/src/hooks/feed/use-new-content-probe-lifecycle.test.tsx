@@ -3,7 +3,7 @@ import { afterAll, afterEach, expect, mock, test } from "bun:test";
 import type { FeedChange } from "@asm/protocols/discovery";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Window } from "happy-dom";
-import { act } from "react";
+import { Activity, act } from "react";
 import { createRoot } from "react-dom/client";
 
 import { useNewContentProbe } from "./use-new-content-probe";
@@ -85,11 +85,13 @@ function createProbe() {
         host.querySelector("button")?.click();
         await Promise.resolve();
       }),
-    render: (options: ProbeOptions) =>
+    render: (options: ProbeOptions, hidden = false) =>
       act(async () => {
         root.render(
           <QueryClientProvider client={client}>
-            <Probe {...options} />
+            <Activity mode={hidden ? "hidden" : "visible"}>
+              <Probe {...options} />
+            </Activity>
           </QueryClientProvider>
         );
         await Promise.resolve();
@@ -129,6 +131,21 @@ test("posts that become visible stop counting toward the badge", async () => {
   expect(probe.items()).toBe("");
 });
 
+test("buffered posts stop counting when the rendered feed's eligibility changes", async () => {
+  const probe = createProbe();
+  const fetchHead = mock(() =>
+    Promise.resolve([{ id: "new" }, { id: "first" }])
+  );
+  await probe.render({ fetchHead, visible: [{ id: "first" }] });
+  expect(probe.items()).toBe("new");
+  await probe.render({
+    fetchHead,
+    filter: () => false,
+    visible: [{ id: "first" }],
+  });
+  expect(probe.items()).toBe("");
+});
+
 test("returning to a cached feed still probes for unseen posts", async () => {
   const fetchHead = mock(() =>
     Promise.resolve([{ id: "new" }, { id: "cached" }])
@@ -137,6 +154,21 @@ test("returning to a cached feed still probes for unseen posts", async () => {
   await probe.render({ fetchHead, visible: [{ id: "cached" }] });
   expect(fetchHead).toHaveBeenCalledTimes(1);
   expect(probe.items()).toBe("new");
+});
+
+test("returning to a retained Activity tab probes again without replacing cached posts", async () => {
+  const fetchHead = mock(() =>
+    Promise.resolve([{ id: "new" }, { id: "cached" }])
+  );
+  const probe = createProbe();
+  const options = { fetchHead, visible: [{ id: "cached" }] };
+  await probe.render(options);
+  expect(fetchHead).toHaveBeenCalledTimes(1);
+  await probe.render(options, true);
+  await probe.render(options);
+  expect(fetchHead).toHaveBeenCalledTimes(2);
+  expect(probe.items()).toBe("new");
+  expect(options.visible).toEqual([{ id: "cached" }]);
 });
 
 test("a cold load waits for its first page and only later arrivals get a badge", async () => {

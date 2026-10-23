@@ -42,10 +42,13 @@ export async function startProtocols() {
     }
   }
   const { createReadWorkerPool } = await import("./read-worker-pool");
+  const readTimeoutMs = 2500;
   const pool = config.workers.length
     ? createReadWorkerPool({
+        localReserveMs: 1300,
         logger,
         nodes: config.workers,
+        requestTimeoutMs: readTimeoutMs,
         timeoutMs: config.workerTimeoutMs,
       })
     : undefined;
@@ -63,7 +66,7 @@ export async function startProtocols() {
     maxConcurrentRequests: 48,
     maxRetries: 0,
     observe: createProtocolObserver(logger),
-    timeoutMs: 2500,
+    timeoutMs: readTimeoutMs,
   });
   const explicitClient = new BlueskyClient({
     allowExplicitMedia: true,
@@ -71,14 +74,14 @@ export async function startProtocols() {
     maxConcurrentRequests: 24,
     maxRetries: 0,
     observe: createProtocolObserver(logger),
-    timeoutMs: 2500,
+    timeoutMs: readTimeoutMs,
   });
   const searchClient = new BlueskyClient({
     fetch: pool?.fetch,
     maxConcurrentRequests: config.searchConcurrency,
     maxRetries: 0,
     observe: createProtocolObserver(logger),
-    timeoutMs: 2500,
+    timeoutMs: readTimeoutMs,
   });
   const explicitSearchClient = new BlueskyClient({
     allowExplicitMedia: true,
@@ -86,7 +89,7 @@ export async function startProtocols() {
     maxConcurrentRequests: config.searchConcurrency,
     maxRetries: 0,
     observe: createProtocolObserver(logger),
-    timeoutMs: 2500,
+    timeoutMs: readTimeoutMs,
   });
   const health = {
     connected: false,
@@ -373,13 +376,24 @@ export async function startProtocols() {
     });
     const live = createDiscoveryLive({
       publish: (channel, message) => publisher.publish(channel, message),
-      read: async ({ mode, locale, topics, content }, refresh) => {
+      read: async ({ mode, locale, topics, content, explicit }, refresh) => {
         ingestion?.watch(topics);
+        const selectedDiscovery = explicit ? explicitDiscovery : discovery;
+        const selectedInventory = explicit
+          ? explicitInventoryStore
+          : inventoryStore;
+        const retain = async (
+          page: Awaited<ReturnType<typeof discovery.read>>,
+          startedAt: number
+        ) => {
+          await selectedInventory?.put(page.items, startedAt).catch(() => null);
+          return page;
+        };
         const startedAt = Date.now();
         const page = await (refresh
-          ? discovery.refreshHead(mode, locale, topics, content)
-          : discovery.read(mode, undefined, locale, topics, content));
-        await remember(page, startedAt);
+          ? selectedDiscovery.refreshHead(mode, locale, topics, content)
+          : selectedDiscovery.read(mode, undefined, locale, topics, content));
+        await retain(page, startedAt);
         // Replenish continuation inventory off the viewer's request path.
         if (page.cursor) {
           void (async () => {
@@ -391,7 +405,7 @@ export async function startProtocols() {
             ) {
               const began = Date.now();
               // oxlint-disable-next-line no-await-in-loop -- continuation pages must advance in order.
-              const next = await discovery.read(
+              const next = await selectedDiscovery.read(
                 mode,
                 cursor,
                 locale,
@@ -399,7 +413,7 @@ export async function startProtocols() {
                 content
               );
               // oxlint-disable-next-line no-await-in-loop -- retain each validated page before continuing.
-              await remember(next, began);
+              await retain(next, began);
               ({ cursor } = next);
             }
           })().catch(() => null);

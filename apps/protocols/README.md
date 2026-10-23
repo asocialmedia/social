@@ -154,10 +154,12 @@ On the existing coordinator add a secret runtime JSON array:
 
 ```dotenv
 PROTOCOLS_READ_WORKERS='[{"id":"us-east","url":"https://protoalt.asocialmedia.cc","token":"same_dedicated_worker_token"}]'
-PROTOCOLS_WORKER_TIMEOUT_MS=1200
+PROTOCOLS_WORKER_TIMEOUT_MS=1800
 ```
 
 An absent variable or `[]` preserves the existing direct-read path. Up to eight distinct HTTPS worker origins are supported. A local reader always remains in the pool. Nodes rotate, saturated or cooling-down nodes are skipped, and at most two attempts fit within the caller's existing deadline. Failed workers, bad deployments, invalid responses and upstream outages fall back to available capacity; upstream `Retry-After` pauses that node for that host. Content errors are not retried as infrastructure failures. Remove an array entry and restart the coordinator to retire a worker without losing inventory, sessions, continuations or follows. Workers hold no durable local state. Unexpected disappearance also triggers bounded fallback.
+
+The coordinator supplies a 2500ms total read budget and reserves 1300ms for an available local fallback when a remote node runs first. That first remote attempt can use up to 1200ms; local fallback takes priority over another remote node. Remote-only reads and remote fallbacks can use the configured 1800ms timeout, bounded by the remaining total budget. Repeated transport failures back off per operation, with one recovery probe, without disabling healthy operations.
 
 ### Optional shared ingestion
 

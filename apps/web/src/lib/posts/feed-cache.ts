@@ -131,7 +131,10 @@ export function showPublishedPostInFeedCache(
 export function scrollFeedToTop(node: HTMLElement | null): void {
   let current = node;
   while (current) {
-    if (current.scrollHeight > current.clientHeight) {
+    if (
+      /(?:auto|scroll)/.test(getComputedStyle(current).overflowY) &&
+      current.scrollHeight > current.clientHeight
+    ) {
       current.scrollTo({ behavior: "smooth", top: 0 });
       return;
     }

@@ -19,6 +19,7 @@ import LoadMoreSkeleton from "@/components/layouts/skeletons/load-more-skeleton"
 import { useBlueskyFeed } from "@/components/protocols/use-bluesky-feed";
 import { useNetworkSettings } from "@/hooks/feed/use-network-settings";
 import { useNewContentProbe } from "@/hooks/feed/use-new-content-probe";
+import { useSeamlessFeedHead } from "@/hooks/feed/use-seamless-feed-head";
 import kyInstance from "@/lib/ky";
 import {
   FEED_QUERY_BEHAVIOR,
@@ -52,7 +53,6 @@ export default function FollowingFeed() {
     data,
     fetchNextPage,
     hasNextPage,
-    isFetchedAfterMount,
     isFetching,
     isFetchingNextPage,
     status,
@@ -79,19 +79,20 @@ export default function FollowingFeed() {
   );
 
   // Head-only probe so cached pages stay visible while new follows arrive as an
-  // avatar badge. Nothing moves until the badge is tapped.
-  const { clearNewItems, newItems } = useNewContentProbe({
+  // avatar badge. Reveal them on a badge click or an upward return to the head.
+  const { clearNewItems, newItems, probeNow } = useNewContentProbe({
     enabled: network.ready && source !== "bluesky" && status === "success",
     eventSource: "asm",
-    fetchHead: async () => {
+    fetchHead: async (signal) => {
       const fresh = await kyInstance
         .get("/api/posts/following", {
           searchParams: { network: network.scope },
+          signal,
         })
         .json<PostsPage>();
       return fresh.posts;
     },
-    probeOnMount: !isFetchedAfterMount,
+    probeOnMount: true,
     resetKey: `following:${user?.id ?? "guest"}:${network.scope}`,
     visible: posts,
   });
@@ -118,11 +119,32 @@ export default function FollowingFeed() {
     [fetchNextPage, hasNextPage, isFetching, source, external, status]
   );
 
+  const mergeNewPosts = useCallback(() => {
+    if (source !== "bluesky") {
+      clearNewItems();
+      prependPostsToFeedCache(queryClient, queryKey, newItems);
+    }
+    if (source !== "asm") {
+      external.showNewItems();
+    }
+  }, [clearNewItems, newItems, queryClient, queryKey, external, source]);
   const showNewPosts = useCallback(() => {
-    clearNewItems();
-    prependPostsToFeedCache(queryClient, queryKey, newItems);
+    mergeNewPosts();
     scrollFeedToTop(feedRootRef.current);
-  }, [clearNewItems, newItems, queryClient, queryKey]);
+  }, [mergeNewPosts]);
+  useSeamlessFeedHead({
+    count:
+      (source === "bluesky" ? 0 : newItems.length) +
+      (source === "asm" ? 0 : external.newItems.length),
+    enabled: network.ready,
+    merge: mergeNewPosts,
+    probe: () =>
+      Promise.all([
+        source === "bluesky" ? Promise.resolve() : probeNow(),
+        source === "asm" ? Promise.resolve() : external.probeNow(),
+      ]),
+    root: feedRootRef,
+  });
 
   const nativeHasMore = source !== "bluesky" && hasNextPage;
   const externalHasMore = source !== "asm" && external.hasNextPage;
@@ -160,11 +182,18 @@ export default function FollowingFeed() {
     );
   }
   if (availability === "loading") {
-    return <FeedViewSkeleton />;
+    return (
+      <div ref={feedRootRef}>
+        <FeedViewSkeleton />
+      </div>
+    );
   }
   if (availability === "empty" && !nativeHasMore && !externalHasMore) {
     return (
-      <div className="flex flex-col items-center justify-center gap-3 px-4 py-10 text-center">
+      <div
+        ref={feedRootRef}
+        className="flex flex-col items-center justify-center gap-3 px-4 py-10 text-center"
+      >
         <Image
           alt=""
           className="h-40 w-auto object-contain"
@@ -185,7 +214,7 @@ export default function FollowingFeed() {
 
   if (availability === "error") {
     return (
-      <div>
+      <div ref={feedRootRef}>
         <FeedErrorState
           message="We couldn’t load posts from the people you follow. Please try again."
           onRetry={() => {
@@ -231,7 +260,7 @@ export default function FollowingFeed() {
             }))}
             count={external.newItems.length}
             noun="post"
-            onClick={() => external.showNewItems()}
+            onClick={showNewPosts}
           />
         </div>
       ) : null}

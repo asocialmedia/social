@@ -1,17 +1,60 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
 
 import type { PostsPage } from "@asm/db";
 import { QueryClient } from "@tanstack/react-query";
 import type { InfiniteData } from "@tanstack/react-query";
+import { Window } from "happy-dom";
 
 import {
   filterFeedPosts,
   prependPostsToFeedCache,
+  scrollFeedToTop,
   showPublishedPostInFeedCache,
 } from "./feed-cache";
 
 type Post = PostsPage["posts"][number];
 type FeedData = InfiniteData<PostsPage, string | null>;
+
+test("the new-post pill scrolls the overflow container rather than a tall visible-overflow wrapper", async () => {
+  const dom = new Window();
+  const original = Object.getOwnPropertyDescriptor(
+    globalThis,
+    "getComputedStyle"
+  );
+  Object.defineProperty(globalThis, "getComputedStyle", {
+    configurable: true,
+    value: dom.getComputedStyle.bind(dom),
+  });
+  try {
+    const scroll = dom.document.createElement("div");
+    const wrapper = dom.document.createElement("div");
+    const feed = dom.document.createElement("div");
+    scroll.style.overflowY = "auto";
+    wrapper.style.overflowY = "visible";
+    scroll.append(wrapper);
+    wrapper.append(feed);
+    dom.document.body.append(scroll);
+    for (const element of [scroll, wrapper]) {
+      Object.defineProperty(element, "scrollHeight", { value: 2000 });
+      Object.defineProperty(element, "clientHeight", { value: 600 });
+      element.scrollTop = 500;
+    }
+    const scrollTo = mock();
+    const wrapperScrollTo = mock();
+    Object.defineProperty(scroll, "scrollTo", { value: scrollTo });
+    Object.defineProperty(wrapper, "scrollTo", { value: wrapperScrollTo });
+    scrollFeedToTop(feed as unknown as HTMLElement);
+    expect(scrollTo).toHaveBeenCalledWith({ behavior: "smooth", top: 0 });
+    expect(wrapperScrollTo).not.toHaveBeenCalled();
+  } finally {
+    if (original) {
+      Object.defineProperty(globalThis, "getComputedStyle", original);
+    } else {
+      Reflect.deleteProperty(globalThis, "getComputedStyle");
+    }
+    await dom.happyDOM.close();
+  }
+});
 
 const post = (id: string): Post => ({ id }) as unknown as Post;
 
