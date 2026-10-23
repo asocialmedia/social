@@ -65,3 +65,24 @@ test("continuation annotations do not rehydrate graph candidates", async () => {
   expect(hydrate).not.toHaveBeenCalled();
   expect(result.weights.size).toBe(30);
 });
+
+test("optional hydration cannot hold discovery past its deadline when a policy read ignores cancellation", async () => {
+  const stalled = Promise.withResolvers<never[]>();
+  hydrate.mockImplementation(() => stalled.promise);
+  const result = await Promise.race([
+    socialExternalRecommendations(
+      "viewer",
+      true,
+      new AbortController().signal,
+      "test"
+    ),
+    Bun.sleep(1600),
+  ]);
+  try {
+    expect(result).toBeDefined();
+    expect(result).toMatchObject({ items: [], partial: true });
+    expect(background).toHaveLength(1);
+  } finally {
+    stalled.resolve([]);
+  }
+});
