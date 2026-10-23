@@ -35,3 +35,25 @@ test("Explore does not invent a relationship when no public topic evidence exist
     )
   ).toEqual([]);
 });
+
+test("Explore excludes taxonomy partitions before limiting useful related queries", () => {
+  const administrative = Array.from(
+    { length: 20 },
+    (_, index) => `anime by studio ${index}`
+  );
+  expect(
+    exploreTopics({ authorWeights: {}, tagWeights: {} }, ["anime"], [], {
+      avoided: {},
+      interests: {},
+      related: {
+        anime: [
+          ...administrative,
+          "anime and manga redirects",
+          "anime series",
+          "tv anime",
+        ],
+      },
+      version: "taxonomy-regression",
+    })
+  ).toEqual(["anime series", "tv anime"]);
+});

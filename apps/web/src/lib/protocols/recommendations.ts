@@ -35,7 +35,7 @@ export function normalizeDiscoveryTopics(topics: readonly string[]): string[] {
 export function isRetrievalTopic(topic: string): boolean {
   return (
     topic.length <= 64 &&
-    !/(?:^|\b)(?:category|portal|wikipedia|lists?|outlines?|stubs?|glossar(?:y|ies)|templates?)(?:\b|:)|\bby (?:country|period|type)\b/iu.test(
+    !/(?:^|\b)(?:category|portal|wikipedia|lists?|outlines?|stubs?|glossar(?:y|ies)|templates?|redirects?)(?:\b|:)|\bby (?:country|period|type|medium|source|studio|composer|director|writer|year|date|genre|setting)\b/iu.test(
       topic
     )
   );

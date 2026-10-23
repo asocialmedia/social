@@ -4,7 +4,11 @@ import type { UserProfile } from "@asm/db";
 import type { ExternalPost } from "@asm/protocols/contracts";
 import { discoveryTopicsSchema } from "@asm/protocols/discovery";
 
-import { discoveryTopics, rankExternalForViewer } from "./recommendations";
+import {
+  discoveryTopics,
+  isRetrievalTopic,
+  rankExternalForViewer,
+} from "./recommendations";
 
 const profile: UserProfile = {
   authorWeights: {},
@@ -424,6 +428,26 @@ test("catalog administrative labels never displace useful interest queries", () 
     version: "test",
   });
   expect(topics).toEqual(["engineering"]);
+});
+
+test("retrieval skips taxonomy partitions and redirects while retaining real concepts", () => {
+  const topics = [
+    "anime by medium",
+    "anime by studio",
+    "anime debuts by date",
+    "anime by composer",
+    "anime and manga redirects",
+    "anime series",
+    "japanese animation",
+    "tv anime",
+    "painting by numbers",
+  ];
+  expect(topics.filter(isRetrievalTopic)).toEqual([
+    "anime series",
+    "japanese animation",
+    "tv anime",
+    "painting by numbers",
+  ]);
 });
 
 test("a short descendant is not mistaken for an alias of a long selected interest", () => {

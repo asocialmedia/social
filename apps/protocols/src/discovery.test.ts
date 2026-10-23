@@ -1090,3 +1090,202 @@ test("topic-heavy video discovery reserves a declared video generator alongside 
   expect(reads[3]).toBe(video);
   expect(page.items.map((item) => item.id)).toEqual([videoPost(1).id]);
 });
+
+test("sparse video generators yield to queued sources without losing their cursors", async () => {
+  const feeds = Array.from(
+    { length: 9 },
+    (_, index) => `${publicFeed}-${index}`
+  );
+  const reads: { uri: string; cursor?: string }[] = [];
+  const discovery = new BlueskyDiscovery({
+    allowsRecommendations: async () => true,
+    getAuthorFeed: async () => ({ cursor: null, items: [] }),
+    getFeed: async (uri, options) => {
+      reads.push({ cursor: options?.cursor, uri });
+      if (uri === feeds[8]) {
+        return { cursor: null, items: [videoPost(20)] };
+      }
+      const position = Number(options?.cursor ?? 0);
+      return position < 3
+        ? { cursor: String(position + 1), items: [post(position)] }
+        : { cursor: null, items: [videoPost(Number(uri.slice(-1)) + 1)] };
+    },
+    getProfile: async () => profile,
+    getSuggestedFeeds: async () => ({
+      cursor: null,
+      items: feeds.map((uri, index) => ({
+        displayName: "Video",
+        likeCount: 100 - index,
+        uri,
+      })),
+    }),
+  });
+  const first = await discovery.read("latest", undefined, "en", [], "video");
+  expect(first.items).toEqual([]);
+  expect(first.partial).toBe(false);
+  const next = await discovery.read(
+    "latest",
+    first.cursor ?? undefined,
+    "en",
+    [],
+    "video"
+  );
+  expect(next.items).toEqual([]);
+  const lastCatalogSource = await discovery.read(
+    "latest",
+    next.cursor ?? undefined,
+    "en",
+    [],
+    "video"
+  );
+  expect(lastCatalogSource.items.map((item) => item.id)).toEqual([
+    videoPost(20).id,
+  ]);
+  expect(
+    reads.filter(({ uri }) => uri === feeds[0]).map(({ cursor }) => cursor)
+  ).toEqual([undefined, "1", "2"]);
+  const resumed = await discovery.read(
+    "latest",
+    lastCatalogSource.cursor ?? undefined,
+    "en",
+    [],
+    "video"
+  );
+  expect(resumed.items.map((item) => item.id).toSorted()).toEqual(
+    [1, 2, 3, 4].map((index) => videoPost(index).id).toSorted()
+  );
+  expect(reads.findLast(({ uri }) => uri === feeds[0])?.cursor).toBe("3");
+  expect(resumed.cursor).toBeString();
+  const remaining = await discovery.read(
+    "latest",
+    resumed.cursor ?? undefined,
+    "en",
+    [],
+    "video"
+  );
+  expect(remaining.items.map((item) => item.id).toSorted()).toEqual(
+    [5, 6, 7, 8].map((index) => videoPost(index).id).toSorted()
+  );
+  expect(remaining.cursor).toBeNull();
+});
+
+test("rotating sparse video sources preserves buffered policy retries", async () => {
+  const feeds = Array.from(
+    { length: 5 },
+    (_, index) => `${publicFeed}-${index}`
+  );
+  let policyReady = false;
+  const discovery = new BlueskyDiscovery({
+    allowsRecommendations: async () => {
+      if (!policyReady) {
+        throw new ProtocolError("unavailable", "Policy pending");
+      }
+      return true;
+    },
+    getAuthorFeed: async () => ({ cursor: null, items: [] }),
+    getFeed: async (uri) => ({
+      cursor: null,
+      items: uri === feeds[0] ? [videoPost(7)] : [],
+    }),
+    getProfile: async () => profile,
+    getSuggestedFeeds: async () => ({
+      cursor: null,
+      items: feeds.map((uri, index) => ({
+        displayName: "Video",
+        likeCount: 100 - index,
+        uri,
+      })),
+    }),
+  });
+  const first = await discovery.read("latest", undefined, "en", [], "video");
+  expect(first.partial).toBe(true);
+  expect(first.items).toEqual([]);
+  policyReady = true;
+  const next = await discovery.read(
+    "latest",
+    first.cursor ?? undefined,
+    "en",
+    [],
+    "video"
+  );
+  expect(next.items.map((item) => item.id)).toEqual([videoPost(7).id]);
+});
+
+test("unavailable focused search yields to public generators rather than pinning the head", async () => {
+  let searchReads = 0;
+  const discovery = new BlueskyDiscovery({
+    allowsRecommendations: async () => true,
+    getAuthorFeed: async () => ({ cursor: null, items: [] }),
+    getFeed: async () => ({
+      cursor: null,
+      items: [{ ...videoPost(4), text: "Anime clip" }],
+    }),
+    getProfile: async () => profile,
+    getSuggestedFeeds: async () => ({
+      cursor: null,
+      items: [{ displayName: "Anime", uri: publicFeed }],
+    }),
+    searchPosts: async () => {
+      searchReads += 1;
+      throw new ProtocolError("unavailable", "Search endpoint cooling down");
+    },
+  });
+  const first = await discovery.read(
+    "personalized",
+    undefined,
+    "en",
+    ["anime"],
+    "video"
+  );
+  expect(first.items).toEqual([]);
+  expect(first.partial).toBe(true);
+  expect(first.cursor).toBeString();
+  const next = await discovery.read(
+    "personalized",
+    first.cursor ?? undefined,
+    "en",
+    ["anime"],
+    "video"
+  );
+  expect(next.items.map((item) => item.id)).toEqual([videoPost(4).id]);
+  expect(searchReads).toBe(2);
+});
+
+test("a focused search source timeout still permits generator continuation", async () => {
+  const discovery = new BlueskyDiscovery(
+    {
+      allowsRecommendations: async () => true,
+      getAuthorFeed: async () => ({ cursor: null, items: [] }),
+      getFeed: async () => ({
+        cursor: null,
+        items: [{ ...videoPost(6), text: "Anime clip" }],
+      }),
+      getProfile: async () => profile,
+      getSuggestedFeeds: async () => ({
+        cursor: null,
+        items: [{ displayName: "Anime", uri: publicFeed }],
+      }),
+      searchPosts: () => new Promise(() => {}),
+    },
+    undefined,
+    { sourceTimeoutMs: 10 }
+  );
+  const first = await discovery.read(
+    "personalized",
+    undefined,
+    "en",
+    ["anime"],
+    "video"
+  );
+  expect(first.items).toEqual([]);
+  expect(first.partial).toBe(true);
+  expect(first.cursor).toBeString();
+  const next = await discovery.read(
+    "personalized",
+    first.cursor ?? undefined,
+    "en",
+    ["anime"],
+    "video"
+  );
+  expect(next.items.map((item) => item.id)).toEqual([videoPost(6).id]);
+});
