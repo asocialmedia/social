@@ -354,22 +354,12 @@ export default function ClientComm() {
               type always sits on a clean field with no vignette behind it. */}
             <div className="relative">
               <header className="relative px-4 pt-6 pb-4 sm:px-6 sm:pt-8 sm:pb-6">
-                <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-5">
-                  {/* Statement, anchored to the top-left. Each line is its own
-                    flex row so the inline brand mark centres against the type by
-                    layout rather than hand-tuned baseline offsets.
-
-                    `flex-auto` (grow with a content basis), NOT `flex-1`: the
-                    line-break is decided on the content width, so the block
-                    still wraps the stat panel below it on narrow screens, then
-                    grows to fill the row so the (i) can ride the right edge. */}
+                <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-4 sm:gap-y-5">
+                  {/* The heading has its own full-width row on phones; the
+                      stats below share the same edges in three equal columns. */}
                   <div className="min-w-0 flex-auto">
-                    {/* The statement and, when the aura gate is unmet, the (i)
-                      that explains it. `justify-between` pins the mark to the
-                      row's right edge instead of tucking it against the
-                      headline. */}
                     <div className="flex items-start justify-between gap-3">
-                      <h1 className="text-foreground flex flex-col items-start text-3xl leading-[1.06] font-extrabold tracking-tight sm:text-4xl lg:text-5xl">
+                      <h1 className="text-foreground flex flex-col items-start text-[clamp(1.75rem,8.4vw,2.25rem)] leading-[1.06] font-extrabold tracking-tight sm:text-4xl lg:text-5xl">
                         <span>Discover your</span>
                         <span className="flex items-center gap-[0.16em]">
                           <span>next</span>
@@ -382,14 +372,16 @@ export default function ClientComm() {
                           <span>community</span>
                         </span>
                       </h1>
+                    </div>
+                    <div className="mt-3 flex items-center justify-between gap-3">
+                      <p className="text-muted-foreground max-w-lg text-sm sm:text-base">
+                        Find a new space to play, chill, and hang out.
+                      </p>
                       <CommunityCreationInfo
-                        className="mt-1 xl:hidden"
+                        className="xl:hidden"
                         quota={creationQuota.data}
                       />
                     </div>
-                    <p className="text-muted-foreground mt-3 max-w-lg text-sm sm:text-base">
-                      Find a new space to play, chill, and hang out.
-                    </p>
                     {/* The right rail is the create home on wide screens; below
                       xl it is absent, so the hero carries the action. It
                       renders nothing when the gate is unmet. */}
@@ -403,14 +395,9 @@ export default function ClientComm() {
                     ) : null}
                   </div>
 
-                  {/* Right corner: the directory's headline totals as one
-                    cohesive stat panel on the app's raised 3D surface. Each
-                    column shares the same internal grid (icon + label on top,
-                    number beneath) so the three line up across the row. The
-                    panel hugs its content at every width - never stretched
-                    edge-to-edge on mobile, just left-aligned under the
-                    statement. */}
-                  <dl className="sidebar-subcard flex max-w-full shrink-0 items-start gap-4 rounded-2xl px-4 py-4 sm:gap-7 sm:px-5">
+                  {/* Totals fill the mobile row; wider layouts keep the
+                      compact panel beside the statement when space allows. */}
+                  <dl className="sidebar-subcard grid w-full max-w-full shrink-0 grid-cols-3 rounded-2xl px-3 py-3 text-center sm:flex sm:w-auto sm:gap-7 sm:px-5 sm:py-4 sm:text-left">
                     {[
                       {
                         icon: Users,
@@ -428,15 +415,15 @@ export default function ClientComm() {
                         className="flex min-w-0 flex-col gap-1"
                         key={stat.label}
                       >
-                        <dt className="text-muted-foreground flex items-center gap-1.5 text-xs font-medium">
+                        <dt className="text-muted-foreground flex items-center justify-center gap-1 text-[11px] font-medium sm:justify-start sm:gap-1.5 sm:text-xs">
                           <stat.icon
                             aria-hidden="true"
-                            className="text-primary size-3.5 shrink-0"
+                            className="text-primary size-3 shrink-0 sm:size-3.5"
                             fill="currentColor"
                           />
                           {stat.label}
                         </dt>
-                        <dd className="text-foreground text-2xl leading-none font-extrabold tabular-nums sm:text-3xl">
+                        <dd className="text-foreground text-[28px] leading-none font-extrabold tabular-nums sm:text-3xl">
                           {formatNumber(stat.value)}
                         </dd>
                       </div>

@@ -97,15 +97,22 @@ const CommunitiesPageSkeleton: React.FC<{ isLoggedIn?: boolean }> = ({
 
         {/* Hero statement + action, then the search field */}
         <div className="px-4 pt-6 pb-4 sm:px-6 sm:pt-8 sm:pb-6">
-          <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-5">
+          <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-4 sm:gap-y-5">
             <div className="min-w-0 space-y-2.5">
               <Skeleton className="h-8 w-52 rounded-md sm:h-10 sm:w-64" />
-              <Skeleton className="h-8 w-44 rounded-md sm:h-10 sm:w-56" />
-              <Skeleton className="h-4 w-72 max-w-full rounded-md" />
+              <Skeleton className="h-8 w-64 max-w-full rounded-md sm:h-10 sm:w-56" />
+              <Skeleton className="h-4 w-64 max-w-full rounded-md" />
             </div>
-            <div className="flex shrink-0 flex-col items-start gap-3 sm:items-end">
-              <Skeleton className="h-4 w-40 rounded-md" />
-              <Skeleton className="h-11 w-44 rounded-lg" />
+            <div className="sidebar-subcard grid w-full shrink-0 grid-cols-3 rounded-2xl px-3 py-3 sm:flex sm:w-auto sm:gap-7 sm:px-5 sm:py-4">
+              {[0, 1, 2].map((index) => (
+                <div
+                  className="flex flex-col items-center gap-1 sm:items-start"
+                  key={index}
+                >
+                  <Skeleton className="h-4 w-16 rounded-md" />
+                  <Skeleton className="h-7 w-10 rounded-md sm:h-8" />
+                </div>
+              ))}
             </div>
           </div>
         </div>
