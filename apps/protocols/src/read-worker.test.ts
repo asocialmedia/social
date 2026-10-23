@@ -699,3 +699,69 @@ test("three remote transport failures pause every operation on that origin until
   await pool.fetch(authorFeed, {});
   expect(remote).toHaveLength(4);
 });
+
+test("repeated operation failures back off despite healthy peers and allow only one recovery probe", async () => {
+  let now = 0;
+  const remote: string[] = [];
+  let pending: ReturnType<typeof Promise.withResolvers<Response>> | undefined;
+  let healthy = false;
+  const pool = createReadWorkerPool({
+    fetch: async (url) => {
+      if (url.startsWith(node.url)) {
+        const upstream = new URL(url).searchParams.get("url") ?? "";
+        remote.push(upstream);
+        if (upstream.includes("getFeed?")) {
+          if (pending) {
+            return pending.promise;
+          }
+          if (!healthy) {
+            throw new TypeError("slow feed operation");
+          }
+        }
+      }
+      return response({ ok: true });
+    },
+    logger: logger(),
+    nodes: [node],
+    now: () => now,
+  });
+  const feedCalls = () =>
+    remote.filter((url) => url.includes("getFeed?")).length;
+  await pool.fetch(profile, {});
+  await pool.fetch(publicFeed("first"), {});
+  expect(feedCalls()).toBe(1);
+  now = 10_001;
+  await pool.fetch(profile, {});
+  await pool.fetch(publicFeed("second"), {});
+  await pool.fetch(publicFeed("second-peer"), {});
+  expect(feedCalls()).toBe(2);
+  expect(
+    pool.status().find((entry) => entry.id === node.id)?.cooldowns[
+      "https://public.api.bsky.app/xrpc/app.bsky.feed.getFeed"
+    ]
+  ).toBe(30_001);
+  now = 20_002;
+  await pool.fetch(publicFeed("third"), {});
+  expect(feedCalls()).toBe(2);
+  now = 30_002;
+  pending = Promise.withResolvers<Response>();
+  await pool.fetch(profile, {});
+  const recovery = Promise.all([
+    pool.fetch(publicFeed("recover"), {}),
+    pool.fetch(publicFeed("recover-peer"), {}),
+  ]);
+  await Bun.sleep(1);
+  await Promise.all(
+    Array.from({ length: 8 }, (_, index) =>
+      pool.fetch(publicFeed(`burst-${index}`), {})
+    )
+  );
+  expect(feedCalls()).toBe(3);
+  pending.resolve(response({ ok: true }));
+  await recovery;
+  pending = undefined;
+  healthy = true;
+  await pool.fetch(publicFeed("healthy"), {});
+  await pool.fetch(publicFeed("healthy-2"), {});
+  expect(feedCalls()).toBeGreaterThan(3);
+});

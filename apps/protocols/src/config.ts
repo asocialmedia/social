@@ -56,7 +56,7 @@ export function readConfig(
     );
   }
   const workerConcurrency = Number(env.PROTOCOLS_WORKER_CONCURRENCY ?? "8");
-  const workerTimeoutMs = Number(env.PROTOCOLS_WORKER_TIMEOUT_MS ?? "1200");
+  const workerTimeoutMs = Number(env.PROTOCOLS_WORKER_TIMEOUT_MS ?? "1800");
   if (
     !Number.isInteger(workerConcurrency) ||
     workerConcurrency < 1 ||

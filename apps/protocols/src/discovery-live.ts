@@ -14,6 +14,7 @@ import type { DiscoveryStore } from "./discovery-store";
 
 export const discoveryWatchSchema = z.object({
   content: discoveryContentSchema.default("all"),
+  explicit: z.boolean().default(false),
   locale: discoveryLocaleSchema,
   mode: discoveryModeSchema,
   topics: discoveryTopicsSchema,
@@ -159,6 +160,7 @@ export function createDiscoveryLive(options: {
     watch: (raw: unknown) => {
       const renewal = z
         .object({
+          explicit: z.boolean().default(false),
           locale: discoveryLocaleSchema,
           renew: z.literal(true),
           topics: discoveryTopicsSchema,
@@ -168,6 +170,7 @@ export function createDiscoveryLive(options: {
         for (const entry of watches.values()) {
           if (
             entry.watch.locale === renewal.data.locale &&
+            entry.watch.explicit === renewal.data.explicit &&
             (entry.watch.mode !== "personalized" ||
               JSON.stringify(entry.watch.topics) ===
                 JSON.stringify(renewal.data.topics))

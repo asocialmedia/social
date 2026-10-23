@@ -26,6 +26,7 @@ import FeedViewSkeleton from "@/components/layouts/skeletons/feed-view-skeleton"
 import LoadMoreSkeleton from "@/components/layouts/skeletons/load-more-skeleton";
 import { useBlueskyFeed } from "@/components/protocols/use-bluesky-feed";
 import { useDiscoveryLocale } from "@/hooks/feed/use-discovery-locale";
+import { useFeedExposures } from "@/hooks/feed/use-feed-exposures";
 import { useNetworkSettings } from "@/hooks/feed/use-network-settings";
 import { useNewContentProbe } from "@/hooks/feed/use-new-content-probe";
 import { useSeamlessFeedHead } from "@/hooks/feed/use-seamless-feed-head";
@@ -40,7 +41,10 @@ import {
   scrollFeedToTop,
 } from "@/lib/posts/feed-cache";
 import { feedContinuationDelay } from "@/lib/posts/feed-pagination";
-import { activeNetworkInterests } from "@/lib/posts/network-content-policy";
+import {
+  activeNetworkInterests,
+  networkPostRecommended,
+} from "@/lib/posts/network-content-policy";
 import { isTrendingPost } from "@/lib/posts/trending-eligibility";
 import {
   useFeedSourceStore,
@@ -158,6 +162,7 @@ export default function HomeFeed({
     endpoint = "/api/posts/latest";
   }
   const isRankedFeed = feedIsRanked(variant);
+  const oppositeSeen = useFeedExposures(user?.id ?? "guest", "home", feedKey);
   const probeSupportsSingleRow = probeOrdersNewestFirst(variant);
   const queryKey = useMemo(() => {
     const key = [
@@ -236,7 +241,6 @@ export default function HomeFeed({
     data,
     fetchNextPage,
     hasNextPage: globalHasNextPage,
-    isFetchedAfterMount,
     isFetching,
     isFetchingNextPage: isFetchingNextGlobalPage,
     status: globalStatus,
@@ -344,10 +348,17 @@ export default function HomeFeed({
         .json<PostsPage>();
       return isTrending ? fresh.posts.filter(isTrendingPost) : fresh.posts;
     },
+    filter: (post) =>
+      !oppositeSeen.has(post.id) &&
+      (!isTrending || isTrendingPost(post)) &&
+      networkPostRecommended(
+        post,
+        network.settings.preferences,
+        network.settings.topicScope
+      ),
     intervalMs: isRankedFeed ? 180_000 : 90_000,
     order: isRankedFeed ? "ranked" : "newest-first",
-    // A cold fetch already supplies the head; cached returns need a probe.
-    probeOnMount: !isFetchedAfterMount,
+    probeOnMount: true,
     resetKey: `${feedKey}:${user?.id ?? "guest"}:${network.scope}:${locale}`,
     visible: globalPosts,
   });
@@ -401,20 +412,21 @@ export default function HomeFeed({
   );
 
   // Merge the probed posts straight into the head of the cached feed, then
-  // bring the viewer up to meet them. No refetch and no skeleton: the feed is
-  // already on screen, we only reveal what the probe found.
-  // Merge the probed posts straight into the head of the cached feed, then
   // optionally bring the viewer up to meet them.
   const revealNewPosts = useCallback(
     (opts: { scrollToTop?: boolean } = {}) => {
-      clearNewItems();
-      prependPostsToFeedCache(queryClient, queryKey, newPosts);
-      external.showNewItems();
+      if (source !== "bluesky") {
+        clearNewItems();
+        prependPostsToFeedCache(queryClient, queryKey, newPosts);
+      }
+      if (source !== "asm") {
+        external.showNewItems();
+      }
       if (opts.scrollToTop) {
         scrollFeedToTop(feedRootRef.current);
       }
     },
-    [clearNewItems, newPosts, queryClient, queryKey, external]
+    [clearNewItems, newPosts, queryClient, queryKey, external, source]
   );
 
   const showNewPosts = useCallback(() => {
@@ -486,11 +498,11 @@ export default function HomeFeed({
     count:
       (source === "bluesky" ? 0 : newPosts.length) +
       (source === "asm" ? 0 : external.newItems.length),
-    enabled: !excludePostId && !communitySlug && hasAnyPosts,
+    enabled: network.ready && !excludePostId && !communitySlug,
     merge: () => revealNewPosts({ scrollToTop: false }),
     probe: () =>
       Promise.all([
-        probeNow(),
+        source === "bluesky" ? Promise.resolve() : probeNow(),
         source === "asm" ? Promise.resolve() : external.probeNow(),
       ]),
     root: feedRootRef,
@@ -533,7 +545,7 @@ export default function HomeFeed({
 
   if (availability === "error") {
     return (
-      <div>
+      <div ref={feedRootRef}>
         <FeedErrorState
           message="We couldn’t load your feed right now. Please try again in a moment."
           onRetry={retryFailedSources}
@@ -547,7 +559,11 @@ export default function HomeFeed({
   // community segment renders immediately even if the global feed is still in
   // flight behind it.
   if (availability === "loading") {
-    return <FeedViewSkeleton source={source} />;
+    return (
+      <div ref={feedRootRef}>
+        <FeedViewSkeleton source={source} />
+      </div>
+    );
   }
 
   let emptyTitle = "No personalized Fleets to show here.";
@@ -568,7 +584,10 @@ export default function HomeFeed({
 
   if (availability === "empty" && !hasNextPage) {
     return (
-      <div className="flex flex-col items-center justify-center gap-3 px-4 py-10 text-center">
+      <div
+        ref={feedRootRef}
+        className="flex flex-col items-center justify-center gap-3 px-4 py-10 text-center"
+      >
         <Image
           alt=""
           className="h-40 w-auto object-contain"
@@ -593,7 +612,7 @@ export default function HomeFeed({
 
   if (!hasAnyPosts && sourceFailed) {
     return (
-      <div>
+      <div ref={feedRootRef}>
         <FeedErrorState
           message="We couldn’t load your feed right now. Please try again in a moment."
           onRetry={retryFailedSources}

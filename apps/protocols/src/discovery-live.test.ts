@@ -5,6 +5,30 @@ import { MemoryDiscoveryStore } from "./discovery-store";
 
 const watch = { locale: "en", mode: "latest", topics: [] };
 
+test("safe and opt-in viewers refresh separate pools and renew only their own policy", async () => {
+  let now = 1_000_000;
+  const policies: boolean[] = [];
+  const live = createDiscoveryLive({
+    now: () => now,
+    publish: () => Promise.resolve(),
+    read: (scope) => {
+      policies.push(scope.explicit);
+      return Promise.resolve({ cursor: null, items: [], partial: false });
+    },
+    store: new MemoryDiscoveryStore(),
+  });
+  live.watch(watch);
+  live.watch({ ...watch, explicit: true });
+  await live.tick();
+  expect(policies).toEqual([false, true]);
+  now += 23 * 60 * 60_000;
+  live.watch({ explicit: true, locale: "en", renew: true, topics: [] });
+  now += 2 * 60 * 60_000;
+  await live.tick();
+  expect(policies).toEqual([false, true, true]);
+  live.stop();
+});
+
 test("busy refreshed scopes cannot starve older waiting interests", async () => {
   let now = 1_000_000;
   const read: string[] = [];

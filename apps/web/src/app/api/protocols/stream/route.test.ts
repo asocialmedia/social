@@ -7,6 +7,7 @@ let notify: ((_channel: string, raw: string) => void) | undefined;
 let unsubscribeCount = 0;
 const watches: unknown[] = [];
 let deferred: Promise<undefined> | undefined;
+let explicit = false;
 
 mock.module("@/lib/auth/session", () => ({
   getSessionFromApi: () => Promise.resolve(session),
@@ -24,6 +25,13 @@ mock.module("@asm/db", () => ({
   externalFollowAuthors: () =>
     Promise.resolve([{ did: "did:web:followed.test" }]),
   getClientIpFromHeaders: () => "127.0.0.1",
+  getNetworkPersona: async () => {
+    const network = await asmDbMockBase.getNetworkPersona();
+    return {
+      ...network,
+      preferences: { ...network.preferences, showExplicitContent: explicit },
+    };
+  },
   getRecommendationProfile: () => Promise.resolve(null),
   getTrustedIngressIp: () => "127.0.0.1",
   hashViewerId: (value: string) => value,
@@ -48,6 +56,7 @@ mock.module("@asm/db", () => ({
 const { GET } = await import("./route");
 beforeEach(() => {
   session = null;
+  explicit = false;
   watches.length = 0;
   unsubscribeCount = 0;
   deferred = undefined;
@@ -68,7 +77,9 @@ test("guests receive bounded change hints, malformed and other-language hints ar
   const firstChunk = await reader.read();
   const greeting = new TextDecoder().decode(firstChunk.value);
   expect(greeting).toContain('"source":"connected"');
-  expect(watches).toEqual([{ locale: "en", renew: true, topics: [] }]);
+  expect(watches).toEqual([
+    { explicit: false, locale: "en", renew: true, topics: [] },
+  ]);
   const next = reader.read();
   notify?.("feed", "invalid JSON");
   notify?.(
@@ -102,6 +113,24 @@ test("aborting while the subscriber connects still releases its eventual subscri
   await response.body?.cancel();
   expect(unsubscribeCount).toBe(1);
   expect(watches).toEqual([]);
+});
+
+test("only authenticated opt-in sessions renew explicit discovery pools", async () => {
+  explicit = true;
+  session = { user: { id: "opted-in" } };
+  const controller = new AbortController();
+  const response = await GET(
+    new Request("http://localhost/api/protocols/stream?locale=en", {
+      signal: controller.signal,
+    })
+  );
+  const reader = response.body?.getReader();
+  await reader?.read();
+  expect(watches).toEqual([
+    { explicit: true, locale: "en", renew: true, topics: [] },
+  ]);
+  controller.abort();
+  await reader?.cancel();
 });
 
 test("followed-author hints are viewer scoped and never expose private graph metadata", async () => {

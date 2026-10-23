@@ -15,7 +15,7 @@ export function useSeamlessFeedHead({
   probe: () => Promise<unknown>;
 }) {
   const latest = useRef({ count, merge, probe });
-  const requestedAt = useRef(0);
+  const requested = useRef(false);
 
   useEffect(() => {
     latest.current = { count, merge, probe };
@@ -62,9 +62,8 @@ export function useSeamlessFeedHead({
       ) {
         return;
       }
-      requestedAt.current = Date.now();
+      requested.current = true;
       if (latest.current.count > 0) {
-        requestedAt.current = 0;
         latest.current.merge();
       }
       if (Date.now() - lastProbe >= 10_000) {
@@ -80,7 +79,7 @@ export function useSeamlessFeedHead({
         requestHead();
       }
       if (!isAtHead(top, feedHeadOffset)) {
-        requestedAt.current = 0;
+        requested.current = false;
       }
       previous = top;
     };
@@ -107,7 +106,7 @@ export function useSeamlessFeedHead({
     scrollContainer.addEventListener("touchend", onTouchEnd, { passive: true });
 
     return () => {
-      requestedAt.current = 0;
+      requested.current = false;
       scrollContainer.removeEventListener("scroll", onScroll);
       scrollContainer.removeEventListener("wheel", onWheel);
       scrollContainer.removeEventListener("touchend", onTouchEnd);
@@ -118,11 +117,10 @@ export function useSeamlessFeedHead({
     if (
       enabled &&
       count > 0 &&
-      requestedAt.current > 0 &&
-      Date.now() - requestedAt.current < 10_000
+      requested.current &&
+      root.current?.checkVisibility()
     ) {
-      requestedAt.current = 0;
       merge();
     }
-  }, [enabled, count, merge]);
+  }, [enabled, count, merge, root]);
 }

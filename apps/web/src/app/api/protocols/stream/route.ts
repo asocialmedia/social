@@ -100,7 +100,14 @@ export function GET(request: Request) {
           }
           await redis.publish(
             DISCOVERY_WATCH_CHANNEL,
-            JSON.stringify({ locale: locale.data, renew: true, topics })
+            JSON.stringify({
+              explicit: Boolean(
+                session?.user.id && network?.preferences.showExplicitContent
+              ),
+              locale: locale.data,
+              renew: true,
+              topics,
+            })
           );
         };
         const heartbeat = setInterval(() => {
