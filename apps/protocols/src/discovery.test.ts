@@ -1046,3 +1046,47 @@ test("popular general video catalogs cannot displace the selected profile's topi
   expect(reads).toHaveLength(4);
   expect(page.items.map((item) => item.id)).toEqual([videoPost(1).id]);
 });
+
+test("topic-heavy video discovery reserves a declared video generator alongside topical sources", async () => {
+  const reads: string[] = [];
+  const video = "at://did:plc:source/app.bsky.feed.generator/declared-video";
+  const discovery = new BlueskyDiscovery({
+    allowsRecommendations: async () => true,
+    getAuthorFeed: async () => ({ cursor: null, items: [] }),
+    getFeed: async (uri) => {
+      reads.push(uri);
+      return {
+        cursor: null,
+        items:
+          uri === video ? [{ ...videoPost(1), text: "Anime animation" }] : [],
+      };
+    },
+    getProfile: async () => profile,
+    getSuggestedFeeds: async (options) => ({
+      cursor: null,
+      items:
+        options?.query === "video"
+          ? [
+              {
+                contentMode: "app.bsky.feed.defs#contentModeVideo",
+                displayName: "Videos",
+                uri: video,
+              },
+            ]
+          : Array.from({ length: 2 }, (_, index) => ({
+              displayName: `Topic ${index}`,
+              uri: `at://did:plc:source/app.bsky.feed.generator/${options?.query}${index}`,
+            })),
+    }),
+  });
+  const page = await discovery.read(
+    "personalized",
+    undefined,
+    "en",
+    ["anime", "manga"],
+    "video"
+  );
+  expect(reads).toHaveLength(4);
+  expect(reads[3]).toBe(video);
+  expect(page.items.map((item) => item.id)).toEqual([videoPost(1).id]);
+});

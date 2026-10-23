@@ -290,3 +290,33 @@ test("a partial source response without a continuation cannot mark the inventory
   ]);
   expect(recovered?.cursor).toBeNull();
 });
+
+test("a failed lease release cannot pin the in-flight refill after storage recovers", async () => {
+  const posts = [inventoryPost(1, "TypeScript")];
+  const continuations = new MemoryDiscoveryStore();
+  const release = continuations.release.bind(continuations);
+  let attempts = 0;
+  continuations.release = async (key, owner) => {
+    await release(key, owner);
+    if (attempts === 1) {
+      throw new Error("Redis release failed");
+    }
+  };
+  const inventory = new DiscoveryInventory(
+    {
+      invalidate: () => Promise.resolve(),
+      put: () => Promise.resolve(),
+      read: () => Promise.resolve(posts),
+    },
+    continuations,
+    () => {
+      attempts += 1;
+      return Promise.resolve({ cursor: null, items: [], partial: true });
+    }
+  );
+  await inventory.read("personalized", undefined, "en", ["TypeScript"], "all");
+  await Bun.sleep(0);
+  await inventory.read("personalized", undefined, "en", ["TypeScript"], "all");
+  await Bun.sleep(0);
+  expect(attempts).toBe(2);
+});

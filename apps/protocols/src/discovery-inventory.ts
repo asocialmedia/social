@@ -191,10 +191,13 @@ export class DiscoveryInventory {
           }
           return page;
         } finally {
-          if (claimed) {
-            await this.continuations.release(key, owner);
+          try {
+            if (claimed) {
+              await this.continuations.release(key, owner);
+            }
+          } finally {
+            this.replenishing.delete(key);
           }
-          this.replenishing.delete(key);
         }
       })();
       this.replenishing.set(key, pending);

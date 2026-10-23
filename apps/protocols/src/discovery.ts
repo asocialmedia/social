@@ -484,6 +484,15 @@ export class BlueskyDiscovery {
               Number(a.contentMode === "app.bsky.feed.defs#contentModeVideo") ||
             (b.likeCount ?? 0) - (a.likeCount ?? 0)
         );
+        const videoIndex = feeds.findIndex(
+          (feed) => feed.contentMode === "app.bsky.feed.defs#contentModeVideo"
+        );
+        if (videoIndex >= 4) {
+          const [video] = feeds.splice(videoIndex, 1);
+          if (video) {
+            feeds.splice(3, 0, video);
+          }
+        }
       }
       snapshot.catalogFeeds = feeds.slice(4).map((feed) => feed.uri);
       snapshot.sources = feeds.slice(0, 4).map((feed) => ({

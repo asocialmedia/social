@@ -667,3 +667,35 @@ test("a failed worker operation cools down across distinct feeds while another o
   expect(remote.filter((url) => url.includes("getFeed?"))).toHaveLength(1);
   expect(remote.some((url) => url.includes("getProfile?"))).toBe(true);
 });
+
+test("three remote transport failures pause every operation on that origin until cooldown expires", async () => {
+  let now = 0;
+  const remote: string[] = [];
+  const pool = createReadWorkerPool({
+    fetch: async (url) => {
+      if (url.startsWith(node.url)) {
+        remote.push(new URL(url).searchParams.get("url") ?? "");
+        throw new TypeError("worker offline");
+      }
+      return response({ ok: true });
+    },
+    logger: logger(),
+    nodes: [node],
+    now: () => now,
+  });
+  await pool.fetch(profile, {});
+  const root = "https://public.api.bsky.app/xrpc/";
+  await pool.fetch(profile, {});
+  await pool.fetch(
+    `${root}app.bsky.feed.getPosts?uris=at://did:plc:test/app.bsky.feed.post/one`,
+    {}
+  );
+  await pool.fetch(publicFeed("first"), {});
+  expect(remote).toHaveLength(3);
+  const authorFeed = `${root}app.bsky.feed.getAuthorFeed?actor=did:plc:alice`;
+  await pool.fetch(authorFeed, {});
+  expect(remote).toHaveLength(3);
+  now = 30_001;
+  await pool.fetch(authorFeed, {});
+  expect(remote).toHaveLength(4);
+});
