@@ -1582,6 +1582,87 @@ test.each(["unavailable", "timeout"])(
   }
 );
 
+test.each([null, "next-empty-catalog"])(
+  "empty catalogs restore a failed search window before recovery (%s)",
+  async (catalogCursor) => {
+    const store = new MemoryDiscoveryStore();
+    const cursor = crypto.randomUUID();
+    const until = new Date(
+      Math.floor(Date.now() / 60_000) * 60_000
+    ).toISOString();
+    const since = new Date(Date.parse(until) - 86_400_000).toISOString();
+    await store.set(
+      `${defaultDiscoveryScope("dynamic-v17")}:snapshot:${cursor}`,
+      JSON.stringify({
+        catalogExhausted: false,
+        catalogFeeds: [],
+        content: "video",
+        locale: "en",
+        mode: "personalized",
+        page: 2,
+        seen: [],
+        sources: [
+          {
+            actor: "search:anime",
+            exhausted: false,
+            items: [],
+            searchWindow: { since, until },
+          },
+        ],
+        topics: ["anime"],
+        windowedSearches: ["search:anime"],
+      }),
+      900_000
+    );
+    let recover = false;
+    let catalogs = 0;
+    const windows: (string | undefined)[] = [];
+    const client = {
+      allowsRecommendations: async () => true,
+      getAuthorFeed: async () => ({ cursor: null, items: [] }),
+      getProfile: async () => profile,
+      getSuggestedFeeds: async () => {
+        catalogs += 1;
+        return { cursor: catalogCursor, items: [] };
+      },
+      searchPosts: async (
+        _q: string,
+        _s: "latest" | "top",
+        options?: { since?: string }
+      ) => {
+        windows.push(options?.since);
+        if (!recover) {
+          throw new ProtocolError("unavailable", "Temporary window outage");
+        }
+        return {
+          cursor: null,
+          items: [{ ...videoPost(99), text: "Anime animation" }],
+        };
+      },
+    };
+    let next: string | undefined = cursor;
+    for (let index = 0; index < 2; index += 1) {
+      const page = await new BlueskyDiscovery(client, undefined, {
+        store,
+      }).read("personalized", next, "en", ["anime"], "video");
+      expect(page.items).toHaveLength(0);
+      expect(page.cursor).toBeString();
+      next = page.cursor ?? undefined;
+    }
+    expect(catalogs).toBeGreaterThan(0);
+    recover = true;
+    const page = await new BlueskyDiscovery(client, undefined, { store }).read(
+      "personalized",
+      next,
+      "en",
+      ["anime"],
+      "video"
+    );
+    expect(page.items.map((p) => p.id)).toEqual([videoPost(99).id]);
+    expect(windows.slice(0, 3)).toEqual([since, since, since]);
+  }
+);
+
 test.each(["dynamic-v15", "dynamic-v16"])(
   "%s cursors migrate into an isolated snapshot scope across replicas",
   async (version) => {

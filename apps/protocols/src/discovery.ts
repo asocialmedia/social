@@ -589,6 +589,9 @@ export class BlueskyDiscovery {
         items: [],
       }));
     }
+    if (snapshot.sources.length === 0 && snapshot.deferredSources.length > 0) {
+      snapshot.sources = snapshot.deferredSources.splice(0, 4);
+    }
     if (snapshot.sources.length === 0) {
       throw new ProtocolError(
         "unavailable",
