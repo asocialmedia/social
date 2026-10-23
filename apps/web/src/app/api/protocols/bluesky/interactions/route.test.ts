@@ -6,6 +6,10 @@ let reads = 0;
 let available = true;
 let offline = false;
 let threadReplies: unknown[] = [];
+let libraryUris: string[] = [];
+const withheld = new Set<string>();
+const refreshes: { uri: string; post: unknown }[] = [];
+const presenceReads: string[][] = [];
 const uri = "at://did:web:example.test/app.bsky.feed.post/example";
 const post = {
   author: { id: "did:web:example.test" },
@@ -24,12 +28,26 @@ mock.module("@/lib/protocols/budget", () => ({
   consumeProtocolBudget: () => Promise.resolve(),
 }));
 mock.module("@/lib/protocols/service", () => ({
-  readBlueskyPosts: () => {
+  readBlueskyPosts: (
+    uris: string[],
+    _signal: AbortSignal,
+    _id: string,
+    _recommendations = false,
+    requireComplete = false
+  ) => {
     reads += 1;
     if (offline) {
       return Promise.reject(new Error("Source unavailable"));
     }
-    return Promise.resolve(available ? [post] : []);
+    if (requireComplete) {
+      presenceReads.push(uris);
+      if (uris.some((entry) => withheld.has(entry))) {
+        return Promise.reject(new Error("Media withheld"));
+      }
+    }
+    return Promise.resolve(
+      available && uris.includes(uri) && !withheld.has(uri) ? [post] : []
+    );
   },
   readBlueskyThread: () => {
     if (offline) {
@@ -44,7 +62,11 @@ mock.module("@/lib/protocols/service", () => ({
 mock.module("@asm/db", () => ({
   ExternalInteractionError: FixtureError,
   externalComments: () => Promise.resolve({ cursor: null, items: [] }),
-  externalLibrary: () => Promise.resolve({ cursor: null, items: [] }),
+  externalLibrary: () =>
+    Promise.resolve({
+      cursor: null,
+      items: libraryUris.map((entry) => ({ uri: entry })),
+    }),
   externalPostStates: () => Promise.resolve(new Map()),
   externalResponses: () => Promise.resolve({ cursor: null, items: [] }),
   findExternalPost: () => Promise.resolve(null),
@@ -74,7 +96,10 @@ mock.module("@asm/db", () => ({
     },
   },
   recordNetworkSignal: () => Promise.resolve(true),
-  refreshExternalPost: () => Promise.resolve(),
+  refreshExternalPost: (entry: string, current: unknown) => {
+    refreshes.push({ post: current, uri: entry });
+    return Promise.resolve();
+  },
   removeNetworkSignal: () => Promise.resolve(true),
 }));
 const { GET, POST } = await import("./route");
@@ -91,6 +116,10 @@ beforeEach(() => {
   available = true;
   offline = false;
   threadReplies = [];
+  libraryUris = [];
+  withheld.clear();
+  refreshes.length = 0;
+  presenceReads.length = 0;
 });
 test("guests may read discussions but cannot create durable data", async () => {
   session = null;
@@ -172,6 +201,85 @@ test("a verified source absence still renders the preserved discussion", async (
     comments: { cursor: null, items: [] },
     post: null,
   });
+});
+
+test.each(["bookmarks", "amplified"])(
+  "a withheld %s item preserves its healthy peer and is never recorded as deleted",
+  async (kind) => {
+    const blocked = "at://did:web:example.test/app.bsky.feed.post/withheld";
+    libraryUris = [uri, blocked];
+    withheld.add(blocked);
+    const response = await GET(
+      new Request(
+        `http://localhost/api/protocols/bluesky/interactions?kind=${kind}`
+      )
+    );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      cursor: null,
+      items: [
+        { post, uri },
+        { post: null, uri: blocked },
+      ],
+    });
+    expect(presenceReads).toEqual([[blocked]]);
+    expect(refreshes).toEqual([{ post, uri }]);
+  }
+);
+
+test("confirmed missing library items are refreshed while healthy peers remain visible", async () => {
+  const missing = "at://did:web:example.test/app.bsky.feed.post/missing";
+  libraryUris = [uri, missing];
+  const response = await GET(
+    new Request(
+      "http://localhost/api/protocols/bluesky/interactions?kind=bookmarks"
+    )
+  );
+  expect(response.status).toBe(200);
+  expect(presenceReads).toEqual([[missing]]);
+  expect(refreshes).toEqual([
+    { post, uri },
+    { post: null, uri: missing },
+  ]);
+});
+
+test("a fully withheld library page remains readable without marking sources deleted", async () => {
+  libraryUris = [uri];
+  withheld.add(uri);
+  const response = await GET(
+    new Request(
+      "http://localhost/api/protocols/bluesky/interactions?kind=bookmarks"
+    )
+  );
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual({
+    cursor: null,
+    items: [{ post: null, uri }],
+  });
+  expect(refreshes).toEqual([]);
+});
+
+test("a total library source outage remains retryable and cannot mark sources deleted", async () => {
+  libraryUris = [uri];
+  offline = true;
+  const response = await GET(
+    new Request(
+      "http://localhost/api/protocols/bluesky/interactions?kind=bookmarks"
+    )
+  );
+  expect(response.status).toBe(503);
+  expect(refreshes).toEqual([]);
+});
+
+test("a withheld single source remains retryable instead of becoming a confirmed deletion", async () => {
+  withheld.add(uri);
+  const response = await GET(
+    new Request(
+      `http://localhost/api/protocols/bluesky/interactions?${new URLSearchParams({ uri })}`
+    )
+  );
+  expect(response.status).toBe(503);
+  expect(refreshes).toEqual([]);
 });
 
 test("discussion pagination never waits for or revalidates the upstream post", async () => {

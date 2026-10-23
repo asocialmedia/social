@@ -116,18 +116,38 @@ function mapResponsePosts(posts: PostData[]): ExternalComment[] {
 }
 
 async function readCurrent(uris: string[], request: Request, id: string) {
+  let posts: ExternalPost[];
   try {
+    posts = uris.length ? await readBlueskyPosts(uris, request.signal, id) : [];
+  } catch (error) {
+    if (request.signal.aborted) {
+      throw error;
+    }
+    return { posts: [], readSucceeded: false, verified: false };
+  }
+  const visible = new Set(posts.map((post) => post.id));
+  const omitted = uris.filter((uri) => !visible.has(uri));
+  if (!omitted.length) {
+    return { posts, readSucceeded: true, verified: true };
+  }
+  try {
+    const checked = await readBlueskyPosts(
+      omitted,
+      request.signal,
+      id,
+      false,
+      true
+    );
     return {
-      posts: uris.length
-        ? await readBlueskyPosts(uris, request.signal, id, false, true)
-        : [],
+      posts: [...posts, ...checked],
+      readSucceeded: true,
       verified: true,
     };
   } catch (error) {
     if (request.signal.aborted) {
       throw error;
     }
-    return { posts: [], verified: false };
+    return { posts, readSucceeded: true, verified: false };
   }
 }
 
@@ -167,17 +187,17 @@ export function GET(request: Request) {
         requestId
       );
       const current = source.posts;
-      if (!source.verified) {
+      if (!source.readSucceeded) {
         throw new ProtocolGatewayError(503, "source_read_failed");
       }
       const byUri = new Map(current.map((post) => [post.id, post]));
-      if (source.verified) {
-        await Promise.all(
-          page.items.map((item) =>
+      await Promise.all(
+        page.items
+          .filter((item) => source.verified || byUri.has(item.uri))
+          .map((item) =>
             refreshExternalPost(item.uri, byUri.get(item.uri) ?? null)
           )
-        );
-      }
+      );
       const states = await externalPostStates(
         current.map((post) => post.id),
         viewer
