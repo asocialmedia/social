@@ -20,7 +20,7 @@ import { useRequireAuth } from "@/hooks/auth/use-require-auth";
 import { useNetworkSettings } from "@/hooks/feed/use-network-settings";
 import { getAuraFlameClass } from "@/lib/aura/aura";
 import kyInstance from "@/lib/ky";
-import { canAutoContinueFeed } from "@/lib/posts/feed-pagination";
+import { feedContinuationDelay } from "@/lib/posts/feed-pagination";
 import { networkPostRecommended } from "@/lib/posts/network-content-policy";
 import { mixExplorePosts } from "@/lib/recommendations/mix-explore";
 import { cn, formatNumber } from "@/lib/utils";
@@ -281,42 +281,18 @@ export const ExploreGustsGrid: React.FC = () => {
 
   const handleBottomReached = useCallback(
     (manual = false) => {
-      if (
-        hasNextPage &&
-        !isFetching &&
-        (manual || status !== "error") &&
-        (manual ||
-          canAutoContinueFeed(
-            data?.pages,
-            (page) => page.posts,
-            visibleIds.asm
-          ))
-      ) {
+      if (hasNextPage && !isFetching && (manual || status !== "error")) {
         void fetchNextPage({ cancelRefetch: false });
       }
       if (
         remote.hasNextPage &&
         !remote.isFetching &&
-        (manual || !remote.isError) &&
-        (manual ||
-          canAutoContinueFeed(
-            remote.data?.pages,
-            (page) => page.items,
-            visibleIds.bluesky
-          ))
+        (manual || !remote.isError)
       ) {
         void remote.fetchNextPage({ cancelRefetch: false });
       }
     },
-    [
-      fetchNextPage,
-      hasNextPage,
-      isFetching,
-      remote,
-      status,
-      data?.pages,
-      visibleIds,
-    ]
+    [fetchNextPage, hasNextPage, isFetching, remote, status]
   );
 
   const handleCreateGust = useCallback(() => {
@@ -328,7 +304,10 @@ export const ExploreGustsGrid: React.FC = () => {
   }, [goToLogin, user]);
 
   const manualContinuation =
-    (hasNextPage || remote.hasNextPage) && !isFetching && !remote.isFetching ? (
+    (hasNextPage || remote.hasNextPage) &&
+    (status === "error" || remote.isError) &&
+    !isFetching &&
+    !remote.isFetching ? (
       <div className="flex justify-center p-4">
         <Button variant="premium" onClick={() => handleBottomReached(true)}>
           Load more Gusts
@@ -409,11 +388,30 @@ export const ExploreGustsGrid: React.FC = () => {
   return (
     <div className="relative">
       <InfiniteScrollContainer
+        continuationDelay={Math.max(
+          hasNextPage
+            ? feedContinuationDelay(
+                data?.pages,
+                (page) => page.posts,
+                visibleIds.asm
+              )
+            : 0,
+          remote.hasNextPage
+            ? feedContinuationDelay(
+                remote.data?.pages,
+                (page) => page.items,
+                visibleIds.bluesky
+              )
+            : 0
+        )}
         onBottomReached={handleBottomReached}
-        prefetchDistance={1500}
+        prefetchDistance={3000}
       >
         <div className="p-4">
-          <ExploreMasonry scope={`${user?.id ?? "guest"}:${network.scope}`}>
+          <ExploreMasonry
+            loading={isFetchingNextPage || remote.isFetching}
+            scope={`${user?.id ?? "guest"}:${network.scope}`}
+          >
             {mixed.map((entry) =>
               entry.source === "asm" ? (
                 <RecommendationTracker
@@ -452,9 +450,6 @@ export const ExploreGustsGrid: React.FC = () => {
             }}
             isRetrying={isFetching || remote.isFetching}
           />
-        ) : null}
-        {isFetchingNextPage || remote.isFetching ? (
-          <ExploreGustsSkeleton count={4} />
         ) : null}
         {manualContinuation}
       </InfiniteScrollContainer>

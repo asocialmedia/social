@@ -1,7 +1,10 @@
 // oxlint-disable react/todo -- Polling releases its overlap guard after successful and failed reads.
 "use client";
 
-import { createFeedReadScheduler } from "@asm/protocols/discovery";
+import {
+  createFeedReadScheduler,
+  waitForReadRetry,
+} from "@asm/protocols/discovery";
 import type { DiscoveryMode } from "@asm/protocols/discovery";
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -118,7 +121,7 @@ export function useNewContentProbe<T extends NewContentItem>({
       change.source === "connected" ||
       ((change.source === eventSource ||
         (eventSource === "bluesky" && change.source === "bluesky-following")) &&
-        (!change.mode || change.mode === eventMode))
+        (!eventMode || !change.mode || change.mode === eventMode))
     ) {
       scheduleRef.current();
     }
@@ -140,6 +143,7 @@ export function useNewContentProbe<T extends NewContentItem>({
     let active = true;
     let inFlight = false;
     let lastAutomaticProbeAt = Date.now();
+    let lastEventProbeAt = 0;
     const controller = new AbortController();
     const probe = async () => {
       if (inFlight || !active || document.visibilityState === "hidden") {
@@ -203,7 +207,15 @@ export function useNewContentProbe<T extends NewContentItem>({
       lastAutomaticProbeAt = Date.now();
       return probe();
     };
-    const scheduler = createFeedReadScheduler(automaticProbe);
+    const eventProbe = async () => {
+      const remaining = 10_000 - (Date.now() - lastEventProbeAt);
+      if (remaining > 0) {
+        await waitForReadRetry(remaining, controller.signal);
+      }
+      lastEventProbeAt = Date.now();
+      await probe();
+    };
+    const scheduler = createFeedReadScheduler(eventProbe);
     scheduleRef.current = scheduler.schedule;
     const onVisible = () => {
       void automaticProbe();

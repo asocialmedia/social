@@ -39,6 +39,7 @@ import {
   GustFeedErrorState,
   GustSourceRetries,
 } from "@/components/gusts/gust-source-retries";
+import { GustStreamSlot } from "@/components/gusts/gust-stream-slot";
 import { GustsCommentsDrawer } from "@/components/gusts/gusts-comments-drawer";
 import { MobileGustEddies } from "@/components/gusts/mobile-gust-eddies";
 import Spinner3D from "@/components/layouts/feedback/spinner-3d";
@@ -1179,21 +1180,36 @@ const GustStream = ({ gustTab }: { gustTab: GustFeed }) => {
             }}
             ref={containerRef}
           >
-            {posts.map((post, idx) => {
+            {(hasNextPage ? [...posts, null] : posts).map((post, idx) => {
+              if (!post) {
+                return (
+                  <GustStreamSlot
+                    pending
+                    loading={isFetchingNextPage}
+                    key={`gust-slot-${idx}`}
+                  >
+                    {pageError && !isFetchingNextPage ? (
+                      <GustSourceRetries sources={retrySources} />
+                    ) : (
+                      <GustCardSkeleton />
+                    )}
+                  </GustStreamSlot>
+                );
+              }
               const isCurrentActive = activeIndex === idx;
               const distance = Math.abs(idx - activeIndex);
-              const shouldMount = isCurrentActive || distance <= 1;
+              const shouldMount = isCurrentActive || distance <= 2;
 
               return (
-                <div
-                  className="flex h-full w-full snap-start snap-always items-center justify-center py-0 sm:h-[98%] sm:py-2"
-                  data-index={idx}
-                  key={post.id}
+                <GustStreamSlot
+                  index={idx}
+                  key={`gust-slot-${idx}`}
                   ref={(el) => {
                     itemRefs.current[idx] = el;
                   }}
                 >
                   <RecommendationTracker
+                    key={post.id}
                     exposureFeed={gustTab}
                     className="h-full w-full"
                     postId={post.id}
@@ -1215,22 +1231,12 @@ const GustStream = ({ gustTab }: { gustTab: GustFeed }) => {
                       shouldMountVideo={shouldMount}
                     />
                   </RecommendationTracker>
-                </div>
+                </GustStreamSlot>
               );
             })}
 
-            {!canFetchNextPage && !isFetchingNextPage ? (
+            {!hasNextPage && !isFetchingNextPage ? (
               <GustSourceRetries sources={retrySources} />
-            ) : null}
-
-            {isFetchingNextPage ? (
-              <div
-                aria-busy="true"
-                aria-label="Loading more Gusts"
-                className="flex h-full w-full snap-start snap-always items-center justify-center py-0 sm:h-[98%] sm:py-2"
-              >
-                <GustCardSkeleton />
-              </div>
             ) : null}
 
             {/* Pagination sentinel: triggers the next page even when the feed

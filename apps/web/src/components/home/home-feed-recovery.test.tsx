@@ -247,7 +247,7 @@ test.each([true, false])(
 );
 
 test.each([true, false])(
-  "manual continuation advances a healthy sparse source while its peer remains failed (cached content: %s)",
+  "sparse continuation remains automatic with loaded content and retryable without it (cached content: %s)",
   async (hasCachedContent) => {
     const previousData = external.data;
     if (!hasCachedContent) {
@@ -282,12 +282,14 @@ test.each([true, false])(
           .find((button) => button.textContent === "Reach end")
           ?.click()
       );
-      expect(requestGlobal).not.toHaveBeenCalled();
+      expect(requestGlobal).toHaveBeenCalledTimes(hasCachedContent ? 1 : 0);
       const more = [...host.querySelectorAll("button")].find(
         (button) => button.textContent === "Load more posts"
       );
       expect(more).toBeDefined();
-      await act(() => more?.click());
+      if (!hasCachedContent) {
+        await act(() => more?.click());
+      }
       await act(async () => {
         await Bun.sleep(25);
       });

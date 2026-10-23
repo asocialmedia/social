@@ -150,7 +150,7 @@ export function useBlueskyFeed(
       enabled &&
       network.ready &&
       Boolean(query.data) &&
-      (following || content !== "video"),
+      (following || content !== "video" || surface === "explore"),
     eventMode: following ? undefined : mode,
     eventSource: following ? "bluesky-following" : "bluesky",
     fetchHead: async (signal) => {

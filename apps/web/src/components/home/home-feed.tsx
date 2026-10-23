@@ -39,7 +39,7 @@ import {
   prependPostsToFeedCache,
   scrollFeedToTop,
 } from "@/lib/posts/feed-cache";
-import { canAutoContinueFeed } from "@/lib/posts/feed-pagination";
+import { feedContinuationDelay } from "@/lib/posts/feed-pagination";
 import { activeNetworkInterests } from "@/lib/posts/network-content-policy";
 import { isTrendingPost } from "@/lib/posts/trending-eligibility";
 import {
@@ -359,9 +359,7 @@ export default function HomeFeed({
         source !== "asm" &&
         external.hasNextPage &&
         !external.isFetching &&
-        (!external.isError || retry) &&
-        (retry ||
-          canAutoContinueFeed(external.data?.pages, (page) => page.items))
+        (!external.isError || retry)
       ) {
         void external.fetchNextPage({ cancelRefetch: false });
       }
@@ -382,8 +380,7 @@ export default function HomeFeed({
       if (
         segment === "global" &&
         !isFetching &&
-        (globalStatus !== "error" || retry) &&
-        (retry || canAutoContinueFeed(data?.pages, (page) => page.posts))
+        (globalStatus !== "error" || retry)
       ) {
         fetchNextPage({ cancelRefetch: false });
       }
@@ -392,7 +389,6 @@ export default function HomeFeed({
       allowExternal,
       source,
       external,
-      data?.pages,
       globalStatus,
       communityExhausted,
       fetchNextCommunityPage,
@@ -497,6 +493,7 @@ export default function HomeFeed({
 
   const manualContinuation =
     hasNextPage &&
+    (globalStatus === "error" || external.isError || communityFailed) &&
     !isFetching &&
     !external.isFetching &&
     !isFetchingCommunity ? (
@@ -664,7 +661,17 @@ export default function HomeFeed({
           />
         </div>
       ) : null}
-      <InfiniteScrollContainer onBottomReached={handleBottomReached}>
+      <InfiniteScrollContainer
+        continuationDelay={Math.max(
+          source !== "bluesky" && globalHasNextPage
+            ? feedContinuationDelay(data?.pages, (page) => page.posts)
+            : 0,
+          allowExternal && includeBluesky && external.hasNextPage
+            ? feedContinuationDelay(external.data?.pages, (page) => page.items)
+            : 0
+        )}
+        onBottomReached={handleBottomReached}
+      >
         {/* Community segment leads. `showCommunity={false}` because every post
             here already belongs to the community being read. */}
         {showCommunitySection ? (

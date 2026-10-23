@@ -43,7 +43,7 @@ import useDebounce from "@/hooks/use-debounce";
 import { useDiscoverySuggestions } from "@/hooks/use-discovery-suggestions";
 import { useHideOnScroll } from "@/hooks/use-hide-on-scroll";
 import kyInstance from "@/lib/ky";
-import { canAutoContinueFeed } from "@/lib/posts/feed-pagination";
+import { feedContinuationDelay } from "@/lib/posts/feed-pagination";
 import {
   externalNetworkPostAllowed,
   externalNetworkPostRecommended,
@@ -229,6 +229,30 @@ const ExploreClient: React.FC = () => {
       ),
     [remoteGusts.data, network.settings]
   );
+  useEffect(() => {
+    if (remoteGusts.newItems.length) {
+      remoteGusts.showNewItems();
+    }
+  }, [remoteGusts]);
+  useEffect(() => {
+    if (
+      activeTab === "gusts" ||
+      debouncedSearch.trim() ||
+      trendingRemoteGusts.length >= 12 ||
+      !remoteGusts.hasNextPage ||
+      remoteGusts.isFetching ||
+      remoteGusts.isError
+    ) {
+      return;
+    }
+    const timer = window.setTimeout(
+      () => {
+        void remoteGusts.fetchNextPage({ cancelRefetch: false });
+      },
+      trendingRemoteGusts.length ? 250 : 1500
+    );
+    return () => window.clearTimeout(timer);
+  }, [activeTab, debouncedSearch, trendingRemoteGusts.length, remoteGusts]);
 
   const queryKey = useMemo(
     () => [
@@ -617,7 +641,12 @@ const ExploreClient: React.FC = () => {
               More to explore
             </h2>
           ) : null}
-          <ExploreMasonry scope={JSON.stringify(queryKey)}>
+          <ExploreMasonry
+            loading={
+              !debouncedSearch.trim() && (isFetching || remote.isFetching)
+            }
+            scope={JSON.stringify(queryKey)}
+          >
             {items}
           </ExploreMasonry>
         </motion.div>
@@ -626,34 +655,19 @@ const ExploreClient: React.FC = () => {
   }
 
   const loadMore = (manual = false) => {
-    if (
-      hasNextPage &&
-      !isFetching &&
-      (manual || status !== "error") &&
-      (manual ||
-        canAutoContinueFeed(data?.pages, (page) => page.posts, visibleIds.asm))
-    ) {
+    if (hasNextPage && !isFetching && (manual || status !== "error")) {
       void fetchNextPage({ cancelRefetch: false });
     }
     if (
       remote.hasNextPage &&
       !remote.isFetching &&
-      (manual || !remote.isError) &&
-      (manual ||
-        canAutoContinueFeed(
-          remote.data?.pages,
-          (page) => page.items,
-          visibleIds.bluesky
-        ))
+      (manual || !remote.isError)
     ) {
       void remote.fetchNextPage({ cancelRefetch: false });
     }
   };
   const feedContinuation = (
     <div>
-      {!debouncedSearch.trim() && (isFetching || remote.isFetching) ? (
-        <ExploreMasonrySkeleton compact />
-      ) : null}
       {remote.isError || status === "error" ? (
         <FeedErrorState
           compact
@@ -674,6 +688,7 @@ const ExploreClient: React.FC = () => {
         />
       ) : null}
       {(hasNextPage || remote.hasNextPage) &&
+      (remote.isError || status === "error") &&
       !isFetching &&
       !remote.isFetching ? (
         <div className="flex justify-center p-4">
@@ -720,8 +735,24 @@ const ExploreClient: React.FC = () => {
   const stream = (
     <div ref={feedHeadRef}>
       <InfiniteScrollContainer
+        continuationDelay={Math.max(
+          hasNextPage
+            ? feedContinuationDelay(
+                data?.pages,
+                (page) => page.posts,
+                visibleIds.asm
+              )
+            : 0,
+          remote.hasNextPage
+            ? feedContinuationDelay(
+                remote.data?.pages,
+                (page) => page.items,
+                visibleIds.bluesky
+              )
+            : 0
+        )}
         onBottomReached={loadMore}
-        prefetchDistance={1500}
+        prefetchDistance={3000}
       >
         {body}
         {feedContinuation}

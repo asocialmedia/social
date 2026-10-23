@@ -124,3 +124,83 @@ test("a visible sentinel requests the next page again after a short page settles
   expect(load).toHaveBeenCalledTimes(2);
   await act(() => root.unmount());
 });
+
+test("sparse continuation keeps its deadline across callback rerenders and uses the latest callback", async () => {
+  const host = dom.document.createElement("div");
+  dom.document.body.append(host);
+  const root = createRoot(host as unknown as HTMLElement);
+  const first = mock(() => {});
+  const latest = mock(() => {});
+  try {
+    await act(() =>
+      root.render(
+        <InfiniteScrollContainer
+          continuationDelay={200}
+          onBottomReached={first}
+        >
+          Posts
+        </InfiniteScrollContainer>
+      )
+    );
+    await Bun.sleep(110);
+    await act(() =>
+      root.render(
+        <InfiniteScrollContainer
+          continuationDelay={200}
+          onBottomReached={latest}
+        >
+          Posts updated
+        </InfiniteScrollContainer>
+      )
+    );
+    await act(() => Bun.sleep(120));
+    expect(first).not.toHaveBeenCalled();
+    expect(latest).toHaveBeenCalledTimes(1);
+  } finally {
+    await act(() => root.unmount());
+    host.remove();
+  }
+});
+
+test("delayed continuation rechecks the sentinel after content pushes it out of range", async () => {
+  const host = dom.document.createElement("div");
+  dom.document.body.append(host);
+  const root = createRoot(host as unknown as HTMLElement);
+  const load = mock(() => {});
+  try {
+    await act(() =>
+      root.render(
+        <InfiniteScrollContainer continuationDelay={30} onBottomReached={load}>
+          Posts
+        </InfiniteScrollContainer>
+      )
+    );
+    Object.defineProperty(
+      host.querySelector("[data-feed-sentinel]"),
+      "getBoundingClientRect",
+      { value: () => ({ bottom: 20_001, top: 20_000 }) }
+    );
+    await act(() => Bun.sleep(60));
+    expect(load).not.toHaveBeenCalled();
+  } finally {
+    await act(() => root.unmount());
+    host.remove();
+  }
+});
+
+test("unmount cancels an outstanding sparse continuation", async () => {
+  const root = createRoot(
+    dom.document.createElement("div") as unknown as HTMLElement
+  );
+  const load = mock(() => {});
+  await act(() =>
+    root.render(
+      <InfiniteScrollContainer continuationDelay={30} onBottomReached={load}>
+        Posts
+      </InfiniteScrollContainer>
+    )
+  );
+  await act(() => root.unmount());
+  await Bun.sleep(60);
+  expect(load).not.toHaveBeenCalled();
+});
