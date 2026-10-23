@@ -435,14 +435,14 @@ export default function HomeFeed({
         void refetchCommunity({ cancelRefetch: false });
       }
     }
-    if (allowExternal && external.isError) {
+    if (allowExternal && includeBluesky && external.isError) {
       if (external.hasNextPage) {
         void external.fetchNextPage({ cancelRefetch: false });
       } else {
         void external.refetch();
       }
     }
-    if (globalStatus === "error") {
+    if (source !== "bluesky" && globalStatus === "error") {
       if (globalHasNextPage) {
         void fetchNextPage({ cancelRefetch: false });
       } else {
@@ -451,6 +451,8 @@ export default function HomeFeed({
     }
   }, [
     allowExternal,
+    includeBluesky,
+    source,
     communityFailed,
     communityHasNextPage,
     external,
@@ -467,6 +469,9 @@ export default function HomeFeed({
     showCommunitySection ||
     (source !== "bluesky" && visibleGlobalPosts.length > 0) ||
     (allowExternal && source !== "asm" && externalPosts.length > 0);
+  const sourceFailed =
+    (source !== "bluesky" && (communityFailed || globalStatus === "error")) ||
+    (allowExternal && includeBluesky && external.isError);
 
   const availability = feedAvailability({
     count: hasAnyPosts ? 1 : 0,
@@ -493,15 +498,20 @@ export default function HomeFeed({
 
   const manualContinuation =
     hasNextPage &&
-    (globalStatus === "error" || external.isError || communityFailed) &&
+    sourceFailed &&
     !isFetching &&
     !external.isFetching &&
     !isFetchingCommunity ? (
       <div className="flex justify-center p-4">
         <Button
-          onClick={() =>
-            communityFailed ? retryFailedSources() : handleBottomReached(true)
-          }
+          onClick={() => {
+            if (communityFailed) {
+              retryFailedSources();
+              handleBottomReached();
+            } else {
+              handleBottomReached(true);
+            }
+          }}
           variant="premium"
         >
           Load more posts
@@ -581,7 +591,7 @@ export default function HomeFeed({
     );
   }
 
-  if (!hasAnyPosts && (globalStatus === "error" || external.isError)) {
+  if (!hasAnyPosts && sourceFailed) {
     return (
       <div>
         <FeedErrorState
@@ -601,9 +611,6 @@ export default function HomeFeed({
   const sourceFetching =
     (source !== "bluesky" && (isFetching || isFetchingCommunity)) ||
     (allowExternal && includeBluesky && external.isFetching);
-  const sourceFailed =
-    (source !== "bluesky" && (communityFailed || globalStatus === "error")) ||
-    (allowExternal && includeBluesky && external.isError);
   const feedComplete =
     !hasNextPage &&
     !communityPending &&
