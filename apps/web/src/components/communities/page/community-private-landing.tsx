@@ -1,9 +1,11 @@
 "use client";
 
 import type { getCommunityPreview } from "@asm/db";
+import { Badge } from "@asm/ui/shadui/badge";
 import { Button } from "@asm/ui/shadui/button";
+import { Card } from "@asm/ui/shadui/card";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { LockKeyhole } from "lucide-react";
+import { Clock3, Loader2, LockKeyhole } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 
@@ -81,6 +83,14 @@ export default function CommunityPrivateLanding({
   const { community } = initialPreview;
   const pending = preview?.membership?.status === "PENDING";
   const banned = preview?.permissions.banned;
+  let accessDescription =
+    "Join to read posts and take part in community chat. The owner or a moderator reviews each request.";
+  if (banned) {
+    accessDescription = "You cannot request access to this community.";
+  } else if (pending) {
+    accessDescription =
+      "The owner or a moderator will review your request. Once approved, you can read posts and join community chat.";
+  }
   return (
     <div className="mx-auto flex min-h-0 w-full max-w-5xl flex-1 flex-col bg-[hsl(var(--background-alt))]">
       <MobileTopBar />
@@ -91,86 +101,127 @@ export default function CommunityPrivateLanding({
         subscribed={false}
         canReadContent={false}
       >
-        <>
-          <div className="px-4 pt-4 sm:px-6">
-            <p className="max-w-2xl text-sm leading-relaxed wrap-break-word whitespace-pre-wrap">
+        <div className="grid items-start gap-6 px-4 pt-2 pb-6 sm:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)] sm:gap-8 sm:px-6 sm:pt-4">
+          <section
+            aria-labelledby="community-members-only"
+            aria-busy={busy}
+            className="min-w-0"
+          >
+            <Card className="rounded-2xl! p-5 sm:p-6">
+              <div className="text-muted-foreground mb-4 flex items-center gap-2.5 text-xs font-medium">
+                <span className="bg-muted flex size-8 shrink-0 items-center justify-center rounded-full">
+                  <LockKeyhole className="size-4" aria-hidden="true" />
+                </span>
+                Members only
+              </div>
+              <h2
+                className="max-w-sm text-lg leading-snug font-semibold text-pretty"
+                id="community-members-only"
+              >
+                Posts are for members of this community.
+              </h2>
+              <p
+                className="text-muted-foreground mt-2 text-sm leading-relaxed text-pretty"
+                id="community-access-description"
+              >
+                {accessDescription}
+              </p>
+              {banned ? null : (
+                <div className="mt-5">
+                  {pending ? (
+                    <div className="space-y-3">
+                      <output className="bg-muted flex min-h-11 items-center justify-center gap-2 rounded-xl px-3 text-sm font-medium sm:w-fit">
+                        <Clock3 aria-hidden="true" className="size-4" />
+                        Request pending
+                      </output>
+                      <p className="text-muted-foreground text-xs leading-relaxed">
+                        We’ll notify you when there’s a decision. You can leave
+                        this page while you wait.
+                      </p>
+                      <Button
+                        variant="ghost"
+                        className="min-h-11 w-full rounded-full sm:w-auto"
+                        disabled={busy}
+                        onClick={() => updateRequest.mutate(true)}
+                      >
+                        {busy ? "Cancelling…" : "Cancel request"}
+                      </Button>
+                    </div>
+                  ) : (
+                    <Button
+                      aria-describedby="community-access-description"
+                      className="min-h-11 w-full sm:w-auto"
+                      variant="premium"
+                      disabled={busy || (Boolean(user) && !preview)}
+                      onClick={() => {
+                        if (user) {
+                          updateRequest.mutate(false);
+                        } else {
+                          goToLogin();
+                        }
+                      }}
+                    >
+                      {busy ? (
+                        <Loader2
+                          aria-hidden="true"
+                          className="animate-spin motion-reduce:animate-none"
+                        />
+                      ) : null}
+                      {requestLabel}
+                    </Button>
+                  )}
+                </div>
+              )}
+              {error || query.isError ? (
+                <div className="mt-3">
+                  <p
+                    role="alert"
+                    className="text-destructive text-sm leading-relaxed"
+                  >
+                    {error || "Couldn't refresh your membership. Try again."}
+                  </p>
+                  {query.isError ? (
+                    <Button
+                      variant="ghost"
+                      className="mt-2 min-h-11 w-full rounded-full sm:w-auto"
+                      disabled={query.isFetching}
+                      onClick={async () => {
+                        await query.refetch();
+                      }}
+                    >
+                      Retry
+                    </Button>
+                  ) : null}
+                </div>
+              ) : null}
+            </Card>
+          </section>
+          <section
+            aria-labelledby="community-public-about"
+            className="min-w-0 px-1 sm:pt-1"
+          >
+            <h2 className="text-sm font-semibold" id="community-public-about">
+              About this community
+            </h2>
+            <p className="text-muted-foreground mt-3 text-sm leading-relaxed wrap-break-word whitespace-pre-wrap">
               {community.description}
             </p>
-            <div className="mt-3 flex flex-wrap gap-2">
-              {community.topics?.map((topic) => (
-                <span className="text-muted-foreground text-xs" key={topic}>
-                  {topic}
-                </span>
-              ))}
-            </div>
-          </div>
-          <section
-            className="border-border/60 mx-4 mt-6 border-t py-8 sm:mx-6"
-            aria-labelledby="community-members-only"
-          >
-            <LockKeyhole
-              className="text-muted-foreground mb-3 size-5"
-              aria-hidden="true"
-            />
-            <h2 className="text-lg font-semibold" id="community-members-only">
-              Posts are for members of this community.
-            </h2>
-            <p className="text-muted-foreground mt-2 max-w-lg text-sm leading-relaxed">
-              Request to join. Once the owner or a moderator approves your
-              request, you can view posts and join community chat.
-            </p>
-            <div className="mt-5 flex flex-wrap items-center gap-3">
-              {banned ? (
-                <p className="text-muted-foreground text-sm">
-                  You cannot request access to this community.
-                </p>
-              ) : null}
-              {!banned && pending ? (
-                <>
-                  <output className="text-sm font-medium">
-                    Request pending
-                  </output>
-                  <Button
-                    variant="ghost"
-                    className="min-h-11"
-                    disabled={busy}
-                    onClick={() => updateRequest.mutate(true)}
-                  >
-                    Cancel request
-                  </Button>
-                </>
-              ) : null}
-              {!banned && !pending ? (
-                <Button
-                  className="min-h-11"
-                  variant="premium"
-                  disabled={busy || (Boolean(user) && !preview)}
-                  onClick={() => {
-                    if (user) {
-                      updateRequest.mutate(false);
-                    } else {
-                      goToLogin();
-                    }
-                  }}
-                >
-                  {requestLabel}
-                </Button>
-              ) : null}
-            </div>
-            {pending ? (
-              <p className="text-muted-foreground mt-2 text-sm">
-                Your request is awaiting review. You can leave this page and
-                check back later.
-              </p>
-            ) : null}
-            {error || query.isError ? (
-              <p role="alert" className="text-destructive mt-3 text-sm">
-                {error ||
-                  "Couldn't refresh your membership. Reopen this page to try again."}
-              </p>
+            {community.topics?.length ? (
+              <ul aria-label="Topics" className="mt-4 flex flex-wrap gap-2">
+                {community.topics.map((topic) => (
+                  <li className="max-w-full" key={topic}>
+                    <Badge
+                      className="max-w-full rounded-full! px-2.5 py-1 font-normal wrap-break-word whitespace-normal"
+                      variant="outline"
+                    >
+                      {topic}
+                    </Badge>
+                  </li>
+                ))}
+              </ul>
             ) : null}
           </section>
-        </>
+        </div>
       </CommunityPostsWorkspace>
       <MobileBottomNav />
     </div>

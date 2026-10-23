@@ -9,7 +9,7 @@ import { useState } from "react";
 import { useSession } from "@/app/(main)/session-provider";
 import { communityAccentStyle } from "@/lib/communities/accent";
 import type { CommunityRoleValue } from "@/lib/communities/client";
-import { formatNumber } from "@/lib/utils";
+import { cn, formatNumber } from "@/lib/utils";
 
 import CommunityAvatar from "../card/community-avatar";
 import CommunityJoinRequests from "./community-join-requests";
@@ -66,7 +66,12 @@ export default function CommunityHeader({
       className="relative"
       style={communityAccentStyle(community.accentColor)}
     >
-      <div className="relative h-36 overflow-hidden sm:h-48">
+      <div
+        className={cn(
+          "relative overflow-hidden",
+          canReadContent ? "h-36 sm:h-48" : "h-24 sm:h-32"
+        )}
+      >
         {hasBanner ? (
           <Image
             alt={`${community.name} banner`}
@@ -159,7 +164,7 @@ export default function CommunityHeader({
           >
             <h1 className="text-foreground truncate">{community.name}</h1>
           </motion.div>
-          <div className="text-muted-foreground flex items-center gap-1 text-sm">
+          <div className="text-muted-foreground flex flex-wrap items-center gap-x-1.5 gap-y-1 text-sm">
             <motion.div
               className="relative z-30 min-w-0 origin-top-left truncate"
               ref={slugRef}

@@ -43,6 +43,8 @@ const community = {
 let membership: { role: "PARTICIPANT"; status: "ACTIVE" | "PENDING" } | null =
   null;
 let banned = false;
+let failNextRequest = false;
+let failPreview = false;
 function preview() {
   return {
     community,
@@ -89,6 +91,8 @@ afterEach(async () => {
   currentUser = null;
   membership = null;
   banned = false;
+  failNextRequest = false;
+  failPreview = false;
   writes.length = 0;
   refresh.mockClear();
   goToLogin.mockClear();
@@ -130,6 +134,13 @@ async function render() {
       const path = String(input);
       if (init?.method) {
         writes.push({ method: init.method, path });
+        if (failNextRequest) {
+          failNextRequest = false;
+          return Response.json(
+            { error: "Couldn't send your request. Try again." },
+            { status: 503 }
+          );
+        }
         membership =
           init.method === "DELETE"
             ? null
@@ -137,6 +148,9 @@ async function render() {
       }
       if (!path.includes("/preview") && !path.includes("/membership")) {
         throw new Error("Locked page requested private contents");
+      }
+      if (path.includes("/preview") && failPreview) {
+        return Response.json({ error: "Unavailable" }, { status: 503 });
       }
       return Response.json(preview());
     }
@@ -202,4 +216,38 @@ test("banned viewers see the landing without a request control", async () => {
   await render();
   expect(dom.document.body.textContent).toContain("You cannot request access");
   expect(dom.document.querySelector("button")).toBeNull();
+});
+
+test("failed requests show an inline error and let the applicant try again", async () => {
+  currentUser = { id: "applicant" };
+  await render();
+  failNextRequest = true;
+  await act(() => button("Request to join").click());
+  await settle();
+  expect(dom.document.querySelector('[role="alert"]')?.textContent).toContain(
+    "Couldn't send your request"
+  );
+  expect(button("Request to join").disabled).toBe(false);
+  expect(dom.document.querySelector("output")).toBeNull();
+  await act(() => button("Request to join").click());
+  await settle();
+  expect(dom.document.querySelector('[role="alert"]')).toBeNull();
+  expect(dom.document.querySelector("output")?.textContent).toContain(
+    "Request pending"
+  );
+});
+
+test("membership refresh errors can be retried without reloading or submitting a request", async () => {
+  currentUser = { id: "applicant" };
+  failPreview = true;
+  await render();
+  expect(dom.document.querySelector('[role="alert"]')?.textContent).toContain(
+    "Couldn't refresh your membership"
+  );
+  failPreview = false;
+  await act(() => button("Retry").click());
+  await settle();
+  expect(dom.document.querySelector('[role="alert"]')).toBeNull();
+  expect(writes).toHaveLength(0);
+  expect(refresh).not.toHaveBeenCalled();
 });
