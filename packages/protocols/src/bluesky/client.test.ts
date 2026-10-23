@@ -755,6 +755,33 @@ test("a restricted public repository does not cool down other actors' social rec
   expect(requested.filter((repo) => repo === other)).toHaveLength(3);
 });
 
+test.each([403, 503])(
+  "a failed profile search isolates its cooldown (%i)",
+  async (status) => {
+    const calls: string[] = [];
+    const client = new BlueskyClient({
+      fetch: async (raw) => {
+        const query = new URL(raw).searchParams.get("q") ?? "";
+        calls.push(query);
+        return query === "failing"
+          ? new Response(null, { status })
+          : Response.json({ actors: [profileFixture] });
+      },
+      maxRetries: 0,
+    });
+    const code = status === 403 ? "restricted" : "unavailable";
+    await expect(client.searchActors("failing")).rejects.toMatchObject({
+      code,
+    });
+    await expect(client.searchActors("healthy")).resolves.toHaveLength(1);
+    await expect(client.searchActors("failing")).rejects.toMatchObject({
+      code,
+    });
+    expect(calls).toEqual(["failing", "healthy"]);
+    client.close();
+  }
+);
+
 test("a denied search cursor does not cool down its healthy head", async () => {
   let now = 0;
   let reads = 0;

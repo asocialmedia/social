@@ -633,7 +633,7 @@ export class BlueskyClient {
     const resource =
       operation === "app.bsky.feed.searchPosts"
         ? `${operation}:${query}`
-        : `${operation}:${parameters.feed ?? parameters.actor ?? parameters.repo ?? ""}:${parameters.collection ?? ""}`;
+        : `${operation}:${parameters.feed ?? parameters.actor ?? parameters.repo ?? parameters.q ?? ""}:${parameters.collection ?? ""}`;
     const resourceFailure = this.unavailable.get(resource);
     if (resourceFailure && resourceFailure.until > this.options.now()) {
       throw new ProtocolError(

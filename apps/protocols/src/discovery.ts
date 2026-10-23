@@ -46,12 +46,16 @@ const sourceSchema = z.object({
     .optional(),
 });
 
+function discoveryLookbackMs(mode: DiscoveryMode) {
+  return (mode === "trending" ? 2 : 7) * 86_400_000;
+}
+
 function earlierSearchWindow(
   mode: DiscoveryMode,
   previous?: { since: string; until: string }
 ) {
   const now = Math.floor(Date.now() / 60_000) * 60_000;
-  const earliest = now - (mode === "trending" ? 2 : 7) * 86_400_000;
+  const earliest = now - discoveryLookbackMs(mode);
   const until = previous ? Date.parse(previous.since) : now;
   if (until <= earliest) {
     return;
@@ -463,7 +467,7 @@ export class BlueskyDiscovery {
       this.client.getSuggestedFeeds &&
       !snapshot.catalogExhausted &&
       snapshot.catalogFeeds.length === 0 &&
-      snapshot.deferredSources.length === 0 &&
+      snapshot.deferredSources.every((source) => source.searchWindow) &&
       (snapshot.sources.length === 0 ||
         snapshot.sources.every(
           (source) => source.exhausted && source.items.length === 0
@@ -621,7 +625,7 @@ export class BlueskyDiscovery {
                 source.searchWindow?.since ??
                 new Date(
                   Math.floor(Date.now() / 60_000) * 60_000 -
-                    (mode === "trending" ? 2 : 7) * 86_400_000
+                    discoveryLookbackMs(mode)
                 ).toISOString(),
               ...(source.searchWindow
                 ? { until: source.searchWindow.until }
@@ -731,6 +735,17 @@ export class BlueskyDiscovery {
                 : error instanceof Error &&
                   (error.name === "AbortError" ||
                     error.name === "TimeoutError");
+            if (
+              !this.actors &&
+              this.client.getSuggestedFeeds &&
+              source.searchWindow &&
+              unavailable
+            ) {
+              // Save the failing window while healthy catalog sources get a turn.
+              snapshot.deferredSources.push({ ...source });
+              source.exhausted = true;
+              succeeded += 1;
+            }
             // An unavailable search endpoint must not prevent discovery from trying public generators.
             if (
               !this.actors &&
@@ -882,7 +897,11 @@ export class BlueskyDiscovery {
       !this.actors &&
       content === "video" &&
       snapshot.sources.every((source) => source.items.length === 0) &&
-      (snapshot.catalogFeeds.length > 0 || snapshot.deferredSources.length > 0)
+      (snapshot.catalogFeeds.length > 0 ||
+        (snapshot.deferredSources.length > 0 &&
+          (snapshot.catalogExhausted ||
+            snapshot.sources.some((source) => !source.exhausted) ||
+            snapshot.deferredSources.some((source) => !source.searchWindow))))
     ) {
       const waiting = snapshot.sources.filter((source) => !source.exhausted);
       snapshot.sources =

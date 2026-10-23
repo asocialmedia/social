@@ -1453,17 +1453,13 @@ test.each(["personalized", "trending"] as const)(
       store,
     }).read(mode, page.cursor ?? undefined, "en", ["anime"], "video");
     expect(failed.items).toHaveLength(0);
-    await expect(
-      new BlueskyDiscovery(client, undefined, { store }).read(
-        mode,
-        failed.cursor ?? undefined,
-        "en",
-        ["anime"],
-        "video"
-      )
-    ).rejects.toMatchObject({ code: "unavailable" });
-    page = failed;
-    for (let index = 0; index < days + 1 && page.cursor; index += 1) {
+    const unavailable = await new BlueskyDiscovery(client, undefined, {
+      store,
+    }).read(mode, failed.cursor ?? undefined, "en", ["anime"], "video");
+    expect(unavailable.items).toHaveLength(0);
+    expect(unavailable.cursor).toBeString();
+    page = unavailable;
+    for (let index = 0; index < days + 3 && page.cursor; index += 1) {
       page = await new BlueskyDiscovery(client, undefined, { store }).read(
         mode,
         page.cursor,
@@ -1490,6 +1486,99 @@ test.each(["personalized", "trending"] as const)(
         expect(window?.until).toBe(windows[index - 1]?.since);
       }
     }
+  }
+);
+
+test.each(["unavailable", "timeout"])(
+  "failed search windows yield to every catalog batch and retain their position (%s)",
+  async (failure) => {
+    const store = new MemoryDiscoveryStore();
+    const cursor = crypto.randomUUID();
+    const until = new Date(
+      Math.floor(Date.now() / 60_000) * 60_000
+    ).toISOString();
+    const since = new Date(Date.parse(until) - 86_400_000).toISOString();
+    await store.set(
+      `${defaultDiscoveryScope("dynamic-v17")}:snapshot:${cursor}`,
+      JSON.stringify({
+        catalogExhausted: false,
+        catalogFeeds: [],
+        content: "video",
+        locale: "en",
+        mode: "personalized",
+        page: 2,
+        seen: [],
+        sources: [
+          {
+            actor: "search:anime",
+            exhausted: false,
+            items: [],
+            searchWindow: { since, until },
+          },
+        ],
+        topics: ["anime"],
+        windowedSearches: ["search:anime"],
+      }),
+      900_000
+    );
+    let recover = false;
+    const windows: (string | undefined)[] = [];
+    const feeds = Array.from({ length: 5 }, (_, i) => `${publicFeed}${i}`);
+    const visited: string[] = [];
+    const client = {
+      allowsRecommendations: async () => true,
+      getAuthorFeed: async () => ({ cursor: null, items: [] }),
+      getFeed: async (uri: string) => {
+        visited.push(uri);
+        return {
+          cursor: null,
+          items: [
+            { ...videoPost(10 + feeds.indexOf(uri)), text: "Anime animation" },
+          ],
+        };
+      },
+      getProfile: async () => profile,
+      getSuggestedFeeds: async () => ({
+        cursor: null,
+        items: feeds.map((uri) => ({ displayName: "Anime", uri })),
+      }),
+      searchPosts: async (
+        _q: string,
+        _s: "latest" | "top",
+        options?: { since?: string }
+      ) => {
+        windows.push(options?.since);
+        if (!recover) {
+          if (failure === "timeout") {
+            throw new DOMException("Window timeout", "TimeoutError");
+          }
+          throw new ProtocolError("unavailable", "Window outage");
+        }
+        return {
+          cursor: null,
+          items: [{ ...videoPost(99), text: "Anime animation" }],
+        };
+      },
+    };
+    let next: string | undefined = cursor;
+    const ids: string[] = [];
+    for (let index = 0; index < 4; index += 1) {
+      const page = await new BlueskyDiscovery(client, undefined, {
+        store,
+      }).read("personalized", next, "en", ["anime"], "video");
+      ids.push(...page.items.map((p) => p.id));
+      expect(page.cursor).toBeString();
+      next = page.cursor ?? undefined;
+    }
+    expect(visited.toSorted()).toEqual(feeds.toSorted());
+    expect(ids).toHaveLength(5);
+    expect(windows).toEqual([since, since]);
+    recover = true;
+    const recovered = await new BlueskyDiscovery(client, undefined, {
+      store,
+    }).read("personalized", next, "en", ["anime"], "video");
+    expect(recovered.items.map((p) => p.id)).toEqual([videoPost(99).id]);
+    expect(windows[2]).toBe(since);
   }
 );
 
