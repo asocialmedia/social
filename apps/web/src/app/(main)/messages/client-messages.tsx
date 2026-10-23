@@ -8,6 +8,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import MobileTopBar from "@/components/layouts/navigation/mobile/mobile-top-bar";
 import { ActiveFriendsRail } from "@/components/messages/active-friends-rail";
+import { CommunityChatStrip } from "@/components/messages/community-chat-strip";
 import { ConversationList } from "@/components/messages/conversation-list";
 import { useMessagesIdentity } from "@/components/messages/message-identity-provider";
 import { MessageIdentityLocked } from "@/components/messages/message-identity-recovery";
@@ -21,6 +22,7 @@ import { useMessagesSidebarStore } from "@/store/messages-sidebar-store";
 
 export default function ClientMessages() {
   const searchParams = useSearchParams();
+  const desktop = useMediaQuery("(min-width: 48rem)");
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -29,7 +31,10 @@ export default function ClientMessages() {
           <MobileTopBar />
         </div>
       )}
-      <MessagesPanes />
+      <div className="flex min-h-0 min-w-0 flex-1">
+        {!searchParams.get("c") || desktop ? <CommunityChatStrip /> : null}
+        <MessagesPanes />
+      </div>
     </div>
   );
 }

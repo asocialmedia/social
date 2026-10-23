@@ -200,3 +200,28 @@ export function useCommunityMembersQuery(
     queryKey: ["community-members", slug, { badged, limit, pending, sort }],
   });
 }
+
+export interface CommunityChatInboxEntry {
+  community: CommunityData;
+  hasUnread: boolean;
+}
+
+export function useCommunityChatInboxQuery(
+  userId: string | undefined,
+  enabled = true
+) {
+  return useQuery({
+    enabled: Boolean(userId) && enabled,
+    queryFn: ({ signal }) =>
+      kyInstance
+        .get("/api/communities/chat-inbox", { signal })
+        .json<{ communities: CommunityChatInboxEntry[] }>(),
+    queryKey: ["community-chat-inbox", userId],
+    refetchInterval: 15_000,
+    refetchIntervalInBackground: false,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: "always",
+    retry: 1,
+    staleTime: 10_000,
+  });
+}

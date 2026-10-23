@@ -23,9 +23,11 @@ import CommunityAvatar from "./community-avatar";
 export default function CommunityCard({
   aura = 0,
   community,
+  showAura = true,
 }: {
   aura?: number;
   community: CommunityData;
+  showAura?: boolean;
 }) {
   const [bannerFailed, setBannerFailed] = useState(false);
   const { members, posts } = community._count;
@@ -125,7 +127,7 @@ export default function CommunityCard({
         </p>
 
         <div className="text-muted-foreground border-border/60 mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 border-t pt-3 text-[13px] sm:mt-3.5 sm:gap-x-5 sm:pt-3.5">
-          {isPrivate ? null : (
+          {isPrivate || !showAura ? null : (
             <span
               className="flex items-center gap-1.5"
               title="Community aura - the total aura of every post in this community"
