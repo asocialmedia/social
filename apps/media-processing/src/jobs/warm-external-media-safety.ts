@@ -7,10 +7,10 @@ export async function warmExternalMediaSafety() {
   const ids = await redis.zrevrangebyscore(
     `${scope}:time`,
     "+inf",
-    Date.now() - 120_000,
+    Date.now() - 10 * 60_000,
     "LIMIT",
     0,
-    200
+    2000
   );
   if (!ids.length) {
     return;

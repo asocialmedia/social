@@ -3,7 +3,7 @@ import { beforeEach, expect, mock, test } from "bun:test";
 const warmed: string[][] = [];
 let snapshots: (string | null)[] = [];
 let ids: string[] = [];
-const scan = mock(() => Promise.resolve(ids));
+const scan = mock((..._arguments: unknown[]) => Promise.resolve(ids));
 const read = mock(() => Promise.resolve(snapshots));
 mock.module("@asm/db", () => ({
   filterExternalMediaSafety: (posts: { id: string }[]) => {
@@ -65,7 +65,16 @@ test("video assessments start ahead of text candidates and malformed snapshots n
   ];
   await warmExternalMediaSafety();
   expect(warmed).toEqual([[video, text]]);
-  expect(scan.mock.calls[0]).toEqual(expect.arrayContaining(["LIMIT", 0, 200]));
+  expect(scan.mock.calls[0]).toEqual(
+    expect.arrayContaining(["LIMIT", 0, 2000])
+  );
+});
+test("older retained videos remain eligible for proactive assessment", async () => {
+  const startedAt = Date.now();
+  await warmExternalMediaSafety();
+  const minimumTime = Number(scan.mock.calls[0]?.[2]);
+  expect(minimumTime).toBeGreaterThanOrEqual(startedAt - 10 * 60_000);
+  expect(minimumTime).toBeLessThan(Date.now() - 9 * 60_000);
 });
 test("an empty verified inventory never opens a safety queue", async () => {
   await warmExternalMediaSafety();

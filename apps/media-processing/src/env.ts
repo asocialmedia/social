@@ -3,6 +3,7 @@ import type { MediaLimits } from "@asm/media";
 import { createEnv } from "@t3-oss/env-core";
 import { z } from "zod";
 
+import { resolveClefDailyBudget } from "./analyze/clef-budget";
 import { loadRootEnv } from "./load-env";
 
 // Ensure root .env is loaded before environment evaluation
@@ -46,6 +47,7 @@ export const keys = createEnv({
     MEDIA_C2PA_TSA_URL: process.env.MEDIA_C2PA_TSA_URL,
     MEDIA_CLASSIFY_ENABLED: process.env.MEDIA_CLASSIFY_ENABLED,
     MEDIA_CLEF_DAILY_NEURONS: process.env.MEDIA_CLEF_DAILY_NEURONS,
+    MEDIA_CLEF_PAID_ENABLED: process.env.MEDIA_CLEF_PAID_ENABLED,
     MEDIA_CONCURRENT_PROCESSING_PER_USER:
       process.env.MEDIA_CONCURRENT_PROCESSING_PER_USER,
     MEDIA_EMBEDDING_ENABLED: process.env.MEDIA_EMBEDDING_ENABLED,
@@ -151,8 +153,9 @@ export const keys = createEnv({
       .number()
       .int()
       .min(1)
-      .max(10_000)
+      .max(1_000_000)
       .default(9000),
+    MEDIA_CLEF_PAID_ENABLED: z.enum(["0", "1"]).default("0"),
     MEDIA_CONCURRENT_PROCESSING_PER_USER: numericOverride,
     MEDIA_EMBEDDING_ENABLED: z.enum(["0", "1"]).default("1"),
     MEDIA_EMBEDDING_TIMEOUT_MS: numericOverride,
@@ -252,10 +255,10 @@ export const workerEnv = {
     return keys.MEDIA_CLASSIFY_ENABLED !== "0";
   },
   get CLEF_DAILY_NEURONS() {
-    const value = Number(keys.MEDIA_CLEF_DAILY_NEURONS);
-    return Number.isFinite(value) && value >= 1
-      ? Math.min(10_000, value)
-      : 9000;
+    return resolveClefDailyBudget(
+      keys.MEDIA_CLEF_DAILY_NEURONS,
+      keys.MEDIA_CLEF_PAID_ENABLED
+    );
   },
   get CLOUDFLARE_ACCOUNT_ID() {
     return keys.CLOUDFLARE_ACCOUNT_ID;
