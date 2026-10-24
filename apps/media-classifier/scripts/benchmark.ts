@@ -66,7 +66,7 @@ function readTiming(value: unknown) {
   if (!value || typeof value !== "object" || !("timing" in value)) {
     return null;
   }
-  const {timing} = value;
+  const { timing } = value;
   if (
     !timing ||
     typeof timing !== "object" ||
