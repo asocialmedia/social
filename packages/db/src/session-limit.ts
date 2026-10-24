@@ -15,7 +15,7 @@ const {
   enforceAccountSessionLimit: ["lockUser"],
 } as const);
 
-export const ACCOUNT_SESSION_LIMIT = 4;
+export const ACCOUNT_SESSION_LIMIT = 3;
 
 export async function enforceAccountSessionLimit(
   userId: string

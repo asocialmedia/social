@@ -100,6 +100,32 @@ test("read workers start without Redis and reject coordinator dependencies", () 
   ).toThrow("REDIS_URL");
 });
 
+test("a denied search cursor cannot cool down another topic or a fresh date window", async () => {
+  const remote: string[] = [];
+  const pool = createReadWorkerPool({
+    fetch: async (raw) => {
+      if (raw.startsWith(node.url)) {
+        const upstream = new URL(raw).searchParams.get("url") ?? "";
+        remote.push(upstream);
+        if (upstream.includes("cursor=denied")) {
+          return response({ error: "Forbidden" }, 403);
+        }
+      }
+      return response({ posts: [] });
+    },
+    logger: logger(),
+    nodes: [node],
+  });
+  await pool.fetch(profile, {});
+  const denied = `${search}&cursor=denied`;
+  await pool.fetch(denied, {});
+  await pool.fetch(denied, {});
+  await pool.fetch(`${search}&since=2026-10-23T00%3A00%3A00Z`, {});
+  await pool.fetch(`${search}&since=2026-10-23T00%3A00%3A00Z`, {});
+  expect(remote.filter((url) => url.includes("cursor=denied"))).toHaveLength(1);
+  expect(remote.some((url) => url.includes("since="))).toBe(true);
+});
+
 test("non-JSON upstream denials stay restricted and a generator's 401 cannot disable unrelated worker capacity", async () => {
   const denied = createReadWorkerPool({
     fetch: async () => new Response("<html>Forbidden</html>", { status: 403 }),
@@ -135,6 +161,31 @@ test("non-JSON upstream denials stay restricted and a generator's 401 cannot dis
       "https://public.api.bsky.app"
     ]
   ).toBeUndefined();
+});
+
+test("search cooldowns stay private and cannot evict origin backoff", async () => {
+  const calls: string[] = [];
+  const pool = createReadWorkerPool({
+    fetch: async (url) => {
+      calls.push(url);
+      return response({}, url === profile ? 429 : 503);
+    },
+    logger: logger(),
+    nodes: [],
+  });
+  await pool.fetch(profile, {});
+  for (let index = 0; index < 520; index += 1) {
+    // oxlint-disable-next-line no-await-in-loop -- populate more cooldowns than the map limit without saturating active read capacity.
+    await pool.fetch(`${search}&cursor=private-${index}`, {});
+  }
+  const status = pool.status();
+  expect(status[0]?.cooldowns["https://public.api.bsky.app"]).toBeGreaterThan(
+    Date.now()
+  );
+  expect(JSON.stringify(status)).not.toContain("private-");
+  const before = calls.filter((url) => url === profile).length;
+  expect((await pool.fetch(profile, {})).status).toBe(503);
+  expect(calls.filter((url) => url === profile)).toHaveLength(before);
 });
 
 test("node configuration rejects duplicate, insecure and credential-bearing origins without exposing secrets", () => {

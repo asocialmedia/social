@@ -4,7 +4,8 @@ import type Redis from "ioredis";
 
 // Redis bounds both the number and serialized bytes of public, temporary snapshots.
 // A raw stream record never enters this inventory before AppView and author-policy validation.
-const retentionMs = 120_000;
+export const discoveryInventoryRetentionMs = 10 * 60_000;
+const retentionMs = discoveryInventoryRetentionMs;
 const inventoryScript = `
 local now = tonumber(ARGV[2])
 local function remove(id)

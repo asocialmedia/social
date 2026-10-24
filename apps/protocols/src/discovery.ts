@@ -702,7 +702,6 @@ export class BlueskyDiscovery {
         } catch (error) {
           if (
             !this.actors &&
-            content === "video" &&
             source.actor.startsWith("search:") &&
             source.cursor &&
             !source.searchWindow &&

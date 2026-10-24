@@ -2,9 +2,44 @@ import { expect, test } from "bun:test";
 
 import Redis from "ioredis";
 
-import { RedisDiscoveryStore } from "./discovery-store";
+import { RedisDiscoveryStore, discoveryStoreCapacity } from "./discovery-store";
 
 const redisUrl = process.env.PROTOCOLS_TEST_REDIS_URL;
+
+test.skipIf(!redisUrl)(
+  "production discovery capacity preserves an early continuation beyond 512 cached pages",
+  async () => {
+    if (!redisUrl) {
+      return;
+    }
+    const redis = new Redis(redisUrl, { maxRetriesPerRequest: 1 });
+    const scope = `asm:protocols:{capacity-test-${crypto.randomUUID()}}`;
+    const store = new RedisDiscoveryStore(redis, {
+      ...discoveryStoreCapacity,
+      scope,
+    });
+    try {
+      await store.set("early-cursor", "retained-continuation", 60_000);
+      await Promise.all(
+        Array.from({ length: 1000 }, (_, index) =>
+          store.set(`page-${index}`, "validated-source-page", 60_000)
+        )
+      );
+      expect(await store.get("early-cursor")).toBe("retained-continuation");
+      expect(await redis.hlen(`${scope}:data`)).toBe(1001);
+      expect(Number(await redis.get(`${scope}:bytes`))).toBeLessThanOrEqual(
+        discoveryStoreCapacity.maxBytes
+      );
+    } finally {
+      await redis.del(
+        ...["data", "sizes", "expiry", "lru", "bytes"].map(
+          (suffix) => `${scope}:${suffix}`
+        )
+      );
+      redis.disconnect();
+    }
+  }
+);
 
 test.skipIf(!redisUrl)(
   "Redis discovery bounds storage, expires data, and fences stale refreshes",

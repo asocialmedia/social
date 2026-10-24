@@ -35,10 +35,33 @@ export function normalizeDiscoveryTopics(topics: readonly string[]): string[] {
 export function isRetrievalTopic(topic: string): boolean {
   return (
     topic.length <= 64 &&
-    !/(?:^|\b)(?:category|portal|wikipedia|lists?|outlines?|stubs?|glossar(?:y|ies)|templates?)(?:\b|:)|\bby (?:country|period|type|medium|source|studio|composer|director|writer|year|date|genre|setting)\b/iu.test(
+    !/(?:^|\b)(?:category|portal|wikipedia|lists?|outlines?|stubs?|glossar(?:y|ies)|templates?)(?:\b|:)|\bby (?:country|period|type|medium|source|studio|composer|director|writer|year|date|genre|setting)\b|\b(?:debuts|endings|years) (?:in|of|by)\b|\b(?:articles|pages) (?:with|needing|using|about)\b/iu.test(
       topic
     )
   );
+}
+
+export function relatedDiscoveryTopics(
+  interests: readonly string[],
+  scope?: NetworkTopicScope
+): string[] {
+  const aliases = new Set(
+    normalizeDiscoveryTopics([
+      ...interests,
+      ...interests.flatMap((interest) => scope?.aliases?.[interest] ?? []),
+    ])
+  );
+  return normalizeDiscoveryTopics(
+    interests.flatMap((interest) => scope?.related?.[interest] ?? [])
+  )
+    .filter((topic) => topic.length >= 4 && !aliases.has(topic))
+    .filter(isRetrievalTopic)
+    .toSorted(
+      (first, second) =>
+        first.split(" ").length - second.split(" ").length ||
+        first.length - second.length
+    )
+    .slice(0, 80);
 }
 
 export function discoveryTopics(

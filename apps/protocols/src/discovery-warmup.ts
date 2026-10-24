@@ -1,4 +1,4 @@
-// Continuation reads advance sequentially within the existing two-page warming budget.
+// Continuation reads advance sequentially within a bounded page and time budget.
 // oxlint-disable no-await-in-loop
 import { createHash } from "node:crypto";
 
@@ -22,10 +22,16 @@ export async function warmDiscoveryInventory(options: {
   signal: AbortSignal;
   store: DiscoveryStore;
   watch: z.input<typeof discoveryWatchSchema>;
+  maxPages?: number;
+  timeBudgetMs?: number;
 }) {
   if (options.signal.aborted) {
     return;
   }
+  const signal = AbortSignal.any([
+    options.signal,
+    AbortSignal.timeout(options.timeBudgetMs ?? 8000),
+  ]);
   const scope = createHash("sha256")
     .update(JSON.stringify(discoveryWatchSchema.parse(options.watch)))
     .digest("hex");
@@ -59,12 +65,12 @@ export async function warmDiscoveryInventory(options: {
     ) {
       return;
     }
-    for (let index = 0; cursor && index < 2; index += 1) {
-      options.signal.throwIfAborted();
+    for (let index = 0; cursor && index < (options.maxPages ?? 2); index += 1) {
+      signal.throwIfAborted();
       const startedAt = Date.now();
       let next: DiscoveryPage;
       try {
-        next = await abortable(options.read(cursor), options.signal);
+        next = await abortable(options.read(cursor), signal);
       } catch (error) {
         if (
           error instanceof ProtocolError &&
@@ -78,9 +84,18 @@ export async function warmDiscoveryInventory(options: {
             lease
           );
         }
+        if (
+          signal.aborted &&
+          error instanceof Error &&
+          error.name === "AbortError" &&
+          signal.reason instanceof Error &&
+          signal.reason.name === "TimeoutError"
+        ) {
+          throw signal.reason;
+        }
         throw error;
       }
-      options.signal.throwIfAborted();
+      signal.throwIfAborted();
       await options.retain(next, startedAt);
       if (next.partial && !next.cursor) {
         return;

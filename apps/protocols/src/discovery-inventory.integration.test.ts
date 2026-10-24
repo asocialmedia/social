@@ -4,6 +4,7 @@ import Redis from "ioredis";
 
 import { inventoryPost } from "./discovery-fixtures";
 import { DiscoveryInventory, RedisInventoryStore } from "./discovery-inventory";
+import { discoveryInventoryRetentionMs } from "./discovery-inventory-store";
 import { MemoryDiscoveryStore } from "./discovery-store";
 
 const scope = `asm:protocols:{inventory-test:${crypto.randomUUID()}}`;
@@ -23,6 +24,15 @@ afterAll(async () => {
     ].map((suffix) => `${scope}:${suffix}`)
   );
   await redis.quit();
+});
+
+test("validated inventory survives a slow warmup cycle while deletion fences remain immediate", async () => {
+  const post = inventoryPost(900, "retention-regression");
+  await store.put([post], Date.now() - 180_000);
+  const retained = await store.read([post.id]);
+  expect(retained.map((item) => item.id)).toEqual([post.id]);
+  await store.invalidate(post.id);
+  expect(await store.read([post.id])).toEqual([]);
 });
 
 test("real Redis inventory serves isolated personas and video/engagement gates without any upstream client", async () => {
@@ -154,17 +164,8 @@ test("a sparse inventory continues through source pages without replaying local 
     ["sparse-continuation"],
     "all"
   );
-  expect(bridge?.items).toEqual([]);
-  expect(bridge?.cursor).toBeTruthy();
-  const tail = await inventory.read(
-    "personalized",
-    bridge?.cursor ?? undefined,
-    "en",
-    ["sparse-continuation"],
-    "all"
-  );
-  expect(tail?.items.map((post) => post.id)).toEqual([second.id]);
-  expect(tail?.cursor).toBeNull();
+  expect(bridge?.items.map((post) => post.id)).toEqual([second.id]);
+  expect(bridge?.cursor).toBeNull();
   expect(calls).toEqual([undefined, "source-page-2"]);
 });
 
@@ -227,7 +228,7 @@ test("slow continuation sources preserve local arrivals and their retry position
 
 test("snapshots older than the policy TTL expire and byte/count limits remain bounded", async () => {
   const expired = inventoryPost(500);
-  await store.put([expired], Date.now() - 121_000);
+  await store.put([expired], Date.now() - discoveryInventoryRetentionMs - 1000);
   expect(await store.read([expired.id])).toEqual([]);
   for (let offset = 0; offset < 2050; offset += 50) {
     // oxlint-disable-next-line no-await-in-loop -- each bounded insertion batch exercises the atomic cap.

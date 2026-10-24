@@ -16,6 +16,48 @@ import {
 import { MemoryDiscoveryStore } from "./discovery-store";
 
 const fixtureTime = Date.now();
+
+test("ordinary discovery recovers a denied search cursor with a date window", async () => {
+  const windows: { since?: string; until?: string }[] = [];
+  const discovery = new BlueskyDiscovery({
+    allowsRecommendations: async () => true,
+    getAuthorFeed: async () => ({ cursor: null, items: [] }),
+    getProfile: async () => profile,
+    searchPosts: async (_query, _sort, options) => {
+      if (options?.cursor) {
+        throw new ProtocolError("restricted", "Denied cursor");
+      }
+      if (options?.until) {
+        windows.push(options);
+        return {
+          cursor: null,
+          items: [{ ...post(2), text: "Anime discussion" }],
+        };
+      }
+      return {
+        cursor: "denied",
+        items: [{ ...post(1), text: "Anime discussion" }],
+      };
+    },
+  });
+  const head = await discovery.read("personalized", undefined, "en", ["anime"]);
+  const denied = await discovery.read(
+    "personalized",
+    head.cursor ?? undefined,
+    "en",
+    ["anime"]
+  );
+  const recovered = await discovery.read(
+    "personalized",
+    denied.cursor ?? undefined,
+    "en",
+    ["anime"]
+  );
+  expect(windows).toHaveLength(1);
+  expect(windows[0]?.since).toBeDefined();
+  expect(windows[0]?.until).toBeDefined();
+  expect(recovered.items.map((item) => item.id)).toEqual([post(2).id]);
+});
 function defaultDiscoveryScope(version: string) {
   return createHash("sha256")
     .update(JSON.stringify([version, undefined, false]))
