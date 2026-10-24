@@ -13,6 +13,27 @@ const APP_ENTRIES = [
   },
 ];
 
+const CLASSIFIER_ENTRY = {
+  app: "classifier",
+  context: "./apps/classifier",
+  dockerfile: "./apps/classifier/Dockerfile",
+  image: "asm-classifier",
+};
+
+function affectsClassifier(file) {
+  if (file.filename === "apps/classifier/package.json") {
+    return !isVersionOnlyChange(file);
+  }
+  return (
+    file.filename === "apps/classifier/Dockerfile" ||
+    file.filename === "apps/classifier/.dockerignore" ||
+    file.filename === "apps/classifier/runtime.bun.lock" ||
+    file.filename === "apps/classifier/scripts/download-model.ts" ||
+    (file.filename.startsWith("apps/classifier/src/") &&
+      !file.filename.endsWith(".test.ts"))
+  );
+}
+
 // Shared code or build config invalidates every image.
 const TRIGGER_ALL_PREFIXES = ["packages/", "docker/"];
 const TRIGGER_ALL_FILES = new Set([
@@ -97,17 +118,24 @@ module.exports = async function determineBuildMatrix({
 
   const shouldBuildAll =
     truncated ||
-    changedFiles.some(
+    changes.some(
       (file) =>
-        TRIGGER_ALL_PREFIXES.some((prefix) => file.startsWith(prefix)) ||
-        TRIGGER_ALL_FILES.has(file)
+        TRIGGER_ALL_PREFIXES.some((prefix) =>
+          file.filename.startsWith(prefix)
+        ) ||
+        (TRIGGER_ALL_FILES.has(file.filename) && !isVersionOnlyChange(file))
     );
 
   const selectedApps = shouldBuildAll
-    ? APP_ENTRIES
+    ? [...APP_ENTRIES]
     : APP_ENTRIES.filter(({ app }) =>
         changedFiles.some((file) => file.startsWith(`apps/${app}/`))
       );
+
+  // This standalone image uses its own runtime lock and no shared workspaces.
+  if (truncated || changes.some(affectsClassifier)) {
+    selectedApps.push(CLASSIFIER_ENTRY);
+  }
 
   const hasMobileChanges =
     truncated ||

@@ -230,13 +230,14 @@ jobs:
         with:
           cache-from: type=gha,scope=${{ matrix.app }}
           cache-to: type=gha,mode=max,scope=${{ matrix.app }}
-          context: .
+          context: ${{ matrix.context || '.' }}
           file: ${{ matrix.dockerfile }}
           push: true
           platforms: linux/amd64,linux/arm64
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
+            SOURCE_REVISION=${{ github.sha }}
             ${{ matrix.app == 'web' && 'NEXT_PUBLIC_URL=https://asocialmedia.cc' || '' }}
             ${{ matrix.app == 'web' && 'NEXT_PUBLIC_AUTH_URL=https://auth.asocialmedia.cc' || '' }}
             ${{ matrix.app == 'web' && 'NEXT_PUBLIC_TURNSTILE_SITE_KEY=0x4AAAAAAEuKQSsPABv2HAdA' || '' }}
@@ -276,6 +277,14 @@ jobs:
           DOKPLOY_API_TOKEN: ${{ secrets.DOKPLOY_US_EAST_API_TOKEN }}
           DOKPLOY_APP_ID: ${{ secrets.DOKPLOY_US_EAST_PROTOCOLS_APP_ID }}
         run: bash scripts/ci/deploy-protocols-region.sh
+
+      - name: Deploy classifier worker
+        if: ${{ always() && matrix.app == 'classifier' && steps.build_image.outcome == 'success' }}
+        env:
+          DOKPLOY_API_URL: ${{ secrets.DOKPLOY_US_EAST_API_URL }}
+          DOKPLOY_API_TOKEN: ${{ secrets.DOKPLOY_US_EAST_API_TOKEN }}
+          DOKPLOY_APP_ID: ${{ secrets.DOKPLOY_US_EAST_CLASSIFIER_APP_ID }}
+        run: bash scripts/ci/deploy-classifier.sh
 
       - name: Trigger worker deployment via API
         if: success() && matrix.app == 'auth'

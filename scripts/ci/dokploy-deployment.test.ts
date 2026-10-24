@@ -218,6 +218,49 @@ describe("Dokploy deployment authentication", () => {
     dockerImage: "ghcr.io/asocialmedia/asm-protocols:latest",
     sourceType: "docker",
   };
+
+  test("classifier deployment verifies the worker image before redeploying", async () => {
+    const result = await runDeployment(
+      [
+        {
+          body: {
+            applicationId: "classifier-app",
+            dockerImage: "ghcr.io/asocialmedia/asm-classifier:latest",
+            sourceType: "docker",
+          },
+          status: 200,
+        },
+        { body: {}, status: 200 },
+      ],
+      {
+        env: { DOKPLOY_APP_ID: "classifier-app" },
+        script: "scripts/ci/deploy-classifier.sh",
+      }
+    );
+    expect(result.exitCode).toBe(0);
+    expect(result.calls).toHaveLength(2);
+    expect(result.calls[0]).toContain("applicationId=classifier-app");
+    expect(result.calls[1]).toContain(
+      JSON.stringify({ applicationId: "classifier-app" })
+    );
+  });
+
+  test("classifier deployment rejects a different app's image without deploying", async () => {
+    const result = await runDeployment(
+      [
+        {
+          body: { ...protocolsApplication, applicationId: "classifier-app" },
+          status: 200,
+        },
+      ],
+      {
+        env: { DOKPLOY_APP_ID: "classifier-app" },
+        script: "scripts/ci/deploy-classifier.sh",
+      }
+    );
+    expect(result.exitCode).not.toBe(0);
+    expect(result.calls).toHaveLength(1);
+  });
   const regionalOptions = {
     env: {
       DOKPLOY_API_TOKEN: "us-east-token",
