@@ -71,8 +71,17 @@ export function createClassifierTelemetry(
     process.stdout.write(
       `${JSON.stringify({ event, level, service, time: new Date().toISOString(), ...attributes })}\n`
     );
+    // OpenObserve rejects fractional OTLP JSON doubleValue fields; strings preserve their precision.
+    const otlpAttributes = Object.fromEntries(
+      Object.entries(attributes).map(([key, value]) => [
+        key,
+        typeof value === "number" && !Number.isInteger(value)
+          ? String(value)
+          : value,
+      ])
+    );
     logger?.emit({
-      attributes,
+      attributes: otlpAttributes,
       body: event,
       severityNumber: {
         error: SeverityNumber.ERROR,

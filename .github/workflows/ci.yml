@@ -236,6 +236,8 @@ jobs:
           platforms: linux/amd64,linux/arm64
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          secrets: |
+            next_server_actions_key=${{ secrets.NEXT_SERVER_ACTIONS_ENCRYPTION_KEY }}
           build-args: |
             SOURCE_REVISION=${{ github.sha }}
             ${{ matrix.app == 'web' && 'NEXT_PUBLIC_URL=https://asocialmedia.cc' || '' }}

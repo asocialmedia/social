@@ -7,6 +7,7 @@ let explicit = 0.01;
 let sexualized = 0.01;
 let failProvider = false;
 let reads = 0;
+let evaluations = 0;
 const originalFetch = globalThis.fetch;
 mock.module("@asm/db", () => ({
   EXTERNAL_MEDIA_SAFETY_VERSION: "v1",
@@ -20,15 +21,20 @@ mock.module("@asm/db", () => ({
   },
 }));
 mock.module("../analyze/clef", () => ({
-  evaluateClef: () =>
-    failProvider
+  evaluateClef: () => {
+    evaluations += 1;
+    return failProvider
       ? Promise.reject(new Error("provider offline"))
       : Promise.resolve({
           probabilities: { explicit, graphic_violence: 0.01, sexualized },
-        }),
+        });
+  },
 }));
-const { externalSafetyImageUrl, processExternalMediaSafety } =
-  await import("./external-media-safety");
+const {
+  externalSafetyImageUrl,
+  processExternalMediaSafety,
+  ExternalMediaDownloadDeferredError,
+} = await import("./external-media-safety");
 const jpeg = await sharp({
   create: { background: "blue", channels: 3, height: 12, width: 12 },
 })
@@ -46,6 +52,7 @@ beforeEach(() => {
   sexualized = 0.01;
   failProvider = false;
   reads = 0;
+  evaluations = 0;
   globalThis.fetch = Object.assign(
     mock(() => {
       reads += 1;
@@ -164,9 +171,40 @@ test("a redirect loop stops after a bounded number of validated hops", async () 
     }),
     { preconnect: originalFetch.preconnect }
   );
-  await expect(processExternalMediaSafety(input)).rejects.toThrow(
-    "unavailable"
-  );
+  await expect(processExternalMediaSafety(input)).rejects.toThrow("HTTP 302");
   expect(reads).toBe(4);
   expect(values.has(input.key)).toBe(false);
 });
+
+test.each([404, 410])(
+  "missing image HTTP %i is briefly cached without inference or a safe verdict",
+  async (status) => {
+    globalThis.fetch = Object.assign(
+      () => Promise.resolve(new Response(null, { status })),
+      {
+        preconnect: originalFetch.preconnect,
+      }
+    );
+    await processExternalMediaSafety(input);
+    expect(values.get(input.key)).toBe("unavailable");
+    expect(evaluations).toBe(0);
+  }
+);
+
+test.each([403, 429, 503])(
+  "transient image HTTP %i defers safely before spending inference quota",
+  async (status) => {
+    globalThis.fetch = Object.assign(
+      () =>
+        Promise.resolve(
+          new Response(null, { headers: { "retry-after": "60" }, status })
+        ),
+      { preconnect: originalFetch.preconnect }
+    );
+    await expect(processExternalMediaSafety(input)).rejects.toBeInstanceOf(
+      ExternalMediaDownloadDeferredError
+    );
+    expect(values.has(input.key)).toBe(false);
+    expect(evaluations).toBe(0);
+  }
+);

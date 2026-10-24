@@ -3,6 +3,7 @@ import type { NextConfig } from "@asm/next";
 
 const nextConfig: NextConfig = withStreamConfig({
   ...config,
+  deploymentId: process.env.NEXT_DEPLOYMENT_ID,
   distDir: process.env.ASM_NEXT_DIST_DIR ?? config.distDir,
   headers() {
     return [

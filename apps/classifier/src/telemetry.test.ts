@@ -26,7 +26,10 @@ test("OTLP logs reach the configured OpenObserve organization and stream without
     OTEL_SERVICE_NAME: "classifier",
   });
   try {
-    telemetry.log("info", "classifier.otel.test", { completed: 1 });
+    telemetry.log("info", "classifier.otel.test", {
+      completed: 1,
+      startupMs: 1.25,
+    });
     await telemetry.flush();
     expect(records).toHaveLength(1);
     expect(records[0]).toMatchObject({
@@ -41,6 +44,9 @@ test("OTLP logs reach the configured OpenObserve organization and stream without
             {
               logRecords: [
                 {
+                  attributes: expect.arrayContaining([
+                    { key: "startupMs", value: { stringValue: "1.25" } },
+                  ]),
                   body: { stringValue: "classifier.otel.test" },
                   severityNumber: 9,
                 },
