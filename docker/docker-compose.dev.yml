@@ -3,7 +3,10 @@ name: asmdev
 services:
   classifier-dev:
     container_name: asmdev-classifier
-    image: ghcr.io/asocialmedia/asm-classifier:latest
+    image: asm-classifier:development
+    build:
+      context: ../apps/classifier
+    pull_policy: build
     environment:
       CLASSIFIER_API_TOKEN: asm-local-classifier-development-token-3014
       CLASSIFIER_THREADS: "1"

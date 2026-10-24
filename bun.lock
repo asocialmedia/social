@@ -62,7 +62,7 @@
     },
     "apps/classifier": {
       "name": "@asm/classifier",
-      "version": "0.1.4",
+      "version": "0.1.5",
       "dependencies": {
         "@opentelemetry/api": "1.9.1",
         "@opentelemetry/api-logs": "0.221.0",
