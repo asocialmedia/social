@@ -182,6 +182,21 @@ export class DiscoveryInventory {
           }
           const signal = AbortSignal.timeout(8000);
           let nextPosition = position;
+          const latest = await this.continuations.get(progressKey);
+          if (latest) {
+            const progress = continuationSchema.parse(JSON.parse(latest));
+            if (progress.scope === scope && progress.sourceStarted) {
+              if (!progress.sourceCursor) {
+                const currentArrivals = await this.store.read();
+                return {
+                  cursor: null,
+                  items: currentArrivals.filter(eligible),
+                  partial: false,
+                };
+              }
+              nextPosition = progress.sourceCursor;
+            }
+          }
           const arrivals = new Map<string, ExternalPost>();
           for (let attempt = 0; attempt < 3; attempt += 1) {
             // oxlint-disable-next-line no-await-in-loop -- only the previous source page can supply the next cursor.

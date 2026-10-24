@@ -6,6 +6,74 @@ import { inventoryPost } from "./discovery-fixtures";
 import { DiscoveryInventory } from "./discovery-inventory";
 import { MemoryDiscoveryStore } from "./discovery-store";
 
+test("a delayed reader reconciles progress after acquiring ownership instead of replaying a completed chain", async () => {
+  const posts = Array.from({ length: 20 }, (_, index) => inventoryPost(index));
+  const warming = Promise.withResolvers<{
+    cursor: string;
+    items: ExternalPost[];
+    partial: false;
+  }>();
+  const started = Promise.withResolvers<undefined>();
+  const paused = Promise.withResolvers<undefined>();
+  const resume = Promise.withResolvers<undefined>();
+  let snapshots = 0;
+  const positions: (string | undefined)[] = [];
+  const store = {
+    invalidate: () => Promise.resolve(),
+    put: (arrivals: ExternalPost[]) => {
+      posts.push(...arrivals);
+      return Promise.resolve();
+    },
+    read: async () => {
+      const captured = [...posts];
+      snapshots += 1;
+      if (snapshots === 2) {
+        paused.resolve();
+        await resume.promise;
+      }
+      return captured;
+    },
+  };
+  const source = (_mode: string, cursor: string | undefined) => {
+    positions.push(cursor);
+    if (cursor === "next") {
+      started.resolve();
+      return warming.promise;
+    }
+    return Promise.resolve({
+      cursor: cursor ? null : "next",
+      items: cursor ? [inventoryPost(40)] : [],
+      partial: false,
+    });
+  };
+  const continuations = new MemoryDiscoveryStore();
+  const first = new DiscoveryInventory(store, continuations, source);
+  const second = new DiscoveryInventory(store, continuations, source);
+  const head = await first.read(
+    "personalized",
+    undefined,
+    "en",
+    ["TypeScript"],
+    "all"
+  );
+  await started.promise;
+  const delayed = second.read(
+    "personalized",
+    head?.cursor ?? undefined,
+    "en",
+    ["TypeScript"],
+    "all"
+  );
+  await paused.promise;
+  warming.resolve({ cursor: "last", items: [], partial: false });
+  await Bun.sleep(0);
+  resume.resolve();
+  const page = await delayed;
+  expect(positions).toEqual([undefined, "next", "last"]);
+  expect(page?.items.map((post) => post.id)).toEqual([inventoryPost(40).id]);
+  expect(page?.cursor).toBeNull();
+});
+
 test("replicas cannot start the next source page while its shared chain is already warming", async () => {
   const posts = Array.from({ length: 20 }, (_, index) => inventoryPost(index));
   const gate = Promise.withResolvers<{
@@ -140,6 +208,7 @@ test("sparse heads warm shared inventory before the viewer asks for another page
     first.read("personalized", undefined, "en", ["TypeScript"], "all"),
     second.read("personalized", undefined, "en", ["TypeScript"], "all"),
   ]);
+  await Bun.sleep(0);
   expect(pages.every((page) => page?.items.length === 20)).toBe(true);
   expect(reads).toBe(1);
   pending.resolve({ cursor: null, items: [], partial: false });
