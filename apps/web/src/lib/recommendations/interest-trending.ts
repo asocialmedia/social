@@ -56,8 +56,11 @@ export function interestTrendingTopics(
         authors: new Set<string>(),
         interests: new Set<string>(),
         posts: new Set<string>(),
-        root: matched.some((interest) => interest.toLowerCase() === normalized),
+        root: false,
       };
+      entry.root ||= matched.some(
+        (interest) => interest.toLowerCase() === normalized
+      );
       entry.posts.add(post.id);
       entry.authors.add(post.author.id);
       for (const interest of matched) {

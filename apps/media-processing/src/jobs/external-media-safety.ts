@@ -176,7 +176,11 @@ export async function processExternalMediaSafety(raw: unknown) {
       JSON.stringify({ source: "bluesky" })
     );
   } catch (error) {
-    if (error instanceof ClefDeferredError && workerEnv.CLASSIFIER_URL) {
+    if (
+      error instanceof ClefDeferredError &&
+      workerEnv.CLASSIFIER_URL &&
+      workerEnv.CLASSIFIER_API_TOKEN
+    ) {
       // Unknown visual content remains withheld without occupying the cheap-classification queue until quota reset.
       await redis.set(input.key, "uncertain", "EX", 300);
       await releaseExternalMediaSafetyClaim(input);

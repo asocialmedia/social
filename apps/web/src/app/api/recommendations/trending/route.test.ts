@@ -278,3 +278,32 @@ test("healthy empty global results are successful, and personalized topics survi
   expect(data.items[0].topic).toBe("anime");
   expect(data.unavailable).toEqual(["hashtags", "mentions", "aura"]);
 });
+
+test("a later contextual interest match promotes a topic regardless of post order", () => {
+  const tagged = post("tagged", "Anime technology news", ["anime", "ai"]);
+  const qualified = {
+    ...post("qualified", "Artificial intelligence in animation", ["ai"]),
+    author: tagged.author,
+  };
+  const scoped = {
+    ...context(["anime", "ai"]),
+    topicScope: {
+      avoided: {},
+      interests: {},
+      qualifiers: { ai: ["artificial", "intelligence"] },
+      version: "test",
+    },
+  };
+  const topics = interestTrendingTopics([tagged, qualified], scoped);
+  const reversed = interestTrendingTopics([qualified, tagged], scoped);
+  expect(topics.map((topic) => topic.topic)).toContain("ai");
+  const ai = topics.find((topic) => topic.topic === "ai");
+  const reversedAi = reversed.find((topic) => topic.topic === "ai");
+  expect(ai?.description).toBe(reversedAi?.description);
+  expect(ai?.matchedInterests?.toSorted()).toEqual(
+    reversedAi?.matchedInterests?.toSorted()
+  );
+  expect(topics.map((topic) => topic.topic).toSorted()).toEqual(
+    reversed.map((topic) => topic.topic).toSorted()
+  );
+});
