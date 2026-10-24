@@ -622,6 +622,7 @@ export class BlueskyDiscovery {
           ) {
             const options = {
               cursor: source.searchWindow ? undefined : source.cursor,
+              hasVideo: content === "video" ? true : undefined,
               language: locale && locale !== "all" ? locale : undefined,
               limit: this.actors ? 30 : 16,
               since:

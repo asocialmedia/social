@@ -77,7 +77,9 @@ export function createReadWorkerPool(options: {
     }
     const attempted = new Set<string>();
     const deadline = now() + (options.requestTimeoutMs ?? 2500);
-    const search = target.pathname === "/xrpc/app.bsky.feed.searchPosts";
+    const search =
+      target.pathname === "/xrpc/app.bsky.feed.searchPosts" ||
+      target.pathname === "/xrpc/app.bsky.feed.searchPostsV2";
     const resource = search
       ? `${target.origin}${target.pathname}:${target.searchParams}`
       : `${target.origin}${target.pathname}:${target.searchParams.get("feed") ?? ""}`;

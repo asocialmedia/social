@@ -94,8 +94,14 @@ export interface BlueskyClientOptions {
   wait?: typeof waitForReadRetry;
 }
 
+const postSearchOperations = new Set([
+  "app.bsky.feed.searchPosts",
+  "app.bsky.feed.searchPostsV2",
+]);
+
 const pageOptionsSchema = z.object({
   cursor: z.string().min(1).max(4096).optional(),
+  hasVideo: z.boolean().optional(),
   language: z
     .string()
     .max(100)
@@ -106,6 +112,7 @@ const pageOptionsSchema = z.object({
   until: z.iso.datetime().optional(),
 });
 export interface FeedReadOptions {
+  hasVideo?: boolean;
   includePins?: boolean;
   limit?: number;
   cursor?: string;
@@ -479,17 +486,23 @@ export class BlueskyClient {
     ) {
       throw new ProtocolError("invalid_input", "Invalid post search");
     }
+    const video = parsed.data.hasVideo === true;
     const page = await this.request(
-      "app.bsky.feed.searchPosts",
+      video ? "app.bsky.feed.searchPostsV2" : "app.bsky.feed.searchPosts",
       {
         limit: String(parsed.data.limit),
-        q: parsedQuery.data,
-        sort,
+        ...(video
+          ? { hasVideo: "true", query: parsedQuery.data }
+          : { q: parsedQuery.data }),
+        sort: video && sort === "latest" ? "recent" : sort,
         ...(parsed.data.since ? { since: parsed.data.since } : {}),
         ...(parsed.data.until ? { until: parsed.data.until } : {}),
         ...(parsed.data.cursor ? { cursor: parsed.data.cursor } : {}),
         ...(parsed.data.language
-          ? { lang: parsed.data.language.split("-")[0] ?? "en" }
+          ? {
+              [video ? "languages" : "lang"]:
+                parsed.data.language.split("-")[0] ?? "en",
+            }
           : {}),
       },
       z.object({
@@ -630,10 +643,9 @@ export class BlueskyClient {
     const query = new URLSearchParams(parameters);
     query.sort();
     const key = `${this.generation}:${operation}:${language ?? ""}:${query}`;
-    const resource =
-      operation === "app.bsky.feed.searchPosts"
-        ? `${operation}:${query}`
-        : `${operation}:${parameters.feed ?? parameters.actor ?? parameters.repo ?? parameters.q ?? ""}:${parameters.collection ?? ""}`;
+    const resource = postSearchOperations.has(operation)
+      ? `${operation}:${query}`
+      : `${operation}:${parameters.feed ?? parameters.actor ?? parameters.repo ?? parameters.q ?? ""}:${parameters.collection ?? ""}`;
     const resourceFailure = this.unavailable.get(resource);
     if (resourceFailure && resourceFailure.until > this.options.now()) {
       throw new ProtocolError(
@@ -716,6 +728,7 @@ export class BlueskyClient {
               "app.bsky.feed.getFeed",
               "com.atproto.repo.listRecords",
               "app.bsky.feed.searchPosts",
+              "app.bsky.feed.searchPostsV2",
             ].includes(operation)
           ) {
             const now = this.options.now();
@@ -926,6 +939,23 @@ export class BlueskyClient {
           options
         );
       }
+      if (operation === "app.bsky.feed.searchPostsV2") {
+        return await this.rpc.call(
+          app.bsky.feed.searchPostsV2,
+          {
+            ...page,
+            hasVideo: query.get("hasVideo") === "true",
+            languages: query.has("languages")
+              ? query.getAll("languages")
+              : undefined,
+            query: query.get("query") ?? "",
+            since: query.get("since") ?? undefined,
+            sort: query.get("sort") ?? "top",
+            until: query.get("until") ?? undefined,
+          },
+          options
+        );
+      }
       if (operation === "app.bsky.feed.searchPosts") {
         return await this.rpc.call(
           app.bsky.feed.searchPosts,
@@ -1000,7 +1030,10 @@ export class BlueskyClient {
           let origin = "https://public.api.bsky.app";
           if (path.startsWith("/xrpc/com.atproto.repo.listRecords?")) {
             origin = "https://bsky.social";
-          } else if (path.startsWith("/xrpc/app.bsky.feed.searchPosts?")) {
+          } else if (
+            path.startsWith("/xrpc/app.bsky.feed.searchPosts?") ||
+            path.startsWith("/xrpc/app.bsky.feed.searchPostsV2?")
+          ) {
             origin = "https://api.bsky.app";
           }
           const response = await abortable(
