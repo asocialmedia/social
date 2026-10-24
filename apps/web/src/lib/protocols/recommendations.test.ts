@@ -8,6 +8,7 @@ import {
   discoveryTopics,
   isRetrievalTopic,
   rankExternalForViewer,
+  relatedDiscoveryTopics,
 } from "./recommendations";
 
 const profile: UserProfile = {
@@ -15,6 +16,29 @@ const profile: UserProfile = {
   negativeTagWeights: { politics: 5 },
   tagWeights: { astronomy: 8, gardening: 2, politics: 1 },
 };
+
+test("related retrieval prioritizes usable concepts over aliases, acronyms and encyclopedia partitions", () => {
+  expect(
+    relatedDiscoveryTopics(["anime"], {
+      aliases: { anime: ["Japanese animation"] },
+      avoided: {},
+      interests: { anime: ["anime"] },
+      related: {
+        anime: [
+          "anime by studio",
+          "anime debuts in 2026",
+          "anime based on marvel comics",
+          "japanese animation",
+          "ova",
+          "anime film",
+          "tv anime",
+          "Anime film",
+        ],
+      },
+      version: "fixture",
+    })
+  ).toEqual(["tv anime", "anime film", "anime based on marvel comics"]);
+});
 const post = (id: string, text: string): ExternalPost => ({
   author: {
     displayName: "Fixture",
@@ -435,6 +459,9 @@ test("retrieval skips taxonomy partitions while retaining real concepts", () => 
     "anime by medium",
     "anime by studio",
     "anime debuts by date",
+    "anime debuts in 2026",
+    "years of anime",
+    "articles with short description",
     "anime by composer",
     "HTTP redirects",
     "anime series",

@@ -100,6 +100,32 @@ test("read workers start without Redis and reject coordinator dependencies", () 
   ).toThrow("REDIS_URL");
 });
 
+test("a denied search cursor cannot cool down another topic or a fresh date window", async () => {
+  const remote: string[] = [];
+  const pool = createReadWorkerPool({
+    fetch: async (raw) => {
+      if (raw.startsWith(node.url)) {
+        const upstream = new URL(raw).searchParams.get("url") ?? "";
+        remote.push(upstream);
+        if (upstream.includes("cursor=denied")) {
+          return response({ error: "Forbidden" }, 403);
+        }
+      }
+      return response({ posts: [] });
+    },
+    logger: logger(),
+    nodes: [node],
+  });
+  await pool.fetch(profile, {});
+  const denied = `${search}&cursor=denied`;
+  await pool.fetch(denied, {});
+  await pool.fetch(denied, {});
+  await pool.fetch(`${search}&since=2026-10-23T00%3A00%3A00Z`, {});
+  await pool.fetch(`${search}&since=2026-10-23T00%3A00%3A00Z`, {});
+  expect(remote.filter((url) => url.includes("cursor=denied"))).toHaveLength(1);
+  expect(remote.some((url) => url.includes("since="))).toBe(true);
+});
+
 test("non-JSON upstream denials stay restricted and a generator's 401 cannot disable unrelated worker capacity", async () => {
   const denied = createReadWorkerPool({
     fetch: async () => new Response("<html>Forbidden</html>", { status: 403 }),

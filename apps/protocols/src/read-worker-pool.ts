@@ -73,7 +73,10 @@ export function createReadWorkerPool(options: {
     }
     const attempted = new Set<string>();
     const deadline = now() + (options.requestTimeoutMs ?? 2500);
-    const resource = `${target.origin}${target.pathname}:${target.searchParams.get("feed") ?? ""}`;
+    const search = target.pathname === "/xrpc/app.bsky.feed.searchPosts";
+    const resource = search
+      ? `${target.origin}${target.pathname}:${target.searchParams}`
+      : `${target.origin}${target.pathname}:${target.searchParams.get("feed") ?? ""}`;
     const operationKey = `${target.origin}${target.pathname}`;
     let pauseMs = 1000;
     let lastStatus = 503;
@@ -188,7 +191,7 @@ export function createReadWorkerPool(options: {
           let cooldownKey = resource;
           if (upstreamStatus === 429 || workerAuthFailure) {
             cooldownKey = target.origin;
-          } else if (upstreamStatus === 403) {
+          } else if (upstreamStatus === 403 && !search) {
             cooldownKey = operationKey;
           }
           block(node.blocked, cooldownKey, pauseMs);

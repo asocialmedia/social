@@ -22,6 +22,61 @@ const head: DiscoveryPage = {
   partial: false,
 };
 
+test("video warming traverses six sparse pages without making the viewer request them", async () => {
+  const reads: string[] = [];
+  const retained: string[] = [];
+  await warmDiscoveryInventory({
+    head,
+    maxPages: 6,
+    read: (cursor) => {
+      reads.push(cursor);
+      return Promise.resolve({
+        cursor: `next-${reads.length}`,
+        items: reads.length === 6 ? [inventoryPost(50)] : [],
+        partial: true,
+      });
+    },
+    retain: (page) => {
+      retained.push(...page.items.map((post) => post.id));
+      return Promise.resolve();
+    },
+    signal: new AbortController().signal,
+    store: new MemoryDiscoveryStore(),
+    watch,
+  });
+  expect(reads).toHaveLength(6);
+  expect(retained).toEqual([inventoryPost(50).id]);
+});
+
+test("a warmup deadline cannot retain late data or advance its saved position", async () => {
+  const gate = Promise.withResolvers<DiscoveryPage>();
+  const store = new MemoryDiscoveryStore();
+  const reads: string[] = [];
+  const retained: string[] = [];
+  const options = {
+    head,
+    read: (cursor: string) => {
+      reads.push(cursor);
+      return gate.promise;
+    },
+    retain: (page: DiscoveryPage) => {
+      retained.push(...page.items.map((post) => post.id));
+      return Promise.resolve();
+    },
+    signal: new AbortController().signal,
+    store,
+    timeBudgetMs: 10,
+    watch,
+  };
+  await expect(warmDiscoveryInventory(options)).rejects.toThrow();
+  gate.resolve({ cursor: null, items: [inventoryPost(51)], partial: false });
+  await Bun.sleep(0);
+  expect(retained).toEqual([]);
+  await warmDiscoveryInventory({ ...options, timeBudgetMs: 1000 });
+  expect(reads).toEqual(["first", "first"]);
+  expect(retained).toEqual([inventoryPost(51).id]);
+});
+
 test("successive refreshes and replicas warm deeper pages with two reads per invocation", async () => {
   const store = new MemoryDiscoveryStore();
   const reads: string[] = [];

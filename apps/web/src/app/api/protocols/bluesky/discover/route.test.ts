@@ -190,7 +190,7 @@ test("all five discovery modes enforce chosen interests before popularity and le
       JSON.parse(publication);
     if (!watch.topics.includes("software")) {
       expect(watch.content).toBe("video");
-      expect(watch.topics).toEqual(["ajax programming", "automattic"]);
+      expect(watch.topics).toEqual(["automattic", "ajax programming"]);
     }
     expect(watch.topics).not.toContain("politics");
   }
@@ -219,7 +219,7 @@ test("primary interest labels are valid for protocol reads and event watches", a
   expect(discoveryTopicsSchema.parse(watch.topics)).toEqual(topics);
   expect(JSON.parse(publications[1] ?? "{}")).toMatchObject({
     content: "video",
-    topics: ["ajax programming", "automattic"],
+    topics: ["automattic", "ajax programming"],
   });
 });
 

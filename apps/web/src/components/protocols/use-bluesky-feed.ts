@@ -61,7 +61,7 @@ export function useBlueskyFeed(
     locale,
     network.scope,
     content,
-    "progressive-v8",
+    "progressive-v9",
     surface,
   ];
   const query = useInfiniteQuery({
@@ -159,7 +159,7 @@ export function useBlueskyFeed(
         cursor: null,
         following,
         locale,
-        mode,
+        mode: !following && mode === "personalized" ? "latest" : mode,
         profile,
         refresh: true,
         signal: AbortSignal.any([signal, AbortSignal.timeout(18_000)]),

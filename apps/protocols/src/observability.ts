@@ -31,14 +31,20 @@ export function createDiscoveryWarmupFailureReporter(
   now = Date.now
 ) {
   let lastWarningAt: number | undefined;
-  return () => {
+  return (error?: unknown) => {
     const at = now();
     if (lastWarningAt !== undefined && at - lastWarningAt < 30_000) {
       return;
     }
     lastWarningAt = at;
     logger.warn(
-      { event: "discovery.inventory.warmup_failed" },
+      {
+        event: "discovery.inventory.warmup_failed",
+        ...(error instanceof ProtocolError ? { code: error.code } : {}),
+        ...(error instanceof Error && error.name === "TimeoutError"
+          ? { code: "timeout" }
+          : {}),
+      },
       "Discovery inventory warmup failed"
     );
   };

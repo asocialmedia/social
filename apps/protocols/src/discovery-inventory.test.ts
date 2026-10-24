@@ -6,6 +6,116 @@ import { inventoryPost } from "./discovery-fixtures";
 import { DiscoveryInventory } from "./discovery-inventory";
 import { MemoryDiscoveryStore } from "./discovery-store";
 
+test("replicas cannot start the next source page while its shared chain is already warming", async () => {
+  const posts = Array.from({ length: 20 }, (_, index) => inventoryPost(index));
+  const gate = Promise.withResolvers<{
+    cursor: null;
+    items: ExternalPost[];
+    partial: false;
+  }>();
+  const started = Promise.withResolvers<undefined>();
+  const positions: (string | undefined)[] = [];
+  const store = {
+    invalidate: () => Promise.resolve(),
+    put: (arrivals: ExternalPost[]) => {
+      posts.push(...arrivals);
+      return Promise.resolve();
+    },
+    read: () => Promise.resolve(posts),
+  };
+  const source = (_mode: string, cursor: string | undefined) => {
+    positions.push(cursor);
+    if (cursor) {
+      started.resolve();
+      return gate.promise;
+    }
+    return Promise.resolve({ cursor: "next", items: [], partial: false });
+  };
+  const continuations = new MemoryDiscoveryStore();
+  const first = new DiscoveryInventory(store, continuations, source, false, 10);
+  const second = new DiscoveryInventory(
+    store,
+    continuations,
+    source,
+    false,
+    10
+  );
+  const head = await first.read(
+    "personalized",
+    undefined,
+    "en",
+    ["TypeScript"],
+    "all"
+  );
+  await started.promise;
+  const waiting = await second.read(
+    "personalized",
+    head?.cursor ?? undefined,
+    "en",
+    ["TypeScript"],
+    "all"
+  );
+  expect(waiting?.partial).toBe(true);
+  expect(positions).toEqual([undefined, "next"]);
+  gate.resolve({ cursor: null, items: [inventoryPost(40)], partial: false });
+  await Bun.sleep(0);
+  const resumed = await second.read(
+    "personalized",
+    waiting?.cursor ?? undefined,
+    "en",
+    ["TypeScript"],
+    "all"
+  );
+  expect(resumed?.items.map((post) => post.id)).toEqual([inventoryPost(40).id]);
+  expect(resumed?.cursor).toBeNull();
+});
+
+test("one coalesced refill crosses empty source pages and retains its exhausted position", async () => {
+  const posts = Array.from({ length: 20 }, (_, index) => inventoryPost(index));
+  const positions: (string | undefined)[] = [];
+  const inventory = new DiscoveryInventory(
+    {
+      invalidate: () => Promise.resolve(),
+      put: (arrivals) => {
+        posts.push(...arrivals);
+        return Promise.resolve();
+      },
+      read: () => Promise.resolve(posts),
+    },
+    new MemoryDiscoveryStore(),
+    (_mode, cursor) => {
+      positions.push(cursor);
+      let next: string | null = "first";
+      if (cursor) {
+        next = cursor === "second" ? null : "second";
+      }
+      return Promise.resolve({
+        cursor: next,
+        items: cursor === "second" ? [inventoryPost(40)] : [],
+        partial: false,
+      });
+    }
+  );
+  const head = await inventory.read(
+    "personalized",
+    undefined,
+    "en",
+    ["TypeScript"],
+    "video"
+  );
+  await Bun.sleep(0);
+  const next = await inventory.read(
+    "personalized",
+    head?.cursor ?? undefined,
+    "en",
+    ["TypeScript"],
+    "video"
+  );
+  expect(positions).toEqual([undefined, "first", "second"]);
+  expect(next?.items.map((post) => post.id)).toEqual([inventoryPost(40).id]);
+  expect(next?.cursor).toBeNull();
+});
+
 test("sparse heads warm shared inventory before the viewer asks for another page", async () => {
   const pending = Promise.withResolvers<{
     cursor: null;
@@ -227,14 +337,7 @@ test("an empty inventory retains a refill that finishes after the foreground tim
     1
   );
   await Bun.sleep(0);
-  const tail = await second.read(
-    "personalized",
-    resumed?.cursor ?? undefined,
-    "en",
-    ["TypeScript"],
-    "all"
-  );
-  expect(tail?.cursor).toBeNull();
+  expect(resumed?.cursor).toBeNull();
   expect(positions).toEqual([undefined, "source-next"]);
 });
 

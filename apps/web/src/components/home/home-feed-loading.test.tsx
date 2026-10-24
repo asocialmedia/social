@@ -116,7 +116,7 @@ test("completion appears only after both mixed-feed sources finish", () => {
       "en",
       networkScope,
       "all",
-      "progressive-v8",
+      "progressive-v9",
       "home",
     ],
     {
