@@ -3,12 +3,15 @@ import { beforeEach, expect, mock, test } from "bun:test";
 import type { ExternalPost } from "@asm/protocols/contracts";
 import { defaultNetworkPreferences } from "@asm/protocols/discovery";
 
+import { mergeTrendingFeed } from "@/components/home/sidebars/right/trending-utils";
 import { interestTrendingTopics } from "@/lib/recommendations/interest-trending";
 
 let session: { user: { id: string } } | null = { user: { id: "reader" } };
 let allowed = true;
 let offline = false;
 let cached = false;
+let partial = false;
+let globalOffline = false;
 let posts: ExternalPost[] = [];
 const preferences = defaultNetworkPreferences();
 const context = (interests = ["anime"]) => ({
@@ -19,12 +22,14 @@ const context = (interests = ["anime"]) => ({
   topicScope: undefined,
 });
 const globalRead = mock((_refresh: boolean, _includeBluesky: boolean) =>
-  Promise.resolve({ items: [], topAura: [], unavailable: [] })
+  globalOffline
+    ? Promise.reject(new Error("all global sources unavailable"))
+    : Promise.resolve({ items: [], topAura: [], unavailable: [] })
 );
 const discovery = mock(() =>
   offline
     ? Promise.reject(new Error("unavailable"))
-    : Promise.resolve({ cursor: null, items: posts, partial: false })
+    : Promise.resolve({ cursor: null, items: posts, partial })
 );
 mock.module("@asm/db", () => ({
   consumeRateLimit: () => Promise.resolve({ allowed, retryAfterSeconds: 10 }),
@@ -36,7 +41,11 @@ mock.module("@/lib/auth/session", () => ({
 mock.module("@/lib/recommendations/network-context", () => ({
   networkFeedContext: (_id: string | undefined, profile: string | undefined) =>
     Promise.resolve(
-      context(session ? [profile === "software" ? "software" : "anime"] : [])
+      context(
+        session && profile !== "unfocused"
+          ? [profile === "software" ? "software" : "anime"]
+          : []
+      )
     ),
   networkRegionalLocale: () => "en",
 }));
@@ -45,7 +54,7 @@ mock.module("@/lib/protocols/service", () => ({
 }));
 mock.module("@/lib/protocols/discovery-cache", () => ({
   cachedDiscoveryHead: () =>
-    Promise.resolve(cached ? { page: { items: posts } } : null),
+    Promise.resolve(cached ? { page: { items: posts, partial } } : null),
   discoveryCacheKey: () => "head",
 }));
 mock.module("@/components/home/sidebars/right/trending-actions", () => ({
@@ -57,6 +66,8 @@ beforeEach(() => {
   allowed = true;
   offline = false;
   cached = false;
+  partial = false;
+  globalOffline = false;
   posts = [];
   preferences.showExplicitContent = false;
   preferences.avoidedTopics = [];
@@ -189,4 +200,81 @@ test("guest discovery stays global and excessive refreshes retain a retry bounda
   );
   expect(response.status).toBe(429);
   expect(response.headers.get("retry-after")).toBe("10");
+});
+
+test.each([false, true])(
+  "partial discovery keeps earlier topics without duplicating refreshed topics (cached=%s)",
+  async (useCache) => {
+    cached = useCache;
+    partial = true;
+    posts = [post("new")];
+    const response = await GET(
+      new Request("https://asm.test/api/recommendations/trending")
+    );
+    const fresh = await response.json();
+    expect(fresh.unavailable).toContain("bluesky");
+    const previous = {
+      items: interestTrendingTopics(
+        [
+          post("old", "Anime fans love Naruto", ["Naruto"]),
+          post("other", "Anime news about Naruto", ["Naruto"]),
+        ],
+        context()
+      ),
+      topAura: [],
+      unavailable: [],
+    };
+    const merged = mergeTrendingFeed(previous, fresh);
+    expect(
+      merged.items.map((item) =>
+        item.type === "bluesky_topic" ? item.topic : item.type
+      )
+    ).toEqual(["anime", "naruto"]);
+    expect(merged.items[0]).toEqual(fresh.items[0]);
+    posts = [];
+    const emptyResponse = await GET(
+      new Request("https://asm.test/api/recommendations/trending")
+    );
+    const emptyPartial = await emptyResponse.json();
+    expect(mergeTrendingFeed(previous, emptyPartial).items).toEqual(
+      previous.items
+    );
+  }
+);
+
+test.each([false, true])(
+  "failure of the only requested global branch returns a retryable error (guest=%s)",
+  async (guest) => {
+    if (guest) {
+      session = null;
+    }
+    globalOffline = true;
+    const response = await GET(
+      new Request(
+        "https://asm.test/api/recommendations/trending?profile=unfocused"
+      )
+    );
+    expect(response.status).toBe(503);
+    const data = await response.json();
+    expect(data.error).toBe("Trending is temporarily unavailable");
+    expect(discovery).not.toHaveBeenCalled();
+  }
+);
+
+test("healthy empty global results are successful, and personalized topics survive a global outage", async () => {
+  session = null;
+  const empty = await GET(
+    new Request("https://asm.test/api/recommendations/trending")
+  );
+  expect(empty.status).toBe(200);
+  session = { user: { id: "reader" } };
+  globalOffline = true;
+  posts = [post("healthy")];
+  const response = await GET(
+    new Request("https://asm.test/api/recommendations/trending")
+  );
+  const data = await response.json();
+  expect(response.status).toBe(200);
+  expect(data.items[0].topic).toBe("anime");
+  expect(data.unavailable).toEqual(["hashtags", "mentions", "aura"]);
 });

@@ -70,14 +70,20 @@ export async function GET(request: Request) {
               topics,
               explicit
             ));
-          return interestTrendingTopics(page.items, {
-            ...context,
-            selected: { ...context.selected, interests },
-          });
+          return {
+            items: interestTrendingTopics(page.items, {
+              ...context,
+              selected: { ...context.selected, interests },
+            }),
+            partial: page.partial,
+          };
         })()
-      : Promise.resolve([]),
+      : Promise.resolve({ items: [], partial: false }),
   ]);
-  if (global.status === "rejected" && personalized.status === "rejected") {
+  if (
+    global.status === "rejected" &&
+    (!focused || personalized.status === "rejected")
+  ) {
     return Response.json(
       { error: "Trending is temporarily unavailable" },
       { headers, status: 503 }
@@ -102,7 +108,9 @@ export async function GET(request: Request) {
       items: weaveTrendingItems(
         items.filter((item) => item.type !== "bluesky_topic"),
         [
-          ...(personalized.status === "fulfilled" ? personalized.value : []),
+          ...(personalized.status === "fulfilled"
+            ? personalized.value.items
+            : []),
           ...items.filter((item) => item.type === "bluesky_topic"),
         ],
         30
@@ -110,7 +118,9 @@ export async function GET(request: Request) {
       topAura: data.topAura,
       unavailable: [
         ...data.unavailable,
-        ...(personalized.status === "rejected" ? ["bluesky"] : []),
+        ...(personalized.status === "rejected" || personalized.value.partial
+          ? ["bluesky"]
+          : []),
       ],
     },
     { headers }

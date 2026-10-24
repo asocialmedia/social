@@ -141,7 +141,23 @@ export function mergeTrendingFeed(
   const retained = previous.items.filter((item) =>
     fresh.unavailable.includes(sourceOf(item))
   );
-  const items = [...fresh.items, ...retained];
+  const seen = new Set<string>();
+  const items = [...fresh.items, ...retained].filter((item) => {
+    let id: string;
+    if (item.type === "hashtag") {
+      id = item.hashtag;
+    } else if (item.type === "mention") {
+      id = item.userId;
+    } else {
+      id = item.topic;
+    }
+    const key = `${item.type}:${id}`;
+    if (seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
   return {
     ...fresh,
     items: weaveTrendingItems(
