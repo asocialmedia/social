@@ -317,6 +317,7 @@ test.each([
   "https://user:password@public.api.bsky.app/xrpc/app.bsky.actor.getProfile",
   "https://public.api.bsky.app/xrpc/com.atproto.repo.createRecord",
   "https://public.api.bsky.app/xrpc/app.bsky.feed.searchPosts",
+  "https://public.api.bsky.app/xrpc/app.bsky.feed.searchPostsV2",
   "https://127.0.0.1/xrpc/app.bsky.actor.getProfile",
   "https://public.api.bsky.app:444/xrpc/app.bsky.actor.getProfile",
   "https://public.api.bsky.app/xrpc/app.bsky.actor.getProfile#fragment",
@@ -996,4 +997,37 @@ test("a remote-first failure uses reserved local capacity before a second remote
   expect(order).toHaveLength(3);
   expect(order[1]?.startsWith(node.url)).toBe(true);
   expect(order[2]).toBe(publicFeed("fallback"));
+});
+
+test("video-filtered search is worker-eligible and denied cursors cannot pause fresh video windows", async () => {
+  const searchVideo =
+    "https://api.bsky.app/xrpc/app.bsky.feed.searchPostsV2?query=anime&hasVideo=true";
+  expect(publicReadTarget(searchVideo)?.hostname).toBe("api.bsky.app");
+  const pool = createReadWorkerPool({
+    fetch: async (url) =>
+      new URL(url).searchParams.has("cursor")
+        ? new Response("Forbidden", { status: 403 })
+        : Response.json({ posts: [] }),
+    logger: logger(),
+    nodes: [],
+  });
+  for (let i = 0; i < 3; i += 1) {
+    // oxlint-disable-next-line no-await-in-loop -- establish multiple cursor denials before verifying the window remains available.
+    const denied = await pool.fetch(`${searchVideo}&cursor=denied-${i}`, {});
+    expect(denied.status).toBe(403);
+  }
+  const window = await pool.fetch(
+    `${searchVideo}&since=2026-10-23T00:00:00Z`,
+    {}
+  );
+  expect(window.status).toBe(200);
+  expect(
+    pool
+      .status()
+      .every((entry) =>
+        Object.keys(entry.cooldowns).every(
+          (key) => !key.includes("searchPostsV2")
+        )
+      )
+  ).toBe(true);
 });

@@ -827,7 +827,8 @@ test("video discovery searches chosen interests instead of relying only on gener
       cursor: null,
       items: [{ displayName: "Video", uri: publicFeed }],
     }),
-    searchPosts: async (query, sort) => {
+    searchPosts: async (query, sort, options) => {
+      expect(options?.hasVideo).toBe(true);
       sorts.push(sort);
       searches.push(query);
       return {

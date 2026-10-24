@@ -43,7 +43,8 @@ export function publicReadTarget(raw: string): URL | undefined {
       (url.hostname === "public.api.bsky.app" &&
         publicOperations.has(operation)) ||
       (url.hostname === "api.bsky.app" &&
-        operation === "app.bsky.feed.searchPosts") ||
+        (operation === "app.bsky.feed.searchPosts" ||
+          operation === "app.bsky.feed.searchPostsV2")) ||
       (url.hostname === "bsky.social" &&
         operation === "com.atproto.repo.listRecords")
     ) {
