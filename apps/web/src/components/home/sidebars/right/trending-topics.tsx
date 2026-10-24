@@ -16,7 +16,6 @@ import { getAuraFlameClass } from "@/lib/aura/aura";
 import { cn, formatNumber, truncateUsername } from "@/lib/utils";
 
 import { APPLE_CARD_CLASS, ROW_HOVER_CLASS } from "./sidebar-styles";
-import { getTrendingFeed } from "./trending-actions";
 import type {
   TrendingBlueskyTopic,
   TrendingFeed,
@@ -31,6 +30,23 @@ import {
 // the handle is clipped to a length that keeps the aura figure beside it on one
 // line. A `min-w-0 truncate` wrapper below is the responsive backstop.
 const TOP_AURA_USERNAME_MAX_LENGTH = 18;
+
+async function readTrending(
+  profile: string,
+  refresh = false
+): Promise<TrendingFeed> {
+  const query = new URLSearchParams({ profile });
+  if (refresh) {
+    query.set("refresh", "1");
+  }
+  const response = await fetch(`/api/recommendations/trending?${query}`, {
+    signal: AbortSignal.timeout(8000),
+  });
+  if (!response.ok) {
+    throw new Error("Couldn't load trending topics");
+  }
+  return response.json();
+}
 
 function getBlueskyTopicHref(item: TrendingBlueskyTopic): string {
   if (!item.link) {
@@ -176,12 +192,14 @@ const TrendingTopics: React.FC = () => {
   const { user } = useSession();
   const network = useNetworkSettings();
   const isLoggedIn = Boolean(user);
-  const queryKey = ["trending-feed", "v4", user?.id ?? "guest"];
+  const profileId = network.settings.preferences.activeProfileId;
+  const queryKey = ["trending-feed", "v5", user?.id ?? "guest", network.scope];
   const { data, isError, isFetching, isLoading } = useQuery<TrendingFeed>({
+    enabled: network.ready,
     queryFn: async () =>
       mergeTrendingFeed(
         queryClient.getQueryData<TrendingFeed>(queryKey),
-        await getTrendingFeed(false)
+        await readTrending(profileId)
       ),
     queryKey,
     staleTime: 5 * 60 * 1000,
@@ -201,15 +219,17 @@ const TrendingTopics: React.FC = () => {
   const topAura = data?.topAura ?? [];
 
   const refresh = useMutation({
-    mutationFn: () => getTrendingFeed(true),
-    onSuccess: (fresh) =>
-      queryClient.setQueryData<TrendingFeed>(queryKey, (previous) =>
+    mutationFn: (variables: { profile: string; key: string[] }) =>
+      readTrending(variables.profile, true),
+    onSuccess: (fresh, variables) =>
+      queryClient.setQueryData<TrendingFeed>(variables.key, (previous) =>
         mergeTrendingFeed(previous, fresh)
       ),
   });
   const refreshing = isFetching || refresh.isPending;
   const failedToLoad = !data && isError;
-  const handleRefresh = () => refresh.mutate();
+  const handleRefresh = () =>
+    refresh.mutate({ key: queryKey, profile: profileId });
 
   if (isLoading || !network.ready) {
     return <TrendingTopicsSkeleton />;

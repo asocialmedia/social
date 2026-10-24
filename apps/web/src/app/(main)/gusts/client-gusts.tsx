@@ -25,7 +25,6 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { useInView } from "react-intersection-observer";
 
 import { useSession } from "@/app/(main)/session-provider";
 import { AuthPromptCard } from "@/components/auth/shell/auth-prompt-card";
@@ -46,6 +45,7 @@ import {
 } from "@/components/gusts/gust-stream-slot";
 import { GustsCommentsDrawer } from "@/components/gusts/gusts-comments-drawer";
 import { MobileGustEddies } from "@/components/gusts/mobile-gust-eddies";
+import { useGustPagination } from "@/components/gusts/use-gust-pagination";
 import Spinner3D from "@/components/layouts/feedback/spinner-3d";
 import { FeedSourceMenu } from "@/components/protocols/feed-source-menu";
 import { useBlueskyFeed } from "@/components/protocols/use-bluesky-feed";
@@ -289,13 +289,6 @@ const GustStream = ({ gustTab }: { gustTab: GustFeed }) => {
     },
     [gustTab, initialPostId, pathname, scrollToFeedTop, searchParams]
   );
-
-  // The app-wide infinite-scroll pattern (same hook the feeds use): a bottom
-  // sentinel flips inView when it enters the viewport, which paginates even
-  // when the list is too short to scroll.
-  const { inView: isEndVisible, ref: endSentinelRef } = useInView({
-    rootMargin: "3000px",
-  });
 
   const source = useFeedSourceStore((state) => state.source);
   const network = useNetworkSettings();
@@ -967,29 +960,17 @@ const GustStream = ({ gustTab }: { gustTab: GustFeed }) => {
     };
   }, [posts]);
 
-  // Continue sparse pages while the reader is near the end, with one bounded read and backoff.
-  useEffect(() => {
-    if (
-      loadedPageCount > 0 &&
-      (isEndVisible || posts.length - activeIndex <= 8) &&
-      canFetchNextPage &&
-      !isFetchingNextPage
-    ) {
-      const timer = window.setTimeout(() => {
-        void fetchNextPage();
-      }, pagingDelay);
-      return () => window.clearTimeout(timer);
-    }
-  }, [
-    fetchNextPage,
-    canFetchNextPage,
-    isEndVisible,
-    isFetchingNextPage,
+  useGustPagination({
     activeIndex,
-    posts.length,
-    pagingDelay,
-    loadedPageCount,
-  ]);
+    canFetchNextPage,
+    containerRef,
+    delayMs: pagingDelay,
+    fetchNextPage,
+    isFetchingNextPage,
+    loadedPages: loadedPageCount,
+    scope: orderScope,
+    visiblePosts: posts.length,
+  });
 
   // Keyboard navigation
   const handleToggleMute = useCallback(() => {
@@ -1282,10 +1263,6 @@ const GustStream = ({ gustTab }: { gustTab: GustFeed }) => {
             {!hasNextPage && !isFetchingNextPage ? (
               <GustSourceRetries sources={retrySources} />
             ) : null}
-
-            {/* Pagination sentinel: triggers the next page even when the feed
-              is short, keeping the stream effectively infinite. */}
-            {hasNextPage ? <div ref={endSentinelRef} /> : null}
           </div>
         </div>
 
