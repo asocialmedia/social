@@ -2,3 +2,4 @@ model.onnx
 bun.lock
 node_modules/
 .env*
+!.env.development

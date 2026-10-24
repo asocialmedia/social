@@ -47,4 +47,10 @@ The project includes reviewed-media evaluation tools for OCR/transcription error
 
 These parts are designed to complement one another, but more providers do not guarantee better recommendations. Extraction mistakes can propagate into labels and vectors. Representative reviewed content and production experiments are needed to establish quality; synthetic fixtures only verify that the plumbing works. Optional multimodal embeddings and ranking experiments stay opt-in until there is evidence to enable them.
 
-Deployment, configuration, migrations, troubleshooting, and evaluation commands live in [the operations guide](OPERATIONS.md).
+Provider configuration and budget behavior are described below. Use the tracked environment defaults and Docker health checks when operating the worker.
+
+## Classification providers and budget exhaustion
+
+Clef requests reserve their maximum model cost in shared Redis before calling Cloudflare. MEDIA_CLEF_DAILY_NEURONS defaults to 9000 and is clamped to 0–9500, below the current 10,000-neuron free daily allocation. Zero disables new requests. Oversized settings cannot enable paid inference or prevent startup. The production setting is 9500. Cached decisions remain usable; exhausted budgets, provider errors and rate limits defer affected analysis jobs. The workers, upload/transcoding queues and feed APIs continue serving. Pending media does not receive a fabricated safe verdict. The allowance is shared by this application's replicas and models in the same account; other applications using that Cloudflare account must share the account's overall free allocation.
+
+SwiftFormer XS runs separately in apps/classifier. Local Docker development starts its API at http://127.0.0.1:3014 with matching MEDIA_CLASSIFIER_URL and MEDIA_CLASSIFIER_API_TOKEN defaults in .env.development. `bun scripts/classifier-smoke.ts image.jpg` evaluates a local image through the app client. Production credentials remain deployment secrets. The client does not replace Clef's topic, sexualized-content or text decisions; safe-feed admission requires a representative accuracy evaluation before changing providers.

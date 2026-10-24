@@ -1,6 +1,27 @@
 name: asmdev
 
 services:
+  classifier-dev:
+    container_name: asmdev-classifier
+    image: ghcr.io/asocialmedia/asm-classifier:latest
+    environment:
+      CLASSIFIER_API_TOKEN: asm-local-classifier-development-token-3014
+      CLASSIFIER_THREADS: "1"
+      PORT: "3014"
+      OTEL_SERVICE_NAME: classifier
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://openobserve-dev:5080/api/${OPENOBSERVE_ORG:-default}
+      OPENOBSERVE_ORG: ${OPENOBSERVE_ORG:-default}
+      OPENOBSERVE_LOG_STREAM: asm_classifier_logs
+      OPENOBSERVE_USER: ${OPENOBSERVE_USER:-root@example.com}
+      OPENOBSERVE_PASSWORD: ${OPENOBSERVE_PASSWORD:-Complexpass#123}
+    ports:
+      - "127.0.0.1:3014:3014"
+    cpus: 1
+    mem_limit: 512m
+    networks:
+      - dev_network
+    restart: unless-stopped
+
   postgres-dev:
     container_name: asmdb
     image: postgres:18.3

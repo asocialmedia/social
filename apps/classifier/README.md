@@ -6,9 +6,7 @@ The ONNX artifact is pinned to revision 54f4560bd9c5ee92d45dc30418a8f8680e80de6d
 
 ## API
 
-Deployed base URL: `https://protoalt.asocialmedia.cc/classifier`. The generated production credentials are stored outside the repository at `~/.config/asocialmedia/media-classifier-eueast.env` with mode 0600. Source that file before running the curl example. Within the worker's Docker network, use `http://asm-swiftformer-xs-vjeonq:3014` with the same bearer authentication.
-
-See [the measured VPS benchmark](BENCHMARK.md) for latency, throughput, resource usage and limitations.
+Measured on the production 2-vCPU / 16 GB worker: approximately 12 images/s, 74 ms median and 109 ms p95 within-VPS HTTP latency at concurrency one; approximately 95 MiB RAM under load. Two inference threads with 1.5 CPUs did not improve throughput. Public uploads from the development machine had a warm median of 477 ms for a 49 KB JPEG and 872 ms for a 357 KB PNG. Those public measurements used the two-thread profile. These short measurements do not establish classification accuracy or sustained daily capacity.
 
 All v1 endpoints require `Authorization: Bearer <CLASSIFIER_API_TOKEN>`. Image URLs and JSON payloads are unsupported. Clients download permitted images before sending bytes; the server has no arbitrary-URL fetch endpoint.
 
@@ -27,6 +25,10 @@ One inference runs at a time, with eight waiting requests by default. Full capac
 
 ## Configuration
 
+Structured stdout logs also export through the OpenTelemetry SDK to OpenObserve over OTLP/HTTP. Set OTEL_EXPORTER_OTLP_ENDPOINT to the organization base (for example http://openobserve-dev:5080/api/default), OPENOBSERVE_USER, OPENOBSERVE_PASSWORD and OPENOBSERVE_LOG_STREAM=asm_classifier_logs. OTEL_EXPORTER_OTLP_LOGS_ENDPOINT overrides the full log endpoint; OTEL_EXPORTER_OTLP_HEADERS supports collector headers. Local Docker supplies the same development credentials as its OpenObserve container. Production uses its existing OpenObserve deployment credentials. OTEL_SDK_DISABLED=true disables export while preserving stdout logs.
+
+Startup, shutdown and 30-second request summaries are logged. Images, request bodies and authentication headers are excluded. The exporter batches with a bounded 512-record queue and a three-second HTTP timeout. Collector outages do not block inference or readiness; queued telemetry can be dropped under prolonged failure. Shutdown flushes pending records.
+
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | CLASSIFIER_API_TOKEN | Required | At least 32 characters; generated separately from protocol credentials |
@@ -38,16 +40,20 @@ One inference runs at a time, with eight waiting requests by default. Full capac
 
 ## Build and verification
 
+The release image is `ghcr.io/asocialmedia/asm-classifier:latest`, associated with this repository through its OCI source label. CI publishes amd64 and arm64 images when classifier runtime source, model download code, Docker inputs, runtime lock or dependencies change. Shared application changes, documentation, tests and version-only stamps do not rebuild the classifier. A successful publish redeploys the existing worker using the DOKPLOY_US_EAST credentials and DOKPLOY_US_EAST_CLASSIFIER_APP_ID secret.
+
+`bun run docker:dev` starts a local classifier at http://127.0.0.1:3014 using the published image. Its development-only token matches apps/media-processing/.env.development; it is unrelated to production credentials. From apps/media-processing, run `bun scripts/classifier-smoke.ts /path/to/image.jpg` to exercise the configured app client. The client returns verified model probabilities for evaluation and does not alter the safe-feed gate.
+
 Use Bun workspace dependencies for development. Docker builds use runtime.bun.lock, a standalone lock generated from this workspace's package.json. Regenerate it in an isolated temporary directory with `bun install --lockfile-only --ignore-scripts` whenever dependencies change. This keeps a small deployment archive independent of the rest of the monorepo. Install scripts are disabled; the CPU native libraries ship in the ONNX Runtime package.
 
 ```sh
-bun run --cwd apps/media-classifier model:download
-bun test --parallel=4 apps/media-classifier/src
+bun run --cwd apps/classifier model:download
+bun test --parallel=4 apps/classifier/src
 bun run check
 bun run check-types
 ```
 
-Build with apps/media-classifier as the Docker context. Configure Dokploy runtime CPU/memory ceilings and a separate authenticated route. Keep the classifier independent of the live recommendation path until throughput, content accuracy and co-resident protocol latency have been evaluated. ONNX inference already in progress is allowed to finish before its queue slot is released, even if its client disconnects.
+Build with apps/classifier as the Docker context. Configure Dokploy runtime CPU/memory ceilings and a separate authenticated route. Keep the classifier independent of the live recommendation path until throughput, content accuracy and co-resident protocol latency have been evaluated. ONNX inference already in progress is allowed to finish before its queue slot is released, even if its client disconnects.
 
 The model card declares MIT licensing; its base SwiftFormer configuration declares Apache-2.0. See the pinned upstream model card and base architecture license for notices. Author-reported accuracy is not production acceptance evidence, and gore data is underrepresented in the published training dataset.
 
