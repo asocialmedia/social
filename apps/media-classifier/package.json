@@ -1,0 +1,18 @@
+{
+  "name": "@asm/media-classifier",
+  "version": "0.1.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "bun --no-env-file run src/server.ts",
+    "check-types": "tsc --noEmit",
+    "model:download": "bun scripts/download-model.ts"
+  },
+  "dependencies": {
+    "onnxruntime-node": "1.30.0",
+    "sharp": "0.35.5"
+  },
+  "devDependencies": {
+    "@types/bun": "1.4.0"
+  }
+}

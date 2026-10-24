@@ -1,0 +1,5 @@
+node_modules
+model.onnx
+.env*
+bun.lock
+**/*.test.ts
