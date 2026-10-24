@@ -128,6 +128,47 @@ test("repeated regional search denials pause that operation while preserving hea
   expect(remoteProfiles).toBe(1);
 });
 
+test("concurrent denials of one cursor cannot pause unrelated searches", async () => {
+  const entered = Promise.withResolvers<undefined>();
+  const release = Promise.withResolvers<undefined>();
+  let denied = 0;
+  let healthy = 0;
+  const pool = createReadWorkerPool({
+    fetch: async (raw) => {
+      if (raw.startsWith(node.url)) {
+        const upstream = new URL(raw).searchParams.get("url") ?? "";
+        if (upstream.includes("cursor=denied")) {
+          denied += 1;
+          if (denied === 3) {
+            entered.resolve();
+          }
+          await release.promise;
+          return response({ error: "Forbidden" }, 403);
+        }
+        if (upstream.includes("searchPosts")) {
+          healthy += 1;
+        }
+      }
+      return response({ posts: [] });
+    },
+    logger: logger(),
+    nodes: [node],
+  });
+  await pool.fetch(profile, {});
+  const reads = Array.from({ length: 6 }, () =>
+    pool.fetch(`${search}&cursor=denied`, {})
+  );
+  await entered.promise;
+  release.resolve();
+  await Promise.all(reads);
+  const results = await Promise.all([
+    pool.fetch(`${search}&since=fresh-a`, {}),
+    pool.fetch(`${search}&since=fresh-b`, {}),
+  ]);
+  expect(results.map((result) => result.status)).toEqual([200, 200]);
+  expect(healthy).toBeGreaterThan(0);
+});
+
 test("a denied search cursor cannot cool down another topic or a fresh date window", async () => {
   const remote: string[] = [];
   const pool = createReadWorkerPool({

@@ -29,7 +29,7 @@ export function createReadWorkerPool(options: {
       active: 0,
       blocked: new Map<string, number>(),
       blockedSearches: new Map<string, number>(),
-      deniedSearches: new Map<string, { count: number; at: number }>(),
+      deniedSearches: new Map<string, { resources: Set<string>; at: number }>(),
       id: "local",
       operationFailures: new Map<string, { count: number; at: number }>(),
       recovering: new Set<string>(),
@@ -42,7 +42,7 @@ export function createReadWorkerPool(options: {
       active: 0,
       blocked: new Map<string, number>(),
       blockedSearches: new Map<string, number>(),
-      deniedSearches: new Map<string, { count: number; at: number }>(),
+      deniedSearches: new Map<string, { resources: Set<string>; at: number }>(),
       operationFailures: new Map<string, { count: number; at: number }>(),
       recovering: new Set<string>(),
       transportFailures: 0,
@@ -201,10 +201,13 @@ export function createReadWorkerPool(options: {
           }
           if (upstreamStatus === 403 && search) {
             const previous = node.deniedSearches.get(operationKey);
-            const count =
-              previous && now() - previous.at < 30_000 ? previous.count + 1 : 1;
-            node.deniedSearches.set(operationKey, { at: now(), count });
-            if (count >= 3) {
+            const window =
+              previous && now() - previous.at < 30_000
+                ? previous
+                : { at: now(), resources: new Set<string>() };
+            window.resources.add(resource);
+            node.deniedSearches.set(operationKey, window);
+            if (window.resources.size >= 3) {
               cooldownKey = operationKey;
             }
           }
