@@ -39,7 +39,17 @@ export function filterTrendingForInterests(
     return (
       !matchesAvoidedTopic(text, [text], avoided) &&
       (!interests.length ||
-        networkInterestScore(text, [text], interests, scope) > 0)
+        networkInterestScore(
+          text,
+          [
+            text,
+            ...(item.type === "bluesky_topic"
+              ? (item.matchedInterests ?? [])
+              : []),
+          ],
+          interests,
+          scope
+        ) > 0)
     );
   });
 }

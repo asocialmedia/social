@@ -2,12 +2,18 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { EXTERNAL_MEDIA_SAFETY_VERSION, redis } from "@asm/db";
+import {
+  EXTERNAL_MEDIA_SAFETY_VERSION,
+  redis,
+  releaseExternalMediaSafetyClaim,
+} from "@asm/db";
 import { FEED_EVENTS_CHANNEL, retryAfterMs } from "@asm/protocols/discovery";
 import sharp from "sharp";
 import { z } from "zod";
 
-import { evaluateClef } from "../analyze/clef";
+import { ClefDeferredError } from "../analyze/clef";
+import { assessExternalImages } from "../analyze/external-image-assessment";
+import { workerEnv } from "../env";
 
 export class ExternalMediaDownloadDeferredError extends Error {
   readonly retryAt: number;
@@ -23,6 +29,7 @@ export class ExternalMediaDownloadDeferredError extends Error {
 export const externalSafetyJobSchema = z.object({
   images: z.array(z.string().max(4096)).min(1).max(20),
   key: z.string().regex(/^external:media-safety:v\d+:[a-f0-9]{64}$/),
+  owner: z.uuid().optional(),
   queuedAt: z.number().finite(),
   text: z.string().max(8000),
 });
@@ -136,7 +143,7 @@ export async function processExternalMediaSafety(raw: unknown) {
       `external:media-safety:${EXTERNAL_MEDIA_SAFETY_VERSION}:`
     )
   ) {
-    await redis.del(`${input.key}:queued`);
+    await releaseExternalMediaSafetyClaim(input);
     return;
   }
   const directory = await mkdtemp(path.join(tmpdir(), "asm-external-safety-"));
@@ -151,15 +158,8 @@ export async function processExternalMediaSafety(raw: unknown) {
         })
       );
       // oxlint-disable-next-line no-await-in-loop -- every image group must pass before publishing a safe verdict.
-      const decision = await evaluateClef({
-        imagePaths: paths,
-        text: input.text,
-      });
-      if (
-        (decision.probabilities.explicit ?? 1) >= 0.5 ||
-        (decision.probabilities.sexualized ?? 1) >= 0.5 ||
-        (decision.probabilities.graphic_violence ?? 1) >= 0.5
-      ) {
+      const verdict = await assessExternalImages(paths, input.text);
+      if (verdict === "explicit") {
         explicit = true;
         break;
       }
@@ -170,18 +170,24 @@ export async function processExternalMediaSafety(raw: unknown) {
       "EX",
       7 * 24 * 60 * 60
     );
-    await redis.del(`${input.key}:queued`);
+    await releaseExternalMediaSafetyClaim(input);
     await redis.publish(
       FEED_EVENTS_CHANNEL,
       JSON.stringify({ source: "bluesky" })
     );
   } catch (error) {
+    if (error instanceof ClefDeferredError && workerEnv.CLASSIFIER_URL) {
+      // Unknown visual content remains withheld without occupying the cheap-classification queue until quota reset.
+      await redis.set(input.key, "uncertain", "EX", 300);
+      await releaseExternalMediaSafetyClaim(input);
+      return;
+    }
     if (
       error instanceof ExternalMediaDownloadDeferredError &&
       [404, 410].includes(error.status ?? 0)
     ) {
       await redis.set(input.key, "unavailable", "EX", 300);
-      await redis.del(`${input.key}:queued`);
+      await releaseExternalMediaSafetyClaim(input);
       return;
     }
     if (

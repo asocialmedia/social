@@ -1,6 +1,6 @@
 # SwiftFormer XS media classifier
 
-An independent CPU inference service for OwenElliott/image-safety-classifier-xs. The service returns SFW, NSFW and NSFL probabilities. It does not change feed eligibility, assign recommendation topics, detect AI provenance or make deletion decisions.
+An independent CPU inference service for OwenElliott/image-safety-classifier-xs. The service returns SFW, NSFW and NSFL probabilities. The media worker interprets these scores for unlabelled external-image safety; the service does not assign recommendation topics, detect AI provenance or make deletion decisions.
 
 The ONNX artifact is pinned to revision 54f4560bd9c5ee92d45dc30418a8f8680e80de6d and SHA-256 8c28c49d9075f3ad15ebdc2961f02d5b3f99be944815b848b49c9f0e6f3fb689. Its graph already includes normalization and softmax. Input preparation rotates image orientation, decodes RGB, stretches to 224×224 with bilinear interpolation and supplies NCHW float32 pixels in the 0–255 range. Input decoding accepts single-frame JPEG, PNG and WebP up to 4 MiB and 16 million pixels. An image or thumbnail assessment does not establish safety of an entire video.
 
@@ -44,7 +44,7 @@ Fractional attributes are exported as strings because this OpenObserve deploymen
 
 The release image is `ghcr.io/asocialmedia/asm-classifier:latest`, associated with this repository through its OCI source label. CI publishes amd64 and arm64 images when classifier runtime source, model download code, Docker inputs, runtime lock or dependencies change. Shared application changes, documentation, tests and version-only stamps do not rebuild the classifier. A successful publish redeploys the existing worker using the DOKPLOY_US_EAST credentials and DOKPLOY_US_EAST_CLASSIFIER_APP_ID secret.
 
-`bun run docker:dev` builds the local classifier from apps/classifier and starts it at http://127.0.0.1:3014. Local development requires no GHCR login or production credentials. Its development-only token matches apps/media-processing/.env.development. From apps/media-processing, run `bun scripts/classifier-smoke.ts /path/to/image.jpg` to exercise the configured app client. The client returns verified model probabilities for evaluation and does not alter the safe-feed gate.
+`bun run docker:dev` builds the local classifier from apps/classifier and starts it at http://127.0.0.1:3014. Local development requires no GHCR login or production credentials. Its development-only token matches apps/media-processing/.env.development. From apps/media-processing, run `bun scripts/classifier-smoke.ts /path/to/image.jpg` to exercise the configured app client. The client validates the pinned model identity and probabilities. The media worker caches image scores by content hash, withholds explicit results, and sends ambiguous results to the shared free-budget contextual assessment. When that allowance is exhausted, ambiguous media remains withheld while clear local assessments continue.
 
 Use Bun workspace dependencies for development. Docker builds use runtime.bun.lock, a standalone lock generated from this workspace's package.json. Regenerate it in an isolated temporary directory with `bun install --lockfile-only --ignore-scripts` whenever dependencies change. This keeps a small deployment archive independent of the rest of the monorepo. Install scripts are disabled; the CPU native libraries ship in the ONNX Runtime package.
 
@@ -55,7 +55,7 @@ bun run check
 bun run check-types
 ```
 
-Build with apps/classifier as the Docker context. Configure Dokploy runtime CPU/memory ceilings and a separate authenticated route. Keep the classifier independent of the live recommendation path until throughput, content accuracy and co-resident protocol latency have been evaluated. ONNX inference already in progress is allowed to finish before its queue slot is released, even if its client disconnects.
+Build with apps/classifier as the Docker context. Configure Dokploy runtime CPU/memory ceilings and a separate authenticated route. Inference runs in the background media queue rather than in the live recommendation request. Current score thresholds are a policy choice, not a measured production accuracy guarantee. ONNX inference already in progress is allowed to finish before its queue slot is released, even if its client disconnects.
 
 The model card declares MIT licensing; its base SwiftFormer configuration declares Apache-2.0. See the pinned upstream model card and base architecture license for notices. Author-reported accuracy is not production acceptance evidence, and gore data is underrepresented in the published training dataset.
 

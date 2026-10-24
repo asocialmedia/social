@@ -6,23 +6,36 @@ const values = new Map<string, string>();
 let explicit = 0.01;
 let sexualized = 0.01;
 let failProvider = false;
+let deferProvider = false;
+class DeferredAssessmentError extends Error {
+  override name = "DeferredAssessmentError";
+  retryAt = Date.now() + 60_000;
+}
 let reads = 0;
 let evaluations = 0;
 const originalFetch = globalThis.fetch;
+const environment = { CLASSIFIER_URL: "" };
+mock.module("../env", () => ({ workerEnv: environment }));
 mock.module("@asm/db", () => ({
   EXTERNAL_MEDIA_SAFETY_VERSION: "v1",
   redis: {
     del: () => Promise.resolve(1),
+    get: () => Promise.resolve(null),
     publish: () => Promise.resolve(0),
     set: (key: string, value: string) => {
       values.set(key, value);
       return Promise.resolve("OK");
     },
   },
+  releaseExternalMediaSafetyClaim: () => Promise.resolve(),
 }));
 mock.module("../analyze/clef", () => ({
+  ClefDeferredError: DeferredAssessmentError,
   evaluateClef: () => {
     evaluations += 1;
+    if (deferProvider) {
+      return Promise.reject(new DeferredAssessmentError());
+    }
     return failProvider
       ? Promise.reject(new Error("provider offline"))
       : Promise.resolve({
@@ -51,6 +64,8 @@ beforeEach(() => {
   explicit = 0.01;
   sexualized = 0.01;
   failProvider = false;
+  deferProvider = false;
+  environment.CLASSIFIER_URL = "";
   reads = 0;
   evaluations = 0;
   globalThis.fetch = Object.assign(
@@ -208,3 +223,11 @@ test.each([403, 429, 503])(
     expect(evaluations).toBe(0);
   }
 );
+
+test("exhausted free contextual allowance withholds ambiguity without delaying all local assessments", async () => {
+  environment.CLASSIFIER_URL = "https://classifier.test";
+  deferProvider = true;
+  await processExternalMediaSafety(input);
+  expect(values.get(input.key)).toBe("uncertain");
+  expect(evaluations).toBe(1);
+});

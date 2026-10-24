@@ -25,7 +25,26 @@ const responseSchema = z.object({
   }),
 });
 
-// This returns model scores for evaluation; it does not grant safe-feed admission.
+export function parseSwiftformerResult(value: unknown) {
+  const result = responseSchema.parse(value);
+  const sum = Object.values(result.probabilities).reduce(
+    (total, score) => total + score,
+    0
+  );
+  if (Math.abs(sum - 1) > 0.01) {
+    throw new Error("SwiftFormer returned invalid probabilities");
+  }
+  if (
+    Object.values(result.probabilities).some(
+      (score) => score > result.probabilities[result.label]
+    )
+  ) {
+    throw new Error("SwiftFormer label does not match its probabilities");
+  }
+  return result;
+}
+
+// Feed policy interprets these verified model scores separately from inference transport.
 export async function evaluateSwiftformer(imagePath: string) {
   const baseUrl = workerEnv.CLASSIFIER_URL;
   const token = workerEnv.CLASSIFIER_API_TOKEN;
@@ -61,20 +80,5 @@ export async function evaluateSwiftformer(imagePath: string) {
       `SwiftFormer HTTP ${response.status}; analysis remains pending`
     );
   }
-  const result = responseSchema.parse(await response.json());
-  const sum = Object.values(result.probabilities).reduce(
-    (total, value) => total + value,
-    0
-  );
-  if (Math.abs(sum - 1) > 0.01) {
-    throw new Error("SwiftFormer returned invalid probabilities");
-  }
-  if (
-    Object.values(result.probabilities).some(
-      (score) => score > result.probabilities[result.label]
-    )
-  ) {
-    throw new Error("SwiftFormer label does not match its probabilities");
-  }
-  return result;
+  return parseSwiftformerResult(await response.json());
 }
