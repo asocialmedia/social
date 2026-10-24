@@ -100,6 +100,34 @@ test("read workers start without Redis and reject coordinator dependencies", () 
   ).toThrow("REDIS_URL");
 });
 
+test("repeated regional search denials pause that operation while preserving healthy local reads", async () => {
+  let remoteSearches = 0;
+  let remoteProfiles = 0;
+  const pool = createReadWorkerPool({
+    fetch: async (raw) => {
+      if (raw.startsWith(node.url)) {
+        const upstream = new URL(raw).searchParams.get("url") ?? "";
+        if (upstream.includes("searchPosts")) {
+          remoteSearches += 1;
+          return response({ error: "Forbidden" }, 403);
+        }
+        remoteProfiles += 1;
+      }
+      return response({ posts: [] });
+    },
+    logger: logger(),
+    nodes: [node],
+  });
+  await pool.fetch(profile, {});
+  for (let index = 0; index < 8; index += 1) {
+    // oxlint-disable-next-line no-await-in-loop -- denials must accumulate before the next recovery decision.
+    expect((await pool.fetch(`${search}&since=${index}`, {})).status).toBe(200);
+  }
+  expect(remoteSearches).toBe(3);
+  await pool.fetch(profile, {});
+  expect(remoteProfiles).toBe(1);
+});
+
 test("a denied search cursor cannot cool down another topic or a fresh date window", async () => {
   const remote: string[] = [];
   const pool = createReadWorkerPool({

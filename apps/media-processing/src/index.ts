@@ -53,7 +53,7 @@ if (import.meta.main) {
   const { processMedia } = await import("./jobs/process");
   const { processMediaCleanup } = await import("./jobs/cleanup");
   const { processMediaAnalyze } = await import("./jobs/analyze");
-  const { processExternalMediaSafety } =
+  const { processExternalMediaSafety, ExternalMediaDownloadDeferredError } =
     await import("./jobs/external-media-safety");
   const { workerEnv } = await import("./env");
   const { getS3 } = await import("./s3");
@@ -76,7 +76,11 @@ if (import.meta.main) {
           processExternalMediaSafety(job.data)
         );
       } catch (error) {
-        if (error instanceof ClefDeferredError && job.token) {
+        if (
+          (error instanceof ClefDeferredError ||
+            error instanceof ExternalMediaDownloadDeferredError) &&
+          job.token
+        ) {
           await job.moveToDelayed(
             Math.min(error.retryAt, Date.now() + 15 * 60_000),
             job.token

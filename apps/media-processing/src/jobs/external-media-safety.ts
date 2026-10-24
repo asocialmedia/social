@@ -3,11 +3,22 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 import { EXTERNAL_MEDIA_SAFETY_VERSION, redis } from "@asm/db";
-import { FEED_EVENTS_CHANNEL } from "@asm/protocols/discovery";
+import { FEED_EVENTS_CHANNEL, retryAfterMs } from "@asm/protocols/discovery";
 import sharp from "sharp";
 import { z } from "zod";
 
 import { evaluateClef } from "../analyze/clef";
+
+export class ExternalMediaDownloadDeferredError extends Error {
+  readonly retryAt: number;
+  readonly status: number | undefined;
+  constructor(message: string, retryAt: number, status?: number) {
+    super(message);
+    this.name = "ExternalMediaDownloadDeferredError";
+    this.retryAt = retryAt;
+    this.status = status;
+  }
+}
 
 export const externalSafetyJobSchema = z.object({
   images: z.array(z.string().max(4096)).min(1).max(20),
@@ -58,12 +69,34 @@ async function downloadImage(raw: string, output: string) {
     // oxlint-disable-next-line no-await-in-loop -- validate every redirect before connecting to its destination.
     response = await fetch(url, { redirect: "manual", signal });
   }
-  if (
-    !response.ok ||
-    Number(response.headers.get("content-length")) > 2 * 1024 * 1024
-  ) {
+  if (!response.ok) {
     await response.body?.cancel();
-    throw new Error("External safety image unavailable");
+    if (response.status === 404 || response.status === 410) {
+      throw new ExternalMediaDownloadDeferredError(
+        `External safety image HTTP ${response.status}`,
+        Date.now() + 300_000,
+        response.status
+      );
+    }
+    if (
+      response.status === 403 ||
+      response.status === 408 ||
+      response.status === 429 ||
+      response.status >= 500
+    ) {
+      const delay =
+        retryAfterMs(response.headers.get("retry-after")) ??
+        (response.status === 403 ? 300_000 : 30_000);
+      throw new ExternalMediaDownloadDeferredError(
+        `External safety image HTTP ${response.status}`,
+        Date.now() + Math.min(300_000, Math.max(1000, delay))
+      );
+    }
+    throw new Error(`External safety image HTTP ${response.status}`);
+  }
+  if (Number(response.headers.get("content-length")) > 2 * 1024 * 1024) {
+    await response.body?.cancel();
+    throw new Error("External safety image exceeds byte limit");
   }
   const reader = response.body?.getReader();
   if (!reader) {
@@ -142,6 +175,25 @@ export async function processExternalMediaSafety(raw: unknown) {
       FEED_EVENTS_CHANNEL,
       JSON.stringify({ source: "bluesky" })
     );
+  } catch (error) {
+    if (
+      error instanceof ExternalMediaDownloadDeferredError &&
+      [404, 410].includes(error.status ?? 0)
+    ) {
+      await redis.set(input.key, "unavailable", "EX", 300);
+      await redis.del(`${input.key}:queued`);
+      return;
+    }
+    if (
+      error instanceof Error &&
+      ["TimeoutError", "AbortError"].includes(error.name)
+    ) {
+      throw new ExternalMediaDownloadDeferredError(
+        "External safety image download timed out",
+        Date.now() + 30_000
+      );
+    }
+    throw error;
   } finally {
     await rm(directory, { force: true, recursive: true });
   }

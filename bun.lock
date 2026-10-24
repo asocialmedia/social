@@ -62,7 +62,7 @@
     },
     "apps/classifier": {
       "name": "@asm/classifier",
-      "version": "0.1.5",
+      "version": "0.1.6",
       "dependencies": {
         "@opentelemetry/api": "1.9.1",
         "@opentelemetry/api-logs": "0.221.0",
@@ -78,7 +78,7 @@
     },
     "apps/media-processing": {
       "name": "@asm/media-processing",
-      "version": "1.1.23",
+      "version": "1.1.24",
       "dependencies": {
         "@asm/config": "workspace:*",
         "@asm/db": "workspace:*",
@@ -196,7 +196,7 @@
     },
     "apps/protocols": {
       "name": "@asm/protocols-app",
-      "version": "0.1.72",
+      "version": "0.1.73",
       "dependencies": {
         "@asm/logger": "workspace:*",
         "@asm/protocols": "workspace:*",
@@ -218,7 +218,7 @@
     },
     "apps/web": {
       "name": "@asm/web",
-      "version": "1.8.99",
+      "version": "1.9.0",
       "dependencies": {
         "@asm/aggregator": "workspace:*",
         "@asm/auth": "workspace:*",
@@ -465,7 +465,7 @@
     },
     "packages/protocols": {
       "name": "@asm/protocols",
-      "version": "0.1.72",
+      "version": "0.1.73",
       "dependencies": {
         "@atproto/lex": "0.3.14",
         "@atproto/syntax": "^0.7.7",

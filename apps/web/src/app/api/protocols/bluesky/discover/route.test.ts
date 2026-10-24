@@ -385,6 +385,7 @@ test("adult opt-in permits labeled media while avoid topics remain enforced", as
   expect(page.items.map((entry: { id: string }) => entry.id)).toEqual([
     adult.id,
   ]);
+  expect(safety).not.toHaveBeenCalled();
 });
 
 test("off-topic candidates are removed before visual safety admission", async () => {

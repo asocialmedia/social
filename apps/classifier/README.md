@@ -29,6 +29,8 @@ Structured stdout logs also export through the OpenTelemetry SDK to OpenObserve 
 
 Startup, shutdown and 30-second request summaries are logged. Images, request bodies and authentication headers are excluded. The exporter batches with a bounded 512-record queue and a three-second HTTP timeout. Collector outages do not block inference or readiness; queued telemetry can be dropped under prolonged failure. Shutdown flushes pending records.
 
+Fractional attributes are exported as strings because this OpenObserve deployment rejects OTLP JSON doubleValue fields. Stdout preserves the original numeric values.
+
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | CLASSIFIER_API_TOKEN | Required | At least 32 characters; generated separately from protocol credentials |

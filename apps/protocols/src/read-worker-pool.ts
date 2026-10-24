@@ -29,6 +29,7 @@ export function createReadWorkerPool(options: {
       active: 0,
       blocked: new Map<string, number>(),
       blockedSearches: new Map<string, number>(),
+      deniedSearches: new Map<string, { count: number; at: number }>(),
       id: "local",
       operationFailures: new Map<string, { count: number; at: number }>(),
       recovering: new Set<string>(),
@@ -41,6 +42,7 @@ export function createReadWorkerPool(options: {
       active: 0,
       blocked: new Map<string, number>(),
       blockedSearches: new Map<string, number>(),
+      deniedSearches: new Map<string, { count: number; at: number }>(),
       operationFailures: new Map<string, { count: number; at: number }>(),
       recovering: new Set<string>(),
       transportFailures: 0,
@@ -179,7 +181,7 @@ export function createReadWorkerPool(options: {
           upstreamStatus === 429 ||
           upstreamStatus === 408 ||
           upstreamStatus >= 500 ||
-          (node.url && upstreamStatus === 403) ||
+          upstreamStatus === 403 ||
           workerAuthFailure
         ) {
           let defaultPauseMs = 10_000;
@@ -196,6 +198,15 @@ export function createReadWorkerPool(options: {
             cooldownKey = target.origin;
           } else if (upstreamStatus === 403 && !search) {
             cooldownKey = operationKey;
+          }
+          if (upstreamStatus === 403 && search) {
+            const previous = node.deniedSearches.get(operationKey);
+            const count =
+              previous && now() - previous.at < 30_000 ? previous.count + 1 : 1;
+            node.deniedSearches.set(operationKey, { at: now(), count });
+            if (count >= 3) {
+              cooldownKey = operationKey;
+            }
           }
           block(
             search && cooldownKey === resource
@@ -239,6 +250,7 @@ export function createReadWorkerPool(options: {
           return { error: "UpstreamRejected" };
         });
         node.operationFailures.delete(operationKey);
+        node.deniedSearches.delete(operationKey);
         return Response.json(body, { status: upstreamStatus });
       } catch (error) {
         init.signal?.throwIfAborted();
