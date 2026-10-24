@@ -40,6 +40,7 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
+import type { ViewInstance } from "react-native";
 import {
   Alert,
   BackHandler,
@@ -198,7 +199,7 @@ function NormalMessageThreadScreen({
   const { theme } = useAppTheme();
   const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
-  const viewportRef = useRef<View>(null);
+  const viewportRef = useRef<ViewInstance>(null);
   const [viewportBottom, setViewportBottom] = useState(
     () => Dimensions.get("window").height
   );
@@ -1363,6 +1364,12 @@ function NormalMessageThreadScreen({
       {detailsOpen && currentConversation && userId ? (
         <ConversationDetails
           conversation={currentConversation}
+          contentRevision={messages
+            .map(
+              (message) =>
+                `${message.id}:${message.revision}:${message.deletedAt ?? ""}`
+            )
+            .join("|")}
           userId={userId}
           prefs={prefs}
           getBaseKeys={getBaseKeys}

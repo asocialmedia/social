@@ -1,5 +1,5 @@
 import type { RefObject } from "react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import {
   clampScrollTop,
@@ -46,7 +46,6 @@ export function useFeedScrollMemory({
   memoryKey,
 }: FeedScrollMemoryOptions): void {
   const ready = useFeedPositionReady();
-  const keyRef = useRef<string | null>(null);
   const restoringRef = useRef(false);
   const userScrolledRef = useRef(false);
   // Flips whenever anyone asks for a feed to jump to the top, so the restore
@@ -67,7 +66,7 @@ export function useFeedScrollMemory({
   // Persist the container's position: raw offsets on every scroll frame,
   // anchor capture once scrolling settles, and a final capture on pagehide
   // and unmount (covers back/forward navigations that never fire scroll).
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!memoryKey) {
       return;
     }
@@ -78,26 +77,23 @@ export function useFeedScrollMemory({
     const key = memoryKey;
     let frame = 0;
     let settleTimer: ReturnType<typeof setTimeout> | null = null;
+    let lastPosition: FeedPosition | null = null;
 
     const saveOffset = () => {
-      const previous = useFeedPositionStore.getState().positions[key];
-      useFeedPositionStore.getState().saveFeedPosition(key, {
-        anchorOffset: previous?.anchorOffset ?? 0,
-        anchorPostId: previous?.anchorPostId ?? null,
-        scrollTop: container.scrollTop,
-        updatedAt: Date.now(),
-      });
+      if (lastPosition) {
+        useFeedPositionStore.getState().saveFeedPosition(key, lastPosition);
+      }
     };
 
     const saveAnchor = () => {
       const anchor = findTopAnchor(container);
-      const entry: FeedPosition = {
+      lastPosition = {
         anchorOffset: anchor?.offset ?? 0,
         anchorPostId: anchor?.id ?? null,
         scrollTop: container.scrollTop,
         updatedAt: Date.now(),
       };
-      useFeedPositionStore.getState().saveFeedPosition(key, entry);
+      saveOffset();
     };
 
     const onScroll = () => {
@@ -107,6 +103,13 @@ export function useFeedScrollMemory({
         return;
       }
       userScrolledRef.current = true;
+      // Snapshot the outgoing offset immediately; the DOM may belong to another tab at cleanup.
+      lastPosition = {
+        anchorOffset: 0,
+        anchorPostId: null,
+        scrollTop: container.scrollTop,
+        updatedAt: Date.now(),
+      };
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(saveOffset);
       if (settleTimer) {
@@ -118,8 +121,15 @@ export function useFeedScrollMemory({
     const onPageHide = () => {
       saveAnchor();
     };
+    const onUserInput = () => {
+      userScrolledRef.current = true;
+      restoringRef.current = false;
+    };
 
     container.addEventListener("scroll", onScroll, { passive: true });
+    container.addEventListener("wheel", onUserInput, { passive: true });
+    container.addEventListener("touchstart", onUserInput, { passive: true });
+    container.addEventListener("pointerdown", onUserInput, { passive: true });
     window.addEventListener("pagehide", onPageHide);
     return () => {
       cancelAnimationFrame(frame);
@@ -127,15 +137,18 @@ export function useFeedScrollMemory({
         clearTimeout(settleTimer);
       }
       container.removeEventListener("scroll", onScroll);
+      container.removeEventListener("wheel", onUserInput);
+      container.removeEventListener("touchstart", onUserInput);
+      container.removeEventListener("pointerdown", onUserInput);
       window.removeEventListener("pagehide", onPageHide);
-      saveAnchor();
+      saveOffset();
     };
   }, [containerRef, memoryKey]);
 
   // Restore on mount and whenever the tracked surface changes (tab switches
   // share one container). A key with no memory is a fresh surface, so it
   // starts at the top instead of inheriting the previous surface's offset.
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!ready || !memoryKey) {
       return;
     }
@@ -144,23 +157,19 @@ export function useFeedScrollMemory({
       return;
     }
     const key = memoryKey;
-    const previousKey = keyRef.current;
-    keyRef.current = key;
 
     // An explicit request wins over remembered position: the reader was just
     // sent here to see something specific (their own new post), and restoring
     // the offset they last left would hide it. The scroll handler then records
     // the new position, so the top becomes what is remembered from here on.
-    if (topRequested && consumeFeedTop(key)) {
+    if (consumeFeedTop(key)) {
       container.scrollTo({ top: 0 });
       return;
     }
 
     const saved = useFeedPositionStore.getState().positions[key] ?? null;
     if (!saved || saved.scrollTop <= 0) {
-      if (previousKey !== null && previousKey !== key) {
-        container.scrollTo({ top: 0 });
-      }
+      container.scrollTo({ top: 0 });
       return;
     }
 
@@ -221,6 +230,7 @@ export function useFeedScrollMemory({
       }
       frame = requestAnimationFrame(tick);
     };
+    stableFrames = attempt() ? 1 : 0;
     frame = requestAnimationFrame(tick);
 
     // Late media can still shift layout after the restore settles; take one
@@ -235,5 +245,6 @@ export function useFeedScrollMemory({
       finish();
       window.removeEventListener("load", onLoad);
     };
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- A new top request must rerun restoration even when the surface key stays unchanged.
   }, [containerRef, memoryKey, ready, topRequested]);
 }

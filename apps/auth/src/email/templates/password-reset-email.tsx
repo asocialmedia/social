@@ -1,45 +1,120 @@
-// oxlint-disable next/no-head-element, jsx-a11y/html-has-lang, jsx-a11y/lang
+// oxlint-disable next/no-head-element, jsx-a11y/html-has-lang, jsx-a11y/lang, jsx-a11y/control-has-associated-label
+import { renderToStaticMarkup } from "react-dom/server";
+
 import { emailConfig } from "../config";
 import {
-  EmailBanner,
-  actionLink,
-  bannerUrl,
-  container,
-  heading,
-  main,
-  paragraph,
+  Colophon,
+  EmailCanvas,
+  EmailCard,
+  EmailDocument,
+  PrimaryButton,
+  SignOff,
+  SupportNote,
+  palette,
 } from "./theme";
 
 interface PasswordResetEmailProps {
   resetUrl: string;
 }
 
-export const PasswordResetEmail = ({ resetUrl }: PasswordResetEmailProps) => (
-  <html>
-    <head />
-    <body style={main}>
-      <div style={container}>
-        <EmailBanner />
-        <h1 style={heading}>Password Reset Request</h1>
-        <p style={paragraph}>
-          We received a request to reset your password for your asocialmedia
-          account.
-        </p>
-        <p style={paragraph}>
-          Use the link below to reset your password. It will expire in{" "}
-          {emailConfig.templates.passwordReset.expiryTime}.
-        </p>
-        <a href={resetUrl} style={actionLink}>
-          {resetUrl}
-        </a>
-        <p style={paragraph}>
-          If you didn't request this password reset, you can safely ignore this
-          email. Your password will remain unchanged.
-        </p>
-      </div>
-    </body>
-  </html>
-);
+// The password reset email. The highest-stakes transactional mail: one clear
+// action, the expiry, and a plain "if this was not you" line. Same shell as the
+// code emails so the set reads as one system.
+export const PasswordResetEmail = ({ resetUrl }: PasswordResetEmailProps) => {
+  const { company } = emailConfig;
+
+  return (
+    <EmailDocument
+      preheader={`Reset your ${company.name} password. The link expires in ${emailConfig.templates.passwordReset.expiryTime}.`}
+      title="Reset your password"
+    >
+      <EmailCanvas>
+        <EmailCard
+          footerImage={emailConfig.assets.emailFooter}
+          headerImage={emailConfig.assets.transactionalHeader}
+        >
+          <tr>
+            <td style={{ paddingBottom: "18px" }}>
+              <h1
+                className="hero-title"
+                style={{
+                  color: "#141413",
+                  fontSize: "21px",
+                  fontWeight: 700,
+                  letterSpacing: "-0.4px",
+                  lineHeight: "1.25",
+                  margin: "0 0 8px",
+                }}
+              >
+                Reset your password
+              </h1>
+              <p
+                style={{
+                  color: "#3d3c39",
+                  fontSize: "14px",
+                  fontWeight: 500,
+                  lineHeight: "1.5",
+                  margin: 0,
+                }}
+              >
+                We received a request to reset the password for your{" "}
+                {company.name} account.
+              </p>
+            </td>
+          </tr>
+
+          <tr>
+            <td style={{ paddingBottom: "20px" }}>
+              <PrimaryButton href={resetUrl}>Reset password</PrimaryButton>
+            </td>
+          </tr>
+
+          <tr>
+            <td style={{ paddingBottom: "24px" }}>
+              <p
+                style={{
+                  color: "#6e6b65",
+                  fontSize: "13px",
+                  fontWeight: 500,
+                  lineHeight: "1.55",
+                  margin: 0,
+                }}
+              >
+                This link expires in{" "}
+                {emailConfig.templates.passwordReset.expiryTime}. Your password
+                stays the same until you choose a new one.
+              </p>
+            </td>
+          </tr>
+
+          <SignOff>
+            See you out there,
+            <br />
+            The {company.name} team 🫶
+          </SignOff>
+
+          <SupportNote>
+            If you did not request this, you can ignore this email, or contact
+            us at{" "}
+            <a
+              href={`mailto:${emailConfig.company.supportEmail}`}
+              style={{
+                color: palette.accent,
+                fontWeight: 700,
+                textDecoration: "none",
+              }}
+            >
+              {emailConfig.company.supportEmail}
+            </a>{" "}
+            to secure your account.
+          </SupportNote>
+
+          <Colophon />
+        </EmailCard>
+      </EmailCanvas>
+    </EmailDocument>
+  );
+};
 
 function escapeHtml(str: string): string {
   return str
@@ -50,37 +125,12 @@ function escapeHtml(str: string): string {
     .replaceAll("'", "&#039;");
 }
 
-export const getPasswordResetEmailHtml = (
-  resetUrl: string
-): Promise<string> => {
-  const safeResetUrl = escapeHtml(resetUrl);
-  const expiryTime = escapeHtml(emailConfig.templates.passwordReset.expiryTime);
-  const companyName = escapeHtml(emailConfig.company.name);
+const DOCTYPE =
+  '<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">';
 
-  return Promise.resolve(`<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
-<html dir="ltr" lang="en">
-  <head>
-    <meta content="text/html; charset=UTF-8" http-equiv="Content-Type" />
-    <meta name="x-apple-disable-message-reformatting" />
-    <title>Password Reset Request</title>
-  </head>
-  <body style="background-color:#ffffff;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;margin:0;padding:0">
-    <table align="center" width="100%" border="0" cellPadding="0" cellSpacing="0" role="presentation" style="max-width:600px;margin:0 auto;padding:24px 0 48px">
-      <tbody>
-        <tr style="width:100%">
-          <td>
-            <img alt="${companyName} banner" height="252" src="${bannerUrl}" style="display:block;height:auto;width:100%;border:0" width="600" />
-            <h1 style="color:#111111;font-size:22px;font-weight:700;margin:24px 0 12px;line-height:1.3">Password Reset Request</h1>
-            <p style="color:#444444;font-size:15px;line-height:24px;margin:0 0 16px">We received a request to reset your password for your ${companyName} account.</p>
-            <p style="color:#444444;font-size:15px;line-height:24px;margin:0 0 16px">Use the link below to reset your password. It will expire in ${expiryTime}.</p>
-            <p style="margin:0 0 16px">
-              <a href="${safeResetUrl}" style="color:#ff9500;display:inline-block;font-size:15px;font-weight:600;max-width:100%;overflow-wrap:anywhere;text-decoration:underline" target="_blank">${safeResetUrl}</a>
-            </p>
-            <p style="color:#444444;font-size:15px;line-height:24px;margin:0 0 16px">If you didn't request this password reset, you can safely ignore this email. Your password will remain unchanged.</p>
-          </td>
-        </tr>
-      </tbody>
-    </table>
-  </body>
-</html>`);
-};
+export const getPasswordResetEmailHtml = (resetUrl: string): Promise<string> =>
+  Promise.resolve(
+    `${DOCTYPE}\n${renderToStaticMarkup(
+      <PasswordResetEmail resetUrl={escapeHtml(resetUrl)} />
+    )}`
+  );

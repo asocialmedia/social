@@ -14,8 +14,10 @@ import { getSessionFromApi } from "@/lib/auth/session";
 import { recordDeliveryPayload } from "@/lib/media/delivery-metrics";
 import {
   decideMediaAccess,
+  isOwnedMediaDraft,
   resolveOwningCommunity,
 } from "@/lib/media/media-access";
+import { mediaContentIsExplicit } from "@/lib/media/media-content-policy";
 import { mediaError } from "@/lib/media/media-responses";
 import {
   DERIVATIVE_MIME_BY_EXT,
@@ -33,7 +35,9 @@ import {
   asmobClient,
   generatePresignedUrl,
 } from "@/lib/media/object-storage";
+import { mediaRequestWasCancelled } from "@/lib/media/request-cancellation";
 import { getWebLogger } from "@/lib/otel";
+import { explicitContentEnabled } from "@/lib/posts/explicit-content-enabled";
 
 // Serves pipeline-generated derivatives: /api/media/{id}/v/{name}
 //   images    thumb-webp, thumb-jpg, sm-webp, md-webp, lg-webp, orig-img-webp
@@ -91,6 +95,9 @@ export async function GET(
   // Ownership/visibility is read fresh (never cached), mirroring the main
   // serving route.
   const ownership = await prisma.orm.public.PostMedia.select(
+    "safety",
+    "altText",
+    "ocrText",
     "commentId",
     "detectedMime",
     "key",
@@ -103,10 +110,10 @@ export async function GET(
   )
     .include("comment", (comment) =>
       comment
-        .select("postId")
+        .select("postId", "content")
         .include("post", (post) =>
           post
-            .select("communityId")
+            .select("communityId", "content", "semanticTags", "explicitContent")
             .include("community", (community) =>
               community.select("id", "_type")
             )
@@ -114,7 +121,7 @@ export async function GET(
     )
     .include("post", (post) =>
       post
-        .select("communityId")
+        .select("communityId", "content", "semanticTags", "explicitContent")
         .include("community", (community) => community.select("id", "_type"))
     )
     .where({ id: mediaId })
@@ -156,6 +163,7 @@ export async function GET(
   }
   const session = await getSessionFromApi();
   const viewer = session?.user ?? null;
+  const isExplicitMedia = mediaContentIsExplicit(mappedOwnership);
   if (
     !mappedOwnership.postId &&
     !mappedOwnership.commentId &&
@@ -163,6 +171,13 @@ export async function GET(
   ) {
     mappedOwnership.messageConversationId ??=
       await resolveDenWallpaperConversationId(mediaId, viewer?.id);
+  }
+  if (
+    isExplicitMedia &&
+    !isOwnedMediaDraft(mappedOwnership, viewer) &&
+    !(await explicitContentEnabled(viewer?.id ?? ""))
+  ) {
+    return mediaError("Media not found", 404);
   }
   const isConversationMember = await resolveMessageMediaMembership(
     mappedOwnership.messageConversationId,
@@ -313,7 +328,7 @@ export async function GET(
     // after a block, unfriend, deletion, or membership revocation. This mirrors
     // the main serving route's policy so the two cannot drift.
     let cacheControl = "private, no-store";
-    if (mappedOwnership.postId && !isPrivateCommunityPost) {
+    if (mappedOwnership.postId && !isPrivateCommunityPost && !isExplicitMedia) {
       cacheControl = isFallback
         ? "public, max-age=15, must-revalidate"
         : "public, max-age=300, must-revalidate";
@@ -325,7 +340,8 @@ export async function GET(
     if (
       objectKey.endsWith(".m3u8") &&
       mappedOwnership.postId &&
-      !isPrivateCommunityPost
+      !isPrivateCommunityPost &&
+      !isExplicitMedia
     ) {
       headers.set("Cache-Control", "public, max-age=60");
     }
@@ -414,7 +430,7 @@ export async function GET(
   } catch (error) {
     // Client disconnected mid-stream (seek, scroll away, close): the request
     // is already gone, so answer with a bare 499 instead of a scary 500.
-    if (error instanceof DOMException && error.name === "AbortError") {
+    if (mediaRequestWasCancelled(error, request.signal)) {
       return new Response(null, { status: 499 });
     }
     // A READY row whose fallback/original bytes are gone from storage (crash

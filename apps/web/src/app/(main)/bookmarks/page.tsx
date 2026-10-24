@@ -1,4 +1,4 @@
-import { and, prisma } from "@asm/db";
+import { prisma } from "@asm/db";
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { connection } from "next/server";
@@ -42,35 +42,47 @@ async function BookmarksContent() {
     return <p className="text-destructive">Unable to load user data.</p>;
   }
 
-  const [postBookmarkCount, gustBookmarkCount, hnBookmarkCount] =
+  const [userBookmarks, hnBookmarkCount, externalBookmarkCount] =
     await Promise.all([
-      // Posts excludes gusts since they have their own tab/count.
-      prisma.orm.public.Bookmarks.where((bookmark) =>
-        and(
-          bookmark.post.some((post) => post.isGust.eq(false)),
-          bookmark.userId.eq(session.user.id)
-        )
-      )
-        .aggregate((aggregate) => ({ count: aggregate.count() }))
-        .then((result) => result.count),
-      prisma.orm.public.Bookmarks.where((bookmark) =>
-        and(
-          bookmark.post.some((post) => post.isGust.eq(true)),
-          bookmark.userId.eq(session.user.id)
-        )
-      )
-        .aggregate((aggregate) => ({ count: aggregate.count() }))
-        .then((result) => result.count),
+      // Fetch user's bookmarks with post's isGust flag to partition counts efficiently in memory
+      prisma.orm.public.Bookmarks.where({ userId: session.user.id })
+        .select("id")
+        .include("post", (post) => post.select("isGust"))
+        .all()
+        .then(
+          (items) => items,
+          () => []
+        ),
       prisma.orm.public.HNBookmark.where({ userId: session.user.id })
         .aggregate((aggregate) => ({ count: aggregate.count() }))
-        .then((result) => result.count),
+        .then((result) => result.count)
+        .catch(() => 0),
+      prisma.orm.public.ExternalEngagements.where({
+        bookmarked: true,
+        userId: session.user.id,
+      })
+        .aggregate((aggregate) => ({ count: aggregate.count() }))
+        .then((result) => result.count)
+        .catch(() => 0),
     ]);
+
+  let postBookmarkCount = 0;
+  let gustBookmarkCount = 0;
+  for (const b of userBookmarks) {
+    if (b.post?.isGust) {
+      gustBookmarkCount += 1;
+    } else {
+      postBookmarkCount += 1;
+    }
+  }
+
+  const totalPostBookmarks = postBookmarkCount + externalBookmarkCount;
 
   return (
     <Bookmarks
       gustBookmarkCount={gustBookmarkCount}
       hnBookmarkCount={hnBookmarkCount}
-      postBookmarkCount={postBookmarkCount}
+      postBookmarkCount={totalPostBookmarks}
       userData={userData}
     />
   );

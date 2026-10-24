@@ -247,3 +247,73 @@ describe("buildUserProfile", () => {
     expect(profile.summary?.dominantTopic).toBe("tech");
   });
 });
+
+test("one search remains low confidence and cannot override deliberate historical engagement", () => {
+  const now = new Date("2026-10-19T10:00:00Z");
+  const search: ProfileSignal = {
+    authorId: "",
+    createdAt: now,
+    kind: "search",
+    tags: ["f1"],
+  };
+  const one = buildUserProfile([search], { now });
+  expect(one.tagWeights.f1).toBeLessThan(0.1);
+  expect(one.topicAffinities?.f1).toBeLessThan(0.1);
+  expect(one.sessionTagWeights?.f1 ?? 0).toBe(0);
+  expect(one.formatAffinities).toEqual(buildUserProfile([]).formatAffinities);
+  const established = buildUserProfile(
+    [
+      {
+        authorId: "artist",
+        createdAt: new Date(now.getTime() - 86_400_000),
+        kind: "bookmark",
+        tags: ["art"],
+      },
+      {
+        authorId: "artist",
+        createdAt: new Date(now.getTime() - 2 * 86_400_000),
+        kind: "comment",
+        tags: ["art"],
+      },
+      search,
+    ],
+    { now }
+  );
+  expect(established.tagWeights.art).toBeGreaterThan(
+    established.tagWeights.f1 * 10
+  );
+  expect(established.authorWeights.artist).toBeGreaterThan(0.9);
+});
+
+test("repeated searches gain confidence across days and old search influence decays", () => {
+  const now = new Date("2026-10-19T10:00:00Z");
+  const searches: ProfileSignal[] = Array.from({ length: 5 }, (_, day) => ({
+    authorId: "",
+    createdAt: new Date(now.getTime() - day * 86_400_000),
+    kind: "search",
+    tags: ["f1"],
+  }));
+  const once = buildUserProfile(searches.slice(0, 1), { now });
+  const repeated = buildUserProfile(searches, { now });
+  const older = buildUserProfile(searches, {
+    now: new Date(now.getTime() + 14 * 86_400_000),
+  });
+  expect(repeated.tagWeights.f1).toBeGreaterThan(once.tagWeights.f1 * 3);
+  expect(older.tagWeights.f1).toBeLessThan(repeated.tagWeights.f1 / 3);
+});
+
+test("repeating the same topic in one day does not manufacture a persistent search interest", () => {
+  const now = new Date("2026-10-19T10:00:00Z");
+  const query: ProfileSignal = {
+    authorId: "",
+    createdAt: now,
+    kind: "search",
+    tags: ["f1"],
+  };
+  expect(
+    buildUserProfile(
+      Array.from({ length: 20 }, () => query),
+      { now }
+    ).tagWeights.f1
+  ).toBe(buildUserProfile([query], { now }).tagWeights.f1);
+});

@@ -43,6 +43,7 @@ const OAUTH_CALLBACK_PATTERN = /^\/api\/auth\/callback\/[a-z-]+$/;
 
 // The Dockerfile's HEALTHCHECK, every 30 seconds against a healthy container.
 const HEALTH_PROBE_PATH = "/api/health";
+const SESSION_PATH = "/api/auth/get-session";
 
 // Same-origin hint the native app sets on every request (see
 // apps/mobile/src/lib/install-token.ts). Not a credential: it only tags the
@@ -53,6 +54,15 @@ const CLIENT_PLATFORM_MOBILE = "mobile";
 /** A health probe that passed is infrastructure chatter, not a request. */
 function isRoutineHealthProbe(pathname: string, status: number): boolean {
   return pathname === HEALTH_PROBE_PATH && status < 400;
+}
+
+/** Routine session checks succeed constantly (20-30x/sec); bundle them to keep prod logs legible. */
+function isRoutineSessionCheck(
+  pathname: string,
+  method: string,
+  status: number
+): boolean {
+  return pathname === SESSION_PATH && method === "GET" && status < 400;
 }
 
 // Allowed origins are derived from env — no hardcoded prod URLs.
@@ -159,6 +169,15 @@ const noopLogger: HttpLogger = {
   },
 };
 
+interface SessionBatchStats {
+  count: number;
+  maxDurationMs: number;
+  minDurationMs: number;
+  mobileCount: number;
+  totalDurationMs: number;
+  webCount: number;
+}
+
 export function createHttpHandler(deps: HttpHandlerDeps) {
   const {
     authInstance,
@@ -169,6 +188,48 @@ export function createHttpHandler(deps: HttpHandlerDeps) {
     security,
   } = deps;
   const log = deps.logger ?? noopLogger;
+
+  let sessionBatch: SessionBatchStats = {
+    count: 0,
+    maxDurationMs: 0,
+    minDurationMs: Number.POSITIVE_INFINITY,
+    mobileCount: 0,
+    totalDurationMs: 0,
+    webCount: 0,
+  };
+
+  function flushSessionBatch() {
+    if (sessionBatch.count === 0) {
+      return;
+    }
+    const current = sessionBatch;
+    sessionBatch = {
+      count: 0,
+      maxDurationMs: 0,
+      minDurationMs: Number.POSITIVE_INFINITY,
+      mobileCount: 0,
+      totalDurationMs: 0,
+      webCount: 0,
+    };
+    log.info(
+      {
+        avg_duration_ms: Math.round(current.totalDurationMs / current.count),
+        client_counts: { mobile: current.mobileCount, web: current.webCount },
+        count: current.count,
+        max_duration_ms: current.maxDurationMs,
+        min_duration_ms:
+          current.minDurationMs === Number.POSITIVE_INFINITY
+            ? 0
+            : current.minDurationMs,
+        path: SESSION_PATH,
+        status: 200,
+      },
+      "session requests completed"
+    );
+  }
+
+  const flushTimer = setInterval(flushSessionBatch, 60_000);
+  flushTimer.unref();
 
   async function handleTrpc(
     request: Request,
@@ -217,7 +278,7 @@ export function createHttpHandler(deps: HttpHandlerDeps) {
         { status: 200 }
       );
     }
-    if (pathname === "/api/auth/get-session") {
+    if (pathname === SESSION_PATH) {
       return handleGetSession(request);
     }
     if (pathname.startsWith("/api/trpc")) {
@@ -317,7 +378,7 @@ export function createHttpHandler(deps: HttpHandlerDeps) {
     return new Response("Not Found", { status: 404 });
   }
 
-  return async function handleRequest(request: Request): Promise<Response> {
+  async function handleRequest(request: Request): Promise<Response> {
     const { pathname } = new URL(request.url);
     const startedAt = Date.now();
 
@@ -338,6 +399,7 @@ export function createHttpHandler(deps: HttpHandlerDeps) {
 
       response = await route(request, pathname);
     } catch (error) {
+      flushSessionBatch();
       const message = error instanceof Error ? error.message : String(error);
       log.error({ message, pathname }, "request handler threw");
       response = Response.json(
@@ -354,21 +416,73 @@ export function createHttpHandler(deps: HttpHandlerDeps) {
 
     // The container healthcheck in the Dockerfile curls /api/health every 30s, so
     // a passing probe is not an event: at info it wrote thousands of identical
-    // lines a day and buried the requests worth reading. A probe that did not
-    // succeed still logs - that is the signal - and so does everything else.
-    if (!isRoutineHealthProbe(pathname, response.status)) {
-      // The web app and the native app share this service and these routes, so
-      // every request carries a `client` tag ("mobile" when the native app set
-      // the hint, "web" otherwise). That is what makes MOBILE and WEB traffic
-      // separable in the shared OpenObserve streams.
-      const client =
-        request.headers.get(CLIENT_PLATFORM_HEADER) === CLIENT_PLATFORM_MOBILE
-          ? "mobile"
-          : "web";
+    // lines a day and buried the requests worth reading.
+    if (isRoutineHealthProbe(pathname, response.status)) {
+      return addSecurityHeaders(response);
+    }
+
+    const client =
+      request.headers.get(CLIENT_PLATFORM_HEADER) === CLIENT_PLATFORM_MOBILE
+        ? "mobile"
+        : "web";
+    const duration = Date.now() - startedAt;
+
+    // Routine session checks succeed constantly (20-30x/sec); bundle them at debug
+    // and emit periodic/batch summaries at info so production logs stay readable.
+    // If a session check fails (status >= 400), it logs immediately as a failure.
+    if (isRoutineSessionCheck(pathname, request.method, response.status)) {
+      log.debug(
+        {
+          client,
+          duration_ms: duration,
+          method: request.method,
+          path: pathname,
+          request_id: request.headers.get("x-request-id") ?? undefined,
+          status: response.status,
+        },
+        "request completed"
+      );
+      sessionBatch.count += 1;
+      sessionBatch.totalDurationMs += duration;
+      sessionBatch.minDurationMs = Math.min(
+        sessionBatch.minDurationMs,
+        duration
+      );
+      sessionBatch.maxDurationMs = Math.max(
+        sessionBatch.maxDurationMs,
+        duration
+      );
+      if (client === "mobile") {
+        sessionBatch.mobileCount += 1;
+      } else {
+        sessionBatch.webCount += 1;
+      }
+      if (sessionBatch.count >= 100) {
+        flushSessionBatch();
+      }
+      return addSecurityHeaders(response);
+    }
+
+    // Failures and all other requests log immediately.
+    if (response.status >= 400) {
+      flushSessionBatch();
+      const logFn = response.status >= 500 ? log.error : log.warn;
+      logFn(
+        {
+          client,
+          duration_ms: duration,
+          method: request.method,
+          path: pathname,
+          request_id: request.headers.get("x-request-id") ?? undefined,
+          status: response.status,
+        },
+        "request completed"
+      );
+    } else {
       log.info(
         {
           client,
-          duration_ms: Date.now() - startedAt,
+          duration_ms: duration,
           method: request.method,
           path: pathname,
           request_id: request.headers.get("x-request-id") ?? undefined,
@@ -379,5 +493,8 @@ export function createHttpHandler(deps: HttpHandlerDeps) {
     }
 
     return addSecurityHeaders(response);
-  };
+  }
+
+  handleRequest.flushSessionBatch = flushSessionBatch;
+  return handleRequest;
 }

@@ -19,6 +19,7 @@ import {
   flushNotificationEvents,
   newNotificationEvents,
 } from "@/lib/notifications/deferred-events";
+import { invalidateDiscoverySuggestions } from "@/lib/recommendations/suggestion-version";
 import { suggestedUsersCache } from "@/lib/users/suggested-users-cache";
 
 export async function POST(
@@ -153,6 +154,7 @@ export async function POST(
 
     await followerInfoCache.invalidate(params.userId);
     void invalidateFypProfile(loggedInUser.id);
+    await invalidateDiscoverySuggestions(loggedInUser.id);
     // Who to follow is personalized for the actor; following someone
     // invalidates their suggestions so the just-followed user disappears
     // and a fresh candidate can surface without waiting for TTL.
@@ -336,6 +338,7 @@ export async function DELETE(
       }),
     ]);
     void invalidateFypProfile(loggedInUser.id);
+    await invalidateDiscoverySuggestions(loggedInUser.id);
     try {
       await invalidateAuraSignals([userId, loggedInUser.id]);
     } catch (error) {

@@ -5,6 +5,9 @@ import {
 } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/auth/session";
+import { findReadableThreadAnchor } from "@/lib/posts/reader-content-policy";
+import { serialThreadDelivery } from "@/lib/posts/serial-thread-delivery";
+import { threadStreamContent } from "@/lib/posts/thread-stream-policy";
 
 // Server-Sent Events fan-out for real-time responses. Every response write is
 // published to the parent post's Redis channel; each open stream here
@@ -21,6 +24,9 @@ export async function GET(
   }
 
   const { postId } = await ctx.params;
+  if (!(await findReadableThreadAnchor(postId, user.id))) {
+    return Response.json({ error: "Post not found" }, { status: 404 });
+  }
   const channel = responseChannel(postId);
   const encoder = new TextEncoder();
 
@@ -55,18 +61,42 @@ export async function GET(
         }
       };
 
-      const onMessage = (_chan: string, raw: string) => {
-        const event = parseResponseEvent(raw);
-        if (!event) {
-          return;
-        }
-        try {
-          controller.enqueue(
-            encoder.encode(`event: response\ndata: ${raw}\n\n`)
-          );
-        } catch {
+      const deliver = serialThreadDelivery(
+        async (raw: string) => {
+          if (closed) {
+            return;
+          }
+          const event = parseResponseEvent(raw);
+          if (!event) {
+            return;
+          }
+          try {
+            if (!(await findReadableThreadAnchor(postId, user.id))) {
+              await close();
+              return;
+            }
+            const payload = await threadStreamContent(
+              event.response,
+              user.id,
+              false
+            );
+            if (!payload) {
+              return;
+            }
+            const safeEvent = JSON.stringify({ ...event, response: payload });
+            controller.enqueue(
+              encoder.encode(`event: response\ndata: ${safeEvent}\n\n`)
+            );
+          } catch {
+            void close();
+          }
+        },
+        () => {
           void close();
         }
+      );
+      const onMessage = (_channel: string, raw: string) => {
+        void deliver(raw);
       };
 
       const heartbeat = setInterval(() => {

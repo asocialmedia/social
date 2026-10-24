@@ -1,9 +1,10 @@
+// oxlint-disable eslint/no-nested-ternary, unicorn/no-nested-ternary
 "use client";
 
 import { clientLog } from "@asm/config/debug";
-import type { PostData } from "@asm/db";
 import { Button } from "@asm/ui/shadui/button";
 import { Dialog, DialogContent, DialogTitle } from "@asm/ui/shadui/dialog";
+import { Drawer, DrawerContent, DrawerTitle } from "@asm/ui/shadui/drawer";
 import { Slider } from "@asm/ui/shadui/slider";
 import { VisuallyHidden } from "@radix-ui/react-visually-hidden";
 import { formatDate } from "date-fns";
@@ -12,12 +13,10 @@ import {
   ChevronRight,
   Download,
   Eye,
-  FileIcon,
   Maximize,
   MessageSquare,
   Pause,
   Play,
-  RotateCcw,
   Speech,
   Subtitles,
   Volume2,
@@ -32,11 +31,16 @@ import { useMediaQuery } from "usehooks-ts";
 
 import { useSession } from "@/app/(main)/session-provider";
 import Comments from "@/components/comments/thread/comments";
+import { FeedErrorState } from "@/components/feeds/feed-error-state";
+import { GustsCommentsDrawer } from "@/components/gusts/gusts-comments-drawer";
 import Spinner3D from "@/components/layouts/feedback/spinner-3d";
-import FollowButton from "@/components/layouts/user/follow-button";
 import UserAvatar from "@/components/layouts/user/user-avatar";
 import UserBadge from "@/components/layouts/user/user-badge";
 import { AiGeneratedBadge } from "@/components/media/ai-generated-badge";
+import {
+  MobileMediaActions,
+  MOBILE_MEDIA_ICON,
+} from "@/components/media/mobile-media-actions";
 import { VideoTranscriptDrawer } from "@/components/media/video-transcript-drawer";
 import { VideoTranscriptSidebar } from "@/components/media/video-transcript-sidebar";
 import AuraVoteButton from "@/components/posts/actions/aura-vote-button";
@@ -45,19 +49,26 @@ import PostMoreButton from "@/components/posts/actions/post-more-button";
 import ExplicitContentGate from "@/components/posts/content/explicit-content-gate";
 import ModeratedNotice from "@/components/posts/content/moderated-notice";
 import PostLinkedContent from "@/components/posts/content/post-linked-content";
+import { BlueskyIcon } from "@/components/protocols/bluesky-icon";
+import { ExternalDiscussion } from "@/components/protocols/external-discussion";
+import {
+  ExternalBookmarkButton,
+  ExternalShareButton,
+  ExternalVoteButton,
+} from "@/components/protocols/external-post-controls";
 import { PostMeta } from "@/components/tags/post-meta";
-import Linkify from "@/helpers/global/linkify";
 import { formatFileName } from "@/lib/format-file-name";
 import { useToast } from "@/lib/gooey-toast";
 import {
   getPostAttachments,
   isBookmarkedByUser,
 } from "@/lib/posts/post-normalize";
+import type { PresentedPost as PostData } from "@/lib/posts/presentation";
+import { blueskyProfilePath } from "@/lib/protocols/paths";
 import { getPostMediaPath, getPostPath } from "@/lib/seo/seo";
 import { useExplicitRevealed } from "@/lib/stores/explicit-reveal-store";
 import { useVideoCaptionsStore } from "@/lib/stores/video-captions-store";
 import type { Media } from "@/lib/types";
-import { getUserCount } from "@/lib/types";
 import { cn, formatNumber } from "@/lib/utils";
 import {
   getMediaImageUrl,
@@ -73,14 +84,15 @@ import {
 } from "./custom-video-player";
 import type { VideoPlaybackState } from "./custom-video-player";
 // eslint-disable-next-line import/no-cycle -- media-previews renders this viewer's dialog galleries, and the sidebar reuses its video preview; both are used at render time only
-import { VideoPreview } from "./media-previews";
 // eslint-disable-next-line import/no-cycle -- related posts reuse post-card which renders media-previews, which opens this viewer
 import RelatedPosts from "./related-posts";
 import ShareButton from "./share-button";
 import { SVGViewer } from "./svg-viewer";
 
 const getMediaUrl = (mediaId: string, download = false) =>
-  `/api/media/${mediaId}${download ? "?download=true" : ""}`;
+  mediaId.startsWith("https://")
+    ? mediaId
+    : `/api/media/${mediaId}${download ? "?download=true" : ""}`;
 
 // Fullscreen display URL for an image: prefers orig-img, the pipeline's
 // source-resolution WebP re-encode (generated for non-animated sources up to
@@ -121,11 +133,11 @@ interface MediaViewerProps {
   standalone?: boolean;
 }
 
-/** 3D dual-border chip used by the mobile media page's control buttons. */
+// 3D dual-border chip used by the desktop media controls.
 const MOBILE_CHIP_3D =
   "bg-linear-to-b from-[#3a3f4a] to-[#23262e] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.15),inset_0_1px_2px_rgba(255,255,255,0.18),0_2px_6px_rgba(0,0,0,0.35)]";
 
-/** m:ss clock for the mobile media page's video controls. */
+// m:ss clock for the media page video controls.
 function formatPlaybackTime(seconds: number): string {
   if (!Number.isFinite(seconds) || seconds < 0) {
     return "0:00";
@@ -178,16 +190,23 @@ const MediaViewer = ({
   // and the first client render identical (the media query is only evaluated
   // after mount), so the hideControls DOM branches never cause a hydration
   // mismatch.
-  const isMobileView = useMediaQuery("(max-width: 768px)", {
+  const isMobileView = useMediaQuery("(max-width: 1023px)", {
     defaultValue: false,
     initializeWithValue: false,
   });
+  const [showMobileEddies, setShowMobileEddies] = useState(false);
   const [uiVisible, setUiVisible] = useState(true);
   const [currentIndex, setCurrentIndex] = useState(initialIndex);
   const [isDownloading, setIsDownloading] = useState(false);
   const [loadAttempt, setLoadAttempt] = useState(0);
 
   const currentMedia = media[currentIndex];
+  let moreContentHref = "/";
+  if (post?.external) {
+    moreContentHref = post.external.author.id
+      ? blueskyProfilePath(post.external.author.id)
+      : "/network/bluesky";
+  }
 
   // The bottom panel drives the video directly (the built-in player controls
   // are hidden on every size; the panel's control rows take over on both
@@ -452,6 +471,11 @@ const MediaViewer = ({
     setIsDownloading(true);
     try {
       if (currentMedia) {
+        if (post?.external) {
+          window.open(post.external.url, "_blank", "noopener,noreferrer");
+          setIsDownloading(false);
+          return;
+        }
         const response = await fetch(`/api/media/download/${currentMedia.id}`);
 
         if (response.status === 429) {
@@ -505,7 +529,7 @@ const MediaViewer = ({
     >
       {isDownloading ? (
         <>
-          <span className="border-primary h-4 w-4 animate-spin rounded-full border-2 border-t-transparent" />
+          <span className="bg-primary/10 h-4 w-4 animate-pulse rounded-md" />
           Fetching file...
         </>
       ) : (
@@ -590,13 +614,17 @@ const MediaViewer = ({
     <div className="relative flex h-full max-h-full w-full items-center justify-center focus-within:outline-none">
       <CustomVideoPlayer
         autoPlay
-        captions={[
-          {
-            label: "Captions",
-            src: `/api/media/${item.id}?captions=1`,
-            srclang: "en",
-          },
-        ]}
+        captions={
+          item.id.startsWith("https://")
+            ? []
+            : [
+                {
+                  label: "Captions",
+                  src: `/api/media/${item.id}?captions=1`,
+                  srclang: "en",
+                },
+              ]
+        }
         className={cn(
           // The box fills the media area; object-contain letterboxes the
           // video inside, centered for any orientation and screen size.
@@ -619,7 +647,7 @@ const MediaViewer = ({
         hideControls
         desktopGestures={!isMobileView}
         key={`${item.id}-${loadAttempt}`}
-        mediaId={item.id}
+        mediaId={item.id.startsWith("https://") ? undefined : item.id}
         onError={handleVideoError}
         onExternalState={handleExternalVideoState}
         onLoadedData={handleMediaLoaded}
@@ -633,73 +661,91 @@ const MediaViewer = ({
     </div>
   );
 
-  // Grid of ALL the post's media in the sidebar's post section, so a
-  // multi-photo post shows every attachment next to the fullscreen view. The
-  // item being viewed is ringed; tapping any tile jumps to it. Video tiles
-  // reuse the feed's VideoPreview so they keep the feed's 16:9 proportions
-  // and hover controls (play/pause + mute).
-  const renderSidebarGridTileContent = (item: Media, index: number) => {
-    const alt = item.altText || `Media ${index + 1}`;
-    if (item.type === "IMAGE") {
-      if (item.mimeType === "image/svg+xml") {
-        return (
-          <object
-            aria-label={alt}
-            className="h-full w-full"
-            data={getMediaUrl(item.id)}
-            type="image/svg+xml"
-          />
-        );
-      }
+  // Minimal, clean grid of small 3D dual-bordered selector tiles.
+  // Completely stripped of noisy indicators, badges, headers, and inspector text.
+  const renderSidebarMediaGrid = () => {
+    if (media.length === 0) {
+      return null;
+    }
+
+    if (media.length === 1) {
+      const [single] = media;
+      const isVideo = single.type === "VIDEO";
       return (
-        // eslint-disable-next-line @next/next/no-img-element -- sidebar grid thumb
-        <img
-          alt={alt}
-          className="h-full w-full object-cover"
-          decoding="async"
-          loading="lazy"
-          src={getMediaImageUrl(item, "md-webp.webp")}
-        />
+        <div className="flex items-center">
+          <button
+            aria-current="true"
+            aria-label="Attached media (1 of 1)"
+            className={cn(
+              "group relative size-16 cursor-pointer overflow-hidden rounded-xl transition-all duration-150 active:translate-y-px",
+              "border-2 border-[#ff9500] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.35),inset_0_1px_2px_rgba(255,255,255,0.45),0_0_0_1px_rgba(0,0,0,0.9),0_2px_8px_rgba(255,149,0,0.3)]"
+            )}
+            onClick={() => handleSelectThumb(0)}
+            type="button"
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element -- sidebar compact thumb */}
+            <img
+              alt={single.altText || "Attached media"}
+              className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-105"
+              decoding="async"
+              loading="lazy"
+              src={
+                isVideo
+                  ? getMediaProxyUrl(single)
+                  : getMediaImageUrl(single, "thumb-webp.webp")
+              }
+            />
+            {isVideo ? (
+              <span className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/25">
+                <span className="flex size-4.5 items-center justify-center rounded-full bg-white/90 text-zinc-900 shadow-md">
+                  <Play className="ml-0.5 size-2 fill-current" />
+                </span>
+              </span>
+            ) : null}
+          </button>
+        </div>
       );
     }
-    if (item.type === "VIDEO") {
-      return <VideoPreview media={item} />;
-    }
-    return (
-      <div className="flex h-full w-full items-center justify-center">
-        <FileIcon className="text-primary h-5 w-5" />
-      </div>
-    );
-  };
 
-  const renderSidebarMediaGrid = () => {
-    let cols = "grid-cols-3";
-    if (media.length === 1) {
-      cols = "grid-cols-1";
-    } else if (media.length === 2) {
-      cols = "grid-cols-2";
-    }
     return (
-      <div className={cn("grid gap-1.5", cols)}>
+      <div className="grid grid-cols-4 gap-2 sm:grid-cols-5">
         {media.map((item, index) => {
           const isActive = index === currentIndex;
-          // Video tiles size themselves to the feed's 16:9 ratio; the rest
-          // stay square so mixed grids keep a tidy row height.
           const isVideo = item.type === "VIDEO";
+
           return (
             <button
               key={item.id}
               aria-current={isActive}
-              aria-label={`Go to media ${index + 1} of ${media.length}`}
+              aria-label={`Select media ${index + 1} of ${media.length}`}
               className={cn(
-                "relative overflow-hidden rounded-lg bg-zinc-900",
-                !isVideo && "aspect-square",
-                isActive ? "ring-2 ring-white" : "opacity-70 hover:opacity-100"
+                "group relative aspect-square cursor-pointer overflow-hidden rounded-xl transition-all duration-150 active:translate-y-px",
+                isActive
+                  ? "scale-[1.02] border-2 border-[#ff9500] opacity-100 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.35),inset_0_1px_2px_rgba(255,255,255,0.45),0_0_0_1px_rgba(0,0,0,0.9),0_2px_8px_rgba(255,149,0,0.3)]"
+                  : "border border-white/15 opacity-60 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.1),inset_0_1px_1.5px_rgba(255,255,255,0.15),0_1px_3px_rgba(0,0,0,0.4)] hover:scale-[1.02] hover:border-white/30 hover:opacity-100"
               )}
               onClick={() => handleSelectThumb(index)}
               type="button"
             >
-              {renderSidebarGridTileContent(item, index)}
+              {/* eslint-disable-next-line @next/next/no-img-element -- sidebar compact thumb */}
+              <img
+                alt={item.altText || `Media ${index + 1}`}
+                className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-105"
+                decoding="async"
+                loading="lazy"
+                src={
+                  isVideo
+                    ? getMediaProxyUrl(item)
+                    : getMediaImageUrl(item, "thumb-webp.webp")
+                }
+              />
+              {isVideo ? (
+                <span className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/25">
+                  <span className="flex size-4.5 items-center justify-center rounded-full bg-white/90 text-zinc-900 shadow-md">
+                    <Play className="ml-0.5 size-2 fill-current" />
+                  </span>
+                </span>
+              ) : null}
             </button>
           );
         })}
@@ -765,42 +811,58 @@ const MediaViewer = ({
               {post._count.comments}
             </span>
           </button>
-          <AuraVoteButton
-            authorName={post.user?.displayName || post.user?.username}
-            initialState={{
-              aura: post.aura ?? 0,
-              userVote: post.vote?.[0]?.value ?? 0,
-            }}
-            postId={post.id}
-          />
+          {post.external ? (
+            <ExternalVoteButton post={post.external} />
+          ) : (
+            <AuraVoteButton
+              authorName={post.user?.displayName || post.user?.username}
+              initialState={{
+                aura: post.aura ?? 0,
+                userVote: post.vote?.[0]?.value ?? 0,
+              }}
+              postId={post.id}
+            />
+          )}
         </div>
         <div className="flex items-center gap-2">
-          <ShareButton
-            className="h-9! w-9!"
-            description={post.content}
-            dialogDescription="Share this media with your network"
-            dialogTitle="Share Media"
-            postId={post.id}
-            shareUrl={`${typeof window === "undefined" ? "" : window.location.origin}${getPostMediaPath(post, currentIndex)}`}
-            thumbnail={getShareThumbnail(post, currentMedia)}
-            title={`${post.user?.displayName || post.user?.username || "Post"} (@${post.user?.username || "unknown"}) on asocialmedia`}
-          />
-          <BookmarkButton
-            className="h-9! w-9!"
-            initialState={{
-              isBookmarkedByUser: isBookmarkedByUser(post, sessionUser?.id),
-            }}
-            postId={post.id}
-          />
+          {post.external ? (
+            <ExternalShareButton post={post.external} className="h-9! w-9!" />
+          ) : (
+            <ShareButton
+              className="h-9! w-9!"
+              description={post.content}
+              dialogDescription="Share this media with your network"
+              dialogTitle="Share Media"
+              postId={post.id}
+              shareUrl={`${typeof window === "undefined" ? "" : window.location.origin}${getPostMediaPath(post, currentIndex)}`}
+              thumbnail={getShareThumbnail(post, currentMedia)}
+              title={`${post.user?.displayName || post.user?.username || "Post"} (@${post.user?.username || "unknown"}) on asocialmedia`}
+            />
+          )}
+          {post.external ? (
+            <ExternalBookmarkButton
+              post={post.external}
+              className="h-9! w-9!"
+            />
+          ) : (
+            <BookmarkButton
+              className="h-9! w-9!"
+              initialState={{
+                isBookmarkedByUser: isBookmarkedByUser(post, sessionUser?.id),
+              }}
+              postId={post.id}
+            />
+          )}
         </div>
-        <span className="text-muted-foreground pr-2 text-sm lg:hidden">
-          {formatNumber(post.viewCount)} views
-        </span>
+        {post.external ? null : (
+          <span className="text-muted-foreground pr-2 text-sm lg:hidden">
+            {formatNumber(post.viewCount)} views
+          </span>
+        )}
       </div>
     );
   };
 
-  const isSelf = post ? sessionUser?.id === post.user.id : false;
   // The more-button is shown to the author and to admins so moderation is
   // reachable from the full-screen viewer too.
 
@@ -865,19 +927,14 @@ const MediaViewer = ({
           {mediaError &&
           !post?.moderated &&
           !(post?.explicitContent && !explicitRevealed) ? (
-            <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-4 bg-black/60 px-6 text-center">
-              <p className="text-sm font-medium text-white/90">
-                Couldn&apos;t load this media.
-              </p>
-              <Button
-                className="gap-2 rounded-full px-6"
-                onClick={handleRetry}
-                type="button"
-                variant="premium"
-              >
-                <RotateCcw className="size-4" />
-                Retry
-              </Button>
+            <div className="absolute inset-0 z-20 flex flex-col items-center gap-4 overflow-y-auto bg-black/60 px-6 text-center">
+              <div className="my-auto shrink-0 [&_p]:text-white/90">
+                <FeedErrorState
+                  compact
+                  message="Couldn't load this media."
+                  onRetry={handleRetry}
+                />
+              </div>
             </div>
           ) : null}
 
@@ -955,7 +1012,7 @@ const MediaViewer = ({
             phones. Desktop keeps the floating bottom chrome below. */}
         <div
           className={cn(
-            "pointer-events-none absolute inset-x-0 bottom-0 z-30 transition-[opacity,visibility] duration-300 lg:hidden",
+            "pointer-events-none absolute inset-x-0 bottom-0 z-30 max-h-[85dvh] overflow-y-auto overscroll-contain transition-[opacity,visibility] duration-300 lg:hidden",
             !uiVisible && "invisible opacity-0"
           )}
         >
@@ -966,62 +1023,68 @@ const MediaViewer = ({
                   aria-label="View profile"
                   className="shrink-0 rounded-full outline-hidden focus-visible:ring-2 focus-visible:ring-white/80"
                   href={
-                    post.user?.username ? `/users/${post.user.username}` : "#"
+                    (post.external
+                      ? blueskyProfilePath(post.external.author.id)
+                      : undefined) ??
+                    (post.user?.username ? `/users/${post.user.username}` : "#")
                   }
                 >
                   <UserAvatar
                     avatarUrl={post.user?.avatarUrl}
-                    className="h-10 w-10"
+                    className="size-10 rounded-full!"
                   />
                 </Link>
                 <div className="min-w-0 flex-1">
                   <span className="flex items-center gap-1.5">
                     <Link
-                      className="block truncate font-semibold text-white hover:underline"
+                      className="block truncate text-[15px] font-semibold text-white hover:underline"
                       href={
-                        post.user?.username
+                        (post.external
+                          ? blueskyProfilePath(post.external.author.id)
+                          : undefined) ??
+                        (post.user?.username
                           ? `/users/${post.user.username}`
-                          : "#"
+                          : "#")
                       }
                     >
                       {post.user?.displayName ||
                         post.user?.username ||
                         "Anonymous"}
                     </Link>
-                    <UserBadge
-                      badge={post.user?.badge}
-                      badges={post.user?.badges}
-                      communityRoles={post.user?.communityMemberships}
-                    />
+                    {post.external ? (
+                      <BlueskyIcon />
+                    ) : (
+                      <UserBadge
+                        badge={post.user?.badge}
+                        badges={post.user?.badges}
+                        communityRoles={post.user?.communityMemberships}
+                      />
+                    )}
                   </span>
                   <Link
-                    className="block truncate text-white/70 hover:underline"
+                    className="block truncate text-[13px] text-white/70 hover:underline"
                     href={
-                      post.user?.username ? `/users/${post.user.username}` : "#"
+                      (post.external
+                        ? blueskyProfilePath(post.external.author.id)
+                        : undefined) ??
+                      (post.user?.username
+                        ? `/users/${post.user.username}`
+                        : "#")
                     }
                   >
                     @{post.user?.username || "unknown"}
                   </Link>
                 </div>
-                {isSelf || !post.user?.id ? null : (
-                  <FollowButton
-                    initialState={{
-                      followers: getUserCount(post.user, "followers"),
-                      isFollowedByUser: (post.user.followers || []).length > 0,
-                    }}
-                    userId={post.user.id}
-                  />
-                )}
               </div>
             ) : null}
 
             {post?.content ? (
               <div className="pointer-events-auto mt-2.5">
-                <Linkify>
-                  <p className="text-[15px] leading-relaxed wrap-break-word whitespace-pre-wrap text-white/90">
-                    {post.content}
-                  </p>
-                </Linkify>
+                <PostLinkedContent
+                  sourceSegments={post.external?.segments}
+                  className="text-[15px] text-white/90"
+                  content={post.content}
+                />
               </div>
             ) : null}
 
@@ -1052,64 +1115,67 @@ const MediaViewer = ({
             ) : null}
 
             {post ? (
-              <div className="pointer-events-auto mt-3 flex items-center justify-between border-t border-white/10 pt-3">
-                <div className="flex items-center gap-2">
-                  <button
-                    aria-label="View eddies"
-                    className={cn(
-                      "flex h-11 items-center gap-1.5 rounded-full px-3.5 transition-all duration-200 hover:brightness-110 active:translate-y-px",
-                      MOBILE_CHIP_3D
-                    )}
-                    onClick={() => router.push(getPostPath(post))}
-                    type="button"
-                  >
-                    <MessageSquare
-                      className={cn(
-                        "size-4.5",
-                        (post._count?.comments ?? 0) > 0 && "fill-current"
-                      )}
+              <MobileMediaActions
+                comments={post._count?.comments ?? 0}
+                onOpenEddies={() => setShowMobileEddies(true)}
+                vote={
+                  post.external ? (
+                    <ExternalVoteButton post={post.external} />
+                  ) : (
+                    <AuraVoteButton
+                      authorName={post.user?.displayName || post.user?.username}
+                      initialState={{
+                        aura: post.aura ?? 0,
+                        userVote: post.vote?.[0]?.value ?? 0,
+                      }}
+                      postId={post.id}
                     />
-                    <span className="text-sm font-semibold tabular-nums">
-                      {post._count?.comments ?? 0}
-                    </span>
-                  </button>
-                  <AuraVoteButton
-                    authorName={post.user?.displayName || post.user?.username}
-                    initialState={{
-                      aura: post.aura ?? 0,
-                      userVote: post.vote?.[0]?.value ?? 0,
-                    }}
-                    postId={post.id}
-                  />
-                </div>
-                <div className="flex items-center gap-2">
-                  <ShareButton
-                    className="h-9! w-9!"
-                    description={post.content}
-                    dialogDescription="Share this media with your network"
-                    dialogTitle="Share Media"
-                    postId={post.id}
-                    shareUrl={`${typeof window === "undefined" ? "" : window.location.origin}${getPostMediaPath(post, currentIndex)}`}
-                    thumbnail={getShareThumbnail(post, currentMedia)}
-                    title={`${post.user?.displayName || post.user?.username || "Post"} (@${post.user?.username || "unknown"}) on asocialmedia`}
-                  />
-                  <BookmarkButton
-                    className="h-9! w-9!"
-                    initialState={{
-                      isBookmarkedByUser: isBookmarkedByUser(
-                        post,
-                        sessionUser?.id
-                      ),
-                    }}
-                    postId={post.id}
-                  />
-                </div>
-              </div>
+                  )
+                }
+                share={
+                  post.external ? (
+                    <ExternalShareButton
+                      post={post.external}
+                      className={MOBILE_MEDIA_ICON}
+                    />
+                  ) : (
+                    <ShareButton
+                      className={MOBILE_MEDIA_ICON}
+                      description={post.content}
+                      dialogDescription="Share this media with your network"
+                      dialogTitle="Share Media"
+                      postId={post.id}
+                      shareUrl={`${typeof window === "undefined" ? "" : window.location.origin}${getPostMediaPath(post, currentIndex)}`}
+                      thumbnail={getShareThumbnail(post, currentMedia)}
+                      title={`${post.user?.displayName || post.user?.username || "Post"} (@${post.user?.username || "unknown"}) on asocialmedia`}
+                    />
+                  )
+                }
+                bookmark={
+                  post.external ? (
+                    <ExternalBookmarkButton
+                      post={post.external}
+                      className={MOBILE_MEDIA_ICON}
+                    />
+                  ) : (
+                    <BookmarkButton
+                      className={MOBILE_MEDIA_ICON}
+                      initialState={{
+                        isBookmarkedByUser: isBookmarkedByUser(
+                          post,
+                          sessionUser?.id
+                        ),
+                      }}
+                      postId={post.id}
+                    />
+                  )
+                }
+              />
             ) : null}
 
             {currentMedia?.type === "VIDEO" ? (
-              <div className="pointer-events-auto mt-3 flex items-center justify-between border-t border-white/10 pt-3">
-                <div className="flex items-center gap-3">
+              <div className="pointer-events-auto mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-white/10 pt-3">
+                <div className="flex shrink-0 items-center gap-3">
                   <button
                     aria-label={
                       videoState.isPlaying ? "Pause video" : "Play video"
@@ -1124,19 +1190,19 @@ const MediaViewer = ({
                       <Play className="ml-0.5 size-5 fill-current" />
                     )}
                   </button>
-                  <span className="text-sm font-medium text-white tabular-nums">
+                  <span className="text-sm font-medium whitespace-nowrap text-white tabular-nums">
                     {formatPlaybackTime(videoState.currentTime)} /{" "}
                     {formatPlaybackTime(videoState.duration)}
                   </span>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="ml-auto flex shrink-0 items-center gap-2">
                   <button
                     aria-label={
                       videoState.isMuted ? "Unmute video" : "Mute video"
                     }
                     className={cn(
                       "flex h-11 w-11 items-center justify-center rounded-full transition-all duration-200 hover:brightness-110 active:translate-y-px",
-                      MOBILE_CHIP_3D
+                      "media-viewer-chip"
                     )}
                     onClick={handleVideoToggleMute}
                     type="button"
@@ -1151,44 +1217,48 @@ const MediaViewer = ({
                     aria-label="Playback speed"
                     className={cn(
                       "flex h-11 min-w-11 items-center justify-center rounded-full px-3 text-sm font-semibold transition-all duration-200 hover:brightness-110 active:translate-y-px",
-                      MOBILE_CHIP_3D
+                      "media-viewer-chip"
                     )}
                     onClick={handleVideoCycleSpeed}
                     type="button"
                   >
                     {videoState.playbackRate}x
                   </button>
-                  <button
-                    aria-label={
-                      captionsEnabled ? "Disable captions" : "Enable captions"
-                    }
-                    className={cn(
-                      "flex h-11 w-11 items-center justify-center rounded-full transition-all duration-200 hover:brightness-110 active:translate-y-px",
-                      MOBILE_CHIP_3D,
-                      captionsEnabled && "border-orange-500/60 text-orange-400"
-                    )}
-                    onClick={handleVideoToggleCaptions}
-                    type="button"
-                  >
-                    <Subtitles className="size-5" />
-                  </button>
-                  <button
-                    aria-label="Transcript"
-                    className={cn(
-                      "flex h-11 w-11 items-center justify-center rounded-full transition-all duration-200 hover:brightness-110 active:translate-y-px",
-                      MOBILE_CHIP_3D,
-                      showTranscript && "border-orange-500/60 text-orange-400"
-                    )}
-                    onClick={handleVideoToggleTranscript}
-                    type="button"
-                  >
-                    <Speech className="size-5" />
-                  </button>
+                  {post?.external ? null : (
+                    <button
+                      aria-pressed={captionsEnabled}
+                      aria-label={
+                        captionsEnabled ? "Disable captions" : "Enable captions"
+                      }
+                      className={cn(
+                        "flex h-11 w-11 items-center justify-center rounded-full transition-all duration-200 hover:brightness-110 active:translate-y-px",
+                        "media-viewer-chip"
+                      )}
+                      onClick={handleVideoToggleCaptions}
+                      type="button"
+                    >
+                      <Subtitles className="size-5" />
+                    </button>
+                  )}
+                  {post?.external ? null : (
+                    <button
+                      aria-pressed={showTranscript}
+                      aria-label="Transcript"
+                      className={cn(
+                        "flex h-11 w-11 items-center justify-center rounded-full transition-all duration-200 hover:brightness-110 active:translate-y-px",
+                        "media-viewer-chip"
+                      )}
+                      onClick={handleVideoToggleTranscript}
+                      type="button"
+                    >
+                      <Speech className="size-5" />
+                    </button>
+                  )}
                   <button
                     aria-label="Fullscreen"
                     className={cn(
                       "flex h-11 w-11 items-center justify-center rounded-full transition-all duration-200 hover:brightness-110 active:translate-y-px",
-                      MOBILE_CHIP_3D
+                      "media-viewer-chip"
                     )}
                     onClick={handleVideoFullscreen}
                     type="button"
@@ -1359,32 +1429,37 @@ const MediaViewer = ({
                   >
                     {videoState.playbackRate}x
                   </button>
-                  <button
-                    aria-label={
-                      captionsEnabled ? "Disable captions" : "Enable captions"
-                    }
-                    className={cn(
-                      "flex h-11 w-11 items-center justify-center rounded-full transition-all duration-200 hover:brightness-110 active:translate-y-px",
-                      MOBILE_CHIP_3D,
-                      captionsEnabled && "border-orange-500/60 text-orange-400"
-                    )}
-                    onClick={handleVideoToggleCaptions}
-                    type="button"
-                  >
-                    <Subtitles className="size-5" />
-                  </button>
-                  <button
-                    aria-label="Transcript"
-                    className={cn(
-                      "flex h-11 w-11 items-center justify-center rounded-full transition-all duration-200 hover:brightness-110 active:translate-y-px lg:hidden",
-                      MOBILE_CHIP_3D,
-                      showTranscript && "border-orange-500/60 text-orange-400"
-                    )}
-                    onClick={handleVideoToggleTranscript}
-                    type="button"
-                  >
-                    <Speech className="size-5" />
-                  </button>
+                  {post?.external ? null : (
+                    <button
+                      aria-label={
+                        captionsEnabled ? "Disable captions" : "Enable captions"
+                      }
+                      className={cn(
+                        "flex h-11 w-11 items-center justify-center rounded-full transition-all duration-200 hover:brightness-110 active:translate-y-px",
+                        MOBILE_CHIP_3D,
+                        captionsEnabled &&
+                          "border-orange-500/60 text-orange-400"
+                      )}
+                      onClick={handleVideoToggleCaptions}
+                      type="button"
+                    >
+                      <Subtitles className="size-5" />
+                    </button>
+                  )}
+                  {post?.external ? null : (
+                    <button
+                      aria-label="Transcript"
+                      className={cn(
+                        "flex h-11 w-11 items-center justify-center rounded-full transition-all duration-200 hover:brightness-110 active:translate-y-px lg:hidden",
+                        MOBILE_CHIP_3D,
+                        showTranscript && "border-orange-500/60 text-orange-400"
+                      )}
+                      onClick={handleVideoToggleTranscript}
+                      type="button"
+                    >
+                      <Speech className="size-5" />
+                    </button>
+                  )}
                   <button
                     aria-label="Fullscreen"
                     className={cn(
@@ -1403,7 +1478,7 @@ const MediaViewer = ({
         </div>
 
         {/* Video Transcript Drawer (Mobile & Modal) */}
-        {currentMedia?.type === "VIDEO" ? (
+        {currentMedia?.type === "VIDEO" && !post?.external ? (
           <VideoTranscriptDrawer
             currentTime={videoState.currentTime}
             isOpen={showTranscript}
@@ -1427,6 +1502,25 @@ const MediaViewer = ({
       </div>
 
       {post ? (
+        <Drawer
+          open={showMobileEddies && isMobileView}
+          onOpenChange={setShowMobileEddies}
+          shouldScaleBackground={false}
+        >
+          <DrawerContent
+            aria-describedby={undefined}
+            className="h-[75dvh] max-h-[calc(100dvh-env(safe-area-inset-top))] pb-[env(safe-area-inset-bottom)]"
+          >
+            <DrawerTitle className="sr-only">Eddies</DrawerTitle>
+            <GustsCommentsDrawer
+              post={post}
+              onClose={() => setShowMobileEddies(false)}
+            />
+          </DrawerContent>
+        </Drawer>
+      ) : null}
+
+      {post ? (
         <aside className="hidden h-full w-[420px] flex-col border-l border-white/10 bg-[hsl(var(--background))] lg:flex">
           <div className="hide-native-scrollbar min-h-0 flex-1 space-y-3 overflow-y-auto p-3">
             {/* The current post on the app's standard 3D subcard, composed
@@ -1438,7 +1532,10 @@ const MediaViewer = ({
                   aria-label="View profile"
                   className="focus-visible:ring-ring shrink-0 rounded-xl outline-hidden focus-visible:ring-2 focus-visible:ring-offset-2"
                   href={
-                    post.user?.username ? `/users/${post.user.username}` : "#"
+                    (post.external
+                      ? blueskyProfilePath(post.external.author.id)
+                      : undefined) ??
+                    (post.user?.username ? `/users/${post.user.username}` : "#")
                   }
                 >
                   <UserAvatar
@@ -1451,25 +1548,37 @@ const MediaViewer = ({
                     <Link
                       className="text-foreground block truncate font-semibold hover:underline"
                       href={
-                        post.user?.username
+                        (post.external
+                          ? blueskyProfilePath(post.external.author.id)
+                          : undefined) ??
+                        (post.user?.username
                           ? `/users/${post.user.username}`
-                          : "#"
+                          : "#")
                       }
                     >
                       {post.user?.displayName ||
                         post.user?.username ||
                         "Anonymous"}
                     </Link>
-                    <UserBadge
-                      badge={post.user?.badge}
-                      badges={post.user?.badges}
-                      communityRoles={post.user?.communityMemberships}
-                    />
+                    {post.external ? (
+                      <BlueskyIcon />
+                    ) : (
+                      <UserBadge
+                        badge={post.user?.badge}
+                        badges={post.user?.badges}
+                        communityRoles={post.user?.communityMemberships}
+                      />
+                    )}
                   </span>
                   <Link
                     className="text-muted-foreground block truncate hover:underline"
                     href={
-                      post.user?.username ? `/users/${post.user.username}` : "#"
+                      (post.external
+                        ? blueskyProfilePath(post.external.author.id)
+                        : undefined) ??
+                      (post.user?.username
+                        ? `/users/${post.user.username}`
+                        : "#")
                     }
                   >
                     @{post.user?.username || "unknown"}
@@ -1483,7 +1592,10 @@ const MediaViewer = ({
               </div>
 
               <div className="mt-2.5">
-                <PostLinkedContent content={post.content} />
+                <PostLinkedContent
+                  sourceSegments={post.external?.segments}
+                  content={post.content}
+                />
                 {post.tags?.length || post.mentions?.length ? (
                   <div className="mt-3">
                     <PostMeta
@@ -1546,49 +1658,69 @@ const MediaViewer = ({
                     {post._count.comments}
                   </span>
                 </button>
-                <AuraVoteButton
-                  authorName={post.user?.displayName || post.user?.username}
-                  initialState={{
-                    aura: post.aura ?? 0,
-                    userVote: post.vote?.[0]?.value ?? 0,
-                  }}
-                  postId={post.id}
-                />
+                {post.external ? (
+                  <ExternalVoteButton post={post.external} />
+                ) : (
+                  <AuraVoteButton
+                    authorName={post.user?.displayName || post.user?.username}
+                    initialState={{
+                      aura: post.aura ?? 0,
+                      userVote: post.vote?.[0]?.value ?? 0,
+                    }}
+                    postId={post.id}
+                  />
+                )}
                 <div className="flex-1" />
-                <span
-                  className="text-muted-foreground flex h-8 cursor-default items-center gap-1.5 rounded-full px-2"
-                  title="Views"
-                >
-                  <Eye className="size-5" />
-                  <span className="text-sm tabular-nums">
-                    {formatNumber(post.viewCount)}
+                {post.external ? null : (
+                  <span
+                    className="text-muted-foreground flex h-8 cursor-default items-center gap-1.5 rounded-full px-2"
+                    title="Views"
+                  >
+                    <Eye className="size-5" />
+                    <span className="text-sm tabular-nums">
+                      {formatNumber(post.viewCount)}
+                    </span>
                   </span>
-                </span>
-                <ShareButton
-                  className="h-9! w-9!"
-                  description={post.content}
-                  dialogDescription="Share this media with your network"
-                  dialogTitle="Share Media"
-                  postId={post.id}
-                  shareUrl={`${typeof window === "undefined" ? "" : window.location.origin}${getPostMediaPath(post, currentIndex)}`}
-                  thumbnail={getShareThumbnail(post, currentMedia)}
-                  title={`${post.user?.displayName || post.user?.username || "Post"} (@${post.user?.username || "unknown"}) on asocialmedia`}
-                />
-                <BookmarkButton
-                  className="h-9! w-9!"
-                  initialState={{
-                    isBookmarkedByUser: isBookmarkedByUser(
-                      post,
-                      sessionUser?.id
-                    ),
-                  }}
-                  postId={post.id}
-                />
+                )}
+                {post.external ? (
+                  <ExternalShareButton
+                    post={post.external}
+                    className="h-9! w-9!"
+                  />
+                ) : (
+                  <ShareButton
+                    className="h-9! w-9!"
+                    description={post.content}
+                    dialogDescription="Share this media with your network"
+                    dialogTitle="Share Media"
+                    postId={post.id}
+                    shareUrl={`${typeof window === "undefined" ? "" : window.location.origin}${getPostMediaPath(post, currentIndex)}`}
+                    thumbnail={getShareThumbnail(post, currentMedia)}
+                    title={`${post.user?.displayName || post.user?.username || "Post"} (@${post.user?.username || "unknown"}) on asocialmedia`}
+                  />
+                )}
+                {post.external ? (
+                  <ExternalBookmarkButton
+                    post={post.external}
+                    className="h-9! w-9!"
+                  />
+                ) : (
+                  <BookmarkButton
+                    className="h-9! w-9!"
+                    initialState={{
+                      isBookmarkedByUser: isBookmarkedByUser(
+                        post,
+                        sessionUser?.id
+                      ),
+                    }}
+                    postId={post.id}
+                  />
+                )}
               </div>
             </section>
 
             {/* Desktop Video Transcript Card */}
-            {currentMedia?.type === "VIDEO" ? (
+            {currentMedia?.type === "VIDEO" && !post.external ? (
               <VideoTranscriptSidebar
                 currentTime={videoState.currentTime}
                 mediaId={currentMedia.id}
@@ -1610,7 +1742,11 @@ const MediaViewer = ({
 
             {/* The eddie thread on its own subcard. */}
             <section className="sidebar-subcard rounded-2xl p-3">
-              <Comments post={post} />
+              {post.external ? (
+                <ExternalDiscussion post={post.external} />
+              ) : (
+                <Comments post={post} />
+              )}
             </section>
 
             {/* Related content on the same surface as every other sidebar
@@ -1621,12 +1757,18 @@ const MediaViewer = ({
                 <Link
                   aria-label="View all posts on the global feed"
                   className="text-primary shrink-0 text-sm font-medium hover:underline"
-                  href="/"
+                  href={moreContentHref}
                 >
                   View all posts
                 </Link>
               </div>
-              <RelatedPosts excludePostId={post.id} />
+              <RelatedPosts
+                authorActor={
+                  post.external?.author.id || post.external?.author.handle
+                }
+                excludePostId={post.id}
+                external={Boolean(post.external)}
+              />
             </section>
           </div>
         </aside>

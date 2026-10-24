@@ -7,6 +7,11 @@ import { recoveryEmail } from "@asm/auth/validation";
 import { and, prisma } from "@asm/db";
 import { z } from "zod";
 
+import {
+  accountNotices,
+  noticeTimestamp,
+  queueNotice,
+} from "@/lib/auth/account-notices";
 import { getSessionFromApi } from "@/lib/auth/session";
 
 const passwordSchema = z
@@ -143,6 +148,17 @@ export async function POST(request: Request): Promise<Response> {
       { status: 500 }
     );
   }
+
+  // The password is committed. Notify after responding-eligible success so a
+  // mail failure can never roll back or fail the change.
+  queueNotice(() =>
+    accountNotices.passwordChanged({
+      changedAt: noticeTimestamp(),
+      // Every other session is not revoked on this path, only on reset.
+      recipient: recoveryEmail(currentUser?.email) ?? "",
+      signedOutEverywhere: false,
+    })
+  );
 
   return Response.json({ success: true });
 }

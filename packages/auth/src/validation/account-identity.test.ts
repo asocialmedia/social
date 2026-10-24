@@ -50,11 +50,11 @@ test("callback success is checked against an actual account list", () => {
 
 test("ownership conflicts and last-method errors have actionable shared copy", () => {
   expect(accountLinkErrorMessage("SOCIAL_ACCOUNT_ALREADY_LINKED")).toContain(
-    "another ASM account"
+    "another asocialmedia account"
   );
   expect(
     accountLinkErrorMessage("account_already_linked_to_different_user")
-  ).toContain("another ASM account");
+  ).toContain("another asocialmedia account");
   expect(accountLinkErrorMessage("cannot_unlink_last_method")).toContain(
     "working sign-in method"
   );

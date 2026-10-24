@@ -17,7 +17,7 @@ permissions: {}
 jobs:
   rustfs-buckets:
     name: Ensure RustFS buckets and policies
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-2vcpu-ubuntu-2404
     steps:
       - name: Ensure buckets, policies, and versioning
         env:

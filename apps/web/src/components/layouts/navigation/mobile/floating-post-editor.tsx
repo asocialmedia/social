@@ -2,15 +2,10 @@
 
 import { MAX_COMMENT_CHARS, MAX_COMMENT_WORDS } from "@asm/auth/validation";
 import type { PostData, UserData } from "@asm/db";
+import { Skeleton } from "@asm/ui/shadui/skeleton";
 import { useQuery } from "@tanstack/react-query";
 import type { Editor } from "@tiptap/core";
-import {
-  Clapperboard,
-  ImageIcon,
-  Loader2,
-  SendHorizonal,
-  X,
-} from "lucide-react";
+import { Clapperboard, ImageIcon, SendHorizonal, X } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import Image from "next/image";
 import type React from "react";
@@ -321,7 +316,7 @@ const FloatingPostEditor: React.FC<FloatingPostEditorProps> = ({ post }) => {
                 type="button"
               >
                 {mutation.isPending ? (
-                  <Loader2 className="size-4 animate-spin" />
+                  <Skeleton className="size-4" />
                 ) : (
                   <SendHorizonal className="size-4" />
                 )}
@@ -370,7 +365,7 @@ const FloatingPostEditor: React.FC<FloatingPostEditorProps> = ({ post }) => {
                       <div className="pointer-events-none absolute inset-0 rounded-xl shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1px_2px_rgba(255,255,255,0.3)] dark:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.1),inset_0_1px_2px_rgba(255,255,255,0.06)]" />
                       {attachment.isUploading ? (
                         <div className="absolute inset-0 flex items-center justify-center bg-black/50 backdrop-blur-xs">
-                          <Loader2 className="size-5 animate-spin text-white" />
+                          <Skeleton className="size-5" />
                         </div>
                       ) : (
                         <button
@@ -444,7 +439,7 @@ const FloatingPostEditor: React.FC<FloatingPostEditorProps> = ({ post }) => {
                   type="button"
                 >
                   {mutation.isPending ? (
-                    <Loader2 className="size-4 animate-spin" />
+                    <Skeleton className="size-4" />
                   ) : (
                     <SendHorizonal className="size-4" />
                   )}

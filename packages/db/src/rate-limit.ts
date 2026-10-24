@@ -1,4 +1,5 @@
 import { createHmac, randomUUID } from "node:crypto";
+import { isIP } from "node:net";
 
 import { createLogger } from "@asm/logger";
 
@@ -233,9 +234,9 @@ export function hashViewerId(ip: string): string {
 // honored outside production (local dev, tests, direct non-CF deployments)
 // where a direct client can forge them.
 export function getClientIpFromHeaders(headers: Pick<Headers, "get">): string {
-  const cf = headers.get("cf-connecting-ip");
-  if (cf) {
-    return cf.trim();
+  const cf = getTrustedIngressIp(headers);
+  if (cf !== "unknown" || process.env.NODE_ENV === "production") {
+    return cf;
   }
   const forwarded = headers.get("x-forwarded-for");
   if (forwarded) {
@@ -258,6 +259,6 @@ export function getClientIpFromRequest(request: Request): string {
 // anonymous viewer collapses into one "unknown" identity, which fails closed
 // against inflation instead of failing open.
 export function getTrustedIngressIp(headers: Pick<Headers, "get">): string {
-  const cf = headers.get("cf-connecting-ip");
-  return cf?.trim() ? cf.trim() : "unknown";
+  const cf = headers.get("cf-connecting-ip")?.trim();
+  return cf && isIP(cf) !== 0 ? cf : "unknown";
 }

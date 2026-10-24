@@ -3,6 +3,7 @@ import type { MediaLimits } from "@asm/media";
 import { createEnv } from "@t3-oss/env-core";
 import { z } from "zod";
 
+import { resolveClefDailyNeurons } from "./analyze/cloudflare-budget";
 import { loadRootEnv } from "./load-env";
 
 // Ensure root .env is loaded before environment evaluation
@@ -44,6 +45,8 @@ export const keys = createEnv({
     MEDIA_C2PA_STAMP: process.env.MEDIA_C2PA_STAMP,
     MEDIA_C2PA_STAMP_TIMEOUT_MS: process.env.MEDIA_C2PA_STAMP_TIMEOUT_MS,
     MEDIA_C2PA_TSA_URL: process.env.MEDIA_C2PA_TSA_URL,
+    MEDIA_CLASSIFIER_API_TOKEN: process.env.MEDIA_CLASSIFIER_API_TOKEN,
+    MEDIA_CLASSIFIER_URL: process.env.MEDIA_CLASSIFIER_URL,
     MEDIA_CLASSIFY_ENABLED: process.env.MEDIA_CLASSIFY_ENABLED,
     MEDIA_CLEF_DAILY_NEURONS: process.env.MEDIA_CLEF_DAILY_NEURONS,
     MEDIA_CONCURRENT_PROCESSING_PER_USER:
@@ -146,13 +149,13 @@ export const keys = createEnv({
     // SSL.com tier expires yearly), timestamps are what keep OLD manifests
     // valid after expiry - without one every historical stamp ages badly.
     MEDIA_C2PA_TSA_URL: z.url().optional(),
+    MEDIA_CLASSIFIER_API_TOKEN: z.string().min(32).optional(),
+    MEDIA_CLASSIFIER_URL: z.url().optional(),
     MEDIA_CLASSIFY_ENABLED: z.enum(["0", "1"]).default("1"),
-    MEDIA_CLEF_DAILY_NEURONS: z.coerce
-      .number()
-      .int()
-      .min(1)
-      .max(10_000)
-      .default(9000),
+    MEDIA_CLEF_DAILY_NEURONS: z
+      .string()
+      .optional()
+      .transform(resolveClefDailyNeurons),
     MEDIA_CONCURRENT_PROCESSING_PER_USER: numericOverride,
     MEDIA_EMBEDDING_ENABLED: z.enum(["0", "1"]).default("1"),
     MEDIA_EMBEDDING_TIMEOUT_MS: numericOverride,
@@ -248,14 +251,17 @@ export const workerEnv = {
   get CLAMAV_PORT() {
     return keys.CLAMAV_PORT;
   },
+  get CLASSIFIER_API_TOKEN() {
+    return keys.MEDIA_CLASSIFIER_API_TOKEN;
+  },
+  get CLASSIFIER_URL() {
+    return keys.MEDIA_CLASSIFIER_URL;
+  },
   get CLASSIFY_ENABLED() {
     return keys.MEDIA_CLASSIFY_ENABLED !== "0";
   },
   get CLEF_DAILY_NEURONS() {
-    const value = Number(keys.MEDIA_CLEF_DAILY_NEURONS);
-    return Number.isFinite(value) && value >= 1
-      ? Math.min(10_000, value)
-      : 9000;
+    return resolveClefDailyNeurons(keys.MEDIA_CLEF_DAILY_NEURONS);
   },
   get CLOUDFLARE_ACCOUNT_ID() {
     return keys.CLOUDFLARE_ACCOUNT_ID;

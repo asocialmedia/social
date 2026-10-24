@@ -20,6 +20,8 @@ export function mediaDownloadDescriptor(apiBase: string, media: FeedMedia) {
     fileName: `asocialmedia-${media.id.replaceAll(/[^a-zA-Z0-9_-]/g, "")}.${extension}`,
     mimeType:
       media.mimeType ?? (media.type === "VIDEO" ? "video/mp4" : "image/jpeg"),
-    url: `${apiBase.replace(/\/+$/, "")}/api/media/${encodeURIComponent(media.id)}`,
+    url: media.id.startsWith("https://")
+      ? media.id
+      : `${apiBase.replace(/\/+$/, "")}/api/media/${encodeURIComponent(media.id)}`,
   };
 }

@@ -27,12 +27,6 @@ export default defineConfig({
       },
     },
     {
-      // Media-processing manipulates binary formats (bitstream hashing,
-      // waveform views, pixel packing) where bitwise operators are the
-      // domain language, and its job loops are ordered on purpose: ffmpeg
-      // ladders and S3 uploads run sequentially to bound CPU/memory. The
-      // shared media package earns the same exemption for its container
-      // parsers (JPEG/PNG/WebP metadata stripping walk byte structures).
       files: ["apps/media-processing/**", "packages/media/**"],
       rules: {
         "eslint/no-await-in-loop": "off",
@@ -40,9 +34,6 @@ export default defineConfig({
       },
     },
     {
-      // Sequential awaits over the media-derivative rows are correct here
-      // (each step touches a single row/object, not a batchable set) and
-      // refactors that parallelize them have repeatedly reintroduced races.
       files: ["apps/web/src/app/api/users/avatar/**"],
       rules: {
         "eslint/no-await-in-loop": "off",
@@ -50,14 +41,12 @@ export default defineConfig({
       },
     },
     {
-      // Expo Metro bundler standard config requires CommonJS globals.
       files: ["apps/mobile/metro.config.js"],
       rules: {
         "unicorn/prefer-module": "off",
       },
     },
     {
-      // React Native and Expo use string values for certain component style props (e.g. StatusBar).
       files: ["apps/mobile/**"],
       rules: {
         "react/style-prop-object": "off",

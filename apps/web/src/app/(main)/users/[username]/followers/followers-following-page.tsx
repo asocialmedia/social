@@ -22,6 +22,8 @@ import MobileTopBar from "@/components/layouts/navigation/mobile/mobile-top-bar"
 import FollowButton from "@/components/layouts/user/follow-button";
 import UserAvatar from "@/components/layouts/user/user-avatar";
 import PostHistoryCard from "@/components/posts/views/post-history-card";
+import { BlueskyIcon } from "@/components/protocols/bluesky-icon";
+import { ExternalFollowButton } from "@/components/protocols/external-follow-button";
 import { useFeedSwipeNavigation } from "@/hooks/feed/use-feed-swipe-navigation";
 import kyInstance from "@/lib/ky";
 
@@ -144,15 +146,24 @@ const FollowersFollowingPage: React.FC<{
           <div key={user.id}>
             {index > 0 ? <Separator className="bg-border/60" /> : null}
             <div className="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-[hsl(var(--muted))]">
-              <Link className="shrink-0" href={`/users/${user.username}`}>
+              <Link
+                className="shrink-0"
+                href={user.href ?? `/users/${user.username}`}
+              >
                 <UserAvatar avatarUrl={user.avatarUrl} className="size-11" />
               </Link>
               <div className="min-w-0 flex-1">
                 <Link
                   className="block truncate text-sm font-medium hover:underline"
-                  href={`/users/${user.username}`}
+                  href={user.href ?? `/users/${user.username}`}
                 >
                   {user.displayName || user.username}
+                  {user.source === "bluesky" ? (
+                    <BlueskyIcon
+                      tooltip={false}
+                      className="ml-1 inline size-3"
+                    />
+                  ) : null}
                 </Link>
                 <span className="text-muted-foreground block truncate text-xs">
                   @{user.username}
@@ -175,15 +186,23 @@ const FollowersFollowingPage: React.FC<{
                   </div>
                 ) : null}
               </div>
-              {user.id === loggedInUserData.id ? null : (
-                <FollowButton
+              {user.source === "bluesky" ? (
+                <ExternalFollowButton
+                  did={user.id}
+                  initialFollowing={user.isFollowing}
                   className="h-8 shrink-0 px-3 text-xs"
-                  initialState={{
-                    followers: user._count.followers,
-                    isFollowedByUser: user.isFollowing,
-                  }}
-                  userId={user.id}
                 />
+              ) : (
+                user.id !== loggedInUserData.id && (
+                  <FollowButton
+                    className="h-8 shrink-0 px-3 text-xs"
+                    initialState={{
+                      followers: user._count.followers,
+                      isFollowedByUser: user.isFollowing,
+                    }}
+                    userId={user.id}
+                  />
+                )
               )}
             </div>
           </div>

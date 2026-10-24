@@ -37,6 +37,7 @@ if (import.meta.main) {
     MEDIA_PROCESS_QUEUE,
     MEDIA_ANALYZE_QUEUE,
     MEDIA_SCAN_QUEUE,
+    EXTERNAL_MEDIA_SAFETY_QUEUE,
     prisma,
   } = await import("@asm/db");
   const { MEDIA_JOB_NAMES } = await import("@asm/media");
@@ -47,11 +48,15 @@ if (import.meta.main) {
     await import("./analyze/provider-budget");
   const { OcrDeferredError } = await import("./analyze/ocr");
   const { processPostAnalyze } = await import("./jobs/analyze-post");
+  const { warmExternalMediaSafety } =
+    await import("./jobs/warm-external-media-safety");
   const { processMediaScan } = await import("./jobs/scan");
   const { processMedia } = await import("./jobs/process");
   const { processMediaCleanup } = await import("./jobs/cleanup");
   const { processMediaDeleteCascade } = await import("./jobs/delete-cascade");
   const { processMediaAnalyze } = await import("./jobs/analyze");
+  const { processExternalMediaSafety } =
+    await import("./jobs/external-media-safety");
   const { workerEnv } = await import("./env");
   const { getS3 } = await import("./s3");
   const { withTimeout } = await import("./transcode/ffmpeg");
@@ -64,6 +69,61 @@ if (import.meta.main) {
     maxRetriesPerRequest: null,
     url: workerEnv.REDIS_URL,
   });
+
+  const externalSafetyWorker = new Worker(
+    EXTERNAL_MEDIA_SAFETY_QUEUE,
+    async (job) => {
+      try {
+        await withAnalysisLane(false, () =>
+          processExternalMediaSafety(job.data)
+        );
+      } catch (error) {
+        if (error instanceof ClefDeferredError && job.token) {
+          await job.moveToDelayed(
+            Math.min(error.retryAt, Date.now() + 15 * 60_000),
+            job.token
+          );
+          throw new DelayedError();
+        }
+        throw error;
+      }
+    },
+    { concurrency: 2, connection: bullConnection(), lockDuration: 120_000 }
+  );
+  externalSafetyWorker.on("error", (error) =>
+    mediaLogger.warn(
+      { error: String(error) },
+      "External media safety queue unavailable"
+    )
+  );
+  externalSafetyWorker.on("failed", (job, error) =>
+    mediaLogger.warn(
+      { error: String(error), jobId: job?.id },
+      "External media remains withheld pending safety assessment"
+    )
+  );
+  let safetyWarmupRunning = false;
+  const warmSafety = async () => {
+    if (safetyWarmupRunning) {
+      return;
+    }
+    safetyWarmupRunning = true;
+    try {
+      await warmExternalMediaSafety();
+    } catch (error) {
+      mediaLogger.warn(
+        { error: String(error) },
+        "External media safety warmup unavailable"
+      );
+    } finally {
+      safetyWarmupRunning = false;
+    }
+  };
+  const safetyWarmupTimer = setInterval(() => {
+    void warmSafety();
+  }, 10_000);
+  safetyWarmupTimer.unref();
+  void warmSafety();
 
   // Two pools: scan is I/O-bound (ClamAV + hash + strip), process is
   // CPU/ffmpeg-bound. Splitting eliminates head-of-line where a burst of
@@ -323,33 +383,34 @@ if (import.meta.main) {
       if (new URL(request.url).pathname === "/metrics") {
         try {
           const queues = await Promise.all(
-            [MEDIA_SCAN_QUEUE, MEDIA_PROCESS_QUEUE, MEDIA_ANALYZE_QUEUE].map(
-              async (name) => {
-                const queue = getQueue(name);
-                const oldest = await queue.getJobs(
-                  ["wait", "prioritized", "delayed"],
-                  0,
-                  99,
-                  true
-                );
-                return {
-                  counts: await queue.getJobCounts(
-                    "wait",
-                    "prioritized",
-                    "delayed",
-                    "active",
-                    "failed"
-                  ),
-                  name,
-                  pendingSampleSize: oldest.length,
-                  sampledOldestPendingAgeMs: oldest.length
-                    ? Math.max(
-                        ...oldest.map((job) => Date.now() - job.timestamp)
-                      )
-                    : 0,
-                };
-              }
-            )
+            [
+              MEDIA_SCAN_QUEUE,
+              MEDIA_PROCESS_QUEUE,
+              MEDIA_ANALYZE_QUEUE,
+              EXTERNAL_MEDIA_SAFETY_QUEUE,
+            ].map(async (name) => {
+              const queue = getQueue(name);
+              const oldest = await queue.getJobs(
+                ["wait", "prioritized", "delayed"],
+                0,
+                99,
+                true
+              );
+              return {
+                counts: await queue.getJobCounts(
+                  "wait",
+                  "prioritized",
+                  "delayed",
+                  "active",
+                  "failed"
+                ),
+                name,
+                pendingSampleSize: oldest.length,
+                sampledOldestPendingAgeMs: oldest.length
+                  ? Math.max(...oldest.map((job) => Date.now() - job.timestamp))
+                  : 0,
+              };
+            })
           );
           return Response.json({
             coverage: await getMediaAnalysisCoverage(),
@@ -389,7 +450,8 @@ if (import.meta.main) {
             running &&
             scanWorker.isRunning() &&
             processWorker.isRunning() &&
-            analyzeWorker.isRunning();
+            analyzeWorker.isRunning() &&
+            externalSafetyWorker.isRunning();
           return Response.json(
             { status: ready ? "ready" : "not-ready" },
             { status: ready ? 200 : 503 }
@@ -411,15 +473,29 @@ if (import.meta.main) {
       return;
     }
     running = false;
+    clearInterval(safetyWarmupTimer);
+    const forceExitTimer = setTimeout(() => {
+      mediaLogger.warn(
+        {},
+        "media-processing force exiting after shutdown timeout"
+      );
+      process.exit(0);
+    }, 3500);
+    forceExitTimer.unref();
+
     mediaLogger.info({}, "media-processing shutting down");
     healthServer.stop(true);
-    await Promise.allSettled([
-      scanWorker.close(),
-      processWorker.close(),
-      analyzeWorker.close(),
-      sweepWorker.close(),
+    await Promise.race([
+      Promise.allSettled([
+        scanWorker.close(),
+        processWorker.close(),
+        analyzeWorker.close(),
+        externalSafetyWorker.close(),
+        sweepWorker.close(),
+      ]),
+      Bun.sleep(2500),
     ]);
-    await closeQueueConnections();
+    await closeQueueConnections().catch(() => null);
     await (telemetry as Telemetry).shutdown().catch(() => null);
     process.exit(0);
   };

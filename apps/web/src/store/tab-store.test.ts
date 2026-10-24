@@ -84,19 +84,14 @@ describe("explore tab resolution", () => {
       )
     ).toBe("trending");
     expect(
-      resolveExploreTab(
-        null,
-        false,
-        { updatedAt: FRESH, value: "people" },
-        true
-      )
-    ).toBe("trending");
+      resolveExploreTab(null, false, { updatedAt: FRESH, value: "gusts" }, true)
+    ).toBe("gusts");
   });
 
   test("logged-in users restore any remembered tab", () => {
     expect(
-      resolveExploreTab(null, true, { updatedAt: FRESH, value: "people" }, true)
-    ).toBe("people");
+      resolveExploreTab(null, true, { updatedAt: FRESH, value: "gusts" }, true)
+    ).toBe("gusts");
   });
 
   test("expired memory falls back to the default", () => {

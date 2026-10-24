@@ -246,7 +246,7 @@ export default function SecuritySessionsCard({
     >
       <div className="flex items-start justify-between gap-4">
         <SettingsCardHeading
-          description="Up to four sign-ins across browsers and apps. A new sign-in ends the oldest session when the limit is reached."
+          description="Up to three sign-ins across browsers and apps. A new sign-in ends the oldest session when the limit is reached."
           icon={MonitorSmartphone}
           title="Active sessions"
         />

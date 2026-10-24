@@ -27,11 +27,12 @@ jobs:
     name: Lint and Typecheck
     needs: detect-pr-merge
     if: ${{ always() && !(github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.detect-pr-merge.outputs.quality-already-passed == 'true') }}
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-2vcpu-ubuntu-2404
     # The unit tests exercise the real Redis-backed caches (search history),
     # so provision a throwaway instance matching the local dev default.
     env:
       REDIS_URL: redis://127.0.0.1:6379/0
+      PROTOCOLS_TEST_REDIS_URL: redis://127.0.0.1:6379/0
     services:
       redis:
         image: redis:7-alpine
@@ -44,6 +45,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Setup Bun
+        id: setup-bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version-file: package.json
@@ -61,9 +63,9 @@ jobs:
           path: |
             ${{ steps.bun-cache.outputs.store_path }}
             ~/.bun/install/cache
-          key: ${{ runner.os }}-bun-store-${{ hashFiles('bun.lock') }}
+          key: ${{ runner.os }}-${{ runner.arch }}-bun-${{ steps.setup-bun.outputs.bun-version }}-store-${{ hashFiles('bun.lock') }}
           restore-keys: |
-            ${{ runner.os }}-bun-store-
+            ${{ runner.os }}-${{ runner.arch }}-bun-${{ steps.setup-bun.outputs.bun-version }}-store-
 
       - name: Restore node_modules
         uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
@@ -72,26 +74,23 @@ jobs:
           path: |
             **/node_modules
             !**/node_modules/.cache
-          key: ${{ runner.os }}-node-modules-${{ hashFiles('bun.lock') }}-${{ hashFiles('**/package.json') }}
-          restore-keys: |
-            ${{ runner.os }}-node-modules-${{ hashFiles('bun.lock') }}-
-            ${{ runner.os }}-node-modules-
+          key: ${{ runner.os }}-${{ runner.arch }}-node-modules-v3-${{ steps.setup-bun.outputs.bun-version }}-${{ hashFiles('bunfig.toml') }}-${{ hashFiles('bun.lock') }}-${{ hashFiles('**/package.json') }}
 
       - name: Restore Turbo cache
         uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
         with:
           path: .turbo
-          key: ${{ runner.os }}-turbo-${{ github.sha }}
+          key: ${{ runner.os }}-${{ runner.arch }}-turbo-v2-${{ hashFiles('bun.lock', 'turbo.json', 'package.json') }}-${{ github.sha }}
           restore-keys: |
-            ${{ runner.os }}-turbo-
+            ${{ runner.os }}-${{ runner.arch }}-turbo-v2-${{ hashFiles('bun.lock', 'turbo.json', 'package.json') }}-
 
       - name: Restore Prisma cache
         uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
         with:
           path: ~/.cache/prisma
-          key: ${{ runner.os }}-prisma-${{ hashFiles('**/contract.prisma') }}
+          key: ${{ runner.os }}-${{ runner.arch }}-prisma-v2-${{ hashFiles('bun.lock') }}-${{ hashFiles('**/contract.prisma') }}
           restore-keys: |
-            ${{ runner.os }}-prisma-
+            ${{ runner.os }}-${{ runner.arch }}-prisma-v2-${{ hashFiles('bun.lock') }}-
 
       - name: Install dependencies
         if: steps.node-modules-restore.outputs.cache-hit != 'true'
@@ -117,7 +116,7 @@ jobs:
   detect-pr-merge:
     name: Detect merged PR push
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-2vcpu-ubuntu-2404
     outputs:
       should-build: ${{ steps.pr-check.outputs.should-build }}
       merge-pr-number: ${{ steps.pr-check.outputs.pr-number }}
@@ -140,7 +139,7 @@ jobs:
     name: Determine changed app images
     needs: detect-pr-merge
     if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.detect-pr-merge.outputs.should-build == 'true'
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-2vcpu-ubuntu-2404
     outputs:
       matrix: ${{ steps.changed-apps.outputs.matrix }}
       has-app-changes: ${{ steps.changed-apps.outputs.has-app-changes }}
@@ -173,7 +172,7 @@ jobs:
       - determine-build-matrix
       - prisma-sync
     if: ${{ always() && github.event_name == 'push' && github.ref == 'refs/heads/main' && (needs.quality.result == 'success' || needs.quality.result == 'skipped') && needs.detect-pr-merge.outputs.should-build == 'true' && needs.determine-build-matrix.outputs.has-app-changes == 'true' && (needs.prisma-sync.result == 'success' || needs.prisma-sync.result == 'skipped') }}
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     permissions:
       contents: read
       packages: write
@@ -226,17 +225,19 @@ jobs:
             io.asm.pr-number=${{ needs.detect-pr-merge.outputs.merge-pr-number }}
 
       - name: Build and push Docker image (multi-arch)
+        id: build_image
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
         with:
           cache-from: type=gha,scope=${{ matrix.app }}
           cache-to: type=gha,mode=max,scope=${{ matrix.app }}
-          context: .
+          context: ${{ matrix.context || '.' }}
           file: ${{ matrix.dockerfile }}
           push: true
           platforms: linux/amd64,linux/arm64
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
+            SOURCE_REVISION=${{ github.sha }}
             ${{ matrix.app == 'web' && 'NEXT_PUBLIC_URL=https://asocialmedia.cc' || '' }}
             ${{ matrix.app == 'web' && 'NEXT_PUBLIC_AUTH_URL=https://auth.asocialmedia.cc' || '' }}
             ${{ matrix.app == 'web' && 'NEXT_PUBLIC_TURNSTILE_SITE_KEY=0x4AAAAAAEuKQSsPABv2HAdA' || '' }}
@@ -249,18 +250,41 @@ jobs:
           DOKPLOY_WEB_APP_ID: ${{ secrets.DOKPLOY_WEB_APP_ID }}
           DOKPLOY_AUTH_APP_ID: ${{ secrets.DOKPLOY_AUTH_APP_ID }}
           DOKPLOY_MEDIA_APP_ID: ${{ secrets.DOKPLOY_MEDIA_APP_ID }}
+          DOKPLOY_PROTOCOLS_APP_ID: ${{ secrets.DOKPLOY_PROTOCOLS_APP_ID }}
           WEB_HEALTH_URL: ${{ secrets.WEB_HEALTH_URL }}
           AUTH_HEALTH_URL: ${{ secrets.AUTH_HEALTH_URL }}
           MEDIA_HEALTH_URL: ${{ secrets.MEDIA_HEALTH_URL }}
+          PROTOCOLS_HEALTH_URL: ${{ secrets.PROTOCOLS_HEALTH_URL }}
         run: bash scripts/ci/resolve-deploy-targets.sh "${{ matrix.app }}"
 
       - name: Trigger Dokploy deployment via API
-        if: success() && steps.deploy-targets.outputs.deploy_enabled == 'true'
+        if: success() && (matrix.app == 'protocols' || steps.deploy-targets.outputs.deploy_enabled == 'true')
         env:
           DOKPLOY_API_URL: ${{ secrets.DOKPLOY_API_URL }}
           DOKPLOY_API_TOKEN: ${{ secrets.DOKPLOY_API_TOKEN }}
           DOKPLOY_APP_ID: ${{ steps.deploy-targets.outputs.app_id }}
-        run: bash scripts/ci/dokploy-deploy.sh
+        run: |
+          if [ "${{ matrix.app }}" = "protocols" ]; then
+            bash scripts/ci/deploy-protocols-region.sh
+          else
+            bash scripts/ci/dokploy-deploy.sh
+          fi
+
+      - name: Deploy US East protocols
+        if: ${{ always() && matrix.app == 'protocols' && steps.build_image.outcome == 'success' }}
+        env:
+          DOKPLOY_API_URL: ${{ secrets.DOKPLOY_US_EAST_API_URL }}
+          DOKPLOY_API_TOKEN: ${{ secrets.DOKPLOY_US_EAST_API_TOKEN }}
+          DOKPLOY_APP_ID: ${{ secrets.DOKPLOY_US_EAST_PROTOCOLS_APP_ID }}
+        run: bash scripts/ci/deploy-protocols-region.sh
+
+      - name: Deploy classifier worker
+        if: ${{ always() && matrix.app == 'classifier' && steps.build_image.outcome == 'success' }}
+        env:
+          DOKPLOY_API_URL: ${{ secrets.DOKPLOY_US_EAST_API_URL }}
+          DOKPLOY_API_TOKEN: ${{ secrets.DOKPLOY_US_EAST_API_TOKEN }}
+          DOKPLOY_APP_ID: ${{ secrets.DOKPLOY_US_EAST_CLASSIFIER_APP_ID }}
+        run: bash scripts/ci/deploy-classifier.sh
 
       - name: Trigger worker deployment via API
         if: success() && matrix.app == 'auth'
@@ -288,7 +312,7 @@ jobs:
     name: Cleanup old GHCR images
     needs: build-and-push
     if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-2vcpu-ubuntu-2404
     permissions:
       packages: write
     strategy:
@@ -307,6 +331,21 @@ jobs:
           delete-only-untagged-versions: true
           token: ${{ secrets.GITHUB_TOKEN }}
 
+  dokploy-preflight:
+    name: Check Dokploy credentials (read only)
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Validate Dokploy credentials and Prisma application access
+        env:
+          DOKPLOY_API_URL: ${{ secrets.DOKPLOY_API_URL }}
+          DOKPLOY_API_TOKEN: ${{ secrets.DOKPLOY_API_TOKEN }}
+          DOKPLOY_PRISMA_APP_ID: ${{ secrets.DOKPLOY_PRISMA_APP_ID }}
+        run: bash scripts/ci/prisma-sync-deploy.sh --check
+
   prisma-sync:
     name: Prisma schema sync
     needs:
@@ -314,7 +353,7 @@ jobs:
       - detect-pr-merge
       - determine-build-matrix
     if: ${{ always() && github.event_name == 'push' && github.ref == 'refs/heads/main' && (needs.quality.result == 'success' || needs.quality.result == 'skipped') && needs.detect-pr-merge.outputs.should-build == 'true' }}
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-2vcpu-ubuntu-2404
     permissions:
       contents: read
       packages: write
@@ -337,6 +376,14 @@ jobs:
               prNumber: Number('${{ needs.detect-pr-merge.outputs.merge-pr-number }}'),
               hasAppChanges: '${{ needs.determine-build-matrix.outputs.has-app-changes }}',
             })
+
+      - name: Validate Dokploy credentials and Prisma application access
+        if: steps.resolve-prisma.outputs.should-run == 'true'
+        env:
+          DOKPLOY_API_URL: ${{ secrets.DOKPLOY_API_URL }}
+          DOKPLOY_API_TOKEN: ${{ secrets.DOKPLOY_API_TOKEN }}
+          DOKPLOY_PRISMA_APP_ID: ${{ secrets.DOKPLOY_PRISMA_APP_ID }}
+        run: bash scripts/ci/prisma-sync-deploy.sh --check
 
       - name: Print Prisma sync context
         if: steps.resolve-prisma.outputs.should-run == 'true'
@@ -413,12 +460,13 @@ jobs:
       - detect-pr-merge
       - determine-build-matrix
     if: ${{ always() && github.event_name == 'push' && github.ref == 'refs/heads/main' && (needs.quality.result == 'success' || needs.quality.result == 'skipped') && needs.detect-pr-merge.outputs.should-build == 'true' && needs.determine-build-matrix.outputs.has-mobile-changes == 'true' }}
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Setup Bun
+        id: setup-bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version-file: package.json
@@ -444,9 +492,9 @@ jobs:
           path: |
             ${{ steps.bun-cache.outputs.store_path }}
             ~/.bun/install/cache
-          key: ${{ runner.os }}-bun-store-${{ hashFiles('bun.lock') }}
+          key: ${{ runner.os }}-${{ runner.arch }}-bun-${{ steps.setup-bun.outputs.bun-version }}-store-${{ hashFiles('bun.lock') }}
           restore-keys: |
-            ${{ runner.os }}-bun-store-
+            ${{ runner.os }}-${{ runner.arch }}-bun-${{ steps.setup-bun.outputs.bun-version }}-store-
 
       - name: Restore node_modules
         uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
@@ -455,10 +503,7 @@ jobs:
           path: |
             **/node_modules
             !**/node_modules/.cache
-          key: ${{ runner.os }}-node-modules-${{ hashFiles('bun.lock') }}-${{ hashFiles('**/package.json') }}
-          restore-keys: |
-            ${{ runner.os }}-node-modules-${{ hashFiles('bun.lock') }}-
-            ${{ runner.os }}-node-modules-
+          key: ${{ runner.os }}-${{ runner.arch }}-node-modules-v3-${{ steps.setup-bun.outputs.bun-version }}-${{ hashFiles('bunfig.toml') }}-${{ hashFiles('bun.lock') }}-${{ hashFiles('**/package.json') }}
 
       - name: Install dependencies
         if: steps.node-modules-restore.outputs.cache-hit != 'true'
@@ -534,7 +579,7 @@ jobs:
       - prisma-sync
       - build-mobile-apk
     if: ${{ always() && github.event_name == 'push' && github.ref == 'refs/heads/main' && (needs.quality.result == 'success' || needs.quality.result == 'skipped') && needs.detect-pr-merge.outputs.should-build == 'true' && (needs.build-and-push.result == 'success' || needs.build-and-push.result == 'skipped') && (needs.prisma-sync.result == 'success' || needs.prisma-sync.result == 'skipped') && (needs.build-mobile-apk.result == 'success' || needs.build-mobile-apk.result == 'skipped') }}
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-2vcpu-ubuntu-2404
     permissions:
       contents: write
       pull-requests: read
@@ -545,6 +590,7 @@ jobs:
           fetch-depth: 0
 
       - name: Setup Bun
+        id: setup-bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version-file: package.json

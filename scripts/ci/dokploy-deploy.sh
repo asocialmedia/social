@@ -18,7 +18,7 @@ fi
 
 API_URL="$(dokploy_base_url "${DOKPLOY_API_URL}")"
 
-dokploy_curl -X 'POST' \
+dokploy_api_request -X 'POST' \
   --retry 3 \
   --retry-delay 5 \
   --retry-connrefused \
@@ -26,7 +26,6 @@ dokploy_curl -X 'POST' \
   -H 'accept: application/json' \
   -H 'Content-Type: application/json' \
   -H "x-api-key: ${DOKPLOY_API_TOKEN}" \
-  -d "{\"applicationId\":\"${DOKPLOY_APP_ID}\"}" \
-  --fail --silent --show-error
+  -d "{\"applicationId\":\"${DOKPLOY_APP_ID}\"}"
 
 echo "Dokploy deploy triggered for application ${DOKPLOY_APP_ID}."

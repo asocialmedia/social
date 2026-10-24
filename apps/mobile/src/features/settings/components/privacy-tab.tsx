@@ -13,7 +13,7 @@ import { Shield } from "lucide-react-native";
 import { useCallback, useEffect, useState } from "react";
 import type { RefObject } from "react";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
-import type { ScrollView as ScrollViewType } from "react-native";
+import type { ScrollViewInstance as ScrollViewType } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { toast } from "@/components/feedback/toast";

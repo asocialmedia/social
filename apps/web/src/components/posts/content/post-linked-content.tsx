@@ -1,6 +1,7 @@
 "use client";
 
 import type { UserData } from "@asm/db";
+import type { TextSegment } from "@asm/protocols/contracts";
 import { useQuery } from "@tanstack/react-query";
 import { HTTPError } from "ky";
 
@@ -21,7 +22,11 @@ export default function PostLinkedContent({
   content,
   embeds,
   linkBadge = "preview",
+  sourceSegments,
+  source,
 }: {
+  sourceSegments?: TextSegment[];
+  source?: "asm" | "bluesky";
   className?: string;
   content: string;
   embeds?: LinkEmbed[];
@@ -29,6 +34,9 @@ export default function PostLinkedContent({
 }) {
   return (
     <PostInlineContent
+      compactBlankLines
+      sourceSegments={sourceSegments}
+      source={source}
       className={className}
       content={content}
       embeds={embeds}

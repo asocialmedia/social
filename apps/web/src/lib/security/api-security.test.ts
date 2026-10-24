@@ -53,6 +53,9 @@ describe("resolveApiTier", () => {
       "/api/posts/trending",
       "/api/posts/following",
       "/api/gusts",
+      "/api/protocols/bluesky/discover",
+      "/api/protocols/bluesky/search",
+      "/api/protocols/bluesky/following",
     ]) {
       expect(resolveApiTier(path)?.bucket).toBe("heavy-read");
     }

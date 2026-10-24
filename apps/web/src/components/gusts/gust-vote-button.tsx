@@ -1,15 +1,18 @@
 "use client";
 
 import type { VoteInfo } from "@asm/db";
-import { ArrowBigDown, ArrowBigUp, Flame } from "lucide-react";
+import type { ExternalPost } from "@asm/protocols/contracts";
+import { ArrowBigDown, ArrowBigUp } from "lucide-react";
 import { useCallback } from "react";
 
-import { getAuraFlameClass } from "@/lib/aura/aura";
-import { cn, formatNumber } from "@/lib/utils";
+import { PostEngagementCount } from "@/components/posts/actions/post-engagement-count";
+import { ExternalLikeButton } from "@/components/protocols/external-like-button";
+import { cn } from "@/lib/utils";
 
 import { useGustVote } from "./use-gust-vote";
 
 interface GustVoteButtonProps {
+  external?: ExternalPost;
   authorName: string;
   direction: "up" | "down";
   initialState: VoteInfo;
@@ -24,6 +27,7 @@ interface GustVoteButtonProps {
 // render read-only so they can't fire mutations that fight the first copy.
 export default function GustVoteButton({
   authorName,
+  external,
   direction,
   initialState,
   interactive = true,
@@ -31,6 +35,7 @@ export default function GustVoteButton({
 }: GustVoteButtonProps) {
   const { aura, toggleVote, userVote } = useGustVote({
     authorName,
+    external,
     initialState,
     postId,
   });
@@ -77,11 +82,20 @@ export default function GustVoteButton({
         )}
       </button>
 
-      {isUp ? (
-        <span className="text-primary flex items-center gap-1 text-lg font-black tabular-nums drop-shadow-md">
-          <Flame className={cn("size-5", getAuraFlameClass(aura))} />
-          {formatNumber(aura)}
-        </span>
+      {isUp && external ? (
+        <ExternalLikeButton
+          interactive={interactive}
+          post={external}
+          className="text-lg font-black tabular-nums drop-shadow-md"
+          iconClassName="size-5"
+        />
+      ) : null}
+      {isUp && !external ? (
+        <PostEngagementCount
+          aura={aura}
+          className="text-primary flex items-center gap-1 text-lg font-black tabular-nums drop-shadow-md"
+          iconClassName="size-5"
+        />
       ) : null}
     </div>
   );

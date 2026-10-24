@@ -1,5 +1,48 @@
 import { createHash } from "node:crypto";
 
+export function rasterSourceFingerprint(keys: readonly string[]): string {
+  return createHash("sha256")
+    .update(JSON.stringify([...new Set(keys.filter(Boolean))]))
+    .digest("hex");
+}
+
+export function rasterRetryEligible(
+  metadata: unknown,
+  fingerprint?: string
+): boolean {
+  if (
+    !metadata ||
+    typeof metadata !== "object" ||
+    !("analysisStages" in metadata)
+  ) {
+    return true;
+  }
+  const stages = metadata.analysisStages;
+  if (!stages || typeof stages !== "object" || !("raster" in stages)) {
+    return true;
+  }
+  const { raster } = stages;
+  if (
+    !raster ||
+    typeof raster !== "object" ||
+    !("status" in raster) ||
+    raster.status !== "unavailable"
+  ) {
+    return true;
+  }
+  if (
+    "retryAt" in raster &&
+    typeof raster.retryAt === "number" &&
+    raster.retryAt <= Date.now()
+  ) {
+    return true;
+  }
+  return (
+    fingerprint !== undefined &&
+    (!("fingerprint" in raster) || raster.fingerprint !== fingerprint)
+  );
+}
+
 export function analysisStageComplete(
   metadata: unknown,
   stage: string,
@@ -22,7 +65,9 @@ export function analysisStageComplete(
     typeof value === "object" &&
     "status" in value &&
     (!model || ("model" in value && value.model === model)) &&
-    ["completed", "silent", "no_audio"].includes(String(value.status))
+    ["completed", "silent", "no_audio", "skipped"].includes(
+      String(value.status)
+    )
   );
 }
 
@@ -42,7 +87,9 @@ export function transcriptionComplete(metadata: unknown): boolean {
     transcription &&
     typeof transcription === "object" &&
     "status" in transcription &&
-    ["completed", "silent", "no_audio"].includes(String(transcription.status))
+    ["completed", "silent", "no_audio", "skipped"].includes(
+      String(transcription.status)
+    )
   );
 }
 
@@ -86,16 +133,29 @@ export function transcriptionRetryEligible(
   metadata: unknown,
   now = Date.now()
 ): boolean {
-  if (
-    !metadata ||
-    typeof metadata !== "object" ||
-    !("transcription" in metadata)
-  ) {
+  if (!metadata || typeof metadata !== "object") {
     return true;
   }
-  const stage = metadata.transcription;
-  if (!stage || typeof stage !== "object") {
+  const stages =
+    "analysisStages" in metadata &&
+    metadata.analysisStages &&
+    typeof metadata.analysisStages === "object"
+      ? (metadata.analysisStages as Record<string, unknown>)
+      : null;
+  const stage =
+    (stages?.transcription && typeof stages.transcription === "object"
+      ? (stages.transcription as Record<string, unknown>)
+      : null) ??
+    ("transcription" in metadata &&
+    metadata.transcription &&
+    typeof metadata.transcription === "object"
+      ? (metadata.transcription as Record<string, unknown>)
+      : null);
+  if (!stage) {
     return true;
+  }
+  if ("status" in stage && stage.status === "skipped") {
+    return false;
   }
   if (
     "attempts" in stage &&

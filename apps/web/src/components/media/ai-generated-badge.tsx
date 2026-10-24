@@ -1,7 +1,6 @@
 // AI-generated marker shown over media surfaces (post cards, gusts, the
-// media viewer). The flag comes from Media.aiGenerated, recorded by the
-// scan stage's C2PA provenance inspection and stored server-side - so it
-// cannot be stripped by editing the file's metadata.
+// media viewer). Native flags come from C2PA inspection; external declarations
+// carry their source so the explanation never implies verified provenance.
 //
 // Styling follows the app's dual-border 3D language (inset white ring +
 // gloss, outer dark ring, drop shadow) using the violet accent reserved
@@ -22,9 +21,9 @@ import type { Media } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 interface AiGeneratedBadgeProps {
-  /** Positioning classes from the host surface (absolute placement etc.). */
+  // Positioning classes from the host surface (absolute placement etc.).
   className?: string;
-  media: Pick<Media, "aiGenerated">;
+  media: Pick<Media, "aiGenerated" | "aiGeneratedSource">;
 }
 
 export function AiGeneratedBadge({ className, media }: AiGeneratedBadgeProps) {
@@ -37,7 +36,11 @@ export function AiGeneratedBadge({ className, media }: AiGeneratedBadgeProps) {
       <Tooltip>
         <TooltipTrigger asChild>
           <div
-            aria-label="AI-generated content"
+            aria-label={
+              media.aiGeneratedSource === "bluesky-label"
+                ? "AI-generated content (Bluesky label)"
+                : "AI-generated content"
+            }
             className={cn(
               "flex h-6 cursor-help items-center gap-1 rounded-full bg-linear-to-b from-[#7c5cff] to-[#5a3ae0] px-2 text-white select-none",
               "shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(70,40,170,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.25)]",
@@ -78,7 +81,9 @@ export function AiGeneratedBadge({ className, media }: AiGeneratedBadgeProps) {
               width={1536}
             />
             <span className="text-xs leading-snug">
-              This media’s provenance declares AI generation or AI editing.
+              {media.aiGeneratedSource === "bluesky-label"
+                ? "This Bluesky post carries an AI-generated label. This is a content declaration, not verified media provenance."
+                : "This media’s provenance declares AI generation or AI editing."}
             </span>
           </span>
         </TooltipContent>

@@ -1,24 +1,41 @@
 "use client";
 
 import type { PostData } from "@asm/db";
+import type { ExternalPost } from "@asm/protocols/contracts";
 import { Button } from "@asm/ui/shadui/button";
-import { ChevronRight, Clapperboard, Eye, Flame } from "lucide-react";
+import noMediaImage from "@assets/general/nomedia.png";
+import {
+  ChevronLeft,
+  ChevronRight,
+  Clapperboard,
+  Eye,
+  Flame,
+  Heart,
+  Play,
+} from "lucide-react";
+import { useReducedMotion } from "motion/react";
 import Image from "next/image";
 import Link from "next/link";
-import React, { useCallback, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 
 import UserAvatar from "@/components/layouts/user/user-avatar";
 import UserBadge from "@/components/layouts/user/user-badge";
+import { BlueskyIcon } from "@/components/protocols/bluesky-icon";
+import { RecommendationTracker } from "@/components/recommendations/recommendation-tracker";
 import { getAuraFlameClass } from "@/lib/aura/aura";
+import { blueskyMediaIsExplicit } from "@/lib/protocols/content-labels";
+import { mixExplorePosts } from "@/lib/recommendations/mix-explore";
 import { cn, formatNumber } from "@/lib/utils";
 import { getMediaProxyUrl } from "@/lib/utils/image-url";
 
 interface ExploreGustsRailProps {
   gusts: PostData[];
+  external?: ExternalPost[];
   onViewAll?: () => void;
 }
 
 const VIDEO_HOVER_DELAY = 150;
+const EMPTY_EXTERNAL: ExternalPost[] = [];
 
 const GustRailCard = ({
   gust,
@@ -91,7 +108,7 @@ const GustRailCard = ({
   // Top clapperboard badge and bottom gradient overlay frame the clip.
   return (
     <Link
-      className="group relative aspect-[9/16] w-36 shrink-0 overflow-hidden rounded-2xl bg-neutral-900 shadow-sm sm:w-44"
+      className="group relative block aspect-[9/16] w-full overflow-hidden rounded-2xl bg-neutral-900 shadow-sm sm:w-44"
       href={`/gusts?id=${gust.id}`}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
@@ -179,63 +196,189 @@ const GustRailCard = ({
   );
 };
 
+function ExternalGustRailCard({ post }: { post: ExternalPost }) {
+  const media = post.media.find((item) => item.type === "video");
+  return (
+    <Link
+      className="group relative block aspect-9/16 w-full overflow-hidden rounded-2xl bg-neutral-900"
+      href={`/gusts?id=${encodeURIComponent(post.id)}`}
+    >
+      <Image
+        alt={media?.alt || post.text || "Bluesky Gust"}
+        src={media?.thumbnailUrl ?? noMediaImage}
+        fill
+        className={cn(
+          "object-cover",
+          blueskyMediaIsExplicit(post) && "blur-lg saturate-50"
+        )}
+        sizes="(max-width: 640px) 144px, 176px"
+        unoptimized
+      />
+      <span className="chip-3d absolute top-2 left-2 flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold">
+        <BlueskyIcon className="size-3" /> Gust
+      </span>
+      <Play
+        aria-hidden
+        className="absolute top-1/2 left-1/2 size-8 -translate-1/2 fill-white text-white drop-shadow"
+      />
+      <div className="absolute inset-x-0 bottom-0 bg-linear-to-t from-black/90 via-black/50 to-transparent p-2.5 pt-8 text-white">
+        <div className="flex min-w-0 items-center gap-1.5">
+          <UserAvatar
+            avatarUrl={post.author.avatarUrl}
+            seed={post.author.id}
+            className="size-6 rounded-lg"
+          />
+          <span className="min-w-0 truncate text-xs font-semibold">
+            {post.author.displayName || post.author.handle}
+          </span>
+        </div>
+        <p className="mt-1 truncate text-[10px] text-white/70">
+          @{post.author.handle}
+        </p>
+        <p className="mt-1 line-clamp-1 text-[11px] text-white/80">
+          {post.text}
+        </p>
+        <span className="mt-1.5 flex items-center gap-1 text-[10px] text-white/70">
+          <Heart className="size-3" />
+          {formatNumber(post.upstreamCounts.likes ?? 0)}
+        </span>
+      </div>
+    </Link>
+  );
+}
+
 export const ExploreGustsRail: React.FC<ExploreGustsRailProps> = ({
   gusts,
+  external = EMPTY_EXTERNAL,
   onViewAll,
 }) => {
-  // Moderated gusts never render in the explore rail: the route already
-  // excludes them (excludeModerated=1), and any stale payload is dropped here
-  // rather than shown as a moderation tile.
-  const eligibleGusts = gusts.filter((gust) => !gust.moderated);
-
-  if (!eligibleGusts.length) {
+  const reducedMotion = useReducedMotion();
+  const scroller = useRef<HTMLDivElement>(null);
+  const [edges, setEdges] = useState({ left: false, right: false });
+  const entries = mixExplorePosts(
+    gusts.filter(
+      (post) =>
+        !post.moderated &&
+        post.attachments.some((media) => media.type === "VIDEO")
+    ),
+    external.filter((post) =>
+      post.media.some((media) => media.type === "video")
+    )
+  ).slice(0, 32);
+  const measure = useCallback(() => {
+    const element = scroller.current;
+    if (!element) {
+      return;
+    }
+    const left = element.scrollLeft > 2;
+    const right =
+      element.scrollLeft + element.clientWidth < element.scrollWidth - 2;
+    setEdges((current) =>
+      current.left === left && current.right === right
+        ? current
+        : { left, right }
+    );
+  }, []);
+  useEffect(() => {
+    const element = scroller.current;
+    if (!element || !entries.length) {
+      return;
+    }
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [measure, entries.length]);
+  const slide = (direction: number) =>
+    scroller.current?.scrollBy({
+      behavior: reducedMotion ? "auto" : "smooth",
+      left: direction * scroller.current.clientWidth * 0.8,
+    });
+  if (!entries.length) {
     return null;
   }
-
   return (
     <section aria-label="Trending Gusts" className="mb-6 space-y-3">
-      {/* Header */}
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2.5">
-          <Clapperboard className="text-primary size-4.5 shrink-0" />
+          <span className="icon-btn-3d flex size-9 shrink-0 items-center justify-center rounded-xl">
+            <Clapperboard className="text-primary size-4.5" />
+          </span>
           <div className="min-w-0">
-            <h3 className="text-foreground truncate text-sm font-bold">
+            <h2 className="text-foreground truncate text-sm font-semibold">
               Trending Gusts
-            </h3>
+            </h2>
             <p className="text-muted-foreground truncate text-[11px]">
-              Short-form clips taking off right now
+              Taking off across your networks
             </p>
           </div>
         </div>
-
-        {onViewAll ? (
-          <Button
-            className="text-primary hover:text-primary h-8 shrink-0 gap-1 px-2 text-xs font-semibold"
-            onClick={onViewAll}
-            type="button"
-            variant="ghost"
-          >
-            See all
-            <ChevronRight className="size-3.5" />
-          </Button>
-        ) : (
-          <Button
-            asChild
-            className="text-primary hover:text-primary h-8 shrink-0 gap-1 px-2 text-xs font-semibold"
-            variant="ghost"
-          >
-            <Link href="/gusts">
-              Watch feed
+        <div className="flex shrink-0 items-center gap-1">
+          {edges.left ? (
+            <Button
+              aria-label="Previous trending Gusts"
+              className="icon-btn-3d size-8 rounded-full"
+              size="icon"
+              variant="ghost"
+              onClick={() => slide(-1)}
+            >
+              <ChevronLeft className="size-4" />
+            </Button>
+          ) : null}
+          {edges.right ? (
+            <Button
+              aria-label="Next trending Gusts"
+              className="icon-btn-3d size-8 rounded-full"
+              size="icon"
+              variant="ghost"
+              onClick={() => slide(1)}
+            >
+              <ChevronRight className="size-4" />
+            </Button>
+          ) : null}
+          {onViewAll ? (
+            <Button
+              className="text-primary h-8 gap-1 px-2 text-xs font-semibold"
+              onClick={onViewAll}
+              variant="ghost"
+            >
+              See all
               <ChevronRight className="size-3.5" />
-            </Link>
-          </Button>
-        )}
+            </Button>
+          ) : (
+            <Button
+              asChild
+              className="text-primary h-8 gap-1 px-2 text-xs"
+              variant="ghost"
+            >
+              <Link href="/gusts">
+                Watch feed
+                <ChevronRight className="size-3.5" />
+              </Link>
+            </Button>
+          )}
+        </div>
       </div>
-
-      {/* Horizontal scrollable rail with a right-edge fade hint */}
-      <div className="hide-native-scrollbar flex gap-3 overflow-x-auto overscroll-x-contain [mask-image:linear-gradient(to_right,black_calc(100%-1.5rem),transparent)] pt-0.5 pb-1">
-        {eligibleGusts.map((gust, index) => (
-          <GustRailCard gust={gust} key={gust.id} priority={index === 0} />
+      <div
+        className="hide-native-scrollbar flex gap-3 overflow-x-auto overscroll-x-contain pt-0.5 pb-1"
+        onScroll={measure}
+        ref={scroller}
+      >
+        {entries.map((entry, index) => (
+          <RecommendationTracker
+            className="w-36 shrink-0 sm:w-44"
+            exposureFeed="trending"
+            key={`${entry.source}:${entry.post.id}`}
+            networkSource={entry.source}
+            networkToken={entry.post.networkRecommendationToken}
+            postId={entry.post.id}
+          >
+            {entry.source === "asm" ? (
+              <GustRailCard gust={entry.post} priority={index === 0} />
+            ) : (
+              <ExternalGustRailCard post={entry.post} />
+            )}
+          </RecommendationTracker>
         ))}
       </div>
     </section>

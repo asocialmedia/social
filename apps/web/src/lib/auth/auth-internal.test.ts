@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
-import { authInternalHeaders, resolveAuthBaseUrl } from "./auth-internal";
+import {
+  authInternalHeaders,
+  authSessionHeaders,
+  resolveAuthBaseUrl,
+} from "./auth-internal";
 
 describe("resolveAuthBaseUrl", () => {
   test("server uses the internal URL when configured", () => {
@@ -48,4 +52,28 @@ describe("authInternalHeaders", () => {
     expect(headers.referer).toBe("https://custom.asocialmedia.cc/ref");
     expect(headers["content-type"]).toBe("application/json");
   });
+});
+
+test("session calls retain trusted ingress without accepting production forwarded-IP spoofing", () => {
+  const headers = new Headers({
+    "cf-connecting-ip": "203.0.113.8",
+    "x-forwarded-for": "198.51.100.2",
+  });
+  expect(authSessionHeaders(headers, {}, true)["cf-connecting-ip"]).toBe(
+    "203.0.113.8"
+  );
+  expect(
+    authSessionHeaders(
+      new Headers({ "x-forwarded-for": "198.51.100.2" }),
+      {},
+      true
+    )["cf-connecting-ip"]
+  ).toBeUndefined();
+  expect(
+    authSessionHeaders(
+      new Headers({ "x-forwarded-for": "198.18.0.2" }),
+      {},
+      false
+    )["x-forwarded-for"]
+  ).toBe("198.18.0.2");
 });

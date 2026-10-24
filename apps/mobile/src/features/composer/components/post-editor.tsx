@@ -24,6 +24,7 @@ import {
 } from "lucide-react-native";
 import type { ComponentType } from "react";
 import { useRef, useState } from "react";
+import type { ViewInstance } from "react-native";
 import {
   ActivityIndicator,
   Modal,
@@ -56,6 +57,7 @@ import {
 import { useSessionContext } from "@/features/auth/state/session";
 import { HNStoryCard } from "@/features/feed/components/post-embeds";
 import { revealPublishedPost } from "@/features/feed/state/publish-reveal";
+import { recordExternalResponse } from "@/features/feed/state/use-external-interactions";
 import { MAX_POST_ATTACHMENTS } from "@/features/media-upload/lib/upload-policy";
 import {
   attachmentActions,
@@ -355,7 +357,7 @@ export function PostEditor({
     x: number;
     y: number;
   } | null>(null);
-  const moreAnchorRef = useRef<View>(null);
+  const moreAnchorRef = useRef<ViewInstance>(null);
   const [altTarget, setAltTarget] = useState<string | null>(null);
   const [publishing, setPublishing] = useState(false);
   // One key per composed post, reused across retries of that post.
@@ -557,7 +559,13 @@ export function PostEditor({
         {
           // A pure community reshare has no caption of its own: the server
           // allows that only because communitySharePostId is present.
-          ...composerPublishContext(draft, replyTo?.id),
+          ...composerPublishContext(
+            draft,
+            replyTo?.externalParentUri ? undefined : replyTo?.id
+          ),
+          ...(replyTo?.externalParentUri
+            ? { externalParentUri: replyTo.externalParentUri }
+            : {}),
           content: trimmed,
           isGust: isResponse ? false : isGust,
           mediaIds,
@@ -566,6 +574,9 @@ export function PostEditor({
         },
         idempotencyKeyRef.current
       );
+      if (replyTo?.externalParentUri && viewerId) {
+        recordExternalResponse(replyTo.externalParentUri, viewerId);
+      }
       idempotencyKeyRef.current = null;
       for (const item of attachments) {
         clearGustOptions(item.localId);

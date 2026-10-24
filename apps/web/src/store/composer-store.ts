@@ -30,6 +30,7 @@ export interface ComposerCommunityShareTarget {
 // The post being responded to when the composer is opened as a response. The
 // composer renders a full preview of the parent post and publishes with parentPostId.
 export interface ComposerReplyTarget {
+  externalParentUri?: string;
   attachments?: Media[] | { id: string; type: string; url?: string }[];
   avatarUrl?: string | null;
   badge?: string | null;

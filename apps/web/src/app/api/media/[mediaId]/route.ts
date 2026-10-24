@@ -6,8 +6,10 @@ import { getSessionFromApi } from "@/lib/auth/session";
 import { recordDeliveryPayload } from "@/lib/media/delivery-metrics";
 import {
   decideMediaAccess,
+  isOwnedMediaDraft,
   resolveOwningCommunity,
 } from "@/lib/media/media-access";
+import { mediaContentIsExplicit } from "@/lib/media/media-content-policy";
 import { mediaError } from "@/lib/media/media-responses";
 import {
   resolveDenWallpaperConversationId,
@@ -19,6 +21,7 @@ import {
   generatePresignedUrl,
 } from "@/lib/media/object-storage";
 import { getWebLogger } from "@/lib/otel";
+import { explicitContentEnabled } from "@/lib/posts/explicit-content-enabled";
 import {
   getContentDisposition,
   isBlockedMediaMime,
@@ -87,6 +90,9 @@ function resolveObjectKey(
 // PK lookup.
 async function getMediaOwnership(mediaId: string) {
   const ownership = await prisma.orm.public.PostMedia.select(
+    "safety",
+    "altText",
+    "ocrText",
     "commentId",
     "messageConversationId",
     "mimeType",
@@ -96,10 +102,10 @@ async function getMediaOwnership(mediaId: string) {
   )
     .include("comment", (comment) =>
       comment
-        .select("postId")
+        .select("postId", "content")
         .include("post", (post) =>
           post
-            .select("communityId")
+            .select("communityId", "content", "semanticTags", "explicitContent")
             .include("community", (community) =>
               community.select("id", "_type")
             )
@@ -107,7 +113,7 @@ async function getMediaOwnership(mediaId: string) {
     )
     .include("post", (post) =>
       post
-        .select("communityId")
+        .select("communityId", "content", "semanticTags", "explicitContent")
         .include("community", (community) => community.select("id", "_type"))
     )
     .include("postMediaDerivatives", (derivative) =>
@@ -241,6 +247,22 @@ export async function GET(
   );
   const owningCommunity = resolveOwningCommunity(ownership);
   const isPrivateCommunityPost = owningCommunity?.type === "PRIVATE";
+  // Media bytes follow the post's own visibility. An explicit post's attachment
+  // is not public just because the row has a postId: guests can never opt in, and
+  // a signed-in reader has to have switched explicit content on.
+  const isExplicitPost = mediaContentIsExplicit(ownership);
+  // Browsing preferences do not hide an uploader's own unlinked composer draft.
+  if (isExplicitPost && !isOwnedMediaDraft(ownership, viewer)) {
+    const showExplicitContent = viewer
+      ? await explicitContentEnabled(viewer.id)
+      : false;
+    if (!showExplicitContent) {
+      return mediaError("Media not found", 404);
+    }
+  }
+  // Explicit media is never stored publicly, even for an opted-in reader: the
+  // next viewer may not be opted in, so every cache-control below also checks
+  // isExplicitPost.
   const isCommunityMember =
     isPrivateCommunityPost && owningCommunity
       ? await canViewCommunity(owningCommunity, viewer?.id ?? "")
@@ -308,7 +330,7 @@ export async function GET(
               headers: {
                 "Access-Control-Allow-Origin": "*",
                 "Cache-Control":
-                  ownership.postId && !isPrivateCommunityPost
+                  ownership.postId && !isPrivateCommunityPost && !isExplicitPost
                     ? "public, max-age=31536000, immutable"
                     : "private, no-store",
                 "Content-Type": "text/vtt; charset=utf-8",
@@ -393,7 +415,7 @@ export async function GET(
             // (re-analysis rewrites them), so this stays private and
             // uncacheable for drafts and short-lived for attached media.
             "Cache-Control":
-              ownership.postId && !isPrivateCommunityPost
+              ownership.postId && !isPrivateCommunityPost && !isExplicitPost
                 ? "public, max-age=3600"
                 : "private, no-store",
             "Content-Type": "text/vtt; charset=utf-8",
@@ -409,7 +431,7 @@ export async function GET(
           // is still a viewer-gated response (comment/message/draft/private),
           // so it must not be stored.
           "Cache-Control":
-            ownership.postId && !isPrivateCommunityPost
+            ownership.postId && !isPrivateCommunityPost && !isExplicitPost
               ? "public, max-age=60"
               : "private, no-store",
           "Content-Type": "text/vtt; charset=utf-8",
@@ -472,7 +494,7 @@ export async function GET(
             // Viewer-gated media (comment/message/draft/private community)
             // must not be stored at all.
             "Cache-Control":
-              ownership.postId && !isPrivateCommunityPost
+              ownership.postId && !isPrivateCommunityPost && !isExplicitPost
                 ? "public, max-age=3"
                 : "private, no-store",
             "Content-Type": "image/svg+xml",
@@ -486,12 +508,16 @@ export async function GET(
       );
       // A private community's poster must not be retained by the browser at
       // all: access can be revoked (the member leaves), and a 24h-cached frame
-      // would keep rendering after that. Public post media stays immutable, and
-      // other private media (comment/message drafts) keeps its short cache.
-      let posterCacheControl = "private, no-store";
-      if (ownership.postId && !isPrivateCommunityPost) {
+      // would keep rendering after that. Explicit frames and unlinked drafts
+      // also need fresh access checks; safe public post media stays immutable.
+      let posterCacheControl = "private, max-age=86400";
+      if (ownership.postId && !isPrivateCommunityPost && !isExplicitPost) {
         posterCacheControl = "public, max-age=31536000, immutable";
-      } else if (isPrivateCommunityPost) {
+      } else if (
+        isPrivateCommunityPost ||
+        isExplicitPost ||
+        isOwnedMediaDraft(ownership, viewer)
+      ) {
         posterCacheControl = "private, no-store";
       }
       return new NextResponse(posterObject.Body as ReadableStream, {
@@ -612,7 +638,7 @@ export async function GET(
     // never stored.
     headers.set(
       "Cache-Control",
-      ownership.postId && !isPrivateCommunityPost
+      ownership.postId && !isPrivateCommunityPost && !isExplicitPost
         ? "public, max-age=31536000, immutable"
         : "private, no-store"
     );
@@ -660,7 +686,10 @@ export async function GET(
     // finished; the request is already gone so there is nothing meaningful to
     // send back. Return a bare 499 (client closed request) instead of logging
     // a scary 500 or re-throwing into the framework.
-    if (error instanceof DOMException && error.name === "AbortError") {
+    if (
+      request.signal.aborted ||
+      (error instanceof Error && error.name === "AbortError")
+    ) {
       return new Response(null, { status: 499 });
     }
     // A row whose stored object vanished from storage (crash between publish

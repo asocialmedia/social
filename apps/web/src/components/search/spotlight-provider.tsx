@@ -10,6 +10,8 @@ import {
   useState,
 } from "react";
 
+import { useSession } from "@/app/(main)/session-provider";
+
 import Spotlight from "./spotlight";
 import type { SpotlightResultItem } from "./spotlight";
 
@@ -32,6 +34,7 @@ interface SpotlightProviderProps {
 }
 
 export const SpotlightProvider = ({ children }: SpotlightProviderProps) => {
+  const { user } = useSession();
   const [open, setOpen] = useState(false);
   const [initialQuery, setInitialQuery] = useState("");
   const openRef = useRef(open);
@@ -74,6 +77,7 @@ export const SpotlightProvider = ({ children }: SpotlightProviderProps) => {
       {children}
       {open ? (
         <Spotlight
+          key={user?.id ?? "guest"}
           initialQuery={initialQuery}
           onOpenChange={handleClose}
           onSelect={handleSelect}

@@ -9,7 +9,10 @@ import { useState } from "react";
 
 import { APPLE_CARD_CLASS } from "@/components/home/sidebars/right/sidebar-styles";
 import UserAvatar from "@/components/layouts/user/user-avatar";
-import { FossBanner } from "@/components/misc/foss-banner";
+import {
+  GithubProjectCard,
+  SponsorProjectCard,
+} from "@/components/settings/settings-sidebar-cards";
 import { useUserDataQuery } from "@/hooks/users/use-user-data-query";
 import { cn, formatNumber } from "@/lib/utils";
 import { getSecureImageUrl } from "@/lib/utils/image-url";
@@ -62,12 +65,8 @@ const SettingsSidebar: React.FC<SettingsSidebarProps> = ({ user }) => {
 
   return (
     <aside className="hide-native-scrollbar bg-background border-border/60 sticky top-0 hidden h-screen w-72 shrink-0 flex-col overflow-y-auto border-l px-2.5 pt-2.5 pb-6 xl:flex">
-      <div className="flex flex-col gap-4">
+      <div className="flex flex-col gap-3">
         <div className={cn(APPLE_CARD_CLASS, "relative overflow-hidden")}>
-          {/* Header image fills the card behind the identity row and stats,
-              washed so the text keeps contrast - same treatment as the
-              homepage "Who to follow" cards. The settings sidebar sits on the
-              plain background, so the washes use --background. */}
           {bannerUrl ? (
             <>
               <div aria-hidden className="absolute inset-0">
@@ -127,7 +126,8 @@ const SettingsSidebar: React.FC<SettingsSidebarProps> = ({ user }) => {
           </div>
         </div>
 
-        <FossBanner className="!mt-0" />
+        <GithubProjectCard />
+        <SponsorProjectCard />
 
         <footer className="text-muted-foreground flex flex-wrap gap-x-3 gap-y-1 px-3 pt-1 text-xs">
           <span>© {new Date().getFullYear()} asocialmedia</span>

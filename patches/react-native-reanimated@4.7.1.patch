@@ -1,0 +1,17 @@
+diff --git a/android/src/main/java/com/swmansion/reanimated/NativeProxy.kt b/android/src/main/java/com/swmansion/reanimated/NativeProxy.kt
+--- a/android/src/main/java/com/swmansion/reanimated/NativeProxy.kt
++++ b/android/src/main/java/com/swmansion/reanimated/NativeProxy.kt
+@@ -332,7 +332,12 @@
+                 if (getViewExistsMethod?.invoke(mountingManager, viewTag) == false) {
+                     return@parse
+                 }
+-                updatePropsSynchronouslyMethod.invoke(mountingManager, viewTag, props)
++                // A preallocated ViewState can exist before its Android view.
++                if (mFabricUIManager.resolveView(viewTag) != null) {
++                    updatePropsSynchronouslyMethod.invoke(mountingManager, viewTag, props)
++                }
++            } catch (_: IllegalViewOperationException) {
++                // The target is not mounted yet or has already been removed.
+             } catch (e: Exception) {
+                 Log.w("Reanimated", "synchronouslyUpdateUIProps failed for tag $viewTag: ${e.cause ?: e}")
+             }

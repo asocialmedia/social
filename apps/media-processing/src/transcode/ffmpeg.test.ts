@@ -132,6 +132,30 @@ describe("decoder resource limits", () => {
     ).toThrow(ResourceLimitError);
   });
 
+  test.each([59.94, 60, 60.04])(
+    "nominal 60 FPS timing variation %s is accepted",
+    (fps) => {
+      expect(() =>
+        enforceDecoderLimits(
+          { ...baseProbe, video: { ...baseProbe.video, fps } },
+          baseLimits
+        )
+      ).not.toThrow();
+    }
+  );
+
+  test.each([60.1, 61, 120])(
+    "meaningfully excessive frame rate %s is still rejected",
+    (fps) => {
+      expect(() =>
+        enforceDecoderLimits(
+          { ...baseProbe, video: { ...baseProbe.video, fps } },
+          baseLimits
+        )
+      ).toThrow(ResourceLimitError);
+    }
+  );
+
   test("over-bitrate streams are rejected", () => {
     expect(() =>
       enforceDecoderLimits(

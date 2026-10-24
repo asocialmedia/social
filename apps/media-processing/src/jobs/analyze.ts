@@ -22,6 +22,7 @@ import {
 } from "@asm/db";
 import type { Models } from "@asm/db";
 import type { MediaAnalyzeJobData } from "@asm/media";
+import { UnrecoverableError } from "bullmq";
 
 import {
   analysisStageComplete,
@@ -29,6 +30,8 @@ import {
   mediaEmbeddingComplete,
   transcriptionComplete,
   transcriptionRetryEligible,
+  rasterRetryEligible,
+  rasterSourceFingerprint,
 } from "../analyze/checkpoints";
 import { classifyMediaConcepts } from "../analyze/classify";
 import { prepareClefImage, ClefDeferredError } from "../analyze/clef";
@@ -39,7 +42,10 @@ import {
 } from "../analyze/embedding";
 import { extractImageText } from "../analyze/ocr";
 import { ProviderBudgetDeferredError } from "../analyze/provider-budget";
-import { downloadAnalysisRaster } from "../analyze/raster-source";
+import {
+  downloadAnalysisRaster,
+  AnalysisRasterError,
+} from "../analyze/raster-source";
 import { SEMANTIC_CLASSIFICATION_VERSION } from "../analyze/semantic-version";
 import { transcribeMediaAudio } from "../analyze/transcribe";
 import { extractVideoSamples } from "../analyze/video-samples";
@@ -154,7 +160,8 @@ async function resolveAnalysisSource(
     !media.transcript &&
     !transcriptionComplete(media.techMetadata) &&
     transcriptionRetryEligible(media.techMetadata) &&
-    workerEnv.WHISPER_ENABLED;
+    workerEnv.WHISPER_ENABLED &&
+    Boolean(workerEnv.GEMINI_API_KEY);
 
   const rasterKeys = [
     ...["poster", "cover", "md", "sm", "thumb"].flatMap((kind) =>
@@ -169,6 +176,14 @@ async function resolveAnalysisSource(
       : []),
   ];
 
+  const rasterFingerprint = rasterSourceFingerprint(rasterKeys);
+  if (
+    media._type === "IMAGE" &&
+    !rasterRetryEligible(media.techMetadata, rasterFingerprint)
+  ) {
+    return null;
+  }
+
   let rasterLocalPath: string | null = null;
   if (
     rasterKeys.length &&
@@ -180,15 +195,29 @@ async function resolveAnalysisSource(
         `/tmp/asm-raster-${mediaId}-${crypto.randomUUID()}.jpg`
       );
     } catch (error) {
-      if (media._type !== "VIDEO") {
-        throw new ClefDeferredError(
-          `Media raster unavailable: ${String(error)}`,
-          Date.now() + 5 * 60_000
-        );
+      if (media._type === "IMAGE") {
+        if (
+          error instanceof AnalysisRasterError &&
+          error.decodeFailures === error.attempts
+        ) {
+          await patchMediaAnalysisStage(mediaId, "raster", {
+            fingerprint: rasterFingerprint,
+            reason: "unsupported-or-corrupt-image",
+            retryAt: Date.now() + 24 * 60 * 60_000,
+            status: "unavailable",
+          });
+          throw new UnrecoverableError(
+            "All stored image sources failed decoding; analysis waits for a source repair"
+          );
+        }
+        // Missing storage remains retryable; decoding failure never marks the asset safe.
+        throw error;
       }
       mediaLogger.warn(
         { error: String(error), mediaId },
-        "Poster unavailable; using video samples for analysis"
+        media._type === "VIDEO"
+          ? "Poster unavailable; using video samples for analysis"
+          : "Cover unavailable; continuing audio analysis"
       );
     }
   }
@@ -365,35 +394,54 @@ export function processMediaAnalyze(
           !source.transcript &&
           !transcriptionComplete(source.techMetadata) &&
           transcriptionRetryEligible(source.techMetadata) &&
-          workerEnv.WHISPER_ENABLED &&
-          avLocalPath &&
           (source.type === "VIDEO" || source.type === "AUDIO")
         ) {
-          transcriptionAttempted = true;
-          try {
-            transcription = await transcribeMediaAudio(
-              avLocalPath,
-              jobData.mediaId
-            );
-            if (transcription) {
-              await prisma.orm.public.PostMedia.where({
-                id: jobData.mediaId,
-              }).update({
-                ...(transcription.transcript
-                  ? { transcript: transcription.transcript }
-                  : {}),
-                ...(transcription.captionsKey
-                  ? { captionsKey: transcription.captionsKey }
-                  : {}),
-              });
-              await patchMediaAnalysisStage(jobData.mediaId, "transcription", {
-                status: transcription.status,
-                version: 1,
-              });
+          if (
+            workerEnv.WHISPER_ENABLED &&
+            Boolean(workerEnv.GEMINI_API_KEY) &&
+            avLocalPath
+          ) {
+            transcriptionAttempted = true;
+            try {
+              transcription = await transcribeMediaAudio(
+                avLocalPath,
+                jobData.mediaId
+              );
+              if (transcription) {
+                await prisma.orm.public.PostMedia.where({
+                  id: jobData.mediaId,
+                }).update({
+                  ...(transcription.transcript
+                    ? { transcript: transcription.transcript }
+                    : {}),
+                  ...(transcription.captionsKey
+                    ? { captionsKey: transcription.captionsKey }
+                    : {}),
+                });
+                await patchMediaAnalysisStage(
+                  jobData.mediaId,
+                  "transcription",
+                  {
+                    status: transcription.status,
+                    version: 1,
+                  }
+                );
+              }
+            } catch (error) {
+              transcriptionError = error;
+              mediaLogger.warn(
+                { error: String(error) },
+                "transcription failed"
+              );
             }
-          } catch (error) {
-            transcriptionError = error;
-            mediaLogger.warn({ error: String(error) }, "transcription failed");
+          } else if (!workerEnv.WHISPER_ENABLED || !workerEnv.GEMINI_API_KEY) {
+            await patchMediaAnalysisStage(jobData.mediaId, "transcription", {
+              reason: workerEnv.WHISPER_ENABLED
+                ? "missing_gemini_api_key"
+                : "whisper_disabled",
+              status: "skipped",
+              version: 1,
+            });
           }
         }
 
@@ -511,6 +559,20 @@ export function processMediaAnalyze(
             attempts: prevAttempts + 1,
             ...(transcription.error ? { error: transcription.error } : {}),
             status: transcription.status,
+          };
+        } else if (
+          isAudioVideo &&
+          (!workerEnv.WHISPER_ENABLED || !workerEnv.GEMINI_API_KEY) &&
+          !source.transcript &&
+          !transcriptionComplete(source.techMetadata)
+        ) {
+          transcriptionMeta = {
+            attemptedAt: new Date().toISOString(),
+            attempts: prevAttempts + 1,
+            error: workerEnv.WHISPER_ENABLED
+              ? "missing_gemini_api_key"
+              : "whisper_disabled",
+            status: "skipped" as const,
           };
         } else if (
           isAudioVideo &&

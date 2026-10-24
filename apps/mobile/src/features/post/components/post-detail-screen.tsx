@@ -19,8 +19,12 @@
 // profile screens exist, and the thread carries id offsets for ?comment=.
 import { Image } from "expo-image";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { ArrowLeft } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type {
+  ScrollViewInstance,
+  ViewInstance,
+  LayoutChangeEvent,
+} from "react-native";
 import {
   ActivityIndicator,
   Animated,
@@ -31,7 +35,6 @@ import {
   Text,
   View,
 } from "react-native";
-import type { LayoutChangeEvent } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import errorImage from "@/assets/images/error.png";
@@ -66,6 +69,7 @@ import {
 } from "../lib/post-api";
 import { postDetailCache, postDetailKey } from "../lib/post-cache";
 import { PostDetailCard } from "./post-detail-card";
+import { PostDetailHeader } from "./post-detail-header";
 import { PostDetailSkeleton } from "./post-detail-skeleton";
 
 // Scroll offsets survive detail detours like web's useFeedScrollMemory with
@@ -117,8 +121,8 @@ export function PostDetailScreen({ postId }: { postId: string }) {
   } else if (showEddies && viewerId) {
     feedBottomPad = eddieBarHeight + 12;
   }
-  const scrollRef = useRef<ScrollView>(null);
-  const viewportRef = useRef<View>(null);
+  const scrollRef = useRef<ScrollViewInstance>(null);
+  const viewportRef = useRef<ViewInstance>(null);
   const [viewportBottom, setViewportBottom] = useState(
     () => Dimensions.get("window").height
   );
@@ -461,22 +465,7 @@ export function PostDetailScreen({ postId }: { postId: string }) {
     const missing = status === "not-found";
     return (
       <View style={[styles.root, { backgroundColor: theme.containerBg }]}>
-        <View style={[styles.header, { paddingTop: insets.top }]}>
-          <Pressable
-            accessibilityLabel="Go back"
-            accessibilityRole="button"
-            onPress={handleGoBack}
-            style={({ pressed }) => [
-              styles.backBtn,
-              pressed && styles.backBtnPressed,
-            ]}
-          >
-            <ArrowLeft color={theme.inputText} size={20} />
-          </Pressable>
-          <Text style={[styles.headerTitle, { color: theme.inputText }]}>
-            Post
-          </Text>
-        </View>
+        <PostDetailHeader onBack={handleGoBack} />
         <View
           style={[
             styles.centerWrap,
@@ -528,22 +517,7 @@ export function PostDetailScreen({ postId }: { postId: string }) {
       ref={viewportRef}
       style={[styles.root, { backgroundColor: theme.containerBg }]}
     >
-      <View style={[styles.header, { paddingTop: insets.top }]}>
-        <Pressable
-          accessibilityLabel="Go back"
-          accessibilityRole="button"
-          onPress={handleGoBack}
-          style={({ pressed }) => [
-            styles.backBtn,
-            pressed && styles.backBtnPressed,
-          ]}
-        >
-          <ArrowLeft color={theme.inputText} size={20} />
-        </Pressable>
-        <Text style={[styles.headerTitle, { color: theme.inputText }]}>
-          Post
-        </Text>
-      </View>
+      <PostDetailHeader onBack={handleGoBack} />
       <ScrollView
         contentContainerStyle={{ paddingBottom: feedBottomPad }}
         onMomentumScrollEnd={(event) => {

@@ -1,6 +1,7 @@
 // oxlint-disable jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions
 
 import type { PostParentData } from "@asm/db";
+import type { ExternalPost } from "@asm/protocols/contracts";
 import { ImageOff } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
@@ -12,9 +13,11 @@ import UserAvatar from "@/components/layouts/user/user-avatar";
 import UserBadge from "@/components/layouts/user/user-badge";
 import PostLinkedContent from "@/components/posts/content/post-linked-content";
 import PostLinkEmbeds from "@/components/posts/embeds/link-embeds";
+import { BlueskyIcon } from "@/components/protocols/bluesky-icon";
 import { communityAccentStyle } from "@/lib/communities/accent";
 import { isInteractiveTarget } from "@/lib/interactive-target";
 import { parseStoredEmbeds } from "@/lib/link-embeds/shared";
+import { blueskyProfilePath } from "@/lib/protocols/paths";
 import { getPostPath } from "@/lib/seo/seo";
 import { cn, formatRelativeDate } from "@/lib/utils";
 import { getMediaProxyUrl } from "@/lib/utils/image-url";
@@ -25,6 +28,7 @@ interface ResponseParentCardProps {
   // tombstone so the thread stays readable.
   parent: PostParentData | null;
   parentPostId: string;
+  external?: ExternalPost;
 }
 
 // The parent post rendered as the top node of a mini-thread: a full-width row
@@ -34,13 +38,14 @@ interface ResponseParentCardProps {
 export function ResponseParentRow({
   parent,
   parentPostId,
+  external,
 }: ResponseParentCardProps) {
   const router = useRouter();
   const [natural, setNatural] = useState<{
     width: number;
     height: number;
   } | null>(null);
-  const href = parent
+  let href = parent
     ? getPostPath({
         community: parent.community,
         content: parent.content,
@@ -48,6 +53,9 @@ export function ResponseParentRow({
         isGust: parent.isGust,
       })
     : `/posts/${parentPostId}`;
+  if (external || parentPostId.startsWith("at://")) {
+    href = `/network/bluesky?uri=${encodeURIComponent(external?.id ?? parentPostId)}`;
+  }
 
   const handleRowClick = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
@@ -81,14 +89,29 @@ export function ResponseParentRow({
             className="bg-border -mt-1 -mb-3 w-0.5 flex-1"
           />
         </div>
-        <div className="text-muted-foreground flex min-w-0 flex-1 items-center pb-1.5 text-xs italic sm:pb-2 sm:text-sm">
-          This post is unavailable
+        <div className="surface-3d mb-3 min-w-0 flex-1 rounded-xl! px-3 py-2.5 text-xs sm:text-sm">
+          <p className="text-foreground font-medium">
+            This post is unavailable
+          </p>
+          <p className="text-muted-foreground mt-1 text-xs">
+            The original may have been removed or made private. This response is
+            still available.
+          </p>
+          <Link
+            className="text-primary mt-2 inline-block text-xs font-medium hover:underline"
+            href={href}
+          >
+            Check original post
+          </Link>
         </div>
       </div>
     );
   }
 
   const username = parent.user?.username ?? "unknown";
+  const profileHref = external
+    ? blueskyProfilePath(external.author.id)
+    : `/users/${username}`;
   const displayName = parent.user?.displayName || username;
   const media = parent.attachments?.[0];
   const embeds = parseStoredEmbeds(parent.embeds);
@@ -122,7 +145,7 @@ export function ResponseParentRow({
           <Link
             aria-label={`View @${username}'s profile`}
             className="relative z-10 shrink-0"
-            href={`/users/${username}`}
+            href={profileHref}
           >
             <UserAvatar
               className="h-9 w-9 sm:h-10 sm:w-10"
@@ -152,6 +175,7 @@ export function ResponseParentRow({
             >
               {displayName}
             </Link>
+            {external ? <BlueskyIcon /> : null}
             <UserBadge
               badge={parent.user?.badge}
               badges={parent.user?.badges}
@@ -159,7 +183,7 @@ export function ResponseParentRow({
             />
             <Link
               className="text-muted-foreground truncate hover:underline"
-              href={`/users/${username}`}
+              href={profileHref}
             >
               @{username}
             </Link>
@@ -179,7 +203,11 @@ export function ResponseParentRow({
           </div>
           {parent.content ? (
             <div className="mt-1 line-clamp-6">
-              <PostLinkedContent content={parent.content} embeds={embeds} />
+              <PostLinkedContent
+                content={parent.content}
+                embeds={embeds}
+                sourceSegments={external?.segments}
+              />
             </div>
           ) : null}
           {media ? (
@@ -205,10 +233,13 @@ export function ResponseParentRow({
                   }
                 }}
                 sizes="(max-width: 640px) 100vw, 512px"
-                src={getMediaProxyUrl({
-                  id: media.id,
-                  type: media.type as string,
-                })}
+                src={
+                  external?.media[0]?.thumbnailUrl ??
+                  getMediaProxyUrl({
+                    id: media.id,
+                    type: media.type as string,
+                  })
+                }
                 unoptimized
               />
             </div>
@@ -246,12 +277,27 @@ export default function ResponseParentCard({
     return (
       <div
         className={cn(
-          "border-border/60 bg-muted/40 text-muted-foreground flex items-center gap-2 rounded-xl border px-3 py-2 text-xs",
+          "surface-3d text-muted-foreground flex items-center gap-2 rounded-xl! px-3 py-2 text-xs",
           className
         )}
       >
         <ImageOff className="size-3.5 shrink-0" />
-        <span>This post is unavailable</span>
+        <div>
+          <p className="font-medium">This post is unavailable</p>
+          <p className="mt-1">
+            The original may have been removed or made private.
+          </p>
+          <Link
+            className="text-primary mt-2 inline-block font-medium hover:underline"
+            href={
+              parentPostId.startsWith("at://")
+                ? `/network/bluesky?uri=${encodeURIComponent(parentPostId)}`
+                : `/posts/${parentPostId}`
+            }
+          >
+            Check original post
+          </Link>
+        </div>
       </div>
     );
   }

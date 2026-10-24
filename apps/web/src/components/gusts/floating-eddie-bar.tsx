@@ -1,7 +1,8 @@
 "use client";
 
 import type { PostData } from "@asm/db";
-import { Loader2, MessageSquare, SendHorizonal } from "lucide-react";
+import { Skeleton } from "@asm/ui/shadui/skeleton";
+import { MessageSquare, SendHorizonal } from "lucide-react";
 import Link from "next/link";
 import React, { useCallback, useState } from "react";
 
@@ -78,7 +79,7 @@ export const FloatingEddieBar: React.FC<FloatingEddieBarProps> = ({
         type="submit"
       >
         {mutation.isPending ? (
-          <Loader2 className="size-4 animate-spin" />
+          <Skeleton className="size-4 rounded-md bg-white/30" />
         ) : (
           <SendHorizonal className="size-4" />
         )}

@@ -1,4 +1,5 @@
 // oxlint-disable oxc/no-barrel-file
+export * from "./src/protocols/external-posts";
 export { and, or } from "@prisma/orm-postgres/orm-client";
 export * from "./cache/avatar-cache";
 export * from "./cache/followbutton-cache";
@@ -204,6 +205,11 @@ export * from "./src/recommendation/profile";
 export * from "./src/recommendation/knowledge-graph";
 export * from "./src/recommendation/rank-feed";
 export * from "./src/recommendation/score-candidate";
+export * from "./src/recommendation/network-persona";
+export * from "./src/recommendation/network-topics";
+export * from "./src/recommendation/network-social";
+export * from "./src/recommendation/network-features";
+export { rawQuery } from "./src/messages/infrastructure/raw-sql";
 export * from "./src/recommendation/vector";
 export * from "./src/users/reserved-usernames";
 export * from "./src/users/username-aliases";
@@ -238,3 +244,10 @@ export * from "./src/messages/chat-export";
 export * from "./src/messages/chat-export-worker";
 
 export * from "./src/communities/membership-requests";
+export * from "./src/protocols/external-follows";
+export {
+  filterExternalMediaSafety,
+  externalMediaSafetyInput,
+  EXTERNAL_MEDIA_SAFETY_QUEUE,
+  EXTERNAL_MEDIA_SAFETY_VERSION,
+} from "./src/external-media-safety";

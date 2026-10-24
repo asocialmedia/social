@@ -1,0 +1,320 @@
+"use client";
+
+import type { FeedSource } from "@asm/protocols/discovery";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@asm/ui/shadui/popover";
+import asmLogo from "@assets/asm.png";
+import { Brain, Check, RotateCcw, Settings2 } from "lucide-react";
+import Image from "next/image";
+import Link from "next/link";
+import type React from "react";
+import { useCallback, useSyncExternalStore } from "react";
+
+import { useSession } from "@/app/(main)/session-provider";
+import { BlueskyIcon } from "@/components/protocols/bluesky-icon";
+import { useNetworkSettings } from "@/hooks/feed/use-network-settings";
+import { cn } from "@/lib/utils";
+import { useFeedSourceStore } from "@/store/feed-source-store";
+
+// Filled selections reuse the app's brand surfaces so the menu looks like the
+// rest of the UI: orange for asocialmedia, Bluesky blue for the bridge.
+const ORANGE_FILL =
+  "orange-3d-surface bg-linear-to-b from-[#ff9500] to-[#e65500] text-white";
+const BLUESKY_FILL = "bluesky-3d-surface text-white";
+
+interface SourceOption {
+  value: FeedSource;
+  label: string;
+  description: string;
+  mark: React.ReactNode;
+  // Tone the bare mark wears on an unselected row, so it keeps its brand colour
+  // without the row's muted text colour bleeding into it.
+  idleTone?: string;
+  // The asm logo keeps its brand orange on neutral rows and flips to a white
+  // silhouette on the filled orange row.
+  whiteOnFill?: boolean;
+}
+
+// Two interlocking rings stand for "both networks in one stream".
+const AllNetworksMark = () => (
+  <svg aria-hidden="true" className="size-4" fill="none" viewBox="0 0 16 16">
+    <circle cx="6.3" cy="8" r="4.3" stroke="currentColor" strokeWidth="1.5" />
+    <circle
+      cx="9.7"
+      cy="8"
+      opacity="0.5"
+      r="4.3"
+      stroke="currentColor"
+      strokeWidth="1.5"
+    />
+  </svg>
+);
+
+const SOURCE_OPTIONS: SourceOption[] = [
+  {
+    description: "asocialmedia and Bluesky together",
+    label: "All networks",
+    mark: <AllNetworksMark />,
+    value: "all",
+  },
+  {
+    description: "Local communities and posts",
+    label: "asocialmedia",
+    mark: <Image alt="" className="h-4 w-auto" src={asmLogo} />,
+    value: "asm",
+    whiteOnFill: true,
+  },
+  {
+    description: "Public AT Protocol discovery",
+    // text-current makes the mark inherit the row's tone. Without it the icon's
+    // own text-sky-500 wins and the butterfly stays dark on its own blue fill.
+    idleTone: "text-sky-500",
+    label: "Bluesky",
+    mark: <BlueskyIcon className="size-4 text-current" tooltip={false} />,
+    value: "bluesky",
+  },
+];
+
+const subscribe = () => () => {
+  // Hydration detection does not need a live subscription.
+};
+
+function useMounted(): boolean {
+  return useSyncExternalStore(
+    subscribe,
+    () => true,
+    () => false
+  );
+}
+
+export function FeedSourceMenu({ following }: { following: boolean }) {
+  const { user } = useSession();
+  const network = useNetworkSettings();
+  const mounted = useMounted();
+  const source = useFeedSourceStore((state) => state.source);
+  const setSource = useFeedSourceStore((state) => state.setSource);
+
+  // During SSR and initial hydration, align to the default store state to avoid
+  // hydration mismatches when local storage contains persisted user choices.
+  let activeSource: FeedSource = "all";
+  if (mounted) {
+    activeSource = source;
+  }
+
+  const isCustomized = mounted && source !== "all";
+
+  const handleReset = useCallback(() => {
+    setSource("all");
+  }, [setSource]);
+
+  const activeProfile = network.settings.preferences.profiles.find(
+    (profile) => profile.id === network.settings.preferences.activeProfileId
+  );
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          aria-label={`Feed settings, source: ${activeSource}`}
+          className={cn(
+            "icon-btn-3d text-muted-foreground relative flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-full",
+            "hover:text-foreground focus-visible:ring-ring focus-visible:ring-2 focus-visible:outline-none active:translate-y-px",
+            "transition-colors",
+            isCustomized && "text-foreground"
+          )}
+          suppressHydrationWarning
+          type="button"
+        >
+          <Settings2 className="size-4" />
+          {isCustomized ? (
+            <span
+              aria-hidden
+              className="bg-primary absolute -top-0.5 -right-0.5 size-2 rounded-full ring-2 ring-[hsl(var(--background-alt))]"
+            />
+          ) : null}
+        </button>
+      </PopoverTrigger>
+
+      <PopoverContent
+        align="end"
+        className="w-76 max-w-[calc(100vw-1.5rem)] p-2.5 sm:w-84"
+        sideOffset={8}
+      >
+        <div className="flex items-center justify-between gap-2 px-1 pb-2">
+          <h2 className="text-foreground text-sm font-semibold">Feed tuning</h2>
+          {isCustomized ? (
+            <button
+              className="chip-3d text-muted-foreground hover:text-foreground focus-visible:ring-ring flex cursor-pointer items-center gap-1 rounded-md px-1.5 py-1 text-[11px] font-semibold focus-visible:ring-2 focus-visible:outline-none"
+              onClick={handleReset}
+              type="button"
+            >
+              <RotateCcw className="size-3" />
+              Reset
+            </button>
+          ) : null}
+        </div>
+        {user ? (
+          <fieldset className="border-border/60 mb-2 min-w-0 space-y-2 border-b px-1 pt-1 pb-3">
+            {/* A legend must be the fieldset's own child to be announced with
+                the group. Floating it lets the Manage link share its row without
+                wrapping the legend, which would strip it of that association. */}
+            <legend className="text-muted-foreground float-left flex min-w-0 items-center gap-1.5 text-[11px] font-semibold">
+              <Brain aria-hidden className="size-3.5 shrink-0" />
+              Recommendation profile
+            </legend>
+            <Link
+              className="text-muted-foreground hover:text-foreground focus-visible:ring-ring float-right rounded-md px-1 text-[11px] font-medium transition-colors focus-visible:ring-2 focus-visible:outline-hidden"
+              href="/settings?tab=network&section=profiles"
+            >
+              Manage
+            </Link>
+            <div className="clear-both" />
+
+            {/* The active profile is a filled brand pill, the rest sit a step
+                above the panel. Selection reads from the fill rather than from
+                a tinted label, which is the same rule the source rows below
+                follow, so the whole menu speaks one language. */}
+            <div className="flex flex-wrap gap-1.5">
+              {network.settings.preferences.profiles.map((profile) => {
+                const active =
+                  profile.id === network.settings.preferences.activeProfileId;
+                return (
+                  <button
+                    aria-pressed={active}
+                    className={cn(
+                      "focus-visible:ring-ring flex cursor-pointer items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors focus-visible:ring-2 focus-visible:outline-hidden disabled:opacity-50",
+                      active
+                        ? ORANGE_FILL
+                        : "chip-3d text-muted-foreground hover:text-foreground"
+                    )}
+                    disabled={network.isSaving || !network.ready}
+                    key={profile.id}
+                    onClick={() =>
+                      network.save({
+                        ...network.settings.preferences,
+                        activeProfileId: profile.id,
+                      })
+                    }
+                    type="button"
+                  >
+                    {active ? (
+                      <Check aria-hidden className="size-3" strokeWidth={3} />
+                    ) : null}
+                    {profile.name}
+                  </button>
+                );
+              })}
+            </div>
+
+            <p className="text-muted-foreground text-[11px] leading-snug">
+              {network.ready ? (
+                <>
+                  {activeProfile
+                    ? `${activeProfile.interests.length} ${activeProfile.interests.length === 1 ? "interest" : "interests"}`
+                    : "No interests yet"}
+                  {network.settings.persona.signalCount > 0
+                    ? ` · learning from ${network.settings.persona.signalCount} recent interactions`
+                    : " · learning starts as you browse"}
+                </>
+              ) : (
+                "Loading profiles…"
+              )}
+            </p>
+          </fieldset>
+        ) : null}
+
+        <div className="flex flex-col gap-1.5">
+          {SOURCE_OPTIONS.map((opt) => {
+            const isSelected = activeSource === opt.value;
+            let fill: string | null = null;
+            if (opt.value === "asm") {
+              fill = ORANGE_FILL;
+            } else if (opt.value === "bluesky") {
+              fill = BLUESKY_FILL;
+            }
+
+            let rowSkin = "text-foreground group sidebar-row-hover";
+            if (isSelected) {
+              // The neutral "All networks" selection sits a step above the panel
+              // (bg-card) so it still reads as chosen on the dark theme, where a
+              // plain surface-3d fill matches the panel exactly.
+              rowSkin = fill ?? "surface-3d bg-card text-foreground";
+            }
+
+            return (
+              <button
+                key={opt.value}
+                aria-pressed={isSelected}
+                className={cn(
+                  "focus-visible:ring-ring flex w-full cursor-pointer items-center gap-2.5 rounded-xl px-2.5 py-2 text-left focus-visible:ring-2 focus-visible:outline-none",
+                  "active:translate-y-px",
+                  rowSkin
+                )}
+                onClick={() => setSource(opt.value)}
+                type="button"
+              >
+                <span
+                  className={cn(
+                    "flex size-5 shrink-0 items-center justify-center",
+                    isSelected
+                      ? ""
+                      : cn(
+                          // Brand marks keep their own colour on hover, the same
+                          // way the trending rows do; neutral glyphs inherit.
+                          opt.idleTone ??
+                            "text-muted-foreground transition-colors group-hover:text-inherit"
+                        ),
+                    isSelected && fill && opt.whiteOnFill
+                      ? "brightness-0 invert"
+                      : ""
+                  )}
+                >
+                  {opt.mark}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span
+                    className={cn(
+                      "block truncate text-[13px] leading-tight font-semibold",
+                      isSelected
+                        ? ""
+                        : "transition-colors group-hover:text-inherit"
+                    )}
+                  >
+                    {opt.label}
+                  </span>
+                  <span
+                    className={cn(
+                      "text-muted-foreground block truncate text-[11px] leading-tight",
+                      isSelected && fill
+                        ? "text-white/80"
+                        : "transition-colors group-hover:text-inherit"
+                    )}
+                  >
+                    {opt.description}
+                  </span>
+                </span>
+                {isSelected ? (
+                  <Check
+                    aria-hidden
+                    className="size-4 shrink-0"
+                    strokeWidth={3}
+                  />
+                ) : null}
+              </button>
+            );
+          })}
+        </div>
+
+        {following ? (
+          <p className="text-muted-foreground mt-2 px-1 text-[11px] leading-snug">
+            Following shows ASM users and Bluesky accounts you follow in ASM. No
+            linked Bluesky account required.
+          </p>
+        ) : null}
+      </PopoverContent>
+    </Popover>
+  );
+}

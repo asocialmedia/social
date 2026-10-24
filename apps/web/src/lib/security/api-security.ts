@@ -57,6 +57,11 @@ const TIER_RULES: TierRule[] = [
     tier: HEAVY_READ_TIER,
   },
   { pattern: /^\/api\/gusts/, tier: HEAVY_READ_TIER },
+  {
+    pattern:
+      /^\/api\/protocols\/bluesky\/(?:discover|search|following)(?:\/|$)/,
+    tier: HEAVY_READ_TIER,
+  },
 ];
 
 // Paths that never count against any tier.

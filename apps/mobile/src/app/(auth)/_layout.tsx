@@ -1,6 +1,6 @@
 // Expo Router v57 auth group layout. Route group (auth) keeps URLs clean
 // (/login, /signup, ...) while sharing the stack + signup state.
-// Docs: https://docs.expo.dev/versions/v57.0.0/sdk/router/stack/
+// Docs: https://docs.expo.dev/versions/v58.0.0/sdk/router/stack/
 
 import { Stack } from "expo-router";
 

@@ -1,3 +1,6 @@
+[install]
+linker = "hoisted"
+
 [test]
 coverageReporter = ["text", "lcov"]
 coverageDir = "coverage/all"

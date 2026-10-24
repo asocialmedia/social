@@ -546,6 +546,19 @@ export function UserProfilePopup({ onClose, userId }: UserProfilePopupProps) {
                 />
               </View>
 
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Recently viewed posts"
+                onPress={() => {
+                  onClose();
+                  router.push("/history");
+                }}
+                style={{ padding: 12 }}
+              >
+                <Text style={{ color: theme.inputText }}>
+                  Recently viewed posts
+                </Text>
+              </Pressable>
               <View style={styles.bookmarks}>
                 <Pressable
                   accessibilityLabel="Open bookmarks"

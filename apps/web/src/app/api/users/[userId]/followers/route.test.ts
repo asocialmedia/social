@@ -296,6 +296,9 @@ const mockPrisma = {
   transaction: (fn: (tx: typeof mockTx) => Promise<unknown>) => fn(mockTx),
 };
 
+mock.module("@/lib/recommendations/suggestion-version", () => ({
+  invalidateDiscoverySuggestions: () => Promise.resolve(),
+}));
 mock.module("@asm/config/debug", () => ({
   debugLog: { api: () => {} },
 }));

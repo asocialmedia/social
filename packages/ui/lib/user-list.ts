@@ -6,6 +6,9 @@ export interface UserListMutual {
 }
 
 export interface ProfileUserListData {
+  source?: "asm" | "bluesky";
+  href?: string;
+  status?: string;
   _count: { followers: number };
   avatarUrl: string | null;
   bio: string | null;

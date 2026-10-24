@@ -1,5 +1,6 @@
 import type { PostData } from "@asm/db";
 
+import { postHasExplicitMedia } from "@/lib/protocols/content-labels";
 import type { Media } from "@/lib/types";
 
 export type PostAttachment = Pick<Media, "id" | "type"> & {
@@ -9,6 +10,7 @@ export type PostAttachment = Pick<Media, "id" | "type"> & {
       Media,
       | "attributionPublic"
       | "aiGenerated"
+      | "aiGeneratedSource"
       | "altText"
       | "generatedAltText"
       | "originalProvenanceId"
@@ -148,6 +150,10 @@ export function normalizePostData<T extends PostData>(post: T): T {
         vote,
       };
     }
+  }
+
+  if (!rawPost.explicitContent && postHasExplicitMedia(rawPost)) {
+    next = { ...next, explicitContent: true };
   }
 
   return next;

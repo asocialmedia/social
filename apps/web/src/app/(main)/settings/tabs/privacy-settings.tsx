@@ -8,6 +8,7 @@ import { ShieldCheck, Users } from "lucide-react";
 import { useRef, useState } from "react";
 
 import { LegalSettingsCard } from "@/components/settings/legal-settings-card";
+import SettingsFooterArt from "@/components/settings/settings-footer-art";
 import {
   SettingsCard,
   SettingsCardHeading,
@@ -103,7 +104,7 @@ export default function PrivacySettings({ user }: PrivacySettingsProps) {
   });
 
   return (
-    <div className="flex flex-col gap-6 px-4 pt-6 sm:px-6">
+    <div className="flex flex-1 flex-col gap-6 px-4 pt-6 sm:px-6">
       <SettingsSectionHeader
         description="Who can reach you, and who can put you in a group"
         icon={ShieldCheck}
@@ -169,6 +170,7 @@ export default function PrivacySettings({ user }: PrivacySettingsProps) {
         </p>
       </SettingsCard>
       <LegalSettingsCard />
+      <SettingsFooterArt className="-mx-4 mt-auto sm:-mx-6" tab="privacy" />
     </div>
   );
 }

@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test";
 
-import { formatNumber, isEditableTarget, truncateUsername } from "./utils";
+import {
+  formatNumber,
+  isEditableTarget,
+  isRouteActive,
+  truncateUsername,
+} from "./utils";
 
 describe("truncateUsername", () => {
   test("leaves a username within the budget untouched", () => {
@@ -52,6 +57,12 @@ describe("isEditableTarget", () => {
       } as unknown as EventTarget)
     ).toBe(false);
   });
+});
+
+test("a guest's empty profile target never matches the home route", () => {
+  expect(isRouteActive("/", "")).toBe(false);
+  expect(isRouteActive("/?tab=latest", "")).toBe(false);
+  expect(isRouteActive("/users/alice", "/users/alice")).toBe(true);
 });
 
 describe("formatNumber", () => {

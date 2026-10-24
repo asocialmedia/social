@@ -1,7 +1,7 @@
 "use client";
 
 import type { UserData } from "@asm/db";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import type React from "react";
 
 import LeftSidebar from "@/components/home/sidebars/left-side-bar";
@@ -32,7 +32,10 @@ export function MainShell({
   userData: UserData | null;
 }) {
   const pathname = usePathname();
-  const bare = isBareRoute(pathname);
+  const searchParams = useSearchParams();
+  const externalMedia =
+    pathname === "/network/bluesky" && searchParams.has("media");
+  const bare = externalMedia || isBareRoute(pathname);
 
   if (bare) {
     return (

@@ -1,11 +1,12 @@
 import { describe, expect, test } from "bun:test";
 
 import type { PostParentData } from "@asm/db";
+import type { ExternalPost } from "@asm/protocols/contracts";
 import { AppRouterContext } from "next/dist/shared/lib/app-router-context.shared-runtime";
 import type { ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import { ResponseParentRow } from "./response-parent-card";
+import ResponseParentCard, { ResponseParentRow } from "./response-parent-card";
 
 const router = {
   back: () => {},
@@ -47,6 +48,59 @@ const parent: PostParentData = {
 };
 
 describe("response source community rail", () => {
+  test.each([parent.id, "at://did:plc:alice/app.bsky.feed.post/source"])(
+    "a compact unavailable source retains a recovery link for %s",
+    (id) => {
+      const html = renderSource(
+        <ResponseParentCard parent={null} parentPostId={id} />
+      );
+      expect(html).toContain("Check original post");
+      expect(html).toContain(
+        id.startsWith("at://")
+          ? `/network/bluesky?uri=${encodeURIComponent(id)}`
+          : `/posts/${id}`
+      );
+    }
+  );
+  test("Bluesky source uses the shared full parent row, rail and internal profile route", () => {
+    const source: ExternalPost = {
+      author: {
+        displayName: "Alice",
+        handle: "alice.bsky.social",
+        id: "did:plc:alice",
+        labels: [],
+        source: "bluesky",
+        upstreamCounts: {},
+        url: "https://bsky.app/profile/did:plc:alice",
+      },
+      createdAt: "2026-10-16T10:00:00.000Z",
+      id: "at://did:plc:alice/app.bsky.feed.post/source",
+      indexedAt: "2026-10-16T10:00:00.000Z",
+      labels: [],
+      languages: ["en"],
+      media: [],
+      revision: "revision",
+      segments: [{ text: "The complete original" }],
+      source: "bluesky",
+      text: "The complete original",
+      upstreamCounts: { likes: 0, quotes: 0, replies: 0, reposts: 0 },
+      url: "https://bsky.app/profile/did:plc:alice/post/source",
+    };
+    const html = renderSource(
+      <ResponseParentRow
+        parent={{ ...parent, community: null, content: source.text }}
+        parentPostId={source.id}
+        external={source}
+      />
+    );
+    expect(html).toContain(
+      'data-response-source="at://did:plc:alice/app.bsky.feed.post/source"'
+    );
+    expect(html).toContain("The complete original");
+    expect(html).toContain("/network/bluesky/profile?actor=did%3Aplc%3Aalice");
+    expect(html).toContain("bg-border -mt-1 -mb-3 w-0.5 flex-1");
+    expect(html).not.toContain("/users/source-author");
+  });
   test("keeps the community rail inside the source, before the global response", () => {
     const html = renderSource(
       <>
@@ -107,5 +161,17 @@ describe("response source community rail", () => {
     );
     expect(html).not.toContain("response-source-community-rail");
     expect(html).toContain("This post is unavailable");
+  });
+
+  test("an unavailable external source retains its Bluesky recovery link without source metadata", () => {
+    const uri = "at://did:plc:alice/app.bsky.feed.post/source";
+    const html = renderSource(
+      <ResponseParentRow parent={null} parentPostId={uri} />
+    );
+    expect(html).toContain("surface-3d");
+    expect(html).toContain("This response is still available.");
+    expect(html).toContain("Check original post");
+    expect(html).toContain(`/network/bluesky?uri=${encodeURIComponent(uri)}`);
+    expect(html).not.toContain("/posts/at:");
   });
 });

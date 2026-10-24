@@ -74,6 +74,7 @@ export function useSearchHistory(enabled = true) {
   const queryClient = useQueryClient();
   const { user } = useSession();
   const isLoggedIn = Boolean(user);
+  const historyKey = ["search-history", user?.id ?? "guest"];
 
   const historyQuery = useQuery({
     enabled: enabled && isLoggedIn,
@@ -81,7 +82,7 @@ export function useSearchHistory(enabled = true) {
       kyInstance
         .get("/api/search", { searchParams: { type: "history" } })
         .json<SearchHistoryItem[]>(),
-    queryKey: ["search-history"],
+    queryKey: historyKey,
     refetchOnWindowFocus: true,
     staleTime: 0,
   });
@@ -90,16 +91,15 @@ export function useSearchHistory(enabled = true) {
     mutationFn: searchMutations.addSearch,
     onError: (_err, _query, context) => {
       if (context?.previousHistory) {
-        queryClient.setQueryData(["search-history"], context.previousHistory);
+        queryClient.setQueryData(historyKey, context.previousHistory);
       }
     },
     onMutate: async (
       payload: string | { query: string; resultCount?: number }
     ) => {
-      await queryClient.cancelQueries({ queryKey: ["search-history"] });
-      const previousHistory = queryClient.getQueryData<SearchHistoryItem[]>([
-        "search-history",
-      ]);
+      await queryClient.cancelQueries({ queryKey: historyKey });
+      const previousHistory =
+        queryClient.getQueryData<SearchHistoryItem[]>(historyKey);
 
       const queryStr =
         typeof payload === "string" ? payload.trim() : payload.query.trim();
@@ -129,14 +129,14 @@ export function useSearchHistory(enabled = true) {
       };
 
       queryClient.setQueryData<SearchHistoryItem[]>(
-        ["search-history"],
+        historyKey,
         [optimisticItem, ...filtered].slice(0, 10)
       );
 
       return { previousHistory };
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ["search-history"] });
+      queryClient.invalidateQueries({ queryKey: historyKey });
       queryClient.invalidateQueries({ queryKey: ["search-suggestions"] });
     },
   });
@@ -145,14 +145,13 @@ export function useSearchHistory(enabled = true) {
     mutationFn: searchMutations.addUserSearch,
     onError: (_err, _user, context) => {
       if (context?.previousHistory) {
-        queryClient.setQueryData(["search-history"], context.previousHistory);
+        queryClient.setQueryData(historyKey, context.previousHistory);
       }
     },
     onMutate: async (userPayload: SearchUserResult) => {
-      await queryClient.cancelQueries({ queryKey: ["search-history"] });
-      const previousHistory = queryClient.getQueryData<SearchHistoryItem[]>([
-        "search-history",
-      ]);
+      await queryClient.cancelQueries({ queryKey: historyKey });
+      const previousHistory =
+        queryClient.getQueryData<SearchHistoryItem[]>(historyKey);
 
       const now = Date.now();
       const current = previousHistory ?? [];
@@ -173,14 +172,14 @@ export function useSearchHistory(enabled = true) {
       };
 
       queryClient.setQueryData<SearchHistoryItem[]>(
-        ["search-history"],
+        historyKey,
         [optimisticItem, ...filtered].slice(0, 10)
       );
 
       return { previousHistory };
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ["search-history"] });
+      queryClient.invalidateQueries({ queryKey: historyKey });
     },
   });
 
@@ -188,14 +187,13 @@ export function useSearchHistory(enabled = true) {
     mutationFn: searchMutations.addPostSearch,
     onError: (_err, _post, context) => {
       if (context?.previousHistory) {
-        queryClient.setQueryData(["search-history"], context.previousHistory);
+        queryClient.setQueryData(historyKey, context.previousHistory);
       }
     },
     onMutate: async (postPayload: SearchPostResult) => {
-      await queryClient.cancelQueries({ queryKey: ["search-history"] });
-      const previousHistory = queryClient.getQueryData<SearchHistoryItem[]>([
-        "search-history",
-      ]);
+      await queryClient.cancelQueries({ queryKey: historyKey });
+      const previousHistory =
+        queryClient.getQueryData<SearchHistoryItem[]>(historyKey);
 
       const now = Date.now();
       const current = previousHistory ?? [];
@@ -216,14 +214,14 @@ export function useSearchHistory(enabled = true) {
       };
 
       queryClient.setQueryData<SearchHistoryItem[]>(
-        ["search-history"],
+        historyKey,
         [optimisticItem, ...filtered].slice(0, 10)
       );
 
       return { previousHistory };
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ["search-history"] });
+      queryClient.invalidateQueries({ queryKey: historyKey });
     },
   });
 
@@ -231,14 +229,13 @@ export function useSearchHistory(enabled = true) {
     mutationFn: searchMutations.removeHistoryItem,
     onError: (_err, _target, context) => {
       if (context?.previousHistory) {
-        queryClient.setQueryData(["search-history"], context.previousHistory);
+        queryClient.setQueryData(historyKey, context.previousHistory);
       }
     },
     onMutate: async (target: string) => {
-      await queryClient.cancelQueries({ queryKey: ["search-history"] });
-      const previousHistory = queryClient.getQueryData<SearchHistoryItem[]>([
-        "search-history",
-      ]);
+      await queryClient.cancelQueries({ queryKey: historyKey });
+      const previousHistory =
+        queryClient.getQueryData<SearchHistoryItem[]>(historyKey);
 
       const current = previousHistory ?? [];
       const trimmedTarget = target.trim();
@@ -256,15 +253,12 @@ export function useSearchHistory(enabled = true) {
         return !isMatch;
       });
 
-      queryClient.setQueryData<SearchHistoryItem[]>(
-        ["search-history"],
-        filtered
-      );
+      queryClient.setQueryData<SearchHistoryItem[]>(historyKey, filtered);
 
       return { previousHistory };
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ["search-history"] });
+      queryClient.invalidateQueries({ queryKey: historyKey });
     },
   });
 
@@ -272,19 +266,18 @@ export function useSearchHistory(enabled = true) {
     mutationFn: searchMutations.clearHistory,
     onError: (_err, _variables, context) => {
       if (context?.previousHistory) {
-        queryClient.setQueryData(["search-history"], context.previousHistory);
+        queryClient.setQueryData(historyKey, context.previousHistory);
       }
     },
     onMutate: async () => {
-      await queryClient.cancelQueries({ queryKey: ["search-history"] });
-      const previousHistory = queryClient.getQueryData<SearchHistoryItem[]>([
-        "search-history",
-      ]);
-      queryClient.setQueryData<SearchHistoryItem[]>(["search-history"], []);
+      await queryClient.cancelQueries({ queryKey: historyKey });
+      const previousHistory =
+        queryClient.getQueryData<SearchHistoryItem[]>(historyKey);
+      queryClient.setQueryData<SearchHistoryItem[]>(historyKey, []);
       return { previousHistory };
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ["search-history"] });
+      queryClient.invalidateQueries({ queryKey: historyKey });
     },
   });
 
@@ -293,7 +286,7 @@ export function useSearchHistory(enabled = true) {
     addSearchMutation: searchMutation,
     addUserSearchMutation,
     clearHistoryMutation,
-    history: historyQuery.data ?? [],
+    history: isLoggedIn ? (historyQuery.data ?? []) : [],
     historyQuery,
     removeHistoryItemMutation,
   };

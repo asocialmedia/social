@@ -1,0 +1,682 @@
+[
+  {
+    "id": "table.external_comments",
+    "label": "Create table \"external_comments\"",
+    "summary": "Creates table \"external_comments\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "table",
+        "name": "external_comments"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure table \"external_comments\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": ["\"public\".\"external_comments\""]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create table \"external_comments\"",
+        "sql": "CREATE TABLE \"public\".\"external_comments\" (\n  \"content\" text NOT NULL,\n  \"createdAt\" timestamp(3) DEFAULT (now()) NOT NULL,\n  \"deleted\" bool DEFAULT false NOT NULL,\n  \"externalPostId\" text NOT NULL,\n  \"id\" text NOT NULL,\n  \"requestId\" text NOT NULL,\n  \"userId\" text NOT NULL,\n  PRIMARY KEY (\"id\")\n)",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify table \"external_comments\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": ["\"public\".\"external_comments\""]
+      }
+    ]
+  },
+  {
+    "id": "table.external_engagements",
+    "label": "Create table \"external_engagements\"",
+    "summary": "Creates table \"external_engagements\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "table",
+        "name": "external_engagements"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure table \"external_engagements\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": ["\"public\".\"external_engagements\""]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create table \"external_engagements\"",
+        "sql": "CREATE TABLE \"public\".\"external_engagements\" (\n  \"amplified\" bool DEFAULT false NOT NULL,\n  \"bookmarked\" bool DEFAULT false NOT NULL,\n  \"createdAt\" timestamp(3) DEFAULT (now()) NOT NULL,\n  \"externalPostId\" text NOT NULL,\n  \"updatedAt\" timestamp(3) DEFAULT (now()) NOT NULL,\n  \"userId\" text NOT NULL,\n  PRIMARY KEY (\"userId\", \"externalPostId\")\n)",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify table \"external_engagements\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": ["\"public\".\"external_engagements\""]
+      }
+    ]
+  },
+  {
+    "id": "table.external_posts",
+    "label": "Create table \"external_posts\"",
+    "summary": "Creates table \"external_posts\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "table",
+        "name": "external_posts"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure table \"external_posts\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": ["\"public\".\"external_posts\""]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create table \"external_posts\"",
+        "sql": "CREATE TABLE \"public\".\"external_posts\" (\n  \"authorId\" text NOT NULL,\n  \"available\" bool DEFAULT true NOT NULL,\n  \"checkedAt\" timestamp(3) DEFAULT (now()) NOT NULL,\n  \"createdAt\" timestamp(3) DEFAULT (now()) NOT NULL,\n  \"id\" text NOT NULL,\n  \"snapshot\" jsonb,\n  \"source\" text NOT NULL,\n  \"uri\" text NOT NULL,\n  PRIMARY KEY (\"id\")\n)",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify table \"external_posts\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": ["\"public\".\"external_posts\""]
+      }
+    ]
+  },
+  {
+    "id": "unique.external_comments.external_comments_userId_requestId_key",
+    "label": "Add unique constraint on \"external_comments\" (userId, requestId)",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "unique",
+        "name": "external_comments_userId_requestId_key",
+        "table": "external_comments"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure constraint \"external_comments_userId_requestId_key\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "external_comments_userId_requestId_key",
+          "public",
+          "\"public\".\"external_comments\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add unique constraint \"external_comments_userId_requestId_key\"",
+        "sql": "ALTER TABLE \"public\".\"external_comments\" ADD CONSTRAINT \"external_comments_userId_requestId_key\" UNIQUE (\"userId\", \"requestId\")"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify constraint \"external_comments_userId_requestId_key\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "external_comments_userId_requestId_key",
+          "public",
+          "\"public\".\"external_comments\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "unique.external_posts.external_posts_source_uri_key",
+    "label": "Add unique constraint on \"external_posts\" (source, uri)",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "unique",
+        "name": "external_posts_source_uri_key",
+        "table": "external_posts"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure constraint \"external_posts_source_uri_key\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "external_posts_source_uri_key",
+          "public",
+          "\"public\".\"external_posts\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add unique constraint \"external_posts_source_uri_key\"",
+        "sql": "ALTER TABLE \"public\".\"external_posts\" ADD CONSTRAINT \"external_posts_source_uri_key\" UNIQUE (\"source\", \"uri\")"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify constraint \"external_posts_source_uri_key\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "external_posts_source_uri_key",
+          "public",
+          "\"public\".\"external_posts\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.external_comments.external_comments_externalPostId_idx_98ecd9ca",
+    "label": "Create index \"external_comments_externalPostId_idx_98ecd9ca\" on \"external_comments\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "external_comments_externalPostId_idx_98ecd9ca",
+        "table": "external_comments"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"external_comments_externalPostId_idx_98ecd9ca\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"external_comments_externalPostId_idx_98ecd9ca\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"external_comments_externalPostId_idx_98ecd9ca\"",
+        "sql": "CREATE INDEX \"external_comments_externalPostId_idx_98ecd9ca\" ON \"public\".\"external_comments\" (\"externalPostId\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"external_comments_externalPostId_idx_98ecd9ca\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"external_comments_externalPostId_idx_98ecd9ca\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.external_comments.external_comments_page_idx",
+    "label": "Create index \"external_comments_page_idx\" on \"external_comments\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "external_comments_page_idx",
+        "table": "external_comments"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"external_comments_page_idx\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": ["\"public\".\"external_comments_page_idx\""]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"external_comments_page_idx\"",
+        "sql": "CREATE INDEX \"external_comments_page_idx\" ON \"public\".\"external_comments\" (\"externalPostId\", \"createdAt\", \"id\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"external_comments_page_idx\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": ["\"public\".\"external_comments_page_idx\""]
+      }
+    ]
+  },
+  {
+    "id": "index.external_comments.external_comments_userId_idx_a489d58a",
+    "label": "Create index \"external_comments_userId_idx_a489d58a\" on \"external_comments\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "external_comments_userId_idx_a489d58a",
+        "table": "external_comments"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"external_comments_userId_idx_a489d58a\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": ["\"public\".\"external_comments_userId_idx_a489d58a\""]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"external_comments_userId_idx_a489d58a\"",
+        "sql": "CREATE INDEX \"external_comments_userId_idx_a489d58a\" ON \"public\".\"external_comments\" (\"userId\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"external_comments_userId_idx_a489d58a\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": ["\"public\".\"external_comments_userId_idx_a489d58a\""]
+      }
+    ]
+  },
+  {
+    "id": "index.external_engagements.external_engagement_amplified_idx",
+    "label": "Create index \"external_engagement_amplified_idx\" on \"external_engagements\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "external_engagement_amplified_idx",
+        "table": "external_engagements"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"external_engagement_amplified_idx\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": ["\"public\".\"external_engagement_amplified_idx\""]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"external_engagement_amplified_idx\"",
+        "sql": "CREATE INDEX \"external_engagement_amplified_idx\" ON \"public\".\"external_engagements\" (\"userId\", \"amplified\", \"updatedAt\", \"externalPostId\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"external_engagement_amplified_idx\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": ["\"public\".\"external_engagement_amplified_idx\""]
+      }
+    ]
+  },
+  {
+    "id": "index.external_engagements.external_engagement_bookmarks_idx",
+    "label": "Create index \"external_engagement_bookmarks_idx\" on \"external_engagements\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "external_engagement_bookmarks_idx",
+        "table": "external_engagements"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"external_engagement_bookmarks_idx\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": ["\"public\".\"external_engagement_bookmarks_idx\""]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"external_engagement_bookmarks_idx\"",
+        "sql": "CREATE INDEX \"external_engagement_bookmarks_idx\" ON \"public\".\"external_engagements\" (\"userId\", \"bookmarked\", \"updatedAt\", \"externalPostId\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"external_engagement_bookmarks_idx\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": ["\"public\".\"external_engagement_bookmarks_idx\""]
+      }
+    ]
+  },
+  {
+    "id": "index.external_engagements.external_engagement_post_idx",
+    "label": "Create index \"external_engagement_post_idx\" on \"external_engagements\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "external_engagement_post_idx",
+        "table": "external_engagements"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"external_engagement_post_idx\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": ["\"public\".\"external_engagement_post_idx\""]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"external_engagement_post_idx\"",
+        "sql": "CREATE INDEX \"external_engagement_post_idx\" ON \"public\".\"external_engagements\" (\"externalPostId\", \"amplified\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"external_engagement_post_idx\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": ["\"public\".\"external_engagement_post_idx\""]
+      }
+    ]
+  },
+  {
+    "id": "index.external_engagements.external_engagements_externalPostId_idx_98ecd9ca",
+    "label": "Create index \"external_engagements_externalPostId_idx_98ecd9ca\" on \"external_engagements\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "external_engagements_externalPostId_idx_98ecd9ca",
+        "table": "external_engagements"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"external_engagements_externalPostId_idx_98ecd9ca\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"external_engagements_externalPostId_idx_98ecd9ca\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"external_engagements_externalPostId_idx_98ecd9ca\"",
+        "sql": "CREATE INDEX \"external_engagements_externalPostId_idx_98ecd9ca\" ON \"public\".\"external_engagements\" (\"externalPostId\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"external_engagements_externalPostId_idx_98ecd9ca\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"external_engagements_externalPostId_idx_98ecd9ca\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.external_engagements.external_engagements_userId_idx_a489d58a",
+    "label": "Create index \"external_engagements_userId_idx_a489d58a\" on \"external_engagements\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "external_engagements_userId_idx_a489d58a",
+        "table": "external_engagements"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"external_engagements_userId_idx_a489d58a\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": ["\"public\".\"external_engagements_userId_idx_a489d58a\""]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"external_engagements_userId_idx_a489d58a\"",
+        "sql": "CREATE INDEX \"external_engagements_userId_idx_a489d58a\" ON \"public\".\"external_engagements\" (\"userId\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"external_engagements_userId_idx_a489d58a\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": ["\"public\".\"external_engagements_userId_idx_a489d58a\""]
+      }
+    ]
+  },
+  {
+    "id": "index.external_posts.external_posts_authorId_idx_e47547ed",
+    "label": "Create index \"external_posts_authorId_idx_e47547ed\" on \"external_posts\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "external_posts_authorId_idx_e47547ed",
+        "table": "external_posts"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"external_posts_authorId_idx_e47547ed\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": ["\"public\".\"external_posts_authorId_idx_e47547ed\""]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"external_posts_authorId_idx_e47547ed\"",
+        "sql": "CREATE INDEX \"external_posts_authorId_idx_e47547ed\" ON \"public\".\"external_posts\" (\"authorId\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"external_posts_authorId_idx_e47547ed\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": ["\"public\".\"external_posts_authorId_idx_e47547ed\""]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.external_comments.external_comments_userId_fkey",
+    "label": "Add foreign key \"external_comments_userId_fkey\" on \"external_comments\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "external_comments_userId_fkey",
+        "table": "external_comments"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"external_comments_userId_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "external_comments_userId_fkey",
+          "public",
+          "\"public\".\"external_comments\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"external_comments_userId_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"external_comments\"\nADD CONSTRAINT \"external_comments_userId_fkey\"\nFOREIGN KEY (\"userId\")\nREFERENCES \"public\".\"users\" (\"id\")\nON DELETE CASCADE"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"external_comments_userId_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "external_comments_userId_fkey",
+          "public",
+          "\"public\".\"external_comments\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.external_comments.external_comments_externalPostId_fkey",
+    "label": "Add foreign key \"external_comments_externalPostId_fkey\" on \"external_comments\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "external_comments_externalPostId_fkey",
+        "table": "external_comments"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"external_comments_externalPostId_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "external_comments_externalPostId_fkey",
+          "public",
+          "\"public\".\"external_comments\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"external_comments_externalPostId_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"external_comments\"\nADD CONSTRAINT \"external_comments_externalPostId_fkey\"\nFOREIGN KEY (\"externalPostId\")\nREFERENCES \"public\".\"external_posts\" (\"id\")\nON DELETE CASCADE"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"external_comments_externalPostId_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "external_comments_externalPostId_fkey",
+          "public",
+          "\"public\".\"external_comments\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.external_engagements.external_engagements_userId_fkey",
+    "label": "Add foreign key \"external_engagements_userId_fkey\" on \"external_engagements\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "external_engagements_userId_fkey",
+        "table": "external_engagements"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"external_engagements_userId_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "external_engagements_userId_fkey",
+          "public",
+          "\"public\".\"external_engagements\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"external_engagements_userId_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"external_engagements\"\nADD CONSTRAINT \"external_engagements_userId_fkey\"\nFOREIGN KEY (\"userId\")\nREFERENCES \"public\".\"users\" (\"id\")\nON DELETE CASCADE"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"external_engagements_userId_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "external_engagements_userId_fkey",
+          "public",
+          "\"public\".\"external_engagements\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.external_engagements.external_engagements_externalPostId_fkey",
+    "label": "Add foreign key \"external_engagements_externalPostId_fkey\" on \"external_engagements\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "external_engagements_externalPostId_fkey",
+        "table": "external_engagements"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"external_engagements_externalPostId_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "external_engagements_externalPostId_fkey",
+          "public",
+          "\"public\".\"external_engagements\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"external_engagements_externalPostId_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"external_engagements\"\nADD CONSTRAINT \"external_engagements_externalPostId_fkey\"\nFOREIGN KEY (\"externalPostId\")\nREFERENCES \"public\".\"external_posts\" (\"id\")\nON DELETE CASCADE"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"external_engagements_externalPostId_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "external_engagements_externalPostId_fkey",
+          "public",
+          "\"public\".\"external_engagements\""
+        ]
+      }
+    ]
+  }
+]

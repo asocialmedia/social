@@ -4,6 +4,8 @@
 // (authClient.getCookie). Pure and injectable for testing: cookie, apiBase
 // and baseFetch come from the caller, mirroring profile-data.ts.
 
+import type { NetworkRequestContext } from "@/features/network/lib/network-query";
+import { appendNetworkQuery } from "@/features/network/lib/network-query";
 import { withAuthHeaders } from "@/lib/auth-headers";
 import { getWithTimeout } from "@/lib/http-get";
 
@@ -13,6 +15,7 @@ import { parseWavePeaks } from "./waveform";
 import type { WavePeaks } from "./waveform";
 
 export interface ApiCallOptions {
+  network?: NetworkRequestContext;
   apiBase: string;
   baseFetch?: typeof fetch;
   cookie?: string;
@@ -43,11 +46,18 @@ function callFeedApi(
     method: options.method ?? "GET",
   } satisfies RequestInit;
   return (options.method ?? "GET").toUpperCase() === "GET"
-    ? getWithTimeout(`${options.apiBase}${path}`, request, {
-        baseFetch,
-        timeoutMs: options.timeoutMs,
-      })
-    : baseFetch(`${options.apiBase}${path}`, request);
+    ? getWithTimeout(
+        `${options.apiBase}${appendNetworkQuery(path, options.network)}`,
+        request,
+        {
+          baseFetch,
+          timeoutMs: options.timeoutMs,
+        }
+      )
+    : baseFetch(
+        `${options.apiBase}${appendNetworkQuery(path, options.network)}`,
+        request
+      );
 }
 
 async function readJson(response: Response): Promise<unknown> {
@@ -325,6 +335,45 @@ export async function fetchCommentsPage(
   cursor: string | null,
   options: ApiCallOptions
 ): Promise<CommentsPage> {
+  const isExternal = postId.startsWith("at://") || postId.startsWith("at%3A");
+  if (isExternal) {
+    const rawUri = postId.startsWith("at%3A")
+      ? decodeURIComponent(postId)
+      : postId;
+    let parsedCursor: { createdAt: string; id: string } | undefined;
+    if (cursor) {
+      try {
+        parsedCursor = JSON.parse(cursor) as { createdAt: string; id: string };
+      } catch {
+        // Ignore unparseable cursor
+      }
+    }
+    const { readExternal } = await import("./external-interactions");
+    const data = await readExternal(rawUri, parsedCursor);
+    const comments: FeedComment[] = (data.comments.items ?? []).map(
+      (comment) => ({
+        content: comment.content,
+        createdAt: comment.createdAt,
+        deleted: comment.deleted,
+        id: comment.id,
+        parentId: comment.parentId ?? null,
+        postId: rawUri,
+        user: {
+          avatarUrl: comment.user?.avatarUrl ?? null,
+          displayName: comment.user.displayName,
+          id: comment.user.id,
+          username: comment.user.username,
+        },
+      })
+    );
+    return {
+      comments,
+      previousCursor: data.comments.cursor
+        ? JSON.stringify(data.comments.cursor)
+        : null,
+    };
+  }
+
   const base = `/api/posts/${encodeURIComponent(postId)}/comments`;
   const path = cursor ? `${base}?cursor=${encodeURIComponent(cursor)}` : base;
   const response = await callFeedApi(path, options);
@@ -343,6 +392,20 @@ export async function createComment(
   options: ApiCallOptions,
   parentId?: string
 ): Promise<void> {
+  const isExternal = postId.startsWith("at://") || postId.startsWith("at%3A");
+  if (isExternal) {
+    const rawUri = postId.startsWith("at%3A")
+      ? decodeURIComponent(postId)
+      : postId;
+    const { mutateExternal } = await import("./external-interactions");
+    await mutateExternal({
+      action: "comment",
+      content,
+      requestId: crypto.randomUUID(),
+      uri: rawUri,
+    });
+    return;
+  }
   const response = await callFeedApi(
     `/api/posts/${encodeURIComponent(postId)}/comments`,
     {

@@ -11,6 +11,11 @@ import type { PostData } from "@asm/db";
 import { createLogger } from "@asm/logger";
 
 import { getSessionFromApi } from "@/lib/auth/session";
+import { explicitContentEnabled } from "@/lib/posts/explicit-content-enabled";
+import {
+  postContentReadable,
+  postsForReader,
+} from "@/lib/posts/reader-content-policy";
 import { deletePost, updatePostModeration } from "@/posts/actions";
 import type { PostModerationChanges } from "@/posts/actions";
 
@@ -26,6 +31,8 @@ export async function GET(
   // same. Resolving per-user fields against an empty id keeps the reply
   // guest-shaped (no vote/bookmark state) without a second code path.
   const userId = session?.user?.id ?? "";
+  // A known id must not be a bypass around the feed's explicit-content policy.
+  const showExplicitContent = await explicitContentEnabled(userId);
 
   const { postId } = await ctx.params;
   // A direct post read must honor the same community visibility as every feed:
@@ -35,12 +42,23 @@ export async function GET(
   const visibility = communityVisibilityWhere(userId);
   const postQuery = getPostDataQuery(prisma.orm, userId);
   const postRow = await postQuery
-    .where((post) => and(post.id.eq(postId), visibility(post)))
+    .where((post) =>
+      and(
+        post.id.eq(postId),
+        visibility(post),
+        ...(showExplicitContent ? [] : [post.explicitContent.eq(false)])
+      )
+    )
     .first();
   let post = postRow ? mapPostData(postRow) : null;
   if (!post && postId.length >= 8) {
     const candidateIds = await prisma.orm.public.Posts.select("id")
-      .where((candidate) => visibility(candidate))
+      .where((candidate) =>
+        and(
+          visibility(candidate),
+          ...(showExplicitContent ? [] : [candidate.explicitContent.eq(false)])
+        )
+      )
       .all();
     const matchingIds = candidateIds
       .filter((candidate) => candidate.id.startsWith(postId))
@@ -53,7 +71,7 @@ export async function GET(
       }
     }
   }
-  if (!post) {
+  if (!post || !postContentReadable(post, showExplicitContent)) {
     return Response.json({ error: "Post not found" }, { status: 404 });
   }
 
@@ -63,7 +81,10 @@ export async function GET(
     ancestors = await getPostAncestors(hydrated.parentPostId, userId);
   }
 
-  return Response.json({ ancestors, post: hydrated });
+  return Response.json({
+    ancestors: postsForReader(ancestors, showExplicitContent),
+    post: postsForReader([hydrated], showExplicitContent)[0],
+  });
 }
 
 // The post author deleting their own post. Delegates to the server action so

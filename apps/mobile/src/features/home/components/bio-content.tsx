@@ -1,3 +1,4 @@
+import type { TextSegment } from "@asm/protocols/contracts";
 // Bio renderer for the profile popup: web's PostInlineContent in chip mode
 // (post-inline-content.tsx with linkBadge="chip"). URLs become link pills
 // (platform glyph or host-initial tile + host label), @mentions become
@@ -18,6 +19,7 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import avatarPlaceholder from "@/assets/images/avatar-placeholder.png";
 import { authClient } from "@/features/auth/lib/auth-client";
+import { externalInlineSegments } from "@/features/network/lib/source-text";
 import {
   META_CHIP_SHADOWS,
   META_CHIP_SHADOWS_DARK,
@@ -28,7 +30,6 @@ import { popupCache } from "./profile-cache";
 import { fetchLinkPreview } from "./profile-data";
 import type { BioSegment } from "./profile-utils";
 import {
-  clampBioSegments,
   getLinkPlatform,
   hostLabel,
   safeLinkUrl,
@@ -110,7 +111,9 @@ function LinkChip({ title, url }: { title?: string; url: string }) {
 export function MentionChip({
   avatarUrl,
   username,
+  actor,
 }: {
+  actor?: string;
   avatarUrl?: string | null;
   username: string;
 }) {
@@ -123,7 +126,11 @@ export function MentionChip({
       style={styles.chipPressable}
       onPress={(event) => {
         event.stopPropagation();
-        router.push({ params: { username }, pathname: "/users/[username]" });
+        if (actor) {
+          router.push({ params: { actor }, pathname: "/external-profile" });
+        } else {
+          router.push({ params: { username }, pathname: "/users/[username]" });
+        }
       }}
     >
       <ChipShell
@@ -187,10 +194,15 @@ function BioPiece({
   const { theme } = useAppTheme();
   switch (segment.type) {
     case "url": {
-      return <LinkChip title={titles[segment.url]} url={segment.url} />;
+      return (
+        <LinkChip
+          title={segment.label ?? titles[segment.url]}
+          url={segment.url}
+        />
+      );
     }
     case "mention": {
-      return <MentionChip username={segment.username} />;
+      return <MentionChip username={segment.username} actor={segment.actor} />;
     }
     case "tag": {
       return <TagChip tag={segment.tag} />;
@@ -215,14 +227,18 @@ export function BioContent({
   apiBase,
   bio,
   clampLength,
+  compactBlankLines = false,
   textColor,
   textSize,
+  sourceSegments,
 }: {
+  sourceSegments?: TextSegment[];
   apiBase: string;
   bio: string;
   // Long bodies collapse behind Show more/less, mirroring web's ~6-line
   // clamp. Cutting happens at segment boundaries so pills never split.
   clampLength?: number;
+  compactBlankLines?: boolean;
   // Plain-text ink override for dark scrims (the media viewer panel renders
   // white text on black in both themes). Chips keep their own treatment.
   textColor?: string;
@@ -231,16 +247,31 @@ export function BioContent({
 }) {
   const [expanded, setExpanded] = useState(false);
   const { theme } = useAppTheme();
-  const full = useMemo(() => segmentBioContent(bio), [bio]);
-  const { clamped, visible: segments } = useMemo(() => {
-    if (clampLength === undefined || expanded || bio.length <= clampLength) {
-      return { clamped: false, visible: full };
-    }
-    return clampBioSegments(full, clampLength);
-  }, [bio, clampLength, expanded, full]);
+  const [measuredHeight, setMeasuredHeight] = useState(0);
+  const lineLimit = 6 * (textSize?.lineHeight ?? 20);
+  const full = useMemo<BioSegment[]>(() => {
+    const source = sourceSegments
+      ? externalInlineSegments(sourceSegments)
+      : segmentBioContent(bio);
+    return compactBlankLines || clampLength !== undefined || sourceSegments
+      ? source.map((segment) =>
+          segment.type === "text"
+            ? {
+                ...segment,
+                text: segment.text.replaceAll(/\r?\n(?:[\t ]*\r?\n)+/g, "\n"),
+              }
+            : segment
+        )
+      : source;
+  }, [bio, sourceSegments, compactBlankLines, clampLength]);
+  const clamped = clampLength !== undefined && measuredHeight > lineLimit + 1;
+  const segments = full;
   const [titles, setTitles] = useState<Record<string, string>>({});
 
   useEffect(() => {
+    if (sourceSegments) {
+      return;
+    }
     const urls: string[] = [];
     for (const segment of full) {
       if (segment.type === "url" && !urls.includes(segment.url)) {
@@ -284,11 +315,42 @@ export function BioContent({
     return () => {
       cancelled = true;
     };
-  }, [apiBase, full]);
+  }, [apiBase, full, sourceSegments]);
 
   return (
     <View>
-      <View style={styles.wrap}>
+      {clampLength === undefined ? null : (
+        <View
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
+          pointerEvents="none"
+          style={[
+            styles.wrap,
+            { left: 0, opacity: 0, position: "absolute", right: 0, top: 0 },
+          ]}
+          onLayout={(event) =>
+            setMeasuredHeight(event.nativeEvent.layout.height)
+          }
+        >
+          {full.map((segment, index) => (
+            <BioPiece
+              key={`measure-${segment.type}-${index}`}
+              segment={segment}
+              textColor={textColor}
+              textSize={textSize}
+              titles={titles}
+            />
+          ))}
+        </View>
+      )}
+      <View
+        style={[
+          styles.wrap,
+          clampLength !== undefined && !expanded
+            ? { maxHeight: lineLimit, overflow: "hidden" }
+            : null,
+        ]}
+      >
         {segments.map((segment, index) => (
           // Index keys are safe: segments derive deterministically from the
           // immutable bio string, so order never shuffles under a render.

@@ -173,6 +173,10 @@ mock.module("@/lib/auth/session", () => ({
   getSessionFromApi: mockGetSession,
 }));
 
+mock.module("@/lib/posts/explicit-content-enabled", () => ({
+  explicitContentEnabled: () => Promise.resolve(false),
+}));
+
 describe("GET /api/explore/search", () => {
   beforeEach(() => {
     postQueries.length = 0;

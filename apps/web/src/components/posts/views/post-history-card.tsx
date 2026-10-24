@@ -1,6 +1,5 @@
 "use client";
 
-import type { PostData } from "@asm/db";
 import noSearchImage from "@assets/general/nosearch.png";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -22,9 +21,15 @@ import {
   embedImageProxyUrl,
   useEmbedImageError,
 } from "@/components/posts/embeds/embed-utils";
+import { BlueskyIcon } from "@/components/protocols/bluesky-icon";
+import { useNetworkSettings } from "@/hooks/feed/use-network-settings";
+import { useSecondaryFeedReady } from "@/hooks/feed/use-secondary-feed-ready";
 import { getAuraFlameClass } from "@/lib/aura/aura";
+import { useSession } from "@/lib/auth/session-context";
 import kyInstance from "@/lib/ky";
 import { parseStoredEmbeds } from "@/lib/link-embeds/shared";
+import { networkPostAllowed } from "@/lib/posts/network-content-policy";
+import type { PresentedPost } from "@/lib/posts/presentation";
 import { getPostPath } from "@/lib/seo/seo";
 import { cn, formatNumber, formatRelativeDate } from "@/lib/utils";
 import { getMediaProxyUrl } from "@/lib/utils/image-url";
@@ -41,7 +46,7 @@ const HistoryRowSkeleton: React.FC = () => (
 );
 
 interface HistoryRowProps {
-  post: PostData;
+  post: PresentedPost;
 }
 
 const HistoryRow: React.FC<HistoryRowProps> = ({ post }) => {
@@ -138,11 +143,18 @@ const HistoryRow: React.FC<HistoryRowProps> = ({ post }) => {
           <span className="block truncate text-sm font-semibold">
             {post.user?.displayName || post.user?.username || "Anonymous"}
           </span>
-          <UserBadge
-            badge={post.user?.badge}
-            badges={post.user?.badges}
-            communityRoles={post.user?.communityMemberships}
-          />
+          {post.external ? (
+            <BlueskyIcon
+              className="size-3.5 shrink-0 text-sky-500"
+              tooltip={false}
+            />
+          ) : (
+            <UserBadge
+              badge={post.user?.badge}
+              badges={post.user?.badges}
+              communityRoles={post.user?.communityMemberships}
+            />
+          )}
         </span>
 
         {post.moderated ? (
@@ -166,10 +178,10 @@ const HistoryRow: React.FC<HistoryRowProps> = ({ post }) => {
             <Flame
               className={cn(
                 "h-3 w-3 transition-colors group-hover:text-inherit",
-                getAuraFlameClass(post.aura)
+                getAuraFlameClass(post.external ? post._count.vote : post.aura)
               )}
             />
-            {formatNumber(post.aura)}
+            {formatNumber(post.external ? post._count.vote : post.aura)}
           </span>
           <span className="flex shrink-0 items-center gap-0.5">
             <MessageSquare
@@ -180,10 +192,12 @@ const HistoryRow: React.FC<HistoryRowProps> = ({ post }) => {
             />
             {formatNumber(post._count.comments)}
           </span>
-          <span className="flex shrink-0 items-center gap-0.5">
-            <Eye className="h-3 w-3" />
-            {formatNumber(post.viewCount)}
-          </span>
+          {post.external ? null : (
+            <span className="flex shrink-0 items-center gap-0.5">
+              <Eye className="h-3 w-3" />
+              {formatNumber(post.viewCount)}
+            </span>
+          )}
         </span>
       </span>
     </Link>
@@ -191,16 +205,26 @@ const HistoryRow: React.FC<HistoryRowProps> = ({ post }) => {
 };
 
 const PostHistoryCard: React.FC = () => {
+  const { user } = useSession();
+  const network = useNetworkSettings();
+  const primaryReady = useSecondaryFeedReady();
   const { data, status } = useQuery({
+    enabled: Boolean(user) && network.ready && primaryReady,
     queryFn: () =>
-      kyInstance.get("/api/posts/history").json<{ posts: PostData[] }>(),
-    queryKey: ["post-history"],
+      kyInstance.get("/api/posts/history").json<{ posts: PresentedPost[] }>(),
+    queryKey: ["post-history", user?.id ?? "guest", network.scope],
     refetchInterval: 30 * 1000,
     refetchIntervalInBackground: false,
     staleTime: 30 * 1000,
   });
 
-  const posts = data?.posts ?? [];
+  const posts = (data?.posts ?? []).filter((post) =>
+    networkPostAllowed(
+      post,
+      network.settings.preferences,
+      network.settings.topicScope
+    )
+  );
 
   let body: React.ReactNode;
   if (status === "pending") {

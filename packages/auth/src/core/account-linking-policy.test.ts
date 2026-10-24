@@ -359,7 +359,7 @@ describe("account identity across password, Google and Reddit", () => {
   });
 });
 
-test("an existing provider identity wins over a changed email matching another ASM user", async () => {
+test("an existing provider identity wins over a changed email matching another asocialmedia user", async () => {
   const f = await fixture();
   await f.oauth("google");
   const owner = f.rows.user?.[0]?.id;

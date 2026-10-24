@@ -7,6 +7,7 @@ import {
   mapPostData,
   prisma,
 } from "@asm/db";
+import { blueskyMediaIsExplicit } from "@asm/protocols/discovery";
 import { siteConfig } from "@asm/ui/meta/site";
 
 import { excerpt, getPostUrl, getShortPostId } from "@/lib/seo/seo";
@@ -14,6 +15,8 @@ import { excerpt, getPostUrl, getShortPostId } from "@/lib/seo/seo";
 // Server-side feed helpers for SEO crawlable HTML.
 // These mirror the API route logic but run via Prisma directly so
 // discovery surfaces render real <a href="/posts/..."> links in SSR.
+// Every helper is guest-rendered, so explicit posts are excluded unconditionally:
+// a crawler has no session and can never opt in.
 
 export interface CrawlPost {
   aura: number;
@@ -48,6 +51,14 @@ function toCrawlPost(p: {
   };
 }
 
+// The stored flag is written by the media pipeline and can miss a post that
+// only declares itself explicit in text or a hashtag ("#nsfw", "nudes"). These
+// rows are rendered as guest HTML and indexed, so re-check the same detector the
+// feeds use rather than trusting the column alone.
+function isCrawlSafe(post: { content: string | null }): boolean {
+  return !blueskyMediaIsExplicit({ text: post.content ?? undefined });
+}
+
 export async function getRecentPostsForCrawl(limit = 20): Promise<CrawlPost[]> {
   const posts = await prisma.orm.public.Posts.select(
     "aura",
@@ -61,6 +72,7 @@ export async function getRecentPostsForCrawl(limit = 20): Promise<CrawlPost[]> {
       and(
         post.isGust.eq(false),
         post.moderated.eq(false),
+        post.explicitContent.eq(false),
         post.rootPostId.isNull(),
         post.user.some((user) => user.banned.eq(false)),
         communityVisibilityWhere("")(post)
@@ -70,7 +82,7 @@ export async function getRecentPostsForCrawl(limit = 20): Promise<CrawlPost[]> {
     .limit(limit)
     .all();
 
-  return posts.map((post) =>
+  return posts.filter(isCrawlSafe).map((post) =>
     toCrawlPost({
       ...post,
       createdAt: fromPrismaDateTime(post.createdAt),
@@ -90,6 +102,7 @@ export async function getRecentGustsForCrawl(limit = 12): Promise<CrawlPost[]> {
       and(
         post.isGust.eq(true),
         post.moderated.eq(false),
+        post.explicitContent.eq(false),
         post.user.some((user) => user.banned.eq(false)),
         communityVisibilityWhere("")(post)
       )
@@ -98,7 +111,7 @@ export async function getRecentGustsForCrawl(limit = 12): Promise<CrawlPost[]> {
     .limit(limit)
     .all();
 
-  return posts.map((post) =>
+  return posts.filter(isCrawlSafe).map((post) =>
     toCrawlPost({
       ...post,
       community: null,
@@ -123,6 +136,7 @@ export async function getTrendingPostsForCrawl(
       and(
         post.isGust.eq(false),
         post.moderated.eq(false),
+        post.explicitContent.eq(false),
         post.rootPostId.isNull(),
         post.user.some((user) => user.banned.eq(false)),
         communityVisibilityWhere("")(post)
@@ -132,7 +146,7 @@ export async function getTrendingPostsForCrawl(
     .limit(limit)
     .all();
 
-  return posts.map((post) =>
+  return posts.filter(isCrawlSafe).map((post) =>
     toCrawlPost({
       ...post,
       createdAt: fromPrismaDateTime(post.createdAt),
@@ -156,6 +170,7 @@ export async function getHashtagPostsForCrawl(
       and(
         post.isGust.eq(false),
         post.moderated.eq(false),
+        post.explicitContent.eq(false),
         post.rootPostId.isNull(),
         post.postToTags.some((postTag) =>
           postTag.tag.some((tagRecord) => tagRecord.name.eq(tag))
@@ -168,7 +183,7 @@ export async function getHashtagPostsForCrawl(
     .limit(limit)
     .all();
 
-  return posts.map((post) =>
+  return posts.filter(isCrawlSafe).map((post) =>
     toCrawlPost({
       ...post,
       createdAt: fromPrismaDateTime(post.createdAt),
@@ -192,6 +207,7 @@ export async function getUserPostsForCrawl(
       and(
         post.isGust.eq(false),
         post.moderated.eq(false),
+        post.explicitContent.eq(false),
         post.rootPostId.isNull(),
         post.userId.eq(userId),
         post.user.some((user) => user.banned.eq(false)),
@@ -202,7 +218,7 @@ export async function getUserPostsForCrawl(
     .limit(limit)
     .all();
 
-  return posts.map((post) =>
+  return posts.filter(isCrawlSafe).map((post) =>
     toCrawlPost({
       ...post,
       createdAt: fromPrismaDateTime(post.createdAt),
@@ -219,6 +235,7 @@ export async function getRecentPostDataForCrawl(limit = 20) {
       and(
         post.isGust.eq(false),
         post.moderated.eq(false),
+        post.explicitContent.eq(false),
         post.rootPostId.isNull(),
         post.user.some((user) => user.banned.eq(false)),
         communityVisibilityWhere("")(post)
@@ -259,6 +276,7 @@ export async function getCommunityPostsForCrawl(
         post.communityId.eq(community.id),
         post.isGust.eq(false),
         post.moderated.eq(false),
+        post.explicitContent.eq(false),
         post.user.some((user) => user.banned.eq(false))
       )
     )
@@ -266,7 +284,7 @@ export async function getCommunityPostsForCrawl(
     .limit(limit)
     .all();
 
-  return posts.map((post) =>
+  return posts.filter(isCrawlSafe).map((post) =>
     toCrawlPost({
       ...post,
       community: { slug: community.slug },

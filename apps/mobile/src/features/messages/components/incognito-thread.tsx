@@ -450,7 +450,7 @@ export function NativeIncognitoThread({
                       Load earlier messages
                     </Text>
                   </Pressable>
-                ) : null
+                ) : undefined
               }
               ListEmptyComponent={
                 <View

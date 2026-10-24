@@ -38,3 +38,14 @@ describe("feed top request", () => {
     expect(consumeFeedTop("home:latest")).toBe(false);
   });
 });
+
+test("a feed reselection targets its current source/locale variant without affecting another tab", () => {
+  requestFeedTop("home:latest");
+  expect(consumeFeedTop("home:following")).toBe(false);
+  expect(consumeFeedTop("home:latestness:all:en")).toBe(false);
+  expect(consumeFeedTop("home:latest:bluesky:en")).toBe(true);
+  expect(consumeFeedTop("home:latest:asm:en")).toBe(false);
+  requestFeedTop("gusts");
+  expect(consumeFeedTop("home:latest")).toBe(false);
+  expect(consumeFeedTop("gusts:following")).toBe(true);
+});

@@ -64,6 +64,7 @@ describe("feed position store", () => {
         positions: {
           good: position(),
           "negative-scroll": position({ scrollTop: -50 }),
+          "partially-read": { ...position(), anchorOffset: -153 },
           "wrong-list": [1, 2, 3],
           "wrong-shape": { scrollTop: "far" },
         },
@@ -72,6 +73,7 @@ describe("feed position store", () => {
     );
     const { positions } = merged;
     expect(positions["good"]?.scrollTop).toBe(1200);
+    expect(positions["partially-read"]?.anchorOffset).toBe(-153);
     expect(positions["negative-scroll"]?.scrollTop).toBe(0);
     expect(positions["wrong-list"]).toBeUndefined();
     expect(positions["wrong-shape"]).toBeUndefined();

@@ -10,7 +10,6 @@ import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { PanelLeft } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Animated, Pressable, StyleSheet, Text, View } from "react-native";
-import type { ViewToken } from "react-native";
 import { GestureDetector } from "react-native-gesture-handler";
 import Reanimated, {
   useAnimatedScrollHandler,
@@ -46,6 +45,7 @@ import { useUnreadNotificationCount } from "@/features/notifications/state/use-u
 import { getApiBaseUrl } from "@/lib/api-env";
 import { bottomDockPadding } from "@/lib/bottom-dock-layout";
 import { formatNumber } from "@/lib/format-number";
+import type { ViewToken } from "@/lib/list-virtualization";
 import { LIST_VIRTUALIZATION_PROPS } from "@/lib/list-virtualization";
 import { SHOWS_SCROLL_INDICATOR } from "@/lib/scroll-indicator";
 import { useAppTheme } from "@/theme";
@@ -600,8 +600,10 @@ export function CommunityDetailScreen() {
                     ) : null}
                   </>
                 }
-                ListEmptyComponent={empty}
-                ListFooterComponent={loadingMore ? <FeedSkeletonCard /> : null}
+                ListEmptyComponent={empty ?? undefined}
+                ListFooterComponent={
+                  loadingMore ? <FeedSkeletonCard /> : undefined
+                }
                 onScroll={handleScroll}
                 scrollEventThrottle={16}
                 onEndReached={() => {

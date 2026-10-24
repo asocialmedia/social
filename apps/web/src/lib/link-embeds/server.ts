@@ -6,8 +6,10 @@ import { createHash } from "node:crypto";
 import { lookup } from "node:dns/promises";
 
 import { redis } from "@asm/db";
+import { abortable } from "@asm/protocols/discovery";
 
 import { parseOgMeta } from "./og-parse";
+import { fetchPublicUrl } from "./public-http-fetch";
 import {
   extractPostUrls,
   isPrivateOrReservedHost,
@@ -43,10 +45,8 @@ interface CacheEntry {
 // Defense in depth against server-side request forgery: every hop of every
 // fetch must pass (1) scheme + hostname checks, (2) DNS resolution where ALL
 // resolved addresses fall in public ranges, (3) response content-type checks
-// at the call sites. The DNS check has the classic rebinding TOCTOU window;
-// mitigated by re-validating the final response URL and by the size/type
-// caps - the guard exists to make internal probing impractical, not to build
-// a perfect firewall.
+// at the call sites. The transport also validates DNS at socket connection,
+// so a changed DNS answer cannot redirect the actual connection into private space.
 
 interface GuardedUrl {
   fetchUrl: URL;
@@ -54,7 +54,8 @@ interface GuardedUrl {
 }
 
 async function validatePublicHttpUrl(
-  rawUrl: string
+  rawUrl: string,
+  signal: AbortSignal
 ): Promise<GuardedUrl | null> {
   let parsed: URL;
   try {
@@ -84,7 +85,10 @@ async function validatePublicHttpUrl(
     return null;
   }
   try {
-    const records = await lookup(host, { all: true, verbatim: true });
+    const records = await abortable(
+      lookup(host, { all: true, verbatim: true }),
+      signal
+    );
     if (records.length === 0) {
       return null;
     }
@@ -115,14 +119,15 @@ async function guardedFetch(
   maxBytes: number
 ): Promise<GuardedResponse | null> {
   let current = rawUrl;
+  const signal = AbortSignal.timeout(FETCH_TIMEOUT_MS);
   for (let hop = 0; hop <= MAX_REDIRECTS; hop += 1) {
-    const guarded = await validatePublicHttpUrl(current);
+    const guarded = await validatePublicHttpUrl(current, signal);
     if (!guarded) {
       return null;
     }
-    let response: Response;
+    let response: Awaited<ReturnType<typeof fetchPublicUrl>>;
     try {
-      response = await fetch(guarded.fetchUrl.href, {
+      response = await fetchPublicUrl(guarded.fetchUrl, {
         headers: {
           accept: "text/html,application/json;q=0.9,*/*;q=0.5",
           // Spoofed only as far as required to receive og metadata that
@@ -131,7 +136,7 @@ async function guardedFetch(
           "user-agent": FETCH_UA,
         },
         redirect: "manual",
-        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+        signal,
       });
     } catch {
       return null;
@@ -156,7 +161,7 @@ async function guardedFetch(
     const contentType = response.headers.get("content-type");
     const finalUrl = response.url || guarded.fetchUrl.href;
     // Post-follow re-validation: the URL the bytes actually came from.
-    const finalGuard = await validatePublicHttpUrl(finalUrl);
+    const finalGuard = await validatePublicHttpUrl(finalUrl, signal);
     if (!finalGuard) {
       await response.body.cancel();
       return null;
@@ -175,8 +180,14 @@ async function guardedFetch(
 // Reads at most maxBytes from a response body before truncating, so a huge
 // or endless body cannot pin worker memory.
 function capStream(
-  body: ReadableStream<Uint8Array>,
-  maxBytes: number
+  body: {
+    getReader: () => {
+      read: () => Promise<ReadableStreamReadResult<Uint8Array>>;
+      cancel: () => Promise<void>;
+    };
+  },
+  maxBytes: number,
+  rejectOverflow = false
 ): ReadableStream<Uint8Array> {
   let total = 0;
   const reader = body.getReader();
@@ -192,6 +203,11 @@ function capStream(
       }
       total += value.byteLength;
       if (total > maxBytes) {
+        if (rejectOverflow) {
+          await reader.cancel().catch(() => null);
+          controller.error(new Error("Image exceeds the size limit"));
+          return;
+        }
         const remaining = maxBytes - (total - value.byteLength);
         if (remaining > 0) {
           controller.enqueue(value.slice(0, remaining));
@@ -426,12 +442,7 @@ async function resolveUncached(url: string): Promise<LinkEmbed | null> {
   return await resolveOpenGraph(url);
 }
 
-/**
- * Resolves embeds for every link in post content (first MAX_POST_EMBEDS,
- * author-dismissed links skipped). Total wall-clock is bounded by
- * EMBED_RESOLUTION_BUDGET_MS so post publishing can never hang on a slow
- * origin - unresolved links are simply omitted.
- */
+// Resolve the first MAX_POST_EMBEDS links, skipping author-dismissed links.
 export const EMBED_RESOLUTION_BUDGET_MS = 5000;
 
 export async function resolvePostEmbeds(
@@ -465,22 +476,25 @@ export async function resolvePostEmbeds(
 
 // ── Image proxy guard (used by /api/link-preview/image) ────────────────────
 
-/**
- * Streams a remote embed image through the SSRF guard with hard type and
- * size caps. Returns null when the URL or payload is not a safe public
- * image; the route turns that into a 404.
- */
+// Buffer bounded images before committing headers so a stalled body becomes a 404.
 export async function fetchEmbedImage(
   rawUrl: string
-): Promise<GuardedResponse | null> {
-  const response = await guardedFetch(rawUrl, IMAGE_MAX_BYTES);
+): Promise<{ body: Uint8Array<ArrayBuffer>; contentType: string } | null> {
+  const response = await guardedFetch(rawUrl, IMAGE_MAX_BYTES + 1);
   if (!response) {
     return null;
   }
   const contentType = (response.contentType ?? "").toLowerCase();
-  if (!contentType.startsWith("image/")) {
+  if (!/^image\/(?:avif|gif|jpeg|png|webp)(?:;|$)/u.test(contentType)) {
     await response.body.cancel().catch(() => null);
     return null;
   }
-  return response;
+  try {
+    const body = await new Response(
+      capStream(response.body, IMAGE_MAX_BYTES, true)
+    ).arrayBuffer();
+    return body.byteLength ? { body: new Uint8Array(body), contentType } : null;
+  } catch {
+    return null;
+  }
 }

@@ -160,7 +160,7 @@ describe("Clef decisions and budget", () => {
   test("positive NSFW decisions only describe the explicit label", () => {
     const verdict = clefSafetyVerdict({
       evaluatedAt: new Date().toISOString(),
-      policyVersion: "clef-flash-v1",
+      policyVersion: "clef-flash-v2",
       probabilities: { explicit: 0.99 },
       tags: ["anime"],
     });

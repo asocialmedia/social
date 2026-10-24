@@ -5,6 +5,7 @@ import { AppState } from "react-native";
 import { authClient } from "@/features/auth/lib/auth-client";
 import { submitRecommendationEvents } from "@/features/gusts/lib/gusts-api";
 import { RecommendationQueue } from "@/features/gusts/lib/recommendation-tracker";
+import { trackNetworkObservation } from "@/features/network/lib/network-learning";
 import { getApiBaseUrl } from "@/lib/api-env";
 
 import type { FeedPost } from "../lib/feed-types";
@@ -74,13 +75,21 @@ export function useFeedImpressions(
             requestId,
             session: new EngagementSession((event) => {
               if (!video || event.eventType === "IMPRESSION") {
-                queue.push(
+                trackNetworkObservation(
+                  state.viewerId ?? "guest",
+                  post,
                   event.eventType,
-                  post.id,
-                  event.durationMs,
-                  undefined,
-                  requestId
+                  event.durationMs
                 );
+                if (!post.external) {
+                  queue.push(
+                    event.eventType,
+                    post.id,
+                    event.durationMs,
+                    undefined,
+                    requestId
+                  );
+                }
               }
             }),
           };

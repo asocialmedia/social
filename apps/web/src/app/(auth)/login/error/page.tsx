@@ -9,10 +9,10 @@ import { Suspense } from "react";
 
 const ERROR_MESSAGES = {
   USERNAME_IS_ALREADY_TAKEN:
-    "Sign in to your existing ASM account, then connect this provider in Settings.",
+    "Sign in to your existing asocialmedia account, then connect this provider in Settings.",
   accountNotFound: "Account not found.",
   account_not_linked:
-    "Sign in to your existing ASM account, then connect this provider in Settings.",
+    "Sign in to your existing asocialmedia account, then connect this provider in Settings.",
   emailExists: "This email is already registered.",
   invalidCredentials: "Invalid email or password.",
   oauthError: "Error connecting with social provider.",

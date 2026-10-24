@@ -103,9 +103,15 @@ if (import.meta.main) {
   logger.info({ port }, "auth service listening");
 
   const shutdown = async (signal: string) => {
+    const forceExitTimer = setTimeout(() => {
+      logger.warn({ signal }, "auth service force exiting after timeout");
+      process.exit(0);
+    }, 2500);
+    forceExitTimer.unref();
+
     logger.info({ signal }, "shutting down auth service");
-    server?.stop();
-    await telemetry.shutdown();
+    server?.stop(true);
+    await telemetry.shutdown().catch(() => null);
     process.exit(0);
   };
 

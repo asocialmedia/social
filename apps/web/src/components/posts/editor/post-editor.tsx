@@ -230,7 +230,7 @@ const PostEditorResponsePreview: React.FC<PostEditorResponsePreviewProps> = ({
   replyTo,
 }) => {
   const { data: parentPostQuery } = useQuery<PostData>({
-    enabled: Boolean(replyTo?.id),
+    enabled: Boolean(replyTo?.id) && !replyTo.externalParentUri,
     queryFn: async () => {
       const json = await kyInstance
         .get(`/api/posts/${replyTo.id}`)
@@ -870,6 +870,9 @@ export default function PostEditor({
     const inlineRelations = editor
       ? collectInlineRelations(editor.getJSON())
       : { mentionIds: [], tags: [] };
+    const replyContext = replyTo?.externalParentUri
+      ? { externalParentUri: replyTo.externalParentUri }
+      : { parentPostId: replyTo?.id };
     const payload = {
       content: input.trim(),
       dismissedEmbedUrls,
@@ -883,7 +886,7 @@ export default function PostEditor({
         selectedTags.map((tag) => tag.toLowerCase()),
         inlineRelations.tags
       ),
-      ...(replyTo ? { parentPostId: replyTo.id } : {}),
+      ...replyContext,
       ...(communityTarget ? { communityId: communityTarget.id } : {}),
       ...(communityShareTarget
         ? { communitySharePostId: communityShareTarget.sourcePostId }
@@ -969,7 +972,7 @@ export default function PostEditor({
         // A response is published into the thread the user is already viewing;
         // close the composer (which also clears the reply target) so the new
         // response is visible in place.
-        if (newPost?.parentPostId) {
+        if (newPost?.parentPostId || newPost?.externalParentId) {
           closeComposer();
         }
         // A plain fleet goes to the top of the Latest tab, which is where the

@@ -25,7 +25,7 @@ mock.module("../analyze/embedding", () => ({
       : Promise.resolve([0.5, 0.5]),
 }));
 mock.module("../analyze/clef", () => ({
-  CLEF_POLICY_VERSION: "clef-flash-v1",
+  CLEF_POLICY_VERSION: "clef-flash-v2",
   ClefDeferredError: class extends Error {},
   clefSafetyVerdict: () => ({ explicit }),
   evaluateClef: classify,

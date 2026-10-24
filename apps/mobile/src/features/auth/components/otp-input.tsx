@@ -1,7 +1,7 @@
+import { useRef } from "react";
 // Native 6-slot OTP input. Ports web InputOTP behavior: digits-only,
 // auto-submit at 6 digits, error shake handled by the parent screen.
-
-import { useRef } from "react";
+import type { TextInputInstance } from "react-native";
 import { Platform, StyleSheet, TextInput, View } from "react-native";
 
 import { INPUT_ERROR_SHADOWS, INPUT_SHADOWS, useAppTheme } from "@/theme";
@@ -22,7 +22,7 @@ export function OtpInput({
   value,
 }: OtpInputProps) {
   const { theme } = useAppTheme();
-  const inputsRef = useRef<(TextInput | null)[]>([]);
+  const inputsRef = useRef<(TextInputInstance | null)[]>([]);
 
   const digits = [...value].slice(0, SLOT_COUNT);
 

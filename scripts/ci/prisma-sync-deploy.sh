@@ -7,6 +7,17 @@
 # Requires: DOKPLOY_API_URL, DOKPLOY_API_TOKEN, DOKPLOY_PRISMA_APP_ID
 set -eu
 
+CHECK_ONLY=false
+case "${1:-}" in
+  "") ;;
+  --check) CHECK_ONLY=true ;;
+  *) echo "Usage: $0 [--check]" >&2; exit 2 ;;
+esac
+if [ "$#" -gt 1 ]; then
+  echo "Usage: $0 [--check]" >&2
+  exit 2
+fi
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=./dokploy-api.sh
 . "${SCRIPT_DIR}/dokploy-api.sh"
@@ -22,7 +33,7 @@ APP_ID="${DOKPLOY_PRISMA_APP_ID}"
 # The baseline must be read reliably: an empty value means "no deployment yet",
 # so mistaking a failed request for an empty list would let the wait loop below
 # match a stale deployment and report success before the new run starts.
-if ! BASELINE_RESPONSE=$(dokploy_curl -sS \
+if ! BASELINE_RESPONSE=$(dokploy_api_request \
   --retry 3 \
   --retry-delay 3 \
   --retry-connrefused \
@@ -60,7 +71,12 @@ fi
 
 echo "Baseline deployment (pre-trigger): ${BASELINE:-none}"
 
-dokploy_curl -X 'POST' \
+if [ "${CHECK_ONLY}" = true ]; then
+  echo "Dokploy authentication and Prisma application access verified; no deployment triggered."
+  exit 0
+fi
+
+dokploy_api_request -X 'POST' \
   --retry 3 \
   --retry-delay 5 \
   --retry-connrefused \
@@ -68,24 +84,22 @@ dokploy_curl -X 'POST' \
   -H 'accept: application/json' \
   -H 'Content-Type: application/json' \
   -H "x-api-key: ${DOKPLOY_API_TOKEN}" \
-  -d "{\"applicationId\":\"${APP_ID}\"}" \
-  --fail --silent --show-error
+  -d "{\"applicationId\":\"${APP_ID}\"}"
 
 echo "Prisma sync container triggered for application ${APP_ID}."
 
 fetch_deployments() {
-  dokploy_curl -sS \
+  dokploy_api_request \
     --retry 2 \
     --retry-delay 3 \
     --retry-connrefused \
     "${API_URL}/api/deployment.all?applicationId=${APP_ID}" \
     -H 'accept: application/json' \
-    -H "x-api-key: ${DOKPLOY_API_TOKEN}" \
-    || true
+    -H "x-api-key: ${DOKPLOY_API_TOKEN}"
 }
 
 fetch_logs() {
-  dokploy_curl -sS \
+  dokploy_api_request \
     --retry 2 \
     --retry-delay 3 \
     --retry-connrefused \
@@ -99,8 +113,12 @@ RETRIES=45
 CONSECUTIVE_ERRORS=0
 MAX_CONSECUTIVE_ERRORS=6
 for i in $(seq 1 "${RETRIES}"); do
-  RESPONSE=$(fetch_deployments)
-  if ! printf '%s' "$RESPONSE" | jq -e 'type == "array"' >/dev/null 2>&1; then
+  REQUEST_STATUS=0
+  RESPONSE=$(fetch_deployments) || REQUEST_STATUS=$?
+  if [ "${REQUEST_STATUS}" -eq 77 ]; then
+    exit 1
+  fi
+  if [ "${REQUEST_STATUS}" -ne 0 ] || ! printf '%s' "$RESPONSE" | jq -e 'type == "array"' >/dev/null 2>&1; then
     CONSECUTIVE_ERRORS=$((CONSECUTIVE_ERRORS + 1))
     echo "Attempt ${i}/${RETRIES}: deployment.all did not return an array (${CONSECUTIVE_ERRORS}/${MAX_CONSECUTIVE_ERRORS} consecutive transient errors). Response snippet:"
     printf '%s\n' "$RESPONSE" | head -c 300

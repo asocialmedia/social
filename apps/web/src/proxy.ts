@@ -70,6 +70,13 @@ function isSameOriginExemptRequest(
   method: string,
   referer: string | null
 ): boolean {
+  // Bluesky returns through a cross-site navigation; the callback validates session, nonce and OAuth state.
+  if (
+    method === "GET" &&
+    pathname === "/api/protocols/bluesky/oauth/callback"
+  ) {
+    return true;
+  }
   // Android Custom Tabs enter from an android-app referrer. This GET only
   // sets OAuth state and redirects; the provider callback validates the flow.
   if (method === "GET" && pathname === "/api/auth/expo-authorization-proxy") {
@@ -145,6 +152,10 @@ const INSTALL_TOKEN_EXEMPT_PATHS = [
 ];
 
 function isInstallTokenExemptPath(pathname: string): boolean {
+  // This exact service route authenticates its bearer token before reading or changing registry state.
+  if (pathname === "/api/internal/protocols/follows") {
+    return true;
+  }
   return INSTALL_TOKEN_EXEMPT_PATHS.some(
     (exempt) =>
       pathname === exempt ||
@@ -293,6 +304,7 @@ async function holdsAcceptedCredential(
   return await hasVerifiedSession({
     authorization: request.headers.get("authorization") || "",
     cookie: request.headers.get("cookie") || "",
+    ingress: request.headers,
   });
 }
 

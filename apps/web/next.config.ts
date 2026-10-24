@@ -5,6 +5,7 @@ const nextConfig: NextConfig = withStreamConfig({
   ...config,
   // The floating badge overlaps the sidebar theme control and mobile dock.
   devIndicators: false,
+  distDir: process.env.ASM_NEXT_DIST_DIR ?? config.distDir,
   headers() {
     return [
       {

@@ -46,20 +46,26 @@ export interface SearchCommunityResult {
   slug: string;
 }
 
+const EXPLICIT_TEXT_PATTERN =
+  /(?:#(?:18\+|adult|corpse|ecchi|erotic|gore|graphic-media|hentai|lewd|nsfw|nsfwart|nudity|porn|pornography|r18|r-18|self-harm|sexual|torture|violence|xxx|furry|furryart|furryartist|furryimages|furrydrawing|digitalfurryart|nsfwfurry|furryporn|yiff|murrsuit|furaffinity|e621)\b|\b(?:porn|pornography|xxx|hentai|ecchi|nsfw|nsfwart|yiff|furryporn|nsfwfurry|murrsuit|e621|furaffinity|furry)\b)/i;
+
 function insensitiveContainsPattern(query: string): string {
   return `%${query.replaceAll(/[\\%_]/g, "\\$&")}%`;
 }
 
 export async function searchUsers(
   query: string,
-  limit = 10
+  limit = 10,
+  excludeExplicit = true
 ): Promise<SearchUserResult[]> {
   const q = query.trim();
   if (!q) {
     return [];
   }
 
-  const pattern = insensitiveContainsPattern(q);
+  const shortQuery = [...q].length < 3;
+  const escaped = q.replaceAll(/[\\%_]/g, "\\$&");
+  const pattern = shortQuery ? `${escaped}%` : insensitiveContainsPattern(q);
   const now = toPrismaDateTime(new Date());
   const users = await prisma.orm.public.Users.select(
     "aura",
@@ -75,9 +81,16 @@ export async function searchUsers(
     .where((user) =>
       and(
         user.id.neq(SYSTEM_MODERATION_USER_ID),
+        user.banned.eq(false),
         or(
           user.username.ilike(pattern),
           user.displayName.ilike(pattern),
+          ...(shortQuery
+            ? [
+                user.displayName.ilike(`% ${escaped} %`),
+                user.displayName.ilike(`% ${escaped}`),
+              ]
+            : []),
           user.displayUsername.ilike(pattern),
           user.usernameAliases.some((alias) =>
             and(alias.expiresAt.gt(now), alias.username.ilike(pattern))
@@ -86,17 +99,30 @@ export async function searchUsers(
       )
     )
     .orderBy((user) => user.aura.desc())
-    .limit(limit)
+    .limit(limit * (excludeExplicit ? 2 : 1))
     .all();
-  return users.map((user) => ({
+
+  const mapped = users.map((user) => ({
     ...user,
     badges: user.badges ?? [],
   }));
+
+  if (!excludeExplicit) {
+    return mapped.slice(0, limit);
+  }
+
+  return mapped
+    .filter((u) => {
+      const text = `${u.username} ${u.displayName} ${u.bio ?? ""}`;
+      return !EXPLICIT_TEXT_PATTERN.test(text);
+    })
+    .slice(0, limit);
 }
 
 export async function searchPosts(
   query: string,
-  limit = 10
+  limit = 10,
+  excludeExplicit = true
 ): Promise<SearchPostResult[]> {
   const q = query.trim();
   if (!q) {
@@ -130,14 +156,15 @@ export async function searchPosts(
       and(
         post.moderated.eq(false),
         post.rootPostId.isNull(),
+        ...(excludeExplicit ? [post.explicitContent.eq(false)] : []),
         post.content.ilike(insensitiveContainsPattern(q))
       )
     )
     .orderBy((post) => post.createdAt.desc())
-    .limit(limit)
+    .limit(limit * (excludeExplicit ? 2 : 1))
     .all();
 
-  return posts.map((post) => {
+  const results = posts.map((post) => {
     if (!post.user) {
       throw new Error(`Post ${post.id} has no author`);
     }
@@ -165,11 +192,20 @@ export async function searchPosts(
       viewCount: post.viewCount,
     };
   });
+
+  if (!excludeExplicit) {
+    return results.slice(0, limit);
+  }
+
+  return results
+    .filter((post) => !EXPLICIT_TEXT_PATTERN.test(post.content))
+    .slice(0, limit);
 }
 
 export async function searchCommunitiesForSearch(
   query: string,
-  limit = 6
+  limit = 6,
+  excludeExplicit = true
 ): Promise<SearchCommunityResult[]> {
   const q = query.trim();
   if (!q) {
@@ -200,7 +236,8 @@ export async function searchCommunitiesForSearch(
       )
     )
     .all();
-  return communities
+
+  const sorted = communities
     .toSorted((left, right) => {
       const memberDifference = right.communityMembers - left.communityMembers;
       if (memberDifference !== 0) {
@@ -211,7 +248,6 @@ export async function searchCommunitiesForSearch(
         fromPrismaDateTime(left.createdAt).getTime();
       return createdDifference || left.id.localeCompare(right.id);
     })
-    .slice(0, boundedLimit)
     .map((community) => ({
       accentColor: community.accentColor,
       avatarUrl: community.avatarUrl,
@@ -220,4 +256,12 @@ export async function searchCommunitiesForSearch(
       name: community.name,
       slug: community.slug,
     }));
+
+  if (!excludeExplicit) {
+    return sorted.slice(0, boundedLimit);
+  }
+
+  return sorted
+    .filter((c) => !EXPLICIT_TEXT_PATTERN.test(`${c.name} ${c.slug}`))
+    .slice(0, boundedLimit);
 }

@@ -411,10 +411,10 @@ export function ConversationListScreen({
             onEndReached={handleLoadMore}
             onEndReachedThreshold={0.5}
             ListFooterComponent={
-              list.loadingMore ? <ConversationListSkeleton /> : null
+              list.loadingMore ? <ConversationListSkeleton /> : undefined
             }
             ListEmptyComponent={
-              messageError ? null : (
+              messageError ? undefined : (
                 <View
                   style={{
                     alignItems: "center",

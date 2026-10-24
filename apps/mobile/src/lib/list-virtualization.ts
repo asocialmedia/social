@@ -1,3 +1,7 @@
+import type { ListViewToken } from "react-native";
+
+export type ViewToken<Item> = Omit<ListViewToken, "item"> & { item: Item };
+
 // Shared FlatList virtualization tuning for every unbounded list in the app.
 //
 // The problem this solves: a FlatList left on RN's defaults (windowSize 21,

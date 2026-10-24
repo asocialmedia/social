@@ -5,12 +5,13 @@ import {
   getUserDataQuery,
   mapUserData,
   prisma,
+  redis,
   SYSTEM_MODERATION_USER_ID,
 } from "@asm/db";
 import type { CommunityRoleRow } from "@asm/db";
 
 import { getTrendingTopics } from "./topic-actions";
-import { selectTopAuraUsers } from "./trending-utils";
+import { selectTopAuraUsers, weaveTrendingItems } from "./trending-utils";
 
 export interface TrendingMention {
   avatarUrl: string | null;
@@ -30,6 +31,15 @@ export interface TrendingHashtag {
   type: "hashtag";
 }
 
+export interface TrendingBlueskyTopic {
+  description?: string;
+  displayName: string;
+  link?: string;
+  source: "bluesky";
+  topic: string;
+  type: "bluesky_topic";
+}
+
 export interface TrendingAuraUser {
   aura: number;
   avatarUrl: string | null;
@@ -42,11 +52,89 @@ export interface TrendingAuraUser {
   username: string;
 }
 
-export type TrendingItem = TrendingHashtag | TrendingMention;
+export type TrendingItem =
+  | TrendingHashtag
+  | TrendingMention
+  | TrendingBlueskyTopic;
 
 export interface TrendingFeed {
   items: TrendingItem[];
   topAura: TrendingAuraUser[];
+  unavailable: ("hashtags" | "mentions" | "bluesky" | "aura")[];
+}
+
+const BLUESKY_TRENDING_KEY = "trending:bluesky:topics:v2";
+const BLUESKY_TRENDING_TTL = 600; // 10 minutes
+
+export async function fetchBlueskyTrendingTopics(
+  bypassCache = false
+): Promise<TrendingBlueskyTopic[]> {
+  if (!bypassCache) {
+    try {
+      const cached = await redis.get(BLUESKY_TRENDING_KEY);
+      if (cached) {
+        return JSON.parse(cached) as TrendingBlueskyTopic[];
+      }
+    } catch (error) {
+      console.error("Error reading Bluesky trending topics from cache:", error);
+    }
+  }
+
+  try {
+    const res = await fetch(
+      "https://public.api.bsky.app/xrpc/app.bsky.unspecced.getTrendingTopics",
+      {
+        headers: { Accept: "application/json" },
+        signal: AbortSignal.timeout(4000),
+      }
+    );
+
+    if (!res.ok) {
+      throw new Error(
+        `Bluesky trending topics endpoint returned ${res.status}`
+      );
+    }
+
+    const data = (await res.json()) as {
+      topics?: {
+        description?: string;
+        displayName?: string;
+        link?: string;
+        topic: string;
+      }[];
+    };
+
+    const rawTopics = Array.isArray(data.topics) ? data.topics : [];
+    const topics: TrendingBlueskyTopic[] = rawTopics
+      .filter((t) => typeof t?.topic === "string" && t.topic.trim().length > 0)
+      .slice(0, 20)
+      .map((t) => ({
+        description: t.description?.trim() || undefined,
+        displayName: t.displayName?.trim() || t.topic.trim(),
+        link: t.link?.trim() || undefined,
+        source: "bluesky",
+        topic: t.topic.trim(),
+        type: "bluesky_topic",
+      }));
+
+    if (topics.length > 0) {
+      try {
+        await redis.set(
+          BLUESKY_TRENDING_KEY,
+          JSON.stringify(topics),
+          "EX",
+          BLUESKY_TRENDING_TTL
+        );
+      } catch (error) {
+        console.error("Error caching Bluesky trending topics in Redis:", error);
+      }
+    }
+
+    return topics;
+  } catch (error) {
+    console.error("Error fetching Bluesky trending topics:", error);
+    throw error;
+  }
 }
 
 async function getTopMentionedUsers(): Promise<TrendingMention[]> {
@@ -102,7 +190,7 @@ async function getTopMentionedUsers(): Promise<TrendingMention[]> {
     );
   } catch (error) {
     console.error("Error fetching top mentioned users:", error);
-    return [];
+    throw error;
   }
 }
 
@@ -134,28 +222,49 @@ async function getTopAuraUsers(): Promise<TrendingAuraUser[]> {
     }));
   } catch (error) {
     console.error("Error fetching top aura users:", error);
-    return [];
+    throw error;
   }
 }
 
 export async function getTrendingFeed(
   bypassCache = false
 ): Promise<TrendingFeed> {
-  const [topics, mentions, topAura] = await Promise.all([
+  const results = await Promise.allSettled([
     getTrendingTopics(bypassCache),
     getTopMentionedUsers(),
     getTopAuraUsers(),
+    fetchBlueskyTrendingTopics(bypassCache),
   ]);
 
+  const [topicResult, mentionResult, auraResult, blueskyResult] = results;
+  const unavailable: TrendingFeed["unavailable"] = [];
+  for (const [index, source] of (
+    ["hashtags", "mentions", "aura", "bluesky"] as const
+  ).entries()) {
+    if (results[index].status === "rejected") {
+      unavailable.push(source);
+    }
+  }
+  if (unavailable.length === results.length) {
+    throw new Error("Trending sources are unavailable");
+  }
+  const topics = topicResult.status === "fulfilled" ? topicResult.value : [];
+  const mentions =
+    mentionResult.status === "fulfilled" ? mentionResult.value : [];
+  const topAura = auraResult.status === "fulfilled" ? auraResult.value : [];
+  const blueskyTopics =
+    blueskyResult.status === "fulfilled" ? blueskyResult.value : [];
   const hashtags: TrendingHashtag[] = topics
     .slice(0, 5)
     .map(({ hashtag, count }) => ({ count, hashtag, type: "hashtag" }));
 
-  const items = [...hashtags, ...mentions]
+  const asmItems = [...hashtags, ...mentions]
     .toSorted((a, b) => b.count - a.count)
     .slice(0, 10);
 
+  const items = weaveTrendingItems(asmItems, blueskyTopics, 30);
+
   // Top Aura displays the platform's highest aura earners regardless of
   // mentions, ensuring high-standing members are always recognized.
-  return { items, topAura: selectTopAuraUsers(topAura, mentions) };
+  return { items, topAura: selectTopAuraUsers(topAura, mentions), unavailable };
 }

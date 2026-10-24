@@ -1,8 +1,9 @@
 "use client";
 
-import type { PostData, UserData } from "@asm/db";
+import type { UserData } from "@asm/db";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft } from "lucide-react";
+import Image from "next/image";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -13,10 +14,15 @@ import PostCard from "@/components/home/feedview/post-card";
 import HomeFeed from "@/components/home/home-feed";
 import { FeedScrollbar } from "@/components/layouts/feed/feed-scrollbar";
 import PostAuthorSidebar from "@/components/posts/views/post-author-sidebar";
+import { useBlueskyProfile } from "@/components/protocols/use-bluesky-profile";
 import { useFeedScrollMemory } from "@/hooks/feed/use-feed-scroll-memory";
 import { useFeedSwipeNavigation } from "@/hooks/feed/use-feed-swipe-navigation";
 import kyInstance from "@/lib/ky";
 import { normalizePostData } from "@/lib/posts/post-normalize";
+import type { PresentedPost as PostData } from "@/lib/posts/presentation";
+import { blueskyProfilePath } from "@/lib/protocols/paths";
+import { cn } from "@/lib/utils";
+import { getSecureImageUrl } from "@/lib/utils/image-url";
 import { withViewTransition } from "@/lib/view-transition";
 
 interface ClientPostProps {
@@ -27,6 +33,92 @@ interface ClientPostProps {
 }
 
 const EMPTY_ANCESTORS: PostData[] = [];
+
+function getHeaderTitles(
+  post: PostData,
+  externalAuthor?: {
+    displayName?: string | null;
+    handle?: string | null;
+  } | null
+): {
+  subtitle: string | null;
+  title: string;
+} {
+  const authorName =
+    externalAuthor?.displayName ||
+    post.external?.author.displayName ||
+    post.user?.displayName ||
+    externalAuthor?.handle ||
+    post.external?.author.handle ||
+    post.user?.username;
+
+  if (post.community) {
+    return {
+      subtitle: authorName
+        ? `Posted by @${post.user?.username || authorName}`
+        : "Community Post",
+      title: post.community.name,
+    };
+  }
+
+  let subtitle: string | null = null;
+  if (
+    post.user?.username &&
+    post.user?.displayName &&
+    post.user.displayName !== post.user.username
+  ) {
+    subtitle = `@${post.user.username}`;
+  } else if (post.external) {
+    const handle = externalAuthor?.handle || post.external.author.handle;
+    subtitle = handle ? `@${handle}` : "Bluesky";
+  }
+
+  const title = authorName ? `${authorName}'s Post` : "Post";
+  return { subtitle, title };
+}
+
+export function HeaderBannerWash({
+  bannerUrl,
+  className,
+}: {
+  bannerUrl?: string | null;
+  className?: string;
+}) {
+  const [failed, setFailed] = useState(false);
+  if (!bannerUrl || failed) {
+    return null;
+  }
+  return (
+    <div
+      aria-hidden
+      className={cn(
+        "pointer-events-none absolute inset-0 overflow-hidden",
+        className
+      )}
+    >
+      <div className="absolute inset-0">
+        <Image
+          alt=""
+          className="scale-105 object-cover object-left-top blur-[2px]"
+          fill
+          onError={() => setFailed(true)}
+          sizes="(max-width: 768px) 100vw, 420px"
+          src={getSecureImageUrl(bannerUrl)}
+          unoptimized
+        />
+      </div>
+      {/* Right-to-left: panel surface on the right where the text sits, image
+          pinned to the top-left corner by the bottom-up wash. */}
+      <div className="absolute inset-0 bg-linear-to-l from-[hsl(var(--background-alt))] via-[hsl(var(--background-alt)/0.8)] to-transparent" />
+      {/* Bottom-up wash: stacking it over the right-to-left gradient
+          pins the visible image to the top-left corner alone. */}
+      <div className="absolute inset-0 bg-gradient-to-t from-[hsl(var(--background-alt))] via-[hsl(var(--background-alt)/0.55)] to-transparent" />
+      {/* A short fade at the very bottom so the band dissolves rather than
+          ending on the image's own crop line. */}
+      <div className="absolute inset-x-0 bottom-0 h-2 bg-gradient-to-b from-transparent to-[hsl(var(--background-alt))]" />
+    </div>
+  );
+}
 
 const ClientPost: React.FC<ClientPostProps> = ({
   post: initialPost,
@@ -43,6 +135,7 @@ const ClientPost: React.FC<ClientPostProps> = ({
     ancestors: PostData[];
     post: PostData;
   }>({
+    enabled: !initialPost.external,
     initialData: {
       ancestors: initialAncestors,
       post: initialPost,
@@ -71,6 +164,25 @@ const ClientPost: React.FC<ClientPostProps> = ({
     normalizePostData
   );
 
+  const { data: externalAuthor } = useBlueskyProfile(
+    post.external?.author.id ?? "",
+    post.external?.author
+  );
+
+  const rawBannerUrl =
+    externalAuthor?.bannerUrl ||
+    post.external?.author.bannerUrl ||
+    post.user?.bannerUrl ||
+    externalAuthor?.avatarUrl ||
+    post.external?.author.avatarUrl ||
+    post.user?.avatarUrl ||
+    null;
+  const headerImageUrl = rawBannerUrl ? getSecureImageUrl(rawBannerUrl) : null;
+  const { title: headerTitle, subtitle: headerSubtitle } = getHeaderTitles(
+    post,
+    externalAuthor
+  );
+
   const scrollRef = useRef<HTMLDivElement>(null);
   // Returning from the fullscreen media viewer restores the exact scroll
   // position (e.g. where you were reading eddies) instead of the top.
@@ -94,13 +206,13 @@ const ClientPost: React.FC<ClientPostProps> = ({
     }
     let attempts = 0;
     const interval = window.setInterval(() => {
-      attempts += 1;
       const target = document.querySelector(`#comment-${commentId}`);
       if (target) {
         window.clearInterval(interval);
         target.scrollIntoView({ behavior: "smooth", block: "center" });
         return;
       }
+      attempts += 1;
       if (attempts >= 40) {
         window.clearInterval(interval);
       }
@@ -118,7 +230,11 @@ const ClientPost: React.FC<ClientPostProps> = ({
     const recordVisit = async () => {
       try {
         await kyInstance.post("/api/posts/visit", {
-          json: { postId: post.id },
+          json: {
+            externalPost: post.external ?? undefined,
+            postId: post.id,
+            uri: post.external?.id,
+          },
         });
         await queryClient.invalidateQueries({ queryKey: ["post-history"] });
       } catch {
@@ -127,7 +243,7 @@ const ClientPost: React.FC<ClientPostProps> = ({
     };
 
     void recordVisit();
-  }, [post.id, queryClient, isLoggedIn]);
+  }, [post.id, post.external, queryClient, isLoggedIn]);
 
   const handleGoBack = useCallback(() => {
     // Go back in history when there's a prior entry, otherwise land on the
@@ -140,21 +256,26 @@ const ClientPost: React.FC<ClientPostProps> = ({
   }, [router]);
 
   const authorUsername = post.user?.username;
+  const externalAuthorId = post.external?.author.id;
   // Mobile swipes: a right-to-left slide opens the author's profile. The
   // fullscreen media viewer is a Radix dialog portaled outside this scroll
   // container, so swiping inside an open viewer never reaches this handler.
   const handleSwipeNavigate = useCallback(
     (direction: -1 | 1) => {
+      if (direction === 1 && externalAuthorId) {
+        router.push(blueskyProfilePath(externalAuthorId));
+        return;
+      }
       if (direction === 1 && authorUsername) {
         withViewTransition(() => router.push(`/users/${authorUsername}`));
       }
     },
-    [authorUsername, router]
+    [authorUsername, router, externalAuthorId]
   );
   useFeedSwipeNavigation(scrollRef, handleSwipeNavigate);
 
   return (
-    <CommentsRealtimeProvider postId={post.id}>
+    <PostDiscussionProvider post={post}>
       <div className="border-border/60 mx-auto flex min-w-0 flex-1 flex-col bg-[hsl(var(--background-alt))] sm:border-x lg:max-w-5xl">
         <div className="relative min-h-0 flex-1">
           <div
@@ -163,16 +284,33 @@ const ClientPost: React.FC<ClientPostProps> = ({
             }`}
             ref={scrollRef}
           >
-            <div className="flex shrink-0 items-center gap-2 bg-[hsl(var(--background-alt))] px-3 py-2">
+            <div className="border-border/60 relative flex shrink-0 items-center gap-2.5 overflow-hidden border-b bg-[hsl(var(--background-alt))] px-3 py-2">
+              {headerImageUrl ? (
+                <HeaderBannerWash
+                  bannerUrl={headerImageUrl}
+                  key={headerImageUrl}
+                />
+              ) : null}
+
               <button
                 aria-label="Go back"
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-white/10 active:translate-y-px"
+                className="icon-btn-3d relative z-10 flex size-8 shrink-0 items-center justify-center rounded-full transition-all! duration-300! ease-out! hover:scale-105 active:scale-95"
                 onClick={handleGoBack}
                 type="button"
               >
-                <ArrowLeft className="h-5 w-5" />
+                <ArrowLeft className="size-4" />
               </button>
-              <h1 className="text-base font-semibold sm:text-lg">Post</h1>
+
+              <div className="relative z-10 min-w-0 flex-1">
+                <h1 className="truncate text-base leading-tight font-semibold sm:text-lg">
+                  {headerTitle}
+                </h1>
+                {headerSubtitle ? (
+                  <p className="text-muted-foreground truncate text-xs leading-tight font-normal">
+                    {headerSubtitle}
+                  </p>
+                ) : null}
+              </div>
             </div>
             <div className="flex flex-col">
               {(() => {
@@ -278,6 +416,7 @@ const ClientPost: React.FC<ClientPostProps> = ({
               <HomeFeed
                 communitySlug={post.community?.slug}
                 excludePostId={post.id}
+                relatedExternal={Boolean(post.external)}
                 variant="global"
               />
               <div className="border-border/60 mt-4 border-t" />
@@ -288,8 +427,24 @@ const ClientPost: React.FC<ClientPostProps> = ({
       </div>
 
       <PostAuthorSidebar post={post} />
-    </CommentsRealtimeProvider>
+    </PostDiscussionProvider>
   );
 };
 
 export default ClientPost;
+
+function PostDiscussionProvider({
+  post,
+  children,
+}: {
+  post: PostData;
+  children: React.ReactNode;
+}) {
+  return post.external ? (
+    children
+  ) : (
+    <CommentsRealtimeProvider postId={post.id}>
+      {children}
+    </CommentsRealtimeProvider>
+  );
+}

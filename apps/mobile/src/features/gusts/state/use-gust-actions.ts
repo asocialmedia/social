@@ -14,6 +14,9 @@ import {
   getUserVote,
   isBookmarkedByUser,
 } from "@/features/feed/lib/feed-types";
+import { useExternalFeedback } from "@/features/feed/state/use-external-feedback";
+import { useExternalFollow } from "@/features/feed/state/use-external-follow";
+import { useExternalInteractions } from "@/features/feed/state/use-external-interactions";
 import { usePostEngagement } from "@/features/feed/state/use-post-engagement";
 import { getApiBaseUrl } from "@/lib/api-env";
 import { logInfo, logWarn } from "@/lib/telemetry";
@@ -61,8 +64,12 @@ export function useGustVote(
     aura: post.aura ?? 0,
     postId: post.id,
     userVote: getUserVote(post),
-    viewerId,
+    viewerId: post.external ? null : viewerId,
   });
+  const external = useExternalInteractions(post.external ?? { id: post.id });
+  const feedback = useExternalFeedback(
+    post.external ?? { author: { id: post.userId }, id: post.id }
+  );
   const stateRef = useRef(engagement);
   const forcedPending = useRef(false);
 
@@ -74,12 +81,12 @@ export function useGustVote(
   // query), so off-screen cards cost no requests. The store's stale window
   // collapses repeats for a post the feed already seeded.
   useEffect(() => {
-    if (!viewerId || !active) {
+    if (post.external || !viewerId || !active) {
       return;
     }
     void refreshEngagement(post.id);
     // Runs when a gust becomes the active tile; post.id re-keys on reuse.
-  }, [active, post.id, viewerId]);
+  }, [active, post.id, viewerId, post.external]);
 
   const run = async (value: 1 | -1, forced: boolean) => {
     if (!viewerId) {
@@ -119,6 +126,32 @@ export function useGustVote(
     }
   };
 
+  if (post.external) {
+    return {
+      amplify: () => {
+        if (!external.state.amplified) {
+          void external.mutate({
+            action: "amplify",
+            active: true,
+            uri: post.id,
+          });
+        }
+      },
+      aura: external.state.amplifications,
+      toggleVote: (value: 1 | -1) => {
+        if (value === 1) {
+          void external.mutate({
+            action: "amplify",
+            active: !external.state.amplified,
+            uri: post.id,
+          });
+        } else {
+          void feedback("author");
+        }
+      },
+      userVote: external.state.amplified ? 1 : 0,
+    };
+  }
   return {
     // Double tap: a forced, silent +1 that never un-amplifies.
     amplify: () => {
@@ -143,22 +176,33 @@ export function useGustBookmark(
   const { engagement, refresh, toggleBookmark } = usePostEngagement({
     initialBookmarked: isBookmarkedByUser(post, viewerId ?? undefined),
     postId: post.id,
-    viewerId,
+    viewerId: post.external ? null : viewerId,
   });
-  const bookmarked = engagement.isBookmarkedByUser;
+  const external = useExternalInteractions(post.external ?? { id: post.id });
+  const bookmarked = post.external
+    ? external.state.bookmarked
+    : engagement.isBookmarkedByUser;
 
   useEffect(() => {
-    if (!viewerId || !active) {
+    if (post.external || !viewerId || !active) {
       return;
     }
     void refresh();
     // Runs when a gust becomes the active tile. `refresh` already closes over
     // post.id, so it re-keys on reuse without listing it again.
-  }, [active, refresh, viewerId]);
+  }, [active, refresh, viewerId, post.external]);
 
   const toggle = async () => {
     if (!viewerId) {
       router.push("/(auth)/login");
+      return;
+    }
+    if (post.external) {
+      await external.mutate({
+        action: "bookmark",
+        active: !external.state.bookmarked,
+        uri: post.id,
+      });
       return;
     }
     const next = !bookmarked;
@@ -194,6 +238,10 @@ export function useGustBookmark(
 // session so the label can switch (and undo is one tap away).
 export function useGustFollow(post: FeedPost, viewerId: string | null) {
   const authorId = post.user?.id ?? null;
+  const external = useExternalFollow(
+    post.external?.author.id ?? "",
+    Boolean(post.external)
+  );
   // oxlint-disable-next-line react/hook-use-state -- one-shot initial snapshot; the live value rides the following state below
   const [initiallyFollowing] = useState(() =>
     Boolean(
@@ -234,5 +282,14 @@ export function useGustFollow(post: FeedPost, viewerId: string | null) {
     })();
   };
 
-  return { following, pending, toggle, visible };
+  return post.external
+    ? {
+        following: external.following,
+        pending: external.pending,
+        toggle: () => {
+          void external.toggle();
+        },
+        visible: Boolean(viewerId),
+      }
+    : { following, pending, toggle, visible };
 }

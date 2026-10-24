@@ -28,7 +28,7 @@ export function NewContentPill({
   }
 
   const visibleAuthors = authors.slice(0, 3);
-  const label = `${count} new ${noun}${count === 1 ? "" : "s"}`;
+  const label = `${count > 20 ? "20+" : count} new ${noun}${count === 1 ? "" : "s"}`;
 
   return (
     <button

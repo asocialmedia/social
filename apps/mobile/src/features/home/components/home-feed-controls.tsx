@@ -7,6 +7,7 @@ import type { DiscoveryFleetFeed } from "@asm/ui/lib/home-feed-controls";
 import { ChevronDown, Flame, Sparkles } from "lucide-react-native";
 import type { LucideProps } from "lucide-react-native";
 import { useEffect, useRef, useState } from "react";
+import type { ViewInstance } from "react-native";
 import { StyleSheet, Text, View } from "react-native";
 import Animated, {
   useAnimatedStyle,
@@ -17,6 +18,7 @@ import Animated, {
 
 import { UserAvatar } from "@/components/avatar/user-avatar";
 import { authClient } from "@/features/auth/lib/auth-client";
+import { FeedSourceMenu } from "@/features/feed/components/feed-source-menu";
 import { FeedTabs } from "@/features/feed/components/feed-tabs";
 import { MoreMenu } from "@/features/feed/components/more-menu";
 import type { MenuAnchor } from "@/features/feed/components/more-menu";
@@ -141,7 +143,7 @@ export function HomeFeedControls({
   userId?: string;
 }) {
   const { theme } = useAppTheme();
-  const trigger = useRef<View>(null);
+  const trigger = useRef<ViewInstance>(null);
   const [anchor, setAnchor] = useState<MenuAnchor | null>(null);
   const [discoveryLabelX, setDiscoveryLabelX] = useState(0);
   const [discoveryTextLayouts, setDiscoveryTextLayouts] = useState<
@@ -150,89 +152,92 @@ export function HomeFeedControls({
   const discoveryText = discoveryTextLayouts[discovery];
   const tabs = homeFeedTabs(discovery);
   return (
-    <View>
-      <FeedTabs<HomeTab>
-        active={active}
-        tabs={tabs}
-        onPressActive
-        indicatorLabelLayout={(tab) => {
-          if (tab.value !== discovery) {
-            return;
-          }
-          if (!discoveryText) {
-            return null;
-          }
-          return {
-            width: discoveryText.width,
-            x: discoveryLabelX + discoveryText.x,
-          };
-        }}
-        indicatorWidth={(tab, width) => {
-          if (tab.value === discovery) {
-            return width * 0.6;
-          }
-          return tab.value === "following" ? Math.max(48, width * 0.6) : 24;
-        }}
-        onChange={(value) => {
-          if (value === discovery) {
-            const action = discoveryFeedPress(active, discovery);
-            if (action.type === "navigate") {
-              onChange(action.feed);
+    <View style={{ alignItems: "center", flexDirection: "row" }}>
+      <View style={{ flex: 1 }}>
+        <FeedTabs<HomeTab>
+          active={active}
+          tabs={tabs}
+          onPressActive
+          indicatorLabelLayout={(tab) => {
+            if (tab.value !== discovery) {
               return;
             }
-            trigger.current?.measureInWindow((x, y, width, height) =>
-              setAnchor({ height, width, x, y })
-            );
-          } else {
-            onChange(value);
-          }
-        }}
-        renderLabel={(tab, selected) => (
-          <View
-            ref={tab.value === discovery ? trigger : undefined}
-            onLayout={(event) => {
-              if (tab.value === discovery) {
-                setDiscoveryLabelX(event.nativeEvent.layout.x);
+            if (!discoveryText) {
+              return null;
+            }
+            return {
+              width: discoveryText.width,
+              x: discoveryLabelX + discoveryText.x,
+            };
+          }}
+          indicatorWidth={(tab, width) => {
+            if (tab.value === discovery) {
+              return width * 0.6;
+            }
+            return tab.value === "following" ? Math.max(48, width * 0.6) : 24;
+          }}
+          onChange={(value) => {
+            if (value === discovery) {
+              const action = discoveryFeedPress(active, discovery);
+              if (action.type === "navigate") {
+                onChange(action.feed);
+                return;
               }
-            }}
-            style={styles.label}
-          >
-            <Text
-              testID={
-                tab.value === discovery ? "home-discovery-label" : undefined
-              }
+              trigger.current?.measureInWindow((x, y, width, height) =>
+                setAnchor({ height, width, x, y })
+              );
+            } else {
+              onChange(value);
+            }
+          }}
+          renderLabel={(tab, selected) => (
+            <View
+              ref={tab.value === discovery ? trigger : undefined}
               onLayout={(event) => {
-                if (tab.value !== discovery) {
-                  return;
+                if (tab.value === discovery) {
+                  setDiscoveryLabelX(event.nativeEvent.layout.x);
                 }
-                const { width, x } = event.nativeEvent.layout;
-                setDiscoveryTextLayouts((current) =>
-                  current[discovery]?.width === width &&
-                  current[discovery]?.x === x
-                    ? current
-                    : { ...current, [discovery]: { width, x } }
-                );
               }}
-              style={{
-                color: selected ? theme.inputText : theme.dividerText,
-                fontFamily: selected ? "SofiaProBold" : "SofiaProMed",
-                fontSize: 14,
-              }}
+              style={styles.label}
             >
-              {tab.label}
-            </Text>
-            {tab.value === discovery ? (
-              <ChevronDown
-                color={selected ? theme.inputText : theme.dividerText}
-                size={14}
-              />
-            ) : null}
-            {tab.value === "following" && selected && userId ? (
-              <FollowingAvatars key={userId} userId={userId} />
-            ) : null}
-          </View>
-        )}
-      />
+              <Text
+                testID={
+                  tab.value === discovery ? "home-discovery-label" : undefined
+                }
+                onLayout={(event) => {
+                  if (tab.value !== discovery) {
+                    return;
+                  }
+                  const { width, x } = event.nativeEvent.layout;
+                  setDiscoveryTextLayouts((current) =>
+                    current[discovery]?.width === width &&
+                    current[discovery]?.x === x
+                      ? current
+                      : { ...current, [discovery]: { width, x } }
+                  );
+                }}
+                style={{
+                  color: selected ? theme.inputText : theme.dividerText,
+                  fontFamily: selected ? "SofiaProBold" : "SofiaProMed",
+                  fontSize: 14,
+                }}
+              >
+                {tab.label}
+              </Text>
+              {tab.value === discovery ? (
+                <ChevronDown
+                  color={selected ? theme.inputText : theme.dividerText}
+                  size={14}
+                />
+              ) : null}
+              {tab.value === "following" && selected && userId ? (
+                <FollowingAvatars key={userId} userId={userId} />
+              ) : null}
+            </View>
+          )}
+        />
+      </View>
+      <FeedSourceMenu following={active === "following"} />
       <MoreMenu<{ type: "personalized" | "trending" }>
         align="start"
         anchor={anchor}

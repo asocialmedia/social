@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 
-import { prisma } from "@asm/db";
+import { prisma, getUserProfileCounts } from "@asm/db";
 
 import { getProfileUserList } from "./profile-user-list";
 
@@ -57,4 +57,31 @@ test("following and mutuals are scoped to the requested profile and viewer", asy
   expect(rows[0]?.isFollowing).toBe(false);
   expect(rows[0]?.mutualCount).toBe(0);
   expect(rows[0]?.mutualFollowers).toEqual([]);
+});
+
+test("Bluesky follows appear on the same profile list and total, scoped to the viewer", async () => {
+  const did = `did:plc:fixture${crypto.randomUUID().replaceAll("-", "")}`;
+  try {
+    await prisma.orm.public.ExternalAuthors.create({
+      did,
+      displayName: "External person",
+      handle: "external.test",
+    });
+    await prisma.orm.public.ExternalFollows.create({
+      authorDid: did,
+      userId: target,
+    });
+    const rows = await getProfileUserList(target, viewer, "following");
+    expect(rows.find((row) => row.id === did)).toMatchObject({
+      isFollowing: false,
+      source: "bluesky",
+      username: "external.test",
+    });
+    const counts = await getUserProfileCounts(prisma.orm, target);
+    expect(counts.following).toBe(2);
+    const own = await getProfileUserList(target, target, "following");
+    expect(own.find((row) => row.id === did)?.isFollowing).toBe(true);
+  } finally {
+    await prisma.orm.public.ExternalAuthors.where({ did }).deleteAndCount();
+  }
 });

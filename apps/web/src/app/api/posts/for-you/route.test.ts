@@ -61,6 +61,7 @@ interface PostQuery {
     predicate: (post: {
       isGust: { eq: (value: boolean) => unknown };
       moderated: { eq: (value: boolean) => unknown };
+      explicitContent: { eq: (value: boolean) => unknown };
       userId: { neq: (id: string) => unknown };
     }) => unknown
   ) => PostQuery;
@@ -97,6 +98,7 @@ function createPostQuery(): PostQuery {
     where: (predicate) => {
       const where: Record<string, unknown> = {};
       predicate({
+        explicitContent: { eq: (value) => (where.explicitContent = value) },
         isGust: { eq: (value) => (where.isGust = value) },
         moderated: { eq: (value) => (where.moderated = value) },
         userId: { neq: (id) => (where.userId = { not: id }) },
@@ -250,10 +252,17 @@ describe("GET /api/posts/for-you", () => {
     expect(lastLegacyArgs?.cursor).toBeUndefined();
   });
 
-  test("allows guests to browse chronological recency", async () => {
+  test("allows guests to browse engaged chronological recency", async () => {
     const { GET } = await import("./route");
     mockSessionUser = null;
-    pgPosts = [{ content: "guest post", createdAt: new Date(), id: "g1" }];
+    pgPosts = [
+      {
+        _count: { bookmarks: 0, comments: 0, responses: 0, vote: 5 },
+        content: "guest post",
+        createdAt: new Date(),
+        id: "g1",
+      },
+    ];
 
     const res = await GET(new Request("http://localhost/api/posts/for-you"));
     expect(res.status).toBe(200);
@@ -262,6 +271,7 @@ describe("GET /api/posts/for-you", () => {
     expect(body.posts).toHaveLength(1);
     expect(mockGetPersonalizedFeedPage).not.toHaveBeenCalled();
     expect(lastLegacyArgs?.where).toEqual({
+      explicitContent: false,
       isGust: false,
     });
   });
@@ -277,6 +287,7 @@ describe("GET /api/posts/for-you", () => {
     await GET(new Request("http://localhost/api/posts/for-you"));
 
     expect(lastLegacyArgs?.where).toEqual({
+      explicitContent: false,
       isGust: false,
       moderated: undefined,
       userId: { not: "user-123" },

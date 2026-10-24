@@ -20,7 +20,10 @@ import {
   newNotificationEvents,
   resetNotificationEvents,
 } from "@/lib/notifications/deferred-events";
-import { recordRecommendationInteraction } from "@/lib/recommendations/record-event";
+import {
+  recordNegativeRecommendationInteraction,
+  recordRecommendationInteraction,
+} from "@/lib/recommendations/record-event";
 import { suggestedUsersCache } from "@/lib/users/suggested-users-cache";
 
 interface VoteInfo {
@@ -248,6 +251,12 @@ export async function POST(
     // The vote is one of the strongest personalized-feed signals. Expire the
     // actor's persona immediately so the next feed request reflects it.
     void invalidateFypProfile(user.id);
+    await recordNegativeRecommendationInteraction(
+      user.id,
+      postId,
+      "downvote",
+      value !== -1
+    );
     if (value === 1) {
       void recordRecommendationInteraction({
         eventType: "VOTE",
@@ -272,6 +281,9 @@ export async function POST(
       userVote: result.vote?.[0]?.value ?? 0,
     };
 
+    const { publishFeedChange } =
+      await import("@/lib/posts/publish-feed-change");
+    void publishFeedChange();
     return Response.json(voteInfo);
   } catch (error) {
     console.error(error);
@@ -385,6 +397,12 @@ export async function DELETE(
     }
 
     void invalidateFypProfile(user.id);
+    await recordNegativeRecommendationInteraction(
+      user.id,
+      postId,
+      "downvote",
+      true
+    );
 
     if (auraChanged) {
       await suggestedUsersCache.invalidateForUser(result.userId);
@@ -400,6 +418,9 @@ export async function DELETE(
       userVote: 0,
     };
 
+    const { publishFeedChange } =
+      await import("@/lib/posts/publish-feed-change");
+    void publishFeedChange();
     return Response.json(voteInfo);
   } catch (error) {
     console.error(error);

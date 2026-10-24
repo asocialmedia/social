@@ -49,8 +49,13 @@ mock.module("@asm/auth/core", () => ({
 const mockGetSession = mock(() => state.session);
 
 const mockFetch = mock((url: string, init: RequestInit) => {
-  state.authBody = JSON.parse(String(init.body));
-  state.authPath = url;
+  // The route also fires an advisory notice to the auth service after success.
+  // Only the change-email hop carries the body these assertions are about, so
+  // record just that one and ignore the notice.
+  if (url.includes("/email-otp/change-email")) {
+    state.authBody = JSON.parse(String(init.body));
+    state.authPath = url;
+  }
   return Response.json(state.authResponseBody, {
     headers: { "Content-Type": "application/json" },
     status: state.authResponseStatus,

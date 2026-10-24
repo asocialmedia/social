@@ -28,11 +28,17 @@ interface CropRequest {
 export function useProfileMediaCropper() {
   const [request, setRequest] = useState<CropRequest | null>(null);
   const pending = useRef<CropRequest | null>(null);
-  const finish = useCallback((result: CropResult | null) => {
-    pending.current?.resolve(result);
-    pending.current = null;
-    setRequest(null);
-  }, []);
+  const finish = useCallback(
+    (current: CropRequest, result: CropResult | null) => {
+      if (pending.current !== current) {
+        return;
+      }
+      pending.current?.resolve(result);
+      pending.current = null;
+      setRequest(null);
+    },
+    []
+  );
   useEffect(() => () => pending.current?.resolve(null), []);
   const crop = useCallback(
     async (
@@ -75,7 +81,7 @@ export function useProfileMediaCropper() {
     cropper: request ? (
       <ProfileMediaCropper
         key={request.picked.source.uri}
-        onFinish={finish}
+        onFinish={(result) => finish(request, result)}
         request={request}
       />
     ) : null,
@@ -100,7 +106,7 @@ function ProfileMediaCropper({
   );
   const { source } = request.picked;
   const animated = isAnimatedImage(source.mimeType, source.name);
-  const complete = (result: {
+  const complete = async (result: {
     dataUrl: string;
     width: number;
     height: number;
@@ -122,7 +128,7 @@ function ProfileMediaCropper({
       Paths.cache,
       `${request.kind}-crop-${Date.now()}.${extension}`
     );
-    target.write(bytes);
+    await target.write(bytes);
     onFinish({
       ...request.picked,
       source: {
@@ -136,7 +142,6 @@ function ProfileMediaCropper({
       },
       viewOnce: request.messagePhoto ? viewOnce : undefined,
     });
-    return Promise.resolve();
   };
   return (
     <Modal

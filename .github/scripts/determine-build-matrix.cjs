@@ -6,7 +6,33 @@ const APP_ENTRIES = [
     dockerfile: "./apps/media-processing/Dockerfile",
     image: "asm-media-processing",
   },
+  {
+    app: "protocols",
+    dockerfile: "./apps/protocols/Dockerfile",
+    image: "asm-protocols",
+  },
 ];
+
+const CLASSIFIER_ENTRY = {
+  app: "classifier",
+  context: "./apps/classifier",
+  dockerfile: "./apps/classifier/Dockerfile",
+  image: "asm-classifier",
+};
+
+function affectsClassifier(file) {
+  if (file.filename === "apps/classifier/package.json") {
+    return !isVersionOnlyChange(file);
+  }
+  return (
+    file.filename === "apps/classifier/Dockerfile" ||
+    file.filename === "apps/classifier/.dockerignore" ||
+    file.filename === "apps/classifier/runtime.bun.lock" ||
+    file.filename === "apps/classifier/scripts/download-model.ts" ||
+    (file.filename.startsWith("apps/classifier/src/") &&
+      !file.filename.endsWith(".test.ts"))
+  );
+}
 
 // Shared code or build config invalidates every image.
 const TRIGGER_ALL_PREFIXES = ["packages/", "docker/"];
@@ -17,10 +43,44 @@ const TRIGGER_ALL_FILES = new Set([
   "tsconfig.json",
 ]);
 
-// The mobile build only cares about the mobile workspace plus the root
-// manifests that can change dependency resolution. Changes under packages/
-// stay excluded from mobile-build detection.
+// Root dependency changes can affect mobile; release-only version stamps cannot.
 const MOBILE_TRIGGER_FILES = new Set(["package.json", "bun.lock"]);
+
+function isVersionOnlyChange(file) {
+  if (
+    file.status !== "modified" ||
+    !file.patch ||
+    !Number.isInteger(file.changes)
+  ) {
+    return false;
+  }
+  const versionLine =
+    file.filename === "bun.lock"
+      ? /^[-+] {6}"version": "\d+\.\d+\.\d+",?$/
+      : /^[-+] {2}"version": "\d+\.\d+\.\d+",?$/;
+  let changed = 0;
+  let workspace = false;
+  for (const line of file.patch.split("\n")) {
+    if (line.startsWith("@@")) {
+      workspace = false;
+    }
+    if (/^ {5}"(?:apps|packages)\/[^"/]+": \{$/.test(line)) {
+      workspace = true;
+    }
+    if (!line.startsWith("+") && !line.startsWith("-")) {
+      continue;
+    }
+    if (
+      !versionLine.test(line) ||
+      (file.filename === "bun.lock" && !workspace)
+    ) {
+      return false;
+    }
+    changed += 1;
+  }
+  // A missing or truncated patch must retain the conservative build decision.
+  return changed > 0 && changed === file.changes;
+}
 
 const { selectChangedFiles } = require("./select-changed-files.cjs");
 
@@ -32,7 +92,11 @@ module.exports = async function determineBuildMatrix({
 }) {
   const { owner, repo } = context.repo;
 
-  const { files: changedFiles, truncated } = await selectChangedFiles({
+  const {
+    changes,
+    files: changedFiles,
+    truncated,
+  } = await selectChangedFiles({
     context,
     github,
     owner,
@@ -54,23 +118,31 @@ module.exports = async function determineBuildMatrix({
 
   const shouldBuildAll =
     truncated ||
-    changedFiles.some(
+    changes.some(
       (file) =>
-        TRIGGER_ALL_PREFIXES.some((prefix) => file.startsWith(prefix)) ||
-        TRIGGER_ALL_FILES.has(file)
+        TRIGGER_ALL_PREFIXES.some((prefix) =>
+          file.filename.startsWith(prefix)
+        ) ||
+        (TRIGGER_ALL_FILES.has(file.filename) && !isVersionOnlyChange(file))
     );
 
   const selectedApps = shouldBuildAll
-    ? APP_ENTRIES
+    ? [...APP_ENTRIES]
     : APP_ENTRIES.filter(({ app }) =>
         changedFiles.some((file) => file.startsWith(`apps/${app}/`))
       );
 
+  // This standalone image uses its own runtime lock and no shared workspaces.
+  if (truncated || changes.some(affectsClassifier)) {
+    selectedApps.push(CLASSIFIER_ENTRY);
+  }
+
   const hasMobileChanges =
     truncated ||
-    changedFiles.some(
+    changes.some(
       (file) =>
-        file.startsWith("apps/mobile/") || MOBILE_TRIGGER_FILES.has(file)
+        file.filename.startsWith("apps/mobile/") ||
+        (MOBILE_TRIGGER_FILES.has(file.filename) && !isVersionOnlyChange(file))
     );
   core.setOutput("has-mobile-changes", hasMobileChanges ? "true" : "false");
   core.info(`Mobile app changes: ${hasMobileChanges}`);

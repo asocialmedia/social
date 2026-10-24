@@ -49,7 +49,7 @@ import {
   TextInput,
   View,
 } from "react-native";
-import type { ViewToken } from "react-native";
+import type { FlatListProps, TextInputInstance } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { StatusActionButton } from "@/components/feedback/status-action-button";
@@ -443,7 +443,7 @@ function CommunityChatTimelineScreen() {
     isDark
   );
   const listRef = useRef<FlatList<CommunityChatMessage>>(null);
-  const composerRef = useRef<TextInput>(null);
+  const composerRef = useRef<TextInputInstance>(null);
   const latestSequence = useRef("0");
   const latestChangeSequence = useRef("0");
   const paging = useRef(false);
@@ -482,12 +482,32 @@ function CommunityChatTimelineScreen() {
       };
     }, [])
   );
-  const onViewableMessagesChanged = useCallback(
-    ({
-      viewableItems,
-    }: {
-      viewableItems: ViewToken<CommunityChatMessage>[];
-    }) => {
+  const onViewableMessagesChanged = useCallback<
+    NonNullable<FlatListProps<CommunityChatMessage>["onViewableItemsChanged"]>
+  >(({ viewableItems }) => {
+    if (
+      !screenFocused.current ||
+      AppState.currentState !== "active" ||
+      !readContext.current.canRead
+    ) {
+      return;
+    }
+    for (const token of viewableItems) {
+      if (
+        token.isViewable &&
+        BigInt(token.item.sequence) > BigInt(viewedSequence.current)
+      ) {
+        viewedSequence.current = token.item.sequence;
+      }
+    }
+    if (
+      readTimer.current ||
+      BigInt(viewedSequence.current) <= BigInt(readSequence.current)
+    ) {
+      return;
+    }
+    readTimer.current = setTimeout(async () => {
+      readTimer.current = null;
       if (
         !screenFocused.current ||
         AppState.currentState !== "active" ||
@@ -495,45 +515,20 @@ function CommunityChatTimelineScreen() {
       ) {
         return;
       }
-      for (const token of viewableItems) {
-        if (
-          token.isViewable &&
-          BigInt(token.item.sequence) > BigInt(viewedSequence.current)
-        ) {
-          viewedSequence.current = token.item.sequence;
-        }
+      const context = readContext.current;
+      try {
+        const result = await advanceCommunityChatRead(
+          context.slug,
+          context.roomId,
+          viewedSequence.current,
+          await context.options()
+        );
+        readSequence.current = result.readSequence;
+      } catch {
+        // A later visible-message update retries this private watermark.
       }
-      if (
-        readTimer.current ||
-        BigInt(viewedSequence.current) <= BigInt(readSequence.current)
-      ) {
-        return;
-      }
-      readTimer.current = setTimeout(async () => {
-        readTimer.current = null;
-        if (
-          !screenFocused.current ||
-          AppState.currentState !== "active" ||
-          !readContext.current.canRead
-        ) {
-          return;
-        }
-        const context = readContext.current;
-        try {
-          const result = await advanceCommunityChatRead(
-            context.slug,
-            context.roomId,
-            viewedSequence.current,
-            await context.options()
-          );
-          readSequence.current = result.readSequence;
-        } catch {
-          // A later visible-message update retries this private watermark.
-        }
-      }, 1000);
-    },
-    []
-  );
+    }, 1000);
+  }, []);
 
   const mergeMessages = useCallback(
     (incoming: CommunityChatMessage[], edge?: "newer" | "older") => {
@@ -1263,7 +1258,7 @@ function CommunityChatTimelineScreen() {
             ListFooterComponent={
               loadingOlder ? (
                 <ActivityIndicator color={communityAccent} />
-              ) : null
+              ) : undefined
             }
             maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
             onViewableItemsChanged={onViewableMessagesChanged}

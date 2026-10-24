@@ -482,8 +482,8 @@ export function hostLabel(url: string): string {
 
 export type BioSegment =
   | { type: "text"; text: string }
-  | { type: "url"; url: string }
-  | { type: "mention"; username: string }
+  | { type: "url"; url: string; label?: string }
+  | { type: "mention"; username: string; actor?: string }
   | { type: "tag"; tag: string };
 
 export type LinkPlatformIcon =

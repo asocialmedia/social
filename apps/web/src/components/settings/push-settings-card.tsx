@@ -92,6 +92,7 @@ export default function PushSettingsCard() {
             <Switch
               aria-label="Toggle push notifications"
               checked={on}
+              className="switch-3d"
               disabled={disabled || !support.supported}
               onCheckedChange={handleToggle}
             />

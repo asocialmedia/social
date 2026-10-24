@@ -5,6 +5,7 @@ import {
 import { Image } from "expo-image";
 import { ArrowLeft, ArrowRight, Camera, Check, X } from "lucide-react-native";
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { ScrollViewInstance } from "react-native";
 import {
   ActivityIndicator,
   Keyboard,
@@ -101,7 +102,7 @@ export function CommunityCreateDialog({
   > | null>(null);
   const completed = useRef(false);
   const submission = useRef(false);
-  const scrollRef = useRef<ScrollView>(null);
+  const scrollRef = useRef<ScrollViewInstance>(null);
   const panel = panel3d(isDark);
   const busy = pending || uploadingSlot !== null;
   const avatarPreview =

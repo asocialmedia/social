@@ -97,6 +97,13 @@ const createPostShape = z.object({
   // Links the author dismissed in the composer's live preview; the publish
   // path excludes them from the stored embed set. Capped like MAX_POST_EMBEDS.
   dismissedEmbedUrls: z.array(z.string().max(2048)).max(5).optional(),
+  externalParentUri: z
+    .string()
+    .max(512)
+    .regex(
+      /^at:\/\/did:(?:plc|web):[A-Za-z0-9._:%-]+\/app\.bsky\.feed\.post\/[A-Za-z0-9._~:-]+$/
+    )
+    .optional(),
   hnStory: z
     .object({
       by: z

@@ -14,6 +14,7 @@ import { cn } from "@/lib/utils";
 import DeleteCommentDialog from "./delete-comment-dialog";
 
 interface CommentMoreButtonProps {
+  controller?: { pending: boolean; delete: () => Promise<boolean> };
   applyDeleted: (comment: CommentData) => void;
   className?: string;
   comment: CommentData;
@@ -23,6 +24,7 @@ export default function CommentMoreButton({
   applyDeleted,
   comment,
   className,
+  controller,
 }: CommentMoreButtonProps) {
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
@@ -71,6 +73,7 @@ export default function CommentMoreButton({
         </DropdownMenuContent>
       </DropdownMenu>
       <DeleteCommentDialog
+        controller={controller}
         applyDeleted={applyDeleted}
         comment={comment}
         onClose={handleCloseDialog}

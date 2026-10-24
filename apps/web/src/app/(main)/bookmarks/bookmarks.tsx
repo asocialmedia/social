@@ -1,17 +1,14 @@
 "use client";
 
 import type { HNStory as HnStoryType } from "@asm/aggregator/hackernews";
-import type { PostsPage, UserData } from "@asm/db";
+import type { PostData, PostsPage, UserData } from "@asm/db";
 import { Separator } from "@asm/ui/shadui/separator";
 import { Tabs, TabsContent, TabsList } from "@asm/ui/shadui/tabs";
 import noBookmarksImage from "@assets/general/nonotibook.png";
 import { useInfiniteQuery } from "@tanstack/react-query";
-import { Clapperboard, Heart, Newspaper, Terminal } from "lucide-react";
-import { motion } from "motion/react";
 import Image from "next/image";
 import type React from "react";
 import { useCallback, useRef, useState } from "react";
-import { useMediaQuery } from "usehooks-ts";
 
 import BookmarksSidebar from "@/components/bookmarks/bookmarks-sidebar";
 import { HNStoryCard } from "@/components/hackernews/hn-story-card";
@@ -26,7 +23,9 @@ import FeedViewSkeleton from "@/components/layouts/skeletons/feed-view-skeleton"
 import LoadMoreSkeleton from "@/components/layouts/skeletons/load-more-skeleton";
 import { useFeedSwipeNavigation } from "@/hooks/feed/use-feed-swipe-navigation";
 import { useBookmarkCount } from "@/hooks/posts/use-bookmark-count";
+import { useGoBack } from "@/hooks/use-go-back";
 import kyInstance from "@/lib/ky";
+import { FEED_QUERY_BEHAVIOR } from "@/lib/posts/feed-cache";
 
 import BookmarkedGusts from "./bookmarked-gusts";
 import LikedPosts from "./liked-posts";
@@ -46,6 +45,113 @@ interface BookmarksProps {
 // Swipe order mirrors the rendered tab strip order.
 const TAB_ORDER = ["posts", "gusts", "hackernews", "likes"];
 
+function FleetsTabBody({
+  isFetchingNext,
+  onBottomReached,
+  posts,
+  status,
+  viewer,
+}: {
+  viewer: string;
+  isFetchingNext: boolean;
+  onBottomReached: () => void;
+  posts: PostData[];
+  status: "error" | "pending" | "success";
+}) {
+  if (status === "pending") {
+    return <FeedViewSkeleton />;
+  }
+  if (status === "error") {
+    return (
+      <p className="text-destructive px-4 py-8 text-center">
+        An error occurred while loading bookmarked fleets.
+      </p>
+    );
+  }
+  if (posts.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-3 px-4 py-16 text-center">
+        <Image
+          alt=""
+          className="h-40 w-auto object-contain"
+          draggable={false}
+          height={1024}
+          src={noBookmarksImage}
+          width={1536}
+        />
+        <p className="font-medium">You don&apos;t have any bookmarks yet.</p>
+        <p className="text-muted-foreground text-sm">
+          Bookmark fleets to read them later.
+        </p>
+      </div>
+    );
+  }
+  return (
+    <InfiniteScrollContainer onBottomReached={onBottomReached}>
+      <FeedView
+        cacheKey={["post-feed", "bookmarks", viewer]}
+        posts={posts}
+        sortBy="server"
+      />
+      {isFetchingNext ? <LoadMoreSkeleton /> : null}
+    </InfiniteScrollContainer>
+  );
+}
+
+function HackerNewsTabBody({
+  isFetchingNext,
+  onBottomReached,
+  status,
+  stories,
+}: {
+  isFetchingNext: boolean;
+  onBottomReached: () => void;
+  status: "error" | "pending" | "success";
+  stories: HnStoryType[];
+}) {
+  if (status === "pending") {
+    return <FeedViewSkeleton />;
+  }
+  if (status === "error") {
+    return (
+      <p className="text-destructive px-4 py-8 text-center">
+        An error occurred while loading HackerNews bookmarks.
+      </p>
+    );
+  }
+  if (stories.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-3 px-4 py-16 text-center">
+        <Image
+          alt=""
+          className="h-40 w-auto object-contain"
+          draggable={false}
+          height={1024}
+          src={noBookmarksImage}
+          width={1536}
+        />
+        <p className="font-medium">No bookmarked HackerNews stories.</p>
+        <p className="text-muted-foreground text-sm">
+          Bookmark HackerNews stories to read them later.
+        </p>
+      </div>
+    );
+  }
+  return (
+    <InfiniteScrollContainer onBottomReached={onBottomReached}>
+      <div className="flex flex-col">
+        {stories.map((story, index) => (
+          <div key={story.id}>
+            {index > 0 && <Separator className="bg-border/60" />}
+            <HNStoryCard initialBookmarked={true} story={story} />
+          </div>
+        ))}
+      </div>
+      {isFetchingNext ? <LoadMoreSkeleton /> : null}
+    </InfiniteScrollContainer>
+  );
+}
+
 const Bookmarks: React.FC<BookmarksProps> = ({
   gustBookmarkCount,
   hnBookmarkCount,
@@ -53,8 +159,8 @@ const Bookmarks: React.FC<BookmarksProps> = ({
   userData,
 }) => {
   const feedScrollRef = useRef<HTMLDivElement>(null);
+  const goBack = useGoBack();
   const [activeTab, setActiveTab] = useState("posts");
-  const isDesktop = useMediaQuery("(min-width: 768px)");
 
   // Mobile swipes drag the tab strip like a carousel (same mechanism as the
   // home feed).
@@ -89,6 +195,7 @@ const Bookmarks: React.FC<BookmarksProps> = ({
     isFetchingNextPage: isFetchingNextPosts,
     status: postsStatus,
   } = useInfiniteQuery({
+    ...FEED_QUERY_BEHAVIOR,
     getNextPageParam: (lastPage) => lastPage.nextCursor,
     initialPageParam: null as string | null,
     queryFn: async ({ pageParam }: { pageParam: string | null }) => {
@@ -100,7 +207,8 @@ const Bookmarks: React.FC<BookmarksProps> = ({
         .json<PostsPage>();
       return response;
     },
-    queryKey: ["post-feed", "bookmarks"],
+    queryKey: ["post-feed", "bookmarks", userData.id],
+    staleTime: 30_000,
   });
 
   const {
@@ -111,6 +219,7 @@ const Bookmarks: React.FC<BookmarksProps> = ({
     isFetchingNextPage: isFetchingNextHn,
     status: hnStatus,
   } = useInfiniteQuery({
+    enabled: activeTab === "hackernews",
     getNextPageParam: (lastPage) => lastPage.nextCursor,
     initialPageParam: null as string | null,
     queryFn: async ({ pageParam }: { pageParam: string | null }) => {
@@ -149,79 +258,6 @@ const Bookmarks: React.FC<BookmarksProps> = ({
     return null;
   }
 
-  const isLoading = postsStatus === "pending" || hnStatus === "pending";
-
-  const showEmptyState =
-    postsStatus === "success" &&
-    hnStatus === "success" &&
-    !posts.length &&
-    !hnStories.length &&
-    !hasNextPosts &&
-    !hasNextHn;
-
-  let feedBody: React.ReactNode;
-  if (isLoading) {
-    feedBody = <FeedViewSkeleton />;
-  } else if (postsStatus === "error" && hnStatus === "error") {
-    feedBody = (
-      <p className="text-destructive px-4 py-8 text-center">
-        An error occurred while loading bookmarks.
-      </p>
-    );
-  } else if (showEmptyState) {
-    feedBody = (
-      <div className="flex flex-col items-center justify-center gap-3 px-4 py-16 text-center">
-        <Image
-          alt=""
-          className="h-40 w-auto object-contain"
-          draggable={false}
-          height={1024}
-          src={noBookmarksImage}
-          width={1536}
-        />
-        <p className="font-medium">You don&apos;t have any bookmarks yet.</p>
-        <p className="text-muted-foreground text-sm">
-          Bookmark posts and HackerNews stories to read them later.
-        </p>
-      </div>
-    );
-  } else {
-    feedBody = (
-      <>
-        <TabsContent className="mt-0 pb-12" value="posts">
-          <InfiniteScrollContainer onBottomReached={handleBottomReachedPosts}>
-            {posts.length > 0 ? (
-              <FeedView cacheKey={["post-feed", "bookmarks"]} posts={posts} />
-            ) : null}
-            {isFetchingNextPosts ? <LoadMoreSkeleton /> : null}
-          </InfiniteScrollContainer>
-        </TabsContent>
-
-        <TabsContent className="mt-0 pb-12" value="gusts">
-          <BookmarkedGusts />
-        </TabsContent>
-
-        <TabsContent className="mt-0 pb-12" value="hackernews">
-          <InfiniteScrollContainer onBottomReached={handleBottomReachedHn}>
-            <div className="flex flex-col">
-              {hnStories.map((story, index) => (
-                <div key={story.id}>
-                  {index > 0 && <Separator className="bg-border/60" />}
-                  <HNStoryCard initialBookmarked={true} story={story} />
-                </div>
-              ))}
-            </div>
-            {isFetchingNextHn ? <LoadMoreSkeleton /> : null}
-          </InfiniteScrollContainer>
-        </TabsContent>
-
-        <TabsContent className="mt-0 pb-12" value="likes">
-          <LikedPosts />
-        </TabsContent>
-      </>
-    );
-  }
-
   return (
     <>
       <div className="border-border/60 mx-auto flex min-w-0 flex-1 flex-col bg-[hsl(var(--background-alt))] sm:border-x lg:max-w-5xl">
@@ -231,7 +267,7 @@ const Bookmarks: React.FC<BookmarksProps> = ({
           value={activeTab}
         >
           <div className="z-20 shrink-0 bg-[hsl(var(--background-alt))]/90 pt-2 backdrop-blur-md">
-            <MobileTopBar />
+            <MobileTopBar onBack={goBack} />
             <div className="border-border/60 relative flex items-center border-b py-1.5">
               <TabsList className="flex h-full flex-1 items-center justify-center gap-0 bg-transparent p-0 md:justify-start">
                 <AnimatedTabTrigger
@@ -239,13 +275,7 @@ const Bookmarks: React.FC<BookmarksProps> = ({
                   layoutId="bookmarks-tab-indicator"
                   value="posts"
                 >
-                  <Newspaper className="h-4 w-4 shrink-0" />
-                  <TabLabel
-                    active={activeTab === "posts"}
-                    alwaysExpanded={isDesktop}
-                  >
-                    Posts
-                  </TabLabel>
+                  <span className="whitespace-nowrap">Fleets</span>
                   {postsTabCount > 0 ? (
                     <span className="border-border/60 bg-muted/50 text-muted-foreground flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-[10px] font-semibold tabular-nums">
                       {postsTabCount}
@@ -257,13 +287,7 @@ const Bookmarks: React.FC<BookmarksProps> = ({
                   layoutId="bookmarks-tab-indicator"
                   value="gusts"
                 >
-                  <Clapperboard className="h-4 w-4 shrink-0" />
-                  <TabLabel
-                    active={activeTab === "gusts"}
-                    alwaysExpanded={isDesktop}
-                  >
-                    Gusts
-                  </TabLabel>
+                  <span className="whitespace-nowrap">Gusts</span>
                   {gustTabCount > 0 ? (
                     <span className="border-border/60 bg-muted/50 text-muted-foreground flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-[10px] font-semibold tabular-nums">
                       {gustTabCount}
@@ -275,13 +299,7 @@ const Bookmarks: React.FC<BookmarksProps> = ({
                   layoutId="bookmarks-tab-indicator"
                   value="hackernews"
                 >
-                  <Terminal className="h-4 w-4 shrink-0" />
-                  <TabLabel
-                    active={activeTab === "hackernews"}
-                    alwaysExpanded={isDesktop}
-                  >
-                    HackerNews
-                  </TabLabel>
+                  <span className="whitespace-nowrap">HackerNews</span>
                   {hnTabCount > 0 ? (
                     <span className="border-border/60 bg-muted/50 text-muted-foreground flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-[10px] font-semibold tabular-nums">
                       {hnTabCount}
@@ -293,13 +311,7 @@ const Bookmarks: React.FC<BookmarksProps> = ({
                   layoutId="bookmarks-tab-indicator"
                   value="likes"
                 >
-                  <Heart className="h-4 w-4 shrink-0" />
-                  <TabLabel
-                    active={activeTab === "likes"}
-                    alwaysExpanded={isDesktop}
-                  >
-                    Likes
-                  </TabLabel>
+                  <span className="whitespace-nowrap">Likes</span>
                 </AnimatedTabTrigger>
               </TabsList>
               {/* xl:hidden: the bookmarks sidebar owns the search bar from xl
@@ -317,7 +329,32 @@ const Bookmarks: React.FC<BookmarksProps> = ({
               className="hide-native-scrollbar h-full touch-pan-y overflow-x-hidden overflow-y-auto"
               ref={feedScrollRef}
             >
-              {feedBody}
+              <TabsContent className="mt-0 pb-12" value="posts">
+                <FleetsTabBody
+                  isFetchingNext={isFetchingNextPosts}
+                  onBottomReached={handleBottomReachedPosts}
+                  posts={posts}
+                  status={postsStatus}
+                  viewer={userData.id}
+                />
+              </TabsContent>
+
+              <TabsContent className="mt-0 pb-12" value="gusts">
+                <BookmarkedGusts />
+              </TabsContent>
+
+              <TabsContent className="mt-0 pb-12" value="hackernews">
+                <HackerNewsTabBody
+                  isFetchingNext={isFetchingNextHn}
+                  onBottomReached={handleBottomReachedHn}
+                  status={hnStatus}
+                  stories={hnStories}
+                />
+              </TabsContent>
+
+              <TabsContent className="mt-0 pb-12" value="likes">
+                <LikedPosts />
+              </TabsContent>
             </div>
             <FeedScrollbar containerRef={feedScrollRef} />
           </div>
@@ -335,29 +372,3 @@ const Bookmarks: React.FC<BookmarksProps> = ({
 };
 
 export default Bookmarks;
-
-// Keeps the four-tab strip compact on narrow screens: the active tab expands
-// its label while inactive tabs collapse to icon + count. Width animates via
-// inline styles (motion), so switching slides the previous label closed as the
-// next one opens. Desktop has room for every label, so it stays expanded.
-const TabLabel = ({
-  active,
-  alwaysExpanded,
-  children,
-}: {
-  active: boolean;
-  alwaysExpanded: boolean;
-  children: React.ReactNode;
-}) => {
-  const expanded = alwaysExpanded || active;
-  return (
-    <motion.span
-      animate={{ opacity: expanded ? 1 : 0, width: expanded ? "auto" : 0 }}
-      className="overflow-hidden text-left whitespace-nowrap"
-      initial={false}
-      transition={{ duration: 0.25, ease: "easeOut" }}
-    >
-      {children}
-    </motion.span>
-  );
-};

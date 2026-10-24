@@ -13,6 +13,7 @@ import { useLocalSearchParams } from "expo-router";
 import { AtSign, KeyRound, Mail } from "lucide-react-native";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { RefObject } from "react";
+import type { ScrollViewInstance } from "react-native";
 import {
   Modal,
   Pressable,
@@ -28,6 +29,7 @@ import { authClient } from "@/features/auth/lib/auth-client";
 import { linkProvider } from "@/features/auth/lib/link-provider";
 import { useInstall } from "@/features/auth/state/install";
 import { useSessionContext } from "@/features/auth/state/session";
+import { BlueskyConnectCard } from "@/features/network/components/bluesky-connect-card";
 import { getApiBaseUrl } from "@/lib/api-env";
 import { SHOWS_SCROLL_INDICATOR } from "@/lib/scroll-indicator";
 import { useAppTheme } from "@/theme";
@@ -112,7 +114,7 @@ export function AccountTab({
 }: {
   facts: AccountFacts;
   onChanged: () => void;
-  scrollRef: RefObject<ScrollView | null>;
+  scrollRef: RefObject<ScrollViewInstance | null>;
 }) {
   const { theme } = useAppTheme();
   const { user, refresh } = useSessionContext();
@@ -778,8 +780,8 @@ export function AccountTab({
             title="Sign-in methods"
           />
           <Text style={[styles.note, { color: theme.dividerText }]}>
-            Connect another provider to sign in to this same ASM account. Your
-            posts and messages stay here.
+            Connect another provider to sign in to this same asocialmedia
+            account. Your posts and messages stay here.
           </Text>
           <View style={styles.providerGrid}>
             {SOCIAL_PROVIDERS.map((provider) => (
@@ -846,6 +848,10 @@ export function AccountTab({
           </SettingsCard>
         </SectionAnchor>
       )}
+      <BlueskyConnectCard
+        emailVerified={facts.emailVerified}
+        onChanged={onChanged}
+      />
       <Modal
         animationType="fade"
         onRequestClose={() => setProviderToConfirm(null)}

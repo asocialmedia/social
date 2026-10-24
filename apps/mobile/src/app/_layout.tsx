@@ -10,7 +10,6 @@ import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import { Platform } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { useReducedMotion } from "react-native-reanimated";
-import { enableFreeze } from "react-native-screens";
 
 import { ErrorBoundary } from "@/components/feedback/error-boundary";
 import { StartupGate } from "@/components/feedback/startup-splash";
@@ -19,7 +18,9 @@ import { InstallVerificationGate } from "@/features/auth/components/install-veri
 import { SessionRevocationGuard } from "@/features/auth/components/session-revocation-guard";
 import { InstallProvider } from "@/features/auth/state/install";
 import { SessionProvider } from "@/features/auth/state/session";
+import { ExternalAuthorPreview } from "@/features/feed/components/external-author-preview";
 import { MediaPreviewLauncher } from "@/features/feed/components/media-preview-launcher";
+import { NetworkSettingsSync } from "@/features/network/state/use-network-settings";
 import { PushRegistrar } from "@/features/notifications/components/push-registrar";
 import { getApiBaseUrl } from "@/lib/api-env";
 import { loadInstallToken } from "@/lib/install-credentials";
@@ -63,14 +64,6 @@ const SupportGate = lazy(async () => {
 
 void SplashScreen.preventAutoHideAsync();
 SplashScreen.setOptions({ duration: 180, fade: true });
-// Freeze off-screen native screens so backgrounded routes stop re-rendering
-// while the foreground animates. Best-effort: never break launch.
-try {
-  enableFreeze(true);
-} catch {
-  // react-native-screens not ready; navigation still works unfrozen.
-}
-
 // Defers non-critical launch work past first paint. InteractionManager is
 // deprecated in RN 0.86 (it warns on every launch), so this uses
 // requestIdleCallback with a setTimeout fallback instead.
@@ -203,20 +196,20 @@ export default function RootLayout() {
                   {/* Native push registration + tap routing. Inside the session
                 provider so it can react to sign-in/out. */}
                   <PushRegistrar />
+                  <NetworkSettingsSync />
+                  <ExternalAuthorPreview />
                   {/* Real-time session revocation listener (SSE stream). Terminates
                 the local session immediately if revoked remotely or on 401. */}
                   <SessionRevocationGuard />
                   <Stack
+                    // Preserve covered screens while suspending their effects.
+                    activityEnabled={1}
                     screenOptions={{
                       animation: presented ? navigationAnimation : "none",
                       // Keep later page transitions short; the restored route
                       // itself is committed without animation beneath the splash.
                       animationDuration: 200,
                       contentStyle: { backgroundColor: theme.containerBg },
-                      // Frozen off-screen routes stop re-rendering while the
-                      // foreground animates, which is the main home-to-profile
-                      // jank source on low-end Android.
-                      freezeOnBlur: true,
                       headerShown: false,
                     }}
                   >

@@ -7,6 +7,8 @@
 // `.toSorted(`. All ordering here goes through insertionOrder below, which
 // calls neither.
 
+import type { ExternalPost } from "@asm/protocols/contracts";
+
 export interface FeedMedia {
   attributionPublic?: boolean;
   aiGenerated?: boolean | null;
@@ -97,6 +99,11 @@ export interface FeedParentPost {
 }
 
 export interface FeedPost {
+  networkRecommendationToken?: string;
+  discoveryContext?: ExternalPost["discoveryContext"];
+  external?: ExternalPost;
+  externalParent?: { uri: string } | null;
+  externalParentId?: string | null;
   recommendation?: { requestId: string };
   followingSources?: {
     avatarUrl: string | null;

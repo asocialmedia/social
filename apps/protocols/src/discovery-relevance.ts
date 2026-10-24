@@ -1,0 +1,117 @@
+import type { ExternalPost } from "@asm/protocols/contracts";
+import { externalTopicMatch } from "@asm/protocols/discovery";
+import { francAll } from "franc-min";
+
+const languageCodes: Record<string, string> = {
+  ar: "arb",
+  bn: "ben",
+  de: "deu",
+  el: "ell",
+  en: "eng",
+  es: "spa",
+  fr: "fra",
+  hi: "hin",
+  id: "ind",
+  it: "ita",
+  ja: "jpn",
+  ko: "kor",
+  mr: "mar",
+  nl: "nld",
+  pl: "pol",
+  pt: "por",
+  ru: "rus",
+  sv: "swe",
+  ta: "tam",
+  te: "tel",
+  tr: "tur",
+  uk: "ukr",
+  ur: "urd",
+  vi: "vie",
+  zh: "cmn",
+};
+
+export function isFreshDiscoveryPost(
+  post: ExternalPost,
+  mode: "personalized" | "trending" | "latest",
+  now = Date.now()
+) {
+  const age = now - Date.parse(post.createdAt);
+  return (
+    Number.isFinite(age) &&
+    age >= -60_000 &&
+    age <= (mode === "trending" ? 2 : 7) * 86_400_000
+  );
+}
+
+export function matchesDiscoveryLanguage(post: ExternalPost, locale: string) {
+  if (!locale || locale === "all") {
+    return true;
+  }
+  const language = locale.split("-")[0]?.toLowerCase() ?? "en";
+  if (post.languages.length) {
+    return post.languages.some(
+      (tag) => tag.toLowerCase().split("-")[0] === language
+    );
+  }
+  const text = post.text.replaceAll(/https?:\/\/\S+|@[\w.-]+/g, " ").trim();
+  if (text.replaceAll(/[^\p{L}]/gu, "").length < 35) {
+    return true;
+  }
+  const [first, second] = francAll(text, { minLength: 35 });
+  if (!first || first[0] === "und" || (second && first[1] - second[1] < 0.1)) {
+    return true;
+  }
+  return !languageCodes[language] || first[0] === languageCodes[language];
+}
+
+const regionTerms: Record<string, RegExp> = {
+  AU: /\b(?:australia|australian|sydney|melbourne|brisbane)\b/i,
+  CA: /\b(?:canada|canadian|toronto|vancouver|montreal)\b/i,
+  GB: /\b(?:britain|british|united kingdom|london|scotland|wales|nhs)\b/i,
+  IN: /\b(?:india|indian|delhi|mumbai|bengaluru|bangalore|chennai|hyderabad|kolkata|pune|kerala|tamil nadu|ipl|bcci|rupees)\b/i,
+};
+
+export function regionalRelevance(post: ExternalPost, locale: string) {
+  const [, region] = locale.split("-");
+  if (!region) {
+    return 0;
+  }
+  if (
+    post.languages.some((tag) => tag.toLowerCase() === locale.toLowerCase())
+  ) {
+    return 2;
+  }
+  return regionTerms[region]?.test(
+    `${post.text} ${post.author.description ?? ""}`
+  )
+    ? 1
+    : 0;
+}
+
+export function discoveryRelevance(
+  post: ExternalPost,
+  topics: string[],
+  locale: string,
+  mode: "personalized" | "trending" | "latest"
+) {
+  const hours = Math.max(
+    0,
+    (Date.now() - Date.parse(post.createdAt)) / 3_600_000
+  );
+  const engagement =
+    (post.upstreamCounts.likes ?? 0) +
+    (post.upstreamCounts.reposts ?? 0) * 2 +
+    (post.upstreamCounts.replies ?? 0) +
+    (post.upstreamCounts.quotes ?? 0) * 2;
+  const popularity = Math.log1p(engagement) / (1 + hours / 24);
+  const interest = topics.reduce(
+    (score, topic, index) =>
+      score + externalTopicMatch(post, topic) * (topics.length - index) * 2,
+    0
+  );
+  return (
+    popularity +
+    regionalRelevance(post, locale) * 2 +
+    (mode === "personalized" ? interest : 0)
+  );
+}

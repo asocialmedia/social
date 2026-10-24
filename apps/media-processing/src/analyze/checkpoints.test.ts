@@ -3,10 +3,46 @@ import { expect, test } from "bun:test";
 import {
   analysisStageComplete,
   transcriptionComplete,
+  transcriptionRetryEligible,
   mediaEmbeddingComplete,
   classificationFingerprint,
+  rasterRetryEligible,
+  rasterSourceFingerprint,
 } from "./checkpoints";
 import { sampleTimes } from "./video-samples";
+
+test("permanent raster failures wait for a changed source or daily recovery probe", () => {
+  const fingerprint = rasterSourceFingerprint([
+    "poster",
+    "original",
+    "original",
+  ]);
+  const metadata = {
+    analysisStages: {
+      raster: {
+        fingerprint,
+        retryAt: Date.now() + 86_400_000,
+        status: "unavailable",
+      },
+    },
+  };
+  expect(rasterRetryEligible(metadata)).toBe(false);
+  expect(rasterRetryEligible(metadata, fingerprint)).toBe(false);
+  expect(
+    rasterRetryEligible(
+      metadata,
+      rasterSourceFingerprint(["repaired", "original"])
+    )
+  ).toBe(true);
+  expect(
+    rasterRetryEligible({
+      analysisStages: {
+        raster: { ...metadata.analysisStages.raster, retryAt: Date.now() - 1 },
+      },
+    })
+  ).toBe(true);
+  expect(rasterRetryEligible(null)).toBe(true);
+});
 
 test("completed empty OCR and silent transcription survive retries", () => {
   expect(
@@ -23,11 +59,33 @@ test("completed empty OCR and silent transcription survive retries", () => {
       analysisStages: { transcription: { status: "no_audio" } },
     })
   ).toBe(true);
+  expect(
+    transcriptionComplete({
+      analysisStages: { transcription: { status: "skipped" } },
+    })
+  ).toBe(true);
+  expect(transcriptionComplete({ transcription: { status: "skipped" } })).toBe(
+    true
+  );
   expect(transcriptionComplete({ transcription: { status: "failed" } })).toBe(
     false
   );
   expect(transcriptionComplete(null)).toBe(false);
 });
+
+test("skipped transcription is terminal and not retry-eligible", () => {
+  expect(
+    transcriptionRetryEligible({
+      analysisStages: { transcription: { status: "skipped" } },
+    })
+  ).toBe(false);
+  expect(
+    transcriptionRetryEligible({
+      transcription: { status: "skipped" },
+    })
+  ).toBe(false);
+});
+
 test("video sampling covers the clip and bounds short or invalid durations", () => {
   expect(sampleTimes(100)).toEqual([10, 40, 70, 90]);
   expect(sampleTimes(0)).toEqual([0]);

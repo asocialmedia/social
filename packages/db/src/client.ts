@@ -1,3 +1,4 @@
+import type { RecommendationSource } from "@asm/protocols/contracts";
 import type { ResultType } from "@prisma/orm-postgres/components/runtime";
 import { and } from "@prisma/orm-postgres/orm-client";
 
@@ -22,8 +23,9 @@ type UserQueryData = ResultType<ReturnType<typeof getUserDataQuery>>;
 
 export interface UserData extends Omit<
   UserQueryData,
-  "communityMembers" | "createdAt" | "followsFollows"
+  "accounts" | "communityMembers" | "createdAt" | "followsFollows"
 > {
+  blueskyHandle?: string | null;
   communityMemberships: CommunityRoleRow[];
   createdAt: Date;
   followers: { followerId: string }[];
@@ -32,8 +34,11 @@ export interface UserData extends Omit<
 }
 
 export function mapUserData(user: UserQueryData): UserData {
-  const { communityMembers, createdAt, followsFollows, ...scalars } = user;
+  const { accounts, communityMembers, createdAt, followsFollows, ...scalars } =
+    user;
+  const blueskyHandle = accounts?.[0]?.issuer || null;
   return {
+    blueskyHandle,
     ...scalars,
     communityMemberships: communityMembers.flatMap((membership) =>
       membership.community
@@ -69,6 +74,9 @@ export function getPublicUserQuery(orm: PrismaOrm, loggedInUserId: string) {
     "twitterUsername",
     "username"
   )
+    .include("accounts", (accounts) =>
+      accounts.where({ providerId: "bluesky" }).select("accountId", "issuer")
+    )
     .include("communityMembers", (memberships) =>
       memberships
         .where((member) =>
@@ -96,7 +104,7 @@ export function getUserDataQuery(orm: PrismaOrm, loggedInUserId: string) {
 
 // Profile counts are totals, not the viewer-filtered follow relation above.
 export async function getUserProfileCounts(orm: PrismaOrm, userId: string) {
-  const [followers, following, posts] = await Promise.all([
+  const [followers, following, posts, externalFollowing] = await Promise.all([
     orm.public.Follows.where({ followingId: userId }).aggregate(
       (aggregate) => ({ count: aggregate.count() })
     ),
@@ -106,10 +114,13 @@ export async function getUserProfileCounts(orm: PrismaOrm, userId: string) {
     orm.public.Posts.where({ userId }).aggregate((aggregate) => ({
       count: aggregate.count(),
     })),
+    orm.public.ExternalFollows.where({ userId }).aggregate((aggregate) => ({
+      count: aggregate.count(),
+    })),
   ]);
   return {
     followers: followers.count,
-    following: following.count,
+    following: following.count + externalFollowing.count,
     posts: posts.count,
   };
 }
@@ -274,7 +285,12 @@ export function getPostDataQuery(orm: PrismaOrm, loggedInUserId: string) {
       postTags.include("tag", (tag) => tag.select("name"))
     )
     .include("votes", (votes) =>
-      votes.where({ userId: loggedInUserId }).select("userId", "value")
+      votes.combine({
+        totalUp: votes.where((vote) => vote.value.eq(1)).count(),
+        viewer: votes
+          .where({ userId: loggedInUserId })
+          .select("userId", "value"),
+      })
     )
     .include("community", (community) =>
       community.select("accentColor", "id", "name", "slug")
@@ -285,6 +301,7 @@ export function getPostDataQuery(orm: PrismaOrm, loggedInUserId: string) {
         .include("community", (community) => community.select("slug"))
     )
     .include("hnStoryShares")
+    .include("externalParent", (parent) => parent.select("uri"))
     .include("user", (_user) => getUserDataQuery(orm, loggedInUserId))
     .include("parentPost", (parent) =>
       parent
@@ -377,6 +394,8 @@ export interface PostData extends Omit<
   | "votes"
 > {
   recommendation?: { requestId: string };
+  networkRecommendationToken?: string;
+  recommendationSources?: RecommendationSource[];
   _count: {
     bookmarks: number;
     comments: number;
@@ -444,7 +463,7 @@ export function mapPostData(post: PostQueryData): PostData {
       bookmarks: bookmarks.total,
       comments: post.comments,
       responses: posts,
-      vote: votes.length,
+      vote: votes.totalUp,
     },
     attachments: postMedias.map((media) => ({
       aiGenerated: media.aiGenerated,
@@ -521,7 +540,7 @@ export function mapPostData(post: PostQueryData): PostData {
       : null,
     tags: postToTags.flatMap((postTag) => (postTag.tag ? [postTag.tag] : [])),
     user: mapUserData(user),
-    vote: votes,
+    vote: votes.viewer,
   };
 }
 

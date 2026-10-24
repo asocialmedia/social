@@ -1,3 +1,5 @@
+import { isIP } from "node:net";
+
 // Trusted-ingress policy for the auth service.
 //
 // In production Cloudflare is the only ingress and always sets
@@ -9,10 +11,16 @@
 // x-forwarded-for honors only its LAST entry when honored: that is the
 // address appended by the nearest trusted proxy, while earlier entries are
 // client-controlled.
-export function getClientIpFromHeaders(headers: Headers | undefined): string {
-  const cf = headers?.get?.("cf-connecting-ip");
-  if (cf && cf.trim()) {
-    return cf.trim();
+export function getClientIpFromHeaders(
+  headers: Headers | undefined,
+  production = process.env.NODE_ENV === "production"
+): string {
+  const cf = headers?.get?.("cf-connecting-ip")?.trim();
+  if (cf && isIP(cf) !== 0) {
+    return cf;
+  }
+  if (production) {
+    return "unknown";
   }
   const forwarded = headers?.get?.("x-forwarded-for");
   if (forwarded) {

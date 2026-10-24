@@ -24,10 +24,35 @@ if (import.meta.main) {
 
   let stopping = false;
 
-  const stopChildren = () => {
-    serverProc.kill();
-    workerProc.kill();
-    return Promise.all([serverProc.exited, workerProc.exited]);
+  const stopChildren = async () => {
+    try {
+      serverProc.kill();
+    } catch {
+      // ignore
+    }
+    try {
+      workerProc.kill();
+    } catch {
+      // ignore
+    }
+    const cleanExit = Promise.all([serverProc.exited, workerProc.exited]);
+    const result = await Promise.race([
+      cleanExit.then(() => "clean" as const),
+      Bun.sleep(2500).then(() => "timeout" as const),
+    ]);
+    if (result === "timeout") {
+      try {
+        serverProc.kill(9);
+      } catch {
+        // ignore
+      }
+      try {
+        workerProc.kill(9);
+      } catch {
+        // ignore
+      }
+      await Promise.race([cleanExit, Bun.sleep(500)]);
+    }
   };
 
   // Signal-triggered shutdown is a clean exit for `turbo dev`.
@@ -36,6 +61,11 @@ if (import.meta.main) {
       return;
     }
     stopping = true;
+    const forceExitTimer = setTimeout(() => {
+      process.exit(0);
+    }, 3500);
+    forceExitTimer.unref();
+
     console.log(`[dev] ${signal}: stopping server and worker`);
     await stopChildren();
     process.exit(0);

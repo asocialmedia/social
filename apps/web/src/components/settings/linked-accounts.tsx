@@ -173,8 +173,8 @@ export default function LinkedAccounts({
   return (
     <div className="space-y-3">
       <p className="text-muted-foreground text-sm">
-        Connect another provider to sign in to this same ASM account. Your posts
-        and messages stay here.
+        Connect another provider to sign in to this same asocialmedia account.
+        Your posts and messages stay here.
       </p>
 
       <div className="grid grid-cols-2 gap-4">
@@ -210,7 +210,7 @@ export default function LinkedAccounts({
         }}
         open={providerToConfirm !== null}
       >
-        <DialogContent className="w-[calc(100%-2rem)] max-w-[440px] gap-0 overflow-hidden rounded-2xl! p-0">
+        <DialogContent className="w-[calc(100%-2rem)] max-w-110 gap-0 overflow-hidden rounded-2xl! p-0">
           <DialogHeader className="border-border/60 gap-0 border-b px-4 pt-4 pb-4 text-left">
             <DialogTitle className="flex items-center gap-2 text-base font-semibold">
               <div className="btn-3d flex size-8 items-center justify-center rounded-lg! text-white">

@@ -1,5 +1,6 @@
 import { Palette } from "lucide-react-native";
 import type { RefObject } from "react";
+import type { ScrollViewInstance } from "react-native";
 import { ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -35,7 +36,7 @@ const OPTIONS = [
 export function PersonalizationTab({
   scrollRef,
 }: {
-  scrollRef: RefObject<ScrollView | null>;
+  scrollRef: RefObject<ScrollViewInstance | null>;
 }) {
   const insets = useSafeAreaInsets();
   const preference = useThemePreference((state) => state.preference);

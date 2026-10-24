@@ -1,12 +1,19 @@
 "use client";
 
 import type { UserCommunityRole, UserData } from "@asm/db";
+import type { ExternalAuthor } from "@asm/protocols/contracts";
 import { formatDate } from "date-fns";
-import { CalendarDays, Flame, Globe, MessageCircle } from "lucide-react";
+import { CalendarDays, Flame, Globe, Info, MessageCircle } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import { useCallback, useState } from "react";
-import { FaGithub, FaLinkedin, FaReddit, FaXTwitter } from "react-icons/fa6";
+import {
+  FaBluesky,
+  FaGithub,
+  FaLinkedin,
+  FaReddit,
+  FaXTwitter,
+} from "react-icons/fa6";
 
 import { useSession } from "@/app/(main)/session-provider";
 import EditProfileButton from "@/components/layouts/user/edit-profile-button";
@@ -16,6 +23,8 @@ import UserBadge from "@/components/layouts/user/user-badge";
 import PostLinkedContent from "@/components/posts/content/post-linked-content";
 import CommunityRoleSummary from "@/components/profile/community-role-summary";
 import { ProfileMutualAvatars } from "@/components/profile/profile-mutual-avatars";
+import { BlueskyIcon } from "@/components/protocols/bluesky-icon";
+import { ExternalFollowButton } from "@/components/protocols/external-follow-button";
 import { useRequireAuth } from "@/hooks/auth/use-require-auth";
 import type { PrivateUserData } from "@/hooks/users/use-user-data";
 import { useUserDataQuery } from "@/hooks/users/use-user-data-query";
@@ -38,6 +47,14 @@ function getSocialLinks(user: UserData): SocialLink[] {
       href: `https://${domain}`,
       icon: Globe,
       label: `Website: ${domain}`,
+    });
+  }
+  if (user.blueskyHandle) {
+    const handle = user.blueskyHandle.replace(/^@/, "");
+    links.push({
+      href: `https://bsky.app/profile/${handle}`,
+      icon: FaBluesky,
+      label: `Bluesky: @${handle}`,
     });
   }
   if (user.githubUsername) {
@@ -72,6 +89,7 @@ function getSocialLinks(user: UserData): SocialLink[] {
 }
 
 interface ProfileHeaderProps {
+  external?: ExternalAuthor;
   // The badged community roles this user holds, shown under the identity so a
   // profile states which communities they own or moderate.
   communityRoles?: UserCommunityRole[];
@@ -87,8 +105,9 @@ const ProfileHeader: React.FC<ProfileHeaderProps> = ({
   isOwnProfile,
   ownUserData,
   communityRoles,
+  external,
 }) => {
-  const { data: liveUserData } = useUserDataQuery(userData);
+  const { data: liveUserData } = useUserDataQuery(userData, !external);
   const { user } = useSession();
   const { goToLogin } = useRequireAuth();
   const isLoggedIn = Boolean(user);
@@ -130,6 +149,23 @@ const ProfileHeader: React.FC<ProfileHeaderProps> = ({
         />
       );
     }
+  } else if (external) {
+    profileActions = (
+      // Both actions stack and share one width so the pair reads as a column of
+      // equal-weight choices rather than two buttons of different sizes.
+      <div className="flex flex-col items-stretch gap-2">
+        <ExternalFollowButton did={external.id} />
+        <a
+          className="btn-3d-bluesky inline-flex h-9 items-center justify-center gap-2 rounded-full px-4 text-[13px] whitespace-nowrap sm:text-sm"
+          href={external.url}
+          rel="noopener noreferrer"
+          target="_blank"
+        >
+          <BlueskyIcon className="text-white" tooltip={false} />
+          Visit on Bluesky
+        </a>
+      </div>
+    );
   } else {
     profileActions = (
       <div className="flex flex-col items-end gap-2">
@@ -228,22 +264,28 @@ const ProfileHeader: React.FC<ProfileHeaderProps> = ({
           <div className="min-w-0 flex-1">
             <h1 className="flex flex-wrap items-center gap-1.5 text-base/5 font-bold wrap-anywhere sm:text-2xl">
               {liveUserData.displayName || liveUserData.username}
-              <UserBadge
-                badge={liveUserData.badge}
-                badges={liveUserData.badges}
-                className="h-5 w-15 sm:h-8 sm:w-24"
-                communityRoles={communityRoles}
-              />
+              {external ? (
+                <BlueskyIcon />
+              ) : (
+                <UserBadge
+                  badge={liveUserData.badge}
+                  badges={liveUserData.badges}
+                  className="h-5 w-15 sm:h-8 sm:w-24"
+                  communityRoles={communityRoles}
+                />
+              )}
             </h1>
             <p className="text-muted-foreground text-[13px]/4.5 wrap-anywhere sm:text-base/6">
               @{liveUserData.username}
             </p>
-            <div className="text-muted-foreground mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[13px] sm:text-sm">
-              <span className="inline-flex items-center gap-1.5">
-                <CalendarDays className="size-4 shrink-0" />
-                Joined {joinedDate}
-              </span>
-            </div>
+            {external ? null : (
+              <div className="text-muted-foreground mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[13px] sm:text-sm">
+                <span className="inline-flex items-center gap-1.5">
+                  <CalendarDays className="size-4 shrink-0" />
+                  Joined {joinedDate}
+                </span>
+              </div>
+            )}
           </div>
           <div className="shrink-0">{profileActions}</div>
         </div>
@@ -258,62 +300,100 @@ const ProfileHeader: React.FC<ProfileHeaderProps> = ({
           <PostLinkedContent
             className="mt-3 overflow-hidden text-sm/5.5 sm:text-[15px]/relaxed"
             content={liveUserData.bio}
+            source={external?.source}
             linkBadge="chip"
           />
         ) : null}
 
         {/* Stats */}
         <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-2 pb-4 text-[13px] sm:text-sm">
-          <Link
-            className="group hover:bg-accent/50 inline-flex items-center gap-1 rounded-md px-1 py-0.5 whitespace-nowrap transition-colors"
-            href={`/users/${liveUserData.username}/following`}
-          >
-            <span className="font-semibold">
-              {formatNumber(getUserCount(liveUserData, "following"))}
-            </span>{" "}
-            <span className="text-muted-foreground group-hover:text-foreground transition-colors">
-              Following
-            </span>
-            <ProfileMutualAvatars
-              kind="following"
-              total={liveUserData.mutuals?.counts?.following}
-              users={liveUserData.mutuals?.following}
-            />
-          </Link>
-          <Link
-            className="group hover:bg-accent/50 inline-flex items-center gap-1 rounded-md px-1 py-0.5 whitespace-nowrap transition-colors"
-            href={`/users/${liveUserData.username}/followers`}
-          >
-            <span className="font-semibold">
-              {formatNumber(followerInfo.followers)}
-            </span>{" "}
-            <span className="text-muted-foreground group-hover:text-foreground transition-colors">
-              Followers
-            </span>
-            <ProfileMutualAvatars
-              kind="followers"
-              total={liveUserData.mutuals?.counts?.followers}
-              users={liveUserData.mutuals?.followers}
-            />
-          </Link>
-          <span
-            className="inline-flex items-center gap-1.5 font-bold"
-            title="Aura"
-          >
-            <Flame
-              className={[
-                "size-4 sm:size-5",
-                getAuraFlameClass(liveUserData.aura),
-              ].join(" ")}
-            />
-            <span className="text-sm tabular-nums sm:text-base">
-              {formatNumber(liveUserData.aura)}
-            </span>
-            <span className="text-muted-foreground text-[13px] font-semibold sm:text-sm">
-              Aura
-            </span>
-          </span>
+          {external ? (
+            <>
+              <span>
+                <strong>
+                  {formatNumber(external.upstreamCounts.following ?? 0)}
+                </strong>{" "}
+                Following
+              </span>
+              <span>
+                <strong>
+                  {formatNumber(external.upstreamCounts.followers ?? 0)}
+                </strong>{" "}
+                Followers
+              </span>
+              <span>
+                <strong>
+                  {formatNumber(external.upstreamCounts.posts ?? 0)}
+                </strong>{" "}
+                Posts
+              </span>
+            </>
+          ) : (
+            <>
+              <Link
+                className="group hover:bg-accent/50 inline-flex items-center gap-1 rounded-md px-1 py-0.5 whitespace-nowrap transition-colors"
+                href={`/users/${liveUserData.username}/following`}
+              >
+                <span className="font-semibold">
+                  {formatNumber(getUserCount(liveUserData, "following"))}
+                </span>{" "}
+                <span className="text-muted-foreground group-hover:text-foreground transition-colors">
+                  Following
+                </span>
+                <ProfileMutualAvatars
+                  kind="following"
+                  total={liveUserData.mutuals?.counts?.following}
+                  users={liveUserData.mutuals?.following}
+                />
+              </Link>
+              <Link
+                className="group hover:bg-accent/50 inline-flex items-center gap-1 rounded-md px-1 py-0.5 whitespace-nowrap transition-colors"
+                href={`/users/${liveUserData.username}/followers`}
+              >
+                <span className="font-semibold">
+                  {formatNumber(followerInfo.followers)}
+                </span>{" "}
+                <span className="text-muted-foreground group-hover:text-foreground transition-colors">
+                  Followers
+                </span>
+                <ProfileMutualAvatars
+                  kind="followers"
+                  total={liveUserData.mutuals?.counts?.followers}
+                  users={liveUserData.mutuals?.followers}
+                />
+              </Link>
+              <span
+                className="inline-flex items-center gap-1.5 font-bold"
+                title="Aura"
+              >
+                <Flame
+                  className={[
+                    "size-4 sm:size-5",
+                    getAuraFlameClass(liveUserData.aura),
+                  ].join(" ")}
+                />
+                <span className="text-sm tabular-nums sm:text-base">
+                  {formatNumber(liveUserData.aura)}
+                </span>
+                <span className="text-muted-foreground text-[13px] font-semibold sm:text-sm">
+                  Aura
+                </span>
+              </span>
+            </>
+          )}
         </div>
+        {external ? (
+          <p className="text-muted-foreground flex min-w-0 items-center gap-1.5 pb-4 text-xs">
+            <Info className="size-3.5 shrink-0" />
+            <span
+              className="truncate"
+              title="This profile is from Bluesky. Interactions here stay on asocialmedia."
+            >
+              This profile is from Bluesky. Interactions here stay on
+              asocialmedia.
+            </span>
+          </p>
+        ) : null}
       </div>
     </div>
   );

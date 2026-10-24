@@ -49,3 +49,6 @@ re/
 google-services.json
 .agents/
 *.bun-build
+artifacts/
+ref/
+NATIVE_WEB_PARITY.md

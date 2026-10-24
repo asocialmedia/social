@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 
 import { createHash } from "node:crypto";
-import { mkdir, readFile, stat, unlink, writeFile } from "node:fs/promises";
+import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 
@@ -20,6 +20,7 @@ import {
   hasRedisPong,
   hasSchemaTables,
   PREFLIGHT_CHECK_ORDER,
+  parseComposePublishedPort,
   parseServiceSnapshots,
   withinTtl,
 } from "./dev-preflight-lib";
@@ -29,11 +30,12 @@ import type {
   PreflightCheckState,
   ServiceSnapshot,
 } from "./dev-preflight-lib";
+import { DEV_PORTS, killStaleDevProcesses } from "./kill-dev-ports";
 import { postgresInspectionQuery } from "./postgres-inspection";
 
 const CACHE_FILE = path.join(process.cwd(), ".cache", "dev-preflight.json");
 const CACHE_TTL_MS = 20_000;
-const CACHE_VERSION = 1;
+const CACHE_VERSION = 2;
 const ASMOB_ACCESS_KEY = process.env.ASMOB_ROOT_USER ?? "asmob-admin";
 const ASMOB_SECRET_KEY = process.env.ASMOB_ROOT_PASSWORD ?? "asmob-admin";
 const ASMOB_REGION = process.env.ASMOB_REGION ?? "ap-south-1";
@@ -211,12 +213,35 @@ function assertServicesHealthy(snapshots: ServiceSnapshot[]) {
 // Verifies the host-side TCP listener exists. Container healthchecks pass
 // even when the pasta port forward is dead, which is exactly how a fully
 // "green" preflight left dev servers with ECONNREFUSED.
-async function assertHostPortReady(port: number, label: string) {
+async function assertHostPortReady(
+  service: string,
+  containerPort: number,
+  label: string
+) {
+  const published = await runCmd([
+    "docker",
+    "compose",
+    "-f",
+    "docker/docker-compose.dev.yml",
+    "port",
+    service,
+    String(containerPort),
+  ]);
+  if (published.exitCode !== 0) {
+    fatal(
+      `${label} published port lookup failed: ${published.stderr || published.stdout}`
+    );
+  }
+  const port = parseComposePublishedPort(published.stdout);
+  if (port === undefined) {
+    fatal(`${label} has no valid published host port for ${containerPort}/tcp`);
+  }
   if (!(await hasListenerOnPort(port))) {
     fatal(
       `${label} is not reachable on localhost:${port}. The container may be healthy but its port forward is stale - recreate it with 'podman rm -f <container> && bun run docker:dev'.`
     );
   }
+  return port;
 }
 
 async function assertPostgresSchemaReady() {
@@ -310,12 +335,12 @@ async function assertBucketsReady() {
   }
 }
 
-async function assertOpenObserveReady() {
+async function assertOpenObserveReady(port: number) {
   const result = await runCmd([
     "curl",
     "-sS",
     "-f",
-    "http://localhost:5080/healthz",
+    `http://localhost:${port}/healthz`,
   ]);
 
   if (result.exitCode !== 0 || !hasOpenObserveHealth(result.stdout)) {
@@ -325,7 +350,7 @@ async function assertOpenObserveReady() {
 
 async function assertClamAvReady() {
   // Uses the image's own clamdcheck.sh so the check exercises the exact
-  // PING path the compose healthcheck and the media worker rely on.
+  // PING path the compose healthcheck and the media worker rely on.\
   const result = await runCmd([
     "docker",
     "compose",
@@ -369,54 +394,9 @@ async function getComposeFileFingerprint() {
 }
 
 async function cleanupStaleDevServers() {
-  // Ensures `bun run dev` is single-instance: kills any orphaned Next/Turbo/
-  // bun-watch from a prior run that would otherwise block the new dev servers
-  // or hold stale ports. Failures are non-fatal (no process to kill is the
-  // common case).
-  const kill = async (pattern: string) => {
-    try {
-      await runCmd(["pkill", "-9", "-f", pattern]);
-    } catch {
-      // no matching process
-    }
-  };
-
-  // Kill stale dev processes (host-only — container pid namespaces are isolated)
-  await kill("next dev");
-  await kill("turbo dev");
-  await kill("bun --watch src/dev");
-  await kill("src/server"); // the Bun.serve child inside the watcher
-  // Free the fixed ports if a prior Bun.serve survived the watcher kill:
-  // 3000 web, 3001 auth, 3010 media-processing health.
-  const killPort = async (port: number) => {
-    try {
-      await runCmd(["fuser", "-k", `${port}/tcp`]);
-    } catch {
-      // no listener on this port
-    }
-    try {
-      await runCmd(["sh", "-c", `lsof -ti:${port} | xargs -r kill -9`]);
-    } catch {
-      // no listener on this port
-    }
-  };
-  await Promise.all([killPort(3000), killPort(3001), killPort(3010)]);
-  // Also clear the Next.js dev lock that survives unclean exits and makes
-  // `next dev` report "Another next dev server is already running" with a stale PID.
-  await Promise.all(
-    [
-      path.join(process.cwd(), "apps/web/.next/dev/lock"),
-      path.join(process.cwd(), "apps/web/.next/dev/lock.file"),
-    ].map(async (lock) => {
-      try {
-        await unlink(lock);
-      } catch {
-        // no lock file
-      }
-    })
-  );
-  // Brief settle so ports are released before the new servers bind.
-  await Bun.sleep(800);
+  // Free all dev ports (3000 web, 3001 auth, 3010 media-processing health, 3012 protocols)
+  // and terminate any orphaned dev processes and locks.
+  await killStaleDevProcesses(DEV_PORTS);
 }
 
 async function run() {
@@ -438,7 +418,9 @@ async function run() {
     getComposeFileFingerprint(),
     getCache(),
   ]);
-  runtimeFingerprint = buildRuntimeFingerprint(snapshots);
+  runtimeFingerprint = hash(
+    `${composeFingerprint}:${buildRuntimeFingerprint(snapshots)}`
+  );
 
   if (cache.version !== CACHE_VERSION) {
     cache.version = CACHE_VERSION;
@@ -448,68 +430,75 @@ async function run() {
   const servicesStatus = await withCache(
     cache,
     "services",
-    `${composeFingerprint}:${runtimeFingerprint}`,
-    () => {
+    composeFingerprint,
+    async () => {
       assertServicesHealthy(snapshots);
-      return Promise.resolve();
     }
   );
-  setCheckState("services", servicesStatus);
   activeChecks.delete("services");
+  setCheckState("services", servicesStatus);
 
-  await Promise.all([
-    runCheck(
-      cache,
-      "postgres",
-      `${composeFingerprint}:${runtimeFingerprint}`,
-      async () => {
-        await assertHostPortReady(5433, "Postgres");
+  const checks: {
+    checkInput: string;
+    fn: () => Promise<void>;
+    key: PreflightCheckKey;
+  }[] = [
+    {
+      checkInput: runtimeFingerprint,
+      fn: async () => {
+        await assertHostPortReady("postgres-dev", 5432, "Postgres");
         await assertPostgresSchemaReady();
-      }
-    ),
-    runCheck(
-      cache,
-      "redis",
-      `${composeFingerprint}:${runtimeFingerprint}`,
-      async () => {
-        await assertHostPortReady(6379, "Redis");
+      },
+      key: "postgres",
+    },
+    {
+      checkInput: runtimeFingerprint,
+      fn: async () => {
+        await assertHostPortReady("redis-dev", 6379, "Redis");
         await assertRedisReady();
-      }
-    ),
-    runCheck(
-      cache,
-      "asmob",
-      `${composeFingerprint}:${runtimeFingerprint}:${ASMOB_ACCESS_KEY}:${ASMOB_REGION}`,
-      async () => {
-        await assertHostPortReady(9090, "Object storage");
+      },
+      key: "redis",
+    },
+    {
+      checkInput: runtimeFingerprint,
+      fn: async () => {
+        await assertHostPortReady("asmob-dev", 9000, "Object storage (ASMOB)");
         await assertBucketsReady();
-      }
-    ),
-    runCheck(
-      cache,
-      "openobserve",
-      `${composeFingerprint}:${runtimeFingerprint}`,
-      () => assertOpenObserveReady()
-    ),
-    runCheck(
-      cache,
-      "clamav",
-      `${composeFingerprint}:${runtimeFingerprint}`,
-      () => assertClamAvReady()
-    ),
-  ]);
+      },
+      key: "asmob",
+    },
+    {
+      checkInput: runtimeFingerprint,
+      fn: async () => {
+        const port = await assertHostPortReady(
+          "openobserve-dev",
+          5080,
+          "OpenObserve"
+        );
+        await assertOpenObserveReady(port);
+      },
+      key: "openobserve",
+    },
+    {
+      checkInput: runtimeFingerprint,
+      fn: async () => {
+        await assertHostPortReady("clamav-dev", 3310, "ClamAV");
+        await assertClamAvReady();
+      },
+      key: "clamav",
+    },
+  ];
+
+  for (const check of checks) {
+    // oxlint-disable-next-line no-await-in-loop -- sequential check order matches progress indicator
+    await runCheck(cache, check.key, check.checkInput, check.fn);
+  }
 
   await setCache(cache);
   finishProgressLine();
-  log.success("asocialmedia goes brr");
   outro("Preflight checks passed");
 }
 
-(async () => {
-  try {
-    await run();
-  } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : String(error);
-    fatal(message);
-  }
-})();
+if (import.meta.main) {
+  await run();
+}

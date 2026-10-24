@@ -2,17 +2,21 @@
 
 import { clientLog } from "@asm/config/debug";
 import type { VoteInfo } from "@asm/db";
+import type { ExternalPost } from "@asm/protocols/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { QueryKey } from "@tanstack/react-query";
 import { ArrowBigDown, ArrowBigUp, Flame } from "lucide-react";
 import { useCallback, useMemo, useRef } from "react";
 
+import { useExternalFeedback } from "@/components/protocols/use-external-feedback";
+import { useExternalInteractions } from "@/components/protocols/use-external-interactions";
 import { useRequireAuth } from "@/hooks/auth/use-require-auth";
 import { useToast } from "@/lib/gooey-toast";
 import kyInstance from "@/lib/ky";
 import { applyAuraToCaches } from "@/lib/posts/cache-sync";
 
 interface UseGustVoteOptions {
+  external?: ExternalPost;
   authorName: string;
   initialState: VoteInfo;
   postId: string;
@@ -32,10 +36,16 @@ function calculateVoteChange(oldVote: number, newVote: number): number {
 // double-tap amplify gesture drive the same ["vote-info", postId] cache so the
 // aura count and active state stay in sync no matter which surface triggered it.
 export function useGustVote({
+  external,
   authorName,
   initialState,
   postId,
 }: UseGustVoteOptions) {
+  const interaction = useExternalInteractions({
+    asm: external?.asm,
+    id: postId,
+  });
+  const feedback = useExternalFeedback(external);
   const { toast } = useToast();
   const forcedPending = useRef(false);
   const queryClient = useQueryClient();
@@ -44,6 +54,7 @@ export function useGustVote({
   const voteEndpoint = `/api/posts/${postId}/votes`;
 
   const { data } = useQuery({
+    enabled: !external,
     initialData: initialState,
     queryFn: () => kyInstance.get(voteEndpoint).json<VoteInfo>(),
     queryKey,
@@ -205,6 +216,34 @@ export function useGustVote({
       vote: 1,
     });
   }, [data.userVote, goToLogin, isLoggedIn, mutate, queryClient, queryKey]);
+
+  if (external) {
+    return {
+      amplify: () => {
+        if (!interaction.state.amplified && !interaction.pending) {
+          void interaction.mutate({
+            action: "amplify",
+            active: true,
+            uri: external.id,
+          });
+        }
+      },
+      aura: interaction.state.amplifications,
+      isAmplified: interaction.state.amplified,
+      toggleVote: (value: number) => {
+        if (value === 1) {
+          void interaction.mutate({
+            action: "amplify",
+            active: !interaction.state.amplified,
+            uri: external.id,
+          });
+        } else {
+          void feedback("author");
+        }
+      },
+      userVote: interaction.state.amplified ? 1 : 0,
+    };
+  }
 
   return {
     amplify,

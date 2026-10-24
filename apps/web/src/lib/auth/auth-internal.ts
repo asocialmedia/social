@@ -60,3 +60,21 @@ export function authInternalHeaders(
   }
   return { ...baseHeaders, ...headers };
 }
+
+// Preserve the perimeter's caller identity so internal session checks do not collapse every visitor into one server IP.
+export function authSessionHeaders(
+  incoming: Pick<Headers, "get"> | undefined,
+  forwarded: Record<string, string> = {},
+  production = process.env.NODE_ENV === "production"
+): Record<string, string> {
+  const trusted = incoming?.get("cf-connecting-ip")?.trim();
+  const local = production
+    ? undefined
+    : incoming?.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+      incoming?.get("x-real-ip")?.trim();
+  const ip = trusted || local;
+  return authInternalHeaders({
+    ...forwarded,
+    ...(ip ? { "cf-connecting-ip": ip, "x-forwarded-for": ip } : {}),
+  });
+}

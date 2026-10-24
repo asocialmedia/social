@@ -32,6 +32,7 @@ import { requestPasswordReset } from "@/app/(auth)/reset-password/server-actions
 import { LoadingButton } from "@/components/auth/fields/loading-button";
 import { PasswordInput } from "@/components/auth/fields/password-input";
 import PushSettingsCard from "@/components/settings/push-settings-card";
+import SettingsFooterArt from "@/components/settings/settings-footer-art";
 import {
   ORANGE_GRADIENT_CLASS,
   SETTINGS_SUBCARD_CLASS,
@@ -97,6 +98,22 @@ interface SecuritySettingsProps {
 interface TotpSetup {
   backupCodes: string[];
   uri: string;
+}
+
+// Reports a completed credential change so the user gets the advisory email.
+// Fire-and-forget: a notification problem must never surface as a failed
+// passkey or backup-code action.
+async function reportCredentialChange(body: unknown): Promise<void> {
+  try {
+    await fetch("/api/users/credential-notice", {
+      body: JSON.stringify(body),
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+    });
+  } catch {
+    // The credential change already succeeded in better-auth; a failed advisory
+    // email is not worth surfacing to the user.
+  }
 }
 
 function getErrorMessage(error: { message?: string } | null | undefined) {
@@ -427,6 +444,12 @@ export default function SecuritySettings({
       });
       return;
     }
+    // Enrolling the authenticator mints a fresh backup-code set, invalidating
+    // any earlier one. That is the event the notice describes.
+    void reportCredentialChange({
+      codeCount: result.data.backupCodes.length,
+      kind: "backup-codes",
+    });
     setTotpSetup({
       backupCodes: result.data.backupCodes,
       uri: result.data.totpURI,
@@ -510,6 +533,11 @@ export default function SecuritySettings({
     setIsPasskeyDialogOpen(false);
     passkeyNameForm.reset();
     await refreshPasskeys();
+    void reportCredentialChange({
+      action: "added",
+      kind: "passkey",
+      passkeyName: values.name.trim() || "This device",
+    });
     toast({
       description: "You can now use this passkey to sign in.",
       title: "Passkey added",
@@ -532,6 +560,11 @@ export default function SecuritySettings({
       });
     } else {
       await refreshPasskeys();
+      void reportCredentialChange({
+        action: "removed",
+        kind: "passkey",
+        passkeyName: "This device",
+      });
       toast({ title: "Passkey removed" });
     }
     setRemovingPasskeyId(null);
@@ -636,7 +669,7 @@ export default function SecuritySettings({
   }
 
   return (
-    <div className="space-y-6 px-4 py-6 sm:px-6">
+    <div className="flex flex-1 flex-col gap-6 px-4 pt-6 sm:px-6">
       <SettingsSectionHeader
         description="Protect access to your account and manage sign-in methods"
         icon={KeyRound}
@@ -1137,6 +1170,7 @@ export default function SecuritySettings({
           </Form>
         </DialogContent>
       </Dialog>
+      <SettingsFooterArt className="-mx-4 mt-auto sm:-mx-6" tab="security" />
     </div>
   );
 }

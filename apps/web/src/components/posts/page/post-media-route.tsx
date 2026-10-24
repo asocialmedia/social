@@ -52,6 +52,15 @@ async function resolveCanonicalMedia(
   if (!INDEX_SEGMENT_PATTERN.test(params.index)) {
     notFound();
   }
+  const decodedPostId = decodeURIComponent(params.postId);
+  if (decodedPostId.startsWith("at://") || params.postId.startsWith("at://")) {
+    const atUri = decodedPostId.startsWith("at://")
+      ? decodedPostId
+      : params.postId;
+    redirect(
+      `/network/bluesky?uri=${encodeURIComponent(atUri)}&media=${params.index}`
+    );
+  }
   const parsedIndex = Math.trunc(Number(params.index));
   const session = await getSessionFromApi();
   // mediaId (when present) disambiguates a short-id prefix shared by two posts
@@ -78,8 +87,9 @@ async function resolveCanonicalMedia(
   let resolvedIndex = parsedIndex;
   if (mediaId) {
     // When navigating from the profile gallery the URL index is computed from
-    // the gallery's newest-first list, which can differ from post.attachments
-    // order. Resolve the true index from the media ID instead.
+    // the target's position in that user's entire published photo set, not its
+    // index among this post's attachments. Find the attachment whose DB id
+    // matches the param so the viewer opens the right asset.
     const mediaIndex = post.attachments.findIndex((m) => m.id === mediaId);
     if (mediaIndex === -1) {
       notFound();
@@ -87,6 +97,9 @@ async function resolveCanonicalMedia(
     resolvedIndex = mediaIndex;
   }
 
+  // Audio has no visual canvas and renders its inline preview on the post page,
+  // so an audio-only post never opens the fullscreen media viewer. Bounce back
+  // to the post.
   const targetMedia = post.attachments[resolvedIndex];
   if (targetMedia?.type === "AUDIO") {
     redirect(getPostPath(post));
@@ -114,6 +127,13 @@ export async function generatePostMediaMetadata({
   const { communitySlug, postId, index } = params;
   if (!INDEX_SEGMENT_PATTERN.test(index)) {
     return {};
+  }
+  const decodedPostId = decodeURIComponent(postId);
+  if (decodedPostId.startsWith("at://") || postId.startsWith("at://")) {
+    return {
+      robots: { follow: false, index: false },
+      title: "Media on asocialmedia",
+    };
   }
   const parsedIndex = Math.trunc(Number(index));
 

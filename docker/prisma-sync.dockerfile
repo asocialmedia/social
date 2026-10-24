@@ -15,6 +15,7 @@ COPY packages/logger/package.json ./packages/logger/package.json
 COPY packages/media/package.json ./packages/media/package.json
 COPY packages/next/package.json ./packages/next/package.json
 COPY packages/notifications/package.json ./packages/notifications/package.json
+COPY packages/protocols/package.json ./packages/protocols/package.json
 COPY packages/ui/package.json ./packages/ui/package.json
 RUN bun install --ignore-scripts
 

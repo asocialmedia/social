@@ -9,6 +9,7 @@ import {
 import type { PostsPage } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/auth/session";
+import { explicitContentEnabled } from "@/lib/posts/explicit-content-enabled";
 
 export async function GET(
   req: Request,
@@ -27,12 +28,17 @@ export async function GET(
   const excludeModerated = url.searchParams.get("excludeModerated") === "1";
   const pageSize = 20;
   const { userId } = await ctx.params;
+  // A profile feed is a feed surface, so it follows the reader's explicit policy
+  // instead of trusting the stored flag alone: an unflagged post can still declare
+  // itself explicit in its text or a hashtag.
+  const showExplicitContent = await explicitContentEnabled(viewerId);
 
   let query = getPostDataQuery(prisma.orm, viewerId)
     .where((post) => {
       const filters = [
         post.userId.eq(userId),
         communityVisibilityWhere(viewerId)(post),
+        ...(showExplicitContent ? [] : [post.explicitContent.eq(false)]),
       ];
       if (filter === "gusts") {
         filters.push(post.isGust.eq(true));

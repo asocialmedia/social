@@ -35,6 +35,7 @@ interface PostQuery {
   where: (
     predicate: (post: {
       createdAt: { desc: () => unknown };
+      explicitContent: { eq: (value: boolean) => unknown };
       isGust: { eq: (value: boolean) => unknown };
       moderated: { eq: (value: boolean) => unknown };
       postMedias: {
@@ -82,6 +83,7 @@ function createPostQuery(): PostQuery {
       const where: Record<string, unknown> = {};
       predicate({
         createdAt: { desc: () => ({}) },
+        explicitContent: { eq: (value) => (where.explicitContent = value) },
         isGust: { eq: (value) => (where.isGust = value) },
         moderated: { eq: (value) => (where.moderated = value) },
         postMedias: {
@@ -122,6 +124,10 @@ mock.module("@asm/db", () => ({
 
 mock.module("@/lib/auth/session", () => ({
   getSessionFromApi: mockGetSession,
+}));
+
+mock.module("@/lib/posts/explicit-content-enabled", () => ({
+  explicitContentEnabled: () => Promise.resolve(false),
 }));
 
 describe("GET /api/users/[userId]/posts", () => {

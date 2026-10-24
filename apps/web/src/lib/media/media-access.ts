@@ -44,6 +44,19 @@ export interface MediaViewer {
   id: string;
 }
 
+export function isOwnedMediaDraft(
+  media: MediaOwnership,
+  viewer: MediaViewer | null
+): boolean {
+  return Boolean(
+    viewer &&
+    media.userId === viewer.id &&
+    !media.postId &&
+    !media.commentId &&
+    !media.messageConversationId
+  );
+}
+
 export interface MediaAccessOptions {
   // Whether the viewer is a member of media.messageConversationId (and not
   // blocked). Resolved by the caller via message-media-access.ts.

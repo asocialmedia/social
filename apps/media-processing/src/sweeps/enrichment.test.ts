@@ -69,4 +69,29 @@ test("reconciliation respects failed transcription attempt limits and retry wind
     )
   ).toBe(true);
   expect(transcriptionRetryEligible({ analysisStages: {} }, now)).toBe(true);
+  expect(
+    transcriptionRetryEligible(
+      {
+        analysisStages: {
+          transcription: {
+            attemptedAt: new Date(now - 1000).toISOString(),
+            attempts: 1,
+          },
+        },
+      },
+      now
+    )
+  ).toBe(false);
+  expect(
+    transcriptionRetryEligible(
+      {
+        analysisStages: {
+          transcription: {
+            status: "skipped",
+          },
+        },
+      },
+      now
+    )
+  ).toBe(false);
 });

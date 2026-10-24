@@ -15,6 +15,7 @@ import { LoadingButton } from "@/components/auth/fields/loading-button";
 import { useDeleteCommentMutation } from "../data/mutations";
 
 interface DeleteCommentDialogProps {
+  controller?: { pending: boolean; delete: () => Promise<boolean> };
   applyDeleted: (comment: CommentData) => void;
   comment: CommentData;
   onClose: () => void;
@@ -26,15 +27,23 @@ export default function DeleteCommentDialog({
   comment,
   open,
   onClose,
+  controller,
 }: DeleteCommentDialogProps) {
   const mutation = useDeleteCommentMutation(applyDeleted);
+  const pending = controller?.pending ?? mutation.isPending;
 
-  const handleDelete = useCallback(() => {
+  const handleDelete = useCallback(async () => {
+    if (controller) {
+      if (await controller.delete()) {
+        onClose();
+      }
+      return;
+    }
     mutation.mutate(comment.id, { onSuccess: onClose });
-  }, [comment.id, mutation, onClose]);
+  }, [comment.id, mutation, onClose, controller]);
 
-  function handleOpenChange(isOpen: boolean) {
-    if (!(isOpen && mutation.isPending)) {
+  function handleOpenChange() {
+    if (!pending) {
       onClose();
     }
   }
@@ -51,17 +60,13 @@ export default function DeleteCommentDialog({
         </DialogHeader>
         <DialogFooter>
           <LoadingButton
-            loading={mutation.isPending}
+            loading={pending}
             onClick={handleDelete}
             variant="destructive"
           >
             Delete
           </LoadingButton>
-          <Button
-            disabled={mutation.isPending}
-            onClick={onClose}
-            variant="outline"
-          >
+          <Button disabled={pending} onClick={onClose} variant="outline">
             Cancel
           </Button>
         </DialogFooter>

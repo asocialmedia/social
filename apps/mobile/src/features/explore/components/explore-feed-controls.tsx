@@ -2,6 +2,7 @@ import { discoveryFeedPress } from "@asm/ui/lib/home-feed-controls";
 import { ChevronDown, Flame, Sparkles } from "lucide-react-native";
 import type { LucideProps } from "lucide-react-native";
 import { useRef, useState } from "react";
+import type { ViewInstance } from "react-native";
 import { StyleSheet, Text, View } from "react-native";
 
 import { FeedTabs } from "@/features/feed/components/feed-tabs";
@@ -32,7 +33,7 @@ export function ExploreFeedControls({
   onChange: (tab: ExploreTab) => void;
 }) {
   const { theme } = useAppTheme();
-  const trigger = useRef<View>(null);
+  const trigger = useRef<ViewInstance>(null);
   const [anchor, setAnchor] = useState<MenuAnchor | null>(null);
   const [discoveryLabelX, setDiscoveryLabelX] = useState(0);
   const [discoveryTextLayouts, setDiscoveryTextLayouts] = useState<

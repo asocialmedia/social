@@ -66,6 +66,8 @@ interface UserQuery {
 }
 
 let excludedIds: string[] = [];
+const moderation = new Map<string, { banned?: boolean; bio?: string }>();
+let includeExplicit = false;
 function createUserQuery(): UserQuery {
   return {
     all: () => users,
@@ -89,7 +91,25 @@ function createUserQuery(): UserQuery {
 }
 
 const mockPrisma = {
-  orm: { public: {} },
+  orm: {
+    public: {
+      Follows: {
+        groupBy: () => ({
+          aggregate: () => Promise.resolve([{ followingId: "u3", total: 10 }]),
+        }),
+      },
+      Users: {
+        where: () => ({
+          select: () => ({
+            all: () =>
+              Promise.resolve(
+                users.map((user) => ({ ...user, ...moderation.get(user.id) }))
+              ),
+          }),
+        }),
+      },
+    },
+  },
 };
 
 mock.module("@asm/db", () => ({
@@ -99,6 +119,8 @@ mock.module("@asm/db", () => ({
   getUserDataQuery: () => createUserQuery(),
   mapUserData: (user: (typeof users)[number]) => user,
   prisma: mockPrisma,
+  readNetworkPreferences: () =>
+    Promise.resolve({ preferences: { showExplicitContent: includeExplicit } }),
   redis: mockRedis,
 }));
 
@@ -109,22 +131,25 @@ mock.module("@/lib/auth/session", () => ({
 describe("GET /api/users/trending cache separation", () => {
   beforeEach(() => {
     mockSessionUser = null;
+    moderation.clear();
+    includeExplicit = false;
     redisStore = new Map();
     mockRedis.get.mockClear();
     mockRedis.setex.mockClear();
     mockGetSession.mockClear();
   });
 
-  test("guest request sets cache-control public and vary Cookie, and caches in Redis", async () => {
+  test("guest suggestions retain a server cache but cannot bypass fresh safety through a public HTTP cache", async () => {
     mockSessionUser = null;
 
     const res = await GET();
     expect(res.status).toBe(200);
-    expect(res.headers.get("cache-control")).toContain("public");
-    expect(res.headers.get("vary")).toBe("Cookie");
+    expect(res.headers.get("cache-control")).toBe("private, no-store");
+    expect(res.headers.get("vary")).toBe("Cookie, Authorization");
 
     const data = await res.json();
     expect(data).toHaveLength(3);
+    expect(data[0]._count.followers).toBe(10);
     expect(
       data.find((u: { id: string }) => u.id === "sys-zeph")
     ).toBeUndefined();
@@ -143,8 +168,8 @@ describe("GET /api/users/trending cache separation", () => {
     const authRes = await GET();
 
     expect(authRes.status).toBe(200);
-    expect(authRes.headers.get("cache-control")).toBe("private, no-cache");
-    expect(authRes.headers.get("vary")).toBe("Cookie");
+    expect(authRes.headers.get("cache-control")).toBe("private, no-store");
+    expect(authRes.headers.get("vary")).toBe("Cookie, Authorization");
 
     const authData = await authRes.json();
     // Authenticated query filters out the logged-in user (USER_ID)
@@ -156,5 +181,21 @@ describe("GET /api/users/trending cache separation", () => {
       authData.find((u: { id: string }) => u.id === "sys-zeph")
     ).toBeUndefined();
     expect(authData).toHaveLength(2);
+  });
+
+  test("cached suggestions recheck banned accounts and adult declarations; explicit opt-in preserves the ban gate", async () => {
+    await GET();
+    moderation.set("u1", { bio: "18+ adult content creator #nsfw" });
+    moderation.set("u3", { banned: true });
+    const hidden = await GET();
+    const publicUsers = await hidden.json();
+    expect(publicUsers.map((user: { id: string }) => user.id)).toEqual([
+      USER_ID,
+    ]);
+    mockSessionUser = { user: { id: USER_ID } };
+    includeExplicit = true;
+    const optedIn = await GET();
+    const optedUsers = await optedIn.json();
+    expect(optedUsers.map((user: { id: string }) => user.id)).toEqual(["u1"]);
   });
 });

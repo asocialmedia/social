@@ -9,7 +9,7 @@
 let pendingKey: string | null = null;
 const listeners = new Set<() => void>();
 
-/** Asks the named feed (e.g. `home:latest`) to go to the top. */
+// Asks a feed or its visible scoped variant to go to the top.
 export function requestFeedTop(key: string): void {
   pendingKey = key;
   for (const listener of listeners) {
@@ -17,16 +17,19 @@ export function requestFeedTop(key: string): void {
   }
 }
 
-/** Claims a pending request for `key`; true at most once per request. */
+// Claims a pending request for this feed or its parent scope exactly once.
 export function consumeFeedTop(key: string): boolean {
-  if (pendingKey !== key) {
+  if (
+    !pendingKey ||
+    (pendingKey !== key && !key.startsWith(`${pendingKey}:`))
+  ) {
     return false;
   }
   pendingKey = null;
   return true;
 }
 
-/** Notified whenever a request is made, so a visible surface can react. */
+// Notifies visible surfaces whenever a top request arrives.
 export function subscribeFeedTopRequests(listener: () => void): () => void {
   listeners.add(listener);
   return () => {
@@ -34,7 +37,7 @@ export function subscribeFeedTopRequests(listener: () => void): () => void {
   };
 }
 
-/** Drops an unclaimed request so it cannot hijack a later visit. */
+// Drops an unclaimed request so it cannot hijack a later visit.
 export function clearFeedTopRequest(): void {
   pendingKey = null;
 }

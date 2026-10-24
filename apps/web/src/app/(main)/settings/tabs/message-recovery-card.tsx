@@ -77,7 +77,7 @@ export default function MessageRecoveryCard() {
   }, [load, userId]);
 
   return (
-    <SettingsCard className="flex min-w-0 flex-col md:col-span-2 lg:col-span-2">
+    <SettingsCard className="flex min-w-0 flex-col md:col-span-2 lg:col-span-4">
       <div className="flex items-start justify-between gap-4">
         <SettingsCardHeading
           description="Encrypted and restored automatically on new devices"
@@ -113,7 +113,7 @@ export default function MessageRecoveryCard() {
               </p>
             </div>
             <Button
-              className="mt-auto w-full"
+              className="mt-auto w-full sm:w-fit"
               onClick={() => setResetOpen(true)}
               type="button"
               variant="outline"

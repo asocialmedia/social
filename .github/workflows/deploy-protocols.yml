@@ -1,0 +1,60 @@
+name: Deploy Protocols Regions
+
+on:
+  workflow_dispatch:
+    inputs:
+      region:
+        description: Protocols region to redeploy from the published latest image
+        type: choice
+        options:
+          - all
+          - primary
+          - us-east
+        default: all
+      check_only:
+        description: Validate credentials and image targets without deploying
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy protocols (${{ matrix.region }})
+    if: github.ref == 'refs/heads/main'
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 5
+    concurrency:
+      group: protocols-manual-deploy-${{ matrix.region }}
+      cancel-in-progress: false
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - region: primary
+            api_url_secret: DOKPLOY_API_URL
+            api_token_secret: DOKPLOY_API_TOKEN
+            app_id_secret: DOKPLOY_PROTOCOLS_APP_ID
+          - region: us-east
+            api_url_secret: DOKPLOY_US_EAST_API_URL
+            api_token_secret: DOKPLOY_US_EAST_API_TOKEN
+            app_id_secret: DOKPLOY_US_EAST_PROTOCOLS_APP_ID
+    steps:
+      - name: Checkout repository
+        if: inputs.region == 'all' || inputs.region == matrix.region
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Deploy selected region
+        if: inputs.region == 'all' || inputs.region == matrix.region
+        env:
+          DOKPLOY_API_URL: ${{ secrets[matrix.api_url_secret] }}
+          DOKPLOY_API_TOKEN: ${{ secrets[matrix.api_token_secret] }}
+          DOKPLOY_APP_ID: ${{ secrets[matrix.app_id_secret] }}
+          CHECK_ONLY: ${{ inputs.check_only }}
+        run: |
+          if [ "$CHECK_ONLY" = "true" ]; then
+            bash scripts/ci/deploy-protocols-region.sh --check
+          else
+            bash scripts/ci/deploy-protocols-region.sh
+          fi

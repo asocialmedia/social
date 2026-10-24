@@ -9,6 +9,7 @@
 // positioned over it, which is what made it invisible on Android.
 import { Search, X } from "lucide-react-native";
 import { useRef, useState } from "react";
+import type { TextInputInstance } from "react-native";
 import { Pressable, StyleSheet, TextInput, View } from "react-native";
 
 import { premiumInput } from "@/components/surface/recipes";
@@ -23,7 +24,7 @@ export function HnSearchBar({
 }) {
   const { isDark, theme } = useAppTheme();
   const [focused, setFocused] = useState(false);
-  const inputRef = useRef<TextInput>(null);
+  const inputRef = useRef<TextInputInstance>(null);
 
   const field = premiumInput(isDark, focused);
 

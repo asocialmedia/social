@@ -9,6 +9,10 @@ import {
 } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/auth/session";
+import {
+  safeUserDiscoveryResponse,
+  userFollowerCounts,
+} from "@/lib/users/discovery-safety";
 
 // Bumped when the cached shape changes (public projection); old entries may
 // contain sensitive fields and must not be served.
@@ -29,6 +33,10 @@ async function payTrendingCard(userIds: string[]): Promise<void> {
 }
 
 export async function GET() {
+  return safeUserDiscoveryResponse(await readUsers());
+}
+
+async function readUsers() {
   try {
     const session = await getSessionFromApi();
     const userId = session?.user?.id;
@@ -71,17 +79,18 @@ export async function GET() {
         )
       )
       .all();
+    const followerCounts = await userFollowerCounts();
     const trendingUsers = rows
       .toSorted(
         (left, right) =>
-          right.followsFollows.length - left.followsFollows.length ||
-          right.aura - left.aura
+          (followerCounts.get(right.id) ?? 0) -
+            (followerCounts.get(left.id) ?? 0) || right.aura - left.aura
       )
       .slice(0, 6)
       .map((user) => ({
         ...mapUserData(user),
         _count: {
-          followers: user.followsFollows.length,
+          followers: followerCounts.get(user.id) ?? 0,
           following: user.follows.total,
         },
       }));

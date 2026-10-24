@@ -1,0 +1,109 @@
+import type { PresentedPost } from "./presentation";
+
+// A cached reel can outlive its server snapshot; recover its continuation without replaying loaded clips.
+export async function readGustPage<Page extends { posts: { id: string }[] }>(
+  read: (cursor: string | null) => Promise<Response>,
+  cursor: string | null,
+  known: ReadonlySet<string>
+): Promise<Page> {
+  let response = await read(cursor);
+  let recovered = false;
+  if (response.status === 410 && cursor) {
+    await response.body?.cancel();
+    response = await read(null);
+    recovered = true;
+  }
+  if (!response.ok) {
+    await response.body?.cancel();
+    throw new Error(`Couldn't load Gusts (${response.status}). Please retry.`);
+  }
+  const page: Page = await response.json();
+  return recovered
+    ? { ...page, posts: page.posts.filter((post) => !known.has(post.id)) }
+    : page;
+}
+
+interface GustPageSource {
+  enabled: boolean;
+  hasNextPage: boolean | undefined;
+  isFetchNextPageError: boolean;
+  isFetchingNextPage: boolean;
+}
+
+export function gustPagingState(sources: readonly GustPageSource[]) {
+  const enabled = sources.filter((source) => source.enabled);
+  return {
+    canFetchNextPage: enabled.some(
+      (source) => source.hasNextPage && !source.isFetchNextPageError
+    ),
+    hasNextPage: enabled.some((source) => source.hasNextPage),
+    isFetchingNextPage: enabled.some((source) => source.isFetchingNextPage),
+    pageError: enabled.some((source) => source.isFetchNextPageError),
+  };
+}
+
+export interface GustPagingProgress {
+  scope: string;
+  pages: number;
+  visible: number;
+  emptyPages: number;
+}
+
+export function advanceGustPaging(
+  previous: GustPagingProgress,
+  scope: string,
+  pages: number,
+  visible: number
+): GustPagingProgress {
+  if (
+    previous.scope !== scope ||
+    pages < previous.pages ||
+    visible > previous.visible
+  ) {
+    return { emptyPages: 0, pages, scope, visible };
+  }
+  return {
+    emptyPages: previous.emptyPages + Math.max(0, pages - previous.pages),
+    pages,
+    scope,
+    visible,
+  };
+}
+
+// Fill the reel from both networks without moving clips the viewer has already loaded.
+export function mergeGustPosts(
+  previous: readonly PresentedPost[],
+  native: readonly PresentedPost[],
+  external: readonly PresentedPost[],
+  sourcesPending = false
+): PresentedPost[] {
+  const candidates: PresentedPost[] = [];
+  const count = Math.max(native.length, external.length);
+  for (let index = 0; index < count; index += 1) {
+    if (native[index]) {
+      candidates.push(native[index]);
+    }
+    if (external[index]) {
+      candidates.push(external[index]);
+    }
+  }
+  const current = new Map(candidates.map((post) => [post.id, post]));
+  const retained = previous.flatMap((post) => {
+    const updated = current.get(post.id);
+    current.delete(post.id);
+    return updated ? [updated] : [];
+  });
+  if (sourcesPending) {
+    return retained.length ? retained : candidates.slice(0, 1);
+  }
+  return [...retained, ...current.values()];
+}
+
+// Sparse video pages keep their continuation, with a capped delay rather than a permanent paging stop.
+// The ceiling is deliberately low: on a swipe-driven reel an 8s gap reads as a
+// dead feed, so a stalled stretch costs at most two seconds per attempt.
+export function gustPagingDelay(emptyPages: number): number {
+  return emptyPages < 3
+    ? 0
+    : Math.min(2000, 400 * 2 ** Math.min(3, emptyPages - 3));
+}

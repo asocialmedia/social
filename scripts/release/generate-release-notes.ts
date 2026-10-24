@@ -24,6 +24,7 @@ export interface WorkspaceVersions {
   auth?: string;
   mediaProcessing?: string;
   mobile?: string;
+  protocols?: string;
   root: string;
   web?: string;
 }

@@ -4,6 +4,7 @@ import { TabsTrigger } from "@asm/ui/shadui/tabs";
 import { motion } from "motion/react";
 import type { ComponentPropsWithoutRef, ReactNode } from "react";
 
+import { useFeedReselect } from "@/hooks/feed/use-feed-reselect";
 import { cn } from "@/lib/utils";
 
 // Same treatment as TAB_TRIGGER_CLASS but without the static after: underline:
@@ -20,6 +21,7 @@ interface AnimatedTabTriggerProps extends Omit<
   className?: string;
   layoutId: string;
   indicatorClassName?: string;
+  onReselect?: () => void;
 }
 
 export function AnimatedTabTrigger({
@@ -28,10 +30,32 @@ export function AnimatedTabTrigger({
   layoutId,
   indicatorClassName,
   children,
+  onReselect,
+  onClick,
+  onPointerDown,
+  onKeyDown,
   ...props
 }: AnimatedTabTriggerProps) {
+  const reselect = useFeedReselect(active, onReselect);
   return (
-    <TabsTrigger className={cn(ANIMATED_TRIGGER_CLASS, className)} {...props}>
+    <TabsTrigger
+      className={cn(ANIMATED_TRIGGER_CLASS, className)}
+      {...props}
+      onClick={(event) => {
+        onClick?.(event);
+        if (!event.defaultPrevented) {
+          reselect.onClick();
+        }
+      }}
+      onKeyDown={(event) => {
+        reselect.onKeyDown(event);
+        onKeyDown?.(event);
+      }}
+      onPointerDown={(event) => {
+        reselect.onPointerDown();
+        onPointerDown?.(event);
+      }}
+    >
       {active ? (
         <motion.span
           aria-hidden

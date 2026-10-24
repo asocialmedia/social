@@ -17,7 +17,7 @@
 // answering nonsense must not widen the exemption - it narrows it, and the
 // caller falls back to whatever other credential it can check locally.
 
-import { authInternalHeaders, getAuthBaseUrl } from "./auth-internal";
+import { authSessionHeaders, getAuthBaseUrl } from "./auth-internal";
 import { hasBearerToken, hasSessionCookie } from "./session-credentials";
 
 export interface VerifySessionOptions {
@@ -25,6 +25,7 @@ export interface VerifySessionOptions {
   authorization?: string;
   /** Raw Cookie header, forwarded verbatim when it carries a session cookie. */
   cookie?: string;
+  ingress?: Pick<Headers, "get">;
   baseFetch?: typeof fetch;
   /** Bounds the call so an unresponsive auth service cannot hang the caller. */
   timeoutMs?: number;
@@ -63,7 +64,7 @@ export async function hasVerifiedSession(
       {
         cache: "no-store",
         credentials: "include",
-        headers: authInternalHeaders({
+        headers: authSessionHeaders(options.ingress, {
           ...(hasCookie ? { cookie } : {}),
           ...(hasBearer ? { authorization } : {}),
         }),

@@ -1,4 +1,5 @@
-import { prisma } from "@asm/db";
+import { and, prisma } from "@asm/db";
+import { postHasExplicitMedia } from "@asm/protocols/discovery";
 import type { Metadata } from "next";
 import { cacheLife } from "next/cache";
 import { connection } from "next/server";
@@ -26,7 +27,13 @@ async function getMetadataGust(gustId: string) {
   "use cache";
   cacheLife("hours");
 
-  return await prisma.orm.public.Posts.select("aura", "content", "id")
+  const post = await prisma.orm.public.Posts.select(
+    "aura",
+    "content",
+    "explicitContent",
+    "id",
+    "semanticTags"
+  )
     .include("postMedias", (media) => media.select("id", "_type"))
     .include("postToTags", (postTags) =>
       postTags.include("tag", (tag) => tag.select("name"))
@@ -34,8 +41,13 @@ async function getMetadataGust(gustId: string) {
     .include("user", (user) =>
       user.select("avatarUrl", "displayName", "id", "username")
     )
-    .where({ id: gustId })
+    .where((candidate) =>
+      and(candidate.id.eq(gustId), candidate.explicitContent.eq(false))
+    )
     .first();
+  // Share cards are guest-facing: a post that only declares itself explicit in
+  // its text or a hashtag must not put that text in the page title or og: tags.
+  return post && !postHasExplicitMedia(post) ? post : null;
 }
 
 export async function generateMetadata(

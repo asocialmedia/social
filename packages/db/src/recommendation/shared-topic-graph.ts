@@ -3,10 +3,16 @@ import { createHash } from "node:crypto";
 import { redis } from "../redis";
 import { DynamicKnowledgeGraph } from "./knowledge-graph";
 
-const PREFIX = "rec:topic-graph:v1:";
+export const SHARED_TOPIC_GRAPH_PREFIX = "rec:topic-graph:v2:";
+const PREFIX = SHARED_TOPIC_GRAPH_PREFIX;
 const TTL_SECONDS = 90 * 24 * 60 * 60;
 const UPDATE = `
-if not redis.call('SET', KEYS[2], '1', 'NX', 'EX', ARGV[1]) then return 0 end
+local fingerprint = ARGV[#KEYS + 1]
+if redis.call('ZSCORE', KEYS[2], fingerprint) then return 0 end
+redis.call('ZADD', KEYS[2], ARGV[2], fingerprint)
+redis.call('ZREMRANGEBYSCORE', KEYS[2], '-inf', tonumber(ARGV[2]) - tonumber(ARGV[1]) * 1000)
+redis.call('ZREMRANGEBYRANK', KEYS[2], 0, -20001)
+redis.call('EXPIRE', KEYS[2], ARGV[1])
 for index = 3, #KEYS do
   redis.call('ZADD', KEYS[1], ARGV[2], KEYS[index])
   for other = 3, #KEYS do
@@ -15,6 +21,7 @@ for index = 3, #KEYS do
   redis.call('ZREMRANGEBYRANK', KEYS[index], 0, -41)
   redis.call('EXPIRE', KEYS[index], ARGV[1])
 end
+redis.call('EXPIRE', KEYS[1], ARGV[1])
 local stale = redis.call('ZRANGE', KEYS[1], 0, -5001)
 for _, key in ipairs(stale) do redis.call('DEL', key); redis.call('ZREM', KEYS[1], key) end
 return 1
@@ -49,25 +56,25 @@ export async function recordSharedTopicRelations(
   if (topics.length < 2) {
     return;
   }
-  const fingerprint = createHash("sha256")
-    .update(JSON.stringify([documentId, topics]))
-    .digest("hex");
+  const fingerprint = createHash("sha256").update(documentId).digest("hex");
   await redis.eval(
     UPDATE,
     topics.length + 2,
     `${namespace}nodes`,
-    `${namespace}document:${fingerprint}`,
+    `${namespace}documents`,
     ...topics.map((topic) => topicKey(topic, namespace)),
     TTL_SECONDS,
     Date.now(),
-    ...topics
+    ...topics,
+    fingerprint
   );
 }
 
 // Read only a bounded two-hop neighborhood, avoiding a whole-corpus load per user.
 export async function loadSharedTopicGraph(
   tags: readonly string[],
-  namespace = PREFIX
+  namespace = PREFIX,
+  minimumDocuments = 3
 ): Promise<DynamicKnowledgeGraph> {
   const graph = new DynamicKnowledgeGraph();
   let frontier = cleanTopics(tags);
@@ -90,7 +97,7 @@ export async function loadSharedTopicGraph(
       for (let offset = 0; offset < neighbors.length; offset += 2) {
         const target = neighbors[offset];
         const weight = Number(neighbors[offset + 1]);
-        if (target && Number.isFinite(weight) && weight > 0) {
+        if (target && Number.isFinite(weight) && weight >= minimumDocuments) {
           graph.addEdge(source, target, "related_to", weight);
           frontier.push(target);
         }

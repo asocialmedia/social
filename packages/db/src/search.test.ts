@@ -139,7 +139,7 @@ describe("search", () => {
     expect(await searchUsers(" alice ", 3)).toEqual([
       expect.objectContaining({ badges: [], id: "u1", username: "alice" }),
     ]);
-    expect(userCall.limit).toBe(3);
+    expect(userCall.limit).toBe(6);
   });
 
   test("searchPosts maps author, media, community, and Prisma dates", async () => {
@@ -156,7 +156,7 @@ describe("search", () => {
         },
       }),
     ]);
-    expect(postCall.limit).toBe(1);
+    expect(postCall.limit).toBe(2);
   });
 
   test("searchCommunitiesForSearch sorts by members and caps results", async () => {

@@ -17,7 +17,8 @@ import kyInstance from "@/lib/ky";
 // - Refetches merge public profile totals and mutuals into the cached identity,
 //   preserving the owner's private fields needed by the edit dialog.
 export function useUserDataQuery<T extends UserData | PrivateUserData>(
-  userData: T
+  userData: T,
+  enabled = true
 ) {
   const queryClient = useQueryClient();
   const userId = userData.id;
@@ -27,6 +28,7 @@ export function useUserDataQuery<T extends UserData | PrivateUserData>(
   }, [queryClient, userId, userData]);
 
   const query = useQuery<T>({
+    enabled,
     initialData: userData,
     queryFn: async ({ signal }) => {
       const fresh = await kyInstance

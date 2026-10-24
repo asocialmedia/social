@@ -22,11 +22,15 @@ import {
 import { MEDIA_PIPELINE_VERSION } from "@asm/media";
 import { Worker } from "bullmq";
 
-import { transcriptionComplete } from "../analyze/checkpoints";
+import {
+  transcriptionComplete,
+  rasterRetryEligible,
+} from "../analyze/checkpoints";
 import { SEMANTIC_CLASSIFICATION_VERSION } from "../analyze/semantic-version";
 import { resolveWorkerMediaLimits, workerEnv } from "../env";
 import { mediaLogger } from "../log";
 import { getS3 } from "../s3";
+import { prepareLegacyWebpRepair } from "../transcode/legacy-webp";
 
 const SWEEP_BATCH = Number(process.env.MEDIA_BACKFILL_BATCH ?? 50);
 const GC_BATCH = Number(process.env.MEDIA_LEGACY_GC_BATCH ?? 200);
@@ -511,6 +515,54 @@ export async function storageIntegritySweep(): Promise<{
         );
         continue;
       }
+      if (servedAlive && servedKey.endsWith(".webp")) {
+        const source = getS3().file(servedKey);
+        const header = Buffer.from(await source.slice(0, 12).arrayBuffer());
+        if (
+          header.toString("ascii", 0, 4) === "RIFF" &&
+          header.toString("ascii", 8, 12) !== "WEBP"
+        ) {
+          const stat = await source.stat();
+          if (stat.size <= 50 * 1024 * 1024) {
+            const repair = await prepareLegacyWebpRepair(
+              Buffer.from(await source.arrayBuffer()),
+              row.id
+            );
+            if (repair) {
+              const repairedObject = getS3().file(repair.key);
+              if (!(await repairedObject.exists())) {
+                await repairedObject.write(repair.bytes, {
+                  type: "image/webp",
+                });
+              }
+              const updated = await prisma.orm.public.PostMedia.where({
+                id: row.id,
+                key: row.key,
+                publishedKey: row.publishedKey,
+                status: "READY",
+              }).updateAndCount({
+                key: repair.key,
+                publishedKey: repair.key,
+                sha256: repair.hash,
+                size: repair.bytes.length,
+              });
+              if (updated > 0) {
+                await enqueueMediaProcess(row.id, {
+                  jobIdSuffix: `legacy-webp-${Date.now()}`,
+                });
+                await enqueueMediaAnalyze(row.id, { semanticRefresh: true });
+                healed += 1;
+                repointed += 1;
+                mediaLogger.info(
+                  { mediaId: row.id },
+                  "storage-integrity repaired a validated legacy WebP header and retained its damaged source"
+                );
+                continue;
+              }
+            }
+          }
+        }
+      }
       if (!servedAlive && goneKeys.length > 0) {
         // The object the route serves is gone. Before writing the row off, look
         // for ANY copy of the bytes a rescan could still promote.
@@ -832,7 +884,11 @@ export const TRANSCRIPTION_BACKFILL_RETRY_WINDOW_MS = 6 * 60 * 60 * 1000; // 6 h
 export async function transcriptionBackfillSweep(): Promise<{
   enqueued: number;
 }> {
-  if (!workerEnv.BACKFILL_ENABLED) {
+  if (
+    !workerEnv.BACKFILL_ENABLED ||
+    !workerEnv.WHISPER_ENABLED ||
+    !workerEnv.GEMINI_API_KEY
+  ) {
     return { enqueued: 0 };
   }
   const candidates = await prisma.orm.public.PostMedia.select(
@@ -860,10 +916,17 @@ export async function transcriptionBackfillSweep(): Promise<{
       candidate.techMetadata && typeof candidate.techMetadata === "object"
         ? (candidate.techMetadata as Record<string, unknown>)
         : null;
-    const trans =
-      tech?.transcription && typeof tech.transcription === "object"
-        ? (tech.transcription as Record<string, unknown>)
+    const stages =
+      tech?.analysisStages && typeof tech.analysisStages === "object"
+        ? (tech.analysisStages as Record<string, unknown>)
         : null;
+    const trans =
+      (stages?.transcription && typeof stages.transcription === "object"
+        ? (stages.transcription as Record<string, unknown>)
+        : null) ??
+      (tech?.transcription && typeof tech.transcription === "object"
+        ? (tech.transcription as Record<string, unknown>)
+        : null);
 
     if (trans) {
       const status = typeof trans.status === "string" ? trans.status : "";
@@ -871,7 +934,8 @@ export async function transcriptionBackfillSweep(): Promise<{
       if (
         status === "no_audio" ||
         status === "silent" ||
-        status === "completed"
+        status === "completed" ||
+        status === "skipped"
       ) {
         continue;
       }
@@ -891,7 +955,7 @@ export async function transcriptionBackfillSweep(): Promise<{
     try {
       await enqueueMediaAnalyze(candidate.id, { semanticRefresh: true });
       enqueued += 1;
-      mediaLogger.info(
+      mediaLogger.debug(
         { mediaId: candidate.id },
         "transcription backfill sweep enqueued media for analyze"
       );
@@ -950,7 +1014,7 @@ export async function semanticClassificationBackfillSweep(): Promise<{
           : null;
       return (
         metadata?.semanticClassificationVersion !==
-        SEMANTIC_CLASSIFICATION_VERSION
+          SEMANTIC_CLASSIFICATION_VERSION && rasterRetryEligible(metadata)
       );
     })
     .slice(0, SWEEP_BATCH);
@@ -1070,20 +1134,7 @@ export async function registerSweepSchedulers(connectionOptions: {
     mediaLogger.error({ error: String(error) }, "sweep worker error");
   });
 
-  // Run an initial pass on worker boot so existing uncaptioned videos start processing immediately
-  void (async () => {
-    try {
-      const { enrichmentReconciliationSweep } = await import("./enrichment");
-      await enrichmentReconciliationSweep();
-      await transcriptionBackfillSweep();
-      await semanticClassificationBackfillSweep();
-    } catch (error) {
-      mediaLogger.warn(
-        { error: String(error) },
-        "initial transcription backfill pass failed"
-      );
-    }
-  })();
-
+  // New BullMQ schedulers already run immediately; existing schedules resume
+  // their interval. Keep every pass in the queue so startup cannot race it.
   return sweepWorker;
 }

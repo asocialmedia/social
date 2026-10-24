@@ -44,7 +44,9 @@ export function enforceDecoderLimits(
   if (!video) {
     return;
   }
-  if (video.fps > limits.maxFps) {
+  // Container timestamps can put a nominal 60 FPS stream slightly above its declared rate.
+  const frameRateTolerance = limits.maxFps * 0.001;
+  if (video.fps > limits.maxFps + frameRateTolerance) {
     throw new ResourceLimitError(
       `fps ${video.fps} exceeds limit ${limits.maxFps}`
     );

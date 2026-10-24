@@ -30,7 +30,7 @@ afterAll(async () => {
 });
 
 describe("account session limit", () => {
-  test("keeps the four newest active sign-ins across browser and native clients", async () => {
+  test("keeps the three newest active sign-ins across browser and native clients", async () => {
     const ids = Array.from({ length: 6 }, () => randomUUID());
     await prisma.orm.public.Sessions.createAll(
       ids.map((id, index) => ({
@@ -48,19 +48,19 @@ describe("account session limit", () => {
       userId: otherUserId,
     });
     const revoked = await enforceAccountSessionLimit(userId);
-    expect(revoked.toSorted()).toEqual(ids.slice(0, 2).toSorted());
+    expect(revoked.toSorted()).toEqual(ids.slice(0, 3).toSorted());
     const retained = await prisma.orm.public.Sessions.select("id")
       .where({ userId })
       .all();
     expect(retained.map((session) => session.id).toSorted()).toEqual(
-      ids.slice(2).toSorted()
+      ids.slice(3).toSorted()
     );
     expect(
       await prisma.orm.public.Sessions.where({ id: other.id }).first()
     ).not.toBeNull();
   });
 
-  test("concurrent sign-ins settle at four sessions and pruning is idempotent", async () => {
+  test("concurrent sign-ins settle at three sessions and pruning is idempotent", async () => {
     await Promise.all(
       Array.from({ length: 8 }, async () => {
         await prisma.orm.public.Sessions.create({
@@ -80,7 +80,7 @@ describe("account session limit", () => {
 
   test("expired sessions do not evict active sign-ins", async () => {
     await prisma.orm.public.Sessions.createAll(
-      Array.from({ length: 3 }, () => ({
+      Array.from({ length: 2 }, () => ({
         expiresAt,
         token: randomUUID(),
         userId: otherUserId,
@@ -95,7 +95,7 @@ describe("account session limit", () => {
     const sessions = await prisma.orm.public.Sessions.select("id")
       .where({ userId: otherUserId })
       .all();
-    expect(sessions).toHaveLength(5);
+    expect(sessions).toHaveLength(4);
     expect(sessions.some((session) => session.id === expired.id)).toBe(true);
   });
 });

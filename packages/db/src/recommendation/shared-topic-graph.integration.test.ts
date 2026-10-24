@@ -26,6 +26,20 @@ test("independent graph instances share Unicode relations and replay does not do
     "document",
     namespace
   );
+  const untrusted = await loadSharedTopicGraph(["日本語"], namespace);
+  expect(
+    untrusted.spreadingActivation({ 日本語: 1 })["photography"]
+  ).toBeUndefined();
+  await recordSharedTopicRelations(
+    ["日本語", "हिन्दी", "photography"],
+    "document-two",
+    namespace
+  );
+  await recordSharedTopicRelations(
+    ["日本語", "हिन्दी", "photography"],
+    "document-three",
+    namespace
+  );
   const first = await loadSharedTopicGraph(["日本語"], namespace);
   const second = await loadSharedTopicGraph(["日本語"], namespace);
   expect(first).not.toBe(second);
@@ -36,7 +50,7 @@ test("independent graph instances share Unicode relations and replay does not do
     `${namespace}neighbors:${encodeURIComponent("日本語")}`,
     "photography"
   );
-  expect(Number(weight)).toBe(1);
+  expect(Number(weight)).toBe(3);
 });
 
 test("shared topic neighborhoods stay bounded as unrelated documents accumulate", async () => {

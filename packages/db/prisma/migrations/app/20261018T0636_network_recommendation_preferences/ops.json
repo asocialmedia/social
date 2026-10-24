@@ -1,0 +1,70 @@
+[
+  {
+    "id": "column.public.users.networkPreferences",
+    "label": "Add column \"networkPreferences\" to \"users\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "column",
+        "name": "networkPreferences",
+        "table": "users"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure column \"networkPreferences\" is missing",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": ["public", "users", "networkPreferences"]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add column \"networkPreferences\"",
+        "sql": "ALTER TABLE \"public\".\"users\" ADD COLUMN \"networkPreferences\" jsonb"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify column \"networkPreferences\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": ["public", "users", "networkPreferences"]
+      }
+    ]
+  },
+  {
+    "id": "column.public.users.networkPreferencesRevision",
+    "label": "Add column \"networkPreferencesRevision\" to \"users\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "column",
+        "name": "networkPreferencesRevision",
+        "table": "users"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure column \"networkPreferencesRevision\" is missing",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": ["public", "users", "networkPreferencesRevision"]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add column \"networkPreferencesRevision\"",
+        "sql": "ALTER TABLE \"public\".\"users\" ADD COLUMN \"networkPreferencesRevision\" int4 DEFAULT 0 NOT NULL"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify column \"networkPreferencesRevision\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": ["public", "users", "networkPreferencesRevision"]
+      }
+    ]
+  }
+]

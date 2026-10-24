@@ -1,9 +1,55 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import type { ExternalPost } from "@asm/protocols/contracts";
+
 import { asmDbMockBase } from "../test-support/asm-db-mock";
+
+const learnInteraction = mock(() => Promise.resolve());
+mock.module("@/lib/recommendations/record-event", () => ({
+  recordExternalResponseInteraction: () => Promise.resolve(),
+  recordRecommendationInteraction: learnInteraction,
+}));
 
 const AUTHOR_ID = "author-1";
 const OTHER_USER_ID = "user-2";
+const externalSource: ExternalPost = {
+  author: {
+    displayName: "Bluesky author",
+    handle: "author.test",
+    id: "did:web:author.test",
+    labels: [],
+    source: "bluesky",
+    upstreamCounts: {},
+    url: "https://bsky.app/profile/author.test",
+  },
+  createdAt: "2026-10-16T00:00:00.000Z",
+  id: "at://did:web:author.test/app.bsky.feed.post/example",
+  indexedAt: "2026-10-16T00:00:00.000Z",
+  labels: [],
+  languages: [],
+  media: [],
+  revision: "cid",
+  segments: [{ text: "Original" }],
+  source: "bluesky",
+  text: "Original",
+  upstreamCounts: { likes: 0, quotes: 0, replies: 0, reposts: 0 },
+  url: "https://bsky.app/profile/author.test/post/example",
+};
+let sourceAvailable = true;
+const sourceBudget = mock(() => Promise.resolve());
+const retentionBudget = mock(() => Promise.resolve());
+const readSource = mock(() =>
+  Promise.resolve(sourceAvailable ? [externalSource] : [])
+);
+mock.module("@/lib/protocols/gateway", () => ({
+  consumeProtocolBudget: sourceBudget,
+}));
+mock.module("@/lib/protocols/budget", () => ({
+  consumeExternalCreationBudget: retentionBudget,
+}));
+mock.module("@/lib/protocols/service", () => ({
+  readBlueskyPosts: readSource,
+}));
 
 const mockGetSession = mock((): { user: { id: string } } | null => ({
   user: { id: AUTHOR_ID },
@@ -34,6 +80,7 @@ const state = {
 };
 
 function resetState() {
+  learnInteraction.mockClear();
   state.attachmentClaims = [];
   state.committed = false;
   state.cacheExpirations = [];
@@ -536,6 +583,11 @@ describe("submitPost responses", () => {
       tags: [],
     } as Parameters<typeof submitPost>[0]);
 
+    expect(learnInteraction).toHaveBeenCalledWith({
+      eventType: "COMMENT",
+      postId: "post-root",
+      userId: AUTHOR_ID,
+    });
     expect(state.createdPostData?.parentPostId).toBe("post-root");
     expect(state.createdPostData?.rootPostId).toBe("post-root");
     expect(state.createdPostData?.threadTopId).toBeNull();
@@ -673,5 +725,63 @@ describe("submitPost responses", () => {
         tags: [],
       } as Parameters<typeof submitPost>[0])
     ).rejects.toThrow("no longer available");
+  });
+});
+
+describe("submitPost Bluesky responses", () => {
+  beforeEach(() => {
+    resetState();
+    sourceAvailable = true;
+    sourceBudget.mockClear();
+    retentionBudget.mockClear();
+    readSource.mockClear();
+  });
+  test("publishes a native fleet linked to a server-verified external source", async () => {
+    const { submitPost } = await import("./actions");
+    await submitPost({
+      content: "My response",
+      externalParentUri: externalSource.id,
+      isGust: true,
+      mediaIds: [],
+      mentions: [],
+      tags: [],
+    });
+    expect(state.createdPostData?.externalParentId).toBe("external-source-id");
+    expect(state.createdPostData?.parentPostId).toBeNull();
+    expect(state.createdPostData?.isGust).toBe(false);
+    expect(sourceBudget).toHaveBeenCalledTimes(1);
+    expect(retentionBudget).toHaveBeenCalledTimes(1);
+    expect(readSource).toHaveBeenCalledTimes(1);
+    expect(state.committed).toBe(true);
+  });
+  test("rejects an unavailable source before retaining or creating a post", async () => {
+    const { submitPost } = await import("./actions");
+    sourceAvailable = false;
+    await expect(
+      submitPost({
+        content: "My response",
+        externalParentUri: externalSource.id,
+        mediaIds: [],
+        mentions: [],
+        tags: [],
+      })
+    ).rejects.toThrow("unavailable");
+    expect(state.createdPostData).toBeNull();
+    expect(state.committed).toBe(false);
+  });
+  test("rejects mixed native and external parents before fetching a source", async () => {
+    const { submitPost } = await import("./actions");
+    await expect(
+      submitPost({
+        content: "My response",
+        externalParentUri: externalSource.id,
+        mediaIds: [],
+        mentions: [],
+        parentPostId: "native-parent",
+        tags: [],
+      })
+    ).rejects.toThrow("one source");
+    expect(readSource).not.toHaveBeenCalled();
+    expect(state.createdPostData).toBeNull();
   });
 });

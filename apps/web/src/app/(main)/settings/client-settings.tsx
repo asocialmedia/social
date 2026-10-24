@@ -2,14 +2,19 @@
 
 import { visibleTabScrollOffset } from "@asm/ui/lib/tab-scroll";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@asm/ui/shadui/tabs";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { TAB_TRIGGER_CLASS } from "@/components/home/feedview/tab-trigger-class";
 import { FeedScrollbar } from "@/components/layouts/feed/feed-scrollbar";
-import MobileBottomNav from "@/components/layouts/navigation/mobile/mobile-bottom-nav";
 import MobileTopBar from "@/components/layouts/navigation/mobile/mobile-top-bar";
 import type { AccountLinkingReadiness } from "@/components/settings/linked-accounts";
+import NetworkSettings from "@/components/settings/network-settings";
+import {
+  getNetworkSubpage,
+  networkSubpageForSection,
+} from "@/components/settings/network-subpages";
+import type { NetworkSubpage } from "@/components/settings/network-subpages";
 import PersonalizationSettings from "@/components/settings/personalization-settings";
 import SettingsSearch from "@/components/settings/settings-search";
 import type { SettingsTab } from "@/components/settings/settings-search";
@@ -18,8 +23,11 @@ import {
   adjacentSettingsTab,
   getSettingsTab,
   isSettingsTab,
+  settingsDocumentTitle,
 } from "@/components/settings/settings-tab-state";
 import { useFeedSwipeNavigation } from "@/hooks/feed/use-feed-swipe-navigation";
+import { useHorizontalDragScroll } from "@/hooks/use-horizontal-drag-scroll";
+import { writeSettingsSearchParam } from "@/hooks/use-settings-search-param";
 import type { PrivateUserData } from "@/hooks/users/use-user-data";
 
 import AccountSettings from "./tabs/account-settings";
@@ -45,9 +53,19 @@ export default function ClientSettings({
 }: ClientSettingsProps) {
   const feedScrollRef = useRef<HTMLDivElement>(null);
   const tabsRef = useRef<HTMLDivElement>(null);
+  useHorizontalDragScroll(tabsRef);
+  const router = useRouter();
   const searchParams = useSearchParams();
   const [activeTab, setActiveTab] = useState<SettingsTab>(() =>
     getSettingsTab(searchParams)
+  );
+  // The open Network section is URL state too (?section=content), so Back from a
+  // section returns to the Network hub rather than leaving Settings.
+  const [networkSection, setNetworkSection] = useState<NetworkSubpage | null>(
+    () => getNetworkSubpage(searchParams)
+  );
+  const [hasExplicitTab, setHasExplicitTab] = useState(() =>
+    searchParams.has("tab")
   );
 
   const [visitedTabs, setVisitedTabs] = useState(
@@ -79,6 +97,14 @@ export default function ClientSettings({
   }, []);
 
   useEffect(() => {
+    document.title = settingsDocumentTitle(
+      activeTab,
+      networkSection,
+      hasExplicitTab
+    );
+  }, [activeTab, hasExplicitTab, networkSection]);
+
+  useEffect(() => {
     const tabs = tabsRef.current;
     const selected = tabs?.querySelector<HTMLElement>(
       `[data-state="active"][data-settings-tab="${activeTab}"]`
@@ -96,28 +122,67 @@ export default function ClientSettings({
     return () => observer.disconnect();
   }, [activeTab, revealTab]);
 
+  // Every Network section must have the hub behind it in history, otherwise
+  // Back skips past the hub to whatever tab came before. Opening a section from
+  // the hub already pushes that entry; arriving directly at one (a refresh or a
+  // shared link) does not, so seed it here. The current URL keeps its state and
+  // a synthetic hub entry is stacked underneath.
   useEffect(() => {
-    const restoreTabFromHistory = () => {
-      activateTab(getSettingsTab(new URLSearchParams(window.location.search)));
+    if (!networkSection) {
+      return;
+    }
+    if (window.history.state?.asmHub) {
+      return;
+    }
+    const params = new URLSearchParams(window.location.search);
+    params.delete("section");
+    const hubUrl = `${window.location.pathname}?${params.toString()}`;
+    const currentUrl = `${window.location.pathname}${window.location.search}`;
+    window.history.replaceState(
+      { ...window.history.state, asmHub: true },
+      "",
+      hubUrl
+    );
+    window.history.pushState(window.history.state, "", currentUrl);
+    // Only on mount (and when the tab/section set changes), never per render.
+  }, [networkSection]);
+
+  // One listener for the whole URL: Back across tabs and Back out of a Network
+  // section both land here, so the address bar and the view can never disagree.
+  useEffect(() => {
+    const restoreFromHistory = () => {
+      const params = new URLSearchParams(window.location.search);
+      activateTab(getSettingsTab(params));
+      setNetworkSection(getNetworkSubpage(params));
+      setHasExplicitTab(params.has("tab"));
     };
-    window.addEventListener("popstate", restoreTabFromHistory);
-    return () => window.removeEventListener("popstate", restoreTabFromHistory);
+    window.addEventListener("popstate", restoreFromHistory);
+    return () => window.removeEventListener("popstate", restoreFromHistory);
   }, [activateTab]);
+
+  // Settings has no parent route of its own, so back is browser history when
+  // there is somewhere to return to and Home when the page was opened directly.
+  const handleBack = useCallback(() => {
+    if (window.history.length > 1) {
+      router.back();
+      return;
+    }
+    router.push("/");
+  }, [router]);
 
   const setPersistedTab = useCallback(
     (tab: SettingsTab) => {
       activateTab(tab);
-
-      const nextSearchParams = new URLSearchParams(window.location.search);
-      nextSearchParams.set("tab", tab);
-      const query = nextSearchParams.toString();
-      window.history.replaceState(
-        window.history.state,
-        "",
-        `${window.location.pathname}${query ? `?${query}` : ""}`
-      );
+      // A tab switch is a navigation: pushing it makes the browser's Back
+      // button walk back through the tabs the reader actually visited instead
+      // of jumping out of Settings. Picking the tab that is already open is not
+      // a navigation and must not stack a duplicate entry.
+      if (tab !== activeTab) {
+        writeSettingsSearchParam({ key: "tab", mode: "push", value: tab });
+      }
+      setHasExplicitTab(true);
     },
-    [activateTab]
+    [activateTab, activeTab]
   );
 
   const handleSwipeNavigate = useCallback(
@@ -143,9 +208,31 @@ export default function ClientSettings({
     [setPersistedTab]
   );
 
+  const openNetworkSection = useCallback((next: NetworkSubpage | null) => {
+    setNetworkSection(next);
+    // Opening a section is a navigation; returning to the hub pops it.
+    if (next) {
+      writeSettingsSearchParam({ key: "section", mode: "push", value: next });
+      return;
+    }
+    if (new URLSearchParams(window.location.search).has("section")) {
+      window.history.back();
+      return;
+    }
+    writeSettingsSearchParam({ key: "section", value: null });
+  }, []);
+
   const handleNavigate = useCallback(
     (tab: SettingsTab, sectionId?: string) => {
       setPersistedTab(tab);
+      if (tab === "network" && sectionId) {
+        // Network sections live on their own pages now. Opening the matching
+        // one before the scroll lands means search never targets an absent node.
+        const nextSection = networkSubpageForSection(sectionId);
+        if (nextSection) {
+          openNetworkSection(nextSection);
+        }
+      }
       if (sectionId) {
         window.setTimeout(() => {
           document
@@ -154,7 +241,7 @@ export default function ClientSettings({
         }, 60);
       }
     },
-    [setPersistedTab]
+    [openNetworkSection, setPersistedTab]
   );
 
   return (
@@ -166,12 +253,12 @@ export default function ClientSettings({
           value={activeTab}
         >
           <div className="z-20 shrink-0 bg-[hsl(var(--background-alt))]/90 pt-2 backdrop-blur-md">
-            <MobileTopBar />
+            <MobileTopBar onBack={handleBack} />
             <div className="border-border/60 relative flex items-center border-b py-1.5">
               <TabsList
                 aria-label="Settings sections"
+                className="tab-strip-fade hide-native-scrollbar flex h-full min-w-0 flex-1 snap-x snap-proximity items-center justify-start gap-0 overflow-x-auto rounded-none! bg-transparent p-0 select-none md:justify-start [&>[role=tab]]:shrink-0 [&>[role=tab]]:snap-start"
                 ref={tabsRef}
-                className="hide-native-scrollbar flex h-full min-w-0 flex-1 items-center justify-start gap-0 overflow-x-auto bg-transparent p-0 md:justify-start [&>[role=tab]]:shrink-0"
               >
                 <TabsTrigger
                   className={TAB_TRIGGER_CLASS}
@@ -213,6 +300,14 @@ export default function ClientSettings({
                 >
                   Personalization
                 </TabsTrigger>
+                <TabsTrigger
+                  className={TAB_TRIGGER_CLASS}
+                  data-settings-tab="network"
+                  onClick={(event) => revealTab(event.currentTarget)}
+                  value="network"
+                >
+                  Network
+                </TabsTrigger>
               </TabsList>
               <div className="ml-auto hidden min-w-0 items-center gap-2 pr-1.5 md:flex">
                 <div className="w-full max-w-[24rem] xl:max-w-md">
@@ -232,14 +327,24 @@ export default function ClientSettings({
               ref={feedScrollRef}
             >
               <TabsContent
-                className="mt-0 pb-[calc(env(safe-area-inset-bottom)+6rem)] data-[state=inactive]:hidden lg:pb-12"
+                className="mt-0 flex min-h-full flex-col pb-0 data-[state=inactive]:hidden"
+                forceMount={visitedTabs.has("network") || undefined}
+                value="network"
+              >
+                <NetworkSettings
+                  onOpenSection={openNetworkSection}
+                  section={networkSection}
+                />
+              </TabsContent>
+              <TabsContent
+                className="mt-0 flex min-h-full flex-col pb-0 data-[state=inactive]:hidden"
                 forceMount={visitedTabs.has("personalization") || undefined}
                 value="personalization"
               >
                 <PersonalizationSettings />
               </TabsContent>
               <TabsContent
-                className="mt-0 pb-[calc(env(safe-area-inset-bottom)+6rem)] data-[state=inactive]:hidden lg:pb-12"
+                className="mt-0 flex min-h-full flex-col pb-0 data-[state=inactive]:hidden"
                 forceMount={visitedTabs.has("profile") || undefined}
                 value="profile"
               >
@@ -252,7 +357,7 @@ export default function ClientSettings({
               </TabsContent>
 
               <TabsContent
-                className="mt-0 pb-[calc(env(safe-area-inset-bottom)+6rem)] data-[state=inactive]:hidden lg:pb-12"
+                className="mt-0 flex min-h-full flex-col pb-0 data-[state=inactive]:hidden"
                 forceMount={visitedTabs.has("account") || undefined}
                 value="account"
               >
@@ -263,7 +368,7 @@ export default function ClientSettings({
               </TabsContent>
 
               <TabsContent
-                className="mt-0 pb-[calc(env(safe-area-inset-bottom)+6rem)] data-[state=inactive]:hidden lg:pb-12"
+                className="mt-0 flex min-h-full flex-col pb-0 data-[state=inactive]:hidden"
                 forceMount={visitedTabs.has("privacy") || undefined}
                 value="privacy"
               >
@@ -271,7 +376,7 @@ export default function ClientSettings({
               </TabsContent>
 
               <TabsContent
-                className="mt-0 pb-[calc(env(safe-area-inset-bottom)+6rem)] data-[state=inactive]:hidden lg:pb-12"
+                className="mt-0 flex min-h-full flex-col pb-0 data-[state=inactive]:hidden"
                 forceMount={visitedTabs.has("security") || undefined}
                 value="security"
               >
@@ -289,7 +394,6 @@ export default function ClientSettings({
       </div>
 
       <SettingsSidebar user={user} />
-      <MobileBottomNav />
     </>
   );
 }

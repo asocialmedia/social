@@ -2,8 +2,8 @@ import { Image } from "expo-image";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Search } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { FlatList, Pressable, StyleSheet, Text, View } from "react-native";
 import type { GestureResponderEvent } from "react-native";
+import { FlatList, Pressable, StyleSheet, Text, View } from "react-native";
 import { GestureDetector } from "react-native-gesture-handler";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -295,7 +295,7 @@ export function ProfileUserListScreen({
             {...LIST_VIRTUALIZATION_PROPS}
             data={users}
             keyExtractor={(item) => item.id}
-            ListEmptyComponent={empty}
+            ListEmptyComponent={empty ?? undefined}
             contentContainerStyle={{ paddingBottom: insets.bottom + 24 }}
             showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
             renderItem={({ item }) => (

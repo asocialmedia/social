@@ -10,6 +10,8 @@ import {
 import type { PostsPage } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/auth/session";
+import { filterNetworkFeed } from "@/lib/recommendations/filter-network-feed";
+import { networkFeedContext } from "@/lib/recommendations/network-context";
 
 // A valid take value is a positive integer only (no partial-prefix parsing).
 const TAKE_PATTERN = /^[1-9]\d*$/;
@@ -30,7 +32,8 @@ async function queryArchivePosts(
   userId: string,
   excludeModerated: boolean,
   cursor: string | undefined,
-  limit: number
+  limit: number,
+  excludeExplicit = true
 ) {
   const visibility = communityVisibilityWhere(userId);
   let query = getPostDataQuery(prisma.orm, userId)
@@ -38,6 +41,9 @@ async function queryArchivePosts(
       const filters = [post.isGust.eq(false), visibility(post)];
       if (excludeModerated) {
         filters.push(post.moderated.eq(false));
+      }
+      if (excludeExplicit) {
+        filters.push(post.explicitContent.eq(false));
       }
       if (userId) {
         filters.push(post.userId.neq(userId));
@@ -65,10 +71,22 @@ async function queryArchivePosts(
 
 export async function GET(request: Request) {
   // Guests can browse the public feed; per-user fields simply resolve to empty.
-  const session = await getSessionFromApi();
-  const userId = session?.user?.id ?? "";
 
   const url = new URL(request.url);
+  if (url.searchParams.has("network")) {
+    const { networkNativeFeed } =
+      await import("@/lib/recommendations/network-native-feed");
+    return networkNativeFeed(
+      request,
+      async () => {
+        const session = await getSessionFromApi();
+        return session?.user?.id ?? "";
+      },
+      "personalized"
+    );
+  }
+  const session = await getSessionFromApi();
+  const userId = session?.user?.id ?? "";
   const cursor = url.searchParams.get("cursor") || undefined;
   // "Related / more from" surfaces opt out of moderated posts so their compact
   // cards never show a moderation row; the main feed still returns them.
@@ -82,6 +100,9 @@ export async function GET(request: Request) {
       : 0;
   const pageSize = requestedTake > 0 ? Math.min(requestedTake, 20) : 20;
 
+  const network = userId ? await networkFeedContext(userId) : null;
+  const excludeExplicit = !network?.preferences.showExplicitContent;
+
   // Personalization serves ranked candidate slices for signed-in users.
   // When cursor is undefined or begins with "fyp.", we serve from the ranked pool.
   // Once the ranked pool is exhausted, the cursor transitions to "exp." or post ID,
@@ -90,8 +111,13 @@ export async function GET(request: Request) {
   if (userId && (!cursor || cursor.startsWith("fyp."))) {
     const personalized = await getPersonalizedFeedPage({
       cursor,
+      excludeExplicit,
       excludeModerated,
       includeVisited: true,
+      networkProfile: network?.profile,
+      networkScope: network
+        ? `${network.selected.id}:${network.revision}`
+        : undefined,
       pageSize,
       userId,
     });
@@ -113,13 +139,15 @@ export async function GET(request: Request) {
             userId,
             excludeModerated,
             chronologicalCursor,
-            pageSize - posts.length + 1
+            pageSize - posts.length + 1,
+            excludeExplicit
           )) ??
           (await queryArchivePosts(
             userId,
             excludeModerated,
             undefined,
-            pageSize - posts.length + 1
+            pageSize - posts.length + 1,
+            excludeExplicit
           )) ??
           [];
         const seenPostIds = new Set(posts.map((post) => post.id));
@@ -154,7 +182,8 @@ export async function GET(request: Request) {
         userId,
         excludeModerated,
         rawCursor,
-        pageSize + 1
+        pageSize + 1,
+        excludeExplicit
       );
     } catch (error) {
       if (!isMissingCursorError(error)) {
@@ -166,7 +195,8 @@ export async function GET(request: Request) {
         userId,
         excludeModerated,
         undefined,
-        pageSize + 1
+        pageSize + 1,
+        excludeExplicit
       );
     }
 
@@ -176,7 +206,8 @@ export async function GET(request: Request) {
           userId,
           excludeModerated,
           undefined,
-          pageSize + 1
+          pageSize + 1,
+          excludeExplicit
         )) ?? [];
     }
 
@@ -194,5 +225,8 @@ export async function GET(request: Request) {
         vary: "Cookie",
       };
 
-  return Response.json(data, { headers: responseHeaders });
+  return Response.json(
+    { ...data, posts: await filterNetworkFeed(data.posts, userId) },
+    { headers: responseHeaders }
+  );
 }
