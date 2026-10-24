@@ -17,7 +17,7 @@ interface Workflow {
   >;
 }
 
-test("web and Android use four-core runners while other jobs keep base runners and storage", async () => {
+test("all app images and Android use four-core runners while other jobs keep base runners and storage", async () => {
   for (const filename of [
     "ci.yml",
     "deploy-protocols.yml",
@@ -29,22 +29,12 @@ test("web and Android use four-core runners while other jobs keep base runners a
       ).text()
     ) as Workflow;
     for (const [name, job] of Object.entries(workflow.jobs)) {
-      if (filename === "ci.yml" && name === "build-and-push") {
-        const expression = job["runs-on"].replace(/^\$\{\{|\}\}$/g, "").trim();
-        for (const app of ["web", "auth", "protocols", "media-processing"]) {
-          expect(runInNewContext(expression, { matrix: { app } })).toBe(
-            app === "web"
-              ? "blacksmith-4vcpu-ubuntu-2404"
-              : "blacksmith-2vcpu-ubuntu-2404"
-          );
-        }
-      } else {
-        expect(job["runs-on"]).toBe(
-          filename === "ci.yml" && name === "build-mobile-apk"
-            ? "blacksmith-4vcpu-ubuntu-2404"
-            : "blacksmith-2vcpu-ubuntu-2404"
-        );
-      }
+      expect(job["runs-on"]).toBe(
+        filename === "ci.yml" &&
+          ["build-and-push", "build-mobile-apk"].includes(name)
+          ? "blacksmith-4vcpu-ubuntu-2404"
+          : "blacksmith-2vcpu-ubuntu-2404"
+      );
       for (const step of job.steps) {
         expect(step.uses ?? "").not.toMatch(/^useblacksmith\//);
         if (step.uses?.startsWith("docker/build-push-action@")) {
