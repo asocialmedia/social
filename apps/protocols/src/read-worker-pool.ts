@@ -199,7 +199,12 @@ export function createReadWorkerPool(options: {
           } else if (upstreamStatus === 403 && !search) {
             cooldownKey = operationKey;
           }
-          if (upstreamStatus === 403 && search) {
+          // A denied opaque cursor says nothing about fresh heads or date-window searches.
+          if (
+            upstreamStatus === 403 &&
+            search &&
+            !target.searchParams.has("cursor")
+          ) {
             const previous = node.deniedSearches.get(operationKey);
             const window =
               previous && now() - previous.at < 30_000

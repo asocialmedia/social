@@ -195,6 +195,40 @@ test("a denied search cursor cannot cool down another topic or a fresh date wind
   expect(remote.some((url) => url.includes("since="))).toBe(true);
 });
 
+test("distinct denied pagination cursors leave search heads and date windows available on both nodes", async () => {
+  const pool = createReadWorkerPool({
+    fetch: async (raw) => {
+      const target = raw.startsWith(node.url)
+        ? new URL(new URL(raw).searchParams.get("url") ?? "")
+        : new URL(raw);
+      return target.searchParams.has("cursor")
+        ? response({ error: "Forbidden" }, 403)
+        : response({ posts: [] });
+    },
+    logger: logger(),
+    nodes: [node],
+  });
+  for (let index = 0; index < 3; index += 1) {
+    // oxlint-disable-next-line no-await-in-loop -- distinct denied pages accumulate before the recovery reads.
+    const denied = await pool.fetch(`${search}&cursor=denied-${index}`, {});
+    expect(denied.status).toBe(403);
+  }
+  expect((await pool.fetch(search, {})).status).toBe(200);
+  expect(
+    (await pool.fetch(`${search}&since=2026-10-23T00%3A00%3A00Z`, {})).status
+  ).toBe(200);
+  expect(
+    pool
+      .status()
+      .every(
+        (entry) =>
+          !Object.keys(entry.cooldowns).some((key) =>
+            key.includes("searchPosts")
+          )
+      )
+  ).toBe(true);
+});
+
 test("non-JSON upstream denials stay restricted and a generator's 401 cannot disable unrelated worker capacity", async () => {
   const denied = createReadWorkerPool({
     fetch: async () => new Response("<html>Forbidden</html>", { status: 403 }),
