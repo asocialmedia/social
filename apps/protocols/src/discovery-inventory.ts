@@ -182,6 +182,7 @@ export class DiscoveryInventory {
           }
           const signal = AbortSignal.timeout(8000);
           let nextPosition = position;
+          const arrivals = new Map<string, ExternalPost>();
           const latest = await this.continuations.get(progressKey);
           if (latest) {
             const progress = continuationSchema.parse(JSON.parse(latest));
@@ -195,9 +196,14 @@ export class DiscoveryInventory {
                 };
               }
               nextPosition = progress.sourceCursor;
+              if (nextPosition !== position) {
+                const currentInventory = await this.store.read();
+                for (const post of currentInventory.filter(eligible)) {
+                  arrivals.set(post.id, post);
+                }
+              }
             }
           }
-          const arrivals = new Map<string, ExternalPost>();
           for (let attempt = 0; attempt < 3; attempt += 1) {
             // oxlint-disable-next-line no-await-in-loop -- only the previous source page can supply the next cursor.
             const page = await abortable(

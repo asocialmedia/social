@@ -8,6 +8,7 @@ import type { DiscoveryPage } from "@asm/protocols/discovery";
 import { inventoryPost } from "./discovery-fixtures";
 import { MemoryDiscoveryStore } from "./discovery-store";
 import { warmDiscoveryInventory } from "./discovery-warmup";
+import { createDiscoveryWarmupFailureReporter } from "./observability";
 
 const watch = {
   content: "video" as const,
@@ -21,6 +22,34 @@ const head: DiscoveryPage = {
   items: [inventoryPost(0)],
   partial: false,
 };
+
+test("a pending warmup reports a timeout without exposing its cursor", async () => {
+  const warnings: Record<string, unknown>[] = [];
+  const report = createDiscoveryWarmupFailureReporter({
+    debug: () => {},
+    error: () => {},
+    info: () => {},
+    warn: (fields) => {
+      warnings.push(fields);
+    },
+  });
+  const pending = Promise.withResolvers<DiscoveryPage>();
+  await warmDiscoveryInventory({
+    head,
+    read: () => pending.promise,
+    retain: async () => {},
+    signal: new AbortController().signal,
+    store: new MemoryDiscoveryStore(),
+    timeBudgetMs: 10,
+    watch,
+  }).catch(report);
+  expect(warnings).toEqual([
+    {
+      code: "timeout",
+      event: "discovery.inventory.warmup_failed",
+    },
+  ]);
+});
 
 test("video warming traverses six sparse pages without making the viewer request them", async () => {
   const reads: string[] = [];

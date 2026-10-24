@@ -65,12 +65,18 @@ test("a delayed reader reconciles progress after acquiring ownership instead of 
     "all"
   );
   await paused.promise;
-  warming.resolve({ cursor: "last", items: [], partial: false });
+  warming.resolve({
+    cursor: "last",
+    items: [inventoryPost(41)],
+    partial: false,
+  });
   await Bun.sleep(0);
   resume.resolve();
   const page = await delayed;
   expect(positions).toEqual([undefined, "next", "last"]);
-  expect(page?.items.map((post) => post.id)).toEqual([inventoryPost(40).id]);
+  expect(new Set(page?.items.map((post) => post.id))).toEqual(
+    new Set([inventoryPost(40).id, inventoryPost(41).id])
+  );
   expect(page?.cursor).toBeNull();
 });
 

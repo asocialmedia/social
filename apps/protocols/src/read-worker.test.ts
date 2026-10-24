@@ -163,6 +163,31 @@ test("non-JSON upstream denials stay restricted and a generator's 401 cannot dis
   ).toBeUndefined();
 });
 
+test("search cooldowns stay private and cannot evict origin backoff", async () => {
+  const calls: string[] = [];
+  const pool = createReadWorkerPool({
+    fetch: async (url) => {
+      calls.push(url);
+      return response({}, url === profile ? 429 : 503);
+    },
+    logger: logger(),
+    nodes: [],
+  });
+  await pool.fetch(profile, {});
+  for (let index = 0; index < 520; index += 1) {
+    // oxlint-disable-next-line no-await-in-loop -- populate more cooldowns than the map limit without saturating active read capacity.
+    await pool.fetch(`${search}&cursor=private-${index}`, {});
+  }
+  const status = pool.status();
+  expect(status[0]?.cooldowns["https://public.api.bsky.app"]).toBeGreaterThan(
+    Date.now()
+  );
+  expect(JSON.stringify(status)).not.toContain("private-");
+  const before = calls.filter((url) => url === profile).length;
+  expect((await pool.fetch(profile, {})).status).toBe(503);
+  expect(calls.filter((url) => url === profile)).toHaveLength(before);
+});
+
 test("node configuration rejects duplicate, insecure and credential-bearing origins without exposing secrets", () => {
   expect(
     readConfig({ PROTOCOLS_READ_WORKERS: JSON.stringify([node]) }).workers
