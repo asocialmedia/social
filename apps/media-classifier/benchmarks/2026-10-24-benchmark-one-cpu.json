@@ -1,0 +1,239 @@
+[
+  {
+    "assets": [
+      {
+        "bytes": 357460,
+        "sha256": "0ef0c3f7caa3ad4ec92dc8968f9ac0e81ede5b4805aae89648a4c7c4236768df",
+        "url": "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/beignets-task-guide.png"
+      },
+      {
+        "bytes": 677543,
+        "sha256": "33e53e0656ed8336c87a0e6f6441e3d75c4d64c3af225b11fca44fe95a8bc487",
+        "url": "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/cats.png"
+      },
+      {
+        "bytes": 694498,
+        "sha256": "cf6f3c4befa148732c7453e0de5afab00f682427435fead2d88b07a9615cdac2",
+        "url": "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/coco_sample.png"
+      }
+    ],
+    "event": "benchmark.start",
+    "host": {
+      "cores": 2,
+      "cpu": "Intel(R) Xeon(R) CPU @ 2.20GHz",
+      "memoryBytes": 16761929728
+    },
+    "model": {
+      "bytes": 13137569,
+      "id": "OwenElliott/image-safety-classifier-xs",
+      "inputSize": 224,
+      "labels": ["NSFL", "NSFW", "SFW"],
+      "preprocessing": "rgb-bilinear-stretch-nchw-float32-0-255-v1",
+      "revision": "54f4560bd9c5ee92d45dc30418a8f8680e80de6d",
+      "sha256": "8c28c49d9075f3ad15ebdc2961f02d5b3f99be944815b848b49c9f0e6f3fb689",
+      "completed": 0,
+      "failed": 0,
+      "maxImageBytes": 4194304,
+      "queue": {
+        "active": 0,
+        "limit": 8,
+        "waiting": 0
+      },
+      "threads": 1
+    }
+  },
+  {
+    "event": "benchmark.protocol_baseline",
+    "failures": 0,
+    "p50Ms": 0.369438999999943,
+    "p95Ms": 1.3248269999999138,
+    "samples": 30
+  },
+  {
+    "concurrency": 1,
+    "decode": {
+      "p50Ms": 19.41909099998884,
+      "p95Ms": 48.00273500000185
+    },
+    "elapsedMs": 15090.379354,
+    "event": "benchmark.stage",
+    "inference": {
+      "p50Ms": 46.1678130000073,
+      "p95Ms": 66.85426900000311
+    },
+    "latency": {
+      "p50Ms": 73.74784600000021,
+      "p95Ms": 109.38244699999996,
+      "p99Ms": 158.93348500000002
+    },
+    "protocol": {
+      "failures": 0,
+      "p50Ms": 1.1173289999996996,
+      "p95Ms": 4.633523999998943,
+      "samples": 30
+    },
+    "queued": {
+      "p50Ms": 0.016151999996509403,
+      "p95Ms": 0.04592400000547059
+    },
+    "status": {
+      "200": 185
+    },
+    "successful": 185,
+    "throughputImagesPerSecond": 12.259466489221301
+  },
+  {
+    "concurrency": 2,
+    "decode": {
+      "p50Ms": 21.859051999999792,
+      "p95Ms": 53.48617299999751
+    },
+    "elapsedMs": 15172.609697000002,
+    "event": "benchmark.stage",
+    "inference": {
+      "p50Ms": 47.93698900000891,
+      "p95Ms": 74.61691100000462
+    },
+    "latency": {
+      "p50Ms": 164.86347000000023,
+      "p95Ms": 248.7045450000005,
+      "p99Ms": 307.22331699999995
+    },
+    "protocol": {
+      "failures": 0,
+      "p50Ms": 1.027152999999089,
+      "p95Ms": 3.525289999997767,
+      "samples": 30
+    },
+    "queued": {
+      "p50Ms": 70.69601200000034,
+      "p95Ms": 127.74589800000831
+    },
+    "status": {
+      "200": 179
+    },
+    "successful": 179,
+    "throughputImagesPerSecond": 11.79757494423604
+  },
+  {
+    "concurrency": 4,
+    "decode": {
+      "p50Ms": 20.047080000003916,
+      "p95Ms": 48.11394100000325
+    },
+    "elapsedMs": 15242.865038,
+    "event": "benchmark.stage",
+    "inference": {
+      "p50Ms": 47.536023000007845,
+      "p95Ms": 54.96232500000042
+    },
+    "latency": {
+      "p50Ms": 311.2606520000045,
+      "p95Ms": 357.91575100000045,
+      "p99Ms": 444.39434900000197
+    },
+    "protocol": {
+      "failures": 0,
+      "p50Ms": 0.9846120000001974,
+      "p95Ms": 3.610694999995758,
+      "samples": 30
+    },
+    "queued": {
+      "p50Ms": 230.7752390000096,
+      "p95Ms": 257.80877799999143
+    },
+    "status": {
+      "200": 191
+    },
+    "successful": 191,
+    "throughputImagesPerSecond": 12.530452741255846
+  },
+  {
+    "concurrency": 8,
+    "decode": {
+      "p50Ms": 21.93056599999545,
+      "p95Ms": 50.16313699999591
+    },
+    "elapsedMs": 15572.436782000004,
+    "event": "benchmark.stage",
+    "inference": {
+      "p50Ms": 48.40466800000286,
+      "p95Ms": 68.88031200002297
+    },
+    "latency": {
+      "p50Ms": 643.889995000005,
+      "p95Ms": 783.6760559999966,
+      "p99Ms": 844.6555730000036
+    },
+    "protocol": {
+      "failures": 0,
+      "p50Ms": 1.0828099999998813,
+      "p95Ms": 3.657472000006237,
+      "samples": 30
+    },
+    "queued": {
+      "p50Ms": 560.1020209999988,
+      "p95Ms": 696.704819000006
+    },
+    "status": {
+      "200": 186
+    },
+    "successful": 186,
+    "throughputImagesPerSecond": 11.944180772979294
+  },
+  {
+    "concurrency": 16,
+    "decode": {
+      "p50Ms": 24.694641000009142,
+      "p95Ms": 58.94673999998486
+    },
+    "elapsedMs": 15688.303683999999,
+    "event": "benchmark.stage",
+    "inference": {
+      "p50Ms": 49.21864199999254,
+      "p95Ms": 63.56921600000351
+    },
+    "latency": {
+      "p50Ms": 777.4342349999934,
+      "p95Ms": 1295.219468000003,
+      "p99Ms": 1443.0904880000016
+    },
+    "protocol": {
+      "failures": 0,
+      "p50Ms": 0.9628849999862723,
+      "p95Ms": 15.517542000001413,
+      "samples": 30
+    },
+    "queued": {
+      "p50Ms": 673.5269649999973,
+      "p95Ms": 994.7423949999793
+    },
+    "status": {
+      "200": 175,
+      "503": 805
+    },
+    "successful": 175,
+    "throughputImagesPerSecond": 11.154807015781886
+  },
+  {
+    "event": "benchmark.complete",
+    "model": {
+      "bytes": 13137569,
+      "id": "OwenElliott/image-safety-classifier-xs",
+      "inputSize": 224,
+      "labels": ["NSFL", "NSFW", "SFW"],
+      "preprocessing": "rgb-bilinear-stretch-nchw-float32-0-255-v1",
+      "revision": "54f4560bd9c5ee92d45dc30418a8f8680e80de6d",
+      "sha256": "8c28c49d9075f3ad15ebdc2961f02d5b3f99be944815b848b49c9f0e6f3fb689",
+      "completed": 916,
+      "failed": 805,
+      "maxImageBytes": 4194304,
+      "queue": {
+        "active": 0,
+        "limit": 8,
+        "waiting": 0
+      },
+      "threads": 1
+    }
+  }
+]

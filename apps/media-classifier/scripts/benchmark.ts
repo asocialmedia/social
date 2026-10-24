@@ -151,17 +151,30 @@ for (const concurrency of [1, 2, 4, 8, 16]) {
           method: "POST",
           signal: AbortSignal.timeout(15_000),
         });
-        const body = await response.json();
-        const timing = readTiming(body);
         status[String(response.status)] =
           (status[String(response.status)] ?? 0) + 1;
-        if (response.ok && timing) {
+        if (!response.ok) {
+          await response.body?.cancel();
+          if (response.status === 503) {
+            await Bun.sleep(100);
+          }
+          continue;
+        }
+        let body: unknown;
+        try {
+          body = await response.json();
+        } catch {
+          status.invalid_response = (status.invalid_response ?? 0) + 1;
+          continue;
+        }
+        const timing = readTiming(body);
+        if (timing) {
           latency.push(performance.now() - start);
           inference.push(timing.inferenceMs);
           decode.push(timing.decodeMs);
           queued.push(timing.queuedMs);
-        } else if (response.status === 503) {
-          await Bun.sleep(100);
+        } else {
+          status.invalid_response = (status.invalid_response ?? 0) + 1;
         }
       } catch {
         status.transport_error = (status.transport_error ?? 0) + 1;
@@ -220,6 +233,9 @@ for (const concurrency of [1, 2, 4, 8, 16]) {
   );
 }
 const final = await fetch(`${baseUrl}/v1/model`, { headers: auth });
+if (!final.ok) {
+  throw new Error(`Final model metadata HTTP ${final.status}`);
+}
 console.info(
   JSON.stringify({ event: "benchmark.complete", model: await final.json() })
 );

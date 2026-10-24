@@ -1,3 +1,5 @@
+import { fileURLToPath } from "node:url";
+
 export function classifierConfig(env: Record<string, string | undefined>) {
   const token = env.CLASSIFIER_API_TOKEN;
   if (!token || token.length < 32) {
@@ -13,7 +15,7 @@ export function classifierConfig(env: Record<string, string | undefined>) {
   return {
     modelPath:
       env.CLASSIFIER_MODEL_PATH ??
-      new URL("../model.onnx", import.meta.url).pathname,
+      fileURLToPath(new URL("../model.onnx", import.meta.url)),
     port: integer("PORT", 3014, 65_535),
     queueLimit: integer("CLASSIFIER_QUEUE_LIMIT", 8, 16),
     requestTimeoutMs: integer("CLASSIFIER_REQUEST_TIMEOUT_MS", 10_000, 30_000),

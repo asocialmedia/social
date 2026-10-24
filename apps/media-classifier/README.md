@@ -6,6 +6,10 @@ The ONNX artifact is pinned to revision 54f4560bd9c5ee92d45dc30418a8f8680e80de6d
 
 ## API
 
+Deployed base URL: `https://protoalt.asocialmedia.cc/classifier`. The generated production credentials are stored outside the repository at `~/.config/asocialmedia/media-classifier-eueast.env` with mode 0600. Source that file before running the curl example. Within the worker's Docker network, use `http://asm-swiftformer-xs-vjeonq:3014` with the same bearer authentication.
+
+See [the measured VPS benchmark](BENCHMARK.md) for latency, throughput, resource usage and limitations.
+
 All v1 endpoints require `Authorization: Bearer <CLASSIFIER_API_TOKEN>`. Image URLs and JSON payloads are unsupported. Clients download permitted images before sending bytes; the server has no arbitrary-URL fetch endpoint.
 
 - `GET /health` and `GET /ready`: minimal public readiness, available after the verified model loads.

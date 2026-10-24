@@ -79,6 +79,22 @@ test("URL payloads, oversize streams and invalid images never become a safe resu
   expect((await invalid(request())).status).toBe(422);
 });
 
+test("a chunked upload above the byte limit is rejected before inference", async () => {
+  const classify = mock((_image: Uint8Array) => Promise.resolve(result));
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(new Uint8Array(maxImageBytes));
+      controller.enqueue(new Uint8Array(1));
+      controller.close();
+    },
+  });
+  const input = request("/v1/classify", { body: stream });
+  expect(input.headers.has("content-length")).toBe(false);
+  const response = await createClassifierApp(config, classify)(input);
+  expect(response.status).toBe(413);
+  expect(classify).not.toHaveBeenCalled();
+});
+
 test("a stalled upload is cancelled and releases inference capacity", async () => {
   const classify = mock((_image: Uint8Array) => Promise.resolve(result));
   const app = createClassifierApp(

@@ -10,7 +10,7 @@ export async function readImageBody(request: Request, signal: AbortSignal) {
   const abort = () => {
     // oxlint-disable-next-line promise/prefer-await-to-then -- an abort event cannot await cancellation of the blocked reader.
     void reader.cancel().catch(() => {
-      /* empty */
+      // A disconnected request may already have cancelled the stream.
     });
   };
   signal.addEventListener("abort", abort, { once: true });
@@ -35,7 +35,7 @@ export async function readImageBody(request: Request, signal: AbortSignal) {
   } finally {
     signal.removeEventListener("abort", abort);
     await reader.cancel().catch(() => {
-      /* empty */
+      // A closed or errored stream has no remaining bytes to release.
     });
     reader.releaseLock();
   }

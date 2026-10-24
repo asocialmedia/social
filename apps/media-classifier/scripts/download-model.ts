@@ -1,5 +1,6 @@
-import { createHash } from "node:crypto";
-import { writeFile } from "node:fs/promises";
+import { createHash, randomUUID } from "node:crypto";
+import { writeFile, rename, rm } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
 
 import { model } from "../src/model";
 
@@ -17,8 +18,14 @@ if (
 }
 const path =
   process.env.CLASSIFIER_MODEL_PATH ??
-  new URL("../model.onnx", import.meta.url).pathname;
-await writeFile(path, bytes);
+  fileURLToPath(new URL("../model.onnx", import.meta.url));
+const temporary = `${path}.${randomUUID()}.tmp`;
+try {
+  await writeFile(temporary, bytes, { flag: "wx" });
+  await rename(temporary, path);
+} finally {
+  await rm(temporary, { force: true });
+}
 console.info(
   JSON.stringify({
     bytes: bytes.byteLength,
