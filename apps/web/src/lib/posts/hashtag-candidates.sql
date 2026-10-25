@@ -28,11 +28,11 @@ WHERE p.moderated = false AND p."rootPostId" IS NULL
     SELECT a."createdAt", a.id FROM posts a WHERE a.id = $5
   ))
   AND (
-    lower(normalize(p.content, NFC) COLLATE pg_catalog.pg_c_utf8) ~ $2
+    normalize(lower(normalize(p.content, NFC) COLLATE pg_catalog."und-x-icu"), NFC) COLLATE pg_catalog.pg_c_utf8 ~ $2
     OR EXISTS (
       SELECT 1 FROM "_PostToTag" l JOIN "Tag" t ON t.id = l."B"
       WHERE l."A" = p.id
-        AND lower(normalize(t.name, NFC) COLLATE pg_catalog.pg_c_utf8) = $1
+        AND normalize(lower(normalize(t.name, NFC) COLLATE pg_catalog."und-x-icu"), NFC) COLLATE pg_catalog.pg_c_utf8 = $1
     )
   )
 ORDER BY p."createdAt" DESC, p.id DESC LIMIT 61

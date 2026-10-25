@@ -193,9 +193,13 @@ describe.skipIf(!isolatedDatabase)(
       });
       try {
         const page = await getHashtagPostPage("onepiece", owner, true);
-        expect(page.posts.some((post) => post.id === hiddenIds[0])).toBe(true);
+        const continuation = page.nextCursor
+          ? await getHashtagPostPage("onepiece", owner, true, page.nextCursor)
+          : { posts: [] };
+        const visible = [...page.posts, ...continuation.posts];
+        expect(visible.some((post) => post.id === hiddenIds[0])).toBe(true);
         expect(
-          page.posts.some(
+          visible.some(
             (post) => post.id === hiddenIds[1] || post.id === hiddenIds[2]
           )
         ).toBe(false);
@@ -372,20 +376,26 @@ describe.skipIf(!isolatedDatabase)(
     });
 
     test("Unicode native hashtags match accents and case in existing text and tag relations", async () => {
-      const ids = [randomUUID(), randomUUID(), randomUUID()];
-      const tags = [randomUUID(), randomUUID()];
+      const ids = Array.from({ length: 5 }, () => randomUUID());
+      const tags = Array.from({ length: 4 }, () => randomUUID());
       await prisma.orm.public.Posts.createAll([
         { content: "A summer trip #ÉTÉ", id: ids[0], userId: owner },
         { content: "A morning cup #cafe\u0301", id: ids[1], userId: owner },
         { content: "A linked public tag", id: ids[2], userId: owner },
+        { content: "A Greek topic #ΟΣ", id: ids[3], userId: owner },
+        { content: "A dotted topic #İ", id: ids[4], userId: owner },
       ]);
       await prisma.orm.public.Tag.createAll([
         { id: tags[0], name: "Été" },
         { id: tags[1], name: "cafe\u0301" },
+        { id: tags[2], name: "ΟΣ" },
+        { id: tags[3], name: "İ" },
       ]);
       await prisma.orm.public.PostToTag.createAll([
         { a: ids[2], b: tags[0] },
         { a: ids[2], b: tags[1] },
+        { a: ids[2], b: tags[2] },
+        { a: ids[2], b: tags[3] },
       ]);
       try {
         const summer = await getHashtagPostPage("été");
@@ -395,6 +405,14 @@ describe.skipIf(!isolatedDatabase)(
         const coffee = await getHashtagPostPage("CAFÉ");
         expect(new Set(coffee.posts.map((post) => post.id))).toEqual(
           new Set([ids[1], ids[2]])
+        );
+        const greek = await getHashtagPostPage("ος");
+        expect(new Set(greek.posts.map((post) => post.id))).toEqual(
+          new Set([ids[2], ids[3]])
+        );
+        const dotted = await getHashtagPostPage("i̇");
+        expect(new Set(dotted.posts.map((post) => post.id))).toEqual(
+          new Set([ids[2], ids[4]])
         );
       } finally {
         await prisma.orm.public.Posts.where((post) =>
@@ -476,6 +494,65 @@ describe.skipIf(!isolatedDatabase)(
         } finally {
           await prisma.orm.public.Posts.where({ id }).deleteAndCount();
           await prisma.orm.public.Tag.where({ id: tagId }).deleteAndCount();
+        }
+      }
+    );
+
+    test.skipIf(!base)(
+      "cached tag sitemaps follow author bans and unbans without a web post mutation",
+      async () => {
+        if (
+          !base ||
+          !["localhost", "127.0.0.1"].includes(new URL(base).hostname)
+        ) {
+          throw new Error("Loopback preview required");
+        }
+        const authorId = randomUUID();
+        const sentinelId = randomUUID();
+        const postId = randomUUID();
+        const tagId = randomUUID();
+        const tag = `ban_cache_${authorId}`;
+        await prisma.orm.public.Users.createAll([
+          {
+            displayName: "Cache author",
+            id: authorId,
+            username: `cache_${authorId}`,
+          },
+          {
+            banned: true,
+            displayName: "Cache sentinel",
+            id: sentinelId,
+            username: `cache_${sentinelId}`,
+          },
+        ]);
+        try {
+          await prisma.orm.public.Posts.create({
+            content: `Public topic #${tag}`,
+            id: postId,
+            userId: authorId,
+          });
+          await prisma.orm.public.Tag.create({ id: tagId, name: tag });
+          await prisma.orm.public.PostToTag.create({ a: postId, b: tagId });
+          const before = await fetch(new URL("/sitemaps/tags.xml", base));
+          expect(before.status).toBe(200);
+          expect(await before.text()).toContain(tag);
+          await prisma.orm.public.Users.where({ id: authorId }).update({
+            banned: true,
+          });
+          const banned = await fetch(new URL("/sitemaps/tags.xml", base));
+          expect(banned.status).toBe(200);
+          expect(await banned.text()).not.toContain(tag);
+          await prisma.orm.public.Users.where({ id: authorId }).update({
+            banned: false,
+          });
+          const restored = await fetch(new URL("/sitemaps/tags.xml", base));
+          expect(restored.status).toBe(200);
+          expect(await restored.text()).toContain(tag);
+        } finally {
+          await prisma.orm.public.Tag.where({ id: tagId }).deleteAndCount();
+          await prisma.orm.public.Users.where((user) =>
+            user.id.in([authorId, sentinelId])
+          ).deleteAndCount();
         }
       }
     );

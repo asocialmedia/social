@@ -44,3 +44,12 @@ test("Unicode case and canonical accents match without merging compatibility spe
   );
   expect(hasHashtag({ text: "#ＯｎｅＰｉｅｃｅ" }, "onepiece")).toBe(false);
 });
+
+test("contextual and multi-character lowercase mappings match declared and inline hashtags", () => {
+  expect(normalizeHashtag("ΟΣ")).toBe("ος");
+  expect(hasHashtag({ tags: ["ΟΣ"] }, "ος")).toBe(true);
+  expect(hasHashtag({ text: "A topic #ΟΣ" }, "ος")).toBe(true);
+  expect(normalizeHashtag("İ")).toBe("i\u0307");
+  expect(hasHashtag({ tags: ["İ"] }, "i\u0307")).toBe(true);
+  expect(hasHashtag({ text: "A topic #İ" }, "i\u0307")).toBe(true);
+});

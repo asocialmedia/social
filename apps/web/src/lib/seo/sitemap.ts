@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import {
   and,
   communityVisibilityWhere,
@@ -265,9 +267,22 @@ async function getUserEntries(): Promise<SitemapEntry[]> {
 }
 
 export async function getCachedTagSitemapEntries(): Promise<SitemapEntry[]> {
+  const bannedUsers = await prisma.orm.public.Users.select("id")
+    .where({ banned: true })
+    .orderBy((user) => user.id.asc())
+    .all();
+  const moderationVersion = createHash("sha256")
+    .update(JSON.stringify(bannedUsers.map((user) => user.id)))
+    .digest("hex");
+  return await getTagEntriesForModeration(moderationVersion);
+}
+
+async function getTagEntriesForModeration(
+  moderationVersion: string
+): Promise<SitemapEntry[]> {
   "use cache";
   cacheLife("hours");
-  cacheTag("og-post-card");
+  cacheTag("og-post-card", `tag-sitemap-moderation:${moderationVersion}`);
   return await getTagEntries();
 }
 
