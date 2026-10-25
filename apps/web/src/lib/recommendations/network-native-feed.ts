@@ -198,17 +198,25 @@ async function readNetworkNativeFeed(
     }
     // The served count is part of the key so a viewer with history gets a fresh
     // ordering, while concurrent loads of the same page still share one read.
-    // It is keyed per surface to match the served-set the build stage reads.
-    const surfaceKey = query.get("surface") === "explore" ? "explore" : "home";
-    const servedCount = userId
-      ? await redis
-          .zcard(servedSetKey(userId, `${surfaceKey}:${contentKind}:${mode}`))
-          .catch(() => 0)
-      : 0;
+    // Both histories affect head ranking when a viewer switches surfaces.
+    const servedCounts = userId
+      ? await Promise.all(
+          ["home", "explore"].map((surface) =>
+            redis
+              .zcard(servedSetKey(userId, `${surface}:${contentKind}:${mode}`))
+              .catch(() => 0)
+          )
+        )
+      : [0, 0];
+    const recentServedPages = await Promise.all(
+      ["home", "explore"].map((surface) =>
+        readServedIds(userId, `${surface}:${contentKind}:${mode}`, 50)
+      )
+    );
     const version = userId
       ? await redis.get(`rec:suggestions:version:${userId}`).catch(() => null)
       : "guest";
-    const key = `rec:native-head:v8:{${createHash("sha256")
+    const key = `rec:native-head:v9:{${createHash("sha256")
       .update(
         JSON.stringify([
           userId,
@@ -221,7 +229,8 @@ async function readNetworkNativeFeed(
           query.get("take"),
           query.get("locale"),
           query.get("source"),
-          servedCount,
+          servedCounts,
+          recentServedPages,
         ])
       )
       .digest("hex")}}`;
@@ -364,19 +373,32 @@ async function buildNetworkNativeFeed(
     }
   }
   const stopRetrieval = timing.start("retrieval");
-  // Home and Explore draw from the same pool but must not replay each other, so
-  // the served history is keyed by surface as well as by content kind and mode.
+  // Keep each surface's record and consider both when ranking a fresh head.
   const servedFeed = `${exploring ? "explore" : "home"}:${contentKind}:${mode}`;
   // Only a fresh head asks what this viewer already saw; a continuation page
   // belongs to the same snapshot and must not shift under the reader.
-  const served =
+  const servedGroups =
     buildBatch && !cursor && mode !== "latest"
-      ? await readServedIds(userId, servedFeed)
+      ? await Promise.all(
+          ["home", "explore"].map((surface) =>
+            readServedIds(userId, `${surface}:${contentKind}:${mode}`)
+          )
+        )
       : [];
+  const served = [...new Set(servedGroups.flat())];
   // Ranking re-sorts by score, which would discard the retrieval query's
   // served-last ordering. Demote seen ids in the score instead so a refresh
   // reaches new posts while a thin pool still fills the page.
   const servedSet = new Set(served);
+  const recentPeerIds = new Set(
+    buildBatch && !cursor && mode !== "latest"
+      ? await readServedIds(
+          userId,
+          `${exploring ? "home" : "explore"}:${contentKind}:${mode}`,
+          pageSize
+        )
+      : []
+  );
   const servedPenalty = (score: number, id: string) =>
     servedSet.has(id) ? score * 0.35 : score;
   if (buildBatch) {
@@ -682,6 +704,13 @@ async function buildNetworkNativeFeed(
         enriched.filter((item) => item.fit > 0).map((item) => item.id)
       );
       ids = diversifyExploreCandidates(ids, (id) => related.has(id));
+    }
+    // Preserve ranking within each group while avoiding the other surface's latest page.
+    if (recentPeerIds.size) {
+      ids = [
+        ...ids.filter((id) => !recentPeerIds.has(id)),
+        ...ids.filter((id) => recentPeerIds.has(id)),
+      ];
     }
     ids = ids.slice(0, 400);
     stopRanking();

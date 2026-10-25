@@ -77,3 +77,29 @@ test("the retained migration chain and refs reach the current contract with comp
     expect(referenced.has(snapshot)).toBe(true);
   }
 });
+
+test("the fresh baseline retains the custom search frequency maintenance operation", async () => {
+  interface Operation {
+    id: string;
+    execute: { sql: string }[];
+  }
+  const operations: Operation[] = JSON.parse(
+    await readFile(
+      path.join(root, "app/20261025T1711_pre_october25_baseline/ops.json"),
+      "utf-8"
+    )
+  );
+  const frequency = operations.find(
+    (operation) =>
+      operation.id === "replace-row-frequency-trigger-with-set-based-triggers"
+  );
+  expect(frequency).toBeDefined();
+  const statements =
+    frequency?.execute.map((step) => step.sql).join("\n") ?? "";
+  for (const event of ["insert", "update", "delete"]) {
+    expect(statements).toContain(
+      `message_search_terms_frequency_after_${event}`
+    );
+  }
+  expect(statements).toContain("update_message_search_term_document_frequency");
+});
