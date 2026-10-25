@@ -39,7 +39,7 @@ import {
 import {
   FEED_QUERY_BEHAVIOR,
   prependPostsToFeedCache,
-  scrollFeedToTop,
+  revealFeedHead,
 } from "@/lib/posts/feed-cache";
 import { feedContinuationDelay } from "@/lib/posts/feed-pagination";
 import {
@@ -436,24 +436,18 @@ export default function HomeFeed({
 
   // Merge the probed posts straight into the head of the cached feed, then
   // optionally bring the viewer up to meet them.
-  const revealNewPosts = useCallback(
-    (opts: { scrollToTop?: boolean } = {}) => {
-      if (source !== "bluesky") {
-        clearNewItems();
-        prependPostsToFeedCache(queryClient, queryKey, newPosts);
-      }
-      if (source !== "asm") {
-        external.showNewItems();
-      }
-      if (opts.scrollToTop) {
-        scrollFeedToTop(feedRootRef.current);
-      }
-    },
-    [clearNewItems, newPosts, queryClient, queryKey, external, source]
-  );
+  const revealNewPosts = useCallback(() => {
+    if (source !== "bluesky") {
+      clearNewItems();
+      prependPostsToFeedCache(queryClient, queryKey, newPosts);
+    }
+    if (source !== "asm") {
+      external.showNewItems();
+    }
+  }, [clearNewItems, newPosts, queryClient, queryKey, external, source]);
 
   const showNewPosts = useCallback(() => {
-    revealNewPosts({ scrollToTop: true });
+    revealFeedHead(feedRootRef.current, revealNewPosts);
   }, [revealNewPosts]);
 
   // A community segment that is still loading leads the render; a failed
@@ -522,7 +516,7 @@ export default function HomeFeed({
       (source === "bluesky" ? 0 : newPosts.length) +
       (source === "asm" ? 0 : external.newItems.length),
     enabled: network.ready && !excludePostId && !communitySlug,
-    merge: () => revealNewPosts({ scrollToTop: false }),
+    merge: revealNewPosts,
     probe: () =>
       Promise.all([
         source === "bluesky" ? Promise.resolve() : probeNow(),
