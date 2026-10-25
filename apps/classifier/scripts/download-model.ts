@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { writeFile, rename, rm } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
-import { model } from "../src/model";
+import { model } from "../src/inference/model";
 
 const url = `https://huggingface.co/${model.id}/resolve/${model.revision}/onnx/image-safety-classifier-xs.onnx`;
 const response = await fetch(url, { signal: AbortSignal.timeout(120_000) });

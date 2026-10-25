@@ -44,8 +44,8 @@ import { RedditIcon } from "@/components/icons/reddit-icon";
 import { validateSignup } from "@/features/auth/lib/auth-validation";
 import { useSessionContext } from "@/features/auth/state/session";
 import { useSignupState } from "@/features/auth/state/signup-state";
-import { getApiBaseUrl } from "@/lib/api-env";
-import { SHOWS_SCROLL_INDICATOR } from "@/lib/scroll-indicator";
+import { SHOWS_SCROLL_INDICATOR } from "@/lib/layout/scroll-indicator";
+import { getApiBaseUrl } from "@/lib/network/api-env";
 import {
   ERROR_SHADOWS,
   INPUT_ERROR_SHADOWS,

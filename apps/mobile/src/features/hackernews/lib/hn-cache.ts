@@ -3,8 +3,8 @@
 // chain instead of refetching, a fresh entry renders with no network, and only
 // an explicit refresh or expiry reloads it. Kept free of react-native so the
 // rules are unit-testable on Node.
-import { emptySnapshot, pruneSnapshot } from "@/lib/persistent-cache";
-import type { PersistSnapshot } from "@/lib/persistent-cache";
+import { emptySnapshot, pruneSnapshot } from "@/lib/cache/persistent-cache";
+import type { PersistSnapshot } from "@/lib/cache/persistent-cache";
 
 import type { HnSort, HnStory } from "./hackernews-api";
 

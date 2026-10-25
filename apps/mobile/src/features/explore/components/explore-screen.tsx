@@ -90,9 +90,9 @@ import {
 import { useNetworkSettings } from "@/features/network/state/use-network-settings";
 import { useNetworkSearch } from "@/features/search/state/use-network-search";
 import { SettingsButton } from "@/features/settings/components/settings-ui";
-import { getApiBaseUrl } from "@/lib/api-env";
-import { SHOWS_SCROLL_INDICATOR } from "@/lib/scroll-indicator";
-import { logInfo, logWarn } from "@/lib/telemetry";
+import { SHOWS_SCROLL_INDICATOR } from "@/lib/layout/scroll-indicator";
+import { logInfo, logWarn } from "@/lib/lifecycle/telemetry";
+import { getApiBaseUrl } from "@/lib/network/api-env";
 import {
   LOGIN_BUTTON_SHADOWS,
   LOGIN_BUTTON_SHADOWS_LIGHT,

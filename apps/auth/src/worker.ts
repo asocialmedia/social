@@ -6,23 +6,23 @@ import type { Worker } from "bullmq";
 
 import { loadRootEnv } from "./env";
 import {
-  readMessageSearchWorkerFeatures,
-  readMessageSearchWorkerRole,
-  sweepMessageSearchWork,
-} from "./worker/message-search-sweep";
-import {
   checkWorkerHealth,
   clearWorkerHealth,
   workerHealthPath,
   writeWorkerHealth,
-} from "./worker/worker-health";
+} from "./worker/runtime/worker-health";
 import {
   attachWorkerFailureReporting,
   createWorkerPulse,
   createWorkerShutdown,
   messageWorkerErrorFields,
   runMessageSearchJob,
-} from "./worker/worker-lifecycle";
+} from "./worker/runtime/worker-lifecycle";
+import {
+  readMessageSearchWorkerFeatures,
+  readMessageSearchWorkerRole,
+  sweepMessageSearchWork,
+} from "./worker/search/message-search-sweep";
 
 function readWorkerInteger(
   name: string,
@@ -71,7 +71,7 @@ if (import.meta.main) {
   const {
     createMessageSearchWorkerMetricSink,
     safelyRecordMessageSearchWorkerMetric,
-  } = await import("./worker/message-search-metrics");
+  } = await import("./worker/search/message-search-metrics");
   const messageSearchMetrics = createMessageSearchWorkerMetricSink();
 
   const {
@@ -95,9 +95,10 @@ if (import.meta.main) {
   } = await import("@asm/db");
   const { Worker: QueueWorker } = await import("bullmq");
   type QueueWorkerType = Worker;
-  const { consumeViewStream } = await import("./worker/view-flush");
-  const { consumeShareStream } = await import("./worker/share-flush");
-  const { flushTrendingScores } = await import("./worker/trending-score-flush");
+  const { consumeViewStream } = await import("./worker/flush/view-flush");
+  const { consumeShareStream } = await import("./worker/flush/share-flush");
+  const { flushTrendingScores } =
+    await import("./worker/flush/trending-score-flush");
   const {
     processPostDeleted,
     processNotificationCreated,
@@ -110,18 +111,20 @@ if (import.meta.main) {
     processPublishedNotificationCleanup,
     processBadgeSweep,
     processPublishedNotificationsSweep,
-  } = await import("./worker/jobs");
-  const { healCredentialAccounts } = await import("./worker/account-heal");
-  const { processMessagePush } = await import("./worker/message-push");
+  } = await import("./worker/runtime/jobs");
+  const { healCredentialAccounts } =
+    await import("./worker/accounts/account-heal");
+  const { processMessagePush } =
+    await import("./worker/messaging/message-push");
   const {
     clearMessageSearchKeyCache,
     processMessageSearchBackfill,
     processMessageSearchOutbox,
-  } = await import("./worker/message-search-index");
+  } = await import("./worker/search/message-search-index");
   const { dispatchMessageSearchBackfillJob } =
-    await import("./worker/message-search-queue");
+    await import("./worker/search/message-search-queue");
   const { processMessageSearchCount } =
-    await import("./worker/message-search-count");
+    await import("./worker/search/message-search-count");
   const { closeMessageSearchPool, closePrisma, reconcileMessageUnreadCounter } =
     await import("@asm/db");
 

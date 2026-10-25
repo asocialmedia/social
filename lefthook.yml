@@ -10,8 +10,4 @@ pre-commit:
 pre-push:
   commands:
     tests:
-      run: bun run test
-    lint:
-      run: bun run check
-    types:
-      run: bun run check-types
+      run: bun scripts/testing/run-affected-tests.ts {push_files}

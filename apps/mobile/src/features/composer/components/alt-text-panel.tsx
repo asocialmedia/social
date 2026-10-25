@@ -24,7 +24,7 @@ import {
 } from "@/components/surface/recipes";
 import { suggestAltText } from "@/features/media-upload/lib/upload-api";
 import type { DraftAttachment } from "@/features/media-upload/state/attachment-store";
-import { logWarn } from "@/lib/telemetry";
+import { logWarn } from "@/lib/lifecycle/telemetry";
 import { useAppTheme } from "@/theme";
 
 const AUTO_SHADOWS =

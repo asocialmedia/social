@@ -25,7 +25,7 @@ import type { MenuAnchor } from "@/features/feed/components/more-menu";
 import { feedCache } from "@/features/feed/state/feed-store";
 import type { HomeTab } from "@/features/feed/state/tab-store";
 import { fetchProfileUserList } from "@/features/profile/lib/profile-api";
-import { getApiBaseUrl } from "@/lib/api-env";
+import { getApiBaseUrl } from "@/lib/network/api-env";
 import { useAppTheme } from "@/theme";
 
 function FilledSparkles(props: LucideProps) {

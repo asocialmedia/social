@@ -28,8 +28,8 @@ import { Modal, Pressable, StyleSheet, Text, View } from "react-native";
 
 import { toast } from "@/components/feedback/toast";
 import { AuthPrimaryButton } from "@/features/auth/components/auth-primary-button";
-import { getApiBaseUrl } from "@/lib/api-env";
-import { logInfo, logWarn } from "@/lib/telemetry";
+import { logInfo, logWarn } from "@/lib/lifecycle/telemetry";
+import { getApiBaseUrl } from "@/lib/network/api-env";
 import {
   ERROR_SHADOWS,
   SURFACE_SHADOWS,

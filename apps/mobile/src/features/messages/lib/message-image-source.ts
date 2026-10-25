@@ -1,6 +1,6 @@
 // Private message media uses authenticated, account-scoped persistent caching.
 // Peer-controlled external URLs must never receive the session credentials.
-import { withAuthHeaders } from "@/lib/auth-headers";
+import { withAuthHeaders } from "@/lib/network/auth-headers";
 
 export function messageImageSource(
   uri: string,

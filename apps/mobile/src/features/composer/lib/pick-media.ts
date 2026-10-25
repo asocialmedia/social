@@ -9,7 +9,7 @@ import { Directory, File, Paths } from "expo-file-system";
 import * as ImagePicker from "expo-image-picker";
 
 import type { PickedMedia } from "@/features/media-upload/state/attachment-store";
-import { logWarn } from "@/lib/telemetry";
+import { logWarn } from "@/lib/lifecycle/telemetry";
 
 function extensionMime(name: string): string | null {
   const ext = name.split(".").pop()?.toLowerCase() ?? "";

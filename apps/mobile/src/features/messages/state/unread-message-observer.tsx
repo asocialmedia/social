@@ -11,8 +11,8 @@ import {
 } from "@/features/messages/lib/client";
 import { DeliveryAcknowledger } from "@/features/messages/lib/delivery-acknowledger";
 import { readMessageActivityStream } from "@/features/messages/lib/realtime";
-import { getApiBaseUrl } from "@/lib/api-env";
-import { createExpoPoller } from "@/lib/expo-poller";
+import { getApiBaseUrl } from "@/lib/network/api-env";
+import { createExpoPoller } from "@/lib/network/expo-poller";
 
 import { startPresenceHeartbeat } from "./conversation-list-store";
 import { unreadMessageStore } from "./unread-message-store";

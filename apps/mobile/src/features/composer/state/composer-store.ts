@@ -8,7 +8,7 @@ import type {
   FeedPost,
   FeedUser,
 } from "@/features/feed/lib/feed-types";
-import { haptic } from "@/lib/haptics";
+import { haptic } from "@/lib/interaction/haptics";
 
 import {
   draftForComposerOpen,

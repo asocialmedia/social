@@ -1,4 +1,4 @@
-import { RequestTimeoutError } from "@/lib/http-get";
+import { RequestTimeoutError } from "@/lib/network/http-get";
 
 import {
   HistoryThrottledError,

@@ -13,7 +13,7 @@ import {
 } from "@/features/feed/lib/media-url";
 import { UserBadge } from "@/features/home/components/user-badge";
 import { fetchPostDetail } from "@/features/post/lib/post-api";
-import { getApiBaseUrl } from "@/lib/api-env";
+import { getApiBaseUrl } from "@/lib/network/api-env";
 import { useAppTheme } from "@/theme";
 
 import { surface3d } from "../lib/message-recipes";

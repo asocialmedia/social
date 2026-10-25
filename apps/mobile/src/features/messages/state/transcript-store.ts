@@ -25,7 +25,7 @@ import { advanceWatermark } from "@/features/messages/lib/message-receipts";
 import type { PeerWatermarks } from "@/features/messages/lib/message-receipts";
 import type { MessageData, MessagePage } from "@/features/messages/lib/types";
 import { firstUnreadMessageId } from "@/features/messages/lib/unread-marker";
-import { orderedCopy } from "@/lib/ordered-copy";
+import { orderedCopy } from "@/lib/format/ordered-copy";
 
 // How many rows one page holds. Matches the server's own default so a page is a
 // full screen and a bit, and a user paging history pays a request roughly once per

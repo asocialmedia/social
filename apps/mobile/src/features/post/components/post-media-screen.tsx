@@ -100,10 +100,10 @@ import { BioContent } from "@/features/home/components/bio-content";
 import { resolveProfileImageUrl } from "@/features/home/components/profile-utils";
 import { UserBadge } from "@/features/home/components/user-badge";
 import { externalShareUrl } from "@/features/network/lib/network-paths";
-import { getApiBaseUrl } from "@/lib/api-env";
-import { imageCachePolicy } from "@/lib/image-cache";
-import { SHOWS_SCROLL_INDICATOR } from "@/lib/scroll-indicator";
-import { logWarn } from "@/lib/telemetry";
+import { imageCachePolicy } from "@/lib/cache/image-cache";
+import { SHOWS_SCROLL_INDICATOR } from "@/lib/layout/scroll-indicator";
+import { logWarn } from "@/lib/lifecycle/telemetry";
+import { getApiBaseUrl } from "@/lib/network/api-env";
 import { useAppTheme } from "@/theme";
 
 import { fetchPostDetail } from "../lib/post-api";

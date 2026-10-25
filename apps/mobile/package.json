@@ -1,17 +1,17 @@
 {
   "name": "@asocialmedia/mobile",
-  "version": "0.2.39",
+  "version": "0.2.40",
   "private": true,
   "main": "expo-router/entry",
   "scripts": {
-    "build:bundle": "bun scripts/build-android-apk.ts --bundle",
+    "build:bundle": "bun scripts/android/build-android-apk.ts --bundle",
     "start": "expo start -p 8082",
-    "build:apk": "bun scripts/build-android-apk.ts",
-    "reverse": "bun scripts/dev-android.ts --reverse-only",
-    "build:all": "bun scripts/build-android-apk.ts --all",
+    "build:apk": "bun scripts/android/build-android-apk.ts",
+    "reverse": "bun scripts/android/dev-android.ts --reverse-only",
+    "build:all": "bun scripts/android/build-android-apk.ts --all",
     "check-types": "tsc --noEmit && tsc --noEmit -p scripts/tsconfig.json",
     "start:go": "expo start -p 8082 --go",
-    "dev:android": "bun scripts/dev-android.ts",
+    "dev:android": "bun scripts/android/dev-android.ts",
     "web": "expo start --web -p 8082",
     "android": "expo start --android -p 8082",
     "ios": "expo start --ios -p 8082"

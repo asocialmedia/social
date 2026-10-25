@@ -27,9 +27,9 @@ import {
   SettingsButton,
   SettingsInput,
 } from "@/features/settings/components/settings-ui";
-import { PROD_API_URL } from "@/lib/api-base";
-import { getApiBaseUrl } from "@/lib/api-env";
-import { logWarn } from "@/lib/telemetry";
+import { logWarn } from "@/lib/lifecycle/telemetry";
+import { PROD_API_URL } from "@/lib/network/api-base";
+import { getApiBaseUrl } from "@/lib/network/api-env";
 import { useAppTheme } from "@/theme";
 
 import { fetchShareStats, submitShare } from "../lib/feed-api";

@@ -13,7 +13,7 @@ import {
   invalidateProtocolResources,
   useProtocolResource,
 } from "@/features/network/state/use-protocol-resource";
-import { formatNumber } from "@/lib/format-number";
+import { formatNumber } from "@/lib/format/format-number";
 import { useAppTheme } from "@/theme";
 
 const likeSchema = z.object({

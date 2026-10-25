@@ -10,8 +10,8 @@ import { appendNetworkQuery } from "@/features/network/lib/network-query";
 // web's hide/unhide server actions). Pure and injectable like feed-api:
 // cookie, apiBase and baseFetch come from the caller, so it unit-tests on
 // Bun without React Native.
-import { withAuthHeaders } from "@/lib/auth-headers";
-import { getWithTimeout } from "@/lib/http-get";
+import { withAuthHeaders } from "@/lib/network/auth-headers";
+import { getWithTimeout } from "@/lib/network/http-get";
 
 export type GustTab = "following" | "latest" | "personalized";
 

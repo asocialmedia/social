@@ -51,10 +51,10 @@ import { BioContent } from "@/features/home/components/bio-content";
 import { UserBadge } from "@/features/home/components/user-badge";
 import { applyCountDelta } from "@/features/post/lib/comment-count-deltas";
 import { usePostStream } from "@/features/post/lib/use-post-stream";
-import { getApiBaseUrl } from "@/lib/api-env";
-import { createExpoPoller } from "@/lib/expo-poller";
-import { imageCachePolicy } from "@/lib/image-cache";
-import { logError, logWarn } from "@/lib/telemetry";
+import { imageCachePolicy } from "@/lib/cache/image-cache";
+import { logError, logWarn } from "@/lib/lifecycle/telemetry";
+import { getApiBaseUrl } from "@/lib/network/api-env";
+import { createExpoPoller } from "@/lib/network/expo-poller";
 import { LOGIN_BUTTON_SHADOWS, useAppTheme } from "@/theme";
 
 import { subscribeEddieCreated } from "../lib/eddie-events";

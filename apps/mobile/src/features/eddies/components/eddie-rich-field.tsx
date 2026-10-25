@@ -11,7 +11,7 @@ import {
   applySuggestion,
 } from "@/features/composer/lib/inline-relations";
 import type { MentionPick } from "@/features/composer/lib/inline-relations";
-import { getApiBaseUrl } from "@/lib/api-env";
+import { getApiBaseUrl } from "@/lib/network/api-env";
 import { useAppTheme } from "@/theme";
 
 const NO_TAGS: readonly string[] = [];

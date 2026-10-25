@@ -11,8 +11,8 @@
 import Constants from "expo-constants";
 import { Platform } from "react-native";
 
-import { getApiBaseUrl } from "@/lib/api-env";
-import { logError } from "@/lib/telemetry";
+import { logError } from "@/lib/lifecycle/telemetry";
+import { getApiBaseUrl } from "@/lib/network/api-env";
 
 import { resolveGoogleWebClientId } from "./google-config";
 import { isGoogleConfigurationError } from "./google-errors";

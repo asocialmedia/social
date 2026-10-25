@@ -27,9 +27,9 @@ import { HttpError, withRetry } from "@/features/media-upload/lib/retry";
 import type { NetworkRequestContext } from "@/features/network/lib/network-query";
 import { useNetworkSettings } from "@/features/network/state/use-network-settings";
 import { useProtocolResource } from "@/features/network/state/use-protocol-resource";
-import { getApiBaseUrl } from "@/lib/api-env";
-import { createExpoPoller } from "@/lib/expo-poller";
-import { logInfo, logWarn } from "@/lib/telemetry";
+import { logInfo, logWarn } from "@/lib/lifecycle/telemetry";
+import { getApiBaseUrl } from "@/lib/network/api-env";
+import { createExpoPoller } from "@/lib/network/expo-poller";
 
 import {
   fetchGustsPage,

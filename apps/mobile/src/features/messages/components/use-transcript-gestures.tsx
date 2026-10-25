@@ -29,7 +29,7 @@ import {
 import type { MessageFrame } from "@/features/messages/lib/message-gestures";
 import type { TranscriptItem } from "@/features/messages/lib/transcript-rows";
 import type { MessageData } from "@/features/messages/lib/types";
-import { haptic } from "@/lib/haptics";
+import { haptic } from "@/lib/interaction/haptics";
 
 type CellProps = ComponentProps<
   NonNullable<FlatListProps<TranscriptItem>["CellRendererComponent"]>

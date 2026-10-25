@@ -14,8 +14,8 @@ import {
   normalizePostData,
   normalizePostsData,
 } from "@/features/feed/lib/feed-types";
-import { withAuthHeaders } from "@/lib/auth-headers";
-import { getWithTimeout } from "@/lib/http-get";
+import { withAuthHeaders } from "@/lib/network/auth-headers";
+import { getWithTimeout } from "@/lib/network/http-get";
 
 import type { ProfileViewTab } from "./profile-tab-memory";
 import type {

@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 
-import { RequestTimeoutError } from "@/lib/http-get";
+import { RequestTimeoutError } from "@/lib/network/http-get";
 
 import { HistoryThrottledError } from "./history-throttle";
 import { messageReadRetryDelay } from "./read-retry";

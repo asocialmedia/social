@@ -7,7 +7,7 @@ import { create } from "zustand";
 import { toast } from "@/components/feedback/toast";
 import { authClient } from "@/features/auth/lib/auth-client";
 import { useSessionContext } from "@/features/auth/state/session";
-import { getApiBaseUrl } from "@/lib/api-env";
+import { getApiBaseUrl } from "@/lib/network/api-env";
 
 const stateSchema = z.object({ following: z.boolean() });
 export const useExternalFollowRevision = create<{

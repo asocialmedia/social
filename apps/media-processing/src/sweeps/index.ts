@@ -25,8 +25,8 @@ import { Worker } from "bullmq";
 import {
   transcriptionComplete,
   rasterRetryEligible,
-} from "../analyze/checkpoints";
-import { SEMANTIC_CLASSIFICATION_VERSION } from "../analyze/semantic-version";
+} from "../analyze/state/checkpoints";
+import { SEMANTIC_CLASSIFICATION_VERSION } from "../analyze/state/semantic-version";
 import { resolveWorkerMediaLimits, workerEnv } from "../env";
 import { mediaLogger } from "../log";
 import { getS3 } from "../s3";

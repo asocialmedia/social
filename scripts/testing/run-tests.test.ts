@@ -313,4 +313,34 @@ describe("runTestSuite", () => {
     expect(invocations[0]?.cmd).toContain("--parallel=2");
     expect(invocations[0]?.cmd).not.toContain("--parallel=4");
   });
+
+  test("unit mode selects unit scope without probing integration services or forwarding the wrapper flag", async () => {
+    const { deps, invocations } = makeDeps({
+      allFiles: ["apps/web/b.test.ts"],
+    });
+    const collectFiles = mock(() => Promise.resolve(["apps/web/b.test.ts"]));
+    const probeService = mock(() => Promise.resolve(true));
+
+    await runTestSuite(["--unit", "--parallel=2"], {
+      ...deps,
+      collectFiles,
+      probeService,
+      env: { CUSTOM_TEST_ENV: "preserved" },
+    });
+
+    expect(collectFiles).toHaveBeenCalledWith("unit", sandbox);
+    expect(probeService).not.toHaveBeenCalled();
+    expect(invocations[0]?.cmd).not.toContain("--unit");
+    expect(invocations[0]?.cmd).toContain("--parallel=2");
+    expect(invocations[0]?.env.CUSTOM_TEST_ENV).toBe("preserved");
+  });
+
+  test("push checks can avoid rewriting the timing artifact", async () => {
+    const { deps, invocations } = makeDeps({
+      allFiles: ["apps/web/b.test.ts"],
+    });
+    await runTestSuite(["--unit"], { ...deps, recordTimings: false });
+    expect(invocations[0]?.cmd).not.toContain("--update-timings");
+    expect(invocations[0]?.cmd).not.toContain("--timings=test-timings.json");
+  });
 });

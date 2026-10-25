@@ -21,7 +21,7 @@ export default defineConfig({
       },
     },
     {
-      files: ["packages/auth/src/core/prisma-adapter.ts"],
+      files: ["packages/auth/src/core/configuration/prisma-adapter.ts"],
       rules: {
         "promise/prefer-await-to-callbacks": "off",
       },

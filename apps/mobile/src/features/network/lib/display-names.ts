@@ -1,6 +1,6 @@
 import "@formatjs/intl-displaynames/polyfill.js";
 import "@formatjs/intl-displaynames/locale-data/en.js";
-import { orderedCopy } from "@/lib/ordered-copy";
+import { orderedCopy } from "@/lib/format/ordered-copy";
 
 export function networkDisplayNames() {
   return {

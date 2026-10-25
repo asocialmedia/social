@@ -2,11 +2,11 @@ import { useIsFocused } from "expo-router";
 import { useState } from "react";
 
 import HomeScreen from "@/features/home/components/home-screen";
-import { shouldMountHome } from "@/lib/startup";
+import { shouldMountHome } from "@/lib/lifecycle/startup";
 import {
   useStartupPresented,
   useStartupResumePath,
-} from "@/lib/startup-context";
+} from "@/lib/lifecycle/startup-context";
 
 export default function IndexScreen() {
   const focused = useIsFocused();

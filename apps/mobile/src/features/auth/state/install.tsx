@@ -25,7 +25,7 @@ import {
   loadInstallToken,
   peekInstallToken,
   registerInstall,
-} from "@/lib/install-credentials";
+} from "@/lib/installation/install-credentials";
 
 export type InstallStatus =
   | "loading"

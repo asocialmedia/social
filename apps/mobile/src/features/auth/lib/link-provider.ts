@@ -2,7 +2,7 @@ import { hasLinkedProvider } from "@asm/auth/validation";
 import * as Linking from "expo-linking";
 import * as WebBrowser from "expo-web-browser";
 
-import { getApiBaseUrl, getAuthBaseUrl } from "@/lib/api-env";
+import { getApiBaseUrl, getAuthBaseUrl } from "@/lib/network/api-env";
 
 import { authClient, persistBrowserSessionCookie } from "./auth-client";
 import { authorizationProxyUrl, runBrowserOAuth } from "./browser-oauth";

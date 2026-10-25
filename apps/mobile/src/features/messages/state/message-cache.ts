@@ -52,7 +52,7 @@ function schedulePersist(): void {
     };
     void (async () => {
       try {
-        const { writeSnapshot } = await import("@/lib/persistent-file");
+        const { writeSnapshot } = await import("@/lib/cache/persistent-file");
         if (revision !== generation) {
           return;
         }
@@ -97,7 +97,7 @@ export function hydrateMessageCache(
   const revision = generation;
   hydration = (async () => {
     try {
-      const { readSnapshot } = await import("@/lib/persistent-file");
+      const { readSnapshot } = await import("@/lib/cache/persistent-file");
       const snapshot = await readSnapshot<CiphertextCache>(cacheName(owner));
       const entry = snapshot.entries.messages;
       const data = entry?.data;

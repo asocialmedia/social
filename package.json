@@ -1,6 +1,6 @@
 {
   "name": "@asocialmedia/social",
-  "version": "1.13.14",
+  "version": "1.13.15",
   "private": true,
   "homepage": "https://asocialmedia.cc",
   "license": "AGPL-3.0",
@@ -14,7 +14,6 @@
     "db:migrate": "bun run --filter=@asm/db db:migrate",
     "postinstall": "bun run db:gen",
     "bench:search": "bun scripts/bench-index-against-seed.ts",
-    "test:recommendation:integration": "bun test --env-file=.env.test ./packages/db/src/recommendation/feed-service.integration.test.ts",
     "seed:dev:dry": "bun scripts/development/seed-dev-content.ts --dry-run",
     "mob:emu": "bun scripts/development/run-emulator.ts",
     "dep:check": "bunx sherif -f",
@@ -31,7 +30,7 @@
     "db:up": "bun run db:gen && bun run --cwd packages/db --env-file=../../.env.test prisma db update",
     "seed:dev": "bun scripts/development/seed-dev-content.ts --fresh",
     "docker:dev": "bun scripts/development/dev-init.ts",
-    "apk": "bun apps/mobile/scripts/build-android-apk.ts",
+    "apk": "bun apps/mobile/scripts/android/build-android-apk.ts",
     "predev": "bun scripts/development/dev-preflight.ts",
     "db:gen": "bun run --cwd packages/db prisma skills sync && bun run --cwd packages/db prisma contract emit"
   },

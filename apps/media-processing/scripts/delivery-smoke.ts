@@ -16,7 +16,7 @@ if (
 const { prisma, closePrisma, closeQueueConnections } = await import("@asm/db");
 const { MEDIA_PIPELINE_VERSION } = await import("@asm/media");
 const { default: sharp } = await import("sharp");
-const { processMedia } = await import("../src/jobs/process");
+const { processMedia } = await import("../src/jobs/processing/process");
 const { getS3 } = await import("../src/s3");
 const { runFfmpeg, probeMedia } = await import("../src/transcode/ffmpeg");
 const artifactDir =
