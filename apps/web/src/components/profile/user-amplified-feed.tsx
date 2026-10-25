@@ -12,15 +12,19 @@ import InfiniteScrollContainer from "@/components/layouts/feed/infinite-scroll-c
 import FeedViewSkeleton from "@/components/layouts/skeletons/feed-view-skeleton";
 import kyInstance from "@/lib/ky";
 import { FEED_CACHE_RETENTION_MS } from "@/lib/posts/feed-cache";
+import { profileActivityOrder } from "@/lib/posts/profile-activity-order";
 
 import EmptyFeedState from "./empty-feed-state";
+import { ExternalActivityCard } from "./external-activity-card";
 import FeedCaughtUp from "./feed-caught-up";
+import { useExternalProfileActivity } from "./use-external-profile-activity";
 
 interface UserAmplifiedFeedProps {
   userId: string;
 }
 
 const UserAmplifiedFeed: React.FC<UserAmplifiedFeedProps> = ({ userId }) => {
+  const external = useExternalProfileActivity(userId, "amplified");
   const {
     data,
     fetchNextPage,
@@ -50,17 +54,36 @@ const UserAmplifiedFeed: React.FC<UserAmplifiedFeedProps> = ({ userId }) => {
     [data?.pages]
   );
 
+  const activity = profileActivityOrder([
+    ...posts.map((post) => ({
+      at: String("amplifiedAt" in post ? post.amplifiedAt : post.createdAt),
+      id: post.id,
+      post,
+      type: "native" as const,
+    })),
+    ...(external.data?.pages.flatMap((page) => page.items) ?? []).map(
+      (item) => ({
+        at: item.createdAt,
+        id: item.id,
+        item,
+        type: "external" as const,
+      })
+    ),
+  ]);
   const handleBottomReached = useCallback(() => {
+    if (external.hasNextPage && !external.isFetching) {
+      void external.fetchNextPage();
+    }
     if (hasNextPage && !isFetching) {
       fetchNextPage();
     }
-  }, [hasNextPage, isFetching, fetchNextPage]);
+  }, [hasNextPage, isFetching, fetchNextPage, external]);
 
-  if (status === "pending") {
+  if (status === "pending" && !activity.length) {
     return <FeedViewSkeleton />;
   }
 
-  if (status === "error") {
+  if (status === "error" && !activity.length) {
     return (
       <p className="text-destructive text-center">
         An error occurred while loading amplified posts.
@@ -68,7 +91,12 @@ const UserAmplifiedFeed: React.FC<UserAmplifiedFeedProps> = ({ userId }) => {
     );
   }
 
-  if (status === "success" && !posts.length) {
+  if (
+    status === "success" &&
+    !external.isPending &&
+    !external.isError &&
+    !activity.length
+  ) {
     return (
       <EmptyFeedState
         description="Posts this profile has amplified will show up here."
@@ -79,22 +107,47 @@ const UserAmplifiedFeed: React.FC<UserAmplifiedFeedProps> = ({ userId }) => {
 
   return (
     <InfiniteScrollContainer onBottomReached={handleBottomReached}>
-      {posts.map((post, index) => (
-        <React.Fragment key={post.id}>
-          {index > 0 && <Separator className="bg-border/60" />}
-          {post.isGust ? (
-            <GustRowCard post={post} />
-          ) : (
-            <PostCard isJoined post={post} />
-          )}
-        </React.Fragment>
-      ))}
-      {isFetchingNextPage ? (
+      {activity.map((entry, index) => {
+        let card;
+        if (entry.type === "external") {
+          card = <ExternalActivityCard item={entry.item} />;
+        } else if (entry.post.isGust) {
+          card = <GustRowCard post={entry.post} />;
+        } else {
+          card = <PostCard isJoined post={entry.post} />;
+        }
+        return (
+          <React.Fragment key={`${entry.type}:${entry.id}`}>
+            {index > 0 && <Separator className="bg-border/60" />}
+            {card}
+          </React.Fragment>
+        );
+      })}
+      {external.isError ? (
+        <p className="text-destructive p-4 text-center text-sm">
+          Couldn’t load Bluesky amplifications.{" "}
+          <button
+            type="button"
+            onClick={() => {
+              void external.refetch();
+            }}
+          >
+            Try again
+          </button>
+        </p>
+      ) : null}
+      {isFetchingNextPage ||
+      external.isPending ||
+      external.isFetchingNextPage ? (
         <div className="flex justify-center py-4">
           <Loader2 className="text-primary animate-spin" />
         </div>
       ) : null}
-      {!hasNextPage && posts.length > 0 ? (
+      {!hasNextPage &&
+      !external.hasNextPage &&
+      !external.isPending &&
+      !external.isError &&
+      activity.length > 0 ? (
         <FeedCaughtUp note="You've seen every amplified post from this profile." />
       ) : null}
     </InfiniteScrollContainer>

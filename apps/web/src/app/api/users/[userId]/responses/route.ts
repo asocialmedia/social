@@ -1,5 +1,6 @@
 import {
   and,
+  or,
   communityVisibilityWhere,
   getPostDataQuery,
   hydrateViewCounts,
@@ -31,13 +32,13 @@ export async function GET(
   let query = getPostDataQuery(prisma.orm, viewerId)
     .where((post) =>
       and(
-        post.rootPostId.isNotNull(),
+        or(post.rootPostId.isNotNull(), post.externalParentId.isNotNull()),
         post.userId.eq(userId),
         communityVisibilityWhere(viewerId)(post),
         post.moderated.eq(false)
       )
     )
-    .orderBy((post) => post.createdAt.desc());
+    .orderBy([(post) => post.createdAt.desc(), (post) => post.id.desc()]);
   if (cursor) {
     // Prisma 8 cursors are keyset seeks built from the values passed in, so
     // every orderBy column needs one: the anchor's createdAt is read back here

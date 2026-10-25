@@ -1,8 +1,10 @@
 import {
   and,
+  communityVisibilityWhere,
   getPostDataQuery,
   hydrateViewCounts,
   mapPostData,
+  fromPrismaDateTime,
   prisma,
 } from "@asm/db";
 import type { PostsPage } from "@asm/db";
@@ -56,7 +58,13 @@ export async function GET(
   }
 
   const postRows = await getPostDataQuery(prisma.orm, user.id)
-    .where((post) => post.id.in(pageVotes.map((vote) => vote.postId)))
+    .where((post) =>
+      and(
+        post.id.in(pageVotes.map((vote) => vote.postId)),
+        communityVisibilityWhere(user.id)(post),
+        post.moderated.eq(false)
+      )
+    )
     .all();
   const posts = postRows.map(mapPostData);
 
@@ -66,7 +74,14 @@ export async function GET(
     .map((vote) => postById.get(vote.postId))
     .filter((post) => post !== undefined);
 
-  const hydrated = await hydrateViewCounts(orderedPosts);
+  const withViewCounts = await hydrateViewCounts(orderedPosts);
+  const hydrated = withViewCounts.map((post) => ({
+    ...post,
+    amplifiedAt: fromPrismaDateTime(
+      pageVotes.find((vote) => vote.postId === post.id)?.createdAt ??
+        post.createdAt
+    ).toISOString(),
+  }));
   const data: PostsPage = {
     nextCursor,
     posts: hydrated,

@@ -157,8 +157,25 @@ async function readNetworkNativeFeed(
     const context = await timing.measure("features", () =>
       networkFeedContext(userId || undefined, query.get("profile") ?? undefined)
     );
-    // An empty `?cursor=` is a malformed continuation, not a fresh head: treating
-    // the key's presence as a cursor silently restarted the feed instead of 410ing.
+    // A freshness probe must observe new arrivals instead of replaying a cached head.
+    if (
+      mode === "latest" &&
+      query.get("refresh") === "1" &&
+      !query.has("cursor")
+    ) {
+      return timing.finish(
+        await buildNetworkNativeFeed(
+          request,
+          userId,
+          mode,
+          contentKind,
+          context,
+          timing
+        ),
+        "native"
+      );
+    }
+    // Empty cursor keys are malformed continuations and must not restart the feed.
     const cursorParam = query.get("cursor");
     if (cursorParam !== null) {
       if (cursorParam === "") {
@@ -191,7 +208,7 @@ async function readNetworkNativeFeed(
     const version = userId
       ? await redis.get(`rec:suggestions:version:${userId}`).catch(() => null)
       : "guest";
-    const key = `rec:native-head:v7:{${createHash("sha256")
+    const key = `rec:native-head:v8:{${createHash("sha256")
       .update(
         JSON.stringify([
           userId,
@@ -203,6 +220,7 @@ async function readNetworkNativeFeed(
           query.get("surface"),
           query.get("take"),
           query.get("locale"),
+          query.get("source"),
           servedCount,
         ])
       )
@@ -272,8 +290,12 @@ async function buildNetworkNativeFeed(
     context.preferences.avoidedTopics,
     context.topicScope
   );
-  const maximumLevel = context.selected.interests.length ? 1 : 2;
-  const scope = `v12:${exploring ? "explore" : "home"}:${userId || "guest"}:${context.selected.id}:${context.revision}:${context.topicScope?.version ?? "exact"}:${mode}:${contentKind}`;
+  const focused = mode !== "latest" && query.get("source") !== "asm";
+  let maximumLevel = 0;
+  if (focused) {
+    maximumLevel = context.selected.interests.length ? 1 : 2;
+  }
+  const scope = `v13:${focused ? "focused" : "native"}:${exploring ? "explore" : "home"}:${userId || "guest"}:${context.selected.id}:${context.revision}:${context.topicScope?.version ?? "exact"}:${mode}:${contentKind}`;
   const coldStart = isDiscoveryColdStart(
     context.selected.interests,
     context.profile,
@@ -342,7 +364,9 @@ async function buildNetworkNativeFeed(
   // Only a fresh head asks what this viewer already saw; a continuation page
   // belongs to the same snapshot and must not shift under the reader.
   const served =
-    buildBatch && !cursor ? await readServedIds(userId, servedFeed) : [];
+    buildBatch && !cursor && mode !== "latest"
+      ? await readServedIds(userId, servedFeed)
+      : [];
   // Ranking re-sorts by score, which would discard the retrieval query's
   // served-last ordering. Demote seen ids in the score instead so a refresh
   // reaches new posts while a thin pool still fills the page.
@@ -360,6 +384,9 @@ async function buildNetworkNativeFeed(
           ]),
         ].slice(0, 40);
     let seeds = exploring ? neighboringTopics : focusedSeeds;
+    if (!focused) {
+      seeds = [];
+    }
     if (level === 1) {
       seeds = [
         ...new Set(
@@ -377,7 +404,11 @@ async function buildNetworkNativeFeed(
         ? Promise.resolve({ rows: [] as { id: string }[] })
         : nativeCandidateIds({
             anchor,
-            continuation: Boolean(cursor) || candidateOffset > 0 || level > 0,
+            continuation:
+              query.get("refresh") === "1" ||
+              Boolean(cursor) ||
+              candidateOffset > 0 ||
+              level > 0,
             explicit: context.preferences.showExplicitContent,
             gust: contentKind === "gust",
             mode,
@@ -386,7 +417,7 @@ async function buildNetworkNativeFeed(
             served,
             signal: request.signal,
           }),
-      (!exploring && context.selected.interests.length) || level > 0
+      (!exploring && context.selected.interests.length) || !focused || level > 0
         ? Promise.resolve({ rows: [] })
         : rawQuery<{ id: string }>(
             networkSql.pagedCandidates,
@@ -460,10 +491,10 @@ async function buildNetworkNativeFeed(
             // A banned author's content is removed everywhere else in the app;
             // a feed that still ranks it is a moderation hole, not a preference.
             post.user.some((author) => author.banned.eq(false)),
-            // A reader's own posts belong on their profile and the Latest feed,
-            // not competing with discovery in For You. The archive path already
-            // excludes self, and the two surfaces must agree.
-            ...(userId && mode !== "latest" ? [post.userId.neq(userId)] : []),
+            // Ranked discovery excludes self; explicit native browsing and Latest include the reader's posts.
+            ...(userId && mode !== "latest" && focused
+              ? [post.userId.neq(userId)]
+              : []),
             visibility(post),
             // Membership grants access on its own: a reader who joined a PRIVATE
             // community without also subscribing is still a member, and the
@@ -495,7 +526,10 @@ async function buildNetworkNativeFeed(
         ? isTrendingPost(post)
         : // Cold start means no persona to personalise with, not "only the hot
           // list": a stored positive aura is enough proof of quality there.
-          !coldStart || isGuestQualityPost(post) || socialById.has(post.id)
+          !focused ||
+          !coldStart ||
+          isGuestQualityPost(post) ||
+          socialById.has(post.id)
     )
     .filter(
       (post) =>
@@ -509,7 +543,8 @@ async function buildNetworkNativeFeed(
         // seed set decides what to retrieve, never whether a post the reader
         // explicitly excluded may appear. Explore differs from Home through its
         // surface-scoped served history, not by dropping this gate.
-        (!context.selected.interests.length ||
+        (!focused ||
+          !context.selected.interests.length ||
           postNetworkInterestScore(
             post,
             context.selected.interests,
@@ -605,11 +640,7 @@ async function buildNetworkNativeFeed(
         semanticTags: topics,
       };
     });
-    const hasInterests = Object.keys(context.profile.tagWeights).length > 0;
-    const eligiblePool =
-      mode === "latest" && hasInterests && level === 0
-        ? enriched.filter((item) => item.fit > 0)
-        : enriched;
+    const eligiblePool = enriched;
     eligiblePool.sort((a, b) =>
       mode === "latest"
         ? b.post.createdAt.getTime() - a.post.createdAt.getTime() ||

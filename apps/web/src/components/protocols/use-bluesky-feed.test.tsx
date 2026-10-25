@@ -13,7 +13,9 @@ const headReads: {
   profile?: string;
   refresh?: boolean;
 }[] = [];
-let probe: { fetchHead: (signal: AbortSignal) => Promise<unknown> } | undefined;
+let probe:
+  | { fetchHead: (signal: AbortSignal) => Promise<unknown>; intervalMs: number }
+  | undefined;
 const actual = await import("@asm/protocols/discovery");
 mock.module("@asm/protocols/discovery", () => ({
   ...actual,
@@ -87,6 +89,7 @@ function Feed({
   return null;
 }
 test.each([
+  { expected: "latest", following: false, mode: "latest" as const },
   { expected: "latest", following: false, mode: "personalized" as const },
   { expected: "trending", following: false, mode: "trending" as const },
   { expected: "personalized", following: true, mode: "personalized" as const },
@@ -107,6 +110,9 @@ test.each([
       if (!probe) {
         throw new Error("Expected a head probe");
       }
+      expect(probe.intervalMs).toBe(
+        following || mode === "latest" ? 20_000 : 180_000
+      );
       await probe.fetchHead(new AbortController().signal);
       expect(headReads.at(-1)).toMatchObject({
         mode: expected,

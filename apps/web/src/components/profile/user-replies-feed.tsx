@@ -21,12 +21,15 @@ import { isInteractiveTarget } from "@/lib/interactive-target";
 import kyInstance from "@/lib/ky";
 import { isPopupOpen } from "@/lib/popup-tracker";
 import { FEED_CACHE_RETENTION_MS } from "@/lib/posts/feed-cache";
+import { profileActivityOrder } from "@/lib/posts/profile-activity-order";
 import { getPostPath } from "@/lib/seo/seo";
 import { cn, formatRelativeDate } from "@/lib/utils";
 import { withViewTransition } from "@/lib/view-transition";
 
 import EmptyFeedState from "./empty-feed-state";
+import { ExternalActivityCard } from "./external-activity-card";
 import FeedCaughtUp from "./feed-caught-up";
+import { useExternalProfileActivity } from "./use-external-profile-activity";
 
 interface UserRepliesFeedProps {
   userId: string;
@@ -95,6 +98,7 @@ function ReplyContentLink({
 
 const UserRepliesFeed: React.FC<UserRepliesFeedProps> = ({ userId }) => {
   const { user: sessionUser } = useSession();
+  const external = useExternalProfileActivity(userId, "eddies");
   const [deletedIds, setDeletedIds] = useState<Set<string>>(() => new Set());
 
   const {
@@ -131,21 +135,40 @@ const UserRepliesFeed: React.FC<UserRepliesFeedProps> = ({ userId }) => {
     [deletedIds, replies]
   );
 
+  const activity = profileActivityOrder([
+    ...visibleReplies.map((reply) => ({
+      at: String(reply.createdAt),
+      id: reply.id,
+      reply,
+      type: "native" as const,
+    })),
+    ...(external.data?.pages.flatMap((page) => page.items) ?? []).map(
+      (item) => ({
+        at: item.createdAt,
+        id: item.id,
+        item,
+        type: "external" as const,
+      })
+    ),
+  ]);
   const handleBottomReached = useCallback(() => {
+    if (external.hasNextPage && !external.isFetching) {
+      void external.fetchNextPage();
+    }
     if (hasNextPage && !isFetching) {
       fetchNextPage();
     }
-  }, [hasNextPage, isFetching, fetchNextPage]);
+  }, [hasNextPage, isFetching, fetchNextPage, external]);
 
   const handleReplyDeleted = useCallback((deleted: CommentData) => {
     setDeletedIds((prev) => new Set([...prev, deleted.id]));
   }, []);
 
-  if (status === "pending") {
+  if (status === "pending" && !activity.length) {
     return <CommentsSkeleton />;
   }
 
-  if (status === "error") {
+  if (status === "error" && !activity.length) {
     return (
       <p className="text-destructive text-center">
         An error occurred while loading replies.
@@ -153,7 +176,12 @@ const UserRepliesFeed: React.FC<UserRepliesFeedProps> = ({ userId }) => {
     );
   }
 
-  if (status === "success" && !visibleReplies.length) {
+  if (
+    status === "success" &&
+    !external.isPending &&
+    !external.isError &&
+    !activity.length
+  ) {
     return (
       <EmptyFeedState
         description="When this profile replies to a post, the replies will show up here."
@@ -164,7 +192,16 @@ const UserRepliesFeed: React.FC<UserRepliesFeedProps> = ({ userId }) => {
 
   return (
     <InfiniteScrollContainer onBottomReached={handleBottomReached}>
-      {visibleReplies.map((reply) => {
+      {activity.map((entry) => {
+        if (entry.type === "external") {
+          return (
+            <ExternalActivityCard
+              key={`external:${entry.id}`}
+              item={entry.item}
+            />
+          );
+        }
+        const { reply } = entry;
         const basePath = getPostPath(reply.post);
         const postHref = `${basePath}${basePath.includes("?") ? "&" : "?"}comment=${reply.id}`;
         const repliedToUsername =
@@ -286,12 +323,31 @@ const UserRepliesFeed: React.FC<UserRepliesFeedProps> = ({ userId }) => {
           </div>
         );
       })}
-      {isFetchingNextPage ? (
+      {external.isError ? (
+        <p className="text-destructive p-4 text-center text-sm">
+          Couldn’t load Bluesky eddies.{" "}
+          <button
+            type="button"
+            onClick={() => {
+              void external.refetch();
+            }}
+          >
+            Try again
+          </button>
+        </p>
+      ) : null}
+      {isFetchingNextPage ||
+      external.isPending ||
+      external.isFetchingNextPage ? (
         <div className="flex justify-center py-4">
           <Loader2 className="text-primary animate-spin" />
         </div>
       ) : null}
-      {!hasNextPage && visibleReplies.length > 0 ? (
+      {!hasNextPage &&
+      !external.hasNextPage &&
+      !external.isPending &&
+      !external.isError &&
+      activity.length > 0 ? (
         <FeedCaughtUp note="You've seen every reply from this profile." />
       ) : null}
     </InfiniteScrollContainer>
