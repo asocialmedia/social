@@ -61,12 +61,12 @@ import { useVideoCaptionsStore } from "@/features/feed/state/video-captions-stor
 import { networkRequest } from "@/features/network/lib/network-api";
 import { trackNetworkObservation } from "@/features/network/lib/network-learning";
 import { externalShareUrl } from "@/features/network/lib/network-paths";
-import { PROD_API_URL } from "@/lib/api-base";
-import { getApiBaseUrl } from "@/lib/api-env";
-import { haptic } from "@/lib/haptics";
-import type { ViewToken } from "@/lib/list-virtualization";
-import { SHOWS_SCROLL_INDICATOR } from "@/lib/scroll-indicator";
-import { logInfo, logWarn } from "@/lib/telemetry";
+import { haptic } from "@/lib/interaction/haptics";
+import type { ViewToken } from "@/lib/layout/list-virtualization";
+import { SHOWS_SCROLL_INDICATOR } from "@/lib/layout/scroll-indicator";
+import { logInfo, logWarn } from "@/lib/lifecycle/telemetry";
+import { PROD_API_URL } from "@/lib/network/api-base";
+import { getApiBaseUrl } from "@/lib/network/api-env";
 import { useAppTheme } from "@/theme";
 
 import {

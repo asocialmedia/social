@@ -279,7 +279,7 @@ let persistTimer: ReturnType<typeof setTimeout> | null = null;
 export function hydratePopupCache(): Promise<void> {
   hydration ??= (async () => {
     try {
-      const { readSnapshot } = await import("@/lib/persistent-file");
+      const { readSnapshot } = await import("@/lib/cache/persistent-file");
       const snapshot = await readSnapshot<PopupCacheSnapshot>(POPUP_CACHE_NAME);
       const cached = snapshot.entries["popup"]?.data;
       if (cached && typeof cached === "object") {
@@ -301,7 +301,7 @@ function schedulePopupPersist(): void {
     void (async () => {
       try {
         await hydratePopupCache();
-        const { writeSnapshot } = await import("@/lib/persistent-file");
+        const { writeSnapshot } = await import("@/lib/cache/persistent-file");
         await writeSnapshot(POPUP_CACHE_NAME, {
           entries: {
             popup: { data: popupCache.snapshot(), fetchedAt: Date.now() },

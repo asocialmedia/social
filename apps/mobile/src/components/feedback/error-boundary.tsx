@@ -12,7 +12,7 @@ import { Component } from "react";
 import type { ErrorInfo, ReactNode } from "react";
 
 import errorImage from "@/assets/images/error.png";
-import { logError } from "@/lib/telemetry";
+import { logError } from "@/lib/lifecycle/telemetry";
 
 import { StatusActionButton } from "./status-action-button";
 import { StatusScreen } from "./status-screen";

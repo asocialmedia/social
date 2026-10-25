@@ -30,7 +30,7 @@ import type { RowHandlers } from "@/features/eddies/components/eddie-thread";
 import { buildEddieTree } from "@/features/eddies/lib/eddie-tree";
 import type { FeedComment } from "@/features/feed/lib/feed-api";
 import { PostDetailHeader } from "@/features/post/components/post-detail-header";
-import { getApiBaseUrl } from "@/lib/api-env";
+import { getApiBaseUrl } from "@/lib/network/api-env";
 import { useAppTheme } from "@/theme";
 
 import { cachedExternalPost } from "../lib/external-cache";

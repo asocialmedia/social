@@ -1,4 +1,4 @@
-import { evaluateSwiftformer } from "../src/analyze/swiftformer";
+import { evaluateSwiftformer } from "../src/analyze/classification/swiftformer";
 
 const [imagePath] = process.argv.slice(2);
 if (!imagePath) {

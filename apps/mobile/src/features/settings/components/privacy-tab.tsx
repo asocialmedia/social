@@ -19,8 +19,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { toast } from "@/components/feedback/toast";
 import { authClient } from "@/features/auth/lib/auth-client";
 import { useInstall } from "@/features/auth/state/install";
-import { getApiBaseUrl } from "@/lib/api-env";
-import { SHOWS_SCROLL_INDICATOR } from "@/lib/scroll-indicator";
+import { SHOWS_SCROLL_INDICATOR } from "@/lib/layout/scroll-indicator";
+import { getApiBaseUrl } from "@/lib/network/api-env";
 import { useAppTheme } from "@/theme";
 
 import { fetchGroupAddSetting, setGroupAddPolicy } from "../lib/settings-api";

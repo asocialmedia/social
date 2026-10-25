@@ -42,7 +42,7 @@ import { messageDecryptor } from "@/features/messages/lib/decryptor";
 import { bootstrapMessageIdentity } from "@/features/messages/lib/identity-bootstrap";
 import { messageReadRetryDelay } from "@/features/messages/lib/read-retry";
 import { secureMessageKeyStore } from "@/features/messages/lib/secure-key-store";
-import { getApiBaseUrl } from "@/lib/api-env";
+import { getApiBaseUrl } from "@/lib/network/api-env";
 
 import { configureNativeMessageCrypto } from "./native-message-crypto";
 

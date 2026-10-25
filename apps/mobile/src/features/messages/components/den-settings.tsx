@@ -20,7 +20,7 @@ import {
   pickProfileImage,
   stabilizePickedImage,
 } from "@/features/profile/lib/profile-media";
-import { getApiBaseUrl } from "@/lib/api-env";
+import { getApiBaseUrl } from "@/lib/network/api-env";
 import { useAppTheme } from "@/theme";
 
 export function DenSettings({

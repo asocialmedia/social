@@ -2,8 +2,8 @@
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 
 import { authClient } from "@/features/auth/lib/auth-client";
-import { getApiBaseUrl } from "@/lib/api-env";
-import { logWarn } from "@/lib/telemetry";
+import { logWarn } from "@/lib/lifecycle/telemetry";
+import { getApiBaseUrl } from "@/lib/network/api-env";
 
 import {
   hydratePopupCache,

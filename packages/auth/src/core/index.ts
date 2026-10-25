@@ -6,15 +6,18 @@ export {
   type EmailService,
   resolveAuthBaseUrl,
   type SocialProvidersConfig,
-} from "./config";
-export * from "./hybrid-session-store";
-export * from "./jwt";
-export * from "./middleware";
-export { assertPasswordNotPwned, PasswordSafetyError } from "./password-breach";
+} from "./configuration/config";
+export * from "./session/hybrid-session-store";
+export * from "./session/jwt";
+export * from "./session/middleware";
+export {
+  assertPasswordNotPwned,
+  PasswordSafetyError,
+} from "./security/password-breach";
 export {
   hashPasswordWithScrypt,
   verifyPasswordHash,
   verifyPasswordWithScrypt,
-} from "./password";
+} from "./security/password";
 export * from "./types";
-export * from "./account-resolution-state";
+export * from "./accounts/account-resolution-state";

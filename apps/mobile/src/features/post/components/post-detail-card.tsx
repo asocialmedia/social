@@ -57,8 +57,8 @@ import {
   subscribeCountDeltas,
   withCountDelta,
 } from "@/features/post/lib/comment-count-deltas";
-import { getApiBaseUrl } from "@/lib/api-env";
-import { imageCachePolicy } from "@/lib/image-cache";
+import { imageCachePolicy } from "@/lib/cache/image-cache";
+import { getApiBaseUrl } from "@/lib/network/api-env";
 import {
   AVATAR_RING_SHADOWS,
   AVATAR_RING_SHADOWS_DARK,

@@ -53,10 +53,10 @@ import {
 import { nativeNotificationAction } from "@/features/notifications/lib/notification-target";
 import { unreadCountStore } from "@/features/notifications/state/unread-store";
 import { useUnreadNotificationCount } from "@/features/notifications/state/use-unread-count";
-import { getApiBaseUrl } from "@/lib/api-env";
-import { LIST_VIRTUALIZATION_PROPS } from "@/lib/list-virtualization";
-import { SHOWS_SCROLL_INDICATOR } from "@/lib/scroll-indicator";
-import { logWarn } from "@/lib/telemetry";
+import { LIST_VIRTUALIZATION_PROPS } from "@/lib/layout/list-virtualization";
+import { SHOWS_SCROLL_INDICATOR } from "@/lib/layout/scroll-indicator";
+import { logWarn } from "@/lib/lifecycle/telemetry";
+import { getApiBaseUrl } from "@/lib/network/api-env";
 import { useAppTheme } from "@/theme";
 
 import type {

@@ -1,8 +1,8 @@
 import type { ApiCallOptions } from "@/features/feed/lib/feed-api";
 import type { FeedPost } from "@/features/feed/lib/feed-types";
 import { normalizePostsData } from "@/features/feed/lib/feed-types";
-import { withAuthHeaders } from "@/lib/auth-headers";
-import { getWithTimeout } from "@/lib/http-get";
+import { withAuthHeaders } from "@/lib/network/auth-headers";
+import { getWithTimeout } from "@/lib/network/http-get";
 
 export { COMMUNITY_DISCOVERY_CATEGORIES } from "@asm/db/communities";
 

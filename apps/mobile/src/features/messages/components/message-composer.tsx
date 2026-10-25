@@ -60,8 +60,8 @@ import {
 } from "@/features/messages/lib/message-recipes";
 import { useMessagesForeground } from "@/features/messages/state/use-messages-foreground";
 import { useProfileMediaCropper } from "@/features/profile/components/profile-media-cropper";
-import { getApiBaseUrl } from "@/lib/api-env";
-import { logWarn } from "@/lib/telemetry";
+import { logWarn } from "@/lib/lifecycle/telemetry";
+import { getApiBaseUrl } from "@/lib/network/api-env";
 import { useAppTheme } from "@/theme";
 
 import { useSharedPostDraft } from "../state/shared-post-draft";

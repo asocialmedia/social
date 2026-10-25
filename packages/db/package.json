@@ -24,8 +24,8 @@
       "default": "./src/communities/shared.ts"
     },
     "./recommendation/trending-snapshot": {
-      "types": "./src/recommendation/trending-snapshot.ts",
-      "default": "./src/recommendation/trending-snapshot.ts"
+      "types": "./src/recommendation/trending/trending-snapshot.ts",
+      "default": "./src/recommendation/trending/trending-snapshot.ts"
     }
   },
   "scripts": {

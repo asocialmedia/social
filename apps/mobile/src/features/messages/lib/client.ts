@@ -16,9 +16,9 @@
 //   and the composer calls the native uploader with `purpose: "message"`.
 
 import type { ApiCallOptions } from "@/features/feed/lib/feed-api";
-import { withAuthHeaders } from "@/lib/auth-headers";
-import { getWithTimeout } from "@/lib/http-get";
-import { orderedCopy } from "@/lib/ordered-copy";
+import { orderedCopy } from "@/lib/format/ordered-copy";
+import { withAuthHeaders } from "@/lib/network/auth-headers";
+import { getWithTimeout } from "@/lib/network/http-get";
 
 import {
   encryptMessage,

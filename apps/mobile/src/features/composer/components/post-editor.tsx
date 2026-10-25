@@ -66,7 +66,7 @@ import {
 } from "@/features/media-upload/state/attachment-store";
 import type { PickedMedia } from "@/features/media-upload/state/attachment-store";
 import { useProfileMediaCropper } from "@/features/profile/components/profile-media-cropper";
-import { getApiBaseUrl } from "@/lib/api-env";
+import { getApiBaseUrl } from "@/lib/network/api-env";
 import {
   LOGIN_BUTTON_PRESSED_SHADOWS,
   LOGIN_BUTTON_PRESSED_SHADOWS_LIGHT,

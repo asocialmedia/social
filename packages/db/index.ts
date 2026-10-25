@@ -186,24 +186,24 @@ export * from "./src/rate-limit";
 export * from "./src/redis";
 export * from "./src/session-limit";
 export * from "./src/users/profile-media";
-export * from "./src/recommendation/feed-service";
-export * from "./src/recommendation/profile";
-export * from "./src/recommendation/knowledge-graph";
-export * from "./src/recommendation/rank-feed";
-export * from "./src/recommendation/score-candidate";
-export * from "./src/recommendation/network-persona";
-export * from "./src/recommendation/network-topics";
-export * from "./src/recommendation/network-social";
-export * from "./src/recommendation/network-features";
+export * from "./src/recommendation/feed/feed-service";
+export * from "./src/recommendation/persona/profile";
+export * from "./src/recommendation/topics/knowledge-graph";
+export * from "./src/recommendation/ranking/rank-feed";
+export * from "./src/recommendation/ranking/score-candidate";
+export * from "./src/recommendation/persona/network-persona";
+export * from "./src/recommendation/topics/network-topics";
+export * from "./src/recommendation/persona/network-social";
+export * from "./src/recommendation/persona/network-features";
 export { rawQuery } from "./src/messages/infrastructure/raw-sql";
-export * from "./src/recommendation/vector";
+export * from "./src/recommendation/semantic/vector";
 export * from "./src/users/reserved-usernames";
 export * from "./src/users/username-aliases";
 export * from "./src/users/account-resolution-state";
 export * from "./src/users/account-resolution";
 export * from "./src/search";
 export * from "./src/storage";
-export * from "./src/recommendation/trending-score";
+export * from "./src/recommendation/trending/trending-score";
 export * from "./src/notifications";
 export * from "./src/posts/ancestors";
 export * from "./src/posts/visible";
@@ -213,13 +213,13 @@ export type { MessageSearchEpochProof } from "./src/messages/epochs/epoch-readab
 
 export * from "./src/media-analysis";
 
-export * from "./src/recommendation/semantic-index";
+export * from "./src/recommendation/semantic/semantic-index";
 
-export * from "./src/recommendation/shared-topic-graph";
+export * from "./src/recommendation/topics/shared-topic-graph";
 
-export * from "./src/recommendation/attribution";
-export * from "./src/recommendation/retrieval-benchmark";
-export * from "./src/recommendation/experiment-report";
+export * from "./src/recommendation/experiments/attribution";
+export * from "./src/recommendation/semantic/retrieval-benchmark";
+export * from "./src/recommendation/experiments/experiment-report";
 export * from "./src/protocols/external-follows";
 export {
   filterExternalMediaSafety,

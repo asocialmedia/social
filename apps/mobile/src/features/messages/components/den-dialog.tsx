@@ -29,7 +29,7 @@ import {
   pickProfileImage,
   stabilizePickedImage,
 } from "@/features/profile/lib/profile-media";
-import { getApiBaseUrl } from "@/lib/api-env";
+import { getApiBaseUrl } from "@/lib/network/api-env";
 import { useAppTheme } from "@/theme";
 
 import { MessageSheet } from "./message-sheet";

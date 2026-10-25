@@ -106,11 +106,14 @@ import { useMessagePresence } from "@/features/messages/state/use-message-presen
 import { useMessageSearch } from "@/features/messages/state/use-message-search";
 import { useTranscript } from "@/features/messages/state/use-messages-data";
 import { useMessagesForeground } from "@/features/messages/state/use-messages-foreground";
-import { getApiBaseUrl } from "@/lib/api-env";
-import { haptic } from "@/lib/haptics";
-import { keyboardOverlap, keyboardScreenTop } from "@/lib/keyboard-overlap";
-import { SHOWS_SCROLL_INDICATOR } from "@/lib/scroll-indicator";
-import { logWarn } from "@/lib/telemetry";
+import { haptic } from "@/lib/interaction/haptics";
+import {
+  keyboardOverlap,
+  keyboardScreenTop,
+} from "@/lib/layout/keyboard-overlap";
+import { SHOWS_SCROLL_INDICATOR } from "@/lib/layout/scroll-indicator";
+import { logWarn } from "@/lib/lifecycle/telemetry";
+import { getApiBaseUrl } from "@/lib/network/api-env";
 import { useAppTheme } from "@/theme";
 
 import { ConversationDetails } from "./conversation-details";

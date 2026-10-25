@@ -1,6 +1,6 @@
 // Pure, UI-free helpers for in-conversation message search. Client-side because
 // the server stores only ciphertext. No React, no decryptor, so unit-testable.
-import { orderedCopy } from "@/lib/ordered-copy";
+import { orderedCopy } from "@/lib/format/ordered-copy";
 
 // Queries below this never run: single characters match almost every row.
 export const MIN_SEARCH_QUERY_LENGTH = 2;

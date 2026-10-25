@@ -56,9 +56,9 @@ import { useMessagesIdentity } from "@/features/messages/state/message-identity"
 import { useMessagePresence } from "@/features/messages/state/use-message-presence";
 import { useConversationList } from "@/features/messages/state/use-messages-data";
 import { useUnreadNotificationCount } from "@/features/notifications/state/use-unread-count";
-import { getApiBaseUrl } from "@/lib/api-env";
-import { LIST_VIRTUALIZATION_PROPS } from "@/lib/list-virtualization";
-import { SHOWS_SCROLL_INDICATOR } from "@/lib/scroll-indicator";
+import { LIST_VIRTUALIZATION_PROPS } from "@/lib/layout/list-virtualization";
+import { SHOWS_SCROLL_INDICATOR } from "@/lib/layout/scroll-indicator";
+import { getApiBaseUrl } from "@/lib/network/api-env";
 import { useAppTheme } from "@/theme";
 
 import { DenAvatar } from "./den-avatar";

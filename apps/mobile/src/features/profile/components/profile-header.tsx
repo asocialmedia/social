@@ -31,8 +31,8 @@ import {
   safeSocialUrl,
 } from "@/features/home/components/profile-utils";
 import { UserBadge } from "@/features/home/components/user-badge";
-import { getApiBaseUrl } from "@/lib/api-env";
-import { imageCachePolicy } from "@/lib/image-cache";
+import { imageCachePolicy } from "@/lib/cache/image-cache";
+import { getApiBaseUrl } from "@/lib/network/api-env";
 import {
   BTN_3D_GRAY_SHADOWS,
   BTN_3D_GRAY_SHADOWS_DARK,

@@ -39,8 +39,8 @@ import {
   subscribeHeaderVisibility,
 } from "@/features/feed/lib/header-visibility";
 import { useSearchStore } from "@/features/search/state/search-store";
-import { getApiBaseUrl } from "@/lib/api-env";
-import { logWarn } from "@/lib/telemetry";
+import { logWarn } from "@/lib/lifecycle/telemetry";
+import { getApiBaseUrl } from "@/lib/network/api-env";
 import {
   AVATAR_RING_SHADOWS,
   AVATAR_RING_SHADOWS_DARK,

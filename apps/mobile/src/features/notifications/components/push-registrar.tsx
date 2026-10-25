@@ -13,8 +13,8 @@ import { AppState, Platform } from "react-native";
 
 import { useInstall } from "@/features/auth/state/install";
 import { useSessionContext } from "@/features/auth/state/session";
-import { useStartupPresented } from "@/lib/startup-context";
-import { logInfo } from "@/lib/telemetry";
+import { useStartupPresented } from "@/lib/lifecycle/startup-context";
+import { logInfo } from "@/lib/lifecycle/telemetry";
 
 import {
   registerForPushNotifications,

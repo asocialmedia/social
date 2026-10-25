@@ -3,7 +3,7 @@
 // of each tile keeping its own flag. In memory for the session, like web.
 import { create } from "zustand";
 
-import { haptic } from "@/lib/haptics";
+import { haptic } from "@/lib/interaction/haptics";
 
 interface VideoMuteState {
   isMuted: boolean;

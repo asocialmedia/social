@@ -43,7 +43,7 @@ import nosearchImage from "@/assets/images/nosearch.png";
 import { Gradient3D } from "@/components/surface/gradient-3d";
 import { authClient } from "@/features/auth/lib/auth-client";
 import { useNetworkPlayback } from "@/features/network/state/use-network-playback";
-import { imageCachePolicy } from "@/lib/image-cache";
+import { imageCachePolicy } from "@/lib/cache/image-cache";
 import {
   APPLE_PANEL_SHADOWS,
   APPLE_PANEL_SHADOWS_DARK,

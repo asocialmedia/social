@@ -22,7 +22,7 @@ import {
 } from "@/features/feed/lib/header-visibility";
 import { useUnreadNotificationCount } from "@/features/notifications/state/use-unread-count";
 import { useSearchStore } from "@/features/search/state/search-store";
-import { getApiBaseUrl } from "@/lib/api-env";
+import { getApiBaseUrl } from "@/lib/network/api-env";
 import { useAppTheme } from "@/theme";
 
 import { MobileBottomNav } from "../../home/components/mobile-bottom-nav";

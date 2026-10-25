@@ -39,7 +39,7 @@ import {
   SettingsButton,
   SettingsCard,
 } from "@/features/settings/components/settings-ui";
-import { getApiBaseUrl } from "@/lib/api-env";
+import { getApiBaseUrl } from "@/lib/network/api-env";
 import { useAppTheme } from "@/theme";
 
 export default function LegalDocumentRoute() {

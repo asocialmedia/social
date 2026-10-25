@@ -9,7 +9,7 @@ import type { GestureType } from "react-native-gesture-handler";
 import { useAnimatedStyle, useSharedValue } from "react-native-reanimated";
 import { scheduleOnRN } from "react-native-worklets";
 
-import { haptic } from "@/lib/haptics";
+import { haptic } from "@/lib/interaction/haptics";
 
 export function useGustPinchZoom({
   enabled,

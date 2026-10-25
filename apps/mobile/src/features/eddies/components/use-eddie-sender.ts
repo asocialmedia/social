@@ -23,7 +23,7 @@ import {
   useScopeAttachments,
 } from "@/features/media-upload/state/attachment-store";
 import type { PickedMedia } from "@/features/media-upload/state/attachment-store";
-import { haptic } from "@/lib/haptics";
+import { haptic } from "@/lib/interaction/haptics";
 
 import { emitEddieCreated } from "../lib/eddie-events";
 import {

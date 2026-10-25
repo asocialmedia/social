@@ -17,8 +17,8 @@ import type {
   SearchUserResult,
 } from "@/features/messages/lib/client";
 import type { MessageConversationData } from "@/features/messages/lib/types";
-import { getApiBaseUrl } from "@/lib/api-env";
-import { orderedCopy } from "@/lib/ordered-copy";
+import { orderedCopy } from "@/lib/format/ordered-copy";
+import { getApiBaseUrl } from "@/lib/network/api-env";
 import { useAppTheme } from "@/theme";
 
 export function DenRoster({

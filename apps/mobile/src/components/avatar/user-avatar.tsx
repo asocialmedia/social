@@ -9,7 +9,7 @@ import avatarPlaceholder from "@/assets/images/avatar-placeholder.png";
 import { useSessionContext } from "@/features/auth/state/session";
 import { resolveAvatarWithFallback } from "@/features/home/components/profile-utils";
 import { usePopupProfile } from "@/features/home/components/use-popup-profile";
-import { getApiBaseUrl } from "@/lib/api-env";
+import { getApiBaseUrl } from "@/lib/network/api-env";
 import {
   AVATAR_RING_SHADOWS,
   AVATAR_RING_SHADOWS_DARK,

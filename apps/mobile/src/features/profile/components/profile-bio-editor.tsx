@@ -14,7 +14,7 @@ import {
 import type { MentionPick } from "@/features/composer/lib/inline-relations";
 import { BioContent } from "@/features/home/components/bio-content";
 import { SettingsSubcard } from "@/features/settings/components/settings-ui";
-import { getApiBaseUrl } from "@/lib/api-env";
+import { getApiBaseUrl } from "@/lib/network/api-env";
 import { useAppTheme } from "@/theme";
 
 export function ProfileBioEditor({

@@ -21,13 +21,13 @@ import {
   SettingsButton,
   SettingsInput,
 } from "@/features/settings/components/settings-ui";
-import { getApiBaseUrl } from "@/lib/api-env";
-import { LIST_VIRTUALIZATION_PROPS } from "@/lib/list-virtualization";
-import { ResourceCache } from "@/lib/resource-cache";
-import { SHOWS_SCROLL_INDICATOR } from "@/lib/scroll-indicator";
-import { swipeTab } from "@/lib/tab-swipe";
-import { useCachedResource } from "@/lib/use-cached-resource";
-import { useTabSwipe } from "@/lib/use-tab-swipe";
+import { ResourceCache } from "@/lib/cache/resource-cache";
+import { useCachedResource } from "@/lib/cache/use-cached-resource";
+import { swipeTab } from "@/lib/interaction/tab-swipe";
+import { useTabSwipe } from "@/lib/interaction/use-tab-swipe";
+import { LIST_VIRTUALIZATION_PROPS } from "@/lib/layout/list-virtualization";
+import { SHOWS_SCROLL_INDICATOR } from "@/lib/layout/scroll-indicator";
+import { getApiBaseUrl } from "@/lib/network/api-env";
 import { useAppTheme } from "@/theme";
 
 import { mutateFollow } from "../lib/profile-api";

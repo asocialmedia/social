@@ -42,6 +42,16 @@ bun run check
 bun run check-types
 ```
 
+##### _<div align="left"><sub>// Tests</sub></div>_
+
+Pre-commit runs formatting, lint, and cached workspace type checks. Pre-push runs unit tests for the changed workspaces and their transitive consumers, plus tooling and repository policy checks, using at most two worker processes. Lefthook supplies the committed, unpushed paths through `{push_files}`. Documentation-only pushes skip tests; root config, lockfile, patches, and test-runner changes run all unit tests.
+
+Run `bun scripts/testing/run-affected-tests.ts apps/mobile/src/lib/network/http-get.ts` to check a specific change locally. Run `bun run test --unit --parallel=2` for all unit tests with limited parallelism. `bun run test` keeps the complete suite available, including integration tests when PostgreSQL and Redis are reachable. CI continues to run lint, types, and the complete test command; its current quality job provisions Redis, so database integration tests still require a separate environment with PostgreSQL. Tests named `.integration.test.ts` are excluded from the push hook; other tests may still need Redis, ffmpeg, or local test servers.
+
+The selector uses workspace manifests. Keep shared dependencies declared so transitive consumers are included. CI remains the full-suite gate for cross-workspace behavior.
+
+Automatic root and lockfile workspace version stamps are compared against the upstream merge base and do not force a global run. Actual dependency, resolution, configuration, or workspace changes still do. The pre-push input must confirm that the pushed source and destination match the tracked comparison. Unknown destinations, new branches, multiple-ref pushes, and branches without an upstream retain the conservative global fallback.
+
 #### _<div align="left"><sub>// Code Standards</sub></div>_
 
 ##### _<div align="left"><sub>// Style rules</sub></div>_

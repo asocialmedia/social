@@ -15,7 +15,7 @@ import type { FeedComment } from "@/features/feed/lib/feed-api";
 import type { FeedPost } from "@/features/feed/lib/feed-types";
 import { HttpError, sleep, withRetry } from "@/features/media-upload/lib/retry";
 import { apiJson } from "@/features/media-upload/lib/upload-api";
-import { logError, logInfo, logWarn } from "@/lib/telemetry";
+import { logError, logInfo, logWarn } from "@/lib/lifecycle/telemetry";
 
 import { runPublishFlow } from "./publish-flow";
 

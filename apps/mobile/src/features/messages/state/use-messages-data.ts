@@ -47,7 +47,7 @@ import {
   transcriptStore,
 } from "@/features/messages/state/transcript-store";
 import type { TranscriptSnapshot } from "@/features/messages/state/transcript-store";
-import { getApiBaseUrl } from "@/lib/api-env";
+import { getApiBaseUrl } from "@/lib/network/api-env";
 
 import { hydrateMessageCache } from "./message-cache";
 import { useMessagesIdentity } from "./message-identity";

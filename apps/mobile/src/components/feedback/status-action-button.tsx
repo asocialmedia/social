@@ -18,7 +18,7 @@ import {
   ORANGE_GRADIENT,
   ORANGE_PRESSED_GRADIENT,
 } from "@/components/surface/recipes";
-import { haptic } from "@/lib/haptics";
+import { haptic } from "@/lib/interaction/haptics";
 
 export function StatusActionButton({
   label,
