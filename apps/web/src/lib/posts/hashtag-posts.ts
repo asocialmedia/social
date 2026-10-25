@@ -61,3 +61,13 @@ export async function getHashtagPostPage(
     posts: await hydrateViewCounts(posts),
   };
 }
+
+export async function getFirstPublicHashtagPage(tag: string) {
+  let page = await getHashtagPostPage(tag);
+  while (page.posts.length === 0 && page.nextCursor) {
+    // Each page advances the keyset even when candidate hashtags do not match.
+    // oxlint-disable-next-line no-await-in-loop
+    page = await getHashtagPostPage(tag, "", false, page.nextCursor);
+  }
+  return page;
+}

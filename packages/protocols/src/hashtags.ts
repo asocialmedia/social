@@ -1,5 +1,8 @@
 export function normalizeHashtag(value: string): string | null {
-  const tag = value.normalize("NFKC").replace(/^#/, "").toLowerCase();
+  // Fold ASCII case while preserving Unicode spellings under the database collation.
+  const tag = value
+    .replace(/^#/, "")
+    .replaceAll(/[A-Z]/g, (letter) => letter.toLowerCase());
   return tag.length > 0 &&
     tag.length <= 64 &&
     /^[\p{L}\p{M}\p{N}_-]+$/u.test(tag)

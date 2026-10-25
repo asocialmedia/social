@@ -7,9 +7,9 @@ import {
   mapPostData,
   prisma,
 } from "@asm/db";
-import { postHasExplicitMedia } from "@asm/protocols/discovery";
 import { siteConfig } from "@asm/ui/meta/site";
 
+import { publicPostReadable } from "@/lib/seo/public-post-readability";
 import { getPostUrl, getShortPostId } from "@/lib/seo/seo";
 
 import { postsForReader } from "./reader-content-policy";
@@ -53,25 +53,19 @@ function toCrawlPost(p: {
   };
 }
 
-// The stored flag is written by the media pipeline and can miss a post that
-// only declares itself explicit in text or a hashtag ("#nsfw", "nudes"). These
-// rows are rendered as guest HTML and indexed, so re-check the same detector the
-// feeds use rather than trusting the column alone.
-function isCrawlSafe(post: {
-  content: string | null;
-  semanticTags?: readonly string[] | null;
-}): boolean {
-  return !postHasExplicitMedia(post);
-}
-
 export async function getRecentPostsForCrawl(limit = 20): Promise<CrawlPost[]> {
   const posts = await prisma.orm.public.Posts.select(
     "aura",
     "content",
     "createdAt",
     "semanticTags",
+    "embeds",
     "id"
   )
+    .include("postMedias", (media) => media.select("altText"))
+    .include("postToTags", (links) =>
+      links.include("tag", (item) => item.select("name"))
+    )
     .include("community", (community) => community.select("slug"))
     .include("user", (user) => user.select("displayName", "username"))
     .where((post) =>
@@ -88,7 +82,7 @@ export async function getRecentPostsForCrawl(limit = 20): Promise<CrawlPost[]> {
     .limit(limit)
     .all();
 
-  return posts.filter(isCrawlSafe).map((post) =>
+  return posts.filter(publicPostReadable).map((post) =>
     toCrawlPost({
       ...post,
       createdAt: fromPrismaDateTime(post.createdAt),
@@ -102,8 +96,13 @@ export async function getRecentGustsForCrawl(limit = 12): Promise<CrawlPost[]> {
     "content",
     "createdAt",
     "semanticTags",
+    "embeds",
     "id"
   )
+    .include("postMedias", (media) => media.select("altText"))
+    .include("postToTags", (links) =>
+      links.include("tag", (item) => item.select("name"))
+    )
     .include("user", (user) => user.select("displayName", "username"))
     .where((post) =>
       and(
@@ -118,7 +117,7 @@ export async function getRecentGustsForCrawl(limit = 12): Promise<CrawlPost[]> {
     .limit(limit)
     .all();
 
-  return posts.filter(isCrawlSafe).map((post) =>
+  return posts.filter(publicPostReadable).map((post) =>
     toCrawlPost({
       ...post,
       community: null,
@@ -136,8 +135,13 @@ export async function getTrendingPostsForCrawl(
     "content",
     "createdAt",
     "semanticTags",
+    "embeds",
     "id"
   )
+    .include("postMedias", (media) => media.select("altText"))
+    .include("postToTags", (links) =>
+      links.include("tag", (item) => item.select("name"))
+    )
     .include("community", (community) => community.select("slug"))
     .include("user", (user) => user.select("displayName", "username"))
     .where((post) =>
@@ -154,7 +158,7 @@ export async function getTrendingPostsForCrawl(
     .limit(limit)
     .all();
 
-  return posts.filter(isCrawlSafe).map((post) =>
+  return posts.filter(publicPostReadable).map((post) =>
     toCrawlPost({
       ...post,
       createdAt: fromPrismaDateTime(post.createdAt),
@@ -171,8 +175,13 @@ export async function getHashtagPostsForCrawl(
     "content",
     "createdAt",
     "semanticTags",
+    "embeds",
     "id"
   )
+    .include("postMedias", (media) => media.select("altText"))
+    .include("postToTags", (links) =>
+      links.include("tag", (item) => item.select("name"))
+    )
     .include("community", (community) => community.select("slug"))
     .include("user", (user) => user.select("displayName", "username"))
     .where((post) =>
@@ -192,7 +201,7 @@ export async function getHashtagPostsForCrawl(
     .limit(limit)
     .all();
 
-  return posts.filter(isCrawlSafe).map((post) =>
+  return posts.filter(publicPostReadable).map((post) =>
     toCrawlPost({
       ...post,
       createdAt: fromPrismaDateTime(post.createdAt),
@@ -209,8 +218,13 @@ export async function getUserPostsForCrawl(
     "content",
     "createdAt",
     "semanticTags",
+    "embeds",
     "id"
   )
+    .include("postMedias", (media) => media.select("altText"))
+    .include("postToTags", (links) =>
+      links.include("tag", (item) => item.select("name"))
+    )
     .include("community", (community) => community.select("slug"))
     .include("user", (user) => user.select("displayName", "username"))
     .where((post) =>
@@ -228,7 +242,7 @@ export async function getUserPostsForCrawl(
     .limit(limit)
     .all();
 
-  return posts.filter(isCrawlSafe).map((post) =>
+  return posts.filter(publicPostReadable).map((post) =>
     toCrawlPost({
       ...post,
       createdAt: fromPrismaDateTime(post.createdAt),
@@ -291,8 +305,13 @@ export async function getCommunityPostsForCrawl(
     "content",
     "createdAt",
     "semanticTags",
+    "embeds",
     "id"
   )
+    .include("postMedias", (media) => media.select("altText"))
+    .include("postToTags", (links) =>
+      links.include("tag", (item) => item.select("name"))
+    )
     .include("user", (user) => user.select("displayName", "username"))
     .where((post) =>
       and(
@@ -307,7 +326,7 @@ export async function getCommunityPostsForCrawl(
     .limit(limit)
     .all();
 
-  return posts.filter(isCrawlSafe).map((post) =>
+  return posts.filter(publicPostReadable).map((post) =>
     toCrawlPost({
       ...post,
       community: { slug: community.slug },

@@ -3,9 +3,18 @@ import { randomUUID } from "node:crypto";
 
 import { prisma } from "@asm/db";
 
-import { getHashtagPostPage } from "@/lib/posts/hashtag-posts";
-import { getRecentPostDataForCrawl } from "@/lib/posts/server-feed";
+import {
+  getFirstPublicHashtagPage,
+  getHashtagPostPage,
+} from "@/lib/posts/hashtag-posts";
+import {
+  crawlPostHref,
+  getRecentPostDataForCrawl,
+  getRecentPostsForCrawl,
+  getRecentGustsForCrawl,
+} from "@/lib/posts/server-feed";
 
+import { getPostUrl } from "./seo";
 import { getSitemapEntries } from "./sitemap";
 
 const databaseUrl = new URL(process.env.DATABASE_URL ?? "http://invalid");
@@ -187,6 +196,8 @@ describe.skipIf(!isolatedDatabase)(
         const first = await getHashtagPostPage("onepiece");
         expect(first.posts.length).toBe(0);
         expect(first.nextCursor).not.toBeNull();
+        const firstReadable = await getFirstPublicHashtagPage("onepiece");
+        expect(firstReadable.posts.length).toBe(20);
         const second = await getHashtagPostPage(
           "onepiece",
           "",
@@ -203,7 +214,179 @@ describe.skipIf(!isolatedDatabase)(
       }
     });
 
+    test("crawl links keep the full content required for canonical slugs", async () => {
+      const id = randomUUID();
+      const content =
+        "A meaningful conversation about the interconnected questions that arise when communities build independent social networks and share their discoveries";
+      await prisma.orm.public.Posts.create({ content, id, userId: owner });
+      try {
+        const posts = await getRecentPostsForCrawl(100);
+        const post = posts.find((candidate) => candidate.id === id);
+        expect(post).toBeDefined();
+        if (post) {
+          expect(crawlPostHref(post)).toBe(getPostUrl({ content, id }));
+        }
+      } finally {
+        await prisma.orm.public.Posts.where({ id }).deleteAndCount();
+      }
+    });
+
+    test("sitemap and crawl projections exclude explicit tag, media text and embed labels", async () => {
+      const ids = Array.from({ length: 6 }, () => randomUUID());
+      const existing = await prisma.orm.public.Tag.where({
+        name: "porn",
+      }).first();
+      const tagId = existing?.id ?? randomUUID();
+      if (!existing) {
+        await prisma.orm.public.Tag.create({ id: tagId, name: "porn" });
+      }
+      await prisma.orm.public.Posts.createAll(
+        ids.map((id, index) => ({
+          content: "A post whose public eligibility depends on related data",
+          id,
+          isGust: index >= 3,
+          userId: owner,
+          ...(index % 3 === 2
+            ? {
+                embeds: [
+                  { title: "#porn", type: "link", url: "https://example.com" },
+                ],
+              }
+            : {}),
+        }))
+      );
+      await prisma.orm.public.PostToTag.createAll([
+        { a: ids[0], b: tagId },
+        { a: ids[3], b: tagId },
+      ]);
+      await prisma.orm.public.PostMedia.createAll(
+        [1, 4].map((index) => ({
+          _type: "VIDEO" as const,
+          altText: "#porn",
+          id: randomUUID(),
+          mimeType: "video/mp4",
+          postId: ids[index],
+          status: "READY" as const,
+          url: "https://example.test/hidden.mp4",
+          userId: owner,
+        }))
+      );
+      try {
+        const entries = [
+          ...(await getSitemapEntries("posts")),
+          ...(await getSitemapEntries("gusts")),
+        ];
+        const crawl = [
+          ...(await getRecentPostsForCrawl(100)),
+          ...(await getRecentGustsForCrawl(100)),
+        ];
+        for (const id of ids) {
+          expect(
+            entries.some((entry) => entry.url.includes(id.slice(0, 8)))
+          ).toBe(false);
+          expect(crawl.some((post) => post.id === id)).toBe(false);
+        }
+      } finally {
+        await prisma.orm.public.Posts.where((post) =>
+          post.id.in(ids)
+        ).deleteAndCount();
+        if (!existing) {
+          await prisma.orm.public.Tag.where({ id: tagId }).deleteAndCount();
+        }
+      }
+    });
+
+    test("compatibility Unicode spellings remain searchable in stored text and tags", async () => {
+      const id = randomUUID();
+      const tagId = randomUUID();
+      await prisma.orm.public.Posts.create({
+        content: "A public conversation #ＯｎｅＰｉｅｃｅ",
+        id,
+        userId: owner,
+      });
+      await prisma.orm.public.Tag.create({
+        id: tagId,
+        name: "ＯｎｅＰｉｅｃｅ",
+      });
+      await prisma.orm.public.PostToTag.create({ a: id, b: tagId });
+      try {
+        const page = await getHashtagPostPage("ＯｎｅＰｉｅｃｅ");
+        expect(page.posts.map((post) => post.id)).toContain(id);
+      } finally {
+        await prisma.orm.public.Posts.where({ id }).deleteAndCount();
+        await prisma.orm.public.Tag.where({ id: tagId }).deleteAndCount();
+      }
+    });
+
+    test("tag sitemap scans beyond unsafe candidates and deduplicates case variants", async () => {
+      const ids = Array.from({ length: 25 }, () => randomUUID());
+      const tags = [randomUUID(), randomUUID()];
+      const name = `mixed_${owner}`;
+      await prisma.orm.public.Tag.createAll([
+        { id: tags[0], name },
+        { id: tags[1], name: name.toUpperCase() },
+      ]);
+      await prisma.orm.public.Posts.createAll(
+        ids.map((id, index) => ({
+          content: "A public topic conversation",
+          id,
+          semanticTags: index < 24 ? ["porn"] : [],
+          userId: owner,
+        }))
+      );
+      await prisma.orm.public.PostToTag.createAll([
+        ...ids.map((id) => ({ a: id, b: tags[0] })),
+        { a: ids[24], b: tags[1] },
+      ]);
+      try {
+        const entries = await getSitemapEntries("tags");
+        expect(entries.filter((entry) => entry.url.endsWith(name)).length).toBe(
+          1
+        );
+      } finally {
+        await prisma.orm.public.Posts.where((post) =>
+          post.id.in(ids)
+        ).deleteAndCount();
+        await prisma.orm.public.Tag.where((tag) =>
+          tag.id.in(tags)
+        ).deleteAndCount();
+      }
+    });
+
     const base = process.env.SEO_AUDIT_URL;
+    test.skipIf(!base)(
+      "a moderated Gust is not rendered from the metadata cache",
+      async () => {
+        if (
+          !base ||
+          !["localhost", "127.0.0.1"].includes(new URL(base).hostname)
+        ) {
+          throw new Error("Loopback preview required");
+        }
+        const id = randomUUID();
+        await prisma.orm.public.Posts.create({
+          content: "SEO cached Gust moderation regression",
+          id,
+          isGust: true,
+          userId: owner,
+        });
+        try {
+          const beforeResponse = await fetch(new URL(`/gusts?id=${id}`, base));
+          const before = await beforeResponse.text();
+          expect(before).toContain("SocialMediaPosting");
+          await prisma.orm.public.Posts.where({ id }).update({
+            moderated: true,
+          });
+          const afterResponse = await fetch(new URL(`/gusts?id=${id}`, base));
+          const after = await afterResponse.text();
+          expect(after).not.toContain("SocialMediaPosting");
+          expect(after).toContain("noindex");
+        } finally {
+          await prisma.orm.public.Posts.where({ id }).deleteAndCount();
+        }
+      }
+    );
+
     test.skipIf(!base)(
       "existing homepage, profile and hashtag cards render before JavaScript",
       async () => {

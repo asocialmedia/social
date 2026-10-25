@@ -4,7 +4,7 @@ import { hasHashtag, normalizeHashtag } from "./hashtags";
 
 test("normalizes a valid hashtag without accepting queries, paths or SQL wildcards", () => {
   expect(normalizeHashtag("OnePiece")).toBe("onepiece");
-  expect(normalizeHashtag("#ＯｎｅＰｉｅｃｅ")).toBe("onepiece");
+  expect(normalizeHashtag("#ＯｎｅＰｉｅｃｅ")).toBe("ＯｎｅＰｉｅｃｅ");
   expect(normalizeHashtag("写真")).toBe("写真");
   for (const tag of [
     "",

@@ -10,7 +10,7 @@ import FeedViewSkeleton from "@/components/layouts/skeletons/feed-view-skeleton"
 import HashtagFeedPage from "@/components/posts/views/hashtag-feed-page";
 import JsonLd from "@/components/seo/json-ld";
 import { getSessionFromApi } from "@/lib/auth/session";
-import { getHashtagPostPage } from "@/lib/posts/hashtag-posts";
+import { getFirstPublicHashtagPage } from "@/lib/posts/hashtag-posts";
 import { absoluteUrl, getPostUrl } from "@/lib/seo/seo";
 
 interface PageProps {
@@ -24,7 +24,7 @@ async function getMetadataTag(rawTag: string) {
   if (!name) {
     return null;
   }
-  const page = await getHashtagPostPage(name);
+  const page = await getFirstPublicHashtagPage(name);
   return { name, posts: page.posts };
 }
 
@@ -130,7 +130,7 @@ async function HashtagContent({ params }: PageProps) {
   const session = await getSessionFromApi();
   const crawlPage = session?.user
     ? undefined
-    : await getHashtagPostPage(canonicalName);
+    : await getFirstPublicHashtagPage(canonicalName);
   const crawlPosts = crawlPage?.posts ?? [];
 
   const itemListJsonLd =

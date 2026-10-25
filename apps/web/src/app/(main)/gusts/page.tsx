@@ -6,7 +6,7 @@ import {
   prisma,
 } from "@asm/db";
 import type { Metadata } from "next";
-import { cacheLife } from "next/cache";
+import { cacheLife, cacheTag } from "next/cache";
 import { notFound } from "next/navigation";
 import { connection } from "next/server";
 import { Suspense } from "react";
@@ -41,7 +41,11 @@ interface GustsPageProps {
 async function getMetadataGust(gustId: string) {
   "use cache";
   cacheLife("hours");
+  cacheTag("og-post-card");
+  return await readPublicGust(gustId);
+}
 
+async function readPublicGust(gustId: string) {
   const row = await getPostDataQuery(prisma.orm, "")
     .where((candidate) =>
       and(
@@ -135,7 +139,7 @@ export async function generateMetadata(
         },
       };
     }
-    notFound();
+    return { robots: { follow: true, index: false }, title: "Gust" };
   }
 
   return {
@@ -200,12 +204,14 @@ async function GustsContent({ searchParams }: GustsPageProps) {
   await connection();
 
   const { id } = await searchParams;
+  const session = await getSessionFromApi();
   const selectedPost =
-    id && !id.startsWith("at://") ? await getMetadataGust(id) : null;
-  if (id && !id.startsWith("at://") && !selectedPost) {
+    !session?.user && id && !id.startsWith("at://")
+      ? await readPublicGust(id)
+      : null;
+  if (!session?.user && id && !id.startsWith("at://") && !selectedPost) {
     notFound();
   }
-  const session = await getSessionFromApi();
   const loggedInUserData = session?.user
     ? await getUserData(session.user.id)
     : null;
