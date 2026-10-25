@@ -27,7 +27,7 @@ import {
   postContentReadable,
   postsForReader,
 } from "@/lib/posts/reader-content-policy";
-import { getRecentPostsForCrawl } from "@/lib/posts/server-feed";
+import { buildSocialPostJsonLd } from "@/lib/seo/post-schema";
 import {
   absoluteUrl,
   buildPostRequestPath,
@@ -229,56 +229,21 @@ export async function PostRoute({ params }: { params: PostRouteParams }) {
   const url = getPostUrl(post);
   const authorUrl = absoluteUrl(`/users/${authorUsername}`);
 
-  const ogImageUrl = absoluteUrl(`/posts/${post.id}/opengraph-image`);
-
-  const postJsonLd = {
-    "@context": "https://schema.org",
-    "@type": "SocialMediaPosting",
+  const postJsonLd = buildSocialPostJsonLd({
     author: {
-      "@type": "Person",
       name: authorDisplayName,
       url: authorUrl,
-      ...(post.user?.username
-        ? { alternateName: `@${post.user.username}` }
-        : {}),
+      username: authorUsername,
     },
     commentCount: post._count.comments,
-    datePublished: post.createdAt.toISOString(),
+    content: post.content,
+    createdAt: post.createdAt,
     description: postDescription(post),
     headline: postTitle(post, 110),
-    image: ogImageUrl,
-    interactionStatistic: [
-      {
-        "@type": "InteractionCounter",
-        interactionType: "https://schema.org/CommentAction",
-        userInteractionCount: post._count.comments,
-      },
-      {
-        "@type": "InteractionCounter",
-        interactionType: "https://schema.org/LikeAction",
-        userInteractionCount: post.aura,
-      },
-      {
-        "@type": "InteractionCounter",
-        interactionType: "https://schema.org/ViewAction",
-        userInteractionCount: post.viewCount,
-      },
-    ],
-    mainEntityOfPage: {
-      "@id": url,
-      "@type": "WebPage",
-    },
-    publisher: {
-      "@type": "Organization",
-      logo: {
-        "@type": "ImageObject",
-        url: absoluteUrl("/icons/icon-512x512.png"),
-      },
-      name: siteConfig.name,
-      url: siteConfig.url,
-    },
+    media: post.attachments,
     url,
-  };
+    viewCount: post.viewCount,
+  });
 
   const breadcrumbJsonLd = {
     "@context": "https://schema.org",
@@ -316,70 +281,10 @@ export async function PostRoute({ params }: { params: PostRouteParams }) {
     ],
   };
 
-  // Crawlable related links for bots: the client "View more content" is JS-only.
-  const relatedForCrawl = await getRecentPostsForCrawl(10);
-  const filteredRelated = relatedForCrawl
-    .filter((p) => p.id !== post.id)
-    .slice(0, 8);
-
-  const relatedItemList =
-    filteredRelated.length > 0
-      ? {
-          "@context": "https://schema.org",
-          "@type": "ItemList",
-          itemListElement: filteredRelated.map((p, i) => ({
-            "@type": "ListItem",
-            position: i + 1,
-            url: getPostUrl(p),
-          })),
-          name: "More eddies",
-        }
-      : null;
-
   return (
     <>
-      <JsonLd
-        data={
-          relatedItemList
-            ? [postJsonLd, breadcrumbJsonLd, relatedItemList]
-            : [postJsonLd, breadcrumbJsonLd]
-        }
-      />
+      <JsonLd data={[postJsonLd, breadcrumbJsonLd]} />
       <ClientPost ancestors={ancestors} post={post} userData={userData} />
-      {/* Hidden related links for bots - no visible block */}
-      {filteredRelated.length > 0 ? (
-        <div className="sr-only" aria-hidden={false}>
-          <nav aria-label="More eddies crawlable">
-            <ul>
-              {filteredRelated.map((p) => (
-                <li key={p.id}>
-                  <a href={getPostPath(p)} tabIndex={-1}>
-                    {p.content || p.id}
-                  </a>
-                </li>
-              ))}
-            </ul>
-          </nav>
-        </div>
-      ) : null}
-      {/* Tag-based internal links for SEO - hidden visually (was visible Related tags block) */}
-      {post.tags.length > 0 ? (
-        <nav aria-label="Related tags" className="sr-only">
-          <p>Related tags: </p>
-          <ul>
-            {post.tags.map((tag) => (
-              <li key={tag.name}>
-                <a
-                  href={`/hashtag/${encodeURIComponent(tag.name)}`}
-                  tabIndex={-1}
-                >
-                  #{tag.name}
-                </a>
-              </li>
-            ))}
-          </ul>
-        </nav>
-      ) : null}
     </>
   );
 }

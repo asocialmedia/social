@@ -244,6 +244,29 @@ export function createProtocolsApp(options: ProtocolsAppOptions) {
         })
         .get("/capabilities", () => ({ protocols: [blueskyCapabilities] }))
         .get(
+          "/bluesky/hashtag",
+          {
+            query: t.Object({
+              cursor: pageQuery.cursor,
+              tag: t.String({ maxLength: 64, minLength: 1 }),
+            }),
+          },
+          ({ query, request, set }) =>
+            observeRequest(
+              "bluesky.hashtag",
+              request,
+              String(set.headers["x-request-id"]),
+              options.logger,
+              () =>
+                search.readHashtag(
+                  query.tag,
+                  query.cursor,
+                  new URL(request.url).searchParams.get("explicit") === "1",
+                  request.signal
+                )
+            )
+        )
+        .get(
           "/bluesky/search",
           {
             query: t.Object({

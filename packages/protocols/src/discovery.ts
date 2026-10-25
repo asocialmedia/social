@@ -13,6 +13,8 @@ import {
   waitForReadRetry,
 } from "./transport";
 
+export { normalizeHashtag, hasHashtag } from "./hashtags";
+
 export {
   blueskyMediaIsExplicit,
   hasRestrictedDiscoveryLabels,

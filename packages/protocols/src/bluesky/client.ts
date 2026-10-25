@@ -109,9 +109,11 @@ const pageOptionsSchema = z.object({
     .optional(),
   limit: z.number().int().min(1).max(50).default(20),
   since: z.iso.datetime().optional(),
+  tag: z.string().min(1).max(64).optional(),
   until: z.iso.datetime().optional(),
 });
 export interface FeedReadOptions {
+  tag?: string;
   hasVideo?: boolean;
   includePins?: boolean;
   limit?: number;
@@ -495,6 +497,7 @@ export class BlueskyClient {
           ? { hasVideo: "true", query: parsedQuery.data }
           : { q: parsedQuery.data }),
         sort: video && sort === "latest" ? "recent" : sort,
+        ...(parsed.data.tag && !video ? { tag: parsed.data.tag } : {}),
         ...(parsed.data.since ? { since: parsed.data.since } : {}),
         ...(parsed.data.until ? { until: parsed.data.until } : {}),
         ...(parsed.data.cursor ? { cursor: parsed.data.cursor } : {}),
@@ -965,6 +968,7 @@ export class BlueskyClient {
             q: query.get("q") ?? "",
             since: query.get("since") ?? undefined,
             sort: query.get("sort") ?? "top",
+            tag: query.has("tag") ? query.getAll("tag") : undefined,
             until: query.get("until") ?? undefined,
           },
           options

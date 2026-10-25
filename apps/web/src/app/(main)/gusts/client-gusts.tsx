@@ -1,5 +1,5 @@
 "use client";
-import type { GustsPage, UserData } from "@asm/db";
+import type { GustsPage, PostData, UserData } from "@asm/db";
 import { filterExternalRecommendations } from "@asm/protocols/discovery";
 import {
   advanceGustHeader,
@@ -90,6 +90,7 @@ import {
 } from "@/store/feed-source-store";
 
 interface ClientGustsProps {
+  initialGuestPost?: PostData;
   loggedInUserData: UserData | null;
 }
 
@@ -139,7 +140,9 @@ function GustTab({
   );
 }
 
-export const ClientGusts: React.FC<ClientGustsProps> = () => {
+export const ClientGusts: React.FC<ClientGustsProps> = ({
+  initialGuestPost,
+}) => {
   const params = useSearchParams();
   const { user } = useSession();
   const requested = params.get("tab");
@@ -161,14 +164,22 @@ export const ClientGusts: React.FC<ClientGustsProps> = () => {
     <div className="relative flex min-w-0 flex-1">
       {(["latest", "personalized", "following"] as const).map((tab) => (
         <Activity key={tab} mode={active === tab ? "visible" : "hidden"}>
-          {visited.has(tab) ? <GustStream gustTab={tab} /> : null}
+          {visited.has(tab) ? (
+            <GustStream gustTab={tab} initialGuestPost={initialGuestPost} />
+          ) : null}
         </Activity>
       ))}
     </div>
   );
 };
 
-const GustStream = ({ gustTab }: { gustTab: GustFeed }) => {
+const GustStream = ({
+  gustTab,
+  initialGuestPost,
+}: {
+  gustTab: GustFeed;
+  initialGuestPost?: PostData;
+}) => {
   const reducedMotion = useReducedMotion();
   const searchParams = useSearchParams();
   const pathname = usePathname();
@@ -355,6 +366,13 @@ const GustStream = ({ gustTab }: { gustTab: GustFeed }) => {
       !gatedPersonalized && includeNative && !externalId && network.ready,
     getNextPageParam: (lastPage: GustsPage) => lastPage.nextCursor,
     initialPageParam: null as string | null,
+    placeholderData:
+      !user && initialGuestPost && initialGuestPost.id === initialPostId
+        ? {
+            pageParams: [null],
+            pages: [{ nextCursor: null, posts: [initialGuestPost] }],
+          }
+        : undefined,
     queryFn: ({ pageParam, signal }) => {
       // Moderated gusts never render in the stream (same as the explore rail).
       const queryParams: Record<string, string> = {

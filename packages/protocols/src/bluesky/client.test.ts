@@ -964,3 +964,25 @@ test("video search uses the official filtered query and preserves language, wind
     client.close();
   }
 });
+
+test("hashtag searches send the official tag filter and preserve pagination", async () => {
+  const urls: URL[] = [];
+  const client = new BlueskyClient({
+    fetch: async (url) => {
+      urls.push(new URL(url));
+      return Response.json({ cursor: "next-source-page", posts: [] });
+    },
+  });
+  try {
+    const page = await client.searchPosts("#onepiece", "latest", {
+      cursor: "source-page",
+      tag: "onepiece",
+    });
+    expect(page.cursor).toBe("next-source-page");
+    expect(urls[0]?.searchParams.getAll("tag")).toEqual(["onepiece"]);
+    expect(urls[0]?.searchParams.get("cursor")).toBe("source-page");
+    expect(urls[0]?.searchParams.get("sort")).toBe("latest");
+  } finally {
+    client.close();
+  }
+});

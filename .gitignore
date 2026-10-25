@@ -51,4 +51,4 @@ google-services.json
 *.bun-build
 artifacts/
 ref/
-NATIVE_WEB_PARITY.md
+.next-seo-audit/

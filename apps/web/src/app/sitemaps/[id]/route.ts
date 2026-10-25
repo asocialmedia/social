@@ -1,3 +1,5 @@
+import { connection } from "next/server";
+
 import {
   buildSitemapXml,
   getSitemapEntries,
@@ -18,6 +20,7 @@ export async function GET(
     return new Response("Not found", { status: 404 });
   }
 
+  await connection();
   const entries = await getSitemapEntries(fileName);
 
   return new Response(buildSitemapXml(entries), {

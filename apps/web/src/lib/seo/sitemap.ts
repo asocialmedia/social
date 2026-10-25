@@ -5,10 +5,12 @@ import {
   prisma,
   SYSTEM_MODERATION_USER_ID,
 } from "@asm/db";
-import { postHasExplicitMedia } from "@asm/protocols/discovery";
+import { normalizeHashtag } from "@asm/protocols/discovery";
 import { siteConfig } from "@asm/ui/meta/site";
 
 import { getPostUrl } from "@/lib/seo/seo";
+
+import { publicPostReadable } from "./public-post-readability";
 
 // Sitemap architecture
 // ────────────────────
@@ -142,11 +144,18 @@ async function getCoreEntries(): Promise<SitemapEntry[]> {
 async function getPostEntries(): Promise<SitemapEntry[]> {
   const posts = await prisma.orm.public.Posts.select(
     "content",
+    "semanticTags",
+    "embeds",
     "createdAt",
     "id"
   )
+    .include("postToTags", (links) =>
+      links.include("tag", (tag) => tag.select("name"))
+    )
     .include("postMedias", (media) =>
-      media.where({ status: "READY" }).select("id", "mimeType", "_type")
+      media
+        .where({ status: "READY" })
+        .select("id", "mimeType", "_type", "altText")
     )
     .include("community", (community) => community.select("slug"))
     .orderBy((post) => post.createdAt.desc())
@@ -164,7 +173,7 @@ async function getPostEntries(): Promise<SitemapEntry[]> {
     .all();
 
   return posts
-    .filter((post) => !postHasExplicitMedia(post))
+    .filter(publicPostReadable)
     .filter((post) => {
       const text = (post.content ?? "").trim();
       const hasMedia = post.postMedias.length > 0;
@@ -201,16 +210,22 @@ async function getPostEntries(): Promise<SitemapEntry[]> {
 async function getGustEntries(): Promise<SitemapEntry[]> {
   const posts = await prisma.orm.public.Posts.select(
     "content",
+    "semanticTags",
+    "embeds",
     "createdAt",
     "id"
   )
+    .include("postToTags", (links) =>
+      links.include("tag", (tag) => tag.select("name"))
+    )
     .include("postMedias", (media) =>
-      media.where({ status: "READY" }).select("id", "_type")
+      media.where({ status: "READY" }).select("id", "_type", "altText")
     )
     .orderBy((post) => post.createdAt.desc())
     .where((post) =>
       and(
         post.isGust.eq(true),
+        post.rootPostId.isNull(),
         post.moderated.eq(false),
         post.explicitContent.eq(false),
         post.user.some((user) => user.banned.eq(false)),
@@ -220,19 +235,17 @@ async function getGustEntries(): Promise<SitemapEntry[]> {
     .limit(SITEMAP_URL_LIMIT)
     .all();
 
-  return posts
-    .filter((post) => !postHasExplicitMedia(post))
-    .map((post) => {
-      const video = post.postMedias.find((media) => media._type === "VIDEO");
-      const imageUrl = video
-        ? `${siteConfig.url}/api/media/${video.id}?thumb=1`
-        : undefined;
-      return {
-        ...(imageUrl ? { images: [imageUrl] } : {}),
-        lastModified: fromPrismaDateTime(post.createdAt),
-        url: `${siteConfig.url}/gusts?id=${post.id}`,
-      };
-    });
+  return posts.filter(publicPostReadable).map((post) => {
+    const video = post.postMedias.find((media) => media._type === "VIDEO");
+    const imageUrl = video
+      ? `${siteConfig.url}/api/media/${video.id}?thumb=1`
+      : undefined;
+    return {
+      ...(imageUrl ? { images: [imageUrl] } : {}),
+      lastModified: fromPrismaDateTime(post.createdAt),
+      url: `${siteConfig.url}/gusts?id=${post.id}`,
+    };
+  });
 }
 
 async function getUserEntries(): Promise<SitemapEntry[]> {
@@ -251,15 +264,71 @@ async function getUserEntries(): Promise<SitemapEntry[]> {
 }
 
 async function getTagEntries(): Promise<SitemapEntry[]> {
-  const tags = await prisma.orm.public.Tag.select("name", "updatedAt")
-    .orderBy((tag) => tag.updatedAt.desc())
-    .limit(SITEMAP_URL_LIMIT)
-    .all();
-
-  return tags.map((tag) => ({
-    lastModified: fromPrismaDateTime(tag.updatedAt),
-    url: `${siteConfig.url}/hashtag/${encodeURIComponent(tag.name)}`,
-  }));
+  const query = prisma.orm.public.Posts.select(
+    "id",
+    "createdAt",
+    "content",
+    "semanticTags",
+    "embeds"
+  )
+    .include("postMedias", (media) => media.select("altText"))
+    .include("postToTags", (links) =>
+      links.include("tag", (tag) => tag.select("name", "updatedAt"))
+    )
+    .where((post) =>
+      and(
+        post.isGust.eq(false),
+        post.rootPostId.isNull(),
+        post.moderated.eq(false),
+        post.explicitContent.eq(false),
+        post.user.some((user) => user.banned.eq(false)),
+        communityVisibilityWhere("")(post),
+        post.postToTags.some()
+      )
+    )
+    .orderBy([(post) => post.createdAt.desc(), (post) => post.id.desc()]);
+  const names = new Map<string, SitemapEntry>();
+  let cursor:
+    | {
+        createdAt: NonNullable<
+          Awaited<ReturnType<typeof query.first>>
+        >["createdAt"];
+        id: string;
+      }
+    | undefined;
+  for (;;) {
+    // Eligibility is checked before collecting topics, with no per-tag candidate cutoff.
+    // oxlint-disable-next-line no-await-in-loop
+    const posts = await (cursor ? query.cursor(cursor) : query)
+      .limit(500)
+      .all();
+    for (const post of posts.filter(publicPostReadable)) {
+      for (const link of post.postToTags) {
+        const name = link.tag && normalizeHashtag(link.tag.name);
+        if (!name || !link.tag) {
+          continue;
+        }
+        const lastModified = fromPrismaDateTime(link.tag.updatedAt);
+        const existing = names.get(name);
+        if (
+          !existing ||
+          !existing.lastModified ||
+          lastModified > existing.lastModified
+        ) {
+          names.set(name, {
+            lastModified,
+            url: `${siteConfig.url}/hashtag/${encodeURIComponent(name)}`,
+          });
+        }
+      }
+    }
+    const last = posts.at(-1);
+    if (!last || posts.length < 500 || names.size >= SITEMAP_URL_LIMIT) {
+      break;
+    }
+    cursor = { createdAt: last.createdAt, id: last.id };
+  }
+  return [...names.values()].slice(0, SITEMAP_URL_LIMIT);
 }
 
 interface CommunityActivityRow {
