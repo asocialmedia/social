@@ -19,7 +19,7 @@ export interface OfflineSearchReference {
   id?: string;
   index: number;
   kind: OfflineSearchReferenceKind;
-  mediaKind?: "file" | "gif" | "image" | "video";
+  mediaKind?: "file" | "gif" | "image" | "sticker" | "video";
 }
 
 export interface OfflineSearchCacheRecord {

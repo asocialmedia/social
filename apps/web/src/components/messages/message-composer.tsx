@@ -1,8 +1,7 @@
 "use client";
 
-// oxlint-disable react/exhaustive-effect-dependencies -- Account, clear and retry revisions intentionally invalidate scoped effects even when they are not request payload fields.
-
 import { ChatDraftStore } from "@asm/messages";
+// oxlint-disable react/exhaustive-effect-dependencies -- Account, clear and retry revisions intentionally invalidate scoped effects even when they are not request payload fields.
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -14,13 +13,12 @@ import type { InfiniteData } from "@tanstack/react-query";
 import {
   ArrowUp,
   Check,
-  Clapperboard,
   FileText,
   ImagePlus,
-  Loader2,
   MessageSquareQuote,
   Pencil,
   Plus,
+  Smile,
   X,
 } from "lucide-react";
 import dynamic from "next/dynamic";
@@ -30,8 +28,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSession } from "@/app/(main)/session-provider";
 import KlipyGifPicker from "@/components/comments/composer/klipy-gif-picker";
 import type { KlipyGif } from "@/components/comments/composer/klipy-gif-picker";
+import { ZephLoader } from "@/components/layouts/feedback/zeph-loader";
 import { MessageAttachmentStrip } from "@/components/messages/message-attachment-strip";
 import { useMessagesIdentity } from "@/components/messages/message-identity-provider";
+import { MessageReactionPicker } from "@/components/messages/message-reaction-picker";
+import { StickerPicker } from "@/components/messages/sticker-picker";
 import { useMessageAttachments } from "@/components/messages/use-message-attachments";
 import { toast } from "@/lib/gooey-toast";
 import { messageWindowIncludesLatest } from "@/lib/messages/anchored-window";
@@ -151,7 +152,10 @@ export function MessageComposer({
   );
   const [savingEdit, setSavingEdit] = useState(false);
   const [sending, setSending] = useState(false);
-  const [gifPickerOpen, setGifPickerOpen] = useState(false);
+  const [expressionKeyboardOpen, setExpressionKeyboardOpen] = useState(false);
+  const [expressionTab, setExpressionTab] = useState<
+    "emoji" | "gifs" | "stickers"
+  >("emoji");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [dragActive, setDragActive] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -259,6 +263,7 @@ export function MessageComposer({
   // as it is because the send path guards on it, but the two things that NAME
   // somebody - the placeholder and the reply byline - read this instead.
   const isDen = conversation.conversation.type === "DEN";
+  const visibleExpressionTab = expressionTab;
   const placeholder = composerPlaceholder({
     denName: conversation.conversation.name ?? null,
     editing,
@@ -396,6 +401,34 @@ export function MessageComposer({
       user,
       incognito,
     ]
+  );
+
+  const insertEmoji = useCallback(
+    (emoji: string) => {
+      const textarea = textareaRef.current;
+      const start = textarea?.selectionStart ?? text.length;
+      const end = textarea?.selectionEnd ?? start;
+      const next = `${text.slice(0, start)}${emoji}${text.slice(end)}`;
+      setText(next);
+      if (next.length > 0) {
+        onDraftInput();
+      }
+      if (!incognito && !editing && emoji.trim().length > 0) {
+        const now = Date.now();
+        if (now - lastTypingRef.current >= 3000) {
+          lastTypingRef.current = now;
+          void sendTypingIndicator(conversation.conversation.id);
+        }
+      }
+      requestAnimationFrame(() => {
+        if (!textarea) {
+          return;
+        }
+        textarea.focus({ preventScroll: true });
+        textarea.setSelectionRange(start + emoji.length, start + emoji.length);
+      });
+    },
+    [conversation.conversation.id, editing, incognito, onDraftInput, text]
   );
 
   const handleEditSave = useCallback(async () => {
@@ -565,7 +598,7 @@ export function MessageComposer({
 
   const handleGifSelect = useCallback(
     async (gif: KlipyGif) => {
-      setGifPickerOpen(false);
+      setExpressionKeyboardOpen(false);
       try {
         const response = await fetch(gif.url);
         if (!response.ok) {
@@ -696,7 +729,7 @@ export function MessageComposer({
   // either request is in flight.
   function renderSendIcon() {
     if (busy) {
-      return <Loader2 className="h-4 w-4 animate-spin" />;
+      return <ZephLoader variant="messages" className="h-4 w-4" />;
     }
     if (editing) {
       return <Check className="h-4 w-4" />;
@@ -766,8 +799,51 @@ export function MessageComposer({
         </div>
       ) : null}
 
-      {gifPickerOpen && !editing ? (
-        <div className="panel-3d mb-2 w-full rounded-2xl p-2">
+      <div
+        aria-label="Expression keyboard"
+        className={cn(
+          "panel-3d mb-2 h-[min(52dvh,420px)] w-full flex-col overflow-hidden rounded-2xl p-2",
+          expressionKeyboardOpen ? "flex" : "hidden"
+        )}
+      >
+        <div
+          aria-label="Message expressions"
+          className="bg-muted/40 mb-2 grid grid-cols-3 gap-1 rounded-xl p-1"
+          role="tablist"
+        >
+          {(["emoji", "gifs", "stickers"] as const).map((tab) => (
+            <button
+              aria-selected={visibleExpressionTab === tab}
+              className={cn(
+                "focus-visible:ring-primary min-h-10 rounded-lg px-3 text-sm font-medium capitalize transition-colors focus-visible:ring-2",
+                visibleExpressionTab === tab
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+              key={tab}
+              disabled={editing && tab !== "emoji"}
+              onClick={() => setExpressionTab(tab)}
+              role="tab"
+              type="button"
+            >
+              {tab === "gifs" ? "GIFs" : tab}
+            </button>
+          ))}
+        </div>
+        <div
+          className="min-h-0 flex-1 overflow-y-auto"
+          hidden={visibleExpressionTab !== "emoji"}
+        >
+          <MessageReactionPicker
+            disabled={false}
+            onReact={insertEmoji}
+            title="Emoji"
+          />
+        </div>
+        <div
+          className="min-h-0 flex-1 overflow-y-auto"
+          hidden={visibleExpressionTab !== "gifs" || Boolean(editing)}
+        >
           <KlipyGifPicker
             disabled={busy}
             onSelect={(gif) => {
@@ -775,7 +851,32 @@ export function MessageComposer({
             }}
           />
         </div>
-      ) : null}
+        <div
+          className="min-h-0 flex-1"
+          hidden={visibleExpressionTab !== "stickers" || Boolean(editing)}
+        >
+          <StickerPicker
+            active={
+              expressionKeyboardOpen && visibleExpressionTab === "stickers"
+            }
+            key={user?.id}
+            canCreate={!incognito && !editing && !accessEnded}
+            conversationId={conversation.conversation.id}
+            disabled={busy || accessEnded || editing || viewOnceMode}
+            incognitoSessionId={incognito?.sessionId}
+            onSend={async (payload) => {
+              const sent = await sendPayload(payload, {
+                preserveInput: true,
+              });
+              if (sent) {
+                onReplyCancel();
+              }
+              return sent;
+            }}
+            replyTarget={replyTarget}
+          />
+        </div>
+      </div>
 
       {editing ? null : (
         <MessageAttachmentStrip
@@ -786,7 +887,7 @@ export function MessageComposer({
         />
       )}
 
-      <div className="reels-input relative flex items-end gap-1 rounded-3xl! px-2 py-1.5">
+      <div className="reels-input relative flex items-end gap-0 rounded-3xl! px-2 py-1.5">
         {dragActive ? (
           <span className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-2xl border-2 border-dashed border-[#ff9500]/70 bg-black/5 text-xs font-medium text-[#ff9500]">
             Drop files to attach
@@ -804,7 +905,7 @@ export function MessageComposer({
           <DropdownMenuTrigger asChild>
             <button
               aria-label="Add attachment"
-              className="text-muted-foreground hover:bg-muted/60 hover:text-foreground focus-visible:ring-primary flex size-10 shrink-0 items-center justify-center rounded-full transition-colors focus-visible:ring-2 disabled:opacity-40"
+              className="text-muted-foreground hover:bg-muted/60 hover:text-foreground focus-visible:ring-primary flex h-10 w-8 shrink-0 items-center justify-center rounded-full transition-colors focus-visible:ring-2 disabled:opacity-40 pointer-coarse:w-10"
               disabled={writeBlocked || editing || viewOnceMode}
               type="button"
             >
@@ -842,15 +943,25 @@ export function MessageComposer({
               <FileText className="size-4" />
               Files
             </DropdownMenuItem>
-            <DropdownMenuItem
-              className="gap-3"
-              onSelect={() => setGifPickerOpen((open) => !open)}
-            >
-              <Clapperboard className="size-4" />
-              GIF
-            </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
+        <button
+          aria-expanded={expressionKeyboardOpen}
+          aria-label="Open emoji, GIF, and sticker keyboard"
+          className={cn(
+            "text-muted-foreground hover:bg-muted/60 hover:text-foreground focus-visible:ring-primary flex h-10 w-8 shrink-0 items-center justify-center rounded-full transition-colors focus-visible:ring-2 pointer-coarse:w-10",
+            expressionKeyboardOpen && "bg-muted/70 text-foreground"
+          )}
+          onClick={() => {
+            setExpressionKeyboardOpen((open) => !open);
+            if (!expressionKeyboardOpen) {
+              setExpressionTab("emoji");
+            }
+          }}
+          type="button"
+        >
+          <Smile className="size-5" />
+        </button>
         <textarea
           aria-label="Message"
           className="placeholder:text-muted-foreground max-h-32 min-h-10 min-w-0 flex-1 resize-none bg-transparent px-1 py-2.5 text-base outline-none disabled:opacity-60 sm:text-sm"
@@ -915,7 +1026,7 @@ export function MessageComposer({
           onSave={(file, viewOnce) => {
             replaceAttachmentFile(editingAttachment.id, file, { viewOnce });
             if (viewOnce) {
-              setGifPickerOpen(false);
+              setExpressionKeyboardOpen(false);
             }
           }}
         />

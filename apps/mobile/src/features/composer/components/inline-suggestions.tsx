@@ -4,15 +4,10 @@
 // responses dropped), "Searching..." while loading and "No matching users"
 // / "No matching tags" when empty. Already-picked entries are excluded.
 import { useEffect, useRef, useState } from "react";
-import {
-  ActivityIndicator,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { UserAvatar } from "@/components/avatar/user-avatar";
+import { ZephLoader } from "@/components/feedback/zeph-loader";
 import { themeText } from "@/components/surface/recipes";
 import { apiJson } from "@/features/media-upload/lib/upload-api";
 import { useAppTheme } from "@/theme";
@@ -109,7 +104,7 @@ export function InlineSuggestions({
   if (loading && items.length === 0) {
     body = (
       <View style={styles.loading}>
-        <ActivityIndicator color={text.muted} size={14} />
+        <ZephLoader variant="search" color={text.muted} size={14} />
         <Text style={[styles.muted, { color: text.muted }]}>Searching...</Text>
       </View>
     );

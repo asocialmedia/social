@@ -2,7 +2,7 @@
 
 import { Button } from "@asm/ui/shadui/button";
 import noMediaImage from "@assets/general/nomedia.png";
-import { FileIcon, Loader2, Volume2 } from "lucide-react";
+import { FileIcon, Volume2 } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -13,6 +13,7 @@ import { useMediaQuery } from "usehooks-ts";
 
 import MediaViewer from "@/components/home/feedview/media-viewer";
 import InfiniteScrollContainer from "@/components/layouts/feed/infinite-scroll-container";
+import { ZephLoader } from "@/components/layouts/feedback/zeph-loader";
 import { MediaHoldDrawer } from "@/components/media/media-hold-drawer";
 import ModeratedNotice from "@/components/posts/content/moderated-notice";
 import { useUserMediaQuery } from "@/hooks/users/use-user-media-query";
@@ -689,7 +690,7 @@ const MediaGalleryContent: React.FC<MediaGalleryContentProps> = ({
         </MediaHoldDrawer>
         {isFetchingNextPage ? (
           <div className="flex justify-center py-3">
-            <Loader2 className="text-primary h-4 w-4 animate-spin" />
+            <ZephLoader variant="media" className="text-primary h-4 w-4" />
           </div>
         ) : null}
       </InfiniteScrollContainer>

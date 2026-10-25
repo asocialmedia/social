@@ -186,10 +186,12 @@ const UserProfilePopover: React.FC<UserProfilePopoverProps> = ({
       <Popover onOpenChange={handleOpenChange} open={open}>
         <PopoverTrigger asChild>
           {compact ? (
+            // No pill-3d-hover here. The trigger only paints the rail's shared
+            // soft hover disc (sidebar-icon-hover); the avatar sits on top of it.
             <button
               aria-haspopup="dialog"
               aria-label={`Open profile menu for ${userData.username}`}
-              className="pill-3d-hover group flex size-10 shrink-0 items-center justify-center rounded-full border-0 p-0"
+              className="sidebar-icon-hover group flex size-10 shrink-0 items-center justify-center rounded-full"
               type="button"
             >
               <UserAvatar

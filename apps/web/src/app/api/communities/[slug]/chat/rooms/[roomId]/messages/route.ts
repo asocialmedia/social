@@ -1,4 +1,5 @@
 import {
+  consumeRateLimit,
   getCommunityBySlug,
   getCommunityChatMessages,
   getCommunityChatRoomAccess,
@@ -10,6 +11,7 @@ import {
   communityChatAvailabilityResponse,
   communityChatErrorResponse,
 } from "@/lib/communities/chat-api";
+import { prepareCommunitySticker } from "@/lib/media/community-sticker-delivery";
 
 interface RouteContext {
   params: Promise<{ roomId: string; slug: string }>;
@@ -78,13 +80,15 @@ export async function POST(request: Request, context: RouteContext) {
     return Response.json({ error: "Invalid message" }, { status: 400 });
   }
   const messageInput = body as {
+    stickerId?: unknown;
     clientId?: unknown;
     content?: unknown;
     replyToId?: unknown;
   };
   if (
     typeof messageInput.clientId !== "string" ||
-    typeof messageInput.content !== "string" ||
+    (typeof messageInput.content !== "string" &&
+      typeof messageInput.stickerId !== "string") ||
     (messageInput.replyToId !== undefined &&
       typeof messageInput.replyToId !== "string")
   ) {
@@ -95,11 +99,45 @@ export async function POST(request: Request, context: RouteContext) {
     if (access.communityId !== community.id) {
       return Response.json({ error: "Chat room not found" }, { status: 404 });
     }
+    if (!access.permissions.canSend) {
+      return Response.json(
+        { error: "You cannot send to this chat" },
+        { status: 403 }
+      );
+    }
+    let stickerMediaId: string | undefined;
+    if (typeof messageInput.stickerId === "string") {
+      if (!/^[0-9a-f-]{36}$/iu.test(messageInput.clientId)) {
+        return Response.json(
+          { error: "Invalid sticker operation" },
+          { status: 400 }
+        );
+      }
+      const rate = await consumeRateLimit({
+        bucket: "community-sticker-send",
+        identifier: userId,
+        limit: 30,
+        windowSeconds: 60,
+      });
+      if (!rate.allowed) {
+        return Response.json(
+          { error: "Please wait before sending another sticker" },
+          { status: 429 }
+        );
+      }
+      stickerMediaId = await prepareCommunitySticker({
+        operationId: messageInput.clientId,
+        roomId,
+        stickerId: messageInput.stickerId,
+        userId,
+      });
+    }
     const result = await sendCommunityChatMessage({
       clientId: messageInput.clientId,
       content: messageInput.content,
       replyToId: messageInput.replyToId,
       roomId,
+      stickerMediaId,
       userId,
     });
     return Response.json(result, { status: result.replayed ? 200 : 201 });

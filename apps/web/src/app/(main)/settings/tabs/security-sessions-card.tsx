@@ -11,7 +11,6 @@ import {
 } from "@asm/ui/shadui/dialog";
 import {
   Globe2,
-  Loader2,
   LogOut,
   MonitorSmartphone,
   Smartphone,
@@ -21,6 +20,7 @@ import {
 import { useCallback, useEffect, useState } from "react";
 
 import { LoadingButton } from "@/components/auth/fields/loading-button";
+import { ZephLoader } from "@/components/layouts/feedback/zeph-loader";
 import {
   ORANGE_GRADIENT_CLASS,
   SETTINGS_SUBCARD_CLASS,
@@ -266,7 +266,7 @@ export default function SecuritySessionsCard({
 
       {isLoading ? (
         <div className="text-muted-foreground mt-4 flex items-center gap-2 text-sm">
-          <Loader2 className="size-4 animate-spin" />
+          <ZephLoader variant="security" className="size-4" />
           Loading signed-in devices…
         </div>
       ) : null}

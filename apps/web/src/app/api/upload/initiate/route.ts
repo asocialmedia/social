@@ -1,4 +1,10 @@
-import { and, prisma } from "@asm/db";
+import { and, consumeRateLimit, prisma } from "@asm/db";
+import {
+  STICKER_CONVERSION_DAILY_LIMIT,
+  STICKER_CONVERSION_PER_MINUTE_LIMIT,
+  isStickerSupportedMimeType,
+  maxStickerInputBytes,
+} from "@asm/media";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
@@ -28,7 +34,15 @@ const initiateSchema = z.object({
   // scheduled. It is deliberately NOT stored on the Media row: ownership comes
   // from the link that follows, never from what the client asked for.
   purpose: z
-    .enum(["avatar", "banner", "comment", "message", "post", "wallpaper"])
+    .enum([
+      "avatar",
+      "banner",
+      "comment",
+      "message",
+      "post",
+      "sticker",
+      "wallpaper",
+    ])
     .nullish(),
   // Uppercase hex is accepted but normalized to lowercase so dedup matching
   // (an exact string comparison against stored digests) cannot miss.
@@ -94,6 +108,67 @@ export async function POST(request: Request) {
       },
       { status: 415 }
     );
+  }
+
+  if (purpose === "sticker") {
+    if (!isStickerSupportedMimeType(type)) {
+      return Response.json(
+        { error: "Choose a JPEG, PNG, WebP, or GIF image for your sticker" },
+        { status: 415 }
+      );
+    }
+    if (size > maxStickerInputBytes(type)) {
+      return Response.json(
+        { error: "That image is too large to turn into a sticker" },
+        { status: 413 }
+      );
+    }
+    if (conversationId || incognitoSessionId || viewOnce || audioOverlayId) {
+      return Response.json(
+        { error: "Sticker sources must be uploaded to your private library" },
+        { status: 400 }
+      );
+    }
+    const [burst, daily] = await Promise.all([
+      consumeRateLimit({
+        bucket: "sticker-conversion-minute",
+        identifier: user.id,
+        limit: STICKER_CONVERSION_PER_MINUTE_LIMIT,
+        windowSeconds: 60,
+      }),
+      consumeRateLimit({
+        bucket: "sticker-conversion-day",
+        identifier: user.id,
+        limit: STICKER_CONVERSION_DAILY_LIMIT,
+        windowSeconds: 86_400,
+      }),
+    ]);
+    if (!burst.allowed || !daily.allowed) {
+      const retryAfterSeconds = Math.max(
+        burst.allowed ? 0 : burst.retryAfterSeconds,
+        daily.allowed ? 0 : daily.retryAfterSeconds
+      );
+      return NextResponse.json(
+        { error: "Sticker conversion limit reached. Try again later." },
+        { headers: { "Retry-After": String(retryAfterSeconds) }, status: 429 }
+      );
+    }
+    const activeStickerConversions = await prisma.orm.public.PostMedia.where(
+      (media) =>
+        and(
+          media.stickerSource.eq(true),
+          media.userId.eq(user.id),
+          media.status.in(["SCANNING", "PROCESSING"])
+        )
+    ).aggregate((aggregate) => ({ count: aggregate.count() }));
+    if (activeStickerConversions.count >= 2) {
+      return NextResponse.json(
+        {
+          error: "Two stickers are already being processed. Try again shortly.",
+        },
+        { status: 429 }
+      );
+    }
   }
 
   // Message attachments must be bound to a thread the uploader belongs to;

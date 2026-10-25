@@ -19,7 +19,6 @@ import {
   ArrowLeft,
   Check,
   KeyRound,
-  Loader2,
   Search,
   Shield,
   ShieldAlert,
@@ -39,6 +38,7 @@ import {
 } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
+import { ZephLoader } from "@/components/layouts/feedback/zeph-loader";
 import UserAvatar from "@/components/layouts/user/user-avatar";
 import UserBadge from "@/components/layouts/user/user-badge";
 import { ConversationDetailsPanel } from "@/components/messages/conversation-details-panel";
@@ -186,7 +186,6 @@ import {
   paginateSearchResults,
   SEARCH_PAGE_SIZE,
 } from "@/lib/messages/message-search";
-import { messagesTrustNote } from "@/lib/messages/messages-trust";
 import {
   planOfflineSearchChangeEffects,
   shouldRefreshServerSharedReferences,
@@ -242,6 +241,7 @@ import {
   ChatModeTransition,
   INCOGNITO_SURFACE_CLASS_NAME,
 } from "./chat-mode-transition";
+import { ConversationGreeting } from "./conversation-greeting";
 import { EndIncognitoButton } from "./end-incognito-button";
 import { IncognitoThread } from "./incognito-thread";
 import { IncognitoUsageNotice } from "./incognito-usage-notice";
@@ -5051,29 +5051,14 @@ function NormalMessageThread({
                   {transcriptIsEmpty(transcriptItems) ? (
                     <div className="flex min-h-full flex-col">
                       <div className="flex flex-1 flex-col items-center justify-center text-center">
-                        <div className="px-6 py-5">
-                          <p className="text-muted-foreground text-sm">
-                            {/* A den has no single person to say hi to, and "Say hi to
-                            them" in a room of twenty reads as a bug. Naming the
-                            room is the same promise the row and the header make. */}
-                            {conversationType === "DEN"
-                              ? `Say hi in ${denHeadingName ?? "this den"}`
-                              : `Say hi to ${peer?.displayName ?? "them"}`}
-                          </p>
-                          <p className="text-muted-foreground/70 mt-1 text-xs">
-                            {/* The trust sentence, from one module. The old copy here
-                            was "Messages here are encrypted", which is true and
-                            reads as end-to-end to almost everyone - and this
-                            scheme is server-recoverable, not end-to-end. The empty
-                            transcript is exactly where somebody decides whether
-                            to trust what they are about to type, so it is the
-                            wrong place to leave the ambiguity in. */}
-                            {messagesTrustNote({
-                              memberCount: detail?.conversation.members.length,
-                              type: conversationType,
-                            })}
-                          </p>
-                        </div>
+                        <ConversationGreeting
+                          isDen={conversationType === "DEN"}
+                          name={
+                            conversationType === "DEN"
+                              ? (denHeadingName ?? "this den")
+                              : (peer?.displayName ?? "them")
+                          }
+                        />
                       </div>
                       {peerTyping ? (
                         <TypingRow avatarUrl={peer?.avatarUrl ?? null} />
@@ -5203,7 +5188,7 @@ function NormalMessageThread({
                 {transcriptBusy ? (
                   <div className="pointer-events-none absolute inset-x-0 top-2 z-10 flex justify-center">
                     <span className="panel-3d text-muted-foreground flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-medium">
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      <ZephLoader variant="messages" className="h-3.5 w-3.5" />
                       {transcriptLoadingLabel}
                     </span>
                   </div>

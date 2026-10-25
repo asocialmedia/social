@@ -1,26 +1,5 @@
 import { messageIsRetained } from "@asm/messages";
 import * as Clipboard from "expo-clipboard";
-// The message thread: a scrolling transcript, the header, and the composer.
-//
-// Ported from apps/web/src/components/messages/message-thread.tsx (5468 lines on
-// web), restructured for a list rather than a virtualiser.
-//
-// THE PORTING DECISION THAT SHAPED EVERYTHING ELSE: web virtualises a flat row
-// list with measured heights because a browser cannot render a 500-row chat. A
-// FlatList does that natively, so the virtualiser, its scroll anchoring and its
-// measurement loop are gone and the transcript is an INVERTED list -- which starts
-// at the newest message with no scroll-to-bottom on mount, and turns "page older
-// history" into onEndReached.
-//
-// READ STATE has the real subtlety. The server's read route also advances the
-// delivery watermark, and a thread that is open but scrolled into history must not
-// claim the reader saw rows they did not. So the marker tracks the newest PEER row
-// and is only advanced while the transcript is at the live end.
-//
-// SEND is where the ratchet matters. The server owns the ratchet index and rejects
-// a send whose index it has already advanced past, answering 409 with the index it
-// wanted. On a phone that is routine -- two taps, or a retry after a tunnel -- so it
-// is retried once silently instead of surfaced as an error.
 import { Image } from "expo-image";
 import {
   ArrowLeft,
@@ -127,6 +106,28 @@ import { NativeChatLifecycleBoundary } from "./chat-lifecycle-context";
 import { useNativeChatLifecycle } from "./chat-lifecycle-state";
 import { ChatModeTransition } from "./chat-mode-transition";
 import { ConversationDetails } from "./conversation-details";
+// The message thread: a scrolling transcript, the header, and the composer.
+//
+// Ported from apps/web/src/components/messages/message-thread.tsx (5468 lines on
+// web), restructured for a list rather than a virtualiser.
+//
+// THE PORTING DECISION THAT SHAPED EVERYTHING ELSE: web virtualises a flat row
+// list with measured heights because a browser cannot render a 500-row chat. A
+// FlatList does that natively, so the virtualiser, its scroll anchoring and its
+// measurement loop are gone and the transcript is an INVERTED list -- which starts
+// at the newest message with no scroll-to-bottom on mount, and turns "page older
+// history" into onEndReached.
+//
+// READ STATE has the real subtlety. The server's read route also advances the
+// delivery watermark, and a thread that is open but scrolled into history must not
+// claim the reader saw rows they did not. So the marker tracks the newest PEER row
+// and is only advanced while the transcript is at the live end.
+//
+// SEND is where the ratchet matters. The server owns the ratchet index and rejects
+// a send whose index it has already advanced past, answering 409 with the index it
+// wanted. On a phone that is routine -- two taps, or a retry after a tunnel -- so it
+// is retried once silently instead of surfaced as an error.
+import { ConversationGreeting } from "./conversation-greeting";
 import { DenAvatar } from "./den-avatar";
 import { NativeIncognitoThread } from "./incognito-thread";
 import { NativeIncognitoUsageNotice } from "./incognito-usage-notice";
@@ -975,6 +976,8 @@ function NormalMessageThreadScreen({
               </Text>
             ) : null}
             <MessageBubble
+              entrances={transcriptStore.getEntrances(conversationId)}
+              messageId={message.id}
               searchJump={search.activeId === message.id ? search.jump : 0}
               deleted={Boolean(message.deletedAt)}
               edited={Boolean(message.editedAt)}
@@ -1268,7 +1271,23 @@ function NormalMessageThreadScreen({
               <Animated.View style={{ flex: 1 }}>
                 <GestureDetector gesture={nativeScroll}>
                   <AnimatedTranscriptList
-                    contentContainerStyle={styles.listContent}
+                    contentContainerStyle={[
+                      styles.listContent,
+                      items.length === 0 && {
+                        flexGrow: 1,
+                        justifyContent: "center",
+                      },
+                    ]}
+                    ListEmptyComponent={
+                      searchOpen ? undefined : (
+                        <View style={{ transform: [{ scaleY: -1 }] }}>
+                          <ConversationGreeting
+                            isDen={isDen}
+                            name={headerName}
+                          />
+                        </View>
+                      )
+                    }
                     ref={threadListRef}
                     data={items}
                     onScrollToIndexFailed={search.handleScrollToIndexFailed}
@@ -1345,6 +1364,7 @@ function NormalMessageThreadScreen({
         ) : (
           <MessageComposer
             conversationId={conversationId}
+            stickersEnabled
             peerName={headerName}
             disabled={status !== "ready" || readyKey !== privateKey}
             editing={editing}

@@ -1,16 +1,17 @@
 "use client";
-
-// oxlint-disable react/exhaustive-effect-dependencies -- Account, clear and retry revisions intentionally invalidate scoped effects even when they are not request payload fields.
-
 import { runChatTask, throwChatError, incognitoIsActive } from "@asm/messages";
+// oxlint-disable react/exhaustive-effect-dependencies -- Account, clear and retry revisions intentionally invalidate scoped effects even when they are not request payload fields.
 import type { IncognitoSession } from "@asm/messages";
 import { Button } from "@asm/ui/shadui/button";
+import errorArtwork from "@assets/general/error.png";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Shield, RefreshCw } from "lucide-react";
+import { RefreshCw } from "lucide-react";
+import Image from "next/image";
 import { useMemo, Fragment, useCallback, useEffect, useState } from "react";
 import type { ReactNode } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
+import { ZephLoader } from "@/components/layouts/feedback/zeph-loader";
 import { useMessagesIdentity } from "@/components/messages/message-identity-provider";
 import {
   fetchChatLifecycle,
@@ -374,7 +375,26 @@ export function ChatLifecycleBoundary({
                 className="flex h-full flex-1 flex-col items-center justify-center gap-3 p-6 text-center"
                 aria-live="polite"
               >
-                <Shield className="text-muted-foreground size-7" />
+                {lifecycleError ? (
+                  <Image
+                    alt=""
+                    className="size-24 object-contain"
+                    height={96}
+                    sizes="96px"
+                    src={errorArtwork}
+                    width={96}
+                  />
+                ) : (
+                  <ZephLoader
+                    label={
+                      pendingClear
+                        ? "Clearing saved history"
+                        : "Opening conversation"
+                    }
+                    size={96}
+                    variant="messages"
+                  />
+                )}
                 <p>
                   {lifecycleError ??
                     (pendingClear

@@ -43,7 +43,7 @@ import { ProfileTabs } from "./profile-tabs";
 function LoadingProfile() {
   return (
     <View style={styles.center}>
-      <Spinner3D size={56} />
+      <Spinner3D variant="general" size={56} />
       <Text style={styles.centerText}>Loading profile…</Text>
     </View>
   );

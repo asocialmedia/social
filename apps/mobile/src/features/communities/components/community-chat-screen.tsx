@@ -1,15 +1,15 @@
-// oxlint-disable no-nested-ternary, unicorn/no-nested-ternary, no-negated-condition, unicorn/no-negated-condition, no-void -- Compact mobile state branches keep the narrow composer readable; detached handlers surface errors in the screen.
-
 import type {
   CommunityChatChange,
   CommunityChatMessage,
   CommunityChatRoom,
   CommunityChatThreadSummary,
 } from "@asm/messages";
+// oxlint-disable no-nested-ternary, unicorn/no-nested-ternary, no-negated-condition, unicorn/no-negated-condition, no-void -- Compact mobile state branches keep the narrow composer readable; detached handlers surface errors in the screen.
 import {
   mergeCommunityChatTimeline,
   QUICK_MESSAGE_REACTIONS,
 } from "@asm/messages";
+import { isStickerMessagePayload } from "@asm/messages/payload";
 import { randomUUID } from "expo-crypto";
 import { Image } from "expo-image";
 import {
@@ -37,7 +37,6 @@ import {
 } from "lucide-react-native";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  ActivityIndicator,
   AppState,
   FlatList,
   Keyboard,
@@ -53,6 +52,7 @@ import type { FlatListProps, TextInputInstance } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { StatusActionButton } from "@/components/feedback/status-action-button";
+import { ZephLoader } from "@/components/feedback/zeph-loader";
 import { DialogPanel } from "@/components/surface/dialog-panel";
 import { premiumInput } from "@/components/surface/recipes";
 import { authClient } from "@/features/auth/lib/auth-client";
@@ -61,6 +61,7 @@ import { resolveCommunityAccentColor } from "@/features/communities/lib/communit
 import { MobileBottomNav } from "@/features/home/components/mobile-bottom-nav";
 import { MobileHeader } from "@/features/home/components/mobile-header";
 import { UserBadge } from "@/features/home/components/user-badge";
+import { SavableSticker } from "@/features/messages/components/savable-sticker";
 import { useUnreadNotificationCount } from "@/features/notifications/state/use-unread-count";
 import { getApiBaseUrl } from "@/lib/api-env";
 import { readSseStream } from "@/lib/sse-stream";
@@ -248,7 +249,7 @@ function CommunityChatChannelsContent() {
       </View>
       {loading ? (
         <View style={styles.state}>
-          <ActivityIndicator color={communityAccent} />
+          <ZephLoader variant="messages" color={communityAccent} />
         </View>
       ) : loadError === null ? (
         channels.length === 0 ? (
@@ -1221,7 +1222,7 @@ function CommunityChatTimelineScreen() {
       ) : null}
       {loading ? (
         <View style={styles.state}>
-          <ActivityIndicator color={communityAccent} />
+          <ZephLoader variant="messages" color={communityAccent} />
         </View>
       ) : loadError ? (
         <View style={styles.state}>
@@ -1257,7 +1258,7 @@ function CommunityChatTimelineScreen() {
             }
             ListFooterComponent={
               loadingOlder ? (
-                <ActivityIndicator color={communityAccent} />
+                <ZephLoader variant="messages" color={communityAccent} />
               ) : undefined
             }
             maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
@@ -1404,6 +1405,22 @@ function CommunityChatTimelineScreen() {
                       >
                         {item.payload.content}
                       </Text>
+                    ) : item.payload &&
+                      isStickerMessagePayload(item.payload) ? (
+                      <SavableSticker
+                        canSave
+                        mediaId={item.payload.sticker.mediaId}
+                        messageId={item.id}
+                        source="community"
+                      >
+                        <Image
+                          source={{
+                            uri: `${apiBase}/api/communities/chat/stickers/${item.id}`,
+                          }}
+                          contentFit="contain"
+                          style={{ height: 192, width: 192 }}
+                        />
+                      </SavableSticker>
                     ) : item.deletedAt ? (
                       <Text
                         style={[
@@ -1631,7 +1648,7 @@ function CommunityChatTimelineScreen() {
                 ]}
               >
                 {sending ? (
-                  <ActivityIndicator color="#fff" size="small" />
+                  <ZephLoader variant="messages" color="#fff" size="small" />
                 ) : (
                   <Send color="#fff" size={17} />
                 )}

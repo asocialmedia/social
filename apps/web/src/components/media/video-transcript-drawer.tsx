@@ -13,6 +13,7 @@ import React, {
   useState,
 } from "react";
 
+import { ZephLoader } from "@/components/layouts/feedback/zeph-loader";
 import { useToast } from "@/lib/gooey-toast";
 import { cn } from "@/lib/utils";
 
@@ -382,7 +383,7 @@ export const VideoTranscriptDrawer: React.FC<VideoTranscriptDrawerProps> = ({
               if (isLoading) {
                 return (
                   <div className="flex h-32 items-center justify-center">
-                    <div className="size-5 animate-spin rounded-full border-2 border-orange-500 border-t-transparent" />
+                    <ZephLoader variant="media" className="size-5" />
                   </div>
                 );
               }

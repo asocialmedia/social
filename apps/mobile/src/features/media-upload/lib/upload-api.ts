@@ -24,7 +24,8 @@ export type UploadPurpose =
   | "banner"
   | "comment"
   | "message"
-  | "post";
+  | "post"
+  | "sticker";
 
 export interface InitiateRequest {
   audioOverlayId?: string;

@@ -16,11 +16,12 @@ import {
 } from "@asm/ui/shadui/dialog";
 import { Input } from "@asm/ui/shadui/input";
 import { Textarea } from "@asm/ui/shadui/textarea";
-import { Loader2, Users, X } from "lucide-react";
+import { Users, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useMemo, useState } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
+import { ZephLoader } from "@/components/layouts/feedback/zeph-loader";
 import { DenAvatarCollage } from "@/components/messages/den-avatar-collage";
 import {
   MemberPicker,
@@ -486,7 +487,9 @@ export function CreateDenDialog({
             type="button"
             variant="premium"
           >
-            {creating ? <Loader2 className="size-4 animate-spin" /> : null}
+            {creating ? (
+              <ZephLoader variant="messages" className="size-4" />
+            ) : null}
             {creating ? "Creating…" : "Create den"}
           </Button>
         </footer>

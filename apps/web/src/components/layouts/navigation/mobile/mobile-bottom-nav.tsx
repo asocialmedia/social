@@ -81,7 +81,7 @@ const NavIcon: React.FC<{ active: boolean; icon: typeof Home }> = ({
 }) => {
   const { pending } = useLinkStatus();
   if (pending && !active) {
-    return <Spinner3D className="size-5" />;
+    return <Spinner3D variant="general" className="size-5" />;
   }
   return <Icon className="size-5 transition-colors" />;
 };

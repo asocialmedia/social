@@ -464,6 +464,7 @@ SELECT reference."createdAt",
         AND member."userId" = $2
       WHERE reference."conversationId" = $1
         AND reference.kind = $3
+        AND (reference.kind <> 'media' OR reference."mediaKind" IS DISTINCT FROM 'sticker')
         AND message."deletedAt" IS NULL
         AND (message."expiresAt" IS NULL OR message."expiresAt">clock_timestamp())
         AND (message."creationSequence">member."clearedThroughSequence" OR (message."creationSequence"=0 AND (member."clearedAt" IS NULL OR message."createdAt">member."clearedAt")))

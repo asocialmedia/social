@@ -107,6 +107,9 @@ afterAll(async () => {
   await prisma.orm.public.AuraLogs.where((log) =>
     or(log.userId.in(users), log.issuerId.in(users))
   ).deleteAndCount();
+  await prisma.orm.public.PostMedia.where((media) =>
+    media.userId.in(users)
+  ).deleteAndCount();
   await prisma.orm.public.Communities.where((community) =>
     community.id.in(communityIds)
   ).deleteAndCount();
@@ -125,6 +128,61 @@ function send(
 }
 
 describe("community channel messaging", () => {
+  test("stores a prepared sticker, binds its lifetime, and replays sends without duplication", async () => {
+    const mediaId = randomUUID();
+    await prisma.orm.public.PostMedia.create({
+      _type: "IMAGE",
+      height: 128,
+      id: mediaId,
+      key: `fixture/${mediaId}.webp`,
+      mimeType: "image/webp",
+      originalName: "sticker.webp",
+      size: 1000,
+      status: "READY",
+      techMetadata: {
+        animated: true,
+        communityRoomId: channelId,
+        stickerOriginMediaId: "original-sticker",
+      },
+      url: "",
+      userId: member,
+      visibility: "PRIVATE",
+      width: 128,
+    });
+    const input = {
+      clientId: randomUUID(),
+      content: "",
+      roomId: channelId,
+      stickerMediaId: mediaId,
+      userId: member,
+    };
+    const sent = await sendCommunityChatMessage(input);
+    expect(sent.message.payload).toMatchObject({
+      presentation: "sticker",
+      sticker: { animated: true, mediaId, version: 1 },
+      type: "media",
+    });
+    const replay = await sendCommunityChatMessage(input);
+    expect(replay.replayed).toBe(true);
+    expect(replay.message.id).toBe(sent.message.id);
+    const media = await prisma.orm.public.PostMedia.where({
+      id: mediaId,
+    }).first();
+    expect(media?.techMetadata).toMatchObject({
+      communityMessageId: sent.message.id,
+      communityRoomId: channelId,
+      stickerOriginMediaId: "original-sticker",
+    });
+    await expect(
+      sendCommunityChatMessage({
+        ...input,
+        clientId: randomUUID(),
+        userId: outsider,
+      })
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await prisma.orm.public.PostMedia.where({ id: mediaId }).delete();
+  });
+
   test("returns typed validation errors for invalid sends, edits and private starters", async () => {
     for (const content of ["", "   ", "x".repeat(4001), null]) {
       await expect(

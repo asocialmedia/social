@@ -11,8 +11,9 @@ import {
   useState,
 } from "react";
 import type { ReactNode } from "react";
-import { ActivityIndicator, Pressable, Text, View } from "react-native";
+import { Pressable, Text, View } from "react-native";
 
+import { ZephLoader } from "@/components/feedback/zeph-loader";
 import { authClient } from "@/features/auth/lib/auth-client";
 import { useSessionContext } from "@/features/auth/state/session";
 import type { ApiCallOptions } from "@/features/feed/lib/feed-api";
@@ -351,7 +352,11 @@ export function NativeChatLifecycleBoundary({
                     </Pressable>
                   </>
                 ) : (
-                  <ActivityIndicator accessibilityLabel="Opening conversation" />
+                  <ZephLoader
+                    variant="messages"
+                    accessibilityLabel="Opening conversation"
+                    size={96}
+                  />
                 )}
               </View>
             );

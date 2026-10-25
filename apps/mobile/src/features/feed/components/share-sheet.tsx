@@ -322,7 +322,7 @@ function ShareDialog({
                     </Pressable>
                   ))}
               </ScrollView>
-              {loading ? <Spinner3D size={24} /> : null}
+              {loading ? <Spinner3D variant="general" size={24} /> : null}
               {loadError ? (
                 <Text style={{ color: theme.dividerText }}>{loadError}</Text>
               ) : null}

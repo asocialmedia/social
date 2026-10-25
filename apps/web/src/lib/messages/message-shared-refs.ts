@@ -65,6 +65,7 @@ export function extractSharedRefs(payload: MessagePayload): SharedRefs | null {
   for (const reference of extractMessageReferences(payload)) {
     if (
       reference.kind === "media" &&
+      reference.mediaKind !== "sticker" &&
       reference.url &&
       payload.type === "media"
     ) {

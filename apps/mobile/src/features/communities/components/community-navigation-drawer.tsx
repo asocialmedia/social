@@ -1,15 +1,13 @@
-// oxlint-disable react/todo -- Requests retain visible loading and retry states in the drawer.
-
 import type {
   CommunityChatRoom,
   CommunityChatThreadSummary,
 } from "@asm/messages";
+// oxlint-disable react/todo -- Requests retain visible loading and retry states in the drawer.
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import { FileText, LockKeyhole, MessageCircle, X } from "lucide-react-native";
 import { useEffect, useRef, useState } from "react";
 import {
-  ActivityIndicator,
   Animated,
   Easing,
   useWindowDimensions,
@@ -24,6 +22,7 @@ import { useReducedMotion } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { StatusActionButton } from "@/components/feedback/status-action-button";
+import { ZephLoader } from "@/components/feedback/zeph-loader";
 import { authClient } from "@/features/auth/lib/auth-client";
 import { MobileBottomNav } from "@/features/home/components/mobile-bottom-nav";
 import { getApiBaseUrl } from "@/lib/api-env";
@@ -258,7 +257,10 @@ export function CommunityNavigationDrawer({
               </Text>
             ) : null}
             {status === "loading" ? (
-              <ActivityIndicator accessibilityLabel="Loading channels" />
+              <ZephLoader
+                variant="general"
+                accessibilityLabel="Loading channels"
+              />
             ) : null}
             {status === "error" ? (
               <View style={styles.error}>

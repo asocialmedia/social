@@ -1,9 +1,10 @@
 "use client";
 
-import { LoaderCircle, MessageCircle, Search, WifiOff } from "lucide-react";
+import { MessageCircle, Search, WifiOff } from "lucide-react";
 import type { KeyboardEvent, ReactNode, UIEvent } from "react";
 import { useCallback, useEffect, useLayoutEffect, useRef } from "react";
 
+import { ZephLoader } from "@/components/layouts/feedback/zeph-loader";
 import UserAvatar from "@/components/layouts/user/user-avatar";
 import type { SearchUserResult } from "@/lib/messages/client";
 import { focusSearchResult } from "@/lib/messages/search-result-navigation";
@@ -383,7 +384,7 @@ export function GlobalMessageSearchResults({
                   type="button"
                 >
                   {loadingMore ? (
-                    <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+                    <ZephLoader variant="search" className="h-3.5 w-3.5" />
                   ) : null}
                   {loadingMore
                     ? "Loading older results…"
@@ -445,7 +446,10 @@ function SearchPreview({ result }: { result: GlobalMessageSearchResult }) {
   }
   return (
     <span className="text-muted-foreground inline-flex items-center gap-1.5">
-      <LoaderCircle className="h-3 w-3 animate-spin motion-reduce:animate-none" />
+      <ZephLoader
+        variant="search"
+        className="h-3 w-3 motion-reduce:animate-none"
+      />
       Decrypting preview…
     </span>
   );

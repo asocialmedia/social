@@ -26,7 +26,6 @@ import type {
   LayoutChangeEvent,
 } from "react-native";
 import {
-  ActivityIndicator,
   Animated,
   Dimensions,
   Pressable,
@@ -40,6 +39,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import errorImage from "@/assets/images/error.png";
 import notFoundImage from "@/assets/images/notfound.png";
 import { toast } from "@/components/feedback/toast";
+import { ZephLoader } from "@/components/feedback/zeph-loader";
 import { authClient } from "@/features/auth/lib/auth-client";
 import { useSessionContext } from "@/features/auth/state/session";
 import { FloatingEddieBar } from "@/features/eddies/components/floating-eddie-bar";
@@ -505,7 +505,7 @@ export function PostDetailScreen({ postId }: { postId: string }) {
     return (
       <View style={[styles.root, { backgroundColor: theme.containerBg }]}>
         <View style={styles.centerWrap}>
-          <ActivityIndicator color="#ff9500" size="large" />
+          <ZephLoader variant="general" color="#ff9500" size="large" />
         </View>
       </View>
     );

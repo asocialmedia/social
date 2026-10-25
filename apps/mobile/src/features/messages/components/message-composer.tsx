@@ -8,10 +8,10 @@ import {
   FileText,
   Film,
   ArrowUp,
-  Clapperboard,
   ImagePlus,
   Plus,
   Pencil,
+  Smile,
   X,
 } from "lucide-react-native";
 // The message composer: text, reply and edit context, attachments, and send.
@@ -45,7 +45,6 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { toast } from "@/components/feedback/toast";
-import { GifPicker } from "@/components/media/gif-picker";
 import { Gradient3D } from "@/components/surface/gradient-3d";
 import { IconButton3D } from "@/components/surface/icon-button-3d";
 import { authClient } from "@/features/auth/lib/auth-client";
@@ -76,6 +75,7 @@ import { useAppTheme } from "@/theme";
 
 import { useMessageTextDraft } from "../state/message-text-draft";
 import { useSharedPostDraft } from "../state/shared-post-draft";
+import { MessageExpressionKeyboard } from "./message-expression-keyboard";
 import { MessagePostPreview } from "./message-post-preview";
 
 // The payload validator caps an album at 10, so the picker does too.
@@ -91,6 +91,7 @@ export interface ComposerTarget {
 }
 
 export function MessageComposer({
+  stickersEnabled,
   conversationId,
   incognitoSessionId,
   disabled,
@@ -103,6 +104,7 @@ export function MessageComposer({
   peerName,
 }: {
   conversationId: string;
+  stickersEnabled: boolean;
   incognitoSessionId?: string;
   disabled?: boolean;
   editing: ComposerTarget | null;
@@ -122,7 +124,11 @@ export function MessageComposer({
     }
   }, [replyTo?.id]);
   const [keyboardVisible, setKeyboardVisible] = useState(Keyboard.isVisible());
-  const [gifOpen, setGifOpen] = useState(false);
+  const [expressionKeyboardOpen, setExpressionKeyboardOpen] = useState(false);
+  const [expressionTab, setExpressionTab] = useState<
+    "emoji" | "gifs" | "stickers"
+  >("emoji");
+  const [selection, setSelection] = useState({ end: 0, start: 0 });
   const [attachmentMenuOpen, setAttachmentMenuOpen] = useState(false);
   useEffect(() => {
     const show = Keyboard.addListener("keyboardDidShow", () =>
@@ -262,6 +268,74 @@ export function MessageComposer({
       current.map((item) => (item.id === id ? { ...item, ...patch } : item))
     );
   }, []);
+
+  const insertEmoji = useCallback(
+    (emoji: string) => {
+      const start = Math.min(selection.start, fieldValue.length);
+      const end = Math.min(Math.max(start, selection.end), fieldValue.length);
+      const next = `${fieldValue.slice(0, start)}${emoji}${fieldValue.slice(end)}`;
+      const caret = start + emoji.length;
+      setDraft(next);
+      setSelection({ end: caret, start: caret });
+      if (!incognitoSessionId) {
+        if (next) {
+          useMessageTextDraft.getState().save(draftKey, next);
+        } else {
+          useMessageTextDraft.getState().clear(draftKey);
+        }
+      }
+      if (next.trim().length > 0) {
+        noteTyping();
+      }
+    },
+    [draftKey, fieldValue, incognitoSessionId, noteTyping, selection]
+  );
+
+  const handleGifSelect = useCallback(
+    async (gif: Parameters<typeof downloadGif>[0]) => {
+      setExpressionKeyboardOpen(false);
+      try {
+        const file = await downloadGif(gif);
+        if (attachmentsRef.current.length >= MAX_MESSAGE_ATTACHMENTS) {
+          return;
+        }
+        const staged: StagedAttachment = {
+          error: null,
+          file,
+          id: `${file.uri}-${Date.now()}`,
+          mediaId: null,
+          owned: false,
+          progress: 0,
+        };
+        setAttachments((current) => [...current, staged]);
+        await uploadStagedAttachments([staged], {
+          aborts,
+          conversationId,
+          incognitoSessionId,
+          onPatch: update,
+        });
+      } catch {
+        toast({
+          description: "Please try again.",
+          title: "Couldn't add GIF",
+          variant: "destructive",
+        });
+      }
+    },
+    [conversationId, incognitoSessionId, update]
+  );
+
+  const handleStickerSend = useCallback(
+    async (payload: MessagePayload) => {
+      await onSend({
+        ...payload,
+        replyToId: replyTo?.id,
+        replyToSenderId: replyTo?.senderId,
+      });
+      onCancelReply();
+    },
+    [onCancelReply, onSend, replyTo?.id, replyTo?.senderId]
+  );
 
   const editAttachment = useCallback(
     async (item: StagedAttachment) => {
@@ -608,6 +682,20 @@ export function MessageComposer({
           ))}
         </ScrollView>
       ) : null}
+      {expressionKeyboardOpen ? (
+        <MessageExpressionKeyboard
+          canCreate={!incognito && !editing}
+          conversationId={conversationId}
+          disabled={Boolean(disabled) || Boolean(editing) || viewOnceMode}
+          incognitoSessionId={incognitoSessionId}
+          onEmoji={insertEmoji}
+          onGifSelect={handleGifSelect}
+          onSendSticker={handleStickerSend}
+          onTabChange={setExpressionTab}
+          stickersEnabled={stickersEnabled}
+          tab={expressionTab}
+        />
+      ) : null}
       <View
         style={[
           styles.field,
@@ -634,11 +722,34 @@ export function MessageComposer({
         >
           <Plus color={theme.dividerText} size={21} />
         </Pressable>
+        <Pressable
+          accessibilityLabel={
+            expressionKeyboardOpen
+              ? "Close expression keyboard"
+              : "Open expression keyboard"
+          }
+          accessibilityRole="button"
+          disabled={Boolean(disabled) || viewOnceMode}
+          hitSlop={6}
+          onPress={() => {
+            if (expressionKeyboardOpen) {
+              setExpressionKeyboardOpen(false);
+              return;
+            }
+            Keyboard.dismiss();
+            setExpressionTab("emoji");
+            setExpressionKeyboardOpen(true);
+          }}
+          style={styles.attachButton}
+        >
+          <Smile color={theme.dividerText} size={20} />
+        </Pressable>
         <TextInput
           ref={fieldRef}
           accessibilityLabel="Message"
           editable={!disabled && !viewOnceMode}
           multiline
+          onFocus={() => setExpressionKeyboardOpen(false)}
           onChangeText={(value) => {
             setDraft(value);
             if (!incognitoSessionId) {
@@ -654,6 +765,9 @@ export function MessageComposer({
               stopTyping();
             }
           }}
+          onSelectionChange={(event) =>
+            setSelection(event.nativeEvent.selection)
+          }
           placeholder={(() => {
             if (viewOnceMode) {
               return "View once photo";
@@ -671,6 +785,7 @@ export function MessageComposer({
             styles.fieldInput,
             { color: incognito || isDark ? "#eeeeee" : "#202020" },
           ]}
+          selection={selection}
           value={fieldValue}
         />
         <Pressable
@@ -697,43 +812,6 @@ export function MessageComposer({
           )}
         </Pressable>
       </View>
-      {gifOpen ? (
-        <View style={{ paddingTop: 12 }}>
-          <GifPicker
-            disabled={disabled || atCapacity}
-            onSelect={(gif) => {
-              setGifOpen(false);
-              // oxlint-disable promise/prefer-await-to-then -- the compiler cannot lower try/catch inside this event callback
-              void downloadGif(gif)
-                .then((file) => {
-                  const staged: StagedAttachment = {
-                    error: null,
-                    file,
-                    id: `${file.uri}-${Date.now()}`,
-                    mediaId: null,
-                    owned: false,
-                    progress: 0,
-                  };
-                  setAttachments((current) => [...current, staged]);
-                  return uploadStagedAttachments([staged], {
-                    aborts,
-                    conversationId,
-                    incognitoSessionId,
-                    onPatch: update,
-                  });
-                })
-                .catch(() =>
-                  toast({
-                    description: "Please try again.",
-                    title: "Couldn't add GIF",
-                    variant: "destructive",
-                  })
-                );
-              // oxlint-enable promise/prefer-await-to-then
-            }}
-          />
-        </View>
-      ) : null}
       <Modal
         animationType="slide"
         onRequestClose={() => setAttachmentMenuOpen(false)}
@@ -794,25 +872,6 @@ export function MessageComposer({
                 ]}
               >
                 Files
-              </Text>
-            </Pressable>
-            <Pressable
-              accessibilityRole="button"
-              disabled={viewOnceMode}
-              onPress={() => {
-                setAttachmentMenuOpen(false);
-                setGifOpen((value) => !value);
-              }}
-              style={styles.attachmentSheetRow}
-            >
-              <Clapperboard color={theme.dividerText} size={19} />
-              <Text
-                style={[
-                  styles.attachmentSheetLabel,
-                  { color: theme.inputText },
-                ]}
-              >
-                GIF
               </Text>
             </Pressable>
           </Pressable>

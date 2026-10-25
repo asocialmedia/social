@@ -1,7 +1,5 @@
 "use client";
 
-// oxlint-disable react/exhaustive-effect-dependencies -- Account, clear and retry revisions intentionally invalidate scoped effects even when they are not request payload fields.
-
 import {
   observeChatTask,
   runChatTask,
@@ -10,14 +8,16 @@ import {
   incognitoMessageExpiresAt,
   extractMessageReferences,
 } from "@asm/messages";
+// oxlint-disable react/exhaustive-effect-dependencies -- Account, clear and retry revisions intentionally invalidate scoped effects even when they are not request payload fields.
 import type { IncognitoMessage, IncognitoSession } from "@asm/messages";
 // oxlint-disable no-await-in-loop -- Sequential cryptography, database mutations and bounded streams preserve ordering and memory limits.
 import { Button } from "@asm/ui/shadui/button";
 import { useQuery } from "@tanstack/react-query";
-import { Loader2, RefreshCw, Shield } from "lucide-react";
+import { RefreshCw, Shield } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
+import { ZephLoader } from "@/components/layouts/feedback/zeph-loader";
 import { useMessagesIdentity } from "@/components/messages/message-identity-provider";
 import { toast } from "@/lib/gooey-toast";
 import {
@@ -469,7 +469,7 @@ export function IncognitoThread({
           >
             {readBusy && !rows.length ? (
               <div aria-live="polite" className="flex justify-center p-8">
-                <Loader2 className="size-5 animate-spin" />
+                <ZephLoader variant="messages" className="size-5" />
                 <span className="sr-only">Opening messages</span>
               </div>
             ) : null}

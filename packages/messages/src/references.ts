@@ -2,7 +2,7 @@ import type { MessagePayload } from "./payload";
 
 export interface MessageReferenceArtifact {
   kind: "link" | "media" | "post";
-  mediaKind?: "file" | "gif" | "image" | "video";
+  mediaKind?: "file" | "gif" | "image" | "sticker" | "video";
   ordinal: number;
   requiredId?: string;
   url?: string;
@@ -121,10 +121,15 @@ export function extractMessageReferences(
       references.push({ kind: "post", ordinal: 0, requiredId: payload.postId });
     }
   } else if (payload.type === "media") {
-    // Version-2 attachments carry their own kinds. A view-once item holds only
-    // an opaque ref and is deliberately absent from every reference list, so
-    // it can never reach search, the gallery, exports, or offline storage.
-    if ("attachments" in payload) {
+    if ("sticker" in payload && payload.sticker) {
+      const reference = mediaReference(payload.url, "sticker", 0);
+      if (reference) {
+        references.push(reference);
+      }
+    } else if ("attachments" in payload) {
+      // Version-2 attachments carry their own kinds. A view-once item holds only
+      // an opaque ref and is deliberately absent from every reference list, so
+      // it can never reach search, the gallery, exports, or offline storage.
       for (const [ordinal, attachment] of payload.attachments.entries()) {
         if (attachment.kind === "view-once") {
           continue;

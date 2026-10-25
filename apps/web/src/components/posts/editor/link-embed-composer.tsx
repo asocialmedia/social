@@ -2,9 +2,10 @@
 
 import { useQueries } from "@tanstack/react-query";
 import kyInstance from "ky";
-import { Loader2, X } from "lucide-react";
+import { X } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 
+import { ZephLoader } from "@/components/layouts/feedback/zeph-loader";
 import { EmbedSiteBadge } from "@/components/posts/embeds/embed-utils";
 import useDebounce from "@/hooks/use-debounce";
 import { extractPostUrls, MAX_POST_EMBEDS } from "@/lib/link-embeds/shared";
@@ -94,7 +95,10 @@ export default function LinkEmbedComposer({
                       (isLoading ? "Resolving link…" : "Link")}
                   </span>
                   {isLoading ? (
-                    <Loader2 className="text-muted-foreground size-3 animate-spin" />
+                    <ZephLoader
+                      variant="general"
+                      className="text-muted-foreground size-3"
+                    />
                   ) : null}
                 </div>
                 <button

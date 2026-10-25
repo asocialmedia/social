@@ -13,7 +13,11 @@ import type { MediaLimits } from "@asm/media";
 import { mediaLogger, withSpan } from "../log";
 import { getS3 } from "../s3";
 import { computePerceptualHash } from "../transcode/ffmpeg";
-import { inspectImage, encodeImageDerivative } from "../transcode/image";
+import {
+  encodeImageDerivative,
+  encodeStickerDerivatives,
+  inspectImage,
+} from "../transcode/image";
 import { persistMediaDerivatives } from "./derivatives";
 
 const PLACEHOLDER_MAX_DIMENSION = 64;
@@ -58,27 +62,37 @@ export async function processMediaImage(input: {
           "aiGenerated",
           "detectedMime",
           "mimeType",
+          "stickerSource",
           "techMetadata"
         )
           .where({ id: input.mediaId })
           .first();
 
+        const sticker = provenance?.stickerSource
+          ? await encodeStickerDerivatives(
+              bytes,
+              input.limits.processingTimeoutMs,
+              input.mediaId,
+              provenance?.aiGenerated === true
+            )
+          : null;
         const meta = await inspectImage(bytes, input.limits);
         const { animated } = meta;
         const alpha = meta.hasAlpha;
         const { entropy } = meta;
 
-        const plan = animated
-          ? []
-          : planImageDerivatives({
-              colorEntropy: entropy,
-              hasAlpha: alpha,
-              height: meta.height,
-              isAnimated: animated,
-              isLosslessSource:
-                !animated && isLosslessSourceFormat(bytes, meta.format),
-              width: meta.width,
-            });
+        const plan =
+          animated || sticker
+            ? []
+            : planImageDerivatives({
+                colorEntropy: entropy,
+                hasAlpha: alpha,
+                height: meta.height,
+                isAnimated: animated,
+                isLosslessSource:
+                  !animated && isLosslessSourceFormat(bytes, meta.format),
+                width: meta.width,
+              });
 
         // ThumbHash LQIP stored on the row (~500 bytes, no extra object).
         const placeholder = await encodeImageDerivative(
@@ -106,6 +120,7 @@ export async function processMediaImage(input: {
           .placeholder();
 
         const derivativesToInsert: {
+          durationMs?: number;
           kind: string;
           key: string;
           mimeType: string;
@@ -115,6 +130,48 @@ export async function processMediaImage(input: {
           width: number;
           height: number;
         }[] = [];
+
+        if (sticker) {
+          const fullKey = derivativeKey(
+            MEDIA_PIPELINE_VERSION,
+            input.storageId ?? input.mediaId,
+            "sticker-full.webp"
+          );
+          const thumbnailKey = derivativeKey(
+            MEDIA_PIPELINE_VERSION,
+            input.storageId ?? input.mediaId,
+            "sticker-thumb.webp"
+          );
+          await s3.write(fullKey, sticker.full);
+          input.uploadedKeys?.push(fullKey);
+          await s3.write(thumbnailKey, sticker.thumbnail);
+          input.uploadedKeys?.push(thumbnailKey);
+          derivativesToInsert.push(
+            {
+              ...(sticker.durationMs === null
+                ? {}
+                : { durationMs: sticker.durationMs }),
+              height: sticker.fullHeight,
+              key: fullKey,
+              kind: "sticker",
+              mimeType: "image/webp",
+              pipelineVersion: MEDIA_PIPELINE_VERSION,
+              sizeBytes: sticker.full.byteLength,
+              variant: "full",
+              width: sticker.fullWidth,
+            },
+            {
+              height: sticker.thumbnailHeight,
+              key: thumbnailKey,
+              kind: "sticker",
+              mimeType: "image/webp",
+              pipelineVersion: MEDIA_PIPELINE_VERSION,
+              sizeBytes: sticker.thumbnail.byteLength,
+              variant: "thumb",
+              width: sticker.thumbnailWidth,
+            }
+          );
+        }
 
         const orderedPlan = [
           ...plan.filter((item) => item.variant !== "avif"),
@@ -240,6 +297,16 @@ export async function processMediaImage(input: {
             hasIccProfile,
             height: meta.height,
             ...(orientation && orientation > 1 ? { orientation } : {}),
+            ...(sticker
+              ? {
+                  sticker: {
+                    animated: sticker.animated,
+                    durationMs: sticker.durationMs,
+                    frameCount: sticker.frameCount,
+                    version: 1,
+                  },
+                }
+              : {}),
             width: meta.width,
           },
         });

@@ -13,6 +13,8 @@ import {
   useState,
 } from "react";
 
+import { ZephLoader } from "@/components/layouts/feedback/zeph-loader";
+
 const ERROR_MESSAGES = {
   "invalid-token": "The verification link is invalid.",
   "server-error": "An error occurred. Please try again.",
@@ -346,14 +348,10 @@ function VerifyEmailContent() {
                   Your email has been successfully verified. Redirecting you
                   now...
                 </p>
-                <motion.div
-                  animate={{ rotate: 360 }}
-                  className="border-primary/20 border-t-primary h-8 w-8 rounded-full border-4"
-                  transition={{
-                    duration: 1,
-                    ease: "linear",
-                    repeat: Number.POSITIVE_INFINITY,
-                  }}
+                <ZephLoader
+                  label="Verifying your email"
+                  size={32}
+                  variant="security"
                 />
               </motion.div>
             )}

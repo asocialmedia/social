@@ -3,12 +3,12 @@
 import type { PostsPage } from "@asm/db";
 import { Separator } from "@asm/ui/shadui/separator";
 import { useInfiniteQuery } from "@tanstack/react-query";
-import { Loader2 } from "lucide-react";
 import React, { useCallback, useMemo } from "react";
 
 import GustRowCard from "@/components/gusts/gust-row-card";
 import PostCard from "@/components/home/feedview/post-card";
 import InfiniteScrollContainer from "@/components/layouts/feed/infinite-scroll-container";
+import { ZephLoader } from "@/components/layouts/feedback/zeph-loader";
 import FeedViewSkeleton from "@/components/layouts/skeletons/feed-view-skeleton";
 import kyInstance from "@/lib/ky";
 import { FEED_CACHE_RETENTION_MS } from "@/lib/posts/feed-cache";
@@ -91,7 +91,7 @@ const UserAmplifiedFeed: React.FC<UserAmplifiedFeedProps> = ({ userId }) => {
       ))}
       {isFetchingNextPage ? (
         <div className="flex justify-center py-4">
-          <Loader2 className="text-primary animate-spin" />
+          <ZephLoader variant="general" className="text-primary" />
         </div>
       ) : null}
       {!hasNextPage && posts.length > 0 ? (

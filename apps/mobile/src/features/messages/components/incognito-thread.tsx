@@ -1,5 +1,6 @@
 // oxlint-disable react/exhaustive-effect-dependencies -- Account, clear and retry revisions intentionally invalidate scoped effects even when they are not request payload fields.
 import {
+  BubbleEntranceRegistry,
   observeChatTask,
   throwChatError,
   incognitoMessageExpiresAt,
@@ -9,9 +10,8 @@ import type { IncognitoMessage, IncognitoSession } from "@asm/messages";
 // oxlint-disable no-await-in-loop -- Sequential cryptography, database mutations and bounded streams preserve ordering and memory limits.
 import { randomUUID } from "expo-crypto";
 import { Shield } from "lucide-react-native";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ActivityIndicator,
   FlatList,
   Pressable,
   Text,
@@ -20,6 +20,7 @@ import {
 } from "react-native";
 
 import { toast } from "@/components/feedback/toast";
+import { ZephLoader } from "@/components/feedback/zeph-loader";
 import { useSessionContext } from "@/features/auth/state/session";
 import type { ApiCallOptions } from "@/features/feed/lib/feed-api";
 import {
@@ -81,6 +82,8 @@ export function NativeIncognitoThread({
   const { user } = useSessionContext();
   const { privateKey, getBaseKeys, invalidateKeys } = useMessagesIdentity();
   const [rows, setRows] = useState<Row[]>([]);
+  const entrances = useMemo(() => new BubbleEntranceRegistry(), []);
+  const latestIds = useRef<Set<string> | null>(null);
   const [conversation, setConversation] =
     useState<MessageConversationData | null>(null);
   const [viewer, setViewer] = useState<{
@@ -221,6 +224,16 @@ export function NativeIncognitoThread({
       ) {
         return;
       }
+      if (before === undefined) {
+        if (latestIds.current) {
+          for (const row of decoded) {
+            if (!latestIds.current.has(row.message.id)) {
+              entrances.register(row.message.id);
+            }
+          }
+        }
+        latestIds.current = new Set(decoded.map((row) => row.message.id));
+      }
       setRows((previous) =>
         before === undefined
           ? decoded
@@ -242,7 +255,14 @@ export function NativeIncognitoThread({
         );
       }
     },
-    [conversationId, session.id, options, getBaseKeys, invalidateKeys]
+    [
+      conversationId,
+      session.id,
+      options,
+      getBaseKeys,
+      invalidateKeys,
+      entrances,
+    ]
   );
   useEffect(() => {
     if (!canView) {
@@ -362,6 +382,7 @@ export function NativeIncognitoThread({
           throwChatError(error);
         }
       }
+      entrances.register(messageId);
       pending.current = null;
       if (mounted.current) {
         setLatest(true);
@@ -416,7 +437,8 @@ export function NativeIncognitoThread({
           if (loading && !rows.length) {
             return (
               <View style={{ flex: 1, justifyContent: "center" }}>
-                <ActivityIndicator
+                <ZephLoader
+                  variant="messages"
                   color="#a1a1aa"
                   accessibilityLabel="Opening incognito messages"
                 />
@@ -494,6 +516,8 @@ export function NativeIncognitoThread({
                     >
                       <View>
                         <MessageBubble
+                          entrances={entrances}
+                          messageId={message.id}
                           ephemeral
                           deleted={false}
                           edited={false}
@@ -584,6 +608,7 @@ export function NativeIncognitoThread({
       ) : null}
       <MessageComposer
         conversationId={conversationId}
+        stickersEnabled
         incognitoSessionId={session.id}
         disabled={!canView || busy}
         editing={null}

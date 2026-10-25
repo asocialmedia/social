@@ -6,7 +6,6 @@
 import {
   loadReactionCatalog,
   REACTION_CATEGORIES,
-  REACTION_SKIN_TONES,
   searchReactionEmojis,
 } from "@asm/messages";
 import type { ReactionCatalog } from "@asm/messages";
@@ -27,7 +26,10 @@ import {
 } from "lucide-react";
 import { useDeferredValue, useEffect, useRef, useState } from "react";
 
+import { ZephLoader } from "@/components/layouts/feedback/zeph-loader";
 import { cn } from "@/lib/utils";
+
+import { EmojiSkinTonePicker } from "./emoji-skin-tone-picker";
 
 const CATEGORY_ICONS = [
   Smile,
@@ -46,10 +48,12 @@ export function MessageReactionPicker({
   onBack,
   onReact,
   disabled = false,
+  title = "Reactions",
 }: {
-  onBack: () => void;
+  onBack?: () => void;
   onReact: (emoji: string) => void;
   disabled?: boolean;
+  title?: string;
 }) {
   const [catalog, setCatalog] = useState<ReactionCatalog | null>(null);
   const [failed, setFailed] = useState(false);
@@ -115,27 +119,22 @@ export function MessageReactionPicker({
   return (
     <div className="motion-safe:animate-in motion-safe:fade-in motion-safe:duration-150">
       <div className="mb-2 flex items-center gap-2">
-        <button
-          aria-label="Back to message options"
-          className="hover:bg-muted/60 focus-visible:ring-primary flex size-11 shrink-0 items-center justify-center rounded-xl focus-visible:ring-2"
-          onClick={onBack}
-          type="button"
-        >
-          <ArrowLeft className="size-4" />
-        </button>
-        <span className="flex-1 text-sm font-medium">Reactions</span>
-        <select
-          aria-label="Emoji skin tone"
-          className="premium-input h-9 max-w-28 rounded-lg px-2 text-xs"
-          onChange={(event) => setTone(Number(event.target.value))}
-          value={tone}
-        >
-          {REACTION_SKIN_TONES.map((label, index) => (
-            <option key={label} value={index}>
-              {label}
-            </option>
-          ))}
-        </select>
+        {onBack ? (
+          <button
+            aria-label="Back to message options"
+            className="hover:bg-muted/60 focus-visible:ring-primary flex size-11 shrink-0 items-center justify-center rounded-xl focus-visible:ring-2"
+            onClick={onBack}
+            type="button"
+          >
+            <ArrowLeft className="size-4" />
+          </button>
+        ) : null}
+        <span className="flex-1 text-sm font-medium">{title}</span>
+        <EmojiSkinTonePicker
+          disabled={disabled}
+          onChange={setTone}
+          tone={tone}
+        />
       </div>
       <div className="relative mb-2">
         <Search
@@ -249,7 +248,10 @@ export function MessageReactionPicker({
                 Retry loading emojis
               </button>
             ) : (
-              "Loading emojis…"
+              <span className="flex flex-col items-center gap-2">
+                <ZephLoader size={48} />
+                Loading emojis…
+              </span>
             )}
           </output>
         )}

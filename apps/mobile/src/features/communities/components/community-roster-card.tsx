@@ -5,16 +5,11 @@
 // or change a role in place. Both now have REST routes, so the native roster can
 // do the same rather than being a read-only list.
 import { useCallback, useEffect, useState } from "react";
-import {
-  ActivityIndicator,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { UserAvatar } from "@/components/avatar/user-avatar";
 import { toast } from "@/components/feedback/toast";
+import { ZephLoader } from "@/components/feedback/zeph-loader";
 import { authClient } from "@/features/auth/lib/auth-client";
 import { useInstall } from "@/features/auth/state/install";
 import type { ApiCallOptions } from "@/features/feed/lib/feed-api";
@@ -208,7 +203,7 @@ export function CommunityRosterCard({
   // apart as the roster grows a moderation path.
   const renderMembers = () => {
     if (members === null) {
-      return <ActivityIndicator color="#ff9500" />;
+      return <ZephLoader variant="general" color="#ff9500" />;
     }
     if (members.length === 0) {
       return (

@@ -4,13 +4,14 @@ import { clientLog } from "@asm/config/debug";
 import type { UserData } from "@asm/db";
 import { Button } from "@asm/ui/shadui/button";
 import { Command } from "cmdk";
-import { Loader2, Search, X } from "lucide-react";
+import { Search, X } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import type { Variants } from "motion/react";
 import { useCallback, useState } from "react";
 import type { MouseEvent } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
+import { ZephLoader } from "@/components/layouts/feedback/zeph-loader";
 import { useToast } from "@/lib/gooey-toast";
 import { useUpdateMentionsMutation } from "@/posts/editor/mutations";
 
@@ -237,7 +238,9 @@ export const MentionTagEditor = ({
                 placeholder="Search users to mention..."
                 value={search}
               />
-              {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              {isLoading ? (
+                <ZephLoader variant="search" className="h-4 w-4" />
+              ) : null}
             </div>
             <Command.List className="max-h-[180px] overflow-y-auto p-1.5">
               {suggestions.map((user) => (

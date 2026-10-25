@@ -32,6 +32,9 @@ export function messagePreviewText(payload: MessagePayload): string {
     return "Shared a post";
   }
   if (payload.type === "media") {
+    if ("sticker" in payload && payload.sticker) {
+      return "Sent a sticker";
+    }
     if ("attachments" in payload) {
       const photos = payload.attachments.filter(
         (attachment) => attachment.kind === "gif" || attachment.kind === "image"

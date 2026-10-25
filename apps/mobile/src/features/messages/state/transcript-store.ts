@@ -8,6 +8,7 @@
 // together. That split is what lets a thread render its skeleton instantly and fill
 // in plaintext as rows land, instead of blocking on a key derivation per row.
 
+import { BubbleEntranceRegistry } from "@asm/messages";
 import type { MessageReactionSummary } from "@asm/messages";
 
 import {
@@ -73,6 +74,7 @@ interface TranscriptEntry {
 
 export class TranscriptStore {
   readonly #entries = new Map<string, TranscriptEntry>();
+  readonly #entrances = new Map<string, BubbleEntranceRegistry>();
   readonly #listeners = new Set<() => void>();
 
   subscribe = (listener: () => void): (() => void) => {
@@ -92,6 +94,15 @@ export class TranscriptStore {
 
   getSnapshot = (conversationId: string): TranscriptSnapshot =>
     this.#entries.get(conversationId)?.snapshot ?? EMPTY_SNAPSHOT;
+
+  getEntrances(conversationId: string): BubbleEntranceRegistry {
+    let entrances = this.#entrances.get(conversationId);
+    if (!entrances) {
+      entrances = new BubbleEntranceRegistry();
+      this.#entrances.set(conversationId, entrances);
+    }
+    return entrances;
+  }
 
   getUpdatedAt = (conversationId: string): number =>
     this.#entries.get(conversationId)?.updatedAt ?? 0;
@@ -332,6 +343,7 @@ export class TranscriptStore {
     if (!pages) {
       return;
     }
+    this.getEntrances(conversationId).register(message.id);
     entry.pages = pages;
     this.#patch(conversationId, { messages: this.#flatten(conversationId) });
   }
@@ -470,6 +482,7 @@ export class TranscriptStore {
       clearTimeout(entry.peerTypingTimer);
     }
     this.#entries.delete(conversationId);
+    this.#entrances.delete(conversationId);
     for (const listener of this.#listeners) {
       listener();
     }
@@ -482,6 +495,7 @@ export class TranscriptStore {
       }
     }
     this.#entries.clear();
+    this.#entrances.clear();
     for (const listener of this.#listeners) {
       listener();
     }

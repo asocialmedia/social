@@ -3,17 +3,10 @@ import { File, Paths } from "expo-file-system";
 import * as Sharing from "expo-sharing";
 import { Clock3, Download, Shield, Trash2 } from "lucide-react-native";
 import { useEffect, useState } from "react";
-import {
-  ActivityIndicator,
-  Alert,
-  Pressable,
-  Switch,
-  Text,
-  TextInput,
-  View,
-} from "react-native";
+import { Alert, Pressable, Switch, Text, TextInput, View } from "react-native";
 
 import { StatusActionButton } from "@/components/feedback/status-action-button";
+import { ZephLoader } from "@/components/feedback/zeph-loader";
 import { useSessionContext } from "@/features/auth/state/session";
 import {
   NativeChatControlError,
@@ -540,7 +533,7 @@ export function NativeChatLifecycleTools({
                     gap: 12,
                   }}
                 >
-                  <ActivityIndicator />
+                  <ZephLoader variant="messages" />
                   <Text style={{ color: theme.inputText }}>
                     {job.status === "processing"
                       ? "Preparing your archive…"
@@ -597,7 +590,7 @@ export function NativeChatLifecycleTools({
             ) : null}
           </View>
         ) : null}
-        {busy ? <ActivityIndicator /> : null}
+        {busy ? <ZephLoader variant="messages" /> : null}
       </MessageSheet>
     </>
   );

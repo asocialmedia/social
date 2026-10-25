@@ -7,6 +7,7 @@ import Link from "next/link";
 import { useCallback, useMemo, useState } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
+import { ZephLoader } from "@/components/layouts/feedback/zeph-loader";
 import UserAvatar from "@/components/layouts/user/user-avatar";
 import { useMessagesIdentity } from "@/components/messages/message-identity-provider";
 import { toast } from "@/lib/gooey-toast";
@@ -242,7 +243,7 @@ export function MessageSharePicker({ postId }: MessageSharePickerProps) {
   if (status === "loading") {
     return (
       <div className="flex items-center justify-center py-6">
-        <div className="border-primary h-4 w-4 animate-spin rounded-full border-2 border-t-transparent" />
+        <ZephLoader variant="messages" className="h-4 w-4" />
       </div>
     );
   }
@@ -333,7 +334,7 @@ function RecipientRow({
         </span>
       </span>
       {sending ? (
-        <span className="border-primary h-3.5 w-3.5 animate-spin rounded-full border-2 border-t-transparent" />
+        <ZephLoader variant="messages" className="h-3.5 w-3.5" />
       ) : (
         <Send className="text-muted-foreground h-4 w-4 shrink-0" />
       )}

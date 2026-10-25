@@ -57,7 +57,7 @@ export function isSharedRefKind(value: unknown): value is SharedRefKind {
 export interface SharedRefRecord {
   createdAt: number;
   index: number;
-  mediaKind?: "gif" | "image";
+  mediaKind?: "gif" | "image" | "sticker";
   messageId: string;
   postId?: string;
   senderId: string;
@@ -333,7 +333,7 @@ export function sharedRefToMediaItem(record: SharedRefRecord): SharedMediaItem {
     createdAt: record.createdAt,
     flatKey: mediaFlatKey(record.messageId, record.index),
     imageIndex: record.index,
-    kind: record.mediaKind ?? "image",
+    kind: record.mediaKind === "gif" ? "gif" : "image",
     // Null for an external URL, which is what the media id regex is for: the
     // variant and download routes only exist for our own proxy paths.
     mediaId: url ? getMessageMediaId(url) : null,

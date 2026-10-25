@@ -1,0 +1,309 @@
+[
+  {
+    "id": "table.user_stickers",
+    "label": "Create table \"user_stickers\"",
+    "summary": "Creates table \"user_stickers\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "table",
+        "name": "user_stickers"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure table \"user_stickers\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": ["\"public\".\"user_stickers\""]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create table \"user_stickers\"",
+        "sql": "CREATE TABLE \"public\".\"user_stickers\" (\n  \"animated\" bool NOT NULL,\n  \"byteSize\" int4 NOT NULL,\n  \"createdAt\" timestamp(3) DEFAULT (now()) NOT NULL,\n  \"favorite\" bool DEFAULT false NOT NULL,\n  \"id\" text NOT NULL,\n  \"lastUsedAt\" timestamp(3),\n  \"mediaId\" text NOT NULL,\n  \"name\" text DEFAULT '' NOT NULL,\n  \"userId\" text NOT NULL,\n  CONSTRAINT \"user_stickers_pkey\" PRIMARY KEY (\"id\")\n)",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify table \"user_stickers\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": ["\"public\".\"user_stickers\""]
+      }
+    ]
+  },
+  {
+    "id": "column.public.post_media.stickerSource",
+    "label": "Add column \"stickerSource\" to \"post_media\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "column",
+        "name": "stickerSource",
+        "table": "post_media"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure column \"stickerSource\" is missing",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": ["public", "post_media", "stickerSource"]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add column \"stickerSource\"",
+        "sql": "ALTER TABLE \"public\".\"post_media\" ADD COLUMN \"stickerSource\" bool DEFAULT false NOT NULL"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify column \"stickerSource\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": ["public", "post_media", "stickerSource"]
+      }
+    ]
+  },
+  {
+    "id": "unique.user_stickers.user_stickers_mediaId_key",
+    "label": "Add unique constraint on \"user_stickers\" (mediaId)",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "unique",
+        "name": "user_stickers_mediaId_key",
+        "table": "user_stickers"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure constraint \"user_stickers_mediaId_key\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "user_stickers_mediaId_key",
+          "public",
+          "\"public\".\"user_stickers\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add unique constraint \"user_stickers_mediaId_key\"",
+        "sql": "ALTER TABLE \"public\".\"user_stickers\" ADD CONSTRAINT \"user_stickers_mediaId_key\" UNIQUE (\"mediaId\")"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify constraint \"user_stickers_mediaId_key\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "user_stickers_mediaId_key",
+          "public",
+          "\"public\".\"user_stickers\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "unique.user_stickers.user_stickers_userId_mediaId_key",
+    "label": "Add unique constraint on \"user_stickers\" (userId, mediaId)",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "unique",
+        "name": "user_stickers_userId_mediaId_key",
+        "table": "user_stickers"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure constraint \"user_stickers_userId_mediaId_key\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "user_stickers_userId_mediaId_key",
+          "public",
+          "\"public\".\"user_stickers\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add unique constraint \"user_stickers_userId_mediaId_key\"",
+        "sql": "ALTER TABLE \"public\".\"user_stickers\" ADD CONSTRAINT \"user_stickers_userId_mediaId_key\" UNIQUE (\"userId\", \"mediaId\")"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify constraint \"user_stickers_userId_mediaId_key\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "user_stickers_userId_mediaId_key",
+          "public",
+          "\"public\".\"user_stickers\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.user_stickers.user_stickers_userId_createdAt_id_idx",
+    "label": "Create index \"user_stickers_userId_createdAt_id_idx\" on \"user_stickers\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "user_stickers_userId_createdAt_id_idx",
+        "table": "user_stickers"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"user_stickers_userId_createdAt_id_idx\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": ["\"public\".\"user_stickers_userId_createdAt_id_idx\""]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"user_stickers_userId_createdAt_id_idx\"",
+        "sql": "CREATE INDEX \"user_stickers_userId_createdAt_id_idx\" ON \"public\".\"user_stickers\" (\"userId\", \"createdAt\", \"id\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"user_stickers_userId_createdAt_id_idx\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": ["\"public\".\"user_stickers_userId_createdAt_id_idx\""]
+      }
+    ]
+  },
+  {
+    "id": "index.user_stickers.user_stickers_userId_favorite_createdAt_idx",
+    "label": "Create index \"user_stickers_userId_favorite_createdAt_idx\" on \"user_stickers\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "user_stickers_userId_favorite_createdAt_idx",
+        "table": "user_stickers"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"user_stickers_userId_favorite_createdAt_idx\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": ["\"public\".\"user_stickers_userId_favorite_createdAt_idx\""]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"user_stickers_userId_favorite_createdAt_idx\"",
+        "sql": "CREATE INDEX \"user_stickers_userId_favorite_createdAt_idx\" ON \"public\".\"user_stickers\" (\"userId\", \"favorite\", \"createdAt\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"user_stickers_userId_favorite_createdAt_idx\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": ["\"public\".\"user_stickers_userId_favorite_createdAt_idx\""]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.user_stickers.user_stickers_userId_fkey",
+    "label": "Add foreign key \"user_stickers_userId_fkey\" on \"user_stickers\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "user_stickers_userId_fkey",
+        "table": "user_stickers"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"user_stickers_userId_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "user_stickers_userId_fkey",
+          "public",
+          "\"public\".\"user_stickers\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"user_stickers_userId_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"user_stickers\"\nADD CONSTRAINT \"user_stickers_userId_fkey\"\nFOREIGN KEY (\"userId\")\nREFERENCES \"public\".\"users\" (\"id\")\nON DELETE CASCADE\nON UPDATE CASCADE"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"user_stickers_userId_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "user_stickers_userId_fkey",
+          "public",
+          "\"public\".\"user_stickers\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.user_stickers.user_stickers_mediaId_fkey",
+    "label": "Add foreign key \"user_stickers_mediaId_fkey\" on \"user_stickers\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "user_stickers_mediaId_fkey",
+        "table": "user_stickers"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"user_stickers_mediaId_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "user_stickers_mediaId_fkey",
+          "public",
+          "\"public\".\"user_stickers\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"user_stickers_mediaId_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"user_stickers\"\nADD CONSTRAINT \"user_stickers_mediaId_fkey\"\nFOREIGN KEY (\"mediaId\")\nREFERENCES \"public\".\"post_media\" (\"id\")\nON DELETE CASCADE\nON UPDATE CASCADE"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"user_stickers_mediaId_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "user_stickers_mediaId_fkey",
+          "public",
+          "\"public\".\"user_stickers\""
+        ]
+      }
+    ]
+  }
+]

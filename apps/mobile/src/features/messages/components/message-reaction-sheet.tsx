@@ -10,7 +10,6 @@ import type { ReactionCatalog, ReactionEmoji } from "@asm/messages";
 import { ArrowLeft, Plus, Search, X } from "lucide-react-native";
 import { useDeferredValue, useEffect, useRef, useState } from "react";
 import {
-  ActivityIndicator,
   FlatList,
   KeyboardAvoidingView,
   Modal,
@@ -24,6 +23,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { ZephLoader } from "@/components/feedback/zeph-loader";
 import { panel3d } from "@/features/messages/lib/message-recipes";
 import { useAppTheme } from "@/theme";
 
@@ -93,7 +93,7 @@ export function MessageReactionSheet({
     );
   }
   if (!catalog && !failed) {
-    empty = <ActivityIndicator style={styles.empty} />;
+    empty = <ZephLoader variant="messages" style={styles.empty} />;
   }
 
   return (

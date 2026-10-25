@@ -1,4 +1,7 @@
-import { getMediaAttachments } from "@/lib/messages/crypto";
+import {
+  getMediaAttachments,
+  isStickerMessagePayload,
+} from "@/lib/messages/crypto";
 import type { DecryptEntry } from "@/lib/messages/decryptor";
 import { sharedRefToMediaItem } from "@/lib/messages/shared-refs-format";
 import type {
@@ -82,7 +85,7 @@ export function mediaItemsFromSharedRefs(
   records: readonly SharedRefRecord[]
 ): ConversationMediaItem[] {
   return records.flatMap((record) => {
-    if (!record.url) {
+    if (!record.url || record.mediaKind === "sticker") {
       return [];
     }
     return [sharedRefToMediaItem(record)];
@@ -154,6 +157,9 @@ function deriveMediaItems(
   message: ConversationMediaMessage,
   payload: Extract<DecryptEntry, object> & { type: "media" }
 ): ConversationMediaItem[] {
+  if (isStickerMessagePayload(payload)) {
+    return [];
+  }
   // Only photo rows become viewer items. imageIndex stays the photo's ordinal
   // within the message, which is what the album tiles and the fullscreen viewer
   // pair on; videos, files, and view-once refs are skipped entirely.

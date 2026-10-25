@@ -7,7 +7,6 @@ import { ArrowLeft, ArrowRight, Camera, Check, X } from "lucide-react-native";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ScrollViewInstance } from "react-native";
 import {
-  ActivityIndicator,
   Keyboard,
   KeyboardAvoidingView,
   Modal,
@@ -22,6 +21,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { toast } from "@/components/feedback/toast";
+import { ZephLoader } from "@/components/feedback/zeph-loader";
 import { IconButton3D } from "@/components/surface/icon-button-3d";
 import { panel3d, themeText } from "@/components/surface/recipes";
 import { useInstall } from "@/features/auth/state/install";
@@ -641,7 +641,7 @@ export function CommunityCreateDialog({
                           <Camera color={theme.dividerText} size={24} />
                         )}
                         {uploadingSlot === "banner" ? (
-                          <ActivityIndicator color="#f97316" />
+                          <ZephLoader variant="general" color="#f97316" />
                         ) : null}
                       </Pressable>
                       {draft.bannerMediaId ? (
@@ -686,7 +686,7 @@ export function CommunityCreateDialog({
                             <Camera color={theme.dividerText} size={24} />
                           )}
                           {uploadingSlot === "avatar" ? (
-                            <ActivityIndicator color="#f97316" />
+                            <ZephLoader variant="general" color="#f97316" />
                           ) : null}
                         </Pressable>
                         {draft.avatarMediaId ? (

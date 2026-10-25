@@ -1,11 +1,12 @@
 "use client";
 
 import type { VirtualItem } from "@tanstack/react-virtual";
-import { Loader2 } from "lucide-react";
 import Image from "next/image";
 import type { StaticImageData } from "next/image";
 import type { ReactNode, Ref } from "react";
 import { useEffect } from "react";
+
+import { ZephLoader } from "@/components/layouts/feedback/zeph-loader";
 
 // The scroll + absolutely-positioned-rows shell shared by the details panel's
 // three tabs. The transcript owns an equivalent inline (message-thread.tsx);
@@ -203,7 +204,10 @@ export function ListFooter({
         aria-live="polite"
         className="text-muted-foreground flex items-center justify-center gap-2 py-3 text-[11px]"
       >
-        <Loader2 className="size-3 animate-spin motion-reduce:animate-none" />
+        <ZephLoader
+          variant="messages"
+          className="size-3 motion-reduce:animate-none"
+        />
         Looking further back for older {noun}…
       </p>
     );

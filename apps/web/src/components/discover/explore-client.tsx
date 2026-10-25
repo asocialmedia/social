@@ -27,6 +27,7 @@ import { AnimatedTabTrigger } from "@/components/home/feedview/animated-tab-trig
 import TrendingTopics from "@/components/home/sidebars/right/trending-topics";
 import { FeedScrollbar } from "@/components/layouts/feed/feed-scrollbar";
 import InfiniteScrollContainer from "@/components/layouts/feed/infinite-scroll-container";
+import { ZephLoader } from "@/components/layouts/feedback/zeph-loader";
 import MobileBottomNav from "@/components/layouts/navigation/mobile/mobile-bottom-nav";
 import MobileTopBar from "@/components/layouts/navigation/mobile/mobile-top-bar";
 import { CollapsibleTopBar } from "@/components/layouts/shell/collapsible-top-bar";
@@ -716,7 +717,14 @@ const ExploreClient: React.FC = () => {
 
   const searchField = (
     <div className="relative">
-      <Search className="text-muted-foreground absolute top-1/2 left-3 size-4 -translate-y-1/2" />
+      {isFetching && debouncedSearch.trim() ? (
+        <ZephLoader
+          variant="search"
+          className="absolute top-1/2 left-3 size-4 -translate-y-1/2"
+        />
+      ) : (
+        <Search className="text-muted-foreground absolute top-1/2 left-3 size-4 -translate-y-1/2" />
+      )}
       <Input
         aria-label="Search explore"
         autoComplete="off"
@@ -798,8 +806,14 @@ const ExploreClient: React.FC = () => {
                   </AnimatedTabTrigger>
                 ))}
               </TabsList>
-              {isLoggedIn && activeTab !== "gusts" ? (
-                <div className="hidden w-60 shrink-0 md:block xl:hidden">
+              {isLoggedIn ? (
+                <div
+                  className={`hidden w-60 shrink-0 md:block xl:hidden ${
+                    activeTab === "gusts" || activeTab === "people"
+                      ? "invisible"
+                      : ""
+                  }`}
+                >
                   {searchField}
                 </div>
               ) : null}
@@ -837,8 +851,14 @@ const ExploreClient: React.FC = () => {
         </Tabs>
       </div>
       <aside className="bg-background border-border/60 sticky top-0 z-30 hidden h-screen w-72 shrink-0 flex-col overflow-visible border-l px-2.5 pt-2.5 pb-6 xl:flex">
-        {isLoggedIn && activeTab !== "gusts" ? (
-          <div className="shrink-0 pb-4">{searchField}</div>
+        {isLoggedIn ? (
+          <div
+            className={`shrink-0 pb-4 ${
+              activeTab === "gusts" || activeTab === "people" ? "invisible" : ""
+            }`}
+          >
+            {searchField}
+          </div>
         ) : null}
         <div className="hide-native-scrollbar flex flex-1 flex-col gap-4 overflow-y-auto">
           {isLoggedIn ? <PostHistoryCard /> : null}

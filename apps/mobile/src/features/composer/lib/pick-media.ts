@@ -143,6 +143,28 @@ export async function pickMessageFiles(
   }));
 }
 
+export async function pickStickerSource(): Promise<PickedMedia | null> {
+  const result = await DocumentPicker.getDocumentAsync({
+    copyToCacheDirectory: true,
+    multiple: false,
+    type: ["image/jpeg", "image/png", "image/webp", "image/gif"],
+  });
+  if (result.canceled) {
+    return null;
+  }
+  const [asset] = result.assets;
+  if (!asset) {
+    return null;
+  }
+  const mimeType = asset.mimeType ?? extensionMime(asset.name) ?? "";
+  return {
+    mimeType,
+    name: asset.name,
+    size: asset.size ?? sizeOf(asset.uri),
+    uri: asset.uri,
+  };
+}
+
 export interface KlipyGif {
   id: number | string;
   preview: string;

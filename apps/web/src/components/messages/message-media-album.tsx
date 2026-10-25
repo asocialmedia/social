@@ -13,12 +13,13 @@ import {
   DialogTitle,
 } from "@asm/ui/shadui/dialog";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Download, Eye, FileText, ImageOff, Loader2, X } from "lucide-react";
+import { Download, Eye, FileText, ImageOff, X } from "lucide-react";
 import Image from "next/image";
 import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
+import { ZephLoader } from "@/components/layouts/feedback/zeph-loader";
 import {
   acknowledgeViewOnceSeen,
   closeViewOnceMedia,
@@ -277,7 +278,7 @@ function ViewOncePhoto({
           >
             <span className="bg-muted/70 flex size-10 shrink-0 items-center justify-center rounded-xl">
               {busy ? (
-                <Loader2 className="size-4 animate-spin" />
+                <ZephLoader variant="media" className="size-4" />
               ) : (
                 <Eye className="view-once-eye size-4" key={eyeMotionKey} />
               )}

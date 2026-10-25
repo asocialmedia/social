@@ -34,6 +34,8 @@ import Comments from "@/components/comments/thread/comments";
 import { FeedErrorState } from "@/components/feeds/feed-error-state";
 import { GustsCommentsDrawer } from "@/components/gusts/gusts-comments-drawer";
 import Spinner3D from "@/components/layouts/feedback/spinner-3d";
+import { ZephLoader } from "@/components/layouts/feedback/zeph-loader";
+import FollowButton from "@/components/layouts/user/follow-button";
 import UserAvatar from "@/components/layouts/user/user-avatar";
 import UserBadge from "@/components/layouts/user/user-badge";
 import { AiGeneratedBadge } from "@/components/media/ai-generated-badge";
@@ -529,7 +531,7 @@ const MediaViewer = ({
     >
       {isDownloading ? (
         <>
-          <span className="bg-primary/10 h-4 w-4 animate-pulse rounded-md" />
+          <ZephLoader variant="media" className="h-4 w-4" />
           Fetching file...
         </>
       ) : (
@@ -918,7 +920,7 @@ const MediaViewer = ({
           !post?.moderated &&
           !(post?.explicitContent && !explicitRevealed) ? (
             <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center">
-              <Spinner3D />
+              <Spinner3D variant="media" />
             </div>
           ) : null}
 

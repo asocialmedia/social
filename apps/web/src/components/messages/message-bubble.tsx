@@ -18,6 +18,7 @@ import { useCallback, useState } from "react";
 
 import UserAvatar from "@/components/layouts/user/user-avatar";
 import type { MessagePayload } from "@/lib/messages/crypto";
+import { isStickerMessagePayload } from "@/lib/messages/crypto";
 import { isWithinEditWindow } from "@/lib/messages/edit-window";
 import { cn, formatRelativeDate } from "@/lib/utils";
 
@@ -26,6 +27,7 @@ import type { BubblePosition } from "./message-bubble-shape";
 import { MessageLinkEmbed } from "./message-link-embed";
 import { MessageMediaAlbum } from "./message-media-album";
 import { PostEmbed } from "./post-embed";
+import { SavableSticker } from "./savable-sticker";
 
 interface MessageBubbleProps {
   content: MessagePayload | null;
@@ -184,6 +186,15 @@ export function MessageBubble({
       );
     }
     if (content.type === "media") {
+      if (isStickerMessagePayload(content)) {
+        return (
+          <SavableSticker
+            url={content.url}
+            mediaId={content.sticker.mediaId}
+            messageId={message.id}
+          />
+        );
+      }
       return (
         <MessageMediaAlbum
           content={content}

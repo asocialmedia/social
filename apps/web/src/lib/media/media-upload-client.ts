@@ -1,6 +1,7 @@
 import {
   DEFAULT_LIMITS,
   maxBytesForType,
+  maxStickerInputBytes,
   messageAttachmentMediaType,
 } from "@asm/media";
 
@@ -480,6 +481,7 @@ export async function uploadMediaFile(
       | "comment"
       | "message"
       | "post"
+      | "sticker"
       | "wallpaper";
     // Natural image dimensions captured client-side; stored so receivers can
     // reserve the bubble box before the bytes arrive.
@@ -526,7 +528,10 @@ export async function uploadMediaFile(
   if (!category) {
     throw new MediaUploadError(`Unsupported file type: ${contentType}`);
   }
-  const maxBytes = maxBytesForType(DEFAULT_LIMITS, category);
+  const maxBytes =
+    options.purpose === "sticker"
+      ? maxStickerInputBytes(contentType)
+      : maxBytesForType(DEFAULT_LIMITS, category);
   if (file.size > maxBytes) {
     throw new MediaUploadError(
       `File exceeds the ${Math.round(maxBytes / (1024 * 1024))}MB limit`

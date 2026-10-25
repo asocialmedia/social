@@ -1,3 +1,4 @@
+import { useState } from "react";
 // The three post overflow dialogs: delete, moderation and edit tags.
 //
 // Web drives these through its own dialog components; the native port keeps
@@ -5,18 +6,10 @@
 // tap always costs a second deliberate press. Every submit runs through
 // runWithInstallToken, because a first-write from a fresh install is exactly
 // the shape the server's bot gate challenges.
-
-import { useState } from "react";
-import {
-  ActivityIndicator,
-  Modal,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
+import { Modal, Pressable, StyleSheet, Text, View } from "react-native";
 
 import { toast } from "@/components/feedback/toast";
+import { ZephLoader } from "@/components/feedback/zeph-loader";
 import { APPLE_PANEL_TOKENS, themeText } from "@/components/surface/recipes";
 import { authClient } from "@/features/auth/lib/auth-client";
 import { useInstall } from "@/features/auth/state/install";
@@ -144,7 +137,9 @@ export function DeletePostDialog({
                 pressed && styles.pressed,
               ]}
             >
-              {busy ? <ActivityIndicator color="#ffffff" size={14} /> : null}
+              {busy ? (
+                <ZephLoader variant="general" color="#ffffff" size={14} />
+              ) : null}
               <Text style={styles.buttonText}>Delete</Text>
             </Pressable>
             <Pressable
@@ -300,7 +295,9 @@ export function PostModerationDialog({
                 pressed && styles.pressed,
               ]}
             >
-              {busy ? <ActivityIndicator color="#ffffff" size={14} /> : null}
+              {busy ? (
+                <ZephLoader variant="general" color="#ffffff" size={14} />
+              ) : null}
               <Text style={styles.buttonText}>Save</Text>
             </Pressable>
             <Pressable

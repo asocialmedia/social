@@ -6,15 +6,9 @@
 // part a person sees: the tag, its post count, and the feed.
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
-import {
-  ActivityIndicator,
-  FlatList,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
+import { FlatList, Pressable, StyleSheet, Text, View } from "react-native";
 
+import { ZephLoader } from "@/components/feedback/zeph-loader";
 import { authClient } from "@/features/auth/lib/auth-client";
 import { useSessionContext } from "@/features/auth/state/session";
 import { ExplorePostCard } from "@/features/explore/components/explore-post-card";
@@ -158,7 +152,11 @@ export function HashtagScreen() {
         keyExtractor={(post) => post.id}
         ListEmptyComponent={
           status === "loading" ? (
-            <ActivityIndicator color="#ff9500" style={styles.loader} />
+            <ZephLoader
+              variant="general"
+              color="#ff9500"
+              style={styles.loader}
+            />
           ) : (
             <View style={styles.empty}>
               <Text style={[styles.emptyTitle, { color: theme.inputText }]}>

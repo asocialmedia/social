@@ -227,7 +227,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   gridScroll: {
-    maxHeight: 256,
+    flex: 1,
   },
   search: {
     alignItems: "center",
@@ -246,7 +246,9 @@ const styles = StyleSheet.create({
     padding: 0,
   },
   wrap: {
+    flex: 1,
     gap: 8,
+    minHeight: 0,
     width: "100%",
   },
 });

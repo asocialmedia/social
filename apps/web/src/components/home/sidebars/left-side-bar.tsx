@@ -166,7 +166,7 @@ const renderCollapsedActionItem = ({
     <TooltipTrigger asChild>
       <button
         aria-label={label}
-        className="pill-3d-hover text-foreground hover:text-foreground group flex size-10 items-center justify-center rounded-full border border-transparent transition-all duration-200 ease-out"
+        className="sidebar-icon-hover text-foreground group flex size-10 items-center justify-center rounded-full"
         onClick={onClick}
         type="button"
       >
@@ -185,7 +185,7 @@ const renderCollapsedActionItem = ({
 const SidebarPendingHint: React.FC<{ active: boolean }> = ({ active }) => {
   const { pending } = useLinkStatus();
   if (pending && !active) {
-    return <Spinner3D className="size-5" />;
+    return <Spinner3D variant="general" className="size-5" />;
   }
   return null;
 };
@@ -312,15 +312,15 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({ userData }) => {
     href,
     label,
     icon: Icon,
-    requiresAuth,
+    requiresAuth = false,
     fillable = false,
   }: NavItem) => {
     const isActive = isRouteActive(currentHref, href);
+    // Every rail control uses this one hover, the profile entry included. No
+    // rail item gets a second recipe; a stacked one read as a glow.
     const className = cn(
-      "group relative flex size-10 items-center justify-center rounded-full border border-transparent transition-all duration-200 ease-out",
-      isActive
-        ? "pill-nav-active"
-        : "pill-3d-hover text-foreground hover:text-foreground"
+      "group relative flex size-10 items-center justify-center rounded-full",
+      isActive ? "pill-nav-active" : "sidebar-icon-hover text-foreground"
     );
 
     const icon = (
@@ -387,7 +387,7 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({ userData }) => {
           ? "Switch to light mode"
           : "Switch to dark mode"
       }
-      className="pill-3d-hover group text-muted-foreground my-auto flex size-10 shrink-0 items-center justify-center self-center rounded-full border-0"
+      className="sidebar-icon-hover group text-muted-foreground my-auto flex size-10 shrink-0 items-center justify-center self-center rounded-full"
       onClick={handleToggleTheme}
       type="button"
     >

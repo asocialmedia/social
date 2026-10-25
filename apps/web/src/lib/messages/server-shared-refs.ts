@@ -17,7 +17,7 @@ export interface ServerSharedRefItem extends SearchHydrationHit {
   kind: SharedRefKind;
   // Videos and files are accepted so a page that already contains them loads
   // whole; the panel renders photo rows only until the file surfaces land.
-  mediaKind: "file" | "gif" | "image" | "video" | null;
+  mediaKind: "file" | "gif" | "image" | "sticker" | "video" | null;
   ordinal: number;
   requiredId: string | null;
 }
@@ -124,7 +124,8 @@ function parseServerPage(
         item.mediaKind !== "gif" &&
         item.mediaKind !== "image" &&
         item.mediaKind !== "video" &&
-        item.mediaKind !== "file") ||
+        item.mediaKind !== "file" &&
+        item.mediaKind !== "sticker") ||
       (item.requiredId !== null && typeof item.requiredId !== "string")
     ) {
       throw new Error("Shared items could not be loaded");

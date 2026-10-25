@@ -319,7 +319,10 @@ namespace public {
     semanticTags               String[]?
     transcript                 String?
     messageConversationId      String?
+    stickerSource              Boolean                      @default(false)
+    stickerOperationId         String?
     postMediaDerivatives       PostMediaDerivatives[]
+    userSticker                UserStickers?
     communities                Communities[]                @relation(name: "communities_avatarMediaId_fkey")
     communitiesCommunities     Communities[]                @relation(name: "communities_bannerMediaId_fkey")
     audioOverlay               PostMedia?                   @relation(name: "post_media_audioOverlayId_fkey", fields: [audioOverlayId], references: [id], onDelete: SetNull, onUpdate: Cascade, map: "post_media_audioOverlayId_fkey")
@@ -333,6 +336,7 @@ namespace public {
     messageConversationMembers MessageConversationMembers[] @relation(name: "message_conversation_members_wallpaperMediaId_fkey")
 
     @@unique([audioOverlayId], map: "post_media_audioOverlayId_key")
+    @@unique([userId, stickerOperationId], map: "post_media_userId_stickerOperationId_key")
     @@index([commentId], map: "post_media_commentId_idx")
     @@index([duplicateOf], map: "post_media_duplicateOf_idx")
     @@index([messageConversationId], map: "post_media_messageConversationId_idx")
@@ -422,6 +426,7 @@ namespace public {
     messageConversationBansBy         MessageDenBans[]             @relation(name: "message_den_bans_bannedById_fkey")
     messageConversationKeys           MessageConversationKeys[]    @relation(name: "message_conversation_keys_ownerUserId_fkey")
     messageConversationMembers        MessageConversationMembers[] @relation(name: "message_conversation_members_userId_fkey")
+    messageStickers                   UserStickers[]
     messageHiddens                    MessageHiddens[]
     incognitoMessages                 MessageIncognitoMessages[]
     incognitoStarted                  MessageIncognitoSessions[] @relation(name: "incognito_started_by")
@@ -1530,6 +1535,25 @@ namespace public {
     @@index([key], map: "post_media_derivatives_key_idx")
     @@unique([mediaId, kind, variant], map: "post_media_derivatives_mediaId_kind_variant_key")
     @@map("post_media_derivatives")
+  }
+
+  model UserStickers {
+    id         String       @id(map: "user_stickers_pkey") @default(uuid())
+    userId     String
+    mediaId    String       @unique(map: "user_stickers_mediaId_key")
+    name       String       @default("")
+    animated   Boolean
+    byteSize   Int
+    favorite   Boolean      @default(false)
+    createdAt  Timestamp(3) @default(now())
+    lastUsedAt Timestamp(3)?
+    user       Users        @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "user_stickers_userId_fkey", index: false)
+    media      PostMedia    @relation(fields: [mediaId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "user_stickers_mediaId_fkey", index: false)
+
+    @@unique([userId, mediaId], map: "user_stickers_userId_mediaId_key")
+    @@index([userId, createdAt, id], map: "user_stickers_userId_createdAt_id_idx")
+    @@index([userId, favorite, createdAt], map: "user_stickers_userId_favorite_createdAt_idx")
+    @@map("user_stickers")
   }
 
   model Tag {

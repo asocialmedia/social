@@ -6,6 +6,23 @@ export interface MediaImageRef {
   width?: number;
 }
 
+export interface StickerPresentation {
+  animated: boolean;
+  mediaId: string;
+  version: 1;
+}
+
+export type StickerMessagePayload = Extract<
+  MessagePayload,
+  {
+    type: "media";
+    kind: "gif" | "image";
+    presentation?: "sticker";
+    sticker?: StickerPresentation;
+    url: string;
+  }
+> & { presentation: "sticker"; sticker: StickerPresentation };
+
 // The kinds an attachment in a version-2 media payload can carry. `view-once`
 // is the protected kind: it travels as an opaque reference and never as a
 // fetchable URL, so a forged or replayed payload cannot downgrade its delivery
@@ -81,6 +98,8 @@ export type MessagePayload =
       // Older clients still send a single image, and their history must remain readable.
       type: "media";
       kind: "gif" | "image";
+      presentation?: "sticker";
+      sticker?: StickerPresentation;
       url: string;
       content?: string;
       width?: number;
@@ -169,6 +188,7 @@ const MAX_MEDIA_DURATION_SEC = 60 * 60;
 interface RawMediaPayload {
   attachments?: unknown;
   bytes?: unknown;
+  content?: unknown;
   durationSec?: unknown;
   filename?: unknown;
   height?: unknown;
@@ -176,7 +196,9 @@ interface RawMediaPayload {
   kind?: unknown;
   mimeType?: unknown;
   posterUrl?: unknown;
+  presentation?: unknown;
   ref?: unknown;
+  sticker?: unknown;
   url?: unknown;
   width?: unknown;
 }
@@ -201,6 +223,9 @@ function isValidMediaPayload(
   policy: MediaUrlPolicy
 ): boolean {
   const raw = payload as RawMediaPayload;
+  if (raw.presentation !== undefined || raw.sticker !== undefined) {
+    return isValidStickerMediaPayload(raw, policy);
+  }
   // Key presence distinguishes the three generations: v2 attachments, a
   // grouped v1 album, and a legacy single-image row.
   if ("attachments" in raw) {
@@ -213,6 +238,73 @@ function isValidMediaPayload(
     return isValidMediaImageList(raw.images, policy);
   }
   return isValidMediaImage(raw, policy);
+}
+
+export function isStickerMessagePayload(
+  payload: MessagePayload
+): payload is StickerMessagePayload {
+  return (
+    payload.type === "media" &&
+    "presentation" in payload &&
+    payload.presentation === "sticker" &&
+    "sticker" in payload &&
+    payload.sticker !== undefined
+  );
+}
+
+function isValidStickerMediaPayload(
+  raw: RawMediaPayload,
+  policy: MediaUrlPolicy
+): boolean {
+  if (
+    raw.presentation !== "sticker" ||
+    typeof raw.sticker !== "object" ||
+    raw.sticker === null ||
+    (raw.kind !== "image" && raw.kind !== "gif") ||
+    typeof raw.url !== "string" ||
+    !raw.url.startsWith("/api/media/") ||
+    raw.url.startsWith("//") ||
+    !isAllowedMediaUrl(raw.url, policy) ||
+    "images" in raw ||
+    "attachments" in raw ||
+    raw.content !== undefined
+  ) {
+    return false;
+  }
+  const sticker = raw.sticker as Record<string, unknown>;
+  if (
+    sticker.version !== 1 ||
+    typeof sticker.mediaId !== "string" ||
+    !/^[A-Za-z0-9_-]{1,128}$/u.test(sticker.mediaId) ||
+    typeof sticker.animated !== "boolean" ||
+    sticker.animated !== (raw.kind === "gif") ||
+    (raw.kind === "image" && sticker.animated)
+  ) {
+    return false;
+  }
+  const path = raw.url.startsWith("/")
+    ? raw.url.split(/[?#]/u, 1)[0]
+    : (() => {
+        try {
+          const parsed = new URL(raw.url);
+          return parsed.pathname;
+        } catch {
+          return "";
+        }
+      })();
+  const mediaIdFromPath =
+    /^\/api\/media\/(?<mediaId>[A-Za-z0-9_-]{1,128})(?:\/v\/sticker-full\.webp)?$/u.exec(
+      path
+    )?.groups?.mediaId;
+  if (mediaIdFromPath !== sticker.mediaId) {
+    return false;
+  }
+  return (
+    (raw.width === undefined ||
+      (typeof raw.width === "number" && raw.width > 0 && raw.width <= 512)) &&
+    (raw.height === undefined ||
+      (typeof raw.height === "number" && raw.height > 0 && raw.height <= 512))
+  );
 }
 
 function isValidMediaAttachmentList(

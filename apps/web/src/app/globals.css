@@ -81,6 +81,29 @@
     0 3px 5px rgba(0, 0, 0, 0.12);
 }
 
+/* The collapsed rail's one hover: a soft disc of background behind the icon.
+   Every rail control uses it - nav icons, search, theme toggle and the profile
+   avatar - so hovering any of them reads the same. It stays behind the glyph
+   and the photo (they paint above it), which is why it never haloes the avatar
+   the way pill-3d-hover's opaque gradient plus bright inner lip did. */
+.sidebar-icon-hover {
+  outline: none;
+  transition: background-color 0.2s ease-out;
+}
+
+.sidebar-icon-hover:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+
+.sidebar-icon-hover:hover {
+  background-color: hsl(var(--foreground) / 0.06);
+}
+
+.dark .sidebar-icon-hover:hover {
+  background-color: hsl(var(--foreground) / 0.1);
+}
+
 .apple-panel {
   background: hsl(var(--background-alt));
   border: 1px solid rgba(0, 0, 0, 0.12);

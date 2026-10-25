@@ -1,8 +1,9 @@
 "use client";
 
-import { ArrowDown, ChevronDown, ChevronUp, LoaderCircle } from "lucide-react";
+import { ArrowDown, ChevronDown, ChevronUp } from "lucide-react";
 import type { KeyboardEventHandler } from "react";
 
+import { ZephLoader } from "@/components/layouts/feedback/zeph-loader";
 import UserAvatar from "@/components/layouts/user/user-avatar";
 import type { SearchUserResult } from "@/lib/messages/client";
 
@@ -186,7 +187,10 @@ export function GlobalMessageSearchProfiles({
                   </span>
                 )}
                 {creatingId === profile.id ? (
-                  <LoaderCircle className="text-muted-foreground h-4 w-4 shrink-0 animate-spin motion-reduce:animate-none" />
+                  <ZephLoader
+                    variant="search"
+                    className="text-muted-foreground h-4 w-4 shrink-0 motion-reduce:animate-none"
+                  />
                 ) : null}
               </button>
             </li>

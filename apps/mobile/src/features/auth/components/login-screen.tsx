@@ -14,7 +14,6 @@ import {
 } from "lucide-react-native";
 import { useCallback, useState } from "react";
 import {
-  ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -35,6 +34,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import asmLogo from "@/assets/images/asm.png";
 import loginBgImage from "@/assets/images/login-image.jpg";
 import { toast } from "@/components/feedback/toast";
+import { ZephLoader } from "@/components/feedback/zeph-loader";
 import { GoogleIcon } from "@/components/icons/google-icon";
 import { RedditIcon } from "@/components/icons/reddit-icon";
 import { AuthPrimaryButton } from "@/features/auth/components/auth-primary-button";
@@ -410,7 +410,8 @@ export default function LoginScreen() {
                         ]}
                       >
                         {activeSocial === "google" ? (
-                          <ActivityIndicator
+                          <ZephLoader
+                            variant="security"
                             color={theme.socialBtnText}
                             size="small"
                           />
@@ -456,7 +457,8 @@ export default function LoginScreen() {
                         ]}
                       >
                         {activeSocial === "reddit" ? (
-                          <ActivityIndicator
+                          <ZephLoader
+                            variant="security"
                             color={theme.socialBtnText}
                             size="small"
                           />
@@ -871,7 +873,11 @@ export default function LoginScreen() {
                             ]}
                           >
                             {activeSocial === "passkey" ? (
-                              <ActivityIndicator color="#ff9500" size="small" />
+                              <ZephLoader
+                                variant="security"
+                                color="#ff9500"
+                                size="small"
+                              />
                             ) : (
                               <Fingerprint
                                 color={theme.passkeyIcon}

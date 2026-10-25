@@ -17,13 +17,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import { CornerDownRight } from "lucide-react-native";
 import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  ActivityIndicator,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 import type { LayoutChangeEvent } from "react-native";
 import { Path, Svg } from "react-native-svg";
 
@@ -31,6 +25,7 @@ import noCommentsImage from "@/assets/images/nocomments.png";
 import noMediaImage from "@/assets/images/nomedia.png";
 import { UserAvatar } from "@/components/avatar/user-avatar";
 import { toast } from "@/components/feedback/toast";
+import { ZephLoader } from "@/components/feedback/zeph-loader";
 import { Gradient3D } from "@/components/surface/gradient-3d";
 import { ORANGE_GRADIENT } from "@/components/surface/recipes";
 import { authClient } from "@/features/auth/lib/auth-client";
@@ -775,7 +770,7 @@ export function EddieThread({
         style={styles.previousLink}
       >
         {loadingMore ? (
-          <ActivityIndicator color={theme.dividerText} size={14} />
+          <ZephLoader variant="general" color={theme.dividerText} size={14} />
         ) : (
           <Text style={[styles.previousText, { color: theme.dividerText }]}>
             Load previous eddies

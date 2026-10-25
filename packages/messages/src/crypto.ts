@@ -428,7 +428,12 @@ export async function deriveMessageKey(
 
 // The payload normalizers live in the dependency-light payload module so a
 // native client can use them without pulling in this WebCrypto-heavy module.
-export { getMediaAttachments, getMediaImages } from "./payload";
+export {
+  getMediaAttachments,
+  getMediaImages,
+  isStickerMessagePayload,
+} from "./payload";
+export type { StickerMessagePayload, StickerPresentation } from "./payload";
 
 export { extractMessageReferences } from "./references";
 

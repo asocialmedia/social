@@ -14,10 +14,14 @@ import {
   mergeCommunityChatTimeline,
   parseCommunityChatText,
 } from "@asm/messages";
-import { parseMessagePayload } from "@asm/messages/payload";
+import {
+  isStickerMessagePayload,
+  parseMessagePayload,
+} from "@asm/messages/payload";
 import type { ResultType } from "@prisma/orm-postgres/components/runtime";
 import { and, or } from "@prisma/orm-postgres/orm-client";
 
+import { scheduleMediaCleanup } from "../../queue";
 import { rawQuery } from "../messages/infrastructure/raw-sql";
 import { isMessageReactionEmoji } from "../messages/reactions";
 import prisma, { fromPrismaDateTime, toPrismaDateTime } from "../prisma";
@@ -1366,6 +1370,7 @@ async function findIdempotentMessage(
 }
 
 export async function sendCommunityChatMessage(input: {
+  stickerMediaId?: string;
   clientId: string;
   content: unknown;
   replyToId?: string;
@@ -1385,14 +1390,60 @@ export async function sendCommunityChatMessage(input: {
   if (!CLIENT_ID_PATTERN.test(input.clientId)) {
     throw new CommunityChatError("INVALID", "Invalid client message id");
   }
-  const payload = parseCommunityChatTextInput(input.content);
-  if (payload.type !== "text") {
-    throw new CommunityChatError(
-      "INVALID",
-      "Only text messages are supported here"
-    );
+  const replay = await findIdempotentMessage(
+    input.roomId,
+    input.userId,
+    input.clientId
+  );
+  if (replay) {
+    return { message: replay, replayed: true };
   }
-  const storedPayload = { content: payload.content, type: "text" as const };
+  const messageId = randomUUID();
+  let stickerOriginMediaId: string | undefined;
+  let storedPayload: NonNullable<CommunityChatMessage["payload"]>;
+  if (input.stickerMediaId) {
+    const media = await prisma.orm.public.PostMedia.where({
+      id: input.stickerMediaId,
+      status: "READY",
+      userId: input.userId,
+    }).first();
+    const metadata = media?.techMetadata;
+    if (
+      !media ||
+      !metadata ||
+      typeof metadata !== "object" ||
+      !("communityRoomId" in metadata) ||
+      metadata.communityRoomId !== input.roomId
+    ) {
+      throw new CommunityChatError("INVALID", "Sticker is unavailable");
+    }
+    stickerOriginMediaId =
+      metadata &&
+      typeof metadata === "object" &&
+      "stickerOriginMediaId" in metadata &&
+      typeof metadata.stickerOriginMediaId === "string"
+        ? metadata.stickerOriginMediaId
+        : media.id;
+    storedPayload = {
+      height: media.height ?? 512,
+      kind: metadata.animated === true ? "gif" : "image",
+      presentation: "sticker",
+      sticker: {
+        animated: metadata.animated === true,
+        mediaId: media.id,
+        version: 1,
+      },
+      type: "media",
+      url: `/api/media/${media.id}/v/sticker-full.webp`,
+      width: media.width ?? 512,
+    };
+  } else {
+    const payload = parseCommunityChatTextInput(input.content);
+    if (payload.type !== "text") {
+      throw new CommunityChatError("INVALID", "Invalid text message");
+    }
+    storedPayload = { content: payload.content, type: "text" };
+  }
 
   const previous = await findIdempotentMessage(
     input.roomId,
@@ -1421,7 +1472,6 @@ export async function sendCommunityChatMessage(input: {
     }
   }
 
-  const messageId = randomUUID();
   let replayed = false;
   let messageSequence = 0n;
   let changeSequence = 0n;
@@ -1521,16 +1571,58 @@ export async function sendCommunityChatMessage(input: {
           );
         }
       }
+      if (input.stickerMediaId) {
+        await rawQuery(
+          "SELECT id FROM public.post_media WHERE id=$1 FOR UPDATE",
+          [input.stickerMediaId],
+          { id: "pg/text@1" },
+          transaction
+        );
+        const delivery = await transaction.orm.public.PostMedia.where({
+          id: input.stickerMediaId,
+          status: "READY",
+          userId: input.userId,
+        }).first();
+        const metadata = delivery?.techMetadata;
+        if (
+          !metadata ||
+          typeof metadata !== "object" ||
+          !("communityRoomId" in metadata) ||
+          metadata.communityRoomId !== room.id ||
+          "communityMessageId" in metadata
+        ) {
+          throw new CommunityChatError(
+            "INVALID",
+            "Sticker delivery was already used"
+          );
+        }
+      }
       await transaction.orm.public.CommunityChatMessages.create({
         changeSequence,
         clientId: input.clientId,
         id: messageId,
-        payload: storedPayload,
+        payload:
+          storedPayload.type === "media"
+            ? { ...storedPayload, sticker: { ...storedPayload.sticker } }
+            : storedPayload,
         replyToId: replyToId ?? null,
         roomId: room.id,
         senderId: input.userId,
         sequence: messageSequence,
       });
+      if (input.stickerMediaId && isStickerMessagePayload(storedPayload)) {
+        await transaction.orm.public.PostMedia.where({
+          id: input.stickerMediaId,
+          userId: input.userId,
+        }).update({
+          techMetadata: {
+            animated: storedPayload.sticker.animated,
+            communityMessageId: messageId,
+            communityRoomId: room.id,
+            stickerOriginMediaId: stickerOriginMediaId ?? input.stickerMediaId,
+          },
+        });
+      }
       if (room.kind === "THREAD") {
         await transaction.orm.public.CommunityChatSubscriptions.upsert({
           conflictOn: { roomId: room.id, userId: input.userId },
@@ -1794,6 +1886,12 @@ export async function mutateCommunityChatMessage(input: {
       );
     }
   });
+  const previousPayload = mapMessage(existing).payload;
+  if (previousPayload && isStickerMessagePayload(previousPayload)) {
+    await scheduleMediaCleanup(previousPayload.sticker.mediaId).catch(
+      () => null
+    );
+  }
   const updated = await messageQuery(prisma.orm)
     .where((message) => message.id.eq(input.messageId))
     .first();

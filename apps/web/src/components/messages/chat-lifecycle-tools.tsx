@@ -18,7 +18,6 @@ import {
   Download,
   ChevronRight,
   History,
-  Loader2,
   Shield,
   Trash2,
 } from "lucide-react";
@@ -26,6 +25,7 @@ import { useEffect, useId, useState } from "react";
 import type React from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
+import { ZephLoader } from "@/components/layouts/feedback/zeph-loader";
 import type { ConversationDetailResponse } from "@/lib/messages/client";
 import {
   ChatControlError,
@@ -433,7 +433,7 @@ export function ChatLifecycleTools({
                         aria-live="polite"
                         className="flex items-center gap-3 py-3"
                       >
-                        <Loader2 className="size-5 animate-spin" />
+                        <ZephLoader variant="messages" className="size-5" />
                         <div>
                           <p className="text-sm font-medium">
                             {job.status === "processing"
@@ -495,7 +495,10 @@ export function ChatLifecycleTools({
                           }}
                         >
                           {exportBusy ? (
-                            <Loader2 className="mr-2 size-4 animate-spin" />
+                            <ZephLoader
+                              variant="messages"
+                              className="mr-2 size-4"
+                            />
                           ) : (
                             <Download className="mr-2 size-4" />
                           )}
@@ -538,7 +541,7 @@ export function ChatLifecycleTools({
                   }}
                 >
                   {busy ? (
-                    <Loader2 className="mr-2 size-4 animate-spin" />
+                    <ZephLoader variant="messages" className="mr-2 size-4" />
                   ) : null}
                   {(() => {
                     if (dialog === "clear") {

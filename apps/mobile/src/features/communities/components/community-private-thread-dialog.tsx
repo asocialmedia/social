@@ -1,18 +1,11 @@
-// oxlint-disable react/todo -- Async requests retain visible failure and retry states.
-
 import { mergeCommunityChatMemberOptions } from "@asm/messages";
+// oxlint-disable react/todo -- Async requests retain visible failure and retry states.
 import { randomUUID } from "expo-crypto";
 import { useEffect, useRef, useState } from "react";
-import {
-  ActivityIndicator,
-  Pressable,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from "react-native";
+import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 
 import { StatusActionButton } from "@/components/feedback/status-action-button";
+import { ZephLoader } from "@/components/feedback/zeph-loader";
 import { DialogPanel } from "@/components/surface/dialog-panel";
 import { premiumInput } from "@/components/surface/recipes";
 import type { ApiCallOptions } from "@/features/feed/lib/feed-api";
@@ -262,7 +255,7 @@ export function CommunityPrivateThreadDialog({
           </Pressable>
         ))}
       {searching ? (
-        <ActivityIndicator accessibilityLabel="Searching members" />
+        <ZephLoader variant="general" accessibilityLabel="Searching members" />
       ) : null}
       {query.trim().length >= 2 &&
       !searching &&

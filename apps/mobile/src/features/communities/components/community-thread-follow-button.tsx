@@ -1,9 +1,9 @@
-// oxlint-disable react/todo -- Requests own their visible loading and retry state.
-
 import { Bell, BellOff } from "lucide-react-native";
+// oxlint-disable react/todo -- Requests own their visible loading and retry state.
 import { useEffect, useState } from "react";
-import { ActivityIndicator, Pressable, Text } from "react-native";
+import { Pressable, Text } from "react-native";
 
+import { ZephLoader } from "@/components/feedback/zeph-loader";
 import type { ApiCallOptions } from "@/features/feed/lib/feed-api";
 import { useAppTheme } from "@/theme";
 
@@ -109,7 +109,7 @@ export function CommunityThreadFollowButton({
       }}
     >
       {busy ? (
-        <ActivityIndicator color={theme.dividerText} size="small" />
+        <ZephLoader variant="general" color={theme.dividerText} size="small" />
       ) : (
         <Icon color={theme.dividerText} size={15} />
       )}

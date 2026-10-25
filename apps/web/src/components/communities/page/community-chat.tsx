@@ -1,9 +1,4 @@
 "use client";
-
-// oxlint-disable react/todo -- The current React Compiler lint cannot lower the async try/catch/finally blocks used for visible request and retry states.
-// oxlint-disable no-await-in-loop -- Catch-up history pages depend on the cursor returned by the previous page.
-// oxlint-disable no-nested-ternary, unicorn/no-nested-ternary, no-negated-condition, unicorn/no-negated-condition, no-void -- Timeline states use compact JSX branches and event handlers intentionally detach requests that manage their own errors.
-
 import type {
   CommunityChatChange,
   CommunityChatMessage,
@@ -17,6 +12,10 @@ import {
   mergeCommunityChatTimeline,
   mergeCommunityChatMemberOptions,
 } from "@asm/messages";
+// oxlint-disable react/todo -- The current React Compiler lint cannot lower the async try/catch/finally blocks used for visible request and retry states.
+// oxlint-disable no-await-in-loop -- Catch-up history pages depend on the cursor returned by the previous page.
+// oxlint-disable no-nested-ternary, unicorn/no-nested-ternary, no-negated-condition, unicorn/no-negated-condition, no-void -- Timeline states use compact JSX branches and event handlers intentionally detach requests that manage their own errors.
+import { isStickerMessagePayload } from "@asm/messages/payload";
 import { Avatar, AvatarFallback, AvatarImage } from "@asm/ui/shadui/avatar";
 import { Button } from "@asm/ui/shadui/button";
 import {
@@ -58,6 +57,8 @@ import {
 import type { CSSProperties, Dispatch, SetStateAction } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
+import { SavableSticker } from "@/components/messages/savable-sticker";
+import { StickerPicker } from "@/components/messages/sticker-picker";
 import { useCommunityNavigation } from "@/hooks/use-community-navigation";
 import { communityAccentStyle } from "@/lib/communities/accent";
 import { loadCommunityChatResources } from "@/lib/communities/chat-loading";
@@ -920,6 +921,47 @@ function CommunityChatTimeline({
       void loadOlder();
     }
   }, [hasOlder, loadOlder]);
+
+  const [stickerPickerOpen, setStickerPickerOpen] = useState(false);
+  const sendSticker = async (stickerId: string, clientId: string) => {
+    if (sending || !permissions?.canSend) {
+      return false;
+    }
+    setSending(true);
+    try {
+      const response = await fetch(`${roomUrl}/messages`, {
+        body: JSON.stringify({
+          clientId,
+          replyToId: replyTarget?.id,
+          stickerId,
+        }),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        throw new Error(body?.error ?? "Sticker didn't send");
+      }
+      const result = (await response.json()) as {
+        message: CommunityChatMessage;
+      };
+      if (atLatestRef.current) {
+        appendMessages([result.message]);
+      } else {
+        setHasNewActivity(true);
+      }
+      setReplyTarget(null);
+      setSendError(null);
+      return true;
+    } catch (error) {
+      setSendError(
+        error instanceof Error ? error.message : "Sticker didn't send"
+      );
+      return false;
+    } finally {
+      setSending(false);
+    }
+  };
 
   const send = useCallback(async () => {
     const outgoing = pendingDraft ?? {
@@ -2335,6 +2377,14 @@ function CommunityChatTimeline({
                                 <p className="text-foreground/90 text-[15px] leading-relaxed break-words whitespace-pre-wrap">
                                   {message.payload.content}
                                 </p>
+                              ) : message.payload &&
+                                isStickerMessagePayload(message.payload) ? (
+                                <SavableSticker
+                                  url={`/api/communities/chat/stickers/${message.id}`}
+                                  mediaId={message.payload.sticker.mediaId}
+                                  messageId={message.id}
+                                  source="community"
+                                />
                               ) : message.deletedAt ? (
                                 <p className="text-muted-foreground text-[13px] italic">
                                   This message was deleted.
@@ -2507,7 +2557,32 @@ function CommunityChatTimeline({
                       </Button>
                     </div>
                   ) : null}
+                  {stickerPickerOpen ? (
+                    <div
+                      aria-label="Community sticker keyboard"
+                      className="panel-3d mb-2 h-[min(52dvh,420px)] overflow-hidden rounded-2xl p-3"
+                    >
+                      <StickerPicker
+                        key={`${user?.id}:${room?.id}`}
+                        canCreate
+                        disabled={sending}
+                        conversationId={room?.id ?? ""}
+                        onSend={() => Promise.resolve(false)}
+                        onSelectSticker={sendSticker}
+                        replyTarget={null}
+                      />
+                    </div>
+                  ) : null}
                   <div className="flex items-end gap-2">
+                    <Button
+                      aria-label="Open stickers"
+                      aria-expanded={stickerPickerOpen}
+                      type="button"
+                      variant="ghost"
+                      onClick={() => setStickerPickerOpen((value) => !value)}
+                    >
+                      ☺
+                    </Button>
                     <Textarea
                       rows={1}
                       aria-label={`Message ${channelName}`}

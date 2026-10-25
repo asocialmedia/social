@@ -1504,7 +1504,7 @@ function WallpaperUploadTile({
     <label className="pill-3d-hover flex cursor-pointer flex-col items-center gap-1.5 rounded-lg px-2.5 py-2">
       <span className="border-border/70 text-muted-foreground flex size-10 items-center justify-center rounded-lg border border-dashed">
         {busy ? (
-          <Spinner3D className="size-4" />
+          <Spinner3D variant="messages" className="size-4" />
         ) : (
           <Upload className="size-4" />
         )}

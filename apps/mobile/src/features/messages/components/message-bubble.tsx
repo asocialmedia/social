@@ -1,3 +1,7 @@
+import type {
+  BubbleEntranceRegistry,
+  MessageReactionSummary,
+} from "@asm/messages";
 // One transcript row: the bubble, its media album, its reply quote, and the
 // receipt. Ported from apps/web/src/components/messages/message-bubble.tsx and
 // message-media-album.tsx.
@@ -11,18 +15,23 @@
 // before it renders it, and a bubble containing a photo has no predictable height
 // until the photo reports its intrinsic size, so the row reports it through
 // onLayout. Without that a long album scrolls to the wrong place.
-
-// oxlint-disable react/immutability -- Reanimated shared values are mutable animation handles, not React state.
-import type { MessageReactionSummary } from "@asm/messages";
 import { formatViewOnceSeenAt, isViewOnceUnavailable } from "@asm/messages";
+import { isStickerMessagePayload } from "@asm/messages/payload";
 import { randomUUID } from "expo-crypto";
 import { File, Directory, Paths } from "expo-file-system";
 import { Image as ExpoImage } from "expo-image";
 import { useFocusEffect } from "expo-router";
 import * as Sharing from "expo-sharing";
 import { VideoView, useVideoPlayer } from "expo-video";
-import { Download, Eye, FileText, Loader2, X } from "lucide-react-native";
-import { memo, useCallback, useEffect, useRef, useState } from "react";
+import { Download, Eye, FileText, X } from "lucide-react-native";
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import {
   AppState,
   Modal,
@@ -45,6 +54,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { UserAvatar } from "@/components/avatar/user-avatar";
 import { toast } from "@/components/feedback/toast";
+import { ZephLoader } from "@/components/feedback/zeph-loader";
 import { Gradient3D } from "@/components/surface/gradient-3d";
 import { authClient } from "@/features/auth/lib/auth-client";
 import { sentBubbleShadows } from "@/features/messages/lib/conversation-theme";
@@ -80,6 +90,7 @@ import { useViewOnceReceipt } from "@/features/messages/state/use-view-once-rece
 import { getApiBaseUrl } from "@/lib/api-env";
 import { useAppTheme } from "@/theme";
 
+import { MessageBubbleEntrance } from "./message-bubble-entrance";
 import { MessagePostPreview } from "./message-post-preview";
 import { MessageSearchHighlight } from "./message-search-highlight";
 import {
@@ -89,6 +100,8 @@ import {
   ReceiptLine,
   mediaUrl,
 } from "./messages-primitives";
+// oxlint-disable react/immutability -- Reanimated shared values are mutable animation handles, not React state.
+import { SavableSticker } from "./savable-sticker";
 
 // The album's rendered width. Web caps the collage at 384px; on a phone the bubble
 // itself is the cap, and this is the ceiling inside it.
@@ -295,7 +308,7 @@ function ViewOncePhoto({
         style={[styles.fileCard, styles.viewOnceCard]}
       >
         {busy ? (
-          <Loader2 color="#9a9a9a" size={20} />
+          <ZephLoader variant="messages" color="#9a9a9a" size={20} />
         ) : (
           <Animated.View style={eyeStyle}>
             <Eye color="#9a9a9a" size={20} />
@@ -363,6 +376,8 @@ function ViewOncePhoto({
 }
 
 export interface MessageBubbleProps {
+  entrances?: BubbleEntranceRegistry;
+  messageId?: string;
   conversationId?: string;
   ephemeral?: boolean;
   searchJump?: number;
@@ -396,6 +411,7 @@ export interface MessageBubbleProps {
 }
 
 function MessageBubbleInner({
+  messageId,
   conversationId,
   ephemeral = false,
   searchJump = 0,
@@ -483,6 +499,48 @@ function MessageBubbleInner({
   const bubbleWidth = Math.round(maxBubbleWidth * MAX_BUBBLE_WIDTH_RATIO);
 
   if (payload.type === "media") {
+    if (isStickerMessagePayload(payload)) {
+      const ratio =
+        payload.width && payload.height ? payload.width / payload.height : 1;
+      const stickerWidth = ratio >= 1 ? 192 : Math.max(88, 192 * ratio);
+      const stickerHeight = ratio >= 1 ? Math.max(88, 192 / ratio) : 192;
+      return (
+        <View
+          style={[
+            styles.row,
+            mine ? styles.rowMine : styles.rowTheirs,
+            { marginTop: group.isFirstInGroup ? 8 : 2 },
+          ]}
+        >
+          <View style={mine ? styles.alignEnd : styles.alignStart}>
+            <SavableSticker
+              mediaId={payload.sticker.mediaId}
+              messageId={messageId ?? ""}
+              canSave={!ephemeral && Boolean(messageId)}
+            >
+              <MessageImage
+                cachePolicy={ephemeral ? "none" : undefined}
+                contentFit="contain"
+                source={mediaUrl(payload.url)}
+                style={{ height: stickerHeight, width: stickerWidth }}
+              />
+            </SavableSticker>
+            <ReactionPills
+              disabled={reactionPending}
+              mine={mine}
+              onReact={onReact}
+              reactions={reactions}
+            />
+          </View>
+          {showReceipt && mine && receipt ? (
+            <ReceiptLine
+              at={formatReceiptStamp(receipt.at)}
+              label={receipt.status}
+            />
+          ) : null}
+        </View>
+      );
+    }
     const attachments = getMediaAttachments(payload);
     const images = getMediaImages(payload);
     const mixedPhotoKinds =
@@ -980,9 +1038,41 @@ function formatMessageFileSize(bytes?: number): string {
     : `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function ReadyMessageBubble(props: MessageBubbleProps) {
+  const { entrances, messageId } = props;
+  // oxlint-disable-next-line react/hook-use-state -- Snapshot once per mount; consuming eligibility must not change this rendered entrance.
+  const [entering] = useState(() =>
+    messageId ? (entrances?.isPending(messageId) ?? false) : false
+  );
+  useLayoutEffect(() => {
+    if (messageId) {
+      entrances?.consume(messageId);
+    }
+  }, [entrances, messageId]);
+  const bubble = <MessageBubbleInner {...props} />;
+  return entering ? (
+    <MessageBubbleEntrance
+      mine={props.mine}
+      media={props.payload?.type !== "text"}
+    >
+      {bubble}
+    </MessageBubbleEntrance>
+  ) : (
+    bubble
+  );
+}
+
+function MessageBubbleWithEntrance(props: MessageBubbleProps) {
+  return props.payload && !props.deleted && !props.failed ? (
+    <ReadyMessageBubble key={props.messageId} {...props} />
+  ) : (
+    <MessageBubbleInner {...props} />
+  );
+}
+
 // Memoized because a transcript re-renders as each decrypted row lands; without it
 // a 30-row page would re-render all 30 bubbles for every row that arrives.
-export const MessageBubble = memo(MessageBubbleInner);
+export const MessageBubble = memo(MessageBubbleWithEntrance);
 MessageBubble.displayName = "MessageBubble";
 
 /**

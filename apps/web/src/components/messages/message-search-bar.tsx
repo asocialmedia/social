@@ -6,13 +6,13 @@ import {
   ChevronLeft,
   ChevronRight,
   List,
-  Loader2,
   MessageSquare,
   Search,
   X,
 } from "lucide-react";
 import { useEffect, useRef } from "react";
 
+import { ZephLoader } from "@/components/layouts/feedback/zeph-loader";
 import { MESSAGE_SEARCH_CLIENT_METRIC_DURATION_LIMIT_MS } from "@/lib/messages/search-client-metric-contract";
 import {
   flushMessageSearchClientTelemetry,
@@ -399,9 +399,10 @@ export function MessageSearchBar({
           how much history happens to be loaded, so a loader here would imply
           search is still working when it is done. */}
         {(serverManaged ? searching : indexing && !fullyCovered) ? (
-          <Loader2
+          <ZephLoader
+            variant="search"
             aria-label="Loading older messages"
-            className="text-muted-foreground h-3.5 w-3.5 shrink-0 animate-spin"
+            className="text-muted-foreground h-3.5 w-3.5 shrink-0"
           />
         ) : null}
 
@@ -491,7 +492,7 @@ export function MessageSearchBar({
             className="icon-btn-3d flex h-7 w-7 shrink-0 items-center justify-center rounded-full"
             title="Searching older messages"
           >
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            <ZephLoader variant="search" className="h-3.5 w-3.5" />
           </span>
         ) : null}
 
