@@ -1,10 +1,18 @@
 import { afterAll, expect, test } from "bun:test";
 
+import type { PostsPage } from "@asm/db";
+import {
+  QueryClient,
+  QueryClientProvider,
+  useInfiniteQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
+import type { InfiniteData } from "@tanstack/react-query";
 import { Window } from "happy-dom";
 import { act, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 
-import { revealFeedHead } from "./feed-cache";
+import { revealFeedHead, prependPostsToFeedCache } from "./feed-cache";
 
 const dom = new Window({ url: "http://localhost:3000" });
 const originals = new Map<string, PropertyDescriptor | undefined>();
@@ -32,24 +40,43 @@ afterAll(async () => {
   }
 });
 
+const queryKey = ["post-feed", "reveal-regression"];
+const post = (id: string) => ({ id }) as unknown as PostsPage["posts"][number];
+
 function Feed() {
-  const [items, setItems] = useState(["old"]);
+  const client = useQueryClient();
+  const query = useInfiniteQuery({
+    getNextPageParam: (page: PostsPage) => page.nextCursor,
+    initialPageParam: null as string | null,
+    queryFn: (): Promise<PostsPage> =>
+      Promise.resolve({ nextCursor: null, posts: [post("old")] }),
+    queryKey,
+    staleTime: Number.POSITIVE_INFINITY,
+  });
+  const [hasBadge, setHasBadge] = useState(true);
   const ref = useRef<HTMLDivElement>(null);
   return (
     <div ref={ref}>
-      <button
-        type="button"
-        onClick={() =>
-          revealFeedHead(ref.current, () => setItems(["new", "old"]))
-        }
-      >
-        Reveal new posts
-      </button>
-      {items.map((item) => (
-        <article key={item} data-feed-item>
-          {item}
-        </article>
-      ))}
+      {hasBadge ? (
+        <button
+          type="button"
+          onClick={() =>
+            revealFeedHead(ref.current, () => {
+              setHasBadge(false);
+              prependPostsToFeedCache(client, queryKey, [post("new")]);
+            })
+          }
+        >
+          Reveal new posts
+        </button>
+      ) : null}
+      {query.data?.pages
+        .flatMap((page) => page.posts)
+        .map((item) => (
+          <article key={item.id} data-feed-item>
+            {item.id}
+          </article>
+        ))}
     </div>
   );
 }
@@ -64,22 +91,37 @@ test("new feed cards are committed before the pill starts scrolling the overflow
   const host = dom.document.createElement("div");
   scroll.append(host);
   let firstAtScroll: string | null = null;
+  let badgeAtScroll = true;
   Object.defineProperty(scroll, "scrollTo", {
     value: () => {
       firstAtScroll = scroll.querySelector("article")?.textContent ?? null;
+      badgeAtScroll = Boolean(scroll.querySelector("button"));
       scroll.scrollTop = 0;
     },
   });
   const root = createRoot(host as unknown as HTMLElement);
+  const client = new QueryClient();
+  client.setQueryData<InfiniteData<PostsPage, string | null>>(queryKey, {
+    pageParams: [null],
+    pages: [{ nextCursor: null, posts: [post("old")] }],
+  });
   try {
-    await act(() => root.render(<Feed />));
+    await act(() =>
+      root.render(
+        <QueryClientProvider client={client}>
+          <Feed />
+        </QueryClientProvider>
+      )
+    );
     await act(() => {
       scroll.querySelector("button")?.click();
     });
     expect(firstAtScroll).toBe("new");
+    expect(badgeAtScroll).toBe(false);
     expect(scroll.scrollTop).toBe(0);
   } finally {
     await act(() => root.unmount());
+    client.clear();
     scroll.remove();
   }
 });
