@@ -8,6 +8,7 @@ import type { ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 
 import { externalPostView } from "@/lib/posts/presentation";
+import { useFeedSourceStore } from "@/store/feed-source-store";
 
 let communityShouldFail = true;
 const requestGlobal = mock(
@@ -22,6 +23,15 @@ const requestCommunity = mock(() => {
   }
   return { nextCursor: null, posts: [] };
 });
+mock.module("@/lib/posts/read-feed-page", () => ({
+  readFeedPage: async (
+    read: (cursor: string | null) => Promise<Response>,
+    cursor: string | null
+  ) => {
+    const response = await read(cursor);
+    return response.json();
+  },
+}));
 mock.module("@/lib/ky", () => ({
   default: {
     get: (url: string) => ({
@@ -90,7 +100,11 @@ mock.module("@/hooks/feed/use-seamless-feed-head", () => ({
   useSeamlessFeedHead() {},
 }));
 mock.module("./feed-view", () => ({
-  FeedView: () => <div data-loaded>Loaded post</div>,
+  FeedView: ({ respectInterests }: { respectInterests: boolean }) => (
+    <div data-loaded data-respect-interests={String(respectInterests)}>
+      Loaded post
+    </div>
+  ),
 }));
 mock.module("@/components/layouts/feed/infinite-scroll-container", () => ({
   default: ({
@@ -139,7 +153,7 @@ test("a failed continuation keeps loaded posts, shows the shared illustrated err
     defaultOptions: { queries: { retry: false } },
   });
   client.setQueryData(
-    ["post-feed", "trending", "guest", "test", "en", "engaged-v1"],
+    ["post-feed", "trending", "guest", "test", "en", "focused", "engaged-v1"],
     { pageParams: [null], pages: [{ nextCursor: null, posts: [] }] }
   );
   const host = dom.document.createElement("div");
@@ -217,15 +231,18 @@ test.each([
       nextCursor: null,
       posts: [nativePost],
     }));
-    client.setQueryData(["post-feed", "latest", "guest", "test", "en"], {
-      pageParams: [null],
-      pages: [
-        {
-          nextCursor: "next-global",
-          posts: hasGlobalPosts ? [nativePost] : [],
-        },
-      ],
-    });
+    client.setQueryData(
+      ["post-feed", "latest", "guest", "test", "en", "native"],
+      {
+        pageParams: [null],
+        pages: [
+          {
+            nextCursor: "next-global",
+            posts: hasGlobalPosts ? [nativePost] : [],
+          },
+        ],
+      }
+    );
     const host = dom.document.createElement("div");
     const root = createRoot(host);
     try {
@@ -287,7 +304,7 @@ test.each([true, false])(
       defaultOptions: { queries: { retry: false } },
     });
     client.setQueryData(
-      ["post-feed", "trending", "guest", "test", "en", "engaged-v1"],
+      ["post-feed", "trending", "guest", "test", "en", "focused", "engaged-v1"],
       {
         pageParams: [null, "one", "two"],
         pages: ["one", "two", "three"].map((nextCursor) => ({
@@ -327,6 +344,69 @@ test.each([true, false])(
       await act(() => root.unmount());
       client.clear();
       external.data = previousData;
+    }
+  }
+);
+
+test.each(["latest", "personalized"] as const)(
+  "ASM-only %s does not hide native posts through discovery interests",
+  async (variant) => {
+    useFeedSourceStore.setState({ source: "asm" });
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const native = {
+      ...externalPostView({
+        author: {
+          displayName: "Author",
+          handle: "author.test",
+          id: "author",
+          source: "bluesky",
+          upstreamCounts: {},
+          url: "https://bsky.app/profile/author.test",
+        },
+        createdAt: "2026-10-25T00:00:00Z",
+        id: "native",
+        labels: [],
+        languages: [],
+        media: [],
+        revision: "1",
+        segments: [],
+        source: "bluesky",
+        text: "Native post",
+        upstreamCounts: {},
+        url: "https://bsky.app/profile/author.test/post/example",
+      }),
+      external: undefined,
+    };
+    client.setQueryData(
+      [
+        "post-feed",
+        variant === "latest" ? "latest" : "for-you",
+        "guest",
+        "test",
+        "en",
+        "native",
+      ],
+      { pageParams: [null], pages: [{ nextCursor: null, posts: [native] }] }
+    );
+    const host = dom.document.createElement("div");
+    const root = createRoot(host);
+    try {
+      await act(() =>
+        root.render(
+          <QueryClientProvider client={client}>
+            <HomeFeed variant={variant} />
+          </QueryClientProvider>
+        )
+      );
+      expect(
+        host.querySelector("[data-loaded]")?.dataset.respectInterests
+      ).toBe("false");
+    } finally {
+      await act(() => root.unmount());
+      client.clear();
+      useFeedSourceStore.setState({ source: "all" });
     }
   }
 );

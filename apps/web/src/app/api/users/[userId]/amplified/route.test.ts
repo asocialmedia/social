@@ -24,6 +24,7 @@ const posts = [
 let lastWhere: unknown;
 let lastTake: number;
 let voteRows = [...votes];
+let visiblePosts = [...posts];
 
 interface VoteQuery {
   all: () => Promise<(typeof votes)[number][]>;
@@ -84,7 +85,7 @@ const mockHydrate = mock((items: unknown[]) => items);
 
 mock.module("@asm/db", () => ({
   ...asmDbMockBase,
-  getPostDataQuery: () => ({ where: () => ({ all: () => [...posts] }) }),
+  getPostDataQuery: () => ({ where: () => ({ all: () => [...visiblePosts] }) }),
   hydrateViewCounts: mockHydrate,
   prisma: mockPrisma,
 }));
@@ -102,6 +103,7 @@ describe("GET /api/users/[userId]/amplified", () => {
     lastWhere = null;
     lastTake = 0;
     voteRows = [...votes];
+    visiblePosts = [...posts];
   });
 
   test("rejects unauthenticated requests", async () => {
@@ -144,5 +146,22 @@ describe("GET /api/users/[userId]/amplified", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body).toEqual({ nextCursor: null, posts: [] });
+  });
+});
+
+test("a fully filtered vote page keeps a cursor timestamp for merged pagination", async () => {
+  voteRows = Array.from({ length: 21 }, (_, index) => ({
+    createdAt: new Date(Date.UTC(2026, 0, 21 - index)),
+    postId: `filtered-${index}`,
+  }));
+  visiblePosts = [];
+  const res = await GET(
+    new Request("http://localhost/api/users/x/amplified"),
+    context
+  );
+  expect(await res.json()).toEqual({
+    nextCursor: "filtered-19",
+    nextCursorAt: "2026-01-02T00:00:00.000Z",
+    posts: [],
   });
 });

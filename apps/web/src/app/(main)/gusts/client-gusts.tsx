@@ -305,6 +305,7 @@ const GustStream = ({
   const network = useNetworkSettings();
   const { locale } = useDiscoveryLocale();
   const excluded = useExternalExclusions(user?.id ?? "guest");
+  const respectNativeInterests = isPersonalized && source !== "asm";
   const includeNative =
     !externalId &&
     (Boolean(initialPostId) || source !== "bluesky" || gustTab === "following");
@@ -336,8 +337,17 @@ const GustStream = ({
       user?.id ?? "guest",
       network.scope,
       locale,
+      source === "asm" ? "native" : "focused",
     ],
-    [gustTab, initialPostId, externalId, user?.id, network.scope, locale]
+    [
+      gustTab,
+      initialPostId,
+      externalId,
+      user?.id,
+      network.scope,
+      locale,
+      source,
+    ]
   );
 
   // Infinite query for gusts
@@ -369,6 +379,7 @@ const GustStream = ({
         excludeModerated: "1",
         locale,
         profile: network.settings.preferences.activeProfileId,
+        source,
         ...(initialPostId ? {} : { network: network.scope }),
       };
       if (isPersonalized) {
@@ -417,14 +428,14 @@ const GustStream = ({
             (post) =>
               !post.moderated &&
               !hiddenPostIds.has(post.id) &&
-              (!isPersonalized || !oppositeSeen.has(post.id)) &&
-              (gustTab === "following" || initialPostId
-                ? networkPostAllowed(
+              (!respectNativeInterests || !oppositeSeen.has(post.id)) &&
+              (respectNativeInterests
+                ? networkPostRecommended(
                     post,
                     network.settings.preferences,
                     network.settings.topicScope
                   )
-                : networkPostRecommended(
+                : networkPostAllowed(
                     post,
                     network.settings.preferences,
                     network.settings.topicScope
@@ -438,9 +449,7 @@ const GustStream = ({
       externalId,
       hiddenPostIds,
       oppositeSeen,
-      isPersonalized,
-      gustTab,
-      initialPostId,
+      respectNativeInterests,
       network.settings.preferences,
       network.settings.topicScope,
       network.ready,

@@ -27,6 +27,7 @@ import LoadMoreSkeleton from "@/components/layouts/skeletons/load-more-skeleton"
 import { useBlueskyFeed } from "@/components/protocols/use-bluesky-feed";
 import { useDiscoveryLocale } from "@/hooks/feed/use-discovery-locale";
 import { useFeedExposures } from "@/hooks/feed/use-feed-exposures";
+import { useFeedRecovery } from "@/hooks/feed/use-feed-recovery";
 import { useNetworkSettings } from "@/hooks/feed/use-network-settings";
 import { useNewContentProbe } from "@/hooks/feed/use-new-content-probe";
 import { useSeamlessFeedHead } from "@/hooks/feed/use-seamless-feed-head";
@@ -44,7 +45,9 @@ import { feedContinuationDelay } from "@/lib/posts/feed-pagination";
 import {
   activeNetworkInterests,
   networkPostRecommended,
+  networkPostAllowed,
 } from "@/lib/posts/network-content-policy";
+import { readFeedPage } from "@/lib/posts/read-feed-page";
 import { isTrendingPost } from "@/lib/posts/trending-eligibility";
 import {
   useFeedSourceStore,
@@ -147,10 +150,12 @@ export default function HomeFeed({
   const isTrending = variant === "trending";
   const network = useNetworkSettings();
   const { locale } = useDiscoveryLocale();
+  const respectInterests = variant !== "latest" && source !== "asm";
   const networkParams = {
     locale,
     network: network.scope,
     profile: network.settings.preferences.activeProfileId,
+    source,
   };
   const isLatest = variant === "latest";
   const isPersonalized = variant === "personalized" || variant === "global";
@@ -173,12 +178,13 @@ export default function HomeFeed({
       user?.id ?? "guest",
       network.scope,
       locale,
+      source === "asm" ? "native" : "focused",
     ];
     if (isTrending) {
       key.push("engaged-v1");
     }
     return key;
-  }, [feedKey, user?.id, network.scope, locale, isTrending]);
+  }, [feedKey, user?.id, network.scope, locale, isTrending, source]);
 
   // The community segment reuses the community feed's exact query key, so the
   // page shares one cache entry with the community page's own feed (no separate
@@ -238,6 +244,7 @@ export default function HomeFeed({
   // The global feed is held back until the community segment is done, so its
   // first page cannot render under the community posts and then get shunted
   // down when a later community page loads in above it.
+  const queryClient = useQueryClient();
   const globalEnabled = !communitySlug || communityExhausted;
   const {
     data,
@@ -246,26 +253,41 @@ export default function HomeFeed({
     isFetching,
     isFetchingNextPage: isFetchingNextGlobalPage,
     status: globalStatus,
+    dataUpdatedAt,
   } = useInfiniteQuery({
     enabled: globalEnabled && source !== "bluesky" && network.ready,
     getNextPageParam: (lastPage: PostsPage) => lastPage.nextCursor,
     initialPageParam: null as string | null,
-    queryFn: async ({ pageParam, signal }) => {
-      const result = await kyInstance
-        .get(endpoint, {
-          searchParams: {
-            ...networkParams,
-            ...(pageParam ? { cursor: pageParam } : {}),
-          },
-          signal,
-        })
-        .json<PostsPage>();
-      return result;
+    queryFn: ({ pageParam, signal }) => {
+      const current = queryClient.getQueryData<{ pages: PostsPage[] }>(
+        queryKey
+      );
+      return readFeedPage<PostsPage>(
+        (cursor) =>
+          kyInstance.get(endpoint, {
+            searchParams: { ...networkParams, ...(cursor ? { cursor } : {}) },
+            signal,
+            throwHttpErrors: false,
+          }),
+        pageParam,
+        new Set(
+          current?.pages.flatMap((page) => page.posts.map((post) => post.id))
+        )
+      );
     },
     queryKey,
     ...HOME_FEED_QUERY_BEHAVIOR,
   });
 
+  useFeedRecovery({
+    enabled:
+      source !== "bluesky" && Boolean(data) && Boolean(globalHasNextPage),
+    failed: globalStatus === "error",
+    fetching: isFetching,
+    resetKey: hashKey(queryKey),
+    retry: () => fetchNextPage({ cancelRefetch: false }),
+    updatedAt: dataUpdatedAt,
+  });
   const globalPosts = useMemo(
     () => flattenUniquePosts(data?.pages, excludePostId),
     [data?.pages, excludePostId]
@@ -299,7 +321,6 @@ export default function HomeFeed({
         Boolean(globalHasNextPage))) ||
     (allowExternal && source !== "asm" && Boolean(external.hasNextPage));
 
-  const queryClient = useQueryClient();
   const feedRootRef = useRef<HTMLDivElement>(null);
 
   // Head-only probe: new posts from other people collect in `newPosts` and are
@@ -330,7 +351,7 @@ export default function HomeFeed({
       if (probeSupportsSingleRow && globalPosts.length > 0) {
         const head = await kyInstance
           .get(endpoint, {
-            searchParams: { ...networkParams, take: 1 },
+            searchParams: { ...networkParams, refresh: "1", take: 1 },
             signal,
           })
           .json<PostsPage>();
@@ -344,21 +365,21 @@ export default function HomeFeed({
       }
       const fresh = await kyInstance
         .get(probeEndpoint, {
-          searchParams: networkParams,
+          searchParams: { ...networkParams, refresh: "1" },
           signal,
         })
         .json<PostsPage>();
       return isTrending ? fresh.posts.filter(isTrendingPost) : fresh.posts;
     },
     filter: (post) =>
-      !oppositeSeen.has(post.id) &&
+      (!respectInterests || !oppositeSeen.has(post.id)) &&
       (!isTrending || isTrendingPost(post)) &&
-      networkPostRecommended(
+      (respectInterests ? networkPostRecommended : networkPostAllowed)(
         post,
         network.settings.preferences,
         network.settings.topicScope
       ),
-    intervalMs: isRankedFeed ? 180_000 : 90_000,
+    intervalMs: isRankedFeed ? 180_000 : 20_000,
     order: isRankedFeed ? "ranked" : "newest-first",
     probeOnMount: true,
     resetKey: `${feedKey}:${user?.id ?? "guest"}:${network.scope}:${locale}`,
@@ -745,7 +766,7 @@ export default function HomeFeed({
             excludeIds={communityIds}
             excludePostId={excludePostId}
             posts={visibleGlobalPosts}
-            respectInterests
+            respectInterests={respectInterests}
             showEmpty={false}
             trending={isTrending}
             showCommunityReason={isTrending || isPersonalized}
