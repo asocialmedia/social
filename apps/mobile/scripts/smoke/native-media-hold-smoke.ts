@@ -1,58 +1,24 @@
+import { mkdir } from "node:fs/promises";
+
 // Run from a signed-in Home feed at the top without clearing its account or draft.
 // Usage: ASM_SMOKE_FAST_DUMP=1 bun apps/mobile/scripts/smoke/native-media-hold-smoke.ts
 // oxlint-disable no-await-in-loop -- Each device action depends on the preceding UI state.
-import { mkdir } from "node:fs/promises";
+import { adb, captureScreenshot, dumpHierarchy, parseUiNodes } from "./android";
 
 const artifactDirectory =
   process.env.ASM_SMOKE_ARTIFACT_DIRECTORY ?? "/tmp/asm-media-hold-smoke";
 await mkdir(artifactDirectory, { recursive: true });
 
-async function adb(...args: string[]) {
-  const command = Bun.spawn(["adb", ...args], {
-    stderr: "pipe",
-    stdout: "pipe",
-  });
-  const [stdout, stderr, exitCode] = await Promise.all([
-    new Response(command.stdout).text(),
-    new Response(command.stderr).text(),
-    command.exited,
-  ]);
-  if (exitCode !== 0) {
-    throw new Error(`adb ${args[0]} failed: ${stderr}`);
-  }
-  return stdout;
-}
-
 async function snapshot() {
   const path = "/sdcard/asm-media-hold-smoke.xml";
   await adb("shell", "rm", "-f", path);
-  const output =
-    process.env.ASM_SMOKE_FAST_DUMP === "1"
-      ? await adb(
-          "shell",
-          "env",
-          "CLASSPATH=/data/local/tmp/asm-fast-dump.jar:/system/framework/uiautomator.jar",
-          "app_process",
-          "/system/bin",
-          "AsmFastDump",
-          path
-        )
-      : await adb("shell", "uiautomator", "dump", path);
+  const output = await dumpHierarchy(path);
   if (!output.includes("dumped to:")) {
     throw new Error("Android hierarchy did not settle");
   }
   const xml = await adb("shell", "cat", path);
   await Bun.write(`${artifactDirectory}/latest.xml`, xml);
-  return [...xml.matchAll(/<node\s[^>]+>/g)].map(([node]) => ({
-    bounds: [
-      ...(
-        node.match(/bounds="(?<bounds>[^"]+)"/)?.groups?.bounds ?? ""
-      ).matchAll(/-?\d+/g),
-    ].map(([value]) => Number(value)),
-    label: node.match(/content-desc="(?<label>[^"]*)"/)?.groups?.label ?? "",
-    selected: node.includes('selected="true"'),
-    text: node.match(/text="(?<text>[^"]*)"/)?.groups?.text ?? "",
-  }));
+  return parseUiNodes(xml, true);
 }
 
 type UiNode = Awaited<ReturnType<typeof snapshot>>[number];
@@ -94,16 +60,7 @@ async function press(node: UiNode | undefined, hold = false) {
 }
 
 async function capture(name: string) {
-  const command = Bun.spawn(["adb", "exec-out", "screencap", "-p"], {
-    stdout: "pipe",
-  });
-  await Bun.write(
-    `${artifactDirectory}/${name}.png`,
-    await new Response(command.stdout).arrayBuffer()
-  );
-  if ((await command.exited) !== 0) {
-    throw new Error("Screenshot failed");
-  }
+  await captureScreenshot(`${artifactDirectory}/${name}.png`);
 }
 
 const initial = await snapshot();

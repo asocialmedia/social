@@ -17,7 +17,7 @@
         "lefthook": "^2.1.10",
         "oxfmt": "^0.63.0",
         "oxlint": "^1.78.0",
-        "prisma": "8.0.0-rc.20",
+        "prisma": "8.0.0-rc.22",
         "turbo": "^2.10.9",
         "typescript": "^7.0.2",
         "ultracite": "^7.10.4",
@@ -26,7 +26,7 @@
     },
     "apps/auth": {
       "name": "@asm/auth-app",
-      "version": "1.2.20",
+      "version": "1.2.21",
       "dependencies": {
         "@asm/aggregator": "workspace:*",
         "@asm/auth": "workspace:*",
@@ -56,29 +56,29 @@
       "devDependencies": {
         "@types/bun": "^1.4.0",
         "bun-types": "^1.4.0",
-        "prisma": "8.0.0-rc.20",
+        "prisma": "8.0.0-rc.22",
         "typescript": "^7.0.2",
       },
     },
     "apps/classifier": {
       "name": "@asm/classifier",
-      "version": "0.1.8",
+      "version": "0.1.9",
       "dependencies": {
-        "@opentelemetry/api": "1.9.1",
-        "@opentelemetry/api-logs": "0.221.0",
-        "@opentelemetry/exporter-logs-otlp-http": "0.221.0",
-        "@opentelemetry/resources": "2.10.0",
-        "@opentelemetry/sdk-logs": "0.221.0",
+        "@opentelemetry/api": "^1.9.1",
+        "@opentelemetry/api-logs": "^0.221.0",
+        "@opentelemetry/exporter-logs-otlp-http": "^0.221.0",
+        "@opentelemetry/resources": "^2.10.0",
+        "@opentelemetry/sdk-logs": "^0.221.0",
         "onnxruntime-node": "1.30.0",
-        "sharp": "0.35.5",
+        "sharp": "^0.35.5",
       },
       "devDependencies": {
-        "@types/bun": "1.4.0",
+        "@types/bun": "^1.4.0",
       },
     },
     "apps/media-processing": {
       "name": "@asm/media-processing",
-      "version": "1.1.27",
+      "version": "1.1.28",
       "dependencies": {
         "@asm/config": "workspace:*",
         "@asm/db": "workspace:*",
@@ -98,13 +98,13 @@
       "devDependencies": {
         "@types/bun": "^1.4.0",
         "bun-types": "^1.4.0",
-        "prisma": "8.0.0-rc.20",
+        "prisma": "8.0.0-rc.22",
         "typescript": "^7.0.2",
       },
     },
     "apps/mobile": {
       "name": "@asocialmedia/mobile",
-      "version": "0.2.40",
+      "version": "0.2.41",
       "dependencies": {
         "@asm/auth": "workspace:*",
         "@asm/db": "workspace:*",
@@ -218,7 +218,7 @@
     },
     "apps/web": {
       "name": "@asm/web",
-      "version": "1.9.16",
+      "version": "1.9.17",
       "dependencies": {
         "@asm/aggregator": "workspace:*",
         "@asm/auth": "workspace:*",
@@ -304,7 +304,7 @@
         "bun-types": "^1.4.0",
         "fake-indexeddb": "^6.2.5",
         "happy-dom": "^21.0.4",
-        "prisma": "8.0.0-rc.20",
+        "prisma": "8.0.0-rc.22",
         "tailwindcss": "^4.3.3",
         "typescript": "^7.0.2",
       },
@@ -325,13 +325,13 @@
     },
     "packages/auth": {
       "name": "@asm/auth",
-      "version": "1.2.19",
+      "version": "1.2.20",
       "dependencies": {
         "@asm/db": "workspace:*",
         "@asm/logger": "workspace:*",
         "@better-auth/expo": "^1.7.5",
         "@better-auth/passkey": "^1.7.5",
-        "@prisma/orm-postgres": "8.0.0-rc.14",
+        "@prisma/orm-postgres": "8.0.0-rc.17",
         "@simplewebauthn/server": "^13.3.1",
         "@t3-oss/env-core": "^0.13.11",
         "better-auth": "^1.7.5",
@@ -356,14 +356,14 @@
     },
     "packages/db": {
       "name": "@asm/db",
-      "version": "1.3.12",
+      "version": "1.3.13",
       "dependencies": {
         "@asm/config": "workspace:*",
         "@asm/logger": "workspace:*",
         "@asm/notifications": "workspace:*",
         "@asm/protocols": "workspace:*",
         "@aws-sdk/client-s3": "^3.1109.0",
-        "@prisma/orm-postgres": "8.0.0-rc.14",
+        "@prisma/orm-postgres": "8.0.0-rc.17",
         "@smithy/node-http-handler": "^4.10.0",
         "@t3-oss/env-nextjs": "^0.13.11",
         "bullmq": "^6.1.0",
@@ -382,7 +382,7 @@
         "@types/bun": "^1.4.0",
         "@types/pg": "^8.21.0",
         "bun-types": "^1.4.0",
-        "prisma": "8.0.0-rc.20",
+        "prisma": "8.0.0-rc.22",
         "typescript": "^7.0.2",
       },
     },
@@ -450,7 +450,7 @@
     },
     "packages/notifications": {
       "name": "@asm/notifications",
-      "version": "1.0.8",
+      "version": "1.0.9",
       "dependencies": {
         "jose": "^6.2.12",
         "web-push": "^3.6.7",
@@ -584,9 +584,9 @@
 
     "@alloc/quick-lru": ["@alloc/quick-lru@5.2.0", "", {}, "sha512-UrcABB+4bUrFABwbluTIBErXwvbsU/V7TZWfmbgJfbkwiBuziS9gxdODUyuiecfdGQ85jglMW6juS3+z5TsKLw=="],
 
-    "@ark/schema": ["@ark/schema@0.56.2", "", { "dependencies": { "@ark/util": "0.56.2" } }, "sha512-Qx4D2JFbBWpntiHZaTv7bGG4H/M2rigiknezKg/WVyDSaLdE4YCcWAOoFB7pjjDqHbbV2OqRfntm1nnXvwMexg=="],
+    "@ark/schema": ["@ark/schema@0.56.8", "", { "dependencies": { "@ark/util": "0.56.8" } }, "sha512-R05TOe85oQBGFFw2zKMuZpqkXibLKuC/aJt6VwFn5Cjc4x3NkWfhvGRpRDycNkj3ddcHnOPtIsmjVowJO9Yxdw=="],
 
-    "@ark/util": ["@ark/util@0.56.2", "", {}, "sha512-9kU2sUE38FZEGG7l3hamYMBieLYEJh2L1mrYD2eXpT+78EnQSV1bhjxJhnxGBMSTbtwpBSDNSK+K60WvaI/DTQ=="],
+    "@ark/util": ["@ark/util@0.56.8", "", {}, "sha512-XLiQyGfpJcws1zCtp2Cva8s1oheCdFn1Rt6JSyC4NnkDrpwCJnlaiawuuOc1Z97vMH+jEzW5vyyf0xOju5wUQA=="],
 
     "@asm/aggregator": ["@asm/aggregator@workspace:packages/aggregator"],
 
@@ -1550,11 +1550,11 @@
 
     "@pinojs/redact": ["@pinojs/redact@0.4.0", "", {}, "sha512-k2ENnmBugE/rzQfEcdWHcCY+/FM3VLzH9cYEsbdsoqrvzAKRhUZeRNhAZvB8OitQJ1TBed3yqWtdjzS6wJKBwg=="],
 
-    "@prisma/cli-engine": ["@prisma/cli-engine@0.6.2", "", { "dependencies": { "@clack/prompts": "1.5.0", "@stricli/core": "1.3.0", "arktype": "2.2.3", "c12": "3.3.4", "colorette": "^2.0.20", "package-manager-detector": "1.8.0", "string-width": "^8.2.1" }, "peerDependencies": { "@prisma/management-api-sdk": "^1.55.0" } }, "sha512-ZdZKMfDYitEgifpS0W60Q09Iu23S+OXQ+ErMI/6a1M6BvCsqpu0SCH4ox9gyGnxzUB1T1qq+k2CyCsbexhlwPw=="],
+    "@prisma/cli-engine": ["@prisma/cli-engine@0.7.0", "", { "dependencies": { "@clack/prompts": "1.5.0", "@stricli/core": "1.3.0", "arktype": "^2.2.7", "c12": "3.3.4", "colorette": "^2.0.20", "package-manager-detector": "1.8.0", "string-width": "^8.2.1" }, "peerDependencies": { "@prisma/management-api-sdk": "^1.55.0" } }, "sha512-CL21NYQQEAR9IEApPfUzMhv/VtbsJs4efRSxlvzHoFT69vynr0Wuu5KNNbZgIlONOEfULqP0djFCD4VaA/HVPg=="],
 
-    "@prisma/composer": ["@prisma/composer@0.26.0", "", { "dependencies": { "@effect/sql-d1": "4.0.0-rc.115", "@effect/sql-sqlite-do": "4.0.0-rc.115", "@effect/vitest": "4.0.0-rc.115", "@prisma/management-api-sdk": "^1.80.0", "@standard-schema/spec": "^1.1.0", "alchemy": "2.0.0-beta.78", "arktype": "^2.2.3", "cross-spawn": "^7.0.6", "effect": "4.0.0-rc.115", "esbuild": "^0.28.1" } }, "sha512-ttALY7KPD8NkecI4vJP0q50FkD7Q7v77TftU34gBA312hqyJKxD3hk4wY6H+NmDBfQAW7VDq8JCv1hGxx/aXJw=="],
+    "@prisma/composer": ["@prisma/composer@0.29.1", "", { "dependencies": { "@effect/sql-d1": "4.0.0-rc.115", "@effect/sql-sqlite-do": "4.0.0-rc.115", "@effect/vitest": "4.0.0-rc.115", "@prisma/management-api-sdk": "^1.80.0", "@standard-schema/spec": "^1.1.0", "alchemy": "2.0.0-beta.78", "arktype": "^2.2.3", "cross-spawn": "^7.0.6", "effect": "4.0.0-rc.115", "esbuild": "^0.28.1" } }, "sha512-g9iyBsYNHKJXEo2bCd7er46rlP015vHlSVV8Qwexo/X55zclv4IYWjGVctA0ugoeTllCy5/dBb6K22Z8Dpf+Mw=="],
 
-    "@prisma/composer-cli": ["@prisma/composer-cli@0.26.0", "", { "dependencies": { "@prisma/composer": "0.26.0", "alchemy": "2.0.0-beta.78", "cross-spawn": "^7.0.6", "effect": "4.0.0-rc.115", "esbuild": "^0.28.1" }, "peerDependencies": { "@prisma/cli-engine": "0.6.2" } }, "sha512-oBMN5FaAj0nyYGuVxfAaOMH4+74myWfb0YcPZAi4CndSe/WeAWyMWu4tieSe67o0lcED77dKaRb57cMDfrdvVg=="],
+    "@prisma/composer-cli": ["@prisma/composer-cli@0.29.1", "", { "dependencies": { "@prisma/composer": "0.29.1", "alchemy": "2.0.0-beta.78", "cross-spawn": "^7.0.6", "effect": "4.0.0-rc.115", "esbuild": "^0.28.1" }, "peerDependencies": { "@prisma/cli-engine": "0.7.0" } }, "sha512-59e2vWCLF8Y3pTJhAHZofww8bmVWKdgr9u8ALk8nVMrSbNIDGhND/UccBa03KX6tQvCiBtbhEtpmxv5Db3kM+A=="],
 
     "@prisma/compute-sdk": ["@prisma/compute-sdk@0.43.0", "", { "dependencies": { "@vercel/nft": "^1.10.2", "better-result": "^2.7.0", "jiti": "^2.7.0", "magicast": "^0.5.3", "picomatch": "^4.0.4", "tar-stream": "^3.1.8", "tiny-invariant": "1.3.3", "ws": "^8.20.0", "yaml": "^2.8.2" }, "peerDependencies": { "@prisma/management-api-sdk": "^1.69.0" } }, "sha512-q5Tf5hpDFZmcS4eNeH7IU8OnavToP9h4NsrDXjW7uIZf/pjaQIWItQJi9DZHPkH8n/SvT/oHQrmzPsJ9NPW/hg=="],
 
@@ -1566,15 +1566,15 @@
 
     "@prisma/management-api-sdk": ["@prisma/management-api-sdk@1.80.0", "", { "dependencies": { "openapi-fetch": "0.14.0" } }, "sha512-pQN6hBqR2pgaF3S5sMCe3iZIlThIOgUXoDcinB6/AxXO3qM6oWnirSUAJlhFQ/Hr5A2PmdxScOuCB1dJYHZ4KQ=="],
 
-    "@prisma/orm-family-sql": ["@prisma/orm-family-sql@8.0.0-rc.14", "", { "dependencies": { "@prisma/orm-framework": "8.0.0-rc.14", "@prisma/orm-toolchain": "8.0.0-rc.14", "@standard-schema/spec": "^1.1.0", "arktype": "^2.2.2", "pathe": "^2.0.3", "pluralize": "^8.0.0", "tinyglobby": "^0.2.17", "ts-toolbelt": "^9.6.0" }, "peerDependencies": { "typescript": ">=5.9" }, "optionalPeers": ["typescript"] }, "sha512-oYSItczctZfsjSf4Y1U9CsyeCz/sY9QbO6Wikji6m6mVyg7FOSfP2uy+D0fGzJ0kGA/PczBRGiS1Avy9VeK6nw=="],
+    "@prisma/orm-family-sql": ["@prisma/orm-family-sql@8.0.0-rc.17", "", { "dependencies": { "@prisma/orm-framework": "8.0.0-rc.17", "@prisma/orm-toolchain": "8.0.0-rc.17", "@standard-schema/spec": "^1.1.0", "arktype": "^2.2.2", "pathe": "^2.0.3", "pluralize": "^8.0.0", "tinyglobby": "^0.2.17", "ts-toolbelt": "^9.6.0" }, "peerDependencies": { "typescript": ">=5.9" }, "optionalPeers": ["typescript"] }, "sha512-KbdapnNyIX44hwgxvBV9Zl8qjIbYAm6VgM7uW7u6fDlx1QP41L7s5INxaADdoceqgWTo/KUqVKLpMq7RcGByzg=="],
 
-    "@prisma/orm-framework": ["@prisma/orm-framework@8.0.0-rc.14", "", { "dependencies": { "@standard-schema/spec": "^1.1.0", "arktype": "^2.2.2", "pathe": "^2.0.3", "tinyglobby": "^0.2.17", "uniku": "^0.5.0" }, "peerDependencies": { "typescript": ">=5.9" }, "optionalPeers": ["typescript"] }, "sha512-scZTv0UkLqHq0xM9c+YAgWI3cIeQvO1URoARpqNo40JrUG0QXH+QAfUBVvz196Im8RhKgjhQgYpvmF2fo5cY9Q=="],
+    "@prisma/orm-framework": ["@prisma/orm-framework@8.0.0-rc.17", "", { "dependencies": { "@standard-schema/spec": "^1.1.0", "arktype": "^2.2.2", "pathe": "^2.0.3", "tinyglobby": "^0.2.17", "uniku": "^0.5.0" }, "peerDependencies": { "typescript": ">=5.9" }, "optionalPeers": ["typescript"] }, "sha512-KfircGILFXGoBPPg6I4caNF/tpVe+2UF6kMO+PF/KfOwMsFh11mR5nEijiSqy+5l7oVWGsT0GNz2inysbg+UWg=="],
 
-    "@prisma/orm-postgres": ["@prisma/orm-postgres@8.0.0-rc.14", "", { "dependencies": { "@prisma/orm-family-sql": "8.0.0-rc.14", "@prisma/orm-framework": "8.0.0-rc.14", "@prisma/orm-target-postgres": "8.0.0-rc.14", "@prisma/orm-toolchain": "8.0.0-rc.14", "@types/node": "26.1.2", "@types/pg": "8.20.4", "arktype": "^2.2.2", "pathe": "^2.0.3", "pg": "8.22.0", "tinyglobby": "^0.2.17" }, "peerDependencies": { "temporal-polyfill": "^1.0.4", "typescript": ">=5.9" }, "optionalPeers": ["typescript"] }, "sha512-kvnhrUPtuNVlaPBwN1mnkOSqFqd+OLqsM/MyZmfce/HjAsDKnL9HPwyKfJT+t5mncVN9Pwgzhi6Xs5nyT1Aw3w=="],
+    "@prisma/orm-postgres": ["@prisma/orm-postgres@8.0.0-rc.17", "", { "dependencies": { "@prisma/orm-family-sql": "8.0.0-rc.17", "@prisma/orm-framework": "8.0.0-rc.17", "@prisma/orm-target-postgres": "8.0.0-rc.17", "@prisma/orm-toolchain": "8.0.0-rc.17", "@types/node": "26.1.2", "@types/pg": "8.20.4", "arktype": "^2.2.2", "pathe": "^2.0.3", "pg": "8.22.0", "tinyglobby": "^0.2.17" }, "peerDependencies": { "temporal-polyfill": "^1.0.4", "typescript": ">=5.9" }, "optionalPeers": ["typescript"] }, "sha512-1jwZH/APF9222PFufvvcBoQXcfEXjmXjqJ1uEU7PMUaxHbL1FwwDcFxHmjujSt9mFOopGSvr5b5BkIjNWbUinw=="],
 
-    "@prisma/orm-target-postgres": ["@prisma/orm-target-postgres@8.0.0-rc.14", "", { "dependencies": { "@prisma/orm-family-sql": "8.0.0-rc.14", "@prisma/orm-framework": "8.0.0-rc.14", "@prisma/orm-toolchain": "8.0.0-rc.14", "@standard-schema/spec": "^1.1.0", "@types/node": "26.1.2", "@types/pg": "8.20.4", "arktype": "^2.2.2", "pathe": "^2.0.3", "pg": "8.22.0", "pg-cursor": "^2.21.0", "postgres-array": "2.0.0" }, "peerDependencies": { "temporal-polyfill": "^1.0.4", "typescript": ">=5.9" }, "optionalPeers": ["typescript"] }, "sha512-tbMH/260vo+kwjC/jqFlqGe51kQErzviHIs1ljeNBOWFwhmpBgBzcmd9WjgEaZvDWSuR01FFfpGXkMtkS6gYZQ=="],
+    "@prisma/orm-target-postgres": ["@prisma/orm-target-postgres@8.0.0-rc.17", "", { "dependencies": { "@prisma/orm-family-sql": "8.0.0-rc.17", "@prisma/orm-framework": "8.0.0-rc.17", "@prisma/orm-toolchain": "8.0.0-rc.17", "@standard-schema/spec": "^1.1.0", "@types/node": "26.1.2", "@types/pg": "8.20.4", "arktype": "^2.2.2", "pathe": "^2.0.3", "pg": "8.22.0", "pg-cursor": "^2.21.0", "postgres-array": "2.0.0" }, "peerDependencies": { "temporal-polyfill": "^1.0.4", "typescript": ">=5.9" }, "optionalPeers": ["typescript"] }, "sha512-SAE42aFV8ulzNmkJFKk16zVa3CxjTroGllBTkGBgnC2zEiNnBebIXHo7DmSWC70iMM6qFSDL0g2pmwAMwDIGEg=="],
 
-    "@prisma/orm-toolchain": ["@prisma/orm-toolchain@8.0.0-rc.14", "", { "dependencies": { "@prisma/orm-framework": "8.0.0-rc.14", "@vercel/detect-agent": "^1.2.4", "arktype": "^2.2.2", "c12": "^3.3.4", "ci-info": "^4.3.1", "clipanion": "4.0.0-rc.4", "closest-match": "^1.3.3", "colorette": "^2.0.20", "esbuild": "^0.28.2", "jsonc-parser": "^3.3.1", "package-manager-detector": "^1.8.0", "pathe": "^2.0.3", "prettier": "^3.9.6", "string-width": "^8.2.2", "strip-ansi": "^7.2.0", "tinyglobby": "^0.2.17", "vscode-languageserver": "10.1.0", "vscode-languageserver-textdocument": "1.0.12", "wrap-ansi": "^10.0.0" }, "peerDependencies": { "@prisma/cli-engine": "0.6.2", "typescript": ">=5.9", "vite": "^7.0.0 || ^8.0.0" }, "optionalPeers": ["typescript", "vite"] }, "sha512-cXuGcDq6gyGWG4ci4B+bvoJehV4iOP0wfO9n3T7UUCr5TRdbl2JnCagLAWux8/f/h9RfLx2010jXXYHWBxBwqg=="],
+    "@prisma/orm-toolchain": ["@prisma/orm-toolchain@8.0.0-rc.17", "", { "dependencies": { "@prisma/orm-framework": "8.0.0-rc.17", "@vercel/detect-agent": "^1.2.4", "arktype": "^2.2.2", "c12": "^3.3.4", "ci-info": "^4.3.1", "clipanion": "4.0.0-rc.4", "closest-match": "^1.3.3", "colorette": "^2.0.20", "esbuild": "^0.28.2", "jsonc-parser": "^3.3.1", "package-manager-detector": "^1.8.0", "pathe": "^2.0.3", "prettier": "^3.9.6", "string-width": "^8.2.2", "strip-ansi": "^7.2.0", "tinyglobby": "^0.2.17", "vscode-languageserver": "10.1.0", "vscode-languageserver-textdocument": "1.0.12", "wrap-ansi": "^10.0.0" }, "peerDependencies": { "@prisma/cli-engine": "0.7.0", "typescript": ">=5.9", "vite": "^7.0.0 || ^8.0.0" }, "optionalPeers": ["typescript", "vite"] }, "sha512-iG1knDO9Hg1/b5NOj74T7Bx5d2imJVq+qSrKDD94nwjOyvIZ5ygKSzVq2hb0KoAjae8PONgznSOBRMA8Kh+p4Q=="],
 
     "@prisma/query-plan-executor": ["@prisma/query-plan-executor@7.2.0", "", {}, "sha512-EOZmNzcV8uJ0mae3DhTsiHgoNCuu1J9mULQpGCh62zN3PxPTd+qI9tJvk5jOst8WHKQNwJWR3b39t0XvfBB0WQ=="],
 
@@ -2186,9 +2186,9 @@
 
     "aria-hidden": ["aria-hidden@1.2.6", "", { "dependencies": { "tslib": "^2.0.0" } }, "sha512-ik3ZgC9dY/lYVVM++OISsaYDeg1tb0VtP5uL3ouh1koGOaUMDPpbFIei4JkFimWUFPn90sbMNMXQAIVOlnYKJA=="],
 
-    "arkregex": ["arkregex@0.0.8", "", { "dependencies": { "@ark/util": "0.56.2" } }, "sha512-PJcx6G1kQTgLKPUbeYlYecDRaKq15AMSGVajlKFYWlPeJRQL+j3dKE6tyMs40HZ99djS1l9Vhl3ezAHy9JBIqQ=="],
+    "arkregex": ["arkregex@0.0.14", "", { "dependencies": { "@ark/util": "0.56.8" } }, "sha512-G3I/uCtWE0IKQiPh0qqmmAFDdtjZKZQ5mNPR6gJBeAMZ7VqYCpoaDeXnLju2Zo6ywExtmxZJELeVFb0MPDjPyA=="],
 
-    "arktype": ["arktype@2.2.3", "", { "dependencies": { "@ark/schema": "0.56.2", "@ark/util": "0.56.2", "arkregex": "0.0.8" } }, "sha512-7W+0RLTUNJiBFIIZXwOQxSR8Z273IAd6IvqBeG9+gHnQKFsIx2C0iOtGTmMrPnlX4qLXyc5+ll7A0BIj9WrbTg=="],
+    "arktype": ["arktype@2.2.9", "", { "dependencies": { "@ark/schema": "0.56.8", "@ark/util": "0.56.8", "arkregex": "0.0.14" } }, "sha512-Cja0IMEn19rB35on9da1i1z6QMasuS7ULffXbetCry09jvCGYT8Bi1KgYiqri5FymF4nQAXkM90yksYkgSK2EA=="],
 
     "array-timsort": ["array-timsort@1.0.3", "", {}, "sha512-/+3GRL7dDAGEfM6TseQk/U+mi18TU2Ms9I3UlLdUMhz2hbvGNTKdj9xniwXfUqgYhHxRx0+8UnKkvlNwVU+cWQ=="],
 
@@ -3392,7 +3392,7 @@
 
     "pretty-ms": ["pretty-ms@9.3.0", "", { "dependencies": { "parse-ms": "^4.0.0" } }, "sha512-gjVS5hOP+M3wMm5nmNOucbIrqudzs9v/57bWRHQWLYklXqoXKrVfYW2W9+glfGsqtPgpiz5WwyEEB+ksXIx3gQ=="],
 
-    "prisma": ["prisma@8.0.0-rc.20", "", { "dependencies": { "@manypkg/tools": "^2.1.2", "@prisma/cli-engine": "0.6.2", "@prisma/composer-cli": "0.26.0", "@prisma/compute-sdk": "0.43.0", "@prisma/management-api-sdk": "1.80.0", "@prisma/orm-toolchain": "8.0.0-rc.14", "@vercel/detect-agent": "^1.2.3", "better-result": "^2.9.2", "cross-spawn": "^7.0.6", "dotenv": "^17.4.2", "execa": "^9.6.1", "open": "^11.0.0" }, "bin": { "prisma": "./dist/prisma.js" } }, "sha512-4/svWkw7qDL92V/a6dctPYz6lwjhQZzes/whIt5hEVWOnO2AEU70RxenttGo+omXZoVS1ElZU5X4kRcB6Tp/QQ=="],
+    "prisma": ["prisma@8.0.0-rc.22", "", { "dependencies": { "@manypkg/tools": "^2.1.2", "@prisma/cli-engine": "0.7.0", "@prisma/composer-cli": "0.29.1", "@prisma/compute-sdk": "0.43.0", "@prisma/management-api-sdk": "1.80.0", "@prisma/orm-toolchain": "8.0.0-rc.17", "@vercel/detect-agent": "^1.2.3", "better-result": "^2.9.2", "cross-spawn": "^7.0.6", "dotenv": "^17.4.2", "execa": "^9.6.1", "open": "^11.0.0" }, "bin": { "prisma": "./dist/prisma.js" } }, "sha512-PaOZPZq2b/UDUgFkC2IlsAKG+ulv2+ojJg2lHquYPZY1OElQeD8D0PEoekCWusaRor2AhjS/uiOc+AGZuAskAg=="],
 
     "prismjs": ["prismjs@1.30.0", "", {}, "sha512-DEvV2ZF2r2/63V+tK8hQvrR2ZGn10srHbXviTlcv7Kpzw8jWiNTqbVgjO3IY8RxrrOUF8VPMQQFysYYYv0YZxw=="],
 

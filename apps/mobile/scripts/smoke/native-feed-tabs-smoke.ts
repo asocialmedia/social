@@ -1,41 +1,18 @@
+import { mkdir } from "node:fs/promises";
+
 // Runs against the installed release APK without clearing its account or tab memory.
 // Usage: bun apps/mobile/scripts/smoke/native-feed-tabs-smoke.ts
 // Set ASM_SMOKE_FAST_DUMP=1 to inspect playing Gusts with the installed AsmFastDump helper.
-import { mkdir } from "node:fs/promises";
+import {
+  adb,
+  captureScreenshot,
+  dumpHierarchy,
+  parseUiNodes as parseNodes,
+} from "./android";
 
 const packageName = "cc.asocialmedia.mobile";
 const artifactDirectory = "/tmp/asm-feed-tabs-smoke";
 await mkdir(artifactDirectory, { recursive: true });
-
-async function adb(...args: string[]) {
-  const command = Bun.spawn(["adb", ...args], {
-    stderr: "pipe",
-    stdout: "pipe",
-  });
-  const [stdout, stderr, exitCode] = await Promise.all([
-    new Response(command.stdout).text(),
-    new Response(command.stderr).text(),
-    command.exited,
-  ]);
-  if (exitCode !== 0) {
-    throw new Error(`adb ${args[0]} failed: ${stderr}`);
-  }
-  return stdout;
-}
-
-function parseNodes(xml: string) {
-  return [...xml.matchAll(/<node\s[^>]+>/g)].map(([node]) => ({
-    bounds: [
-      ...(
-        node.match(/bounds="(?<bounds>[^"]+)"/)?.groups?.bounds ?? ""
-      ).matchAll(/\d+/g),
-    ].map(([value]) => Number(value)),
-    id: node.match(/resource-id="(?<id>[^"]*)"/)?.groups?.id ?? "",
-    label: node.match(/content-desc="(?<label>[^"]*)"/)?.groups?.label ?? "",
-    selected: node.includes('selected="true"'),
-    text: node.match(/text="(?<text>[^"]*)"/)?.groups?.text ?? "",
-  }));
-}
 
 type UiNode = ReturnType<typeof parseNodes>[number];
 
@@ -44,22 +21,9 @@ const fastDump = process.env.ASM_SMOKE_FAST_DUMP === "1";
 
 async function snapshot() {
   await adb("shell", "rm", "-f", "/sdcard/asm-feed-tabs-smoke.xml");
-  let output = fastDump
-    ? await adb(
-        "shell",
-        "env",
-        "CLASSPATH=/data/local/tmp/asm-fast-dump.jar:/system/framework/uiautomator.jar",
-        "app_process",
-        "/system/bin",
-        "AsmFastDump",
-        "/sdcard/asm-feed-tabs-smoke.xml"
-      )
-    : await adb(
-        "shell",
-        "uiautomator",
-        "dump",
-        "/sdcard/asm-feed-tabs-smoke.xml"
-      );
+  let output = await dumpHierarchy("/sdcard/asm-feed-tabs-smoke.xml", {
+    fast: fastDump,
+  });
   if (!fastDump && !output.includes("dumped to:") && viewingGusts) {
     // Pause the playing clip so its progress and captions let Android reach idle.
     await adb(
@@ -106,16 +70,7 @@ async function tap(node: UiNode | undefined) {
 }
 
 async function capture(name: string) {
-  const process = Bun.spawn(["adb", "exec-out", "screencap", "-p"], {
-    stdout: "pipe",
-  });
-  await Bun.write(
-    `${artifactDirectory}/${name}.png`,
-    await new Response(process.stdout).arrayBuffer()
-  );
-  if ((await process.exited) !== 0) {
-    throw new Error("Screenshot failed");
-  }
+  await captureScreenshot(`${artifactDirectory}/${name}.png`);
 }
 
 function expectSelected(screen: UiNode[], label: string) {
@@ -127,10 +82,12 @@ function expectSelected(screen: UiNode[], label: string) {
     const following = label === "Following Gusts";
     const text = screen.find(
       (node) =>
-        node.id ===
+        node.resourceId ===
         (following ? "gust-following-label" : "gust-discovery-label")
     );
-    const indicator = screen.find((node) => node.id === "gust-feed-indicator");
+    const indicator = screen.find(
+      (node) => node.resourceId === "gust-feed-indicator"
+    );
     if (!text || !indicator) {
       throw new Error("The Gust label or its indicator is absent");
     }
@@ -144,8 +101,12 @@ function expectSelected(screen: UiNode[], label: string) {
     }
   }
   if (label === "Trending" || label === "For you") {
-    const text = screen.find((node) => node.id === "home-discovery-label");
-    const indicator = screen.find((node) => node.id === "feed-tab-indicator");
+    const text = screen.find(
+      (node) => node.resourceId === "home-discovery-label"
+    );
+    const indicator = screen.find(
+      (node) => node.resourceId === "feed-tab-indicator"
+    );
     if (!text || !indicator) {
       throw new Error("The discovery label or its indicator is absent");
     }

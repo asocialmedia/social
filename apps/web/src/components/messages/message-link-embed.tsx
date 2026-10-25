@@ -4,11 +4,11 @@ import { useQuery } from "@tanstack/react-query";
 
 import { EmbedCard } from "@/components/posts/embeds/embed-card";
 import { YouTubeEmbed } from "@/components/posts/embeds/youtube-embed";
+import { linkPreviewQueryOptions } from "@/lib/link-embeds/preview-query";
 import {
   extractPostUrls,
   youtubeVideoIdFromUrl,
 } from "@/lib/link-embeds/shared";
-import { fetchMessageLinkPreview } from "@/lib/messages/link-preview-loader";
 import { postIdFromUrl } from "@/lib/posts/post-url";
 
 import { PostEmbed } from "./post-embed";
@@ -62,12 +62,7 @@ export function LinkEmbedCard({
     // Resolve only once there is an external URL; a text-only message, or one
     // whose first link is an internal post, fires nothing here.
     enabled: Boolean(url) && !internalPostId,
-    queryFn: ({ signal }) => fetchMessageLinkPreview(url, signal),
-    queryKey: ["message-link-embed", url],
-    // Matches the server cache (6h successes, 10m failures); a short client
-    // stale window keeps a scrolled-away-and-back bubble from refetching.
-    retry: 1,
-    staleTime: 30 * 60 * 1000,
+    ...linkPreviewQueryOptions(url),
   });
 
   if (internalPostId) {

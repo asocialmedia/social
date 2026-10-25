@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
   buildMarker,
   fingerprintContract,
+  formatComposeFailure,
   formatPrismaFailure,
   missingExtensions,
   normalizeSkillVersion,
@@ -352,4 +353,15 @@ describe("shouldRunInitProfile", () => {
       shouldRunInitProfile(shouldInstallExtensions(REQUIRED_EXTENSIONS)).run
     ).toBe(false);
   });
+});
+
+test("compose failure names the rootless host repair after an image unpack fails", () => {
+  const detail = formatComposeFailure(
+    "STEP 1",
+    "potentially insufficient UIDs or GIDs available in user namespace: lchown /etc/gshadow: invalid argument"
+  );
+  expect(detail).toContain("subUidRanges and subGidRanges");
+  expect(detail).toContain("podman system migrate");
+  expect(detail).toContain("STEP 1");
+  expect(formatComposeFailure("", "network failure")).toBe("network failure");
 });

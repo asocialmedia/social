@@ -16,14 +16,11 @@ import {
   Trash2,
 } from "lucide-react";
 import type * as React from "react";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useState } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
 import { ExternalPostMenu } from "@/components/protocols/external-post-controls";
-import {
-  clearRecommendationNotInterested,
-  markRecommendationNotInterested,
-} from "@/components/recommendations/recommendation-tracker";
+import { markRecommendationNotInterested } from "@/components/recommendations/recommendation-tracker";
 import { PostMetaEditorDialog } from "@/components/tags/post-meta-editor-dialog";
 import { useToast } from "@/lib/gooey-toast";
 import { canModeratePost } from "@/lib/moderation/moderation";
@@ -33,10 +30,7 @@ import type { PresentedPost as PostData } from "@/lib/posts/presentation";
 import { toggleAltReveal, useAltRevealed } from "@/lib/stores/alt-reveal-store";
 import { useVideoCaptionsStore } from "@/lib/stores/video-captions-store";
 import { cn } from "@/lib/utils";
-import {
-  useHideRecommendationPostMutation,
-  useUnhideRecommendationPostMutation,
-} from "@/recommendations/mutations";
+import { useHideRecommendationPostMutation } from "@/recommendations/mutations";
 import { useComposerStore } from "@/store/composer-store";
 
 import DeletePostDialog from "./delete-post-dialog";
@@ -72,10 +66,8 @@ function NativePostMoreButton({
     (state) => state.openComposerForCommunityShare
   );
   const hideMutation = useHideRecommendationPostMutation();
-  const unhideMutation = useUnhideRecommendationPostMutation();
   // The in-flight durable hide per post, so Undo can wait for it before
   // un-hiding (see handleNotInterested).
-  const pendingHideRef = useRef<Map<string, Promise<unknown>>>(new Map());
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [showEditDialog, setShowEditDialog] = useState(false);
   const [showModerationDialog, setShowModerationDialog] = useState(false);
@@ -164,50 +156,17 @@ function NativePostMoreButton({
   const handleNotInterested = useCallback(
     (e: React.MouseEvent) => {
       e.stopPropagation();
-      // Hide everywhere immediately, then persist. The toast's Undo reverses
-      // both the local hide and the server write, so a mis-tap costs nothing.
       markRecommendationNotInterested(post.id);
-      // Never-rejecting wrapper: the durable write is best-effort (the local
-      // hide already applied) and Undo awaits it, so a rejection must not
-      // surface as an unhandled promise.
-      const hidePromise = (async () => {
-        try {
-          await hideMutation.mutateAsync(post.id);
-        } catch {
-          // Local hide stands; the server write is best-effort.
-        }
-      })();
-      pendingHideRef.current.set(post.id, hidePromise);
+      hideMutation.mutate(post.id);
       setIsOpen(false);
       setPopupOpen(false);
       toast({
-        button: {
-          onClick: () => {
-            // Undo must not overtake the hide: run the un-hide only once the
-            // hide has settled, or a slow hide could land last and re-mark the
-            // post NOT_INTERESTED after the viewer undid it.
-            void (async () => {
-              clearRecommendationNotInterested(post.id);
-              const pending = pendingHideRef.current.get(post.id);
-              await pending;
-              // A newer hide may have replaced this one while we waited. Only
-              // clear the mapping and un-hide if this is still the latest hide
-              // for the post, otherwise the newer hide owns the lifecycle.
-              if (pendingHideRef.current.get(post.id) !== pending) {
-                return;
-              }
-              pendingHideRef.current.delete(post.id);
-              unhideMutation.mutate(post.id);
-            })();
-          },
-          title: "Undo",
-        },
         description: "You'll see fewer posts like this.",
         duration: 6000,
         title: "Not interested",
       });
     },
-    [hideMutation, post.id, toast, unhideMutation]
+    [hideMutation, post.id, toast]
   );
 
   // Reshare a community post onto the global feed: opens the composer with the

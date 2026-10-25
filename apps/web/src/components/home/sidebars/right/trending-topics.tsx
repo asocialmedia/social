@@ -13,6 +13,7 @@ import UserBadge from "@/components/layouts/user/user-badge";
 import { BlueskyIcon } from "@/components/protocols/bluesky-icon";
 import { useNetworkSettings } from "@/hooks/feed/use-network-settings";
 import { getAuraFlameClass } from "@/lib/aura/aura";
+import { CARD_QUERY_POLICY } from "@/lib/cards/query-policy";
 import { cn, formatNumber, truncateUsername } from "@/lib/utils";
 
 import { APPLE_CARD_CLASS, ROW_HOVER_CLASS } from "./sidebar-styles";
@@ -202,7 +203,7 @@ const TrendingTopics: React.FC = () => {
         await readTrending(profileId)
       ),
     queryKey,
-    staleTime: 5 * 60 * 1000,
+    ...CARD_QUERY_POLICY,
   });
 
   const selected = network.settings.preferences.profiles.find(

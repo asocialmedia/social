@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import {
@@ -10,7 +11,11 @@ import {
 
 describe("Settings Sidebar Cards", () => {
   it("renders GithubProjectCard with repository links, description, and star button", () => {
-    const html = renderToStaticMarkup(<GithubProjectCard />);
+    const html = renderToStaticMarkup(
+      <QueryClientProvider client={new QueryClient()}>
+        <GithubProjectCard />
+      </QueryClientProvider>
+    );
 
     expect(html).toContain("https://github.com/asocialmedia/social");
     expect(html).toContain("Star on GitHub");

@@ -10,7 +10,7 @@ import {
   FaYoutube,
 } from "react-icons/fa6";
 
-import kyInstance from "@/lib/ky";
+import { linkPreviewQueryOptions } from "@/lib/link-embeds/preview-query";
 import { sanitizeEmbedUrl } from "@/lib/link-embeds/shared";
 import type { LinkEmbed } from "@/lib/link-embeds/shared";
 
@@ -79,17 +79,7 @@ export function LinkBadge({
   const isPreviewAllowed = index < maxPreviews;
   const { data } = useQuery({
     enabled: isPreviewAllowed && !title && Boolean(url),
-    queryFn: async () => {
-      const res = await kyInstance
-        .get("/api/link-preview", {
-          searchParams: { url },
-          timeout: 10_000,
-        })
-        .json<{ embed: LinkEmbed }>();
-      return res.embed;
-    },
-    queryKey: ["link-preview", url],
-    staleTime: 1000 * 60 * 30,
+    ...linkPreviewQueryOptions(url),
   });
 
   const platform = platformFromUrl(url);

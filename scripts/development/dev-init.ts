@@ -11,15 +11,17 @@
 // The order below matters: extensions have to exist before `db update` runs,
 // because the contract depends on them.
 
-import { readFile, stat, writeFile } from "node:fs/promises";
+import { readFile, realpath, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 
 import { intro, log, outro, spinner } from "@clack/prompts";
 
+import { ensureContainerPolicy } from "./container-policy";
 import {
   buildMarker,
   fingerprintContract,
+  formatComposeFailure,
   formatPrismaFailure,
   parseExtensionList,
   parseMarker,
@@ -273,6 +275,17 @@ function report(label: string, decision: StepDecision) {
 async function main() {
   intro("asmdev database bootstrap");
 
+  const dockerPath = Bun.which("docker");
+  const resolvedDocker = dockerPath ? await realpath(dockerPath) : "";
+  if (resolvedDocker.includes("podman")) {
+    const created = await ensureContainerPolicy();
+    if (created) {
+      log.info(
+        `Created missing Podman image policy at ${created} for the dev stack registries.`
+      );
+    }
+  }
+
   // Always bring the stack up. The services are declared with
   // `restart: unless-stopped`, so this is a no-op once they are running. The
   // `init` profile is deliberately NOT passed here: it spawns a throwaway
@@ -292,7 +305,7 @@ async function main() {
   if (up.exitCode !== 0) {
     stop("dev services failed to start");
     await reportContainers("after failed up");
-    const detail = [up.stdout, up.stderr].filter(Boolean).join("\n");
+    const detail = formatComposeFailure(up.stdout, up.stderr);
     fatal(
       `Could not start the dev services:\n${detail || "no output captured"}`
     );

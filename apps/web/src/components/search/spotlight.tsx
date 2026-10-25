@@ -103,9 +103,9 @@ interface SpotlightProps {
 }
 
 const sourceOptions = [
-  { label: "Both networks", value: "all" },
-  { label: "asocialmedia", value: "asm" },
-  { label: "Bluesky", value: "bluesky" },
+  { compactLabel: "Both", label: "Both networks", value: "all" },
+  { compactLabel: "ASM", label: "asocialmedia", value: "asm" },
+  { compactLabel: "Bluesky", label: "Bluesky", value: "bluesky" },
 ] as const;
 const kindOptions = [
   { label: "Everything", value: "all" },
@@ -711,8 +711,8 @@ export default function Spotlight({
           Your recent searches and interests shape your suggestions.
         </DialogDescription>
         <div className="shrink-0 px-4 pt-4 pb-3 sm:px-6 sm:pt-5">
-          <div className="mb-3 flex min-h-9 flex-wrap items-center justify-between gap-x-3 gap-y-2 pr-11">
-            <div className="flex min-w-0 flex-col justify-center">
+          <div className="mb-3 flex min-w-0 flex-col gap-3 lg:min-h-9 lg:flex-row lg:items-center lg:justify-between lg:pr-11">
+            <div className="flex min-w-0 flex-col justify-center pr-11 lg:pr-0">
               <DialogTitle className="flex items-center gap-2 text-[15px] leading-tight font-semibold tracking-tight">
                 {blue ? (
                   <BlueskyIcon className="size-5 text-white" tooltip={false} />
@@ -729,10 +729,10 @@ export default function Spotlight({
               </p>
             </div>
 
-            <div className="flex flex-wrap items-center justify-end gap-1.5">
+            <div className="flex w-full min-w-0 flex-nowrap items-center gap-1.5 lg:w-auto lg:justify-end">
               <fieldset
                 className={cn(
-                  "segmented-3d m-0 flex h-9 min-w-0 items-center gap-0.5 rounded-xl border-0 p-1",
+                  "segmented-3d m-0 flex h-9 min-w-0 flex-1 items-center gap-0.5 rounded-xl border-0 p-1",
                   blue && "segmented-3d-on-brand"
                 )}
               >
@@ -743,10 +743,11 @@ export default function Spotlight({
                     <button
                       key={option.value}
                       type="button"
+                      aria-label={option.label}
                       aria-pressed={active}
                       onClick={() => changeSource(option.value)}
                       className={cn(
-                        "focus-visible:ring-ring flex h-7 items-center gap-1.5 rounded-lg px-2.5 text-[11px] font-medium transition-colors focus-visible:ring-2 focus-visible:outline-none",
+                        "focus-visible:ring-ring flex h-7 min-w-0 flex-1 items-center justify-center gap-1 rounded-lg px-1.5 text-[11px] font-medium transition-colors focus-visible:ring-2 focus-visible:outline-none sm:gap-1.5 sm:px-2.5",
                         sourceSegmentSkin(active, option.value, blue)
                       )}
                     >
@@ -766,7 +767,10 @@ export default function Spotlight({
                       {option.value === "bluesky" ? (
                         <BlueskyIcon className="size-3.5" tooltip={false} />
                       ) : null}
-                      {option.value === "all" ? "Both" : option.label}
+                      <span className="sm:hidden">{option.compactLabel}</span>
+                      <span className="hidden sm:inline">
+                        {option.value === "all" ? "Both" : option.label}
+                      </span>
                     </button>
                   );
                 })}
@@ -777,7 +781,7 @@ export default function Spotlight({
                   language: a recessed well with raised keys. */}
               <fieldset
                 className={cn(
-                  "segmented-3d m-0 flex h-9 items-center gap-0.5 rounded-xl border-0 p-1",
+                  "segmented-3d m-0 flex h-9 shrink-0 items-center gap-0.5 rounded-xl border-0 p-1",
                   blue && "segmented-3d-on-brand"
                 )}
               >
@@ -793,11 +797,13 @@ export default function Spotlight({
                       )}
                     >
                       <SlidersHorizontal className="size-3.5" />
-                      {kind === "all"
-                        ? "Filters"
-                        : (kindOptions.find((option) => option.value === kind)
-                            ?.label ?? "Filters")}
-                      <ChevronDown className="size-3" />
+                      <span className="hidden sm:inline">
+                        {kind === "all"
+                          ? "Filters"
+                          : (kindOptions.find((option) => option.value === kind)
+                              ?.label ?? "Filters")}
+                      </span>
+                      <ChevronDown className="hidden size-3 sm:block" />
                     </button>
                   </PopoverTrigger>
                   <PopoverContent
@@ -876,7 +882,9 @@ export default function Spotlight({
                     )}
                   >
                     <Trash2 className="size-3.5" />
-                    Clear history
+                    <span className="sr-only sm:not-sr-only">
+                      Clear history
+                    </span>
                   </button>
                 ) : null}
               </fieldset>

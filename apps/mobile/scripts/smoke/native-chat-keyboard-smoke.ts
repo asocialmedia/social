@@ -1,45 +1,17 @@
 // Open an unlocked conversation in the installed release app before running.
 // Usage: ASM_SMOKE_FAST_DUMP=1 bun apps/mobile/scripts/smoke/native-chat-keyboard-smoke.ts
 // Focuses an empty composer without typing or sending a message.
-async function adb(...args: string[]): Promise<string> {
-  const child = Bun.spawn(["adb", ...args], { stderr: "pipe", stdout: "pipe" });
-  const [stdout, stderr, code] = await Promise.all([
-    new Response(child.stdout).text(),
-    new Response(child.stderr).text(),
-    child.exited,
-  ]);
-  if (code !== 0) {
-    throw new Error(`ADB ${args[0]} failed: ${stderr}`);
-  }
-  return stdout;
-}
+import { adb, dumpHierarchy, parseUiNodes } from "./android";
 
 async function snapshot() {
   const path = "/sdcard/asm-chat-keyboard.xml";
   await adb("shell", "rm", "-f", path);
-  await (process.env.ASM_SMOKE_FAST_DUMP === "1"
-    ? adb(
-        "shell",
-        "env",
-        "CLASSPATH=/data/local/tmp/asm-fast-dump.jar:/system/framework/uiautomator.jar",
-        "app_process",
-        "/system/bin",
-        "AsmFastDump",
-        path
-      )
-    : adb("shell", "uiautomator", "dump", "--compressed", path));
+  await dumpHierarchy(path, { compressed: true });
   const xml = await adb("shell", "cat", path);
   if (!xml.includes('package="cc.asocialmedia.mobile"')) {
     throw new Error("The app lost foreground focus");
   }
-  return [...xml.matchAll(/<node\s[^>]+>/g)].map(([node]) => ({
-    bounds: [
-      ...(
-        node.match(/bounds="(?<bounds>[^"]*)"/)?.groups?.bounds ?? ""
-      ).matchAll(/\d+/g),
-    ].map(([value]) => Number(value)),
-    label: node.match(/content-desc="(?<label>[^"]*)"/)?.groups?.label ?? "",
-  }));
+  return parseUiNodes(xml);
 }
 type UiNode = Awaited<ReturnType<typeof snapshot>>[number];
 

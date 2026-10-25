@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { ExternalLink, Flame } from "lucide-react";
 import type React from "react";
 
+import { CARD_QUERY_POLICY } from "@/lib/cards/query-policy";
 import { cn, formatNumber } from "@/lib/utils";
 
 import { APPLE_CARD_CLASS, ROW_HOVER_CLASS } from "./sidebar-styles";
@@ -47,7 +48,7 @@ export const PopularOnHackerNews = () => {
       return res.json() as Promise<{ stories: HNStory[] }>;
     },
     queryKey: ["hn-top-stories"],
-    staleTime: 5 * 60 * 1000,
+    ...CARD_QUERY_POLICY,
   });
 
   const stories = hnStories?.stories || [];

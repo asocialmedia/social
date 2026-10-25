@@ -6,6 +6,7 @@ import { rawExecutePlan, rawParams, rawQueryPlan } from "./raw-sql";
 function parametersOf(plan: ReturnType<typeof rawQueryPlan>) {
   return plan.ast?.collectParamRefs().map((reference) => ({
     codecId: reference.codec?.codecId,
+    ...(reference.codec?.many ? { many: true } : {}),
     value: "value" in reference ? reference.value : undefined,
   }));
 }
@@ -30,7 +31,7 @@ describe("Prisma 8 positional SQL plans", () => {
       "SELECT $1::text AS id, to_jsonb($2::text[]) AS ids, $3::jsonb AS payload",
       [
         { codecId: "pg/text@1", value: null },
-        { codecId: "pg/text-array@1", value: ["one", "two"] },
+        { codecId: "pg/text@1", many: true, value: ["one", "two"] },
         { codecId: "pg/jsonb@1", value: { id: "fixture" } },
       ],
       {
@@ -41,7 +42,7 @@ describe("Prisma 8 positional SQL plans", () => {
     );
     expect(parametersOf(plan)).toEqual([
       { codecId: "pg/text@1", value: null },
-      { codecId: "pg/text-array@1", value: ["one", "two"] },
+      { codecId: "pg/text@1", many: true, value: ["one", "two"] },
       { codecId: "pg/jsonb@1", value: { id: "fixture" } },
     ]);
   });
@@ -96,9 +97,9 @@ describe("Prisma 8 positional SQL plans", () => {
       5,
     ]);
     expect(values).toEqual([
-      { codecId: "pg/text-array@1", value: ["1", "2"] },
-      { codecId: "pg/text-array@1", value: [] },
-      { codecId: "pg/text-array@1", value: ["quote'", "comma,"] },
+      { codecId: "pg/text@1", many: true, value: ["1", "2"] },
+      { codecId: "pg/text@1", many: true, value: [] },
+      { codecId: "pg/text@1", many: true, value: ["quote'", "comma,"] },
       { codecId: "pg/text@1", value: date.toISOString() },
       { codecId: "pg/text@1", value: null },
       { codecId: "pg/bool@1", value: true },
