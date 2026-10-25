@@ -3,7 +3,13 @@ import { runTestSuite } from "./run-tests";
 import { collectTestFiles } from "./test-file-discovery";
 import { versionOnlyPushedMetadata } from "./version-only-metadata";
 
-export async function runAffectedTests(changedFiles = Bun.argv.slice(2)) {
+export async function runAffectedTests(arguments_ = Bun.argv.slice(2)) {
+  const changedFiles = arguments_.filter(
+    (argument) => argument !== "--pre-push"
+  );
+  const pushInput = arguments_.includes("--pre-push")
+    ? await Bun.stdin.text()
+    : undefined;
   if (changedFiles.length === 0) {
     console.log("No pushed files supplied; no local tests to run.");
     return 0;
@@ -11,7 +17,7 @@ export async function runAffectedTests(changedFiles = Bun.argv.slice(2)) {
   const [testFiles, workspaces, versionOnlyFiles] = await Promise.all([
     collectTestFiles("unit"),
     readTestWorkspaces(),
-    versionOnlyPushedMetadata(changedFiles),
+    versionOnlyPushedMetadata(changedFiles, pushInput),
   ]);
   const selected = selectAffectedTests(
     changedFiles.filter((filePath) => !versionOnlyFiles.includes(filePath)),

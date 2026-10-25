@@ -52,6 +52,14 @@ export async function readTestWorkspaces(
   return groups.flat().filter((workspace) => workspace !== undefined);
 }
 
+// These policy tests inspect files across workspace boundaries.
+const REPOSITORY_POLICY_TESTS = new Set([
+  "packages/db/src/runtime-sql.test.ts",
+  "packages/db/src/messages/dens/den-role-label.test.ts",
+  "packages/db/src/messages/dens/den-limits-consistency.test.ts",
+  "packages/auth/src/core/security/passkey-origins.test.ts",
+]);
+
 function isDocumentation(filePath: string): boolean {
   return /\.(?:md|mdx|txt)$/i.test(filePath);
 }
@@ -109,6 +117,7 @@ export function selectAffectedTests(
       // Tooling tests also inspect source files and build entrypoints across workspaces.
       filePath.startsWith("scripts/") ||
       filePath.startsWith(".github/") ||
+      REPOSITORY_POLICY_TESTS.has(filePath) ||
       (toolingChanged && filePath.startsWith("apps/mobile/scripts/"))
   );
 }

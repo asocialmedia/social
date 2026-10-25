@@ -66,8 +66,31 @@ async function gitOutput(arguments_: string[]): Promise<string | undefined> {
   return exitCode === 0 ? output : undefined;
 }
 
+export function matchesTrackedPush(
+  pushInput: string,
+  head: string,
+  upstream: string
+): boolean {
+  const updates = pushInput.trim().split("\n").filter(Boolean);
+  if (updates.length !== 1) {
+    return false;
+  }
+  const fields = updates[0]?.trim().split(/\s+/) ?? [];
+  const [localRef, localRevision, remoteRef, remoteRevision] = fields;
+  return (
+    fields.length === 4 &&
+    Boolean(localRef?.startsWith("refs/heads/")) &&
+    Boolean(remoteRef?.startsWith("refs/heads/")) &&
+    /^[a-f\d]{40}(?:[a-f\d]{24})?$/i.test(remoteRevision ?? "") &&
+    !/^0+$/.test(remoteRevision ?? "") &&
+    localRevision === head.trim() &&
+    remoteRevision === upstream.trim()
+  );
+}
+
 export async function versionOnlyPushedMetadata(
-  changedFiles: string[]
+  changedFiles: string[],
+  pushInput?: string
 ): Promise<string[]> {
   const candidates = changedFiles.filter(
     (filePath) => filePath === "package.json" || filePath === "bun.lock"
@@ -75,7 +98,19 @@ export async function versionOnlyPushedMetadata(
   if (candidates.length === 0) {
     return [];
   }
-  const base = (await gitOutput(["merge-base", "HEAD", "@{upstream}"]))?.trim();
+  if (!pushInput) {
+    return [];
+  }
+  const [head, upstream] = await Promise.all([
+    gitOutput(["rev-parse", "HEAD"]),
+    gitOutput(["rev-parse", "@{upstream}"]),
+  ]);
+  if (!head || !upstream || !matchesTrackedPush(pushInput, head, upstream)) {
+    return [];
+  }
+  const base = (
+    await gitOutput(["merge-base", head.trim(), upstream.trim()])
+  )?.trim();
   if (!base) {
     return [];
   }

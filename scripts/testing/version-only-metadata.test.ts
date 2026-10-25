@@ -1,7 +1,10 @@
 import { expect, test } from "bun:test";
 
 import { selectAffectedTests } from "./affected-tests";
-import { isVersionOnlyMetadataChange } from "./version-only-metadata";
+import {
+  isVersionOnlyMetadataChange,
+  matchesTrackedPush,
+} from "./version-only-metadata";
 
 const manifest = {
   name: "@asm/root",
@@ -103,4 +106,37 @@ test("added workspaces and invalid or unknown formats retain the global fallback
   ).toBe(false);
   expect(isVersionOnlyMetadataChange("bun.lock", "{}", "{}")).toBe(false);
   expect(isVersionOnlyMetadataChange("unknown.json", "{}", "{}")).toBe(false);
+});
+
+test("version-only filtering requires the actual push to match the tracked source and destination", () => {
+  const head = "a".repeat(40);
+  const upstream = "b".repeat(40);
+  const olderRelease = "c".repeat(40);
+  const update = `refs/heads/dev ${head} refs/heads/dev ${upstream}`;
+  expect(matchesTrackedPush(update, head, upstream)).toBe(true);
+  expect(
+    matchesTrackedPush(
+      `refs/heads/dev ${head} refs/heads/release ${olderRelease}`,
+      head,
+      upstream
+    )
+  ).toBe(false);
+  expect(
+    matchesTrackedPush(
+      `refs/heads/other ${olderRelease} refs/heads/dev ${upstream}`,
+      head,
+      upstream
+    )
+  ).toBe(false);
+  expect(
+    matchesTrackedPush(
+      `refs/heads/dev ${head} refs/heads/new ${"0".repeat(40)}`,
+      head,
+      upstream
+    )
+  ).toBe(false);
+  expect(matchesTrackedPush(`${update}\n${update}`, head, upstream)).toBe(
+    false
+  );
+  expect(matchesTrackedPush("", head, upstream)).toBe(false);
 });

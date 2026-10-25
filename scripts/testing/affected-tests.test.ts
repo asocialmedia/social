@@ -27,8 +27,9 @@ const tests = [
   "apps/mobile/scripts/metro/e.test.ts",
   "scripts/testing/runner.test.ts",
   ".github/scripts/matrix.test.ts",
+  "packages/db/src/runtime-sql.test.ts",
 ];
-const tooling = tests.slice(-2);
+const tooling = tests.slice(5);
 
 describe("affected unit test selection", () => {
   test("an app change includes its tests and cross-workspace tooling checks", () => {
