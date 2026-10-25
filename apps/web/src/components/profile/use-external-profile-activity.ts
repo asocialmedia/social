@@ -16,18 +16,19 @@ export function useExternalProfileActivity(
 ) {
   const { user } = useSession();
   const network = useNetworkSettings();
-  return useInfiniteQuery({
-    enabled: Boolean(user) && network.ready,
+  const enabled = Boolean(user) && network.ready;
+  const query = useInfiniteQuery({
+    enabled,
     getNextPageParam: (page: ActivityPage) => page.nextCursor,
     initialPageParam: null as ActivityPage["nextCursor"],
     queryFn: async ({ pageParam, signal }): Promise<ActivityPage> => {
-      const query = new URLSearchParams({ kind });
+      const params = new URLSearchParams({ kind });
       if (pageParam) {
-        query.set("cursor", JSON.stringify(pageParam));
+        params.set("cursor", JSON.stringify(pageParam));
       }
       return externalProfileActivityPageSchema.parse(
         await readProtocolResource(
-          `/api/users/${encodeURIComponent(userId)}/external-activity?${query}`,
+          `/api/users/${encodeURIComponent(userId)}/external-activity?${params}`,
           signal
         )
       );
@@ -41,4 +42,12 @@ export function useExternalProfileActivity(
     ],
     staleTime: 60_000,
   });
+  const networkError =
+    Boolean(user) && !network.ready && Boolean(network.error);
+  return {
+    ...query,
+    loading: enabled ? query.isPending : Boolean(user) && !networkError,
+    networkError,
+    retryNetworkSettings: network.refetch,
+  };
 }

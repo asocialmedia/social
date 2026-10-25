@@ -12,6 +12,7 @@ import type { UserRepliesPage } from "@/app/api/users/[userId]/replies/route";
 import { CommentAttachments } from "@/components/comments/composer/comment-attachments";
 import { CommentLinkEmbeds } from "@/components/comments/item/comment-link-embeds";
 import CommentMoreButton from "@/components/comments/item/comment-more-button";
+import { FeedErrorState } from "@/components/feeds/feed-error-state";
 import InfiniteScrollContainer from "@/components/layouts/feed/infinite-scroll-container";
 import CommentsSkeleton from "@/components/layouts/skeletons/comments-skeleton";
 import UserAvatar from "@/components/layouts/user/user-avatar";
@@ -21,7 +22,10 @@ import { isInteractiveTarget } from "@/lib/interactive-target";
 import kyInstance from "@/lib/ky";
 import { isPopupOpen } from "@/lib/popup-tracker";
 import { FEED_CACHE_RETENTION_MS } from "@/lib/posts/feed-cache";
-import { profileActivityOrder } from "@/lib/posts/profile-activity-order";
+import {
+  profileActivityOrder,
+  advanceProfileActivity,
+} from "@/lib/posts/profile-activity-order";
 import { getPostPath } from "@/lib/seo/seo";
 import { cn, formatRelativeDate } from "@/lib/utils";
 import { withViewTransition } from "@/lib/view-transition";
@@ -108,6 +112,7 @@ const UserRepliesFeed: React.FC<UserRepliesFeedProps> = ({ userId }) => {
     isFetching,
     isFetchingNextPage,
     status,
+    refetch,
   } = useInfiniteQuery({
     // Kept past a post/media detour so coming back restores the cached list
     // (and its scroll position) instead of refetching from the top.
@@ -135,30 +140,46 @@ const UserRepliesFeed: React.FC<UserRepliesFeedProps> = ({ userId }) => {
     [deletedIds, replies]
   );
 
-  const activity = profileActivityOrder([
-    ...visibleReplies.map((reply) => ({
-      at: String(reply.createdAt),
-      id: reply.id,
-      reply,
-      type: "native" as const,
-    })),
-    ...(external.data?.pages.flatMap((page) => page.items) ?? []).map(
-      (item) => ({
-        at: item.createdAt,
-        id: item.id,
-        item,
-        type: "external" as const,
-      })
-    ),
-  ]);
-  const handleBottomReached = useCallback(() => {
-    if (external.hasNextPage && !external.isFetching) {
+  const sources = [
+    {
+      boundary: data?.pages.at(-1)?.nextCursorAt,
+      hasNextPage,
+      pending: status === "pending",
+    },
+    {
+      boundary: external.data?.pages.at(-1)?.nextCursor?.at,
+      hasNextPage: external.hasNextPage,
+      pending: external.loading,
+    },
+  ];
+  const [advanceNative, advanceExternal] = advanceProfileActivity(sources);
+  const activity = profileActivityOrder(
+    [
+      ...visibleReplies.map((reply) => ({
+        at: String(reply.createdAt),
+        id: reply.id,
+        reply,
+        type: "native" as const,
+      })),
+      ...(external.data?.pages.flatMap((page) => page.items) ?? []).map(
+        (item) => ({
+          at: item.createdAt,
+          id: item.id,
+          item,
+          type: "external" as const,
+        })
+      ),
+    ],
+    sources
+  );
+  const handleBottomReached = () => {
+    if (advanceExternal && !external.isFetching && !external.isError) {
       void external.fetchNextPage();
     }
-    if (hasNextPage && !isFetching) {
+    if (advanceNative && !isFetching && status !== "error") {
       fetchNextPage();
     }
-  }, [hasNextPage, isFetching, fetchNextPage, external]);
+  };
 
   const handleReplyDeleted = useCallback((deleted: CommentData) => {
     setDeletedIds((prev) => new Set([...prev, deleted.id]));
@@ -168,18 +189,25 @@ const UserRepliesFeed: React.FC<UserRepliesFeedProps> = ({ userId }) => {
     return <CommentsSkeleton />;
   }
 
-  if (status === "error" && !activity.length) {
+  if (status === "error" && !data && !external.data) {
     return (
-      <p className="text-destructive text-center">
-        An error occurred while loading replies.
-      </p>
+      <FeedErrorState
+        message="Couldn’t load replies."
+        isRetrying={isFetching}
+        onRetry={() => {
+          void refetch();
+        }}
+      />
     );
   }
 
   if (
     status === "success" &&
-    !external.isPending &&
+    !external.loading &&
     !external.isError &&
+    !external.networkError &&
+    !hasNextPage &&
+    !external.hasNextPage &&
     !activity.length
   ) {
     return (
@@ -323,6 +351,26 @@ const UserRepliesFeed: React.FC<UserRepliesFeedProps> = ({ userId }) => {
           </div>
         );
       })}
+      {status === "error" ? (
+        <FeedErrorState
+          compact
+          message="Couldn’t load more replies."
+          isRetrying={isFetching}
+          onRetry={() => {
+            void (data ? fetchNextPage() : refetch());
+          }}
+        />
+      ) : null}
+      {external.networkError ? (
+        <FeedErrorState
+          compact
+          message="Couldn’t load your content settings for Bluesky activity."
+          isRetrying={false}
+          onRetry={() => {
+            void external.retryNetworkSettings();
+          }}
+        />
+      ) : null}
       {external.isError ? (
         <p className="text-destructive p-4 text-center text-sm">
           Couldn’t load Bluesky eddies.{" "}
@@ -336,17 +384,17 @@ const UserRepliesFeed: React.FC<UserRepliesFeedProps> = ({ userId }) => {
           </button>
         </p>
       ) : null}
-      {isFetchingNextPage ||
-      external.isPending ||
-      external.isFetchingNextPage ? (
+      {isFetchingNextPage || external.loading || external.isFetchingNextPage ? (
         <div className="flex justify-center py-4">
           <Loader2 className="text-primary animate-spin" />
         </div>
       ) : null}
-      {!hasNextPage &&
+      {status !== "error" &&
+      !hasNextPage &&
       !external.hasNextPage &&
-      !external.isPending &&
+      !external.loading &&
       !external.isError &&
+      !external.networkError &&
       activity.length > 0 ? (
         <FeedCaughtUp note="You've seen every reply from this profile." />
       ) : null}

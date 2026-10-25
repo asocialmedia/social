@@ -35,12 +35,12 @@ export async function profileExternalActivity(
   let amplifiedQuery = prisma.orm.public.ExternalEngagements.where((entry) =>
     and(entry.userId.eq(userId), entry.amplified.eq(true))
   )
-    .select("externalPostId", "updatedAt")
+    .select("externalPostId", "amplifiedAt")
     .include("externalPost", (post) =>
       post.select("uri", "snapshot", "available", "checkedAt")
     )
     .orderBy([
-      (entry) => entry.updatedAt.desc(),
+      (entry) => entry.amplifiedAt.desc(),
       (entry) => entry.externalPostId.desc(),
     ]);
   let commentsQuery = prisma.orm.public.ExternalComments.where((entry) =>
@@ -56,8 +56,8 @@ export async function profileExternalActivity(
     .orderBy([(entry) => entry.createdAt.desc(), (entry) => entry.id.desc()]);
   if (cursor) {
     amplifiedQuery = amplifiedQuery.cursor({
+      amplifiedAt: new Date(cursor.at),
       externalPostId: cursor.id,
-      updatedAt: new Date(cursor.at),
     });
     commentsQuery = commentsQuery.cursor({
       createdAt: new Date(cursor.at),
@@ -71,7 +71,7 @@ export async function profileExternalActivity(
   const rows =
     kind === "amplified"
       ? amplifiedRows.map((entry) => ({
-          at: fromPrismaDateTime(entry.updatedAt).toISOString(),
+          at: fromPrismaDateTime(entry.amplifiedAt).toISOString(),
           comment: undefined,
           externalPost: entry.externalPost,
           id: entry.externalPostId,

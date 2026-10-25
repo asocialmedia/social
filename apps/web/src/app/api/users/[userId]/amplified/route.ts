@@ -82,8 +82,13 @@ export async function GET(
         post.createdAt
     ).toISOString(),
   }));
-  const data: PostsPage = {
+  const lastVote = pageVotes.at(-1);
+  const data: PostsPage & { nextCursorAt: string | null } = {
     nextCursor,
+    nextCursorAt:
+      nextCursor && lastVote
+        ? fromPrismaDateTime(lastVote.createdAt).toISOString()
+        : null,
     posts: hydrated,
   };
   return Response.json(data);

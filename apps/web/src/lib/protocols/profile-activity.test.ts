@@ -41,9 +41,9 @@ const stored = () => ({
 });
 let amplified = [
   {
+    amplifiedAt: new Date("2026-10-25T00:00:00Z"),
     externalPost: stored(),
     externalPostId: "external-id",
-    updatedAt: new Date("2026-10-25T00:00:00Z"),
   },
 ];
 let comments = [
@@ -128,9 +128,9 @@ const { profileExternalActivity } = await import("./profile-activity");
 beforeEach(() => {
   amplified = [
     {
+      amplifiedAt: new Date("2026-10-25T00:00:00Z"),
       externalPost: stored(),
       externalPostId: "external-id",
-      updatedAt: new Date("2026-10-25T00:00:00Z"),
     },
   ];
   comments = [
@@ -200,8 +200,8 @@ test("external activity paginates at the last served row rather than skipping th
     page.nextCursor ?? undefined
   );
   expect(cursors).toContainEqual({
+    amplifiedAt: new Date("2026-10-25T00:00:00Z"),
     externalPostId: "external-19",
-    updatedAt: new Date("2026-10-25T00:00:00Z"),
   });
 });
 

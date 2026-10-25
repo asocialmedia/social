@@ -4,15 +4,19 @@ import type { PostsPage } from "@asm/db";
 import { Separator } from "@asm/ui/shadui/separator";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
-import React, { useCallback, useMemo } from "react";
+import React, { useMemo } from "react";
 
+import { FeedErrorState } from "@/components/feeds/feed-error-state";
 import GustRowCard from "@/components/gusts/gust-row-card";
 import PostCard from "@/components/home/feedview/post-card";
 import InfiniteScrollContainer from "@/components/layouts/feed/infinite-scroll-container";
 import FeedViewSkeleton from "@/components/layouts/skeletons/feed-view-skeleton";
 import kyInstance from "@/lib/ky";
 import { FEED_CACHE_RETENTION_MS } from "@/lib/posts/feed-cache";
-import { profileActivityOrder } from "@/lib/posts/profile-activity-order";
+import {
+  profileActivityOrder,
+  advanceProfileActivity,
+} from "@/lib/posts/profile-activity-order";
 
 import EmptyFeedState from "./empty-feed-state";
 import { ExternalActivityCard } from "./external-activity-card";
@@ -32,6 +36,7 @@ const UserAmplifiedFeed: React.FC<UserAmplifiedFeedProps> = ({ userId }) => {
     isFetching,
     isFetchingNextPage,
     status,
+    refetch,
   } = useInfiniteQuery({
     // Kept past a post/media detour so coming back restores the cached list
     // (and its scroll position) instead of refetching from the top.
@@ -44,7 +49,7 @@ const UserAmplifiedFeed: React.FC<UserAmplifiedFeedProps> = ({ userId }) => {
           `/api/users/${userId}/amplified`,
           pageParam ? { searchParams: { cursor: pageParam } } : {}
         )
-        .json<PostsPage>(),
+        .json<PostsPage & { nextCursorAt?: string | null }>(),
     queryKey: ["post-feed", "user-amplified", userId],
     staleTime: 1000 * 60,
   });
@@ -54,47 +59,70 @@ const UserAmplifiedFeed: React.FC<UserAmplifiedFeedProps> = ({ userId }) => {
     [data?.pages]
   );
 
-  const activity = profileActivityOrder([
-    ...posts.map((post) => ({
-      at: String("amplifiedAt" in post ? post.amplifiedAt : post.createdAt),
-      id: post.id,
-      post,
-      type: "native" as const,
-    })),
-    ...(external.data?.pages.flatMap((page) => page.items) ?? []).map(
-      (item) => ({
-        at: item.createdAt,
-        id: item.id,
-        item,
-        type: "external" as const,
-      })
-    ),
-  ]);
-  const handleBottomReached = useCallback(() => {
-    if (external.hasNextPage && !external.isFetching) {
+  const sources = [
+    {
+      boundary: data?.pages.at(-1)?.nextCursorAt,
+      hasNextPage,
+      pending: status === "pending",
+    },
+    {
+      boundary: external.data?.pages.at(-1)?.nextCursor?.at,
+      hasNextPage: external.hasNextPage,
+      pending: external.loading,
+    },
+  ];
+  const [advanceNative, advanceExternal] = advanceProfileActivity(sources);
+  const activity = profileActivityOrder(
+    [
+      ...posts.map((post) => ({
+        at: String("amplifiedAt" in post ? post.amplifiedAt : post.createdAt),
+        id: post.id,
+        post,
+        type: "native" as const,
+      })),
+      ...(external.data?.pages.flatMap((page) => page.items) ?? []).map(
+        (item) => ({
+          at: item.createdAt,
+          id: item.id,
+          item,
+          type: "external" as const,
+        })
+      ),
+    ],
+    sources
+  );
+  const handleBottomReached = () => {
+    if (advanceExternal && !external.isFetching && !external.isError) {
       void external.fetchNextPage();
     }
-    if (hasNextPage && !isFetching) {
+    if (advanceNative && !isFetching && status !== "error") {
       fetchNextPage();
     }
-  }, [hasNextPage, isFetching, fetchNextPage, external]);
+  };
 
   if (status === "pending" && !activity.length) {
     return <FeedViewSkeleton />;
   }
 
-  if (status === "error" && !activity.length) {
+  if (status === "error" && !data && !external.data) {
     return (
-      <p className="text-destructive text-center">
-        An error occurred while loading amplified posts.
-      </p>
+      <FeedErrorState
+        message="Couldn’t load amplified posts."
+        isRetrying={isFetching}
+        onRetry={() => {
+          void refetch();
+        }}
+      />
     );
   }
 
   if (
     status === "success" &&
-    !external.isPending &&
+    !external.loading &&
     !external.isError &&
+    !external.networkError &&
+    !hasNextPage &&
+    !external.hasNextPage &&
     !activity.length
   ) {
     return (
@@ -123,6 +151,26 @@ const UserAmplifiedFeed: React.FC<UserAmplifiedFeedProps> = ({ userId }) => {
           </React.Fragment>
         );
       })}
+      {status === "error" ? (
+        <FeedErrorState
+          compact
+          message="Couldn’t load more amplified posts."
+          isRetrying={isFetching}
+          onRetry={() => {
+            void (data ? fetchNextPage() : refetch());
+          }}
+        />
+      ) : null}
+      {external.networkError ? (
+        <FeedErrorState
+          compact
+          message="Couldn’t load your content settings for Bluesky activity."
+          isRetrying={false}
+          onRetry={() => {
+            void external.retryNetworkSettings();
+          }}
+        />
+      ) : null}
       {external.isError ? (
         <p className="text-destructive p-4 text-center text-sm">
           Couldn’t load Bluesky amplifications.{" "}
@@ -136,17 +184,17 @@ const UserAmplifiedFeed: React.FC<UserAmplifiedFeedProps> = ({ userId }) => {
           </button>
         </p>
       ) : null}
-      {isFetchingNextPage ||
-      external.isPending ||
-      external.isFetchingNextPage ? (
+      {isFetchingNextPage || external.loading || external.isFetchingNextPage ? (
         <div className="flex justify-center py-4">
           <Loader2 className="text-primary animate-spin" />
         </div>
       ) : null}
-      {!hasNextPage &&
+      {status !== "error" &&
+      !hasNextPage &&
       !external.hasNextPage &&
-      !external.isPending &&
+      !external.loading &&
       !external.isError &&
+      !external.networkError &&
       activity.length > 0 ? (
         <FeedCaughtUp note="You've seen every amplified post from this profile." />
       ) : null}

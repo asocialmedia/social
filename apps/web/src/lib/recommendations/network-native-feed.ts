@@ -258,18 +258,24 @@ async function readNetworkNativeFeed(
     );
   } catch (error) {
     if (error instanceof NetworkPreferenceConflictError) {
-      return Response.json(
-        { error: "Choose an available recommendation profile" },
-        { status: 409 }
+      return timing.finish(
+        Response.json(
+          { error: "Choose an available recommendation profile" },
+          { status: 409 }
+        ),
+        "native"
       );
     }
     reportRecommendationHealth("native-feed", false, error);
-    return Response.json(
-      { error: "Feed is temporarily unavailable" },
-      {
-        headers: { "cache-control": "private, no-store", "retry-after": "2" },
-        status: 503,
-      }
+    return timing.finish(
+      Response.json(
+        { error: "Feed is temporarily unavailable" },
+        {
+          headers: { "cache-control": "private, no-store", "retry-after": "2" },
+          status: 503,
+        }
+      ),
+      "native"
     );
   }
 }

@@ -1,7 +1,9 @@
 "use client";
 
 import { Button } from "@asm/ui/shadui/button";
+import { Separator } from "@asm/ui/shadui/separator";
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
+import { Fragment } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
 import { FeedErrorState } from "@/components/feeds/feed-error-state";
@@ -107,8 +109,11 @@ export function ExternalAuthorFeed({
         }
       }}
     >
-      {posts.map((post) => (
-        <BlueskyPostCard key={post.id} post={post} />
+      {posts.map((post, index) => (
+        <Fragment key={post.id}>
+          {index > 0 ? <Separator className="bg-border/60" /> : null}
+          <BlueskyPostCard post={post} />
+        </Fragment>
       ))}
       {posts.length ? null : (
         <p className="text-muted-foreground px-4 py-10 text-center text-sm">
