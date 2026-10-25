@@ -160,10 +160,11 @@ export function PostInlineContent({
   renderMention?: (username: string) => ReactNode;
 }) {
   const segments = sourceSegments
-    ? sourceSegments.map((segment) => ({
-        text: segment.text,
-        url: segment.href,
-      }))
+    ? sourceSegments.flatMap((segment) =>
+        segment.href
+          ? [{ text: segment.text, url: segment.href }]
+          : segmentContent(segment.text)
+      )
     : segmentContent(content);
   if (segments.length === 0) {
     segments.push({ text: content });
@@ -218,9 +219,13 @@ export function PostInlineContent({
         if (linkBadge === "chip") {
           title = hostLabel(segment.url);
         }
+        const linkIndex = segments
+          .slice(0, index)
+          .filter((entry) => entry.url && !entry.text?.startsWith("@")).length;
         return (
           <LinkBadge
-            index={index}
+            index={linkIndex}
+            fallbackTitle={sourceSegments ? segment.text : undefined}
             key={`${segment.url}-${index}`}
             title={title}
             url={segment.url}

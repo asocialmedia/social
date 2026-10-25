@@ -152,3 +152,23 @@ test("post facets and profile bio mention pills reuse the resolved Bluesky avata
   expect(html).toContain("actor=did%3Aplc%3Ascientist");
   client.clear();
 });
+
+test("Bluesky link pills retain a human facet label and disambiguate multiple links on one host", () => {
+  const html = render("My shop and product", [
+    { href: "https://ko-fi.com/tidalcraftfox/shop/open", text: "My shop" },
+    { text: " and " },
+    { href: "https://ko-fi.com/s/8b62fc25c7", text: "ko-fi.com/s/8b62…" },
+  ]);
+  expect(html).toContain("My shop");
+  expect(html).toContain("ko-fi.com/s/8b62fc25c7");
+  expect(html).toContain('href="https://ko-fi.com/tidalcraftfox/shop/open"');
+  expect(html).not.toContain(">ko-fi.com<");
+});
+
+test("a Bluesky URL in an unfaceted text segment still becomes a link pill", () => {
+  const html = render("See my shop", [
+    { text: "See https://ko-fi.com/s/8b62fc25c7" },
+  ]);
+  expect(html).toContain('href="https://ko-fi.com/s/8b62fc25c7"');
+  expect(html).toContain("meta-chip");
+});

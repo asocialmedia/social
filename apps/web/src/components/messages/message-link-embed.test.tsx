@@ -8,7 +8,7 @@ import { LinkEmbedCard } from "./message-link-embed";
 function render(url: string, failed = false) {
   const client = new QueryClient();
   if (failed) {
-    client.setQueryData(["message-link-embed", url], null);
+    client.setQueryData(["link-preview", url], null);
   }
   return renderToStaticMarkup(
     <QueryClientProvider client={client}>

@@ -1,6 +1,8 @@
+import { mkdir } from "node:fs/promises";
+
 // Usage: bun apps/mobile/scripts/smoke/native-profile-layout-smoke.ts <username>
 // Checks the installed release profile without following, editing, or sending a share.
-import { mkdir } from "node:fs/promises";
+import { adb, parseUiNodes as nodes } from "./android";
 
 const username = process.argv.at(2);
 if (!username || !/^[\w.-]+$/.test(username)) {
@@ -8,34 +10,6 @@ if (!username || !/^[\w.-]+$/.test(username)) {
 }
 const artifacts = "/tmp/asm-profile-layout-smoke";
 await mkdir(artifacts, { recursive: true });
-
-async function adb(...args: string[]) {
-  const process = Bun.spawn(["adb", ...args], {
-    stderr: "pipe",
-    stdout: "pipe",
-  });
-  const [output, error, code] = await Promise.all([
-    new Response(process.stdout).text(),
-    new Response(process.stderr).text(),
-    process.exited,
-  ]);
-  if (code !== 0) {
-    throw new Error(`adb ${args[0]} failed: ${error}`);
-  }
-  return output;
-}
-
-function nodes(xml: string) {
-  return [...xml.matchAll(/<node\s[^>]+>/g)].map(([node]) => ({
-    bounds: [
-      ...(
-        node.match(/bounds="(?<bounds>[^"]+)"/)?.groups?.bounds ?? ""
-      ).matchAll(/\d+/g),
-    ].map(([number]) => Number(number)),
-    label: node.match(/content-desc="(?<label>[^"]*)"/)?.groups?.label ?? "",
-    text: node.match(/text="(?<text>[^"]*)"/)?.groups?.text ?? "",
-  }));
-}
 
 async function snapshot(name: string) {
   const remote = "/sdcard/asm-profile-layout.xml";

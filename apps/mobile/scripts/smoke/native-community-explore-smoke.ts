@@ -1,8 +1,10 @@
+import { mkdir } from "node:fs/promises";
+
 // Checks the installed release app with a populated public community and Explore feed.
 // Usage: ASM_SMOKE_FAST_DUMP=1 bun apps/mobile/scripts/smoke/native-community-explore-smoke.ts
 // The trending feed must contain posts with link, hashtag and mention badges.
 // oxlint-disable no-await-in-loop -- Device actions depend on the preceding screen.
-import { mkdir } from "node:fs/promises";
+import { adb, captureScreenshot, dumpHierarchy, parseUiNodes } from "./android";
 
 const artifacts =
   process.env.ASM_SMOKE_ARTIFACT_DIRECTORY ??
@@ -10,22 +12,6 @@ const artifacts =
 const slug = process.env.ASM_SMOKE_COMMUNITY ?? "asocialmedia";
 const activity = "cc.asocialmedia.mobile/.MainActivity";
 await mkdir(artifacts, { recursive: true });
-
-async function adb(...args: string[]) {
-  const command = Bun.spawn(["adb", ...args], {
-    stderr: "pipe",
-    stdout: "pipe",
-  });
-  const [stdout, stderr, code] = await Promise.all([
-    new Response(command.stdout).text(),
-    new Response(command.stderr).text(),
-    command.exited,
-  ]);
-  if (code !== 0) {
-    throw new Error(`adb ${args[0]} failed: ${stderr}`);
-  }
-  return stdout;
-}
 
 const sizeOutput = await adb("shell", "wm", "size");
 const sizes = [...sizeOutput.matchAll(/(?<width>\d+)x(?<height>\d+)/g)];
@@ -39,18 +25,7 @@ const height = Number(size.height);
 async function snapshot(name?: string) {
   const path = "/sdcard/asm-community-explore-smoke.xml";
   await adb("shell", "rm", "-f", path);
-  const output =
-    process.env.ASM_SMOKE_FAST_DUMP === "1"
-      ? await adb(
-          "shell",
-          "env",
-          "CLASSPATH=/data/local/tmp/asm-fast-dump.jar:/system/framework/uiautomator.jar",
-          "app_process",
-          "/system/bin",
-          "AsmFastDump",
-          path
-        )
-      : await adb("shell", "uiautomator", "dump", path);
+  const output = await dumpHierarchy(path);
   if (!output.includes("dumped to:")) {
     throw new Error("Android hierarchy did not settle");
   }
@@ -60,36 +35,17 @@ async function snapshot(name?: string) {
   }
   if (name) {
     await Bun.write(`${artifacts}/${name}.xml`, xml);
-    const capture = Bun.spawn(["adb", "exec-out", "screencap", "-p"], {
-      stdout: "pipe",
-    });
-    await Bun.write(
-      `${artifacts}/${name}.png`,
-      await new Response(capture.stdout).arrayBuffer()
-    );
-    if ((await capture.exited) !== 0) {
-      throw new Error("Screenshot failed");
-    }
+    await captureScreenshot(`${artifacts}/${name}.png`);
   }
-  return [...xml.matchAll(/<node\s[^>]+>/g)]
-    .map(([node]) => ({
-      bounds: [
-        ...(
-          node.match(/bounds="(?<bounds>[^"]+)"/)?.groups?.bounds ?? ""
-        ).matchAll(/-?\d+/g),
-      ].map(([value]) => Number(value)),
-      label: node.match(/content-desc="(?<label>[^"]*)"/)?.groups?.label ?? "",
-      text: node.match(/text="(?<text>[^"]*)"/)?.groups?.text ?? "",
-    }))
-    .filter(
-      ({ bounds: [left = 0, top = 0, right = 0, bottom = 0] }) =>
-        right > left &&
-        bottom > top &&
-        right > 0 &&
-        left < width &&
-        bottom > 0 &&
-        top < height
-    );
+  return parseUiNodes(xml, true).filter(
+    ({ bounds: [left = 0, top = 0, right = 0, bottom = 0] }) =>
+      right > left &&
+      bottom > top &&
+      right > 0 &&
+      left < width &&
+      bottom > 0 &&
+      top < height
+  );
 }
 
 type UiNode = Awaited<ReturnType<typeof snapshot>>[number];

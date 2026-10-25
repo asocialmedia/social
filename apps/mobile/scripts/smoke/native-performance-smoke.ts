@@ -1,42 +1,20 @@
+import { mkdir } from "node:fs/promises";
+
 // Validates real scrolling and pager reversals in the installed release app.
 // Usage: bun apps/mobile/scripts/smoke/native-performance-smoke.ts
 // Keeps the signed-in account and all cached content intact.
 // oxlint-disable no-await-in-loop -- Device gestures and their assertions must run in order.
-import { mkdir } from "node:fs/promises";
+import {
+  adb,
+  captureScreenshot,
+  dumpHierarchy,
+  parseUiNodes as parseNodes,
+} from "./android";
 
 const packageName = "cc.asocialmedia.mobile";
 const artifacts =
   process.env.ASM_PERFORMANCE_ARTIFACTS ?? "/tmp/asm-native-performance-smoke";
 await mkdir(artifacts, { recursive: true });
-
-async function adb(...args: string[]): Promise<string> {
-  const process = Bun.spawn(["adb", ...args], {
-    stderr: "pipe",
-    stdout: "pipe",
-  });
-  const [stdout, stderr, code] = await Promise.all([
-    new Response(process.stdout).text(),
-    new Response(process.stderr).text(),
-    process.exited,
-  ]);
-  if (code !== 0) {
-    throw new Error(`adb ${args[0]} failed (${code}): ${stderr}`);
-  }
-  return stdout;
-}
-
-function parseNodes(xml: string) {
-  return [...xml.matchAll(/<node\s[^>]+>/g)].map(([node]) => ({
-    bounds: [
-      ...(
-        node.match(/bounds="(?<bounds>[^"]+)"/)?.groups?.bounds ?? ""
-      ).matchAll(/\d+/g),
-    ].map(([value]) => Number(value)),
-    label: node.match(/content-desc="(?<label>[^"]*)"/)?.groups?.label ?? "",
-    selected: node.includes('selected="true"'),
-    text: node.match(/text="(?<text>[^"]*)"/)?.groups?.text ?? "",
-  }));
-}
 
 type UiNode = ReturnType<typeof parseNodes>[number];
 const size = await adb("shell", "wm", "size");
@@ -48,15 +26,7 @@ const width = Number(dimensions.width);
 const height = Number(dimensions.height);
 
 async function snapshot(): Promise<UiNode[]> {
-  await adb(
-    "shell",
-    "env",
-    "CLASSPATH=/data/local/tmp/asm-fast-dump.jar:/system/framework/uiautomator.jar",
-    "app_process",
-    "/system/bin",
-    "AsmFastDump",
-    "/sdcard/asm-performance.xml"
-  );
+  await dumpHierarchy("/sdcard/asm-performance.xml", { fast: true });
   const xml = await adb("shell", "cat", "/sdcard/asm-performance.xml");
   await Bun.write(`${artifacts}/latest.xml`, xml);
   if (/Something went wrong|keeps stopping/.test(xml)) {
@@ -81,16 +51,7 @@ async function waitFor(
 }
 
 async function capture(name: string) {
-  const process = Bun.spawn(["adb", "exec-out", "screencap", "-p"], {
-    stdout: "pipe",
-  });
-  await Bun.write(
-    `${artifacts}/${name}.png`,
-    await new Response(process.stdout).arrayBuffer()
-  );
-  if (await process.exited) {
-    throw new Error("Screenshot failed");
-  }
+  await captureScreenshot(`${artifacts}/${name}.png`);
   await Bun.write(
     `${artifacts}/${name}.xml`,
     await adb("shell", "cat", "/sdcard/asm-performance.xml")

@@ -196,6 +196,17 @@ test("clicking a profile shows its avatar in Recent after reopening and suggests
     );
     expect(close).toHaveBeenCalledWith(false);
     await render("reopen");
+    const networkControls = host.querySelector("fieldset:has(legend)");
+    const controls = networkControls?.parentElement;
+    expect(controls?.className).toContain("flex-nowrap");
+    expect(controls?.querySelectorAll("fieldset")).toHaveLength(2);
+    expect(
+      host.querySelector('button[aria-label="asocialmedia"]')
+    ).not.toBeNull();
+    expect(
+      host.querySelector('button[aria-label="Search filters"]')
+    ).not.toBeNull();
+
     const recent = host.querySelector("section[aria-label='Recent']");
     expect(recent?.textContent).toContain("Vercel");
     expect(recent?.textContent).toContain("@vercel.com");

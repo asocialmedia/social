@@ -1,34 +1,8 @@
 // Runs against the already-installed Android release app and real public posts.
 // Usage: bun apps/mobile/scripts/smoke/native-feed-navigation-smoke.ts
+import { adb, parseUiNodes as nodes } from "./android";
+
 const packageName = "cc.asocialmedia.mobile";
-
-async function adb(...args: string[]): Promise<string> {
-  const command = Bun.spawn(["adb", ...args], {
-    stderr: "pipe",
-    stdout: "pipe",
-  });
-  const [stdout, stderr, exitCode] = await Promise.all([
-    new Response(command.stdout).text(),
-    new Response(command.stderr).text(),
-    command.exited,
-  ]);
-  if (exitCode !== 0) {
-    throw new Error(`adb ${args[0]} failed: ${stderr}`);
-  }
-  return stdout;
-}
-
-function nodes(xml: string) {
-  return [...xml.matchAll(/<node\s[^>]+>/g)].map(([node]) => ({
-    bounds: [
-      ...(
-        node.match(/bounds="(?<bounds>[^"]+)"/)?.groups?.bounds ?? ""
-      ).matchAll(/\d+/g),
-    ].map(([value]) => Number(value)),
-    label: node.match(/content-desc="(?<label>[^"]*)"/)?.groups?.label ?? "",
-    text: node.match(/text="(?<text>[^"]*)"/)?.groups?.text ?? "",
-  }));
-}
 
 async function snapshot() {
   await adb("shell", "rm", "-f", "/sdcard/asm-navigation-smoke.xml");

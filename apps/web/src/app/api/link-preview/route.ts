@@ -71,15 +71,15 @@ export async function GET(request: Request) {
   }
 
   const embed = await resolveLinkEmbed(sanitized);
-  if (!embed) {
-    return Response.json(
-      { error: "No preview could be generated for this link" },
-      { status: 422 }
-    );
-  }
   return NextResponse.json(
     { embed },
     // Resolved payloads are cached server-side; clients may pin them too.
-    { headers: { "Cache-Control": "private, max-age=1800" } }
+    {
+      headers: {
+        "Cache-Control": embed
+          ? "private, max-age=1800"
+          : "private, max-age=600",
+      },
+    }
   );
 }

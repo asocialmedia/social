@@ -430,3 +430,12 @@ export function formatPrismaFailure(
   const body = detail || tail || "no output captured";
   return `(exit ${exitCode})\n${body}`;
 }
+
+export function formatComposeFailure(stdout: string, stderr: string): string {
+  const detail =
+    [stdout, stderr].filter(Boolean).join("\n") || "no output captured";
+  if (/insufficient UIDs or GIDs|lchown .*invalid argument/.test(detail)) {
+    return `${detail}\n\nRootless Podman has no usable subordinate UID/GID range. If running inside an agent sandbox or restricted user namespace, retry from a normal host terminal first. If the host also fails, configure this user's subUidRanges and subGidRanges (NixOS), or /etc/subuid and /etc/subgid. Apply the host configuration, then run \`podman system migrate\` and retry \`bun run docker:dev\`. A single-ID namespace cannot unpack the dev images.`;
+  }
+  return detail;
+}

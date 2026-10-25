@@ -42,9 +42,9 @@ mock.module("./use-external-profile-activity", () => ({
     hasNextPage: false,
     isError: false,
     isFetching: false,
-    isFetchingNextPage: false,
+    isFetchingNextPage: externalFetchingNextPage,
     isPending: false,
-    loading: false,
+    loading: externalLoading,
     networkError: externalNetworkError,
     refetch: () => Promise.resolve(),
   }),
@@ -79,6 +79,8 @@ mock.module("@/lib/ky", () => ({
     },
   },
 }));
+let externalLoading = false;
+let externalFetchingNextPage = false;
 let externalEmpty = false;
 let externalNetworkError = false;
 const { default: UserAmplifiedFeed } = await import("./user-amplified-feed");
@@ -262,3 +264,81 @@ for (const kind of ["amplified", "replies"] as const) {
     });
   }
 }
+
+test("Amplified uses post skeletons while the external first page is loading", () => {
+  const client = new QueryClient();
+  externalLoading = true;
+  externalEmpty = true;
+  client.setQueryData(["post-feed", "user-amplified", "profile"], {
+    pageParams: [null],
+    pages: [{ nextCursor: null, posts: [] }],
+  });
+  try {
+    const html = renderToStaticMarkup(
+      <QueryClientProvider client={client}>
+        <UserAmplifiedFeed userId="profile" />
+      </QueryClientProvider>
+    );
+    expect(html).toContain('aria-label="Loading feed"');
+    expect(html).toContain("data-post-skeleton");
+    expect(html).not.toContain("lucide-loader");
+    expect(html).not.toContain("No amplified posts yet");
+  } finally {
+    externalLoading = false;
+    externalEmpty = false;
+    client.clear();
+  }
+});
+
+test("Amplified appends post skeletons while loading another external page", () => {
+  const client = new QueryClient();
+  externalFetchingNextPage = true;
+  client.setQueryData(["post-feed", "user-amplified", "profile"], {
+    pageParams: [null],
+    pages: [{ nextCursor: null, posts: [] }],
+  });
+  try {
+    const html = renderToStaticMarkup(
+      <QueryClientProvider client={client}>
+        <UserAmplifiedFeed userId="profile" />
+      </QueryClientProvider>
+    );
+    expect(html).toContain('data-source="bluesky"');
+    expect(html).toContain('aria-label="Loading more amplified posts"');
+    expect(html.match(/data-post-skeleton=/g)).toHaveLength(2);
+    expect(html).not.toContain("lucide-loader");
+  } finally {
+    externalFetchingNextPage = false;
+    client.clear();
+  }
+});
+
+test("Amplified uses post skeletons while fetching another native page", () => {
+  const client = new QueryClient();
+  const queryKey = ["post-feed", "user-amplified", "profile"];
+  client.setQueryData(queryKey, {
+    pageParams: [null],
+    pages: [
+      { nextCursor: "older", nextCursorAt: "2026-01-01T00:00:00Z", posts: [] },
+    ],
+  });
+  client
+    .getQueryCache()
+    .find({ queryKey })
+    ?.setState({
+      fetchMeta: { fetchMore: { direction: "forward" } },
+      fetchStatus: "fetching",
+    });
+  try {
+    const html = renderToStaticMarkup(
+      <QueryClientProvider client={client}>
+        <UserAmplifiedFeed userId="profile" />
+      </QueryClientProvider>
+    );
+    expect(html).toContain('aria-label="Loading more amplified posts"');
+    expect(html.match(/data-post-skeleton=/g)).toHaveLength(2);
+    expect(html).not.toContain("lucide-loader");
+  } finally {
+    client.clear();
+  }
+});

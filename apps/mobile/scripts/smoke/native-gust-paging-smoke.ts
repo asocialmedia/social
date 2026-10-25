@@ -1,7 +1,9 @@
+import { mkdir } from "node:fs/promises";
+
 // Usage: bun apps/mobile/scripts/smoke/native-gust-paging-smoke.ts latest [--continuous] [--speed] [--eddies]
 // Set ASM_SMOKE_FAST_DUMP=1 for the installed AsmFastDump helper and --continuous.
 // Verifies direct reversals on the installed release without clearing account data.
-import { mkdir } from "node:fs/promises";
+import { adb, captureScreenshot, dumpHierarchy } from "./android";
 
 const packageName = "cc.asocialmedia.mobile";
 const tab = process.argv[2] ?? "following";
@@ -10,22 +12,6 @@ if (!["latest", "personalized", "following"].includes(tab)) {
 }
 const artifactDirectory = `/tmp/asm-gust-paging-${tab}`;
 await mkdir(artifactDirectory, { recursive: true });
-
-async function adb(...args: string[]) {
-  const process = Bun.spawn(["adb", ...args], {
-    stderr: "pipe",
-    stdout: "pipe",
-  });
-  const [stdout, stderr, code] = await Promise.all([
-    new Response(process.stdout).text(),
-    new Response(process.stderr).text(),
-    process.exited,
-  ]);
-  if (code) {
-    throw new Error(`adb ${args[0]} failed: ${stderr}`);
-  }
-  return stdout;
-}
 
 const sizeOutput = await adb("shell", "wm", "size");
 const size = sizeOutput.match(/(?<width>\d+)x(?<height>\d+)/);
@@ -40,16 +26,7 @@ if (packageInfo.includes("DEBUGGABLE")) {
 }
 
 async function capture(name: string) {
-  const process = Bun.spawn(["adb", "exec-out", "screencap", "-p"], {
-    stdout: "pipe",
-  });
-  await Bun.write(
-    `${artifactDirectory}/${name}.png`,
-    await new Response(process.stdout).arrayBuffer()
-  );
-  if (await process.exited) {
-    throw new Error("Screenshot failed");
-  }
+  await captureScreenshot(`${artifactDirectory}/${name}.png`);
 }
 
 const fastDump = process.env.ASM_SMOKE_FAST_DUMP === "1";
@@ -68,17 +45,7 @@ async function settledCard(name: string, delay = 800) {
   await Bun.sleep(delay);
   const path = "/sdcard/asm-gust-paging.xml";
   await adb("shell", "rm", "-f", path);
-  let dump = fastDump
-    ? await adb(
-        "shell",
-        "env",
-        "CLASSPATH=/data/local/tmp/asm-fast-dump.jar:/system/framework/uiautomator.jar",
-        "app_process",
-        "/system/bin",
-        "AsmFastDump",
-        path
-      )
-    : await adb("shell", "uiautomator", "dump", path);
+  let dump = await dumpHierarchy(path, { fast: fastDump });
   if (!fastDump && !dump.includes("dumped to:")) {
     // Pause moving captions and playback so UIAutomator can reach idle.
     await adb(

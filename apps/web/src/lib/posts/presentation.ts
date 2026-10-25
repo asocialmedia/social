@@ -5,6 +5,7 @@ import {
   externalPostTopics,
 } from "@asm/protocols/contracts";
 
+import { linkFallbackLabel } from "@/lib/link-embeds/bluesky-links";
 import {
   sanitizeEmbedUrl,
   youtubeVideoIdFromUrl,
@@ -58,7 +59,9 @@ export function externalPostView(post: ExternalPost): PresentedPost {
               /^www\./u,
               ""
             ),
-            title: post.externalLink.title,
+            title:
+              post.externalLink.title.trim() ||
+              linkFallbackLabel(post.externalLink.url),
             type: youtubeVideoIdFromUrl(post.externalLink.url)
               ? "youtube"
               : "link",

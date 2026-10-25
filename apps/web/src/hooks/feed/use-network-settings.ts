@@ -17,6 +17,7 @@ import {
 import { useRef, useState } from "react";
 
 import { useSession } from "@/lib/auth/session-context";
+import { CARD_QUERY_POLICY } from "@/lib/cards/query-policy";
 import { useToast } from "@/lib/gooey-toast";
 
 const GUEST: NetworkSettings = {
@@ -56,7 +57,7 @@ export function useNetworkSettings(options: { optimistic?: boolean } = {}) {
     enabled: Boolean(user),
     queryFn: readSettings,
     queryKey,
-    staleTime: 30_000,
+    ...CARD_QUERY_POLICY,
   });
   const confirmed = user ? (query.data ?? GUEST) : GUEST;
   const sequence = useRef(0);

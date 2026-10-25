@@ -1,28 +1,14 @@
+import { mkdir } from "node:fs/promises";
+
 // Checks the installed Android app without changing account or security settings.
 // Usage: bun apps/mobile/scripts/smoke/native-settings-layout-smoke.ts
 // Repeat at a narrower display or larger system font size to check text wrapping.
 // oxlint-disable no-await-in-loop -- Each Android action must finish before inspecting or changing the same screen.
-import { mkdir } from "node:fs/promises";
+import { adb, parseUiNodes } from "./android";
 
 const artifactDirectory =
   process.env.ASM_SETTINGS_SMOKE_ARTIFACTS ?? "/tmp/asm-settings-layout-smoke";
 await mkdir(artifactDirectory, { recursive: true });
-
-async function adb(...args: string[]) {
-  const command = Bun.spawn(["adb", ...args], {
-    stderr: "pipe",
-    stdout: "pipe",
-  });
-  const [stdout, stderr, exitCode] = await Promise.all([
-    new Response(command.stdout).text(),
-    new Response(command.stderr).text(),
-    command.exited,
-  ]);
-  if (exitCode !== 0) {
-    throw new Error(`adb ${args[0]} failed: ${stderr}`);
-  }
-  return stdout;
-}
 
 const sizeOutput = await adb("shell", "wm", "size");
 const sizes = [...sizeOutput.matchAll(/(?<width>\d+)x(?<height>\d+)/g)];
@@ -84,15 +70,7 @@ for (const tab of tabs) {
     await adb("shell", "uiautomator", "dump", remotePath);
     const xml = await adb("shell", "cat", remotePath);
     await Bun.write(`${artifactDirectory}/${name}.xml`, xml);
-    const nodes = [...xml.matchAll(/<node\s[^>]+>/g)].map(([node]) => ({
-      bounds: [
-        ...(
-          node.match(/bounds="(?<bounds>[^"]+)"/)?.groups?.bounds ?? ""
-        ).matchAll(/\d+/g),
-      ].map(([number]) => Number(number)),
-      isText: node.includes('class="android.widget.TextView"'),
-      text: node.match(/text="(?<text>[^"]*)"/)?.groups?.text ?? "",
-    }));
+    const nodes = parseUiNodes(xml);
     if (!xml.includes("Search settings")) {
       throw new Error("The app is not on Settings");
     }

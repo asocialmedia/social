@@ -1,6 +1,8 @@
 // Run against an installed release APK with real feed posts.
 // Usage: ASM_SMOKE_FEED_TAB='For you' bun apps/mobile/scripts/smoke/native-feed-resume-smoke.ts
 // Optional: ASM_SMOKE_SCROLL_STEPS=10 and ASM_SMOKE_FAST_DUMP=1 for deep animated feeds.
+import { adb, dumpHierarchy, parseUiNodes } from "./android";
+
 const packageName = "cc.asocialmedia.mobile";
 const feedTab = process.env.ASM_SMOKE_FEED_TAB ?? "Latest";
 const scrollSteps = Number(process.env.ASM_SMOKE_SCROLL_STEPS ?? 3);
@@ -9,22 +11,6 @@ if (!Number.isInteger(scrollSteps) || scrollSteps < 1 || scrollSteps > 1000) {
 }
 if (!["Latest", "For you", "Following", "Trending"].includes(feedTab)) {
   throw new Error("Unknown ASM_SMOKE_FEED_TAB");
-}
-
-async function adb(...args: string[]): Promise<string> {
-  const process = Bun.spawn(["adb", ...args], {
-    stderr: "pipe",
-    stdout: "pipe",
-  });
-  const [stdout, stderr, code] = await Promise.all([
-    new Response(process.stdout).text(),
-    new Response(process.stderr).text(),
-    process.exited,
-  ]);
-  if (code !== 0) {
-    throw new Error(`ADB ${args[0]} failed: ${stderr}`);
-  }
-  return stdout;
 }
 
 const displaySize = await adb("shell", "wm", "size");
@@ -38,50 +24,22 @@ if (!width || !height) {
 }
 
 function readNodes(xml: string) {
-  return [...xml.matchAll(/<node\s[^>]+>/g)]
-    .map(([node]) => ({
-      bounds: [
-        ...(
-          node.match(/bounds="(?<bounds>[^"]*)"/)?.groups?.bounds ?? ""
-        ).matchAll(/\d+/g),
-      ].map(([value]) => Number(value)),
-      label: node.match(/content-desc="(?<label>[^"]*)"/)?.groups?.label ?? "",
-      resourceId: node.match(/resource-id="(?<id>[^"]*)"/)?.groups?.id ?? "",
-      text: node.match(/text="(?<text>[^"]*)"/)?.groups?.text ?? "",
-    }))
-    .filter(
-      ({ bounds: [left = 0, top = 0, right = 0, bottom = 0] }) =>
-        right > left &&
-        bottom > top &&
-        left < width &&
-        right > 0 &&
-        top < height &&
-        bottom > 0
-    );
+  return parseUiNodes(xml).filter(
+    ({ bounds: [left = 0, top = 0, right = 0, bottom = 0] }) =>
+      right > left &&
+      bottom > top &&
+      left < width &&
+      right > 0 &&
+      top < height &&
+      bottom > 0
+  );
 }
 type UiNode = ReturnType<typeof readNodes>[number];
 
 async function snapshot() {
   const hierarchyPath = "/sdcard/asm-feed-resume.xml";
   await adb("shell", "rm", "-f", hierarchyPath);
-  const result =
-    process.env.ASM_SMOKE_FAST_DUMP === "1"
-      ? await adb(
-          "shell",
-          "env",
-          "CLASSPATH=/data/local/tmp/asm-fast-dump.jar:/system/framework/uiautomator.jar",
-          "app_process",
-          "/system/bin",
-          "AsmFastDump",
-          hierarchyPath
-        )
-      : await adb(
-          "shell",
-          "uiautomator",
-          "dump",
-          "--compressed",
-          hierarchyPath
-        );
+  const result = await dumpHierarchy(hierarchyPath, { compressed: true });
   if (!result.includes("dumped to:")) {
     throw new Error("Android hierarchy did not settle; no stale dump was read");
   }

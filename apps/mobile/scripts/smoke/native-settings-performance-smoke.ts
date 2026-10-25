@@ -1,29 +1,15 @@
+import { mkdir } from "node:fs/promises";
+
 // Measures release Settings tab taps and swipe reversals without changing settings.
 // Usage: ASM_SETTINGS_PERF_LABEL=baseline bun apps/mobile/scripts/smoke/native-settings-performance-smoke.ts
 // oxlint-disable no-await-in-loop -- Device gestures and assertions must run in order.
-import { mkdir } from "node:fs/promises";
+import { adb, captureScreenshot, parseUiNodes } from "./android";
 
 const packageName = "cc.asocialmedia.mobile";
 const artifactDirectory =
   process.env.ASM_SETTINGS_PERF_ARTIFACTS ?? "/tmp/asm-settings-performance";
 const label = process.env.ASM_SETTINGS_PERF_LABEL ?? "candidate";
 await mkdir(artifactDirectory, { recursive: true });
-
-async function adb(...args: string[]): Promise<string> {
-  const command = Bun.spawn(["adb", ...args], {
-    stderr: "pipe",
-    stdout: "pipe",
-  });
-  const [stdout, stderr, exitCode] = await Promise.all([
-    new Response(command.stdout).text(),
-    new Response(command.stderr).text(),
-    command.exited,
-  ]);
-  if (exitCode !== 0) {
-    throw new Error(`adb ${args[0]} failed: ${stderr}`);
-  }
-  return stdout;
-}
 
 const display = await adb("shell", "wm", "size");
 const dimensions = [...display.matchAll(/(?<width>\d+)x(?<height>\d+)/g)].at(
@@ -53,16 +39,7 @@ async function snapshot() {
   ) {
     throw new Error("Settings lost foreground or entered an error screen");
   }
-  return [...xml.matchAll(/<node\s[^>]+>/g)].map(([node]) => ({
-    bounds: [
-      ...(
-        node.match(/bounds="(?<bounds>[^"]+)"/)?.groups?.bounds ?? ""
-      ).matchAll(/\d+/g),
-    ].map(([value]) => Number(value)),
-    label: node.match(/content-desc="(?<label>[^"]*)"/)?.groups?.label ?? "",
-    selected: node.includes('selected="true"'),
-    text: node.match(/text="(?<text>[^"]*)"/)?.groups?.text ?? "",
-  }));
+  return parseUiNodes(xml);
 }
 
 async function assertSelected(tab: string) {
@@ -82,16 +59,7 @@ async function assertSelected(tab: string) {
 }
 
 async function capture(name: string) {
-  const command = Bun.spawn(["adb", "exec-out", "screencap", "-p"], {
-    stdout: "pipe",
-  });
-  await Bun.write(
-    `${artifactDirectory}/${label}-${name}.png`,
-    await new Response(command.stdout).arrayBuffer()
-  );
-  if (await command.exited) {
-    throw new Error("Screenshot failed");
-  }
+  await captureScreenshot(`${artifactDirectory}/${label}-${name}.png`);
 }
 
 async function frames(phase: string) {

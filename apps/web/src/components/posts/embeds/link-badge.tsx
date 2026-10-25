@@ -9,8 +9,10 @@ import {
   FaXTwitter,
   FaYoutube,
 } from "react-icons/fa6";
+import { useInView } from "react-intersection-observer";
 
-import kyInstance from "@/lib/ky";
+import { linkFallbackLabel } from "@/lib/link-embeds/bluesky-links";
+import { linkPreviewQueryOptions } from "@/lib/link-embeds/preview-query";
 import { sanitizeEmbedUrl } from "@/lib/link-embeds/shared";
 import type { LinkEmbed } from "@/lib/link-embeds/shared";
 
@@ -69,34 +71,35 @@ export function LinkBadge({
   index = 0,
   maxPreviews = MAX_INLINE_LINK_PREVIEWS,
   title,
+  fallbackTitle,
   url,
 }: {
   index?: number;
   maxPreviews?: number;
   title?: string | null;
+  fallbackTitle?: string;
   url: string;
 }) {
   const isPreviewAllowed = index < maxPreviews;
+  const { ref, inView } = useInView({
+    rootMargin: "200px 0px",
+    skip: !isPreviewAllowed || Boolean(title),
+    triggerOnce: true,
+  });
   const { data } = useQuery({
-    enabled: isPreviewAllowed && !title && Boolean(url),
-    queryFn: async () => {
-      const res = await kyInstance
-        .get("/api/link-preview", {
-          searchParams: { url },
-          timeout: 10_000,
-        })
-        .json<{ embed: LinkEmbed }>();
-      return res.embed;
-    },
-    queryKey: ["link-preview", url],
-    staleTime: 1000 * 60 * 30,
+    enabled: inView && isPreviewAllowed && !title && Boolean(url),
+    ...linkPreviewQueryOptions(url),
   });
 
   const platform = platformFromUrl(url);
-  const label = title?.trim() || data?.title?.trim() || hostLabel(url);
+  const label =
+    title?.trim() ||
+    data?.title?.trim() ||
+    linkFallbackLabel(url, fallbackTitle);
 
   return (
     <a
+      ref={ref}
       className="meta-chip inline-flex max-w-full items-center gap-1.5 align-middle text-xs"
       href={url}
       onClick={(event) => event.stopPropagation()}
@@ -129,5 +132,5 @@ export function findEmbedForUrl(
   if (!sanitized) {
     return undefined;
   }
-  return embeds.find((embed) => embed.url === sanitized);
+  return embeds.find((embed) => sanitizeEmbedUrl(embed.url) === sanitized);
 }

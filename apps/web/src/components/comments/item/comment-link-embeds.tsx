@@ -5,19 +5,13 @@ import { useInView } from "react-intersection-observer";
 
 import { EmbedCard } from "@/components/posts/embeds/embed-card";
 import { YouTubeEmbed } from "@/components/posts/embeds/youtube-embed";
-import kyInstance from "@/lib/ky";
+import { linkPreviewQueryOptions } from "@/lib/link-embeds/preview-query";
 import { extractPostUrls, MAX_POST_EMBEDS } from "@/lib/link-embeds/shared";
 import type { LinkEmbed } from "@/lib/link-embeds/shared";
 
 interface CommentLinkEmbedsProps {
   content: string;
 }
-
-interface LinkPreviewResponse {
-  embed: LinkEmbed;
-}
-
-const PREVIEW_STALE_TIME_MS = 1000 * 60 * 30; // 30 minutes
 
 export function CommentLinkEmbeds({ content }: CommentLinkEmbedsProps) {
   const urls = extractPostUrls(content);
@@ -29,18 +23,7 @@ export function CommentLinkEmbeds({ content }: CommentLinkEmbedsProps) {
   const queries = useQueries({
     queries: urls.map((url) => ({
       enabled: inView && Boolean(url),
-      queryFn: async (): Promise<LinkEmbed> => {
-        const response = await kyInstance
-          .get("/api/link-preview", {
-            searchParams: { url },
-            timeout: 10_000,
-          })
-          .json<LinkPreviewResponse>();
-        return response.embed;
-      },
-      queryKey: ["link-preview", url],
-      retry: 1,
-      staleTime: PREVIEW_STALE_TIME_MS,
+      ...linkPreviewQueryOptions(url),
     })),
   });
 

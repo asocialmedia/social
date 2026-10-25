@@ -1031,3 +1031,117 @@ test("video-filtered search is worker-eligible and denied cursors cannot pause f
       )
   ).toBe(true);
 });
+
+test("denied public worker reads are restrictions rather than outage diagnostics", async () => {
+  const diagnostics: ProtocolDiagnostic[] = [];
+  const reader = createWorkerReader({
+    fetch: async () => Response.json({ error: "Forbidden" }, { status: 403 }),
+    observe: (diagnostic) => {
+      diagnostics.push(diagnostic);
+    },
+  });
+  expect((await reader.fetch(search, {})).status).toBe(403);
+  expect(diagnostics).toMatchObject([
+    { code: "restricted", outcome: "error", status: 403 },
+  ]);
+});
+
+test("a timed out generator retains its own backoff while independent remote feeds stay available", async () => {
+  const remote: string[] = [];
+  const slow = publicFeed("slow");
+  const pool = createReadWorkerPool({
+    fetch: async (url, init) => {
+      if (url.startsWith(node.url)) {
+        const upstream = new URL(url).searchParams.get("url") ?? "";
+        remote.push(upstream);
+        if (upstream === slow) {
+          return new Promise<Response>((_resolve, reject) => {
+            init.signal?.addEventListener(
+              "abort",
+              () => reject(init.signal?.reason),
+              { once: true }
+            );
+          });
+        }
+      }
+      return response({ ok: true });
+    },
+    logger: logger(),
+    nodes: [node],
+    timeoutMs: 10,
+  });
+  await pool.fetch(profile, {});
+  expect((await pool.fetch(slow, {})).status).toBe(200);
+  expect((await pool.fetch(publicFeed("healthy-peer"), {})).status).toBe(200);
+  await pool.fetch(slow, {});
+  await pool.fetch(slow, {});
+  expect(remote.filter((url) => url === slow)).toHaveLength(1);
+  expect(remote).toContain(publicFeed("healthy-peer"));
+});
+
+test("the production read budget permits a healthy remote beyond the old fallback cutoff", async () => {
+  const reads: string[] = [];
+  const pool = createReadWorkerPool({
+    fetch: async (url) => {
+      reads.push(url);
+      if (url.startsWith(node.url)) {
+        await Bun.sleep(1400);
+      }
+      return response({ ok: true });
+    },
+    localReserveMs: 1300,
+    logger: logger(),
+    nodes: [node],
+    requestTimeoutMs: 3500,
+    timeoutMs: 1800,
+  });
+  await pool.fetch(profile, {});
+  reads.length = 0;
+  expect(
+    (
+      await pool.fetch(publicFeed("cold"), {
+        signal: AbortSignal.timeout(3500),
+      })
+    ).status
+  ).toBe(200);
+  expect(reads).toHaveLength(1);
+  expect(reads[0]).toStartWith(node.url);
+});
+
+test("a successful fallback keeps attempt diagnostics without emitting an outage warning", async () => {
+  const logs = logger();
+  const pool = createReadWorkerPool({
+    fetch: async (url) => {
+      if (url.startsWith(node.url)) {
+        throw new TypeError("offline");
+      }
+      return response({ ok: true });
+    },
+    logger: logs,
+    nodes: [node],
+  });
+  await pool.fetch(profile, {});
+  expect((await pool.fetch(publicFeed("recovered"), {})).status).toBe(200);
+  expect(logs.warn).not.toHaveBeenCalled();
+  expect(logs.debug).toHaveBeenCalledWith(
+    expect.objectContaining({ event: "worker.unavailable", recovered: true }),
+    "Protocol read worker unavailable; trying available capacity"
+  );
+});
+
+test("failed fallback capacity retains warning diagnostics for real degradation", async () => {
+  const logs = logger();
+  const pool = createReadWorkerPool({
+    fetch: async () => {
+      throw new TypeError("offline");
+    },
+    logger: logs,
+    nodes: [node],
+  });
+  expect((await pool.fetch(profile, {})).status).toBe(503);
+  expect(logs.warn).toHaveBeenCalledTimes(2);
+  expect(logs.warn.mock.calls[0]?.[0]).toMatchObject({
+    event: "worker.unavailable",
+    recovered: false,
+  });
+});

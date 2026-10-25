@@ -87,6 +87,20 @@ export function createReadWorkerPool(options: {
     let pauseMs = 1000;
     let lastStatus = 503;
     let lastFailure: Response | undefined;
+    const attemptFailures: {
+      fields: Record<string, unknown>;
+      message: string;
+    }[] = [];
+    const reportFailures = (recovered: boolean) => {
+      const log = recovered ? options.logger.debug : options.logger.warn;
+      for (const failure of attemptFailures) {
+        log.call(
+          options.logger,
+          { ...failure.fields, recovered },
+          failure.message
+        );
+      }
+    };
     const available = (candidate: (typeof nodes)[number]) =>
       !attempted.has(candidate.id) &&
       candidate.active < (candidate.url ? 8 : 256) &&
@@ -94,7 +108,8 @@ export function createReadWorkerPool(options: {
       (candidate.blocked.get(operationKey) ?? 0) <= now() &&
       ((search ? candidate.blockedSearches : candidate.blocked).get(resource) ??
         0) <= now() &&
-      !candidate.recovering.has(operationKey);
+      !candidate.recovering.has(operationKey) &&
+      !candidate.recovering.has(resource);
     for (let attempt = 0; attempt < Math.min(2, nodes.length); attempt += 1) {
       init.signal?.throwIfAborted();
       const remainingMs = deadline - now();
@@ -128,6 +143,9 @@ export function createReadWorkerPool(options: {
       node.active += 1;
       if (node.operationFailures.has(operationKey)) {
         node.recovering.add(operationKey);
+      }
+      if (node.operationFailures.has(resource)) {
+        node.recovering.add(resource);
       }
       const startedAt = now();
       const signal = AbortSignal.any([
@@ -238,15 +256,20 @@ export function createReadWorkerPool(options: {
           } else {
             await response.body?.cancel();
           }
-          options.logger.warn(
-            {
+          const failure = {
+            fields: {
               ...attributes,
               event: "worker.cooldown",
               retryAfterMs: pauseMs,
               status: lastStatus,
             },
-            "Protocol read worker paused; trying available capacity"
-          );
+            message: "Protocol read worker paused; trying available capacity",
+          };
+          if (upstreamStatus === 403) {
+            options.logger.debug(failure.fields, failure.message);
+          } else {
+            attemptFailures.push(failure);
+          }
           continue;
         }
         const body = await readJsonBounded(
@@ -260,27 +283,40 @@ export function createReadWorkerPool(options: {
           return { error: "UpstreamRejected" };
         });
         node.operationFailures.delete(operationKey);
+        node.operationFailures.delete(resource);
         node.deniedSearches.delete(operationKey);
+        reportFailures(true);
         return Response.json(body, { status: upstreamStatus });
       } catch (error) {
         init.signal?.throwIfAborted();
-        node.transportFailures += 1;
+        const timedOut =
+          signal.aborted &&
+          signal.reason instanceof Error &&
+          signal.reason.name === "TimeoutError";
+        // One slow feed generator must not close capacity for every other generator.
+        const failureKey =
+          timedOut && target.pathname === "/xrpc/app.bsky.feed.getFeed"
+            ? resource
+            : operationKey;
+        if (!timedOut) {
+          node.transportFailures += 1;
+        }
         for (const [key, failure] of node.operationFailures) {
           if (now() - failure.at > 5 * 60_000) {
             node.operationFailures.delete(key);
           }
         }
         const failures =
-          (node.operationFailures.get(operationKey)?.count ?? 0) + 1;
+          (node.operationFailures.get(failureKey)?.count ?? 0) + 1;
         if (
           node.operationFailures.size >= 512 &&
-          !node.operationFailures.has(operationKey)
+          !node.operationFailures.has(failureKey)
         ) {
           node.operationFailures.delete(
             node.operationFailures.keys().next().value ?? ""
           );
         }
-        node.operationFailures.set(operationKey, {
+        node.operationFailures.set(failureKey, {
           at: now(),
           count: failures,
         });
@@ -288,26 +324,34 @@ export function createReadWorkerPool(options: {
           120_000,
           10_000 * 2 ** Math.min(failures - 1, 4)
         );
-        block(node.blocked, operationKey, operationPauseMs);
+        block(node.blocked, failureKey, operationPauseMs);
         if (node.url && node.transportFailures >= 3) {
           block(node.blocked, target.origin, 30_000);
         }
         requests.add(1, { ...attributes, status: 0 });
-        options.logger.warn(
-          {
+        let reason = error instanceof Error ? error.name : "unknown";
+        if (timedOut) {
+          reason = "TimeoutError";
+        }
+        attemptFailures.push({
+          fields: {
             ...attributes,
             event: "worker.unavailable",
-            reason: error instanceof Error ? error.name : "unknown",
+            reason,
             retryAfterMs: operationPauseMs,
+            timeoutMs: attemptTimeoutMs,
           },
-          "Protocol read worker unavailable; trying available capacity"
-        );
+          message:
+            "Protocol read worker unavailable; trying available capacity",
+        });
       } finally {
         node.active -= 1;
         node.recovering.delete(operationKey);
+        node.recovering.delete(resource);
         duration.record(now() - startedAt, attributes);
       }
     }
+    reportFailures(false);
     if (lastFailure) {
       return lastFailure;
     }

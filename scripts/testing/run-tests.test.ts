@@ -175,7 +175,7 @@ describe("runTestSuite", () => {
     expect(invocations[0]?.cmd).toEqual([
       "bun",
       "test",
-      "--parallel=4",
+      "--parallel=2",
       "--env-file=.env.test",
       "--timings=test-timings.json",
       "--update-timings",
@@ -208,7 +208,7 @@ describe("runTestSuite", () => {
     expect(invocations[0]?.cmd).toEqual([
       "bun",
       "test",
-      "--parallel=4",
+      "--parallel=2",
       "--env-file=.env.test",
       "--timings=test-timings.json",
       "--update-timings",
@@ -251,7 +251,7 @@ describe("runTestSuite", () => {
     expect(invocations[0]?.cmd).toEqual([
       "bun",
       "test",
-      "--parallel=4",
+      "--parallel=2",
       "--env-file=.env.test",
       "--timings=test-timings.json",
       "--update-timings",
@@ -279,7 +279,7 @@ describe("runTestSuite", () => {
     expect(invocations[0]?.cmd).toEqual([
       "bun",
       "test",
-      "--parallel=4",
+      "--parallel=2",
       "--env-file=.env.test",
       "--timings=test-timings.json",
       "--update-timings",
@@ -308,10 +308,10 @@ describe("runTestSuite", () => {
       allFiles: ["apps/web/b.test.ts"],
     });
 
-    await runTestSuite(["--parallel=2"], deps);
+    await runTestSuite(["--parallel=3"], deps);
 
-    expect(invocations[0]?.cmd).toContain("--parallel=2");
-    expect(invocations[0]?.cmd).not.toContain("--parallel=4");
+    expect(invocations[0]?.cmd).toContain("--parallel=3");
+    expect(invocations[0]?.cmd).not.toContain("--parallel=2");
   });
 
   test("unit mode selects unit scope without probing integration services or forwarding the wrapper flag", async () => {
@@ -341,6 +341,76 @@ describe("runTestSuite", () => {
     });
     await runTestSuite(["--unit"], { ...deps, recordTimings: false });
     expect(invocations[0]?.cmd).not.toContain("--update-timings");
-    expect(invocations[0]?.cmd).not.toContain("--timings=test-timings.json");
+    expect(invocations[0]?.cmd).toContain("--timings=test-timings.json");
+  });
+
+  test("honors explicit timing inputs and writes only to the requested output", async () => {
+    const { deps, invocations } = makeDeps({
+      allFiles: ["apps/web/b.test.ts"],
+    });
+    await runTestSuite(
+      [
+        "--unit",
+        "--shard=1/2",
+        "--timings=shard-1.json",
+        "--timings=test-timings.json",
+        "--update-timings",
+      ],
+      deps
+    );
+    expect(
+      invocations[0]?.cmd.filter((argument) =>
+        argument.startsWith("--timings=")
+      )
+    ).toEqual(["--timings=shard-1.json", "--timings=test-timings.json"]);
+    expect(
+      invocations[0]?.cmd.filter((argument) => argument === "--update-timings")
+    ).toHaveLength(1);
+    expect(invocations[0]?.cmd).toContain("--shard=1/2");
+  });
+
+  test("integration mode selects only integration files and runs them serially with isolation", async () => {
+    const file = "packages/db/a.integration.test.ts";
+    const { deps, invocations } = makeDeps({ allFiles: [file] });
+    const collectFiles = mock(() => Promise.resolve([file]));
+    expect(
+      await runTestSuite(["--integration"], { ...deps, collectFiles })
+    ).toBe(0);
+    expect(collectFiles).toHaveBeenCalledWith("integration", sandbox);
+    expect(invocations[0]?.cmd).toContain("--parallel=1");
+    expect(invocations[0]?.cmd).toContain("--isolate");
+    expect(invocations[0]?.cmd).not.toContain("--integration");
+    expect(invocations[0]?.cmd).toContain(`./${file}`);
+  });
+
+  test.each(["postgres", "redis"])(
+    "integration mode fails instead of skipping when %s is unavailable",
+    async (unavailable) => {
+      const { deps, invocations, logger } = makeDeps({
+        allFiles: ["packages/db/a.integration.test.ts"],
+      });
+      const result = await runTestSuite(["--integration"], {
+        ...deps,
+        probeService: (endpoint) =>
+          Promise.resolve(endpoint.name !== unavailable),
+      });
+      expect(result).toBe(1);
+      expect(invocations).toHaveLength(0);
+      expect(logger.error).toHaveBeenCalledWith(
+        "Integration tests require reachable PostgreSQL and Redis."
+      );
+    }
+  );
+
+  test("rejects conflicting scopes before discovering or running tests", async () => {
+    const { deps, invocations } = makeDeps({
+      allFiles: ["apps/web/b.test.ts"],
+    });
+    const collectFiles = mock(() => Promise.resolve([]));
+    expect(
+      await runTestSuite(["--unit", "--integration"], { ...deps, collectFiles })
+    ).toBe(1);
+    expect(collectFiles).not.toHaveBeenCalled();
+    expect(invocations).toHaveLength(0);
   });
 });

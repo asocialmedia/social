@@ -5,7 +5,7 @@ import { collectTestFiles, isIntegrationTestFile } from "./test-file-discovery";
 
 const ENV_FILE_NAME = ".env.test";
 const TIMINGS_FILE_NAME = "test-timings.json";
-const DEFAULT_TEST_FILE_WORKERS = 4;
+const DEFAULT_TEST_FILE_WORKERS = 2;
 
 export type ServiceName = "postgres" | "redis";
 
@@ -155,8 +155,16 @@ export async function runTestSuite(
   const processEnv = deps.env ?? process.env;
 
   const unitOnly = extraArgs.includes("--unit");
-  const testArgs = extraArgs.filter((argument) => argument !== "--unit");
-  const allTests = await collectFiles(unitOnly ? "unit" : "all", rootDir);
+  const integrationOnly = extraArgs.includes("--integration");
+  if (unitOnly && integrationOnly) {
+    logger.error("Choose either --unit or --integration, not both.");
+    return 1;
+  }
+  const testArgs = extraArgs.filter(
+    (argument) => argument !== "--unit" && argument !== "--integration"
+  );
+  const scope = integrationOnly ? "integration" : unitOnly ? "unit" : "all";
+  const allTests = await collectFiles(scope, rootDir);
 
   if (allTests.length === 0) {
     logger.error("No test files found.");
@@ -180,6 +188,11 @@ export async function runTestSuite(
     !unitOnly && redisEndpoint ? await probeService(redisEndpoint) : false;
 
   const servicesReachable = postgresReachable && redisReachable;
+
+  if (integrationOnly && !servicesReachable) {
+    logger.error("Integration tests require reachable PostgreSQL and Redis.");
+    return 1;
+  }
 
   let selectedTests = allTests;
 
@@ -207,6 +220,9 @@ export async function runTestSuite(
     (argument) =>
       argument === "--parallel" || argument.startsWith("--parallel=")
   );
+  const hasTimingsOverride = testArgs.some(
+    (argument) => argument === "--timings" || argument.startsWith("--timings=")
+  );
 
   return await runProcess({
     cmd: [
@@ -214,11 +230,13 @@ export async function runTestSuite(
       "test",
       ...(hasParallelOverride
         ? []
-        : [`--parallel=${DEFAULT_TEST_FILE_WORKERS}`]),
+        : [`--parallel=${integrationOnly ? 1 : DEFAULT_TEST_FILE_WORKERS}`]),
+      ...(integrationOnly ? ["--isolate"] : []),
       `--env-file=${ENV_FILE_NAME}`,
-      ...(deps.recordTimings === false
+      ...(hasTimingsOverride ? [] : [`--timings=${TIMINGS_FILE_NAME}`]),
+      ...(deps.recordTimings === false || testArgs.includes("--update-timings")
         ? []
-        : [`--timings=${TIMINGS_FILE_NAME}`, "--update-timings"]),
+        : ["--update-timings"]),
       ...testArgs,
       ...selectedTests.map((filePath) => `./${filePath}`),
     ],

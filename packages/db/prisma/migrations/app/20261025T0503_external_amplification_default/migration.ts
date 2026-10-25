@@ -1,10 +1,15 @@
 #!/usr/bin/env -S node
-import { Migration, MigrationCLI } from "@prisma/orm-postgres/migration";
+import {
+  Migration,
+  MigrationCLI,
+  col,
+  fn,
+} from "@prisma/orm-postgres/migration";
 
-import type { Contract as End } from "../../snapshots/5250d26200dc4cdf6845809e9519810e8c329a6c3dc48725e0f1d897034551f0/contract";
-import endContract from "../../snapshots/5250d26200dc4cdf6845809e9519810e8c329a6c3dc48725e0f1d897034551f0/contract.json" with { type: "json" };
-import type { Contract as Start } from "../../snapshots/c6d9eac560b0b36f4403509474767fd956b7d77d370f09b2c40ac0c6276f56d5/contract";
-import startContract from "../../snapshots/c6d9eac560b0b36f4403509474767fd956b7d77d370f09b2c40ac0c6276f56d5/contract.json" with { type: "json" };
+import type { Contract as End } from "../../snapshots/d1e4b3353eba935e395ef107d463a1f8a0924657f3e1f7ef98743232e8f0c158/contract";
+import endContract from "../../snapshots/d1e4b3353eba935e395ef107d463a1f8a0924657f3e1f7ef98743232e8f0c158/contract.json" with { type: "json" };
+import type { Contract as Start } from "../../snapshots/da193d30e4b244befee8f188be74d8b355350db2e201bdee5f340df943bec4f0/contract";
+import startContract from "../../snapshots/da193d30e4b244befee8f188be74d8b355350db2e201bdee5f340df943bec4f0/contract.json" with { type: "json" };
 
 export default class M extends Migration<Start, End> {
   override readonly startContractJson = startContract;
@@ -15,8 +20,13 @@ export default class M extends Migration<Start, End> {
       this.setDefault({
         schema: "public",
         table: "external_engagements",
-        column: "amplifiedAt",
-        defaultSql: "DEFAULT (now())",
+        column: col("amplifiedAt", "timestamp(3)", {
+          default: fn("now()"),
+          codecRef: {
+            codecId: "pg/timestamp-temporal@1",
+            typeParams: { precision: 3 },
+          },
+        }),
       }),
       this.createIndex({
         schema: "public",

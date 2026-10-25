@@ -32,6 +32,7 @@ import { BlueskyIcon } from "@/components/protocols/bluesky-icon";
 import { useBlueskyProfile } from "@/components/protocols/use-bluesky-profile";
 import { useUserDataQuery } from "@/hooks/users/use-user-data-query";
 import { getAuraFlameClass } from "@/lib/aura/aura";
+import { CARD_QUERY_POLICY } from "@/lib/cards/query-policy";
 import kyInstance from "@/lib/ky";
 import { parseStoredEmbeds } from "@/lib/link-embeds/shared";
 import { externalAuthorView, externalPostView } from "@/lib/posts/presentation";
@@ -290,9 +291,9 @@ const PostAuthorSidebar: React.FC<PostAuthorSidebarProps> = ({ post }) => {
     queryKey: [
       "post-author-posts",
       isExternal ? `bluesky:${authorActor}` : author.id,
-      post.id,
+      currentUser?.id ?? "guest",
     ],
-    staleTime: 1000 * 60,
+    ...CARD_QUERY_POLICY,
   });
 
   const posts = useMemo(() => {
