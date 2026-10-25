@@ -1,20 +1,21 @@
 import { Database } from "bun:sqlite";
 import { expect, test } from "bun:test";
 
+import errorQuery from "./sql/fixtures/protocol-alerts-errors.sql" with { type: "text" };
+import insertQuery from "./sql/fixtures/protocol-alerts-insert.sql" with { type: "text" };
+import schemaQuery from "./sql/fixtures/protocol-alerts-schema.sql" with { type: "text" };
+import degradedQuery from "./sql/protocols-degraded.sql" with { type: "text" };
+
 const requestFailed = "Protocol request failed";
 const warmupFailed = "Discovery inventory warmup failed";
 const workerUnavailable =
   "Protocol read worker unavailable; trying available capacity";
 
-test("protocol degradation alerts count terminal service failures while retaining independent ERROR alerts", async () => {
+test("protocol degradation alerts count terminal service failures while retaining independent ERROR alerts", () => {
   const database = new Database(":memory:");
   try {
-    database.run(
-      "CREATE TABLE asm_protocols_logs (_timestamp INTEGER, severity TEXT, body TEXT, operation TEXT, code TEXT)"
-    );
-    const insert = database.query(
-      "INSERT INTO asm_protocols_logs VALUES (?, ?, ?, ?, ?)"
-    );
+    database.run(schemaQuery);
+    const insert = database.query(insertQuery);
     const cases = [
       {
         body: requestFailed,
@@ -91,22 +92,15 @@ test("protocol degradation alerts count terminal service failures while retainin
     }
     insert.run(100, "ERROR", "Protocol HTTP handler failed", null, "internal");
     insert.run(101, "FATAL", "Process failed", null, "internal");
-    const sql = await Bun.file(
-      new URL("./sql/protocols-degraded.sql", import.meta.url)
-    ).text();
-    const matching = database.query<{ _timestamp: number }, []>(sql).all();
+    const matching = database
+      .query<{ _timestamp: number }, []>(degradedQuery)
+      .all();
     expect(
       matching.map((row) => row._timestamp).toSorted((a, b) => a - b)
     ).toEqual(
       cases.flatMap((fixture, index) => (fixture.alerts ? [index] : []))
     );
-    expect(
-      database
-        .query(
-          "SELECT body FROM asm_protocols_logs WHERE severity IN ('ERROR', 'FATAL')"
-        )
-        .all()
-    ).toHaveLength(2);
+    expect(database.query(errorQuery).all()).toHaveLength(2);
   } finally {
     database.close();
   }
