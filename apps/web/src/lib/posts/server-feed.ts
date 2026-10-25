@@ -7,10 +7,12 @@ import {
   mapPostData,
   prisma,
 } from "@asm/db";
-import { blueskyMediaIsExplicit } from "@asm/protocols/discovery";
+import { postHasExplicitMedia } from "@asm/protocols/discovery";
 import { siteConfig } from "@asm/ui/meta/site";
 
-import { excerpt, getPostUrl, getShortPostId } from "@/lib/seo/seo";
+import { getPostUrl, getShortPostId } from "@/lib/seo/seo";
+
+import { postsForReader } from "./reader-content-policy";
 
 // Server-side feed helpers for SEO crawlable HTML.
 // These mirror the API route logic but run via Prisma directly so
@@ -43,7 +45,7 @@ function toCrawlPost(p: {
   return {
     aura: p.aura,
     community: p.community,
-    content: excerpt(p.content ?? "", 80),
+    content: p.content ?? "",
     createdAt: p.createdAt,
     displayName: p.user?.displayName ?? p.user?.username ?? "Anonymous",
     id: p.id,
@@ -55,8 +57,11 @@ function toCrawlPost(p: {
 // only declares itself explicit in text or a hashtag ("#nsfw", "nudes"). These
 // rows are rendered as guest HTML and indexed, so re-check the same detector the
 // feeds use rather than trusting the column alone.
-function isCrawlSafe(post: { content: string | null }): boolean {
-  return !blueskyMediaIsExplicit({ text: post.content ?? undefined });
+function isCrawlSafe(post: {
+  content: string | null;
+  semanticTags?: readonly string[] | null;
+}): boolean {
+  return !postHasExplicitMedia(post);
 }
 
 export async function getRecentPostsForCrawl(limit = 20): Promise<CrawlPost[]> {
@@ -64,6 +69,7 @@ export async function getRecentPostsForCrawl(limit = 20): Promise<CrawlPost[]> {
     "aura",
     "content",
     "createdAt",
+    "semanticTags",
     "id"
   )
     .include("community", (community) => community.select("slug"))
@@ -95,6 +101,7 @@ export async function getRecentGustsForCrawl(limit = 12): Promise<CrawlPost[]> {
     "aura",
     "content",
     "createdAt",
+    "semanticTags",
     "id"
   )
     .include("user", (user) => user.select("displayName", "username"))
@@ -128,6 +135,7 @@ export async function getTrendingPostsForCrawl(
     "aura",
     "content",
     "createdAt",
+    "semanticTags",
     "id"
   )
     .include("community", (community) => community.select("slug"))
@@ -162,6 +170,7 @@ export async function getHashtagPostsForCrawl(
     "aura",
     "content",
     "createdAt",
+    "semanticTags",
     "id"
   )
     .include("community", (community) => community.select("slug"))
@@ -199,6 +208,7 @@ export async function getUserPostsForCrawl(
     "aura",
     "content",
     "createdAt",
+    "semanticTags",
     "id"
   )
     .include("community", (community) => community.select("slug"))
@@ -229,22 +239,34 @@ export async function getUserPostsForCrawl(
 // For rich SSR where the client expects full PostData (not just crawl links),
 // expose a helper that returns hydrated PostData - used by home/discover
 // to seed the feed's initial HTML.
-export async function getRecentPostDataForCrawl(limit = 20) {
-  const rows = await getPostDataQuery(prisma.orm, "")
-    .where((post) =>
-      and(
-        post.isGust.eq(false),
-        post.moderated.eq(false),
-        post.explicitContent.eq(false),
-        post.rootPostId.isNull(),
-        post.user.some((user) => user.banned.eq(false)),
-        communityVisibilityWhere("")(post)
-      )
+export async function getRecentPostDataForCrawl(
+  limit = 20,
+  filter: { userId?: string; tag?: string } = {}
+) {
+  let query = getPostDataQuery(prisma.orm, "").where((post) =>
+    and(
+      post.isGust.eq(false),
+      post.moderated.eq(false),
+      post.explicitContent.eq(false),
+      post.rootPostId.isNull(),
+      post.user.some((user) => user.banned.eq(false)),
+      communityVisibilityWhere("")(post)
     )
-    .orderBy((post) => post.createdAt.desc())
+  );
+  if (filter.userId) {
+    query = query.where({ userId: filter.userId });
+  }
+  if (filter.tag) {
+    const { tag } = filter;
+    query = query.where((post) =>
+      post.postToTags.some((link) => link.tag.some((item) => item.name.eq(tag)))
+    );
+  }
+  const rows = await query
+    .orderBy([(post) => post.createdAt.desc(), (post) => post.id.desc()])
     .limit(limit)
     .all();
-  return hydrateViewCounts(rows.map(mapPostData));
+  return hydrateViewCounts(postsForReader(rows.map(mapPostData), false));
 }
 
 export function crawlPostHref(
@@ -268,6 +290,7 @@ export async function getCommunityPostsForCrawl(
     "aura",
     "content",
     "createdAt",
+    "semanticTags",
     "id"
   )
     .include("user", (user) => user.select("displayName", "username"))

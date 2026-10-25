@@ -1,6 +1,6 @@
 "use client";
 
-import type { UserData } from "@asm/db";
+import type { PostData, UserData } from "@asm/db";
 import {
   discoveryFleetFeed,
   homeFeedTabs,
@@ -50,12 +50,13 @@ import {
 import type { HomeTab } from "@/store/tab-store";
 
 interface ClientHomeProps {
+  initialGuestPosts?: PostData[];
   userData: UserData | null;
 }
 
 type FeedTab = HomeTab;
 
-const ClientHome: React.FC<ClientHomeProps> = () => {
+const ClientHome: React.FC<ClientHomeProps> = ({ initialGuestPosts }) => {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const { user } = useSession();
@@ -279,7 +280,10 @@ const ClientHome: React.FC<ClientHomeProps> = () => {
                 className="mt-0 pb-12"
                 value="latest"
               >
-                <HomeFeed variant="latest" />
+                <HomeFeed
+                  initialGuestPosts={initialGuestPosts}
+                  variant="latest"
+                />
               </FeedTabContent>
 
               <FeedTabContent

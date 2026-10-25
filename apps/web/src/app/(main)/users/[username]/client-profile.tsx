@@ -1,6 +1,6 @@
 "use client";
 
-import type { UserCommunityRole, UserData } from "@asm/db";
+import type { PostData, UserCommunityRole, UserData } from "@asm/db";
 import type { ExternalAuthor } from "@asm/protocols/contracts";
 import { Tabs, TabsContent, TabsList } from "@asm/ui/shadui/tabs";
 import { ArrowLeft, Search, Settings } from "lucide-react";
@@ -37,6 +37,7 @@ import {
 import type { ProfileTab } from "@/store/tab-store";
 
 interface ProfilePageProps {
+  initialGuestPosts?: PostData[];
   external?: ExternalAuthor;
   communityRoles: UserCommunityRole[];
   loggedInUserData: PrivateUserData | null;
@@ -56,6 +57,7 @@ const LOGGED_IN_TAB_ORDER: ProfileTab[] = [
 const GUEST_TAB_ORDER: ProfileTab[] = ["posts", "gusts", "media"];
 
 const ClientProfile: React.FC<ProfilePageProps> = ({
+  initialGuestPosts,
   userData,
   loggedInUserData,
   communityRoles,
@@ -315,6 +317,7 @@ const ClientProfile: React.FC<ProfilePageProps> = ({
                   <>
                     <TabsContent className="mt-0 pb-12" value="posts">
                       <UserPostsFeed
+                        initialGuestPosts={initialGuestPosts}
                         isOwnProfile={isOwnProfile}
                         userId={userData.id}
                       />

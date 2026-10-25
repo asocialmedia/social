@@ -551,3 +551,31 @@ test("batch presence requests forward strict completeness to the upstream client
   expect(presence.status).toBe(200);
   expect(seen).toEqual([false, true]);
 });
+
+test("hashtag reads validate tags and preserve independent source continuation", async () => {
+  const base = fixture();
+  const calls: unknown[] = [];
+  const { request } = fixture({
+    client: {
+      ...base.client,
+      searchPosts: (query, sort, options) => {
+        calls.push({ options, query, sort });
+        return Promise.resolve({ cursor: "more-posts", items: [] });
+      },
+    },
+  });
+  const response = await request(
+    "/v1/bluesky/hashtag?tag=OnePiece&cursor=page-two"
+  );
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual({ cursor: "more-posts", items: [] });
+  expect(calls).toEqual([
+    {
+      options: { cursor: "page-two", limit: 50, tag: "onepiece" },
+      query: "#onepiece",
+      sort: "latest",
+    },
+  ]);
+  const invalid = await request("/v1/bluesky/hashtag?tag=bad%2Ftag");
+  expect(invalid.status).toBe(400);
+});

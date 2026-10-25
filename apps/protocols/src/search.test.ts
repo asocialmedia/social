@@ -148,3 +148,42 @@ test("Redis store uses expiring leases and fenced publication in the same cluste
   ]);
   expect(calls[1]?.[0]).toContain("ARGV[1]");
 });
+
+test("hashtag pages use exact matching, independent cursor cache keys and source policy", async () => {
+  const calls: unknown[] = [];
+  const search = createBlueskySearch({
+    client: {
+      searchPosts: (query, sort, options) => {
+        calls.push({ options, query, sort });
+        return Promise.resolve({
+          cursor: options?.cursor ? null : "second-page",
+          items: [],
+        });
+      },
+    },
+  });
+  try {
+    const { signal } = new AbortController();
+    const firstPage = await search.readHashtag(
+      "OnePiece",
+      undefined,
+      false,
+      signal
+    );
+    expect(firstPage.cursor).toBe("second-page");
+    await search.readHashtag("onepiece", undefined, false, signal);
+    expect(calls.length).toBe(1);
+    await search.readHashtag("onepiece", "second-page", false, signal);
+    expect(calls.length).toBe(2);
+    expect(calls[0]).toEqual({
+      options: { cursor: undefined, limit: 50, tag: "onepiece" },
+      query: "#onepiece",
+      sort: "latest",
+    });
+    await expect(
+      search.readHashtag("bad/query", undefined, false, signal)
+    ).rejects.toMatchObject({ code: "invalid_input" });
+  } finally {
+    search.close();
+  }
+});

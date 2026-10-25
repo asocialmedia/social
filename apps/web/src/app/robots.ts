@@ -17,17 +17,13 @@ export default function robots(): MetadataRoute.Robots {
           "/api/communities/banner/",
           "/api/link-preview/image",
         ],
-        // Account-scoped, private, auth flows, and internal search are disallowed
+        // Account-scoped, private, and internal search routes are disallowed
         // to keep crawler budget focused on indexable public content.
+        // Auth pages remain crawlable so their noindex metadata can be read.
         disallow: [
           "/api/",
           "/messages",
           "/search",
-          "/login",
-          "/signup",
-          "/reset-password",
-          "/two-factor",
-          "/verify-email",
           "/users/*/followers",
           "/users/*/following",
           "/settings",

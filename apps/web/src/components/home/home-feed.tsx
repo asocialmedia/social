@@ -1,6 +1,6 @@
 "use client";
 
-import type { PostsPage } from "@asm/db";
+import type { PostData, PostsPage } from "@asm/db";
 import type { FeedSource } from "@asm/protocols/discovery";
 import {
   discoveryMode,
@@ -55,6 +55,7 @@ import { FeedView } from "./feed-view";
 import FeedEnd from "./feedview/feed-end";
 
 interface HomeFeedProps {
+  initialGuestPosts?: PostData[];
   // When set, the community's own posts lead the feed and the global feed
   // follows once they run out (or the lead segment caps out). Used on a
   // community post's detail page so "more content" stays inside the community
@@ -111,6 +112,7 @@ export function feedIsRanked(variant: HomeFeedProps["variant"]): boolean {
 }
 
 export default function HomeFeed({
+  initialGuestPosts,
   variant = "personalized",
   excludePostId,
   communitySlug,
@@ -561,7 +563,18 @@ export default function HomeFeed({
   if (availability === "loading") {
     return (
       <div ref={feedRootRef}>
-        <FeedViewSkeleton source={source} />
+        {!user &&
+        isLatest &&
+        source !== "bluesky" &&
+        initialGuestPosts?.length ? (
+          <FeedView
+            posts={initialGuestPosts}
+            source="asm"
+            cacheKey={queryKey}
+          />
+        ) : (
+          <FeedViewSkeleton source={source} />
+        )}
       </div>
     );
   }

@@ -5,7 +5,10 @@ import {
   prisma,
   SYSTEM_MODERATION_USER_ID,
 } from "@asm/db";
-import { postHasExplicitMedia } from "@asm/protocols/discovery";
+import {
+  normalizeHashtag,
+  postHasExplicitMedia,
+} from "@asm/protocols/discovery";
 import { siteConfig } from "@asm/ui/meta/site";
 
 import { getPostUrl } from "@/lib/seo/seo";
@@ -142,6 +145,7 @@ async function getCoreEntries(): Promise<SitemapEntry[]> {
 async function getPostEntries(): Promise<SitemapEntry[]> {
   const posts = await prisma.orm.public.Posts.select(
     "content",
+    "semanticTags",
     "createdAt",
     "id"
   )
@@ -201,6 +205,7 @@ async function getPostEntries(): Promise<SitemapEntry[]> {
 async function getGustEntries(): Promise<SitemapEntry[]> {
   const posts = await prisma.orm.public.Posts.select(
     "content",
+    "semanticTags",
     "createdAt",
     "id"
   )
@@ -211,6 +216,7 @@ async function getGustEntries(): Promise<SitemapEntry[]> {
     .where((post) =>
       and(
         post.isGust.eq(true),
+        post.rootPostId.isNull(),
         post.moderated.eq(false),
         post.explicitContent.eq(false),
         post.user.some((user) => user.banned.eq(false)),
@@ -252,14 +258,46 @@ async function getUserEntries(): Promise<SitemapEntry[]> {
 
 async function getTagEntries(): Promise<SitemapEntry[]> {
   const tags = await prisma.orm.public.Tag.select("name", "updatedAt")
+    .include("postToTags", (links) =>
+      links
+        .where((link) =>
+          link.posts.some((post) =>
+            and(
+              post.isGust.eq(false),
+              post.rootPostId.isNull(),
+              post.moderated.eq(false),
+              post.explicitContent.eq(false),
+              post.user.some((user) => user.banned.eq(false)),
+              communityVisibilityWhere("")(post)
+            )
+          )
+        )
+        .include("posts", (post) =>
+          post.select("content", "semanticTags", "explicitContent")
+        )
+        .limit(20)
+    )
     .orderBy((tag) => tag.updatedAt.desc())
     .limit(SITEMAP_URL_LIMIT)
     .all();
 
-  return tags.map((tag) => ({
-    lastModified: fromPrismaDateTime(tag.updatedAt),
-    url: `${siteConfig.url}/hashtag/${encodeURIComponent(tag.name)}`,
-  }));
+  return tags
+    .filter((tag) =>
+      tag.postToTags.some(
+        (link) => link.posts && !postHasExplicitMedia(link.posts)
+      )
+    )
+    .flatMap((tag) => {
+      const name = normalizeHashtag(tag.name);
+      return name
+        ? [
+            {
+              lastModified: fromPrismaDateTime(tag.updatedAt),
+              url: `${siteConfig.url}/hashtag/${encodeURIComponent(name)}`,
+            },
+          ]
+        : [];
+    });
 }
 
 interface CommunityActivityRow {
