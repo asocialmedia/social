@@ -13,7 +13,7 @@ import shitposterBadge from "@/assets/images/roles/shitposter.png";
 import trendingBadge from "@/assets/images/roles/trending.png";
 import { DialogPanel } from "@/components/surface/dialog-panel";
 import { CommunityAvatar } from "@/features/communities/components/community-avatar";
-import { getApiBaseUrl } from "@/lib/api-env";
+import { getApiBaseUrl } from "@/lib/network/api-env";
 import {
   PROFILE_STATS_SHADOWS,
   PROFILE_STATS_SHADOWS_DARK,

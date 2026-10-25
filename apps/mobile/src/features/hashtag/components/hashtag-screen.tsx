@@ -19,9 +19,9 @@ import { authClient } from "@/features/auth/lib/auth-client";
 import { useSessionContext } from "@/features/auth/state/session";
 import { ExplorePostCard } from "@/features/explore/components/explore-post-card";
 import type { FeedPost } from "@/features/feed/lib/feed-types";
-import { getApiBaseUrl } from "@/lib/api-env";
-import { LIST_VIRTUALIZATION_PROPS } from "@/lib/list-virtualization";
-import { SHOWS_SCROLL_INDICATOR } from "@/lib/scroll-indicator";
+import { LIST_VIRTUALIZATION_PROPS } from "@/lib/layout/list-virtualization";
+import { SHOWS_SCROLL_INDICATOR } from "@/lib/layout/scroll-indicator";
+import { getApiBaseUrl } from "@/lib/network/api-env";
 import { useAppTheme } from "@/theme";
 
 import { MobileHeader } from "../../home/components/mobile-header";

@@ -19,8 +19,8 @@ import { formatRelativeDate } from "@/features/feed/lib/feed-types";
 import { parseStoredEmbeds } from "@/features/feed/lib/link-embeds";
 import { BioContent } from "@/features/home/components/bio-content";
 import { UserBadge } from "@/features/home/components/user-badge";
-import { getApiBaseUrl } from "@/lib/api-env";
-import { SHOWS_SCROLL_INDICATOR } from "@/lib/scroll-indicator";
+import { SHOWS_SCROLL_INDICATOR } from "@/lib/layout/scroll-indicator";
+import { getApiBaseUrl } from "@/lib/network/api-env";
 import { useAppTheme } from "@/theme";
 
 import type { ReplyTarget } from "../state/composer-store";

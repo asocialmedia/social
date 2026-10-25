@@ -3,7 +3,7 @@ import * as ImagePicker from "expo-image-picker";
 
 import type { UploadPurpose } from "@/features/media-upload/lib/upload-api";
 import type { UploadSource } from "@/features/media-upload/lib/upload-client";
-import { logInfo, logWarn } from "@/lib/telemetry";
+import { logInfo, logWarn } from "@/lib/lifecycle/telemetry";
 
 import {
   isTooLarge,

@@ -17,7 +17,7 @@ import { MAX_POST_ATTACHMENTS } from "@asm/media";
 // per-IP upload budget is shared), and every transition is logged.
 import { create } from "zustand";
 
-import { logWarn } from "@/lib/telemetry";
+import { logWarn } from "@/lib/lifecycle/telemetry";
 
 import { isAbortError, withRetry } from "../lib/retry";
 import { discardDraftMedia, saveAltText } from "../lib/upload-api";

@@ -473,7 +473,7 @@ export function scheduleFeedPersist(): void {
     persistTimer = null;
     void (async () => {
       try {
-        const { writeSnapshot } = await import("@/lib/persistent-file");
+        const { writeSnapshot } = await import("@/lib/cache/persistent-file");
         const tabs = feedCacheToSnapshot();
         await writeSnapshot<Record<string, FeedPersistEntry>>(
           FEED_PERSIST_NAME,
@@ -499,7 +499,7 @@ export function hydrateFeedCache(): Promise<number> {
 
 async function readFeedCacheFromDisk(): Promise<number> {
   try {
-    const { readSnapshot } = await import("@/lib/persistent-file");
+    const { readSnapshot } = await import("@/lib/cache/persistent-file");
     const snap =
       await readSnapshot<Record<string, FeedPersistEntry>>(FEED_PERSIST_NAME);
     const wrapped = snap.entries["tabs"];

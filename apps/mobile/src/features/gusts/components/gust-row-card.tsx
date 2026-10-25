@@ -10,8 +10,8 @@ import type { FeedPost } from "@/features/feed/lib/feed-types";
 import { mediaImageUrl, mediaPosterUrl } from "@/features/feed/lib/media-url";
 import { getAuraFlameStyle } from "@/features/home/components/profile-utils";
 import { UserBadge } from "@/features/home/components/user-badge";
-import { getApiBaseUrl } from "@/lib/api-env";
-import { formatNumber } from "@/lib/format-number";
+import { formatNumber } from "@/lib/format/format-number";
+import { getApiBaseUrl } from "@/lib/network/api-env";
 import { useAppTheme } from "@/theme";
 
 // Compact gust card used in feeds that mix gusts and regular posts (profile

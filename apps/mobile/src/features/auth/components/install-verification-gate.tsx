@@ -6,7 +6,7 @@ import { useState } from "react";
 import { Modal, Pressable, StyleSheet, Text, View } from "react-native";
 
 import { Spinner3D } from "@/components/feedback/spinner-3d";
-import { getApiBaseUrl } from "@/lib/api-env";
+import { getApiBaseUrl } from "@/lib/network/api-env";
 import { useAppTheme } from "@/theme";
 
 import { resolveTurnstileSiteKey } from "../lib/turnstile-config";

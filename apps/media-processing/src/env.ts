@@ -3,7 +3,7 @@ import type { MediaLimits } from "@asm/media";
 import { createEnv } from "@t3-oss/env-core";
 import { z } from "zod";
 
-import { resolveClefDailyNeurons } from "./analyze/cloudflare-budget";
+import { resolveClefDailyNeurons } from "./analyze/budget/cloudflare-budget";
 import { loadRootEnv } from "./load-env";
 
 // Ensure root .env is loaded before environment evaluation

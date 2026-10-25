@@ -21,7 +21,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import asmLogo from "@/assets/images/asm.png";
-import { SHOWS_SCROLL_INDICATOR } from "@/lib/scroll-indicator";
+import { SHOWS_SCROLL_INDICATOR } from "@/lib/layout/scroll-indicator";
 import { useAppTheme } from "@/theme";
 
 interface AuthShellProps {

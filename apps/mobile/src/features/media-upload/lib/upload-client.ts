@@ -10,7 +10,7 @@
 // carry the stage they died in and the media id, so a retry resumes where it
 // stopped (re-finalize or keep polling) instead of re-sending the bytes.
 // Every step logs through telemetry (no file names, no URLs).
-import { logError, logInfo, logWarn } from "@/lib/telemetry";
+import { logError, logInfo, logWarn } from "@/lib/lifecycle/telemetry";
 
 import { AbortError, HttpError, isAbortError, sleep, withRetry } from "./retry";
 import {

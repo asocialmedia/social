@@ -39,7 +39,7 @@ import {
 } from "@/features/feed/state/tab-store-native";
 import { useUnreadNotificationCount } from "@/features/notifications/state/use-unread-count";
 import { useSearchStore } from "@/features/search/state/search-store";
-import { haptic } from "@/lib/haptics";
+import { haptic } from "@/lib/interaction/haptics";
 import { useAppTheme } from "@/theme";
 
 import { GuestAuthBar } from "./guest-auth-bar";

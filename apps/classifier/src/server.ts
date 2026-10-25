@@ -1,8 +1,8 @@
-import { createClassifierApp } from "./app";
-import { classifierConfig } from "./config";
-import { createClassifier } from "./inference";
-import { maxImageBytes, model } from "./model";
-import { createClassifierTelemetry } from "./telemetry";
+import { createClassifierApp } from "./http/app";
+import { createClassifier } from "./inference/inference";
+import { maxImageBytes, model } from "./inference/model";
+import { classifierConfig } from "./runtime/config";
+import { createClassifierTelemetry } from "./runtime/telemetry";
 
 const start = performance.now();
 const telemetry = createClassifierTelemetry(process.env);

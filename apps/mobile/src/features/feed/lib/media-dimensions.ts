@@ -1,6 +1,9 @@
-import { orderedCopy } from "@/lib/ordered-copy";
-import { emptySnapshot } from "@/lib/persistent-cache";
-import type { PersistSnapshot, PersistedEntry } from "@/lib/persistent-cache";
+import { emptySnapshot } from "@/lib/cache/persistent-cache";
+import type {
+  PersistSnapshot,
+  PersistedEntry,
+} from "@/lib/cache/persistent-cache";
+import { orderedCopy } from "@/lib/format/ordered-copy";
 
 export interface MediaDimensions {
   height: number;
@@ -113,7 +116,7 @@ export const mediaDimensionsCache = new MediaDimensionsCache();
 let hydration: Promise<void> | null = null;
 export function hydrateMediaDimensions(): Promise<void> {
   hydration ??= (async () => {
-    const { readSnapshot } = await import("@/lib/persistent-file");
+    const { readSnapshot } = await import("@/lib/cache/persistent-file");
     mediaDimensionsCache.restore(await readSnapshot<unknown>(CACHE_NAME));
   })();
   return hydration;
@@ -131,7 +134,7 @@ export function rememberMediaDimensions(
     persistTimer = null;
     void (async () => {
       try {
-        const { writeSnapshot } = await import("@/lib/persistent-file");
+        const { writeSnapshot } = await import("@/lib/cache/persistent-file");
         await writeSnapshot(CACHE_NAME, mediaDimensionsCache.snapshot());
       } catch {
         // Image geometry persistence must never interrupt media rendering.

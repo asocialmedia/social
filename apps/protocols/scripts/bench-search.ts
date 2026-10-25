@@ -4,8 +4,8 @@ import { setTimeout as delay } from "node:timers/promises";
 
 import { BlueskyClient } from "@asm/protocols/bluesky";
 
-import { createProtocolsApp } from "../src/app";
-import { createBlueskySearch } from "../src/search";
+import { createProtocolsApp } from "../src/http/app";
+import { createBlueskySearch } from "../src/http/search";
 
 const upstreamMs = 600;
 if (Number(process.env.BUN_CONFIG_MAX_HTTP_REQUESTS ?? "256") < 1024) {

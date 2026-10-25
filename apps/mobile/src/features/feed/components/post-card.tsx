@@ -21,7 +21,7 @@ import { ExternalPostActions } from "@/features/feed/components/external-post-ac
 import { fetchPostDetail } from "@/features/post/lib/post-api";
 import { postDetailCache, postDetailKey } from "@/features/post/lib/post-cache";
 import { usePrefetchProfile } from "@/features/profile";
-import { getApiBaseUrl } from "@/lib/api-env";
+import { getApiBaseUrl } from "@/lib/network/api-env";
 import {
   AVATAR_RING_SHADOWS,
   AVATAR_RING_SHADOWS_DARK,

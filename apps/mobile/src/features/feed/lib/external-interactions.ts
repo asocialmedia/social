@@ -7,7 +7,7 @@ import type { ExternalMutation } from "@asm/protocols/discovery";
 import { z } from "zod";
 
 import { authClient } from "@/features/auth/lib/auth-client";
-import { getApiBaseUrl } from "@/lib/api-env";
+import { getApiBaseUrl } from "@/lib/network/api-env";
 
 const detailSchema = z.object({
   comments: externalCommentPageSchema,

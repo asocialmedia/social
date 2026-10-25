@@ -2,8 +2,8 @@
 import type RedisConnection from "ioredis";
 
 import { version } from "../package.json";
-import type { ProtocolIngestionQueue } from "./ingestion-queue";
-import { loadProtocolsEnvironment } from "./load-env";
+import type { ProtocolIngestionQueue } from "./ingestion/ingestion-queue";
+import { loadProtocolsEnvironment } from "./runtime/load-env";
 
 export async function startProtocols() {
   loadProtocolsEnvironment();
@@ -17,7 +17,7 @@ export async function startProtocols() {
     version,
   });
   const logger = createLogger({ serviceName: process.env.OTEL_SERVICE_NAME });
-  const { readConfig } = await import("./config");
+  const { readConfig } = await import("./runtime/config");
   let config: ReturnType<typeof readConfig>;
   try {
     config = readConfig(process.env);
@@ -33,7 +33,7 @@ export async function startProtocols() {
     throw error;
   }
   if (config.mode === "read-worker") {
-    const { startReadWorker } = await import("./read-worker");
+    const { startReadWorker } = await import("./reader/read-worker");
     try {
       return await startReadWorker(config, logger, telemetry);
     } catch (error) {
@@ -41,7 +41,7 @@ export async function startProtocols() {
       throw error;
     }
   }
-  const { createReadWorkerPool } = await import("./read-worker-pool");
+  const { createReadWorkerPool } = await import("./reader/read-worker-pool");
   const readTimeoutMs = 2500;
   const pool = config.workers.length
     ? createReadWorkerPool({
@@ -57,8 +57,8 @@ export async function startProtocols() {
     { createProtocolObserver, createDiscoveryWarmupFailureReporter },
     { BlueskyClient },
   ] = await Promise.all([
-    import("./app"),
-    import("./observability"),
+    import("./http/app"),
+    import("./runtime/observability"),
     import("@asm/protocols/bluesky"),
   ]);
   const client = new BlueskyClient({
@@ -103,13 +103,13 @@ export async function startProtocols() {
   const abort = new AbortController();
   let worker = Promise.resolve();
   let closeRedis: (() => Promise<void>) | undefined;
-  const { BlueskyDiscovery } = await import("./discovery");
+  const { BlueskyDiscovery } = await import("./discovery/discovery");
   const {
     MemoryDiscoveryStore,
     RedisDiscoveryStore,
     discoveryStoreCapacity,
     inventoryCursorCapacity,
-  } = await import("./discovery-store");
+  } = await import("./discovery/discovery-store");
   let redis: RedisConnection | undefined;
   if (config.redisUrl) {
     const { default: Redis } = await import("ioredis");
@@ -150,12 +150,12 @@ export async function startProtocols() {
       // Ioredis reconnects in the background; readiness stays unavailable until it recovers.
     });
   }
-  const { createCachedBlueskyClient } = await import("./cache-client");
+  const { createCachedBlueskyClient } = await import("./cache/cache-client");
   const { DiscoveryInventory, RedisInventoryStore } =
-    await import("./discovery-inventory");
+    await import("./discovery/discovery-inventory");
   const { createDiscoveryIngestion, hydrateDiscoveryBatch } =
-    await import("./discovery-ingestion");
-  const { createBlueskySearch } = await import("./search");
+    await import("./discovery/discovery-ingestion");
+  const { createBlueskySearch } = await import("./http/search");
   const {
     createRedisReadStore,
     FEED_EVENTS_CHANNEL,
@@ -190,7 +190,8 @@ export async function startProtocols() {
     config.redisUrl &&
     inventoryStore
   ) {
-    const { createIngestionQueue } = await import("./ingestion-queue");
+    const { createIngestionQueue } =
+      await import("./ingestion/ingestion-queue");
     const connection = redis;
     ingestionQueue = createIngestionQueue({
       allowedNodes: config.workers.map((node) => node.id),
@@ -375,8 +376,9 @@ export async function startProtocols() {
   let stopLive: (() => void) | undefined;
   if (redis) {
     const { createDiscoveryLive, discoveryWatchSchema } =
-      await import("./discovery-live");
-    const { warmDiscoveryInventory } = await import("./discovery-warmup");
+      await import("./discovery/discovery-live");
+    const { warmDiscoveryInventory } =
+      await import("./discovery/discovery-warmup");
     const { DISCOVERY_WATCH_CHANNEL } =
       await import("@asm/protocols/discovery");
     const publisher = redis;
@@ -517,11 +519,12 @@ export async function startProtocols() {
     if (redis && (config.jetstreamEnabled || (config.asmUrl && config.token))) {
       const connection = redis;
       worker = (async () => {
-        const { waitForStorageReady } = await import("./storage-ready");
+        const { waitForStorageReady } = await import("./runtime/storage-ready");
         if (!(await waitForStorageReady(connection, abort.signal))) {
           return;
         }
-        const { runFollowTracking } = await import("./follow-tracking");
+        const { runFollowTracking } =
+          await import("./ingestion/follow-tracking");
         const following = runFollowTracking({
           client,
           config,
@@ -537,8 +540,10 @@ export async function startProtocols() {
         const publicDiscovery =
           config.jetstreamEnabled && ingestion
             ? (async () => {
-                const { RedisCheckpointStore } = await import("./checkpoints");
-                const { runJetstreamWorker } = await import("./worker");
+                const { RedisCheckpointStore } =
+                  await import("./ingestion/checkpoints");
+                const { runJetstreamWorker } =
+                  await import("./ingestion/worker");
                 const streamOptions = {
                   dids: [],
                   endpoint: config.endpoint,

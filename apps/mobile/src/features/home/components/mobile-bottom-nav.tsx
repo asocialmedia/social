@@ -45,7 +45,7 @@ import { useComposerStore } from "@/features/composer/state/composer-store";
 import { subscribeHeaderVisibility } from "@/features/feed/lib/header-visibility";
 import { dockTabState } from "@/features/home/lib/dock-navigation";
 import { useUnreadMessageCount } from "@/features/messages/state/use-unread-message-count";
-import { haptic } from "@/lib/haptics";
+import { haptic } from "@/lib/interaction/haptics";
 import {
   APPLE_PANEL_SHADOWS,
   APPLE_PANEL_SHADOWS_DARK,

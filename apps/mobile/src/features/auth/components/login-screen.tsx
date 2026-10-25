@@ -45,7 +45,7 @@ import {
   describeOAuthRedirectError,
 } from "@/features/auth/lib/auth-errors";
 import { useSessionContext } from "@/features/auth/state/session";
-import { SHOWS_SCROLL_INDICATOR } from "@/lib/scroll-indicator";
+import { SHOWS_SCROLL_INDICATOR } from "@/lib/layout/scroll-indicator";
 import {
   ERROR_SHADOWS,
   ICON_BUTTON_SHADOWS_DARK,

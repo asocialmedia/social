@@ -1,6 +1,6 @@
 import type { FeedPost } from "@/features/feed/lib/feed-types";
-import type { PersistSnapshot } from "@/lib/persistent-cache";
-import { isFreshEntry } from "@/lib/persistent-cache";
+import type { PersistSnapshot } from "@/lib/cache/persistent-cache";
+import { isFreshEntry } from "@/lib/cache/persistent-cache";
 
 import type { PostDetail } from "./post-api";
 
@@ -155,7 +155,7 @@ let persistTimer: ReturnType<typeof setTimeout> | undefined;
 export function hydratePostDetailCache(): Promise<void> {
   hydration ??= (async () => {
     try {
-      const { readSnapshot } = await import("@/lib/persistent-file");
+      const { readSnapshot } = await import("@/lib/cache/persistent-file");
       postDetailCache.restore(
         await readSnapshot<PostDetail>("post-details-v1")
       );
@@ -172,7 +172,7 @@ function schedulePostPersist(): void {
     void (async () => {
       try {
         await hydratePostDetailCache();
-        const { writeSnapshot } = await import("@/lib/persistent-file");
+        const { writeSnapshot } = await import("@/lib/cache/persistent-file");
         await writeSnapshot("post-details-v1", postDetailCache.snapshot());
       } catch {
         // Storage cannot interrupt navigation.

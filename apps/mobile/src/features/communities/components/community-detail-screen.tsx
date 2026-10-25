@@ -35,12 +35,12 @@ import type { FeedPost } from "@/features/feed/lib/feed-types";
 import { MobileBottomNav } from "@/features/home/components/mobile-bottom-nav";
 import { MobileHeader } from "@/features/home/components/mobile-header";
 import { useUnreadNotificationCount } from "@/features/notifications/state/use-unread-count";
-import { getApiBaseUrl } from "@/lib/api-env";
-import { bottomDockPadding } from "@/lib/bottom-dock-layout";
-import { formatNumber } from "@/lib/format-number";
-import type { ViewToken } from "@/lib/list-virtualization";
-import { LIST_VIRTUALIZATION_PROPS } from "@/lib/list-virtualization";
-import { SHOWS_SCROLL_INDICATOR } from "@/lib/scroll-indicator";
+import { formatNumber } from "@/lib/format/format-number";
+import { bottomDockPadding } from "@/lib/layout/bottom-dock-layout";
+import type { ViewToken } from "@/lib/layout/list-virtualization";
+import { LIST_VIRTUALIZATION_PROPS } from "@/lib/layout/list-virtualization";
+import { SHOWS_SCROLL_INDICATOR } from "@/lib/layout/scroll-indicator";
+import { getApiBaseUrl } from "@/lib/network/api-env";
 import { useAppTheme } from "@/theme";
 
 import {

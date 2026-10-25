@@ -26,8 +26,8 @@ import {
   surface3d,
 } from "@/features/messages/lib/message-recipes";
 import { useMessagesIdentity } from "@/features/messages/state/message-identity";
-import { getApiBaseUrl } from "@/lib/api-env";
-import { haptic } from "@/lib/haptics";
+import { haptic } from "@/lib/interaction/haptics";
+import { getApiBaseUrl } from "@/lib/network/api-env";
 import { useAppTheme } from "@/theme";
 
 // The destructive ink, or undefined for a default button.

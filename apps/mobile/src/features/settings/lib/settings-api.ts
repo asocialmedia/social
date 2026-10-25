@@ -10,7 +10,7 @@
 //   - Reads return null rather than throwing when the viewer is signed out, so
 //     a guest opening settings sees empty state instead of an error.
 import type { ApiCallOptions } from "@/features/feed/lib/feed-api";
-import { withAuthHeaders } from "@/lib/auth-headers";
+import { withAuthHeaders } from "@/lib/network/auth-headers";
 
 export type SettingsMutationResult =
   | { kind: "error"; message: string; status: number }

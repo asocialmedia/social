@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import { loadRootEnv } from "../src/load-env";
 
 loadRootEnv();
-const { clefSafetyVerdict, evaluateClef } = await import("../src/analyze/clef");
+const { clefSafetyVerdict, evaluateClef } =
+  await import("../src/analyze/classification/clef");
 const { closeQueueConnections, redis } = await import("@asm/db");
 const realFetch = globalThis.fetch;
 let providerRequests = 0;

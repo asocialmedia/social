@@ -4,8 +4,8 @@
 //   POST   /api/hackernews/bookmark-states   (batched, one round trip)
 //   POST   /api/hackernews/:id/bookmark      DELETE to unbookmark
 import type { ApiCallOptions } from "@/features/feed/lib/feed-api";
-import { withAuthHeaders } from "@/lib/auth-headers";
-import { getWithTimeout } from "@/lib/http-get";
+import { withAuthHeaders } from "@/lib/network/auth-headers";
+import { getWithTimeout } from "@/lib/network/http-get";
 
 export const HN_SORT_OPTIONS = [
   { label: "Score", value: "score" },

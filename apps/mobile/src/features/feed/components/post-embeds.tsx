@@ -23,7 +23,7 @@ import { CommunityAvatar } from "@/features/communities/components/community-ava
 import { resolveCommunityAccentColor } from "@/features/communities/lib/community-accents";
 import { ConcealedMediaCover } from "@/features/feed/components/concealed-media-cover";
 import { UserBadge } from "@/features/home/components/user-badge";
-import { getApiBaseUrl } from "@/lib/api-env";
+import { getApiBaseUrl } from "@/lib/network/api-env";
 import { useAppTheme } from "@/theme";
 
 import { BioContent } from "../../home/components/bio-content";

@@ -58,10 +58,10 @@ import { clearHnCache } from "@/features/hackernews/lib/hn-cache-native";
 import { sleep } from "@/features/media-upload/lib/retry";
 import { clearMessageSession } from "@/features/messages/state/clear-message-session";
 import { unregisterPushNotifications } from "@/features/notifications/lib/push";
-import { supportsPasskeyOrigin } from "@/lib/api-base";
-import { getApiBaseUrl, getAuthBaseUrl } from "@/lib/api-env";
-import { createExpoPoller } from "@/lib/expo-poller";
-import { logError, logInfo, logWarn } from "@/lib/telemetry";
+import { logError, logInfo, logWarn } from "@/lib/lifecycle/telemetry";
+import { supportsPasskeyOrigin } from "@/lib/network/api-base";
+import { getApiBaseUrl, getAuthBaseUrl } from "@/lib/network/api-env";
+import { createExpoPoller } from "@/lib/network/expo-poller";
 
 export interface SessionUser {
   email: string;

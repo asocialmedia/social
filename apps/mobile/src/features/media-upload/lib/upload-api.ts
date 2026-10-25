@@ -7,8 +7,8 @@
 // Errors surface as HttpError (status, server `error` copy, retry-after) so
 // the retry policy and the UI can tell a rate limit from a rejection.
 import { authClient } from "@/features/auth/lib/auth-client";
-import { getApiBaseUrl } from "@/lib/api-env";
-import { withAuthHeaders } from "@/lib/auth-headers";
+import { getApiBaseUrl } from "@/lib/network/api-env";
+import { withAuthHeaders } from "@/lib/network/auth-headers";
 
 import { uploadRateBudget } from "./rate-budget";
 import { AbortError, HttpError, parseRetryAfter } from "./retry";

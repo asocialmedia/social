@@ -18,8 +18,8 @@ import { useExternalFeedback } from "@/features/feed/state/use-external-feedback
 import { useExternalFollow } from "@/features/feed/state/use-external-follow";
 import { useExternalInteractions } from "@/features/feed/state/use-external-interactions";
 import { usePostEngagement } from "@/features/feed/state/use-post-engagement";
-import { getApiBaseUrl } from "@/lib/api-env";
-import { logInfo, logWarn } from "@/lib/telemetry";
+import { logInfo, logWarn } from "@/lib/lifecycle/telemetry";
+import { getApiBaseUrl } from "@/lib/network/api-env";
 
 import {
   GUST_VOTE_ERROR_COPY,

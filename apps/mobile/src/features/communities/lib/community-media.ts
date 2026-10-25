@@ -26,8 +26,8 @@ import type {
   UploadOutcome,
   ProfileMediaCallbacks,
 } from "@/features/profile/lib/profile-media-mutations";
-import { getApiBaseUrl } from "@/lib/api-env";
-import { logInfo, logWarn } from "@/lib/telemetry";
+import { logInfo, logWarn } from "@/lib/lifecycle/telemetry";
+import { getApiBaseUrl } from "@/lib/network/api-env";
 
 export type CommunityMediaSlot = "avatar" | "banner";
 

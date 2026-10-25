@@ -19,8 +19,8 @@ import { FeedTabs } from "@/features/feed/components/feed-tabs";
 import { MobileBottomNav } from "@/features/home/components/mobile-bottom-nav";
 import { MobileHeader } from "@/features/home/components/mobile-header";
 import { NetworkTab } from "@/features/network/components/network-tab";
-import { getApiBaseUrl } from "@/lib/api-env";
-import { haptic } from "@/lib/haptics";
+import { haptic } from "@/lib/interaction/haptics";
+import { getApiBaseUrl } from "@/lib/network/api-env";
 import { useAppTheme } from "@/theme";
 
 import { fetchSecurityState } from "../lib/security-api";

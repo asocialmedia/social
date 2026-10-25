@@ -13,7 +13,7 @@ import {
 } from "@/features/messages/lib/client";
 import { panel3d, reelsInput } from "@/features/messages/lib/message-recipes";
 import { conversationListStore } from "@/features/messages/state/conversation-list-store";
-import { getApiBaseUrl } from "@/lib/api-env";
+import { getApiBaseUrl } from "@/lib/network/api-env";
 import { useAppTheme } from "@/theme";
 
 import { PressableRow } from "./messages-primitives";

@@ -28,6 +28,7 @@ interface RunTestSuiteDeps {
   logger?: Pick<typeof console, "error" | "log">;
   probeService?: (endpoint: ServiceEndpoint) => Promise<boolean>;
   readEnvFile?: (filePath: string) => Promise<string | undefined>;
+  recordTimings?: boolean;
   rootDir?: string;
   runProcess?: (options: {
     cmd: string[];
@@ -153,7 +154,9 @@ export async function runTestSuite(
   const readEnvFile = deps.readEnvFile ?? defaultReadEnvFile;
   const processEnv = deps.env ?? process.env;
 
-  const allTests = await collectFiles("all", rootDir);
+  const unitOnly = extraArgs.includes("--unit");
+  const testArgs = extraArgs.filter((argument) => argument !== "--unit");
+  const allTests = await collectFiles(unitOnly ? "unit" : "all", rootDir);
 
   if (allTests.length === 0) {
     logger.error("No test files found.");
@@ -169,18 +172,18 @@ export async function runTestSuite(
   const postgresEndpoint = endpointFromUrl("postgres", envValues.DATABASE_URL);
   const redisEndpoint = endpointFromUrl("redis", envValues.REDIS_URL);
 
-  const postgresReachable = postgresEndpoint
-    ? await probeService(postgresEndpoint)
-    : false;
-  const redisReachable = redisEndpoint
-    ? await probeService(redisEndpoint)
-    : false;
+  const postgresReachable =
+    !unitOnly && postgresEndpoint
+      ? await probeService(postgresEndpoint)
+      : false;
+  const redisReachable =
+    !unitOnly && redisEndpoint ? await probeService(redisEndpoint) : false;
 
   const servicesReachable = postgresReachable && redisReachable;
 
   let selectedTests = allTests;
 
-  if (!servicesReachable) {
+  if (!(unitOnly || servicesReachable)) {
     const unreachableNames = [
       !postgresReachable ? "postgres" : null,
       !redisReachable ? "redis" : null,
@@ -213,25 +216,21 @@ export async function runTestSuite(
         ? []
         : [`--parallel=${DEFAULT_TEST_FILE_WORKERS}`]),
       `--env-file=${ENV_FILE_NAME}`,
-      `--timings=${TIMINGS_FILE_NAME}`,
-      "--update-timings",
-      ...extraArgs,
+      ...(deps.recordTimings === false
+        ? []
+        : [`--timings=${TIMINGS_FILE_NAME}`, "--update-timings"]),
+      ...testArgs,
       ...selectedTests.map((filePath) => `./${filePath}`),
     ],
     cwd: rootDir,
     env: {
-      ...process.env,
+      ...processEnv,
       NODE_ENV: "test",
     },
   });
 }
 
-const isDirectExecution = Bun.argv.some(
-  (arg) =>
-    arg.endsWith("scripts/testing/run-tests.ts") || arg.endsWith("run-tests.ts")
-);
-
-if (isDirectExecution) {
+if (import.meta.main) {
   (async () => {
     try {
       const exitCode = await runTestSuite();

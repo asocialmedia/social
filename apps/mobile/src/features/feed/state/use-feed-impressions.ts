@@ -6,7 +6,7 @@ import { authClient } from "@/features/auth/lib/auth-client";
 import { submitRecommendationEvents } from "@/features/gusts/lib/gusts-api";
 import { RecommendationQueue } from "@/features/gusts/lib/recommendation-tracker";
 import { trackNetworkObservation } from "@/features/network/lib/network-learning";
-import { getApiBaseUrl } from "@/lib/api-env";
+import { getApiBaseUrl } from "@/lib/network/api-env";
 
 import type { FeedPost } from "../lib/feed-types";
 import { hasVideoAttachment } from "../lib/media-kind";

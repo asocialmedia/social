@@ -28,8 +28,8 @@ import {
   SettingsInput,
   SettingsSubcard,
 } from "@/features/settings/components/settings-ui";
-import { getApiBaseUrl } from "@/lib/api-env";
-import { SHOWS_SCROLL_INDICATOR } from "@/lib/scroll-indicator";
+import { SHOWS_SCROLL_INDICATOR } from "@/lib/layout/scroll-indicator";
+import { getApiBaseUrl } from "@/lib/network/api-env";
 import { useAppTheme } from "@/theme";
 
 import type { ProfileHeaderProfile } from "../lib/profile-view-model";

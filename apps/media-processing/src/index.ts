@@ -42,19 +42,19 @@ if (import.meta.main) {
   const { MEDIA_JOB_NAMES } = await import("@asm/media");
   const { Worker, DelayedError } = await import("bullmq");
   const { ClefDeferredError, withAnalysisLane } =
-    await import("./analyze/clef");
+    await import("./analyze/classification/clef");
   const { ProviderBudgetDeferredError, providerBudgetSnapshot } =
-    await import("./analyze/provider-budget");
-  const { OcrDeferredError } = await import("./analyze/ocr");
-  const { processPostAnalyze } = await import("./jobs/analyze-post");
+    await import("./analyze/budget/provider-budget");
+  const { OcrDeferredError } = await import("./analyze/extraction/ocr");
+  const { processPostAnalyze } = await import("./jobs/analysis/analyze-post");
   const { warmExternalMediaSafety } =
-    await import("./jobs/warm-external-media-safety");
-  const { processMediaScan } = await import("./jobs/scan");
-  const { processMedia } = await import("./jobs/process");
-  const { processMediaCleanup } = await import("./jobs/cleanup");
-  const { processMediaAnalyze } = await import("./jobs/analyze");
+    await import("./jobs/safety/warm-external-media-safety");
+  const { processMediaScan } = await import("./jobs/scanning/scan");
+  const { processMedia } = await import("./jobs/processing/process");
+  const { processMediaCleanup } = await import("./jobs/maintenance/cleanup");
+  const { processMediaAnalyze } = await import("./jobs/analysis/analyze");
   const { processExternalMediaSafety, ExternalMediaDownloadDeferredError } =
-    await import("./jobs/external-media-safety");
+    await import("./jobs/safety/external-media-safety");
   const { workerEnv } = await import("./env");
   const { getS3 } = await import("./s3");
   const { withTimeout } = await import("./transcode/ffmpeg");

@@ -42,8 +42,8 @@ import { DiscoverySafetyControl } from "@/features/network/components/network-ta
 import { nativeNetworkPath } from "@/features/network/lib/network-paths";
 import { learnNetworkSearch } from "@/features/network/state/use-discovery-suggestions";
 import { SettingsButton } from "@/features/settings/components/settings-ui";
-import { getApiBaseUrl } from "@/lib/api-env";
-import { SHOWS_SCROLL_INDICATOR } from "@/lib/scroll-indicator";
+import { SHOWS_SCROLL_INDICATOR } from "@/lib/layout/scroll-indicator";
+import { getApiBaseUrl } from "@/lib/network/api-env";
 import { useAppTheme } from "@/theme";
 
 import { recentNetworkSearchScope } from "../lib/recent-search-scope";
