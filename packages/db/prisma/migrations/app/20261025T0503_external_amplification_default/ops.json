@@ -1,0 +1,71 @@
+[
+  {
+    "id": "setDefault.external_engagements.amplifiedAt",
+    "label": "Set default on \"external_engagements\".\"amplifiedAt\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "column",
+        "name": "amplifiedAt",
+        "table": "external_engagements"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure column \"amplifiedAt\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": ["public", "external_engagements", "amplifiedAt"]
+      }
+    ],
+    "execute": [
+      {
+        "description": "set default on \"amplifiedAt\"",
+        "sql": "ALTER TABLE \"public\".\"external_engagements\" ALTER COLUMN \"amplifiedAt\" SET DEFAULT (now())"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify column \"amplifiedAt\" has a default",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3 AND \"column_default\" IS NOT NULL)) AS \"result\"",
+        "params": ["public", "external_engagements", "amplifiedAt"]
+      }
+    ]
+  },
+  {
+    "id": "index.external_engagements.external_engagement_amplification_time_idx",
+    "label": "Create index \"external_engagement_amplification_time_idx\" on \"external_engagements\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "external_engagement_amplification_time_idx",
+        "table": "external_engagements"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"external_engagement_amplification_time_idx\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": ["\"public\".\"external_engagement_amplification_time_idx\""]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"external_engagement_amplification_time_idx\"",
+        "sql": "CREATE INDEX \"external_engagement_amplification_time_idx\" ON \"public\".\"external_engagements\" (\"userId\", \"amplified\", \"amplifiedAt\", \"externalPostId\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"external_engagement_amplification_time_idx\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": ["\"public\".\"external_engagement_amplification_time_idx\""]
+      }
+    ]
+  }
+]

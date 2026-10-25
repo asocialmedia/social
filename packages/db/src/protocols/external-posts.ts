@@ -299,14 +299,30 @@ export async function mutateExternalPost(input: {
         throw new ExternalInteractionError(409, "idempotency_conflict");
       }
     } else {
+      const engagement =
+        input.action === "amplify"
+          ? await tx.orm.public.ExternalEngagements.where({
+              externalPostId: id,
+              userId: input.userId,
+            })
+              .select("amplified")
+              .first()
+          : null;
+      const now = toPrismaDateTime(new Date());
       const update =
         input.action === "bookmark"
           ? { bookmarked: input.active === true }
-          : { amplified: input.active === true };
+          : {
+              amplified: input.active === true,
+              ...(input.active === true && !engagement?.amplified
+                ? { amplifiedAt: now }
+                : {}),
+            };
       await tx.orm.public.ExternalEngagements.upsert({
         conflictOn: { externalPostId: id, userId: input.userId },
         create: {
           amplified: false,
+          amplifiedAt: now,
           bookmarked: false,
           externalPostId: id,
           userId: input.userId,
@@ -377,19 +393,24 @@ export async function externalLibrary(
         : entry.amplified.eq(true)
     )
   )
-    .select("externalPostId", "updatedAt")
+    .select("externalPostId", "updatedAt", "amplifiedAt")
     .include("externalPost", (post) =>
       post.select("uri", "snapshot", "available", "checkedAt")
     )
     .orderBy([
-      (entry) => entry.updatedAt.desc(),
+      (entry) =>
+        kind === "amplified"
+          ? entry.amplifiedAt.desc()
+          : entry.updatedAt.desc(),
       (entry) => entry.externalPostId.desc(),
     ])
     .limit(21);
   if (after) {
     query = query.cursor({
       externalPostId: after.externalPostId,
-      updatedAt: new Date(after.updatedAt),
+      ...(kind === "amplified"
+        ? { amplifiedAt: new Date(after.updatedAt) }
+        : { updatedAt: new Date(after.updatedAt) }),
     });
   }
   const rows = await query.all();
@@ -411,7 +432,9 @@ export async function externalLibrary(
       rows.length > 20 && last
         ? {
             externalPostId: last.externalPostId,
-            updatedAt: fromPrismaDateTime(last.updatedAt).toISOString(),
+            updatedAt: fromPrismaDateTime(
+              kind === "amplified" ? last.amplifiedAt : last.updatedAt
+            ).toISOString(),
           }
         : null,
     items,
@@ -451,6 +474,7 @@ export async function recordExternalPostVisit(
     conflictOn: { externalPostId: id, userId },
     create: {
       amplified: false,
+      amplifiedAt: toPrismaDateTime(new Date()),
       bookmarked: false,
       externalPostId: id,
       updatedAt: toPrismaDateTime(new Date()),

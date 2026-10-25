@@ -2,7 +2,7 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 
 import type { ExternalPost } from "@asm/protocols/contracts";
 
-import prisma from "../prisma";
+import prisma, { toPrismaDateTime } from "../prisma";
 import {
   externalComments,
   externalLibrary,
@@ -12,6 +12,7 @@ import {
   mutateExternalPost,
   refreshExternalPost,
   retainExternalResponse,
+  recordExternalPostVisit,
   externalResponses,
 } from "./external-posts";
 
@@ -283,4 +284,60 @@ test("forged source identity and banned accounts cannot retain records", async (
     prisma.transaction((tx) => retainExternalResponse(tx, original, otherId))
   ).rejects.toMatchObject({ status: 403 });
   expect(await findExternalPost(original.id)).toBeNull();
+});
+
+test("visits, bookmarks, and idempotent retries preserve amplification time; reamplifying advances it", async () => {
+  const original = post("amplification-time");
+  await mutateExternalPost({
+    action: "amplify",
+    active: true,
+    post: original,
+    uri: original.id,
+    userId,
+  });
+  const oldTime = new Date("2025-01-01T00:00:00Z");
+  await prisma.orm.public.ExternalEngagements.where({
+    externalPostId: externalPostId(original.id),
+    userId,
+  }).update({ amplifiedAt: toPrismaDateTime(oldTime) });
+  const time = async () => {
+    const row = await prisma.orm.public.ExternalEngagements.where({
+      externalPostId: externalPostId(original.id),
+      userId,
+    })
+      .select("amplifiedAt")
+      .first();
+    return String(row?.amplifiedAt);
+  };
+  const before = await time();
+  await recordExternalPostVisit(userId, original);
+  await mutateExternalPost({
+    action: "bookmark",
+    active: true,
+    post: original,
+    uri: original.id,
+    userId,
+  });
+  await mutateExternalPost({
+    action: "amplify",
+    active: true,
+    post: original,
+    uri: original.id,
+    userId,
+  });
+  expect(await time()).toBe(before);
+  await mutateExternalPost({
+    action: "amplify",
+    active: false,
+    uri: original.id,
+    userId,
+  });
+  await mutateExternalPost({
+    action: "amplify",
+    active: true,
+    post: original,
+    uri: original.id,
+    userId,
+  });
+  expect(await time()).not.toBe(before);
 });

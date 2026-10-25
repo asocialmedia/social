@@ -49,10 +49,13 @@ const source: ExternalPost = {
 
 test("a cold mixed feed keeps a full-height skeleton after an empty asocialmedia response", () => {
   const client = new QueryClient();
-  client.setQueryData(["post-feed", "latest", "guest", networkScope, "en"], {
-    pageParams: [null],
-    pages: [{ nextCursor: null, posts: [] }],
-  });
+  client.setQueryData(
+    ["post-feed", "latest", "guest", networkScope, "en", "focused"],
+    {
+      pageParams: [null],
+      pages: [{ nextCursor: null, posts: [] }],
+    }
+  );
   const html = renderToStaticMarkup(
     <QueryClientProvider client={client}>
       <HomeFeed variant="latest" />
@@ -71,10 +74,13 @@ test("a pending Bluesky source leaves loaded asocialmedia posts ahead of its pla
     external: undefined,
     id: "native-post",
   };
-  client.setQueryData(["post-feed", "latest", "guest", networkScope, "en"], {
-    pageParams: [null],
-    pages: [{ nextCursor: null, posts: [native] }],
-  });
+  client.setQueryData(
+    ["post-feed", "latest", "guest", networkScope, "en", "focused"],
+    {
+      pageParams: [null],
+      pages: [{ nextCursor: null, posts: [native] }],
+    }
+  );
   const html = renderToStaticMarkup(
     <QueryClientProvider client={client}>
       <HomeFeed variant="latest" />
@@ -93,21 +99,24 @@ test("a pending Bluesky source leaves loaded asocialmedia posts ahead of its pla
 
 test("completion appears only after both mixed-feed sources finish", () => {
   const client = new QueryClient();
-  client.setQueryData(["post-feed", "latest", "guest", networkScope, "en"], {
-    pageParams: [null],
-    pages: [
-      {
-        nextCursor: null,
-        posts: [
-          {
-            ...externalPostView(source),
-            external: undefined,
-            id: "native-post",
-          },
-        ],
-      },
-    ],
-  });
+  client.setQueryData(
+    ["post-feed", "latest", "guest", networkScope, "en", "focused"],
+    {
+      pageParams: [null],
+      pages: [
+        {
+          nextCursor: null,
+          posts: [
+            {
+              ...externalPostView(source),
+              external: undefined,
+              id: "native-post",
+            },
+          ],
+        },
+      ],
+    }
+  );
   client.setQueryData(
     [
       "bluesky-discovery",

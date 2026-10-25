@@ -89,6 +89,7 @@ namespace public {
     externalPostId String
     bookmarked Boolean @default(false)
     amplified Boolean @default(false)
+    amplifiedAt Timestamp(3) @default(now())
     createdAt Timestamp(3) @default(now())
     updatedAt Timestamp(3) @default(now())
     user Users @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -97,6 +98,7 @@ namespace public {
     @@id([userId, externalPostId])
     @@index([userId, bookmarked, updatedAt, externalPostId], map: "external_engagement_bookmarks_idx")
     @@index([userId, amplified, updatedAt, externalPostId], map: "external_engagement_amplified_idx")
+    @@index([userId, amplified, amplifiedAt, externalPostId], map: "external_engagement_amplification_time_idx")
     @@index([externalPostId, amplified], map: "external_engagement_post_idx")
     @@map("external_engagements")
   }

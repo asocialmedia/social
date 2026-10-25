@@ -158,6 +158,9 @@ export function useExternalInteractions(
       }
       await queryClient.invalidateQueries({ queryKey: ["external-library"] });
       await queryClient.invalidateQueries({
+        queryKey: ["profile-external-activity"],
+      });
+      await queryClient.invalidateQueries({
         queryKey: ["external-discussion", post.id],
       });
       return true;
