@@ -49,6 +49,36 @@ mock.module("./use-external-profile-activity", () => ({
     refetch: () => Promise.resolve(),
   }),
 }));
+let nativeRetry: (() => void) | undefined;
+const nativeRequests: { path: string; cursor?: string }[] = [];
+mock.module("@/components/feeds/feed-error-state", () => ({
+  FeedErrorState: ({
+    message,
+    onRetry,
+  }: {
+    message: string;
+    onRetry: () => void;
+  }) => {
+    nativeRetry = onRetry;
+    return (
+      <div>
+        {message}
+        <button type="button">Try again</button>
+      </div>
+    );
+  },
+}));
+mock.module("@/lib/ky", () => ({
+  default: {
+    get: (path: string, options?: { searchParams?: { cursor?: string } }) => {
+      nativeRequests.push({ cursor: options?.searchParams?.cursor, path });
+      return {
+        json: () =>
+          Promise.resolve({ nextCursor: null, posts: [], replies: [] }),
+      };
+    },
+  },
+}));
 let externalEmpty = false;
 let externalNetworkError = false;
 const { default: UserAmplifiedFeed } = await import("./user-amplified-feed");
@@ -174,4 +204,61 @@ for (const kind of ["amplified", "replies"] as const) {
     externalEmpty = false;
     client.clear();
   });
+}
+
+for (const kind of ["amplified", "replies"] as const) {
+  for (const scenario of [
+    "refresh-ended",
+    "refresh-with-cursor",
+    "continuation",
+  ] as const) {
+    // oxlint-disable-next-line no-loop-func -- each test resets the captured retry and request log before synchronous rendering.
+    test(`${kind} retries the failed ${scenario} request`, async () => {
+      nativeRequests.length = 0;
+      nativeRetry = undefined;
+      const client = new QueryClient({
+        defaultOptions: { queries: { retry: false } },
+      });
+      const queryKey = ["post-feed", `user-${kind}`, "profile"];
+      client.setQueryData(queryKey, {
+        pageParams: [null],
+        pages: [
+          {
+            nextCursor: scenario === "refresh-ended" ? null : "older-page",
+            nextCursorAt: "2026-01-01T00:00:00Z",
+            posts: [],
+            replies: [],
+          },
+        ],
+      });
+      const query = client.getQueryCache().find({ queryKey });
+      query?.setState({
+        error: new Error("failed request"),
+        fetchMeta:
+          scenario === "continuation"
+            ? { fetchMore: { direction: "forward" } }
+            : null,
+        status: "error",
+      });
+      renderToStaticMarkup(
+        <QueryClientProvider client={client}>
+          {kind === "amplified" ? (
+            <UserAmplifiedFeed userId="profile" />
+          ) : (
+            <UserRepliesFeed userId="profile" />
+          )}
+        </QueryClientProvider>
+      );
+      expect(nativeRetry).toBeDefined();
+      nativeRetry?.();
+      await query?.promise;
+      expect(nativeRequests).toEqual([
+        {
+          cursor: scenario === "continuation" ? "older-page" : undefined,
+          path: `/api/users/profile/${kind}`,
+        },
+      ]);
+      client.clear();
+    });
+  }
 }

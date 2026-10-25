@@ -111,6 +111,7 @@ const UserRepliesFeed: React.FC<UserRepliesFeedProps> = ({ userId }) => {
     hasNextPage,
     isFetching,
     isFetchingNextPage,
+    isFetchNextPageError,
     status,
     refetch,
   } = useInfiniteQuery({
@@ -357,7 +358,9 @@ const UserRepliesFeed: React.FC<UserRepliesFeedProps> = ({ userId }) => {
           message="Couldn’t load more replies."
           isRetrying={isFetching}
           onRetry={() => {
-            void (data ? fetchNextPage() : refetch());
+            void (isFetchNextPageError && hasNextPage
+              ? fetchNextPage()
+              : refetch());
           }}
         />
       ) : null}

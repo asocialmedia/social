@@ -35,6 +35,7 @@ const UserAmplifiedFeed: React.FC<UserAmplifiedFeedProps> = ({ userId }) => {
     hasNextPage,
     isFetching,
     isFetchingNextPage,
+    isFetchNextPageError,
     status,
     refetch,
   } = useInfiniteQuery({
@@ -157,7 +158,9 @@ const UserAmplifiedFeed: React.FC<UserAmplifiedFeedProps> = ({ userId }) => {
           message="Couldn’t load more amplified posts."
           isRetrying={isFetching}
           onRetry={() => {
-            void (data ? fetchNextPage() : refetch());
+            void (isFetchNextPageError && hasNextPage
+              ? fetchNextPage()
+              : refetch());
           }}
         />
       ) : null}
