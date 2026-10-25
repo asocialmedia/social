@@ -7,6 +7,7 @@ import {
 } from "@asm/db";
 import { normalizeHashtag } from "@asm/protocols/discovery";
 import { siteConfig } from "@asm/ui/meta/site";
+import { cacheLife, cacheTag } from "next/cache";
 
 import { getPostUrl } from "@/lib/seo/seo";
 
@@ -261,6 +262,13 @@ async function getUserEntries(): Promise<SitemapEntry[]> {
     lastModified: fromPrismaDateTime(user.updatedAt),
     url: `${siteConfig.url}/users/${user.username}`,
   }));
+}
+
+export async function getCachedTagSitemapEntries(): Promise<SitemapEntry[]> {
+  "use cache";
+  cacheLife("hours");
+  cacheTag("og-post-card");
+  return await getTagEntries();
 }
 
 async function getTagEntries(): Promise<SitemapEntry[]> {

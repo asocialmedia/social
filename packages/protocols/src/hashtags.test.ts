@@ -4,7 +4,7 @@ import { hasHashtag, normalizeHashtag } from "./hashtags";
 
 test("normalizes a valid hashtag without accepting queries, paths or SQL wildcards", () => {
   expect(normalizeHashtag("OnePiece")).toBe("onepiece");
-  expect(normalizeHashtag("#ＯｎｅＰｉｅｃｅ")).toBe("ＯｎｅＰｉｅｃｅ");
+  expect(normalizeHashtag("#ＯｎｅＰｉｅｃｅ")).toBe("ｏｎｅｐｉｅｃｅ");
   expect(normalizeHashtag("写真")).toBe("写真");
   for (const tag of [
     "",
@@ -33,4 +33,14 @@ test("matches declared tags, facets and complete text hashtags without substring
   ]) {
     expect(hasHashtag({ content }, "onepiece")).toBe(false);
   }
+});
+
+test("Unicode case and canonical accents match without merging compatibility spellings", () => {
+  expect(hasHashtag({ tags: ["Été"] }, "été")).toBe(true);
+  expect(hasHashtag({ text: "A trip #CAFE\u0301" }, "café")).toBe(true);
+  expect(hasHashtag({ tags: ["café"] }, "cafe\u0301")).toBe(true);
+  expect(hasHashtag({ text: "#ＯｎｅＰｉｅｃｅ" }, "ｏｎｅｐｉｅｃｅ")).toBe(
+    true
+  );
+  expect(hasHashtag({ text: "#ＯｎｅＰｉｅｃｅ" }, "onepiece")).toBe(false);
 });
