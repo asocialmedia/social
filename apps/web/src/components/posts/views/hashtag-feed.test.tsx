@@ -8,8 +8,18 @@ import { renderToStaticMarkup } from "react-dom/server";
 mock.module("@/app/(main)/session-provider", () => ({
   useSession: () => ({ user: null }),
 }));
+let settingsError: Error | null = null;
+let settingsReady = true;
+const retrySettings = mock(() => Promise.resolve());
+let renderedRetry: (() => void) | undefined;
 mock.module("@/hooks/feed/use-network-settings", () => ({
-  useNetworkSettings: () => ({ ready: true, scope: "test-scope" }),
+  useNetworkSettings: () => ({
+    error: settingsError,
+    isFetching: false,
+    ready: settingsReady,
+    refetch: retrySettings,
+    scope: "test-scope",
+  }),
 }));
 let source: FeedSource = "all";
 mock.module("@/store/feed-source-store", () => ({
@@ -21,11 +31,13 @@ mock.module("@/components/home/feed-view", () => ({
   FeedView: ({
     posts,
     externalPosts,
+    sourcesPending,
   }: {
+    sourcesPending: boolean;
     posts: { content: string }[];
     externalPosts: { text: string }[];
   }) => (
-    <div>
+    <div data-sources-pending={sourcesPending}>
       {posts.map((post) => (
         <p key={post.content}>{post.content}</p>
       ))}
@@ -42,14 +54,19 @@ mock.module("@/components/feeds/feed-error-state", () => ({
   FeedErrorState: ({
     message,
     compact,
+    onRetry,
   }: {
     message: string;
     compact: boolean;
-  }) => (
-    <p role="alert" data-compact={compact}>
-      {message}
-    </p>
-  ),
+    onRetry: () => void;
+  }) => {
+    renderedRetry = onRetry;
+    return (
+      <p role="alert" data-compact={compact}>
+        {message}
+      </p>
+    );
+  },
 }));
 const { default: HashtagFeed } = await import("./hashtag-feed");
 
@@ -143,4 +160,32 @@ test("an unselected unavailable source does not block an empty hashtag feed", ()
     source = "all";
     client.clear();
   }
+});
+
+test("settings failures expose recovery instead of an endless skeleton", () => {
+  const client = new QueryClient();
+  settingsReady = false;
+  settingsError = new Error("Settings unavailable");
+  retrySettings.mockClear();
+  try {
+    expect(render(client)).toContain(
+      "Couldn&#x27;t load your Network settings"
+    );
+    renderedRetry?.();
+    expect(retrySettings).toHaveBeenCalledTimes(1);
+  } finally {
+    settingsReady = true;
+    settingsError = null;
+    renderedRetry = undefined;
+    client.clear();
+  }
+});
+
+test("mixed hashtag feeds keep initial ordering pending until both sources resolve", () => {
+  const client = new QueryClient();
+  client.setQueryData(nativeKey, { pageParams: [null], pages: [native] });
+  expect(render(client)).toContain('data-sources-pending="true"');
+  client.setQueryData(remoteKey, { pageParams: [null], pages: [remote] });
+  expect(render(client)).toContain('data-sources-pending="false"');
+  client.clear();
 });

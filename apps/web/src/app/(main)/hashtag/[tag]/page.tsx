@@ -25,7 +25,7 @@ async function getMetadataTag(rawTag: string) {
     return null;
   }
   const page = await getFirstPublicHashtagPage(name);
-  return { name, posts: page.posts };
+  return { hasMore: Boolean(page.nextCursor), name, posts: page.posts };
 }
 
 export async function generateMetadata(props: PageProps): Promise<Metadata> {
@@ -77,7 +77,7 @@ export async function generateMetadata(props: PageProps): Promise<Metadata> {
       type: "website",
       url,
     },
-    robots: { follow: true, index: tag.posts.length > 0 },
+    robots: { follow: true, index: tag.posts.length > 0 || tag.hasMore },
     title,
     twitter: {
       card: "summary_large_image",

@@ -121,6 +121,17 @@ export default function HashtagFeed({
       void remote.fetchNextPage();
     }
   }, [native, remote, showNative, showRemote]);
+  if (!network.ready && network.error) {
+    return (
+      <FeedErrorState
+        message="Couldn't load your Network settings. Please try again."
+        isRetrying={network.isFetching}
+        onRetry={() => {
+          void network.refetch();
+        }}
+      />
+    );
+  }
   if (!hasContent && pending) {
     return <PostsOnlyLoadingSkeleton />;
   }
@@ -144,6 +155,7 @@ export default function HashtagFeed({
         posts={posts}
         externalPosts={external}
         source={source}
+        sourcesPending={pending}
         cacheKey={key}
         sortBy="newest"
         showEmpty={false}

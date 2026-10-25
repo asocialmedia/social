@@ -214,6 +214,40 @@ describe.skipIf(!isolatedDatabase)(
       }
     });
 
+    test("server hashtag lookahead stops after three sparse pages and preserves continuation", async () => {
+      const id = randomUUID();
+      const unrelated = Array.from({ length: 200 }, () => randomUUID());
+      const tag = `bounded_${owner}`;
+      await prisma.orm.public.Posts.create({
+        content: `An actual public topic #${tag}`,
+        id,
+        userId: owner,
+      });
+      await prisma.orm.public.Posts.createAll(
+        unrelated.map((postId) => ({
+          content: `A different topic #${tag}fan`,
+          id: postId,
+          userId: owner,
+        }))
+      );
+      try {
+        const page = await getFirstPublicHashtagPage(tag);
+        expect(page.posts).toEqual([]);
+        expect(page.nextCursor).not.toBeNull();
+        const continuation = await getHashtagPostPage(
+          tag,
+          "",
+          false,
+          page.nextCursor ?? undefined
+        );
+        expect(continuation.posts.map((post) => post.id)).toEqual([id]);
+      } finally {
+        await prisma.orm.public.Posts.where((post) =>
+          post.id.in([id, ...unrelated])
+        ).deleteAndCount();
+      }
+    });
+
     test("crawl links keep the full content required for canonical slugs", async () => {
       const id = randomUUID();
       const content =
