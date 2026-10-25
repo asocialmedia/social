@@ -12,8 +12,8 @@ import type React from "react";
 import { useCallback, useMemo, useState } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
-import { useNetworkSettings } from "@/hooks/feed/use-network-settings";
 import { ZephLoader } from "@/components/layouts/feedback/zeph-loader";
+import { useNetworkSettings } from "@/hooks/feed/use-network-settings";
 import useDebounce from "@/hooks/use-debounce";
 import {
   useDiscoverySuggestions,

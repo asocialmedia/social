@@ -35,7 +35,6 @@ import { FeedErrorState } from "@/components/feeds/feed-error-state";
 import { GustsCommentsDrawer } from "@/components/gusts/gusts-comments-drawer";
 import Spinner3D from "@/components/layouts/feedback/spinner-3d";
 import { ZephLoader } from "@/components/layouts/feedback/zeph-loader";
-import FollowButton from "@/components/layouts/user/follow-button";
 import UserAvatar from "@/components/layouts/user/user-avatar";
 import UserBadge from "@/components/layouts/user/user-badge";
 import { AiGeneratedBadge } from "@/components/media/ai-generated-badge";

@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  BubbleEntranceRegistry,
   observeChatTask,
   runChatTask,
   throwChatError,
@@ -14,7 +15,7 @@ import type { IncognitoMessage, IncognitoSession } from "@asm/messages";
 import { Button } from "@asm/ui/shadui/button";
 import { useQuery } from "@tanstack/react-query";
 import { RefreshCw, Shield } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
 import { ZephLoader } from "@/components/layouts/feedback/zeph-loader";
@@ -78,6 +79,8 @@ export function IncognitoThread({
   const { user } = useSession();
   const { privateKey } = useMessagesIdentity();
   const [rows, setRows] = useState<Row[]>([]);
+  const entrances = useMemo(() => new BubbleEntranceRegistry(), []);
+  const latestIds = useRef<Set<string> | null>(null);
   const [mediaAnchor, setMediaAnchor] = useState<string | null>(null);
   const [reactionMenu, setReactionMenu] = useState<{
     id: string;
@@ -204,6 +207,16 @@ export function IncognitoThread({
       const nearBottom = element
         ? element.scrollHeight - element.scrollTop - element.clientHeight < 100
         : true;
+      if (before === undefined) {
+        if (nearBottom && latestIds.current) {
+          for (const row of decoded) {
+            if (!latestIds.current.has(row.message.id)) {
+              entrances.register(row.message.id);
+            }
+          }
+        }
+        latestIds.current = new Set(decoded.map((row) => row.message.id));
+      }
       setRows((previous) =>
         before === undefined
           ? decoded
@@ -233,7 +246,7 @@ export function IncognitoThread({
         });
       }
     },
-    [privateKey, user, conversationId, session.id]
+    [privateKey, user, conversationId, session.id, entrances]
   );
 
   const reactToMessage = useCallback(
@@ -382,6 +395,7 @@ export function IncognitoThread({
                 }),
                 method: "POST",
               });
+              entrances.register(id);
               pending.current = null;
               if (mounted.current) {
                 setLatest(true);
@@ -546,6 +560,7 @@ export function IncognitoThread({
                           </p>
                         ) : null}
                         <MessageBubble
+                          entrances={entrances}
                           content={payload}
                           isDecrypting={false}
                           message={{

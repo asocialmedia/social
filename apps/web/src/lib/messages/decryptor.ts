@@ -171,6 +171,7 @@ export interface MessageDecryptor {
   // retry(), an in-flight run is left alone — a second concurrent decrypt of
   // the same id would only race the first's write.
   invalidate: (id: string) => void;
+  rememberSent: (scope: string, id: string, payload: MessagePayload) => void;
   // Returns items refused by the bounded background queue. They remain
   // unrequested, so a caller can apply backpressure and retry them safely.
   request: (items: DecryptItem[], keys: DecryptorKeySource) => DecryptItem[];
@@ -225,6 +226,7 @@ export function createDecryptor(
   // lands it is dropped and the entry returns to unrequested — the row's
   // self-heal then re-requests and decrypts the rewritten bytes.
   const staleInFlight = new Set<string>();
+  const sentOverrides = new Map<string, MessagePayload>();
   const queued = new Set<string>();
   // Two lanes, drained urgent-first. One FIFO queue could not express "the user
   // is waiting on this one row"; see `requestUrgent`.
@@ -434,7 +436,13 @@ export function createDecryptor(
     // slot is freed and the pump keeps going.
     if (staleInFlight.delete(id)) {
       inFlight.delete(id);
-      removeEntry(id);
+      const sentPayload = sentOverrides.get(id);
+      sentOverrides.delete(id);
+      if (sentPayload) {
+        storeEntry(id, sentPayload);
+      } else {
+        removeEntry(id);
+      }
       clearErrored(id);
       active -= 1;
       evictIfNeeded();
@@ -442,8 +450,10 @@ export function createDecryptor(
       pump();
       return;
     }
-    storeEntry(id, payload ?? "error");
-    if (payload) {
+    const sentPayload = sentOverrides.get(id);
+    sentOverrides.delete(id);
+    storeEntry(id, sentPayload ?? payload ?? "error");
+    if (payload || sentPayload) {
       clearErrored(id);
     } else {
       markErrored(id, item.conversationId);
@@ -540,6 +550,7 @@ export function createDecryptor(
       scopeKey = key;
       generation += 1;
       entries.clear();
+      sentOverrides.clear();
       entryByteLengths.clear();
       cachedPayloadBytes = 0;
       erroredByConversation.clear();
@@ -589,6 +600,32 @@ export function createDecryptor(
       if (existed) {
         notify();
       }
+    },
+
+    rememberSent(scope: string, id: string, payload: MessagePayload): void {
+      if (scope !== scopeKey) {
+        return;
+      }
+      if (inFlight.has(id)) {
+        sentOverrides.set(id, payload);
+        staleInFlight.add(id);
+      } else {
+        queued.delete(id);
+        queue.splice(
+          0,
+          queue.length,
+          ...queue.filter((item) => item.message.id !== id)
+        );
+        urgentQueue.splice(
+          0,
+          urgentQueue.length,
+          ...urgentQueue.filter((item) => item.message.id !== id)
+        );
+        storeEntry(id, payload);
+        evictIfNeeded();
+        clearErrored(id);
+      }
+      notify();
     },
 
     request(items: DecryptItem[], keys: DecryptorKeySource): DecryptItem[] {

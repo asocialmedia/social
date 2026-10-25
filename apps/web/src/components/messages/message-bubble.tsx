@@ -1,6 +1,9 @@
 "use client";
 
-import type { MessageReactionSummary } from "@asm/messages";
+import type {
+  BubbleEntranceRegistry,
+  MessageReactionSummary,
+} from "@asm/messages";
 import {
   Tooltip,
   TooltipContent,
@@ -9,12 +12,15 @@ import {
 } from "@asm/ui/shadui/tooltip";
 import {
   Check,
+  Clock3,
+  RotateCcw,
   Copy,
   MessageSquareQuote,
   MoreHorizontal,
   Pencil,
 } from "lucide-react";
 import { useCallback, useState } from "react";
+import type { RefObject } from "react";
 
 import UserAvatar from "@/components/layouts/user/user-avatar";
 import type { MessagePayload } from "@/lib/messages/crypto";
@@ -28,8 +34,15 @@ import { MessageLinkEmbed } from "./message-link-embed";
 import { MessageMediaAlbum } from "./message-media-album";
 import { PostEmbed } from "./post-embed";
 import { SavableSticker } from "./savable-sticker";
+import { useBubbleEntrance } from "./use-bubble-entrance";
 
 interface MessageBubbleProps {
+  deliveryState?: "sending" | "failed" | "acknowledged";
+  onRetrySend?: () => void;
+  entrances?: BubbleEntranceRegistry;
+  entrance?: "outgoing" | "incoming";
+  onEntranceEnd?: () => void;
+  entranceRef?: RefObject<HTMLDivElement | null>;
   content: MessagePayload | null;
   isDecrypting: boolean;
   message: {
@@ -77,7 +90,41 @@ interface MessageBubbleProps {
   unknownSenderName: string;
 }
 
-export function MessageBubble({
+export function MessageBubble(props: MessageBubbleProps) {
+  if (!props.content || props.isDecrypting || props.message.deletedAt) {
+    return <MessageBubbleContent {...props} />;
+  }
+  return <ReadyMessageBubble key={props.message.id} {...props} />;
+}
+
+function ReadyMessageBubble(props: MessageBubbleProps) {
+  const { entrances, message, myUserId } = props;
+  const direction = message.senderId === myUserId ? "outgoing" : "incoming";
+  const [entering, finishEntrance, entranceRef] = useBubbleEntrance(
+    entrances,
+    message.id,
+    direction
+  );
+  let entrance: MessageBubbleProps["entrance"];
+  if (entering) {
+    entrance = direction;
+  }
+  return (
+    <MessageBubbleContent
+      {...props}
+      entrance={entrance}
+      onEntranceEnd={finishEntrance}
+      entranceRef={entranceRef}
+    />
+  );
+}
+
+function MessageBubbleContent({
+  deliveryState,
+  onRetrySend,
+  entrance,
+  onEntranceEnd,
+  entranceRef,
   content,
   isDecrypting,
   message,
@@ -373,9 +420,11 @@ export function MessageBubble({
               the destructive action moved into the options menu. */}
           {selectionActive ? null : (
             <div
+              inert={Boolean(deliveryState)}
               className={cn(
                 "flex items-center gap-0.5 transition-opacity duration-150",
                 "opacity-0 group-hover:opacity-100 focus-within:opacity-100 max-sm:hidden",
+                deliveryState && "pointer-events-none invisible",
                 mine ? "order-first" : "order-last"
               )}
             >
@@ -431,18 +480,51 @@ export function MessageBubble({
               the colored bubble entirely: no background, border, shadow, or
               padding. Text/post messages keep the tinted bubble. The data
               attribute is the stable anchor for the options pane. */}
-          <div className="flex max-w-full min-w-0 flex-col items-start">
+          <div
+            className={cn(
+              "flex max-w-full min-w-0 flex-col items-start",
+              entrance === "outgoing" && "msg-bubble-enter-outgoing",
+              entrance === "incoming" && "msg-bubble-enter-incoming"
+            )}
+            data-bubble-media={content?.type === "text" ? undefined : "true"}
+            ref={entranceRef}
+            onAnimationEnd={(event) => {
+              if (
+                event.target === event.currentTarget &&
+                event.animationName.startsWith("msg-bubble-flight")
+              ) {
+                onEntranceEnd?.();
+              }
+            }}
+          >
             <div
               className={cn(
                 "relative max-w-full min-w-0",
                 bubbleClass,
+                mine && content?.type === "text" && "pr-8",
                 jumpShimmer && "msg-jump-shimmer"
               )}
               data-message-bubble=""
             >
               {quoteBlock}
 
-              {renderContent()}
+              {content?.type === "text" ? (
+                <div className="msg-bubble-copy min-w-0">{renderContent()}</div>
+              ) : (
+                <div className="contents" inert={Boolean(deliveryState)}>
+                  {renderContent()}
+                </div>
+              )}
+              {mine ? (
+                <MessageDeliveryIndicator
+                  state={deliveryState}
+                  className={
+                    content?.type === "text"
+                      ? "pointer-events-none absolute right-2 bottom-2"
+                      : "chip-3d text-foreground pointer-events-none absolute right-1 bottom-1 rounded-full p-0.5"
+                  }
+                />
+              ) : null}
 
               {/* Text messages place the marker inline next to the timestamp (see
                 renderContent); media albums and post cards have no timestamp
@@ -484,8 +566,48 @@ export function MessageBubble({
             ) : null}
           </div>
         </div>
+        {mine && deliveryState === "failed" ? (
+          <button
+            aria-label="Retry sending message"
+            className="text-destructive inline-flex min-h-8 items-center gap-1.5 self-end rounded-md px-2 text-[10px] [@media(pointer:coarse)]:min-h-11"
+            onClick={onRetrySend}
+            type="button"
+          >
+            <RotateCcw aria-hidden="true" className="size-3" />
+            Not sent · Retry
+          </button>
+        ) : null}
       </div>
     </div>
+  );
+}
+
+function MessageDeliveryIndicator({
+  state,
+  className,
+}: {
+  state: MessageBubbleProps["deliveryState"];
+  className?: string;
+}) {
+  let label = "Message sent";
+  let icon = <Check aria-hidden="true" className="size-3" />;
+  if (state === "sending") {
+    label = "Sending message";
+    icon = <Clock3 aria-hidden="true" className="size-3" />;
+  } else if (state === "failed") {
+    label = "Message not sent";
+    icon = <RotateCcw aria-hidden="true" className="size-3" />;
+  }
+  return (
+    <span
+      aria-label={label}
+      className={cn(
+        "msg-bubble-delivery inline-flex h-3.5 w-3.5 items-center justify-center align-middle opacity-70",
+        className
+      )}
+    >
+      {icon}
+    </span>
   );
 }
 

@@ -1,6 +1,7 @@
 "use client";
 
 import type { ConversationType } from "@asm/db/messages/dens";
+import { BubbleEntranceRegistry } from "@asm/messages";
 import type { IncognitoSession } from "@asm/messages";
 import { Button } from "@asm/ui/shadui/button";
 import {
@@ -35,6 +36,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
 } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
@@ -192,6 +194,13 @@ import {
   shouldRefreshServerSearchSnapshot,
 } from "@/lib/messages/offline-search-change-policy";
 import { offlineSearchWorkerClient } from "@/lib/messages/offline-search-worker-client";
+import {
+  MessageOutbox,
+  mergeOutgoingMessages,
+  getMessageOutbox,
+  clearOutboxesOutsideScope,
+} from "@/lib/messages/outbox";
+import type { OutgoingMessage } from "@/lib/messages/outbox";
 import {
   formatArrivalCount,
   isNearBottom,
@@ -572,10 +581,28 @@ function NormalMessageThread({
   } = useChatLifecycle();
   const activeIncognito =
     lifecycle?.activeSession?.endedAt === null ? lifecycle.activeSession : null;
+  const entrances = useMemo(() => new BubbleEntranceRegistry(), []);
   const [visibilityNow, setVisibilityNow] = useState(Date.now);
   const { user } = useSession();
   const { privateKey, recoveryGeneration, refreshRecoveryGeneration } =
     useMessagesIdentity();
+  const outboxScope = user
+    ? `${user.id}\u0000${recoveryGeneration ?? "identity-pending"}`
+    : "anonymous";
+  const outbox = useMemo(
+    () => getMessageOutbox(outboxScope, conversationId),
+    [outboxScope, conversationId]
+  );
+  const outgoing = useSyncExternalStore(
+    outbox.subscribe,
+    outbox.getSnapshot,
+    MessageOutbox.getServerSnapshot
+  );
+  const outgoingById = useMemo(
+    () => new Map(outgoing.map((entry) => [entry.message.id, entry])),
+    [outgoing]
+  );
+  useEffect(() => clearOutboxesOutsideScope(outboxScope), [outboxScope]);
   const offlineSearchScope = useMemo(
     () =>
       user && recoveryGeneration !== null
@@ -993,8 +1020,13 @@ function NormalMessageThread({
     [messagesQuery.data, visibilityNow]
   );
   useEffect(() => {
-    const deadlines = allMessages.flatMap((message) =>
-      message.expiresAt ? [new Date(message.expiresAt).getTime()] : []
+    const deadlines = [
+      ...allMessages,
+      ...outgoing.map((entry) => entry.message),
+    ].flatMap((message) =>
+      message.expiresAt && new Date(message.expiresAt).getTime() > visibilityNow
+        ? [new Date(message.expiresAt).getTime()]
+        : []
     );
     if (!deadlines.length) {
       return;
@@ -1004,7 +1036,28 @@ function NormalMessageThread({
       Math.max(0, Math.min(...deadlines) - Date.now() + 1)
     );
     return () => clearTimeout(timer);
-  }, [allMessages]);
+  }, [allMessages, outgoing, visibilityNow]);
+
+  const renderedMessages = useMemo(
+    () => mergeOutgoingMessages(allMessages, outgoing, visibilityNow),
+    [allMessages, outgoing, visibilityNow]
+  );
+  const renderedMessageIndexById = useMemo(
+    () =>
+      new Map(renderedMessages.map((message, index) => [message.id, index])),
+    [renderedMessages]
+  );
+  useEffect(() => {
+    outbox.retire(
+      new Set(
+        allMessages
+          .filter(
+            (message) => typeof messageDecryptor.get(message.id) === "object"
+          )
+          .map((message) => message.id)
+      )
+    );
+  }, [allMessages, outbox, outgoing]);
 
   // Resolve a replyToId to its parent without scanning the whole list for
   // every rendered bubble.
@@ -1044,8 +1097,11 @@ function NormalMessageThread({
     const merged: TranscriptItem[] = [];
     let messageIndex = 0;
     let eventIndex = 0;
-    while (messageIndex < allMessages.length || eventIndex < events.length) {
-      const message = allMessages[messageIndex];
+    while (
+      messageIndex < renderedMessages.length ||
+      eventIndex < events.length
+    ) {
+      const message = renderedMessages[messageIndex];
       const event = events[eventIndex];
       if (
         event &&
@@ -1061,7 +1117,7 @@ function NormalMessageThread({
       }
     }
     for (const session of lifecycle?.notices ?? []) {
-      const oldest = allMessages[0]?.createdAt.getTime();
+      const oldest = renderedMessages[0]?.createdAt.getTime();
       if (
         oldest !== undefined &&
         messagesQuery.hasPreviousPage &&
@@ -1084,7 +1140,7 @@ function NormalMessageThread({
     }
     return merged;
   }, [
-    allMessages,
+    renderedMessages,
     denEventsQuery.data,
     lifecycle?.notices,
     messagesQuery.hasPreviousPage,
@@ -4226,9 +4282,19 @@ function NormalMessageThread({
         return;
       }
       if (SERVER_MESSAGE_SEARCH_ENABLED) {
-        setServerRefsRefreshToken((token) => token + 1);
+        outbox.deferRefresh("shared-content", () =>
+          setServerRefsRefreshToken((token) => token + 1)
+        );
       }
       if (event.kind === "message.created") {
+        const local = outbox.acknowledge(message);
+        if (local) {
+          messageDecryptor.rememberSent(
+            outbox.scope,
+            message.id,
+            local.payload
+          );
+        }
         const messageQueryKey = ["messages", conversationId] as const;
         const currentWindow =
           queryClient.getQueryData<MessagesInfiniteData>(messageQueryKey);
@@ -4241,24 +4307,37 @@ function NormalMessageThread({
           })
         );
         if (followingNewest) {
-          queryClient.setQueryData<MessagesInfiniteData>(
-            messageQueryKey,
-            (old) => {
-              if (
-                !old ||
-                !shouldFoldLiveMessage({
-                  pageParams: old.pageParams,
-                  pages: old.pages,
-                  pinned: pinnedRef.current,
-                })
-              ) {
-                return old;
+          if (
+            !currentWindow?.pages.some((page) =>
+              page.messages.some((row) => row.id === message.id)
+            )
+          ) {
+            entrances.register(message.id);
+          }
+          const reconcile = () =>
+            queryClient.setQueryData<MessagesInfiniteData>(
+              messageQueryKey,
+              (old) => {
+                if (
+                  !old ||
+                  !shouldFoldLiveMessage({
+                    pageParams: old.pageParams,
+                    pages: old.pages,
+                    pinned: pinnedRef.current,
+                  })
+                ) {
+                  return old;
+                }
+                // Dedupe the sender's optimistic fold, and cap retained history
+                // even during a sustained live stream.
+                return foldMessageIntoBoundedData(old, message) ?? old;
               }
-              // Dedupe the sender's optimistic fold, and cap retained history
-              // even during a sustained live stream.
-              return foldMessageIntoBoundedData(old, message) ?? old;
-            }
-          );
+            );
+          if (local) {
+            outbox.deferRefresh(`sent:${message.id}`, reconcile);
+          } else {
+            reconcile();
+          }
         }
         // A message from the peer while we're looking at the thread counts as
         // read immediately and means they stopped typing.
@@ -4324,7 +4403,15 @@ function NormalMessageThread({
         }
       }
     },
-    [conversationId, queryClient, refreshLifecycle, scheduleRead, user?.id]
+    [
+      conversationId,
+      entrances,
+      outbox,
+      queryClient,
+      refreshLifecycle,
+      scheduleRead,
+      user?.id,
+    ]
   );
 
   // Whether the loaded roster says this reader has left this den.
@@ -5119,19 +5206,16 @@ function NormalMessageThread({
                             );
                           }
                           const { message } = item;
-                          // Grouping is a property of the message list, not of the
-                          // transcript: a log line between two messages does not stop
-                          // them continuing each other's group. So this reads the
-                          // message's own index in `allMessages`. The lookup cannot
-                          // miss - a message item only exists because it came from
-                          // `allMessages` - so a miss is skipped rather than given a
-                          // fabricated group.
-                          const messageIndex = messageIndexById.get(message.id);
+                          // Local sends share grouping with server rows, while
+                          // ciphertext history and its decrypt window stay separate.
+                          const messageIndex = renderedMessageIndexById.get(
+                            message.id
+                          );
                           if (messageIndex === undefined) {
                             return null;
                           }
                           const groupMeta = getMessageGroupMeta(
-                            allMessages,
+                            renderedMessages,
                             messageIndex
                           );
                           return (
@@ -5149,6 +5233,9 @@ function NormalMessageThread({
                               }}
                             >
                               <VirtualRow
+                                outgoing={outgoingById.get(message.id)}
+                                outbox={outbox}
+                                entrances={entrances}
                                 conversationId={conversationId}
                                 conversationType={conversationType}
                                 groupMeta={groupMeta}
@@ -5376,6 +5463,8 @@ function NormalMessageThread({
               ) : null}
 
               <MessageComposer
+                outbox={outbox}
+                entrances={entrances}
                 accessEnded={accessEndedNotice.accessEnded}
                 conversation={detail}
                 editTarget={editTarget}
@@ -5389,9 +5478,11 @@ function NormalMessageThread({
                 onDraftInput={() => setUnreadDismissed(true)}
                 onSent={() => {
                   scheduleRead();
-                  // Sending always returns the user to the newest message, even from
-                  // mid-history, matching every mainstream chat client.
-                  jumpToBottom();
+                  // The virtualizer already follows appends at the live tail.
+                  // An extra imperative scroll forces layout during the entrance.
+                  if (!pinnedRef.current) {
+                    jumpToBottom();
+                  }
                 }}
               />
 
@@ -5511,6 +5602,9 @@ function chatThemeVars(
 }
 
 interface VirtualRowProps {
+  outgoing?: OutgoingMessage;
+  outbox: MessageOutbox;
+  entrances: BubbleEntranceRegistry;
   conversationId: string;
   groupMeta: MessageGroupMeta;
   highlighted: boolean;
@@ -5606,6 +5700,9 @@ function MessageRowFrame({
 // when it quotes a reply, the parent's) so a completion batch re-renders only
 // the rows whose payloads landed, never the whole visible window.
 function VirtualRowInner({
+  outgoing,
+  outbox,
+  entrances,
   conversationId,
   conversationType,
   groupMeta,
@@ -5626,7 +5723,8 @@ function VirtualRowInner({
   unreadDivider,
 }: VirtualRowProps) {
   const mine = message.senderId === myUserId;
-  const payload = useDecryptEntry(message.id);
+  const decryptedPayload = useDecryptEntry(message.id);
+  const payload = outgoing?.payload ?? decryptedPayload;
 
   // Self-heal legacy unbound media. A row uploaded before the conversation
   // link existed is owner-readable but 404s for the peer; the sender's client
@@ -5634,6 +5732,7 @@ function VirtualRowInner({
   // it renders its own media message. Idempotent and deduped per session.
   useEffect(() => {
     if (
+      Boolean(outgoing) ||
       !mine ||
       !payload ||
       payload === "error" ||
@@ -5648,7 +5747,7 @@ function VirtualRowInner({
         void ensureMessageMediaLinked(mediaId, conversationId);
       }
     }
-  }, [conversationId, mine, payload]);
+  }, [conversationId, mine, outgoing, payload]);
 
   // Self-heal: an entry can legitimately be missing while the row is mounted
   // (evicted from the LRU, dropped by scope reset, or cleared after key
@@ -5871,6 +5970,9 @@ function VirtualRowInner({
       spacingClass={spacingClass}
     >
       <MessageBubble
+        deliveryState={outgoing?.status}
+        onRetrySend={() => outbox.retry(message.id)}
+        entrances={entrances}
         content={payload}
         isDecrypting={false}
         jumpShimmer={highlighted}
@@ -5900,6 +6002,9 @@ function VirtualRowInner({
 const VirtualRow = memo(
   VirtualRowInner,
   (prev, next) =>
+    prev.outgoing === next.outgoing &&
+    prev.outbox === next.outbox &&
+    prev.entrances === next.entrances &&
     prev.conversationId === next.conversationId &&
     prev.highlighted === next.highlighted &&
     prev.message === next.message &&

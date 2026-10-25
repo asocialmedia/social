@@ -1,7 +1,6 @@
 "use client";
 
 import { Button } from "@asm/ui/shadui/button";
-import { Skeleton } from "@asm/ui/shadui/skeleton";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Flame, Hash, RefreshCw, TrendingUp } from "lucide-react";
 import Link from "next/link";

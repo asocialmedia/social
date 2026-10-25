@@ -1571,7 +1571,8 @@ export async function sendEncryptedMessage(
   rootKey: Uint8Array,
   senderId: string,
   ratchetIndex: number,
-  payload: MessagePayload
+  payload: MessagePayload,
+  clientMessageId?: string
 ): Promise<MessageData> {
   const encrypted = await encryptMessage(
     rootKey,
@@ -1610,6 +1611,7 @@ export async function sendEncryptedMessage(
     `/api/messages/conversations/${conversationId}/messages`,
     {
       body: JSON.stringify({
+        ...(clientMessageId ? { clientMessageId } : {}),
         ciphertext: encrypted.ciphertext,
         iv: encrypted.iv,
         mediaIds,

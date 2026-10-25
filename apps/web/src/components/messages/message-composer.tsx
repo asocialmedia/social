@@ -1,6 +1,7 @@
 "use client";
 
-import { ChatDraftStore } from "@asm/messages";
+import type { BubbleEntranceRegistry } from "@asm/messages";
+import { ChatDraftStore, throwChatError } from "@asm/messages";
 // oxlint-disable react/exhaustive-effect-dependencies -- Account, clear and retry revisions intentionally invalidate scoped effects even when they are not request payload fields.
 import {
   DropdownMenu,
@@ -30,6 +31,7 @@ import KlipyGifPicker from "@/components/comments/composer/klipy-gif-picker";
 import type { KlipyGif } from "@/components/comments/composer/klipy-gif-picker";
 import { ZephLoader } from "@/components/layouts/feedback/zeph-loader";
 import { MessageAttachmentStrip } from "@/components/messages/message-attachment-strip";
+import { MessageComposerInput } from "@/components/messages/message-composer-input";
 import { useMessagesIdentity } from "@/components/messages/message-identity-provider";
 import { MessageReactionPicker } from "@/components/messages/message-reaction-picker";
 import { StickerPicker } from "@/components/messages/sticker-picker";
@@ -53,6 +55,8 @@ import {
   replySenderFallbackName,
 } from "@/lib/messages/composer-copy";
 import type { MessagePayload } from "@/lib/messages/crypto";
+import { messageDecryptor } from "@/lib/messages/decryptor";
+import type { MessageOutbox } from "@/lib/messages/outbox";
 import type { MessagePage } from "@/lib/messages/types";
 import { cn } from "@/lib/utils";
 
@@ -65,6 +69,8 @@ const MessageImageEditDialog = dynamic(
 const normalDrafts = new ChatDraftStore();
 
 interface MessageComposerProps {
+  outbox?: MessageOutbox;
+  entrances?: BubbleEntranceRegistry;
   incognito?: {
     sessionId: string;
     send: (payload: MessagePayload) => Promise<boolean>;
@@ -102,7 +108,8 @@ async function sendWithRatchetRetry(
   rootKey: Uint8Array,
   senderId: string,
   nextIndex: number,
-  payload: MessagePayload
+  payload: MessagePayload,
+  clientMessageId?: string
 ): Promise<Awaited<ReturnType<typeof sendEncryptedMessage>>> {
   try {
     return await sendEncryptedMessage(
@@ -110,7 +117,8 @@ async function sendWithRatchetRetry(
       rootKey,
       senderId,
       nextIndex,
-      payload
+      payload,
+      clientMessageId
     );
   } catch (error) {
     if (
@@ -123,7 +131,8 @@ async function sendWithRatchetRetry(
         rootKey,
         senderId,
         error.expectedIndex,
-        payload
+        payload,
+        clientMessageId
       );
     }
     throw error;
@@ -131,6 +140,8 @@ async function sendWithRatchetRetry(
 }
 
 export function MessageComposer({
+  outbox,
+  entrances,
   incognito,
   accessEnded = false,
   conversation,
@@ -222,21 +233,6 @@ export function MessageComposer({
     (attachment) => attachment.id === editingId
   );
 
-  const adjustTextareaHeight = useCallback(() => {
-    const textarea = textareaRef.current;
-    if (!textarea) {
-      return;
-    }
-    textarea.style.height = "auto";
-    const nextHeight = Math.min(Math.max(textarea.scrollHeight, 24), 140);
-    textarea.style.height = `${nextHeight}px`;
-  }, []);
-
-  useEffect(() => {
-    adjustTextareaHeight();
-    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- text intentionally triggers a height re-measure on every keystroke
-  }, [text, adjustTextareaHeight]);
-
   // The peer, and only once this device knows who it is.
   //
   // Gated on the session rather than only on the comparison, because with no session
@@ -278,12 +274,53 @@ export function MessageComposer({
   const sendPayload = useCallback(
     async (
       payload: MessagePayload,
-      options?: { preserveInput?: boolean }
+      options?: { preserveInput?: boolean; outgoingId?: string }
     ): Promise<boolean> => {
       if (!user || !privateKey || !peer) {
         return false;
       }
+      let outgoingId: string | undefined;
       try {
+        if (!incognito && outbox) {
+          outgoingId = options?.outgoingId ?? crypto.randomUUID();
+          const previous = outbox.get(outgoingId);
+          if (!previous) {
+            const editor = textareaRef.current;
+            const sendButton = editor
+              ?.closest("[data-message-composer]")
+              ?.querySelector("[data-message-send]");
+            const source = sendButton?.getBoundingClientRect();
+            entrances?.register(
+              outgoingId,
+              Date.now(),
+              source
+                ? { x: source.right, y: source.top + source.height / 2 }
+                : undefined
+            );
+          }
+          outbox.start(
+            previous?.message ?? {
+              ciphertext: "",
+              conversationId: conversation.conversation.id,
+              createdAt: new Date(),
+              deletedAt: null,
+              editedAt: null,
+              id: outgoingId,
+              iv: "",
+              ratchetIndex: 0,
+              senderId: user.id,
+            },
+            payload
+          );
+          if (!options?.preserveInput) {
+            setText("");
+            onReplyCancel();
+            requestAnimationFrame(() =>
+              textareaRef.current?.focus({ preventScroll: true })
+            );
+          }
+          onSent();
+        }
         if (incognito) {
           const sent = await incognito.send(payload);
           if (sent && !options?.preserveInput) {
@@ -322,12 +359,7 @@ export function MessageComposer({
           }
         );
         if (!rootKey) {
-          toast({
-            description: "Message keys aren't ready yet",
-            title: "Can't send",
-            variant: "destructive",
-          });
-          return false;
+          throwChatError(new Error("Message keys aren't ready yet"));
         }
 
         // Next ratchet index = max(server count at fetch, own messages loaded).
@@ -339,7 +371,11 @@ export function MessageComposer({
           .flatMap((page) => page.messages)
           .filter((message) => message.senderId === user.id).length;
 
-        const computedIndex = Math.max(conversation.mySentCount, ownCacheCount);
+        const computedIndex = Math.max(
+          conversation.mySentCount,
+          ownCacheCount,
+          outbox?.nextRatchetIndex ?? 0
+        );
 
         // A concurrent send can still race us; sendWithRatchetRetry retries
         // once at the server's authoritative index when that happens.
@@ -348,46 +384,67 @@ export function MessageComposer({
           rootKey,
           user.id,
           computedIndex,
-          payload
+          payload,
+          outgoingId
         );
 
-        // Fold the sent message into the cache (deduped against the SSE echo of
-        // the same message) and clear the input.
-        queryClient.setQueryData<InfiniteData<MessagePage, MessagePageAxis>>(
-          ["messages", conversation.conversation.id],
-          (old) => {
-            if (
-              !old ||
-              !messageWindowIncludesLatest(old.pages, old.pageParams)
-            ) {
-              return old;
-            }
-            return foldMessageIntoBoundedData(old, sent) ?? old;
-          }
-        );
-        if (!options?.preserveInput) {
-          setText("");
-          onReplyCancel();
+        entrances?.register(sent.id);
+        if (outbox && outgoingId) {
+          messageDecryptor.rememberSent(outbox.scope, sent.id, payload);
+          outbox.acknowledge(sent);
         }
-        onSent();
-        void queryClient.invalidateQueries({
-          queryKey: ["message-conversations", user.id],
-        });
-        // ensureConversationKeys may have just created the wrapped keys (first
-        // message in a new conversation). Refetch the detail so the thread can
-        // unwrap and decrypt this message instead of showing it unreadable.
-        void queryClient.invalidateQueries({
-          queryKey: ["message-conversation", conversation.conversation.id],
-        });
+        const reconcile = () => {
+          queryClient.setQueryData<InfiniteData<MessagePage, MessagePageAxis>>(
+            ["messages", conversation.conversation.id],
+            (old) =>
+              !old || !messageWindowIncludesLatest(old.pages, old.pageParams)
+                ? old
+                : (foldMessageIntoBoundedData(old, sent) ?? old)
+          );
+        };
+        if (outbox) {
+          outbox.deferRefresh(`sent:${sent.id}`, reconcile);
+          outbox.deferRefresh("conversation-list", () => {
+            void queryClient.invalidateQueries({
+              queryKey: ["message-conversations", user.id],
+            });
+          });
+          outbox.deferRefresh("conversation-detail", () => {
+            void queryClient.invalidateQueries({
+              queryKey: ["message-conversation", conversation.conversation.id],
+            });
+          });
+        } else {
+          reconcile();
+          if (!options?.preserveInput) {
+            setText("");
+            onReplyCancel();
+          }
+          onSent();
+          void queryClient.invalidateQueries({
+            queryKey: ["message-conversations", user.id],
+          });
+          void queryClient.invalidateQueries({
+            queryKey: ["message-conversation", conversation.conversation.id],
+          });
+        }
         return true;
       } catch (error) {
+        if (outgoingId && outbox?.wasAcknowledged(outgoingId)) {
+          return true;
+        }
+        if (outgoingId) {
+          outbox?.fail(outgoingId);
+        }
         toast({
           description:
             error instanceof Error ? error.message : "Couldn't send message",
           title: "Message not sent",
           variant: "destructive",
         });
-        return false;
+        // The outbox owns failed payloads and their claimed media until retry.
+        // Callers may remove attachment tiles without discarding those media.
+        return Boolean(outgoingId && outbox?.get(outgoingId));
       }
     },
     [
@@ -395,6 +452,8 @@ export function MessageComposer({
       conversation.mySentCount,
       onReplyCancel,
       onSent,
+      entrances,
+      outbox,
       peer,
       privateKey,
       queryClient,
@@ -431,6 +490,26 @@ export function MessageComposer({
     [conversation.conversation.id, editing, incognito, onDraftInput, text]
   );
 
+  useEffect(
+    () =>
+      outbox?.setRetryHandler(async (entry) => {
+        if (sending || accessEnded) {
+          return;
+        }
+        setSending(true);
+        try {
+          await sendPayload(entry.payload, {
+            outgoingId: entry.message.id,
+            preserveInput: true,
+          });
+        } catch {
+          // Keep unexpected failures retryable and release the composer.
+        }
+        setSending(false);
+      }),
+    [accessEnded, outbox, sendPayload, sending]
+  );
+
   const handleEditSave = useCallback(async () => {
     const content = text.trim();
     if (savingEdit || !editing) {
@@ -452,15 +531,15 @@ export function MessageComposer({
   }, [editing, editTarget?.payloadType, onEditSave, savingEdit, text]);
 
   const handleSend = useCallback(async () => {
+    if (sending) {
+      return;
+    }
     // Edit mode repurposes the send button into "save changes".
     if (editing) {
       await handleEditSave();
       return;
     }
     const content = text.trim();
-    if (sending) {
-      return;
-    }
     if (attachments.length === 0 && (!content || viewOnceMode)) {
       return;
     }
@@ -520,9 +599,8 @@ export function MessageComposer({
             setSending(false);
             return;
           }
-          // The send landed, so the rows belong to a message now: drop the
-          // tiles without discarding. `claimed` already detached them, so this
-          // is bookkeeping only.
+          // The outbox or acknowledged message owns these media now. Drop the
+          // draft tiles without discarding references a retry still needs.
           removeAttachments(group.attachmentIds, { discard: false });
           first = false;
         }
@@ -547,11 +625,7 @@ export function MessageComposer({
       setSending(false);
       return;
     }
-    // Clear the sending flag BEFORE focusing: the textarea is disabled while
-    // `busy`, and a disabled element cannot receive focus, so focusing first
-    // was a no-op. The frame callback then runs after React has re-enabled
-    // it, so the caret actually lands. preventScroll keeps the just-scrolled
-    // transcript from being yanked by the browser focusing the composer.
+    // Keep focus on the next draft without moving the transcript.
     setSending(false);
     requestAnimationFrame(() => {
       textareaRef.current?.focus({ preventScroll: true });
@@ -887,7 +961,10 @@ export function MessageComposer({
         />
       )}
 
-      <div className="reels-input relative flex items-end gap-0 rounded-3xl! px-2 py-1.5">
+      <div
+        className="premium-input relative flex items-end gap-0 rounded-[1.625rem]! p-1.5"
+        data-message-composer=""
+      >
         {dragActive ? (
           <span className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-2xl border-2 border-dashed border-[#ff9500]/70 bg-black/5 text-xs font-medium text-[#ff9500]">
             Drop files to attach
@@ -905,7 +982,7 @@ export function MessageComposer({
           <DropdownMenuTrigger asChild>
             <button
               aria-label="Add attachment"
-              className="text-muted-foreground hover:bg-muted/60 hover:text-foreground focus-visible:ring-primary flex h-10 w-8 shrink-0 items-center justify-center rounded-full transition-colors focus-visible:ring-2 disabled:opacity-40 pointer-coarse:w-10"
+              className="text-muted-foreground hover:bg-muted/60 hover:text-foreground focus-visible:ring-primary flex h-10 w-9 shrink-0 items-center justify-center rounded-full transition-colors focus-visible:ring-2 disabled:opacity-40 pointer-coarse:w-10"
               disabled={writeBlocked || editing || viewOnceMode}
               type="button"
             >
@@ -949,7 +1026,7 @@ export function MessageComposer({
           aria-expanded={expressionKeyboardOpen}
           aria-label="Open emoji, GIF, and sticker keyboard"
           className={cn(
-            "text-muted-foreground hover:bg-muted/60 hover:text-foreground focus-visible:ring-primary flex h-10 w-8 shrink-0 items-center justify-center rounded-full transition-colors focus-visible:ring-2 pointer-coarse:w-10",
+            "text-muted-foreground hover:bg-muted/60 hover:text-foreground focus-visible:ring-primary flex h-10 w-9 shrink-0 items-center justify-center rounded-full transition-colors focus-visible:ring-2 pointer-coarse:w-10",
             expressionKeyboardOpen && "bg-muted/70 text-foreground"
           )}
           onClick={() => {
@@ -962,10 +1039,8 @@ export function MessageComposer({
         >
           <Smile className="size-5" />
         </button>
-        <textarea
-          aria-label="Message"
-          className="placeholder:text-muted-foreground max-h-32 min-h-10 min-w-0 flex-1 resize-none bg-transparent px-1 py-2.5 text-base outline-none disabled:opacity-60 sm:text-sm"
-          disabled={writeBlocked || viewOnceMode}
+        <MessageComposerInput
+          disabled={accessEnded || savingEdit || viewOnceMode}
           onChange={(event) => {
             const { value } = event.target;
             setText(value);
@@ -989,13 +1064,13 @@ export function MessageComposer({
           onKeyDown={handleKeyDown}
           onPaste={handlePaste}
           placeholder={viewOnceMode ? "View once photo" : placeholder}
-          ref={textareaRef}
-          rows={1}
+          inputRef={textareaRef}
           value={text}
         />
         <button
           aria-label={editing ? "Save edit" : "Send message"}
-          className="follow-btn-3d flex h-9 w-9 shrink-0 items-center justify-center rounded-full"
+          data-message-send=""
+          className="follow-btn-3d flex h-10 w-10 shrink-0 items-center justify-center rounded-full"
           disabled={sendDisabled}
           onClick={() => {
             void handleSend();

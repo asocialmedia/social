@@ -20,6 +20,7 @@ import {
   visibleToUser,
 } from "@asm/db";
 import type { PrismaTransaction } from "@asm/db";
+import { isUuid } from "@asm/messages";
 
 import { getSessionFromApi } from "@/lib/auth/session";
 import { blockedSendPeer } from "@/lib/messages/blocks";
@@ -621,6 +622,7 @@ export async function POST(
 
   const parsed = await parseJsonBody(request);
   const body = parsed as {
+    clientMessageId?: string;
     ciphertext?: string;
     iv?: string;
     ratchetIndex?: number;
@@ -634,7 +636,8 @@ export async function POST(
     body.ciphertext.length === 0 ||
     typeof body.iv !== "string" ||
     body.iv.length === 0 ||
-    typeof body.ratchetIndex !== "number"
+    typeof body.ratchetIndex !== "number" ||
+    (body.clientMessageId !== undefined && !isUuid(body.clientMessageId))
   ) {
     return Response.json({ error: "Invalid message payload" }, { status: 400 });
   }
@@ -649,6 +652,7 @@ export async function POST(
   const { ciphertext } = body;
   const { iv } = body;
   const { ratchetIndex } = body;
+  const { clientMessageId } = body;
   const { retentionVersion } = body;
   const mediaIds = body.mediaIds === undefined ? [] : body.mediaIds;
   const viewOnceMediaIds =
@@ -691,6 +695,22 @@ export async function POST(
       { error: "You cannot message this user" },
       { status: 403 }
     );
+  }
+
+  if (clientMessageId) {
+    const existing = await getMessageDataQuery(prisma.orm)
+      .where({
+        conversationId: id,
+        id: clientMessageId,
+        senderId: user.id,
+      })
+      .first();
+    if (existing) {
+      return Response.json({
+        membershipSeq: null,
+        message: mapMessage(existing),
+      });
+    }
   }
 
   const unreadRecipientIds: string[] = [];
@@ -741,6 +761,7 @@ export async function POST(
           ? toPrismaDateTime(lifetime.expiresAt)
           : null,
         iv,
+        ...(clientMessageId ? { id: clientMessageId } : {}),
         ratchetIndex: expectedIndex,
         senderId: user.id,
       });

@@ -809,9 +809,7 @@ const ExploreClient: React.FC = () => {
               {isLoggedIn ? (
                 <div
                   className={`hidden w-60 shrink-0 md:block xl:hidden ${
-                    activeTab === "gusts" || activeTab === "people"
-                      ? "invisible"
-                      : ""
+                    activeTab === "gusts" ? "invisible" : ""
                   }`}
                 >
                   {searchField}
@@ -854,7 +852,7 @@ const ExploreClient: React.FC = () => {
         {isLoggedIn ? (
           <div
             className={`shrink-0 pb-4 ${
-              activeTab === "gusts" || activeTab === "people" ? "invisible" : ""
+              activeTab === "gusts" ? "invisible" : ""
             }`}
           >
             {searchField}
