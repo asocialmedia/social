@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Window } from "happy-dom";
 import { renderToStaticMarkup } from "react-dom/server";
 
+import { GustCard } from "@/components/gusts/gust-card";
 import GustVoteButton from "@/components/gusts/gust-vote-button";
 import PostCard from "@/components/home/feedview/post-card";
 import { externalPostView } from "@/lib/posts/presentation";
@@ -234,5 +235,33 @@ test("an AI topic tag alone does not show an AI Generated pill", () => {
     </QueryClientProvider>
   );
   expect(html).not.toContain("AI Generated");
+  client.clear();
+});
+
+test("Gusts preserve the source of an external AI declaration in their media badge", () => {
+  const client = new QueryClient();
+  const html = renderToStaticMarkup(
+    <QueryClientProvider client={client}>
+      <GustCard
+        isActive={false}
+        isMuted
+        onOpenComments={() => {}}
+        onToggleMute={() => {}}
+        post={externalPostView({
+          ...source,
+          labels: ["ai-generated"],
+          media: [
+            {
+              alt: "Declared video",
+              type: "video",
+              url: "https://video.bsky.app/fixture.m3u8",
+            },
+          ],
+        })}
+        shouldMountVideo={false}
+      />
+    </QueryClientProvider>
+  );
+  expect(html).toContain('aria-label="AI-generated content (Bluesky label)"');
   client.clear();
 });

@@ -1,0 +1,23 @@
+{
+  "name": "@asm/classifier",
+  "version": "0.1.8",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "bun --no-env-file run src/server.ts",
+    "check-types": "tsc --noEmit",
+    "model:download": "bun scripts/download-model.ts"
+  },
+  "dependencies": {
+    "@opentelemetry/api": "1.9.1",
+    "@opentelemetry/api-logs": "0.221.0",
+    "@opentelemetry/exporter-logs-otlp-http": "0.221.0",
+    "@opentelemetry/resources": "2.10.0",
+    "@opentelemetry/sdk-logs": "0.221.0",
+    "onnxruntime-node": "1.30.0",
+    "sharp": "0.35.5"
+  },
+  "devDependencies": {
+    "@types/bun": "1.4.0"
+  }
+}

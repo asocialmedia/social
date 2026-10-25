@@ -90,6 +90,7 @@ export function createCachedBlueskyClient(
         includePins?: boolean;
         since?: string;
         until?: string;
+        tag?: string;
       }
     ) =>
       `${scope}:v${readGen}:feed:${createHash("sha256")
@@ -98,6 +99,7 @@ export function createCachedBlueskyClient(
             feed,
             options.cursor ?? "",
             options.language ?? "",
+            options.tag ?? "",
             options.limit,
             options.includePins,
             options.since,

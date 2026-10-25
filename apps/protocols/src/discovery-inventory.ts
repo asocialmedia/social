@@ -93,8 +93,11 @@ export class DiscoveryInventory {
     }
     const refillKey = (position: string | undefined) =>
       `inventory-refill:${scope}:${sourceChain}:${position ?? "head"}`;
+    const progressKey = `inventory-source:${scope}:${sourceChain}`;
     if (!sourceStarted || sourceCursor) {
-      const completed = await this.continuations.get(refillKey(sourceCursor));
+      const completed =
+        (await this.continuations.get(progressKey)) ??
+        (await this.continuations.get(refillKey(sourceCursor)));
       if (completed) {
         const saved = continuationSchema.parse(JSON.parse(completed));
         if (saved.scope === scope) {
@@ -151,9 +154,11 @@ export class DiscoveryInventory {
       const startedAt = Date.now();
       const position = sourceCursor;
       const owner = crypto.randomUUID();
+      const chainKey = `inventory-refill-active:${scope}:${sourceChain}`;
       const { readSource } = this;
       const pending = (async () => {
         let claimed = false;
+        let chainClaimed = false;
         try {
           claimed = await this.continuations.acquire(key, owner);
           if (!claimed) {
@@ -171,32 +176,94 @@ export class DiscoveryInventory {
               };
             }
           }
-          const page = await abortable(
-            readSource(mode, position, locale, topics, content),
-            AbortSignal.timeout(15_000)
-          );
-          await this.store.put(page.items, startedAt);
-          if (!page.partial || page.cursor) {
-            await this.continuations.set(
-              key,
-              JSON.stringify({
+          chainClaimed = await this.continuations.acquire(chainKey, owner);
+          if (!chainClaimed) {
+            throw new Error("Inventory source chain is already running");
+          }
+          const signal = AbortSignal.timeout(8000);
+          let nextPosition = position;
+          const arrivals = new Map<string, ExternalPost>();
+          const latest = await this.continuations.get(progressKey);
+          if (latest) {
+            const progress = continuationSchema.parse(JSON.parse(latest));
+            if (progress.scope === scope && progress.sourceStarted) {
+              if (!progress.sourceCursor) {
+                const currentArrivals = await this.store.read();
+                return {
+                  cursor: null,
+                  items: currentArrivals.filter(eligible),
+                  partial: false,
+                };
+              }
+              nextPosition = progress.sourceCursor;
+              if (nextPosition !== position) {
+                const currentInventory = await this.store.read();
+                for (const post of currentInventory.filter(eligible)) {
+                  arrivals.set(post.id, post);
+                }
+              }
+            }
+          }
+          for (let attempt = 0; attempt < 3; attempt += 1) {
+            // oxlint-disable-next-line no-await-in-loop -- only the previous source page can supply the next cursor.
+            const page = await abortable(
+              readSource(mode, nextPosition, locale, topics, content),
+              signal
+            );
+            // oxlint-disable-next-line no-await-in-loop -- persist validated arrivals before advancing the shared checkpoint.
+            await this.store.put(page.items, startedAt);
+            for (const post of page.items.filter(eligible)) {
+              arrivals.set(post.id, post);
+            }
+            if (!page.partial || page.cursor) {
+              const progress = JSON.stringify({
                 scope,
                 seen: [],
                 sourceCursor: page.cursor ?? undefined,
                 sourceStarted: true,
-              }),
-              900_000,
-              { key, owner }
-            );
+              });
+              // oxlint-disable-next-line no-await-in-loop -- readers at other positions need the chain's most recent checkpoint.
+              const chainSaved = await this.continuations.set(
+                progressKey,
+                progress,
+                900_000,
+                { key: chainKey, owner }
+              );
+              // oxlint-disable-next-line no-await-in-loop -- a later failure must preserve the last completed source page.
+              const saved = await this.continuations.set(
+                key,
+                progress,
+                900_000,
+                { key, owner }
+              );
+              if (!saved || !chainSaved) {
+                throw new Error("Inventory refill lost progress ownership");
+              }
+            }
+            if (
+              arrivals.size >= 20 ||
+              !page.cursor ||
+              page.cursor === nextPosition ||
+              attempt === 2
+            ) {
+              return { ...page, items: [...arrivals.values()] };
+            }
+            nextPosition = page.cursor;
           }
-          return page;
+          throw new Error("Inventory refill did not advance");
         } finally {
           try {
             if (claimed) {
               await this.continuations.release(key, owner);
             }
           } finally {
-            this.replenishing.delete(key);
+            try {
+              if (chainClaimed) {
+                await this.continuations.release(chainKey, owner);
+              }
+            } finally {
+              this.replenishing.delete(key);
+            }
           }
         }
       })();

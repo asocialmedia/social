@@ -16,17 +16,21 @@ export type FeedStage =
   | "serialization";
 
 const requests = new WeakMap<Request, FeedTiming>();
-const histogram = metrics
-  .getMeter("asm-web")
-  .createHistogram("asm.feed.stage.duration", { unit: "ms" });
+const meter = metrics.getMeter("asm-web");
+const requestsCount = meter.createCounter("asm.feed.requests");
+const histogram = meter.createHistogram("asm.feed.stage.duration", {
+  unit: "ms",
+});
 
 export class FeedTiming {
   private readonly durations = new Map<FeedStage, number>();
   private readonly startedAt: number;
   private readonly now: () => number;
+  private readonly freshnessProbe: boolean;
 
-  constructor(now = () => performance.now()) {
+  constructor(now = () => performance.now(), freshnessProbe = false) {
     this.now = now;
+    this.freshnessProbe = freshnessProbe;
     this.startedAt = now();
   }
 
@@ -63,8 +67,14 @@ export class FeedTiming {
         .map(([stage, duration]) => `${stage};dur=${duration.toFixed(2)}`)
         .join(", ")
     );
+    const attributes = {
+      request_kind: this.freshnessProbe ? "freshness" : "page",
+      status: response.status,
+      surface,
+    };
+    requestsCount.add(1, attributes);
     for (const [stage, duration] of entries) {
-      histogram.record(duration, { stage, surface });
+      histogram.record(duration, { ...attributes, stage });
     }
     return response;
   }
@@ -73,7 +83,10 @@ export class FeedTiming {
 export function feedTiming(request: Request) {
   let timing = requests.get(request);
   if (!timing) {
-    timing = new FeedTiming();
+    timing = new FeedTiming(
+      undefined,
+      new URL(request.url).searchParams.get("refresh") === "1"
+    );
     requests.set(request, timing);
   }
   return timing;

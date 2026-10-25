@@ -13,6 +13,8 @@ import {
   waitForReadRetry,
 } from "./transport";
 
+export { normalizeHashtag, hasHashtag } from "./hashtags";
+
 export {
   blueskyMediaIsExplicit,
   hasRestrictedDiscoveryLabels,
@@ -480,7 +482,6 @@ export async function readDiscoveryWindow(
     const items = page.items.filter((item) => !knownIds.has(item.id));
     if (
       items.length ||
-      options.content === "video" ||
       !page.cursor ||
       visited.has(page.cursor) ||
       index === 2

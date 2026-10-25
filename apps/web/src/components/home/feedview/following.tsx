@@ -24,7 +24,7 @@ import kyInstance from "@/lib/ky";
 import {
   FEED_QUERY_BEHAVIOR,
   prependPostsToFeedCache,
-  scrollFeedToTop,
+  revealFeedHead,
 } from "@/lib/posts/feed-cache";
 import { feedContinuationDelay } from "@/lib/posts/feed-pagination";
 import { useFeedSourceStore } from "@/store/feed-source-store";
@@ -129,8 +129,7 @@ export default function FollowingFeed() {
     }
   }, [clearNewItems, newItems, queryClient, queryKey, external, source]);
   const showNewPosts = useCallback(() => {
-    mergeNewPosts();
-    scrollFeedToTop(feedRootRef.current);
+    revealFeedHead(feedRootRef.current, mergeNewPosts);
   }, [mergeNewPosts]);
   useSeamlessFeedHead({
     count:

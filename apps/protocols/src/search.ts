@@ -7,6 +7,8 @@ import {
   SharedReadCache,
   externalAuthorSchema,
   externalPostSchema,
+  hasHashtag,
+  normalizeHashtag,
 } from "@asm/protocols/discovery";
 import type { SharedReadStore } from "@asm/protocols/discovery";
 import { z } from "zod";
@@ -43,10 +45,24 @@ export function createBlueskySearch(options: {
     store: options.store,
     ttlMs: 15_000,
   });
+  const hashtags = new SharedReadCache({
+    deadlineMs: 8500,
+    parse: (value) =>
+      z
+        .object({
+          cursor: z.string().nullable(),
+          items: z.array(externalPostSchema).max(50),
+        })
+        .parse(value),
+    queue,
+    store: options.store,
+    ttlMs: 15_000,
+  });
   return {
     close: () => {
       profiles.close();
       posts.close();
+      hashtags.close();
       queue.close();
     },
     read: async (
@@ -117,6 +133,44 @@ export function createBlueskySearch(options: {
           ...(results.status === "rejected" ? ["posts"] : []),
         ],
       };
+    },
+    readHashtag: async (
+      rawTag: string,
+      cursor: string | undefined,
+      explicit: boolean,
+      signal: AbortSignal
+    ) => {
+      const tag = normalizeHashtag(rawTag);
+      if (!tag) {
+        throw new ProtocolError("invalid_input", "Invalid hashtag");
+      }
+      const client = explicit
+        ? (options.explicitClient ?? options.client)
+        : options.client;
+      const key = `asm:hashtag:bluesky:v1:{${createHash("sha256")
+        .update(JSON.stringify([tag, cursor ?? null, explicit]))
+        .digest("hex")}}`;
+      return await hashtags.read(
+        key,
+        async () => {
+          if (!client.searchPosts) {
+            throw new ProtocolError(
+              "unavailable",
+              "Hashtag search unavailable"
+            );
+          }
+          const page = await client.searchPosts(`#${tag}`, "latest", {
+            cursor,
+            limit: 50,
+            tag,
+          });
+          return {
+            cursor: page.cursor === cursor ? null : page.cursor,
+            items: page.items.filter((post) => hasHashtag(post, tag)),
+          };
+        },
+        signal
+      );
     },
     stats: () => ({
       ...queue.stats,

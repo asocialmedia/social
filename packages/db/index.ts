@@ -223,6 +223,7 @@ export * from "./src/recommendation/experiment-report";
 export * from "./src/protocols/external-follows";
 export {
   filterExternalMediaSafety,
+  releaseExternalMediaSafetyClaim,
   externalMediaSafetyInput,
   EXTERNAL_MEDIA_SAFETY_QUEUE,
   EXTERNAL_MEDIA_SAFETY_VERSION,

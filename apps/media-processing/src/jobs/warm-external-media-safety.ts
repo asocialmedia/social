@@ -1,5 +1,8 @@
 import { filterExternalMediaSafety, redis } from "@asm/db";
-import { externalPostSchema } from "@asm/protocols/discovery";
+import {
+  blueskyMediaIsExplicit,
+  externalPostSchema,
+} from "@asm/protocols/discovery";
 
 // Assess verified inventory before a viewer consumes it; raw stream events never enter this pool.
 export async function warmExternalMediaSafety() {
@@ -24,10 +27,12 @@ export async function warmExternalMediaSafety() {
       return [];
     }
   });
-  const prioritized = posts.toSorted(
-    (first, second) =>
-      Number(second.media.some((media) => media.type === "video")) -
-      Number(first.media.some((media) => media.type === "video"))
-  );
+  const prioritized = posts
+    .filter((post) => !blueskyMediaIsExplicit(post))
+    .toSorted(
+      (first, second) =>
+        Number(second.media.some((media) => media.type === "video")) -
+        Number(first.media.some((media) => media.type === "video"))
+    );
   await filterExternalMediaSafety(prioritized);
 }

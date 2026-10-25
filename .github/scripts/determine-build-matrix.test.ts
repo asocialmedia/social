@@ -165,3 +165,46 @@ test("unrelated docs do not publish service images", async () => {
   expect(outputs["has-app-changes"]).toBe("false");
   expect(outputs["selected-apps"]).toBe("");
 });
+
+test("classifier code publishes its standalone context without other service images", async () => {
+  const outputs = await select([
+    "apps/classifier/src/inference.ts",
+    rootVersion,
+    workspaceVersions,
+  ]);
+  const matrix = JSON.parse(outputs.matrix ?? "{}");
+  expect(matrix.include).toContainEqual({
+    app: "classifier",
+    context: "./apps/classifier",
+    dockerfile: "./apps/classifier/Dockerfile",
+    image: "asm-classifier",
+  });
+  expect(outputs["selected-apps"]).toBe("classifier");
+  const isolated = await select(["apps/classifier/src/inference.ts"]);
+  expect(isolated["selected-apps"]).toBe("classifier");
+  expect(isolated["has-mobile-changes"]).toBe("false");
+});
+
+test.each([
+  "apps/classifier/README.md",
+  "apps/classifier/src/inference.test.ts",
+  "apps/classifier/scripts/benchmark.ts",
+  "apps/classifier/.env.development",
+  "packages/protocols/src/contracts.ts",
+  "bun.lock",
+])(
+  "unrelated input %s does not rebuild the isolated classifier",
+  async (file) => {
+    const outputs = await select([file]);
+    expect(outputs["selected-apps"]?.split(",")).not.toContain("classifier");
+  }
+);
+
+test("classifier release-only version stamps do not publish another image", async () => {
+  const outputs = await select([
+    { ...rootVersion, filename: "apps/classifier/package.json" },
+    rootVersion,
+    workspaceVersions,
+  ]);
+  expect(outputs["selected-apps"]?.split(",")).not.toContain("classifier");
+});

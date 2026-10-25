@@ -43,9 +43,8 @@ import {
 } from "@/lib/protocols/gateway";
 import {
   discoveryTopics,
-  normalizeDiscoveryTopics,
+  relatedDiscoveryTopics,
   rankExternalForViewer,
-  isRetrievalTopic,
 } from "@/lib/protocols/recommendations";
 import { readBlueskyDiscovery } from "@/lib/protocols/service";
 import { exploreTopics } from "@/lib/recommendations/explore-topics";
@@ -116,13 +115,10 @@ export function GET(request: Request) {
     ) {
       throw new ProtocolGatewayError(400, "invalid_discovery_level");
     }
-    const neighbors = normalizeDiscoveryTopics(
-      network.selected.interests.flatMap(
-        (interest) => network.topicScope?.related?.[interest] ?? []
-      )
-    )
-      .filter(isRetrievalTopic)
-      .slice(0, 80);
+    const neighbors = relatedDiscoveryTopics(
+      network.selected.interests,
+      network.topicScope
+    );
     if (level.data === 1 && neighbors.length === 0) {
       return Response.json({
         cursor: null,

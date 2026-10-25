@@ -8,6 +8,14 @@ import type { UserRepliesPage } from "@/app/api/users/[userId]/replies/route";
 
 import UserRepliesFeed from "./user-replies-feed";
 
+mock.module("./use-external-profile-activity", () => ({
+  useExternalProfileActivity: () => ({
+    data: { pages: [] },
+    hasNextPage: false,
+    loading: false,
+  }),
+}));
+
 mock.module("next/navigation", () => ({
   usePathname: () => "/",
   useRouter: () => ({ push: () => {} }),

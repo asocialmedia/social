@@ -790,6 +790,8 @@ export const GustCard: React.FC<GustCardProps> = ({
             <AiGeneratedBadge
               media={{
                 aiGenerated: attachments.some((a) => a.aiGenerated) ?? false,
+                aiGeneratedSource: attachments.find((a) => a.aiGenerated)
+                  ?.aiGeneratedSource,
               }}
             />
           </div>

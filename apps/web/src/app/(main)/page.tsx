@@ -1,6 +1,5 @@
 import { siteConfig } from "@asm/ui/meta/site";
 import type { Metadata } from "next";
-import Link from "next/link";
 import { connection } from "next/server";
 import { Suspense } from "react";
 
@@ -8,8 +7,8 @@ import HomePageSkeleton from "@/components/layouts/skeletons/home-skeleton";
 import JsonLd from "@/components/seo/json-ld";
 import { getUserData } from "@/hooks/users/use-user-data";
 import { getSessionFromApi } from "@/lib/auth/session";
-import { getRecentPostsForCrawl } from "@/lib/posts/server-feed";
-import { getPostPath, getPostUrl } from "@/lib/seo/seo";
+import { getRecentPostDataForCrawl } from "@/lib/posts/server-feed";
+import { getPostUrl } from "@/lib/seo/seo";
 
 import ClientHome from "./client-home";
 
@@ -74,11 +73,7 @@ async function HomeContent() {
   // interactive features are available without an account.
   const userData = session?.user ? await getUserData(session.user.id) : null;
 
-  // JSON-LD ItemList gives crawlers the post graph without any visual noise.
-  // Visible crawlable feeds were removed per design request - the sitemap +
-  // JSON-LD + noscript is enough for the link graph while that other agent
-  // handles SSR hydration separately.
-  const recentPosts = await getRecentPostsForCrawl(12);
+  const recentPosts = session?.user ? [] : await getRecentPostDataForCrawl(12);
 
   const itemListJsonLd =
     recentPosts.length > 0
@@ -90,50 +85,18 @@ async function HomeContent() {
             position: index + 1,
             url: getPostUrl(post),
           })),
-          name: "Latest eddies on asocialmedia",
-          numberOfItems: recentPosts.length,
+          name: "Latest posts on asocialmedia",
+          numberOfItems: Math.min(recentPosts.length, 10),
         }
       : null;
 
   return (
     <>
       {itemListJsonLd ? <JsonLd data={itemListJsonLd} /> : null}
-      <ClientHome userData={userData} />
-      {/* Visually hidden but present in raw HTML for crawlers / no-JS. The
-          homepage is the live feed, so the prose that describes the product
-          lives on /about, not stacked under the timeline. */}
-      <div className="sr-only" aria-hidden={false}>
-        <h1>{siteConfig.brandLine}</h1>
-        <p>
-          asocialmedia is an open social network where the feed learns your
-          taste, Aura records your reputation, and communities are earned rather
-          than spammed. <Link href="/about">Read what it is.</Link>
-        </p>
-        <nav aria-label="Latest fleets">
-          <ul>
-            {recentPosts.map((post) => (
-              <li key={post.id}>
-                <a href={getPostPath(post)} tabIndex={-1}>
-                  {post.content || post.id}
-                </a>
-              </li>
-            ))}
-          </ul>
-        </nav>
-      </div>
-      <noscript>
-        <div style={{ padding: 16 }}>
-          <p>
-            JavaScript is disabled. Browse recent posts:{" "}
-            {recentPosts.slice(0, 10).map((p, i) => (
-              <span key={p.id}>
-                {i > 0 ? ", " : ""}
-                <a href={getPostPath(p)}>{p.content || p.id}</a>
-              </span>
-            ))}
-          </p>
-        </div>
-      </noscript>
+      <ClientHome
+        initialGuestPosts={session?.user ? undefined : recentPosts}
+        userData={userData}
+      />
     </>
   );
 }

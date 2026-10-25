@@ -100,6 +100,135 @@ test("read workers start without Redis and reject coordinator dependencies", () 
   ).toThrow("REDIS_URL");
 });
 
+test("repeated regional search denials pause that operation while preserving healthy local reads", async () => {
+  let remoteSearches = 0;
+  let remoteProfiles = 0;
+  const pool = createReadWorkerPool({
+    fetch: async (raw) => {
+      if (raw.startsWith(node.url)) {
+        const upstream = new URL(raw).searchParams.get("url") ?? "";
+        if (upstream.includes("searchPosts")) {
+          remoteSearches += 1;
+          return response({ error: "Forbidden" }, 403);
+        }
+        remoteProfiles += 1;
+      }
+      return response({ posts: [] });
+    },
+    logger: logger(),
+    nodes: [node],
+  });
+  await pool.fetch(profile, {});
+  for (let index = 0; index < 8; index += 1) {
+    // oxlint-disable-next-line no-await-in-loop -- denials must accumulate before the next recovery decision.
+    expect((await pool.fetch(`${search}&since=${index}`, {})).status).toBe(200);
+  }
+  expect(remoteSearches).toBe(3);
+  await pool.fetch(profile, {});
+  expect(remoteProfiles).toBe(1);
+});
+
+test("concurrent denials of one cursor cannot pause unrelated searches", async () => {
+  const entered = Promise.withResolvers<undefined>();
+  const release = Promise.withResolvers<undefined>();
+  let denied = 0;
+  let healthy = 0;
+  const pool = createReadWorkerPool({
+    fetch: async (raw) => {
+      if (raw.startsWith(node.url)) {
+        const upstream = new URL(raw).searchParams.get("url") ?? "";
+        if (upstream.includes("cursor=denied")) {
+          denied += 1;
+          if (denied === 3) {
+            entered.resolve();
+          }
+          await release.promise;
+          return response({ error: "Forbidden" }, 403);
+        }
+        if (upstream.includes("searchPosts")) {
+          healthy += 1;
+        }
+      }
+      return response({ posts: [] });
+    },
+    logger: logger(),
+    nodes: [node],
+  });
+  await pool.fetch(profile, {});
+  const reads = Array.from({ length: 6 }, () =>
+    pool.fetch(`${search}&cursor=denied`, {})
+  );
+  await entered.promise;
+  release.resolve();
+  await Promise.all(reads);
+  const results = await Promise.all([
+    pool.fetch(`${search}&since=fresh-a`, {}),
+    pool.fetch(`${search}&since=fresh-b`, {}),
+  ]);
+  expect(results.map((result) => result.status)).toEqual([200, 200]);
+  expect(healthy).toBeGreaterThan(0);
+});
+
+test("a denied search cursor cannot cool down another topic or a fresh date window", async () => {
+  const remote: string[] = [];
+  const pool = createReadWorkerPool({
+    fetch: async (raw) => {
+      if (raw.startsWith(node.url)) {
+        const upstream = new URL(raw).searchParams.get("url") ?? "";
+        remote.push(upstream);
+        if (upstream.includes("cursor=denied")) {
+          return response({ error: "Forbidden" }, 403);
+        }
+      }
+      return response({ posts: [] });
+    },
+    logger: logger(),
+    nodes: [node],
+  });
+  await pool.fetch(profile, {});
+  const denied = `${search}&cursor=denied`;
+  await pool.fetch(denied, {});
+  await pool.fetch(denied, {});
+  await pool.fetch(`${search}&since=2026-10-23T00%3A00%3A00Z`, {});
+  await pool.fetch(`${search}&since=2026-10-23T00%3A00%3A00Z`, {});
+  expect(remote.filter((url) => url.includes("cursor=denied"))).toHaveLength(1);
+  expect(remote.some((url) => url.includes("since="))).toBe(true);
+});
+
+test("distinct denied pagination cursors leave search heads and date windows available on both nodes", async () => {
+  const pool = createReadWorkerPool({
+    fetch: async (raw) => {
+      const target = raw.startsWith(node.url)
+        ? new URL(new URL(raw).searchParams.get("url") ?? "")
+        : new URL(raw);
+      return target.searchParams.has("cursor")
+        ? response({ error: "Forbidden" }, 403)
+        : response({ posts: [] });
+    },
+    logger: logger(),
+    nodes: [node],
+  });
+  for (let index = 0; index < 3; index += 1) {
+    // oxlint-disable-next-line no-await-in-loop -- distinct denied pages accumulate before the recovery reads.
+    const denied = await pool.fetch(`${search}&cursor=denied-${index}`, {});
+    expect(denied.status).toBe(403);
+  }
+  expect((await pool.fetch(search, {})).status).toBe(200);
+  expect(
+    (await pool.fetch(`${search}&since=2026-10-23T00%3A00%3A00Z`, {})).status
+  ).toBe(200);
+  expect(
+    pool
+      .status()
+      .every(
+        (entry) =>
+          !Object.keys(entry.cooldowns).some((key) =>
+            key.includes("searchPosts")
+          )
+      )
+  ).toBe(true);
+});
+
 test("non-JSON upstream denials stay restricted and a generator's 401 cannot disable unrelated worker capacity", async () => {
   const denied = createReadWorkerPool({
     fetch: async () => new Response("<html>Forbidden</html>", { status: 403 }),
@@ -137,6 +266,31 @@ test("non-JSON upstream denials stay restricted and a generator's 401 cannot dis
   ).toBeUndefined();
 });
 
+test("search cooldowns stay private and cannot evict origin backoff", async () => {
+  const calls: string[] = [];
+  const pool = createReadWorkerPool({
+    fetch: async (url) => {
+      calls.push(url);
+      return response({}, url === profile ? 429 : 503);
+    },
+    logger: logger(),
+    nodes: [],
+  });
+  await pool.fetch(profile, {});
+  for (let index = 0; index < 520; index += 1) {
+    // oxlint-disable-next-line no-await-in-loop -- populate more cooldowns than the map limit without saturating active read capacity.
+    await pool.fetch(`${search}&cursor=private-${index}`, {});
+  }
+  const status = pool.status();
+  expect(status[0]?.cooldowns["https://public.api.bsky.app"]).toBeGreaterThan(
+    Date.now()
+  );
+  expect(JSON.stringify(status)).not.toContain("private-");
+  const before = calls.filter((url) => url === profile).length;
+  expect((await pool.fetch(profile, {})).status).toBe(503);
+  expect(calls.filter((url) => url === profile)).toHaveLength(before);
+});
+
 test("node configuration rejects duplicate, insecure and credential-bearing origins without exposing secrets", () => {
   expect(
     readConfig({ PROTOCOLS_READ_WORKERS: JSON.stringify([node]) }).workers
@@ -163,6 +317,7 @@ test.each([
   "https://user:password@public.api.bsky.app/xrpc/app.bsky.actor.getProfile",
   "https://public.api.bsky.app/xrpc/com.atproto.repo.createRecord",
   "https://public.api.bsky.app/xrpc/app.bsky.feed.searchPosts",
+  "https://public.api.bsky.app/xrpc/app.bsky.feed.searchPostsV2",
   "https://127.0.0.1/xrpc/app.bsky.actor.getProfile",
   "https://public.api.bsky.app:444/xrpc/app.bsky.actor.getProfile",
   "https://public.api.bsky.app/xrpc/app.bsky.actor.getProfile#fragment",
@@ -842,4 +997,37 @@ test("a remote-first failure uses reserved local capacity before a second remote
   expect(order).toHaveLength(3);
   expect(order[1]?.startsWith(node.url)).toBe(true);
   expect(order[2]).toBe(publicFeed("fallback"));
+});
+
+test("video-filtered search is worker-eligible and denied cursors cannot pause fresh video windows", async () => {
+  const searchVideo =
+    "https://api.bsky.app/xrpc/app.bsky.feed.searchPostsV2?query=anime&hasVideo=true";
+  expect(publicReadTarget(searchVideo)?.hostname).toBe("api.bsky.app");
+  const pool = createReadWorkerPool({
+    fetch: async (url) =>
+      new URL(url).searchParams.has("cursor")
+        ? new Response("Forbidden", { status: 403 })
+        : Response.json({ posts: [] }),
+    logger: logger(),
+    nodes: [],
+  });
+  for (let i = 0; i < 3; i += 1) {
+    // oxlint-disable-next-line no-await-in-loop -- establish multiple cursor denials before verifying the window remains available.
+    const denied = await pool.fetch(`${searchVideo}&cursor=denied-${i}`, {});
+    expect(denied.status).toBe(403);
+  }
+  const window = await pool.fetch(
+    `${searchVideo}&since=2026-10-23T00:00:00Z`,
+    {}
+  );
+  expect(window.status).toBe(200);
+  expect(
+    pool
+      .status()
+      .every((entry) =>
+        Object.keys(entry.cooldowns).every(
+          (key) => !key.includes("searchPostsV2")
+        )
+      )
+  ).toBe(true);
 });

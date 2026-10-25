@@ -34,6 +34,7 @@ import PostHistoryCard from "@/components/posts/views/post-history-card";
 import { useBlueskyFeed } from "@/components/protocols/use-bluesky-feed";
 import { RecommendationTracker } from "@/components/recommendations/recommendation-tracker";
 import { useFeedExposures } from "@/hooks/feed/use-feed-exposures";
+import { useFeedRecovery } from "@/hooks/feed/use-feed-recovery";
 import { useFeedScrollMemory } from "@/hooks/feed/use-feed-scroll-memory";
 import { useFeedSwipeNavigation } from "@/hooks/feed/use-feed-swipe-navigation";
 import { useFeedTabSelection } from "@/hooks/feed/use-feed-tab-selection";
@@ -50,6 +51,7 @@ import {
   networkPostAllowed,
   networkPostRecommended,
 } from "@/lib/posts/network-content-policy";
+import { readFeedPage } from "@/lib/posts/read-feed-page";
 import { mixExplorePosts } from "@/lib/recommendations/mix-explore";
 import {
   EXPLORE_TABS,
@@ -92,7 +94,9 @@ interface FeedData {
 
 const USER_INTERVAL = 6;
 
-const ExploreClient: React.FC = () => {
+const ExploreClient: React.FC<{ publicLinks?: React.ReactNode }> = ({
+  publicLinks,
+}) => {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const feedScrollRef = useRef<HTMLDivElement>(null);
@@ -279,45 +283,70 @@ const ExploreClient: React.FC = () => {
     [activeTab, debouncedSearch, sessionUser?.id, network.scope]
   );
 
-  const { data, status, isFetching, hasNextPage, fetchNextPage } =
-    useInfiniteQuery({
-      enabled: canQuery && network.ready && activeTab !== "gusts",
-      getNextPageParam: (page: FeedData) => page.nextCursor ?? undefined,
-      initialPageParam: null as string | null,
-      queryFn: async ({ pageParam, signal }): Promise<FeedData> => {
-        if (debouncedSearch.trim()) {
-          const result = await kyInstance
-            .get("/api/explore/search", {
-              searchParams: {
-                q: debouncedSearch.trim(),
-                tab: activeTab,
-                take: "20",
-              },
-              signal,
-            })
-            .json<FeedData>();
-          return result satisfies FeedData;
-        }
+  const {
+    data,
+    status,
+    isFetching,
+    hasNextPage,
+    fetchNextPage,
+    dataUpdatedAt,
+  } = useInfiniteQuery({
+    enabled: canQuery && network.ready && activeTab !== "gusts",
+    getNextPageParam: (page: FeedData) => page.nextCursor ?? undefined,
+    initialPageParam: null as string | null,
+    queryFn: async ({ pageParam, signal }): Promise<FeedData> => {
+      if (debouncedSearch.trim()) {
+        const result = await kyInstance
+          .get("/api/explore/search", {
+            searchParams: {
+              q: debouncedSearch.trim(),
+              tab: activeTab,
+              take: "20",
+            },
+            signal,
+          })
+          .json<FeedData>();
+        return result satisfies FeedData;
+      }
 
-        const posts = await kyInstance
-          .get(`/api/posts/${activeTab}`, {
+      const current = queryClient.getQueryData<{ pages: FeedData[] }>(queryKey);
+      const posts = await readFeedPage<PostsPage>(
+        (cursor) =>
+          kyInstance.get(`/api/posts/${activeTab}`, {
             searchParams: {
               excludeModerated: "1",
               network: "1",
               profile: network.settings.preferences.activeProfileId,
               surface: "explore",
-              ...(pageParam ? { cursor: pageParam } : {}),
+              ...(cursor ? { cursor } : {}),
             },
             signal,
-          })
-          .json<PostsPage>();
-        return { nextCursor: posts.nextCursor, posts: posts.posts, users: [] };
-      },
-      queryKey,
-      refetchOnWindowFocus: false,
-      staleTime: Infinity,
-    });
+            throwHttpErrors: false,
+          }),
+        pageParam,
+        new Set(
+          current?.pages.flatMap((page) => page.posts.map((post) => post.id))
+        )
+      );
+      return { nextCursor: posts.nextCursor, posts: posts.posts, users: [] };
+    },
+    queryKey,
+    refetchOnWindowFocus: false,
+    staleTime: Infinity,
+  });
 
+  useFeedRecovery({
+    enabled:
+      canQuery &&
+      activeTab !== "gusts" &&
+      Boolean(data) &&
+      Boolean(hasNextPage),
+    failed: status === "error",
+    fetching: isFetching,
+    resetKey: JSON.stringify(queryKey),
+    retry: () => fetchNextPage({ cancelRefetch: false }),
+    updatedAt: dataUpdatedAt,
+  });
   const posts = useMemo(
     () => [
       ...new Map(
@@ -811,6 +840,7 @@ const ExploreClient: React.FC = () => {
               className="hide-native-scrollbar h-full overflow-y-auto overscroll-contain"
               ref={feedScrollRef}
             >
+              {publicLinks}
               <TabsContent className="mt-0" value="for-you">
                 {showForYou ? (
                   stream

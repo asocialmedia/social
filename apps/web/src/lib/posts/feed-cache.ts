@@ -4,6 +4,7 @@ import type {
   QueryClient,
   QueryKey,
 } from "@tanstack/react-query";
+import { flushSync } from "react-dom";
 
 // How long feed pages survive in cache without an observer. Outlives a
 // post/media detour so coming back renders the cached pages instantly (no
@@ -140,4 +141,13 @@ export function scrollFeedToTop(node: HTMLElement | null): void {
     }
     current = current.parentElement;
   }
+}
+
+// Commit the new head before scrolling so prepend anchoring cannot cancel the jump.
+export function revealFeedHead(
+  node: HTMLElement | null,
+  merge: () => void
+): void {
+  flushSync(merge);
+  scrollFeedToTop(node);
 }

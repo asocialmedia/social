@@ -17,6 +17,7 @@ import { useMemo } from "react";
 import { useDiscoveryLocale } from "@/hooks/feed/use-discovery-locale";
 import { useFeedEvents } from "@/hooks/feed/use-feed-events";
 import { useFeedExposures } from "@/hooks/feed/use-feed-exposures";
+import { useFeedRecovery } from "@/hooks/feed/use-feed-recovery";
 import { useNetworkSettings } from "@/hooks/feed/use-network-settings";
 import { useNewContentProbe } from "@/hooks/feed/use-new-content-probe";
 import { FEED_QUERY_BEHAVIOR } from "@/lib/posts/feed-cache";
@@ -33,6 +34,8 @@ import type {
   ProgressiveDiscoveryPage,
 } from "@/lib/protocols/progressive-discovery";
 import { useExternalExclusions } from "@/store/feed-source-store";
+
+const EMPTY_EXPOSURES = new Set<string>();
 
 export function useBlueskyFeed(
   mode: DiscoveryMode,
@@ -53,7 +56,8 @@ export function useBlueskyFeed(
   if (surface === "explore") {
     exposureSurface = "explore";
   }
-  const oppositeSeen = useFeedExposures(viewer, exposureSurface, mode);
+  const exposures = useFeedExposures(viewer, exposureSurface, mode);
+  const oppositeSeen = mode === "latest" ? EMPTY_EXPOSURES : exposures;
   const queryKey = [
     following ? "bluesky-following" : "bluesky-discovery",
     mode,
@@ -61,7 +65,7 @@ export function useBlueskyFeed(
     locale,
     network.scope,
     content,
-    "progressive-v8",
+    "progressive-v9",
     surface,
   ];
   const query = useInfiniteQuery({
@@ -140,9 +144,20 @@ export function useBlueskyFeed(
     retry: false,
     staleTime: Infinity,
   });
-  useFeedEvents(enabled && ready && !query.data, () => {
+  useFeedRecovery({
+    enabled:
+      enabled && ready && Boolean(query.data) && Boolean(query.hasNextPage),
+    failed: query.isError,
+    fetching: query.isFetching,
+    resetKey: JSON.stringify(queryKey),
+    retry: () => query.fetchNextPage({ cancelRefetch: false }),
+    updatedAt: query.dataUpdatedAt,
+  });
+  useFeedEvents(enabled && ready && (!query.data || query.isError), () => {
     if (query.isError) {
-      void query.refetch();
+      void (query.data && query.hasNextPage
+        ? query.fetchNextPage({ cancelRefetch: false })
+        : query.refetch());
     }
   });
   const probe = useNewContentProbe({
@@ -159,7 +174,7 @@ export function useBlueskyFeed(
         cursor: null,
         following,
         locale,
-        mode,
+        mode: !following && mode === "personalized" ? "latest" : mode,
         profile,
         refresh: true,
         signal: AbortSignal.any([signal, AbortSignal.timeout(18_000)]),
@@ -184,7 +199,7 @@ export function useBlueskyFeed(
             undefined,
             network.settings.topicScope
           )),
-    intervalMs: mode === "latest" || following ? 90_000 : 180_000,
+    intervalMs: mode === "latest" || following ? 20_000 : 180_000,
     order: mode === "latest" ? "newest-first" : "ranked",
     probeOnMount: true,
     resetKey: `${following}:${mode}:${viewer}:${locale}:${network.scope}:${content}:${surface}`,
@@ -219,7 +234,7 @@ export function useBlueskyFeed(
               ...page,
               items: page.items.filter(
                 (item) =>
-                  !oppositeSeen.has(item.id) &&
+                  (mode === "latest" || !oppositeSeen.has(item.id)) &&
                   externalNetworkPostAllowed(
                     item,
                     network.settings.preferences,
@@ -231,6 +246,7 @@ export function useBlueskyFeed(
         : query.data,
     [
       following,
+      mode,
       query.data,
       oppositeSeen,
       network.settings.preferences,

@@ -28,6 +28,8 @@ export function createReadWorkerPool(options: {
     {
       active: 0,
       blocked: new Map<string, number>(),
+      blockedSearches: new Map<string, number>(),
+      deniedSearches: new Map<string, { resources: Set<string>; at: number }>(),
       id: "local",
       operationFailures: new Map<string, { count: number; at: number }>(),
       recovering: new Set<string>(),
@@ -39,6 +41,8 @@ export function createReadWorkerPool(options: {
       ...node,
       active: 0,
       blocked: new Map<string, number>(),
+      blockedSearches: new Map<string, number>(),
+      deniedSearches: new Map<string, { resources: Set<string>; at: number }>(),
       operationFailures: new Map<string, { count: number; at: number }>(),
       recovering: new Set<string>(),
       transportFailures: 0,
@@ -73,7 +77,12 @@ export function createReadWorkerPool(options: {
     }
     const attempted = new Set<string>();
     const deadline = now() + (options.requestTimeoutMs ?? 2500);
-    const resource = `${target.origin}${target.pathname}:${target.searchParams.get("feed") ?? ""}`;
+    const search =
+      target.pathname === "/xrpc/app.bsky.feed.searchPosts" ||
+      target.pathname === "/xrpc/app.bsky.feed.searchPostsV2";
+    const resource = search
+      ? `${target.origin}${target.pathname}:${target.searchParams}`
+      : `${target.origin}${target.pathname}:${target.searchParams.get("feed") ?? ""}`;
     const operationKey = `${target.origin}${target.pathname}`;
     let pauseMs = 1000;
     let lastStatus = 503;
@@ -83,7 +92,8 @@ export function createReadWorkerPool(options: {
       candidate.active < (candidate.url ? 8 : 256) &&
       (candidate.blocked.get(target.origin) ?? 0) <= now() &&
       (candidate.blocked.get(operationKey) ?? 0) <= now() &&
-      (candidate.blocked.get(resource) ?? 0) <= now() &&
+      ((search ? candidate.blockedSearches : candidate.blocked).get(resource) ??
+        0) <= now() &&
       !candidate.recovering.has(operationKey);
     for (let attempt = 0; attempt < Math.min(2, nodes.length); attempt += 1) {
       init.signal?.throwIfAborted();
@@ -173,7 +183,7 @@ export function createReadWorkerPool(options: {
           upstreamStatus === 429 ||
           upstreamStatus === 408 ||
           upstreamStatus >= 500 ||
-          (node.url && upstreamStatus === 403) ||
+          upstreamStatus === 403 ||
           workerAuthFailure
         ) {
           let defaultPauseMs = 10_000;
@@ -188,10 +198,33 @@ export function createReadWorkerPool(options: {
           let cooldownKey = resource;
           if (upstreamStatus === 429 || workerAuthFailure) {
             cooldownKey = target.origin;
-          } else if (upstreamStatus === 403) {
+          } else if (upstreamStatus === 403 && !search) {
             cooldownKey = operationKey;
           }
-          block(node.blocked, cooldownKey, pauseMs);
+          // A denied opaque cursor says nothing about fresh heads or date-window searches.
+          if (
+            upstreamStatus === 403 &&
+            search &&
+            !target.searchParams.has("cursor")
+          ) {
+            const previous = node.deniedSearches.get(operationKey);
+            const window =
+              previous && now() - previous.at < 30_000
+                ? previous
+                : { at: now(), resources: new Set<string>() };
+            window.resources.add(resource);
+            node.deniedSearches.set(operationKey, window);
+            if (window.resources.size >= 3) {
+              cooldownKey = operationKey;
+            }
+          }
+          block(
+            search && cooldownKey === resource
+              ? node.blockedSearches
+              : node.blocked,
+            cooldownKey,
+            pauseMs
+          );
           if (trusted) {
             const body = await readJsonBounded(
               response,
@@ -227,6 +260,7 @@ export function createReadWorkerPool(options: {
           return { error: "UpstreamRejected" };
         });
         node.operationFailures.delete(operationKey);
+        node.deniedSearches.delete(operationKey);
         return Response.json(body, { status: upstreamStatus });
       } catch (error) {
         init.signal?.throwIfAborted();
@@ -283,7 +317,7 @@ export function createReadWorkerPool(options: {
           Math.max(
             node.blocked.get(target.origin) ?? 0,
             node.blocked.get(operationKey) ?? 0,
-            node.blocked.get(resource) ?? 0
+            (search ? node.blockedSearches : node.blocked).get(resource) ?? 0
           ) - now()
       )
       .filter((value) => value > 0);

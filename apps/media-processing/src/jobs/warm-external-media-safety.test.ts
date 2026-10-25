@@ -21,7 +21,7 @@ beforeEach(() => {
   scan.mockClear();
   read.mockClear();
 });
-function createSnapshot(id: string, video: boolean) {
+function createSnapshot(id: string, video: boolean, labels: string[] = []) {
   return JSON.stringify({
     author: {
       displayName: "Author",
@@ -35,7 +35,7 @@ function createSnapshot(id: string, video: boolean) {
     createdAt: new Date().toISOString(),
     id,
     indexedAt: new Date().toISOString(),
-    labels: [],
+    labels,
     languages: ["en"],
     media: video
       ? [
@@ -71,4 +71,16 @@ test("an empty verified inventory never opens a safety queue", async () => {
   await warmExternalMediaSafety();
   expect(read).not.toHaveBeenCalled();
   expect(warmed).toEqual([]);
+});
+
+test("upstream adult labels do not consume additional background classification", async () => {
+  const adult = "at://did:plc:author/app.bsky.feed.post/adult";
+  const unlabelled = "at://did:plc:author/app.bsky.feed.post/unlabelled";
+  ids = [adult, unlabelled];
+  snapshots = [
+    createSnapshot(adult, true, ["porn"]),
+    createSnapshot(unlabelled, true),
+  ];
+  await warmExternalMediaSafety();
+  expect(warmed).toEqual([[unlabelled]]);
 });

@@ -1,5 +1,5 @@
 "use client";
-import type { GustsPage, UserData } from "@asm/db";
+import type { GustsPage, PostData, UserData } from "@asm/db";
 import { filterExternalRecommendations } from "@asm/protocols/discovery";
 import {
   advanceGustHeader,
@@ -25,7 +25,6 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { useInView } from "react-intersection-observer";
 
 import { useSession } from "@/app/(main)/session-provider";
 import { AuthPromptCard } from "@/components/auth/shell/auth-prompt-card";
@@ -46,6 +45,7 @@ import {
 } from "@/components/gusts/gust-stream-slot";
 import { GustsCommentsDrawer } from "@/components/gusts/gusts-comments-drawer";
 import { MobileGustEddies } from "@/components/gusts/mobile-gust-eddies";
+import { useGustPagination } from "@/components/gusts/use-gust-pagination";
 import Spinner3D from "@/components/layouts/feedback/spinner-3d";
 import { FeedSourceMenu } from "@/components/protocols/feed-source-menu";
 import { useBlueskyFeed } from "@/components/protocols/use-bluesky-feed";
@@ -90,6 +90,7 @@ import {
 } from "@/store/feed-source-store";
 
 interface ClientGustsProps {
+  initialGuestPost?: PostData;
   loggedInUserData: UserData | null;
 }
 
@@ -139,7 +140,9 @@ function GustTab({
   );
 }
 
-export const ClientGusts: React.FC<ClientGustsProps> = () => {
+export const ClientGusts: React.FC<ClientGustsProps> = ({
+  initialGuestPost,
+}) => {
   const params = useSearchParams();
   const { user } = useSession();
   const requested = params.get("tab");
@@ -161,14 +164,22 @@ export const ClientGusts: React.FC<ClientGustsProps> = () => {
     <div className="relative flex min-w-0 flex-1">
       {(["latest", "personalized", "following"] as const).map((tab) => (
         <Activity key={tab} mode={active === tab ? "visible" : "hidden"}>
-          {visited.has(tab) ? <GustStream gustTab={tab} /> : null}
+          {visited.has(tab) ? (
+            <GustStream gustTab={tab} initialGuestPost={initialGuestPost} />
+          ) : null}
         </Activity>
       ))}
     </div>
   );
 };
 
-const GustStream = ({ gustTab }: { gustTab: GustFeed }) => {
+const GustStream = ({
+  gustTab,
+  initialGuestPost,
+}: {
+  gustTab: GustFeed;
+  initialGuestPost?: PostData;
+}) => {
   const reducedMotion = useReducedMotion();
   const searchParams = useSearchParams();
   const pathname = usePathname();
@@ -290,17 +301,11 @@ const GustStream = ({ gustTab }: { gustTab: GustFeed }) => {
     [gustTab, initialPostId, pathname, scrollToFeedTop, searchParams]
   );
 
-  // The app-wide infinite-scroll pattern (same hook the feeds use): a bottom
-  // sentinel flips inView when it enters the viewport, which paginates even
-  // when the list is too short to scroll.
-  const { inView: isEndVisible, ref: endSentinelRef } = useInView({
-    rootMargin: "3000px",
-  });
-
   const source = useFeedSourceStore((state) => state.source);
   const network = useNetworkSettings();
   const { locale } = useDiscoveryLocale();
   const excluded = useExternalExclusions(user?.id ?? "guest");
+  const respectNativeInterests = isPersonalized && source !== "asm";
   const includeNative =
     !externalId &&
     (Boolean(initialPostId) || source !== "bluesky" || gustTab === "following");
@@ -332,8 +337,17 @@ const GustStream = ({ gustTab }: { gustTab: GustFeed }) => {
       user?.id ?? "guest",
       network.scope,
       locale,
+      source === "asm" ? "native" : "focused",
     ],
-    [gustTab, initialPostId, externalId, user?.id, network.scope, locale]
+    [
+      gustTab,
+      initialPostId,
+      externalId,
+      user?.id,
+      network.scope,
+      locale,
+      source,
+    ]
   );
 
   // Infinite query for gusts
@@ -352,12 +366,20 @@ const GustStream = ({ gustTab }: { gustTab: GustFeed }) => {
       !gatedPersonalized && includeNative && !externalId && network.ready,
     getNextPageParam: (lastPage: GustsPage) => lastPage.nextCursor,
     initialPageParam: null as string | null,
+    placeholderData:
+      !user && initialGuestPost && initialGuestPost.id === initialPostId
+        ? {
+            pageParams: [null],
+            pages: [{ nextCursor: null, posts: [initialGuestPost] }],
+          }
+        : undefined,
     queryFn: ({ pageParam, signal }) => {
       // Moderated gusts never render in the stream (same as the explore rail).
       const queryParams: Record<string, string> = {
         excludeModerated: "1",
         locale,
         profile: network.settings.preferences.activeProfileId,
+        source,
         ...(initialPostId ? {} : { network: network.scope }),
       };
       if (isPersonalized) {
@@ -406,14 +428,14 @@ const GustStream = ({ gustTab }: { gustTab: GustFeed }) => {
             (post) =>
               !post.moderated &&
               !hiddenPostIds.has(post.id) &&
-              (!isPersonalized || !oppositeSeen.has(post.id)) &&
-              (gustTab === "following" || initialPostId
-                ? networkPostAllowed(
+              (!respectNativeInterests || !oppositeSeen.has(post.id)) &&
+              (respectNativeInterests
+                ? networkPostRecommended(
                     post,
                     network.settings.preferences,
                     network.settings.topicScope
                   )
-                : networkPostRecommended(
+                : networkPostAllowed(
                     post,
                     network.settings.preferences,
                     network.settings.topicScope
@@ -427,9 +449,7 @@ const GustStream = ({ gustTab }: { gustTab: GustFeed }) => {
       externalId,
       hiddenPostIds,
       oppositeSeen,
-      isPersonalized,
-      gustTab,
-      initialPostId,
+      respectNativeInterests,
       network.settings.preferences,
       network.settings.topicScope,
       network.ready,
@@ -967,29 +987,17 @@ const GustStream = ({ gustTab }: { gustTab: GustFeed }) => {
     };
   }, [posts]);
 
-  // Continue sparse pages while the reader is near the end, with one bounded read and backoff.
-  useEffect(() => {
-    if (
-      loadedPageCount > 0 &&
-      (isEndVisible || posts.length - activeIndex <= 8) &&
-      canFetchNextPage &&
-      !isFetchingNextPage
-    ) {
-      const timer = window.setTimeout(() => {
-        void fetchNextPage();
-      }, pagingDelay);
-      return () => window.clearTimeout(timer);
-    }
-  }, [
-    fetchNextPage,
-    canFetchNextPage,
-    isEndVisible,
-    isFetchingNextPage,
+  useGustPagination({
     activeIndex,
-    posts.length,
-    pagingDelay,
-    loadedPageCount,
-  ]);
+    canFetchNextPage,
+    containerRef,
+    delayMs: pagingDelay,
+    fetchNextPage,
+    isFetchingNextPage,
+    loadedPages: loadedPageCount,
+    scope: orderScope,
+    visiblePosts: posts.length,
+  });
 
   // Keyboard navigation
   const handleToggleMute = useCallback(() => {
@@ -1282,10 +1290,6 @@ const GustStream = ({ gustTab }: { gustTab: GustFeed }) => {
             {!hasNextPage && !isFetchingNextPage ? (
               <GustSourceRetries sources={retrySources} />
             ) : null}
-
-            {/* Pagination sentinel: triggers the next page even when the feed
-              is short, keeping the stream effectively infinite. */}
-            {hasNextPage ? <div ref={endSentinelRef} /> : null}
           </div>
         </div>
 

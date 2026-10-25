@@ -3,7 +3,7 @@
 import type { PostData, PostsPage } from "@asm/db";
 import { Button } from "@asm/ui/shadui/button";
 import noMediaImage from "@assets/general/nomedia.png";
-import { useInfiniteQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import { Clapperboard, Eye, Flame, Play, Plus } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
@@ -17,11 +17,13 @@ import UserBadge from "@/components/layouts/user/user-badge";
 import { useBlueskyFeed } from "@/components/protocols/use-bluesky-feed";
 import { RecommendationTracker } from "@/components/recommendations/recommendation-tracker";
 import { useRequireAuth } from "@/hooks/auth/use-require-auth";
+import { useFeedRecovery } from "@/hooks/feed/use-feed-recovery";
 import { useNetworkSettings } from "@/hooks/feed/use-network-settings";
 import { getAuraFlameClass } from "@/lib/aura/aura";
 import kyInstance from "@/lib/ky";
 import { feedContinuationDelay } from "@/lib/posts/feed-pagination";
 import { networkPostRecommended } from "@/lib/posts/network-content-policy";
+import { readFeedPage } from "@/lib/posts/read-feed-page";
 import { mixExplorePosts } from "@/lib/recommendations/mix-explore";
 import { cn, formatNumber } from "@/lib/utils";
 import { getMediaProxyUrl } from "@/lib/utils/image-url";
@@ -204,6 +206,7 @@ const ExploreGustTile = ({ post }: { post: PostData }) => {
 
 export const ExploreGustsGrid: React.FC = () => {
   const { user } = useSession();
+  const client = useQueryClient();
   const { goToLogin } = useRequireAuth();
   const network = useNetworkSettings();
   const remote = useBlueskyFeed(
@@ -215,6 +218,7 @@ export const ExploreGustsGrid: React.FC = () => {
     "explore"
   );
 
+  const queryKey = ["explore-gusts-grid", user?.id ?? "guest", network.scope];
   const {
     data,
     fetchNextPage,
@@ -223,30 +227,47 @@ export const ExploreGustsGrid: React.FC = () => {
     isFetchingNextPage,
     status,
     refetch,
+    dataUpdatedAt,
   } = useInfiniteQuery({
     enabled: network.ready,
     getNextPageParam: (lastPage: PostsPage) => lastPage.nextCursor,
     initialPageParam: null as string | null,
-    queryFn: ({ pageParam, signal }) =>
-      kyInstance
-        .get("/api/gusts", {
-          searchParams: {
-            ...(pageParam ? { cursor: pageParam } : {}),
-            excludeModerated: "1",
-            mode: "personalized",
-            network: "1",
-            profile: network.settings.preferences.activeProfileId,
-            surface: "explore",
-            take: "12",
-          },
-          signal,
-        })
-        .json<PostsPage>(),
-    queryKey: ["explore-gusts-grid", user?.id ?? "guest", network.scope],
+    queryFn: ({ pageParam, signal }) => {
+      const current = client.getQueryData<{ pages: PostsPage[] }>(queryKey);
+      return readFeedPage<PostsPage>(
+        (cursor) =>
+          kyInstance.get("/api/gusts", {
+            searchParams: {
+              ...(cursor ? { cursor } : {}),
+              excludeModerated: "1",
+              mode: "personalized",
+              network: "1",
+              profile: network.settings.preferences.activeProfileId,
+              surface: "explore",
+              take: "12",
+            },
+            signal,
+            throwHttpErrors: false,
+          }),
+        pageParam,
+        new Set(
+          current?.pages.flatMap((page) => page.posts.map((post) => post.id))
+        )
+      );
+    },
+    queryKey,
     refetchOnWindowFocus: false,
     staleTime: Infinity,
   });
 
+  useFeedRecovery({
+    enabled: Boolean(data) && Boolean(hasNextPage),
+    failed: status === "error",
+    fetching: isFetching,
+    resetKey: JSON.stringify(queryKey),
+    retry: () => fetchNextPage({ cancelRefetch: false }),
+    updatedAt: dataUpdatedAt,
+  });
   const posts = useMemo(
     () =>
       (data?.pages.flatMap((page) => page.posts) || []).filter((post) =>

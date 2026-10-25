@@ -104,8 +104,12 @@ export async function startProtocols() {
   let worker = Promise.resolve();
   let closeRedis: (() => Promise<void>) | undefined;
   const { BlueskyDiscovery } = await import("./discovery");
-  const { MemoryDiscoveryStore, RedisDiscoveryStore } =
-    await import("./discovery-store");
+  const {
+    MemoryDiscoveryStore,
+    RedisDiscoveryStore,
+    discoveryStoreCapacity,
+    inventoryCursorCapacity,
+  } = await import("./discovery-store");
   let redis: RedisConnection | undefined;
   if (config.redisUrl) {
     const { default: Redis } = await import("ioredis");
@@ -174,7 +178,9 @@ export async function startProtocols() {
       )
     : explicitClient;
   const discovery = new BlueskyDiscovery(effectiveClient, undefined, {
-    store: redis ? new RedisDiscoveryStore(redis) : new MemoryDiscoveryStore(),
+    store: redis
+      ? new RedisDiscoveryStore(redis, discoveryStoreCapacity)
+      : new MemoryDiscoveryStore(),
   });
   const inventoryStore = redis ? new RedisInventoryStore(redis) : undefined;
   let ingestionQueue: ProtocolIngestionQueue | undefined;
@@ -214,6 +220,7 @@ export async function startProtocols() {
       ? new DiscoveryInventory(
           inventoryStore,
           new RedisDiscoveryStore(redis, {
+            ...inventoryCursorCapacity,
             scope: "asm:protocols:{inventory-cursors:v2}",
           }),
           async (mode, cursor, locale, topics, content) => {
@@ -289,6 +296,7 @@ export async function startProtocols() {
       allowExplicit: true,
       store: redis
         ? new RedisDiscoveryStore(redis, {
+            ...discoveryStoreCapacity,
             scope: "asm:protocols:{discovery:explicit:v1}",
           })
         : new MemoryDiscoveryStore(),
@@ -335,6 +343,7 @@ export async function startProtocols() {
             },
           },
           new RedisDiscoveryStore(redis, {
+            ...inventoryCursorCapacity,
             scope: "asm:protocols:{inventory-cursors:explicit:v2}",
           }),
           readExplicitSource,
@@ -400,17 +409,18 @@ export async function startProtocols() {
         if (selectedInventory) {
           void warmDiscoveryInventory({
             head: page,
+            maxPages: content === "video" ? 6 : 3,
             read: (cursor) =>
               selectedDiscovery.read(mode, cursor, locale, topics, content),
             retain: (next, began) => selectedInventory.put(next.items, began),
             signal: abort.signal,
-            store: new RedisDiscoveryStore(redis),
+            store: new RedisDiscoveryStore(redis, discoveryStoreCapacity),
             watch: { content, explicit, locale, mode, topics },
           }).catch(reportWarmupFailure);
         }
         return page;
       },
-      store: new RedisDiscoveryStore(redis),
+      store: new RedisDiscoveryStore(redis, discoveryStoreCapacity),
     });
     subscriber.on("message", (channel, raw) => {
       if (channel === PROTOCOL_INVALIDATIONS_CHANNEL) {
