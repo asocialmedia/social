@@ -183,7 +183,34 @@ describe.skipIf(!isolatedDatabase)(
       expect(declared.posts.map((post) => post.id)).toEqual([safeIds[0]]);
     });
 
-    test("sparse native hashtag pages advance past unrelated prefix matches", async () => {
+    test("normalized candidate reads preserve member visibility and explicit opt-in", async () => {
+      const membership = randomUUID();
+      await prisma.orm.public.CommunityMembers.create({
+        communityId: privateCommunity,
+        id: membership,
+        status: "ACTIVE",
+        userId: owner,
+      });
+      try {
+        const page = await getHashtagPostPage("onepiece", owner, true);
+        expect(page.posts.some((post) => post.id === hiddenIds[0])).toBe(true);
+        expect(
+          page.posts.some(
+            (post) => post.id === hiddenIds[1] || post.id === hiddenIds[2]
+          )
+        ).toBe(false);
+        const guest = await getHashtagPostPage("onepiece");
+        expect(guest.posts.some((post) => post.id === hiddenIds[0])).toBe(
+          false
+        );
+      } finally {
+        await prisma.orm.public.CommunityMembers.where({
+          id: membership,
+        }).deleteAndCount();
+      }
+    });
+
+    test("native hashtag queries reject unrelated prefixes before hydration", async () => {
       const unrelated = Array.from({ length: 70 }, () => randomUUID());
       await prisma.orm.public.Posts.createAll(
         unrelated.map((id) => ({
@@ -194,19 +221,10 @@ describe.skipIf(!isolatedDatabase)(
       );
       try {
         const first = await getHashtagPostPage("onepiece");
-        expect(first.posts.length).toBe(0);
-        expect(first.nextCursor).not.toBeNull();
-        const firstReadable = await getFirstPublicHashtagPage("onepiece");
-        expect(firstReadable.posts.length).toBe(20);
-        const second = await getHashtagPostPage(
-          "onepiece",
-          "",
-          false,
-          first.nextCursor ?? undefined
-        );
-        expect(new Set(second.posts.map((post) => post.id))).toEqual(
+        expect(new Set(first.posts.map((post) => post.id))).toEqual(
           new Set(safeIds.slice(1))
         );
+        expect(first.nextCursor).toBeNull();
       } finally {
         await prisma.orm.public.Posts.where((post) =>
           post.id.in(unrelated)
@@ -225,8 +243,9 @@ describe.skipIf(!isolatedDatabase)(
       });
       await prisma.orm.public.Posts.createAll(
         unrelated.map((postId) => ({
-          content: `A different topic #${tag}fan`,
+          content: `A filtered topic #${tag}`,
           id: postId,
+          semanticTags: ["porn"],
           userId: owner,
         }))
       );
@@ -352,6 +371,41 @@ describe.skipIf(!isolatedDatabase)(
       }
     });
 
+    test("Unicode native hashtags match accents and case in existing text and tag relations", async () => {
+      const ids = [randomUUID(), randomUUID(), randomUUID()];
+      const tags = [randomUUID(), randomUUID()];
+      await prisma.orm.public.Posts.createAll([
+        { content: "A summer trip #ÉTÉ", id: ids[0], userId: owner },
+        { content: "A morning cup #cafe\u0301", id: ids[1], userId: owner },
+        { content: "A linked public tag", id: ids[2], userId: owner },
+      ]);
+      await prisma.orm.public.Tag.createAll([
+        { id: tags[0], name: "Été" },
+        { id: tags[1], name: "cafe\u0301" },
+      ]);
+      await prisma.orm.public.PostToTag.createAll([
+        { a: ids[2], b: tags[0] },
+        { a: ids[2], b: tags[1] },
+      ]);
+      try {
+        const summer = await getHashtagPostPage("été");
+        expect(new Set(summer.posts.map((post) => post.id))).toEqual(
+          new Set([ids[0], ids[2]])
+        );
+        const coffee = await getHashtagPostPage("CAFÉ");
+        expect(new Set(coffee.posts.map((post) => post.id))).toEqual(
+          new Set([ids[1], ids[2]])
+        );
+      } finally {
+        await prisma.orm.public.Posts.where((post) =>
+          post.id.in(ids)
+        ).deleteAndCount();
+        await prisma.orm.public.Tag.where((tag) =>
+          tag.id.in(tags)
+        ).deleteAndCount();
+      }
+    });
+
     test("tag sitemap scans beyond unsafe candidates and deduplicates case variants", async () => {
       const ids = Array.from({ length: 25 }, () => randomUUID());
       const tags = [randomUUID(), randomUUID()];
@@ -388,6 +442,44 @@ describe.skipIf(!isolatedDatabase)(
     });
 
     const base = process.env.SEO_AUDIT_URL;
+    test.skipIf(!base)(
+      "tag sitemap reuses its server entry set across origin requests",
+      async () => {
+        if (
+          !base ||
+          !["localhost", "127.0.0.1"].includes(new URL(base).hostname)
+        ) {
+          throw new Error("Loopback preview required");
+        }
+        const beforeResponse = await fetch(new URL("/sitemaps/tags.xml", base));
+        const before = await beforeResponse.text();
+        expect(beforeResponse.status).toBe(200);
+        const id = randomUUID();
+        const tagId = randomUUID();
+        const name = `cached_${owner}`;
+        await prisma.orm.public.Posts.create({
+          content: "A newly inserted public topic",
+          id,
+          userId: owner,
+        });
+        await prisma.orm.public.Tag.create({ id: tagId, name });
+        await prisma.orm.public.PostToTag.create({ a: id, b: tagId });
+        try {
+          const fresh = await getSitemapEntries("tags");
+          expect(fresh.some((entry) => entry.url.endsWith(name))).toBe(true);
+          const cachedResponse = await fetch(
+            new URL("/sitemaps/tags.xml", base)
+          );
+          const cached = await cachedResponse.text();
+          expect(cachedResponse.status).toBe(200);
+          expect(cached).toBe(before);
+        } finally {
+          await prisma.orm.public.Posts.where({ id }).deleteAndCount();
+          await prisma.orm.public.Tag.where({ id: tagId }).deleteAndCount();
+        }
+      }
+    );
+
     test.skipIf(!base)(
       "a moderated Gust is not rendered from the metadata cache",
       async () => {

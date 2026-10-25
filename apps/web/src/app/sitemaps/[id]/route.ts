@@ -3,6 +3,7 @@ import { connection } from "next/server";
 import {
   buildSitemapXml,
   getSitemapEntries,
+  getCachedTagSitemapEntries,
   isSitemapId,
 } from "@/lib/seo/sitemap";
 
@@ -21,7 +22,10 @@ export async function GET(
   }
 
   await connection();
-  const entries = await getSitemapEntries(fileName);
+  const entries =
+    fileName === "tags"
+      ? await getCachedTagSitemapEntries()
+      : await getSitemapEntries(fileName);
 
   return new Response(buildSitemapXml(entries), {
     headers: {

@@ -1,8 +1,10 @@
 export function normalizeHashtag(value: string): string | null {
-  // Fold ASCII case while preserving Unicode spellings under the database collation.
+  // NFC unifies composed accents while retaining fullwidth and ASCII distinctions.
   const tag = value
     .replace(/^#/, "")
-    .replaceAll(/[A-Z]/g, (letter) => letter.toLowerCase());
+    .normalize("NFC")
+    .toLowerCase()
+    .normalize("NFC");
   return tag.length > 0 &&
     tag.length <= 64 &&
     /^[\p{L}\p{M}\p{N}_-]+$/u.test(tag)
