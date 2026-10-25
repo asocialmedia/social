@@ -8,7 +8,10 @@ import type { DiscoveryPage } from "@asm/protocols/discovery";
 import { createDiscoveryWarmupFailureReporter } from "../runtime/observability";
 import { inventoryPost } from "./discovery-fixtures";
 import { MemoryDiscoveryStore } from "./discovery-store";
-import { warmDiscoveryInventory } from "./discovery-warmup";
+import {
+  createDiscoveryWarmupRunner,
+  warmDiscoveryInventory,
+} from "./discovery-warmup";
 
 const watch = {
   content: "video" as const,
@@ -23,7 +26,7 @@ const head: DiscoveryPage = {
   partial: false,
 };
 
-test("a pending warmup reports a timeout without exposing its cursor", async () => {
+test("a pending warmup finishes its work slice without an outage warning", async () => {
   const warnings: Record<string, unknown>[] = [];
   const report = createDiscoveryWarmupFailureReporter({
     debug: () => {},
@@ -43,12 +46,7 @@ test("a pending warmup reports a timeout without exposing its cursor", async () 
     timeBudgetMs: 10,
     watch,
   }).catch(report);
-  expect(warnings).toEqual([
-    {
-      code: "timeout",
-      event: "discovery.inventory.warmup_failed",
-    },
-  ]);
+  expect(warnings).toEqual([]);
 });
 
 test("video warming traverses six sparse pages without making the viewer request them", async () => {
@@ -97,7 +95,7 @@ test("a warmup deadline cannot retain late data or advance its saved position", 
     timeBudgetMs: 10,
     watch,
   };
-  await expect(warmDiscoveryInventory(options)).rejects.toThrow();
+  await warmDiscoveryInventory(options);
   gate.resolve({ cursor: null, items: [inventoryPost(51)], partial: false });
   await Bun.sleep(0);
   expect(retained).toEqual([]);
@@ -473,4 +471,92 @@ test("aborted warmup and heads without continuations do not read upstream", asyn
     signal: new AbortController().signal,
   });
   expect(reads).toBe(0);
+});
+
+test("an upstream timeout remains a failure before the warmup slice expires", async () => {
+  const failure = new DOMException("Upstream deadline", "TimeoutError");
+  await expect(
+    warmDiscoveryInventory({
+      head,
+      read: () => Promise.reject(failure),
+      retain: async () => {},
+      signal: new AbortController().signal,
+      store: new MemoryDiscoveryStore(),
+      timeBudgetMs: 1000,
+      watch,
+    })
+  ).rejects.toBe(failure);
+});
+
+test("caller cancellation releases warmup ownership and still propagates", async () => {
+  const abort = new AbortController();
+  const failure = new Error("Caller stopped");
+  const pending = Promise.withResolvers<DiscoveryPage>();
+  const store = new MemoryDiscoveryStore();
+  await expect(
+    warmDiscoveryInventory({
+      head,
+      read: () => {
+        abort.abort(failure);
+        return pending.promise;
+      },
+      retain: async () => {},
+      signal: abort.signal,
+      store,
+      watch,
+    })
+  ).rejects.toMatchObject({ name: "AbortError" });
+  const reads: string[] = [];
+  await warmDiscoveryInventory({
+    head,
+    read: async (cursor) => {
+      reads.push(cursor);
+      return { ...head, cursor: null };
+    },
+    retain: async () => {},
+    signal: new AbortController().signal,
+    store,
+    watch,
+  });
+  expect(reads).toEqual(["first"]);
+});
+
+test("background depth shares a bounded budget and skipped scopes can retry after completion", async () => {
+  const run = createDiscoveryWarmupRunner();
+  const gate = Promise.withResolvers<null>();
+  const first = run(async () => {
+    await gate.promise;
+  });
+  const second = run(async () => {
+    await gate.promise;
+  });
+  let skippedRan = false;
+  expect(
+    await run(async () => {
+      skippedRan = true;
+    })
+  ).toBe(false);
+  expect(skippedRan).toBe(false);
+  gate.resolve(null);
+  expect(await first).toBe(true);
+  expect(await second).toBe(true);
+  expect(
+    await run(async () => {
+      skippedRan = true;
+    })
+  ).toBe(true);
+  expect(skippedRan).toBe(true);
+});
+
+test("a rejected background slice releases its slot without hiding the failure", async () => {
+  const run = createDiscoveryWarmupRunner();
+  const gate = Promise.withResolvers<null>();
+  const pending = run(async () => {
+    await gate.promise;
+  });
+  const failure = new Error("Inventory unavailable");
+  await expect(run(() => Promise.reject(failure))).rejects.toBe(failure);
+  expect(await run(async () => {})).toBe(true);
+  gate.resolve(null);
+  await pending;
 });

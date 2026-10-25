@@ -42,7 +42,8 @@ export async function startProtocols() {
     }
   }
   const { createReadWorkerPool } = await import("./reader/read-worker-pool");
-  const readTimeoutMs = 2500;
+  // Cover the configured remote attempt and a usable local fallback in one bounded read.
+  const readTimeoutMs = config.workerTimeoutMs + 1700;
   const pool = config.workers.length
     ? createReadWorkerPool({
         localReserveMs: 1300,
@@ -61,11 +62,12 @@ export async function startProtocols() {
     import("./runtime/observability"),
     import("@asm/protocols/bluesky"),
   ]);
+  const observe = createProtocolObserver(logger);
   const client = new BlueskyClient({
     fetch: pool?.fetch,
     maxConcurrentRequests: 48,
     maxRetries: 0,
-    observe: createProtocolObserver(logger),
+    observe,
     timeoutMs: readTimeoutMs,
   });
   const explicitClient = new BlueskyClient({
@@ -73,14 +75,14 @@ export async function startProtocols() {
     fetch: pool?.fetch,
     maxConcurrentRequests: 24,
     maxRetries: 0,
-    observe: createProtocolObserver(logger),
+    observe,
     timeoutMs: readTimeoutMs,
   });
   const searchClient = new BlueskyClient({
     fetch: pool?.fetch,
     maxConcurrentRequests: config.searchConcurrency,
     maxRetries: 0,
-    observe: createProtocolObserver(logger),
+    observe,
     timeoutMs: readTimeoutMs,
   });
   const explicitSearchClient = new BlueskyClient({
@@ -88,7 +90,7 @@ export async function startProtocols() {
     fetch: pool?.fetch,
     maxConcurrentRequests: config.searchConcurrency,
     maxRetries: 0,
-    observe: createProtocolObserver(logger),
+    observe,
     timeoutMs: readTimeoutMs,
   });
   const health = {
@@ -178,6 +180,7 @@ export async function startProtocols() {
       )
     : explicitClient;
   const discovery = new BlueskyDiscovery(effectiveClient, undefined, {
+    sourceTimeoutMs: readTimeoutMs,
     store: redis
       ? new RedisDiscoveryStore(redis, discoveryStoreCapacity)
       : new MemoryDiscoveryStore(),
@@ -295,6 +298,7 @@ export async function startProtocols() {
     undefined,
     {
       allowExplicit: true,
+      sourceTimeoutMs: readTimeoutMs,
       store: redis
         ? new RedisDiscoveryStore(redis, {
             ...discoveryStoreCapacity,
@@ -377,12 +381,13 @@ export async function startProtocols() {
   if (redis) {
     const { createDiscoveryLive, discoveryWatchSchema } =
       await import("./discovery/discovery-live");
-    const { warmDiscoveryInventory } =
+    const { warmDiscoveryInventory, createDiscoveryWarmupRunner } =
       await import("./discovery/discovery-warmup");
     const { DISCOVERY_WATCH_CHANNEL } =
       await import("@asm/protocols/discovery");
     const publisher = redis;
     const reportWarmupFailure = createDiscoveryWarmupFailureReporter(logger);
+    const runWarmup = createDiscoveryWarmupRunner();
     const subscriber = redis.duplicate({ lazyConnect: true });
     subscriber.on("error", () => {
       // Existing health and storage logging owns Redis availability reporting.
@@ -409,16 +414,18 @@ export async function startProtocols() {
         await retain(page, startedAt);
         // Replenish continuation inventory off the viewer's request path.
         if (selectedInventory) {
-          void warmDiscoveryInventory({
-            head: page,
-            maxPages: content === "video" ? 6 : 3,
-            read: (cursor) =>
-              selectedDiscovery.read(mode, cursor, locale, topics, content),
-            retain: (next, began) => selectedInventory.put(next.items, began),
-            signal: abort.signal,
-            store: new RedisDiscoveryStore(redis, discoveryStoreCapacity),
-            watch: { content, explicit, locale, mode, topics },
-          }).catch(reportWarmupFailure);
+          void runWarmup(() =>
+            warmDiscoveryInventory({
+              head: page,
+              maxPages: content === "video" ? 6 : 3,
+              read: (cursor) =>
+                selectedDiscovery.read(mode, cursor, locale, topics, content),
+              retain: (next, began) => selectedInventory.put(next.items, began),
+              signal: abort.signal,
+              store: new RedisDiscoveryStore(redis, discoveryStoreCapacity),
+              watch: { content, explicit, locale, mode, topics },
+            })
+          ).catch(reportWarmupFailure);
         }
         return page;
       },

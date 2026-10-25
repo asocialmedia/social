@@ -101,9 +101,12 @@ export function createWorkerReader(options: {
           "error" in body &&
           body.error === "RecordNotFound";
         const successfulLookup = response.ok || expectedMissingDeclaration;
-        let code: "rate_limited" | "unavailable" | undefined;
+        let code: "rate_limited" | "restricted" | "unavailable" | undefined;
         if (!successfulLookup) {
           code = response.status === 429 ? "rate_limited" : "unavailable";
+          if (response.status === 401 || response.status === 403) {
+            code = "restricted";
+          }
         }
         options.observe?.({
           code,

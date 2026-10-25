@@ -291,7 +291,7 @@ const ProfileHeader: React.FC<ProfileHeaderProps> = ({
         </div>
 
         {/* Community roles: what this account does across the platform, one
-            line per role, e.g. "[owner] Owner of a/anime & a/cosplay". */}
+            line per role, e.g. "Owner of a/anime & a/cosplay". */}
         {communityRoles && communityRoles.length > 0 ? (
           <CommunityRoleSummary className="mt-3" roles={communityRoles} />
         ) : null}

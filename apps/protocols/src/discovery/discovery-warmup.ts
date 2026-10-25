@@ -15,6 +15,23 @@ const warmupSchema = z.object({
   head: z.string().length(64),
 });
 
+export function createDiscoveryWarmupRunner() {
+  let active = 0;
+  return async (work: () => Promise<void>) => {
+    // Refreshes retry skipped scopes; background depth must leave room for interactive reads.
+    if (active >= 2) {
+      return false;
+    }
+    active += 1;
+    try {
+      await work();
+      return true;
+    } finally {
+      active -= 1;
+    }
+  };
+}
+
 export async function warmDiscoveryInventory(options: {
   head: DiscoveryPage;
   read: (cursor: string) => Promise<DiscoveryPage>;
@@ -28,10 +45,8 @@ export async function warmDiscoveryInventory(options: {
   if (options.signal.aborted) {
     return;
   }
-  const signal = AbortSignal.any([
-    options.signal,
-    AbortSignal.timeout(options.timeBudgetMs ?? 8000),
-  ]);
+  const budget = AbortSignal.timeout(options.timeBudgetMs ?? 8000);
+  const signal = AbortSignal.any([options.signal, budget]);
   const scope = createHash("sha256")
     .update(JSON.stringify(discoveryWatchSchema.parse(options.watch)))
     .digest("hex");
@@ -111,6 +126,11 @@ export async function warmDiscoveryInventory(options: {
       ) {
         return;
       }
+    }
+  } catch (error) {
+    // A completed work slice resumes from its last checkpoint on the next refresh.
+    if (!budget.aborted || options.signal.aborted || error !== signal.reason) {
+      throw error;
     }
   } finally {
     await options.store.release(key, owner);
