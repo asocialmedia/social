@@ -24,8 +24,11 @@ for (const [key, value] of Object.entries({
 afterAll(async () => {
   await dom.happyDOM.close();
   for (const [key, descriptor] of originals) {
-    if (descriptor) {Object.defineProperty(globalThis, key, descriptor);}
-    else {Reflect.deleteProperty(globalThis, key);}
+    if (descriptor) {
+      Object.defineProperty(globalThis, key, descriptor);
+    } else {
+      Reflect.deleteProperty(globalThis, key);
+    }
   }
 });
 
