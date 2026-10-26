@@ -312,14 +312,9 @@ export default function FollowingFeed() {
           source={source}
           sortBy="server"
           sourcesPending={
-            source === "all" &&
-            (isFetching || external.isPending || external.isFetching)
+            source === "all" && (status === "pending" || external.isPending)
           }
-          sourceWaitMs={
-            status === "pending" || external.isPending
-              ? FOLLOWING_INITIAL_SOURCE_WAIT_MS
-              : 2000
-          }
+          sourceWaitMs={FOLLOWING_INITIAL_SOURCE_WAIT_MS}
         />
         {isFetchingNextPage ||
         external.isFetchingNextPage ||

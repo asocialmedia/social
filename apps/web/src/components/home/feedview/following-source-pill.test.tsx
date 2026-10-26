@@ -8,7 +8,10 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 let selectedSource: FeedSource = "all";
 let externalPending = false;
+let externalFetching = false;
 let renderedFeed: {
+  posts?: { id: string }[];
+  externalPosts?: { id: string }[];
   source?: FeedSource;
   sourcesPending?: boolean;
   sortBy?: string;
@@ -58,7 +61,7 @@ mock.module("@/components/protocols/use-bluesky-feed", () => ({
   useBlueskyFeed: () => ({
     data: { pages: [{ items: [{ id: "remote-existing" }] }] },
     isError: false,
-    isFetching: externalPending,
+    isFetching: externalPending || externalFetching,
     isPending: externalPending,
     newItems: [
       { author: { handle: "author.test", id: "author" }, id: "remote-new" },
@@ -88,6 +91,43 @@ test.each(["asm", "all", "bluesky"] as const)(
         source !== "asm"
       );
     } finally {
+      client.clear();
+    }
+  }
+);
+
+test.each(["native", "bluesky", "both"])(
+  "cached source pages remain available without staging during %s background refetches",
+  (refetching) => {
+    selectedSource = "all";
+    externalFetching = refetching !== "native";
+    const client = new QueryClient();
+    const queryKey = ["post-feed", "following", "viewer", "test"];
+    const native = [{ id: "native-one" }, { id: "native-two" }];
+    client.setQueryData(queryKey, {
+      pageParams: [null],
+      pages: [{ nextCursor: null, posts: native }],
+    });
+    if (refetching !== "bluesky") {
+      client
+        .getQueryCache()
+        .find({ queryKey })
+        ?.setState({ fetchStatus: "fetching" });
+    }
+    expect(client.isFetching({ queryKey })).toBe(
+      refetching === "bluesky" ? 0 : 1
+    );
+    try {
+      renderToStaticMarkup(
+        <QueryClientProvider client={client}>
+          <FollowingFeed />
+        </QueryClientProvider>
+      );
+      expect(renderedFeed.sourcesPending).toBe(false);
+      expect(renderedFeed.posts).toEqual(native);
+      expect(renderedFeed.externalPosts).toEqual([{ id: "remote-existing" }]);
+    } finally {
+      externalFetching = false;
       client.clear();
     }
   }
