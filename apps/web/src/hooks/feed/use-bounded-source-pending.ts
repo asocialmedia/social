@@ -1,7 +1,10 @@
 import { useEffect, useState } from "react";
 
-// Briefly coalesce mixed-source arrivals, but never hide a healthy page behind a slow source.
-export function useBoundedSourcePending(pending: boolean): boolean {
+// Coalesce mixed-source arrivals within a deadline, then release healthy posts if a peer stalls.
+export function useBoundedSourcePending(
+  pending: boolean,
+  timeoutMs = 600
+): boolean {
   const [state, setState] = useState({ expired: false, pending });
   if (state.pending !== pending) {
     setState({ expired: false, pending });
@@ -12,9 +15,9 @@ export function useBoundedSourcePending(pending: boolean): boolean {
     }
     const timer = setTimeout(
       () => setState({ expired: true, pending: true }),
-      600
+      timeoutMs
     );
     return () => clearTimeout(timer);
-  }, [pending]);
+  }, [pending, timeoutMs]);
   return pending && !state.expired;
 }

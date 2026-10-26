@@ -29,6 +29,9 @@ import {
 import { feedContinuationDelay } from "@/lib/posts/feed-pagination";
 import { useFeedSourceStore } from "@/store/feed-source-store";
 
+// Match the remote read deadline so a slower first page is mixed before the native batch is committed.
+const FOLLOWING_INITIAL_SOURCE_WAIT_MS = 18_000;
+
 export default function FollowingFeed() {
   const network = useNetworkSettings();
   const { user } = useSession();
@@ -307,8 +310,15 @@ export default function FollowingFeed() {
           posts={posts}
           externalPosts={externalPosts}
           source={source}
+          sortBy="server"
+          sourcesPending={
+            source === "all" && (status === "pending" || external.isPending)
+          }
+          sourceWaitMs={FOLLOWING_INITIAL_SOURCE_WAIT_MS}
         />
-        {isFetchingNextPage || external.isFetchingNextPage ? (
+        {isFetchingNextPage ||
+        external.isFetchingNextPage ||
+        (source === "all" && (status === "pending" || external.isPending)) ? (
           <LoadMoreSkeleton />
         ) : null}
         {manualContinuation}
