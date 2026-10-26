@@ -1,4 +1,4 @@
-SELECT _timestamp, body, operation, code
+SELECT MAX(_timestamp) AS _timestamp, body, operation, code
 FROM "asm_protocols_logs"
 WHERE severity = 'WARN'
   AND (
@@ -13,5 +13,6 @@ WHERE severity = 'WARN'
       AND (code IS NULL OR code NOT IN ('unavailable', 'rate_limited', 'capacity', 'timeout'))
     )
   )
+GROUP BY COALESCE(NULLIF(requestid, ''), CAST(_timestamp AS VARCHAR)), body, operation, code
 ORDER BY _timestamp DESC
 LIMIT 100
