@@ -30,6 +30,8 @@ test.each([false, true])(
     expect(html).toContain(following ? ">Following<" : ">Follow<");
     expect(html).toContain(following ? "btn-3d-gray" : "btn-3d ");
     expect(html).not.toContain("follow-btn-3d");
+    expect(html).toContain("text-[13px]! sm:text-sm!");
+    expect(html).toContain("inline-flex shrink-0");
     client.clear();
   }
 );

@@ -216,9 +216,14 @@ const ClientFollowButton: React.FC<ClientFollowButtonProps> = ({
   const isFollowing = localState.isFollowedByUser;
 
   return (
-    <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
+    <motion.div
+      className="inline-flex shrink-0"
+      whileHover={{ scale: 1.02 }}
+      whileTap={{ scale: 0.98 }}
+    >
       <Button
         className={cn(
+          "text-[13px]! sm:text-sm!",
           className,
           "relative overflow-hidden transition-all duration-300",
           isLoading && "cursor-not-allowed"

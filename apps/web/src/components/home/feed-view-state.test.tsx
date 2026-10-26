@@ -108,6 +108,7 @@ function createFeed() {
       options: {
         external?: ExternalPost[];
         sourcesPending?: boolean;
+        sourceWaitMs?: number;
         source?: "all" | "asm";
       } = {}
     ) =>
@@ -119,6 +120,7 @@ function createFeed() {
               posts={posts}
               externalPosts={options.external}
               sourcesPending={options.sourcesPending}
+              sourceWaitMs={options.sourceWaitMs}
               source={options.source ?? "asm"}
               sortBy="server"
               trending={trending}
@@ -290,4 +292,72 @@ test("a slow or continually paging peer cannot keep successfully loaded posts st
     { source: "all", sourcesPending: true }
   );
   expect(feed.ids()).toContain("next-page");
+});
+
+test("Following keeps a slow first page staged beyond the discovery grace period and mixes it when ready", async () => {
+  const feed = createFeed();
+  const native = Array.from({ length: 10 }, (_, index) =>
+    post(`followed-native-${index}`)
+  );
+  const remote = Array.from({ length: 20 }, (_, index) => ({
+    ...source,
+    id: `${source.id}followed-${index}`,
+  }));
+  const key = ["post-feed", "following"];
+  await feed.render(native, key, false, {
+    source: "all",
+    sourceWaitMs: 18_000,
+    sourcesPending: true,
+  });
+  await act(async () => {
+    await Bun.sleep(750);
+  });
+  expect(feed.ids()).toEqual(["followed-native-0"]);
+  await feed.render(native, key, false, {
+    external: remote,
+    source: "all",
+    sourceWaitMs: 18_000,
+    sourcesPending: false,
+  });
+  expect(feed.ids().slice(0, 7)).toEqual([
+    native[0]?.id,
+    remote[0]?.id,
+    remote[1]?.id,
+    native[1]?.id,
+    remote[2]?.id,
+    remote[3]?.id,
+    native[2]?.id,
+  ]);
+});
+
+test("Following releases healthy native posts when the remote request fails", async () => {
+  const feed = createFeed();
+  const native = [post("followed-healthy-1"), post("followed-healthy-2")];
+  const key = ["post-feed", "following-failed"];
+  await feed.render(native, key, false, {
+    source: "all",
+    sourceWaitMs: 18_000,
+    sourcesPending: true,
+  });
+  await feed.render(native, key, false, {
+    source: "all",
+    sourceWaitMs: 18_000,
+    sourcesPending: false,
+  });
+  expect(feed.ids()).toEqual(native.map((item) => item.id));
+});
+
+test("a custom source deadline releases posts even if a request never settles", async () => {
+  const feed = createFeed();
+  const native = [post("deadline-1"), post("deadline-2")];
+  await feed.render(native, ["post-feed", "following-deadline"], false, {
+    source: "all",
+    sourceWaitMs: 30,
+    sourcesPending: true,
+  });
+  expect(feed.ids()).toEqual(["deadline-1"]);
+  await act(async () => {
+    await Bun.sleep(60);
+  });
+  expect(feed.ids()).toEqual(["deadline-1", "deadline-2"]);
 });

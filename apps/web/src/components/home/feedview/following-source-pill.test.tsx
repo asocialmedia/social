@@ -7,6 +7,13 @@ import type { ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 let selectedSource: FeedSource = "all";
+let externalPending = false;
+let renderedFeed: {
+  source?: FeedSource;
+  sourcesPending?: boolean;
+  sortBy?: string;
+  sourceWaitMs?: number;
+} = {};
 mock.module("@/store/feed-source-store", () => ({
   useFeedSourceStore: (select: (state: { source: FeedSource }) => FeedSource) =>
     select({ source: selectedSource }),
@@ -32,7 +39,10 @@ mock.module("@/hooks/feed/use-seamless-feed-head", () => ({
   useSeamlessFeedHead() {},
 }));
 mock.module("@/components/home/feed-view", () => ({
-  FeedView: () => <div>Existing feed</div>,
+  FeedView: (props: typeof renderedFeed) => {
+    renderedFeed = props;
+    return <div>Existing feed</div>;
+  },
 }));
 mock.module("@/components/layouts/feed/infinite-scroll-container", () => ({
   default: ({ children }: { children: ReactNode }) => <div>{children}</div>,
@@ -48,8 +58,8 @@ mock.module("@/components/protocols/use-bluesky-feed", () => ({
   useBlueskyFeed: () => ({
     data: { pages: [{ items: [{ id: "remote-existing" }] }] },
     isError: false,
-    isFetching: false,
-    isPending: false,
+    isFetching: externalPending,
+    isPending: externalPending,
     newItems: [
       { author: { handle: "author.test", id: "author" }, id: "remote-new" },
     ],
@@ -78,6 +88,32 @@ test.each(["asm", "all", "bluesky"] as const)(
         source !== "asm"
       );
     } finally {
+      client.clear();
+    }
+  }
+);
+
+test.each(["asm", "all", "bluesky"] as const)(
+  "Following coalesces delayed remote arrivals only for the mixed feed (%s)",
+  (source) => {
+    selectedSource = source;
+    externalPending = true;
+    const client = new QueryClient();
+    client.setQueryData(["post-feed", "following", "viewer", "test"], {
+      pageParams: [null],
+      pages: [{ nextCursor: null, posts: [{ id: "existing-native" }] }],
+    });
+    try {
+      renderToStaticMarkup(
+        <QueryClientProvider client={client}>
+          <FollowingFeed />
+        </QueryClientProvider>
+      );
+      expect(renderedFeed.sourcesPending).toBe(source === "all");
+      expect(renderedFeed.sortBy).toBe("server");
+      expect(renderedFeed.sourceWaitMs).toBe(18_000);
+    } finally {
+      externalPending = false;
       client.clear();
     }
   }
