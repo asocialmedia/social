@@ -26,6 +26,7 @@ import {
   postTitle,
   siteConfig,
 } from "@/lib/seo/seo";
+import { profilePath } from "@/lib/users/profile-path";
 
 import { ClientGusts } from "./client-gusts";
 
@@ -112,7 +113,7 @@ export async function generateMetadata(
           ...tags.map((tag) => tag.name),
         ],
         openGraph: {
-          authors: [absoluteUrl(`/users/${authorUsername}`)],
+          authors: [absoluteUrl(profilePath(authorUsername))],
           description,
           images: [
             {
@@ -243,7 +244,7 @@ async function GustsContent({ searchParams }: GustsPageProps) {
                 selectedPost.user?.username ||
                 "Anonymous",
               url: absoluteUrl(
-                `/users/${selectedPost.user?.username || "unknown"}`
+                profilePath(selectedPost.user?.username || "unknown")
               ),
               username: selectedPost.user?.username || "unknown",
             },

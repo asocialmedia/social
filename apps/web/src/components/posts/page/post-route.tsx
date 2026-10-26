@@ -37,6 +37,7 @@ import {
   postDescription,
   postTitle,
 } from "@/lib/seo/seo";
+import { profilePath } from "@/lib/users/profile-path";
 
 // Route params resolved from either the global /posts tree or the nested
 // /a/<community>/posts tree. Only the community route supplies communitySlug.
@@ -165,7 +166,7 @@ export async function generatePostMetadata(
     keywords: post.tags.map((tag) => tag.name),
     openGraph: {
       authors: post.user?.username
-        ? [absoluteUrl(`/users/${post.user.username}`)]
+        ? [absoluteUrl(profilePath(post.user.username))]
         : [],
       description,
       images: [
@@ -227,7 +228,7 @@ export async function PostRoute({ params }: { params: PostRouteParams }) {
   const authorDisplayName =
     post.user?.displayName || post.user?.username || "Anonymous";
   const url = getPostUrl(post);
-  const authorUrl = absoluteUrl(`/users/${authorUsername}`);
+  const authorUrl = absoluteUrl(profilePath(authorUsername));
 
   const postJsonLd = buildSocialPostJsonLd({
     author: {

@@ -21,6 +21,7 @@ import kyInstance from "@/lib/ky";
 import { normalizePostData } from "@/lib/posts/post-normalize";
 import type { PresentedPost as PostData } from "@/lib/posts/presentation";
 import { blueskyProfilePath } from "@/lib/protocols/paths";
+import { profilePath } from "@/lib/users/profile-path";
 import { cn } from "@/lib/utils";
 import { getSecureImageUrl } from "@/lib/utils/image-url";
 import { withViewTransition } from "@/lib/view-transition";
@@ -267,7 +268,7 @@ const ClientPost: React.FC<ClientPostProps> = ({
         return;
       }
       if (direction === 1 && authorUsername) {
-        withViewTransition(() => router.push(`/users/${authorUsername}`));
+        withViewTransition(() => router.push(profilePath(authorUsername)));
       }
     },
     [authorUsername, router, externalAuthorId]

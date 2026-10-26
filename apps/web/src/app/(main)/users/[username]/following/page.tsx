@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { permanentRedirect } from "next/navigation";
 
+import { profilePath } from "@/lib/users/profile-path";
+
 export const metadata: Metadata = {
   robots: {
     follow: false,
@@ -15,7 +17,5 @@ interface PageProps {
 export default async function FollowingPage(props: PageProps) {
   const params = await props.params;
   const { username } = params;
-  permanentRedirect(
-    `/users/${encodeURIComponent(username)}/followers?tab=following`
-  );
+  permanentRedirect(`${profilePath(username)}/followers?tab=following`);
 }

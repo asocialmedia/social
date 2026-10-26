@@ -24,6 +24,7 @@ import {
   getRecentPostDataForCrawl,
 } from "@/lib/posts/server-feed";
 import { absoluteUrl, excerpt } from "@/lib/seo/seo";
+import { profilePath } from "@/lib/users/profile-path";
 
 import ClientProfile from "./client-profile";
 
@@ -103,7 +104,7 @@ export async function generateMetadata(props: PageProps): Promise<Metadata> {
   }
 
   if (user.isAlias) {
-    permanentRedirect(`/users/${encodeURIComponent(user.canonicalUsername)}`);
+    permanentRedirect(profilePath(user.canonicalUsername));
   }
 
   const title = `${user.displayName} (@${user.username})`;
@@ -112,16 +113,18 @@ export async function generateMetadata(props: PageProps): Promise<Metadata> {
     bio && bio.length >= 25
       ? excerpt(bio, 160)
       : `${user.displayName || user.username} (@${user.username}) on asocialmedia — ${bio ? `${bio}. ` : ""}Join the conversation, read their eddies, and follow along.`;
-  const url = absoluteUrl(`/users/${user.username}`);
+  const url = absoluteUrl(profilePath(user.username));
   // Avatar is streamed through the app proxy (buckets are private).
   const avatar = user.avatarUrl
     ? absoluteUrl(`/api/users/avatar/${user.id}/image`)
     : null;
 
-  const ogImageUrl = absoluteUrl(`/users/${user.username}/opengraph-image`);
+  const ogImageUrl = absoluteUrl(
+    `${profilePath(user.username)}/opengraph-image`
+  );
 
   return {
-    alternates: { canonical: `/users/${user.username}` },
+    alternates: { canonical: profilePath(user.username) },
     description,
     openGraph: {
       description,
@@ -171,9 +174,7 @@ async function ProfileContent({ params }: PageProps) {
   ]);
 
   if (resolvedUser.redirectToCurrentUsername) {
-    permanentRedirect(
-      `/users/${encodeURIComponent(resolvedUser.user.username)}`
-    );
+    permanentRedirect(profilePath(resolvedUser.user.username));
   }
   const userData = resolvedUser.user;
 
@@ -181,7 +182,7 @@ async function ProfileContent({ params }: PageProps) {
     notFound();
   }
 
-  const profileUrl = absoluteUrl(`/users/${userData.username}`);
+  const profileUrl = absoluteUrl(profilePath(userData.username));
   // Avatar is streamed through the app proxy (buckets are private).
   const avatar = userData.avatarUrl
     ? absoluteUrl(`/api/users/avatar/${userData.id}/image`)

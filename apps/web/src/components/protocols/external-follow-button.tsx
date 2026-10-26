@@ -145,7 +145,7 @@ export function ExternalFollowButton({
         }
       }}
       title="Follow on asocialmedia. No linked Bluesky account required."
-      variant="premium"
+      variant={state.data?.following ? "premium-neutral" : "premium"}
     >
       {label}
     </Button>

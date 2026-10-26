@@ -6,6 +6,7 @@ import Link from "next/link";
 
 import UserAvatar from "@/components/layouts/user/user-avatar";
 import { extractInlineMeta } from "@/lib/posts/inline-meta";
+import { profilePath } from "@/lib/users/profile-path";
 
 // Accept the payload shapes produced by getPostDataInclude (post.mentions[*].
 // user and post.tags) directly, so callers don't need unchecked casts.
@@ -66,7 +67,7 @@ export const PostMeta = ({ mentions, tags, content }: PostMetaProps) => {
         ? visibleMentions.map((user) => (
             <Link
               className="meta-chip meta-chip-mention"
-              href={`/users/${user.username}`}
+              href={profilePath(user.username)}
               key={user.id}
             >
               <UserAvatar avatarUrl={user.avatarUrl} className="h-4 w-4" />

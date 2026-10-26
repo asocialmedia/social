@@ -57,6 +57,7 @@ import { useHorizontalDragScroll } from "@/hooks/use-horizontal-drag-scroll";
 import { blueskyProfilePath } from "@/lib/protocols/paths";
 import type { RecommendedAccount } from "@/lib/recommendations/suggestion-types";
 import { getPostPath } from "@/lib/seo/seo";
+import { profilePath } from "@/lib/users/profile-path";
 import { cn, formatNumber, formatSearchTime } from "@/lib/utils";
 import { getSecureImageUrl } from "@/lib/utils/image-url";
 
@@ -203,7 +204,7 @@ function nativeUser(user: SearchUserResult): SpotlightResultItem {
   return {
     avatarUrl: user.avatarUrl,
     displayName: user.displayName || user.username,
-    href: `/users/${user.username}`,
+    href: profilePath(user.username),
     id: `asm-user-${user.id}`,
     rawUser: user,
     source: "asm",

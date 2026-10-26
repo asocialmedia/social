@@ -3,5 +3,6 @@ CREATE TABLE asm_protocols_logs (
   severity TEXT,
   body TEXT,
   operation TEXT,
-  code TEXT
+  code TEXT,
+  requestid TEXT
 )

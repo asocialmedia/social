@@ -5,6 +5,7 @@ import Link from "next/link";
 import { BlueskyPostCard } from "@/components/protocols/bluesky-post-card";
 import Linkify from "@/helpers/global/linkify";
 import type { ExternalProfileActivityItem } from "@/lib/protocols/profile-activity-schema";
+import { profilePath } from "@/lib/users/profile-path";
 import { formatRelativeDate } from "@/lib/utils";
 
 export function ExternalActivityCard({
@@ -18,7 +19,7 @@ export function ExternalActivityCard({
         <div className="border-border/60 border-b px-4 py-3">
           <Link
             className="font-semibold"
-            href={`/users/${item.comment.user?.username ?? "deleted"}`}
+            href={profilePath(item.comment.user?.username ?? "deleted")}
           >
             {item.comment.user?.displayName ||
               item.comment.user?.username ||

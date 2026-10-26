@@ -18,6 +18,7 @@ import type React from "react";
 import { useCallback } from "react";
 
 import UserAvatar from "@/components/layouts/user/user-avatar";
+import { profilePath } from "@/lib/users/profile-path";
 import { getSecureImageUrl } from "@/lib/utils/image-url";
 
 interface MobileUserMenuProps {
@@ -154,7 +155,7 @@ export const MobileUserMenu = ({
                     >
                       <div className="from-primary/20 via-primary/30 to-primary/20 absolute -inset-4 rounded-full bg-gradient-to-r opacity-75 blur-md" />
                       <Link
-                        href={`/users/${user.username || user.id}`}
+                        href={profilePath(user.username || user.id)}
                         onClick={onCloseAction}
                       >
                         <UserAvatar
@@ -193,7 +194,7 @@ export const MobileUserMenu = ({
                     }}
                   >
                     <MobileMenuItem
-                      href={`/users/${user.username || user.id}`}
+                      href={profilePath(user.username || user.id)}
                       icon={<UserIcon className="size-5" />}
                       label="Profile"
                       onClick={onCloseAction}

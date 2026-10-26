@@ -11,6 +11,7 @@ import {
   removePostFromFeedCache,
 } from "@/lib/posts/cache-sync";
 import { getShortPostId } from "@/lib/seo/seo";
+import { profilePath } from "@/lib/users/profile-path";
 
 import { deletePost, updatePostModeration } from "./actions";
 import type { PostModerationChanges } from "./actions";
@@ -106,7 +107,7 @@ export function useDeletePostMutation() {
 
       if (isPostPage) {
         if (deletedPost.user?.username) {
-          router.push(`/users/${deletedPost.user.username}`);
+          router.push(profilePath(deletedPost.user.username));
         } else {
           router.push("/");
         }

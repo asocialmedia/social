@@ -87,6 +87,7 @@ import {
 } from "@/lib/messages/den-permissions";
 import type { DenRoleActionKind } from "@/lib/messages/den-permissions";
 import type { MessagePickerRecipient } from "@/lib/messages/use-message-user-search";
+import { profilePath } from "@/lib/users/profile-path";
 import { cn } from "@/lib/utils";
 
 // The den's management surface, rendered inside the conversation details pane.
@@ -834,7 +835,7 @@ export function DenPanel({
                     >
                       <Link
                         className="group flex min-w-0 flex-1 items-center gap-2 rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))]"
-                        href={`/users/${member.username}`}
+                        href={profilePath(member.username)}
                       >
                         <UserAvatar avatarUrl={member.avatarUrl} size={32} />
                         <span className="min-w-0 flex-1">

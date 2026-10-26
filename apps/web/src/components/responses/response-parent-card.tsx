@@ -1,6 +1,5 @@
-// oxlint-disable jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions
-
 import type { PostParentData } from "@asm/db";
+// oxlint-disable jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions
 import type { ExternalPost } from "@asm/protocols/contracts";
 import { ImageOff } from "lucide-react";
 import Image from "next/image";
@@ -19,6 +18,7 @@ import { isInteractiveTarget } from "@/lib/interactive-target";
 import { parseStoredEmbeds } from "@/lib/link-embeds/shared";
 import { blueskyProfilePath } from "@/lib/protocols/paths";
 import { getPostPath } from "@/lib/seo/seo";
+import { profilePath } from "@/lib/users/profile-path";
 import { cn, formatRelativeDate } from "@/lib/utils";
 import { getMediaProxyUrl } from "@/lib/utils/image-url";
 
@@ -111,7 +111,7 @@ export function ResponseParentRow({
   const username = parent.user?.username ?? "unknown";
   const profileHref = external
     ? blueskyProfilePath(external.author.id)
-    : `/users/${username}`;
+    : profilePath(username);
   const displayName = parent.user?.displayName || username;
   const media = parent.attachments?.[0];
   const embeds = parseStoredEmbeds(parent.embeds);

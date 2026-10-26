@@ -23,6 +23,7 @@ import type {
   CommunityMemberRow,
 } from "@/lib/communities/client";
 import { useToast } from "@/lib/gooey-toast";
+import { profilePath } from "@/lib/users/profile-path";
 
 import CommunityRoleBadge, {
   isCommunityBadgedRole,
@@ -110,7 +111,7 @@ function PersonRow({
       />
 
       <div className="relative flex items-center gap-2.5 px-2.5 py-2">
-        <a className="shrink-0" href={`/users/${member.user.username}`}>
+        <a className="shrink-0" href={profilePath(member.user.username)}>
           <UserAvatar
             avatarUrl={member.user.avatarUrl}
             className="size-7"
@@ -120,7 +121,7 @@ function PersonRow({
 
         <a
           className="min-w-0 flex-1 text-xs font-medium hover:underline"
-          href={`/users/${member.user.username}`}
+          href={profilePath(member.user.username)}
         >
           <span className="flex items-center gap-1.5">
             <span className="text-foreground truncate">

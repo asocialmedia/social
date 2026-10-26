@@ -1,6 +1,6 @@
 import { getIndexNowKey } from "@/lib/seo/indexnow";
 
-// Serves the IndexNow key file at /{KEY}.txt
+// The after-files rewrite serves this handler at /{KEY}.txt.
 // IndexNow verification requires https://asocialmedia.cc/{KEY}.txt to contain exactly the key.
 // Example: if INDEXNOW_KEY=abc123, then GET /abc123.txt returns "abc123".
 export async function GET(

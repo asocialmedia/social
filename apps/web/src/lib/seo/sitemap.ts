@@ -12,6 +12,7 @@ import { siteConfig } from "@asm/ui/meta/site";
 import { cacheLife, cacheTag } from "next/cache";
 
 import { getPostUrl } from "@/lib/seo/seo";
+import { profilePath } from "@/lib/users/profile-path";
 
 import { publicPostReadable } from "./public-post-readability";
 
@@ -262,7 +263,7 @@ async function getUserEntries(): Promise<SitemapEntry[]> {
 
   return users.map((user) => ({
     lastModified: fromPrismaDateTime(user.updatedAt),
-    url: `${siteConfig.url}/users/${user.username}`,
+    url: `${siteConfig.url}${profilePath(user.username)}`,
   }));
 }
 

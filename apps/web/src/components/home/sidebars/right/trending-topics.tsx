@@ -14,6 +14,7 @@ import { BlueskyIcon } from "@/components/protocols/bluesky-icon";
 import { useNetworkSettings } from "@/hooks/feed/use-network-settings";
 import { getAuraFlameClass } from "@/lib/aura/aura";
 import { CARD_QUERY_POLICY } from "@/lib/cards/query-policy";
+import { profilePath } from "@/lib/users/profile-path";
 import { cn, formatNumber, truncateUsername } from "@/lib/utils";
 
 import { APPLE_CARD_CLASS, ROW_HOVER_CLASS } from "./sidebar-styles";
@@ -164,7 +165,7 @@ const TrendingRow: React.FC<TrendingRowProps> = ({ item }) => {
         "group flex items-center gap-2.5 rounded-lg px-2.5 py-2",
         ROW_HOVER_CLASS
       )}
-      href={`/users/${item.username}`}
+      href={profilePath(item.username)}
     >
       <UserAvatar avatarUrl={item.avatarUrl} className="h-8 w-8 shrink-0" />
       <span className="min-w-0 flex-1">
@@ -310,7 +311,7 @@ const TrendingTopics: React.FC = () => {
                   "group flex items-center gap-2.5 rounded-lg px-2.5 py-2",
                   ROW_HOVER_CLASS
                 )}
-                href={`/users/${auraUser.username}`}
+                href={profilePath(auraUser.username)}
                 key={auraUser.userId}
               >
                 <UserAvatar

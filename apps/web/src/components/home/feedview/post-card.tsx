@@ -61,6 +61,7 @@ import {
 import type { PresentedPost as PostData } from "@/lib/posts/presentation";
 import { blueskyProfilePath } from "@/lib/protocols/paths";
 import { getPostPath } from "@/lib/seo/seo";
+import { profilePath } from "@/lib/users/profile-path";
 import { cn, formatNumber, formatRelativeDate } from "@/lib/utils";
 import { getMediaProxyUrl } from "@/lib/utils/image-url";
 import { withViewTransition } from "@/lib/view-transition";
@@ -430,7 +431,7 @@ const PostContent: React.FC<PostContentProps> = ({
   const authorCommunityRoles = post.user?.communityMemberships;
   const authorProfileHref =
     (post.external ? blueskyProfilePath(post.external.author.id) : undefined) ??
-    (post.user?.username ? `/users/${post.user.username}` : "#");
+    (post.user?.username ? profilePath(post.user.username) : "#");
 
   // A response shown in a feed or detail view: render the post it
   // replies to as the top node of a mini-thread, connected by a rail,
@@ -515,7 +516,7 @@ const PostContent: React.FC<PostContentProps> = ({
                 href={
                   person.id.startsWith("did:")
                     ? `/network/bluesky/profile?${new URLSearchParams({ actor: person.id })}`
-                    : `/users/${person.username}`
+                    : profilePath(person.username)
                 }
               >
                 {person.displayName || person.username}

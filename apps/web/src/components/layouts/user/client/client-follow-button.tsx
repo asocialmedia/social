@@ -220,13 +220,13 @@ const ClientFollowButton: React.FC<ClientFollowButtonProps> = ({
       <Button
         className={cn(
           className,
-          "follow-btn-3d relative overflow-hidden transition-all duration-300",
+          "relative overflow-hidden transition-all duration-300",
           isLoading && "cursor-not-allowed"
         )}
         disabled={isLoading}
         onClick={handleFollowToggle}
         size="sm"
-        variant="default"
+        variant={isFollowing ? "premium-neutral" : "premium"}
       >
         <ButtonContent isFollowing={isFollowing} isLoading={isLoading} />
 

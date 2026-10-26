@@ -111,7 +111,7 @@ function NativeSuggestedFollow({
   }
   return (
     <Button
-      variant="premium"
+      variant={state.data.following ? "premium-neutral" : "premium"}
       className={className}
       disabled={pending}
       onClick={() => {
