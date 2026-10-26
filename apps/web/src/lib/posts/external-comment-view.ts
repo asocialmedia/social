@@ -1,6 +1,8 @@
 import type { CommentData } from "@asm/db";
 import type { ExternalCommentPage } from "@asm/protocols/discovery";
 
+import { profilePath } from "@/lib/users/profile-path";
+
 import { externalAuthorView } from "./presentation";
 
 export function externalCommentView(
@@ -29,7 +31,7 @@ export function externalCommentView(
       url:
         comment.source === "bluesky"
           ? `https://bsky.app/profile/${handle}`
-          : `/users/${comment.user.username}`,
+          : profilePath(comment.user.username),
     }),
     vote: [],
   };

@@ -1,4 +1,4 @@
-SELECT _timestamp, body, operation, code
+SELECT MAX(_timestamp) AS _timestamp, body, operation, code
 FROM "asm_protocols_us_east_logs"
 WHERE severity = 'WARN'
   AND (code IS NULL OR code NOT IN ('invalid_input', 'restricted', 'cancelled'))
@@ -14,5 +14,6 @@ WHERE severity = 'WARN'
     )
     OR body = 'Protocol read worker unavailable; trying available capacity'
   )
+GROUP BY COALESCE(NULLIF(requestid, ''), CAST(_timestamp AS VARCHAR)), body, operation, code
 ORDER BY _timestamp DESC
 LIMIT 100

@@ -39,6 +39,7 @@ import { useLogout } from "@/hooks/auth/use-logout";
 import { useBookmarkCount } from "@/hooks/posts/use-bookmark-count";
 import { getAuraFlameClass } from "@/lib/aura/aura";
 import { getUserCount, getUserPostCount } from "@/lib/types";
+import { profilePath } from "@/lib/users/profile-path";
 import { cn, formatNumber } from "@/lib/utils";
 import { getSecureImageUrl } from "@/lib/utils/image-url";
 
@@ -149,7 +150,7 @@ const UserProfilePopover: React.FC<UserProfilePopoverProps> = ({
   // adjustBookmarkCount updates from every toggle.
   const { data: bookmarkCountData } = useBookmarkCount();
 
-  const profileHref = `/users/${userData.username}`;
+  const profileHref = profilePath(userData.username);
   const socialLinks = getSocialLinks(userData);
   const hasBanner = Boolean(userData.bannerUrl);
 

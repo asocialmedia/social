@@ -53,7 +53,7 @@ test("Bluesky facets share native tag and link pills while mentions preserve the
 
 test("native mentions and tags retain their own destinations", () => {
   const html = render("#science @native");
-  expect(html).toContain("/users/native");
+  expect(html).toContain('href="/native"');
   expect(html).toContain("/hashtag/science");
 });
 
@@ -90,7 +90,7 @@ test("compact paragraph gaps retain inline tags and links on either side", () =>
   const html = render("#science\n\nhttps://example.com/story\n\n@native");
   expect(html).toContain("/hashtag/science");
   expect(html).toContain("A readable article");
-  expect(html).toContain("/users/native");
+  expect(html).toContain('href="/native"');
   expect(html.match(/class="block h-2 whitespace-normal"/g)).toHaveLength(2);
 });
 

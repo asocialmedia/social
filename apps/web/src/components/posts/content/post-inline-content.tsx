@@ -12,6 +12,7 @@ import { useBlueskyProfile } from "@/components/protocols/use-bluesky-profile";
 import type { LinkEmbed } from "@/lib/link-embeds/shared";
 import { INLINE_TOKEN_PATTERN } from "@/lib/posts/inline-meta";
 import { blueskyProfilePath } from "@/lib/protocols/paths";
+import { profilePath } from "@/lib/users/profile-path";
 import { cn } from "@/lib/utils";
 
 import { LinkBadge, findEmbedForUrl, hostLabel } from "../embeds/link-badge";
@@ -88,7 +89,7 @@ export function InlineMentionChip({
   return (
     <Link
       className="meta-chip meta-chip-mention inline-flex max-w-full items-center gap-1.5 align-middle text-xs"
-      href={href ?? `/users/${username}`}
+      href={href ?? profilePath(username)}
       ref={anchorRef}
       onClick={(event) => event.stopPropagation()}
     >

@@ -7,6 +7,7 @@ import { useCallback, useRef } from "react";
 import MediaViewer from "@/components/home/feedview/media-viewer";
 import { useFeedSwipeNavigation } from "@/hooks/feed/use-feed-swipe-navigation";
 import { getPostMediaPath, getPostPath } from "@/lib/seo/seo";
+import { profilePath } from "@/lib/users/profile-path";
 
 // Renders the media viewer as the media page itself (not an overlay on the post
 // page). Navigating here jumps straight to a fullscreen media screen; closing
@@ -48,7 +49,7 @@ export default function MediaPage({ initialMediaIndex, post }: MediaPageProps) {
   const handleSwipeNavigate = useCallback(
     (direction: -1 | 1) => {
       if (direction === 1 && authorUsername) {
-        router.push(`/users/${authorUsername}`);
+        router.push(profilePath(authorUsername));
       }
     },
     [authorUsername, router]

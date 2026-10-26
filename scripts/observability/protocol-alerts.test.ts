@@ -6,39 +6,68 @@ import errorQuery from "./sql/fixtures/protocol-alerts-errors.sql" with { type: 
 import insertQuery from "./sql/fixtures/protocol-alerts-insert.sql" with { type: "text" };
 import schemaQuery from "./sql/fixtures/protocol-alerts-schema.sql" with { type: "text" };
 import degradedQuery from "./sql/protocols-degraded.sql" with { type: "text" };
+import workerDegradedQuery from "./sql/protocols-worker-degraded.sql" with { type: "text" };
 
 const requestFailed = "Protocol request failed";
 const warmupFailed = "Discovery inventory warmup failed";
 const workerUnavailable =
   "Protocol read worker unavailable; trying available capacity";
 
-test("coordinator retries count once per request while distinct and uncorrelated failures remain visible", () => {
-  const database = new Database(":memory:");
-  try {
-    database.run(schemaQuery);
-    const insert = database.query(insertQuery);
-    for (let index = 0; index < 5; index += 1) {
+test.each([
+  degradedQuery,
+  workerDegradedQuery.replaceAll(
+    "asm_protocols_us_east_logs",
+    "asm_protocols_logs"
+  ),
+])(
+  "correlated retries count once while distinct and uncorrelated failures remain visible",
+  (query) => {
+    const database = new Database(":memory:");
+    try {
+      database.run(schemaQuery);
+      const insert = database.query(insertQuery);
+      for (let index = 0; index < 5; index += 1) {
+        insert.run(
+          index,
+          "WARN",
+          requestFailed,
+          "bluesky.author_feed",
+          "unavailable"
+        );
+      }
+      database.run(correlateQuery, ["same-request", null, null]);
       insert.run(
-        index,
+        6,
         "WARN",
         requestFailed,
         "bluesky.author_feed",
         "unavailable"
       );
+      insert.run(
+        7,
+        "WARN",
+        requestFailed,
+        "bluesky.author_feed",
+        "unavailable"
+      );
+      insert.run(8, "WARN", requestFailed, "bluesky.posts", "unavailable");
+      database.run(correlateQuery, ["different-request", 6, 6]);
+      database.run(correlateQuery, ["same-request", 8, 8]);
+      insert.run(
+        9,
+        "WARN",
+        requestFailed,
+        "bluesky.author_feed",
+        "unavailable"
+      );
+      database.run(correlateQuery, ["", 9, 9]);
+      const matches = database.query<{ _timestamp: number }, []>(query).all();
+      expect(matches.map((row) => row._timestamp)).toEqual([9, 8, 7, 6, 4]);
+    } finally {
+      database.close();
     }
-    database.run(correlateQuery, ["same-request", null, null]);
-    insert.run(6, "WARN", requestFailed, "bluesky.author_feed", "unavailable");
-    insert.run(7, "WARN", requestFailed, "bluesky.author_feed", "unavailable");
-    insert.run(8, "WARN", requestFailed, "bluesky.posts", "unavailable");
-    database.run(correlateQuery, ["same-request", 8, 8]);
-    const matches = database
-      .query<{ _timestamp: number }, []>(degradedQuery)
-      .all();
-    expect(matches.map((row) => row._timestamp)).toEqual([8, 7, 6, 4]);
-  } finally {
-    database.close();
   }
-});
+);
 
 test("protocol degradation alerts count terminal service failures while retaining independent ERROR alerts", () => {
   const database = new Database(":memory:");

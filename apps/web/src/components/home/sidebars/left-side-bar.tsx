@@ -44,6 +44,7 @@ import { useOpenComposer } from "@/hooks/use-open-composer";
 import { useUserDataQuery } from "@/hooks/users/use-user-data-query";
 import { useUnreadMessageCount } from "@/lib/messages/use-unread-messages";
 import { reselectFeedNavigation } from "@/lib/posts/feed-navigation";
+import { profilePath } from "@/lib/users/profile-path";
 import { cn, isRouteActive } from "@/lib/utils";
 import { useActiveCommunityStore } from "@/store/active-community-store";
 import { useSidebarStore } from "@/store/sidebar-store";
@@ -374,7 +375,7 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({ userData }) => {
 
   const profileItem: NavItem = {
     fillable: true,
-    href: user ? `/users/${user.username}` : "",
+    href: user ? profilePath(user.username) : "",
     icon: User,
     label: "Profile",
     requiresAuth: true,

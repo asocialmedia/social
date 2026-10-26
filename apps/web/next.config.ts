@@ -46,6 +46,16 @@ const nextConfig: NextConfig = withStreamConfig({
       },
     ];
   },
+  rewrites() {
+    return {
+      afterFiles: [
+        {
+          destination: "/.well-known/indexnow/:keyTxt",
+          source: "/:keyTxt([A-Za-z0-9-]+\\.txt)",
+        },
+      ],
+    };
+  },
 });
 
 export default nextConfig;

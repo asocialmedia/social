@@ -39,6 +39,7 @@ import {
   readBlueskyProfileResource,
 } from "@/lib/protocols/service";
 import { getPostPath } from "@/lib/seo/seo";
+import { profilePath } from "@/lib/users/profile-path";
 
 import { networkFeedContext } from "./network-context";
 import { readSuggestionPublicSearch } from "./suggestion-public-search";
@@ -386,7 +387,7 @@ export async function buildDiscoverySuggestions(
       followers: 0,
       following: false,
       handle: person.username,
-      href: `/users/${person.username}`,
+      href: profilePath(person.username),
       id: person.id,
       reason: mutual
         ? `Followed by ${mutual} ${mutual === 1 ? "person" : "people"} you follow`

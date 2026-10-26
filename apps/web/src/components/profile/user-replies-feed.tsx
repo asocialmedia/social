@@ -27,6 +27,7 @@ import {
   advanceProfileActivity,
 } from "@/lib/posts/profile-activity-order";
 import { getPostPath } from "@/lib/seo/seo";
+import { profilePath } from "@/lib/users/profile-path";
 import { cn, formatRelativeDate } from "@/lib/utils";
 import { withViewTransition } from "@/lib/view-transition";
 
@@ -246,7 +247,7 @@ const UserRepliesFeed: React.FC<UserRepliesFeedProps> = ({ userId }) => {
               <Link
                 aria-label={`View @${replyUsername}'s profile`}
                 className="shrink-0"
-                href={`/users/${replyUsername}`}
+                href={profilePath(replyUsername)}
               >
                 <UserAvatar
                   avatarUrl={reply.user?.avatarUrl}
@@ -259,13 +260,13 @@ const UserRepliesFeed: React.FC<UserRepliesFeedProps> = ({ userId }) => {
                 <div className="flex items-center gap-1.5 text-sm">
                   <Link
                     className="text-foreground truncate font-semibold hover:underline"
-                    href={`/users/${replyUsername}`}
+                    href={profilePath(replyUsername)}
                   >
                     {replyDisplayName}
                   </Link>
                   <Link
                     className="text-muted-foreground truncate hover:underline"
-                    href={`/users/${replyUsername}`}
+                    href={profilePath(replyUsername)}
                   >
                     @{replyUsername}
                   </Link>
@@ -292,7 +293,7 @@ const UserRepliesFeed: React.FC<UserRepliesFeedProps> = ({ userId }) => {
                 {/* Reply context + content */}
                 <Link
                   className="mt-0.5 block"
-                  href={`/users/${repliedToUsername}`}
+                  href={profilePath(repliedToUsername)}
                 >
                   <p className="text-muted-foreground text-xs">
                     Replying to{" "}

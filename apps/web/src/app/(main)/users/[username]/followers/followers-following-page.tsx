@@ -28,6 +28,7 @@ import { BlueskyIcon } from "@/components/protocols/bluesky-icon";
 import { ExternalFollowButton } from "@/components/protocols/external-follow-button";
 import { useFeedSwipeNavigation } from "@/hooks/feed/use-feed-swipe-navigation";
 import kyInstance from "@/lib/ky";
+import { profilePath } from "@/lib/users/profile-path";
 
 type ListTab = "followers" | "following";
 const TABS = ["followers", "following"] as const;
@@ -130,14 +131,14 @@ const FollowersFollowingPage: React.FC<{
             <div className="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-[hsl(var(--muted))]">
               <Link
                 className="shrink-0"
-                href={user.href ?? `/users/${user.username}`}
+                href={user.href ?? profilePath(user.username)}
               >
                 <ProfileListAvatar user={user} />
               </Link>
               <div className="min-w-0 flex-1">
                 <Link
                   className="block truncate text-sm font-medium hover:underline"
-                  href={user.href ?? `/users/${user.username}`}
+                  href={user.href ?? profilePath(user.username)}
                 >
                   {user.displayName || user.username}
                   {user.source === "bluesky" ? (
@@ -213,7 +214,7 @@ const FollowersFollowingPage: React.FC<{
     <>
       <div className="border-border/60 mx-auto flex min-w-0 flex-1 flex-col bg-[hsl(var(--background-alt))] sm:border-x lg:max-w-5xl">
         <div className="z-20 shrink-0 bg-[hsl(var(--background-alt))]/90 pt-2 backdrop-blur-md">
-          <MobileTopBar backHref={`/users/${userData.username}`} />
+          <MobileTopBar backHref={profilePath(userData.username)} />
           <Tabs value={activeTab} onValueChange={handleTabChange}>
             <div className="border-border/60 border-b py-1.5">
               <TabsList className="flex h-full w-full justify-center gap-0 bg-transparent p-0">

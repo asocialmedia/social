@@ -29,6 +29,7 @@ import { useFeedScrollMemory } from "@/hooks/feed/use-feed-scroll-memory";
 import { useFeedSwipeNavigation } from "@/hooks/feed/use-feed-swipe-navigation";
 import type { PrivateUserData } from "@/hooks/users/use-user-data";
 import { blueskyProfilePath } from "@/lib/protocols/paths";
+import { profilePath } from "@/lib/users/profile-path";
 import {
   resolveProfileTab,
   useTabMemoryReady,
@@ -221,7 +222,7 @@ const ClientProfile: React.FC<ProfilePageProps> = ({
                         shareUrl={
                           typeof window === "undefined"
                             ? undefined
-                            : `${window.location.origin}${external ? blueskyProfilePath(external.id) : `/users/${userData.username}`}`
+                            : `${window.location.origin}${external ? blueskyProfilePath(external.id) : profilePath(userData.username)}`
                         }
                         thumbnail={userData.avatarUrl || undefined}
                         title={`${userData.displayName || userData.username} (@${userData.username}) on asocialmedia`}

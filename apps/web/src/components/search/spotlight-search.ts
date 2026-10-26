@@ -62,9 +62,14 @@ function readTarget(value: unknown): SearchTarget | undefined {
     !value.displayName ||
     typeof value.href !== "string" ||
     value.href.length > 2048 ||
-    !/^\/(?:users\/|posts\/|a\/|gusts\?|network\/bluesky(?:\?|\/))/.test(
+    (!/^\/(?:users\/|posts\/|a\/|gusts\?|network\/bluesky(?:\?|\/))/.test(
       value.href
-    ) ||
+    ) &&
+      !(
+        value.type === "user" &&
+        value.source === "asm" &&
+        /^\/[A-Za-z0-9_]+$/.test(value.href)
+      )) ||
     /[\\\r\n]/.test(value.href)
   ) {
     return;

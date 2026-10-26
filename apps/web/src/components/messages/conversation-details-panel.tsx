@@ -86,6 +86,7 @@ import type {
   MessageConversationData,
   MessageData,
 } from "@/lib/messages/types";
+import { profilePath } from "@/lib/users/profile-path";
 import { cn, formatRelativeDate } from "@/lib/utils";
 import { getSecureImageUrl } from "@/lib/utils/image-url";
 
@@ -741,7 +742,7 @@ export function ConversationDetailsBody({
               {peer ? (
                 <Link
                   className="pill-3d-hover flex items-center gap-3 px-2.5 py-2"
-                  href={`/users/${peer.username}`}
+                  href={profilePath(peer.username)}
                   onClick={onClose}
                 >
                   <RowIcon icon={<UserRound className="size-4" />} />

@@ -14,6 +14,7 @@ import { BlueskyIcon } from "@/components/protocols/bluesky-icon";
 import { useRequireAuth } from "@/hooks/auth/use-require-auth";
 import { blueskyProfilePath } from "@/lib/protocols/paths";
 import type { Media } from "@/lib/types";
+import { profilePath } from "@/lib/users/profile-path";
 import { cn, formatRelativeDate } from "@/lib/utils";
 import { getSecureImageUrl } from "@/lib/utils/image-url";
 
@@ -168,7 +169,7 @@ export default function CommentItem({
         <Link
           aria-label={`View @${username}'s profile`}
           className="relative z-10 shrink-0"
-          href={`/users/${username}`}
+          href={profilePath(username)}
         >
           {avatarFallback}
         </Link>
@@ -264,7 +265,7 @@ export default function CommentItem({
                     <UserTooltip user={commentUser}>
                       <Link
                         className="text-foreground truncate font-semibold hover:underline"
-                        href={`/users/${username}`}
+                        href={profilePath(username)}
                       >
                         {displayName}
                       </Link>
@@ -284,7 +285,7 @@ export default function CommentItem({
                     href={
                       isBluesky
                         ? blueskyProfilePath(commentUser.id)
-                        : `/users/${username}`
+                        : profilePath(username)
                     }
                   >
                     @{username}
