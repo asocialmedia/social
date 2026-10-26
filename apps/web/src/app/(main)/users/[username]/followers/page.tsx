@@ -9,7 +9,7 @@ import { notFound, redirect } from "next/navigation";
 import { connection } from "next/server";
 import { cache, Suspense } from "react";
 
-import FeedViewSkeleton from "@/components/layouts/skeletons/feed-view-skeleton";
+import { FollowersPageSkeleton } from "@/components/layouts/skeletons/profile-user-list-skeleton";
 import { getUserData } from "@/hooks/users/use-user-data";
 import { getSessionFromApi } from "@/lib/auth/session";
 
@@ -46,7 +46,7 @@ const getUser = cache(async (username: string, loggedInUserId: string) => {
 
 export default function Page(props: PageProps) {
   return (
-    <Suspense fallback={<FeedViewSkeleton />}>
+    <Suspense fallback={<FollowersPageSkeleton />}>
       <FollowersContent params={props.params} />
     </Suspense>
   );

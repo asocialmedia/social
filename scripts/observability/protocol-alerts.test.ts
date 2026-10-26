@@ -105,3 +105,105 @@ test("protocol degradation alerts count terminal service failures while retainin
     database.close();
   }
 });
+
+test("worker degradation counts transport failures once and leaves optional generator failures to the coordinator", async () => {
+  const database = new Database(":memory:");
+  try {
+    database.run(
+      schemaQuery.replaceAll("asm_protocols_logs", "asm_protocols_us_east_logs")
+    );
+    const insert = database.query(
+      insertQuery.replaceAll("asm_protocols_logs", "asm_protocols_us_east_logs")
+    );
+    const cases = [
+      {
+        body: "Protocol upstream request failed",
+        operation: "worker.transport.app.bsky.actor.getProfile",
+        code: "unavailable",
+        alerts: true,
+      },
+      {
+        body: "Protocol upstream request failed",
+        operation: "worker.transport.app.bsky.feed.getPosts",
+        code: "unavailable",
+        alerts: true,
+      },
+      {
+        body: "Protocol upstream request failed",
+        operation: "worker.transport.app.bsky.feed.searchPosts",
+        code: "rate_limited",
+        alerts: true,
+      },
+      {
+        body: "Protocol upstream request failed",
+        operation: "worker.transport.app.bsky.feed.getFeed",
+        code: "unavailable",
+        alerts: false,
+      },
+      {
+        body: "Protocol upstream request failed",
+        operation: "app.bsky.actor.getProfile",
+        code: "unavailable",
+        alerts: false,
+      },
+      {
+        body: "Protocol upstream request failed",
+        operation: "content_visibility",
+        code: "unavailable",
+        alerts: false,
+      },
+      {
+        body: requestFailed,
+        operation: "ingestion.hydrate",
+        code: "unavailable",
+        alerts: false,
+      },
+      {
+        body: requestFailed,
+        operation: "worker.app.bsky.actor.getProfile",
+        code: "unavailable",
+        alerts: true,
+      },
+      {
+        body: "Protocol upstream request failed",
+        operation: "worker.transport.app.bsky.feed.searchPosts",
+        code: "restricted",
+        alerts: false,
+      },
+      {
+        body: workerUnavailable,
+        operation: "worker.app.bsky.feed.getPosts",
+        code: null,
+        alerts: true,
+      },
+    ];
+    for (const [index, fixture] of cases.entries()) {
+      insert.run(index, "WARN", fixture.body, fixture.operation, fixture.code);
+    }
+    insert.run(100, "ERROR", "Protocol HTTP handler failed", null, "internal");
+    expect(
+      database
+        .query(
+          errorQuery.replaceAll(
+            "asm_protocols_logs",
+            "asm_protocols_us_east_logs"
+          )
+        )
+        .all()
+    ).toHaveLength(1);
+    const sql = await Bun.file(
+      new URL("./sql/protocols-worker-degraded.sql", import.meta.url)
+    ).text();
+    expect(
+      database
+        .query<{ _timestamp: number }, []>(sql)
+        .all()
+        .map((row) => row._timestamp)
+        .toSorted((a, b) => a - b)
+    ).toEqual(
+      cases.flatMap((fixture, index) => (fixture.alerts ? [index] : []))
+    );
+  } finally {
+    database.close();
+  }
+});
