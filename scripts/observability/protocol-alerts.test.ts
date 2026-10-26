@@ -36,6 +36,8 @@ test.each([
         );
       }
       database.run(correlateQuery, ["same-request", null, null]);
+      insert.run(5, "WARN", requestFailed, "bluesky.author_feed", "capacity");
+      database.run(correlateQuery, ["same-request", 5, 5]);
       insert.run(
         6,
         "WARN",
@@ -62,7 +64,7 @@ test.each([
       );
       database.run(correlateQuery, ["", 9, 9]);
       const matches = database.query<{ _timestamp: number }, []>(query).all();
-      expect(matches.map((row) => row._timestamp)).toEqual([9, 8, 7, 6, 4]);
+      expect(matches.map((row) => row._timestamp)).toEqual([9, 8, 7, 6, 5]);
     } finally {
       database.close();
     }
