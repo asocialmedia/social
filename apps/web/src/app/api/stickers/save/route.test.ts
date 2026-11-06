@@ -63,6 +63,10 @@ const tx = {
       UserStickers: {
         ...nullQuery,
         create: (data: Record<string, unknown>) => ({ ...data, id: "saved" }),
+        where: () => ({
+          ...nullQuery,
+          aggregate: () => ({ bytes: Number(state.bytes), count: state.count }),
+        }),
       },
     },
   },

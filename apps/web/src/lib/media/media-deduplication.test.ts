@@ -77,6 +77,7 @@ function createMediaFindQuery(where: Record<string, unknown>) {
               communities: [],
               communitiesCommunities: [],
               messageConversationMembers: [],
+              userSticker: null,
               users: [],
               usersUsers: [],
               wallpaperConversations: [],

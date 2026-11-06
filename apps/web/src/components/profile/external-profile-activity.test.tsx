@@ -290,7 +290,7 @@ test("Amplified uses post skeletons while the external first page is loading", (
   }
 });
 
-test("Amplified appends post skeletons while loading another external page", () => {
+test("Amplified retains existing posts and shows a loader while loading another external page", () => {
   const client = new QueryClient();
   externalFetchingNextPage = true;
   client.setQueryData(["post-feed", "user-amplified", "profile"], {
@@ -305,7 +305,7 @@ test("Amplified appends post skeletons while loading another external page", () 
     );
     expect(html).toContain('data-source="bluesky"');
     expect(html).toContain('aria-label="Loading more amplified posts"');
-    expect(html.match(/data-post-skeleton=/g)).toHaveLength(2);
+    expect(html).toContain('aria-label="Loading"');
     expect(html).not.toContain("lucide-loader");
   } finally {
     externalFetchingNextPage = false;
@@ -313,7 +313,7 @@ test("Amplified appends post skeletons while loading another external page", () 
   }
 });
 
-test("Amplified uses post skeletons while fetching another native page", () => {
+test("Amplified shows a loader while fetching another native page", () => {
   const client = new QueryClient();
   const queryKey = ["post-feed", "user-amplified", "profile"];
   client.setQueryData(queryKey, {
@@ -336,7 +336,7 @@ test("Amplified uses post skeletons while fetching another native page", () => {
       </QueryClientProvider>
     );
     expect(html).toContain('aria-label="Loading more amplified posts"');
-    expect(html.match(/data-post-skeleton=/g)).toHaveLength(2);
+    expect(html).toContain('aria-label="Loading"');
     expect(html).not.toContain("lucide-loader");
   } finally {
     client.clear();

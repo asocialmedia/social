@@ -1025,6 +1025,7 @@ export function MessageComposer({
         <button
           aria-expanded={expressionKeyboardOpen}
           aria-label="Open emoji, GIF, and sticker keyboard"
+          disabled={writeBlocked || editing || viewOnceMode}
           className={cn(
             "text-muted-foreground hover:bg-muted/60 hover:text-foreground focus-visible:ring-primary flex h-10 w-9 shrink-0 items-center justify-center rounded-full transition-colors focus-visible:ring-2 pointer-coarse:w-10",
             expressionKeyboardOpen && "bg-muted/70 text-foreground"

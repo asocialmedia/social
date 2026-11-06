@@ -382,11 +382,11 @@ describe("the composer's disabled state", () => {
   test("send, attach and GIF stay disabled", () => {
     const html = renderComposer({ accessEnded: true });
     for (const ariaLabel of [
-      "Send image",
-      "Search and add a GIF",
+      "Add attachment",
+      "Open emoji, GIF, and sticker keyboard",
       "Send message",
     ]) {
-      expect(buttonTag(html, ariaLabel)).toContain("disabled");
+      expect(buttonTag(html, ariaLabel)).toMatch(/\sdisabled=""/u);
     }
     // The textarea is the fourth gate: it is what stops a pasted attachment and what
     // stops the Enter key, so it carries the same flag.
@@ -397,8 +397,10 @@ describe("the composer's disabled state", () => {
     // The control case, so the assertion above is about the removal rather than about a
     // composer that disables everything all the time.
     const html = renderComposer({ accessEnded: false });
-    expect(buttonTag(html, "Send image")).not.toContain("disabled");
-    expect(buttonTag(html, "Search and add a GIF")).not.toContain("disabled");
+    expect(buttonTag(html, "Add attachment")).not.toMatch(/\sdisabled=""/u);
+    expect(
+      buttonTag(html, "Open emoji, GIF, and sticker keyboard")
+    ).not.toMatch(/\sdisabled=""/u);
     expect(html).not.toMatch(/<textarea[^>]*disabled=""/u);
   });
 
