@@ -73,12 +73,19 @@ test("restarts for shared workspace edits while retaining the service working di
     child.kill();
     await child.exited;
     reader.releaseLock();
-    await rm(root, {
-      recursive: true,
-      force: true,
-      maxRetries: 5,
-      retryDelay: 50,
-    });
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        await rm(root, { recursive: true, force: true });
+        break;
+      } catch (error) {
+        const code =
+          error && typeof error === "object" && "code" in error
+            ? error.code
+            : null;
+        if (attempt >= 9 || (code !== "EBUSY" && code !== "EPERM")) throw error;
+        await Bun.sleep(100);
+      }
+    }
   }
   expect(await errors).not.toContain("will not be watched");
 }, 10_000);

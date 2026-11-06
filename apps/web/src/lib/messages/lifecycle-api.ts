@@ -8,7 +8,7 @@ const copy: Record<string, string> = {
   INVALID_CURSOR: "Refresh the session history and try again.",
   INVALID_RETENTION: "Choose Off or 24 hours.",
   RETENTION_FORBIDDEN:
-    "Only the den owner or an admin can change this setting.",
+    "Only the den owner or an Elder can change this setting.",
 };
 export function lifecycleError(error: unknown): Response {
   if (error instanceof ChatLifecycleError) {

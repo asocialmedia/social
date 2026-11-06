@@ -1,5 +1,6 @@
 "use client";
 
+import { canManageDen } from "@asm/db/messages/dens";
 import { runChatTask } from "@asm/messages";
 import { Button } from "@asm/ui/shadui/button";
 import { Checkbox } from "@asm/ui/shadui/checkbox";
@@ -81,8 +82,7 @@ export function ChatLifecycleTools({
   const me = detail.conversation.members.find(
     (member) => member.userId === user?.id
   );
-  const canManage =
-    !me?.leftAt && (!isDen || me?.role === "OWNER" || me?.role === "ADMIN");
+  const canManage = !me?.leftAt && (!isDen || canManageDen(me?.role));
   const setOpen = (next: typeof dialog) => {
     dismiss();
     setDialog(next);
