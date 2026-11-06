@@ -184,6 +184,72 @@ test("idle scrolling persists its final position and anchor", async () => {
   );
 });
 
+test("successive scrolls move the idle deadline to the end of the gesture", async () => {
+  const feed = createFeed();
+  await feed.render("latest");
+  await act(() => feed.container()?.dispatchEvent(new dom.Event("wheel")));
+  await feed.scroll(100);
+  await feed.flushFrames();
+  await act(() => Bun.sleep(200));
+  await feed.scroll(640);
+  await feed.flushFrames();
+  await act(() => Bun.sleep(150));
+  expect(useFeedPositionStore.getState().positions.latest).toBeUndefined();
+  await act(() => Bun.sleep(200));
+  expect(useFeedPositionStore.getState().positions.latest?.scrollTop).toBe(640);
+  expect(useFeedPositionStore.getState().positions.latest?.anchorPostId).toBe(
+    "latest-post"
+  );
+});
+
+test("backgrounding flushes pending scroll memory and cancels the idle capture", async () => {
+  const feed = createFeed();
+  await feed.render("latest");
+  await act(() => feed.container()?.dispatchEvent(new dom.Event("wheel")));
+  await feed.scroll(780);
+  const descriptor = Object.getOwnPropertyDescriptor(
+    dom.document,
+    "visibilityState"
+  );
+  try {
+    Object.defineProperty(dom.document, "visibilityState", {
+      configurable: true,
+      value: "visible",
+    });
+    await act(() =>
+      dom.document.dispatchEvent(new dom.Event("visibilitychange"))
+    );
+    expect(useFeedPositionStore.getState().positions.latest).toBeUndefined();
+    Object.defineProperty(dom.document, "visibilityState", {
+      configurable: true,
+      value: "hidden",
+    });
+    await act(() =>
+      dom.document.dispatchEvent(new dom.Event("visibilitychange"))
+    );
+    expect(useFeedPositionStore.getState().positions.latest?.scrollTop).toBe(
+      780
+    );
+    expect(useFeedPositionStore.getState().positions.latest?.anchorPostId).toBe(
+      "latest-post"
+    );
+    const container = feed.container();
+    if (container) {
+      container.scrollTop = 0;
+    }
+    await act(() => Bun.sleep(350));
+    expect(useFeedPositionStore.getState().positions.latest?.scrollTop).toBe(
+      780
+    );
+  } finally {
+    if (descriptor) {
+      Object.defineProperty(dom.document, "visibilityState", descriptor);
+    } else {
+      Reflect.deleteProperty(dom.document, "visibilityState");
+    }
+  }
+});
+
 test("an outgoing anchor is never overwritten with a post from the incoming tab", async () => {
   const feed = createFeed();
   await feed.render("latest");

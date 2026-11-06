@@ -62,6 +62,37 @@ test("pagination observes the feed's nearest scroll container with room for a sl
   expect(observation?.root).toBe(host);
   expect(observation?.rootMargin).toBe("0px 0px 1600px 0px");
   expect(load).toHaveBeenCalledTimes(1);
+  Object.defineProperty(host, "getBoundingClientRect", {
+    value: () => ({ bottom: 700, top: 100 }),
+  });
+  const sentinel = host.querySelector("[data-feed-sentinel]");
+  Object.defineProperty(sentinel, "getBoundingClientRect", {
+    configurable: true,
+    value: () => ({ bottom: 1901, top: 1900 }),
+  });
+  await act(() =>
+    root.render(
+      <div style={{ overflowY: "hidden" }}>
+        <InfiniteScrollContainer onBottomReached={() => load()}>
+          Next page is still outside the visible viewport
+        </InfiniteScrollContainer>
+      </div>
+    )
+  );
+  expect(load).toHaveBeenCalledTimes(2);
+  Object.defineProperty(sentinel, "getBoundingClientRect", {
+    value: () => ({ bottom: 2401, top: 2400 }),
+  });
+  await act(() =>
+    root.render(
+      <div style={{ overflowY: "hidden" }}>
+        <InfiniteScrollContainer onBottomReached={() => load()}>
+          Next page is outside the prefetch margin
+        </InfiniteScrollContainer>
+      </div>
+    )
+  );
+  expect(load).toHaveBeenCalledTimes(2);
   await act(() => root.unmount());
   host.remove();
 });

@@ -84,6 +84,10 @@ export function useFeedScrollMemory({
     };
 
     const saveAnchor = () => {
+      if (settleTimer) {
+        clearTimeout(settleTimer);
+        settleTimer = null;
+      }
       const anchor = findTopAnchor(container);
       lastPosition = {
         anchorOffset: anchor?.offset ?? 0,
@@ -117,6 +121,11 @@ export function useFeedScrollMemory({
     const onPageHide = () => {
       saveAnchor();
     };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "hidden" && lastPosition) {
+        saveAnchor();
+      }
+    };
     const onUserInput = () => {
       userScrolledRef.current = true;
       restoringRef.current = false;
@@ -127,6 +136,7 @@ export function useFeedScrollMemory({
     container.addEventListener("touchstart", onUserInput, { passive: true });
     container.addEventListener("pointerdown", onUserInput, { passive: true });
     window.addEventListener("pagehide", onPageHide);
+    document.addEventListener("visibilitychange", onVisibilityChange);
     return () => {
       if (settleTimer) {
         clearTimeout(settleTimer);
@@ -136,6 +146,7 @@ export function useFeedScrollMemory({
       container.removeEventListener("touchstart", onUserInput);
       container.removeEventListener("pointerdown", onUserInput);
       window.removeEventListener("pagehide", onPageHide);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
       saveOffset();
     };
   }, [containerRef, memoryKey]);
