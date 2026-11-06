@@ -40,6 +40,7 @@ RUN bun build packages/db/src/messages/prebuild-indexes.ts \
 
 RUN bun build scripts/maintenance/prisma-checkpoint-upgrade.ts \
       --target=bun \
+      --external pg \
       --outfile /app/dist/prisma-checkpoint-upgrade.js
 
 FROM oven/bun:1.4
