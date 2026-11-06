@@ -10,6 +10,7 @@ import {
   reserveProviderRequest,
   ProviderBudgetDeferredError,
 } from "../budget/provider-budget";
+import { EmbeddingDeferredError, embeddingRetryAt } from "./deferred";
 
 export const EMBEDDING_DIMENSION = 384;
 
@@ -70,6 +71,12 @@ export async function generateTextEmbedding(
   // Cloud Gemini Embedding API if GEMINI_API_KEY is configured
   const apiKey = workerEnv.GEMINI_API_KEY;
   const modelName = workerEnv.GEMINI_EMBEDDING_MODEL || "gemini-embedding-2";
+  if (!apiKey) {
+    throw new EmbeddingDeferredError(
+      "credentials",
+      Date.now() + 24 * 60 * 60_000
+    );
+  }
   if (apiKey) {
     try {
       await reserveProviderRequest("gemini");
@@ -106,6 +113,13 @@ export async function generateTextEmbedding(
           signal: AbortSignal.timeout(workerEnv.EMBEDDING_TIMEOUT_MS),
         }
       );
+      if (!response.ok) {
+        await response.body?.cancel();
+        throw new EmbeddingDeferredError(
+          "provider",
+          embeddingRetryAt(response.status, response.headers.get("retry-after"))
+        );
+      }
       if (response.ok) {
         const data = (await response.json()) as {
           embedding?: { values?: number[] };
@@ -126,15 +140,23 @@ export async function generateTextEmbedding(
           { actual: Array.isArray(values) ? values.length : "missing" },
           "Gemini embedding invalid; leaving embedding pending"
         );
+        throw new EmbeddingDeferredError(
+          "invalid-vector",
+          Date.now() + 15 * 60_000
+        );
       }
     } catch (error) {
-      if (error instanceof ProviderBudgetDeferredError) {
+      if (
+        error instanceof ProviderBudgetDeferredError ||
+        error instanceof EmbeddingDeferredError
+      ) {
         throw error;
       }
       mediaLogger.warn(
-        { error: String(error) },
+        { errorType: error instanceof Error ? error.name : "unknown" },
         "Gemini embedding unavailable; leaving embedding pending"
       );
+      throw new EmbeddingDeferredError("provider", Date.now() + 60_000);
     }
   }
 

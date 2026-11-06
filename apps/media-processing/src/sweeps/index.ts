@@ -985,7 +985,7 @@ let semanticClassificationCursor: string | undefined;
 export async function semanticClassificationBackfillSweep(): Promise<{
   enqueued: number;
 }> {
-  if (!workerEnv.BACKFILL_ENABLED) {
+  if (!workerEnv.BACKFILL_ENABLED || !workerEnv.CLEF_ENABLED) {
     return { enqueued: 0 };
   }
 

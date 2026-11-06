@@ -6,12 +6,14 @@ let budget = 0;
 let backgroundBudget = 0;
 const fetchRequests: { body: Record<string, unknown>; url: string }[] = [];
 const originalFetch = globalThis.fetch;
+const environment = {
+  CLEF_DAILY_NEURONS: 9000,
+  CLEF_ENABLED: true,
+  CLOUDFLARE_ACCOUNT_ID: "a".repeat(32),
+  CLOUDFLARE_API_TOKEN: "test-token",
+};
 mock.module("../../env", () => ({
-  workerEnv: {
-    CLEF_DAILY_NEURONS: 9000,
-    CLOUDFLARE_ACCOUNT_ID: "a".repeat(32),
-    CLOUDFLARE_API_TOKEN: "test-token",
-  },
+  workerEnv: environment,
 }));
 mock.module("@asm/db", () => ({
   redis: {
@@ -74,6 +76,7 @@ function fakeResult(body: Record<string, unknown>) {
 }
 
 beforeEach(() => {
+  environment.CLEF_ENABLED = true;
   values.clear();
   budget = 0;
   backgroundBudget = 0;
@@ -95,6 +98,31 @@ afterEach(() => {
 });
 
 describe("Clef decisions and budget", () => {
+  test("disabled remote classification spends nothing and does not prepare image bytes", async () => {
+    environment.CLEF_ENABLED = false;
+    await expect(
+      evaluateClef({ imagePath: "missing-image.jpg", text: "post" })
+    ).rejects.toThrow("disabled");
+    expect(fetchRequests).toHaveLength(0);
+    expect(budget).toBe(0);
+    expect(values.size).toBe(0);
+  });
+
+  test("optional safety assessment omits topic questions and cannot poison the full-decision cache", async () => {
+    const safety = await evaluateClef({
+      scope: "safety",
+      text: "same content",
+    });
+    expect(
+      Object.keys(fetchRequests[0]?.body.questions ?? {}).toSorted()
+    ).toEqual(["explicit", "graphic_violence", "sexualized"]);
+    expect(safety.tags).toEqual([]);
+    const full = await evaluateClef({ text: "same content" });
+    expect(fetchRequests).toHaveLength(2);
+    expect(full.tags).toContain("anime");
+    await evaluateClef({ scope: "safety", text: "same content" });
+    expect(fetchRequests).toHaveLength(2);
+  });
   test("uses the official typed response and caches repeated content", async () => {
     const first = await evaluateClef({
       text: "An ordinary anime illustration",

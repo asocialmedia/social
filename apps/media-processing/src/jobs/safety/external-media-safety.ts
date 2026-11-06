@@ -78,7 +78,7 @@ async function downloadImage(raw: string, output: string) {
   }
   if (!response.ok) {
     await response.body?.cancel();
-    if (response.status === 404 || response.status === 410) {
+    if ([404, 410, 422].includes(response.status)) {
       throw new ExternalMediaDownloadDeferredError(
         `External safety image HTTP ${response.status}`,
         Date.now() + 300_000,
@@ -146,6 +146,14 @@ export async function processExternalMediaSafety(raw: unknown) {
     await releaseExternalMediaSafetyClaim(input);
     return;
   }
+  if (
+    !workerEnv.CLEF_ENABLED &&
+    !(workerEnv.CLASSIFIER_URL && workerEnv.CLASSIFIER_API_TOKEN)
+  ) {
+    await redis.set(input.key, "uncertain", "EX", 300);
+    await releaseExternalMediaSafetyClaim(input);
+    return;
+  }
   const directory = await mkdtemp(path.join(tmpdir(), "asm-external-safety-"));
   try {
     let explicit = false;
@@ -159,6 +167,11 @@ export async function processExternalMediaSafety(raw: unknown) {
       );
       // oxlint-disable-next-line no-await-in-loop -- every image group must pass before publishing a safe verdict.
       const verdict = await assessExternalImages(paths, input.text);
+      if (verdict === "uncertain") {
+        await redis.set(input.key, "uncertain", "EX", 300);
+        await releaseExternalMediaSafetyClaim(input);
+        return;
+      }
       if (verdict === "explicit") {
         explicit = true;
         break;
@@ -188,7 +201,7 @@ export async function processExternalMediaSafety(raw: unknown) {
     }
     if (
       error instanceof ExternalMediaDownloadDeferredError &&
-      [404, 410].includes(error.status ?? 0)
+      [404, 410, 422].includes(error.status ?? 0)
     ) {
       await redis.set(input.key, "unavailable", "EX", 300);
       await releaseExternalMediaSafetyClaim(input);

@@ -88,12 +88,14 @@ describe("Clef post enrichment policy", () => {
       explicitContent: true,
       semanticTags: ["anime"],
     });
-    expect(markers.size).toBe(0);
-    embeddingFailure = false;
-    markers.set(
-      `media:clef:post:${storedPost.id}`,
+    expect(markers.get(`media:clef:post:${storedPost.id}`)).toBe(
       postAnalysisFingerprint(storedPost.content)
     );
+    await expect(processPostAnalyze({ postId: storedPost.id })).rejects.toThrow(
+      "Gemini budget pending"
+    );
+    expect(classify).toHaveBeenCalledTimes(1);
+    embeddingFailure = false;
     classify.mockClear();
     await processPostAnalyze({ postId: storedPost.id });
     expect(updates.at(-1)).toHaveProperty("embedding", [0.5, 0.5]);

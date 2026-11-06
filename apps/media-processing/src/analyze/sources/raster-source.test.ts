@@ -43,10 +43,34 @@ mock.module("../../s3", () => ({
     },
   }),
 }));
-const { downloadAnalysisRaster } = await import("./raster-source");
+const { downloadAnalysisRaster, rasterSourceFailure } =
+  await import("./raster-source");
 afterAll(async () => {
   sharp.cache(false);
   await rm(directory, { force: true, recursive: true });
+});
+
+test("source diagnostics retain safe codes and status without private keys, paths or credentials", () => {
+  expect(
+    rasterSourceFailure(
+      {
+        code: "AccessDenied",
+        message: "secret object key and credential",
+        status: 403,
+        url: "https://private",
+      },
+      2,
+      "download"
+    )
+  ).toEqual({
+    candidate: 2,
+    code: "AccessDenied",
+    phase: "download",
+    status: 403,
+  });
+  expect(
+    rasterSourceFailure({ code: "private-key", status: 200 }, 0, "prepare")
+  ).toEqual({ candidate: 0, code: "unclassified", phase: "prepare" });
 });
 
 test("missing and unsupported derivatives fall back to a decodable source", async () => {

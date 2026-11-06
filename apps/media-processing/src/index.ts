@@ -46,6 +46,11 @@ if (import.meta.main) {
   const { ProviderBudgetDeferredError, providerBudgetSnapshot } =
     await import("./analyze/budget/provider-budget");
   const { OcrDeferredError } = await import("./analyze/extraction/ocr");
+  const { EmbeddingDeferredError } =
+    await import("./analyze/embedding/deferred");
+  const { ClassifierDeferredError } =
+    await import("./analyze/classification/deferred");
+  const { configureAnalysisQueues } = await import("./analysis-queues");
   const { processPostAnalyze } = await import("./jobs/analysis/analyze-post");
   const { warmExternalMediaSafety } =
     await import("./jobs/safety/warm-external-media-safety");
@@ -63,6 +68,11 @@ if (import.meta.main) {
 
   let running = true;
 
+  await configureAnalysisQueues({
+    analyze: getQueue(MEDIA_ANALYZE_QUEUE),
+    externalSafety: getQueue(EXTERNAL_MEDIA_SAFETY_QUEUE),
+  });
+
   const bullConnection = () => ({
     maxRetriesPerRequest: null,
     url: workerEnv.REDIS_URL,
@@ -78,6 +88,7 @@ if (import.meta.main) {
       } catch (error) {
         if (
           (error instanceof ClefDeferredError ||
+            error instanceof ClassifierDeferredError ||
             error instanceof ExternalMediaDownloadDeferredError) &&
           job.token
         ) {
@@ -175,6 +186,7 @@ if (import.meta.main) {
             if (
               error instanceof ClefDeferredError ||
               error instanceof OcrDeferredError ||
+              error instanceof EmbeddingDeferredError ||
               error instanceof ProviderBudgetDeferredError
             ) {
               await job.moveToDelayed(error.retryAt, job.token);
@@ -219,6 +231,7 @@ if (import.meta.main) {
         if (
           error instanceof ClefDeferredError ||
           error instanceof OcrDeferredError ||
+          error instanceof EmbeddingDeferredError ||
           error instanceof ProviderBudgetDeferredError
         ) {
           await job.moveToDelayed(error.retryAt, job.token);
@@ -255,6 +268,70 @@ if (import.meta.main) {
       lockDuration: 5 * 60 * 1000,
     }
   );
+
+  const queueNames = [
+    MEDIA_SCAN_QUEUE,
+    MEDIA_PROCESS_QUEUE,
+    MEDIA_ANALYZE_QUEUE,
+    EXTERNAL_MEDIA_SAFETY_QUEUE,
+  ];
+  const readQueueSnapshot = () =>
+    Promise.all(
+      queueNames.map(async (name) => {
+        const queue = getQueue(name);
+        const pending = await queue.getJobs(
+          ["wait", "prioritized", "delayed"],
+          0,
+          99,
+          true
+        );
+        return {
+          counts: await queue.getJobCounts(
+            "wait",
+            "prioritized",
+            "delayed",
+            "active",
+            "failed"
+          ),
+          name,
+          pendingSampleSize: pending.length,
+          sampledOldestPendingAgeMs: pending.length
+            ? Math.max(...pending.map((job) => Date.now() - job.timestamp))
+            : 0,
+        };
+      })
+    );
+  let previousCpu = process.cpuUsage();
+  let previousSample = performance.now();
+  let reporting = false;
+  const operationalTimer = setInterval(async () => {
+    if (reporting) {
+      return;
+    }
+    reporting = true;
+    try {
+      const queues = await readQueueSnapshot();
+      const cpu = process.cpuUsage(previousCpu);
+      const elapsed = performance.now() - previousSample;
+      previousCpu = process.cpuUsage();
+      previousSample = performance.now();
+      mediaLogger.info(
+        {
+          cpuPercent: ((cpu.user + cpu.system) / (elapsed * 1000)) * 100,
+          latency: await mediaMetricSnapshot(),
+          queues,
+          remoteClassificationEnabled: workerEnv.CLEF_ENABLED,
+          rssBytes: process.memoryUsage().rss,
+        },
+        "media worker operational summary"
+      );
+    } catch {
+      mediaLogger.warn({}, "media worker operational metrics unavailable");
+    } finally {
+      reporting = false;
+    }
+  }, 60_000);
+  operationalTimer.unref();
 
   // Terminal failure marking: once BullMQ exhausts attempts, the row must
   // leave SCANNING/PROCESSING so it cannot wedge forever. Retryable rows
@@ -474,6 +551,7 @@ if (import.meta.main) {
     }
     running = false;
     clearInterval(safetyWarmupTimer);
+    clearInterval(operationalTimer);
     const forceExitTimer = setTimeout(() => {
       mediaLogger.warn(
         {},
@@ -507,6 +585,7 @@ if (import.meta.main) {
       clamav: workerEnv.CLAMAV_HOST ?? "disabled",
       healthPort: workerEnv.HEALTH_PORT,
       processConcurrency: workerEnv.PROCESS_CONCURRENCY,
+      remoteClassificationEnabled: workerEnv.CLEF_ENABLED,
       scanConcurrency: workerEnv.SCAN_CONCURRENCY,
     },
     "media-processing worker ready"

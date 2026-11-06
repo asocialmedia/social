@@ -29,6 +29,7 @@ import {
   prepareClefImage,
   ClefDeferredError,
 } from "../../analyze/classification/clef";
+import { EmbeddingDeferredError } from "../../analyze/embedding/deferred";
 import {
   normalizeVector,
   generateTextEmbedding,
@@ -197,21 +198,25 @@ async function resolveAnalysisSource(
       );
     } catch (error) {
       if (media._type === "IMAGE") {
-        if (
-          error instanceof AnalysisRasterError &&
-          error.decodeFailures === error.attempts
-        ) {
+        if (error instanceof AnalysisRasterError) {
+          const corrupt = error.decodeFailures === error.attempts;
+          const retryAt = Date.now() + (corrupt ? 24 : 1) * 60 * 60_000;
           await patchMediaAnalysisStage(mediaId, "raster", {
             fingerprint: rasterFingerprint,
-            reason: "unsupported-or-corrupt-image",
-            retryAt: Date.now() + 24 * 60 * 60_000,
+            reason: corrupt
+              ? "unsupported-or-corrupt-image"
+              : "source-read-unavailable",
+            retryAt,
             status: "unavailable",
           });
+          mediaLogger.warn(
+            { mediaId, retryAt, sourceFailures: error.failures },
+            "Stored image sources unavailable; analysis cooling down"
+          );
           throw new UnrecoverableError(
-            "All stored image sources failed decoding; analysis waits for a source repair"
+            "Stored image sources unavailable; analysis waits for cooldown or source repair"
           );
         }
-        // Missing storage remains retryable; decoding failure never marks the asset safe.
         throw error;
       }
       mediaLogger.warn(
@@ -491,7 +496,10 @@ export function processMediaAnalyze(
                 version: 1,
               });
             } else if (!embeddingError) {
-              embeddingError = new Error("Multimodal embedding pending");
+              embeddingError = new EmbeddingDeferredError(
+                "unavailable",
+                Date.now() + 15 * 60_000
+              );
             }
           }
         }
@@ -775,6 +783,9 @@ export function processMediaAnalyze(
               "content",
               "id",
               "createdAt",
+              "embedding",
+              "embeddingModel",
+              "embeddingFingerprint",
               "semanticTags"
             )
               .include("postMedias", (attachment) =>
@@ -839,10 +850,39 @@ export function processMediaAnalyze(
               .filter(Boolean)
               .join("\n");
 
-            let embedding: number[] = [];
+            const embeddingFingerprint = createHash("sha256")
+              .update(
+                JSON.stringify([
+                  embeddingModelId(),
+                  combinedText,
+                  workerEnv.MULTIMODAL_EMBEDDING_ENABLED
+                    ? post.postMedias.map(
+                        (attachment) =>
+                          asMediaJsonObject(
+                            asMediaJsonObject(attachment.techMetadata)
+                              ?.analysisStages
+                          )?.mediaEmbedding ?? null
+                      )
+                    : null,
+                ])
+              )
+              .digest("hex");
+            const reuseEmbedding =
+              post.embeddingFingerprint === embeddingFingerprint &&
+              post.embeddingModel === embeddingModelId() &&
+              Boolean(post.embedding?.length);
+            let embedding: number[] = reuseEmbedding
+              ? [...(post.embedding ?? [])]
+              : [];
             try {
-              embedding = await generateTextEmbedding(combinedText);
-              if (workerEnv.MULTIMODAL_EMBEDDING_ENABLED && embedding.length) {
+              if (!reuseEmbedding) {
+                embedding = await generateTextEmbedding(combinedText);
+              }
+              if (
+                !reuseEmbedding &&
+                workerEnv.MULTIMODAL_EMBEDDING_ENABLED &&
+                embedding.length
+              ) {
                 const vectors = [embedding];
                 for (const attachment of post.postMedias) {
                   const stages = asMediaJsonObject(
@@ -886,7 +926,11 @@ export function processMediaAnalyze(
                 ? {}
                 : { explicitContent: postExplicitContent }),
               ...(embedding.length > 0
-                ? { embedding, embeddingModel: embeddingModelId() }
+                ? {
+                    embedding,
+                    embeddingFingerprint,
+                    embeddingModel: embeddingModelId(),
+                  }
                 : {}),
               semanticTags: allSemanticTags,
             });
@@ -907,8 +951,9 @@ export function processMediaAnalyze(
               if (embeddingError) {
                 throw embeddingError;
               }
-              throw new Error(
-                "Gemini embedding pending; published labels and media remain available"
+              throw new EmbeddingDeferredError(
+                "unavailable",
+                Date.now() + 15 * 60_000
               );
             }
             mediaLogger.info(

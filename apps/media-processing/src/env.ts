@@ -49,6 +49,7 @@ export const keys = createEnv({
     MEDIA_CLASSIFIER_URL: process.env.MEDIA_CLASSIFIER_URL,
     MEDIA_CLASSIFY_ENABLED: process.env.MEDIA_CLASSIFY_ENABLED,
     MEDIA_CLEF_DAILY_NEURONS: process.env.MEDIA_CLEF_DAILY_NEURONS,
+    MEDIA_CLEF_ENABLED: process.env.MEDIA_CLEF_ENABLED,
     MEDIA_CONCURRENT_PROCESSING_PER_USER:
       process.env.MEDIA_CONCURRENT_PROCESSING_PER_USER,
     MEDIA_EMBEDDING_ENABLED: process.env.MEDIA_EMBEDDING_ENABLED,
@@ -156,6 +157,7 @@ export const keys = createEnv({
       .string()
       .optional()
       .transform(resolveClefDailyNeurons),
+    MEDIA_CLEF_ENABLED: z.enum(["0", "1"]).default("0"),
     MEDIA_CONCURRENT_PROCESSING_PER_USER: numericOverride,
     MEDIA_EMBEDDING_ENABLED: z.enum(["0", "1"]).default("1"),
     MEDIA_EMBEDDING_TIMEOUT_MS: numericOverride,
@@ -262,6 +264,9 @@ export const workerEnv = {
   },
   get CLEF_DAILY_NEURONS() {
     return resolveClefDailyNeurons(keys.MEDIA_CLEF_DAILY_NEURONS);
+  },
+  get CLEF_ENABLED() {
+    return keys.MEDIA_CLEF_ENABLED === "1";
   },
   get CLOUDFLARE_ACCOUNT_ID() {
     return keys.CLOUDFLARE_ACCOUNT_ID;

@@ -14,6 +14,7 @@ import {
   ClefDeferredError,
   evaluateClef,
 } from "../../analyze/classification/clef";
+import { EmbeddingDeferredError } from "../../analyze/embedding/deferred";
 import {
   generateTextEmbedding,
   embeddingModelId,
@@ -144,14 +145,15 @@ export async function processPostAnalyze({
         Date.now()
       );
     }
+    // Classification is complete independently of embedding availability.
+    if (updated > 0) {
+      await redis.set(markerKey, fingerprint, "EX", 30 * 24 * 60 * 60);
+    }
     if (updated > 0 && !embedding.length && workerEnv.EMBEDDING_ENABLED) {
       if (embeddingError) {
         throw embeddingError;
       }
-      throw new Error("Gemini embedding pending; classification saved");
-    }
-    if (updated > 0) {
-      await redis.set(markerKey, fingerprint, "EX", 30 * 24 * 60 * 60);
+      throw new EmbeddingDeferredError("unavailable", Date.now() + 15 * 60_000);
     }
   } finally {
     await redis.eval(

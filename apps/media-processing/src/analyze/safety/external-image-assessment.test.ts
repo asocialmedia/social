@@ -7,11 +7,13 @@ const cache = new Map<string, string>();
 const environment = {
   CLASSIFIER_API_TOKEN: "configured",
   CLASSIFIER_URL: "https://classifier.test",
+  CLEF_ENABLED: true,
 };
 let localCalls = 0;
 let contextualCalls = 0;
 let localUnavailable = false;
 let contextualUnavailable = false;
+let claimAvailable = true;
 const result = {
   label: "SFW" as "SFW" | "NSFW" | "NSFL",
   model: {
@@ -26,6 +28,9 @@ mock.module("@asm/db", () => ({
   redis: {
     get: (key: string) => Promise.resolve(cache.get(key) ?? null),
     set: (key: string, value: string) => {
+      if (key.endsWith(":lock") && !claimAvailable) {
+        return Promise.resolve(null);
+      }
       cache.set(key, value);
       return Promise.resolve("OK");
     },
@@ -72,6 +77,8 @@ beforeAll(async () => {
 });
 afterAll(() => rm(directory, { force: true, recursive: true }));
 beforeEach(() => {
+  environment.CLEF_ENABLED = true;
+  claimAvailable = true;
   cache.clear();
   localCalls = 0;
   contextualCalls = 0;
@@ -82,6 +89,15 @@ beforeEach(() => {
   result.probabilities = { NSFL: 0.02, NSFW: 0.05, SFW: 0.93 };
 });
 
+test("another replica's image claim defers without inference or remote spending", async () => {
+  claimAvailable = false;
+  await expect(assessExternalImages([image], "post")).rejects.toMatchObject({
+    name: "ClassifierDeferredError",
+  });
+  expect(localCalls).toBe(0);
+  expect(contextualCalls).toBe(0);
+});
+
 test("clear local scores use a content cache shared across file paths without spending contextual allowance", async () => {
   contextualUnavailable = true;
   expect(await assessExternalImages([image], "post")).toBe("safe");
@@ -89,6 +105,28 @@ test("clear local scores use a content cache shared across file paths without sp
   await writeFile(copy, "image bytes");
   expect(await assessExternalImages([copy], "different post")).toBe("safe");
   expect(localCalls).toBe(1);
+  expect(contextualCalls).toBe(0);
+});
+
+test("concurrent identical images share one local inference", async () => {
+  environment.CLEF_ENABLED = false;
+  expect(
+    await Promise.all([
+      assessExternalImages([image], "one"),
+      assessExternalImages([image], "two"),
+      assessExternalImages([image], "three"),
+    ])
+  ).toEqual(["safe", "safe", "safe"]);
+  expect(localCalls).toBe(1);
+  expect(contextualCalls).toBe(0);
+});
+
+test("local-only ambiguity stays uncertain and missing local configuration never spends remotely", async () => {
+  environment.CLEF_ENABLED = false;
+  result.probabilities = { NSFL: 0.03, NSFW: 0.08, SFW: 0.89 };
+  expect(await assessExternalImages([image], "post")).toBe("uncertain");
+  environment.CLASSIFIER_URL = "";
+  expect(await assessExternalImages([image], "post")).toBe("uncertain");
   expect(contextualCalls).toBe(0);
 });
 

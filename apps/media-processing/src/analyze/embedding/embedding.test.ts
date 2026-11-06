@@ -47,11 +47,17 @@ describe("generateTextEmbedding", () => {
   });
   test("missing credentials leave embeddings pending without local hashes", async () => {
     configuration.GEMINI_API_KEY = "";
-    expect(await generateTextEmbedding("Linux homelab")).toEqual([]);
+    await expect(generateTextEmbedding("Linux homelab")).rejects.toMatchObject({
+      name: "EmbeddingDeferredError",
+      reason: "credentials",
+    });
   });
   test("provider failures leave embeddings pending", async () => {
     respond([], 429);
-    expect(await generateTextEmbedding("Linux homelab")).toEqual([]);
+    await expect(generateTextEmbedding("Linux homelab")).rejects.toMatchObject({
+      name: "EmbeddingDeferredError",
+      reason: "provider",
+    });
   });
   test.each(
     [
@@ -61,7 +67,10 @@ describe("generateTextEmbedding", () => {
     ].map((values) => [values])
   )("rejects malformed or zero vectors", async (values) => {
     respond(values);
-    expect(await generateTextEmbedding("Linux homelab")).toEqual([]);
+    await expect(generateTextEmbedding("Linux homelab")).rejects.toMatchObject({
+      name: "EmbeddingDeferredError",
+      reason: "invalid-vector",
+    });
   });
   test("empty input makes no inference request", async () => {
     const fetchMock = mock(() =>

@@ -32,6 +32,7 @@ const row = {
 let downloads = 0;
 let ocrAttempts = 0;
 let failSampling = false;
+let missingStorage = false;
 
 let classificationAttempts = 0;
 let classificationTags = ["music"];
@@ -87,7 +88,9 @@ mock.module("../../s3", () => ({
   getS3: () => ({
     file: () => {
       downloads += 1;
-      return Bun.file(sourcePath);
+      return Bun.file(
+        missingStorage ? path.join(directory, "missing") : sourcePath
+      );
     },
   }),
 }));
@@ -186,6 +189,21 @@ test("video OCR resumes after a partial quota failure without paying for the com
       processMediaAnalyze({ mediaId: row.id, semanticRefresh: true })
     ).resolves.toEqual({ outcome: "skipped" });
     expect(downloads).toBe(beforeRetry);
+    expect(row.status).toBe("READY");
+    row.publishedKey = "new-source.png";
+    missingStorage = true;
+    await expect(
+      processMediaAnalyze({ mediaId: row.id })
+    ).rejects.toMatchObject({ name: "UnrecoverableError" });
+    expect(stages.raster).toMatchObject({
+      reason: "source-read-unavailable",
+      status: "unavailable",
+    });
+    const afterStorageFailure = downloads;
+    expect(await processMediaAnalyze({ mediaId: row.id })).toEqual({
+      outcome: "skipped",
+    });
+    expect(downloads).toBe(afterStorageFailure);
     expect(row.status).toBe("READY");
   } finally {
     await rm(directory, { force: true, recursive: true });
