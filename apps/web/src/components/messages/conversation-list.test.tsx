@@ -66,6 +66,7 @@ function renderList(props: {
           isCollapsed={props.isCollapsed}
           layout={props.layout}
           onSelect={() => {}}
+          onSelectMessage={() => {}}
           onToggleCollapse={() => {}}
         />
       </MessageIdentityProvider>
@@ -90,15 +91,19 @@ describe("ConversationList collapsible sidebar", () => {
     expect(html).toContain('aria-label="Collapse sidebar"');
 
     // Search bar is full with input placeholder
-    expect(html).toContain('placeholder="Search people you follow…"');
-    expect(html).toContain('aria-label="Search people you follow"');
+    expect(html).toContain('placeholder="Search…"');
+    expect(html).toContain("premium-input");
+    expect(html).toContain("h-11");
+    expect(html).toContain('aria-label="Search profiles and messages"');
+    expect(html).not.toContain('aria-label="Search messages or people"');
 
     // New den and Join den buttons are visible
     expect(html).toContain('aria-label="New den"');
     expect(html).toContain('aria-label="Join a den"');
 
-    // Tabs are present
+    // Message filters remain available without a Messages / People mode switch.
     expect(html).toContain('aria-label="Filter conversations"');
+    expect(html).not.toContain('value="people"');
     expect(html).toContain("All");
     expect(html).toContain("Dens");
     expect(html).toContain("DMs");
@@ -116,8 +121,8 @@ describe("ConversationList collapsible sidebar", () => {
     expect(html).not.toContain('aria-label="Collapse sidebar"');
 
     // Search bar is collapsed into an icon button
-    expect(html).toContain('aria-label="Search people"');
-    expect(html).not.toContain('placeholder="Search people you follow…"');
+    expect(html).toContain('aria-label="Search profiles and messages"');
+    expect(html).not.toContain('placeholder="Search…"');
 
     // New den and Join den buttons are hidden
     expect(html).not.toContain('aria-label="New den"');

@@ -76,6 +76,11 @@ if (import.meta.main) {
 
   const {
     ensureStreamGroups,
+    CHAT_LIFECYCLE_QUEUE,
+    CHAT_EXPORT_QUEUE,
+    eraseExpiredChatBatch,
+    processNextChatExport,
+    eraseExpiredChatExports,
     enqueueMessageSearchCount,
     enqueueMessageSearchBackfill,
     enqueueMessageSearchBackfillOutbox,
@@ -341,15 +346,56 @@ if (import.meta.main) {
         );
       }
       // eslint-disable-next-line promise/prefer-await-to-callbacks -- the pulse owns asynchronous failure reporting
-      sweepPulse = createWorkerPulse(sweepMessageSearchOutbox, (error) => {
-        logger.error(
-          messageWorkerErrorFields(error),
-          "message search outbox sweep failed"
-        );
-      });
+      sweepPulse = createWorkerPulse(
+        sweepMessageSearchOutbox,
+        (requestFailure) => {
+          logger.error(
+            messageWorkerErrorFields(requestFailure),
+            "message search outbox sweep failed"
+          );
+        }
+      );
     }
 
     if (!messageSearchWorkerRole.only) {
+      registerQueueWorker(
+        new QueueWorker(
+          CHAT_LIFECYCLE_QUEUE,
+          async () => {
+            try {
+              const started = Date.now();
+              for (
+                let batch = 0;
+                batch < 50 && Date.now() - started < 5000;
+                batch += 1
+              ) {
+                // oxlint-disable-next-line no-await-in-loop -- Claim each bounded batch after the prior one commits.
+                const result = await eraseExpiredChatBatch();
+                if (!result.messages && !result.incognito && !result.viewOnce) {
+                  break;
+                }
+              }
+              await eraseExpiredChatExports();
+            } catch {
+              throw new Error("Chat cleanup unavailable");
+            }
+          },
+          { concurrency: 1, connection }
+        )
+      );
+      registerQueueWorker(
+        new QueueWorker(
+          CHAT_EXPORT_QUEUE,
+          async () => {
+            try {
+              await processNextChatExport();
+            } catch {
+              throw new Error("Chat export unavailable");
+            }
+          },
+          { concurrency: 1, connection, lockDuration: 120_000 }
+        )
+      );
       registerQueueWorker(
         new QueueWorker(
           MESSAGE_UNREAD_COUNTER_QUEUE,
@@ -488,11 +534,11 @@ if (import.meta.main) {
         );
       });
 
-      notificationWorker.on("failed", (job, error) => {
+      notificationWorker.on("failed", (job, requestFailure) => {
         logger.error(
           {
             attemptsMade: job?.attemptsMade,
-            error,
+            error: requestFailure,
             job: job?.name,
           },
           "notification job failed after retries"
@@ -550,9 +596,9 @@ if (import.meta.main) {
         }
       },
       // eslint-disable-next-line promise/prefer-await-to-callbacks -- asynchronous pulse error observer
-      (error) => {
+      (requestFailure) => {
         logger.error(
-          messageWorkerErrorFields(error),
+          messageWorkerErrorFields(requestFailure),
           "worker heartbeat failed"
         );
       }

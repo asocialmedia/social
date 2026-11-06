@@ -14,7 +14,6 @@ import { useLocalSearchParams } from "expo-router";
 import { Clapperboard, ImageIcon, SendHorizonal, X } from "lucide-react-native";
 import { useEffect, useState, useRef } from "react";
 import {
-  ActivityIndicator,
   Dimensions,
   Keyboard,
   Platform,
@@ -30,6 +29,7 @@ import {
   UserAvatar,
   useViewerAvatarUrl,
 } from "@/components/avatar/user-avatar";
+import { ZephLoader } from "@/components/feedback/zeph-loader";
 import { GifPicker } from "@/components/media/gif-picker";
 import { Gradient3D } from "@/components/surface/gradient-3d";
 import {
@@ -140,7 +140,7 @@ function SendPill({
           style={[styles.sendPill, { height }, pressed && styles.pressed]}
         >
           {sending ? (
-            <ActivityIndicator color="#ffffff" size={16} />
+            <ZephLoader variant="general" color="#ffffff" size={16} />
           ) : (
             <SendHorizonal color="#ffffff" size={16} />
           )}

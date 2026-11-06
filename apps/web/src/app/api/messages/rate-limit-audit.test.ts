@@ -22,6 +22,7 @@ interface Handler {
   body: string;
   method: string;
   relativePath: string;
+  hasMeteredOpenRequest: boolean;
 }
 
 function routeFiles(directory: string): string[] {
@@ -67,6 +68,8 @@ const LIMITER_MARKERS = [
 const UNLIMITED_HANDLERS: Record<string, string> = {
   "DELETE blocks/[userId]/route.ts":
     "One indexed delete against a row the caller owns. Unblocking cannot be looped into any state a caller does not already control.",
+  "DELETE conversations/[id]/exports/[exportId]/route.ts":
+    "An idempotent status update scoped to one export row owned by the caller; cancellation creates no job or other accumulated state.",
   "DELETE identity/route.ts":
     "The documented self-scoped recovery path. It deletes the caller's own identity and only the caller's own key wraps, is idempotent, and already leaves the caller's own history unreadable to them. A loop buys nothing after the first call.",
   "GET blocks/route.ts":
@@ -89,12 +92,14 @@ const UNLIMITED_HANDLERS: Record<string, string> = {
     "Served from a Redis counter, and the grouped database read behind it runs at most once per counter lifetime. A caller cannot force a reseed, so a loop costs one Redis GET.",
   "POST blocks/route.ts":
     "Two indexed reads and one insert, and a block is not a message: no notification, no fan-out, no unread badge for anybody. Re-blocking an existing pair is already a no-op, so a loop stores nothing.",
+  "POST conversations/[id]/media/[mediaId]/view-once/close/route.ts":
+    "An idempotent close of one grant owned by the caller. Closing only revokes access and cannot create a grant or accumulate stored rows.",
   "POST identity/route.ts":
     "Create-only: it answers 409 forever after the first success, so one account can write this row once for the life of the account. A bounded number of writes is already a limit.",
 };
 
 function relativeRoutePath(absolute: string): string {
-  return absolute.slice(MESSAGES_ROOT.length + 1);
+  return path.relative(MESSAGES_ROOT, absolute).split(path.sep).join("/");
 }
 
 // The handlers the scan found, and which of them spend a budget.
@@ -119,6 +124,9 @@ const DISCOVERED: Handler[] = routeFiles(MESSAGES_ROOT).flatMap((absolute) => {
     const body = source.slice(start, next?.index ?? source.length);
     return {
       body,
+      hasMeteredOpenRequest:
+        relativePath.endsWith("/view-once/open/route.ts") &&
+        /async function openRequest\([\s\S]*?consumeRateLimit\(/u.test(source),
       method: declaration.groups?.method ?? "UNKNOWN",
       relativePath,
     };
@@ -130,7 +138,11 @@ function key(handler: Handler): string {
 }
 
 function isMetered(handler: Handler): boolean {
-  return LIMITER_MARKERS.some((marker) => handler.body.includes(marker));
+  return (
+    LIMITER_MARKERS.some((marker) => handler.body.includes(marker)) ||
+    (handler.hasMeteredOpenRequest &&
+      handler.body.includes("await openRequest("))
+  );
 }
 
 const UNCOVERED = DISCOVERED.filter(
@@ -208,8 +220,10 @@ describe("messages route rate-limit audit", () => {
     ).map(key);
     expect(unmeteredWrites.toSorted()).toEqual([
       "DELETE blocks/[userId]/route.ts",
+      "DELETE conversations/[id]/exports/[exportId]/route.ts",
       "DELETE identity/route.ts",
       "POST blocks/route.ts",
+      "POST conversations/[id]/media/[mediaId]/view-once/close/route.ts",
       "POST identity/route.ts",
     ]);
   });

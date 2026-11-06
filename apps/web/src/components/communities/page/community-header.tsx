@@ -1,20 +1,34 @@
 "use client";
 
 import type { CommunityData } from "@asm/db";
+import { motion } from "motion/react";
+import type { MotionStyle } from "motion/react";
 import Image from "next/image";
 import { useState } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
 import { communityAccentStyle } from "@/lib/communities/accent";
 import type { CommunityRoleValue } from "@/lib/communities/client";
-import { formatNumber } from "@/lib/utils";
+import { cn, formatNumber } from "@/lib/utils";
 
 import CommunityAvatar from "../card/community-avatar";
+import CommunityJoinRequests from "./community-join-requests";
 import JoinButton from "./join-button";
 import CommunityNotifyButton from "./notify-button";
 
 interface CommunityHeaderProps {
-  community: CommunityData;
+  avatarRef: (element: HTMLDivElement | null) => void;
+  avatarStyle: MotionStyle;
+  nameRef: (element: HTMLDivElement | null) => void;
+  nameStyle: MotionStyle;
+  slugRef: (element: HTMLDivElement | null) => void;
+  slugStyle: MotionStyle;
+  detailsStyle: MotionStyle;
+  community: Pick<
+    CommunityData,
+    "id" | "slug" | "name" | "avatarUrl" | "bannerUrl" | "accentColor" | "type"
+  >;
+  canReadContent?: boolean;
   membership: {
     role: CommunityRoleValue;
     status: "ACTIVE" | "PENDING";
@@ -29,9 +43,17 @@ interface CommunityHeaderProps {
 // the header, matching the post card.
 export default function CommunityHeader({
   community,
+  avatarRef,
+  avatarStyle,
+  nameRef,
+  nameStyle,
+  slugRef,
+  slugStyle,
+  detailsStyle,
   membership,
   members,
   subscribed,
+  canReadContent = true,
 }: CommunityHeaderProps) {
   const { user } = useSession();
   const isLoggedIn = Boolean(user);
@@ -44,7 +66,12 @@ export default function CommunityHeader({
       className="relative"
       style={communityAccentStyle(community.accentColor)}
     >
-      <div className="relative h-36 overflow-hidden sm:h-48">
+      <div
+        className={cn(
+          "relative overflow-hidden",
+          canReadContent ? "h-36 sm:h-48" : "h-24 sm:h-32"
+        )}
+      >
         {hasBanner ? (
           <Image
             alt={`${community.name} banner`}
@@ -75,19 +102,23 @@ export default function CommunityHeader({
       </div>
 
       <div className="px-4 pb-4">
-        {/* relative z-10 is load-bearing: the banner above is position:relative,
-            so it paints on top of a static sibling and was cropping the top of
-            the avatar as it pulled up over the banner. Positioned + z-10 puts
-            the identity row back in front of the artwork. */}
-        <div className="relative z-10 -mt-8 flex items-end justify-between gap-3 sm:-mt-10">
-          <CommunityAvatar
-            accentColor={community.accentColor}
-            avatarUrl={community.avatarUrl}
-            className="size-16 sm:size-20"
-            name={community.name}
-            priority
-            slug={community.slug}
-          />
+        {/* Identity elements stay above the navigation background during their
+            transform, without a stacking context on the containing row. */}
+        <div className="relative -mt-8 flex items-end justify-between gap-3 sm:-mt-10">
+          <motion.div
+            className="relative z-30 size-16 shrink-0 origin-top-left sm:size-20"
+            ref={avatarRef}
+            style={avatarStyle}
+          >
+            <CommunityAvatar
+              accentColor={community.accentColor}
+              avatarUrl={community.avatarUrl}
+              className="size-16 sm:size-20"
+              name={community.name}
+              priority
+              slug={community.slug}
+            />
+          </motion.div>
           {/* Two actions live here: Join, and the notify bell. Sharing moved to
               the browser's own affordance and posting lives on the persistent
               compose button, which scopes itself to this community.
@@ -95,33 +126,64 @@ export default function CommunityHeader({
               An owner cannot leave their own community, so the Join pill is
               dead weight for them - but the bell stays, because a subscribed
               owner is still notified when other members post. */}
-          <div className="flex flex-wrap items-center justify-end gap-2 pb-1">
-            {membership?.role === "OWNER" ? null : (
-              <JoinButton
-                className="w-auto"
+          {canReadContent ? (
+            <motion.div
+              className="pointer-events-auto flex flex-wrap items-center justify-end gap-2 pb-1"
+              style={detailsStyle}
+            >
+              {community.type !== "PUBLIC" &&
+              membership?.status === "ACTIVE" &&
+              (membership.role === "OWNER" ||
+                membership.role === "MODERATOR") ? (
+                <CommunityJoinRequests slug={community.slug} />
+              ) : null}
+              {membership?.role === "OWNER" ? null : (
+                <JoinButton
+                  className="w-auto"
+                  communityId={community.id}
+                  initialMembership={membership}
+                  isLoggedIn={isLoggedIn}
+                  slug={community.slug}
+                />
+              )}
+              <CommunityNotifyButton
                 communityId={community.id}
-                initialMembership={membership}
+                initialSubscribed={subscribed}
                 isLoggedIn={isLoggedIn}
                 slug={community.slug}
               />
-            )}
-            <CommunityNotifyButton
-              communityId={community.id}
-              initialSubscribed={subscribed}
-              isLoggedIn={isLoggedIn}
-              slug={community.slug}
-            />
-          </div>
+            </motion.div>
+          ) : null}
         </div>
 
         <div className="mt-3">
-          <h1 className="text-foreground text-xl font-bold sm:text-2xl">
-            {community.name}
-          </h1>
-          <p className="text-muted-foreground text-sm">
-            a/{community.slug} · {formatNumber(members)} member
-            {members === 1 ? "" : "s"}
-          </p>
+          <motion.div
+            className="relative z-30 origin-top-left text-xl font-bold sm:text-2xl"
+            ref={nameRef}
+            style={nameStyle}
+          >
+            <h1 className="text-foreground truncate">{community.name}</h1>
+          </motion.div>
+          <div className="text-muted-foreground flex flex-wrap items-center gap-x-1.5 gap-y-1 text-sm">
+            <motion.div
+              className="relative z-30 min-w-0 origin-top-left truncate"
+              ref={slugRef}
+              style={slugStyle}
+            >
+              a/{community.slug}
+            </motion.div>
+            {community.type === "PRIVATE" ? (
+              <motion.span
+                className="chip-3d shrink-0 px-1.5 text-[10px]"
+                style={detailsStyle}
+              >
+                Private
+              </motion.span>
+            ) : null}
+            <motion.span className="shrink-0" style={detailsStyle}>
+              · {formatNumber(members)} member{members === 1 ? "" : "s"}
+            </motion.span>
+          </div>
         </div>
       </div>
     </header>

@@ -1,3 +1,4 @@
+import { messageIsRetained } from "@asm/messages";
 // Conversation list cache and the presence/unread polling that feeds the badges.
 //
 // Same shape as the transcript store: a hand-rolled cache read through
@@ -88,6 +89,7 @@ export class ConversationListStore {
   readonly #listeners = new Set<() => void>();
   #searchCache = new Map<string, SearchUserResult[]>();
   #updatedAt = 0;
+  #expiryTimer: ReturnType<typeof setTimeout> | undefined;
 
   getUpdatedAt = (): number => this.#updatedAt;
 
@@ -96,7 +98,7 @@ export class ConversationListStore {
       ({ conversation, isNew, lastMessage, unreadCount }) => ({
         conversation,
         isNew,
-        lastMessage,
+        lastMessage: lastMessage?.expiresAt ? null : lastMessage,
         unreadCount,
       })
     );
@@ -121,6 +123,30 @@ export class ConversationListStore {
 
   setSnapshot(patch: Partial<ConversationListSnapshot>): void {
     this.#snapshot = { ...this.#snapshot, ...patch };
+    if (this.#expiryTimer) {
+      clearTimeout(this.#expiryTimer);
+    }
+    const now = Date.now();
+    this.#snapshot = {
+      ...this.#snapshot,
+      rows: this.#snapshot.rows.map((row) =>
+        row.lastMessage && !messageIsRetained(row.lastMessage, now)
+          ? { ...row, lastMessage: null, payload: undefined, preview: "" }
+          : row
+      ),
+    };
+    const deadlines = this.#snapshot.rows.flatMap((row) =>
+      row.lastMessage?.expiresAt
+        ? [new Date(row.lastMessage.expiresAt).getTime()]
+        : []
+    );
+    if (deadlines.length) {
+      this.#expiryTimer = setTimeout(
+        () => this.setSnapshot({}),
+        Math.max(0, Math.min(...deadlines) - now) + 10
+      );
+    }
+
     this.#version += 1;
     for (const listener of this.#listeners) {
       listener();
@@ -317,11 +343,30 @@ export class ConversationListStore {
     return users;
   }
 
+  clearPreview(conversationId: string): void {
+    this.setSnapshot({
+      rows: this.#snapshot.rows.map((row) =>
+        row.conversation.id === conversationId
+          ? {
+              ...row,
+              lastMessage: null,
+              payload: undefined,
+              preview: "",
+              unreadCount: 0,
+            }
+          : row
+      ),
+    });
+  }
+
   clearSearchCache(): void {
     this.#searchCache.clear();
   }
 
   reset(): void {
+    if (this.#expiryTimer) {
+      clearTimeout(this.#expiryTimer);
+    }
     this.#updatedAt = 0;
     this.#snapshot = EMPTY;
     this.#searchCache.clear();

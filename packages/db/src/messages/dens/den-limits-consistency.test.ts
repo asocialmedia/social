@@ -110,8 +110,8 @@ const PROSE_NUMBER = /(?<amount>\d+)/u;
 // The repository root, found by walking up to the workspace manifest rather than
 // assumed, so the test does not care which directory the runner was invoked from.
 function repositoryRoot(): string {
-  let dir = nodePath.dirname(new URL(import.meta.url).pathname);
-  while (dir !== "/" && dir !== ".") {
+  let { dir } = import.meta;
+  while (true) {
     if (existsSync(nodePath.join(dir, "package.json"))) {
       const manifest = readFileSync(
         nodePath.join(dir, "package.json"),
@@ -121,7 +121,11 @@ function repositoryRoot(): string {
         return dir;
       }
     }
-    dir = nodePath.dirname(dir);
+    const parent = nodePath.dirname(dir);
+    if (parent === dir) {
+      break;
+    }
+    dir = parent;
   }
   throw new Error("could not locate the repository root from import.meta.url");
 }
@@ -160,7 +164,7 @@ function stripLineComment(line: string): string {
 }
 
 function scanFile(root: string, path: string): Offence[] {
-  const relative = path.slice(root.length + 1);
+  const relative = nodePath.relative(root, path).split(nodePath.sep).join("/");
   if (relative === DEFINITION) {
     return [];
   }
@@ -213,7 +217,7 @@ const SELF = "packages/db/src/messages/dens/den-limits-consistency.test.ts";
 
 const root = repositoryRoot();
 const files = DEN_SURFACE_ROOTS.flatMap((dir) => sourceFiles(root, dir)).filter(
-  (path) => path.slice(root.length + 1) !== SELF
+  (path) => nodePath.relative(root, path).split(nodePath.sep).join("/") !== SELF
 );
 const offences = files.flatMap((path) => scanFile(root, path));
 
@@ -331,7 +335,10 @@ describe("DEN_LIMITS is the only place a den limit is written down", () => {
     // only shape the drift ever takes.
     for (const dir of DEN_SURFACE_ROOTS) {
       for (const path of sourceFiles(root, dir)) {
-        const relative = path.slice(root.length + 1);
+        const relative = nodePath
+          .relative(root, path)
+          .split(nodePath.sep)
+          .join("/");
         if (relative === SELF) {
           continue;
         }

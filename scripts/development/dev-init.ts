@@ -20,20 +20,21 @@ import { intro, log, outro, spinner } from "@clack/prompts";
 import { ensureContainerPolicy } from "./container-policy";
 import {
   buildMarker,
+  developmentInitServices,
   fingerprintContract,
   formatComposeFailure,
   formatPrismaFailure,
   parseExtensionList,
+  parseContainerList,
   parseMarker,
   parsePendingMigrations,
   REQUIRED_EXTENSIONS,
   shouldEmitContract,
   shouldInstallExtensions,
-  shouldRunInitProfile,
   shouldSyncSkills,
   shouldUpdateDatabase,
 } from "./dev-init-lib";
-import type { StepDecision } from "./dev-init-lib";
+import type { ContainerInfo, StepDecision } from "./dev-init-lib";
 import { postgresInspectionQuery } from "./postgres-inspection";
 
 const ROOT = process.cwd();
@@ -68,14 +69,6 @@ const SERVICE_ORDER = [
   "asmob-init",
 ];
 
-interface ContainerInfo {
-  name: string;
-  ports: string;
-  service: string;
-  state: string;
-  status: string;
-}
-
 const progress = spinner();
 let failures = 0;
 
@@ -108,54 +101,6 @@ function fatal(message: string): never {
   log.error(message);
   outro(`Fix the above, then re-run \`bun run docker:dev\`.`);
   process.exit(1);
-}
-
-function parseContainerList(stdout: string): ContainerInfo[] {
-  const trimmed = stdout.trim();
-  if (!trimmed) {
-    return [];
-  }
-  // podman-compose prints one JSON array; docker compose prints one object
-  // per line. Accept both.
-  let records: {
-    Labels?: Record<string, string>;
-    Names?: string[];
-    Ports?: { host_port?: number; container_port?: number }[];
-    Service?: string;
-    State?: string;
-    Status?: string;
-  }[];
-  try {
-    if (trimmed.startsWith("[")) {
-      records = JSON.parse(trimmed) as typeof records;
-    } else {
-      records = trimmed
-        .split("\n")
-        .map((line) => line.trim())
-        .filter(Boolean)
-        .map((line) => JSON.parse(line) as (typeof records)[number]);
-    }
-  } catch {
-    return [];
-  }
-  return records.map((raw) => {
-    const service =
-      raw.Service ?? raw.Labels?.["com.docker.compose.service"] ?? "unknown";
-    const ports = (raw.Ports ?? [])
-      .map((port) =>
-        port.host_port
-          ? `${port.host_port}->${port.container_port}`
-          : `${port.container_port}`
-      )
-      .join(", ");
-    return {
-      name: raw.Names?.[0] ?? service,
-      ports,
-      service,
-      state: raw.State ?? "",
-      status: (raw.Status ?? "").replace(/\s+/g, " ").trim(),
-    };
-  });
 }
 
 function sortContainers(containers: ContainerInfo[]): ContainerInfo[] {
@@ -318,14 +263,26 @@ async function main() {
   const extensions = shouldInstallExtensions(present);
   report("extensions", extensions);
 
-  if (shouldRunInitProfile(extensions).run) {
-    start("installing postgres extensions");
-    const init = await compose(["--profile", "init", "up", "-d", "--wait"]);
-    if (init.exitCode !== 0) {
-      const detail = [init.stdout, init.stderr].filter(Boolean).join("\n");
-      fatal(`Extension install failed:\n${detail || "no output captured"}`);
+  {
+    start("initializing extensions and storage buckets");
+    // These jobs must finish successfully, rather than stay running for --wait.
+    // The regular services have already passed their health checks above.
+    for (const service of developmentInitServices(extensions)) {
+      const init = await compose([
+        "--profile",
+        "init",
+        "run",
+        "--rm",
+        "--no-deps",
+        "-T",
+        service,
+      ]);
+      if (init.exitCode !== 0) {
+        const detail = [init.stdout, init.stderr].filter(Boolean).join("\n");
+        fatal(`${service} failed:\n${detail || "no output captured"}`);
+      }
     }
-    stop("· extensions installed");
+    stop("· extensions and storage ready");
     await reportContainers("after extension install");
   }
 

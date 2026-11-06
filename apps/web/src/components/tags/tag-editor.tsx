@@ -3,12 +3,13 @@
 import type { TagWithCount } from "@asm/db";
 import { Button } from "@asm/ui/shadui/button";
 import { Command } from "cmdk";
-import { Hash, Loader2, Plus, Search, X } from "lucide-react";
+import { Hash, Plus, Search, X } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import type { Variants } from "motion/react";
 import { useCallback, useState } from "react";
 import type { MouseEvent } from "react";
 
+import { ZephLoader } from "@/components/layouts/feedback/zeph-loader";
 import { useTags } from "@/hooks/posts/use-tags";
 import { useToast } from "@/lib/gooey-toast";
 import type { Tag } from "@/lib/types";
@@ -269,7 +270,7 @@ export const TagEditor = ({
             onClick={handleSave}
           >
             {updateTags.isPending ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
+              <ZephLoader variant="search" className="h-4 w-4" />
             ) : (
               "Save Changes"
             )}

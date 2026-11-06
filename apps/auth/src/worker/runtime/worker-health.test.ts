@@ -7,6 +7,7 @@ import {
   checkWorkerHealth,
   clearWorkerHealth,
   WORKER_HEALTH_MAX_AGE_MS,
+  workerHealthPath,
   writeWorkerHealth,
 } from "./worker-health";
 
@@ -23,6 +24,27 @@ afterEach(async () => {
 });
 
 describe("per-process worker health", () => {
+  test("defaults to a writable platform path and honors an explicit health path", () => {
+    const originalPath = process.env.WORKER_HEALTH_PATH;
+    try {
+      delete process.env.WORKER_HEALTH_PATH;
+      expect(workerHealthPath("worker")).toBe(
+        path.join(
+          process.platform === "win32" ? tmpdir() : "/tmp",
+          "asm-worker-health.json"
+        )
+      );
+      process.env.WORKER_HEALTH_PATH = healthPath;
+      expect(workerHealthPath("worker")).toBe(healthPath);
+    } finally {
+      if (originalPath === undefined) {
+        delete process.env.WORKER_HEALTH_PATH;
+      } else {
+        process.env.WORKER_HEALTH_PATH = originalPath;
+      }
+    }
+  });
+
   test("accepts an atomic, fresh heartbeat from the expected running process", async () => {
     await writeWorkerHealth(healthPath, "message-search-worker", now);
     expect(
@@ -30,7 +52,9 @@ describe("per-process worker health", () => {
     ).toBe(true);
     expect(await readdir(directory)).toEqual(["health.json"]);
     const fileState = await stat(healthPath);
-    expect(fileState.mode % 512).toBe(0o600);
+    if (process.platform !== "win32") {
+      expect(fileState.mode % 512).toBe(0o600);
+    }
   });
 
   test("rejects expired, future and different-service heartbeats", async () => {

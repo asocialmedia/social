@@ -8,6 +8,7 @@ import messageHidesSql from "../../../sql/messages/message-hides.sql" with { typ
 import messageMutationsSql from "../../../sql/messages/message-mutations.sql" with { type: "text" };
 import searchCoverageSql from "../../../sql/messages/search-coverage.sql" with { type: "text" };
 import searchDocumentsSql from "../../../sql/messages/search-documents.sql" with { type: "text" };
+import searchGlobalReadersSql from "../../../sql/messages/search-global-readers.sql" with { type: "text" };
 import searchOutboxSql from "../../../sql/messages/search-outbox.sql" with { type: "text" };
 import searchReadersSql from "../../../sql/messages/search-readers.sql" with { type: "text" };
 import unreadCountersSql from "../../../sql/messages/unread-counters.sql" with { type: "text" };
@@ -143,6 +144,12 @@ const searchReaders = readSqlBundle(searchReadersSql, {
   searchOrderedDocumentPage: ["query"],
 } as const);
 
+const searchGlobalReaders = readSqlBundle(searchGlobalReadersSql, {
+  ensureGlobalMessageSearchBackfills: ["result"],
+  searchGlobalMessageCandidates: ["timeout", "result"],
+  searchGlobalMessageScope: ["result"],
+} as const);
+
 const conversationChanges = readSqlBundle(conversationChangesSql, {
   listMessageConversationChanges: ["result"],
 } as const);
@@ -216,6 +223,7 @@ export const messageSearchSql = {
   ...backfills,
   ...messageMutations,
   ...searchReaders,
+  ...searchGlobalReaders,
   ...conversationChanges,
   ...unreadCounters,
   ...searchCoverage,

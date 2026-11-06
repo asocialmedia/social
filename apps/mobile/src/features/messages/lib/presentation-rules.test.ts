@@ -540,6 +540,36 @@ describe("conversation previews", () => {
     ).toBe("Shared a GIF");
   });
 
+  test("version-2 attachments say what they are without inventing detail", () => {
+    expect(
+      messagePreviewText({
+        attachments: [{ kind: "image", url: "/api/media/a" }],
+        type: "media",
+      })
+    ).toBe("Shared an image");
+    expect(
+      messagePreviewText({
+        attachments: [
+          { kind: "image", url: "/api/media/a" },
+          { kind: "video", url: "/api/media/b" },
+        ],
+        type: "media",
+      })
+    ).toBe("Shared 2 attachments");
+    expect(
+      messagePreviewText({
+        attachments: [{ filename: "notes.pdf", kind: "file", url: "/api/m" }],
+        type: "media",
+      })
+    ).toBe("Shared a file");
+    expect(
+      messagePreviewText({
+        attachments: [{ kind: "view-once", ref: "media_abc" }],
+        type: "media",
+      })
+    ).toBe("Shared a photo");
+  });
+
   test("an unknown payload invents no description", () => {
     expect(messagePreviewText({ type: "text" } as never)).toBe("");
   });

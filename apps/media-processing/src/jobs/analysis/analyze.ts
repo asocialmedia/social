@@ -14,6 +14,7 @@ import { createHash } from "node:crypto";
 
 import {
   and,
+  enqueueMediaDeleteCascade,
   prisma,
   patchMediaAnalysisMetadata,
   patchMediaAnalysisStage,
@@ -25,17 +26,21 @@ import { UnrecoverableError } from "bullmq";
 
 import { ProviderBudgetDeferredError } from "../../analyze/budget/provider-budget";
 import { classifyMediaConcepts } from "../../analyze/classification/classify";
+import type { MediaClassificationResult } from "../../analyze/classification/classify";
 import {
   prepareClefImage,
   ClefDeferredError,
 } from "../../analyze/classification/clef";
+import { EmbeddingDeferredError } from "../../analyze/embedding/deferred";
 import {
   normalizeVector,
   generateTextEmbedding,
   embeddingModelId,
 } from "../../analyze/embedding/embedding";
+import { embeddingInputFingerprint } from "../../analyze/embedding/fingerprint";
 import { extractImageText } from "../../analyze/extraction/ocr";
 import { transcribeMediaAudio } from "../../analyze/extraction/transcribe";
+import { AnalysisSourceDeferredError } from "../../analyze/sources/deferred";
 import {
   downloadAnalysisRaster,
   AnalysisRasterError,
@@ -114,6 +119,7 @@ async function resolveAnalysisSource(
 ): Promise<AnalysisSource | null> {
   const media = await prisma.orm.public.PostMedia.select(
     "key",
+    "messageLifecycleProtected",
     "createdAt",
     "ocrText",
     "originalKey",
@@ -132,7 +138,7 @@ async function resolveAnalysisSource(
     .where({ id: mediaId })
     .first();
 
-  if (!media || media.status !== "READY") {
+  if (!media || media.status !== "READY" || media.messageLifecycleProtected) {
     return null;
   }
   if (!ANALYZABLE_TYPES.has(media._type)) {
@@ -197,21 +203,28 @@ async function resolveAnalysisSource(
       );
     } catch (error) {
       if (media._type === "IMAGE") {
-        if (
-          error instanceof AnalysisRasterError &&
-          error.decodeFailures === error.attempts
-        ) {
+        if (error instanceof AnalysisRasterError) {
+          const corrupt = error.decodeFailures === error.attempts;
+          const retryAt = Date.now() + (corrupt ? 24 : 1) * 60 * 60_000;
           await patchMediaAnalysisStage(mediaId, "raster", {
             fingerprint: rasterFingerprint,
-            reason: "unsupported-or-corrupt-image",
-            retryAt: Date.now() + 24 * 60 * 60_000,
+            reason: corrupt
+              ? "unsupported-or-corrupt-image"
+              : "source-read-unavailable",
+            retryAt,
             status: "unavailable",
           });
+          mediaLogger.warn(
+            { mediaId, retryAt, sourceFailures: error.failures },
+            "Stored image sources unavailable; analysis cooling down"
+          );
+          if (!corrupt) {
+            throw new AnalysisSourceDeferredError(retryAt);
+          }
           throw new UnrecoverableError(
-            "All stored image sources failed decoding; analysis waits for a source repair"
+            "Stored image sources unavailable; analysis waits for cooldown or source repair"
           );
         }
-        // Missing storage remains retryable; decoding failure never marks the asset safe.
         throw error;
       }
       mediaLogger.warn(
@@ -491,7 +504,10 @@ export function processMediaAnalyze(
                 version: 1,
               });
             } else if (!embeddingError) {
-              embeddingError = new Error("Multimodal embedding pending");
+              embeddingError = new EmbeddingDeferredError(
+                "unavailable",
+                Date.now() + 15 * 60_000
+              );
             }
           }
         }
@@ -509,18 +525,28 @@ export function processMediaAnalyze(
               ocrTextForClassification,
               transcriptForClassification
             );
-        const classification = classificationComplete
-          ? {
-              safety: undefined,
-              semantics: asMediaJsonObject(source.semantics) ?? undefined,
-              tags: source.semanticTags,
-            }
-          : await classifyMediaConcepts({
+        let classificationError: unknown = null;
+        let classification: MediaClassificationResult = {
+          tags: source.semanticTags,
+        };
+        if (classificationComplete) {
+          classification = {
+            safety: undefined,
+            semantics: asMediaJsonObject(source.semantics) ?? undefined,
+            tags: source.semanticTags,
+          };
+        } else {
+          try {
+            classification = await classifyMediaConcepts({
               imagePaths: visualPaths,
               mediaId: jobData.mediaId,
               ocrText: ocrTextForClassification,
               transcript: transcriptForClassification,
             });
+          } catch (error) {
+            classificationError = error;
+          }
+        }
         const verdict =
           classification.safety ??
           (asMediaJsonObject(source.safety)?.explicit === true
@@ -775,6 +801,9 @@ export function processMediaAnalyze(
               "content",
               "id",
               "createdAt",
+              "embedding",
+              "embeddingModel",
+              "embeddingFingerprint",
               "semanticTags"
             )
               .include("postMedias", (attachment) =>
@@ -797,6 +826,9 @@ export function processMediaAnalyze(
               }
               if (embeddingError) {
                 throw embeddingError;
+              }
+              if (classificationError) {
+                throw classificationError;
               }
               if (transcriptionError instanceof ProviderBudgetDeferredError) {
                 throw transcriptionError;
@@ -839,10 +871,35 @@ export function processMediaAnalyze(
               .filter(Boolean)
               .join("\n");
 
-            let embedding: number[] = [];
+            const embeddingFingerprint = embeddingInputFingerprint(
+              embeddingModelId(),
+              combinedText,
+              workerEnv.MULTIMODAL_EMBEDDING_ENABLED
+                ? post.postMedias.map(
+                    (attachment) =>
+                      asMediaJsonObject(
+                        asMediaJsonObject(attachment.techMetadata)
+                          ?.analysisStages
+                      )?.mediaEmbedding ?? null
+                  )
+                : null
+            );
+            const reuseEmbedding =
+              post.embeddingFingerprint === embeddingFingerprint &&
+              post.embeddingModel === embeddingModelId() &&
+              Boolean(post.embedding?.length);
+            let embedding: number[] = reuseEmbedding
+              ? [...(post.embedding ?? [])]
+              : [];
             try {
-              embedding = await generateTextEmbedding(combinedText);
-              if (workerEnv.MULTIMODAL_EMBEDDING_ENABLED && embedding.length) {
+              if (!reuseEmbedding) {
+                embedding = await generateTextEmbedding(combinedText);
+              }
+              if (
+                !reuseEmbedding &&
+                workerEnv.MULTIMODAL_EMBEDDING_ENABLED &&
+                embedding.length
+              ) {
                 const vectors = [embedding];
                 for (const attachment of post.postMedias) {
                   const stages = asMediaJsonObject(
@@ -886,7 +943,11 @@ export function processMediaAnalyze(
                 ? {}
                 : { explicitContent: postExplicitContent }),
               ...(embedding.length > 0
-                ? { embedding, embeddingModel: embeddingModelId() }
+                ? {
+                    embedding,
+                    embeddingFingerprint,
+                    embeddingModel: embeddingModelId(),
+                  }
                 : {}),
               semanticTags: allSemanticTags,
             });
@@ -907,8 +968,9 @@ export function processMediaAnalyze(
               if (embeddingError) {
                 throw embeddingError;
               }
-              throw new Error(
-                "Gemini embedding pending; published labels and media remain available"
+              throw new EmbeddingDeferredError(
+                "unavailable",
+                Date.now() + 15 * 60_000
               );
             }
             mediaLogger.info(
@@ -947,23 +1009,42 @@ export function processMediaAnalyze(
         if (embeddingError) {
           throw embeddingError;
         }
+        if (classificationError) {
+          throw classificationError;
+        }
         if (transcriptionError instanceof ProviderBudgetDeferredError) {
           throw transcriptionError;
         }
         return { outcome: "analyzed" as const };
       } finally {
-        await Promise.all(
-          samplePaths.map((path) =>
-            Bun.file(path)
-              .delete()
-              .catch(() => null)
+        try {
+          const ended = await prisma.orm.public.PostMedia.select(
+            "status",
+            "messageLifecycleProtected"
           )
-        );
-        if (rasterLocalPath) {
-          await Bun.$`rm -f ${rasterLocalPath}`.quiet().catch(() => null);
-        }
-        if (avLocalPath) {
-          await Bun.$`rm -f ${avLocalPath}`.quiet().catch(() => null);
+            .where({ id: jobData.mediaId })
+            .first();
+          if (ended?.status === "DELETED" && ended.messageLifecycleProtected) {
+            await prisma.orm.public.PostMedia.where({
+              id: jobData.mediaId,
+              status: "DELETED",
+            }).update({ failureCode: "CHAT_LIFECYCLE_ERASURE" });
+            await enqueueMediaDeleteCascade(jobData.mediaId);
+          }
+        } finally {
+          await Promise.all(
+            samplePaths.map((path) =>
+              Bun.file(path)
+                .delete()
+                .catch(() => null)
+            )
+          );
+          if (rasterLocalPath) {
+            await Bun.$`rm -f ${rasterLocalPath}`.quiet().catch(() => null);
+          }
+          if (avLocalPath) {
+            await Bun.$`rm -f ${avLocalPath}`.quiet().catch(() => null);
+          }
         }
       }
     },

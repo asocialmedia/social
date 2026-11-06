@@ -79,7 +79,7 @@ export interface SseStreamOptions {
   // Called for each frame that parses and passes the name filter.
   onEvent: (event: string, data: unknown) => void;
   // Only frames with this `event:` name are delivered.
-  eventName: string;
+  eventName: string | readonly string[];
   baseFetch?: SseFetch;
   onStatusChange?: (status: SseStatus) => void;
   // Return true after revalidation to retry with renewed credentials.
@@ -114,6 +114,8 @@ export async function readSseStream({
   let controller: AbortController | null = null;
   let retryDelay = SSE_INITIAL_RETRY_MS;
   let currentStatus: SseStatus | null = null;
+  const acceptedEventNames =
+    typeof eventName === "string" ? [eventName] : eventName;
 
   const updateStatus = (next: SseStatus) => {
     if (currentStatus === next) {
@@ -184,7 +186,7 @@ export async function readSseStream({
         const drained = drainSseFrames(buffer);
         buffer = drained.rest;
         for (const frame of drained.frames) {
-          if (frame.event !== eventName) {
+          if (!acceptedEventNames.includes(frame.event)) {
             continue;
           }
           try {

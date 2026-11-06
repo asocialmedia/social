@@ -19,6 +19,7 @@ export async function postClassificationSweep(): Promise<{ enqueued: number }> {
   if (
     !workerEnv.BACKFILL_ENABLED ||
     !workerEnv.CLASSIFY_ENABLED ||
+    !workerEnv.CLEF_ENABLED ||
     !workerEnv.CLOUDFLARE_API_TOKEN ||
     !workerEnv.CLOUDFLARE_ACCOUNT_ID
   ) {

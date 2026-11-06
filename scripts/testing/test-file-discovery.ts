@@ -4,6 +4,7 @@ import path from "node:path";
 export type TestScope = "all" | "integration" | "unit";
 
 const IGNORE_DIRS = new Set([
+  ".cache",
   ".git",
   ".next",
   ".turbo",

@@ -1,6 +1,6 @@
 import { Button } from "@asm/ui/shadui/button";
-import { Loader2 } from "lucide-react";
 
+import { ZephLoader } from "@/components/layouts/feedback/zeph-loader";
 import { authClient } from "@/lib/auth/auth";
 import { useToast } from "@/lib/gooey-toast";
 
@@ -55,7 +55,7 @@ export default function GoogleSignInButton({
     >
       <div className="flex items-center justify-center gap-2">
         {loading ? (
-          <Loader2 className="h-4 w-4 animate-spin" />
+          <ZephLoader variant="security" className="h-4 w-4" />
         ) : (
           <GoogleIcon />
         )}

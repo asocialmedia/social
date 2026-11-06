@@ -42,6 +42,14 @@ export function nativeNotificationAction(
     case "community": {
       return { path: { params: { slug: target.slug }, pathname: "/a/[slug]" } };
     }
+    case "communityChat": {
+      return {
+        path: {
+          params: { slug: target.slug },
+          pathname: "/a/[slug]/chat",
+        },
+      };
+    }
     case "conversation": {
       return {
         path: {

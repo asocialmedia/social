@@ -20,13 +20,22 @@ describe("media limits", () => {
 
   test("env overrides apply per key", () => {
     const limits = resolveMediaLimits({
+      MEDIA_MAX_MESSAGE_TOTAL_BYTES: "262144",
       MEDIA_MAX_VIDEO_BYTES: "1048576",
       MEDIA_UPLOADS_PER_DAY: "10",
     });
     expect(limits.maxVideoBytes).toBe(1_048_576);
+    expect(limits.maxMessageAttachmentTotalBytes).toBe(262_144);
     expect(limits.maxUploadsPerDayPerUser).toBe(10);
     // Untouched keys keep defaults.
     expect(limits.maxImageBytes).toBe(DEFAULT_LIMITS.maxImageBytes);
+  });
+
+  test("the per-message attachment budget covers an ordinary album", () => {
+    // Ten attachments at the per-file image cap stay inside the aggregate.
+    expect(
+      DEFAULT_LIMITS.maxMessageAttachmentTotalBytes
+    ).toBeGreaterThanOrEqual(10 * DEFAULT_LIMITS.maxImageBytes);
   });
 
   test("garbage env values fall back to defaults instead of throwing", () => {

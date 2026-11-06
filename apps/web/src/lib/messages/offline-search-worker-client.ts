@@ -87,13 +87,28 @@ function inputMessageBytes(message: OfflineSearchWorkerMessage): number {
   const content = message.payload.content ?? "";
   let mediaLength = 0;
   if (message.payload.type === "media") {
-    mediaLength =
-      "images" in message.payload
-        ? message.payload.images.reduce(
-            (sum, image) => sum + image.url.length,
-            0
-          )
-        : message.payload.url.length;
+    if ("attachments" in message.payload) {
+      for (const attachment of message.payload.attachments) {
+        if (attachment.kind === "view-once") {
+          mediaLength += attachment.ref.length;
+          continue;
+        }
+        mediaLength += attachment.url.length;
+        if (attachment.kind === "file") {
+          mediaLength += attachment.filename.length;
+        }
+        if (attachment.kind === "video" && attachment.posterUrl) {
+          mediaLength += attachment.posterUrl.length;
+        }
+      }
+    } else if ("images" in message.payload) {
+      mediaLength = message.payload.images.reduce(
+        (sum, image) => sum + image.url.length,
+        0
+      );
+    } else {
+      mediaLength = message.payload.url.length;
+    }
   }
   const encodedCharacterCount =
     message.message.ciphertext.length +
@@ -275,6 +290,10 @@ export function createOfflineSearchWorkerClient(input?: {
       return response?.type === "activate" && response.success;
     },
     async clearConversation(scope, conversationId) {
+      const activated = await send({ scope, type: "activate" });
+      if (activated?.type !== "activate" || !activated.success) {
+        return false;
+      }
       const response = await send({
         conversationId,
         scope,

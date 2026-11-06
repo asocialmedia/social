@@ -7,6 +7,7 @@ import {
   getCachedTopCommunities,
   getCachedTopCommunitiesByAura,
   getCommunityAuraMap,
+  getCommunityCategoryCounts,
   getCommunityCategory,
   getJoinedCommunities,
   getRecentlyVisitedCommunities,
@@ -33,7 +34,10 @@ const GUEST_CACHE_HEADER = "public, s-maxage=30, stale-while-revalidate=120";
 const SEARCH_RATE_LIMIT = 60;
 
 function json(payload: unknown, userId: string): Response {
-  const headers = new Headers();
+  const headers = new Headers({
+    "cache-control": "private, no-store",
+    vary: "Cookie",
+  });
   if (!userId) {
     headers.set("cache-control", GUEST_CACHE_HEADER);
   }
@@ -85,6 +89,109 @@ export async function GET(request: Request) {
     }
 
     const category = getCommunityCategory(categoryKey);
+    if (url.searchParams.get("visibility") === "discoverable") {
+      if (q) {
+        const allowance = await consumeRateLimit({
+          bucket: "community-search",
+          identifier: userId || getTrustedIngressIp(request.headers),
+          limit: SEARCH_RATE_LIMIT,
+          windowSeconds: 60,
+        });
+        if (!allowance.allowed) {
+          return Response.json(
+            { error: "Too many searches. Please slow down." },
+            { status: 429 }
+          );
+        }
+      }
+      const [
+        result,
+        counts,
+        publicStats,
+        joined,
+        popular,
+        topByAura,
+        activeCategory,
+        recentVisits,
+        rawSections,
+      ] = await Promise.all([
+        q
+          ? searchCommunities(q, limit, true).then((searchResult) => ({
+              ...searchResult,
+              nextCursor: null,
+            }))
+          : listCommunities({
+              categories: category?.topics.length
+                ? [...category.topics]
+                : undefined,
+              cursor,
+              includePrivate: true,
+              limit,
+            }),
+        getCommunityCategoryCounts(true),
+        getCachedCommunityDiscoveryStats(),
+        userId ? getJoinedCommunities(userId) : Promise.resolve([]),
+        getCachedTopCommunities(),
+        getCachedTopCommunitiesByAura(),
+        getCachedMostActiveCategory(),
+        userId ? getRecentlyVisitedCommunities(userId) : Promise.resolve([]),
+        !q && !cursor && category?.key === "all"
+          ? getCachedCommunitySections()
+          : Promise.resolve({ growing: [], trending: [] }),
+      ]);
+      const identities = result.communities.map((community) =>
+        community.type === "PRIVATE"
+          ? {
+              _count: { members: community._count.members },
+              accentColor: community.accentColor,
+              avatarUrl: community.avatarUrl,
+              bannerUrl: community.bannerUrl,
+              createdAt: community.createdAt,
+              description: community.description,
+              id: community.id,
+              mature: community.mature,
+              name: community.name,
+              slug: community.slug,
+              topics: community.topics,
+              type: community.type,
+            }
+          : community
+      );
+      const joinedIds = new Set(joined.map((community) => community.id));
+      const sections = {
+        growing: rawSections.growing.filter(
+          (community) => !joinedIds.has(community.id)
+        ),
+        trending: rawSections.trending.filter(
+          (community) => !joinedIds.has(community.id)
+        ),
+      };
+      const auras = await getCommunityAuraMap(
+        [
+          ...result.communities.filter(
+            (community) => community.type !== "PRIVATE"
+          ),
+          ...popular,
+          ...topByAura,
+          ...rawSections.growing,
+          ...rawSections.trending,
+        ].map((community) => community.id)
+      );
+      return json(
+        {
+          auras,
+          communities: identities,
+          counts,
+          joined,
+          nextCursor: result.nextCursor,
+          sections,
+          sidebar: { activeCategory, popular, recentVisits, topByAura },
+          stats: { ...publicStats, communities: counts.all ?? 0 },
+          total: result.total,
+        },
+        userId
+      );
+    }
 
     // Everything here is independent of the listing, so it is issued as ONE
     // batch rather than two sequential Promise.alls: splitting them put a whole

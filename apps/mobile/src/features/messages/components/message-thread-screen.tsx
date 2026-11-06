@@ -1,25 +1,5 @@
+import { messageIsRetained } from "@asm/messages";
 import * as Clipboard from "expo-clipboard";
-// The message thread: a scrolling transcript, the header, and the composer.
-//
-// Ported from apps/web/src/components/messages/message-thread.tsx (5468 lines on
-// web), restructured for a list rather than a virtualiser.
-//
-// THE PORTING DECISION THAT SHAPED EVERYTHING ELSE: web virtualises a flat row
-// list with measured heights because a browser cannot render a 500-row chat. A
-// FlatList does that natively, so the virtualiser, its scroll anchoring and its
-// measurement loop are gone and the transcript is an INVERTED list -- which starts
-// at the newest message with no scroll-to-bottom on mount, and turns "page older
-// history" into onEndReached.
-//
-// READ STATE has the real subtlety. The server's read route also advances the
-// delivery watermark, and a thread that is open but scrolled into history must not
-// claim the reader saw rows they did not. So the marker tracks the newest PEER row
-// and is only advanced while the transcript is at the live end.
-//
-// SEND is where the ratchet matters. The server owns the ratchet index and rejects
-// a send whose index it has already advanced past, answering 409 with the index it
-// wanted. On a phone that is routine -- two taps, or a retry after a tunnel -- so it
-// is retried once silently instead of surfaced as an error.
 import { Image } from "expo-image";
 import {
   ArrowLeft,
@@ -27,6 +7,8 @@ import {
   ListChecks,
   Reply,
   Search,
+  Shield,
+  Smile,
   X,
 } from "lucide-react-native";
 import {
@@ -39,6 +21,7 @@ import {
 } from "react";
 import type { ViewInstance } from "react-native";
 import {
+  Alert,
   BackHandler,
   Dimensions,
   FlatList,
@@ -56,21 +39,23 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import chatDoodle from "@/assets/images/chat-doodle.webp";
 import { UserAvatar } from "@/components/avatar/user-avatar";
+import { toast } from "@/components/feedback/toast";
 import { authClient } from "@/features/auth/lib/auth-client";
 import { useInstall } from "@/features/auth/state/install";
 import { useSessionContext } from "@/features/auth/state/session";
 import type { ApiCallOptions } from "@/features/feed/lib/feed-api";
 import { UserBadge } from "@/features/home/components/user-badge";
-import type { ConversationPrefs } from "@/features/messages/lib/client";
 import {
   ackMessageDelivered,
   ensureConversationKeys,
   fetchConversationDetail,
   markConversationRead,
+  toggleMessageReaction,
   postConversationKeys,
   sendEncryptedMessage,
   sendTypingIndicator,
 } from "@/features/messages/lib/client";
+import type { ConversationPrefs } from "@/features/messages/lib/client";
 import {
   conversationKind,
   conversationLeft,
@@ -95,6 +80,10 @@ import type {
   MessageSender,
 } from "@/features/messages/lib/types";
 import { UNREAD_DIVIDER_LABEL } from "@/features/messages/lib/unread-marker";
+import {
+  closeViewOnceMedia,
+  openViewOnceMedia,
+} from "@/features/messages/lib/view-once-client";
 import { conversationListStore } from "@/features/messages/state/conversation-list-store";
 import { useMessagesIdentity } from "@/features/messages/state/message-identity";
 import {
@@ -114,16 +103,44 @@ import {
 import { SHOWS_SCROLL_INDICATOR } from "@/lib/layout/scroll-indicator";
 import { logWarn } from "@/lib/lifecycle/telemetry";
 import { getApiBaseUrl } from "@/lib/network/api-env";
-import { useAppTheme } from "@/theme";
+import { AppThemeOverride, useAppTheme } from "@/theme";
 
+import { NativeChatLifecycleBoundary } from "./chat-lifecycle-context";
+import { useNativeChatLifecycle } from "./chat-lifecycle-state";
+import { ChatModeTransition } from "./chat-mode-transition";
 import { ConversationDetails } from "./conversation-details";
+// The message thread: a scrolling transcript, the header, and the composer.
+//
+// Ported from apps/web/src/components/messages/message-thread.tsx (5468 lines on
+// web), restructured for a list rather than a virtualiser.
+//
+// THE PORTING DECISION THAT SHAPED EVERYTHING ELSE: web virtualises a flat row
+// list with measured heights because a browser cannot render a 500-row chat. A
+// FlatList does that natively, so the virtualiser, its scroll anchoring and its
+// measurement loop are gone and the transcript is an INVERTED list -- which starts
+// at the newest message with no scroll-to-bottom on mount, and turns "page older
+// history" into onEndReached.
+//
+// READ STATE has the real subtlety. The server's read route also advances the
+// delivery watermark, and a thread that is open but scrolled into history must not
+// claim the reader saw rows they did not. So the marker tracks the newest PEER row
+// and is only advanced while the transcript is at the live end.
+//
+// SEND is where the ratchet matters. The server owns the ratchet index and rejects
+// a send whose index it has already advanced past, answering 409 with the index it
+// wanted. On a phone that is routine -- two taps, or a retry after a tunnel -- so it
+// is retried once silently instead of surfaced as an error.
+import { ConversationGreeting } from "./conversation-greeting";
 import { DenAvatar } from "./den-avatar";
+import { NativeIncognitoThread } from "./incognito-thread";
+import { NativeIncognitoUsageNotice } from "./incognito-usage-notice";
 import { MessageBubble } from "./message-bubble";
 import { MessageComposer, reclaimOwnMedia } from "./message-composer";
 import type { ComposerTarget } from "./message-composer";
 import { MessageIdentityLocked } from "./message-identity-locked";
 import { MessageMediaViewer } from "./message-media-viewer";
 import { MessagePresenceIndicator } from "./message-presence-indicator";
+import { MessageReactionSheet } from "./message-reaction-sheet";
 import { MessageSearchBar } from "./message-search-bar";
 import { MessageSearchResults } from "./message-search-results";
 import { MessagesIconButton } from "./messages-primitives";
@@ -148,13 +165,41 @@ const SELF_GROUP = {
   showTimeDivider: false,
 };
 
-export function MessageThreadScreen({
+export function MessageThreadScreen(props: {
+  conversationId: string;
+  onBack: () => void;
+}) {
+  return (
+    <NativeChatLifecycleBoundary
+      key={props.conversationId}
+      conversationId={props.conversationId}
+      onBack={props.onBack}
+    >
+      <NormalMessageThreadScreen {...props} />
+    </NativeChatLifecycleBoundary>
+  );
+}
+
+function NormalMessageThreadScreen({
   conversationId,
   onBack,
 }: {
   conversationId: string;
   onBack: () => void;
 }) {
+  const {
+    snapshot: lifecycle,
+    options: lifecycleOptions,
+    fresh: incognitoFresh,
+    revision: lifecycleRevision,
+    contentRevision,
+    serverOffset,
+    refresh: refreshLifecycle,
+    busy: lifecycleBusy,
+    error: lifecycleError,
+  } = useNativeChatLifecycle();
+  const activeIncognito =
+    lifecycle?.activeSession?.endedAt === null ? lifecycle.activeSession : null;
   const { theme } = useAppTheme();
   const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
@@ -214,7 +259,7 @@ export function MessageThreadScreen({
     status,
   } = useMessagesIdentity();
   const userId = user?.id ?? null;
-  const transcript = useTranscript(conversationId);
+  const transcript = useTranscript(conversationId, !activeIncognito);
   const presence = useMessagePresence();
 
   const [peer, setPeer] = useState<
@@ -234,7 +279,12 @@ export function MessageThreadScreen({
     themeKey: null,
   });
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const [reactionTarget, setReactionTarget] = useState<string | null>(null);
   const [replyTo, setReplyTo] = useState<ComposerTarget | null>(null);
+  const [reactionPendingIds, setReactionPendingIds] = useState<
+    ReadonlySet<string>
+  >(new Set());
+  const reactionLocks = useRef(new Set<string>());
   const [editing, setEditing] = useState<ComposerTarget | null>(null);
   const [viewer, setViewer] = useState<{
     images: string[];
@@ -270,6 +320,22 @@ export function MessageThreadScreen({
       cookie: cookie ?? undefined,
     };
   }, []);
+  const openViewOnce = useCallback(
+    async (mediaId: string, grantId: string, signal?: AbortSignal) =>
+      openViewOnceMedia(
+        conversationId,
+        mediaId,
+        grantId,
+        await apiOptions(),
+        signal
+      ),
+    [apiOptions, conversationId]
+  );
+  const closeViewOnce = useCallback(
+    async (mediaId: string, grantId: string) =>
+      closeViewOnceMedia(conversationId, mediaId, grantId, await apiOptions()),
+    [apiOptions, conversationId]
+  );
 
   // ---- peer detail + key healing ---------------------------------------------
 
@@ -376,7 +442,37 @@ export function MessageThreadScreen({
 
   // ---- decryption ------------------------------------------------------------
 
-  const { messages } = transcript.snapshot;
+  const retainedRows = transcript.snapshot.messages;
+  const [expiryClock, setExpiryClock] = useState(Date.now);
+  const messages = useMemo(
+    () =>
+      retainedRows.filter((message) => messageIsRetained(message, expiryClock)),
+    [retainedRows, expiryClock]
+  );
+  useEffect(() => {
+    const deadlines = retainedRows.flatMap((message) =>
+      message.expiresAt ? [new Date(message.expiresAt).getTime()] : []
+    );
+    if (!deadlines.length) {
+      return;
+    }
+    const timer = setTimeout(
+      () => {
+        const now = Date.now();
+        transcriptStore.removeMessages(
+          conversationId,
+          new Set(
+            retainedRows
+              .filter((message) => !messageIsRetained(message, now))
+              .map((message) => message.id)
+          )
+        );
+        setExpiryClock(now);
+      },
+      Math.max(0, Math.min(...deadlines) - Date.now()) + 10
+    );
+    return () => clearTimeout(timer);
+  }, [retainedRows, conversationId]);
 
   const decryptItems = useMemo<DecryptItem[]>(
     () =>
@@ -442,8 +538,8 @@ export function MessageThreadScreen({
   // Newest-first, because the list is inverted. Dividers become list items so they
   // scroll with the transcript rather than being positioned against it.
   const items = useMemo(
-    () => buildTranscriptRows(messages, unreadId),
-    [messages, unreadId]
+    () => buildTranscriptRows(messages, unreadId, lifecycle?.notices),
+    [messages, unreadId, lifecycle?.notices]
   );
 
   const groupMetaFor = useCallback(
@@ -532,6 +628,9 @@ export function MessageThreadScreen({
   // ---- read / delivered ------------------------------------------------------
 
   const scheduleRead = useCallback(() => {
+    if (activeIncognito) {
+      return;
+    }
     if (readTimer.current) {
       clearTimeout(readTimer.current);
     }
@@ -559,6 +658,7 @@ export function MessageThreadScreen({
           );
           unreadMessageStore.notifyActivity();
         } catch {
+          // Reconcile safely on the next request; do not expose source errors.
           // Keep the unread state until the server accepts the read watermark.
         }
         await ackMessageDelivered(conversationId, target.id, options).catch(
@@ -568,7 +668,7 @@ export function MessageThreadScreen({
         );
       })();
     }, 400);
-  }, [apiOptions, conversationId, userId]);
+  }, [apiOptions, conversationId, userId, activeIncognito]);
 
   useEffect(() => {
     if (messages.length > 0 && foreground && !searchOpen) {
@@ -663,6 +763,52 @@ export function MessageThreadScreen({
     },
     [conversationId]
   );
+  const handleMessageReaction = useCallback(
+    async (messageId: string, emoji: string) => {
+      if (reactionLocks.current.has(messageId)) {
+        return;
+      }
+      reactionLocks.current.add(messageId);
+      setReactionPendingIds((current) => new Set(current).add(messageId));
+      try {
+        const options = await apiOptions();
+        const reactions = await toggleMessageReaction(
+          conversationId,
+          messageId,
+          emoji,
+          options
+        );
+        transcriptStore.applyMessageReactions(
+          conversationId,
+          messageId,
+          reactions
+        );
+        haptic();
+      } catch (error) {
+        toast({
+          description:
+            error instanceof Error
+              ? error.message
+              : "Couldn't update reaction.",
+          title: "Reaction failed",
+          variant: "destructive",
+        });
+      }
+      reactionLocks.current.delete(messageId);
+      setReactionPendingIds((current) => {
+        const next = new Set(current);
+        next.delete(messageId);
+        return next;
+      });
+    },
+    [apiOptions, conversationId]
+  );
+  const handleDefaultReaction = useCallback(
+    (messageId: string) => {
+      void handleMessageReaction(messageId, "❤️");
+    },
+    [handleMessageReaction]
+  );
   const onLiveEndChange = useCallback(
     (atLatest: boolean) => {
       if (atLatest && !atLiveEnd.current && foreground && !searchOpen) {
@@ -690,11 +836,12 @@ export function MessageThreadScreen({
   } = useTranscriptGestures({
     messages,
     onLiveEndChange,
+    onReact: handleDefaultReaction,
     onReply: handleReply,
   });
   const selectionActive = selectedIds.size > 0;
   useEffect(() => {
-    if (!selectionActive) {
+    if (!selectionActive || activeIncognito) {
       return;
     }
     const listener = BackHandler.addEventListener("hardwareBackPress", () => {
@@ -702,7 +849,7 @@ export function MessageThreadScreen({
       return true;
     });
     return () => listener.remove();
-  }, [clearSelection, selectionActive]);
+  }, [clearSelection, selectionActive, activeIncognito]);
   const copySelected = useCallback(() => {
     const text = messages
       .filter((message) => selectedIds.has(message.id) && !message.deletedAt)
@@ -743,7 +890,7 @@ export function MessageThreadScreen({
       setSearchOpen(false);
       transcript.loadNewest();
     },
-    open: searchOpen,
+    open: searchOpen && !activeIncognito,
     scope: userId
       ? `${userId}:${identity?.publicKey ?? "pending"}:${conversationId}`
       : null,
@@ -765,6 +912,9 @@ export function MessageThreadScreen({
 
   const renderItem = useCallback(
     ({ item }: { item: TranscriptItem }) => {
+      if (item.kind === "incognito") {
+        return <NativeIncognitoUsageNotice session={item.session} />;
+      }
       if (item.kind === "divider") {
         return (
           <View style={styles.dividerRow}>
@@ -829,6 +979,8 @@ export function MessageThreadScreen({
               </Text>
             ) : null}
             <MessageBubble
+              entrances={transcriptStore.getEntrances(conversationId)}
+              messageId={message.id}
               searchJump={search.activeId === message.id ? search.jump : 0}
               deleted={Boolean(message.deletedAt)}
               edited={Boolean(message.editedAt)}
@@ -841,8 +993,16 @@ export function MessageThreadScreen({
                   ? toggleSelected(message.id)
                   : openViewer(message, entry, index)
               }
+              onOpenViewOnce={openViewOnce}
+              conversationId={conversationId}
+              onCloseViewOnce={closeViewOnce}
               onRetry={() => retryRow(message)}
+              onReact={(emoji) => {
+                void handleMessageReaction(message.id, emoji);
+              }}
+              reactionPending={reactionPendingIds.has(message.id)}
               payload={isPayload(entry) ? entry : null}
+              reactions={message.reactions ?? []}
               peerAvatarUrl={
                 isDen
                   ? (message.sender?.avatarUrl ??
@@ -868,6 +1028,7 @@ export function MessageThreadScreen({
       );
     },
     [
+      conversationId,
       search.activeId,
       search.jump,
       currentConversation,
@@ -878,17 +1039,21 @@ export function MessageThreadScreen({
       width,
       decrypted,
       groupMetaFor,
+      handleMessageReaction,
       openViewer,
       retryRow,
       theme.dividerText,
       transcript.snapshot.peerWatermarks,
       userId,
       selectedIds,
+      reactionPendingIds,
       selectionActive,
       toggleSelected,
       swipeId,
       swipeX,
       messages,
+      openViewOnce,
+      closeViewOnce,
     ]
   );
 
@@ -916,251 +1081,309 @@ export function MessageThreadScreen({
         },
       ]}
     >
-      {selectionActive ? (
-        <View style={[styles.header, { borderBottomColor: theme.dividerLine }]}>
-          <MessagesIconButton
-            icon={X}
-            label="Cancel selection"
-            onPress={clearSelection}
-            size={32}
-          />
-          <Text
-            style={[
-              styles.headerName,
-              styles.selectionCount,
-              { color: theme.dividerText },
-            ]}
+      <AppThemeOverride value={activeIncognito ? "dark" : null}>
+        {selectionActive && !activeIncognito ? (
+          <View
+            style={[styles.header, { borderBottomColor: theme.dividerLine }]}
           >
-            {selectedIds.size} selected
-          </Text>
-          {selectedIds.size === 1 ? (
             <MessagesIconButton
-              icon={Reply}
-              label="Reply to selected message"
-              onPress={() => {
-                const [id] = selectedIds;
-                clearSelection();
-                if (id) {
-                  handleReply(id);
-                }
-              }}
+              icon={X}
+              label="Cancel selection"
+              onPress={clearSelection}
               size={32}
             />
-          ) : null}
-          <MessagesIconButton
-            icon={Copy}
-            label="Copy selected messages"
-            onPress={copySelected}
-            size={32}
-          />
-          <MessagesIconButton
-            icon={ListChecks}
-            label="Select all loaded messages"
-            onPress={handleSelectAll}
-            size={32}
-          />
-        </View>
-      ) : (
-        <ThreadHeader
-          avatarUrl={peer?.avatarUrl ?? cachedPeer?.avatarUrl ?? null}
-          displayName={headerName}
-          username={peer?.username ?? cachedPeerUser?.username ?? null}
-          conversation={isDen ? currentConversation : null}
-          onDetails={() => setDetailsOpen(true)}
-          badge={peer?.badge ?? cachedPeerUser?.badge}
-          badges={peer?.badges ?? cachedPeerUser?.badges}
-          communityRoles={
-            peer?.communityMemberships ?? cachedPeerUser?.communityMemberships
-          }
-          onBack={onBack}
-          onSearch={() => {
-            if (searchOpen) {
-              search.handleClose();
-            } else {
-              setSearchOpen(true);
-            }
-          }}
-          presence={
-            presence.find(
-              (entry) => entry.id === (peer?.id ?? cachedPeer?.peerId)
-            )?.status ?? null
-          }
-          typing={transcript.snapshot.peerTyping}
-        />
-      )}
-      {searchOpen ? (
-        <MessageSearchBar
-          query={search.query}
-          onQueryChange={(value) => search.setQuery(value)}
-          listView={search.listView}
-          onToggleView={() => search.setListView((value) => !value)}
-          onClose={search.handleClose}
-          onStep={search.handleStep}
-          onPage={(direction) =>
-            search.setRequestedPage(search.page.page + direction)
-          }
-          onIndexOlder={search.handleIndexOlder}
-          indexingOlder={search.indexingOlder}
-          indexedCount={search.indexedCount}
-          fullyCovered={search.fullyCovered}
-          canIndexOlder={search.canIndexOlder}
-          error={search.error}
-          statusLabel={search.statusLabel}
-          matchCount={search.matchCount}
-          activePosition={search.activePosition}
-          page={search.page}
-        />
-      ) : null}
-      {status === "error" ||
-      (detailError && !peer && !cachedPeer) ||
-      (transcript.snapshot.error && !transcript.snapshot.initialLoaded) ? (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Retry loading Messages"
-          onPress={() => {
-            if (status === "error") {
-              retry();
-            }
-            detailRetries.current = 0;
-            setDetailRevision((value) => value + 1);
-            transcript.refresh();
-          }}
-          style={{ paddingHorizontal: 16, paddingVertical: 12 }}
-        >
-          <Text style={{ color: theme.dividerText, fontFamily: "SofiaProReg" }}>
-            Couldn't connect to Messages. Tap to retry.
-          </Text>
-        </Pressable>
-      ) : null}
-      <View
-        ref={transcriptViewportRef}
-        onLayout={handleViewportLayout}
-        style={{ flex: 1 }}
-      >
-        {prefs.wallpaperKey === "doodle" || prefs.wallpaperMediaId ? (
-          <View style={StyleSheet.absoluteFill} pointerEvents="none">
-            <Image
-              source={
-                prefs.wallpaperMediaId
-                  ? {
-                      headers: mediaCookie ? { Cookie: mediaCookie } : {},
-                      uri: `${getApiBaseUrl()}/api/media/${prefs.wallpaperMediaId}/v/lg-webp.webp`,
-                    }
-                  : chatDoodle
-              }
-              contentFit="cover"
-              style={StyleSheet.absoluteFill}
-            />
-            <View
+            <Text
               style={[
-                StyleSheet.absoluteFill,
-                {
-                  backgroundColor: `rgba(0,0,0,${(prefs.wallpaperDim ?? 40) / 100})`,
-                },
+                styles.headerName,
+                styles.selectionCount,
+                { color: theme.dividerText },
               ]}
+            >
+              {selectedIds.size} selected
+            </Text>
+            {selectedIds.size === 1 ? (
+              <>
+                <MessagesIconButton
+                  icon={Reply}
+                  label="Reply to selected message"
+                  onPress={() => {
+                    const [id] = selectedIds;
+                    clearSelection();
+                    if (id) {
+                      handleReply(id);
+                    }
+                  }}
+                  size={32}
+                />
+                <MessagesIconButton
+                  icon={Smile}
+                  label="React to selected message"
+                  onPress={() => {
+                    const [id] = selectedIds;
+                    if (id) {
+                      clearSelection();
+                      setReactionTarget(id);
+                    }
+                  }}
+                  size={32}
+                />
+              </>
+            ) : null}
+            <MessagesIconButton
+              icon={Copy}
+              label="Copy selected messages"
+              onPress={copySelected}
+              size={32}
+            />
+            <MessagesIconButton
+              icon={ListChecks}
+              label="Select all loaded messages"
+              onPress={handleSelectAll}
+              size={32}
             />
           </View>
-        ) : null}
-        {(status === "loading" || transcript.snapshot.loading) &&
-        messages.length === 0 ? (
-          <ThreadSkeleton />
         ) : (
-          <GestureDetector gesture={gesture}>
-            <Animated.View style={{ flex: 1 }}>
-              <GestureDetector gesture={nativeScroll}>
-                <AnimatedTranscriptList
-                  contentContainerStyle={styles.listContent}
-                  ref={threadListRef}
-                  data={items}
-                  onScrollToIndexFailed={search.handleScrollToIndexFailed}
-                  style={{ flex: 1 }}
-                  inverted
-                  CellRendererComponent={CellRenderer}
-                  extraData={selectedIds}
-                  onContentSizeChange={handleContentSizeChange}
-                  scrollEventThrottle={16}
-                  onScroll={handleScroll}
-                  keyboardDismissMode="interactive"
-                  keyExtractor={(row) => row.key}
-                  // Inversion turns "keep loading as the reader scrolls back" into the same
-                  // endReached the list already knows about, with no scroll-position maths.
-                  onEndReached={searchOpen ? undefined : handleLoadOlder}
-                  onEndReachedThreshold={0.5}
-                  renderItem={renderItem}
-                  showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
-                />
-              </GestureDetector>
-            </Animated.View>
-          </GestureDetector>
-        )}
-        {transcript.snapshot.hasMoreNewer &&
-        !(searchOpen && search.listView) ? (
-          <Pressable
-            accessibilityLabel="Scroll to latest messages"
-            onPress={() => {
+          <ThreadHeader
+            avatarUrl={peer?.avatarUrl ?? cachedPeer?.avatarUrl ?? null}
+            displayName={headerName}
+            username={peer?.username ?? cachedPeerUser?.username ?? null}
+            conversation={isDen ? currentConversation : null}
+            onDetails={() => setDetailsOpen(true)}
+            badge={peer?.badge ?? cachedPeerUser?.badge}
+            badges={peer?.badges ?? cachedPeerUser?.badges}
+            communityRoles={
+              peer?.communityMemberships ?? cachedPeerUser?.communityMemberships
+            }
+            onBack={onBack}
+            onSearch={() => {
               if (searchOpen) {
                 search.handleClose();
               } else {
-                transcript.loadNewest();
+                setSearchOpen(true);
               }
             }}
-            style={{
-              backgroundColor: theme.cardBg,
-              borderColor: theme.dividerLine,
-              borderRadius: 24,
-              borderWidth: 1,
-              bottom: 12,
-              padding: 12,
-              position: "absolute",
-              right: 16,
-            }}
-          >
-            <Text style={{ color: theme.inputText, fontSize: 18 }}>↓</Text>
-          </Pressable>
-        ) : null}
-        {searchOpen && search.listView ? (
-          <MessageSearchResults
-            results={search.page.pageResults}
-            messages={search.resultMessages}
-            activeId={search.activeId}
-            userId={userId}
-            peerName={peer?.displayName ?? cachedPeer?.displayName ?? "them"}
-            onJump={search.handleJumpTo}
-            emptyLabel={search.emptyLabel}
+            presence={
+              presence.find(
+                (entry) => entry.id === (peer?.id ?? cachedPeer?.peerId)
+              )?.status ?? null
+            }
+            typing={transcript.snapshot.peerTyping}
+          />
+        )}
+      </AppThemeOverride>
+      <ChatModeTransition
+        sessionId={activeIncognito?.id ?? null}
+        incognito={
+          activeIncognito && lifecycleOptions ? (
+            <AppThemeOverride value="dark">
+              <NativeIncognitoThread
+                conversationId={conversationId}
+                session={activeIncognito}
+                options={lifecycleOptions}
+                revision={lifecycleRevision + contentRevision}
+                fresh={incognitoFresh}
+                serverOffset={serverOffset}
+                onRefresh={refreshLifecycle}
+                busy={lifecycleBusy}
+                error={lifecycleError}
+              />
+            </AppThemeOverride>
+          ) : null
+        }
+      >
+        {searchOpen ? (
+          <MessageSearchBar
+            query={search.query}
+            onQueryChange={(value) => search.setQuery(value)}
+            listView={search.listView}
+            onToggleView={() => search.setListView((value) => !value)}
+            onClose={search.handleClose}
+            onStep={search.handleStep}
+            onPage={(direction) =>
+              search.setRequestedPage(search.page.page + direction)
+            }
+            onIndexOlder={search.handleIndexOlder}
+            indexingOlder={search.indexingOlder}
+            indexedCount={search.indexedCount}
+            fullyCovered={search.fullyCovered}
+            canIndexOlder={search.canIndexOlder}
+            error={search.error}
+            statusLabel={search.statusLabel}
+            matchCount={search.matchCount}
+            activePosition={search.activePosition}
+            page={search.page}
           />
         ) : null}
-      </View>
-      {transcript.snapshot.peerTyping ? <TypingDots /> : null}
-      {hasLeft ? (
-        <View style={{ padding: 16 }}>
-          <Text
-            style={{
-              color: theme.dividerText,
-              fontFamily: "SofiaProReg",
-              textAlign: "center",
+        {status === "error" ||
+        (detailError && !peer && !cachedPeer) ||
+        (transcript.snapshot.error && !transcript.snapshot.initialLoaded) ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Retry loading Messages"
+            onPress={() => {
+              if (status === "error") {
+                retry();
+              }
+              detailRetries.current = 0;
+              setDetailRevision((value) => value + 1);
+              transcript.refresh();
             }}
+            style={{ paddingHorizontal: 16, paddingVertical: 12 }}
           >
-            You left this den. Your history remains available.
-          </Text>
+            <Text
+              style={{ color: theme.dividerText, fontFamily: "SofiaProReg" }}
+            >
+              Couldn't connect to Messages. Tap to retry.
+            </Text>
+          </Pressable>
+        ) : null}
+        <View
+          ref={transcriptViewportRef}
+          onLayout={handleViewportLayout}
+          style={{ flex: 1 }}
+        >
+          {prefs.wallpaperKey === "doodle" || prefs.wallpaperMediaId ? (
+            <View style={StyleSheet.absoluteFill} pointerEvents="none">
+              <Image
+                source={
+                  prefs.wallpaperMediaId
+                    ? {
+                        headers: mediaCookie ? { Cookie: mediaCookie } : {},
+                        uri: `${getApiBaseUrl()}/api/media/${prefs.wallpaperMediaId}/v/lg-webp.webp`,
+                      }
+                    : chatDoodle
+                }
+                contentFit="cover"
+                style={StyleSheet.absoluteFill}
+              />
+              <View
+                style={[
+                  StyleSheet.absoluteFill,
+                  {
+                    backgroundColor: `rgba(0,0,0,${(prefs.wallpaperDim ?? 40) / 100})`,
+                  },
+                ]}
+              />
+            </View>
+          ) : null}
+          {(status === "loading" || transcript.snapshot.loading) &&
+          messages.length === 0 ? (
+            <ThreadSkeleton />
+          ) : (
+            <GestureDetector gesture={gesture}>
+              <Animated.View style={{ flex: 1 }}>
+                <GestureDetector gesture={nativeScroll}>
+                  <AnimatedTranscriptList
+                    contentContainerStyle={[
+                      styles.listContent,
+                      items.length === 0 && {
+                        flexGrow: 1,
+                        justifyContent: "center",
+                      },
+                    ]}
+                    ListEmptyComponent={
+                      searchOpen ? undefined : (
+                        <View style={{ transform: [{ scaleY: -1 }] }}>
+                          <ConversationGreeting
+                            isDen={isDen}
+                            name={headerName}
+                          />
+                        </View>
+                      )
+                    }
+                    ref={threadListRef}
+                    data={items}
+                    onScrollToIndexFailed={search.handleScrollToIndexFailed}
+                    style={{ flex: 1 }}
+                    inverted
+                    CellRendererComponent={CellRenderer}
+                    extraData={selectedIds}
+                    onContentSizeChange={handleContentSizeChange}
+                    scrollEventThrottle={16}
+                    onScroll={handleScroll}
+                    keyboardDismissMode="interactive"
+                    keyExtractor={(row) => row.key}
+                    // Inversion turns "keep loading as the reader scrolls back" into the same
+                    // endReached the list already knows about, with no scroll-position maths.
+                    onEndReached={searchOpen ? undefined : handleLoadOlder}
+                    onEndReachedThreshold={0.5}
+                    renderItem={renderItem}
+                    showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
+                  />
+                </GestureDetector>
+              </Animated.View>
+            </GestureDetector>
+          )}
+          {transcript.snapshot.hasMoreNewer &&
+          !(searchOpen && search.listView) ? (
+            <Pressable
+              accessibilityLabel="Scroll to latest messages"
+              onPress={() => {
+                if (searchOpen) {
+                  search.handleClose();
+                } else {
+                  transcript.loadNewest();
+                }
+              }}
+              style={{
+                backgroundColor: theme.cardBg,
+                borderColor: theme.dividerLine,
+                borderRadius: 24,
+                borderWidth: 1,
+                bottom: 12,
+                padding: 12,
+                position: "absolute",
+                right: 16,
+              }}
+            >
+              <Text style={{ color: theme.inputText, fontSize: 18 }}>↓</Text>
+            </Pressable>
+          ) : null}
+          {searchOpen && search.listView ? (
+            <MessageSearchResults
+              results={search.page.pageResults}
+              messages={search.resultMessages}
+              activeId={search.activeId}
+              userId={userId}
+              peerName={peer?.displayName ?? cachedPeer?.displayName ?? "them"}
+              onJump={search.handleJumpTo}
+              emptyLabel={search.emptyLabel}
+            />
+          ) : null}
         </View>
-      ) : (
-        <MessageComposer
-          conversationId={conversationId}
-          peerName={headerName}
-          disabled={status !== "ready" || readyKey !== privateKey}
-          editing={editing}
-          onCancelEdit={() => setEditing(null)}
-          onCancelReply={() => setReplyTo(null)}
-          onSend={handleSend}
-          onTyping={() => {
-            void (async () => {
-              const options = await apiOptions();
-              await sendTypingIndicator(conversationId, options);
-            })();
-          }}
-          replyTo={replyTo}
-        />
-      )}
+        {transcript.snapshot.peerTyping ? <TypingDots /> : null}
+        {hasLeft ? (
+          <View style={{ padding: 16 }}>
+            <Text
+              style={{
+                color: theme.dividerText,
+                fontFamily: "SofiaProReg",
+                textAlign: "center",
+              }}
+            >
+              You left this den. Your history remains available.
+            </Text>
+          </View>
+        ) : (
+          <MessageComposer
+            conversationId={conversationId}
+            stickersEnabled
+            peerName={headerName}
+            disabled={status !== "ready" || readyKey !== privateKey}
+            editing={editing}
+            onCancelEdit={() => setEditing(null)}
+            onCancelReply={() => setReplyTo(null)}
+            onSend={handleSend}
+            onTyping={() => {
+              void (async () => {
+                const options = await apiOptions();
+                await sendTypingIndicator(conversationId, options);
+              })();
+            }}
+            replyTo={replyTo}
+          />
+        )}
+      </ChatModeTransition>
       {detailsOpen && currentConversation && userId ? (
         <ConversationDetails
           conversation={currentConversation}
@@ -1193,6 +1416,16 @@ export function MessageThreadScreen({
           onClose={() => setViewer(null)}
         />
       ) : null}
+      {reactionTarget ? (
+        <MessageReactionSheet
+          onClose={() => setReactionTarget(null)}
+          onReact={(emoji) => {
+            const target = reactionTarget;
+            setReactionTarget(null);
+            void handleMessageReaction(target, emoji);
+          }}
+        />
+      ) : null}
     </View>
   );
 }
@@ -1206,6 +1439,11 @@ function messageSummary(payload: MessagePayload): string {
     return payload.content;
   }
   if (payload.type === "media") {
+    if ("attachments" in payload) {
+      return payload.attachments.some((attachment) => attachment.kind === "gif")
+        ? "GIF"
+        : "Photo";
+    }
     return payload.kind === "gif" ? "GIF" : "Photo";
   }
   return "Shared a post";
@@ -1275,6 +1513,37 @@ function ThreadHeader({
   presence: "online" | "idle" | null;
 }) {
   const { isDark, theme } = useAppTheme();
+  const { snapshot: lifecycle, busy, mutate } = useNativeChatLifecycle();
+  const activeIncognito =
+    lifecycle?.activeSession?.endedAt === null ? lifecycle.activeSession : null;
+  const endIncognito = () => {
+    if (!activeIncognito || busy) {
+      return;
+    }
+    Alert.alert(
+      "End incognito for both of you?",
+      "All messages and attachments in this session will be deleted, including unread messages.",
+      [
+        { style: "cancel", text: "Keep chatting" },
+        {
+          onPress: async () => {
+            const ended = await mutate({
+              action: "end-incognito",
+              sessionId: activeIncognito.id,
+            });
+            if (!ended) {
+              Alert.alert(
+                "Couldn't end incognito",
+                "Check your connection and try again."
+              );
+            }
+          },
+          style: "destructive",
+          text: "End and delete",
+        },
+      ]
+    );
+  };
   let statusText = username ? `@${username}` : "";
   if (conversation) {
     statusText = `${conversation.members.filter((member) => !member.leftAt).length} members`;
@@ -1339,26 +1608,73 @@ function ThreadHeader({
               />
             )}
           </View>
-          {typing ? (
-            <Text style={[styles.headerSub, { color: theme.dividerText }]}>
-              typing...
-            </Text>
-          ) : (
-            <Text
-              numberOfLines={1}
-              style={[styles.headerSub, { color: theme.dividerText }]}
-            >
-              {statusText}
-            </Text>
-          )}
+          {(() => {
+            if (activeIncognito) {
+              return (
+                <View
+                  style={{ alignItems: "center", flexDirection: "row", gap: 4 }}
+                >
+                  <Shield size={11} color={theme.dividerText} />
+                  <Text
+                    style={[styles.headerSub, { color: theme.dividerText }]}
+                  >
+                    Incognito
+                  </Text>
+                </View>
+              );
+            }
+            if (typing) {
+              return (
+                <Text style={[styles.headerSub, { color: theme.dividerText }]}>
+                  typing...
+                </Text>
+              );
+            }
+            return (
+              <Text
+                numberOfLines={1}
+                style={[styles.headerSub, { color: theme.dividerText }]}
+              >
+                {statusText}
+              </Text>
+            );
+          })()}
         </View>
       </Pressable>
-      <MessagesIconButton
-        icon={Search}
-        label="Search in conversation"
-        onPress={onSearch}
-        size={32}
-      />
+      {activeIncognito ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityState={{ disabled: busy }}
+          disabled={busy}
+          onPress={endIncognito}
+          hitSlop={8}
+          style={({ pressed }) => ({
+            backgroundColor: pressed ? theme.cardBg : "transparent",
+            borderRadius: 20,
+            justifyContent: "center",
+            minHeight: 40,
+            opacity: busy ? 0.5 : 1,
+            paddingHorizontal: 12,
+          })}
+        >
+          <Text
+            style={{
+              color: theme.inputText,
+              fontFamily: "SofiaProMed",
+              fontSize: 12,
+            }}
+          >
+            End chat
+          </Text>
+        </Pressable>
+      ) : (
+        <MessagesIconButton
+          icon={Search}
+          label="Search in conversation"
+          onPress={onSearch}
+          size={32}
+        />
+      )}
     </View>
   );
 }

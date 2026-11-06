@@ -7,13 +7,14 @@ import {
   Search,
   X,
 } from "lucide-react-native";
-import { ActivityIndicator, Text, TextInput, View } from "react-native";
+import { Text, TextInput, View } from "react-native";
 import Animated, {
   FadeIn,
   FadeOut,
   ReduceMotion,
 } from "react-native-reanimated";
 
+import { ZephLoader } from "@/components/feedback/zeph-loader";
 import type { SearchPage } from "@/features/messages/lib/message-search";
 import { MIN_SEARCH_QUERY_LENGTH } from "@/features/messages/lib/message-search";
 import {
@@ -149,7 +150,8 @@ export function MessageSearchBar({
         size={28}
       />
       {indexingOlder ? (
-        <ActivityIndicator
+        <ZephLoader
+          variant="search"
           accessibilityLabel={coverage}
           color={theme.dividerText}
           size="small"

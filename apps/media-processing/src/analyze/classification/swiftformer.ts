@@ -45,7 +45,10 @@ export function parseSwiftformerResult(value: unknown) {
 }
 
 // Feed policy interprets these verified model scores separately from inference transport.
-export async function evaluateSwiftformer(imagePath: string) {
+export async function evaluateSwiftformer(
+  imagePath: string,
+  signal?: AbortSignal
+) {
   const baseUrl = workerEnv.CLASSIFIER_URL;
   const token = workerEnv.CLASSIFIER_API_TOKEN;
   if (!baseUrl || !token) {
@@ -72,7 +75,9 @@ export async function evaluateSwiftformer(imagePath: string) {
     headers: { authorization: `Bearer ${token}`, "content-type": "image/jpeg" },
     method: "POST",
     redirect: "error",
-    signal: AbortSignal.timeout(10_000),
+    signal: signal
+      ? AbortSignal.any([signal, AbortSignal.timeout(10_000)])
+      : AbortSignal.timeout(10_000),
   });
   if (!response.ok) {
     await response.body?.cancel();

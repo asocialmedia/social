@@ -12,7 +12,9 @@ export function readSqlBundle<const Layout extends SqlBundleLayout>(
   source: string,
   layout: Layout
 ): SqlBundle<Layout> {
-  const headers = [...source.matchAll(/^\/\/ query: (?<name>\w+\.\w+)\n/gmu)];
+  const headers = [
+    ...source.matchAll(/^\/\/ query: (?<name>\w+\.\w+)\r?\n/gmu),
+  ];
   if (headers.length === 0 || headers[0]?.index !== 0) {
     throw new RangeError("SQL bundle must start with a query section");
   }
@@ -29,7 +31,7 @@ export function readSqlBundle<const Layout extends SqlBundleLayout>(
         `SQL bundle section ${name} must end with a newline`
       );
     }
-    sections.set(name, section.slice(0, -1));
+    sections.set(name, section.slice(0, section.endsWith("\r\n") ? -2 : -1));
   }
   const groups = Object.entries(layout).map(([group, names]) => [
     group,

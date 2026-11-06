@@ -37,7 +37,6 @@ export function CommunityAvatar({
         styles.avatar,
         {
           backgroundColor: failed || !uri ? `${accent}33` : theme.cardBg,
-          borderColor: accent,
           borderRadius: Math.min(12, size / 4),
           height: size,
           width: size,
@@ -69,7 +68,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     borderCurve: "continuous",
     borderRadius: 12,
-    borderWidth: 2,
     justifyContent: "center",
     overflow: "hidden",
   },

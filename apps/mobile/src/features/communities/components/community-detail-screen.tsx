@@ -1,6 +1,13 @@
+import {
+  communityFeedSearchParams,
+  communityPostFilterCount,
+  readCommunityFeedSelection,
+} from "@asm/db/communities";
+import type { CommunityPostFilters as PostFilters } from "@asm/db/communities";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
+import { PanelLeft } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Animated, Pressable, StyleSheet, Text, View } from "react-native";
 import { GestureDetector } from "react-native-gesture-handler";
@@ -49,6 +56,7 @@ import {
 } from "../lib/communities-api";
 import type { CommunityDetail } from "../lib/communities-api";
 import { resolveCommunityAccentColor } from "../lib/community-accents";
+import { communityChatUiEnabled } from "../lib/community-chat-features";
 import {
   communityMediaUrl,
   communityPageCache,
@@ -58,7 +66,12 @@ import { useCommunityMembership } from "../state/use-community-membership";
 import { CommunityAvatar } from "./community-avatar";
 import { CommunityJoinButton } from "./community-join-button";
 import { CommunityMatureGate } from "./community-mature-gate";
+import { CommunityNavigationDrawer } from "./community-navigation-drawer";
 import { CommunityNotifyButton } from "./community-notify-button";
+import {
+  CommunityPostFilters,
+  CommunityPostFilterSummary,
+} from "./community-post-filters";
 
 const COMMUNITY_VIEWABILITY = {
   itemVisiblePercentThreshold: 50,
@@ -69,6 +82,7 @@ type CommunitySort = "new" | "top";
 export function CommunityDetailScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const [navigationOpen, setNavigationOpen] = useState(false);
   const [dockHeight, setDockHeight] = useState(56);
   const params = useLocalSearchParams<{ slug?: string | string[] }>();
   const slug =
@@ -78,6 +92,9 @@ export function CommunityDetailScreen() {
   const [detail, setDetail] = useState<CommunityDetail | null>(null);
   const [detailError, setDetailError] = useState(false);
   const [sort, setSort] = useState<CommunitySort>("new");
+  const [filters, setFilters] = useState<PostFilters>(() =>
+    readCommunityFeedSelection(new URLSearchParams())
+  );
   const [revision, setRevision] = useState(0);
   const [posts, setPosts] = useState<FeedPost[]>([]);
   const [visiblePostIds, setVisiblePostIds] = useState<ReadonlySet<string>>(
@@ -117,7 +134,7 @@ export function CommunityDetailScreen() {
   const paging = useRef(false);
   const forcedKey = useRef<string | null>(null);
   const apiBase = getApiBaseUrl();
-  const cacheKey = `${apiBase}:${user?.id ?? "guest"}:${slug}:${sort}`;
+  const cacheKey = `${apiBase}:${user?.id ?? "guest"}:${slug}:${communityFeedSearchParams({ ...filters, sort })}`;
   useEffect(() => {
     if (!user?.id || !slug) {
       return;
@@ -212,7 +229,8 @@ export function CommunityDetailScreen() {
               slug,
               null,
               { apiBase, cookie: await authClient.getCookie() },
-              sort
+              sort,
+              filters
             ),
           forced
         );
@@ -236,7 +254,7 @@ export function CommunityDetailScreen() {
         generation.current += 1;
       }
     };
-  }, [apiBase, cacheKey, revision, slug, sort]);
+  }, [apiBase, cacheKey, filters, revision, slug, sort]);
   useFocusEffect(
     useCallback(() => {
       if (detail) {
@@ -288,7 +306,8 @@ export function CommunityDetailScreen() {
         slug,
         cursor,
         { apiBase, cookie: await authClient.getCookie() },
-        sort
+        sort,
+        filters
       );
       if (generation.current === token) {
         const next = communityPageCache.append(cacheKey, page);
@@ -375,10 +394,14 @@ export function CommunityDetailScreen() {
           fontSize: 18,
         }}
       >
-        No posts yet
+        {communityPostFilterCount(filters)
+          ? "No posts match these filters"
+          : "No posts yet"}
       </Text>
       <Text style={{ color: theme.dividerText, fontFamily: "SofiaProReg" }}>
-        Be the first to post here.
+        {communityPostFilterCount(filters)
+          ? "Try a different combination or clear your filters."
+          : "Be the first to post here."}
       </Text>
     </View>
   );
@@ -496,15 +519,76 @@ export function CommunityDetailScreen() {
                         {detail.stats.members === 1 ? "member" : "members"}
                       </Text>
                     </View>
-                    <FeedTabs
-                      alignment="start"
-                      active={sort}
-                      tabs={[
-                        { label: "New", value: "new" },
-                        { label: "Top", value: "top" },
-                      ]}
-                      onChange={(value) =>
-                        setSort(value === "top" ? "top" : "new")
+                    <View
+                      style={{
+                        alignItems: "center",
+                        flexDirection: "row",
+                        paddingLeft: 12,
+                      }}
+                    >
+                      <Pressable
+                        accessibilityLabel="Open community sidebar"
+                        accessibilityRole="button"
+                        accessibilityState={{ expanded: navigationOpen }}
+                        onPress={() => setNavigationOpen(true)}
+                        style={{
+                          alignItems: "center",
+                          justifyContent: "center",
+                          minHeight: 48,
+                          minWidth: 48,
+                        }}
+                      >
+                        <PanelLeft color={theme.inputText} size={22} />
+                      </Pressable>
+                      <View style={{ flex: 1 }}>
+                        <FeedTabs<"posts" | "chat">
+                          alignment="start"
+                          active="posts"
+                          tabs={[
+                            { label: "Posts", value: "posts" },
+                            ...(communityChatUiEnabled
+                              ? [{ label: "Chat", value: "chat" as const }]
+                              : []),
+                          ]}
+                          onChange={(value) => {
+                            if (value === "chat") {
+                              router.push(`/a/${slug}/chat`);
+                            }
+                          }}
+                        />
+                      </View>
+                    </View>
+                    <View
+                      style={{
+                        alignItems: "center",
+                        flexDirection: "row",
+                        paddingRight: 12,
+                      }}
+                    >
+                      <View style={{ flex: 1 }}>
+                        <FeedTabs
+                          alignment="start"
+                          active={sort}
+                          tabs={[
+                            { label: "New", value: "new" },
+                            { label: "Top", value: "top" },
+                          ]}
+                          onChange={(value) =>
+                            setSort(value === "top" ? "top" : "new")
+                          }
+                        />
+                      </View>
+                      <CommunityPostFilters
+                        filters={filters}
+                        onChange={setFilters}
+                      />
+                    </View>
+                    <CommunityPostFilterSummary
+                      filters={filters}
+                      onClear={() =>
+                        setFilters(
+                          readCommunityFeedSelection(new URLSearchParams())
+                        )
                       }
                     />
                     {feedError && posts.length > 0 ? (
@@ -577,6 +661,16 @@ export function CommunityDetailScreen() {
           community={community}
           onEnter={() => setAcceptedSlug(slug)}
           onLeave={() => router.back()}
+        />
+      ) : null}
+      {navigationOpen && detail ? (
+        <CommunityNavigationDrawer
+          key={`${user?.id ?? "guest"}:${slug}`}
+          active="posts"
+          accentColor={detail.community.accentColor}
+          communityName={detail.community.name}
+          onClose={() => setNavigationOpen(false)}
+          slug={slug}
         />
       ) : null}
     </View>

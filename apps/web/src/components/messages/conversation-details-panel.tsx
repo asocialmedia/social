@@ -90,6 +90,7 @@ import { profilePath } from "@/lib/users/profile-path";
 import { cn, formatRelativeDate } from "@/lib/utils";
 import { getSecureImageUrl } from "@/lib/utils/image-url";
 
+import { ChatLifecycleTools } from "./chat-lifecycle-tools";
 import type { SharedContentMessage } from "./conversation-shared-content";
 import { ConversationSharedLinksTab } from "./conversation-shared-links-tab";
 import { ConversationSharedMediaTab } from "./conversation-shared-media-tab";
@@ -623,6 +624,8 @@ export function ConversationDetailsBody({
         />
       </div>
 
+      <ChatLifecycleTools detail={detail} />
+
       <ThemeRow onChange={handleThemeChange} selectedKey={prefs.themeKey} />
 
       <WallpaperRow
@@ -800,6 +803,8 @@ export function ConversationDetailsBody({
                 uploadProgress={uploadProgress}
                 uploadStage={uploadStage}
               />
+
+              <ChatLifecycleTools detail={detail} />
 
               {peer ? (
                 <>
@@ -1500,7 +1505,7 @@ function WallpaperUploadTile({
     <label className="pill-3d-hover flex cursor-pointer flex-col items-center gap-1.5 rounded-lg px-2.5 py-2">
       <span className="border-border/70 text-muted-foreground flex size-10 items-center justify-center rounded-lg border border-dashed">
         {busy ? (
-          <Spinner3D className="size-4" />
+          <Spinner3D variant="messages" className="size-4" />
         ) : (
           <Upload className="size-4" />
         )}

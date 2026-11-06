@@ -48,6 +48,9 @@ export async function mediaMetricSnapshot(): Promise<
     "job.media-analyze",
     "upload.playable",
     "upload.labeled",
+    "classifier.request",
+    "classifier.cache-hit",
+    "classifier.cache-miss",
   ];
   return Object.fromEntries(
     await Promise.all(

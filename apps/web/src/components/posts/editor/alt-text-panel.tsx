@@ -147,7 +147,7 @@ const AltTextPanel = ({
               alt=""
               className={cn(
                 "size-3.5 object-contain",
-                isAutoGenerating && "animate-spin"
+                isAutoGenerating && "motion-safe:animate-pulse"
               )}
               height={20}
               src={zephImage}
@@ -186,7 +186,7 @@ const AltTextPanel = ({
             alt=""
             className={cn(
               "size-3.5 object-contain",
-              isAutoGenerating && "animate-spin"
+              isAutoGenerating && "motion-safe:animate-pulse"
             )}
             height={20}
             src={zephImage}

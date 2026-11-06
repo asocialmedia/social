@@ -41,13 +41,29 @@ export async function POST(request: Request) {
     "originalKey",
     "size",
     "_type",
-    "userId"
+    "userId",
+    "incognitoSessionId"
   )
     .where({ id: mediaId })
     .first();
   if (!media || media.userId !== user.id) {
     // Deliberately opaque: do not reveal existence of other users' rows.
     return Response.json({ error: "Media not found" }, { status: 404 });
+  }
+  // An in-flight upload must not revive an ended session: if the staged row is bound to an
+  // incognito session that has since ended, refuse finalization so the bytes stay
+  // quarantined and cleanup can erase the staged row.
+  if (media.incognitoSessionId) {
+    const incognitoSession =
+      await prisma.orm.public.MessageIncognitoSessions.where({
+        id: media.incognitoSessionId,
+      }).first();
+    if (!incognitoSession || incognitoSession.endedAt !== null) {
+      return Response.json(
+        { error: "Incognito session ended" },
+        { status: 410 }
+      );
+    }
   }
   if (!media.originalKey) {
     return Response.json(

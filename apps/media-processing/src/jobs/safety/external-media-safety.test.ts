@@ -14,7 +14,11 @@ class DeferredAssessmentError extends Error {
 let reads = 0;
 let evaluations = 0;
 const originalFetch = globalThis.fetch;
-const environment = { CLASSIFIER_API_TOKEN: "", CLASSIFIER_URL: "" };
+const environment = {
+  CLASSIFIER_API_TOKEN: "",
+  CLASSIFIER_URL: "",
+  EXTERNAL_CLEF_ENABLED: true,
+};
 const assessmentOrder: string[] = [];
 const releasedClaims: unknown[] = [];
 const ambiguousScores = {
@@ -82,6 +86,7 @@ const input = {
   text: "Unlabelled artwork",
 };
 beforeEach(() => {
+  environment.EXTERNAL_CLEF_ENABLED = true;
   values.clear();
   explicit = 0.01;
   sexualized = 0.01;
@@ -216,7 +221,7 @@ test("a redirect loop stops after a bounded number of validated hops", async () 
   expect(values.has(input.key)).toBe(false);
 });
 
-test.each([404, 410])(
+test.each([404, 410, 422])(
   "missing image HTTP %i is briefly cached without inference or a safe verdict",
   async (status) => {
     globalThis.fetch = Object.assign(
@@ -257,6 +262,26 @@ test("exhausted free contextual allowance withholds ambiguity without delaying a
   expect(values.get(input.key)).toBe("uncertain");
   expect(evaluations).toBe(1);
   expect(assessmentOrder).toEqual(["local", "contextual"]);
+  expect(releasedClaims).toEqual([input]);
+});
+
+test("local-only ambiguity is cached as uncertain and releases the queue claim", async () => {
+  environment.EXTERNAL_CLEF_ENABLED = false;
+  environment.CLASSIFIER_URL = "https://classifier.test";
+  environment.CLASSIFIER_API_TOKEN = "configured";
+  await processExternalMediaSafety(input);
+  expect(values.get(input.key)).toBe("uncertain");
+  expect(evaluations).toBe(0);
+  expect(assessmentOrder).toEqual(["local"]);
+  expect(releasedClaims).toEqual([input]);
+});
+
+test("no configured classifier with remote disabled avoids image downloads and inference", async () => {
+  environment.EXTERNAL_CLEF_ENABLED = false;
+  await processExternalMediaSafety(input);
+  expect(values.get(input.key)).toBe("uncertain");
+  expect(reads).toBe(0);
+  expect(evaluations).toBe(0);
   expect(releasedClaims).toEqual([input]);
 });
 

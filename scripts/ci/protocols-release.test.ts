@@ -3,13 +3,15 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
+import { bashCommand } from "../testing/bash-command";
+
 const repositoryRoot = path.resolve(import.meta.dir, "../..");
 
 async function runMetadataScript(script: string, env: Record<string, string>) {
   const directory = await mkdtemp(path.join(tmpdir(), "asm-protocols-ci-"));
   const output = path.join(directory, "outputs");
   try {
-    const child = Bun.spawn(["bash", script, "protocols"], {
+    const child = Bun.spawn([await bashCommand(), script, "protocols"], {
       cwd: repositoryRoot,
       env: { ...process.env, ...env, GITHUB_OUTPUT: output },
       stderr: "pipe",

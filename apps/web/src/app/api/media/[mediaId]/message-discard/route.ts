@@ -32,11 +32,15 @@ export async function DELETE(
     return Response.json({ error: "Invalid media id" }, { status: 400 });
   }
 
+  const source = await prisma.orm.public.PostMedia.select("incognitoSessionId")
+    .where({ id: mediaId, userId: user.id })
+    .first();
   const claimed = await prisma.orm.public.PostMedia.where((media) =>
     and(
       media.id.eq(mediaId),
       media.userId.eq(user.id),
       media.messageConversationId.isNotNull(),
+      media.messageLifecycleLinks.none(),
       media.status.in([
         "UPLOADING",
         "QUARANTINED",
@@ -45,7 +49,11 @@ export async function DELETE(
         "READY",
       ])
     )
-  ).updateAndCount({ messageConversationId: null });
+  ).updateAndCount(
+    source?.incognitoSessionId
+      ? { status: "DELETED" }
+      : { messageConversationId: null }
+  );
   if (claimed === 0) {
     // Deliberately opaque: not-owned / not-a-message-draft / already-discarded
     // all look the same to the client.

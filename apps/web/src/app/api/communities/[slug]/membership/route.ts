@@ -1,5 +1,5 @@
 import {
-  canViewCommunity,
+  cancelCommunityMembershipRequest,
   getCommunityBySlug,
   getMembership,
   invalidateCommunityPopulationAggregates,
@@ -55,13 +55,10 @@ export async function GET(request: Request, { params }: Params) {
     if (!community) {
       return Response.json({ error: "Community not found" }, { status: 404 });
     }
-    // A private community's roster state is its contents, so an outsider gets
-    // the same 404 the detail and feed routes give rather than a 403 that
-    // confirms the community exists.
-    if (!(await canViewCommunity(community, user.userId))) {
-      return Response.json({ error: "Community not found" }, { status: 404 });
-    }
-    return Response.json(await buildMembershipState(community.id, user.userId));
+    return Response.json(
+      await buildMembershipState(community.id, user.userId),
+      { headers: { "cache-control": "private, no-store", vary: "Cookie" } }
+    );
   } catch (error) {
     return communityErrorResponse(error, {
       operation: "membership.read",
@@ -125,7 +122,9 @@ export async function DELETE(request: Request, { params }: Params) {
     if (!community) {
       return Response.json({ error: "Community not found" }, { status: 404 });
     }
-    await leaveCommunityService(community.id, user.userId);
+    await (new URL(request.url).searchParams.get("pending") === "1"
+      ? cancelCommunityMembershipRequest(community.id, user.userId)
+      : leaveCommunityService(community.id, user.userId));
     await Promise.all([
       invalidateCommunityStats(community.id),
       invalidateCommunityPopulationAggregates(),
@@ -134,7 +133,10 @@ export async function DELETE(request: Request, { params }: Params) {
       { communityId: community.id, userId: user.userId },
       "community left via api"
     );
-    return Response.json(await buildMembershipState(community.id, user.userId));
+    return Response.json(
+      await buildMembershipState(community.id, user.userId),
+      { headers: { "cache-control": "private, no-store", vary: "Cookie" } }
+    );
   } catch (error) {
     return communityErrorResponse(error, {
       operation: "membership.leave",

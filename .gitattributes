@@ -1,0 +1,2 @@
+packages/db/prisma/migrations/snapshots/** linguist-generated=true
+*.sh text eol=lf

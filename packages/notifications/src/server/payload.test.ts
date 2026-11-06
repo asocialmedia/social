@@ -254,3 +254,51 @@ describe("a den message push", () => {
     expect(payload.body).not.toContain("Post body");
   });
 });
+
+describe("private community join request push", () => {
+  function request(overrides: Partial<NotificationRecord> = {}) {
+    return base({
+      community: {
+        id: "private-1",
+        name: "Private circle",
+        slug: "private-circle",
+      },
+      communityId: "private-1",
+      membershipRequestId: "request-1",
+      post: null,
+      postId: null,
+      type: "COMMUNITY_JOIN_REQUEST",
+      ...overrides,
+    });
+  }
+
+  test("names the applicant and opens join-request review", () => {
+    expect(buildPushPayload(request())).toEqual({
+      body: "requested to join a/private-circle",
+      path: "/a/private-circle?requests=1",
+      tag: "community_join_request:request-1",
+      title: "Alice",
+    });
+  });
+
+  test("retries replace the same request while distinct applications remain distinct", () => {
+    expect(pushTag(request({ id: "retry-notification" }))).toBe(
+      pushTag(request())
+    );
+    expect(pushTag(request({ membershipRequestId: "request-2" }))).not.toBe(
+      pushTag(request())
+    );
+  });
+
+  test("missing community context opens notifications rather than unrelated content", () => {
+    expect(notificationPath(request({ community: null }))).toBe(
+      "/notifications"
+    );
+  });
+
+  test("legacy rows without request IDs have a stable per-notification tag", () => {
+    expect(pushTag(request({ membershipRequestId: null }))).toBe(
+      "community_join_request:notif-1"
+    );
+  });
+});

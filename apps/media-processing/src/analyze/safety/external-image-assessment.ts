@@ -4,7 +4,9 @@ import { readFile } from "node:fs/promises";
 import { redis } from "@asm/db";
 
 import { workerEnv } from "../../env";
+import { recordMediaMetric } from "../../metrics";
 import { evaluateClef } from "../classification/clef";
+import { ClassifierDeferredError } from "../classification/deferred";
 import {
   evaluateSwiftformer,
   parseSwiftformerResult,
@@ -25,36 +27,145 @@ export function swiftformerVisualVerdict(
   return "uncertain";
 }
 
+const pendingAssessments = new Map<
+  string,
+  Promise<ReturnType<typeof parseSwiftformerResult>>
+>();
+
 async function cachedSwiftformer(path: string) {
   const digest = createHash("sha256")
     .update(await readFile(path))
     .digest("hex");
   const key = `external:swiftformer:v1:54f4560bd9c5ee92d45dc30418a8f8680e80de6d:${digest}`;
-  const cached = await redis.get(key).catch(() => null);
+  const pending = pendingAssessments.get(key);
+  if (pending) {
+    return pending;
+  }
+  const assessment = readOrEvaluateSwiftformer(key, path);
+  pendingAssessments.set(key, assessment);
+  try {
+    return await assessment;
+  } finally {
+    pendingAssessments.delete(key);
+  }
+}
+
+async function readOrEvaluateSwiftformer(key: string, path: string) {
+  const cached = await redis.get(key).catch(() => {
+    throw new ClassifierDeferredError();
+  });
   if (cached) {
     try {
-      return parseSwiftformerResult(JSON.parse(cached));
+      const result = parseSwiftformerResult(JSON.parse(cached));
+      await recordMediaMetric("classifier.cache-hit", 0);
+      return result;
     } catch {
       // A corrupt or incompatible cached score must be reassessed.
     }
   }
-  const result = await evaluateSwiftformer(path);
-  await redis
-    .set(key, JSON.stringify(result), "EX", 7 * 24 * 60 * 60)
+  const lockKey = `${key}:lock`;
+  const owner = crypto.randomUUID();
+  const acquired = await redis
+    .set(lockKey, owner, "PX", 30_000, "NX")
     .catch(() => null);
-  return result;
+  if (acquired !== "OK") {
+    throw new ClassifierDeferredError();
+  }
+  const controller = new AbortController();
+  let renewal = Promise.resolve();
+  let renewing = false;
+  const renewClaim = async () => {
+    try {
+      const renewed = await redis.eval(
+        "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('pexpire', KEYS[1], ARGV[2]) end return 0",
+        1,
+        lockKey,
+        owner,
+        30_000
+      );
+      if (Number(renewed) !== 1) {
+        controller.abort();
+      }
+    } catch {
+      controller.abort();
+    }
+  };
+  const leaseTimer = setInterval(async () => {
+    if (renewing) {
+      return;
+    }
+    renewing = true;
+    try {
+      renewal = renewClaim();
+      await renewal;
+    } finally {
+      renewing = false;
+    }
+  }, 10_000);
+  leaseTimer.unref();
+  try {
+    // Recheck after claiming: another worker may have filled the cache between GET and SET.
+    const completed = await redis.get(key).catch(() => {
+      throw new ClassifierDeferredError();
+    });
+    if (completed) {
+      try {
+        return parseSwiftformerResult(JSON.parse(completed));
+      } catch {
+        // Replace a corrupt cached score while holding the claim.
+      }
+    }
+    await recordMediaMetric("classifier.cache-miss", 0);
+    const started = performance.now();
+    const result = await evaluateSwiftformer(path, controller.signal);
+    if (controller.signal.aborted) {
+      throw new ClassifierDeferredError();
+    }
+    await recordMediaMetric("classifier.request", performance.now() - started);
+    await redis
+      .set(key, JSON.stringify(result), "EX", 7 * 24 * 60 * 60)
+      .catch(() => {
+        throw new ClassifierDeferredError();
+      });
+    return result;
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw new ClassifierDeferredError();
+    }
+    throw error;
+  } finally {
+    clearInterval(leaseTimer);
+    await renewal;
+    try {
+      await redis.eval(
+        "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) end return 0",
+        1,
+        lockKey,
+        owner
+      );
+    } catch {
+      // Expiry releases the claim if Redis is temporarily unavailable.
+    }
+  }
 }
 
 export async function assessExternalImages(
   paths: string[],
   text: string
-): Promise<"safe" | "explicit"> {
+): Promise<ExternalVisualVerdict> {
   if (!paths.length) {
     throw new Error("External assessment requires an image");
   }
   if (workerEnv.CLASSIFIER_URL && workerEnv.CLASSIFIER_API_TOKEN) {
-    // A job contains at most four images; the worker admits two jobs concurrently.
-    const scores = await Promise.all(paths.map(cachedSwiftformer));
+    // Each group contains at most four images; queue admission is bounded across replicas.
+    const settled = await Promise.allSettled(paths.map(cachedSwiftformer));
+    const failure = settled.find((result) => result.status === "rejected");
+    if (failure?.status === "rejected") {
+      throw failure.reason;
+    }
+    const scores = settled.flatMap((result) =>
+      result.status === "fulfilled" ? [result.value] : []
+    );
     const verdicts = scores.map(swiftformerVisualVerdict);
     if (verdicts.includes("explicit")) {
       return "explicit";
@@ -63,8 +174,16 @@ export async function assessExternalImages(
       return "safe";
     }
   }
-  // Ambiguous images retain contextual assessment within the shared free allowance.
-  const decision = await evaluateClef({ imagePaths: paths, text });
+  if (!workerEnv.EXTERNAL_CLEF_ENABLED) {
+    return "uncertain";
+  }
+  // Optional contextual assessment asks only safety questions, rather than every topic label.
+  const decision = await evaluateClef({
+    imagePaths: paths,
+    scope: "safety",
+    source: "external",
+    text,
+  });
   return (decision.probabilities.explicit ?? 1) >= 0.5 ||
     (decision.probabilities.sexualized ?? 1) >= 0.5 ||
     (decision.probabilities.graphic_violence ?? 1) >= 0.5

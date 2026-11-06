@@ -183,7 +183,7 @@ export default function CommunitiesRightRail({
   const blocked = Boolean(quota.data && !quota.data.canCreate);
 
   return (
-    <aside className="hide-native-scrollbar bg-background border-border/60 sticky top-0 z-30 hidden h-screen w-72 shrink-0 flex-col gap-3 overflow-y-auto border-l px-3 pt-3 pb-6 xl:flex">
+    <aside className="hide-native-scrollbar bg-background border-border/60 sticky top-0 z-30 hidden h-screen w-72 shrink-0 flex-col gap-3 overflow-y-auto border-l px-3 pt-3 pb-6 xl:flex [&>*]:shrink-0">
       <SearchField />
 
       {/* Create CTA. The button carries the app's orange 3D bevel (btn-3d via

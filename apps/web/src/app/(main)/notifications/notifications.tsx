@@ -80,8 +80,14 @@ export default function Notifications() {
         .get(
           "/api/notifications",
           pageParam
-            ? { searchParams: { cursor: pageParam, type: activeTab } }
-            : { searchParams: { type: activeTab } }
+            ? {
+                searchParams: {
+                  cursor: pageParam,
+                  membership: "1",
+                  type: activeTab,
+                },
+              }
+            : { searchParams: { membership: "1", type: activeTab } }
         )
         .json<NotificationsPage>(),
     queryKey: ["notifications", activeTab],

@@ -20,7 +20,19 @@ describe("familyFromMime", () => {
     expect(() => familyFromMime("image/svg+xml")).toThrow(UploadPolicyError);
     expect(() => familyFromMime("text/plain")).toThrow(UploadPolicyError);
     expect(() => familyFromMime("application/pdf")).toThrow(UploadPolicyError);
+    expect(() => familyFromMime("application/x-httpd-php")).toThrow(
+      UploadPolicyError
+    );
   });
+});
+
+test("allows safe document uploads only for messages", () => {
+  expect(
+    assertUploadable("application/pdf", 1024, { messageAttachment: true })
+  ).toBe("DOCUMENT");
+  expect(() => assertUploadable("application/pdf", 1024)).toThrow(
+    UploadPolicyError
+  );
 });
 
 describe("assertUploadable", () => {

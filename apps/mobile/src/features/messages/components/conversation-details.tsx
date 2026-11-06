@@ -33,7 +33,7 @@ import {
 import { CONVERSATION_THEMES } from "@/features/messages/lib/conversation-theme";
 import {
   decryptMessageWithBaseKey,
-  getMediaImages,
+  getMediaAttachments,
 } from "@/features/messages/lib/crypto";
 import { surface3d } from "@/features/messages/lib/message-recipes";
 import type { MessageConversationData } from "@/features/messages/lib/types";
@@ -45,6 +45,7 @@ import { getApiBaseUrl } from "@/lib/network/api-env";
 import { useAppTheme } from "@/theme";
 
 import { mergeSharedReferencePages } from "../lib/shared-reference-pages";
+import { NativeChatLifecycleTools } from "./chat-lifecycle-tools";
 import { DenAvatar } from "./den-avatar";
 import { DenRoster } from "./den-roster";
 import { DenSettings } from "./den-settings";
@@ -234,7 +235,13 @@ export function ConversationDetails({
                 let postId: string | null = null;
                 let label = payload.content ?? "Shared item";
                 if (kind === "media" && payload.type === "media") {
-                  url = getMediaImages(payload)[item.ordinal]?.url ?? null;
+                  // Keep server ordinals aligned with the normalized mixed attachment list.
+                  const attachment = getMediaAttachments(payload)[item.ordinal];
+                  url =
+                    attachment &&
+                    (attachment.kind === "gif" || attachment.kind === "image")
+                      ? attachment.url
+                      : null;
                   label = payload.content || "Shared image";
                 }
                 if (kind === "post") {
@@ -694,6 +701,7 @@ export function ConversationDetails({
       ) : null}
       {tab === "details" ? (
         <>
+          <NativeChatLifecycleTools conversation={conversation} />
           {isDen && den ? (
             <DenSettings
               conversation={conversation}

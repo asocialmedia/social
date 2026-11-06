@@ -15,7 +15,7 @@ import { Input } from "@asm/ui/shadui/input";
 import { RadioGroup, RadioGroupItem } from "@asm/ui/shadui/radio-group";
 import { Textarea } from "@asm/ui/shadui/textarea";
 import avatarPlaceholder from "@assets/general/avatar-placeholder.png";
-import { ArrowLeft, ArrowRight, Loader2, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
@@ -23,6 +23,7 @@ import { useCreateCommunityMutation } from "@/communities/mutations";
 import CommunityAccentPicker from "@/components/communities/create/community-accent-picker";
 import CommunityTopicPicker from "@/components/communities/create/community-topic-picker";
 import CreateCommunityPreview from "@/components/communities/create/create-community-preview";
+import { ZephLoader } from "@/components/layouts/feedback/zeph-loader";
 import {
   AvatarInput,
   BannerInput,
@@ -96,7 +97,8 @@ const TYPE_META: {
     value: "RESTRICTED",
   },
   {
-    description: "Only approved users can view and post",
+    description:
+      "Discoverable by everyone; approval is required to read posts and chat",
     label: "Private",
     value: "PRIVATE",
   },
@@ -781,7 +783,7 @@ export default function CreateCommunityDialog({
               variant="premium"
             >
               {isSubmitting ? (
-                <Loader2 className="size-4 animate-spin" />
+                <ZephLoader variant="general" className="size-4" />
               ) : null}
               {isUploadingMedia ? "Uploading…" : "Create community"}
             </Button>

@@ -1,3 +1,5 @@
+import { fetchChatApi } from "@/lib/messages/chat-capability";
+
 import type { MessageData } from "./types";
 
 export interface SearchHydrationHit {
@@ -10,6 +12,7 @@ export interface SearchHydrationHit {
 }
 
 interface HydratedSearchRow extends SearchHydrationHit {
+  expiresAt?: string | null;
   ciphertext: string;
   iv: string;
 }
@@ -41,6 +44,7 @@ function parseHydratedSearchRow(value: unknown): HydratedSearchRow | null {
   return {
     ciphertext: value.ciphertext,
     createdAt: value.createdAt,
+    expiresAt: typeof value.expiresAt === "string" ? value.expiresAt : null,
     id: value.id,
     iv: value.iv,
     keyEpoch: value.keyEpoch,
@@ -79,7 +83,7 @@ export async function hydrateSearchHits(input: {
   }
   const hydratedById = new Map<string, MessageData>();
   let pending = [...input.hits];
-  const fetcher = input.fetcher ?? fetch;
+  const fetcher = input.fetcher ?? fetchChatApi;
 
   while (pending.length > 0) {
     const batch = pending.slice(0, 20);
@@ -129,6 +133,7 @@ export async function hydrateSearchHits(input: {
         createdAt: new Date(hydrated.createdAt),
         deletedAt: null,
         editedAt: null,
+        expiresAt: hydrated.expiresAt ? new Date(hydrated.expiresAt) : null,
         id: hydrated.id,
         iv: hydrated.iv,
         keyEpoch: hydrated.keyEpoch,

@@ -5,6 +5,7 @@ import {
   hydrateViewCounts,
 } from "@asm/db";
 import type { PostsPage } from "@asm/db";
+import { readCommunityFeedSelection } from "@asm/db/communities";
 import { createLogger } from "@asm/logger";
 
 import { getSessionFromApi } from "@/lib/auth/session";
@@ -22,7 +23,7 @@ export async function GET(
   const userId = session?.user?.id ?? "";
   const url = new URL(request.url);
   const cursor = url.searchParams.get("cursor")?.trim() || undefined;
-  const sort = url.searchParams.get("sort") === "top" ? "top" : "new";
+  const { sort, ...filters } = readCommunityFeedSelection(url.searchParams);
 
   try {
     const community = await getCommunityBySlug(slug);
@@ -39,6 +40,7 @@ export async function GET(
     const page = await getCommunityFeedPage({
       communityId: community.id,
       cursor,
+      filters,
       loggedInUserId: userId,
       sort,
     });

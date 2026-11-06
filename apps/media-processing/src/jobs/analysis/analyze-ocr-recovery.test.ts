@@ -16,6 +16,7 @@ const row = {
   createdAt: new Date(),
   id: "ocr-recovery",
   key: "image.png",
+  messageLifecycleProtected: false,
   ocrText: null as string | null,
   originalKey: "private-original.png",
   post: null,
@@ -45,6 +46,7 @@ const builder = {
 };
 mock.module("@asm/db", () => ({
   and: (...values: unknown[]) => values,
+  enqueueMediaDeleteCascade: () => Promise.resolve(),
   indexPostEmbedding: () => Promise.resolve(),
   patchMediaAnalysisMetadata: (
     _id: string,
@@ -168,3 +170,13 @@ test("OCR failures preserve labels and retry missing text; completed OCR is reus
     await rm(directory, { force: true, recursive: true });
   }
 }, 30_000);
+
+test("timed chat assets never start content enrichment", async () => {
+  row.messageLifecycleProtected = true;
+  const before = { classificationAttempts, downloads, ocrAttempts };
+  const { processMediaAnalyze } = await import("./analyze");
+  expect(await processMediaAnalyze({ mediaId: row.id })).toEqual({
+    outcome: "skipped",
+  });
+  expect({ classificationAttempts, downloads, ocrAttempts }).toEqual(before);
+});

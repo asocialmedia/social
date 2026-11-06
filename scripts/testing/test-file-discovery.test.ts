@@ -32,6 +32,9 @@ describe("test-file-discovery", () => {
     await ensureFile(path.join(sandbox, "node_modules", "x", "ignore.test.ts"));
     await ensureFile(path.join(sandbox, "coverage", "ignore.spec.ts"));
     await ensureFile(path.join(sandbox, ".next", "ignore.test.ts"));
+    await ensureFile(
+      path.join(sandbox, ".cache", "checkout", "ignore.test.ts")
+    );
 
     const all = await collectTestFiles("all", sandbox);
     const unit = await collectTestFiles("unit", sandbox);

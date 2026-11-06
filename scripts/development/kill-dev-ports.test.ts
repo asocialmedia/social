@@ -6,6 +6,7 @@ import {
   findListeningPids,
   killStaleDevProcesses,
 } from "./kill-dev-ports";
+import { hasListenerOnPort } from "./tcp-port";
 
 describe("kill-dev-ports", () => {
   test("defines the expected development ports", () => {
@@ -25,12 +26,42 @@ describe("kill-dev-ports", () => {
       }
       const pids = await findListeningPids([address.port], []);
       expect(pids).toContain(process.pid);
+      expect(
+        await findListeningPids([address.port], [process.pid])
+      ).not.toContain(process.pid);
     } finally {
       server.close();
     }
-  });
+  }, 15_000);
 
   test("killStaleDevProcesses executes without error when ports are free", async () => {
     await expect(killStaleDevProcesses([39877])).resolves.toBeUndefined();
   });
+
+  test("terminates a stale server and releases its port", async () => {
+    const child = Bun.spawn(
+      [
+        process.execPath,
+        "-e",
+        'const server = Bun.serve({ port: 0, fetch: () => new Response("ok") }); console.log(server.port);',
+      ],
+      { stdout: "pipe", stderr: "inherit" }
+    );
+    try {
+      let output = "";
+      for await (const chunk of child.stdout) {
+        output += new TextDecoder().decode(chunk);
+        if (output.includes("\n")) break;
+      }
+      const port = Number(output.trim());
+      expect(port).toBeGreaterThan(0);
+      expect(await hasListenerOnPort(port)).toBe(true);
+      await killStaleDevProcesses([port]);
+      await child.exited;
+      expect(await hasListenerOnPort(port)).toBe(false);
+    } finally {
+      child.kill();
+      await child.exited;
+    }
+  }, 20_000);
 });

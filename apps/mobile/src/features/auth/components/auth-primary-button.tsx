@@ -1,3 +1,4 @@
+import { Pressable, StyleSheet, Text } from "react-native";
 // Shared 3D primary button (btn-3d / premium), the native build of web's
 // `variant="premium"` Button. It rides a Gradient3D rather than a View
 // wrapping a LinearGradient: React Native paints inset shadows on the view's
@@ -5,8 +6,7 @@
 // recipe's dual border collapses to a single ring. Used by login, signup,
 // reset-password, confirm-reset and help.
 
-import { ActivityIndicator, Pressable, StyleSheet, Text } from "react-native";
-
+import { ZephLoader } from "@/components/feedback/zeph-loader";
 import { Gradient3D } from "@/components/surface/gradient-3d";
 import {
   ORANGE_DISABLED_GRADIENT,
@@ -80,7 +80,7 @@ export function AuthPrimaryButton({
             style={[styles.btn, pressed && !isDisabled && styles.pressed]}
           >
             {loading ? (
-              <ActivityIndicator color="#ffffff" size="small" />
+              <ZephLoader variant="security" color="#ffffff" size="small" />
             ) : null}
             <Text
               className="text-base tracking-tight text-white"

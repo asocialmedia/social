@@ -10,6 +10,10 @@
 export const NOTIFICATION_TYPES = [
   "AMPLIFY",
   "COMMENT",
+  "COMMUNITY_CHAT",
+  "COMMUNITY_JOIN_REQUEST",
+  "COMMUNITY_JOIN_APPROVED",
+  "COMMUNITY_JOIN_DECLINED",
   "COMMUNITY_POST",
   "DEN_MEMBERSHIP_ENDED",
   "DEN_MESSAGE",
@@ -69,6 +73,7 @@ export interface NotificationConversation {
 }
 
 export interface NotificationRecord {
+  membershipRequestId?: string | null;
   comment: NotificationComment | null;
   commentId: string | null;
   community: NotificationCommunity | null;

@@ -18,7 +18,7 @@ beforeEach(async () => {
     "REDIS_URL=redis://root:6379\nROOT_ONLY=secret\n"
   );
   await writeFile(
-    path.join(appDirectory, ".env.development"),
+    path.join(appDirectory, ".env.defaults"),
     "PROTOCOLS_PORT=3012\nREDIS_URL=redis://default:6379\nPROTOCOLS_INTERNAL_TOKEN=asm_protocols_development_only_replace_in_production\n"
   );
 });
@@ -46,6 +46,32 @@ test("local secrets override the root file while injected values keep priority",
   loadProtocolsEnvironment({ appDirectory, env });
   expect(env.REDIS_URL).toBe("redis://local:6379");
   expect(env.PROTOCOLS_PORT).toBe("3013");
+});
+
+test("the Bun script launcher cannot preload development defaults ahead of root secrets", async () => {
+  const loader = new URL("load-env.ts", import.meta.url).href;
+  await Bun.write(
+    path.join(appDirectory, "package.json"),
+    JSON.stringify({
+      scripts: {
+        dev: `bun --no-env-file -e 'import { loadProtocolsEnvironment } from ${JSON.stringify(loader)}; loadProtocolsEnvironment({appDirectory: ${JSON.stringify(appDirectory)}}); console.log(process.env.REDIS_URL)'`,
+      },
+    })
+  );
+  const child = Bun.spawn([process.execPath, "run", "dev"], {
+    cwd: appDirectory,
+    env: { ...process.env, NODE_ENV: "development", REDIS_URL: undefined },
+    stderr: "pipe",
+    stdout: "pipe",
+  });
+  const [stdout, stderr, code] = await Promise.all([
+    new Response(child.stdout).text(),
+    new Response(child.stderr).text(),
+    child.exited,
+  ]);
+  expect(code).toBe(0);
+  expect(stdout.trim()).toBe("redis://root:6379");
+  expect(stderr).not.toContain("error:");
 });
 
 test("production never falls back to a development credential", () => {

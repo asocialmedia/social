@@ -21,13 +21,16 @@ describe("nativeNotificationAction", () => {
     expect(action.notice).toBeUndefined();
   });
 
-  test("opens native profiles, communities and den conversations", () => {
+  test("opens native profiles, communities, chat and den conversations", () => {
     expect(
       nativeNotificationAction({ kind: "user", username: "alice" }).path
     ).toEqual({ params: { username: "alice" }, pathname: "/users/[username]" });
     expect(
       nativeNotificationAction({ kind: "community", slug: "code" }).path
     ).toEqual({ params: { slug: "code" }, pathname: "/a/[slug]" });
+    expect(
+      nativeNotificationAction({ kind: "communityChat", slug: "anime" }).path
+    ).toEqual({ params: { slug: "anime" }, pathname: "/a/[slug]/chat" });
     expect(
       nativeNotificationAction({
         conversationId: "den-1",
@@ -59,6 +62,7 @@ describe("nativeNotificationAction", () => {
         postId: "p",
       },
       { kind: "community", slug: "anime" },
+      { kind: "communityChat", slug: "anime" },
       { kind: "user", username: "alice" },
       { conversationId: "den-1", kind: "conversation" },
       { kind: "none" },

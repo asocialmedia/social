@@ -13,9 +13,45 @@ import {
   setCommunitySubscription,
   fetchCommunitiesPage,
   parseCommunityPage,
+  fetchCommunityPosts,
 } from "./communities-api";
 
 const API = "https://api.test";
+
+test("community post filters and pagination use the shared server query", async () => {
+  let requested = "";
+  await fetchCommunityPosts(
+    "a/b",
+    "cursor/id",
+    {
+      apiBase: API,
+      baseFetch: stubFetch((url) => {
+        requested = url;
+        return Response.json({ nextCursor: null, posts: [] });
+      }),
+    },
+    "top",
+    {
+      author: "anny",
+      query: "colors & light",
+      range: "week",
+      rating: "safe",
+      type: "images",
+    }
+  );
+  const url = new URL(requested);
+  expect(url.pathname).toBe("/api/communities/a%2Fb/posts");
+  expect(Object.fromEntries(url.searchParams)).toEqual({
+    author: "anny",
+    cursor: "cursor/id",
+    excludeModerated: "1",
+    q: "colors & light",
+    range: "week",
+    rating: "safe",
+    sort: "top",
+    type: "images",
+  });
+});
 
 function stubFetch(
   handler: (url: string, init?: RequestInit) => Response

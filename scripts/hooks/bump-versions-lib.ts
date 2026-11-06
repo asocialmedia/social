@@ -139,8 +139,8 @@ export function getVersionTargets(changedPackages: Set<string>): string[] {
   const targets = new Set<string>(["package.json"]);
 
   for (const pkg of changedPackages) {
-    targets.add(path.join("packages", pkg, "package.json"));
-    targets.add(path.join("apps", pkg, "package.json"));
+    targets.add(path.posix.join("packages", pkg, "package.json"));
+    targets.add(path.posix.join("apps", pkg, "package.json"));
   }
 
   return [...targets];
@@ -150,7 +150,7 @@ export function getAppJsonTargets(changedPackages: Set<string>): string[] {
   const targets = new Set<string>();
 
   for (const pkg of changedPackages) {
-    targets.add(path.join("apps", pkg, "app.json"));
+    targets.add(path.posix.join("apps", pkg, "app.json"));
   }
 
   return [...targets];
@@ -163,8 +163,8 @@ function getAppJsonVersion(app: AppJson): string | undefined {
   );
 }
 
-const MOBILE_PACKAGE_PATH = path.join("apps", "mobile", "package.json");
-const MOBILE_APP_JSON_PATH = path.join("apps", "mobile", "app.json");
+const MOBILE_PACKAGE_PATH = "apps/mobile/package.json";
+const MOBILE_APP_JSON_PATH = "apps/mobile/app.json";
 
 async function readPackageTargets(
   targets: string[],
@@ -281,7 +281,7 @@ async function bumpVersions(
   if (context.readLockfile && context.writeLockfile) {
     const lockVersions = new Map<string, string>();
     for (const { pkg, pkgPath } of packageWrites) {
-      const workspacePath = path.dirname(pkgPath);
+      const workspacePath = path.posix.dirname(pkgPath);
       if (workspacePath !== ".") {
         lockVersions.set(workspacePath, pkg.version);
       }

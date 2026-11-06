@@ -26,7 +26,6 @@ import type { ComponentType } from "react";
 import { useRef, useState } from "react";
 import type { ViewInstance } from "react-native";
 import {
-  ActivityIndicator,
   Modal,
   Pressable,
   StyleSheet,
@@ -42,6 +41,7 @@ import {
 } from "@/components/avatar/user-avatar";
 import { AnimatedWordCounter } from "@/components/feedback/animated-word-counter";
 import { toast } from "@/components/feedback/toast";
+import { ZephLoader } from "@/components/feedback/zeph-loader";
 import { GifPicker, reelsPanel } from "@/components/media/gif-picker";
 import { Gradient3D } from "@/components/surface/gradient-3d";
 import { IconButton3D } from "@/components/surface/icon-button-3d";
@@ -267,7 +267,9 @@ function PublishButton({
             shadows={shadows}
             style={[styles.publish, pressed && styles.pressed]}
           >
-            {loading ? <ActivityIndicator color="#ffffff" size={12} /> : null}
+            {loading ? (
+              <ZephLoader variant="general" color="#ffffff" size={12} />
+            ) : null}
             <Text style={styles.publishText}>{label}</Text>
           </Gradient3D>
         );

@@ -5,17 +5,10 @@
 // with the pull and spins while refreshing), and the empty / error states.
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
-import { ArrowUp, Loader2, Plus } from "lucide-react-native";
+import { ArrowUp, Plus } from "lucide-react-native";
 import { useEffect, useState } from "react";
 import type { LayoutRectangle } from "react-native";
-import {
-  Animated,
-  Easing,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
+import { Animated, Pressable, StyleSheet, Text, View } from "react-native";
 import Reanimated, {
   useAnimatedStyle,
   withTiming,
@@ -24,6 +17,7 @@ import type { SharedValue } from "react-native-reanimated";
 
 import avatarPlaceholder from "@/assets/images/avatar-placeholder.png";
 import noMediaImage from "@/assets/images/nomedia.png";
+import { ZephLoader } from "@/components/feedback/zeph-loader";
 import { Gradient3D } from "@/components/surface/gradient-3d";
 import { RAIL_BUTTON, themeText } from "@/components/surface/recipes";
 import type { FeedPost } from "@/features/feed/lib/feed-types";
@@ -209,36 +203,7 @@ export function NewGustsPill({
 }
 
 function SpinningLoader({ size }: { size: number }) {
-  // oxlint-disable-next-line react/hook-use-state -- single stable Animated.Value created once; no setter is ever needed
-  const [turn] = useState(() => new Animated.Value(0));
-  useEffect(() => {
-    const loop = Animated.loop(
-      Animated.timing(turn, {
-        duration: 1000,
-        easing: Easing.linear,
-        toValue: 1,
-        useNativeDriver: true,
-      })
-    );
-    loop.start();
-    return () => loop.stop();
-  }, [turn]);
-  return (
-    <Animated.View
-      style={{
-        transform: [
-          {
-            rotate: turn.interpolate({
-              inputRange: [0, 1],
-              outputRange: ["0deg", "360deg"],
-            }),
-          },
-        ],
-      }}
-    >
-      <Loader2 color={PRIMARY} size={size} />
-    </Animated.View>
-  );
+  return <ZephLoader variant="media" size={size} />;
 }
 
 // Web's pull indicator: grows to the pull distance under the tabs, with a
@@ -262,7 +227,7 @@ export function PullIndicator({
     ],
   }));
   const rotation = useAnimatedStyle(() => ({
-    transform: [{ rotate: `${distance.get() * 2}deg` }],
+    transform: [{ scale: Math.min(1, 0.8 + distance.get() / 300) }],
   }));
   return (
     <Reanimated.View
@@ -274,7 +239,7 @@ export function PullIndicator({
           <SpinningLoader size={20} />
         ) : (
           <Reanimated.View style={rotation}>
-            <Loader2 color={PRIMARY} size={20} />
+            <ZephLoader variant="media" color={PRIMARY} size={20} />
           </Reanimated.View>
         )}
       </RailButton>

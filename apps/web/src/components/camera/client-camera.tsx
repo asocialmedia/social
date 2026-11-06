@@ -5,6 +5,7 @@ import { Images, RefreshCw, X, Zap, ZapOff } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { ZephLoader } from "@/components/layouts/feedback/zeph-loader";
 import { useComposerAttachmentStore } from "@/components/posts/editor/attachment-store";
 import { cn } from "@/lib/utils";
 import { useActiveCommunityStore } from "@/store/active-community-store";
@@ -583,7 +584,7 @@ export default function ClientCamera() {
                   <span className="size-6 rounded-md bg-white shadow-sm" />
                 ) : null}
                 {capturing && !recording ? (
-                  <span className="size-5 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                  <ZephLoader variant="media" className="size-5" />
                 ) : null}
               </span>
             </span>

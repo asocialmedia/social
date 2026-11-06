@@ -1,5 +1,9 @@
 import {
   and,
+  ChatLifecycleError,
+  guardNormalChatSend,
+  linkLifecycleMedia,
+  listMessageReactionSummaries,
   consumeRateLimit,
   createDenMessageNotifications,
   enqueueMessagePush,
@@ -16,9 +20,11 @@ import {
   visibleToUser,
 } from "@asm/db";
 import type { PrismaTransaction } from "@asm/db";
+import { isUuid } from "@asm/messages";
 
 import { getSessionFromApi } from "@/lib/auth/session";
 import { blockedSendPeer } from "@/lib/messages/blocks";
+import { chatCapabilityError } from "@/lib/messages/chat-capability";
 import {
   DEN_MESSAGE_SEND_HOUR_RATE_LIMIT,
   DEN_MESSAGE_SEND_RATE_LIMIT,
@@ -162,10 +168,12 @@ function mapMessage(message: MessageQueryData): MessageData {
     createdAt: fromPrismaDateTime(message.createdAt),
     deletedAt: message.deletedAt ? fromPrismaDateTime(message.deletedAt) : null,
     editedAt: message.editedAt ? fromPrismaDateTime(message.editedAt) : null,
+    expiresAt: message.expiresAt ? fromPrismaDateTime(message.expiresAt) : null,
     id: message.id ?? "",
     iv: message.iv ?? "",
     keyEpoch: message.keyEpoch ?? null,
     ratchetIndex: message.ratchetIndex ?? 0,
+    reactions: [],
     revision: message.revision ?? 1,
     sender: message.sender
       ? {
@@ -180,6 +188,22 @@ function mapMessage(message: MessageQueryData): MessageData {
       : null,
     senderId: message.senderId ?? "",
   };
+}
+
+async function addReactionSummaries(
+  conversationId: string,
+  userId: string,
+  messages: MessageData[]
+): Promise<MessageData[]> {
+  const summaries = await listMessageReactionSummaries(
+    conversationId,
+    userId,
+    messages.map((message) => message.id)
+  );
+  return messages.map((message) => ({
+    ...message,
+    reactions: summaries.get(message.id) ?? [],
+  }));
 }
 
 // The position a cursor names: the id the client holds, plus the timestamp the
@@ -247,6 +271,10 @@ export async function GET(
   const conversation = await getConversationForUser(id, user.id);
   if (!conversation) {
     return Response.json({ error: "Conversation not found" }, { status: 404 });
+  }
+  const capabilityError = chatCapabilityError(request, conversation);
+  if (capabilityError) {
+    return capabilityError;
   }
 
   const url = new URL(request.url);
@@ -421,7 +449,11 @@ export async function GET(
     const newerPage = hasNewer ? newer.slice(0, newerCount) : newer;
     // Oldest-first, the one order the transcript renders in: the older half read
     // newest-first is reversed, then the newer half appends in ascending order.
-    const messages = [...olderPage.toReversed(), ...newerPage].map(mapMessage);
+    const messages = await addReactionSummaries(
+      id,
+      user.id,
+      [...olderPage.toReversed(), ...newerPage].map(mapMessage)
+    );
     const oldest = messages.at(0);
     const newest = messages.at(-1);
     const response: MessagePage = {
@@ -454,7 +486,11 @@ export async function GET(
       });
     }
     const rows = await rowsQuery.limit(pageSize + 1).all();
-    const messages = rows.map(mapMessage);
+    const messages = await addReactionSummaries(
+      id,
+      user.id,
+      rows.map(mapMessage)
+    );
 
     const hasMore = messages.length > pageSize;
     const page = hasMore ? messages.slice(0, pageSize) : messages;
@@ -511,7 +547,11 @@ export async function GET(
     }
   }
   const messageRows = await messageQuery.limit(pageSize + 1).all();
-  const messages = messageRows.map(mapMessage);
+  const messages = await addReactionSummaries(
+    id,
+    user.id,
+    messageRows.map(mapMessage)
+  );
 
   const hasMore = messages.length > pageSize;
   const page = hasMore ? messages.slice(0, pageSize) : messages;
@@ -568,6 +608,10 @@ export async function POST(
   if (!conversation) {
     return Response.json({ error: "Conversation not found" }, { status: 404 });
   }
+  const capabilityError = chatCapabilityError(request, conversation);
+  if (capabilityError) {
+    return capabilityError;
+  }
   // The read gate above admits somebody who left a den, so this refuses them: they
   // can still read everything said before they went, and nothing they send now
   // would ever reach the people still in the room, because the key epoch that
@@ -578,9 +622,13 @@ export async function POST(
 
   const parsed = await parseJsonBody(request);
   const body = parsed as {
+    clientMessageId?: string;
     ciphertext?: string;
     iv?: string;
     ratchetIndex?: number;
+    retentionVersion?: number;
+    mediaIds?: unknown;
+    viewOnceMediaIds?: unknown;
   } | null;
   if (
     body === null ||
@@ -588,7 +636,8 @@ export async function POST(
     body.ciphertext.length === 0 ||
     typeof body.iv !== "string" ||
     body.iv.length === 0 ||
-    typeof body.ratchetIndex !== "number"
+    typeof body.ratchetIndex !== "number" ||
+    (body.clientMessageId !== undefined && !isUuid(body.clientMessageId))
   ) {
     return Response.json({ error: "Invalid message payload" }, { status: 400 });
   }
@@ -603,6 +652,35 @@ export async function POST(
   const { ciphertext } = body;
   const { iv } = body;
   const { ratchetIndex } = body;
+  const { clientMessageId } = body;
+  const { retentionVersion } = body;
+  const mediaIds = body.mediaIds === undefined ? [] : body.mediaIds;
+  const viewOnceMediaIds =
+    body.viewOnceMediaIds === undefined ? [] : body.viewOnceMediaIds;
+  if (
+    !Array.isArray(mediaIds) ||
+    mediaIds.length > 10 ||
+    !mediaIds.every(
+      (value): value is string =>
+        typeof value === "string" && value.length <= 100
+    )
+  ) {
+    return Response.json({ error: "Invalid attachments" }, { status: 400 });
+  }
+  if (
+    !Array.isArray(viewOnceMediaIds) ||
+    viewOnceMediaIds.length > 1 ||
+    !viewOnceMediaIds.every(
+      (value): value is string =>
+        typeof value === "string" && value.length <= 100
+    ) ||
+    viewOnceMediaIds.some((mediaId) => mediaIds.includes(mediaId))
+  ) {
+    return Response.json(
+      { error: "Invalid view-once attachment" },
+      { status: 400 }
+    );
+  }
 
   // Blocks are a DM-only rule, so a den has no peer for one to bite on. The
   // peer is resolved for a DM only, which is also what keeps the rule from
@@ -617,6 +695,22 @@ export async function POST(
       { error: "You cannot message this user" },
       { status: 403 }
     );
+  }
+
+  if (clientMessageId) {
+    const existing = await getMessageDataQuery(prisma.orm)
+      .where({
+        conversationId: id,
+        id: clientMessageId,
+        senderId: user.id,
+      })
+      .first();
+    if (existing) {
+      return Response.json({
+        membershipSeq: null,
+        message: mapMessage(existing),
+      });
+    }
   }
 
   const unreadRecipientIds: string[] = [];
@@ -654,14 +748,35 @@ export async function POST(
       // Reset at the top so a retried attempt starts clean rather than
       // enqueueing the same recipient twice.
       resetNotificationEvents(notificationEvents);
+      const lifetime = await guardNormalChatSend(
+        id,
+        user.id,
+        retentionVersion,
+        tx
+      );
       const created = await tx.orm.public.Messages.create({
         ciphertext,
         conversationId: id,
+        expiresAt: lifetime.expiresAt
+          ? toPrismaDateTime(lifetime.expiresAt)
+          : null,
         iv,
+        ...(clientMessageId ? { id: clientMessageId } : {}),
         ratchetIndex: expectedIndex,
         senderId: user.id,
       });
       createdMessageId = created.id;
+      await linkLifecycleMedia(
+        {
+          conversationId: id,
+          mediaIds,
+          messageId: created.id,
+          protect: lifetime.expiresAt !== null,
+          userId: user.id,
+          viewOnceMediaIds,
+        },
+        tx
+      );
 
       const keyEpoch = await updateMessageRatchetWithCas(tx, id, user.id);
 
@@ -765,6 +880,18 @@ export async function POST(
       }
     });
   } catch (error) {
+    if (error instanceof ChatLifecycleError) {
+      return Response.json(
+        {
+          code: error.code,
+          error:
+            error.code === "INCOGNITO_ACTIVE"
+              ? "Incognito is active. Open the incognito session to send."
+              : "Chat settings changed. Refresh the conversation and send again.",
+        },
+        { status: error.status }
+      );
+    }
     // A concurrent send beat us to the same ratchet index. Hand back the
     // authoritative counter so the client can retry at the right position.
     if (isUniqueConstraintViolation(error)) {

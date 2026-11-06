@@ -19,7 +19,7 @@ export function loadProtocolsEnvironment(
     path.resolve(appDirectory, "../..", ".env"),
   ];
   if (env.NODE_ENV === "development") {
-    files.push(path.join(appDirectory, ".env.development"));
+    files.push(path.join(appDirectory, ".env.defaults"));
   }
   // Injected values win, followed by local secrets, root secrets, and development defaults.
   for (const file of files) {

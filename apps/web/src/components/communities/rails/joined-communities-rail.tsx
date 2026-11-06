@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 import { useSession } from "@/app/(main)/session-provider";
+import { isCommunityPath } from "@/lib/communities/chat-navigation";
 import { useJoinedCommunitiesQuery } from "@/lib/communities/client";
 import { cn } from "@/lib/utils";
 
@@ -29,9 +30,10 @@ export function JoinedCommunitiesRail() {
     <div className="mt-0.5 mb-1 flex flex-col gap-0.5 pl-4">
       {joined.slice(0, 8).map((community) => {
         const href = `/a/${community.slug}`;
-        const isActive = pathname === href;
+        const isActive = isCommunityPath(pathname, community.slug);
         return (
           <Link
+            aria-current={isActive ? "location" : undefined}
             className={cn(
               "group flex w-full items-center gap-2.5 rounded-2xl border border-transparent px-3 py-1.5 text-sm transition-all duration-200 ease-out",
               isActive

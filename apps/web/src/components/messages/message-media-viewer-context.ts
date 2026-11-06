@@ -15,9 +15,18 @@ export type OpenConversationMedia = (args: OpenConversationMediaArgs) => void;
 const ConversationMediaViewerContext =
   createContext<OpenConversationMedia | null>(null);
 
+const ConversationViewOnceContext = createContext<string | null>(null);
+
 export const ConversationMediaViewerProvider =
   ConversationMediaViewerContext.Provider;
 
 export function useOpenConversationMedia(): OpenConversationMedia | null {
   return useContext(ConversationMediaViewerContext);
+}
+
+export const ConversationViewOnceProvider =
+  ConversationViewOnceContext.Provider;
+
+export function useViewOnceConversationId(): string | null {
+  return useContext(ConversationViewOnceContext);
 }

@@ -8,7 +8,6 @@ import { useRouter } from "next/navigation";
 import { useToast } from "@/lib/gooey-toast";
 
 import {
-  approveMember,
   createCommunity,
   joinCommunity,
   leaveCommunity,
@@ -62,19 +61,27 @@ export function useJoinCommunityMutation(slug: string) {
         variant: "destructive",
       });
     },
-    onSuccess: () => {
+    onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["community", slug] });
       queryClient.invalidateQueries({ queryKey: ["community-joined"] });
       queryClient.invalidateQueries({ queryKey: ["communities"] });
       // The roster gained (or, on leave, lost) a member, so any mounted members
       // list must refetch rather than keep serving the pre-join page.
       queryClient.invalidateQueries({ queryKey: ["community-members", slug] });
-      toast({ description: "You're in", title: "Joined" });
+      toast(
+        result.status === "PENDING"
+          ? {
+              description: "Your request is awaiting approval",
+              title: "Request sent",
+            }
+          : { description: "You're in", title: "Joined" }
+      );
     },
   });
 }
 
 export function useLeaveCommunityMutation(slug: string) {
+  const router = useRouter();
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
@@ -88,6 +95,9 @@ export function useLeaveCommunityMutation(slug: string) {
       });
     },
     onSuccess: () => {
+      queryClient.removeQueries({ queryKey: ["community-feed", slug] });
+      queryClient.invalidateQueries({ queryKey: ["community-preview", slug] });
+      router.refresh();
       queryClient.invalidateQueries({ queryKey: ["community", slug] });
       queryClient.invalidateQueries({ queryKey: ["community-joined"] });
       queryClient.invalidateQueries({ queryKey: ["communities"] });
@@ -129,22 +139,6 @@ export function useCommunitySubscriptionMutation(
           : `Muted a/${slug}`,
         title: subscribe ? "Notifications on" : "Notifications off",
       });
-    },
-  });
-}
-
-export function useApproveMemberMutation(slug: string) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: ({
-      communityId,
-      userId,
-    }: {
-      communityId: string;
-      userId: string;
-    }) => approveMember(communityId, userId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["community-members", slug] });
     },
   });
 }

@@ -187,7 +187,7 @@ export default function ConfirmResetForm() {
   if (isValidating) {
     return (
       <div className="container flex min-h-dvh items-center justify-center">
-        <CenteredLogoLoader size={72} />
+        <CenteredLogoLoader variant="security" size={72} />
       </div>
     );
   }

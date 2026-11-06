@@ -46,11 +46,11 @@ const CommunityCardSkeleton: React.FC = () => (
 // at the same width the real rail uses, so nothing reflows on load.
 const CommunityRailSkeleton: React.FC<{ cards?: number }> = ({ cards = 4 }) => (
   <section className="relative">
-    <div className="mb-3 flex items-center gap-2.5 px-8">
+    <div className="mb-3 flex items-center gap-2.5 px-4 sm:px-6">
       <Skeleton className="size-5 rounded-md" />
       <Skeleton className="h-5 w-40 rounded-md" />
     </div>
-    <div className="flex gap-4 overflow-hidden px-8">
+    <div className="flex gap-4 overflow-hidden px-4 pb-1 sm:px-6">
       {Array.from({ length: cards }).map((_, index) => (
         <div className="community-card-w shrink-0" key={`rail-card-${index}`}>
           <CommunityCardSkeleton />
@@ -61,8 +61,8 @@ const CommunityRailSkeleton: React.FC<{ cards?: number }> = ({ cards = 4 }) => (
 );
 
 // `isLoggedIn` only changes the scroller's bottom padding, which must match the
-// live page exactly: the signed-in layout reserves `pb-16 lg:pb-0` for the
-// mobile dock, while a guest reserves `pb-24 lg:pb-12` for the guest auth bar.
+// live page: signed-in viewers have space for the dock and safe-area inset,
+// while guests have room for the guest auth bar.
 // It defaults to the signed-out spacing because the route-level loading.tsx
 // fallback cannot know the viewer's session without turning the static shell
 // dynamic; extra bottom padding is invisible, whereas too little would hide
@@ -71,18 +71,20 @@ const CommunitiesPageSkeleton: React.FC<{ isLoggedIn?: boolean }> = ({
   isLoggedIn = false,
 }) => (
   <>
-    <div className="communities-cq border-border/60 flex min-w-0 flex-1 flex-col bg-[hsl(var(--background-alt))] sm:border-x">
+    <div className="communities-cq border-border/60 flex min-w-0 flex-1 flex-col bg-[hsl(var(--background-alt))] [--community-gutter:1rem] sm:border-x sm:[--community-gutter:1.5rem]">
       {/* Mobile top bar */}
       <Skeleton className="h-12 w-full shrink-0 rounded-none lg:hidden" />
 
       <div
         className={cn(
           "hide-native-scrollbar min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-y-contain",
-          isLoggedIn ? "pb-16 lg:pb-0" : "pb-24 lg:pb-12"
+          isLoggedIn
+            ? "pb-[calc(6rem+env(safe-area-inset-bottom))] lg:pb-8"
+            : "pb-24 lg:pb-12"
         )}
       >
         {/* Sticky category strip */}
-        <div className="flex shrink-0 gap-1.5 px-8 py-1.5 sm:py-2.5">
+        <div className="flex shrink-0 gap-1.5 px-4 py-1.5 sm:px-6 sm:py-2.5">
           {["w-16", "w-24", "w-32", "w-20", "w-28", "w-36", "w-24", "w-20"].map(
             (width, index) => (
               <Skeleton
@@ -94,34 +96,41 @@ const CommunitiesPageSkeleton: React.FC<{ isLoggedIn?: boolean }> = ({
         </div>
 
         {/* Hero statement + action, then the search field */}
-        <div className="px-8 pt-8 pb-6">
-          <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-5">
+        <div className="px-4 pt-6 pb-4 sm:px-6 sm:pt-8 sm:pb-6">
+          <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-4 sm:gap-y-5">
             <div className="min-w-0 space-y-2.5">
               <Skeleton className="h-8 w-52 rounded-md sm:h-10 sm:w-64" />
-              <Skeleton className="h-8 w-44 rounded-md sm:h-10 sm:w-56" />
-              <Skeleton className="h-4 w-72 max-w-full rounded-md" />
+              <Skeleton className="h-8 w-64 max-w-full rounded-md sm:h-10 sm:w-56" />
+              <Skeleton className="h-4 w-64 max-w-full rounded-md" />
             </div>
-            <div className="flex shrink-0 flex-col items-start gap-3 sm:items-end">
-              <Skeleton className="h-4 w-40 rounded-md" />
-              <Skeleton className="h-11 w-44 rounded-lg" />
+            <div className="sidebar-subcard grid w-full shrink-0 grid-cols-3 rounded-2xl px-3 py-3 sm:flex sm:w-auto sm:gap-7 sm:px-5 sm:py-4">
+              {[0, 1, 2].map((index) => (
+                <div
+                  className="flex flex-col items-center gap-1 sm:items-start"
+                  key={index}
+                >
+                  <Skeleton className="h-4 w-16 rounded-md" />
+                  <Skeleton className="h-7 w-10 rounded-md sm:h-8" />
+                </div>
+              ))}
             </div>
           </div>
         </div>
-        <div className="px-8 pb-8">
+        <div className="px-4 pt-2 pb-2 sm:px-6 sm:py-2.5">
           <Skeleton className="h-12 w-full rounded-[14px]" />
         </div>
 
         {/* Curated rails */}
-        <div className="flex flex-col gap-8 pb-8">
+        <div className="flex flex-col gap-6 pt-4 sm:gap-8 sm:pt-5">
           <CommunityRailSkeleton />
           <CommunityRailSkeleton />
         </div>
-        <div className="pt-8 pb-9">
+        <div className="pt-6 sm:pt-8">
           <CommunityRailSkeleton cards={3} />
         </div>
 
         {/* Browse grid */}
-        <div className="px-8 pb-0 sm:pb-10">
+        <div className="px-4 pt-6 pb-2 sm:px-6 sm:pt-8 sm:pb-10">
           <div className="mb-3 flex items-center gap-2.5">
             <Skeleton className="size-5 rounded-md" />
             <Skeleton className="h-5 w-36 rounded-md" />

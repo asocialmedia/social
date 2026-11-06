@@ -23,10 +23,14 @@
         "ultracite": "^7.10.4",
         "web-push": "^3.6.7",
       },
+      "optionalDependencies": {
+        "node-win-arm64": "24.22.2",
+        "node-win-x64": "24.22.2",
+      },
     },
     "apps/auth": {
       "name": "@asm/auth-app",
-      "version": "1.2.21",
+      "version": "1.2.23",
       "dependencies": {
         "@asm/aggregator": "workspace:*",
         "@asm/auth": "workspace:*",
@@ -62,7 +66,7 @@
     },
     "apps/classifier": {
       "name": "@asm/classifier",
-      "version": "0.1.9",
+      "version": "0.1.13",
       "dependencies": {
         "@opentelemetry/api": "^1.9.1",
         "@opentelemetry/api-logs": "^0.221.0",
@@ -78,7 +82,7 @@
     },
     "apps/media-processing": {
       "name": "@asm/media-processing",
-      "version": "1.1.28",
+      "version": "1.1.33",
       "dependencies": {
         "@asm/config": "workspace:*",
         "@asm/db": "workspace:*",
@@ -104,11 +108,12 @@
     },
     "apps/mobile": {
       "name": "@asocialmedia/mobile",
-      "version": "0.2.41",
+      "version": "0.2.57",
       "dependencies": {
         "@asm/auth": "workspace:*",
         "@asm/db": "workspace:*",
         "@asm/media": "workspace:*",
+        "@asm/messages": "workspace:*",
         "@asm/notifications": "workspace:*",
         "@asm/protocols": "workspace:*",
         "@asm/ui": "workspace:*",
@@ -141,6 +146,7 @@
         "expo-crypto": "~58.0.7",
         "expo-dev-client": "~58.0.14",
         "expo-device": "~58.0.5",
+        "expo-document-picker": "~58.0.4",
         "expo-file-system": "~58.0.10",
         "expo-font": "~58.0.9",
         "expo-glass-effect": "~58.0.4",
@@ -196,7 +202,7 @@
     },
     "apps/protocols": {
       "name": "@asm/protocols-app",
-      "version": "0.1.84",
+      "version": "0.1.85",
       "dependencies": {
         "@asm/logger": "workspace:*",
         "@asm/protocols": "workspace:*",
@@ -218,7 +224,7 @@
     },
     "apps/web": {
       "name": "@asm/web",
-      "version": "1.9.23",
+      "version": "1.9.29",
       "dependencies": {
         "@asm/aggregator": "workspace:*",
         "@asm/auth": "workspace:*",
@@ -226,6 +232,7 @@
         "@asm/db": "workspace:*",
         "@asm/logger": "workspace:*",
         "@asm/media": "workspace:*",
+        "@asm/messages": "workspace:*",
         "@asm/next": "workspace:*",
         "@asm/notifications": "workspace:*",
         "@asm/protocols": "workspace:*",
@@ -311,7 +318,7 @@
     },
     "packages/aggregator": {
       "name": "@asm/aggregator",
-      "version": "1.0.13",
+      "version": "1.0.20",
       "dependencies": {
         "@asm/db": "workspace:*",
         "ky": "^2.0.2",
@@ -325,7 +332,7 @@
     },
     "packages/auth": {
       "name": "@asm/auth",
-      "version": "1.2.20",
+      "version": "1.2.22",
       "dependencies": {
         "@asm/db": "workspace:*",
         "@asm/logger": "workspace:*",
@@ -356,10 +363,11 @@
     },
     "packages/db": {
       "name": "@asm/db",
-      "version": "1.3.14",
+      "version": "1.3.20",
       "dependencies": {
         "@asm/config": "workspace:*",
         "@asm/logger": "workspace:*",
+        "@asm/messages": "workspace:*",
         "@asm/notifications": "workspace:*",
         "@asm/protocols": "workspace:*",
         "@aws-sdk/client-s3": "^3.1109.0",
@@ -369,6 +377,7 @@
         "bullmq": "^6.1.0",
         "cross-env": "^10.1.0",
         "date-fns": "^4.4.0",
+        "fflate": "^0.8.3",
         "franc-min": "^6.2.0",
         "ioredis": "^6.0.0",
         "jose": "^6.2.12",
@@ -388,7 +397,7 @@
     },
     "packages/logger": {
       "name": "@asm/logger",
-      "version": "1.0.16",
+      "version": "1.0.23",
       "dependencies": {
         "@opentelemetry/api": "^1.9.1",
         "@opentelemetry/api-logs": "^0.221.0",
@@ -414,7 +423,7 @@
     },
     "packages/media": {
       "name": "@asm/media",
-      "version": "1.0.42",
+      "version": "1.0.47",
       "dependencies": {
         "gifenc": "^1.0.3",
         "gifuct-js": "^2.1.2",
@@ -428,14 +437,15 @@
     },
     "packages/messages": {
       "name": "@asm/messages",
-      "version": "1.0.11",
+      "version": "1.0.26",
       "dependencies": {
         "@asm/media": "workspace:*",
+        "emojibase-data": "^18.0.0",
       },
     },
     "packages/next": {
       "name": "@asm/next",
-      "version": "1.0.23",
+      "version": "1.0.30",
       "dependencies": {
         "dotenv": "^17.4.2",
         "next": "^16.3.8",
@@ -450,7 +460,7 @@
     },
     "packages/notifications": {
       "name": "@asm/notifications",
-      "version": "1.0.9",
+      "version": "1.0.13",
       "dependencies": {
         "jose": "^6.2.12",
         "web-push": "^3.6.7",
@@ -465,7 +475,7 @@
     },
     "packages/protocols": {
       "name": "@asm/protocols",
-      "version": "0.1.84",
+      "version": "0.1.85",
       "dependencies": {
         "@atproto/lex": "0.3.14",
         "@atproto/syntax": "^0.7.7",
@@ -482,7 +492,7 @@
     },
     "packages/ui": {
       "name": "@asm/ui",
-      "version": "1.0.76",
+      "version": "1.0.83",
       "dependencies": {
         "@asm/aggregator": "workspace:*",
         "@radix-ui/react-accordion": "^1.2.20",
@@ -1143,8 +1153,6 @@
     "@expo/ui": ["@expo/ui@58.0.21", "", { "dependencies": { "sf-symbols-typescript": "^2.1.0" }, "peerDependencies": { "@babel/core": "*", "expo": "*", "react": "*", "react-dom": "*", "react-native": "*", "react-native-worklets": "*" }, "optionalPeers": ["@babel/core", "react-dom", "react-native-worklets"] }, "sha512-O+8DoGcGKq0/QVkKAndrG26dr4Js5oVgfqhuVP4JpwJVQo/KyEQOBWhXbvmQ+1eG9rxYzRjGPNurYyf4BIbwcA=="],
 
     "@expo/vector-icons": ["@expo/vector-icons@15.1.1", "", { "peerDependencies": { "expo-font": ">=14.0.4", "react": "*", "react-native": "*" } }, "sha512-Iu2VkcoI5vygbtYngm7jb4ifxElNVXQYdDrYkT7UCEIiKLeWnQY0wf2ZhHZ+Wro6Sc5TaumpKUOqDRpLi5rkvw=="],
-
-    "@expo/ws-tunnel": ["@expo/ws-tunnel@2.0.1", "", { "peerDependencies": { "ws": "^8.0.0" } }, "sha512-mljsRffbOHzmSimYQbQu9h9NR3alwCCwEEouRGFL4QRTt8dNvsNtKEPa/5jHmtDLDtsh4xXsWKwzjN9BTpeXHQ=="],
 
     "@expo/xcpretty": ["@expo/xcpretty@4.4.7", "", { "dependencies": { "@babel/code-frame": "^7.20.0", "chalk": "^4.1.0", "js-yaml": "^4.1.0" }, "bin": { "excpretty": "build/cli.js" } }, "sha512-EbxYllZ7/ozONVZd425cm4XnolfW+AmSFT5aP7Jdno6oc3WrYQcHz2CO20z/2rwWwYgztmV2PXvYH+BQ8YFjqg=="],
 
@@ -2546,6 +2554,10 @@
 
     "emoji-regex": ["emoji-regex@8.0.0", "", {}, "sha512-MSjYzcWNOA0ewAHpz0MxpYFvwg6yjy1NG3xteoqz644VCo/RPgnr1/GGt+ic3iJTzQ8Eu3TdM14SawnVUmGE6A=="],
 
+    "emojibase": ["emojibase@18.0.0", "", {}, "sha512-5PG+EEt5zQ9qvqdHZw61+T9iz96g+r621QS/w8jEzPg+3mjzAdjl8LPLc+e9ABv/yboNfMwEair7aK9qKnwAbQ=="],
+
+    "emojibase-data": ["emojibase-data@18.0.0", "", { "peerDependencies": { "emojibase": "*" } }, "sha512-TPPRRYv2zPd0jKI+pTpMquwWNZXYAsC3IVsCMeg2X8y8fEzKwOks4/5bz0YavF5r6d71aGPpb6oDnUEwSLLMoA=="],
+
     "empathic": ["empathic@2.0.1", "", {}, "sha512-YGRs8knHhKHVShLkFET/rWAU8kmHbOV5LwN938RHI0pljAJ1Gf6SzXsSmRaEzcXTtOOmVqJ5+WtQPL5uigY50Q=="],
 
     "encodeurl": ["encodeurl@2.0.0", "", {}, "sha512-Q0n9HRi4m6JuGIV1eFlmvJB7ZEVxu93IrMyiMsGC0lrMJMWzRgx6WGquyfQgZVb31vhGgXnfmPNNXmxnOkRBrg=="],
@@ -2623,6 +2635,8 @@
     "expo-dev-menu-interface": ["expo-dev-menu-interface@58.0.1", "", { "peerDependencies": { "expo": "*" } }, "sha512-XdjO3ZZhEq1dXm15GVtzQ0SXxSTPguJIDZib3Z8tAf2jLxfPUlQObgO/0hdnw7ssEBhTT2jQo2HAfnOSGUfj8w=="],
 
     "expo-device": ["expo-device@58.0.5", "", { "dependencies": { "ua-parser-js": "^0.7.33" }, "peerDependencies": { "expo": "*" } }, "sha512-GNyaHPwoiI/z2SGR14R6d9J7hFSW2JabZieJtC3l6/LO2mJYVCbhEsQ7/1ljGBeTUnFFWHcFLccdaWEhOWtaQQ=="],
+
+    "expo-document-picker": ["expo-document-picker@58.0.4", "", { "peerDependencies": { "expo": "*" } }, "sha512-rxs+9RrpI55/BEGNB/3sXjoBG6yZDLyn6Z7KzjbbBLdX8bE2cZT4IozQ3Q5wufaEEeaHQn48EgPiuMoTsAidpg=="],
 
     "expo-file-system": ["expo-file-system@58.0.10", "", { "peerDependencies": { "expo": "*", "react-native": "*" } }, "sha512-n0M7amp/Bv9TAqVfTWq1zGykmQJWiPzDePZIKp8YYKkVvY7N65bo96sMBQlHkhAyW4I1B6MZABnybliy5DXQig=="],
 
@@ -3223,6 +3237,10 @@
     "node-int64": ["node-int64@0.4.0", "", {}, "sha512-O5lz91xSOeoXP6DulyHfllpq+Eg00MWitZIbtPfoSEvqIHdl5gfcY6hYzDWnj0qD5tz52PI08u9qUvSVeUBeHw=="],
 
     "node-releases": ["node-releases@2.0.56", "", {}, "sha512-x0InOIyzgdk+eyaWaRJFH5snEtiImgBgblZ2CyPrLmqqcuMQkEvcDPHbzqbD8eDsSeJbVOjn+crzyzHaM4D+/A=="],
+
+    "node-win-arm64": ["node-win-arm64@24.22.2", "", { "os": "win32", "cpu": "arm64", "bin": { "node": "bin/node.exe" } }, "sha512-+hyP9YBpS8XsFHd9A/I0It0+XYNvNYR0xMXmH+kjDst9Q30oiuowO4oYvdjcDJvRQ0tSNmCvFfs/XGy59ckqQA=="],
+
+    "node-win-x64": ["node-win-x64@24.22.2", "", { "os": "win32", "cpu": "x64", "bin": { "node": "bin/node.exe" } }, "sha512-PK51mZaxh+HnD7WA6K7IOPCRmkUbqx+rXhqbCY2FuR51JRwGv2kJG1VsmA/69bNDBXra9yP0+s7IGQ05C5yqOg=="],
 
     "nopt": ["nopt@8.1.0", "", { "dependencies": { "abbrev": "^3.0.0" }, "bin": { "nopt": "bin/nopt.js" } }, "sha512-ieGu42u/Qsa4TFktmaKEwM6MQH0pOWnaB3htzh0JRtx84+Mebc0cbZYN5bC+6WTZ4+77xrL9Pn5m7CV6VIkV7A=="],
 
@@ -4064,6 +4082,8 @@
 
     "@distilled.cloud/aws/@aws-sdk/types": ["@aws-sdk/types@3.974.6", "", { "dependencies": { "@smithy/types": "^4.19.0", "tslib": "^2.6.2" } }, "sha512-v/clNZzZnDxGyvpHMOGpJKVXFAExJzUNAAjaWGdcx8QAcXLGwTaOkw33p5SHAi0YAioK32xB3hWwOekRVfmfKg=="],
 
+    "@expo/cli/@expo/ws-tunnel": ["@expo/ws-tunnel@2.0.1", "", { "peerDependencies": { "ws": "^8.0.0" } }, "sha512-mljsRffbOHzmSimYQbQu9h9NR3alwCCwEEouRGFL4QRTt8dNvsNtKEPa/5jHmtDLDtsh4xXsWKwzjN9BTpeXHQ=="],
+
     "@expo/cli/ci-info": ["ci-info@3.9.0", "", {}, "sha512-NIxF55hv4nSqQswkAeiOi1r83xy8JldOFDTWiug55KBu9Jnblncd2U6ViHmYgHf01TPZS77NJBhBMKdWj9HQMQ=="],
 
     "@expo/cli/wrap-ansi": ["wrap-ansi@7.0.0", "", { "dependencies": { "ansi-styles": "^4.0.0", "string-width": "^4.1.0", "strip-ansi": "^6.0.0" } }, "sha512-YVGIj2kamLSTxw6NsZjoBxfSwsn0ycdesmc4p+Q21c5zPuZ1pl+NfxVdxPtdHvmNVOQ6XSYG4AUtyt/Fi7D16Q=="],
@@ -4075,8 +4095,6 @@
     "@expo/devcert/debug": ["debug@3.2.7", "", { "dependencies": { "ms": "^2.1.1" } }, "sha512-CFjzYYAi4ThfiQvizrFQevTTXHtnCqWfe7x1AhgEscTz6ZbLbfoLRLPugTQyBth6f8ZERVUSyWHFD/7Wu4t1XQ=="],
 
     "@expo/metro-config/postcss": ["postcss@8.5.28", "", { "dependencies": { "nanoid": "^3.3.18", "picocolors": "^1.1.1", "source-map-js": "^1.2.1" } }, "sha512-RRuzqDtt5Y9h3quz5hWhK+TPnsmVs6WwSU6LkJMeY4HstUEDuYTG8UJSdawMRzmzAtV+KEoG8N3Qg2qLy5vM/A=="],
-
-    "@expo/ws-tunnel/ws": ["ws@8.21.3", "", { "peerDependencies": { "bufferutil": "^4.0.1", "utf-8-validate": ">=5.0.2" }, "optionalPeers": ["bufferutil", "utf-8-validate"] }, "sha512-201TZ/kPWxoPr/OKWjquZR1SWKXcvxdH+e1xrx89b3YbmzLMFCLfnaG1HFIgWzJOEWZ7MvpK++odZufgYR50Rw=="],
 
     "@grpc/proto-loader/yargs": ["yargs@17.7.3", "", { "dependencies": { "cliui": "^8.0.1", "escalade": "^3.1.1", "get-caller-file": "^2.0.5", "require-directory": "^2.1.1", "string-width": "^4.2.3", "y18n": "^5.0.5", "yargs-parser": "^21.1.1" } }, "sha512-GZtjxm/J/4TSxuL3FNYjCmLktBTnIw/rVmKSIyKeYAZpmJB2ig9VauCC5xsa82GNKVKDAqpOn3KVzNt0zmrU0g=="],
 

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 let backfillEnabled = true;
+let clefEnabled = true;
 let geminiApiKey: string | undefined = "mock-gemini-key";
 let whisperEnabled = true;
 const sweepProcessors: ((job: { name: string }) => Promise<unknown>)[] = [];
@@ -50,6 +51,9 @@ mock.module("../env", () => ({
   workerEnv: {
     get BACKFILL_ENABLED() {
       return backfillEnabled;
+    },
+    get CLEF_ENABLED() {
+      return clefEnabled;
     },
     get GEMINI_API_KEY() {
       return geminiApiKey;
@@ -125,6 +129,7 @@ const {
 describe("transcriptionBackfillSweep loop prevention", () => {
   beforeEach(() => {
     backfillEnabled = true;
+    clefEnabled = true;
     geminiApiKey = "mock-gemini-key";
     whisperEnabled = true;
     candidateRows = [];
@@ -370,6 +375,15 @@ describe("transcriptionBackfillSweep loop prevention", () => {
 
     expect(result.enqueued).toBe(1);
     expect(semanticRefreshIds).toEqual(["legacy-image"]);
+  });
+
+  test("disabled remote classification does not enqueue semantic refreshes", async () => {
+    clefEnabled = false;
+    candidateRows = [{ id: "legacy-image", techMetadata: null }];
+    expect(await semanticClassificationBackfillSweep()).toEqual({
+      enqueued: 0,
+    });
+    expect(semanticRefreshIds).toEqual([]);
   });
 
   test("startup and restarts leave backfills to the scheduled worker", async () => {

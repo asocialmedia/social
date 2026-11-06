@@ -224,28 +224,57 @@ export async function runTestSuite(
     (argument) => argument === "--timings" || argument.startsWith("--timings=")
   );
 
-  return await runProcess({
-    cmd: [
-      "bun",
-      "test",
-      ...(hasParallelOverride
-        ? []
-        : [`--parallel=${integrationOnly ? 1 : DEFAULT_TEST_FILE_WORKERS}`]),
-      ...(integrationOnly ? ["--isolate"] : []),
-      `--env-file=${ENV_FILE_NAME}`,
-      ...(hasTimingsOverride ? [] : [`--timings=${TIMINGS_FILE_NAME}`]),
-      ...(deps.recordTimings === false || testArgs.includes("--update-timings")
-        ? []
-        : ["--update-timings"]),
-      ...testArgs,
-      ...selectedTests.map((filePath) => `./${filePath}`),
-    ],
-    cwd: rootDir,
-    env: {
-      ...processEnv,
-      NODE_ENV: "test",
-    },
-  });
+  const command = [
+    "bun",
+    "test",
+    ...(hasParallelOverride
+      ? []
+      : [`--parallel=${integrationOnly ? 1 : DEFAULT_TEST_FILE_WORKERS}`]),
+    ...(integrationOnly ? ["--isolate"] : []),
+    `--env-file=${ENV_FILE_NAME}`,
+    ...(hasTimingsOverride ? [] : [`--timings=${TIMINGS_FILE_NAME}`]),
+    ...(deps.recordTimings === false || testArgs.includes("--update-timings")
+      ? []
+      : ["--update-timings"]),
+    ...testArgs,
+  ];
+  for (const cmd of batchTestCommands(command, selectedTests)) {
+    const result = await runProcess({
+      cmd,
+      cwd: rootDir,
+      env: { ...processEnv, NODE_ENV: "test" },
+    });
+    if (result !== 0) return result;
+  }
+  return 0;
+}
+
+export function batchTestCommands(
+  command: string[],
+  files: string[]
+): string[][] {
+  const batches: string[][] = [];
+  let batch = [...command];
+  const baseLength = command.reduce(
+    (length, argument) => length + argument.length + 3,
+    0
+  );
+  let length = baseLength;
+  for (const file of files) {
+    const argument = `./${file}`;
+    if (
+      length + argument.length + 3 > 24_000 &&
+      batch.length > command.length
+    ) {
+      batches.push(batch);
+      batch = [...command];
+      length = baseLength;
+    }
+    batch.push(argument);
+    length += argument.length + 3;
+  }
+  if (batch.length > command.length) batches.push(batch);
+  return batches;
 }
 
 if (import.meta.main) {

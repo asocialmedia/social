@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 
+import { EmbeddingDeferredError } from "./deferred";
+
 const configuration = {
   EMBEDDING_ENABLED: true,
   EMBEDDING_TIMEOUT_MS: 15_000,
@@ -24,6 +26,25 @@ function respond(values: number[], status = 200) {
     { preconnect: originalFetch.preconnect }
   );
 }
+
+async function expectDeferred(
+  reason: EmbeddingDeferredError["reason"],
+  cooldown: number
+) {
+  const started = Date.now();
+  try {
+    await generateTextEmbedding("Linux homelab");
+    throw new Error("Expected a deferral");
+  } catch (error) {
+    expect(error).toBeInstanceOf(EmbeddingDeferredError);
+    if (!(error instanceof EmbeddingDeferredError)) {
+      throw error;
+    }
+    expect(error.reason).toBe(reason);
+    expect(error.retryAt).toBeGreaterThanOrEqual(started + cooldown);
+    expect(error.retryAt).toBeLessThanOrEqual(Date.now() + cooldown);
+  }
+}
 describe("generateTextEmbedding", () => {
   test("normalizes only a valid provider vector and requests 384 dimensions", async () => {
     let request: Record<string, unknown> = {};
@@ -47,11 +68,11 @@ describe("generateTextEmbedding", () => {
   });
   test("missing credentials leave embeddings pending without local hashes", async () => {
     configuration.GEMINI_API_KEY = "";
-    expect(await generateTextEmbedding("Linux homelab")).toEqual([]);
+    await expectDeferred("credentials", 86_400_000);
   });
   test("provider failures leave embeddings pending", async () => {
     respond([], 429);
-    expect(await generateTextEmbedding("Linux homelab")).toEqual([]);
+    await expectDeferred("provider", 900_000);
   });
   test.each(
     [
@@ -61,7 +82,24 @@ describe("generateTextEmbedding", () => {
     ].map((values) => [values])
   )("rejects malformed or zero vectors", async (values) => {
     respond(values);
-    expect(await generateTextEmbedding("Linux homelab")).toEqual([]);
+    await expectDeferred("invalid-vector", 900_000);
+  });
+  test("a response cancellation failure cannot discard the provider Retry-After", async () => {
+    globalThis.fetch = Object.assign(
+      () =>
+        Promise.resolve(
+          new Response(
+            new ReadableStream({
+              cancel() {
+                throw new Error("stream failed");
+              },
+            }),
+            { headers: { "retry-after": "120" }, status: 429 }
+          )
+        ),
+      { preconnect: originalFetch.preconnect }
+    );
+    await expectDeferred("provider", 120_000);
   });
   test("empty input makes no inference request", async () => {
     const fetchMock = mock(() =>

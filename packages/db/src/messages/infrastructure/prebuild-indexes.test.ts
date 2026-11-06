@@ -8,6 +8,15 @@ const KEYS_INDEX = "message_conversation_keys_conversationId_ownerUserId_idx";
 const SEARCH_TERMS_INDEX = "message_search_terms_orphaned_f61e9e26";
 const SEARCH_OUTBOX_INDEX = "message_search_outbox_message_sequence_idx";
 const SHORT_CODE_INDEX = "message_conversations_inviteShortCode_key";
+const VIEW_ONCE_DUE_INDEX = "message_media_viewonce_due_a36050d7";
+const VIEW_ONCE_UNIQUE_INDEX = "message_media_viewonce_media_unique_ff0d1126";
+const LIFECYCLE_INDEXES = [
+  "community_members_request_page_idx",
+  "messages_expiry_due_idx_a83a16eb",
+  "messages_lifecycle_erasure_due_7f300049",
+  "media_lifecycle_erasure_due_d202ba84",
+  "post_media_incognitoSessionId_idx_e9d021b8",
+];
 
 // Stands in for pg's Client, answering the existence probe from a set of index
 // names that are already present and recording every build statement.
@@ -97,11 +106,14 @@ describe("prebuildDmIndexes", () => {
         SEARCH_OUTBOX_INDEX,
         KEYS_INDEX,
         SHORT_CODE_INDEX,
+        VIEW_ONCE_DUE_INDEX,
+        VIEW_ONCE_UNIQUE_INDEX,
+        ...LIFECYCLE_INDEXES,
       ],
       deferred: [],
       present: [],
     });
-    expect(executed).toHaveLength(5);
+    expect(executed).toHaveLength(12);
   });
 
   test("always uses CREATE INDEX CONCURRENTLY, never a blocking build", async () => {
@@ -109,7 +121,7 @@ describe("prebuildDmIndexes", () => {
     await prebuildDmIndexes("postgres://unused", {
       createClient: () => client,
     });
-    expect(executed).toHaveLength(5);
+    expect(executed).toHaveLength(12);
     for (const statement of executed) {
       // UNIQUE indexes match too: the invariant is CONCURRENTLY, which a
       // unique build satisfies exactly as a plain one does.
@@ -130,6 +142,9 @@ describe("prebuildDmIndexes", () => {
       SEARCH_OUTBOX_INDEX,
       KEYS_INDEX,
       SHORT_CODE_INDEX,
+      VIEW_ONCE_DUE_INDEX,
+      VIEW_ONCE_UNIQUE_INDEX,
+      ...LIFECYCLE_INDEXES,
     ]);
     expect(result.present).toEqual([MESSAGES_INDEX]);
     expect(
@@ -154,9 +169,12 @@ describe("prebuildDmIndexes", () => {
         SEARCH_OUTBOX_INDEX,
         KEYS_INDEX,
         SHORT_CODE_INDEX,
+        VIEW_ONCE_DUE_INDEX,
+        VIEW_ONCE_UNIQUE_INDEX,
+        ...LIFECYCLE_INDEXES,
       ],
     });
-    expect(executed).toHaveLength(5);
+    expect(executed).toHaveLength(12);
   });
 
   test("the short-code index builds UNIQUE: the live column enforces the door's identity", async () => {
@@ -218,8 +236,11 @@ describe("prebuildDmIndexes before the DM search migration", () => {
       MESSAGES_INDEX,
       KEYS_INDEX,
       SHORT_CODE_INDEX,
+      VIEW_ONCE_DUE_INDEX,
+      VIEW_ONCE_UNIQUE_INDEX,
+      ...LIFECYCLE_INDEXES,
     ]);
-    expect(executed).toHaveLength(3);
+    expect(executed).toHaveLength(10);
   });
 
   test("defers the short-code index until its column exists on an existing table", async () => {

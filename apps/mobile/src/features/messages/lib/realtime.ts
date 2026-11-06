@@ -27,15 +27,25 @@ export interface MessageStreamEvent {
   conversationId: string;
   deliveredAt?: string;
   kind:
+    | "conversation.appearance.changed"
     | "conversation.delivered"
     | "conversation.read"
     | "den.membership.changed"
     | "keys.rotated"
+    | "media.viewOnce.revoked"
+    | "media.viewOnce.seen"
     | "message.created"
     | "message.deleted"
     | "message.edited"
+    | "message.reacted"
     | "typing.started";
+  // The opaque id of a view-once attachment whose grant was revoked. Never a
+  // URL, so a stream can clear a tile but can never fetch protected bytes.
+  mediaId?: string;
   message?: unknown;
+  // The reacted-to message id, on `message.reacted` only.
+  messageId?: string;
+  sessionId?: string;
   readAt?: string;
   userId?: string;
 }
@@ -47,12 +57,16 @@ export function parseMessageEvent(raw: string): MessageStreamEvent | null {
   try {
     const parsed = JSON.parse(raw) as Partial<MessageStreamEvent>;
     if (
+      parsed.kind !== "conversation.appearance.changed" &&
       parsed.kind !== "message.created" &&
       parsed.kind !== "message.deleted" &&
       parsed.kind !== "message.edited" &&
       parsed.kind !== "conversation.read" &&
       parsed.kind !== "conversation.delivered" &&
       parsed.kind !== "typing.started" &&
+      parsed.kind !== "message.reacted" &&
+      parsed.kind !== "media.viewOnce.revoked" &&
+      parsed.kind !== "media.viewOnce.seen" &&
       parsed.kind !== "den.membership.changed" &&
       parsed.kind !== "keys.rotated"
     ) {
@@ -85,11 +99,35 @@ export function parseMessageEvent(raw: string): MessageStreamEvent | null {
     ) {
       return null;
     }
+    if (
+      parsed.kind === "message.reacted" &&
+      (typeof parsed.messageId !== "string" ||
+        typeof parsed.userId !== "string")
+    ) {
+      return null;
+    }
+    if (
+      parsed.kind === "message.reacted" &&
+      parsed.sessionId !== undefined &&
+      typeof parsed.sessionId !== "string"
+    ) {
+      return null;
+    }
+    if (
+      (parsed.kind === "media.viewOnce.revoked" ||
+        parsed.kind === "media.viewOnce.seen") &&
+      typeof parsed.mediaId !== "string"
+    ) {
+      return null;
+    }
     return {
       conversationId: parsed.conversationId,
       deliveredAt: parsed.deliveredAt,
       kind: parsed.kind,
+      mediaId: parsed.mediaId,
       message: parsed.message,
+      messageId: parsed.messageId,
+      ...(parsed.sessionId ? { sessionId: parsed.sessionId } : {}),
       readAt: parsed.readAt,
       userId: parsed.userId,
     };

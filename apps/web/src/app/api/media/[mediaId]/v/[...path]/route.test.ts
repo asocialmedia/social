@@ -83,7 +83,7 @@ mock.module("@/lib/auth/session", () => ({
 
 mock.module("@/lib/media/message-media-access", () => ({
   resolveDenWallpaperConversationId: () => Promise.resolve(null),
-  resolveMessageMediaMembership: () => Promise.resolve(false),
+  resolveMessageMediaMembership: () => Promise.resolve(),
 }));
 
 mock.module("@/lib/otel", () => ({

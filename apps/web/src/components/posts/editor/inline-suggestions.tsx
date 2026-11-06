@@ -2,9 +2,9 @@
 
 import type { UserData } from "@asm/db";
 import type { Editor } from "@tiptap/core";
-import { Loader2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import { ZephLoader } from "@/components/layouts/feedback/zeph-loader";
 import UserAvatar from "@/components/layouts/user/user-avatar";
 
 import { collectInlineRelations, mergeUniqueIds } from "./inline-nodes";
@@ -542,7 +542,10 @@ export const InlineSuggestions = ({
     if (loading && items.length === 0) {
       return (
         <div className="flex items-center justify-center gap-2 p-3">
-          <Loader2 className="text-muted-foreground size-4 animate-spin" />
+          <ZephLoader
+            variant="search"
+            className="text-muted-foreground size-4"
+          />
           <span className="text-muted-foreground text-sm">Searching...</span>
         </div>
       );

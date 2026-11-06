@@ -3,6 +3,7 @@ import {
   getCachedCommunityStats,
   getCommunityBySlug,
   getMembership,
+  getCommunityPreview,
   isSubscribedToCommunity,
 } from "@asm/db";
 import { siteConfig } from "@asm/ui/meta/site";
@@ -13,6 +14,7 @@ import { connection } from "next/server";
 import { cache, Suspense } from "react";
 
 import CommunityPage from "@/components/communities/page/community-page";
+import CommunityPrivateLanding from "@/components/communities/page/community-private-landing";
 import CommunityPageSkeleton from "@/components/layouts/skeletons/community-page-skeleton";
 import JsonLd from "@/components/seo/json-ld";
 import { getSessionFromApi } from "@/lib/auth/session";
@@ -131,10 +133,14 @@ async function CommunityContent({ params }: PageProps) {
   const userId = session?.user?.id ?? "";
 
   const community = await getCommunity(slug);
-  // A PRIVATE community is invisible to anyone without an ACTIVE membership;
-  // 404 rather than a "join to view" screen so the slug cannot be confirmed.
   if (!(await canViewCommunity(community, userId))) {
-    notFound();
+    const preview = await getCommunityPreview(slug, userId);
+    if (!preview) {
+      notFound();
+    }
+    return (
+      <CommunityPrivateLanding initialPreview={preview} viewerId={userId} />
+    );
   }
   // The owner is no longer fetched here: the sidebar's roster lists the founder
   // (with the owner badge) straight from the members API, so this second read
@@ -201,15 +207,19 @@ async function CommunityContent({ params }: PageProps) {
   // The community's own posts, rendered server-side as real anchors so the
   // nested /a/<slug>/posts/... URLs are crawlable without executing the client
   // feed. Visually hidden - the interactive feed below owns the on-screen list.
-  const crawlPosts = await getCommunityPostsForCrawl(
-    { id: community.id, slug: community.slug },
-    20
-  );
+  const crawlPosts =
+    community.type === "PRIVATE"
+      ? []
+      : await getCommunityPostsForCrawl(
+          { id: community.id, slug: community.slug },
+          20
+        );
 
   return (
     <>
       <JsonLd data={[jsonLd, breadcrumbJsonLd]} />
       <CommunityPage
+        viewerId={userId}
         community={community}
         membership={membership}
         slug={community.slug}

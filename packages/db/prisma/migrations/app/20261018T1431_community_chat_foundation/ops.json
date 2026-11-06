@@ -1,0 +1,2953 @@
+[
+  {
+    "id": "createNativeEnumType.CommunityChatChannelType",
+    "label": "Create enum type \"CommunityChatChannelType\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "type",
+        "name": "CommunityChatChannelType"
+      }
+    },
+    "precheck": [],
+    "execute": [
+      {
+        "description": "create enum type \"CommunityChatChannelType\"",
+        "sql": "CREATE TYPE \"public\".\"CommunityChatChannelType\" AS ENUM ('TEXT', 'ANNOUNCEMENT')",
+        "params": []
+      }
+    ],
+    "postcheck": []
+  },
+  {
+    "id": "createNativeEnumType.CommunityChatReportStatus",
+    "label": "Create enum type \"CommunityChatReportStatus\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "type",
+        "name": "CommunityChatReportStatus"
+      }
+    },
+    "precheck": [],
+    "execute": [
+      {
+        "description": "create enum type \"CommunityChatReportStatus\"",
+        "sql": "CREATE TYPE \"public\".\"CommunityChatReportStatus\" AS ENUM ('OPEN', 'RESOLVED', 'DISMISSED')",
+        "params": []
+      }
+    ],
+    "postcheck": []
+  },
+  {
+    "id": "createNativeEnumType.CommunityChatRoomKind",
+    "label": "Create enum type \"CommunityChatRoomKind\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "type",
+        "name": "CommunityChatRoomKind"
+      }
+    },
+    "precheck": [],
+    "execute": [
+      {
+        "description": "create enum type \"CommunityChatRoomKind\"",
+        "sql": "CREATE TYPE \"public\".\"CommunityChatRoomKind\" AS ENUM ('CHANNEL', 'THREAD')",
+        "params": []
+      }
+    ],
+    "postcheck": []
+  },
+  {
+    "id": "createNativeEnumType.CommunityChatSanctionKind",
+    "label": "Create enum type \"CommunityChatSanctionKind\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "type",
+        "name": "CommunityChatSanctionKind"
+      }
+    },
+    "precheck": [],
+    "execute": [
+      {
+        "description": "create enum type \"CommunityChatSanctionKind\"",
+        "sql": "CREATE TYPE \"public\".\"CommunityChatSanctionKind\" AS ENUM ('BAN', 'TIMEOUT', 'KICK')",
+        "params": []
+      }
+    ],
+    "postcheck": []
+  },
+  {
+    "id": "createNativeEnumType.CommunityChatVisibility",
+    "label": "Create enum type \"CommunityChatVisibility\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "type",
+        "name": "CommunityChatVisibility"
+      }
+    },
+    "precheck": [],
+    "execute": [
+      {
+        "description": "create enum type \"CommunityChatVisibility\"",
+        "sql": "CREATE TYPE \"public\".\"CommunityChatVisibility\" AS ENUM ('PUBLIC', 'PRIVATE')",
+        "params": []
+      }
+    ],
+    "postcheck": []
+  },
+  {
+    "id": "addNativeEnumValue.NotificationType.COMMUNITY_CHAT",
+    "label": "Add value \"COMMUNITY_CHAT\" to enum type \"NotificationType\"",
+    "summary": "Adds value \"COMMUNITY_CHAT\" to enum type \"NotificationType\". A newly added enum value cannot be used until the transaction that adds it commits, so a migration that both appends a value and uses it in the same step will fail at apply.",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "type",
+        "name": "NotificationType"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure enum type \"NotificationType\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_type\" AS \"t\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"t\".\"typnamespace\" WHERE (\"n\".\"nspname\" = $1 AND \"t\".\"typname\" = $2 AND \"t\".\"typtype\" = $3)) AS \"result\"",
+        "params": ["public", "NotificationType", "e"]
+      },
+      {
+        "description": "ensure value \"COMMUNITY_CHAT\" is absent from enum type \"NotificationType\"",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_enum\" AS \"e\" INNER JOIN \"pg_type\" AS \"t\" ON \"t\".\"oid\" = \"e\".\"enumtypid\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"t\".\"typnamespace\" WHERE (\"n\".\"nspname\" = $1 AND \"t\".\"typname\" = $2 AND \"e\".\"enumlabel\" = $3)) AS \"result\"",
+        "params": ["public", "NotificationType", "COMMUNITY_CHAT"]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add value \"COMMUNITY_CHAT\" to enum type \"NotificationType\"",
+        "sql": "ALTER TYPE \"public\".\"NotificationType\" ADD VALUE 'COMMUNITY_CHAT'"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify value \"COMMUNITY_CHAT\" exists on enum type \"NotificationType\"",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_enum\" AS \"e\" INNER JOIN \"pg_type\" AS \"t\" ON \"t\".\"oid\" = \"e\".\"enumtypid\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"t\".\"typnamespace\" WHERE (\"n\".\"nspname\" = $1 AND \"t\".\"typname\" = $2 AND \"e\".\"enumlabel\" = $3)) AS \"result\"",
+        "params": ["public", "NotificationType", "COMMUNITY_CHAT"]
+      }
+    ]
+  },
+  {
+    "id": "table.community_chat_audit",
+    "label": "Create table \"community_chat_audit\"",
+    "summary": "Creates table \"community_chat_audit\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "table",
+        "name": "community_chat_audit"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure table \"community_chat_audit\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": ["\"public\".\"community_chat_audit\""]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create table \"community_chat_audit\"",
+        "sql": "CREATE TABLE \"public\".\"community_chat_audit\" (\n  \"action\" text NOT NULL,\n  \"actorId\" text NOT NULL,\n  \"communityId\" text NOT NULL,\n  \"createdAt\" timestamp(3) DEFAULT (now()) NOT NULL,\n  \"details\" jsonb,\n  \"id\" text NOT NULL,\n  \"targetId\" text,\n  CONSTRAINT \"community_chat_audit_pkey\" PRIMARY KEY (\"id\")\n)",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify table \"community_chat_audit\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": ["\"public\".\"community_chat_audit\""]
+      }
+    ]
+  },
+  {
+    "id": "table.community_chat_messages",
+    "label": "Create table \"community_chat_messages\"",
+    "summary": "Creates table \"community_chat_messages\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "table",
+        "name": "community_chat_messages"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure table \"community_chat_messages\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": ["\"public\".\"community_chat_messages\""]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create table \"community_chat_messages\"",
+        "sql": "CREATE TABLE \"public\".\"community_chat_messages\" (\n  \"changeSequence\" int8 NOT NULL,\n  \"clientId\" text,\n  \"createdAt\" timestamp(3) DEFAULT (now()) NOT NULL,\n  \"deletedAt\" timestamp(3),\n  \"editedAt\" timestamp(3),\n  \"id\" text NOT NULL,\n  \"payload\" jsonb NOT NULL,\n  \"replyToId\" text,\n  \"revision\" int4 DEFAULT 1 NOT NULL,\n  \"roomId\" text NOT NULL,\n  \"senderId\" text NOT NULL,\n  \"sequence\" int8 NOT NULL,\n  CONSTRAINT \"community_chat_messages_pkey\" PRIMARY KEY (\"id\"),\n  CONSTRAINT \"community_chat_messages_revision_positive_6165c89f\" CHECK (\"revision\" >= 1)\n)",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify table \"community_chat_messages\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": ["\"public\".\"community_chat_messages\""]
+      }
+    ]
+  },
+  {
+    "id": "table.community_chat_outbox",
+    "label": "Create table \"community_chat_outbox\"",
+    "summary": "Creates table \"community_chat_outbox\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "table",
+        "name": "community_chat_outbox"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure table \"community_chat_outbox\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": ["\"public\".\"community_chat_outbox\""]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create table \"community_chat_outbox\"",
+        "sql": "CREATE TABLE \"public\".\"community_chat_outbox\" (\n  \"createdAt\" timestamp(3) DEFAULT (now()) NOT NULL,\n  \"id\" text NOT NULL,\n  \"kind\" text NOT NULL,\n  \"messageId\" text,\n  \"payload\" jsonb,\n  \"publishedAt\" timestamp(3),\n  \"roomId\" text NOT NULL,\n  \"sequence\" int8 NOT NULL,\n  CONSTRAINT \"community_chat_outbox_pkey\" PRIMARY KEY (\"id\")\n)",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify table \"community_chat_outbox\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": ["\"public\".\"community_chat_outbox\""]
+      }
+    ]
+  },
+  {
+    "id": "table.community_chat_pins",
+    "label": "Create table \"community_chat_pins\"",
+    "summary": "Creates table \"community_chat_pins\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "table",
+        "name": "community_chat_pins"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure table \"community_chat_pins\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": ["\"public\".\"community_chat_pins\""]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create table \"community_chat_pins\"",
+        "sql": "CREATE TABLE \"public\".\"community_chat_pins\" (\n  \"createdAt\" timestamp(3) DEFAULT (now()) NOT NULL,\n  \"messageId\" text NOT NULL,\n  \"pinnedById\" text NOT NULL,\n  \"roomId\" text NOT NULL,\n  CONSTRAINT \"community_chat_pins_pkey\" PRIMARY KEY (\"roomId\", \"messageId\")\n)",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify table \"community_chat_pins\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": ["\"public\".\"community_chat_pins\""]
+      }
+    ]
+  },
+  {
+    "id": "table.community_chat_preferences",
+    "label": "Create table \"community_chat_preferences\"",
+    "summary": "Creates table \"community_chat_preferences\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "table",
+        "name": "community_chat_preferences"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure table \"community_chat_preferences\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": ["\"public\".\"community_chat_preferences\""]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create table \"community_chat_preferences\"",
+        "sql": "CREATE TABLE \"public\".\"community_chat_preferences\" (\n  \"communityId\" text NOT NULL,\n  \"mutedAt\" timestamp(3),\n  \"updatedAt\" timestamp(3) DEFAULT (now()) NOT NULL,\n  \"userId\" text NOT NULL,\n  CONSTRAINT \"community_chat_preferences_pkey\" PRIMARY KEY (\"communityId\", \"userId\")\n)",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify table \"community_chat_preferences\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": ["\"public\".\"community_chat_preferences\""]
+      }
+    ]
+  },
+  {
+    "id": "table.community_chat_reactions",
+    "label": "Create table \"community_chat_reactions\"",
+    "summary": "Creates table \"community_chat_reactions\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "table",
+        "name": "community_chat_reactions"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure table \"community_chat_reactions\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": ["\"public\".\"community_chat_reactions\""]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create table \"community_chat_reactions\"",
+        "sql": "CREATE TABLE \"public\".\"community_chat_reactions\" (\n  \"createdAt\" timestamp(3) DEFAULT (now()) NOT NULL,\n  \"emoji\" text NOT NULL,\n  \"messageId\" text NOT NULL,\n  \"userId\" text NOT NULL,\n  CONSTRAINT \"community_chat_reactions_pkey\" PRIMARY KEY (\"messageId\", \"userId\", \"emoji\"),\n  CONSTRAINT \"community_chat_reactions_emoji_length_646c7d08\" CHECK (char_length(\"emoji\") BETWEEN 1 AND 32)\n)",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify table \"community_chat_reactions\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": ["\"public\".\"community_chat_reactions\""]
+      }
+    ]
+  },
+  {
+    "id": "table.community_chat_read_states",
+    "label": "Create table \"community_chat_read_states\"",
+    "summary": "Creates table \"community_chat_read_states\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "table",
+        "name": "community_chat_read_states"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure table \"community_chat_read_states\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": ["\"public\".\"community_chat_read_states\""]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create table \"community_chat_read_states\"",
+        "sql": "CREATE TABLE \"public\".\"community_chat_read_states\" (\n  \"readSequence\" int8 DEFAULT '0'::int8 NOT NULL,\n  \"roomId\" text NOT NULL,\n  \"updatedAt\" timestamp(3) DEFAULT (now()) NOT NULL,\n  \"userId\" text NOT NULL,\n  CONSTRAINT \"community_chat_read_states_pkey\" PRIMARY KEY (\"roomId\", \"userId\")\n)",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify table \"community_chat_read_states\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": ["\"public\".\"community_chat_read_states\""]
+      }
+    ]
+  },
+  {
+    "id": "table.community_chat_reports",
+    "label": "Create table \"community_chat_reports\"",
+    "summary": "Creates table \"community_chat_reports\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "table",
+        "name": "community_chat_reports"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure table \"community_chat_reports\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": ["\"public\".\"community_chat_reports\""]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create table \"community_chat_reports\"",
+        "sql": "CREATE TABLE \"public\".\"community_chat_reports\" (\n  \"communityId\" text NOT NULL,\n  \"createdAt\" timestamp(3) DEFAULT (now()) NOT NULL,\n  \"id\" text NOT NULL,\n  \"messageId\" text NOT NULL,\n  \"reason\" text NOT NULL,\n  \"reporterId\" text NOT NULL,\n  \"reviewNote\" text,\n  \"reviewedAt\" timestamp(3),\n  \"reviewedById\" text,\n  \"status\" \"CommunityChatReportStatus\" DEFAULT 'OPEN'::\"CommunityChatReportStatus\" NOT NULL,\n  CONSTRAINT \"community_chat_reports_pkey\" PRIMARY KEY (\"id\")\n)",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify table \"community_chat_reports\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": ["\"public\".\"community_chat_reports\""]
+      }
+    ]
+  },
+  {
+    "id": "table.community_chat_room_members",
+    "label": "Create table \"community_chat_room_members\"",
+    "summary": "Creates table \"community_chat_room_members\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "table",
+        "name": "community_chat_room_members"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure table \"community_chat_room_members\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": ["\"public\".\"community_chat_room_members\""]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create table \"community_chat_room_members\"",
+        "sql": "CREATE TABLE \"public\".\"community_chat_room_members\" (\n  \"communityMemberId\" text NOT NULL,\n  \"createdAt\" timestamp(3) DEFAULT (now()) NOT NULL,\n  \"invitedById\" text NOT NULL,\n  \"roomId\" text NOT NULL,\n  CONSTRAINT \"community_chat_room_members_pkey\" PRIMARY KEY (\"roomId\", \"communityMemberId\")\n)",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify table \"community_chat_room_members\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": ["\"public\".\"community_chat_room_members\""]
+      }
+    ]
+  },
+  {
+    "id": "table.community_chat_rooms",
+    "label": "Create table \"community_chat_rooms\"",
+    "summary": "Creates table \"community_chat_rooms\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "table",
+        "name": "community_chat_rooms"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure table \"community_chat_rooms\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": ["\"public\".\"community_chat_rooms\""]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create table \"community_chat_rooms\"",
+        "sql": "CREATE TABLE \"public\".\"community_chat_rooms\" (\n  \"archived\" bool DEFAULT false NOT NULL,\n  \"changeSequence\" int8 DEFAULT '0'::int8 NOT NULL,\n  \"channelType\" \"CommunityChatChannelType\",\n  \"communityId\" text NOT NULL,\n  \"createdAt\" timestamp(3) DEFAULT (now()) NOT NULL,\n  \"creatorId\" text NOT NULL,\n  \"id\" text NOT NULL,\n  \"kind\" \"CommunityChatRoomKind\" DEFAULT 'CHANNEL'::\"CommunityChatRoomKind\" NOT NULL,\n  \"locked\" bool DEFAULT false NOT NULL,\n  \"name\" text NOT NULL,\n  \"nextSequence\" int8 DEFAULT '0'::int8 NOT NULL,\n  \"parentRoomId\" text,\n  \"slowModeSeconds\" int4 DEFAULT 0 NOT NULL,\n  \"slug\" text NOT NULL,\n  \"sortOrder\" int4 DEFAULT 0 NOT NULL,\n  \"sourceMessageId\" text,\n  \"topic\" text,\n  \"updatedAt\" timestamp(3) DEFAULT (now()) NOT NULL,\n  \"visibility\" \"CommunityChatVisibility\" DEFAULT 'PUBLIC'::\"CommunityChatVisibility\" NOT NULL,\n  CONSTRAINT \"community_chat_rooms_pkey\" PRIMARY KEY (\"id\"),\n  CONSTRAINT \"community_chat_rooms_name_length_6b6c4303\" CHECK (char_length(\"name\") BETWEEN 1 AND 64),\n  CONSTRAINT \"community_chat_rooms_shape_cd57be3d\" CHECK ((\"kind\" = 'CHANNEL' AND \"parentRoomId\" IS NULL AND \"channelType\" IS NOT NULL AND \"sourceMessageId\" IS NULL AND \"visibility\" = 'PUBLIC') OR (\"kind\" = 'THREAD' AND \"parentRoomId\" IS NOT NULL AND \"channelType\" IS NULL)),\n  CONSTRAINT \"community_chat_rooms_slow_mode_range_3fbdb638\" CHECK (\"slowModeSeconds\" BETWEEN 0 AND 21600)\n)",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify table \"community_chat_rooms\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": ["\"public\".\"community_chat_rooms\""]
+      }
+    ]
+  },
+  {
+    "id": "table.community_chat_sanctions",
+    "label": "Create table \"community_chat_sanctions\"",
+    "summary": "Creates table \"community_chat_sanctions\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "table",
+        "name": "community_chat_sanctions"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure table \"community_chat_sanctions\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": ["\"public\".\"community_chat_sanctions\""]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create table \"community_chat_sanctions\"",
+        "sql": "CREATE TABLE \"public\".\"community_chat_sanctions\" (\n  \"actorId\" text NOT NULL,\n  \"communityId\" text NOT NULL,\n  \"createdAt\" timestamp(3) DEFAULT (now()) NOT NULL,\n  \"expiresAt\" timestamp(3),\n  \"id\" text NOT NULL,\n  \"kind\" \"CommunityChatSanctionKind\" NOT NULL,\n  \"reason\" text,\n  \"userId\" text NOT NULL,\n  CONSTRAINT \"community_chat_sanctions_pkey\" PRIMARY KEY (\"id\")\n)",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify table \"community_chat_sanctions\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": ["\"public\".\"community_chat_sanctions\""]
+      }
+    ]
+  },
+  {
+    "id": "table.community_chat_subscriptions",
+    "label": "Create table \"community_chat_subscriptions\"",
+    "summary": "Creates table \"community_chat_subscriptions\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "table",
+        "name": "community_chat_subscriptions"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure table \"community_chat_subscriptions\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": ["\"public\".\"community_chat_subscriptions\""]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create table \"community_chat_subscriptions\"",
+        "sql": "CREATE TABLE \"public\".\"community_chat_subscriptions\" (\n  \"following\" bool DEFAULT false NOT NULL,\n  \"roomId\" text NOT NULL,\n  \"updatedAt\" timestamp(3) DEFAULT (now()) NOT NULL,\n  \"userId\" text NOT NULL,\n  CONSTRAINT \"community_chat_subscriptions_pkey\" PRIMARY KEY (\"roomId\", \"userId\")\n)",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify table \"community_chat_subscriptions\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": ["\"public\".\"community_chat_subscriptions\""]
+      }
+    ]
+  },
+  {
+    "id": "column.public.communities.activeMemberCount",
+    "label": "Add column \"activeMemberCount\" to \"communities\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "column",
+        "name": "activeMemberCount",
+        "table": "communities"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure column \"activeMemberCount\" is missing",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": ["public", "communities", "activeMemberCount"]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add column \"activeMemberCount\"",
+        "sql": "ALTER TABLE \"public\".\"communities\" ADD COLUMN \"activeMemberCount\" int4 DEFAULT 0 NOT NULL"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify column \"activeMemberCount\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": ["public", "communities", "activeMemberCount"]
+      }
+    ]
+  },
+  {
+    "id": "unique.community_chat_messages.community_chat_messages_idempotency_key",
+    "label": "Add unique constraint on \"community_chat_messages\" (roomId, senderId, clientId)",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "unique",
+        "name": "community_chat_messages_idempotency_key",
+        "table": "community_chat_messages"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure constraint \"community_chat_messages_idempotency_key\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "community_chat_messages_idempotency_key",
+          "public",
+          "\"public\".\"community_chat_messages\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add unique constraint \"community_chat_messages_idempotency_key\"",
+        "sql": "ALTER TABLE \"public\".\"community_chat_messages\" ADD CONSTRAINT \"community_chat_messages_idempotency_key\" UNIQUE (\"roomId\", \"senderId\", \"clientId\")"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify constraint \"community_chat_messages_idempotency_key\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "community_chat_messages_idempotency_key",
+          "public",
+          "\"public\".\"community_chat_messages\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "unique.community_chat_messages.community_chat_messages_roomId_sequence_key",
+    "label": "Add unique constraint on \"community_chat_messages\" (roomId, sequence)",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "unique",
+        "name": "community_chat_messages_roomId_sequence_key",
+        "table": "community_chat_messages"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure constraint \"community_chat_messages_roomId_sequence_key\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "community_chat_messages_roomId_sequence_key",
+          "public",
+          "\"public\".\"community_chat_messages\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add unique constraint \"community_chat_messages_roomId_sequence_key\"",
+        "sql": "ALTER TABLE \"public\".\"community_chat_messages\" ADD CONSTRAINT \"community_chat_messages_roomId_sequence_key\" UNIQUE (\"roomId\", \"sequence\")"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify constraint \"community_chat_messages_roomId_sequence_key\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "community_chat_messages_roomId_sequence_key",
+          "public",
+          "\"public\".\"community_chat_messages\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "unique.community_chat_outbox.community_chat_outbox_roomId_sequence_key",
+    "label": "Add unique constraint on \"community_chat_outbox\" (roomId, sequence)",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "unique",
+        "name": "community_chat_outbox_roomId_sequence_key",
+        "table": "community_chat_outbox"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure constraint \"community_chat_outbox_roomId_sequence_key\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "community_chat_outbox_roomId_sequence_key",
+          "public",
+          "\"public\".\"community_chat_outbox\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add unique constraint \"community_chat_outbox_roomId_sequence_key\"",
+        "sql": "ALTER TABLE \"public\".\"community_chat_outbox\" ADD CONSTRAINT \"community_chat_outbox_roomId_sequence_key\" UNIQUE (\"roomId\", \"sequence\")"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify constraint \"community_chat_outbox_roomId_sequence_key\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "community_chat_outbox_roomId_sequence_key",
+          "public",
+          "\"public\".\"community_chat_outbox\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "unique.community_chat_reports.community_chat_reports_message_reporter_key",
+    "label": "Add unique constraint on \"community_chat_reports\" (messageId, reporterId)",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "unique",
+        "name": "community_chat_reports_message_reporter_key",
+        "table": "community_chat_reports"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure constraint \"community_chat_reports_message_reporter_key\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "community_chat_reports_message_reporter_key",
+          "public",
+          "\"public\".\"community_chat_reports\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add unique constraint \"community_chat_reports_message_reporter_key\"",
+        "sql": "ALTER TABLE \"public\".\"community_chat_reports\" ADD CONSTRAINT \"community_chat_reports_message_reporter_key\" UNIQUE (\"messageId\", \"reporterId\")"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify constraint \"community_chat_reports_message_reporter_key\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "community_chat_reports_message_reporter_key",
+          "public",
+          "\"public\".\"community_chat_reports\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "unique.community_chat_rooms.community_chat_rooms_communityId_slug_key",
+    "label": "Add unique constraint on \"community_chat_rooms\" (communityId, slug)",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "unique",
+        "name": "community_chat_rooms_communityId_slug_key",
+        "table": "community_chat_rooms"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure constraint \"community_chat_rooms_communityId_slug_key\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "community_chat_rooms_communityId_slug_key",
+          "public",
+          "\"public\".\"community_chat_rooms\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add unique constraint \"community_chat_rooms_communityId_slug_key\"",
+        "sql": "ALTER TABLE \"public\".\"community_chat_rooms\" ADD CONSTRAINT \"community_chat_rooms_communityId_slug_key\" UNIQUE (\"communityId\", \"slug\")"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify constraint \"community_chat_rooms_communityId_slug_key\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "community_chat_rooms_communityId_slug_key",
+          "public",
+          "\"public\".\"community_chat_rooms\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.community_chat_audit.community_chat_audit_timeline_idx",
+    "label": "Create index \"community_chat_audit_timeline_idx\" on \"community_chat_audit\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "community_chat_audit_timeline_idx",
+        "table": "community_chat_audit"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"community_chat_audit_timeline_idx\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": ["\"public\".\"community_chat_audit_timeline_idx\""]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"community_chat_audit_timeline_idx\"",
+        "sql": "CREATE INDEX \"community_chat_audit_timeline_idx\" ON \"public\".\"community_chat_audit\" (\"communityId\", \"createdAt\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"community_chat_audit_timeline_idx\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": ["\"public\".\"community_chat_audit_timeline_idx\""]
+      }
+    ]
+  },
+  {
+    "id": "index.community_chat_messages.community_chat_messages_changes_idx",
+    "label": "Create index \"community_chat_messages_changes_idx\" on \"community_chat_messages\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "community_chat_messages_changes_idx",
+        "table": "community_chat_messages"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"community_chat_messages_changes_idx\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": ["\"public\".\"community_chat_messages_changes_idx\""]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"community_chat_messages_changes_idx\"",
+        "sql": "CREATE INDEX \"community_chat_messages_changes_idx\" ON \"public\".\"community_chat_messages\" (\"roomId\", \"changeSequence\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"community_chat_messages_changes_idx\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": ["\"public\".\"community_chat_messages_changes_idx\""]
+      }
+    ]
+  },
+  {
+    "id": "index.community_chat_messages.community_chat_messages_cursor_idx",
+    "label": "Create index \"community_chat_messages_cursor_idx\" on \"community_chat_messages\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "community_chat_messages_cursor_idx",
+        "table": "community_chat_messages"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"community_chat_messages_cursor_idx\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": ["\"public\".\"community_chat_messages_cursor_idx\""]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"community_chat_messages_cursor_idx\"",
+        "sql": "CREATE INDEX \"community_chat_messages_cursor_idx\" ON \"public\".\"community_chat_messages\" (\"roomId\", \"createdAt\", \"id\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"community_chat_messages_cursor_idx\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": ["\"public\".\"community_chat_messages_cursor_idx\""]
+      }
+    ]
+  },
+  {
+    "id": "index.community_chat_messages.community_chat_messages_replyToId_idx_f2e7fcdc",
+    "label": "Create index \"community_chat_messages_replyToId_idx_f2e7fcdc\" on \"community_chat_messages\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "community_chat_messages_replyToId_idx_f2e7fcdc",
+        "table": "community_chat_messages"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"community_chat_messages_replyToId_idx_f2e7fcdc\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"community_chat_messages_replyToId_idx_f2e7fcdc\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"community_chat_messages_replyToId_idx_f2e7fcdc\"",
+        "sql": "CREATE INDEX \"community_chat_messages_replyToId_idx_f2e7fcdc\" ON \"public\".\"community_chat_messages\" (\"replyToId\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"community_chat_messages_replyToId_idx_f2e7fcdc\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"community_chat_messages_replyToId_idx_f2e7fcdc\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.community_chat_messages.community_chat_messages_sender_idx",
+    "label": "Create index \"community_chat_messages_sender_idx\" on \"community_chat_messages\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "community_chat_messages_sender_idx",
+        "table": "community_chat_messages"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"community_chat_messages_sender_idx\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": ["\"public\".\"community_chat_messages_sender_idx\""]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"community_chat_messages_sender_idx\"",
+        "sql": "CREATE INDEX \"community_chat_messages_sender_idx\" ON \"public\".\"community_chat_messages\" (\"senderId\", \"createdAt\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"community_chat_messages_sender_idx\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": ["\"public\".\"community_chat_messages_sender_idx\""]
+      }
+    ]
+  },
+  {
+    "id": "index.community_chat_outbox.community_chat_outbox_pending_idx",
+    "label": "Create index \"community_chat_outbox_pending_idx\" on \"community_chat_outbox\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "community_chat_outbox_pending_idx",
+        "table": "community_chat_outbox"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"community_chat_outbox_pending_idx\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": ["\"public\".\"community_chat_outbox_pending_idx\""]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"community_chat_outbox_pending_idx\"",
+        "sql": "CREATE INDEX \"community_chat_outbox_pending_idx\" ON \"public\".\"community_chat_outbox\" (\"publishedAt\", \"createdAt\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"community_chat_outbox_pending_idx\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": ["\"public\".\"community_chat_outbox_pending_idx\""]
+      }
+    ]
+  },
+  {
+    "id": "index.community_chat_pins.community_chat_pins_roomId_createdAt_idx",
+    "label": "Create index \"community_chat_pins_roomId_createdAt_idx\" on \"community_chat_pins\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "community_chat_pins_roomId_createdAt_idx",
+        "table": "community_chat_pins"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"community_chat_pins_roomId_createdAt_idx\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": ["\"public\".\"community_chat_pins_roomId_createdAt_idx\""]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"community_chat_pins_roomId_createdAt_idx\"",
+        "sql": "CREATE INDEX \"community_chat_pins_roomId_createdAt_idx\" ON \"public\".\"community_chat_pins\" (\"roomId\", \"createdAt\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"community_chat_pins_roomId_createdAt_idx\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": ["\"public\".\"community_chat_pins_roomId_createdAt_idx\""]
+      }
+    ]
+  },
+  {
+    "id": "index.community_chat_preferences.community_chat_preferences_userId_mutedAt_idx",
+    "label": "Create index \"community_chat_preferences_userId_mutedAt_idx\" on \"community_chat_preferences\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "community_chat_preferences_userId_mutedAt_idx",
+        "table": "community_chat_preferences"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"community_chat_preferences_userId_mutedAt_idx\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"community_chat_preferences_userId_mutedAt_idx\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"community_chat_preferences_userId_mutedAt_idx\"",
+        "sql": "CREATE INDEX \"community_chat_preferences_userId_mutedAt_idx\" ON \"public\".\"community_chat_preferences\" (\"userId\", \"mutedAt\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"community_chat_preferences_userId_mutedAt_idx\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"community_chat_preferences_userId_mutedAt_idx\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.community_chat_reactions.community_chat_reactions_summary_idx",
+    "label": "Create index \"community_chat_reactions_summary_idx\" on \"community_chat_reactions\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "community_chat_reactions_summary_idx",
+        "table": "community_chat_reactions"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"community_chat_reactions_summary_idx\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": ["\"public\".\"community_chat_reactions_summary_idx\""]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"community_chat_reactions_summary_idx\"",
+        "sql": "CREATE INDEX \"community_chat_reactions_summary_idx\" ON \"public\".\"community_chat_reactions\" (\"messageId\", \"emoji\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"community_chat_reactions_summary_idx\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": ["\"public\".\"community_chat_reactions_summary_idx\""]
+      }
+    ]
+  },
+  {
+    "id": "index.community_chat_reactions.community_chat_reactions_userId_createdAt_idx",
+    "label": "Create index \"community_chat_reactions_userId_createdAt_idx\" on \"community_chat_reactions\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "community_chat_reactions_userId_createdAt_idx",
+        "table": "community_chat_reactions"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"community_chat_reactions_userId_createdAt_idx\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"community_chat_reactions_userId_createdAt_idx\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"community_chat_reactions_userId_createdAt_idx\"",
+        "sql": "CREATE INDEX \"community_chat_reactions_userId_createdAt_idx\" ON \"public\".\"community_chat_reactions\" (\"userId\", \"createdAt\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"community_chat_reactions_userId_createdAt_idx\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"community_chat_reactions_userId_createdAt_idx\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.community_chat_read_states.community_chat_read_states_userId_updatedAt_idx",
+    "label": "Create index \"community_chat_read_states_userId_updatedAt_idx\" on \"community_chat_read_states\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "community_chat_read_states_userId_updatedAt_idx",
+        "table": "community_chat_read_states"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"community_chat_read_states_userId_updatedAt_idx\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"community_chat_read_states_userId_updatedAt_idx\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"community_chat_read_states_userId_updatedAt_idx\"",
+        "sql": "CREATE INDEX \"community_chat_read_states_userId_updatedAt_idx\" ON \"public\".\"community_chat_read_states\" (\"userId\", \"updatedAt\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"community_chat_read_states_userId_updatedAt_idx\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"community_chat_read_states_userId_updatedAt_idx\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.community_chat_reports.community_chat_reports_queue_idx",
+    "label": "Create index \"community_chat_reports_queue_idx\" on \"community_chat_reports\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "community_chat_reports_queue_idx",
+        "table": "community_chat_reports"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"community_chat_reports_queue_idx\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": ["\"public\".\"community_chat_reports_queue_idx\""]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"community_chat_reports_queue_idx\"",
+        "sql": "CREATE INDEX \"community_chat_reports_queue_idx\" ON \"public\".\"community_chat_reports\" (\"communityId\", \"status\", \"createdAt\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"community_chat_reports_queue_idx\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": ["\"public\".\"community_chat_reports_queue_idx\""]
+      }
+    ]
+  },
+  {
+    "id": "index.community_chat_reports.community_chat_reports_reviewedById_idx_e2835478",
+    "label": "Create index \"community_chat_reports_reviewedById_idx_e2835478\" on \"community_chat_reports\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "community_chat_reports_reviewedById_idx_e2835478",
+        "table": "community_chat_reports"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"community_chat_reports_reviewedById_idx_e2835478\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"community_chat_reports_reviewedById_idx_e2835478\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"community_chat_reports_reviewedById_idx_e2835478\"",
+        "sql": "CREATE INDEX \"community_chat_reports_reviewedById_idx_e2835478\" ON \"public\".\"community_chat_reports\" (\"reviewedById\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"community_chat_reports_reviewedById_idx_e2835478\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"community_chat_reports_reviewedById_idx_e2835478\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.community_chat_room_members.community_chat_room_members_communityMemberId_idx",
+    "label": "Create index \"community_chat_room_members_communityMemberId_idx\" on \"community_chat_room_members\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "community_chat_room_members_communityMemberId_idx",
+        "table": "community_chat_room_members"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"community_chat_room_members_communityMemberId_idx\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"community_chat_room_members_communityMemberId_idx\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"community_chat_room_members_communityMemberId_idx\"",
+        "sql": "CREATE INDEX \"community_chat_room_members_communityMemberId_idx\" ON \"public\".\"community_chat_room_members\" (\"communityMemberId\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"community_chat_room_members_communityMemberId_idx\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"community_chat_room_members_communityMemberId_idx\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.community_chat_rooms.community_chat_rooms_children_idx",
+    "label": "Create index \"community_chat_rooms_children_idx\" on \"community_chat_rooms\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "community_chat_rooms_children_idx",
+        "table": "community_chat_rooms"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"community_chat_rooms_children_idx\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": ["\"public\".\"community_chat_rooms_children_idx\""]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"community_chat_rooms_children_idx\"",
+        "sql": "CREATE INDEX \"community_chat_rooms_children_idx\" ON \"public\".\"community_chat_rooms\" (\"parentRoomId\", \"kind\", \"visibility\", \"archived\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"community_chat_rooms_children_idx\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": ["\"public\".\"community_chat_rooms_children_idx\""]
+      }
+    ]
+  },
+  {
+    "id": "index.community_chat_rooms.community_chat_rooms_creatorId_idx_3a77d800",
+    "label": "Create index \"community_chat_rooms_creatorId_idx_3a77d800\" on \"community_chat_rooms\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "community_chat_rooms_creatorId_idx_3a77d800",
+        "table": "community_chat_rooms"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"community_chat_rooms_creatorId_idx_3a77d800\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": ["\"public\".\"community_chat_rooms_creatorId_idx_3a77d800\""]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"community_chat_rooms_creatorId_idx_3a77d800\"",
+        "sql": "CREATE INDEX \"community_chat_rooms_creatorId_idx_3a77d800\" ON \"public\".\"community_chat_rooms\" (\"creatorId\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"community_chat_rooms_creatorId_idx_3a77d800\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": ["\"public\".\"community_chat_rooms_creatorId_idx_3a77d800\""]
+      }
+    ]
+  },
+  {
+    "id": "index.community_chat_rooms.community_chat_rooms_listing_idx",
+    "label": "Create index \"community_chat_rooms_listing_idx\" on \"community_chat_rooms\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "community_chat_rooms_listing_idx",
+        "table": "community_chat_rooms"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"community_chat_rooms_listing_idx\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": ["\"public\".\"community_chat_rooms_listing_idx\""]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"community_chat_rooms_listing_idx\"",
+        "sql": "CREATE INDEX \"community_chat_rooms_listing_idx\" ON \"public\".\"community_chat_rooms\" (\"communityId\", \"kind\", \"archived\", \"sortOrder\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"community_chat_rooms_listing_idx\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": ["\"public\".\"community_chat_rooms_listing_idx\""]
+      }
+    ]
+  },
+  {
+    "id": "index.community_chat_rooms.community_chat_rooms_parentRoomId_idx_cf9c8fcd",
+    "label": "Create index \"community_chat_rooms_parentRoomId_idx_cf9c8fcd\" on \"community_chat_rooms\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "community_chat_rooms_parentRoomId_idx_cf9c8fcd",
+        "table": "community_chat_rooms"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"community_chat_rooms_parentRoomId_idx_cf9c8fcd\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"community_chat_rooms_parentRoomId_idx_cf9c8fcd\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"community_chat_rooms_parentRoomId_idx_cf9c8fcd\"",
+        "sql": "CREATE INDEX \"community_chat_rooms_parentRoomId_idx_cf9c8fcd\" ON \"public\".\"community_chat_rooms\" (\"parentRoomId\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"community_chat_rooms_parentRoomId_idx_cf9c8fcd\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"community_chat_rooms_parentRoomId_idx_cf9c8fcd\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.community_chat_rooms.community_chat_rooms_sourceMessageId_idx_0a141d62",
+    "label": "Create index \"community_chat_rooms_sourceMessageId_idx_0a141d62\" on \"community_chat_rooms\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "community_chat_rooms_sourceMessageId_idx_0a141d62",
+        "table": "community_chat_rooms"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"community_chat_rooms_sourceMessageId_idx_0a141d62\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"community_chat_rooms_sourceMessageId_idx_0a141d62\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"community_chat_rooms_sourceMessageId_idx_0a141d62\"",
+        "sql": "CREATE INDEX \"community_chat_rooms_sourceMessageId_idx_0a141d62\" ON \"public\".\"community_chat_rooms\" (\"sourceMessageId\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"community_chat_rooms_sourceMessageId_idx_0a141d62\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"community_chat_rooms_sourceMessageId_idx_0a141d62\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.community_chat_sanctions.community_chat_sanctions_active_idx",
+    "label": "Create index \"community_chat_sanctions_active_idx\" on \"community_chat_sanctions\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "community_chat_sanctions_active_idx",
+        "table": "community_chat_sanctions"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"community_chat_sanctions_active_idx\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": ["\"public\".\"community_chat_sanctions_active_idx\""]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"community_chat_sanctions_active_idx\"",
+        "sql": "CREATE INDEX \"community_chat_sanctions_active_idx\" ON \"public\".\"community_chat_sanctions\" (\"communityId\", \"userId\", \"kind\", \"expiresAt\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"community_chat_sanctions_active_idx\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": ["\"public\".\"community_chat_sanctions_active_idx\""]
+      }
+    ]
+  },
+  {
+    "id": "index.community_chat_sanctions.community_chat_sanctions_created_idx",
+    "label": "Create index \"community_chat_sanctions_created_idx\" on \"community_chat_sanctions\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "community_chat_sanctions_created_idx",
+        "table": "community_chat_sanctions"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"community_chat_sanctions_created_idx\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": ["\"public\".\"community_chat_sanctions_created_idx\""]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"community_chat_sanctions_created_idx\"",
+        "sql": "CREATE INDEX \"community_chat_sanctions_created_idx\" ON \"public\".\"community_chat_sanctions\" (\"communityId\", \"createdAt\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"community_chat_sanctions_created_idx\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": ["\"public\".\"community_chat_sanctions_created_idx\""]
+      }
+    ]
+  },
+  {
+    "id": "index.community_chat_subscriptions.community_chat_subscriptions_followers_idx",
+    "label": "Create index \"community_chat_subscriptions_followers_idx\" on \"community_chat_subscriptions\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "community_chat_subscriptions_followers_idx",
+        "table": "community_chat_subscriptions"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"community_chat_subscriptions_followers_idx\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": ["\"public\".\"community_chat_subscriptions_followers_idx\""]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"community_chat_subscriptions_followers_idx\"",
+        "sql": "CREATE INDEX \"community_chat_subscriptions_followers_idx\" ON \"public\".\"community_chat_subscriptions\" (\"roomId\", \"following\", \"userId\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"community_chat_subscriptions_followers_idx\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": ["\"public\".\"community_chat_subscriptions_followers_idx\""]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.community_chat_audit.community_chat_audit_communityId_fkey",
+    "label": "Add foreign key \"community_chat_audit_communityId_fkey\" on \"community_chat_audit\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "community_chat_audit_communityId_fkey",
+        "table": "community_chat_audit"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"community_chat_audit_communityId_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "community_chat_audit_communityId_fkey",
+          "public",
+          "\"public\".\"community_chat_audit\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"community_chat_audit_communityId_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"community_chat_audit\"\nADD CONSTRAINT \"community_chat_audit_communityId_fkey\"\nFOREIGN KEY (\"communityId\")\nREFERENCES \"public\".\"communities\" (\"id\")\nON DELETE CASCADE\nON UPDATE CASCADE"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"community_chat_audit_communityId_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "community_chat_audit_communityId_fkey",
+          "public",
+          "\"public\".\"community_chat_audit\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.community_chat_audit.community_chat_audit_actorId_fkey",
+    "label": "Add foreign key \"community_chat_audit_actorId_fkey\" on \"community_chat_audit\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "community_chat_audit_actorId_fkey",
+        "table": "community_chat_audit"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"community_chat_audit_actorId_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "community_chat_audit_actorId_fkey",
+          "public",
+          "\"public\".\"community_chat_audit\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"community_chat_audit_actorId_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"community_chat_audit\"\nADD CONSTRAINT \"community_chat_audit_actorId_fkey\"\nFOREIGN KEY (\"actorId\")\nREFERENCES \"public\".\"users\" (\"id\")\nON DELETE CASCADE\nON UPDATE CASCADE"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"community_chat_audit_actorId_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "community_chat_audit_actorId_fkey",
+          "public",
+          "\"public\".\"community_chat_audit\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.community_chat_messages.community_chat_messages_roomId_fkey",
+    "label": "Add foreign key \"community_chat_messages_roomId_fkey\" on \"community_chat_messages\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "community_chat_messages_roomId_fkey",
+        "table": "community_chat_messages"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"community_chat_messages_roomId_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "community_chat_messages_roomId_fkey",
+          "public",
+          "\"public\".\"community_chat_messages\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"community_chat_messages_roomId_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"community_chat_messages\"\nADD CONSTRAINT \"community_chat_messages_roomId_fkey\"\nFOREIGN KEY (\"roomId\")\nREFERENCES \"public\".\"community_chat_rooms\" (\"id\")\nON DELETE CASCADE\nON UPDATE CASCADE"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"community_chat_messages_roomId_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "community_chat_messages_roomId_fkey",
+          "public",
+          "\"public\".\"community_chat_messages\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.community_chat_messages.community_chat_messages_senderId_fkey",
+    "label": "Add foreign key \"community_chat_messages_senderId_fkey\" on \"community_chat_messages\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "community_chat_messages_senderId_fkey",
+        "table": "community_chat_messages"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"community_chat_messages_senderId_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "community_chat_messages_senderId_fkey",
+          "public",
+          "\"public\".\"community_chat_messages\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"community_chat_messages_senderId_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"community_chat_messages\"\nADD CONSTRAINT \"community_chat_messages_senderId_fkey\"\nFOREIGN KEY (\"senderId\")\nREFERENCES \"public\".\"users\" (\"id\")\nON DELETE CASCADE\nON UPDATE CASCADE"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"community_chat_messages_senderId_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "community_chat_messages_senderId_fkey",
+          "public",
+          "\"public\".\"community_chat_messages\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.community_chat_messages.community_chat_messages_replyToId_fkey",
+    "label": "Add foreign key \"community_chat_messages_replyToId_fkey\" on \"community_chat_messages\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "community_chat_messages_replyToId_fkey",
+        "table": "community_chat_messages"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"community_chat_messages_replyToId_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "community_chat_messages_replyToId_fkey",
+          "public",
+          "\"public\".\"community_chat_messages\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"community_chat_messages_replyToId_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"community_chat_messages\"\nADD CONSTRAINT \"community_chat_messages_replyToId_fkey\"\nFOREIGN KEY (\"replyToId\")\nREFERENCES \"public\".\"community_chat_messages\" (\"id\")\nON DELETE SET NULL\nON UPDATE CASCADE"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"community_chat_messages_replyToId_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "community_chat_messages_replyToId_fkey",
+          "public",
+          "\"public\".\"community_chat_messages\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.community_chat_outbox.community_chat_outbox_roomId_fkey",
+    "label": "Add foreign key \"community_chat_outbox_roomId_fkey\" on \"community_chat_outbox\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "community_chat_outbox_roomId_fkey",
+        "table": "community_chat_outbox"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"community_chat_outbox_roomId_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "community_chat_outbox_roomId_fkey",
+          "public",
+          "\"public\".\"community_chat_outbox\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"community_chat_outbox_roomId_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"community_chat_outbox\"\nADD CONSTRAINT \"community_chat_outbox_roomId_fkey\"\nFOREIGN KEY (\"roomId\")\nREFERENCES \"public\".\"community_chat_rooms\" (\"id\")\nON DELETE CASCADE\nON UPDATE CASCADE"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"community_chat_outbox_roomId_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "community_chat_outbox_roomId_fkey",
+          "public",
+          "\"public\".\"community_chat_outbox\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.community_chat_pins.community_chat_pins_roomId_fkey",
+    "label": "Add foreign key \"community_chat_pins_roomId_fkey\" on \"community_chat_pins\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "community_chat_pins_roomId_fkey",
+        "table": "community_chat_pins"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"community_chat_pins_roomId_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "community_chat_pins_roomId_fkey",
+          "public",
+          "\"public\".\"community_chat_pins\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"community_chat_pins_roomId_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"community_chat_pins\"\nADD CONSTRAINT \"community_chat_pins_roomId_fkey\"\nFOREIGN KEY (\"roomId\")\nREFERENCES \"public\".\"community_chat_rooms\" (\"id\")\nON DELETE CASCADE\nON UPDATE CASCADE"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"community_chat_pins_roomId_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "community_chat_pins_roomId_fkey",
+          "public",
+          "\"public\".\"community_chat_pins\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.community_chat_pins.community_chat_pins_messageId_fkey",
+    "label": "Add foreign key \"community_chat_pins_messageId_fkey\" on \"community_chat_pins\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "community_chat_pins_messageId_fkey",
+        "table": "community_chat_pins"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"community_chat_pins_messageId_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "community_chat_pins_messageId_fkey",
+          "public",
+          "\"public\".\"community_chat_pins\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"community_chat_pins_messageId_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"community_chat_pins\"\nADD CONSTRAINT \"community_chat_pins_messageId_fkey\"\nFOREIGN KEY (\"messageId\")\nREFERENCES \"public\".\"community_chat_messages\" (\"id\")\nON DELETE CASCADE\nON UPDATE CASCADE"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"community_chat_pins_messageId_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "community_chat_pins_messageId_fkey",
+          "public",
+          "\"public\".\"community_chat_pins\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.community_chat_pins.community_chat_pins_pinnedById_fkey",
+    "label": "Add foreign key \"community_chat_pins_pinnedById_fkey\" on \"community_chat_pins\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "community_chat_pins_pinnedById_fkey",
+        "table": "community_chat_pins"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"community_chat_pins_pinnedById_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "community_chat_pins_pinnedById_fkey",
+          "public",
+          "\"public\".\"community_chat_pins\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"community_chat_pins_pinnedById_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"community_chat_pins\"\nADD CONSTRAINT \"community_chat_pins_pinnedById_fkey\"\nFOREIGN KEY (\"pinnedById\")\nREFERENCES \"public\".\"users\" (\"id\")\nON DELETE CASCADE\nON UPDATE CASCADE"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"community_chat_pins_pinnedById_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "community_chat_pins_pinnedById_fkey",
+          "public",
+          "\"public\".\"community_chat_pins\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.community_chat_preferences.community_chat_preferences_communityId_fkey",
+    "label": "Add foreign key \"community_chat_preferences_communityId_fkey\" on \"community_chat_preferences\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "community_chat_preferences_communityId_fkey",
+        "table": "community_chat_preferences"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"community_chat_preferences_communityId_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "community_chat_preferences_communityId_fkey",
+          "public",
+          "\"public\".\"community_chat_preferences\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"community_chat_preferences_communityId_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"community_chat_preferences\"\nADD CONSTRAINT \"community_chat_preferences_communityId_fkey\"\nFOREIGN KEY (\"communityId\")\nREFERENCES \"public\".\"communities\" (\"id\")\nON DELETE CASCADE\nON UPDATE CASCADE"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"community_chat_preferences_communityId_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "community_chat_preferences_communityId_fkey",
+          "public",
+          "\"public\".\"community_chat_preferences\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.community_chat_preferences.community_chat_preferences_userId_fkey",
+    "label": "Add foreign key \"community_chat_preferences_userId_fkey\" on \"community_chat_preferences\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "community_chat_preferences_userId_fkey",
+        "table": "community_chat_preferences"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"community_chat_preferences_userId_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "community_chat_preferences_userId_fkey",
+          "public",
+          "\"public\".\"community_chat_preferences\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"community_chat_preferences_userId_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"community_chat_preferences\"\nADD CONSTRAINT \"community_chat_preferences_userId_fkey\"\nFOREIGN KEY (\"userId\")\nREFERENCES \"public\".\"users\" (\"id\")\nON DELETE CASCADE\nON UPDATE CASCADE"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"community_chat_preferences_userId_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "community_chat_preferences_userId_fkey",
+          "public",
+          "\"public\".\"community_chat_preferences\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.community_chat_reactions.community_chat_reactions_messageId_fkey",
+    "label": "Add foreign key \"community_chat_reactions_messageId_fkey\" on \"community_chat_reactions\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "community_chat_reactions_messageId_fkey",
+        "table": "community_chat_reactions"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"community_chat_reactions_messageId_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "community_chat_reactions_messageId_fkey",
+          "public",
+          "\"public\".\"community_chat_reactions\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"community_chat_reactions_messageId_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"community_chat_reactions\"\nADD CONSTRAINT \"community_chat_reactions_messageId_fkey\"\nFOREIGN KEY (\"messageId\")\nREFERENCES \"public\".\"community_chat_messages\" (\"id\")\nON DELETE CASCADE\nON UPDATE CASCADE"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"community_chat_reactions_messageId_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "community_chat_reactions_messageId_fkey",
+          "public",
+          "\"public\".\"community_chat_reactions\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.community_chat_reactions.community_chat_reactions_userId_fkey",
+    "label": "Add foreign key \"community_chat_reactions_userId_fkey\" on \"community_chat_reactions\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "community_chat_reactions_userId_fkey",
+        "table": "community_chat_reactions"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"community_chat_reactions_userId_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "community_chat_reactions_userId_fkey",
+          "public",
+          "\"public\".\"community_chat_reactions\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"community_chat_reactions_userId_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"community_chat_reactions\"\nADD CONSTRAINT \"community_chat_reactions_userId_fkey\"\nFOREIGN KEY (\"userId\")\nREFERENCES \"public\".\"users\" (\"id\")\nON DELETE CASCADE\nON UPDATE CASCADE"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"community_chat_reactions_userId_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "community_chat_reactions_userId_fkey",
+          "public",
+          "\"public\".\"community_chat_reactions\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.community_chat_read_states.community_chat_read_states_roomId_fkey",
+    "label": "Add foreign key \"community_chat_read_states_roomId_fkey\" on \"community_chat_read_states\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "community_chat_read_states_roomId_fkey",
+        "table": "community_chat_read_states"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"community_chat_read_states_roomId_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "community_chat_read_states_roomId_fkey",
+          "public",
+          "\"public\".\"community_chat_read_states\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"community_chat_read_states_roomId_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"community_chat_read_states\"\nADD CONSTRAINT \"community_chat_read_states_roomId_fkey\"\nFOREIGN KEY (\"roomId\")\nREFERENCES \"public\".\"community_chat_rooms\" (\"id\")\nON DELETE CASCADE\nON UPDATE CASCADE"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"community_chat_read_states_roomId_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "community_chat_read_states_roomId_fkey",
+          "public",
+          "\"public\".\"community_chat_read_states\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.community_chat_read_states.community_chat_read_states_userId_fkey",
+    "label": "Add foreign key \"community_chat_read_states_userId_fkey\" on \"community_chat_read_states\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "community_chat_read_states_userId_fkey",
+        "table": "community_chat_read_states"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"community_chat_read_states_userId_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "community_chat_read_states_userId_fkey",
+          "public",
+          "\"public\".\"community_chat_read_states\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"community_chat_read_states_userId_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"community_chat_read_states\"\nADD CONSTRAINT \"community_chat_read_states_userId_fkey\"\nFOREIGN KEY (\"userId\")\nREFERENCES \"public\".\"users\" (\"id\")\nON DELETE CASCADE\nON UPDATE CASCADE"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"community_chat_read_states_userId_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "community_chat_read_states_userId_fkey",
+          "public",
+          "\"public\".\"community_chat_read_states\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.community_chat_reports.community_chat_reports_communityId_fkey",
+    "label": "Add foreign key \"community_chat_reports_communityId_fkey\" on \"community_chat_reports\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "community_chat_reports_communityId_fkey",
+        "table": "community_chat_reports"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"community_chat_reports_communityId_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "community_chat_reports_communityId_fkey",
+          "public",
+          "\"public\".\"community_chat_reports\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"community_chat_reports_communityId_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"community_chat_reports\"\nADD CONSTRAINT \"community_chat_reports_communityId_fkey\"\nFOREIGN KEY (\"communityId\")\nREFERENCES \"public\".\"communities\" (\"id\")\nON DELETE CASCADE\nON UPDATE CASCADE"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"community_chat_reports_communityId_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "community_chat_reports_communityId_fkey",
+          "public",
+          "\"public\".\"community_chat_reports\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.community_chat_reports.community_chat_reports_reporterId_fkey",
+    "label": "Add foreign key \"community_chat_reports_reporterId_fkey\" on \"community_chat_reports\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "community_chat_reports_reporterId_fkey",
+        "table": "community_chat_reports"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"community_chat_reports_reporterId_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "community_chat_reports_reporterId_fkey",
+          "public",
+          "\"public\".\"community_chat_reports\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"community_chat_reports_reporterId_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"community_chat_reports\"\nADD CONSTRAINT \"community_chat_reports_reporterId_fkey\"\nFOREIGN KEY (\"reporterId\")\nREFERENCES \"public\".\"users\" (\"id\")\nON DELETE CASCADE\nON UPDATE CASCADE"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"community_chat_reports_reporterId_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "community_chat_reports_reporterId_fkey",
+          "public",
+          "\"public\".\"community_chat_reports\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.community_chat_reports.community_chat_reports_reviewedById_fkey",
+    "label": "Add foreign key \"community_chat_reports_reviewedById_fkey\" on \"community_chat_reports\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "community_chat_reports_reviewedById_fkey",
+        "table": "community_chat_reports"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"community_chat_reports_reviewedById_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "community_chat_reports_reviewedById_fkey",
+          "public",
+          "\"public\".\"community_chat_reports\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"community_chat_reports_reviewedById_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"community_chat_reports\"\nADD CONSTRAINT \"community_chat_reports_reviewedById_fkey\"\nFOREIGN KEY (\"reviewedById\")\nREFERENCES \"public\".\"users\" (\"id\")\nON DELETE SET NULL\nON UPDATE CASCADE"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"community_chat_reports_reviewedById_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "community_chat_reports_reviewedById_fkey",
+          "public",
+          "\"public\".\"community_chat_reports\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.community_chat_reports.community_chat_reports_messageId_fkey",
+    "label": "Add foreign key \"community_chat_reports_messageId_fkey\" on \"community_chat_reports\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "community_chat_reports_messageId_fkey",
+        "table": "community_chat_reports"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"community_chat_reports_messageId_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "community_chat_reports_messageId_fkey",
+          "public",
+          "\"public\".\"community_chat_reports\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"community_chat_reports_messageId_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"community_chat_reports\"\nADD CONSTRAINT \"community_chat_reports_messageId_fkey\"\nFOREIGN KEY (\"messageId\")\nREFERENCES \"public\".\"community_chat_messages\" (\"id\")\nON DELETE CASCADE\nON UPDATE CASCADE"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"community_chat_reports_messageId_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "community_chat_reports_messageId_fkey",
+          "public",
+          "\"public\".\"community_chat_reports\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.community_chat_room_members.community_chat_room_members_roomId_fkey",
+    "label": "Add foreign key \"community_chat_room_members_roomId_fkey\" on \"community_chat_room_members\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "community_chat_room_members_roomId_fkey",
+        "table": "community_chat_room_members"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"community_chat_room_members_roomId_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "community_chat_room_members_roomId_fkey",
+          "public",
+          "\"public\".\"community_chat_room_members\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"community_chat_room_members_roomId_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"community_chat_room_members\"\nADD CONSTRAINT \"community_chat_room_members_roomId_fkey\"\nFOREIGN KEY (\"roomId\")\nREFERENCES \"public\".\"community_chat_rooms\" (\"id\")\nON DELETE CASCADE\nON UPDATE CASCADE"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"community_chat_room_members_roomId_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "community_chat_room_members_roomId_fkey",
+          "public",
+          "\"public\".\"community_chat_room_members\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.community_chat_room_members.community_chat_room_members_communityMemberId_fkey",
+    "label": "Add foreign key \"community_chat_room_members_communityMemberId_fkey\" on \"community_chat_room_members\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "community_chat_room_members_communityMemberId_fkey",
+        "table": "community_chat_room_members"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"community_chat_room_members_communityMemberId_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "community_chat_room_members_communityMemberId_fkey",
+          "public",
+          "\"public\".\"community_chat_room_members\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"community_chat_room_members_communityMemberId_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"community_chat_room_members\"\nADD CONSTRAINT \"community_chat_room_members_communityMemberId_fkey\"\nFOREIGN KEY (\"communityMemberId\")\nREFERENCES \"public\".\"community_members\" (\"id\")\nON DELETE CASCADE\nON UPDATE CASCADE"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"community_chat_room_members_communityMemberId_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "community_chat_room_members_communityMemberId_fkey",
+          "public",
+          "\"public\".\"community_chat_room_members\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.community_chat_room_members.community_chat_room_members_invitedById_fkey",
+    "label": "Add foreign key \"community_chat_room_members_invitedById_fkey\" on \"community_chat_room_members\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "community_chat_room_members_invitedById_fkey",
+        "table": "community_chat_room_members"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"community_chat_room_members_invitedById_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "community_chat_room_members_invitedById_fkey",
+          "public",
+          "\"public\".\"community_chat_room_members\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"community_chat_room_members_invitedById_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"community_chat_room_members\"\nADD CONSTRAINT \"community_chat_room_members_invitedById_fkey\"\nFOREIGN KEY (\"invitedById\")\nREFERENCES \"public\".\"users\" (\"id\")\nON DELETE CASCADE\nON UPDATE CASCADE"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"community_chat_room_members_invitedById_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "community_chat_room_members_invitedById_fkey",
+          "public",
+          "\"public\".\"community_chat_room_members\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.community_chat_rooms.community_chat_rooms_communityId_fkey",
+    "label": "Add foreign key \"community_chat_rooms_communityId_fkey\" on \"community_chat_rooms\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "community_chat_rooms_communityId_fkey",
+        "table": "community_chat_rooms"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"community_chat_rooms_communityId_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "community_chat_rooms_communityId_fkey",
+          "public",
+          "\"public\".\"community_chat_rooms\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"community_chat_rooms_communityId_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"community_chat_rooms\"\nADD CONSTRAINT \"community_chat_rooms_communityId_fkey\"\nFOREIGN KEY (\"communityId\")\nREFERENCES \"public\".\"communities\" (\"id\")\nON DELETE CASCADE\nON UPDATE CASCADE"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"community_chat_rooms_communityId_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "community_chat_rooms_communityId_fkey",
+          "public",
+          "\"public\".\"community_chat_rooms\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.community_chat_rooms.community_chat_rooms_creatorId_fkey",
+    "label": "Add foreign key \"community_chat_rooms_creatorId_fkey\" on \"community_chat_rooms\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "community_chat_rooms_creatorId_fkey",
+        "table": "community_chat_rooms"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"community_chat_rooms_creatorId_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "community_chat_rooms_creatorId_fkey",
+          "public",
+          "\"public\".\"community_chat_rooms\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"community_chat_rooms_creatorId_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"community_chat_rooms\"\nADD CONSTRAINT \"community_chat_rooms_creatorId_fkey\"\nFOREIGN KEY (\"creatorId\")\nREFERENCES \"public\".\"users\" (\"id\")\nON DELETE CASCADE\nON UPDATE CASCADE"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"community_chat_rooms_creatorId_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "community_chat_rooms_creatorId_fkey",
+          "public",
+          "\"public\".\"community_chat_rooms\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.community_chat_rooms.community_chat_rooms_parentRoomId_fkey",
+    "label": "Add foreign key \"community_chat_rooms_parentRoomId_fkey\" on \"community_chat_rooms\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "community_chat_rooms_parentRoomId_fkey",
+        "table": "community_chat_rooms"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"community_chat_rooms_parentRoomId_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "community_chat_rooms_parentRoomId_fkey",
+          "public",
+          "\"public\".\"community_chat_rooms\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"community_chat_rooms_parentRoomId_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"community_chat_rooms\"\nADD CONSTRAINT \"community_chat_rooms_parentRoomId_fkey\"\nFOREIGN KEY (\"parentRoomId\")\nREFERENCES \"public\".\"community_chat_rooms\" (\"id\")\nON DELETE CASCADE\nON UPDATE CASCADE"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"community_chat_rooms_parentRoomId_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "community_chat_rooms_parentRoomId_fkey",
+          "public",
+          "\"public\".\"community_chat_rooms\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.community_chat_rooms.community_chat_rooms_sourceMessageId_fkey",
+    "label": "Add foreign key \"community_chat_rooms_sourceMessageId_fkey\" on \"community_chat_rooms\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "community_chat_rooms_sourceMessageId_fkey",
+        "table": "community_chat_rooms"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"community_chat_rooms_sourceMessageId_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "community_chat_rooms_sourceMessageId_fkey",
+          "public",
+          "\"public\".\"community_chat_rooms\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"community_chat_rooms_sourceMessageId_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"community_chat_rooms\"\nADD CONSTRAINT \"community_chat_rooms_sourceMessageId_fkey\"\nFOREIGN KEY (\"sourceMessageId\")\nREFERENCES \"public\".\"community_chat_messages\" (\"id\")\nON DELETE SET NULL\nON UPDATE CASCADE"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"community_chat_rooms_sourceMessageId_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "community_chat_rooms_sourceMessageId_fkey",
+          "public",
+          "\"public\".\"community_chat_rooms\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.community_chat_sanctions.community_chat_sanctions_communityId_fkey",
+    "label": "Add foreign key \"community_chat_sanctions_communityId_fkey\" on \"community_chat_sanctions\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "community_chat_sanctions_communityId_fkey",
+        "table": "community_chat_sanctions"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"community_chat_sanctions_communityId_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "community_chat_sanctions_communityId_fkey",
+          "public",
+          "\"public\".\"community_chat_sanctions\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"community_chat_sanctions_communityId_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"community_chat_sanctions\"\nADD CONSTRAINT \"community_chat_sanctions_communityId_fkey\"\nFOREIGN KEY (\"communityId\")\nREFERENCES \"public\".\"communities\" (\"id\")\nON DELETE CASCADE\nON UPDATE CASCADE"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"community_chat_sanctions_communityId_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "community_chat_sanctions_communityId_fkey",
+          "public",
+          "\"public\".\"community_chat_sanctions\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.community_chat_sanctions.community_chat_sanctions_userId_fkey",
+    "label": "Add foreign key \"community_chat_sanctions_userId_fkey\" on \"community_chat_sanctions\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "community_chat_sanctions_userId_fkey",
+        "table": "community_chat_sanctions"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"community_chat_sanctions_userId_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "community_chat_sanctions_userId_fkey",
+          "public",
+          "\"public\".\"community_chat_sanctions\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"community_chat_sanctions_userId_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"community_chat_sanctions\"\nADD CONSTRAINT \"community_chat_sanctions_userId_fkey\"\nFOREIGN KEY (\"userId\")\nREFERENCES \"public\".\"users\" (\"id\")\nON DELETE CASCADE\nON UPDATE CASCADE"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"community_chat_sanctions_userId_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "community_chat_sanctions_userId_fkey",
+          "public",
+          "\"public\".\"community_chat_sanctions\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.community_chat_sanctions.community_chat_sanctions_actorId_fkey",
+    "label": "Add foreign key \"community_chat_sanctions_actorId_fkey\" on \"community_chat_sanctions\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "community_chat_sanctions_actorId_fkey",
+        "table": "community_chat_sanctions"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"community_chat_sanctions_actorId_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "community_chat_sanctions_actorId_fkey",
+          "public",
+          "\"public\".\"community_chat_sanctions\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"community_chat_sanctions_actorId_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"community_chat_sanctions\"\nADD CONSTRAINT \"community_chat_sanctions_actorId_fkey\"\nFOREIGN KEY (\"actorId\")\nREFERENCES \"public\".\"users\" (\"id\")\nON DELETE CASCADE\nON UPDATE CASCADE"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"community_chat_sanctions_actorId_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "community_chat_sanctions_actorId_fkey",
+          "public",
+          "\"public\".\"community_chat_sanctions\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.community_chat_subscriptions.community_chat_subscriptions_roomId_fkey",
+    "label": "Add foreign key \"community_chat_subscriptions_roomId_fkey\" on \"community_chat_subscriptions\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "community_chat_subscriptions_roomId_fkey",
+        "table": "community_chat_subscriptions"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"community_chat_subscriptions_roomId_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "community_chat_subscriptions_roomId_fkey",
+          "public",
+          "\"public\".\"community_chat_subscriptions\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"community_chat_subscriptions_roomId_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"community_chat_subscriptions\"\nADD CONSTRAINT \"community_chat_subscriptions_roomId_fkey\"\nFOREIGN KEY (\"roomId\")\nREFERENCES \"public\".\"community_chat_rooms\" (\"id\")\nON DELETE CASCADE\nON UPDATE CASCADE"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"community_chat_subscriptions_roomId_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "community_chat_subscriptions_roomId_fkey",
+          "public",
+          "\"public\".\"community_chat_subscriptions\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.community_chat_subscriptions.community_chat_subscriptions_userId_fkey",
+    "label": "Add foreign key \"community_chat_subscriptions_userId_fkey\" on \"community_chat_subscriptions\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "community_chat_subscriptions_userId_fkey",
+        "table": "community_chat_subscriptions"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"community_chat_subscriptions_userId_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "community_chat_subscriptions_userId_fkey",
+          "public",
+          "\"public\".\"community_chat_subscriptions\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"community_chat_subscriptions_userId_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"community_chat_subscriptions\"\nADD CONSTRAINT \"community_chat_subscriptions_userId_fkey\"\nFOREIGN KEY (\"userId\")\nREFERENCES \"public\".\"users\" (\"id\")\nON DELETE CASCADE\nON UPDATE CASCADE"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"community_chat_subscriptions_userId_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "community_chat_subscriptions_userId_fkey",
+          "public",
+          "\"public\".\"community_chat_subscriptions\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "data_migration.backfill-community-chat",
+    "label": "Data transform: backfill-community-chat",
+    "operationClass": "data",
+    "target": {
+      "id": "postgres"
+    },
+    "precheck": [
+      {
+        "description": "Check backfill-community-chat has work to do",
+        "sql": "SELECT EXISTS (SELECT c.\"id\"\n          FROM public.\"communities\" AS c\n          WHERE c.\"activeMemberCount\" <> (\n            SELECT count(*)::integer\n            FROM public.\"community_members\" AS cm\n            WHERE cm.\"communityId\" = c.\"id\" AND cm.\"status\" = 'ACTIVE'\n          ) OR NOT EXISTS (\n            SELECT 1 FROM public.\"community_chat_rooms\" AS r\n            WHERE r.\"communityId\" = c.\"id\" AND r.\"slug\" = 'general'\n          )\n          LIMIT 1) AS ok",
+        "params": []
+      }
+    ],
+    "execute": [
+      {
+        "description": "Run backfill-community-chat",
+        "sql": "UPDATE public.\"communities\" AS c\n            SET \"activeMemberCount\" = (\n              SELECT count(*)::integer\n              FROM public.\"community_members\" AS cm\n              WHERE cm.\"communityId\" = c.\"id\" AND cm.\"status\" = 'ACTIVE'\n            )",
+        "params": []
+      },
+      {
+        "description": "Run backfill-community-chat",
+        "sql": "INSERT INTO public.\"community_chat_rooms\"\n            (\"id\", \"communityId\", \"kind\", \"channelType\", \"visibility\", \"name\", \"slug\", \"creatorId\")\n            SELECT gen_random_uuid()::text, c.\"id\", 'CHANNEL', 'TEXT', 'PUBLIC', 'general', 'general', c.\"ownerId\"\n            FROM public.\"communities\" AS c\n            WHERE NOT EXISTS (\n              SELECT 1 FROM public.\"community_chat_rooms\" AS r\n              WHERE r.\"communityId\" = c.\"id\" AND r.\"slug\" = 'general'\n            )",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "Verify backfill-community-chat resolved all violations",
+        "sql": "SELECT NOT EXISTS (SELECT c.\"id\"\n          FROM public.\"communities\" AS c\n          WHERE c.\"activeMemberCount\" <> (\n            SELECT count(*)::integer\n            FROM public.\"community_members\" AS cm\n            WHERE cm.\"communityId\" = c.\"id\" AND cm.\"status\" = 'ACTIVE'\n          ) OR NOT EXISTS (\n            SELECT 1 FROM public.\"community_chat_rooms\" AS r\n            WHERE r.\"communityId\" = c.\"id\" AND r.\"slug\" = 'general'\n          )\n          LIMIT 1) AS ok",
+        "params": []
+      }
+    ]
+  }
+]

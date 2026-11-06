@@ -3,10 +3,11 @@
 import { clientLog } from "@asm/config/debug";
 import type { UserData } from "@asm/db";
 import { Command } from "cmdk";
-import { Hash, Loader2, Plus, Search, X } from "lucide-react";
+import { Hash, Plus, Search, X } from "lucide-react";
 import { useCallback, useState } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
+import { ZephLoader } from "@/components/layouts/feedback/zeph-loader";
 import UserAvatar from "@/components/layouts/user/user-avatar";
 import { useTags } from "@/hooks/posts/use-tags";
 import { useToast } from "@/lib/gooey-toast";
@@ -258,7 +259,10 @@ export function GustMentionPicker({
             value={search}
           />
           {isLoading ? (
-            <Loader2 className="text-muted-foreground h-4 w-4 animate-spin" />
+            <ZephLoader
+              variant="search"
+              className="text-muted-foreground h-4 w-4"
+            />
           ) : null}
         </div>
         {search ? (

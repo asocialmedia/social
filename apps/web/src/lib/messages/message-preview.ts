@@ -33,6 +33,31 @@ export function messagePreviewText(payload: MessagePayload): string {
     return "Shared a post";
   }
   if (payload.type === "media") {
+    if ("sticker" in payload && payload.sticker) {
+      return "Sent a sticker";
+    }
+    if ("attachments" in payload) {
+      const photos = payload.attachments.filter(
+        (attachment) => attachment.kind === "gif" || attachment.kind === "image"
+      );
+      if (photos.length === payload.attachments.length) {
+        if (photos.length === 1) {
+          return photos[0]?.kind === "gif" ? "Shared a GIF" : "Shared an image";
+        }
+        return `Shared ${photos.length} images`;
+      }
+      if (payload.attachments.length === 1) {
+        const kind = payload.attachments[0]?.kind;
+        if (kind === "video") {
+          return "Shared a video";
+        }
+        if (kind === "file") {
+          return "Shared a file";
+        }
+        return "Shared a photo";
+      }
+      return `Shared ${payload.attachments.length} attachments`;
+    }
     if (payload.kind === "gif") {
       return "Shared a GIF";
     }

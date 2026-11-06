@@ -1,4 +1,7 @@
-import { getMediaImages } from "@/lib/messages/crypto";
+import {
+  getMediaAttachments,
+  isStickerMessagePayload,
+} from "@/lib/messages/crypto";
 import type { DecryptEntry } from "@/lib/messages/decryptor";
 import { sharedRefToMediaItem } from "@/lib/messages/shared-refs-format";
 import type {
@@ -82,7 +85,7 @@ export function mediaItemsFromSharedRefs(
   records: readonly SharedRefRecord[]
 ): ConversationMediaItem[] {
   return records.flatMap((record) => {
-    if (!record.url) {
+    if (!record.url || record.mediaKind === "sticker") {
       return [];
     }
     return [sharedRefToMediaItem(record)];
@@ -154,25 +157,34 @@ function deriveMediaItems(
   message: ConversationMediaMessage,
   payload: Extract<DecryptEntry, object> & { type: "media" }
 ): ConversationMediaItem[] {
-  const images = getMediaImages(payload);
+  if (isStickerMessagePayload(payload)) {
+    return [];
+  }
+  // Only photo rows become viewer items. imageIndex stays the photo's ordinal
+  // within the message, which is what the album tiles and the fullscreen viewer
+  // pair on; videos, files, and view-once refs are skipped entirely.
   const items: ConversationMediaItem[] = [];
-  for (let imageIndex = 0; imageIndex < images.length; imageIndex += 1) {
-    const image = images[imageIndex];
-    if (!image?.url) {
+  let imageIndex = 0;
+  for (const attachment of getMediaAttachments(payload)) {
+    if (attachment.kind !== "gif" && attachment.kind !== "image") {
+      continue;
+    }
+    if (!attachment.url) {
       continue;
     }
     items.push({
       createdAt: new Date(message.createdAt).getTime(),
       flatKey: mediaFlatKey(message.id, imageIndex),
-      height: image.height,
+      height: attachment.height,
       imageIndex,
-      kind: payload.kind,
-      mediaId: getMessageMediaId(image.url),
+      kind: attachment.kind,
+      mediaId: getMessageMediaId(attachment.url),
       messageId: message.id,
       senderId: message.senderId,
-      url: image.url,
-      width: image.width,
+      url: attachment.url,
+      width: attachment.width,
     });
+    imageIndex += 1;
   }
   return items;
 }

@@ -11,20 +11,14 @@ import { useCallback, useEffect, useState } from "react";
 // restores from SecureStore-backed memory (logged-in users default to For
 // you, guests to Latest), Following prompts guests to log in, and every tab
 // keeps its own cached pages and scroll position.
-import {
-  ActivityIndicator,
-  Animated,
-  Easing,
-  Platform,
-  StyleSheet,
-  View,
-} from "react-native";
+import { Animated, Easing, Platform, StyleSheet, View } from "react-native";
 import Reanimated, {
   useAnimatedStyle,
   useSharedValue,
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { ZephLoader } from "@/components/feedback/zeph-loader";
 import { useSessionContext } from "@/features/auth/state/session";
 import { PostEditor } from "@/features/composer/components/post-editor";
 import { useComposerStore } from "@/features/composer/state/composer-store";
@@ -163,7 +157,7 @@ export default function HomeScreen() {
   if (!memoryReady) {
     return (
       <View style={[styles.memoryWait, { backgroundColor: theme.containerBg }]}>
-        <ActivityIndicator color={theme.inputText} />
+        <ZephLoader variant="general" color={theme.inputText} />
       </View>
     );
   }

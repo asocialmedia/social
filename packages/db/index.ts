@@ -1,6 +1,7 @@
 // oxlint-disable oxc/no-barrel-file
 export * from "./src/protocols/external-posts";
 export { and, or } from "@prisma/orm-postgres/orm-client";
+export { rawExecute, rawQuery } from "./src/messages/infrastructure/raw-sql";
 export * from "./cache/avatar-cache";
 export * from "./cache/followbutton-cache";
 export * from "./cache/search-cache";
@@ -10,11 +11,16 @@ export * from "./cache/user-cache";
 export * from "./constants/cache-keys";
 export * from "./src/aura";
 export * from "./src/communities/aura";
+export * from "./src/communities/chat";
+export * from "./src/communities/chat-inbox";
 export * from "./src/communities/constants";
 export * from "./src/communities/media";
 export * from "./src/communities/service";
 export * from "./src/communities/slug";
-export { communityVisibilityWhere } from "./src/communities/visibility";
+export {
+  communityVisibilityWhere,
+  communityNotificationVisibilityWhere,
+} from "./src/communities/visibility";
 export {
   DEN_INVITE_CODE_ALPHABET,
   DEN_INVITE_DURATION_DAYS,
@@ -100,7 +106,6 @@ export {
   unreadMessagesWhere,
   unreadMessageWhere,
 } from "./src/messages/access/visibility";
-export { prebuildDmIndexes } from "./src/messages/infrastructure/prebuild-indexes";
 export {
   commitMessageSearchBackfillBatch,
   commitMessageHides,
@@ -129,7 +134,13 @@ export {
   releaseMessageSearchCountRequest,
   requestMessageSearchCount,
   searchMessageCandidates,
+  searchGlobalMessageCandidates,
   startMessageSearchBackfill,
+} from "./src/messages/search/search-index";
+export {
+  ensureGlobalMessageSearchBackfills,
+  GLOBAL_MESSAGE_SEARCH_SCOPE_LIMIT,
+  listGlobalMessageSearchScope,
 } from "./src/messages/search/search-index";
 export type {
   MessageIdentityBackupRefreshInput,
@@ -150,6 +161,10 @@ export type {
   MessageSearchBackfillOutcome,
   MessageSearchBackfillPosition,
   SearchCandidateQuery,
+  GlobalSearchCandidateInput,
+  GlobalMessageSearchScopeRow,
+  GlobalSearchCandidateRow,
+  GlobalSearchScopeEntry,
   SearchCandidateRow,
   SearchHydrationQuery,
   SearchHydrationRequest,
@@ -195,7 +210,6 @@ export * from "./src/recommendation/persona/network-persona";
 export * from "./src/recommendation/topics/network-topics";
 export * from "./src/recommendation/persona/network-social";
 export * from "./src/recommendation/persona/network-features";
-export { rawQuery } from "./src/messages/infrastructure/raw-sql";
 export * from "./src/recommendation/semantic/vector";
 export * from "./src/users/reserved-usernames";
 export * from "./src/users/username-aliases";
@@ -217,6 +231,15 @@ export * from "./src/recommendation/semantic/semantic-index";
 
 export * from "./src/recommendation/topics/shared-topic-graph";
 
+export * from "./src/messages/lifecycle";
+export * from "./src/messages/reactions";
+export * from "./src/messages/view-once-receipts";
+export { messageInteractionAllowed } from "./src/messages/access/interaction-access";
+export * from "./src/messages/lifecycle-cleanup";
+export * from "./src/messages/chat-export";
+export * from "./src/messages/chat-export-worker";
+
+export * from "./src/communities/membership-requests";
 export * from "./src/recommendation/experiments/attribution";
 export * from "./src/recommendation/semantic/retrieval-benchmark";
 export * from "./src/recommendation/experiments/experiment-report";

@@ -76,6 +76,8 @@ export interface UploadOptions extends UploadCallbacks {
   audioOverlayId?: string;
   // Required for `purpose: "message"`. See InitiateRequest.conversationId.
   conversationId?: string;
+  incognitoSessionId?: string;
+  viewOnce?: boolean;
   purpose: UploadPurpose;
   signal?: AbortSignal;
   // Posts attach before READY (web's waitForProcessing:false); comments wait.
@@ -318,7 +320,19 @@ export async function uploadMedia(
   const startedAt = Date.now();
   let family: MediaFamily;
   try {
-    family = assertUploadable(source.mimeType, source.size);
+    if (
+      options.viewOnce &&
+      !["image/jpeg", "image/png", "image/webp", "image/avif"].includes(
+        source.mimeType.toLowerCase()
+      )
+    ) {
+      throw new Error(
+        "View-once attachments must be JPEG, PNG, WebP, or AVIF photos"
+      );
+    }
+    family = assertUploadable(source.mimeType, source.size, {
+      messageAttachment: options.purpose === "message",
+    });
   } catch (error) {
     throw new UploadError(
       "initiate",
@@ -344,10 +358,12 @@ export async function uploadMedia(
             audioOverlayId: options.audioOverlayId,
             conversationId: options.conversationId,
             height: source.height,
+            incognitoSessionId: options.incognitoSessionId,
             name: source.name,
             purpose: options.purpose,
             size: source.size,
             type: source.mimeType,
+            viewOnce: options.viewOnce,
             width: source.width,
           },
           options.signal

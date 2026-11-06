@@ -6,16 +6,10 @@
 import { Image } from "expo-image";
 import { X } from "lucide-react-native";
 import { useState } from "react";
-import {
-  ActivityIndicator,
-  Pressable,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from "react-native";
+import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 
 import zephImage from "@/assets/images/zeph.png";
+import { ZephLoader } from "@/components/feedback/zeph-loader";
 import { Gradient3D } from "@/components/surface/gradient-3d";
 import {
   ORANGE_GRADIENT,
@@ -102,7 +96,7 @@ export function AltTextPanel({
           ]}
         >
           {analyzing ? (
-            <ActivityIndicator color="#fb923c" size={14} />
+            <ZephLoader variant="media" color="#fb923c" size={14} />
           ) : (
             <Image
               accessibilityLabel=""

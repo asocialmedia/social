@@ -21,11 +21,11 @@ Web discovery uses browser language and timezone-derived country as coarse relev
 
 Install dependencies from the repository root with `bun install`. There is one root `bun.lock`; do not initialize this folder as a standalone project.
 
-`bun run dev` at the root starts this service through Turbo alongside web, auth, and media processing. `apps/protocols/.env.development` supplies local defaults: loopback port 3012, readable Pino logs, an internal development credential, Redis, service-specific OpenObserve streams, and a Jetstream subscription restricted to the single `bsky.app` DID. No Bluesky API key is needed.
+`bun run dev` at the root starts this service through Turbo alongside web, auth, and media processing. `apps/protocols/.env.defaults` supplies local defaults: loopback port 3012, readable Pino logs, an internal development credential, Redis, service-specific OpenObserve streams, and a Jetstream subscription restricted to the single `bsky.app` DID. No Bluesky API key is needed.
 
 The service prints its version, URL, health URL, readiness URL, read status, and tracked-account count. `readsEnabled: false` means the internal credential is missing; it does not mean that the process failed to start. A stream can briefly report not ready while it acquires its Redis lease and connects.
 
-Environment priority is injected variables, `apps/protocols/.env.local`, `apps/protocols/.env`, the root `.env`, then development defaults. The scripts disable Bun's implicit environment loading so this order stays consistent when launched from the root or the workspace. When `NODE_ENV` is absent, source execution defaults to development, matching the other local services. Production containers explicitly set `NODE_ENV=production`, never load `.env.development`, and reject the committed development credential.
+Environment priority is injected variables, `apps/protocols/.env.local`, `apps/protocols/.env`, the root `.env`, then development defaults. The scripts disable Bun's implicit environment loading so this order stays consistent when launched from the root or the workspace. When `NODE_ENV` is absent, source execution defaults to development, matching the other local services. Production containers explicitly set `NODE_ENV=production`, never load `.env.defaults`, and reject the committed development credential.
 
 Use `.env.local` for private local overrides. Root secrets and explicit values take precedence over development defaults. OpenObserve's local credentials match the existing development infrastructure; production credentials must be provided separately. The internal credential stays on the server and must never be added to `NEXT_PUBLIC_*` or `EXPO_PUBLIC_*` variables.
 

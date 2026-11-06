@@ -81,12 +81,20 @@ const NavIcon: React.FC<{ active: boolean; icon: typeof Home }> = ({
 }) => {
   const { pending } = useLinkStatus();
   if (pending && !active) {
-    return <Spinner3D className="size-5" />;
+    return <Spinner3D variant="general" className="size-5" />;
   }
   return <Icon className="size-5 transition-colors" />;
 };
 
-const MobileBottomNav: React.FC<{ hidden?: boolean }> = ({
+const MobileBottomNav: React.FC<{
+  hidden?: boolean;
+  sidebar?: boolean;
+  closing?: boolean;
+  onNavigate?: () => void;
+}> = ({
+  sidebar = false,
+  closing = false,
+  onNavigate,
   hidden: hiddenOverride,
 }) => {
   const pathname = usePathname();
@@ -106,8 +114,9 @@ const MobileBottomNav: React.FC<{ hidden?: boolean }> = ({
   // signal that drives its top bar, so the dock moves in lockstep with it.
   // Deriving a second signal here from capture-phase document events desyncs
   // from the page's own listener during bottom overscroll, which flickers both.
-  const hidden = hiddenOverride ?? hookHidden;
+  const hidden = closing || (hiddenOverride ?? hookHidden);
   const reduceMotion = useReducedMotion();
+  const hiddenY = sidebar ? 28 : "calc(100% + 1rem)";
 
   const isInsideActiveChat =
     pathname.startsWith("/messages") && Boolean(searchParams?.get("c"));
@@ -150,7 +159,10 @@ const MobileBottomNav: React.FC<{ hidden?: boolean }> = ({
           aria-label={label}
           className={className}
           key={href}
-          onClick={goToLogin}
+          onClick={() => {
+            onNavigate?.();
+            goToLogin();
+          }}
           type="button"
         >
           {inner}
@@ -163,10 +175,11 @@ const MobileBottomNav: React.FC<{ hidden?: boolean }> = ({
         aria-label={label}
         className={className}
         href={href}
+        key={href}
+        onClick={onNavigate}
         onNavigate={(event) =>
           reselectFeedNavigation(href, pathname, event, searchParams)
         }
-        key={href}
       >
         {inner}
       </Link>
@@ -174,6 +187,7 @@ const MobileBottomNav: React.FC<{ hidden?: boolean }> = ({
   };
 
   const handleCompose = () => {
+    onNavigate?.();
     if (!isLoggedIn) {
       goToLogin();
       return;
@@ -189,6 +203,7 @@ const MobileBottomNav: React.FC<{ hidden?: boolean }> = ({
     }
     holdTimer.current = window.setTimeout(() => {
       holdFired.current = true;
+      onNavigate?.();
       if (!isLoggedIn) {
         goToLogin();
         return;
@@ -206,9 +221,22 @@ const MobileBottomNav: React.FC<{ hidden?: boolean }> = ({
 
   return (
     <nav
+      inert={hidden}
+      aria-hidden={hidden || undefined}
       aria-label="Primary"
-      className="fixed inset-x-0 bottom-0 z-50 px-2 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] sm:px-3 lg:hidden"
+      className={cn(
+        "pointer-events-none inset-x-0 bottom-0 z-50 px-2 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] sm:px-3",
+        sidebar ? "absolute xl:hidden" : "fixed lg:hidden"
+      )}
     >
+      {sidebar ? (
+        <motion.div
+          animate={{ opacity: closing ? 0 : 1 }}
+          transition={{ duration: reduceMotion ? 0.1 : 0.24 }}
+          aria-hidden
+          className="community-dock-backdrop absolute inset-x-0 -top-10 bottom-0"
+        />
+      ) : null}
       {/* Slides fully below the fold on scroll-down and back on scroll-up. The
           nav stays fixed so nothing reflows; only the inner dock travels, and it
           is visible by default - motion reacts to scrolling, it never gates the
@@ -217,13 +245,29 @@ const MobileBottomNav: React.FC<{ hidden?: boolean }> = ({
         animate={
           reduceMotion
             ? { opacity: hidden ? 0 : 1 }
-            : { opacity: hidden ? 0 : 1, y: hidden ? "calc(100% + 1rem)" : 0 }
+            : {
+                opacity: hidden ? 0 : 1,
+                scale: sidebar && hidden ? 0.96 : 1,
+                y: hidden ? hiddenY : 0,
+              }
         }
-        initial={false}
-        transition={{ duration: 0.24, ease: [0.32, 0.72, 0, 1] }}
+        className="pointer-events-none relative origin-bottom"
+        initial={
+          sidebar
+            ? {
+                opacity: 0,
+                scale: reduceMotion ? 1 : 0.96,
+                y: reduceMotion ? 0 : 28,
+              }
+            : false
+        }
+        transition={{
+          duration: reduceMotion ? 0.1 : 0.24,
+          ease: closing ? [1, 0, 0.68, 0.28] : [0.32, 0.72, 0, 1],
+        }}
       >
-        <div className="panel-3d mx-auto flex w-fit items-center gap-1.5 rounded-2xl p-1">
-          <div className="flex items-center gap-0.5">
+        <div className="panel-3d pointer-events-auto mx-auto flex w-fit items-center gap-0 rounded-2xl p-1 min-[360px]:gap-1.5">
+          <div className="flex items-center gap-0 min-[360px]:gap-0.5">
             {LEFT_ITEMS.map(renderTab)}
           </div>
 
@@ -252,7 +296,7 @@ const MobileBottomNav: React.FC<{ hidden?: boolean }> = ({
             <FilledPlus className="size-6" />
           </button>
 
-          <div className="flex items-center gap-0.5">
+          <div className="flex items-center gap-0 min-[360px]:gap-0.5">
             {RIGHT_ITEMS.map(renderTab)}
           </div>
         </div>

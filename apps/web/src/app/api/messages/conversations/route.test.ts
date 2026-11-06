@@ -419,6 +419,10 @@ mock.module("@asm/db", () => ({
               some: (
                 predicate: (member: {
                   userId: { eq: (id: string) => unknown };
+                  inboxHiddenAt: {
+                    isNull: () => unknown;
+                    lt: (value: unknown) => unknown;
+                  };
                 }) => unknown
               ) => unknown;
             };
@@ -438,6 +442,7 @@ mock.module("@asm/db", () => ({
               },
               some: (memberPredicate) => {
                 memberPredicate({
+                  inboxHiddenAt: { isNull: () => ({}), lt: () => ({}) },
                   userId: {
                     eq: (id) => {
                       call.includedUserIds.push(id);

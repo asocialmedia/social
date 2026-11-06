@@ -1,4 +1,9 @@
-import { DEFAULT_LIMITS, maxBytesForType } from "@asm/media";
+import {
+  DEFAULT_LIMITS,
+  maxBytesForType,
+  maxStickerInputBytes,
+  messageAttachmentMediaType,
+} from "@asm/media";
 
 import {
   multipartPartBounds,
@@ -143,21 +148,10 @@ export function rejectionCopy(reason?: string | null): string {
 const POLL_INTERVAL_MS = 1500;
 const POLL_TIMEOUT_MS = 5 * 60 * 1000;
 
-function categoryForMime(mime: string): "AUDIO" | "IMAGE" | "VIDEO" | null {
-  const family = mime.split("/")[0]?.toLowerCase();
-  if (family === "image") {
-    if (mime === "image/svg+xml" || mime.startsWith("text/")) {
-      return null;
-    }
-    return "IMAGE";
-  }
-  if (family === "video") {
-    return "VIDEO";
-  }
-  if (family === "audio") {
-    return "AUDIO";
-  }
-  return null;
+function categoryForMime(
+  mime: string
+): "AUDIO" | "DOCUMENT" | "IMAGE" | "VIDEO" | null {
+  return messageAttachmentMediaType(mime);
 }
 
 async function parseErrorMessage(response: Response): Promise<string> {
@@ -479,12 +473,15 @@ export async function uploadMediaFile(
     // Conversation a message attachment belongs to. Required when purpose is
     // "message" so the peer can fetch the bytes back.
     messageConversationId?: string | null;
+    incognitoSessionId?: string;
+    viewOnce?: boolean;
     purpose?:
       | "avatar"
       | "banner"
       | "comment"
       | "message"
       | "post"
+      | "sticker"
       | "wallpaper";
     // Natural image dimensions captured client-side; stored so receivers can
     // reserve the bubble box before the bytes arrive.
@@ -508,20 +505,33 @@ export async function uploadMediaFile(
   const report =
     options.onProgress ??
     (() => {
-      /* empty */
+      // No action is required here.
     });
   const reportStage =
     options.onStage ??
     (() => {
-      /* empty */
+      // No action is required here.
     });
   const shouldWaitForProcessing = options.waitForProcessing ?? true;
   const contentType = file.type || "application/octet-stream";
+  if (
+    options.viewOnce &&
+    !["image/jpeg", "image/png", "image/webp", "image/avif"].includes(
+      contentType.toLowerCase()
+    )
+  ) {
+    throw new MediaUploadError(
+      "View-once attachments must be JPEG, PNG, WebP, or AVIF photos"
+    );
+  }
   const category = categoryForMime(contentType);
   if (!category) {
     throw new MediaUploadError(`Unsupported file type: ${contentType}`);
   }
-  const maxBytes = maxBytesForType(DEFAULT_LIMITS, category);
+  const maxBytes =
+    options.purpose === "sticker"
+      ? maxStickerInputBytes(contentType)
+      : maxBytesForType(DEFAULT_LIMITS, category);
   if (file.size > maxBytes) {
     throw new MediaUploadError(
       `File exceeds the ${Math.round(maxBytes / (1024 * 1024))}MB limit`
@@ -534,18 +544,22 @@ export async function uploadMediaFile(
   // instead of being read and hashed once before the actual upload begins.
   const DEDUP_HASH_MAX_BYTES = MULTIPART_UPLOAD_THRESHOLD_BYTES;
   const sha256 =
-    file.size <= DEDUP_HASH_MAX_BYTES ? await computeFileSha256(file) : null;
+    !options.viewOnce && file.size <= DEDUP_HASH_MAX_BYTES
+      ? await computeFileSha256(file)
+      : null;
 
   const initiateResponse = await fetch("/api/upload/initiate", {
     body: JSON.stringify({
       audioOverlayId: options.audioOverlayId ?? undefined,
       conversationId: options.messageConversationId ?? undefined,
       height: options.height ?? undefined,
+      incognitoSessionId: options.incognitoSessionId,
       name: file.name || "attachment",
       purpose: options.purpose ?? "post",
       sha256: sha256 ?? undefined,
       size: file.size,
       type: contentType,
+      viewOnce: options.viewOnce ?? false,
       width: options.width ?? undefined,
     }),
     credentials: "same-origin",
@@ -716,7 +730,7 @@ export async function watchMediaStatus(
   const reportStage =
     options.onStage ??
     (() => {
-      /* empty */
+      // No action is required here.
     });
   const deadline = Date.now() + POLL_TIMEOUT_MS;
   // oxlint-disable-next-line no-await-in-loop -- sequential status polling

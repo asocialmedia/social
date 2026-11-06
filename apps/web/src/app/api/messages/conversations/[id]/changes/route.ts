@@ -12,6 +12,7 @@ import {
   createMessageChangeCursor,
   readMessageChangeCursor,
 } from "@/lib/messages/change-cursor";
+import { chatCapabilityError } from "@/lib/messages/chat-capability";
 import { readerMessageWindows } from "@/lib/messages/reader-window";
 import { getConversationForUser } from "@/lib/messages/server";
 
@@ -55,6 +56,10 @@ export async function GET(
   }
   if (!conversation) {
     return Response.json({ error: "Conversation not found" }, { status: 404 });
+  }
+  const capabilityError = chatCapabilityError(request, conversation);
+  if (capabilityError) {
+    return capabilityError;
   }
 
   const url = new URL(request.url);

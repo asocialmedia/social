@@ -2,11 +2,13 @@ import { describe, expect, test } from "bun:test";
 
 import {
   buildMarker,
+  developmentInitServices,
   fingerprintContract,
   formatComposeFailure,
   formatPrismaFailure,
   missingExtensions,
   normalizeSkillVersion,
+  parseContainerList,
   parseExtensionList,
   parseMarker,
   parsePendingMigrations,
@@ -21,6 +23,15 @@ import {
 import { MARKER_VERSION } from "./dev-init-lib";
 
 const contractFingerprint = fingerprintContract("model User {}");
+
+test("storage buckets initialize even when the PostgreSQL volume already has its extensions", () => {
+  expect(
+    developmentInitServices({ run: false, reason: "already installed" })
+  ).toEqual(["asmob-init"]);
+  expect(
+    developmentInitServices({ run: true, reason: "fresh database" })
+  ).toEqual(["postgres-init", "asmob-init"]);
+});
 
 describe("parseMarker", () => {
   test("round-trips a marker", () => {
@@ -79,6 +90,110 @@ describe("parseExtensionList", () => {
 
   test("handles empty output", () => {
     expect(parseExtensionList("")).toEqual([]);
+  });
+});
+
+describe("parseContainerList", () => {
+  test("reads Docker Compose JSON Lines publishers", () => {
+    const output = JSON.stringify({
+      Name: "social-postgres-1",
+      Publishers: [
+        {
+          Protocol: "tcp",
+          PublishedPort: 5433,
+          TargetPort: 5432,
+          URL: "0.0.0.0",
+        },
+      ],
+      Service: "postgres-dev",
+      State: "running",
+    });
+
+    expect(parseContainerList(output)).toEqual([
+      {
+        name: "social-postgres-1",
+        ports: "5433->5432",
+        service: "postgres-dev",
+        state: "running",
+        status: "",
+      },
+    ]);
+  });
+
+  test("deduplicates Docker publisher bindings and omits unpublished ports", () => {
+    const output = JSON.stringify({
+      Name: "social-storage-1",
+      Publishers: [
+        {
+          Protocol: "tcp",
+          PublishedPort: 9090,
+          TargetPort: 9000,
+          URL: "0.0.0.0",
+        },
+        {
+          Protocol: "tcp",
+          PublishedPort: 9090,
+          TargetPort: 9000,
+          URL: "::",
+        },
+        {
+          Protocol: "tcp",
+          PublishedPort: 0,
+          TargetPort: 7357,
+          URL: "",
+        },
+      ],
+      Service: "storage-dev",
+      State: "running",
+    });
+
+    expect(parseContainerList(output)[0]?.ports).toBe("9090->9000");
+  });
+
+  test("reads Podman Compose array ports", () => {
+    const output = JSON.stringify([
+      {
+        Names: ["social-postgres-1"],
+        Ports: [{ container_port: 5432, host_port: 5433 }],
+        Service: "postgres-dev",
+        State: "running",
+        Status: "Up 2 minutes",
+      },
+    ]);
+
+    expect(parseContainerList(output)[0]?.ports).toBe("5433->5432");
+  });
+
+  test("reads object and string port representations without throwing", () => {
+    const output = [
+      JSON.stringify({
+        Ports: {
+          "5432/tcp": [{ HostIp: "0.0.0.0", HostPort: "5433" }],
+        },
+        Service: "postgres-dev",
+      }),
+      JSON.stringify({
+        Ports: "127.0.0.1:6379->6379/tcp",
+        Service: "redis-dev",
+      }),
+    ].join("\n");
+
+    expect(
+      parseContainerList(output).map((container) => container.ports)
+    ).toEqual(["5433->5432", "127.0.0.1:6379->6379/tcp"]);
+  });
+
+  test("ignores invalid records and malformed output", () => {
+    expect(parseContainerList('[null, {"Service":"postgres-dev"}]')).toEqual([
+      {
+        name: "postgres-dev",
+        ports: "",
+        service: "postgres-dev",
+        state: "",
+        status: "",
+      },
+    ]);
+    expect(parseContainerList("not json")).toEqual([]);
   });
 });
 

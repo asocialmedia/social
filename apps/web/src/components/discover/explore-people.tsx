@@ -3,7 +3,6 @@
 import type { ExternalAuthor } from "@asm/protocols/contracts";
 import { matchesAvoidedTopic } from "@asm/protocols/discovery";
 import { Input } from "@asm/ui/shadui/input";
-import { Skeleton } from "@asm/ui/shadui/skeleton";
 import noFollowImage from "@assets/general/nofollow.png";
 import { useQuery } from "@tanstack/react-query";
 import { RefreshCw, Search, X } from "lucide-react";
@@ -13,6 +12,7 @@ import type React from "react";
 import { useCallback, useMemo, useState } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
+import { ZephLoader } from "@/components/layouts/feedback/zeph-loader";
 import { useNetworkSettings } from "@/hooks/feed/use-network-settings";
 import useDebounce from "@/hooks/use-debounce";
 import {
@@ -212,7 +212,7 @@ const ExplorePeople: React.FC = () => {
                 type="button"
               >
                 {suggestions.isFetching ? (
-                  <Skeleton className="size-3.5 rounded-full" />
+                  <ZephLoader variant="search" className="size-3.5" />
                 ) : (
                   <RefreshCw className="size-3.5" />
                 )}
@@ -256,7 +256,10 @@ const ExplorePeople: React.FC = () => {
         {isLoggedIn ? (
           <div className="relative mb-4 hidden md:block">
             {isFetching && isSearching ? (
-              <Skeleton className="absolute top-1/2 left-3 size-4 -translate-y-1/2 rounded-full" />
+              <ZephLoader
+                variant="search"
+                className="absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2"
+              />
             ) : (
               <Search className="text-muted-foreground absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2" />
             )}

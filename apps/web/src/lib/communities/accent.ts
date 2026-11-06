@@ -4,9 +4,8 @@ import { getCommunityAccent } from "@asm/db/communities";
 
 // Resolves a community accent key to a theme-aware CSS custom property pair.
 // The returned style sets --community-accent (light) and
-// --community-accent-dark; consumers use bg-[var(--community-accent)] with a
-// dark:bg-[var(--community-accent-dark)] override, so the rail/header stays
-// legible in both themes without hardcoding colors per surface.
+// --community-accent-dark. The community-accent-scope component class resolves
+// the pair through --community-accent-resolved using the app theme class.
 export function communityAccentStyle(accentKey: string): React.CSSProperties {
   const accent = getCommunityAccent(accentKey);
   return {

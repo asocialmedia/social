@@ -1,6 +1,6 @@
 {
   "name": "@asm/auth-app",
-  "version": "1.2.21",
+  "version": "1.2.23",
   "private": true,
   "description": "asocialmedia Auth Service",
   "scripts": {
@@ -8,7 +8,7 @@
     "build": "target=$(bash scripts/resolve-build-target.sh); bun build --compile --minify --target=$target --external msgpackr-extract ./src/server.ts --outfile ./dist/auth-server",
     "dev": "bun ../../scripts/development/kill-dev-ports.ts 3001 && cross-env NODE_ENV=development bun --watch src/dev.ts",
     "start": "bun run src/server.ts",
-    "dev:worker": "bun --watch src/worker.ts",
+    "dev:worker": "bun ../../scripts/development/watch-service.ts src/worker.ts",
     "start:worker": "bun run src/worker.ts",
     "check-types": "tsc --noEmit"
   },

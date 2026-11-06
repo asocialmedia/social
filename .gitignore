@@ -52,3 +52,5 @@ google-services.json
 artifacts/
 ref/
 .next-seo-audit/
+.next-windows-smoke/
+/audits/

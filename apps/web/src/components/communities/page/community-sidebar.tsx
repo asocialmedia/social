@@ -40,7 +40,9 @@ export default function CommunitySidebar({
       </div>
 
       <div className="hide-native-scrollbar flex flex-1 flex-col gap-4 overflow-y-auto">
-        <CommunityAboutCard community={community} stats={stats} />
+        {community.type === "PRIVATE" ? null : (
+          <CommunityAboutCard community={community} stats={stats} />
+        )}
 
         <CommunityPeople
           canModerate={canModerate}

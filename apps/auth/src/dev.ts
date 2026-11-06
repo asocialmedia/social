@@ -1,3 +1,5 @@
+import path from "node:path";
+
 import { loadRootEnv } from "./env";
 
 // Dev entrypoint that runs the HTTP server and the background worker as two
@@ -8,19 +10,29 @@ import { loadRootEnv } from "./env";
 if (import.meta.main) {
   loadRootEnv();
 
-  const serverProc = Bun.spawn(["bun", "--watch", "src/server.ts"], {
-    cwd: process.cwd(),
-    env: process.env,
-    stderr: "inherit",
-    stdout: "inherit",
-  });
+  const watcher = path.resolve(
+    import.meta.dir,
+    "../../../scripts/development/watch-service.ts"
+  );
+  const serverProc = Bun.spawn(
+    ["bun", "--no-orphans", watcher, "src/server.ts"],
+    {
+      cwd: process.cwd(),
+      env: process.env,
+      stderr: "inherit",
+      stdout: "inherit",
+    }
+  );
 
-  const workerProc = Bun.spawn(["bun", "--watch", "src/worker.ts"], {
-    cwd: process.cwd(),
-    env: process.env,
-    stderr: "inherit",
-    stdout: "inherit",
-  });
+  const workerProc = Bun.spawn(
+    ["bun", "--no-orphans", watcher, "src/worker.ts"],
+    {
+      cwd: process.cwd(),
+      env: process.env,
+      stderr: "inherit",
+      stdout: "inherit",
+    }
+  );
 
   let stopping = false;
 
@@ -38,7 +50,7 @@ if (import.meta.main) {
     const cleanExit = Promise.all([serverProc.exited, workerProc.exited]);
     const result = await Promise.race([
       cleanExit.then(() => "clean" as const),
-      Bun.sleep(2500).then(() => "timeout" as const),
+      Bun.sleep(4500).then(() => "timeout" as const),
     ]);
     if (result === "timeout") {
       try {
@@ -63,7 +75,7 @@ if (import.meta.main) {
     stopping = true;
     const forceExitTimer = setTimeout(() => {
       process.exit(0);
-    }, 3500);
+    }, 5500);
     forceExitTimer.unref();
 
     console.log(`[dev] ${signal}: stopping server and worker`);

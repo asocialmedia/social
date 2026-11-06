@@ -1,3 +1,5 @@
+import { readSqlBundle as readExtractedSqlBundle } from "@asm/db/sql-template";
+import { Client } from "pg";
 // oxlint-disable-next-line typescript/triple-slash-reference -- Consumers typecheck workspace sources without including this package's ambient declarations.
 /// <reference path="../../../sql.d.ts" />
 // Pre-builds the indexes that the DM migration would otherwise create while
@@ -22,10 +24,19 @@
 // Safe to run at any time and as often as needed: every statement is guarded by
 // IF NOT EXISTS, so a second run is a no-op.
 
-import { Client } from "pg";
-
+import extractedSqlSource from "../../../sql/messages/infrastructure/prebuild-indexes-lifecycle.sql" with { type: "text" };
 import prebuildSql from "../../../sql/messages/prebuild-indexes.sql" with { type: "text" };
 import { readSqlBundle } from "./sql-template";
+
+const { extracted: extractedSql } = readExtractedSqlBundle(extractedSqlSource, {
+  extracted: [
+    "statement1",
+    "statement2",
+    "statement3",
+    "statement4",
+    "statement5",
+  ],
+} as const);
 
 const {
   prebuild: {
@@ -37,6 +48,13 @@ const {
     prebuildMessageHistoryIndexSql,
     prebuildSearchOrphanTermsIndexSql,
     prebuildSearchOutboxIndexSql,
+    prebuildViewOnceDueIndexSql,
+    prebuildViewOnceUniqueIndexSql,
+    prebuildCommunityRequestsIndexSql,
+    prebuildMessageExpiryIndexSql,
+    prebuildMessageErasureIndexSql,
+    prebuildMediaErasureIndexSql,
+    prebuildMediaIncognitoIndexSql,
   },
 } = readSqlBundle(prebuildSql, {
   prebuild: [
@@ -48,6 +66,13 @@ const {
     "prebuildMessageHistoryIndexSql",
     "prebuildSearchOrphanTermsIndexSql",
     "prebuildSearchOutboxIndexSql",
+    "prebuildViewOnceDueIndexSql",
+    "prebuildViewOnceUniqueIndexSql",
+    "prebuildCommunityRequestsIndexSql",
+    "prebuildMessageExpiryIndexSql",
+    "prebuildMessageErasureIndexSql",
+    "prebuildMediaErasureIndexSql",
+    "prebuildMediaIncognitoIndexSql",
   ],
 } as const);
 
@@ -103,6 +128,48 @@ const INDEXES = [
     name: "message_conversations_inviteShortCode_key",
     sql: prebuildConversationShortCodeIndexSql,
     table: "message_conversations",
+  },
+  {
+    columns: ["viewOnce", "deliveryExpiresAt", "id"],
+    name: "message_media_viewonce_due_a36050d7",
+    sql: prebuildViewOnceDueIndexSql,
+    table: "message_media_links",
+  },
+  {
+    columns: ["viewOnce", "mediaId"],
+    name: "message_media_viewonce_media_unique_ff0d1126",
+    sql: prebuildViewOnceUniqueIndexSql,
+    table: "message_media_links",
+  },
+  {
+    columns: ["communityId", "status", "createdAt", "id"],
+    name: "community_members_request_page_idx",
+    sql: prebuildCommunityRequestsIndexSql,
+    table: "community_members",
+  },
+  {
+    columns: ["expiresAt", "id", "deletedAt"],
+    name: "messages_expiry_due_idx_a83a16eb",
+    sql: prebuildMessageExpiryIndexSql,
+    table: "messages",
+  },
+  {
+    columns: ["expiresAt", "id", "ciphertext"],
+    name: "messages_lifecycle_erasure_due_7f300049",
+    sql: prebuildMessageErasureIndexSql,
+    table: "messages",
+  },
+  {
+    columns: ["failureCode", "id"],
+    name: "media_lifecycle_erasure_due_d202ba84",
+    sql: prebuildMediaErasureIndexSql,
+    table: "post_media",
+  },
+  {
+    columns: ["incognitoSessionId"],
+    name: "post_media_incognitoSessionId_idx_e9d021b8",
+    sql: prebuildMediaIncognitoIndexSql,
+    table: "post_media",
   },
 ] as const;
 
@@ -227,6 +294,18 @@ export async function runPrebuildDmIndexes(): Promise<void> {
   const databaseUrl = process.env.DATABASE_URL;
   if (!databaseUrl) {
     throw new Error("DATABASE_URL is required.");
+  }
+  // These additive columns match the reviewed migrations and let their indexes build without blocking writes.
+  const client = new Client({ connectionString: databaseUrl });
+  await client.connect();
+  try {
+    await client.query(extractedSql.statement1);
+    await client.query(extractedSql.statement2);
+    await client.query(extractedSql.statement3);
+    await client.query(extractedSql.statement4);
+    await client.query(extractedSql.statement5);
+  } finally {
+    await client.end();
   }
   process.stdout.write(
     "Pre-building DM indexes with CREATE INDEX CONCURRENTLY\n"

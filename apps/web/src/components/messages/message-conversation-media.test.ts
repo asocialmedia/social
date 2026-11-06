@@ -65,6 +65,41 @@ describe("mediaFlatKey", () => {
 });
 
 describe("buildConversationMediaIndex", () => {
+  test.each([false, true])(
+    "excludes stickers from the gallery when animated is %s",
+    (animated) => {
+      const index = buildConversationMediaIndex(
+        messages("sticker", "photo"),
+        lookup({
+          photo: mediaPayload(["/api/media/photo"]),
+          sticker: {
+            height: 128,
+            kind: animated ? "gif" : "image",
+            presentation: "sticker",
+            sticker: { animated, mediaId: "sticker", version: 1 },
+            type: "media",
+            url: "/api/media/sticker/v/sticker-full.webp",
+            width: 128,
+          },
+        })
+      );
+      expect(index.items.map((item) => item.messageId)).toEqual(["photo"]);
+    }
+  );
+
+  test("excludes persisted sticker references from viewer pages", () => {
+    const [photo] = refs(0, 1);
+    expect(photo).toBeDefined();
+    if (!photo) {
+      throw new Error("Photo fixture is missing");
+    }
+    const items = mediaItemsFromSharedRefs([
+      photo,
+      { ...photo, mediaKind: "sticker", messageId: "sticker" },
+    ]);
+    expect(items.map((item) => item.messageId)).toEqual([photo.messageId]);
+  });
+
   test("flattens grouped albums in transcript order", () => {
     const list = messages("m1", "m2");
     const index = buildConversationMediaIndex(

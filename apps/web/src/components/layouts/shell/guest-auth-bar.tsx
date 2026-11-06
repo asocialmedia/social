@@ -8,6 +8,7 @@ import type React from "react";
 import { useEffect, useState } from "react";
 
 import { useHideOnPageScroll } from "@/hooks/use-hide-on-scroll";
+import { isCommunityChatPath } from "@/lib/communities/chat-navigation";
 import { cn } from "@/lib/utils";
 
 // Full-width sticky bar shown to guests. On mobile it docks directly on top of
@@ -54,6 +55,7 @@ export const GuestAuthBar: React.FC = () => {
   if (
     externalMedia ||
     pathname === "/gusts" ||
+    isCommunityChatPath(pathname) ||
     /^\/posts\/[^/]+\/media\//.test(pathname)
   ) {
     return null;

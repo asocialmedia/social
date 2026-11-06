@@ -120,6 +120,47 @@ describe("message event (de)serialization", () => {
     });
   });
 
+  test("round-trips a message.reacted event", () => {
+    const raw = serializeMessageEvent({
+      conversationId: "convo-1",
+      kind: "message.reacted",
+      messageId: "m1",
+      userId: "u1",
+    });
+    expect(parseMessageEvent(raw)).toMatchObject({
+      conversationId: "convo-1",
+      kind: "message.reacted",
+      messageId: "m1",
+      userId: "u1",
+    });
+  });
+
+  test("keeps the incognito session on a reaction event", () => {
+    const raw = serializeMessageEvent({
+      conversationId: "convo-1",
+      kind: "message.reacted",
+      messageId: "m1",
+      sessionId: "00000000-0000-4000-8000-000000000001",
+      userId: "u1",
+    });
+    expect(parseMessageEvent(raw)?.sessionId).toBe(
+      "00000000-0000-4000-8000-000000000001"
+    );
+  });
+
+  test("round-trips a media.viewOnce.revoked event", () => {
+    const raw = serializeMessageEvent({
+      conversationId: "convo-1",
+      kind: "media.viewOnce.revoked",
+      mediaId: "media_1",
+    });
+    expect(parseMessageEvent(raw)).toMatchObject({
+      conversationId: "convo-1",
+      kind: "media.viewOnce.revoked",
+      mediaId: "media_1",
+    });
+  });
+
   test("rejects malformed payloads", () => {
     expect(parseMessageEvent("not json")).toBeNull();
     expect(parseMessageEvent('{"kind":"message.created"}')).toBeNull();
@@ -133,6 +174,21 @@ describe("message event (de)serialization", () => {
     // typing events require the sender id
     expect(
       parseMessageEvent('{"kind":"typing.started","conversationId":"c"}')
+    ).toBeNull();
+    // reaction events require both the target and the actor
+    expect(
+      parseMessageEvent('{"kind":"message.reacted","conversationId":"c"}')
+    ).toBeNull();
+    expect(
+      parseMessageEvent(
+        '{"kind":"message.reacted","conversationId":"c","messageId":"m1"}'
+      )
+    ).toBeNull();
+    // a revoke notice requires the media id
+    expect(
+      parseMessageEvent(
+        '{"kind":"media.viewOnce.revoked","conversationId":"c"}'
+      )
     ).toBeNull();
   });
 });
@@ -150,4 +206,17 @@ test("shared appearance events survive server serialization", () => {
     conversationId: "den",
     kind: "conversation.appearance.changed",
   });
+});
+test("view-once seen events carry an opaque photo id and reject incomplete frames", () => {
+  const event = {
+    conversationId: "chat",
+    kind: "media.viewOnce.seen" as const,
+    mediaId: "photo",
+  };
+  expect(parseMessageEvent(serializeMessageEvent(event))).toMatchObject(event);
+  expect(
+    parseMessageEvent(
+      JSON.stringify({ conversationId: "chat", kind: "media.viewOnce.seen" })
+    )
+  ).toBeNull();
 });

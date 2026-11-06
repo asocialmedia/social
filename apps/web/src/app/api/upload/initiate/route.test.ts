@@ -61,6 +61,12 @@ mock.module("@asm/db", () => ({
             },
           }),
         },
+        MessageConversations: {
+          where: () => ({ first: () => ({ retentionSeconds: null }) }),
+        },
+        MessageIncognitoSessions: {
+          where: () => ({ where: () => ({ first: () => null }) }),
+        },
       },
     },
   },

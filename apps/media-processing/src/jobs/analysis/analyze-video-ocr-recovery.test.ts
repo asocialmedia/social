@@ -32,6 +32,7 @@ const row = {
 let downloads = 0;
 let ocrAttempts = 0;
 let failSampling = false;
+let missingStorage = false;
 
 let classificationAttempts = 0;
 let classificationTags = ["music"];
@@ -47,6 +48,7 @@ const builder = {
 };
 mock.module("@asm/db", () => ({
   and: (...values: unknown[]) => values,
+  enqueueMediaDeleteCascade: () => Promise.resolve(),
   indexPostEmbedding: () => Promise.resolve(),
   patchMediaAnalysisMetadata: (
     _id: string,
@@ -87,7 +89,9 @@ mock.module("../../s3", () => ({
   getS3: () => ({
     file: () => {
       downloads += 1;
-      return Bun.file(sourcePath);
+      return Bun.file(
+        missingStorage ? path.join(directory, "missing") : sourcePath
+      );
     },
   }),
 }));
@@ -187,6 +191,43 @@ test("video OCR resumes after a partial quota failure without paying for the com
     ).resolves.toEqual({ outcome: "skipped" });
     expect(downloads).toBe(beforeRetry);
     expect(row.status).toBe("READY");
+    row.publishedKey = "new-source.png";
+    missingStorage = true;
+    const beforeStorageFailure = Date.now();
+    await expect(
+      processMediaAnalyze({ mediaId: row.id })
+    ).rejects.toMatchObject({ name: "AnalysisSourceDeferredError" });
+    expect(stages.raster).toMatchObject({
+      reason: "source-read-unavailable",
+      status: "unavailable",
+    });
+    const afterStorageFailure = downloads;
+    expect(await processMediaAnalyze({ mediaId: row.id })).toEqual({
+      outcome: "skipped",
+    });
+    expect(downloads).toBe(afterStorageFailure);
+    expect(row.status).toBe("READY");
+    const checkpoint = stages.raster as { retryAt: number };
+    expect(checkpoint.retryAt).toBeGreaterThanOrEqual(
+      beforeStorageFailure + 3_600_000
+    );
+    expect(checkpoint.retryAt).toBeLessThanOrEqual(Date.now() + 3_600_000);
+    await sharp({
+      create: { background: "green", channels: 3, height: 8, width: 8 },
+    })
+      .png()
+      .toFile(sourcePath);
+    missingStorage = false;
+    const realNow = Date.now;
+    try {
+      Date.now = () => checkpoint.retryAt + 1;
+      expect(await processMediaAnalyze({ mediaId: row.id })).toEqual({
+        outcome: "analyzed",
+      });
+      expect(downloads).toBeGreaterThan(afterStorageFailure);
+    } finally {
+      Date.now = realNow;
+    }
   } finally {
     await rm(directory, { force: true, recursive: true });
   }
