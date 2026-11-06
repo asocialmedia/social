@@ -1,4 +1,5 @@
 import { and, or, prisma, rawQuery, toPrismaDateTime } from "@asm/db";
+import { readSqlBundle as readExtractedSqlBundle } from "@asm/db/sql-template";
 import {
   STICKER_LIBRARY_MAX_BYTES,
   STICKER_LIBRARY_MAX_ITEMS,
@@ -7,6 +8,12 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { getSessionFromApi } from "@/lib/auth/session";
+
+import extractedSqlSource from "./route.sql" with { type: "text" };
+
+const { extracted: extractedSql } = readExtractedSqlBundle(extractedSqlSource, {
+  extracted: ["statement1"],
+} as const);
 
 const createSchema = z.object({
   mediaId: z.string().min(1).max(128),
@@ -257,7 +264,7 @@ export async function POST(request: Request) {
     const saved = await prisma.transaction(async (tx) => {
       // Prisma rc.14 has no typed row-lock API; serialize quota checks with Prisma's raw lane.
       const lock = await rawQuery<{ id: string }>(
-        `SELECT id FROM public.users WHERE id = $1 FOR UPDATE`,
+        extractedSql.statement1,
         [user.id],
         { id: "pg/text@1" },
         tx

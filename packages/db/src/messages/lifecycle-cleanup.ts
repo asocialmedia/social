@@ -1,3 +1,7 @@
+import {
+  readSqlBundle as readExtractedSqlBundle,
+  renderSql as renderExtractedSql,
+} from "@asm/db/sql-template";
 // oxlint-disable no-await-in-loop -- Sequential cryptography, database mutations and bounded streams preserve ordering and memory limits.
 import { requireLifecycleValue } from "@asm/messages";
 
@@ -6,9 +10,38 @@ import {
   enqueueMessageSearchOutbox,
   unreadMessageCache,
 } from "../../queue";
+// oxlint-disable-next-line typescript/triple-slash-reference -- Workspace consumers also need the SQL text module declaration.
+/// <reference path="../../sql.d.ts" />
+import extractedSqlSource from "../../sql/messages/lifecycle-cleanup-lifecycle.sql" with { type: "text" };
 import prisma from "../prisma";
 import type { PrismaTransaction } from "../prisma";
 import { rawExecute, rawQuery } from "./infrastructure/raw-sql";
+
+const { extracted: extractedSql } = readExtractedSqlBundle(extractedSqlSource, {
+  extracted: [
+    "statement1",
+    "statement2",
+    "statement3",
+    "statement4",
+    "statement5",
+    "statement6",
+    "statement7",
+    "statement8",
+    "statement9",
+    "statement10",
+    "statement11",
+    "statement12",
+    "statement13",
+    "statement14",
+    "statement15",
+    "statement16",
+    "statement17",
+    "statement18",
+    "statement19",
+    "statement20",
+    "statement21",
+  ],
+} as const);
 
 const erasedMediaFields = `status='DELETED',"failureCode"='CHAT_LIFECYCLE_ERASURE',"originalName"=NULL,"ocrText"=NULL,transcript=NULL,"altText"=NULL,"generatedAltText"=NULL,"blurDataUrl"=NULL,semantics=NULL,"semanticTags"=NULL,"techMetadata"=NULL,"aiProvenance"=NULL,safety=NULL,sha256=NULL,phash=NULL,"failureDetail"=NULL`;
 
@@ -21,25 +54,20 @@ async function eraseMediaReferences(
     return;
   }
   await rawExecute(
-    `DELETE FROM public.message_view_once_receipts WHERE "${field}"=ANY($1::text[])`,
+    renderExtractedSql(extractedSql.statement1, { fragment1: field }),
     [ids],
     tx
   );
   await rawExecute(
-    `UPDATE public.post_media p SET ${erasedMediaFields}
-    WHERE p.id IN (SELECT "mediaId" FROM public.message_media_links WHERE "${field}"=ANY($1::text[]))
-    AND p."messageLifecycleProtected" AND p."postId" IS NULL AND p."commentId" IS NULL
-    AND NOT EXISTS (SELECT 1 FROM public.message_media_links l
-      LEFT JOIN public.messages m ON m.id=l."messageId"
-      LEFT JOIN public.message_incognito_messages i ON i.id=l."incognitoMessageId"
-      LEFT JOIN public.message_incognito_sessions s ON s.id=i."sessionId"
-      WHERE l."mediaId"=p.id AND ((m.id IS NOT NULL AND m."deletedAt" IS NULL AND (m."expiresAt" IS NULL OR m."expiresAt">clock_timestamp()))
-        OR (i.id IS NOT NULL AND s."endedAt" IS NULL AND i."createdAt">clock_timestamp()-interval '24 hours')))`,
+    renderExtractedSql(extractedSql.statement2, {
+      fragment1: erasedMediaFields,
+      fragment2: field,
+    }),
     [ids],
     tx
   );
   await rawExecute(
-    `DELETE FROM public.message_media_links WHERE "${field}"=ANY($1::text[])`,
+    renderExtractedSql(extractedSql.statement3, { fragment1: field }),
     [ids],
     tx
   );
@@ -52,10 +80,9 @@ async function eraseStagedIncognitoMedia(
   tx: PrismaTransaction
 ): Promise<number> {
   const result = await rawExecute(
-    `UPDATE public.post_media p SET ${erasedMediaFields}
-    WHERE p.id IN (SELECT staged.id FROM public.post_media staged WHERE staged."incognitoSessionId"=$1 AND staged.status<>'DELETED'
-      ORDER BY staged.id LIMIT 100 FOR UPDATE SKIP LOCKED) AND p."incognitoSessionId"=$1 AND p."postId" IS NULL AND p."commentId" IS NULL
-    AND NOT EXISTS (SELECT 1 FROM public.message_media_links l WHERE l."mediaId"=p.id)`,
+    renderExtractedSql(extractedSql.statement4, {
+      fragment1: erasedMediaFields,
+    }),
     [sessionId],
     tx
   );
@@ -72,9 +99,7 @@ export async function eraseExpiredChatBatch(): Promise<{
       id: string;
       changeSeq: number;
     }>(
-      `SELECT c.id,c."changeSeq" FROM public.message_conversations c
-      WHERE c.id IN (SELECT m."conversationId" FROM public.messages m WHERE m.ciphertext<>'' AND m."expiresAt"<=clock_timestamp() ORDER BY m."expiresAt",m.id LIMIT 100)
-      ORDER BY c.id LIMIT 1 FOR UPDATE OF c SKIP LOCKED`,
+      extractedSql.statement5,
       [],
       { changeSeq: "pg/int4@1", id: "pg/text@1" },
       tx
@@ -84,9 +109,7 @@ export async function eraseExpiredChatBatch(): Promise<{
       return { count: 0, outboxes: [] as string[], users: [] as string[] };
     }
     const { rows } = await rawQuery<{ id: string; revision: number }>(
-      `WITH due AS (SELECT id FROM public.messages
-      WHERE "conversationId"=$1 AND ciphertext<>'' AND "expiresAt"<=clock_timestamp() ORDER BY "expiresAt",id LIMIT 100 FOR UPDATE SKIP LOCKED)
-      UPDATE public.messages m SET "deletedAt"=COALESCE("deletedAt",clock_timestamp()),ciphertext='',iv='',revision=revision+1 FROM due WHERE m.id=due.id RETURNING m.id,m.revision`,
+      extractedSql.statement6,
       [conversation.id],
       { id: "pg/text@1", revision: "pg/int4@1" },
       tx
@@ -128,28 +151,17 @@ export async function eraseExpiredChatBatch(): Promise<{
       tx
     );
     await rawExecute(
-      `UPDATE public.message_conversations SET "changeSeq"=$2::integer WHERE id=$1`,
+      extractedSql.statement7,
       [conversation.id, conversation.changeSeq + rows.length],
       tx
     );
-    await rawExecute(
-      `UPDATE public.message_conversation_members SET "unreadCount"=NULL WHERE "conversationId"=$1`,
-      [conversation.id],
-      tx
-    );
-    await rawExecute(
-      `UPDATE public.message_export_jobs SET status='revoked' WHERE "conversationId"=$1 AND status IN ('pending','processing','ready')`,
-      [conversation.id],
-      tx
-    );
+    await rawExecute(extractedSql.statement8, [conversation.id], tx);
+    await rawExecute(extractedSql.statement9, [conversation.id], tx);
     return { count: rows.length, outboxes, users };
   });
   const incognito = await prisma.transaction(async (tx) => {
     const { rows: sessions } = await rawQuery<{ id: string; ended: boolean }>(
-      `SELECT id, ("endedAt" IS NOT NULL) AS ended FROM public.message_incognito_sessions
-      WHERE ("endedAt" IS NOT NULL AND "purgedAt" IS NULL)
-      OR id IN (SELECT "sessionId" FROM public.message_incognito_messages WHERE "createdAt"<=clock_timestamp()-interval '24 hours' ORDER BY "createdAt",id LIMIT 100)
-      ORDER BY "endedAt",id LIMIT 1 FOR UPDATE SKIP LOCKED`,
+      extractedSql.statement10,
       [],
       { ended: "pg/bool@1", id: "pg/text@1" },
       tx
@@ -159,8 +171,7 @@ export async function eraseExpiredChatBatch(): Promise<{
       return 0;
     }
     const { rows } = await rawQuery<{ id: string }>(
-      `SELECT id FROM public.message_incognito_messages
-      WHERE "sessionId"=$1 AND ($2::boolean OR "createdAt"<=clock_timestamp()-interval '24 hours') ORDER BY sequence LIMIT 100 FOR UPDATE SKIP LOCKED`,
+      extractedSql.statement11,
       [session.id, session.ended],
       { id: "pg/text@1" },
       tx
@@ -168,68 +179,34 @@ export async function eraseExpiredChatBatch(): Promise<{
     const ids = rows.map((r) => r.id);
     await eraseMediaReferences("incognitoMessageId", ids, tx);
     if (ids.length) {
-      await rawExecute(
-        `DELETE FROM public.message_incognito_messages WHERE id=ANY($1::text[])`,
-        [ids],
-        tx
-      );
+      await rawExecute(extractedSql.statement12, [ids], tx);
     }
     // Erase unlinked staged uploads for the ended session before marking purged, so a held
     // staged URL cannot survive the session. Idempotent: only rows with no links are touched.
     const staged = session.ended
       ? await eraseStagedIncognitoMedia(session.id, tx)
       : 0;
-    await rawExecute(
-      `UPDATE public.message_incognito_sessions SET "purgedAt"=clock_timestamp() WHERE id=$1 AND "endedAt" IS NOT NULL
-      AND NOT EXISTS (SELECT 1 FROM public.message_incognito_messages WHERE "sessionId"=$1)
-      AND NOT EXISTS (SELECT 1 FROM public.post_media WHERE "incognitoSessionId"=$1 AND status<>'DELETED')`,
-      [session.id],
-      tx
-    );
+    await rawExecute(extractedSql.statement13, [session.id], tx);
     return ids.length + staged + 1;
   });
   // Reservation expiry is retryable; only a transfer that became ACTIVE consumes a photo.
-  const released = await rawExecute(
-    `WITH due AS (SELECT id FROM public.message_view_once_grants
-      WHERE status='RESERVED' AND "expiresAt"<=clock_timestamp()
-      ORDER BY "expiresAt",id LIMIT 100 FOR UPDATE SKIP LOCKED)
-    DELETE FROM public.message_view_once_grants g USING due WHERE g.id=due.id`
-  );
-  const expired = await rawExecute(
-    `WITH due AS (SELECT id FROM public.message_view_once_grants
-      WHERE status='ACTIVE' AND "expiresAt"<=clock_timestamp()
-      ORDER BY "expiresAt",id LIMIT 100 FOR UPDATE SKIP LOCKED)
-    UPDATE public.message_view_once_grants g SET status='EXPIRED' FROM due WHERE g.id=due.id`
-  );
+  const released = await rawExecute(extractedSql.statement14);
+  const expired = await rawExecute(extractedSql.statement15);
   const { rows: settled } = await rawQuery<{ id: string; mediaLinkId: string }>(
-    `SELECT g.id,r."mediaLinkId" FROM public.message_view_once_grants g
-      JOIN public.message_view_once_recipients r ON r.id=g."recipientId"
-      WHERE g.status IN ('CLOSED','EXPIRED','REVOKED') AND g."expiresAt"<=clock_timestamp()
-      ORDER BY g."expiresAt",g.id LIMIT 100`,
+    extractedSql.statement16,
     [],
     { id: "pg/text@1", mediaLinkId: "pg/text@1" }
   );
   if (settled.length > 0) {
     // The terminal grant's expiry is a durable cleanup signal until this update succeeds.
-    await rawExecute(
-      `UPDATE public.message_media_links l SET "deliveryExpiresAt"=LEAST(l."deliveryExpiresAt",clock_timestamp())
-        WHERE l.id=ANY($1::text[]) AND l."viewOnce"=true
-        AND NOT EXISTS (SELECT 1 FROM public.message_view_once_recipients r WHERE r."mediaLinkId"=l.id
-          AND NOT EXISTS (SELECT 1 FROM public.message_view_once_grants g
-            WHERE g."recipientId"=r.id AND g.status IN ('CLOSED','EXPIRED','REVOKED')))`,
-      [settled.map((row) => row.mediaLinkId)]
-    );
-    await rawExecute(
-      `UPDATE public.message_view_once_grants SET "expiresAt"=NULL
-        WHERE id=ANY($1::text[]) AND status IN ('CLOSED','EXPIRED','REVOKED')`,
-      [settled.map((row) => row.id)]
-    );
+    await rawExecute(extractedSql.statement17, [
+      settled.map((row) => row.mediaLinkId),
+    ]);
+    await rawExecute(extractedSql.statement18, [settled.map((row) => row.id)]);
   }
   const viewOnce = await prisma.transaction(async (tx) => {
     const { rows } = await rawQuery<{ id: string; mediaId: string }>(
-      `SELECT l.id,l."mediaId" FROM public.message_media_links l
-      WHERE l."viewOnce"=true AND l."deliveryExpiresAt"<=clock_timestamp()
-      ORDER BY l."deliveryExpiresAt",l.id LIMIT 100 FOR UPDATE OF l SKIP LOCKED`,
+      extractedSql.statement19,
       [],
       { id: "pg/text@1", mediaId: "pg/text@1" },
       tx
@@ -240,16 +217,13 @@ export async function eraseExpiredChatBatch(): Promise<{
     const mediaIds = rows.map((row) => row.mediaId);
     const linkIds = rows.map((row) => row.id);
     await rawExecute(
-      `UPDATE public.post_media p SET ${erasedMediaFields}
-      WHERE p.id=ANY($1::text[]) AND p."messageViewOnce"=true AND p.status<>'DELETED'`,
+      renderExtractedSql(extractedSql.statement20, {
+        fragment1: erasedMediaFields,
+      }),
       [mediaIds],
       tx
     );
-    await rawExecute(
-      `DELETE FROM public.message_media_links WHERE id=ANY($1::text[])`,
-      [linkIds],
-      tx
-    );
+    await rawExecute(extractedSql.statement21, [linkIds], tx);
     return rows.length;
   });
   const media = await prisma.orm.public.PostMedia.select("id")

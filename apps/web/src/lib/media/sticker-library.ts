@@ -4,10 +4,17 @@ import {
   prisma,
   rawQuery,
 } from "@asm/db";
+import { readSqlBundle as readExtractedSqlBundle } from "@asm/db/sql-template";
 import { isStickerMessagePayload } from "@asm/messages/payload";
 import { z } from "zod";
 
 import { resolveMessageMediaMembership } from "@/lib/media/message-media-access";
+
+import extractedSqlSource from "./sticker-library.sql" with { type: "text" };
+
+const { extracted: extractedSql } = readExtractedSqlBundle(extractedSqlSource, {
+  extracted: ["statement1"],
+} as const);
 
 export const stickerMessageSchema = z.object({
   mediaId: z.string().min(1).max(128),
@@ -93,7 +100,7 @@ export async function findStickerLibraryEntry(
   tx?: Parameters<typeof rawQuery>[3]
 ) {
   const result = await rawQuery<{ id: string; favorite: boolean }>(
-    `SELECT s.id, s.favorite FROM public.user_stickers s JOIN public.post_media p ON p.id=s."mediaId" WHERE s."userId"=$1 AND (s."mediaId"=$2 OR s."mediaId"=$3 OR p."techMetadata"->>'stickerOriginMediaId'=$3) ORDER BY s."createdAt", s.id LIMIT 1`,
+    extractedSql.statement1,
     [userId, source.id, stickerOriginMediaId(source)],
     { favorite: "pg/bool@1", id: "pg/text@1" },
     tx

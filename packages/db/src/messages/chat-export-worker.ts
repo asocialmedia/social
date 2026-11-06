@@ -4,6 +4,7 @@ import { mkdtemp, rm, stat, writeFile, appendFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import nodePath from "node:path";
 
+import { readSqlBundle as readExtractedSqlBundle } from "@asm/db/sql-template";
 // oxlint-disable no-await-in-loop -- Sequential cryptography, database mutations and bounded streams preserve ordering and memory limits.
 import {
   requireLifecycleValue,
@@ -28,6 +29,9 @@ import {
 import { and, or } from "@prisma/orm-postgres/orm-client";
 import { Zip, ZipPassThrough } from "fflate";
 
+// oxlint-disable-next-line typescript/triple-slash-reference -- Workspace consumers also need the SQL text module declaration.
+/// <reference path="../../sql.d.ts" />
+import extractedSqlSource from "../../sql/messages/chat-export-worker-lifecycle.sql" with { type: "text" };
 import { fromPrismaDateTime, toPrismaDateTime } from "../dates";
 import prisma from "../prisma";
 import { ASMOB_BUCKET, asmobClient, deleteObject } from "../storage";
@@ -44,6 +48,10 @@ import {
   ChatLifecycleError,
   lifecycleMediaAllowed,
 } from "./lifecycle";
+
+const { extracted: extractedSql } = readExtractedSqlBundle(extractedSqlSource, {
+  extracted: ["statement1"],
+} as const);
 
 const MAX_EXPORT_BYTES = 1024 * 1024 * 1024;
 const MAX_EXPORT_MEDIA = 10_000;
@@ -401,10 +409,11 @@ export async function processNextChatExport(
       }
       const last = requireLifecycleValue(messages.at(-1));
       cursor = { createdAt: last.createdAt, id: last.id };
-      await rawExecute(
-        `UPDATE public.message_export_jobs SET "leaseUntil"=clock_timestamp()+interval '5 minutes',"expiresAt"=LEAST("expiresAt",$2::timestamp) WHERE id=$1 AND status='processing' AND "artifactKey"=$3`,
-        [job.id, new Date(deadline), job.artifactKey]
-      );
+      await rawExecute(extractedSql.statement1, [
+        job.id,
+        new Date(deadline),
+        job.artifactKey,
+      ]);
     }
     await appendFile(jsonPath, '],"systemEvents":[');
     let noticeCursor: string | undefined;

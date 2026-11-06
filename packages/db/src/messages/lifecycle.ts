@@ -1,3 +1,7 @@
+import {
+  readSqlBundle as readExtractedSqlBundle,
+  renderSql as renderExtractedSql,
+} from "@asm/db/sql-template";
 // oxlint-disable no-await-in-loop -- Sequential cryptography, database mutations and bounded streams preserve ordering and memory limits.
 import {
   requireLifecycleValue,
@@ -10,6 +14,9 @@ import type {
   IncognitoSession,
 } from "@asm/messages";
 
+// oxlint-disable-next-line typescript/triple-slash-reference -- Workspace consumers also need the SQL text module declaration.
+/// <reference path="../../sql.d.ts" />
+import extractedSqlSource from "../../sql/messages/lifecycle-lifecycle.sql" with { type: "text" };
 import { fromPrismaDateTime, toPrismaDateTime } from "../dates";
 import prisma from "../prisma";
 import type { PrismaTransaction } from "../prisma";
@@ -18,6 +25,43 @@ import { listDenMembershipEvents } from "./dens/den-service";
 import { readableMessageKeyEpochsSql } from "./epochs/epoch-readability";
 import { rawExecute, rawQuery } from "./infrastructure/raw-sql";
 import { listMessageReactionSummaries } from "./reactions";
+
+const { extracted: extractedSql } = readExtractedSqlBundle(extractedSqlSource, {
+  extracted: [
+    "statement1",
+    "statement2",
+    "statement3",
+    "statement4",
+    "statement5",
+    "statement6",
+    "statement7",
+    "statement8",
+    "statement9",
+    "statement10",
+    "statement11",
+    "statement12",
+    "statement13",
+    "statement14",
+    "statement15",
+    "statement16",
+    "statement17",
+    "statement18",
+    "statement19",
+    "statement20",
+    "statement21",
+    "statement22",
+    "statement23",
+    "statement24",
+    "statement25",
+    "statement26",
+    "statement27",
+    "statement28",
+    "statement29",
+    "statement30",
+    "statement31",
+    "statement32",
+  ],
+} as const);
 
 export class ChatLifecycleError extends Error {
   readonly code: string;
@@ -59,10 +103,7 @@ export async function lockChatLifecycle(
   tx: PrismaTransaction
 ): Promise<AccessRow> {
   const { rows } = await rawQuery<AccessRow>(
-    `SELECT c.type::text AS type, m.role::text AS role, m."leftAt", u."displayName",
-    c."retentionSeconds", c."retentionVersion", c."changeSeq", m."clearedThroughSequence", m."clearedAt"
-    FROM public.message_conversations c JOIN public.message_conversation_members m ON m."conversationId"=c.id AND m."userId"=$2
-    JOIN public.users u ON u.id=m."userId" WHERE c.id=$1 FOR UPDATE OF c`,
+    extractedSql.statement1,
     [conversationId, userId],
     accessSpec,
     tx
@@ -125,7 +166,7 @@ export async function chatLifecycleSnapshot(
       .first(),
   ]);
   const { rows: clockRows } = await rawQuery<{ now: Date }>(
-    `SELECT clock_timestamp() AS now`,
+    extractedSql.statement2,
     [],
     { now: "pg/timestamp-temporal@1" }
   );
@@ -186,18 +227,11 @@ export async function startIncognito(
     }
     const sessionId = clientActionId ?? crypto.randomUUID();
     await rawExecute(
-      `INSERT INTO public.message_incognito_sessions
-      (id,"conversationId","startedById","startedByName","startedAt","expiresAt","nextSequence")
-      VALUES ($1,$2,$3,$4,statement_timestamp(),NULL,0)
-      ON CONFLICT (id) DO NOTHING`,
+      extractedSql.statement3,
       [sessionId, conversationId, userId, access.displayName],
       tx
     );
-    await rawExecute(
-      `UPDATE public.message_conversations SET "retentionVersion"="retentionVersion"+1,"updatedAt"=clock_timestamp() WHERE id=$1`,
-      [conversationId],
-      tx
-    );
+    await rawExecute(extractedSql.statement4, [conversationId], tx);
   });
 }
 
@@ -219,18 +253,11 @@ export async function endIncognito(
       return;
     }
     await rawExecute(
-      `UPDATE public.message_incognito_sessions SET
-      "endedAt"=clock_timestamp(),"endReason"='manual',
-      "endedById"=$3,"endedByName"=$4
-      WHERE id=$1 AND "conversationId"=$2 AND "endedAt" IS NULL`,
+      extractedSql.statement5,
       [sessionId, conversationId, userId, access.displayName],
       tx
     );
-    await rawExecute(
-      `UPDATE public.message_conversations SET "retentionVersion"="retentionVersion"+1 WHERE id=$1`,
-      [conversationId],
-      tx
-    );
+    await rawExecute(extractedSql.statement6, [conversationId], tx);
   });
 }
 
@@ -252,7 +279,7 @@ export async function changeChatRetention(
       throw new ChatLifecycleError("CHAT_STATE_CHANGED");
     }
     await rawExecute(
-      `UPDATE public.message_conversations SET "retentionSeconds"=$2::integer, "retentionVersion"="retentionVersion"+1 WHERE id=$1`,
+      extractedSql.statement7,
       [conversationId, retentionSeconds],
       tx
     );
@@ -268,7 +295,7 @@ export async function clearChatHistory(
     const access = await lockChatLifecycle(conversationId, userId, tx);
     // Database-clock gate so skewed app clocks cannot clear during an active session.
     const { rows: activeRows } = await rawQuery<{ id: string }>(
-      `SELECT id FROM public.message_incognito_sessions WHERE "conversationId"=$1 AND "endedAt" IS NULL LIMIT 1`,
+      extractedSql.statement8,
       [conversationId],
       { id: "pg/text@1" },
       tx
@@ -294,18 +321,11 @@ export async function clearChatHistory(
     }
     boundary = Math.max(boundary, access.clearedThroughSequence);
     await rawExecute(
-      `UPDATE public.message_conversation_members SET "clearedThroughSequence"=$3::integer,"clearedAt"=clock_timestamp(),
-      "inboxHiddenAt"=CASE WHEN $4::integer>$3::integer THEN NULL ELSE clock_timestamp() END,
-      "lastReadSequence"=GREATEST(COALESCE("lastReadSequence",0),$3::integer),"lastReadAt"=clock_timestamp(),"unreadCount"=NULL
-      WHERE "conversationId"=$1 AND "userId"=$2`,
+      extractedSql.statement9,
       [conversationId, userId, boundary, access.changeSeq],
       tx
     );
-    await rawExecute(
-      `UPDATE public.message_export_jobs SET status='revoked' WHERE "conversationId"=$1 AND "userId"=$2 AND status IN ('pending','processing','ready')`,
-      [conversationId, userId],
-      tx
-    );
+    await rawExecute(extractedSql.statement10, [conversationId, userId], tx);
   });
 }
 
@@ -318,7 +338,7 @@ export async function guardNormalChatSend(
   const access = await lockChatLifecycle(conversationId, userId, tx);
   // Database-clock predicate so skewed app clocks cannot admit a normal send after activation.
   const { rows: activeRows } = await rawQuery<{ id: string }>(
-    `SELECT id FROM public.message_incognito_sessions WHERE "conversationId"=$1 AND "endedAt" IS NULL LIMIT 1`,
+    extractedSql.statement11,
     [conversationId],
     { id: "pg/text@1" },
     tx
@@ -337,7 +357,7 @@ export async function guardNormalChatSend(
     return { expiresAt: null };
   }
   const { rows: clockRows } = await rawQuery<{ now: Date }>(
-    `SELECT clock_timestamp() AS now`,
+    extractedSql.statement12,
     [],
     { now: { codecId: "pg/timestamp-temporal@1", nullable: false } },
     tx
@@ -374,7 +394,7 @@ export async function sendIncognitoMessage(input: {
       id: input.sessionId,
     }).first();
     const active = await rawQuery<{ active: boolean }>(
-      `SELECT EXISTS(SELECT 1 FROM public.message_incognito_sessions WHERE id=$1 AND "conversationId"=$2 AND "endedAt" IS NULL) AS active`,
+      extractedSql.statement13,
       [input.sessionId, input.conversationId],
       { active: "pg/bool@1" },
       tx
@@ -406,9 +426,7 @@ export async function sendIncognitoMessage(input: {
       throw new ChatLifecycleError("MESSAGE_KEY_UNAVAILABLE", 403);
     }
     const accepted = await rawExecute(
-      `INSERT INTO public.message_incognito_messages (id,"sessionId","senderId",ciphertext,iv,"keyEpoch","ratchetIndex",sequence,"createdAt")
-      SELECT $1,$2,$3,$4,$5,$6::integer,$7::integer,$7::integer,clock_timestamp()
-      FROM public.message_incognito_sessions WHERE id=$2 AND "endedAt" IS NULL`,
+      extractedSql.statement14,
       [
         input.id,
         input.sessionId,
@@ -434,11 +452,7 @@ export async function sendIncognitoMessage(input: {
       },
       tx
     );
-    await rawExecute(
-      `UPDATE public.message_incognito_sessions SET "nextSequence"="nextSequence"+1 WHERE id=$1`,
-      [input.sessionId],
-      tx
-    );
+    await rawExecute(extractedSql.statement15, [input.sessionId], tx);
   });
 }
 
@@ -456,12 +470,7 @@ export async function listIncognitoMessages(
     throw new ChatLifecycleError("CHAT_NOT_FOUND", 404);
   }
   const { rows } = await rawQuery<{ data: IncognitoMessage }>(
-    `SELECT jsonb_build_object('id',m.id,'sessionId',m."sessionId",'senderId',m."senderId",'ciphertext',m.ciphertext,'iv',m.iv,
-      'keyEpoch',m."keyEpoch",'ratchetIndex',m."ratchetIndex",'sequence',m.sequence,'createdAt',to_char(m."createdAt",'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')) AS data
-    FROM public.message_incognito_messages m JOIN public.message_incognito_sessions s ON s.id=m."sessionId"
-    WHERE s.id=$1 AND s."conversationId"=$2 AND s."endedAt" IS NULL AND m."createdAt">clock_timestamp()-interval '24 hours'
-    AND m."createdAt">clock_timestamp()-interval '24 hours'
-    AND ($3::integer IS NULL OR m.sequence<$3::integer) ORDER BY m.sequence DESC LIMIT 51`,
+    extractedSql.statement16,
     [sessionId, conversationId, beforeSequence ?? null],
     { data: "pg/jsonb@1" }
   );
@@ -593,8 +602,7 @@ export async function linkLifecycleMedia(
   }
   if (viewOnceIds.size > 0) {
     const { rows: recipientRows } = await rawQuery<{ userId: string }>(
-      `SELECT "userId" FROM public.message_conversation_members
-      WHERE "conversationId"=$1 AND "leftAt" IS NULL AND "userId"<>$2 ORDER BY "userId"`,
+      extractedSql.statement17,
       [input.conversationId, input.userId],
       { userId: "pg/text@1" },
       tx
@@ -606,10 +614,7 @@ export async function linkLifecycleMedia(
       deliveryExpiresAt: Date;
       live: boolean;
     }>(
-      `SELECT LEAST($1::timestamp + interval '24 hours',
-        COALESCE($2::timestamp,$1::timestamp + interval '24 hours')) AS "deliveryExpiresAt",
-        LEAST($1::timestamp + interval '24 hours',
-          COALESCE($2::timestamp,$1::timestamp + interval '24 hours'))>clock_timestamp() AS live`,
+      extractedSql.statement18,
       [messageCreatedAt, messageExpiresAt],
       {
         deliveryExpiresAt: "pg/timestamp-temporal@1",
@@ -699,22 +704,7 @@ export async function reserveViewOnceMedia(
         throw new ChatLifecycleError("VIEW_ONCE_UNAVAILABLE", 404);
       }
       const { rows } = await rawQuery<ViewOnceGrantRow>(
-        `SELECT r.id AS "recipientId",COALESCE(p."publishedKey",NULLIF(p.key,'')) AS "objectKey",
-        p."detectedMime" AS "mimeType",p.size,COALESCE(m.id,i.id) AS "messageId",s.id AS "sessionId",
-        (p."messageViewOnce" AND p."status"='READY' AND p.type='IMAGE' AND l."deliveryExpiresAt">clock_timestamp()
-          AND ((m.id IS NOT NULL AND m."conversationId"=$1 AND m."deletedAt" IS NULL
-            AND (m."expiresAt" IS NULL OR m."expiresAt">clock_timestamp()))
-            OR (i.id IS NOT NULL AND s."conversationId"=$1 AND s."endedAt" IS NULL
-              AND i."createdAt">clock_timestamp()-interval '24 hours'))) AS live,
-        l."deliveryExpiresAt"
-        FROM public.message_media_links l
-        JOIN public.post_media p ON p.id=l."mediaId"
-        JOIN public.message_view_once_recipients r ON r."mediaLinkId"=l.id AND r."userId"=$3
-        LEFT JOIN public.messages m ON m.id=l."messageId"
-        LEFT JOIN public.message_incognito_messages i ON i.id=l."incognitoMessageId"
-        LEFT JOIN public.message_incognito_sessions s ON s.id=i."sessionId"
-        WHERE l."mediaId"=$2 AND l."viewOnce"=true AND p."messageConversationId"=$1
-        FOR UPDATE OF l,r,p`,
+        extractedSql.statement19,
         [conversationId, mediaId, userId],
         viewOnceGrantRowSpec,
         tx
@@ -740,9 +730,7 @@ export async function reserveViewOnceMedia(
         status: string;
         available: boolean;
       }>(
-        `SELECT g.status::text AS status,(g.status='RESERVED' AND g."expiresAt">clock_timestamp()) AS available
-        FROM public.message_view_once_grants g JOIN public.message_view_once_recipients r ON r.id=g."recipientId"
-        WHERE g.id=$1 AND r.id=$2 FOR UPDATE OF g`,
+        extractedSql.statement20,
         [grantId, target.recipientId],
         { available: "pg/bool@1", status: "pg/text@1" },
         tx
@@ -759,17 +747,9 @@ export async function reserveViewOnceMedia(
           throw new ChatLifecycleError("VIEW_ONCE_CONSUMED", 410);
         }
       }
-      await rawExecute(
-        `DELETE FROM public.message_view_once_grants
-        WHERE "recipientId"=$1 AND status='RESERVED' AND "expiresAt"<=clock_timestamp()`,
-        [target.recipientId],
-        tx
-      );
+      await rawExecute(extractedSql.statement21, [target.recipientId], tx);
       const history = await rawQuery<{ consumed: boolean; opening: boolean }>(
-        `SELECT EXISTS(SELECT 1 FROM public.message_view_once_grants WHERE "recipientId"=$1
-          AND (status IN ('CLOSED','EXPIRED','REVOKED') OR status='ACTIVE' AND "expiresAt"<=clock_timestamp())) AS consumed,
-          EXISTS(SELECT 1 FROM public.message_view_once_grants WHERE "recipientId"=$1
-          AND status IN ('RESERVED','ACTIVE') AND "expiresAt">clock_timestamp()) AS opening`,
+        extractedSql.statement22,
         [target.recipientId],
         { consumed: "pg/bool@1", opening: "pg/bool@1" },
         tx
@@ -781,8 +761,7 @@ export async function reserveViewOnceMedia(
         throw new ChatLifecycleError("VIEW_ONCE_OPENING", 409);
       }
       await rawExecute(
-        `INSERT INTO public.message_view_once_grants (id,"recipientId",status,"reservedAt","expiresAt")
-        VALUES ($1,$2,'RESERVED',clock_timestamp(),clock_timestamp()+interval '2 minutes')`,
+        extractedSql.statement23,
         [grantId, target.recipientId],
         tx
       );
@@ -818,12 +797,7 @@ export function activateViewOnceGrant(
       messageId: string;
       sessionId: string | null;
     }>(
-      `SELECT COALESCE(l."messageId",l."incognitoMessageId") AS "messageId",i."sessionId"
-        FROM public.message_view_once_grants g
-        JOIN public.message_view_once_recipients r ON r.id=g."recipientId" AND r."userId"=$2
-        JOIN public.message_media_links l ON l.id=r."mediaLinkId"
-        LEFT JOIN public.message_incognito_messages i ON i.id=l."incognitoMessageId"
-        WHERE g.id=$1`,
+      extractedSql.statement24,
       [grantId, userId],
       {
         messageId: "pg/text@1",
@@ -847,34 +821,13 @@ export function activateViewOnceGrant(
       return false;
     }
     const result = await rawExecute(
-      `UPDATE public.message_view_once_grants g SET status='ACTIVE',"activatedAt"=clock_timestamp(),
-        "expiresAt"=clock_timestamp()+interval '2 minutes'
-      FROM public.message_view_once_recipients r,public.message_media_links l,public.post_media p
-      WHERE g.id=$1 AND g."recipientId"=r.id AND r."userId"=$2 AND l.id=r."mediaLinkId"
-        AND p.id=l."mediaId" AND l."viewOnce"=true AND l."deliveryExpiresAt">clock_timestamp()
-        AND p."messageViewOnce"=true AND p."status"='READY' AND p."messageConversationId"=$3
-        AND g.status='RESERVED' AND g."expiresAt">clock_timestamp()
-        AND ((l."messageId" IS NOT NULL AND EXISTS(SELECT 1 FROM public.messages m
-            WHERE m.id=l."messageId" AND m."deletedAt" IS NULL
-            AND (m."expiresAt" IS NULL OR m."expiresAt">clock_timestamp())))
-          OR (l."incognitoMessageId" IS NOT NULL AND EXISTS(SELECT 1 FROM public.message_incognito_messages i
-            JOIN public.message_incognito_sessions s ON s.id=i."sessionId"
-            WHERE i.id=l."incognitoMessageId" AND i."createdAt">clock_timestamp()-interval '24 hours'
-            AND s."conversationId"=$3 AND s."endedAt" IS NULL)))`,
+      extractedSql.statement25,
       [grantId, userId, conversationId],
       tx
     );
     if (result.affectedRows === 1) {
       // Keep a receipt independently of the private bytes and their short-lived grant.
-      await rawExecute(
-        `INSERT INTO public.message_view_once_receipts (id,"mediaId","userId","messageId","incognitoMessageId","openedAt")
-        SELECT g.id,l."mediaId",r."userId",l."messageId",l."incognitoMessageId",g."activatedAt"
-        FROM public.message_view_once_grants g JOIN public.message_view_once_recipients r ON r.id=g."recipientId"
-        JOIN public.message_media_links l ON l.id=r."mediaLinkId" WHERE g.id=$1
-        ON CONFLICT ("mediaId","userId") DO NOTHING`,
-        [grantId],
-        tx
-      );
+      await rawExecute(extractedSql.statement26, [grantId], tx);
     }
     return result.affectedRows === 1;
   });
@@ -884,11 +837,7 @@ export async function releaseViewOnceGrant(
   grantId: string,
   userId: string
 ): Promise<void> {
-  await rawExecute(
-    `DELETE FROM public.message_view_once_grants g USING public.message_view_once_recipients r
-    WHERE g.id=$1 AND g."recipientId"=r.id AND r."userId"=$2 AND g.status='RESERVED'`,
-    [grantId, userId]
-  );
+  await rawExecute(extractedSql.statement27, [grantId, userId]);
 }
 
 export async function closeViewOnceGrant(
@@ -896,12 +845,7 @@ export async function closeViewOnceGrant(
   userId: string
 ): Promise<void> {
   await releaseViewOnceGrant(grantId, userId);
-  await rawExecute(
-    `UPDATE public.message_view_once_grants g SET status='CLOSED',"closedAt"=clock_timestamp(),"expiresAt"=clock_timestamp()
-    FROM public.message_view_once_recipients r WHERE g.id=$1 AND g."recipientId"=r.id
-      AND r."userId"=$2 AND g.status='ACTIVE'`,
-    [grantId, userId]
-  );
+  await rawExecute(extractedSql.statement28, [grantId, userId]);
 }
 
 export async function lifecycleMediaAllowed(
@@ -958,7 +902,7 @@ export async function lifecycleMediaAllowed(
     return false;
   }
   const { rows: linkRows } = await rawQuery<{ count: number }>(
-    `SELECT COUNT(*)::integer AS count FROM public.message_media_links WHERE "mediaId"=$1`,
+    extractedSql.statement29,
     [mediaId],
     { count: "pg/int4@1" }
   );
@@ -971,9 +915,7 @@ export async function lifecycleMediaAllowed(
     }
     if (media.incognitoSessionId !== null) {
       const { rows } = await rawQuery<{ allowed: boolean }>(
-        `SELECT EXISTS (SELECT 1 FROM public.message_incognito_sessions s
-          JOIN public.message_conversation_members v ON v."conversationId"=s."conversationId" AND v."userId"=$2 AND v."leftAt" IS NULL
-          WHERE s.id=$1 AND s."endedAt" IS NULL) AS allowed`,
+        extractedSql.statement30,
         [media.incognitoSessionId, viewerId],
         { allowed: "pg/bool@1" }
       );
@@ -983,8 +925,7 @@ export async function lifecycleMediaAllowed(
       return false;
     }
     const { rows } = await rawQuery<{ allowed: boolean }>(
-      `SELECT EXISTS (SELECT 1 FROM public.message_conversation_members v
-        WHERE v."conversationId"=$1 AND v."userId"=$2 AND v."leftAt" IS NULL) AS allowed`,
+      extractedSql.statement31,
       [media.messageConversationId, viewerId],
       { allowed: "pg/bool@1" }
     );
@@ -1021,29 +962,16 @@ export async function lifecycleMediaAllowed(
     userId: viewerId,
   });
   const { rows } = await rawQuery<{ allowed: boolean }>(
-    `SELECT EXISTS (
-    SELECT 1 FROM public.message_media_links l JOIN public.messages m ON m.id=l."messageId"
-    JOIN public.message_conversation_members v ON v."conversationId"=m."conversationId" AND v."userId"=$2
-    JOIN public.post_media p ON p.id=l."mediaId"
-    WHERE l."mediaId"=$1 AND p."incognitoSessionId" IS NULL AND m."deletedAt" IS NULL AND (m."expiresAt" IS NULL OR m."expiresAt">clock_timestamp())
-    AND ((m."creationSequence">v."clearedThroughSequence") OR (m."creationSequence"=0 AND (v."clearedAt" IS NULL OR m."createdAt">v."clearedAt")))
-    AND EXISTS (SELECT 1 FROM jsonb_array_elements($3::jsonb) w
-      WHERE (w->>'after' IS NULL OR m."createdAt">=(w->>'after')::timestamp)
-      AND (w->>'before' IS NULL OR m."createdAt"<=(w->>'before')::timestamp))
-    AND ($4::boolean OR EXISTS (SELECT 1 FROM public.message_conversation_keys k
-      WHERE k."conversationId"=m."conversationId" AND k."ownerUserId"=$2 AND k.version=m."keyEpoch"))
-    AND (NOT EXISTS(SELECT 1 FROM public.message_search_account_state a WHERE a."userId"=$2 AND a."recoveryGeneration">0)
-      OR m."keyEpoch" IN (${readableMessageKeyEpochsSql("$2").replace('epoch_key."conversationId" = $1', 'epoch_key."conversationId" = $5')}))
-    AND NOT EXISTS (SELECT 1 FROM public.message_hidden h WHERE h."messageId"=m.id AND h."userId"=$2)
-    UNION ALL SELECT 1 FROM public.message_media_links l JOIN public.message_incognito_messages m ON m.id=l."incognitoMessageId"
-    JOIN public.message_incognito_sessions s ON s.id=m."sessionId"
-    JOIN public.message_conversation_members v ON v."conversationId"=s."conversationId" AND v."userId"=$2 AND v."leftAt" IS NULL
-    JOIN public.post_media p ON p.id=l."mediaId"
-    WHERE l."mediaId"=$1 AND p."incognitoSessionId"=s.id
-    AND s."endedAt" IS NULL AND m."createdAt">clock_timestamp()-interval '24 hours'
-    AND (NOT EXISTS(SELECT 1 FROM public.message_search_account_state a WHERE a."userId"=$2 AND a."recoveryGeneration">0)
-      OR m."keyEpoch" IN (${readableMessageKeyEpochsSql("$2").replace('epoch_key."conversationId" = $1', 'epoch_key."conversationId" = $5')}))
-    ) AS allowed`,
+    renderExtractedSql(extractedSql.statement32, {
+      fragment1: readableMessageKeyEpochsSql("$2").replace(
+        'epoch_key."conversationId" = $1',
+        'epoch_key."conversationId" = $5'
+      ),
+      fragment2: readableMessageKeyEpochsSql("$2").replace(
+        'epoch_key."conversationId" = $1',
+        'epoch_key."conversationId" = $5'
+      ),
+    }),
     [
       mediaId,
       viewerId,

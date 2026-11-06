@@ -1,3 +1,5 @@
+import { readSqlBundle as readExtractedSqlBundle } from "@asm/db/sql-template";
+import { Client } from "pg";
 // oxlint-disable-next-line typescript/triple-slash-reference -- Consumers typecheck workspace sources without including this package's ambient declarations.
 /// <reference path="../../../sql.d.ts" />
 // Pre-builds the indexes that the DM migration would otherwise create while
@@ -22,10 +24,19 @@
 // Safe to run at any time and as often as needed: every statement is guarded by
 // IF NOT EXISTS, so a second run is a no-op.
 
-import { Client } from "pg";
-
+import extractedSqlSource from "../../../sql/messages/infrastructure/prebuild-indexes-lifecycle.sql" with { type: "text" };
 import prebuildSql from "../../../sql/messages/prebuild-indexes.sql" with { type: "text" };
 import { readSqlBundle } from "./sql-template";
+
+const { extracted: extractedSql } = readExtractedSqlBundle(extractedSqlSource, {
+  extracted: [
+    "statement1",
+    "statement2",
+    "statement3",
+    "statement4",
+    "statement5",
+  ],
+} as const);
 
 const {
   prebuild: {
@@ -288,19 +299,11 @@ export async function runPrebuildDmIndexes(): Promise<void> {
   const client = new Client({ connectionString: databaseUrl });
   await client.connect();
   try {
-    await client.query("SET lock_timeout='5s'");
-    await client.query(
-      'ALTER TABLE IF EXISTS public.messages ADD COLUMN IF NOT EXISTS "expiresAt" timestamp(3)'
-    );
-    await client.query(
-      'ALTER TABLE IF EXISTS public.post_media ADD COLUMN IF NOT EXISTS "incognitoSessionId" text'
-    );
-    await client.query(
-      'ALTER TABLE IF EXISTS public.message_media_links ADD COLUMN IF NOT EXISTS "viewOnce" bool DEFAULT false NOT NULL'
-    );
-    await client.query(
-      'ALTER TABLE IF EXISTS public.message_media_links ADD COLUMN IF NOT EXISTS "deliveryExpiresAt" timestamp(3)'
-    );
+    await client.query(extractedSql.statement1);
+    await client.query(extractedSql.statement2);
+    await client.query(extractedSql.statement3);
+    await client.query(extractedSql.statement4);
+    await client.query(extractedSql.statement5);
   } finally {
     await client.end();
   }

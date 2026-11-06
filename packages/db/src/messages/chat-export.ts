@@ -1,13 +1,21 @@
 import { randomBytes } from "node:crypto";
 
+import { readSqlBundle as readExtractedSqlBundle } from "@asm/db/sql-template";
 import { readerMessageWindows } from "@asm/messages";
 import type { ReaderMessageWindow } from "@asm/messages";
 
+// oxlint-disable-next-line typescript/triple-slash-reference -- Workspace consumers also need the SQL text module declaration.
+/// <reference path="../../sql.d.ts" />
+import extractedSqlSource from "../../sql/messages/chat-export-lifecycle.sql" with { type: "text" };
 import { fromPrismaDateTime, toPrismaDateTime } from "../dates";
 import prisma from "../prisma";
 import { listDenMembershipEvents } from "./dens/den-service";
 import { rawQuery, rawExecute } from "./infrastructure/raw-sql";
 import { ChatLifecycleError, lockChatLifecycle } from "./lifecycle";
+
+const { extracted: extractedSql } = readExtractedSqlBundle(extractedSqlSource, {
+  extracted: ["statement1", "statement2", "statement3"],
+} as const);
 
 export interface ChatExportStatus {
   id: string;
@@ -106,9 +114,7 @@ export async function assertChatExportScope(
     prisma.orm.public.MessageSearchAccountState.where({ userId }).first(),
   ]);
   const { rows } = await rawQuery<{ changed: boolean }>(
-    `SELECT EXISTS(SELECT 1 FROM public.message_conversation_changes
-    WHERE "conversationId"=$1 AND sequence>$2::integer AND kind<>'message.created'
-    AND (cardinality("audienceUserIds")=0 OR $3=ANY("audienceUserIds"))) AS changed`,
+    extractedSql.statement1,
     [conversationId, job.snapshotSequence, userId],
     { changed: "pg/bool@1" }
   );
@@ -120,10 +126,7 @@ export async function assertChatExportScope(
     (recovery?.recoveryGeneration ?? 0) !== job.recoveryGeneration ||
     rows[0]?.changed
   ) {
-    await rawExecute(
-      `UPDATE public.message_export_jobs SET status='revoked' WHERE id=$1`,
-      [id]
-    );
+    await rawExecute(extractedSql.statement2, [id]);
     throw new ChatLifecycleError("EXPORT_CHANGED", 409);
   }
   return job;
@@ -164,11 +167,7 @@ export async function claimChatExport(
   jobId?: string
 ): Promise<ChatExportJob | null> {
   const { rows } = await rawQuery<{ id: string }>(
-    `WITH candidate AS (SELECT id FROM public.message_export_jobs
-    WHERE ($2::text IS NULL OR id=$2) AND (status='pending' OR (status='processing' AND "leaseUntil"<clock_timestamp())) AND "expiresAt">clock_timestamp()
-    ORDER BY "createdAt" LIMIT 1 FOR UPDATE SKIP LOCKED)
-    UPDATE public.message_export_jobs j SET status='processing',"leaseUntil"=clock_timestamp()+interval '5 minutes',"artifactKey"=$1
-    FROM candidate c WHERE j.id=c.id RETURNING j.id`,
+    extractedSql.statement3,
     [randomBytes(32).toString("base64"), jobId ?? null],
     { id: "pg/text@1" }
   );

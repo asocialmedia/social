@@ -235,7 +235,6 @@ export * from "./src/messages/lifecycle";
 export * from "./src/messages/reactions";
 export * from "./src/messages/view-once-receipts";
 export { messageInteractionAllowed } from "./src/messages/access/interaction-access";
-export * from "./src/messages/prebuild-lifecycle";
 export * from "./src/messages/lifecycle-cleanup";
 export * from "./src/messages/chat-export";
 export * from "./src/messages/chat-export-worker";

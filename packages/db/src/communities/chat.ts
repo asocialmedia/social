@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 
+import { readSqlBundle as readExtractedSqlBundle } from "@asm/db/sql-template";
 import { createLogger } from "@asm/logger";
 import type {
   CommunityChatMessage,
@@ -22,11 +23,18 @@ import type { ResultType } from "@prisma/orm-postgres/components/runtime";
 import { and, or } from "@prisma/orm-postgres/orm-client";
 
 import { scheduleMediaCleanup } from "../../queue";
+// oxlint-disable-next-line typescript/triple-slash-reference -- Workspace consumers also need the SQL text module declaration.
+/// <reference path="../../sql.d.ts" />
+import extractedSqlSource from "../../sql/communities/chat-lifecycle.sql" with { type: "text" };
 import { rawQuery } from "../messages/infrastructure/raw-sql";
 import { isMessageReactionEmoji } from "../messages/reactions";
 import prisma, { fromPrismaDateTime, toPrismaDateTime } from "../prisma";
 import type { PrismaOrm, PrismaTransaction } from "../prisma";
 import { redis } from "../redis";
+
+const { extracted: extractedSql } = readExtractedSqlBundle(extractedSqlSource, {
+  extracted: ["statement1", "statement2", "statement3"],
+} as const);
 
 // oxlint-disable no-await-in-loop -- Bounded database retries and transaction writes preserve sequence and commit order.
 
@@ -473,18 +481,12 @@ async function hydrateChatMessages(
       emoji: string;
       count: number;
       reacted: boolean;
-    }>(
-      `SELECT "messageId", emoji, count(*)::integer AS count, bool_or("userId" = $2) AS reacted
-       FROM public.community_chat_reactions WHERE "messageId" = ANY($1::text[])
-       GROUP BY "messageId", emoji ORDER BY count DESC, emoji ASC`,
-      [ids, userId],
-      {
-        count: "pg/int4@1",
-        emoji: "pg/text@1",
-        messageId: "pg/text@1",
-        reacted: "pg/bool@1",
-      }
-    ),
+    }>(extractedSql.statement1, [ids, userId], {
+      count: "pg/int4@1",
+      emoji: "pg/text@1",
+      messageId: "pg/text@1",
+      reacted: "pg/bool@1",
+    }),
     prisma.orm.public.CommunityChatPins.select("messageId")
       .where((pin) => pin.messageId.in(ids))
       .all(),
@@ -1573,7 +1575,7 @@ export async function sendCommunityChatMessage(input: {
       }
       if (input.stickerMediaId) {
         await rawQuery(
-          "SELECT id FROM public.post_media WHERE id=$1 FOR UPDATE",
+          extractedSql.statement2,
           [input.stickerMediaId],
           { id: "pg/text@1" },
           transaction
@@ -2009,7 +2011,7 @@ export async function setCommunityChatReaction(input: {
         roomId: message.roomId,
       });
       const distinct = await rawQuery<{ count: number }>(
-        'SELECT count(DISTINCT emoji)::integer AS count FROM public.community_chat_reactions WHERE "messageId" = $1',
+        extractedSql.statement3,
         [input.messageId],
         { count: "pg/int4@1" },
         transaction

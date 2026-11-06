@@ -13,6 +13,7 @@ COPY packages/config/package.json ./packages/config/package.json
 COPY packages/db/package.json ./packages/db/package.json
 COPY packages/logger/package.json ./packages/logger/package.json
 COPY packages/media/package.json ./packages/media/package.json
+COPY packages/messages/package.json ./packages/messages/package.json
 COPY packages/next/package.json ./packages/next/package.json
 COPY packages/notifications/package.json ./packages/notifications/package.json
 COPY packages/protocols/package.json ./packages/protocols/package.json

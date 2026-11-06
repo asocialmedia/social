@@ -60,6 +60,16 @@ test("restarts for shared workspace edits while retaining the service working di
     ]);
   } finally {
     clearTimeout(timeout);
+    if (process.platform === "win32") {
+      const cleanup = Bun.spawn(
+        ["taskkill", "/PID", String(child.pid), "/T", "/F"],
+        {
+          stdout: "ignore",
+          stderr: "ignore",
+        }
+      );
+      await cleanup.exited;
+    }
     child.kill();
     await child.exited;
     reader.releaseLock();

@@ -1,5 +1,14 @@
+import { readSqlBundle as readExtractedSqlBundle } from "@asm/db/sql-template";
+
+// oxlint-disable-next-line typescript/triple-slash-reference -- Workspace consumers also need the SQL text module declaration.
+/// <reference path="../../sql.d.ts" />
+import extractedSqlSource from "../../sql/communities/chat-inbox-lifecycle.sql" with { type: "text" };
 import { rawQuery } from "../messages/infrastructure/raw-sql";
 import { getJoinedCommunities } from "./service";
+
+const { extracted: extractedSql } = readExtractedSqlBundle(extractedSqlSource, {
+  extracted: ["statement1"],
+} as const);
 
 // One aggregate read for the viewer, independent of community population.
 // No room contents, private-thread metadata, or recipient rosters leave this query.
@@ -10,35 +19,7 @@ export async function getCommunityChatInbox(userId: string) {
   const [communities, activity] = await Promise.all([
     getJoinedCommunities(userId),
     rawQuery<{ communityId: string; hasUnread: boolean }>(
-      `SELECT member."communityId",
-        preference."mutedAt" IS NULL AND EXISTS (
-          SELECT 1 FROM public.community_chat_rooms room
-          LEFT JOIN public.community_chat_rooms parent ON parent.id = room."parentRoomId"
-          LEFT JOIN public.community_chat_read_states state
-            ON state."roomId" = room.id AND state."userId" = $1
-          WHERE room."communityId" = member."communityId"
-            AND NOT room.archived AND NOT COALESCE(parent.archived, false)
-            AND room."nextSequence" > COALESCE(state."readSequence", 0)
-            AND (room.visibility = 'PUBLIC' OR member.role IN ('OWNER', 'MODERATOR') OR EXISTS (
-              SELECT 1 FROM public.community_chat_room_members invite
-              WHERE invite."roomId" = room.id AND invite."communityMemberId" = member.id
-            ))
-            AND EXISTS (
-              SELECT 1 FROM public.community_chat_messages message
-              WHERE message."roomId" = room.id
-                AND message.sequence > COALESCE(state."readSequence", 0)
-                AND message."senderId" <> $1 AND message."deletedAt" IS NULL
-            )
-        ) AS "hasUnread"
-       FROM public.community_members member
-       LEFT JOIN public.community_chat_preferences preference
-         ON preference."communityId" = member."communityId" AND preference."userId" = $1
-       WHERE member."userId" = $1 AND member.status = 'ACTIVE'
-         AND NOT EXISTS (
-           SELECT 1 FROM public.community_chat_sanctions sanction
-           WHERE sanction."communityId" = member."communityId" AND sanction."userId" = $1
-             AND sanction.kind = 'BAN' AND (sanction."expiresAt" IS NULL OR sanction."expiresAt" > NOW())
-         )`,
+      extractedSql.statement1,
       [userId],
       { communityId: "pg/text@1", hasUnread: "pg/bool@1" }
     ),

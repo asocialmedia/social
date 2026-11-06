@@ -3,6 +3,8 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
+import { bashCommand } from "../testing/bash-command";
+
 const repositoryRoot = path.resolve(import.meta.dir, "../..");
 const fakeToken = "dokploy-test-token";
 const previousDeployment = [{ deploymentId: "previous", status: "done" }];
@@ -48,9 +50,17 @@ process.exit(response.transportStatus ?? 0);
     await writeFile(path.join(directory, "sleep"), "#!/bin/sh\nexit 0\n", {
       mode: 0o755,
     });
+    const bashEnvironment = path.join(directory, "bash-env");
+    const bashDirectory = directory
+      .replaceAll("\\", "/")
+      .replace(
+        /^(?<drive>[A-Za-z]):/u,
+        (_match, drive: string) => `/${drive.toLowerCase()}`
+      );
+    await writeFile(bashEnvironment, `export PATH="${bashDirectory}:$PATH"\n`);
     const child = Bun.spawn(
       [
-        "bash",
+        await bashCommand(),
         options.script ?? "scripts/ci/prisma-sync-deploy.sh",
         ...(options.checkOnly ? ["--check"] : []),
       ],
@@ -58,6 +68,9 @@ process.exit(response.transportStatus ?? 0);
         cwd: repositoryRoot,
         env: {
           ...process.env,
+          ...(process.platform === "win32"
+            ? { BASH_ENV: bashEnvironment }
+            : {}),
           DOKPLOY_API_TOKEN: fakeToken,
           DOKPLOY_API_URL: "https://dokploy.example.test/api/",
           DOKPLOY_APP_ID: "web-app",

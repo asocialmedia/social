@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 
 import { and, consumeRateLimit, prisma, rawQuery, redis } from "@asm/db";
+import { readSqlBundle as readExtractedSqlBundle } from "@asm/db/sql-template";
 import {
   STICKER_LIBRARY_MAX_BYTES,
   STICKER_LIBRARY_MAX_ITEMS,
@@ -15,6 +16,12 @@ import {
   stickerMessageSchema,
   stickerOriginMediaId,
 } from "@/lib/media/sticker-library";
+
+import extractedSqlSource from "./route.sql" with { type: "text" };
+
+const { extracted: extractedSql } = readExtractedSqlBundle(extractedSqlSource, {
+  extracted: ["statement1"],
+} as const);
 
 export async function POST(request: Request) {
   const session = await getSessionFromApi();
@@ -115,7 +122,7 @@ export async function POST(request: Request) {
     const saved = await prisma.transaction(async (tx) => {
       // Prisma rc.14 has no typed row-lock API; share the upload path's per-user quota lock.
       await rawQuery(
-        "SELECT id FROM public.users WHERE id = $1 FOR UPDATE",
+        extractedSql.statement1,
         [userId],
         { id: "pg/text@1" },
         tx

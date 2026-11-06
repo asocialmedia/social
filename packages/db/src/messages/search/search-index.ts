@@ -2,8 +2,10 @@
 /// <reference path="../../../sql.d.ts" />
 import { createHash, randomUUID } from "node:crypto";
 
+import { readSqlBundle as readExtractedSqlBundle } from "@asm/db/sql-template";
 import { and } from "@prisma/orm-postgres/orm-client";
 
+import extractedSqlSource from "../../../sql/messages/search/search-index-lifecycle.sql" with { type: "text" };
 import prisma from "../../prisma";
 import type { PrismaTransaction } from "../../prisma";
 import {
@@ -16,6 +18,10 @@ import type { MessageSearchEpochProof } from "../epochs/epoch-readability";
 import { rawExecute, rawQuery } from "../infrastructure/raw-sql";
 import { renderSql } from "../infrastructure/sql-template";
 import { messageSearchSql } from "./queries";
+
+const { extracted: extractedSql } = readExtractedSqlBundle(extractedSqlSource, {
+  extracted: ["statement1"],
+} as const);
 
 const MAX_SEARCH_TERM_INSERT_BATCH = 100;
 export const MESSAGE_SEARCH_BACKFILL_BATCH_MESSAGES = 100;
@@ -1125,12 +1131,7 @@ export async function commitMessageSearchMutation(
     }
 
     if (input.kind === "delete") {
-      await rawExecute(
-        `UPDATE public.message_media_links SET "deliveryExpiresAt"=clock_timestamp()
-          WHERE "messageId"=$1 AND "viewOnce"=true`,
-        [input.messageId],
-        tx
-      );
+      await rawExecute(extractedSql.statement1, [input.messageId], tx);
       await rawExecute(
         messageSearchSql.commitMessageSearchMutation.updateConversationMembers,
         [input.conversationId],

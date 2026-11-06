@@ -7,7 +7,7 @@ import type { TestScope } from "./test-file-discovery";
 
 type CoverageScope = TestScope;
 
-const COVERAGE_CONFIG_PATH = path.join("scripts", "bunfig.coverage.toml");
+const COVERAGE_CONFIG_PATH = "scripts/bunfig.coverage.toml";
 const COVERAGE_DIR_PREFIX = 'coverageDir = "';
 
 function isCoverageScope(value: string): value is CoverageScope {
@@ -41,7 +41,7 @@ async function getSourceLcovPath(deps: CoverageRunnerDeps): Promise<string> {
   const coverageConfig = await readText(COVERAGE_CONFIG_PATH);
   const coverageDir = parseCoverageDir(coverageConfig);
 
-  return path.join(coverageDir, "lcov.info");
+  return path.posix.join(coverageDir, "lcov.info");
 }
 
 interface CoverageRunnerDeps {
@@ -229,8 +229,8 @@ async function writeMergedLcov(
   chunks: string[],
   deps: CoverageRunnerDeps = {}
 ): Promise<void> {
-  const targetDir = path.join("coverage", scope);
-  const targetPath = path.join(targetDir, "lcov.info");
+  const targetDir = path.posix.join("coverage", scope);
+  const targetPath = path.posix.join(targetDir, "lcov.info");
   const writeText = deps.writeText ?? defaultWriteText;
 
   await mkdir(targetDir, { recursive: true });

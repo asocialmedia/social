@@ -1,10 +1,32 @@
+import {
+  readSqlBundle as readExtractedSqlBundle,
+  renderSql as renderExtractedSql,
+} from "@asm/db/sql-template";
 import { loadReactionCatalog } from "@asm/messages";
 import type { MessageReactionSummary } from "@asm/messages";
 
+// oxlint-disable-next-line typescript/triple-slash-reference -- Workspace consumers also need the SQL text module declaration.
+/// <reference path="../../sql.d.ts" />
+import extractedSqlSource from "../../sql/messages/reactions-lifecycle.sql" with { type: "text" };
 import prisma from "../prisma";
 import type { PrismaTransaction } from "../prisma";
 import { messageInteractionAllowed } from "./access/interaction-access";
 import { rawExecute, rawQuery } from "./infrastructure/raw-sql";
+
+const { extracted: extractedSql } = readExtractedSqlBundle(extractedSqlSource, {
+  extracted: [
+    "statement1",
+    "statement2",
+    "statement3",
+    "statement4",
+    "statement5",
+    "statement6",
+    "statement7",
+    "statement8",
+    "statement9",
+    "statement10",
+  ],
+} as const);
 
 export { QUICK_MESSAGE_REACTIONS as MESSAGE_REACTION_EMOJIS } from "@asm/messages";
 
@@ -40,18 +62,7 @@ export async function listMessageReactionSummaries(
     return grouped;
   }
   const { rows } = await rawQuery<ReactionRow>(
-    `SELECT COALESCE(r."messageId", r."incognitoMessageId") AS "messageId", r.emoji, r.count,
-      EXISTS (SELECT 1 FROM public.message_reactions mine
-        WHERE mine."userId"=$4 AND mine.emoji=r.emoji
-          AND ((r."messageId" IS NOT NULL AND mine."messageId"=r."messageId")
-            OR (r."incognitoMessageId" IS NOT NULL AND mine."incognitoMessageId"=r."incognitoMessageId"))) AS "reactedByMe"
-    FROM public.message_reaction_counts r
-    LEFT JOIN public.messages m ON m.id=r."messageId"
-    LEFT JOIN public.message_incognito_messages im ON im.id=r."incognitoMessageId"
-    LEFT JOIN public.message_incognito_sessions s ON s.id=im."sessionId"
-    WHERE ((r."messageId"=ANY($1::text[]) AND m."conversationId"=$3)
-      OR (r."incognitoMessageId"=ANY($2::text[]) AND s."conversationId"=$3))
-    ORDER BY r.count DESC, r.emoji ASC`,
+    extractedSql.statement1,
     [messageIds, incognitoMessageIds, conversationId, userId],
     {
       count: "pg/int4@1",
@@ -85,10 +96,7 @@ export async function toggleMessageReaction(
 
   return prisma.transaction(async (tx) => {
     const member = await rawQuery<{ allowed: boolean }>(
-      `SELECT EXISTS (SELECT 1 FROM public.message_conversations c
-        JOIN public.message_conversation_members m ON m."conversationId"=c.id
-        WHERE c.id=$1 AND m."userId"=$2 AND m."leftAt" IS NULL
-        FOR UPDATE OF m) AS allowed`,
+      extractedSql.statement2,
       [input.conversationId, input.userId],
       { allowed: "pg/bool@1" },
       tx
@@ -108,18 +116,13 @@ export async function toggleMessageReaction(
     const target =
       source.column === "messageId"
         ? await rawQuery<{ id: string }>(
-            `SELECT id FROM public.messages WHERE id=$1 AND "conversationId"=$2 AND "deletedAt" IS NULL
-          AND ("expiresAt" IS NULL OR "expiresAt">clock_timestamp()) FOR UPDATE`,
+            extractedSql.statement3,
             [source.id, input.conversationId],
             { id: "pg/text@1" },
             tx
           )
         : await rawQuery<{ id: string }>(
-            `SELECT m.id FROM public.message_incognito_messages m
-          JOIN public.message_incognito_sessions s ON s.id=m."sessionId"
-          WHERE m.id=$1 AND s.id=$2 AND s."conversationId"=$3 AND s."endedAt" IS NULL
-            AND m."createdAt">clock_timestamp()-interval '24 hours'
-          FOR UPDATE OF m, s`,
+            extractedSql.statement4,
             [source.id, source.sourceId, input.conversationId],
             { id: "pg/text@1" },
             tx
@@ -132,7 +135,7 @@ export async function toggleMessageReaction(
     }
 
     const previous = await rawQuery<{ emoji: string }>(
-      `SELECT emoji FROM public.message_reactions WHERE "${source.column}"=$1 AND "userId"=$2 FOR UPDATE`,
+      renderExtractedSql(extractedSql.statement5, { fragment1: source.column }),
       [source.id, input.userId],
       { emoji: "pg/text@1" },
       tx
@@ -141,7 +144,9 @@ export async function toggleMessageReaction(
 
     if (previousEmoji === input.emoji) {
       await rawExecute(
-        `DELETE FROM public.message_reactions WHERE "${source.column}"=$1 AND "userId"=$2`,
+        renderExtractedSql(extractedSql.statement6, {
+          fragment1: source.column,
+        }),
         [source.id, input.userId],
         tx
       );
@@ -156,9 +161,10 @@ export async function toggleMessageReaction(
         );
       }
       await rawExecute(
-        `INSERT INTO public.message_reactions (id,"${source.column}","userId",emoji)
-          VALUES ($1,$2,$3,$4)
-          ON CONFLICT ("${source.column}","userId") DO UPDATE SET emoji=EXCLUDED.emoji`,
+        renderExtractedSql(extractedSql.statement7, {
+          fragment1: source.column,
+          fragment2: source.column,
+        }),
         [crypto.randomUUID(), source.id, input.userId, input.emoji],
         tx
       );
@@ -191,7 +197,7 @@ async function decrementReactionCount(
   tx: PrismaTransaction
 ): Promise<void> {
   const deleted = await rawExecute(
-    `DELETE FROM public.message_reaction_counts WHERE "${sourceColumn}"=$1 AND emoji=$2 AND count=1`,
+    renderExtractedSql(extractedSql.statement8, { fragment1: sourceColumn }),
     [sourceId, emoji],
     tx
   );
@@ -199,8 +205,7 @@ async function decrementReactionCount(
     return;
   }
   const updated = await rawExecute(
-    `UPDATE public.message_reaction_counts SET count=count-1
-      WHERE "${sourceColumn}"=$1 AND emoji=$2 AND count>1`,
+    renderExtractedSql(extractedSql.statement9, { fragment1: sourceColumn }),
     [sourceId, emoji],
     tx
   );
@@ -216,9 +221,10 @@ async function incrementReactionCount(
   tx: PrismaTransaction
 ): Promise<void> {
   await rawExecute(
-    `INSERT INTO public.message_reaction_counts (id,"${sourceColumn}",emoji,count)
-      VALUES ($1,$2,$3,1)
-      ON CONFLICT ("${sourceColumn}",emoji) DO UPDATE SET count=public.message_reaction_counts.count+1`,
+    renderExtractedSql(extractedSql.statement10, {
+      fragment1: sourceColumn,
+      fragment2: sourceColumn,
+    }),
     [crypto.randomUUID(), sourceId, emoji],
     tx
   );
