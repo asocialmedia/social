@@ -260,7 +260,7 @@ export default function ClientComm() {
     <>
       {/* `communities-cq` makes this column the query container for the card
           width variable, so grid cards and rail cards read back the same size. */}
-      <div className="communities-cq border-border/60 flex min-w-0 flex-1 flex-col bg-[hsl(var(--background-alt))] sm:border-x">
+      <div className="communities-cq border-border/60 flex min-w-0 flex-1 flex-col bg-[hsl(var(--background-alt))] [--community-gutter:1rem] sm:border-x sm:[--community-gutter:1.5rem]">
         <CollapsibleTopBar hidden={hideTopBar}>
           <MobileTopBar />
         </CollapsibleTopBar>
@@ -276,7 +276,9 @@ export default function ClientComm() {
             // (which has nothing further to give), so the stickies stay put.
             // `relative` scopes the ambient wash below to this scroll area.
             "hide-native-scrollbar relative min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-y-contain",
-            isLoggedIn ? "pb-16 lg:pb-0" : "pb-24 lg:pb-12"
+            isLoggedIn
+              ? "pb-[calc(6rem+env(safe-area-inset-bottom))] lg:pb-8"
+              : "pb-24 lg:pb-12"
           )}
           ref={pageScrollRef}
         >
@@ -314,7 +316,7 @@ export default function ClientComm() {
               className="sticky top-0 z-20 bg-[hsl(var(--background-alt))]/95 backdrop-blur-md"
               ref={stripRef}
             >
-              <div className="hide-native-scrollbar flex gap-1.5 overflow-x-auto overscroll-x-contain px-8 py-1.5 sm:py-2.5">
+              <div className="hide-native-scrollbar flex gap-1.5 overflow-x-auto overscroll-x-contain px-4 py-1.5 sm:px-6 sm:py-2.5">
                 {COMMUNITY_DISCOVERY_CATEGORIES.map((entry) => {
                   const isActive = entry.key === category;
                   const count = counts[entry.key];
@@ -351,23 +353,13 @@ export default function ClientComm() {
               off the scroller-level wash above - no local art layer, so the
               type always sits on a clean field with no vignette behind it. */}
             <div className="relative">
-              <header className="relative px-8 pt-8 pb-4 sm:pb-6">
-                <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-5">
-                  {/* Statement, anchored to the top-left. Each line is its own
-                    flex row so the inline brand mark centres against the type by
-                    layout rather than hand-tuned baseline offsets.
-
-                    `flex-auto` (grow with a content basis), NOT `flex-1`: the
-                    line-break is decided on the content width, so the block
-                    still wraps the stat panel below it on narrow screens, then
-                    grows to fill the row so the (i) can ride the right edge. */}
+              <header className="relative px-4 pt-6 pb-4 sm:px-6 sm:pt-8 sm:pb-6">
+                <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-4 sm:gap-y-5">
+                  {/* The heading has its own full-width row on phones; the
+                      stats below share the same edges in three equal columns. */}
                   <div className="min-w-0 flex-auto">
-                    {/* The statement and, when the aura gate is unmet, the (i)
-                      that explains it. `justify-between` pins the mark to the
-                      row's right edge instead of tucking it against the
-                      headline. */}
                     <div className="flex items-start justify-between gap-3">
-                      <h1 className="text-foreground flex flex-col items-start text-3xl leading-[1.06] font-extrabold tracking-tight sm:text-4xl lg:text-5xl">
+                      <h1 className="text-foreground flex flex-col items-start text-[clamp(1.75rem,8.4vw,2.25rem)] leading-[1.06] font-extrabold tracking-tight sm:text-4xl lg:text-5xl">
                         <span>Discover your</span>
                         <span className="flex items-center gap-[0.16em]">
                           <span>next</span>
@@ -380,33 +372,32 @@ export default function ClientComm() {
                           <span>community</span>
                         </span>
                       </h1>
+                    </div>
+                    <div className="mt-3 flex items-center justify-between gap-3">
+                      <p className="text-muted-foreground max-w-lg text-sm sm:text-base">
+                        Find a new space to play, chill, and hang out.
+                      </p>
                       <CommunityCreationInfo
-                        className="mt-1 xl:hidden"
+                        className="xl:hidden"
                         quota={creationQuota.data}
                       />
                     </div>
-                    <p className="text-muted-foreground mt-3 max-w-lg text-sm sm:text-base">
-                      Find a new space to play, chill, and hang out.
-                    </p>
                     {/* The right rail is the create home on wide screens; below
                       xl it is absent, so the hero carries the action. It
                       renders nothing when the gate is unmet. */}
-                    <div className="mt-5 w-full xl:hidden">
-                      <CommunityCreateButton
-                        onCreate={handleCreate}
-                        quota={creationQuota.data}
-                      />
-                    </div>
+                    {!creationQuota.data || creationQuota.data.canCreate ? (
+                      <div className="mt-5 w-full xl:hidden">
+                        <CommunityCreateButton
+                          onCreate={handleCreate}
+                          quota={creationQuota.data}
+                        />
+                      </div>
+                    ) : null}
                   </div>
 
-                  {/* Right corner: the directory's headline totals as one
-                    cohesive stat panel on the app's raised 3D surface. Each
-                    column shares the same internal grid (icon + label on top,
-                    number beneath) so the three line up across the row. The
-                    panel hugs its content at every width - never stretched
-                    edge-to-edge on mobile, just left-aligned under the
-                    statement. */}
-                  <dl className="sidebar-subcard flex shrink-0 items-start gap-5 rounded-2xl px-5 py-4 sm:gap-7">
+                  {/* Totals fill the mobile row; wider layouts keep the
+                      compact panel beside the statement when space allows. */}
+                  <dl className="sidebar-subcard grid w-full max-w-full shrink-0 grid-cols-3 rounded-2xl px-3 py-3 text-center sm:flex sm:w-auto sm:gap-7 sm:px-5 sm:py-4 sm:text-left">
                     {[
                       {
                         icon: Users,
@@ -424,15 +415,15 @@ export default function ClientComm() {
                         className="flex min-w-0 flex-col gap-1"
                         key={stat.label}
                       >
-                        <dt className="text-muted-foreground flex items-center gap-1.5 text-xs font-medium">
+                        <dt className="text-muted-foreground flex items-center justify-center gap-1 text-[11px] font-medium sm:justify-start sm:gap-1.5 sm:text-xs">
                           <stat.icon
                             aria-hidden="true"
-                            className="text-primary size-3.5 shrink-0"
+                            className="text-primary size-3 shrink-0 sm:size-3.5"
                             fill="currentColor"
                           />
                           {stat.label}
                         </dt>
-                        <dd className="text-foreground text-2xl leading-none font-extrabold tabular-nums sm:text-3xl">
+                        <dd className="text-foreground text-[28px] leading-none font-extrabold tabular-nums sm:text-3xl">
                           {formatNumber(stat.value)}
                         </dd>
                       </div>
@@ -461,7 +452,7 @@ export default function ClientComm() {
                 // visible gap-line. The top 1px is band padding, never content,
                 // so nothing is clipped. `top-[45px]` / `sm:top-[53px]` stay as
                 // the SSR/no-measure fallback.
-                "sticky top-[45px] z-10 px-8 pt-2 pb-2 transition-colors duration-150 sm:top-[53px] sm:py-2.5",
+                "sticky top-[45px] z-10 px-4 pt-2 pb-2 transition-colors duration-150 sm:top-[53px] sm:px-6 sm:py-2.5",
                 isSearchStuck
                   ? "bg-[hsl(var(--background-alt))]/95 backdrop-blur-md"
                   : "bg-transparent"
@@ -492,22 +483,13 @@ export default function ClientComm() {
                 ) : null}
               </div>
             </div>
-            {/* Each rail is rendered only when it has content, and the wrapper
-              itself only when at least one does.
-
-              The vertical rhythm on mobile is 32px between every section, and
-              it is measured from the card EDGES. A rail's own track already
-              contributes 4px of bottom padding, and the search field is given a
-              matching 4px (`pb-1`) so every "source" hands over the same 4px.
-              Each wrapper then only supplies the remaining 28px (`pt-7`). `pb-1`
-              on the wrapper would stack a second 4px, so its padding is omitted
-              on mobile and only restored at `sm`. Desktop keeps its original
-              tighter rhythm. */}
+            {/* Each collection supplies its own leading space so adjacent
+                collections never accumulate two sets of section padding. */}
             {showTopRails ? (
               // The top rails (Joined, Trending) read off the scroller-level
               // wash - no local art layer, so the hero, the search field and the
               // rails all sit on one continuous image with no seams.
-              <div className="flex flex-col gap-7 pt-7 sm:gap-8 sm:pt-5 sm:pb-8">
+              <div className="flex flex-col gap-6 pt-4 sm:gap-8 sm:pt-5">
                 {showJoinedRail ? (
                   <div ref={joinedRailRef}>
                     <CommunityRail
@@ -530,16 +512,9 @@ export default function ClientComm() {
                 ) : null}
               </div>
             ) : null}
-            {/* Growing fast sits past the backdrop, on the plain surface.
-
-              `pt-7` (28px) plus the 4px every source hands over (see the
-              top-rails wrapper above) is the same 32px rhythm, whatever precedes
-              it: the search field or another rail. `pb-7` (28px) plus the rail's
-              own 4px track padding completes the 32px this rail sits in; the grid
-              below then adds its own `pt-8` on top of that hand-off. Desktop
-              keeps its original pt-8 / pb-9. */}
+            {/* Growing fast sits past the backdrop, on the plain surface. */}
             {showGrowingRail ? (
-              <div className="pt-7 pb-7 sm:pt-8 sm:pb-9" ref={growingRailRef}>
+              <div className="pt-6 sm:pt-8" ref={growingRailRef}>
                 <CommunityRail
                   communities={sections.growing}
                   icon={Zap}
@@ -548,14 +523,8 @@ export default function ClientComm() {
                 />
               </div>
             ) : null}
-            {/* All communities: the browsable, paginated grid.
-
-              `pt-8` on mobile is deliberate and larger than the 32px rail-to-rail
-              rhythm: this is where the curated rails hand off to the browsable
-              directory, so the heading needs to read as a new kind of section
-              rather than one more rail. Desktop already separates them with its
-              wider `pt-8 / pb-9` wrappers, so it needs no extra here. */}
-            <div className="px-8 pt-8 pb-0 sm:pt-0 sm:pb-10">
+            {/* All communities: the browsable, paginated grid. */}
+            <div className="px-4 pt-6 pb-2 sm:px-6 sm:pt-8 sm:pb-10">
               <div className="mb-3 flex items-center gap-2.5">
                 <LayoutGrid
                   className="text-primary size-5 shrink-0"

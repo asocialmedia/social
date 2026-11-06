@@ -2,7 +2,6 @@
 
 import { createCommunitySchema } from "@asm/auth/validation";
 import {
-  approveMember as approveMemberService,
   CommunityError,
   consumeRateLimit,
   createCommunity as createCommunityService,
@@ -126,21 +125,6 @@ export async function leaveCommunity(communityId: string): Promise<void> {
   const session = await getSessionFromApi();
   const userId = requireUser(session?.user?.id);
   await leaveCommunityService(communityId, userId);
-  await Promise.all([
-    invalidateCommunityStats(communityId),
-    invalidateCommunityPopulationAggregates(),
-  ]);
-}
-
-export async function approveMember(
-  communityId: string,
-  targetUserId: string
-): Promise<void> {
-  const session = await getSessionFromApi();
-  const actorId = requireUser(session?.user?.id);
-  await approveMemberService(communityId, actorId, targetUserId);
-  // Approval flips PENDING -> ACTIVE, so the member count and the discovery
-  // member total both move (the population aggregate covers the latter).
   await Promise.all([
     invalidateCommunityStats(communityId),
     invalidateCommunityPopulationAggregates(),

@@ -1,6 +1,10 @@
 import { expect, test } from "bun:test";
 
-import { readMessageActivityStream, readMessageStream } from "./realtime";
+import {
+  parseMessageEvent,
+  readMessageActivityStream,
+  readMessageStream,
+} from "./realtime";
 import type { MessageStreamFetch } from "./realtime";
 
 function openStream(
@@ -150,4 +154,15 @@ test("activity greetings reconcile after reconnect even if no new event is publi
   }
   controller.abort();
   expect(greetings).toEqual([false, true]);
+});
+test("view-once seen frames are accepted only with an opaque media reference", () => {
+  const event = {
+    conversationId: "chat",
+    kind: "media.viewOnce.seen",
+    mediaId: "photo",
+  };
+  expect(parseMessageEvent(JSON.stringify(event))).toMatchObject(event);
+  expect(
+    parseMessageEvent(JSON.stringify({ ...event, mediaId: undefined }))
+  ).toBeNull();
 });

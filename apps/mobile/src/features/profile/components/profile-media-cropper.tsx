@@ -2,7 +2,7 @@
 import { File, Paths } from "expo-file-system";
 import { Image } from "expo-image";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Modal, View, useWindowDimensions } from "react-native";
+import { Modal, Switch, Text, View, useWindowDimensions } from "react-native";
 
 import { toast } from "@/components/feedback/toast";
 import { SettingsCard } from "@/features/settings/components/settings-ui";
@@ -15,18 +15,21 @@ import type {
 import { isAnimatedImage, isTooLarge } from "../lib/profile-media-crop";
 import ProfileCropEngine from "./profile-crop-engine";
 
+type CropResult = PickedProfileImage & { viewOnce?: boolean };
+
 interface CropRequest {
   dataUrl: string;
   kind: ProfileImageKind | "post";
   picked: PickedProfileImage;
-  resolve: (result: PickedProfileImage | null) => void;
+  resolve: (result: CropResult | null) => void;
+  messagePhoto?: { viewOnce: boolean; canViewOnce: boolean };
 }
 
 export function useProfileMediaCropper() {
   const [request, setRequest] = useState<CropRequest | null>(null);
   const pending = useRef<CropRequest | null>(null);
   const finish = useCallback(
-    (current: CropRequest, result: PickedProfileImage | null) => {
+    (current: CropRequest, result: CropResult | null) => {
       if (pending.current !== current) {
         return;
       }
@@ -38,7 +41,11 @@ export function useProfileMediaCropper() {
   );
   useEffect(() => () => pending.current?.resolve(null), []);
   const crop = useCallback(
-    async (picked: PickedProfileImage, kind: ProfileImageKind | "post") => {
+    async (
+      picked: PickedProfileImage,
+      kind: ProfileImageKind | "post",
+      messagePhoto?: CropRequest["messagePhoto"]
+    ) => {
       const dimensions =
         picked.source.width && picked.source.height
           ? null
@@ -54,11 +61,12 @@ export function useProfileMediaCropper() {
           }
         : picked;
       const base64 = await new File(picked.source.uri).base64();
-      return await new Promise<PickedProfileImage | null>((resolve) => {
+      return await new Promise<CropResult | null>((resolve) => {
         pending.current?.resolve(null);
         const next = {
           dataUrl: `data:${picked.source.mimeType};base64,${base64}`,
           kind,
+          messagePhoto,
           picked: measured,
           resolve,
         };
@@ -84,10 +92,13 @@ function ProfileMediaCropper({
   onFinish,
   request,
 }: {
-  onFinish: (result: PickedProfileImage | null) => void;
+  onFinish: (result: CropResult | null) => void;
   request: CropRequest;
 }) {
-  const { isDark } = useAppTheme();
+  const { isDark, theme } = useAppTheme();
+  const [viewOnce, setViewOnce] = useState(
+    request.messagePhoto?.viewOnce ?? false
+  );
   const window = useWindowDimensions();
   const height = Math.min(
     window.height * 0.75,
@@ -129,6 +140,7 @@ function ProfileMediaCropper({
         uri: target.uri,
         width: result.width,
       },
+      viewOnce: request.messagePhoto ? viewOnce : undefined,
     });
   };
   return (
@@ -161,6 +173,7 @@ function ProfileMediaCropper({
             dataUrl={request.dataUrl}
             isDark={isDark}
             kind={request.kind}
+            messagePhoto={Boolean(request.messagePhoto)}
             onComplete={complete}
             onCancel={() => {
               onFinish(null);
@@ -197,6 +210,40 @@ function ProfileMediaCropper({
               useExpoDOMWebView: true,
             }}
           />
+          {request.messagePhoto && !animated ? (
+            <View
+              style={{
+                alignItems: "center",
+                borderTopColor: theme.dividerLine,
+                borderTopWidth: 1,
+                flexDirection: "row",
+                justifyContent: "space-between",
+                minHeight: 56,
+                paddingHorizontal: 20,
+              }}
+            >
+              <Text
+                style={{
+                  color: theme.inputText,
+                  fontFamily: "SofiaProMed",
+                  fontSize: 14,
+                }}
+              >
+                View once
+              </Text>
+              <Switch
+                accessibilityLabel="Send as a view once photo"
+                accessibilityHint={
+                  request.messagePhoto.canViewOnce
+                    ? "Opens once, then disappears"
+                    : "Available for one photo without a caption"
+                }
+                disabled={!request.messagePhoto.canViewOnce}
+                onValueChange={setViewOnce}
+                value={viewOnce}
+              />
+            </View>
+          ) : null}
         </SettingsCard>
       </View>
     </Modal>

@@ -2,7 +2,7 @@
 
 import type { UserData } from "@asm/db";
 import { useQuery } from "@tanstack/react-query";
-import { Hash, Loader2 } from "lucide-react";
+import { Hash } from "lucide-react";
 import React, {
   forwardRef,
   useCallback,
@@ -12,6 +12,7 @@ import React, {
   useState,
 } from "react";
 
+import { ZephLoader } from "@/components/layouts/feedback/zeph-loader";
 import UserAvatar from "@/components/layouts/user/user-avatar";
 import kyInstance from "@/lib/ky";
 import { cn } from "@/lib/utils";
@@ -149,7 +150,7 @@ export const CommentSuggestions = forwardRef<
     >
       {loading && items.length === 0 ? (
         <div className="text-muted-foreground flex items-center justify-center gap-2 p-3 text-xs">
-          <Loader2 className="size-3.5 animate-spin" />
+          <ZephLoader variant="search" className="size-3.5" />
           <span>Searching...</span>
         </div>
       ) : (

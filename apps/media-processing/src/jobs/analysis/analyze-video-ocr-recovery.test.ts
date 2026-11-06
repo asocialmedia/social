@@ -48,6 +48,7 @@ const builder = {
 };
 mock.module("@asm/db", () => ({
   and: (...values: unknown[]) => values,
+  enqueueMediaDeleteCascade: () => Promise.resolve(),
   indexPostEmbedding: () => Promise.resolve(),
   patchMediaAnalysisMetadata: (
     _id: string,

@@ -325,10 +325,12 @@ export function MessageImage({
   source,
   style,
   contentFit = "cover",
+  cachePolicy,
 }: {
   source: string;
   style: object;
   contentFit?: "cover" | "contain";
+  cachePolicy?: "none";
 }) {
   const { mediaCookie, userId } = useMessagesIdentity();
   const request = useMemo(
@@ -340,6 +342,7 @@ export function MessageImage({
     <MessageImageContent
       key={identity}
       contentFit={contentFit}
+      cachePolicy={cachePolicy}
       request={request}
       style={style}
     />
@@ -350,10 +353,12 @@ function MessageImageContent({
   request,
   style,
   contentFit,
+  cachePolicy,
 }: {
   request: ReturnType<typeof messageImageSource>;
   style: object;
   contentFit: "cover" | "contain";
+  cachePolicy?: "none";
 }) {
   const { isDark, theme } = useAppTheme();
   const [displayed, setDisplayed] = useState(false);
@@ -364,7 +369,7 @@ function MessageImageContent({
       {!displayed && !failed ? <MessageImageSkeleton /> : null}
       <Image
         key={revision}
-        cachePolicy={MESSAGE_IMAGE_CACHE_POLICY}
+        cachePolicy={cachePolicy ?? MESSAGE_IMAGE_CACHE_POLICY}
         contentFit={contentFit}
         onError={() => setFailed(true)}
         onDisplay={() => {

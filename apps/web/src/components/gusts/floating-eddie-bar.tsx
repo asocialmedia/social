@@ -1,13 +1,13 @@
 "use client";
 
 import type { PostData } from "@asm/db";
-import { Skeleton } from "@asm/ui/shadui/skeleton";
 import { MessageSquare, SendHorizonal } from "lucide-react";
 import Link from "next/link";
 import React, { useCallback, useState } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
 import { useSubmitCommentMutation } from "@/components/comments/data/mutations";
+import { ZephLoader } from "@/components/layouts/feedback/zeph-loader";
 import { formatNumber } from "@/lib/utils";
 
 interface FloatingEddieBarProps {
@@ -79,7 +79,7 @@ export const FloatingEddieBar: React.FC<FloatingEddieBarProps> = ({
         type="submit"
       >
         {mutation.isPending ? (
-          <Skeleton className="size-4 rounded-md bg-white/30" />
+          <ZephLoader variant="media" className="size-4" />
         ) : (
           <SendHorizonal className="size-4" />
         )}

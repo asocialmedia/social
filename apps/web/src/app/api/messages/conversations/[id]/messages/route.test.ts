@@ -411,10 +411,13 @@ mock.module("@asm/db", () => ({
   enqueueNotificationDeleted: mock(() => Promise.resolve()),
   fromPrismaDateTime: (value: Date) => value,
   getMessageDataQuery: buildMessageQuery,
+  guardNormalChatSend: () => Promise.resolve({ expiresAt: null }),
+  linkLifecycleMedia: () => Promise.resolve(),
   // The membership log the route reads to split a rejoiner's transcript into
   // stints. Tests set `membershipEvents`; the empty default is the no-log answer
   // every pre-stint membership gets.
   listDenMembershipEvents: () => Promise.resolve(membershipEvents),
+  listMessageReactionSummaries: () => Promise.resolve(new Map()),
   // Tagged rather than flattened: a rejoiner's windows are an `or` of one range
   // per stint, and flattening the branches into the surrounding `and` made every
   // branch but the last overwrite each other on the `createdAt` key.

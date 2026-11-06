@@ -63,4 +63,46 @@ describe("extractMessageReferences", () => {
     ).join(" ");
     expect(extractMessageReferences({ content, type: "text" })).toHaveLength(5);
   });
+
+  test("extracts version-2 attachments by ordinal and never a view-once ref", () => {
+    expect(
+      extractMessageReferences({
+        attachments: [
+          { kind: "image", url: "/api/media/media_1" },
+          { kind: "video", url: "/api/media/media_2" },
+          { filename: "notes.pdf", kind: "file", url: "/api/media/media_3" },
+          { kind: "view-once", ref: "media_4" },
+        ],
+        type: "media",
+      })
+    ).toEqual([
+      {
+        kind: "media",
+        mediaKind: "image",
+        ordinal: 0,
+        requiredId: "media_1",
+        url: "/api/media/media_1",
+      },
+      {
+        kind: "media",
+        mediaKind: "video",
+        ordinal: 1,
+        requiredId: "media_2",
+        url: "/api/media/media_2",
+      },
+      {
+        kind: "media",
+        mediaKind: "file",
+        ordinal: 2,
+        requiredId: "media_3",
+        url: "/api/media/media_3",
+      },
+    ]);
+    expect(
+      extractMessageReferences({
+        attachments: [{ kind: "view-once", ref: "media_4" }],
+        type: "media",
+      })
+    ).toEqual([]);
+  });
 });

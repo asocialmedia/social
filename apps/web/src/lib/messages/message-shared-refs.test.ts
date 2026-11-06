@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
+import { extractMessageReferences } from "@asm/messages/crypto";
+
 import type { MessagePayload } from "@/lib/messages/crypto";
 
 import { extractSharedRefs, sharedRefsEqual } from "./message-shared-refs";
@@ -15,6 +17,25 @@ function text(content: string): MessagePayload {
 }
 
 describe("extractSharedRefs", () => {
+  test.each([false, true])(
+    "omits stickers from shared media while keeping send authorization when animated is %s",
+    (animated) => {
+      const sticker: MessagePayload = {
+        height: 128,
+        kind: animated ? "gif" : "image",
+        presentation: "sticker",
+        sticker: { animated, mediaId: "sticker", version: 1 },
+        type: "media",
+        url: "/api/media/sticker/v/sticker-full.webp",
+        width: 128,
+      };
+      expect(extractSharedRefs(sticker)).toBeNull();
+      expect(extractMessageReferences(sticker)).toMatchObject([
+        { kind: "media", mediaKind: "sticker", requiredId: "sticker" },
+      ]);
+    }
+  );
+
   test("a post share yields its post id and any link in the caption", () => {
     const refs = extractSharedRefs({
       content: "look http://localhost:3000/posts/p1 and https://example.com/x",

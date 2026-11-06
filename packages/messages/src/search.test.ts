@@ -17,6 +17,7 @@ describe("message search shared contract", () => {
     expect(readMessageSearchFeatureFlags({})).toEqual({
       backfill: true,
       counts: true,
+      globalSearch: true,
       serverSearch: true,
     });
   });
@@ -26,11 +27,13 @@ describe("message search shared contract", () => {
       readMessageSearchFeatureFlags({
         MESSAGE_SEARCH_BACKFILL_ENABLED: " OFF ",
         MESSAGE_SEARCH_COUNT_ENABLED: "false",
+        MESSAGE_SEARCH_GLOBAL_ENABLED: "off",
         MESSAGE_SEARCH_SERVER_ENABLED: "1",
       })
     ).toEqual({
       backfill: false,
       counts: false,
+      globalSearch: false,
       serverSearch: true,
     });
   });
@@ -40,11 +43,13 @@ describe("message search shared contract", () => {
       readMessageSearchFeatureFlags({
         MESSAGE_SEARCH_BACKFILL_ENABLED: "not-a-boolean",
         MESSAGE_SEARCH_COUNT_ENABLED: "0",
+        MESSAGE_SEARCH_GLOBAL_ENABLED: "invalid",
         MESSAGE_SEARCH_SERVER_ENABLED: "yes",
       })
     ).toEqual({
       backfill: true,
       counts: false,
+      globalSearch: true,
       serverSearch: true,
     });
   });

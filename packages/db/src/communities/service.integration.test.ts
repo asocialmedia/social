@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 
 import {
+  COMMUNITY_ACTIVE_MEMBER_LIMIT,
   createCommunity,
   getCommunityAuraMap,
   getCommunityBySlug,
@@ -104,6 +105,37 @@ describe("community service integration", () => {
 
     const membership = await getMembership(community.id, OWNER_ID);
     expect(membership).toEqual({ role: "OWNER", status: "ACTIVE" });
+  });
+
+  test("serializes active-member joins at the 100,000-member ceiling", async () => {
+    const community = await getCommunityBySlug(SLUG);
+    if (!community) {
+      throw new Error("community missing");
+    }
+    await prisma.orm.public.Communities.where({ id: community.id }).update({
+      activeMemberCount: COMMUNITY_ACTIVE_MEMBER_LIMIT - 1,
+    });
+
+    const results = await Promise.allSettled([
+      joinCommunity(community.id, MEMBER_ID),
+      joinCommunity(community.id, VISITOR_ID),
+    ]);
+    const winners = results.flatMap((result, index) =>
+      result.status === "fulfilled" ? [index] : []
+    );
+    expect(winners).toHaveLength(1);
+    const capped = await prisma.orm.public.Communities.select(
+      "activeMemberCount"
+    )
+      .where({ id: community.id })
+      .first();
+    expect(capped?.activeMemberCount).toBe(COMMUNITY_ACTIVE_MEMBER_LIMIT);
+
+    const winnerId = winners[0] === 0 ? MEMBER_ID : VISITOR_ID;
+    await leaveCommunity(community.id, winnerId);
+    await prisma.orm.public.Communities.where({ id: community.id }).update({
+      activeMemberCount: 1,
+    });
   });
 
   test("join / leave and the joined listing", async () => {

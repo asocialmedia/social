@@ -1,0 +1,1027 @@
+[
+  {
+    "id": "createNativeEnumType.ViewOnceGrantStatus",
+    "label": "Create enum type \"ViewOnceGrantStatus\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "type",
+        "name": "ViewOnceGrantStatus"
+      }
+    },
+    "precheck": [],
+    "execute": [
+      {
+        "description": "create enum type \"ViewOnceGrantStatus\"",
+        "sql": "CREATE TYPE \"public\".\"ViewOnceGrantStatus\" AS ENUM ('RESERVED', 'ACTIVE', 'CLOSED', 'EXPIRED', 'REVOKED')",
+        "params": []
+      }
+    ],
+    "postcheck": []
+  },
+  {
+    "id": "table.message_reaction_counts",
+    "label": "Create table \"message_reaction_counts\"",
+    "summary": "Creates table \"message_reaction_counts\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "table",
+        "name": "message_reaction_counts"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure table \"message_reaction_counts\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": ["\"public\".\"message_reaction_counts\""]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create table \"message_reaction_counts\"",
+        "sql": "CREATE TABLE \"public\".\"message_reaction_counts\" (\n  \"count\" int4 NOT NULL,\n  \"emoji\" text NOT NULL,\n  \"id\" text NOT NULL,\n  \"incognitoMessageId\" text,\n  \"messageId\" text,\n  CONSTRAINT \"message_reaction_counts_pkey\" PRIMARY KEY (\"id\"),\n  CONSTRAINT \"message_reaction_counts_emoji_length_646c7d08\" CHECK (char_length(\"emoji\") BETWEEN 1 AND 32),\n  CONSTRAINT \"message_reaction_counts_exact_source_cdff524f\" CHECK ((\"messageId\" IS NULL) <> (\"incognitoMessageId\" IS NULL)),\n  CONSTRAINT \"message_reaction_counts_positive_4bde5bb6\" CHECK (\"count\" >= 1)\n)",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify table \"message_reaction_counts\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": ["\"public\".\"message_reaction_counts\""]
+      }
+    ]
+  },
+  {
+    "id": "table.message_reactions",
+    "label": "Create table \"message_reactions\"",
+    "summary": "Creates table \"message_reactions\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "table",
+        "name": "message_reactions"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure table \"message_reactions\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": ["\"public\".\"message_reactions\""]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create table \"message_reactions\"",
+        "sql": "CREATE TABLE \"public\".\"message_reactions\" (\n  \"createdAt\" timestamp(3) DEFAULT (now()) NOT NULL,\n  \"emoji\" text NOT NULL,\n  \"id\" text NOT NULL,\n  \"incognitoMessageId\" text,\n  \"messageId\" text,\n  \"userId\" text NOT NULL,\n  CONSTRAINT \"message_reactions_pkey\" PRIMARY KEY (\"id\"),\n  CONSTRAINT \"message_reactions_emoji_length_646c7d08\" CHECK (char_length(\"emoji\") BETWEEN 1 AND 32),\n  CONSTRAINT \"message_reactions_exact_source_cdff524f\" CHECK ((\"messageId\" IS NULL) <> (\"incognitoMessageId\" IS NULL))\n)",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify table \"message_reactions\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": ["\"public\".\"message_reactions\""]
+      }
+    ]
+  },
+  {
+    "id": "table.message_view_once_grants",
+    "label": "Create table \"message_view_once_grants\"",
+    "summary": "Creates table \"message_view_once_grants\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "table",
+        "name": "message_view_once_grants"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure table \"message_view_once_grants\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": ["\"public\".\"message_view_once_grants\""]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create table \"message_view_once_grants\"",
+        "sql": "CREATE TABLE \"public\".\"message_view_once_grants\" (\n  \"activatedAt\" timestamp(3),\n  \"closedAt\" timestamp(3),\n  \"expiresAt\" timestamp(3),\n  \"id\" text NOT NULL,\n  \"recipientId\" text NOT NULL,\n  \"reservedAt\" timestamp(3) DEFAULT (now()) NOT NULL,\n  \"status\" \"ViewOnceGrantStatus\" DEFAULT 'RESERVED'::\"ViewOnceGrantStatus\" NOT NULL,\n  CONSTRAINT \"message_view_once_grants_pkey\" PRIMARY KEY (\"id\")\n)",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify table \"message_view_once_grants\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": ["\"public\".\"message_view_once_grants\""]
+      }
+    ]
+  },
+  {
+    "id": "table.message_view_once_recipients",
+    "label": "Create table \"message_view_once_recipients\"",
+    "summary": "Creates table \"message_view_once_recipients\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "table",
+        "name": "message_view_once_recipients"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure table \"message_view_once_recipients\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": ["\"public\".\"message_view_once_recipients\""]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create table \"message_view_once_recipients\"",
+        "sql": "CREATE TABLE \"public\".\"message_view_once_recipients\" (\n  \"createdAt\" timestamp(3) DEFAULT (now()) NOT NULL,\n  \"id\" text NOT NULL,\n  \"mediaLinkId\" text NOT NULL,\n  \"userId\" text NOT NULL,\n  CONSTRAINT \"message_view_once_recipients_pkey\" PRIMARY KEY (\"id\")\n)",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify table \"message_view_once_recipients\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": ["\"public\".\"message_view_once_recipients\""]
+      }
+    ]
+  },
+  {
+    "id": "column.public.message_media_links.deliveryExpiresAt",
+    "label": "Add column \"deliveryExpiresAt\" to \"message_media_links\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "column",
+        "name": "deliveryExpiresAt",
+        "table": "message_media_links"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure column \"deliveryExpiresAt\" is missing",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": ["public", "message_media_links", "deliveryExpiresAt"]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add column \"deliveryExpiresAt\"",
+        "sql": "ALTER TABLE \"public\".\"message_media_links\" ADD COLUMN \"deliveryExpiresAt\" timestamp(3)"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify column \"deliveryExpiresAt\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": ["public", "message_media_links", "deliveryExpiresAt"]
+      }
+    ]
+  },
+  {
+    "id": "column.public.message_media_links.viewOnce",
+    "label": "Add column \"viewOnce\" to \"message_media_links\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "column",
+        "name": "viewOnce",
+        "table": "message_media_links"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure column \"viewOnce\" is missing",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": ["public", "message_media_links", "viewOnce"]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add column \"viewOnce\"",
+        "sql": "ALTER TABLE \"public\".\"message_media_links\" ADD COLUMN \"viewOnce\" bool DEFAULT false NOT NULL"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify column \"viewOnce\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": ["public", "message_media_links", "viewOnce"]
+      }
+    ]
+  },
+  {
+    "id": "unique.message_reaction_counts.message_reaction_counts_incognito_emoji_unique",
+    "label": "Add unique constraint on \"message_reaction_counts\" (incognitoMessageId, emoji)",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "unique",
+        "name": "message_reaction_counts_incognito_emoji_unique",
+        "table": "message_reaction_counts"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure constraint \"message_reaction_counts_incognito_emoji_unique\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "message_reaction_counts_incognito_emoji_unique",
+          "public",
+          "\"public\".\"message_reaction_counts\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add unique constraint \"message_reaction_counts_incognito_emoji_unique\"",
+        "sql": "ALTER TABLE \"public\".\"message_reaction_counts\" ADD CONSTRAINT \"message_reaction_counts_incognito_emoji_unique\" UNIQUE (\"incognitoMessageId\", \"emoji\")"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify constraint \"message_reaction_counts_incognito_emoji_unique\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "message_reaction_counts_incognito_emoji_unique",
+          "public",
+          "\"public\".\"message_reaction_counts\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "unique.message_reaction_counts.message_reaction_counts_message_emoji_unique",
+    "label": "Add unique constraint on \"message_reaction_counts\" (messageId, emoji)",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "unique",
+        "name": "message_reaction_counts_message_emoji_unique",
+        "table": "message_reaction_counts"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure constraint \"message_reaction_counts_message_emoji_unique\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "message_reaction_counts_message_emoji_unique",
+          "public",
+          "\"public\".\"message_reaction_counts\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add unique constraint \"message_reaction_counts_message_emoji_unique\"",
+        "sql": "ALTER TABLE \"public\".\"message_reaction_counts\" ADD CONSTRAINT \"message_reaction_counts_message_emoji_unique\" UNIQUE (\"messageId\", \"emoji\")"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify constraint \"message_reaction_counts_message_emoji_unique\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "message_reaction_counts_message_emoji_unique",
+          "public",
+          "\"public\".\"message_reaction_counts\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "unique.message_reactions.message_reactions_incognito_user_unique",
+    "label": "Add unique constraint on \"message_reactions\" (incognitoMessageId, userId)",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "unique",
+        "name": "message_reactions_incognito_user_unique",
+        "table": "message_reactions"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure constraint \"message_reactions_incognito_user_unique\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "message_reactions_incognito_user_unique",
+          "public",
+          "\"public\".\"message_reactions\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add unique constraint \"message_reactions_incognito_user_unique\"",
+        "sql": "ALTER TABLE \"public\".\"message_reactions\" ADD CONSTRAINT \"message_reactions_incognito_user_unique\" UNIQUE (\"incognitoMessageId\", \"userId\")"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify constraint \"message_reactions_incognito_user_unique\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "message_reactions_incognito_user_unique",
+          "public",
+          "\"public\".\"message_reactions\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "unique.message_reactions.message_reactions_message_user_unique",
+    "label": "Add unique constraint on \"message_reactions\" (messageId, userId)",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "unique",
+        "name": "message_reactions_message_user_unique",
+        "table": "message_reactions"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure constraint \"message_reactions_message_user_unique\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "message_reactions_message_user_unique",
+          "public",
+          "\"public\".\"message_reactions\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add unique constraint \"message_reactions_message_user_unique\"",
+        "sql": "ALTER TABLE \"public\".\"message_reactions\" ADD CONSTRAINT \"message_reactions_message_user_unique\" UNIQUE (\"messageId\", \"userId\")"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify constraint \"message_reactions_message_user_unique\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "message_reactions_message_user_unique",
+          "public",
+          "\"public\".\"message_reactions\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "unique.message_view_once_recipients.message_view_once_recipients_media_user_unique",
+    "label": "Add unique constraint on \"message_view_once_recipients\" (mediaLinkId, userId)",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "unique",
+        "name": "message_view_once_recipients_media_user_unique",
+        "table": "message_view_once_recipients"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure constraint \"message_view_once_recipients_media_user_unique\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "message_view_once_recipients_media_user_unique",
+          "public",
+          "\"public\".\"message_view_once_recipients\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add unique constraint \"message_view_once_recipients_media_user_unique\"",
+        "sql": "ALTER TABLE \"public\".\"message_view_once_recipients\" ADD CONSTRAINT \"message_view_once_recipients_media_user_unique\" UNIQUE (\"mediaLinkId\", \"userId\")"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify constraint \"message_view_once_recipients_media_user_unique\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "message_view_once_recipients_media_user_unique",
+          "public",
+          "\"public\".\"message_view_once_recipients\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.message_media_links.message_media_viewonce_due_a36050d7",
+    "label": "Create index \"message_media_viewonce_due_a36050d7\" on \"message_media_links\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "message_media_viewonce_due_a36050d7",
+        "table": "message_media_links"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"message_media_viewonce_due_a36050d7\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": ["\"public\".\"message_media_viewonce_due_a36050d7\""]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"message_media_viewonce_due_a36050d7\"",
+        "sql": "CREATE INDEX \"message_media_viewonce_due_a36050d7\" ON \"public\".\"message_media_links\" (\"deliveryExpiresAt\", \"id\") WHERE ((\"viewOnce\" AND \"deliveryExpiresAt\" IS NOT NULL))",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"message_media_viewonce_due_a36050d7\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": ["\"public\".\"message_media_viewonce_due_a36050d7\""]
+      }
+    ]
+  },
+  {
+    "id": "index.message_reactions.message_reactions_incognito_emoji_idx",
+    "label": "Create index \"message_reactions_incognito_emoji_idx\" on \"message_reactions\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "message_reactions_incognito_emoji_idx",
+        "table": "message_reactions"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"message_reactions_incognito_emoji_idx\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": ["\"public\".\"message_reactions_incognito_emoji_idx\""]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"message_reactions_incognito_emoji_idx\"",
+        "sql": "CREATE INDEX \"message_reactions_incognito_emoji_idx\" ON \"public\".\"message_reactions\" (\"incognitoMessageId\", \"emoji\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"message_reactions_incognito_emoji_idx\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": ["\"public\".\"message_reactions_incognito_emoji_idx\""]
+      }
+    ]
+  },
+  {
+    "id": "index.message_reactions.message_reactions_message_emoji_idx",
+    "label": "Create index \"message_reactions_message_emoji_idx\" on \"message_reactions\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "message_reactions_message_emoji_idx",
+        "table": "message_reactions"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"message_reactions_message_emoji_idx\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": ["\"public\".\"message_reactions_message_emoji_idx\""]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"message_reactions_message_emoji_idx\"",
+        "sql": "CREATE INDEX \"message_reactions_message_emoji_idx\" ON \"public\".\"message_reactions\" (\"messageId\", \"emoji\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"message_reactions_message_emoji_idx\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": ["\"public\".\"message_reactions_message_emoji_idx\""]
+      }
+    ]
+  },
+  {
+    "id": "index.message_reactions.message_reactions_userId_idx",
+    "label": "Create index \"message_reactions_userId_idx\" on \"message_reactions\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "message_reactions_userId_idx",
+        "table": "message_reactions"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"message_reactions_userId_idx\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": ["\"public\".\"message_reactions_userId_idx\""]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"message_reactions_userId_idx\"",
+        "sql": "CREATE INDEX \"message_reactions_userId_idx\" ON \"public\".\"message_reactions\" (\"userId\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"message_reactions_userId_idx\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": ["\"public\".\"message_reactions_userId_idx\""]
+      }
+    ]
+  },
+  {
+    "id": "index.message_view_once_grants.message_view_once_grants_live_unique_1915abed",
+    "label": "Create index \"message_view_once_grants_live_unique_1915abed\" on \"message_view_once_grants\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "message_view_once_grants_live_unique_1915abed",
+        "table": "message_view_once_grants"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"message_view_once_grants_live_unique_1915abed\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"message_view_once_grants_live_unique_1915abed\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"message_view_once_grants_live_unique_1915abed\"",
+        "sql": "CREATE UNIQUE INDEX \"message_view_once_grants_live_unique_1915abed\" ON \"public\".\"message_view_once_grants\" (\"recipientId\") WHERE ((\"status\" IN ('RESERVED', 'ACTIVE')))",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"message_view_once_grants_live_unique_1915abed\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"message_view_once_grants_live_unique_1915abed\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.message_view_once_grants.message_view_once_grants_status_expiry_idx",
+    "label": "Create index \"message_view_once_grants_status_expiry_idx\" on \"message_view_once_grants\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "message_view_once_grants_status_expiry_idx",
+        "table": "message_view_once_grants"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"message_view_once_grants_status_expiry_idx\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": ["\"public\".\"message_view_once_grants_status_expiry_idx\""]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"message_view_once_grants_status_expiry_idx\"",
+        "sql": "CREATE INDEX \"message_view_once_grants_status_expiry_idx\" ON \"public\".\"message_view_once_grants\" (\"status\", \"expiresAt\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"message_view_once_grants_status_expiry_idx\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": ["\"public\".\"message_view_once_grants_status_expiry_idx\""]
+      }
+    ]
+  },
+  {
+    "id": "index.message_view_once_recipients.message_view_once_recipients_userId_idx",
+    "label": "Create index \"message_view_once_recipients_userId_idx\" on \"message_view_once_recipients\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "message_view_once_recipients_userId_idx",
+        "table": "message_view_once_recipients"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"message_view_once_recipients_userId_idx\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": ["\"public\".\"message_view_once_recipients_userId_idx\""]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"message_view_once_recipients_userId_idx\"",
+        "sql": "CREATE INDEX \"message_view_once_recipients_userId_idx\" ON \"public\".\"message_view_once_recipients\" (\"userId\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"message_view_once_recipients_userId_idx\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": ["\"public\".\"message_view_once_recipients_userId_idx\""]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.message_reaction_counts.message_reaction_counts_messageId_fkey",
+    "label": "Add foreign key \"message_reaction_counts_messageId_fkey\" on \"message_reaction_counts\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "message_reaction_counts_messageId_fkey",
+        "table": "message_reaction_counts"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"message_reaction_counts_messageId_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "message_reaction_counts_messageId_fkey",
+          "public",
+          "\"public\".\"message_reaction_counts\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"message_reaction_counts_messageId_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"message_reaction_counts\"\nADD CONSTRAINT \"message_reaction_counts_messageId_fkey\"\nFOREIGN KEY (\"messageId\")\nREFERENCES \"public\".\"messages\" (\"id\")\nON DELETE CASCADE\nON UPDATE CASCADE"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"message_reaction_counts_messageId_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "message_reaction_counts_messageId_fkey",
+          "public",
+          "\"public\".\"message_reaction_counts\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.message_reaction_counts.message_reaction_counts_incognitoMessageId_fkey",
+    "label": "Add foreign key \"message_reaction_counts_incognitoMessageId_fkey\" on \"message_reaction_counts\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "message_reaction_counts_incognitoMessageId_fkey",
+        "table": "message_reaction_counts"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"message_reaction_counts_incognitoMessageId_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "message_reaction_counts_incognitoMessageId_fkey",
+          "public",
+          "\"public\".\"message_reaction_counts\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"message_reaction_counts_incognitoMessageId_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"message_reaction_counts\"\nADD CONSTRAINT \"message_reaction_counts_incognitoMessageId_fkey\"\nFOREIGN KEY (\"incognitoMessageId\")\nREFERENCES \"public\".\"message_incognito_messages\" (\"id\")\nON DELETE CASCADE\nON UPDATE CASCADE"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"message_reaction_counts_incognitoMessageId_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "message_reaction_counts_incognitoMessageId_fkey",
+          "public",
+          "\"public\".\"message_reaction_counts\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.message_reactions.message_reactions_messageId_fkey",
+    "label": "Add foreign key \"message_reactions_messageId_fkey\" on \"message_reactions\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "message_reactions_messageId_fkey",
+        "table": "message_reactions"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"message_reactions_messageId_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "message_reactions_messageId_fkey",
+          "public",
+          "\"public\".\"message_reactions\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"message_reactions_messageId_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"message_reactions\"\nADD CONSTRAINT \"message_reactions_messageId_fkey\"\nFOREIGN KEY (\"messageId\")\nREFERENCES \"public\".\"messages\" (\"id\")\nON DELETE CASCADE\nON UPDATE CASCADE"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"message_reactions_messageId_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "message_reactions_messageId_fkey",
+          "public",
+          "\"public\".\"message_reactions\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.message_reactions.message_reactions_incognitoMessageId_fkey",
+    "label": "Add foreign key \"message_reactions_incognitoMessageId_fkey\" on \"message_reactions\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "message_reactions_incognitoMessageId_fkey",
+        "table": "message_reactions"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"message_reactions_incognitoMessageId_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "message_reactions_incognitoMessageId_fkey",
+          "public",
+          "\"public\".\"message_reactions\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"message_reactions_incognitoMessageId_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"message_reactions\"\nADD CONSTRAINT \"message_reactions_incognitoMessageId_fkey\"\nFOREIGN KEY (\"incognitoMessageId\")\nREFERENCES \"public\".\"message_incognito_messages\" (\"id\")\nON DELETE CASCADE\nON UPDATE CASCADE"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"message_reactions_incognitoMessageId_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "message_reactions_incognitoMessageId_fkey",
+          "public",
+          "\"public\".\"message_reactions\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.message_reactions.message_reactions_userId_fkey",
+    "label": "Add foreign key \"message_reactions_userId_fkey\" on \"message_reactions\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "message_reactions_userId_fkey",
+        "table": "message_reactions"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"message_reactions_userId_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "message_reactions_userId_fkey",
+          "public",
+          "\"public\".\"message_reactions\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"message_reactions_userId_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"message_reactions\"\nADD CONSTRAINT \"message_reactions_userId_fkey\"\nFOREIGN KEY (\"userId\")\nREFERENCES \"public\".\"users\" (\"id\")\nON DELETE CASCADE\nON UPDATE CASCADE"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"message_reactions_userId_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "message_reactions_userId_fkey",
+          "public",
+          "\"public\".\"message_reactions\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.message_view_once_grants.message_view_once_grants_recipientId_fkey",
+    "label": "Add foreign key \"message_view_once_grants_recipientId_fkey\" on \"message_view_once_grants\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "message_view_once_grants_recipientId_fkey",
+        "table": "message_view_once_grants"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"message_view_once_grants_recipientId_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "message_view_once_grants_recipientId_fkey",
+          "public",
+          "\"public\".\"message_view_once_grants\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"message_view_once_grants_recipientId_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"message_view_once_grants\"\nADD CONSTRAINT \"message_view_once_grants_recipientId_fkey\"\nFOREIGN KEY (\"recipientId\")\nREFERENCES \"public\".\"message_view_once_recipients\" (\"id\")\nON DELETE CASCADE\nON UPDATE CASCADE"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"message_view_once_grants_recipientId_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "message_view_once_grants_recipientId_fkey",
+          "public",
+          "\"public\".\"message_view_once_grants\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.message_view_once_recipients.message_view_once_recipients_mediaLinkId_fkey",
+    "label": "Add foreign key \"message_view_once_recipients_mediaLinkId_fkey\" on \"message_view_once_recipients\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "message_view_once_recipients_mediaLinkId_fkey",
+        "table": "message_view_once_recipients"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"message_view_once_recipients_mediaLinkId_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "message_view_once_recipients_mediaLinkId_fkey",
+          "public",
+          "\"public\".\"message_view_once_recipients\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"message_view_once_recipients_mediaLinkId_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"message_view_once_recipients\"\nADD CONSTRAINT \"message_view_once_recipients_mediaLinkId_fkey\"\nFOREIGN KEY (\"mediaLinkId\")\nREFERENCES \"public\".\"message_media_links\" (\"id\")\nON DELETE CASCADE\nON UPDATE CASCADE"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"message_view_once_recipients_mediaLinkId_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "message_view_once_recipients_mediaLinkId_fkey",
+          "public",
+          "\"public\".\"message_view_once_recipients\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.message_view_once_recipients.message_view_once_recipients_userId_fkey",
+    "label": "Add foreign key \"message_view_once_recipients_userId_fkey\" on \"message_view_once_recipients\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "message_view_once_recipients_userId_fkey",
+        "table": "message_view_once_recipients"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"message_view_once_recipients_userId_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "message_view_once_recipients_userId_fkey",
+          "public",
+          "\"public\".\"message_view_once_recipients\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"message_view_once_recipients_userId_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"message_view_once_recipients\"\nADD CONSTRAINT \"message_view_once_recipients_userId_fkey\"\nFOREIGN KEY (\"userId\")\nREFERENCES \"public\".\"users\" (\"id\")\nON DELETE CASCADE\nON UPDATE CASCADE"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"message_view_once_recipients_userId_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "message_view_once_recipients_userId_fkey",
+          "public",
+          "\"public\".\"message_view_once_recipients\""
+        ]
+      }
+    ]
+  }
+]

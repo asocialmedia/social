@@ -1,0 +1,78 @@
+[
+  {
+    "id": "column.public.post_media.stickerOperationId",
+    "label": "Add column \"stickerOperationId\" to \"post_media\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "column",
+        "name": "stickerOperationId",
+        "table": "post_media"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure column \"stickerOperationId\" is missing",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": ["public", "post_media", "stickerOperationId"]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add column \"stickerOperationId\"",
+        "sql": "ALTER TABLE \"public\".\"post_media\" ADD COLUMN \"stickerOperationId\" text"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify column \"stickerOperationId\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": ["public", "post_media", "stickerOperationId"]
+      }
+    ]
+  },
+  {
+    "id": "unique.post_media.post_media_userId_stickerOperationId_key",
+    "label": "Add unique constraint on \"post_media\" (userId, stickerOperationId)",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "unique",
+        "name": "post_media_userId_stickerOperationId_key",
+        "table": "post_media"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure constraint \"post_media_userId_stickerOperationId_key\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "post_media_userId_stickerOperationId_key",
+          "public",
+          "\"public\".\"post_media\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add unique constraint \"post_media_userId_stickerOperationId_key\"",
+        "sql": "ALTER TABLE \"public\".\"post_media\" ADD CONSTRAINT \"post_media_userId_stickerOperationId_key\" UNIQUE (\"userId\", \"stickerOperationId\")"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify constraint \"post_media_userId_stickerOperationId_key\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "post_media_userId_stickerOperationId_key",
+          "public",
+          "\"public\".\"post_media\""
+        ]
+      }
+    ]
+  }
+]

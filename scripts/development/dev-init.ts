@@ -17,8 +17,6 @@ import process from "node:process";
 
 import { intro, log, outro, spinner } from "@clack/prompts";
 
-import { parseContainerList } from "./compose-containers";
-import type { ContainerInfo } from "./compose-containers";
 import { ensureContainerPolicy } from "./container-policy";
 import {
   buildMarker,
@@ -27,6 +25,7 @@ import {
   formatComposeFailure,
   formatPrismaFailure,
   parseExtensionList,
+  parseContainerList,
   parseMarker,
   parsePendingMigrations,
   REQUIRED_EXTENSIONS,
@@ -35,7 +34,7 @@ import {
   shouldSyncSkills,
   shouldUpdateDatabase,
 } from "./dev-init-lib";
-import type { StepDecision } from "./dev-init-lib";
+import type { ContainerInfo, StepDecision } from "./dev-init-lib";
 import { postgresInspectionQuery } from "./postgres-inspection";
 
 const ROOT = process.cwd();

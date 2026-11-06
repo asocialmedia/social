@@ -1,8 +1,17 @@
 import {
+  MAX_MESSAGE_ATTACHMENT_TOTAL_BYTES,
+  maxMessageAttachmentBytes,
+  messageAttachmentKind,
+  messageAttachmentMimeType,
+} from "@asm/media";
+import {
+  FileText,
+  Film,
   ArrowUp,
-  Clapperboard,
   ImagePlus,
+  Plus,
   Pencil,
+  Smile,
   X,
 } from "lucide-react-native";
 // The message composer: text, reply and edit context, attachments, and send.
@@ -25,7 +34,9 @@ import type { TextInputInstance } from "react-native";
 import {
   Image,
   Keyboard,
+  Modal,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -34,18 +45,15 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { toast } from "@/components/feedback/toast";
-import { GifPicker } from "@/components/media/gif-picker";
 import { Gradient3D } from "@/components/surface/gradient-3d";
 import { IconButton3D } from "@/components/surface/icon-button-3d";
 import { authClient } from "@/features/auth/lib/auth-client";
+import { useSessionContext } from "@/features/auth/state/session";
 import {
   downloadGif,
+  pickMessageFiles,
   pickPhotosAndVideos,
 } from "@/features/composer/lib/pick-media";
-import {
-  UploadError,
-  uploadMedia,
-} from "@/features/media-upload/lib/upload-client";
 import type { PickedMedia } from "@/features/media-upload/state/attachment-store";
 import {
   discardMessageMedia,
@@ -53,6 +61,8 @@ import {
 } from "@/features/messages/lib/client";
 import type { MessagePayload } from "@/features/messages/lib/crypto";
 import { deliverMessages } from "@/features/messages/lib/deliver-messages";
+import { uploadStagedAttachments } from "@/features/messages/lib/message-attachment-upload";
+import type { StagedAttachment } from "@/features/messages/lib/message-attachment-upload";
 import {
   panel3d,
   reelsInput,
@@ -60,11 +70,12 @@ import {
 } from "@/features/messages/lib/message-recipes";
 import { useMessagesForeground } from "@/features/messages/state/use-messages-foreground";
 import { useProfileMediaCropper } from "@/features/profile/components/profile-media-cropper";
-import { logWarn } from "@/lib/lifecycle/telemetry";
 import { getApiBaseUrl } from "@/lib/network/api-env";
 import { useAppTheme } from "@/theme";
 
+import { useMessageTextDraft } from "../state/message-text-draft";
 import { useSharedPostDraft } from "../state/shared-post-draft";
+import { MessageExpressionKeyboard } from "./message-expression-keyboard";
 import { MessagePostPreview } from "./message-post-preview";
 
 // The payload validator caps an album at 10, so the picker does too.
@@ -73,17 +84,6 @@ const MAX_MESSAGE_ATTACHMENTS = 10;
 // client and sticking on the other.
 const TYPING_HEARTBEAT_MS = 3000;
 
-export interface StagedAttachment {
-  error: string | null;
-  file: PickedMedia;
-  id: string;
-  mediaId: string | null;
-  /** False while uploading, null once READY. */
-  progress: number | null;
-  /** True only for a row this send created; a dedup hit must never be discarded. */
-  owned: boolean;
-}
-
 export interface ComposerTarget {
   id: string;
   senderId: string;
@@ -91,7 +91,9 @@ export interface ComposerTarget {
 }
 
 export function MessageComposer({
+  stickersEnabled,
   conversationId,
+  incognitoSessionId,
   disabled,
   editing,
   onCancelEdit,
@@ -102,6 +104,8 @@ export function MessageComposer({
   peerName,
 }: {
   conversationId: string;
+  stickersEnabled: boolean;
+  incognitoSessionId?: string;
   disabled?: boolean;
   editing: ComposerTarget | null;
   onCancelEdit: () => void;
@@ -120,7 +124,12 @@ export function MessageComposer({
     }
   }, [replyTo?.id]);
   const [keyboardVisible, setKeyboardVisible] = useState(Keyboard.isVisible());
-  const [gifOpen, setGifOpen] = useState(false);
+  const [expressionKeyboardOpen, setExpressionKeyboardOpen] = useState(false);
+  const [expressionTab, setExpressionTab] = useState<
+    "emoji" | "gifs" | "stickers"
+  >("emoji");
+  const [selection, setSelection] = useState({ end: 0, start: 0 });
+  const [attachmentMenuOpen, setAttachmentMenuOpen] = useState(false);
   useEffect(() => {
     const show = Keyboard.addListener("keyboardDidShow", () =>
       setKeyboardVisible(true)
@@ -133,36 +142,47 @@ export function MessageComposer({
       hide.remove();
     };
   }, []);
-  const input = reelsInput(isDark);
-  const button = sendButton(isDark);
+  const incognito = Boolean(incognitoSessionId);
+  const input = reelsInput(incognito ? true : isDark);
+  const button = sendButton(incognito ? true : isDark);
   // The draft the user is typing, and the text the field shows. They differ only
   // while an edit is being loaded, which is why this is not a plain `useState`.
   // What the user has typed this session, keyed by nothing: it survives a cancel so
   // cancelling an edit restores what they had before it.
-  const [draft, setDraft] = useState("");
-  const sharedPostId = useSharedPostDraft(
-    (state) => state.drafts[conversationId]
+  const { user } = useSessionContext();
+  const draftKey = `${user?.id ?? ""}:${conversationId}`;
+  const [draft, setDraft] = useState(() =>
+    incognitoSessionId
+      ? ""
+      : (useMessageTextDraft.getState().drafts[draftKey] ?? "")
+  );
+  const sharedPostId = useSharedPostDraft((state) =>
+    incognitoSessionId ? undefined : state.drafts[conversationId]
   );
   const { crop, cropper } = useProfileMediaCropper();
   const [attachments, setAttachments] = useState<StagedAttachment[]>([]);
   const [sending, setSending] = useState(false);
+  const viewOnceMode = attachments.some((attachment) => attachment.viewOnce);
   const typingSent = useRef(false);
   const lastTypedAt = useRef(0);
   const foreground = useMessagesForeground();
   const typingTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const aborts = useRef(new Map<string, AbortController>());
-  const [discardBase, setDiscardBase] = useState<{
+  const composerMounted = useRef(true);
+  const discardBaseRef = useRef<{
     apiBase: string;
     cookie?: string;
   } | null>(null);
 
   // The cookie is needed by the unmount sweep and by nothing else, so it is read
   // once on mount rather than threaded through every call site.
-  // oxlint-disable-next-line react/set-state-in-effect -- reading a stored credential is an external system, and the value cannot be derived during render
   useEffect(() => {
     void (async () => {
-      const cookie = await authClient.getCookie();
-      setDiscardBase({ apiBase: getApiBaseUrl(), cookie: cookie ?? undefined });
+      const cookie = await authClient.getCookie().catch(() => null);
+      discardBaseRef.current = {
+        apiBase: getApiBaseUrl(),
+        cookie: cookie ?? undefined,
+      };
     })();
   }, []);
 
@@ -175,12 +195,16 @@ export function MessageComposer({
   useEffect(() => {
     attachmentsRef.current = attachments;
   }, [attachments]);
-  useEffect(
-    () => () => {
-      for (const controller of aborts.current.values()) {
+  useEffect(() => {
+    composerMounted.current = true;
+    const uploadControllers = aborts.current;
+    return () => {
+      composerMounted.current = false;
+      for (const controller of uploadControllers.values()) {
         controller.abort();
       }
-      aborts.current.clear();
+      uploadControllers.clear();
+      const discardBase = discardBaseRef.current;
       if (!discardBase) {
         return;
       }
@@ -189,9 +213,8 @@ export function MessageComposer({
           void discardMessageMedia(item.mediaId, discardBase);
         }
       }
-    },
-    [discardBase]
-  );
+    };
+  }, []);
 
   // While an edit is active and the user has not typed anything into it, the field
   // shows the message being edited. Derived during render rather than seeded by an
@@ -203,6 +226,7 @@ export function MessageComposer({
     !disabled &&
     !sending &&
     !isUploading &&
+    (!viewOnceMode || attachments.length > 0) &&
     (fieldValue.trim().length > 0 ||
       attachments.length > 0 ||
       Boolean(sharedPostId)) &&
@@ -245,80 +269,292 @@ export function MessageComposer({
     );
   }, []);
 
-  const attach = useCallback(() => {
-    const remaining = MAX_MESSAGE_ATTACHMENTS - attachmentsRef.current.length;
-    if (remaining <= 0) {
-      return;
-    }
-    // Everything after the picker is module-level: React Compiler cannot lower a
-    // `try`/`finally` inside a component, and the upload loop has to reach the
-    // abort registry and the store without closing over render state.
-    void (async () => {
-      const picked = await pickPhotosAndVideos({
-        imagesOnly: true,
-        remaining,
+  const insertEmoji = useCallback(
+    (emoji: string) => {
+      const start = Math.min(selection.start, fieldValue.length);
+      const end = Math.min(Math.max(start, selection.end), fieldValue.length);
+      const next = `${fieldValue.slice(0, start)}${emoji}${fieldValue.slice(end)}`;
+      const caret = start + emoji.length;
+      setDraft(next);
+      setSelection({ end: caret, start: caret });
+      if (!incognitoSessionId) {
+        if (next) {
+          useMessageTextDraft.getState().save(draftKey, next);
+        } else {
+          useMessageTextDraft.getState().clear(draftKey);
+        }
+      }
+      if (next.trim().length > 0) {
+        noteTyping();
+      }
+    },
+    [draftKey, fieldValue, incognitoSessionId, noteTyping, selection]
+  );
+
+  const handleGifSelect = useCallback(
+    async (gif: Parameters<typeof downloadGif>[0]) => {
+      setExpressionKeyboardOpen(false);
+      try {
+        const file = await downloadGif(gif);
+        if (attachmentsRef.current.length >= MAX_MESSAGE_ATTACHMENTS) {
+          return;
+        }
+        const staged: StagedAttachment = {
+          error: null,
+          file,
+          id: `${file.uri}-${Date.now()}`,
+          mediaId: null,
+          owned: false,
+          progress: 0,
+        };
+        setAttachments((current) => [...current, staged]);
+        await uploadStagedAttachments([staged], {
+          aborts,
+          conversationId,
+          incognitoSessionId,
+          onPatch: update,
+        });
+      } catch {
+        toast({
+          description: "Please try again.",
+          title: "Couldn't add GIF",
+          variant: "destructive",
+        });
+      }
+    },
+    [conversationId, incognitoSessionId, update]
+  );
+
+  const handleStickerSend = useCallback(
+    async (payload: MessagePayload) => {
+      await onSend({
+        ...payload,
+        replyToId: replyTo?.id,
+        replyToSenderId: replyTo?.senderId,
       });
-      if (picked.length === 0) {
+      onCancelReply();
+    },
+    [onCancelReply, onSend, replyTo?.id, replyTo?.senderId]
+  );
+
+  const editAttachment = useCallback(
+    async (item: StagedAttachment) => {
+      Keyboard.dismiss();
+      try {
+        const result = await crop(
+          { purpose: "message", source: item.file },
+          "post",
+          {
+            canViewOnce:
+              attachmentsRef.current.length === 1 &&
+              !fieldValue.trim() &&
+              !sharedPostId,
+            viewOnce: item.viewOnce ?? false,
+          }
+        );
+        if (
+          !composerMounted.current ||
+          !result ||
+          !attachmentsRef.current.some((entry) => entry.id === item.id)
+        ) {
+          return false;
+        }
+        const previous = attachmentsRef.current.find(
+          (entry) => entry.id === item.id
+        );
+        const staged: StagedAttachment = {
+          error: null,
+          file: { ...result.source, size: result.source.size ?? 0 },
+          id: `${item.id}-edit-${result.source.uri}`,
+          mediaId: null,
+          owned: false,
+          progress: 0,
+          viewOnce: result.viewOnce ?? false,
+        };
+        aborts.current.get(item.id)?.abort();
+        aborts.current.delete(item.id);
+        attachmentsRef.current = attachmentsRef.current.map((entry) =>
+          entry.id === item.id ? staged : entry
+        );
+        setAttachments(attachmentsRef.current);
+        await uploadStagedAttachments([staged], {
+          aborts,
+          conversationId,
+          incognitoSessionId,
+          onPatch: update,
+        });
+        if (previous?.mediaId && previous.owned) {
+          void discardMessageMedia(previous.mediaId, {
+            apiBase: getApiBaseUrl(),
+            baseFetch: fetch,
+          });
+        }
+        return true;
+      } catch (error) {
+        toast({
+          description:
+            error instanceof Error ? error.message : "Try another image",
+          title: "Couldn't edit image",
+          variant: "destructive",
+        });
+        return false;
+      }
+    },
+    [crop, fieldValue, sharedPostId, conversationId, incognitoSessionId, update]
+  );
+
+  const stagePickedFiles = useCallback(
+    async (picked: PickedMedia[], viewOnce = false) => {
+      if (!composerMounted.current) {
         return;
       }
-      const staged = picked.map((file, index) => ({
+      if (!viewOnce && attachmentsRef.current.some((item) => item.viewOnce)) {
+        return;
+      }
+      if (
+        viewOnce &&
+        (attachmentsRef.current.length > 0 ||
+          picked.length !== 1 ||
+          !["image/jpeg", "image/png", "image/webp", "image/avif"].includes(
+            picked[0]?.mimeType.toLowerCase() ?? ""
+          ))
+      ) {
+        toast({
+          description: "Choose one JPEG, PNG, WebP, or AVIF photo.",
+          title: "View once photo",
+          variant: "destructive",
+        });
+        return;
+      }
+      let totalBytes = attachmentsRef.current.reduce(
+        (total, item) => total + item.file.size,
+        0
+      );
+      const accepted: PickedMedia[] = [];
+      let rejected = 0;
+      let tooLarge = 0;
+      for (const candidate of picked) {
+        const mimeType = messageAttachmentMimeType(
+          candidate.mimeType,
+          candidate.name
+        );
+        const { size } = candidate;
+        const typeLimit = maxMessageAttachmentBytes(mimeType);
+        if (!messageAttachmentKind(mimeType)) {
+          rejected += 1;
+          continue;
+        }
+        if (
+          size <= 0 ||
+          size > typeLimit ||
+          totalBytes + size > MAX_MESSAGE_ATTACHMENT_TOTAL_BYTES
+        ) {
+          tooLarge += 1;
+          continue;
+        }
+        totalBytes += size;
+        accepted.push({ ...candidate, mimeType, size });
+      }
+      if (rejected > 0) {
+        toast({
+          description: "Choose photos, videos, audio, PDF, or Office files.",
+          title: "Unsupported file",
+          variant: "destructive",
+        });
+      }
+      if (tooLarge > 0) {
+        toast({
+          description: "One or more files exceed the message size limit.",
+          title: "Attachment too large",
+          variant: "destructive",
+        });
+      }
+      const available = Math.max(
+        0,
+        MAX_MESSAGE_ATTACHMENTS - attachmentsRef.current.length
+      );
+      if (accepted.length > available) {
+        toast({
+          description: `You can send up to ${MAX_MESSAGE_ATTACHMENTS} attachments at a time.`,
+          title: "Attachment limit",
+          variant: "destructive",
+        });
+      }
+      const staged = accepted.slice(0, available).map((file, index) => ({
         error: null as string | null,
         file,
         id: `${file.uri}-${index}-${attachmentsRef.current.length}`,
         mediaId: null as string | null,
         owned: false,
         progress: 0 as number | null,
+        viewOnce,
       }));
-      setAttachments((current) => [...current, ...staged]);
+      if (staged.length === 0) {
+        return;
+      }
+      attachmentsRef.current = [...attachmentsRef.current, ...staged];
+      setAttachments(attachmentsRef.current);
+      if (
+        picked.length === 1 &&
+        staged.length === 1 &&
+        attachmentsRef.current.length === 1 &&
+        messageAttachmentKind(staged[0].file.mimeType) === "image"
+      ) {
+        const edited = await editAttachment(staged[0]);
+        if (
+          edited ||
+          !composerMounted.current ||
+          !attachmentsRef.current.some((entry) => entry.id === staged[0].id)
+        ) {
+          return;
+        }
+      }
       await uploadStagedAttachments(staged, {
         aborts,
         conversationId,
+        incognitoSessionId,
         onPatch: update,
       });
-    })();
-  }, [conversationId, update]);
+    },
+    [conversationId, incognitoSessionId, update, editAttachment]
+  );
 
-  const editAttachment = async (item: StagedAttachment) => {
-    Keyboard.dismiss();
-    try {
-      const result = await crop(
-        { purpose: "message", source: item.file },
-        "post"
-      );
-      if (!result) {
-        return;
-      }
-      const staged: StagedAttachment = {
-        error: null,
-        file: { ...result.source, size: result.source.size ?? 0 },
-        id: `${item.id}-edit-${result.source.uri}`,
-        mediaId: null,
-        owned: false,
-        progress: 0,
-      };
-      setAttachments((current) =>
-        current.map((entry) => (entry.id === item.id ? staged : entry))
-      );
-      await uploadStagedAttachments([staged], {
-        aborts,
-        conversationId,
-        onPatch: update,
-      });
-      if (item.mediaId && item.owned) {
-        void discardMessageMedia(item.mediaId, {
-          apiBase: getApiBaseUrl(),
-          baseFetch: fetch,
-        });
-      }
-    } catch (error) {
-      toast({
-        description:
-          error instanceof Error ? error.message : "Try another image",
-        title: "Couldn't edit image",
-        variant: "destructive",
-      });
+  const choosePhotosAndVideos = useCallback(() => {
+    setAttachmentMenuOpen(false);
+    if (viewOnceMode) {
+      return;
     }
-  };
+    const remaining = MAX_MESSAGE_ATTACHMENTS - attachmentsRef.current.length;
+    if (remaining <= 0) {
+      return;
+    }
+    runMessageAttachmentPicker(
+      () => pickPhotosAndVideos({ remaining }),
+      stagePickedFiles,
+      "Couldn't open photos"
+    );
+  }, [stagePickedFiles, viewOnceMode]);
+
+  const chooseFiles = useCallback(() => {
+    setAttachmentMenuOpen(false);
+    if (viewOnceMode) {
+      return;
+    }
+    const remaining = MAX_MESSAGE_ATTACHMENTS - attachmentsRef.current.length;
+    if (remaining <= 0) {
+      return;
+    }
+    runMessageAttachmentPicker(
+      () => pickMessageFiles(remaining),
+      stagePickedFiles,
+      "Couldn't open files"
+    );
+  }, [stagePickedFiles, viewOnceMode]);
+
+  const attach = useCallback(() => {
+    Keyboard.dismiss();
+    setAttachmentMenuOpen(true);
+  }, []);
 
   const remove = useCallback((id: string) => {
     aborts.current.get(id)?.abort();
@@ -348,6 +584,9 @@ export function MessageComposer({
       },
       onSuccess: () => {
         useSharedPostDraft.getState().clear(conversationId);
+        if (!incognitoSessionId) {
+          useMessageTextDraft.getState().clear(draftKey);
+        }
         setDraft("");
         setAttachments([]);
         onCancelEdit();
@@ -360,6 +599,7 @@ export function MessageComposer({
     });
   }, [
     conversationId,
+    incognitoSessionId,
     sharedPostId,
     attachments,
     canSend,
@@ -369,6 +609,7 @@ export function MessageComposer({
     onSend,
     replyTo,
     stopTyping,
+    draftKey,
   ]);
 
   const atCapacity = attachments.length >= MAX_MESSAGE_ATTACHMENTS;
@@ -378,7 +619,8 @@ export function MessageComposer({
       style={[
         styles.root,
         {
-          borderTopColor: theme.dividerLine,
+          backgroundColor: incognito ? "#09090b" : undefined,
+          borderTopColor: incognito ? "#3f3f46" : theme.dividerLine,
           paddingBottom: 10 + (keyboardVisible ? 0 : insets.bottom),
         },
       ]}
@@ -421,7 +663,13 @@ export function MessageComposer({
         />
       ) : null}
       {attachments.length > 0 ? (
-        <View style={styles.strip}>
+        <ScrollView
+          contentContainerStyle={styles.strip}
+          horizontal
+          keyboardShouldPersistTaps="handled"
+          showsHorizontalScrollIndicator={false}
+          style={{ flexGrow: 0, height: 72 }}
+        >
           {attachments.map((item) => (
             <AttachmentTile
               attachment={item}
@@ -432,7 +680,21 @@ export function MessageComposer({
               }}
             />
           ))}
-        </View>
+        </ScrollView>
+      ) : null}
+      {expressionKeyboardOpen ? (
+        <MessageExpressionKeyboard
+          canCreate={!incognito && !editing}
+          conversationId={conversationId}
+          disabled={Boolean(disabled) || Boolean(editing) || viewOnceMode}
+          incognitoSessionId={incognitoSessionId}
+          onEmoji={insertEmoji}
+          onGifSelect={handleGifSelect}
+          onSendSticker={handleStickerSend}
+          onTabChange={setExpressionTab}
+          stickersEnabled={stickersEnabled}
+          tab={expressionTab}
+        />
       ) : null}
       <View
         style={[
@@ -444,54 +706,88 @@ export function MessageComposer({
           },
         ]}
       >
+        <Pressable
+          accessibilityLabel="Add attachment"
+          accessibilityRole="button"
+          disabled={
+            disabled ||
+            atCapacity ||
+            Boolean(sharedPostId) ||
+            viewOnceMode ||
+            Boolean(editing)
+          }
+          hitSlop={6}
+          onPress={attach}
+          style={styles.attachButton}
+        >
+          <Plus color={theme.dividerText} size={21} />
+        </Pressable>
+        <Pressable
+          accessibilityLabel={
+            expressionKeyboardOpen
+              ? "Close expression keyboard"
+              : "Open expression keyboard"
+          }
+          accessibilityRole="button"
+          disabled={Boolean(disabled) || viewOnceMode}
+          hitSlop={6}
+          onPress={() => {
+            if (expressionKeyboardOpen) {
+              setExpressionKeyboardOpen(false);
+              return;
+            }
+            Keyboard.dismiss();
+            setExpressionTab("emoji");
+            setExpressionKeyboardOpen(true);
+          }}
+          style={styles.attachButton}
+        >
+          <Smile color={theme.dividerText} size={20} />
+        </Pressable>
         <TextInput
           ref={fieldRef}
           accessibilityLabel="Message"
-          editable={!disabled}
+          editable={!disabled && !viewOnceMode}
           multiline
+          onFocus={() => setExpressionKeyboardOpen(false)}
           onChangeText={(value) => {
             setDraft(value);
+            if (!incognitoSessionId) {
+              if (value) {
+                useMessageTextDraft.getState().save(draftKey, value);
+              } else {
+                useMessageTextDraft.getState().clear(draftKey);
+              }
+            }
             if (value.trim().length > 0) {
               noteTyping();
             } else {
               stopTyping();
             }
           }}
-          placeholder={
-            editing
-              ? "Edit message…"
-              : `Message${peerName ? ` ${peerName}` : ""}…`
+          onSelectionChange={(event) =>
+            setSelection(event.nativeEvent.selection)
           }
-          placeholderTextColor={isDark ? "#6b6b6b" : "#9a9a9a"}
-          style={[styles.fieldInput, { color: isDark ? "#eeeeee" : "#202020" }]}
+          placeholder={(() => {
+            if (viewOnceMode) {
+              return "View once photo";
+            }
+            if (incognitoSessionId) {
+              return "Message in incognito…";
+            }
+            if (editing) {
+              return "Edit message…";
+            }
+            return `Message${peerName ? ` ${peerName}` : ""}…`;
+          })()}
+          placeholderTextColor={incognito || isDark ? "#6b6b6b" : "#9a9a9a"}
+          style={[
+            styles.fieldInput,
+            { color: incognito || isDark ? "#eeeeee" : "#202020" },
+          ]}
+          selection={selection}
           value={fieldValue}
         />
-        <Pressable
-          accessibilityLabel="Add photo"
-          accessibilityRole="button"
-          disabled={disabled || atCapacity || Boolean(sharedPostId)}
-          hitSlop={4}
-          onPress={attach}
-          style={styles.attachButton}
-        >
-          <ImagePlus color={theme.dividerText} size={16} />
-        </Pressable>
-        <Pressable
-          accessibilityLabel="Add GIF"
-          accessibilityRole="button"
-          disabled={disabled || atCapacity || Boolean(sharedPostId)}
-          hitSlop={4}
-          onPress={() => {
-            Keyboard.dismiss();
-            setGifOpen((open) => !open);
-          }}
-          style={styles.attachButton}
-        >
-          <Clapperboard
-            color={gifOpen ? "#a855f7" : theme.dividerText}
-            size={16}
-          />
-        </Pressable>
         <Pressable
           accessibilityLabel="Send"
           accessibilityRole="button"
@@ -516,129 +812,91 @@ export function MessageComposer({
           )}
         </Pressable>
       </View>
-      {gifOpen ? (
-        <View style={{ paddingTop: 12 }}>
-          <GifPicker
-            disabled={disabled || atCapacity}
-            onSelect={(gif) => {
-              setGifOpen(false);
-              // oxlint-disable promise/prefer-await-to-then -- the compiler cannot lower try/catch inside this event callback
-              void downloadGif(gif)
-                .then((file) => {
-                  const staged: StagedAttachment = {
-                    error: null,
-                    file,
-                    id: `${file.uri}-${Date.now()}`,
-                    mediaId: null,
-                    owned: false,
-                    progress: 0,
-                  };
-                  setAttachments((current) => [...current, staged]);
-                  return uploadStagedAttachments([staged], {
-                    aborts,
-                    conversationId,
-                    onPatch: update,
-                  });
-                })
-                .catch(() =>
-                  toast({
-                    description: "Please try again.",
-                    title: "Couldn't add GIF",
-                    variant: "destructive",
-                  })
-                );
-              // oxlint-enable promise/prefer-await-to-then
-            }}
-          />
-        </View>
-      ) : null}
+      <Modal
+        animationType="slide"
+        onRequestClose={() => setAttachmentMenuOpen(false)}
+        transparent
+        visible={attachmentMenuOpen}
+      >
+        <Pressable
+          accessibilityLabel="Close attachment menu"
+          onPress={() => setAttachmentMenuOpen(false)}
+          style={styles.attachmentScrim}
+        >
+          <Pressable
+            onPress={(event) => event.stopPropagation()}
+            style={[
+              styles.attachmentSheet,
+              {
+                backgroundColor: input.background,
+                borderColor: input.border,
+                paddingBottom: Math.max(insets.bottom, 16),
+              },
+            ]}
+          >
+            <Text
+              style={[
+                styles.attachmentSheetTitle,
+                { color: isDark ? "#a0a0a0" : "#646464" },
+              ]}
+            >
+              Add to your message
+            </Text>
+            <Pressable
+              accessibilityRole="button"
+              disabled={viewOnceMode}
+              onPress={choosePhotosAndVideos}
+              style={styles.attachmentSheetRow}
+            >
+              <ImagePlus color={theme.dividerText} size={19} />
+              <Text
+                style={[
+                  styles.attachmentSheetLabel,
+                  { color: isDark ? "#f1f1f1" : "#202020" },
+                ]}
+              >
+                Photos & videos
+              </Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              disabled={viewOnceMode}
+              onPress={chooseFiles}
+              style={styles.attachmentSheetRow}
+            >
+              <FileText color={theme.dividerText} size={19} />
+              <Text
+                style={[
+                  styles.attachmentSheetLabel,
+                  { color: isDark ? "#f1f1f1" : "#202020" },
+                ]}
+              >
+                Files
+              </Text>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
 
-/**
- * Uploads the staged attachments, one at a time.
- *
- * Sequential on purpose: parallel presigned PUTs on a phone's connection make
- * every one of them slower and the tiles race each other for the same bandwidth.
- */
-async function uploadStagedAttachments(
-  staged: StagedAttachment[],
-  context: {
-    aborts: React.RefObject<Map<string, AbortController>>;
-    conversationId: string;
-    onPatch: (id: string, patch: Partial<StagedAttachment>) => void;
-  }
-): Promise<void> {
-  for (const item of staged) {
-    // oxlint-disable-next-line no-await-in-loop -- see the note above
-    await stageOneAttachment(item, context);
-  }
-}
-
-/**
- * Uploads one staged attachment and folds its progress into the tile.
- *
- * Module scope, not a component body, for two reasons: React Compiler cannot lower
- * a `try`/`finally` inside a component, and the error path has to reach `discard`
- * and the store without closing over render state.
- */
-async function stageOneAttachment(
-  item: StagedAttachment,
-  context: {
-    aborts: React.RefObject<Map<string, AbortController>>;
-    conversationId: string;
-    onPatch: (id: string, patch: Partial<StagedAttachment>) => void;
-  }
-): Promise<void> {
-  const controller = new AbortController();
-  context.aborts.current.set(item.id, controller);
-  const outcome = await uploadMedia(item.file, {
-    conversationId: context.conversationId,
-    onBytes: (percent) => context.onPatch(item.id, { progress: percent }),
-    // A dedup hit reused bytes that belong to another message, so this row is not
-    // ours to discard later.
-    onDeduplicated: (deduplicated) =>
-      context.onPatch(item.id, { owned: !deduplicated }),
-    onMediaId: (mediaId) => context.onPatch(item.id, { mediaId }),
-    onStage: () => context.onPatch(item.id, { progress: null }),
-    purpose: "message",
-    signal: controller.signal,
-    // The composer gates the send itself, so there is no need to block here on the
-    // pipeline; the tile's progress reflects the bytes.
-    waitForProcessing: false,
-  })
-    .then((result) => {
-      context.onPatch(item.id, { progress: null });
-      if (result.status !== "READY") {
-        context.onPatch(item.id, {
-          error: "Attachment was rejected by scanning",
-        });
-      }
-      return null;
-    })
-    .catch((error: unknown) => {
-      // A failed upload still leaves a server row this send created, so it is
-      // reclaimed rather than orphaned.
-      logWarn("message attachment upload failed", {
-        step: error instanceof UploadError ? error.step : "upload",
+function runMessageAttachmentPicker(
+  pick: () => Promise<PickedMedia[]>,
+  stage: (files: PickedMedia[]) => Promise<void>,
+  title: string
+): void {
+  void (async () => {
+    try {
+      await stage(await pick());
+    } catch {
+      toast({
+        description: "Please try again.",
+        title,
+        variant: "destructive",
       });
-      context.onPatch(item.id, {
-        error:
-          error instanceof UploadError ? error.userMessage : "Upload failed",
-        progress: null,
-      });
-      const mediaId = error instanceof UploadError ? error.mediaId : null;
-      if (mediaId && !item.owned) {
-        void discardMessageMedia(mediaId, {
-          apiBase: getApiBaseUrl(),
-          baseFetch: fetch,
-        });
-      }
-      return null;
-    });
-  context.aborts.current.delete(item.id);
-  return outcome ?? undefined;
+    }
+  })();
 }
 
 /**
@@ -764,13 +1022,45 @@ function AttachmentTile({
   onEdit: () => void;
 }) {
   const { theme } = useAppTheme();
+  const isImage = attachment.file.mimeType.startsWith("image/");
+  const isVideo = attachment.file.mimeType.startsWith("video/");
   return (
-    <View style={[styles.tile, { borderColor: theme.dividerLine }]}>
-      <Image
-        source={{ uri: attachment.file.uri }}
-        style={StyleSheet.absoluteFill}
-      />
-      {attachment.progress === null ? (
+    <View
+      style={[
+        styles.tile,
+        { borderColor: theme.dividerLine, width: isImage ? 64 : 208 },
+      ]}
+    >
+      {isImage ? (
+        <Image
+          source={{ uri: attachment.file.uri }}
+          style={StyleSheet.absoluteFill}
+        />
+      ) : (
+        <View style={styles.fileTilePreview}>
+          {isVideo ? (
+            <Film color={theme.dividerText} size={22} />
+          ) : (
+            <FileText color={theme.dividerText} size={22} />
+          )}
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Text
+              numberOfLines={1}
+              style={[styles.fileTileName, { color: theme.inputText }]}
+            >
+              {attachment.file.name}
+            </Text>
+            <Text
+              style={{ color: theme.dividerText, fontSize: 11, marginTop: 3 }}
+            >
+              {attachment.file.size >= 1024 * 1024
+                ? `${(attachment.file.size / (1024 * 1024)).toFixed(1)} MB`
+                : `${Math.max(1, Math.round(attachment.file.size / 1024))} KB`}
+            </Text>
+          </View>
+        </View>
+      )}
+      {isImage ? (
         <View style={{ bottom: 4, left: 4, position: "absolute" }}>
           <IconButton3D
             accessibilityLabel={
@@ -782,6 +1072,21 @@ function AttachmentTile({
             size={28}
             onPress={onEdit}
           />
+        </View>
+      ) : null}
+      {attachment.viewOnce ? (
+        <View
+          style={{
+            backgroundColor: theme.cardBg,
+            borderRadius: 10,
+            bottom: 6,
+            paddingHorizontal: 6,
+            paddingVertical: 3,
+            position: "absolute",
+            right: 6,
+          }}
+        >
+          <Text style={{ color: theme.inputText, fontSize: 10 }}>1×</Text>
         </View>
       ) : null}
       {attachment.progress === null ? null : (
@@ -822,6 +1127,37 @@ const styles = StyleSheet.create({
     height: 32,
     justifyContent: "center",
     width: 32,
+  },
+  attachmentScrim: {
+    backgroundColor: "#00000055",
+    flex: 1,
+    justifyContent: "flex-end",
+  },
+  attachmentSheet: {
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    borderWidth: StyleSheet.hairlineWidth,
+    gap: 4,
+    paddingHorizontal: 18,
+    paddingTop: 18,
+  },
+  attachmentSheetLabel: {
+    fontFamily: "SofiaProMed",
+    fontSize: 15,
+  },
+  attachmentSheetRow: {
+    alignItems: "center",
+    borderRadius: 14,
+    flexDirection: "row",
+    gap: 14,
+    minHeight: 52,
+    paddingHorizontal: 12,
+  },
+  attachmentSheetTitle: {
+    fontFamily: "SofiaProMed",
+    fontSize: 12,
+    marginBottom: 4,
+    paddingHorizontal: 12,
   },
   contextBar: {
     alignItems: "center",
@@ -882,6 +1218,22 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     textAlignVertical: "center",
   },
+  fileTileName: {
+    color: "#76767b",
+    fontFamily: "SofiaProReg",
+    fontSize: 12,
+    textAlign: "left",
+  },
+  fileTilePreview: {
+    alignItems: "center",
+    backgroundColor: "rgba(127,127,127,0.12)",
+    flex: 1,
+    flexDirection: "row",
+    gap: 10,
+    justifyContent: "center",
+    paddingHorizontal: 12,
+    paddingRight: 28,
+  },
   inputRow: {
     alignItems: "flex-end",
     flexDirection: "row",
@@ -922,7 +1274,6 @@ const styles = StyleSheet.create({
   },
   strip: {
     flexDirection: "row",
-    flexWrap: "wrap",
     gap: 8,
     paddingBottom: 8,
     paddingHorizontal: 12,

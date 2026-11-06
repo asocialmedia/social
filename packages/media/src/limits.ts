@@ -15,6 +15,11 @@ export interface MediaLimits {
   maxVideoBytes: number;
   maxAudioBytes: number;
   maxDocumentBytes: number;
+  // Aggregate ceiling for everything one chat message may attach, independent
+  // of the per-file caps above: a message may hold many files, but their sum
+  // must stay inside this budget so one send cannot spend an unbounded amount
+  // of the recipient's bandwidth. Override with MEDIA_MAX_MESSAGE_TOTAL_BYTES.
+  maxMessageAttachmentTotalBytes: number;
   // Decoder safety ceilings.
   maxPixelCount: number;
   maxDimension: number;
@@ -51,6 +56,7 @@ export const DEFAULT_LIMITS: MediaLimits = {
   maxFilesPerRequest: 5,
   maxFps: 60,
   maxImageBytes: 25 * 1024 * 1024,
+  maxMessageAttachmentTotalBytes: 500 * 1024 * 1024,
   maxPixelCount: 100_000_000,
   maxRequestBytes: 260 * 1024 * 1024,
   maxUploadsPerDayPerUser: 120,
@@ -94,6 +100,7 @@ export function resolveMediaLimits(
   assign("maxVideoBytes", "MEDIA_MAX_VIDEO_BYTES");
   assign("maxAudioBytes", "MEDIA_MAX_AUDIO_BYTES");
   assign("maxDocumentBytes", "MEDIA_MAX_DOCUMENT_BYTES");
+  assign("maxMessageAttachmentTotalBytes", "MEDIA_MAX_MESSAGE_TOTAL_BYTES");
   assign("maxPixelCount", "MEDIA_MAX_PIXEL_COUNT");
   assign("maxDimension", "MEDIA_MAX_DIMENSION");
   assign("maxVideoDurationSec", "MEDIA_MAX_VIDEO_DURATION_SEC");

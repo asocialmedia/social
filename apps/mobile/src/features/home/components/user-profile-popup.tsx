@@ -266,7 +266,7 @@ export function UserProfilePopup({ onClose, userId }: UserProfilePopupProps) {
         >
           {state.status === "loading" ? (
             <View style={styles.center}>
-              <Spinner3D size={44} />
+              <Spinner3D variant="general" size={44} />
             </View>
           ) : null}
           {state.status === "error" ? (

@@ -16,7 +16,9 @@ export default function ReactQueryProvider({
   return (
     <QueryClientProvider client={client}>
       {children}
-      <ReactQueryDevtools initialIsOpen={false} />
+      <div className="hidden md:block [body:has([role=dialog])_&]:hidden">
+        <ReactQueryDevtools initialIsOpen={false} />
+      </div>
     </QueryClientProvider>
   );
 }

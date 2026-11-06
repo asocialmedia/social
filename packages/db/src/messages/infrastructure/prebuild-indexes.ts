@@ -37,6 +37,13 @@ const {
     prebuildMessageHistoryIndexSql,
     prebuildSearchOrphanTermsIndexSql,
     prebuildSearchOutboxIndexSql,
+    prebuildViewOnceDueIndexSql,
+    prebuildViewOnceUniqueIndexSql,
+    prebuildCommunityRequestsIndexSql,
+    prebuildMessageExpiryIndexSql,
+    prebuildMessageErasureIndexSql,
+    prebuildMediaErasureIndexSql,
+    prebuildMediaIncognitoIndexSql,
   },
 } = readSqlBundle(prebuildSql, {
   prebuild: [
@@ -48,6 +55,13 @@ const {
     "prebuildMessageHistoryIndexSql",
     "prebuildSearchOrphanTermsIndexSql",
     "prebuildSearchOutboxIndexSql",
+    "prebuildViewOnceDueIndexSql",
+    "prebuildViewOnceUniqueIndexSql",
+    "prebuildCommunityRequestsIndexSql",
+    "prebuildMessageExpiryIndexSql",
+    "prebuildMessageErasureIndexSql",
+    "prebuildMediaErasureIndexSql",
+    "prebuildMediaIncognitoIndexSql",
   ],
 } as const);
 
@@ -103,6 +117,48 @@ const INDEXES = [
     name: "message_conversations_inviteShortCode_key",
     sql: prebuildConversationShortCodeIndexSql,
     table: "message_conversations",
+  },
+  {
+    columns: ["viewOnce", "deliveryExpiresAt", "id"],
+    name: "message_media_viewonce_due_a36050d7",
+    sql: prebuildViewOnceDueIndexSql,
+    table: "message_media_links",
+  },
+  {
+    columns: ["viewOnce", "mediaId"],
+    name: "message_media_viewonce_media_unique_ff0d1126",
+    sql: prebuildViewOnceUniqueIndexSql,
+    table: "message_media_links",
+  },
+  {
+    columns: ["communityId", "status", "createdAt", "id"],
+    name: "community_members_request_page_idx",
+    sql: prebuildCommunityRequestsIndexSql,
+    table: "community_members",
+  },
+  {
+    columns: ["expiresAt", "id", "deletedAt"],
+    name: "messages_expiry_due_idx_a83a16eb",
+    sql: prebuildMessageExpiryIndexSql,
+    table: "messages",
+  },
+  {
+    columns: ["expiresAt", "id", "ciphertext"],
+    name: "messages_lifecycle_erasure_due_7f300049",
+    sql: prebuildMessageErasureIndexSql,
+    table: "messages",
+  },
+  {
+    columns: ["failureCode", "id"],
+    name: "media_lifecycle_erasure_due_d202ba84",
+    sql: prebuildMediaErasureIndexSql,
+    table: "post_media",
+  },
+  {
+    columns: ["incognitoSessionId"],
+    name: "post_media_incognitoSessionId_idx_e9d021b8",
+    sql: prebuildMediaIncognitoIndexSql,
+    table: "post_media",
   },
 ] as const;
 
@@ -227,6 +283,26 @@ export async function runPrebuildDmIndexes(): Promise<void> {
   const databaseUrl = process.env.DATABASE_URL;
   if (!databaseUrl) {
     throw new Error("DATABASE_URL is required.");
+  }
+  // These additive columns match the reviewed migrations and let their indexes build without blocking writes.
+  const client = new Client({ connectionString: databaseUrl });
+  await client.connect();
+  try {
+    await client.query("SET lock_timeout='5s'");
+    await client.query(
+      'ALTER TABLE IF EXISTS public.messages ADD COLUMN IF NOT EXISTS "expiresAt" timestamp(3)'
+    );
+    await client.query(
+      'ALTER TABLE IF EXISTS public.post_media ADD COLUMN IF NOT EXISTS "incognitoSessionId" text'
+    );
+    await client.query(
+      'ALTER TABLE IF EXISTS public.message_media_links ADD COLUMN IF NOT EXISTS "viewOnce" bool DEFAULT false NOT NULL'
+    );
+    await client.query(
+      'ALTER TABLE IF EXISTS public.message_media_links ADD COLUMN IF NOT EXISTS "deliveryExpiresAt" timestamp(3)'
+    );
+  } finally {
+    await client.end();
   }
   process.stdout.write(
     "Pre-building DM indexes with CREATE INDEX CONCURRENTLY\n"

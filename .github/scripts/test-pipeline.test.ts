@@ -41,7 +41,17 @@ test.each(["success", "failure", "cancelled", "skipped"])(
     if (!gate) {
       throw new Error("Quality gate command is missing");
     }
-    const process = Bun.spawn(["bash", "-e", "-c", gate], {
+    const gitExecutable = Bun.which("git");
+    const gitBash = gitExecutable
+      ? path.resolve(path.dirname(gitExecutable), "../bin/bash.exe")
+      : null;
+    const shell =
+      process.platform === "win32" &&
+      gitBash &&
+      (await Bun.file(gitBash).exists())
+        ? gitBash
+        : "bash";
+    const resultProcess = Bun.spawn([shell, "-e", "-c", gate], {
       env: {
         ...Bun.env,
         INTEGRATION_RESULT: result,
@@ -51,7 +61,7 @@ test.each(["success", "failure", "cancelled", "skipped"])(
       stderr: "pipe",
       stdout: "pipe",
     });
-    expect(await process.exited).toBe(result === "success" ? 0 : 1);
+    expect(await resultProcess.exited).toBe(result === "success" ? 0 : 1);
   }
 );
 

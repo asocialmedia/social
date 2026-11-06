@@ -52,6 +52,7 @@ import {
 import { LoadingButton } from "@/components/auth/fields/loading-button";
 import { PasswordInput } from "@/components/auth/fields/password-input";
 import { TurnstileWidget } from "@/components/auth/fields/turnstile-widget";
+import { ZephLoader } from "@/components/layouts/feedback/zeph-loader";
 import { useSignupUrlState } from "@/hooks/auth/use-signup-url-state";
 // Imported statically (it guards window access itself) so component bodies
 // never contain dynamic import() expressions, which React Compiler cannot
@@ -1241,14 +1242,10 @@ export default function SignUpForm() {
                             initial={{ opacity: 0, y: -10 }}
                             transition={{ duration: 0.2 }}
                           >
-                            <motion.div
-                              animate={{ rotate: 360 }}
-                              className="border-primary/20 border-t-primary h-4 w-4 shrink-0 rounded-full border-2"
-                              transition={{
-                                duration: 1,
-                                ease: "linear",
-                                repeat: Number.POSITIVE_INFINITY,
-                              }}
+                            <ZephLoader
+                              label="Verifying your email"
+                              size={24}
+                              variant="security"
                             />
                             <span>Verifying your code...</span>
                           </motion.div>

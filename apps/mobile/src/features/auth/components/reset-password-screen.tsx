@@ -1,18 +1,12 @@
+import { useRouter } from "expo-router";
 // 1:1 native port of web ResetPasswordForm. UI-only: validates the
 // identifier, then swaps to the "Check Your Email" success panel.
-
-import { useRouter } from "expo-router";
 import { ArrowLeft, Mail, XCircle } from "lucide-react-native";
 import { useCallback, useState } from "react";
-import {
-  ActivityIndicator,
-  Pressable,
-  Text,
-  TextInput,
-  View,
-} from "react-native";
+import { Pressable, Text, TextInput, View } from "react-native";
 
 import resetBgImage from "@/assets/images/password-reset-image.jpg";
+import { ZephLoader } from "@/components/feedback/zeph-loader";
 import { requestPasswordReset } from "@/features/auth/lib/auth-api";
 import { validateIdentifier } from "@/features/auth/lib/auth-validation";
 import { INPUT_FOCUS_SHADOWS, INPUT_SHADOWS, useAppTheme } from "@/theme";
@@ -78,7 +72,7 @@ export default function ResetPasswordScreen() {
             receive password reset instructions.
           </Text>
           {isLoading ? (
-            <ActivityIndicator color="#ff9500" size="small" />
+            <ZephLoader variant="security" color="#ff9500" size="small" />
           ) : null}
           <Pressable
             className="mt-4 flex-row items-center gap-2"

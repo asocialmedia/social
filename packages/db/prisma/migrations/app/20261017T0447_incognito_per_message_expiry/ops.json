@@ -1,0 +1,71 @@
+[
+  {
+    "id": "alterNullability.dropNotNull.message_incognito_sessions.expiresAt",
+    "label": "Drop NOT NULL on \"message_incognito_sessions\".\"expiresAt\"",
+    "operationClass": "widening",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "column",
+        "name": "expiresAt",
+        "table": "message_incognito_sessions"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure column \"expiresAt\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": ["public", "message_incognito_sessions", "expiresAt"]
+      }
+    ],
+    "execute": [
+      {
+        "description": "drop NOT NULL on \"expiresAt\"",
+        "sql": "ALTER TABLE \"public\".\"message_incognito_sessions\" ALTER COLUMN \"expiresAt\" DROP NOT NULL"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify column \"expiresAt\" is nullable",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3 AND \"is_nullable\" = $4)) AS \"result\"",
+        "params": ["public", "message_incognito_sessions", "expiresAt", "YES"]
+      }
+    ]
+  },
+  {
+    "id": "index.message_incognito_messages.incognito_message_expiry_due_3855cff1",
+    "label": "Create index \"incognito_message_expiry_due_3855cff1\" on \"message_incognito_messages\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "incognito_message_expiry_due_3855cff1",
+        "table": "message_incognito_messages"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"incognito_message_expiry_due_3855cff1\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": ["\"public\".\"incognito_message_expiry_due_3855cff1\""]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"incognito_message_expiry_due_3855cff1\"",
+        "sql": "CREATE INDEX \"incognito_message_expiry_due_3855cff1\" ON \"public\".\"message_incognito_messages\" (\"createdAt\", \"id\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"incognito_message_expiry_due_3855cff1\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": ["\"public\".\"incognito_message_expiry_due_3855cff1\""]
+      }
+    ]
+  }
+]

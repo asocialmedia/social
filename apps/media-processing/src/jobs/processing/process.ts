@@ -2,7 +2,11 @@
 // row READY. Isolated storage generations keep existing pointers live while
 // replacements are encoded and published.
 
-import { enqueueMediaAnalyze, prisma } from "@asm/db";
+import {
+  enqueueMediaAnalyze,
+  enqueueMediaDeleteCascade,
+  prisma,
+} from "@asm/db";
 import { isTerminalStatus, MEDIA_PIPELINE_VERSION } from "@asm/media";
 
 import { resolveWorkerMediaLimits } from "../../env";
@@ -144,7 +148,10 @@ export function processMedia(jobData: {
           !Array.isArray(completed.techMetadata)
             ? completed.techMetadata
             : {};
-        await prisma.orm.public.PostMedia.where({ id: media.id }).update({
+        await prisma.orm.public.PostMedia.where({
+          id: media.id,
+          status: "READY",
+        }).update({
           failureCode: null,
           failureDetail: null,
           pipelineVersion: MEDIA_PIPELINE_VERSION,
@@ -173,6 +180,26 @@ export function processMedia(jobData: {
         await removePartialDerivatives(media.id, uploadedKeys);
         throw error;
       } finally {
+        const finalMedia = await prisma.orm.public.PostMedia.select(
+          "status",
+          "messageLifecycleProtected"
+        )
+          .where({ id: media.id })
+          .first();
+        if (
+          finalMedia?.status === "DELETED" &&
+          finalMedia.messageLifecycleProtected
+        ) {
+          // A processor finishing after closure re-arms durable cleanup for its late outputs.
+          await prisma.orm.public.PostMedia.where({
+            id: media.id,
+            status: "DELETED",
+          }).update({ failureCode: "CHAT_LIFECYCLE_ERASURE" });
+          for (const key of uploadedKeys) {
+            await getS3().file(key).delete();
+          }
+          await enqueueMediaDeleteCascade(media.id);
+        }
         // SourcePath itself plus every sibling artifact the encoders leave
         // behind: `-suffix` variants (poster, HLS dir, cover, peaks) AND
         // `.ext` suffixed transcode outputs (.opus.webm, .m4a, .mp4).

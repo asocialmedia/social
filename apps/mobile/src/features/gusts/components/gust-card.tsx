@@ -772,7 +772,7 @@ export function GustCard({
         ) : null}
         {showBuffering ? (
           <View pointerEvents="none" style={styles.center}>
-            <Spinner3D size={48} />
+            <Spinner3D variant="media" size={48} />
           </View>
         ) : null}
         <AuraBurstLayer ref={auraLayer} />

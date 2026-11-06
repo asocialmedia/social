@@ -1,20 +1,23 @@
+import { fetchChatApi } from "@/lib/messages/chat-capability";
 import type { MessagePayload } from "@/lib/messages/crypto";
 import { extractSharedRefs } from "@/lib/messages/message-shared-refs";
+import { SHARED_REFS_FORMAT_VERSION } from "@/lib/messages/shared-refs-format";
 import type {
   SharedRefKind,
   SharedRefRecord,
+  SharedRefsPage,
 } from "@/lib/messages/shared-refs-format";
-import { SHARED_REFS_FORMAT_VERSION } from "@/lib/messages/shared-refs-format";
 import type { MessageData } from "@/lib/messages/types";
 
 import { hydrateSearchHits } from "./search-hydration";
 import type { SearchHydrationHit } from "./search-hydration";
-import type { SharedRefsPage } from "./shared-refs-format";
 
 export interface ServerSharedRefItem extends SearchHydrationHit {
   createdAt: string;
   kind: SharedRefKind;
-  mediaKind: "gif" | "image" | null;
+  // Videos and files are accepted so a page that already contains them loads
+  // whole; the panel renders photo rows only until the file surfaces land.
+  mediaKind: "file" | "gif" | "image" | "sticker" | "video" | null;
   ordinal: number;
   requiredId: string | null;
 }
@@ -119,7 +122,10 @@ function parseServerPage(
       item.ordinal < 0 ||
       (item.mediaKind !== null &&
         item.mediaKind !== "gif" &&
-        item.mediaKind !== "image") ||
+        item.mediaKind !== "image" &&
+        item.mediaKind !== "video" &&
+        item.mediaKind !== "file" &&
+        item.mediaKind !== "sticker") ||
       (item.requiredId !== null && typeof item.requiredId !== "string")
     ) {
       throw new Error("Shared items could not be loaded");
@@ -154,7 +160,7 @@ function parseServerPage(
 export async function resolveServerSharedRefsPage(
   input: ResolveServerSharedRefPageInput
 ): Promise<SharedRefsPage> {
-  const fetcher = input.fetcher ?? fetch;
+  const fetcher = input.fetcher ?? fetchChatApi;
   const query = new URLSearchParams({
     kind: input.kind,
     limit: String(Math.min(Math.max(input.limit ?? 60, 1), 100)),

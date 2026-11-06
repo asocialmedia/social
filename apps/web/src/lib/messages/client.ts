@@ -3,9 +3,13 @@ import type {
   DenRole,
   GroupAddRefusal,
 } from "@asm/db/messages/dens";
+import type { MessageAttachmentKind } from "@asm/media";
+import type { MessageReactionSummary, ViewOnceReceipt } from "@asm/messages";
+import { extractMessageReferences } from "@asm/messages";
 
 import { uploadMediaFile } from "@/lib/media/media-upload-client";
 import type { UploadStage } from "@/lib/media/media-upload-client";
+import { fetchChatApi } from "@/lib/messages/chat-capability";
 import type {
   DenMembershipEvent,
   MessageConversationData,
@@ -36,6 +40,7 @@ import {
   readMembershipSeq,
 } from "./membership-seq";
 import { shouldReplaceMessageRevision } from "./message-revision";
+import { fetchMessageSearchJson } from "./search-request";
 
 // Thin typed wrappers around the messages API plus the client-side crypto
 // orchestration (unwrap a conversation key, encrypt a message). All network
@@ -112,6 +117,7 @@ export interface ConversationListItem {
   conversation: MessageConversationData;
   isNew: boolean;
   lastMessage: {
+    expiresAt?: string | null;
     ciphertext: string;
     createdAt: string;
     deletedAt: string | null;
@@ -221,6 +227,7 @@ async function readErrorBody(response: Response): Promise<ParsedErrorBody> {
       retryAfterSeconds = bodyRetryAfter;
     }
   } catch {
+    // Reconcile safely on the next request; do not expose source errors.
     // fall through with the generic message
   }
   return { code, expectedIndex, message, retryAfterSeconds };
@@ -275,7 +282,7 @@ export async function fetchIdentity(): Promise<{
   identity: MessageIdentityPayload | null;
   recoveryGeneration: number;
 }> {
-  const response = await fetch("/api/messages/identity", {
+  const response = await fetchChatApi("/api/messages/identity", {
     credentials: "same-origin",
   });
   if (!response.ok) {
@@ -303,7 +310,7 @@ export async function saveIdentity(payload: {
   publicKey: string;
   salt: string;
 }): Promise<void> {
-  const response = await fetch("/api/messages/identity", {
+  const response = await fetchChatApi("/api/messages/identity", {
     body: JSON.stringify(payload),
     credentials: "same-origin",
     headers: { "Content-Type": "application/json" },
@@ -322,7 +329,7 @@ export async function refreshIdentityBackup(payload: {
   publicKey: string;
   salt: string;
 }): Promise<{ recoveryGeneration: number; updatedAt: string }> {
-  const response = await fetch("/api/messages/identity", {
+  const response = await fetchChatApi("/api/messages/identity", {
     body: JSON.stringify(payload),
     credentials: "same-origin",
     headers: { "Content-Type": "application/json" },
@@ -366,7 +373,7 @@ export async function refreshIdentityBackup(payload: {
 export async function resetMessageIdentity(): Promise<{
   recoveryGeneration: number;
 }> {
-  const response = await fetch("/api/messages/identity", {
+  const response = await fetchChatApi("/api/messages/identity", {
     credentials: "same-origin",
     method: "DELETE",
   });
@@ -387,7 +394,7 @@ export async function resetMessageIdentity(): Promise<{
 export async function createConversation(
   recipientId: string
 ): Promise<{ conversation: MessageConversationData; isNew: boolean }> {
-  const response = await fetch("/api/messages/conversations", {
+  const response = await fetchChatApi("/api/messages/conversations", {
     body: JSON.stringify({ recipientId }),
     credentials: "same-origin",
     headers: { "Content-Type": "application/json" },
@@ -424,7 +431,7 @@ export async function createDen(input: {
   inviteShortCode: string;
   isNew: boolean;
 }> {
-  const response = await fetch("/api/messages/conversations", {
+  const response = await fetchChatApi("/api/messages/conversations", {
     body: JSON.stringify({
       // The explicit discriminator, so a malformed DM body can never be read as a
       // request for a group.
@@ -509,7 +516,7 @@ export interface DenDetailResponse {
 export async function fetchDen(
   conversationId: string
 ): Promise<DenDetailResponse> {
-  const response = await fetch(`/api/messages/dens/${conversationId}`, {
+  const response = await fetchChatApi(`/api/messages/dens/${conversationId}`, {
     credentials: "same-origin",
   });
   if (!response.ok) {
@@ -530,7 +537,7 @@ export async function updateDenDetails(
     name?: string;
   }
 ): Promise<void> {
-  const response = await fetch(`/api/messages/dens/${conversationId}`, {
+  const response = await fetchChatApi(`/api/messages/dens/${conversationId}`, {
     body: JSON.stringify(input),
     credentials: "same-origin",
     headers: { "Content-Type": "application/json" },
@@ -550,7 +557,7 @@ export async function fetchDenMembers(
 ): Promise<DenMember[]> {
   const query =
     limit === undefined ? "" : `?limit=${encodeURIComponent(String(limit))}`;
-  const response = await fetch(
+  const response = await fetchChatApi(
     `/api/messages/dens/${conversationId}/members${query}`,
     { credentials: "same-origin" }
   );
@@ -568,12 +575,15 @@ export async function addDenMembers(
   conversationId: string,
   memberIds: string[]
 ): Promise<string[]> {
-  const response = await fetch(`/api/messages/dens/${conversationId}/members`, {
-    body: JSON.stringify({ memberIds }),
-    credentials: "same-origin",
-    headers: { "Content-Type": "application/json" },
-    method: "POST",
-  });
+  const response = await fetchChatApi(
+    `/api/messages/dens/${conversationId}/members`,
+    {
+      body: JSON.stringify({ memberIds }),
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+    }
+  );
   if (!response.ok) {
     throw await parseDenError(response);
   }
@@ -602,9 +612,12 @@ export interface DenBannedMember {
 export async function fetchDenBans(
   conversationId: string
 ): Promise<DenBannedMember[]> {
-  const response = await fetch(`/api/messages/dens/${conversationId}/bans`, {
-    credentials: "same-origin",
-  });
+  const response = await fetchChatApi(
+    `/api/messages/dens/${conversationId}/bans`,
+    {
+      credentials: "same-origin",
+    }
+  );
   if (!response.ok) {
     throw await parseDenError(response);
   }
@@ -619,15 +632,18 @@ export async function banDenMember(
   userId: string,
   reason?: string | null
 ): Promise<void> {
-  const response = await fetch(`/api/messages/dens/${conversationId}/bans`, {
-    body: JSON.stringify({
-      reason: reason ?? null,
-      userId,
-    }),
-    credentials: "same-origin",
-    headers: { "Content-Type": "application/json" },
-    method: "POST",
-  });
+  const response = await fetchChatApi(
+    `/api/messages/dens/${conversationId}/bans`,
+    {
+      body: JSON.stringify({
+        reason: reason ?? null,
+        userId,
+      }),
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+    }
+  );
   if (!response.ok) {
     throw await parseDenError(response);
   }
@@ -639,7 +655,7 @@ export async function unbanDenMember(
   conversationId: string,
   userId: string
 ): Promise<void> {
-  const response = await fetch(
+  const response = await fetchChatApi(
     `/api/messages/dens/${conversationId}/bans/${encodeURIComponent(userId)}`,
     { credentials: "same-origin", method: "DELETE" }
   );
@@ -652,7 +668,7 @@ export async function removeDenMember(
   conversationId: string,
   userId: string
 ): Promise<void> {
-  const response = await fetch(
+  const response = await fetchChatApi(
     `/api/messages/dens/${conversationId}/members/${encodeURIComponent(userId)}`,
     { credentials: "same-origin", method: "DELETE" }
   );
@@ -669,12 +685,15 @@ export async function setDenMemberRole(
   userId: string,
   role: "ADMIN" | "MEMBER"
 ): Promise<void> {
-  const response = await fetch(`/api/messages/dens/${conversationId}/role`, {
-    body: JSON.stringify({ role, userId }),
-    credentials: "same-origin",
-    headers: { "Content-Type": "application/json" },
-    method: "POST",
-  });
+  const response = await fetchChatApi(
+    `/api/messages/dens/${conversationId}/role`,
+    {
+      body: JSON.stringify({ role, userId }),
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+    }
+  );
   if (!response.ok) {
     throw await parseDenError(response);
   }
@@ -689,7 +708,7 @@ export async function transferDenOwnership(
   conversationId: string,
   userId: string
 ): Promise<void> {
-  const response = await fetch(
+  const response = await fetchChatApi(
     `/api/messages/dens/${conversationId}/transfer`,
     {
       body: JSON.stringify({ userId }),
@@ -710,10 +729,13 @@ export async function transferDenOwnership(
 export async function leaveDen(
   conversationId: string
 ): Promise<{ newOwnerId: string | null }> {
-  const response = await fetch(`/api/messages/dens/${conversationId}/leave`, {
-    credentials: "same-origin",
-    method: "POST",
-  });
+  const response = await fetchChatApi(
+    `/api/messages/dens/${conversationId}/leave`,
+    {
+      credentials: "same-origin",
+      method: "POST",
+    }
+  );
   if (!response.ok) {
     throw await parseDenError(response);
   }
@@ -726,10 +748,13 @@ export async function leaveDen(
 // Dissolves the den outright. Owner only, and the one operation here that is
 // not undoable, which is why its confirmation is its own dialog.
 export async function dissolveDen(conversationId: string): Promise<void> {
-  const response = await fetch(`/api/messages/dens/${conversationId}/leave`, {
-    credentials: "same-origin",
-    method: "DELETE",
-  });
+  const response = await fetchChatApi(
+    `/api/messages/dens/${conversationId}/leave`,
+    {
+      credentials: "same-origin",
+      method: "DELETE",
+    }
+  );
   if (!response.ok) {
     throw await parseDenError(response);
   }
@@ -745,12 +770,15 @@ export async function createDenInvite(
   conversationId: string,
   durationDays: DenInviteDurationDays | null
 ): Promise<{ inviteCode: string; inviteExpiresAt: Date | null }> {
-  const response = await fetch(`/api/messages/dens/${conversationId}/invite`, {
-    body: JSON.stringify({ durationDays }),
-    credentials: "same-origin",
-    headers: { "content-type": "application/json" },
-    method: "POST",
-  });
+  const response = await fetchChatApi(
+    `/api/messages/dens/${conversationId}/invite`,
+    {
+      body: JSON.stringify({ durationDays }),
+      credentials: "same-origin",
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    }
+  );
   if (!response.ok) {
     throw await parseDenError(response);
   }
@@ -774,7 +802,7 @@ export async function createDenShortCode(
   conversationId: string,
   durationDays: DenInviteDurationDays | null
 ): Promise<{ inviteShortCode: string; inviteShortCodeExpiresAt: Date | null }> {
-  const response = await fetch(
+  const response = await fetchChatApi(
     `/api/messages/dens/${conversationId}/invite-code`,
     {
       body: JSON.stringify({ durationDays }),
@@ -863,7 +891,7 @@ export type DenInvitePreviewResponse =
 export async function fetchDenInvitePreview(
   code: string
 ): Promise<DenInvitePreviewResponse> {
-  const response = await fetch(
+  const response = await fetchChatApi(
     `/api/messages/dens/join/${encodeURIComponent(code)}`,
     { credentials: "same-origin" }
   );
@@ -890,7 +918,7 @@ export async function fetchDenInvitePreview(
 export async function fetchDenInviteAvatar(
   code: string
 ): Promise<string | null> {
-  const response = await fetch(
+  const response = await fetchChatApi(
     `/api/messages/dens/join/${encodeURIComponent(code)}/avatar`,
     { credentials: "same-origin" }
   );
@@ -909,7 +937,7 @@ export async function fetchDenInviteAvatar(
 export async function joinDen(
   code: string
 ): Promise<{ alreadyMember: boolean; conversationId: string }> {
-  const response = await fetch(
+  const response = await fetchChatApi(
     `/api/messages/dens/join/${encodeURIComponent(code)}`,
     { credentials: "same-origin", method: "POST" }
   );
@@ -936,7 +964,7 @@ export async function postConversationKeys(
   conversationId: string,
   keys: WrappedKeyPayload[]
 ): Promise<{ applied: number }> {
-  const response = await fetch(
+  const response = await fetchChatApi(
     `/api/messages/conversations/${conversationId}/keys`,
     {
       body: JSON.stringify({ keys }),
@@ -1070,7 +1098,7 @@ export async function fetchConversationList(
   cursor?: string
 ): Promise<ConversationListResponse> {
   const query = cursor ? `?cursor=${encodeURIComponent(cursor)}` : "";
-  const response = await fetch(`/api/messages/conversations${query}`, {
+  const response = await fetchChatApi(`/api/messages/conversations${query}`, {
     credentials: "same-origin",
   });
   if (!response.ok) {
@@ -1087,7 +1115,7 @@ export async function fetchConversationList(
 export async function fetchConversationDetail(
   conversationId: string
 ): Promise<ConversationDetailResponse> {
-  const response = await fetch(
+  const response = await fetchChatApi(
     `/api/messages/conversations/${conversationId}`,
     {
       credentials: "same-origin",
@@ -1111,7 +1139,7 @@ export async function fetchConversationDetail(
 export async function fetchDenMembershipEvents(
   conversationId: string
 ): Promise<DenMembershipEvent[]> {
-  const response = await fetch(
+  const response = await fetchChatApi(
     `/api/messages/conversations/${conversationId}/events`,
     { credentials: "same-origin" }
   );
@@ -1141,7 +1169,7 @@ export async function updateConversationPrefs(
     wallpaperKey?: string | null;
   }
 ): Promise<ConversationPrefs> {
-  const response = await fetch(
+  const response = await fetchChatApi(
     `/api/messages/conversations/${conversationId}/prefs`,
     {
       body: JSON.stringify(prefs),
@@ -1166,7 +1194,7 @@ export async function setConversationWallpaperUpload(
   conversationId: string,
   mediaId: string
 ): Promise<ConversationPrefs> {
-  const response = await fetch(
+  const response = await fetchChatApi(
     `/api/messages/conversations/${conversationId}/wallpaper`,
     {
       body: JSON.stringify({ mediaId }),
@@ -1187,7 +1215,7 @@ export async function setConversationWallpaperUpload(
 export async function clearConversationWallpaperUpload(
   conversationId: string
 ): Promise<ConversationPrefs> {
-  const response = await fetch(
+  const response = await fetchChatApi(
     `/api/messages/conversations/${conversationId}/wallpaper`,
     {
       credentials: "same-origin",
@@ -1277,7 +1305,7 @@ export async function fetchMessages(
     params.set("limit", String(limit));
   }
   const query = params.size > 0 ? `?${params.toString()}` : "";
-  const response = await fetch(
+  const response = await fetchChatApi(
     `/api/messages/conversations/${conversationId}/messages${query}`,
     { credentials: "same-origin", signal: options?.signal }
   );
@@ -1295,15 +1323,64 @@ export async function fetchMessages(
   };
 }
 
+export async function toggleMessageReaction(
+  conversationId: string,
+  messageId: string,
+  emoji: string,
+  sessionId?: string
+): Promise<MessageReactionSummary[]> {
+  const response = await fetchChatApi(
+    `/api/messages/conversations/${conversationId}/reactions/${messageId}`,
+    {
+      body: JSON.stringify({ emoji, ...(sessionId ? { sessionId } : {}) }),
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+    }
+  );
+  if (!response.ok) {
+    throw await parseError(response);
+  }
+  const result = (await response.json()) as {
+    reactions: MessageReactionSummary[];
+  };
+  return result.reactions;
+}
+
+export async function fetchMessageReactions(
+  conversationId: string,
+  messageId: string,
+  sessionId?: string
+): Promise<MessageReactionSummary[]> {
+  const query = sessionId ? `?sessionId=${encodeURIComponent(sessionId)}` : "";
+  const response = await fetchChatApi(
+    `/api/messages/conversations/${conversationId}/reactions/${messageId}${query}`,
+    { credentials: "same-origin" }
+  );
+  if (!response.ok) {
+    throw await parseError(response);
+  }
+  const result = (await response.json()) as {
+    reactions: MessageReactionSummary[];
+  };
+  return result.reactions;
+}
+
 export interface MessageMediaUpload {
+  bytes: number;
+  durationSec: number | null;
   height: number | null;
-  kind: "gif" | "image";
+  kind: MessageAttachmentKind;
   mediaId: string;
+  mimeType: string;
+  filename: string;
   url: string;
   width: number | null;
 }
 
 export interface MessageMediaUploadOptions {
+  viewOnce?: boolean;
+  incognitoSessionId?: string;
   // Fires as the bytes go up (0-100), letting the staging strip render a real
   // progress bar instead of a spinner.
   onProgress?: (percent: number) => void;
@@ -1319,7 +1396,7 @@ export interface MessageMediaUploadOptions {
 
 export async function uploadMessageMedia(
   file: File,
-  kind: "gif" | "image",
+  kind: MessageAttachmentKind,
   conversationId: string,
   options: MessageMediaUploadOptions = {}
 ): Promise<MessageMediaUpload> {
@@ -1331,24 +1408,31 @@ export async function uploadMessageMedia(
   // encrypted payload so receivers reserve the bubble box up front. The await
   // resolves only once the pipeline is READY: the serving route gates on that
   // status, so sending earlier would hand the peer a 404.
-  const dimensions = await readImageDimensions(file);
+  const dimensions =
+    kind === "gif" || kind === "image" ? await readImageDimensions(file) : null;
   const result = await uploadMediaFile(file, {
     height: dimensions?.height ?? null,
+    incognitoSessionId: options.incognitoSessionId,
     messageConversationId: conversationId,
     onMediaId: options.onMediaId,
     onProgress: options.onProgress,
     onStage: options.onStage,
     purpose: "message",
     signal: options.signal,
+    viewOnce: options.viewOnce,
     width: dimensions?.width ?? null,
   });
   if (result.status === "REJECTED") {
     throw new Error("Attachment was rejected by moderation scanning");
   }
   return {
+    bytes: file.size,
+    durationSec: null,
+    filename: file.name,
     height: dimensions?.height ?? null,
     kind,
     mediaId: result.mediaId,
+    mimeType: file.type,
     url: `/api/media/${result.mediaId}`,
     width: dimensions?.width ?? null,
   };
@@ -1362,7 +1446,7 @@ export async function uploadMessageMedia(
 // never reaches the server leaves the row orphaned.
 export async function discardMessageMedia(mediaId: string): Promise<void> {
   try {
-    await fetch(`/api/media/${mediaId}/message-discard`, {
+    await fetchChatApi(`/api/media/${mediaId}/message-discard`, {
       credentials: "same-origin",
       // keepalive lets the request survive a navigation/unmount, so a staged
       // attachment is still reclaimed when the sender leaves the thread.
@@ -1370,6 +1454,7 @@ export async function discardMessageMedia(mediaId: string): Promise<void> {
       method: "DELETE",
     });
   } catch {
+    // Reconcile safely on the next request; do not expose source errors.
     // Best-effort: a dropped discard request is not worth interrupting the UI.
   }
 }
@@ -1386,7 +1471,7 @@ export async function linkMessageMedia(
   conversationId: string
 ): Promise<boolean> {
   try {
-    const response = await fetch(`/api/media/${mediaId}/message-link`, {
+    const response = await fetchChatApi(`/api/media/${mediaId}/message-link`, {
       body: JSON.stringify({ conversationId }),
       credentials: "same-origin",
       headers: { "Content-Type": "application/json" },
@@ -1417,6 +1502,7 @@ export async function readImageDimensions(
       }
     }
   } catch {
+    // Reconcile safely on the next request; do not expose source errors.
     // Decoding failures surface at upload/scan time; dimensions stay unknown.
   }
   return null;
@@ -1485,7 +1571,8 @@ export async function sendEncryptedMessage(
   rootKey: Uint8Array,
   senderId: string,
   ratchetIndex: number,
-  payload: MessagePayload
+  payload: MessagePayload,
+  clientMessageId?: string
 ): Promise<MessageData> {
   const encrypted = await encryptMessage(
     rootKey,
@@ -1494,13 +1581,43 @@ export async function sendEncryptedMessage(
     conversationId,
     payload
   );
-  const response = await fetch(
+  const lifecycleResponse = await fetchChatApi(
+    `/api/messages/conversations/${conversationId}/lifecycle`,
+    { cache: "no-store", credentials: "same-origin" }
+  );
+  if (!lifecycleResponse.ok) {
+    throw await parseError(lifecycleResponse);
+  }
+  const lifecycle = (await lifecycleResponse.json()) as {
+    retentionVersion: number;
+    activeSession: unknown;
+  };
+  if (lifecycle.activeSession) {
+    throw new MessagesApiError(
+      "Incognito is active. Open the incognito session to send.",
+      409
+    );
+  }
+  const mediaIds = extractMessageReferences(payload).flatMap((ref) =>
+    ref.kind === "media" && ref.requiredId ? [ref.requiredId] : []
+  );
+  const viewOnceMediaIds =
+    payload.type === "media" && "attachments" in payload
+      ? payload.attachments.flatMap((attachment) =>
+          attachment.kind === "view-once" ? [attachment.ref] : []
+        )
+      : [];
+  const response = await fetchChatApi(
     `/api/messages/conversations/${conversationId}/messages`,
     {
       body: JSON.stringify({
+        ...(clientMessageId ? { clientMessageId } : {}),
         ciphertext: encrypted.ciphertext,
         iv: encrypted.iv,
+        mediaIds,
         ratchetIndex: encrypted.ratchetIndex,
+        retentionVersion: lifecycle.retentionVersion,
+        viewOnceMediaIds,
       }),
       credentials: "same-origin",
       headers: { "Content-Type": "application/json" },
@@ -1522,11 +1639,12 @@ export async function sendTypingIndicator(
   conversationId: string
 ): Promise<void> {
   try {
-    await fetch(`/api/messages/conversations/${conversationId}/typing`, {
+    await fetchChatApi(`/api/messages/conversations/${conversationId}/typing`, {
       credentials: "same-origin",
       method: "POST",
     });
   } catch {
+    // Reconcile safely on the next request; do not expose source errors.
     // Typing indicators are best-effort; a dropped heartbeat is harmless.
   }
 }
@@ -1534,7 +1652,7 @@ export async function sendTypingIndicator(
 export async function markConversationRead(
   conversationId: string
 ): Promise<void> {
-  const response = await fetch(
+  const response = await fetchChatApi(
     `/api/messages/conversations/${conversationId}/read`,
     { credentials: "same-origin", method: "POST" }
   );
@@ -1544,10 +1662,109 @@ export async function markConversationRead(
 }
 
 export async function deleteMessage(messageId: string): Promise<void> {
-  const response = await fetch(`/api/messages/messages/${messageId}`, {
+  const response = await fetchChatApi(`/api/messages/messages/${messageId}`, {
     credentials: "same-origin",
     method: "DELETE",
   });
+  if (!response.ok) {
+    throw await parseError(response);
+  }
+}
+
+export async function openViewOnceMedia(
+  conversationId: string,
+  mediaId: string,
+  grantId: string,
+  signal?: AbortSignal
+): Promise<Blob> {
+  const path = `/api/messages/conversations/${conversationId}/media/${mediaId}/view-once/open`;
+  const headers = { "X-View-Once-Grant": grantId };
+  const reservation = await fetchChatApi(path, {
+    cache: "no-store",
+    credentials: "same-origin",
+    headers,
+    method: "POST",
+    signal,
+  });
+  if (!reservation.ok) {
+    throw await parseError(reservation);
+  }
+  try {
+    const response = await fetchChatApi(path, {
+      cache: "no-store",
+      credentials: "same-origin",
+      headers,
+      signal,
+    });
+    if (!response.ok) {
+      throw await parseError(response);
+    }
+    const blob = await response.blob();
+    signal?.throwIfAborted();
+    return blob;
+  } catch (error) {
+    await closeViewOnceMedia(conversationId, mediaId, grantId).catch(() => {
+      // The cleanup worker releases abandoned grants if this request cannot reach the server.
+    });
+    throw error;
+  }
+}
+
+export async function fetchViewOnceReceipt(
+  conversationId: string,
+  mediaId: string,
+  signal?: AbortSignal
+) {
+  const response = await fetchChatApi(
+    `/api/messages/conversations/${conversationId}/media/${mediaId}/view-once/receipt`,
+    { cache: "no-store", credentials: "same-origin", signal }
+  );
+  if (!response.ok) {
+    throw await parseError(response);
+  }
+  return (await response.json()) as ViewOnceReceipt;
+}
+
+export async function acknowledgeViewOnceSeen(
+  conversationId: string,
+  mediaId: string,
+  grantId: string
+) {
+  const response = await fetchChatApi(
+    `/api/messages/conversations/${conversationId}/media/${mediaId}/view-once/receipt`,
+    {
+      body: JSON.stringify({ grantId }),
+      cache: "no-store",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      keepalive: true,
+      method: "POST",
+      signal: AbortSignal.timeout(5000),
+    }
+  );
+  if (!response.ok) {
+    throw await parseError(response);
+  }
+  return (await response.json()) as ViewOnceReceipt;
+}
+
+export async function closeViewOnceMedia(
+  conversationId: string,
+  mediaId: string,
+  grantId: string
+): Promise<void> {
+  const response = await fetchChatApi(
+    `/api/messages/conversations/${conversationId}/media/${mediaId}/view-once/close`,
+    {
+      body: JSON.stringify({ grantId }),
+      cache: "no-store",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      keepalive: true,
+      method: "POST",
+      signal: AbortSignal.timeout(5000),
+    }
+  );
   if (!response.ok) {
     throw await parseError(response);
   }
@@ -1560,7 +1777,7 @@ export async function hideMessages(
   conversationId: string,
   messageIds: string[]
 ): Promise<number> {
-  const response = await fetch(
+  const response = await fetchChatApi(
     `/api/messages/conversations/${conversationId}/hide`,
     {
       body: JSON.stringify({ messageIds }),
@@ -1583,7 +1800,7 @@ export async function ackMessageDelivered(
   conversationId: string,
   messageId: string
 ): Promise<void> {
-  const response = await fetch(
+  const response = await fetchChatApi(
     `/api/messages/conversations/${conversationId}/delivered`,
     {
       body: JSON.stringify({ messageId }),
@@ -1604,7 +1821,7 @@ export async function editMessage(
   messageId: string,
   encrypted: Pick<EncryptedMessage, "ciphertext" | "iv">
 ): Promise<MessageData> {
-  const response = await fetch(`/api/messages/messages/${messageId}`, {
+  const response = await fetchChatApi(`/api/messages/messages/${messageId}`, {
     body: JSON.stringify({
       ciphertext: encrypted.ciphertext,
       iv: encrypted.iv,
@@ -1635,7 +1852,7 @@ export async function fetchGroupAddEligibility(
   if (userIds.length === 0) {
     return {};
   }
-  const response = await fetch(
+  const response = await fetchChatApi(
     `/api/messages/dens/add-eligibility?ids=${encodeURIComponent(
       userIds.join(",")
     )}`,
@@ -1658,21 +1875,57 @@ export async function fetchGroupAddEligibility(
 // message". Anything else stays follow-only.
 export async function searchMessageUsers(
   query: string,
-  context: "den" | "message" = "message"
+  context: "den" | "message" = "message",
+  signal?: AbortSignal
 ): Promise<SearchUserResult[]> {
-  const response = await fetch(
+  const json = await fetchMessageSearchJson(
     `/api/messages/search?q=${encodeURIComponent(query)}&context=${context}`,
-    { credentials: "same-origin" }
+    { credentials: "same-origin", signal },
+    { maxBytes: 64 * 1024 }
   );
-  if (!response.ok) {
-    throw await parseError(response);
+  if (
+    typeof json !== "object" ||
+    json === null ||
+    !("users" in json) ||
+    !Array.isArray(json.users) ||
+    json.users.length > 20 ||
+    !json.users.every(isSearchUserResult)
+  ) {
+    throw new Error("Profile search results could not be loaded.");
   }
-  const json = (await response.json()) as { users: SearchUserResult[] };
   return json.users;
 }
 
+function isSearchUserResult(value: unknown): value is SearchUserResult {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+  return (
+    "id" in value &&
+    typeof value.id === "string" &&
+    value.id.length > 0 &&
+    "username" in value &&
+    typeof value.username === "string" &&
+    "displayName" in value &&
+    typeof value.displayName === "string" &&
+    "hasIdentity" in value &&
+    typeof value.hasIdentity === "boolean" &&
+    "avatarUrl" in value &&
+    (value.avatarUrl === null || typeof value.avatarUrl === "string") &&
+    "badge" in value &&
+    (value.badge === null || typeof value.badge === "string") &&
+    "badges" in value &&
+    Array.isArray(value.badges) &&
+    value.badges.every((badge) => typeof badge === "string") &&
+    "addRefusal" in value &&
+    (value.addRefusal === null ||
+      value.addRefusal === "NO_DIRECT_ADDS" ||
+      value.addRefusal === "NOT_FOLLOWING_YOU")
+  );
+}
+
 export async function fetchPresenceUsers(): Promise<PresenceUser[]> {
-  const response = await fetch("/api/messages/presence", {
+  const response = await fetchChatApi("/api/messages/presence", {
     credentials: "same-origin",
   });
   if (!response.ok) {
@@ -1684,18 +1937,19 @@ export async function fetchPresenceUsers(): Promise<PresenceUser[]> {
 
 export async function heartbeatPresence(): Promise<void> {
   try {
-    await fetch("/api/messages/presence", {
+    await fetchChatApi("/api/messages/presence", {
       credentials: "same-origin",
       method: "POST",
     });
   } catch {
+    // Reconcile safely on the next request; do not expose source errors.
     // Presence is best-effort; a failed heartbeat just means the user drops
     // off the online rail sooner.
   }
 }
 
 export async function fetchUnreadMessageCount(): Promise<number> {
-  const response = await fetch("/api/messages/unread-count", {
+  const response = await fetchChatApi("/api/messages/unread-count", {
     credentials: "same-origin",
   });
   if (!response.ok) {
@@ -1944,6 +2198,7 @@ export function toCachedMessage(message: MessageData): MessageData {
       message.editedAt === null || message.editedAt === undefined
         ? null
         : new Date(message.editedAt),
+    expiresAt: message.expiresAt ? new Date(message.expiresAt) : null,
   };
 }
 

@@ -755,7 +755,7 @@ export const GustCard: React.FC<GustCardProps> = ({
             (network delay), not during the initial load */}
         {isBuffering ? (
           <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
-            <Spinner3D className="size-12" />
+            <Spinner3D variant="media" className="size-12" />
           </div>
         ) : null}
 

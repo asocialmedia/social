@@ -9,7 +9,7 @@ import {
 import { siteConfig } from "@asm/ui/meta/site";
 import type { Metadata } from "next";
 import { cacheLife } from "next/cache";
-import { notFound, permanentRedirect } from "next/navigation";
+import { notFound, permanentRedirect, redirect } from "next/navigation";
 import { connection } from "next/server";
 import { cache } from "react";
 
@@ -102,6 +102,16 @@ export const getPost = cache(
 // full id instead of the short one - permanently redirects to the canonical.
 async function resolveCanonicalPost(params: PostRouteParams) {
   const session = await getSessionFromApi();
+  if (params.communitySlug) {
+    const { getCommunityBySlug, canViewCommunity } = await import("@asm/db");
+    const community = await getCommunityBySlug(params.communitySlug);
+    if (
+      community &&
+      !(await canViewCommunity(community, session?.user?.id ?? ""))
+    ) {
+      redirect(`/a/${community.slug}`);
+    }
+  }
   const post = await getPost(params.postId, session?.user?.id ?? "", {
     slug: params.slug,
   });
@@ -132,9 +142,26 @@ async function getMetadataPost(postId: string, slug?: string) {
   return await getPost(postId, "", { slug });
 }
 
+async function metadataCommunityIsPrivate(slug: string): Promise<boolean> {
+  "use cache";
+  cacheLife("hours");
+  const { getCommunityBySlug } = await import("@asm/db");
+  const community = await getCommunityBySlug(slug);
+  return community?.type === "PRIVATE";
+}
+
 export async function generatePostMetadata(
   params: PostRouteParams
 ): Promise<Metadata> {
+  if (
+    params.communitySlug &&
+    (await metadataCommunityIsPrivate(params.communitySlug))
+  ) {
+    return {
+      robots: { follow: false, index: false },
+      title: "Private community",
+    };
+  }
   // Only the lookup is guarded: `notFound()` / `permanentRedirect()` throw
   // control-flow errors that must propagate, so the canonical check below runs
   // OUTSIDE this try.

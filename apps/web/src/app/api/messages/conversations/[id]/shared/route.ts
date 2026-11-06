@@ -12,6 +12,7 @@ import {
 import { readMessageSearchFeatureFlags } from "@asm/messages/search";
 
 import { getSessionFromApi } from "@/lib/auth/session";
+import { chatCapabilityError } from "@/lib/messages/chat-capability";
 import { readerMessageWindows } from "@/lib/messages/reader-window";
 import { getConversationForUser } from "@/lib/messages/server";
 import {
@@ -81,6 +82,10 @@ export async function GET(
   }
   if (!conversation) {
     return Response.json({ error: "Conversation not found" }, { status: 404 });
+  }
+  const capabilityError = chatCapabilityError(request, conversation);
+  if (capabilityError) {
+    return capabilityError;
   }
   const member = conversation.members.find(
     (candidate) => candidate.userId === user.id
@@ -170,6 +175,7 @@ export async function GET(
           });
         }
       } catch {
+        // Reconcile safely on the next request; do not expose source errors.
         // The bounded read can still serve already indexed references.
       }
     }

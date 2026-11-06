@@ -20,6 +20,28 @@ describe("push path routing", () => {
     );
   });
 
+  test("maps community chat links to the native community chat screen", () => {
+    expect(pathToNativeRoute("/a/anime/chat/channel-1")).toBe(
+      "/a/anime/chat/channel-1"
+    );
+  });
+
+  test("preserves channel, thread, and message destinations in community pushes", () => {
+    expect(
+      pathToNativeRoute(
+        "/a/garden/chat/general-id/threads/thread-id?message=message-id"
+      )
+    ).toBe("/a/garden/chat/general-id/threads/thread-id?message=message-id");
+    expect(
+      pathToNativeRoute(
+        "/a/garden/chat/general-id?message=message-id&unused=value"
+      )
+    ).toBe("/a/garden/chat/general-id?message=message-id");
+    expect(pathToNativeRoute("/a/garden/chat/general-id/unexpected")).toBe(
+      "/notifications"
+    );
+  });
+
   test("strips a query string from the post id", () => {
     expect(pathToNativeRoute("/posts/abcd1234?comment=c1")).toBe(
       "/posts/abcd1234?comment=c1"

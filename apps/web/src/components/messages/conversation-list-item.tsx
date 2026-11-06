@@ -1,12 +1,14 @@
 "use client";
 
+import { messageIsRetained } from "@asm/messages";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@asm/ui/shadui/tooltip";
+import { useQueryClient } from "@tanstack/react-query";
 import { BellOff } from "lucide-react";
-import { memo } from "react";
+import { memo, useEffect, useState } from "react";
 
 import UserAvatar from "@/components/layouts/user/user-avatar";
 import UserBadge from "@/components/layouts/user/user-badge";
@@ -72,7 +74,31 @@ function ConversationRowInner({
     (member) => member.userId !== myUserId
   )?.user;
   const isDen = item.conversation.type === "DEN";
-  const { lastMessage } = item;
+  const queryClient = useQueryClient();
+  const [expiryClock, setExpiryClock] = useState(Date.now);
+  const storedLastMessage = item.lastMessage;
+  const lastMessage =
+    storedLastMessage && messageIsRetained(storedLastMessage, expiryClock)
+      ? storedLastMessage
+      : null;
+  useEffect(() => {
+    if (!storedLastMessage?.expiresAt) {
+      return;
+    }
+    const timer = setTimeout(
+      () => {
+        setExpiryClock(Date.now());
+        void queryClient.invalidateQueries({
+          queryKey: ["message-conversations"],
+        });
+      },
+      Math.max(
+        0,
+        new Date(storedLastMessage.expiresAt).getTime() - Date.now()
+      ) + 10
+    );
+    return () => clearTimeout(timer);
+  }, [storedLastMessage, queryClient]);
   // Mute is this member's own preference, read off their membership row.
   const muted = Boolean(myMember?.mutedAt);
   // A den this reader has left or been removed from. It stays in the rail and

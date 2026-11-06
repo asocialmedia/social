@@ -4,12 +4,13 @@ import type { PostsPage } from "@asm/db";
 import { Button } from "@asm/ui/shadui/button";
 import noMediaImage from "@assets/general/nomedia.png";
 import { useInfiniteQuery } from "@tanstack/react-query";
-import { Clapperboard, Eye, Flame, Loader2, Play } from "lucide-react";
+import { Clapperboard, Eye, Flame, Play } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import React, { useCallback, useMemo, useRef, useState } from "react";
 
 import InfiniteScrollContainer from "@/components/layouts/feed/infinite-scroll-container";
+import { ZephLoader } from "@/components/layouts/feedback/zeph-loader";
 import ModeratedNotice from "@/components/posts/content/moderated-notice";
 import { getAuraFlameClass } from "@/lib/aura/aura";
 import kyInstance from "@/lib/ky";
@@ -256,7 +257,7 @@ const UserGustsFeed: React.FC<UserGustsFeedProps> = ({
       </div>
       {isFetchingNextPage ? (
         <div className="flex justify-center py-4">
-          <Loader2 className="text-primary animate-spin" />
+          <ZephLoader variant="media" className="text-primary" />
         </div>
       ) : null}
       {!hasNextPage && posts.length > 0 ? (

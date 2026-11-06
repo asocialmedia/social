@@ -81,6 +81,8 @@ export const MESSAGE_SEARCH_BACKFILL_QUEUE = "message-search-backfill";
 export const MESSAGE_SEARCH_COUNT_QUEUE = "message-search-count";
 export const MESSAGE_UNREAD_COUNTER_QUEUE = "message-unread-counter";
 export const MESSAGE_SEARCH_MAX_ATTEMPTS = 8;
+export const CHAT_LIFECYCLE_QUEUE = "chat-lifecycle";
+export const CHAT_EXPORT_QUEUE = "chat-exports";
 const MAINTENANCE_QUEUE = "maintenance";
 
 // The worker increments this when a notification is created, and the web app
@@ -317,7 +319,7 @@ async function addNotificationJob(
   const existing = await queue.getJob(jobId);
   if (existing && (await existing.getState()) === "failed") {
     await existing.remove().catch(() => {
-      /* empty */
+      // No action is required here.
     });
   }
   await queue.add(name, data, options);
@@ -645,6 +647,12 @@ export async function enqueueMediaDeleteCascade(
 // Idempotent:
 // re-running replaces the scheduler definition.
 export async function registerMaintenanceSchedulers(): Promise<void> {
+  await getQueue(CHAT_LIFECYCLE_QUEUE).upsertJobScheduler("chat-expiry-sweep", {
+    every: 5000,
+  });
+  await getQueue(CHAT_EXPORT_QUEUE).upsertJobScheduler("chat-export-sweep", {
+    every: 5000,
+  });
   const queue = getQueue(MAINTENANCE_QUEUE);
   await queue.upsertJobScheduler("hn-refresh", { every: 15 * 60 * 1000 });
   await queue.upsertJobScheduler("expired-tokens", {

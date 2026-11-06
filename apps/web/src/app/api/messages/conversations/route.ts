@@ -1,5 +1,6 @@
 import {
   and,
+  or,
   canManageDen,
   createDen,
   fromPrismaDateTime,
@@ -12,6 +13,7 @@ import {
 
 import { getSessionFromApi } from "@/lib/auth/session";
 import { dmPeerId, isHiddenByBlock } from "@/lib/messages/blocks";
+import { supportsChatLifecycle } from "@/lib/messages/chat-capability";
 import {
   denErrorResponse,
   objectOf,
@@ -52,6 +54,7 @@ export interface ConversationListItem {
   conversation: MessageConversationData;
   isNew: boolean;
   lastMessage: {
+    expiresAt?: string | null;
     ciphertext: string;
     createdAt: string;
     deletedAt: string | null;
@@ -85,6 +88,7 @@ type ConversationQueryData = NonNullable<
 // The preview row, as the query returns it: scalars plus the Prisma 8 temporal
 // values for the three timestamp columns the select carries.
 interface RawMessage {
+  expiresAt?: ConversationQueryData["createdAt"] | null;
   ciphertext: string;
   conversationId: string;
   createdAt: ConversationQueryData["createdAt"];
@@ -258,6 +262,9 @@ function mapConversation(
         editedAt: message.editedAt
           ? fromPrismaDateTime(message.editedAt)
           : null,
+        expiresAt: message.expiresAt
+          ? fromPrismaDateTime(message.expiresAt)
+          : null,
       })
     ),
     pairKey: conversation.pairKey,
@@ -280,6 +287,9 @@ function toListItem(
           createdAt: lastMessage.createdAt.toISOString(),
           deletedAt: lastMessage.deletedAt
             ? lastMessage.deletedAt.toISOString()
+            : null,
+          expiresAt: lastMessage.expiresAt
+            ? new Date(lastMessage.expiresAt).toISOString()
             : null,
           id: lastMessage.id,
           iv: lastMessage.iv,
@@ -307,6 +317,7 @@ export async function GET(request: Request) {
         .where(visibleToUser(user.id))
         .select(
           "ciphertext",
+          "expiresAt",
           "conversationId",
           "createdAt",
           "deletedAt",
@@ -321,7 +332,13 @@ export async function GET(request: Request) {
     )
     .where((conversation) =>
       conversation.messageConversationMembers.some((member) =>
-        member.userId.eq(user.id)
+        and(
+          member.userId.eq(user.id),
+          or(
+            member.inboxHiddenAt.isNull(),
+            member.inboxHiddenAt.lt(conversation.updatedAt)
+          )
+        )
       )
     )
     .orderBy([
@@ -496,7 +513,13 @@ export async function GET(request: Request) {
       if (myMember?.leftAt || myMember?.mutedAt) {
         badge = 0;
       }
-      return toListItem(conversation, lastMessage, badge);
+      return toListItem(
+        conversation,
+        lastMessage?.expiresAt && !supportsChatLifecycle(request)
+          ? undefined
+          : lastMessage,
+        badge
+      );
     }
   );
 

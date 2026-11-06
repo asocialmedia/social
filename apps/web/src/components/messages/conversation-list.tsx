@@ -1,5 +1,7 @@
 "use client";
 
+import { normalizeMessageSearchQuery } from "@asm/messages/search";
+import { Input } from "@asm/ui/shadui/input";
 import { Tabs, TabsList, TabsTrigger } from "@asm/ui/shadui/tabs";
 import {
   Tooltip,
@@ -21,7 +23,6 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
-import UserAvatar from "@/components/layouts/user/user-avatar";
 import { ConversationRow } from "@/components/messages/conversation-list-item";
 import { CreateDenDialog } from "@/components/messages/create-den-dialog";
 import { JoinDenDialog } from "@/components/messages/join-den-dialog";
@@ -43,11 +44,21 @@ import {
   isDenListFilter,
 } from "@/lib/messages/den-label";
 import type { DenListFilter } from "@/lib/messages/den-label";
+import {
+  clearGlobalMessageSearchViewState,
+  saveGlobalMessageSearchViewState,
+  peekGlobalMessageSearchViewState,
+} from "@/lib/messages/global-message-search-view-state";
 import { newConversationErrorToast } from "@/lib/messages/new-conversation-copy";
+import { MessageSearchRequestError } from "@/lib/messages/search-request";
+import { focusSearchResult } from "@/lib/messages/search-result-navigation";
+import { useGlobalMessageSearch } from "@/lib/messages/use-global-message-search";
+import type { GlobalMessageSearchResult } from "@/lib/messages/use-global-message-search";
 import { useMessageActivity } from "@/lib/messages/use-message-activity";
 import { usePresence } from "@/lib/messages/use-presence";
 import { cn } from "@/lib/utils";
 
+import { GlobalMessageSearchResults } from "./global-message-search-results";
 import { MessagesErrorState } from "./messages-error-state";
 import { useConversationPreviewRequests } from "./use-conversation-preview-requests";
 
@@ -63,6 +74,70 @@ const FILTER_LABEL: Record<DenListFilter, string> = {
   DM: "DMs",
 };
 
+function filterTabsAriaLabel(
+  collapsed: boolean,
+  hasSearchQuery: boolean
+): string | undefined {
+  if (collapsed) {
+    return undefined;
+  }
+  return hasSearchQuery ? "Filter message results" : "Filter conversations";
+}
+
+function filterTabAriaLabel(
+  filter: DenListFilter,
+  hasSearchQuery: boolean,
+  conversationCount: number,
+  unreadCount: number
+): string {
+  if (hasSearchQuery) {
+    return `${FILTER_LABEL[filter]} message results`;
+  }
+  const unreadLabel = unreadCount > 0 ? ", unread messages" : "";
+  return `${FILTER_LABEL[filter]}, ${conversationCount} conversations${unreadLabel}`;
+}
+
+type ProfileSearchState = (
+  | {
+      attempt: number;
+      query: string;
+      results: SearchUserResult[];
+      status: "idle";
+    }
+  | {
+      attempt: number;
+      query: string;
+      results: [];
+      status: "loading" | "error";
+    }
+  | {
+      attempt: number;
+      query: string;
+      results: SearchUserResult[];
+      status: "success";
+    }
+) & { error?: string; retryAt?: number; userId?: string };
+
+function currentProfileSearchState(
+  state: ProfileSearchState,
+  query: string,
+  attempt: number,
+  composing: boolean,
+  userId: string | undefined
+): ProfileSearchState {
+  if (!query || composing || !userId) {
+    return { attempt, query, results: [], status: "idle" };
+  }
+  if (
+    state.query === query &&
+    state.attempt === attempt &&
+    state.userId === userId
+  ) {
+    return state;
+  }
+  return { attempt, query, results: [], status: "loading" };
+}
+
 interface ConversationListProps {
   activeConversationId: string | null;
   // Which shape the list takes. Decided by the page (see conversation-list-layout)
@@ -70,6 +145,7 @@ interface ConversationListProps {
   // owns.
   layout: ConversationListLayout;
   onSelect: (conversationId: string) => void;
+  onSelectMessage: (conversationId: string, messageId: string) => void;
   // Whether the sidebar is currently collapsed into rail mode.
   isCollapsed?: boolean;
   // Toggle the collapsed/expanded state.
@@ -84,9 +160,11 @@ export function ConversationList({
   layout,
   onExpand,
   onSelect,
+  onSelectMessage,
   onToggleCollapse,
 }: ConversationListProps) {
   const { user } = useSession();
+  const userId = user?.id;
   const queryClient = useQueryClient();
   const onlineUsers = usePresence(true);
   const presenceByUserId = useMemo(
@@ -97,16 +175,127 @@ export function ConversationList({
   const collapsed = isCollapsed ?? layout === "rail";
   const full = layout === "full" && !collapsed;
   const searchInputRef = useRef<HTMLInputElement>(null);
-  const searchContainerRef = useRef<HTMLDivElement>(null);
+  const globalSearchResultsRef = useRef<HTMLDivElement>(null);
+  const [restoredSearchView, setRestoredSearchView] = useState(() =>
+    layout === "hidden" || !user?.id
+      ? null
+      : peekGlobalMessageSearchViewState(user.id)
+  );
+  const globalSearchScrollTop = useRef(restoredSearchView?.scrollTop ?? 0);
+  const [restoreGlobalSearchScrollTop, setRestoreGlobalSearchScrollTop] =
+    useState(restoredSearchView?.scrollTop ?? 0);
+  const [selectedSearchMessageId, setSelectedSearchMessageId] = useState<
+    string | null
+  >(restoredSearchView?.selectedMessageId ?? null);
 
-  const [query, setQuery] = useState("");
-  const [results, setResults] = useState<SearchUserResult[]>([]);
-  const [searching, setSearching] = useState(false);
+  const [query, setQuery] = useState(restoredSearchView?.query ?? "");
+  const [isComposing, setIsComposing] = useState(false);
+  const [searchFocused, setSearchFocused] = useState(false);
+  const [profileSearch, setProfileSearch] = useState<ProfileSearchState>({
+    attempt: 0,
+    query: "",
+    results: [],
+    status: "idle",
+  });
+  const [profileSearchAttempt, setProfileSearchAttempt] = useState(0);
+  const [profilesExpanded, setProfilesExpanded] = useState(
+    restoredSearchView?.profilesExpanded ?? false
+  );
   const [creating, setCreating] = useState<string | null>(null);
   const creatingRef = useRef(false);
-  const [filter, setFilter] = useState<DenListFilter>("ALL");
+  const [filter, setFilter] = useState<DenListFilter>(
+    restoredSearchView?.conversationType ?? "ALL"
+  );
   const [denDialogOpen, setDenDialogOpen] = useState(false);
   const [joinDialogOpen, setJoinDialogOpen] = useState(false);
+  const globalSearch = useGlobalMessageSearch({
+    conversationType: filter,
+    enabled: !isComposing,
+    query,
+    visible: layout !== "hidden",
+  });
+  const profileQuery = query.trim();
+  const hasSearchQuery = profileQuery.length > 0;
+  const currentProfileSearch = currentProfileSearchState(
+    profileSearch,
+    profileQuery,
+    profileSearchAttempt,
+    isComposing,
+    userId
+  );
+  const searchInputLabel = collapsed
+    ? undefined
+    : "Search profiles and messages";
+  const searchInputPlaceholder = collapsed ? undefined : "Search…";
+  const { loadMore: loadGlobalSearchMore } = globalSearch;
+  const handleGlobalSearchRetry = globalSearch.retry;
+  const handleFailedPageRetry =
+    globalSearch.results.length > 0 && globalSearch.hasMore
+      ? globalSearch.loadMore
+      : globalSearch.retry;
+  const handleGlobalSearchLoadMore = useCallback(async () => {
+    await loadGlobalSearchMore();
+  }, [loadGlobalSearchMore]);
+  const resetGlobalSearchPosition = useCallback(() => {
+    globalSearchScrollTop.current = 0;
+    setRestoreGlobalSearchScrollTop(0);
+    setSelectedSearchMessageId(null);
+  }, []);
+  const handleSearchQueryChange = useCallback(
+    (value: string) => {
+      setRestoredSearchView(null);
+      setProfilesExpanded(false);
+      if (user?.id) {
+        clearGlobalMessageSearchViewState(user.id);
+      }
+      resetGlobalSearchPosition();
+      setQuery(value);
+    },
+    [resetGlobalSearchPosition, user]
+  );
+  const handleClearSearch = useCallback(() => {
+    handleSearchQueryChange("");
+  }, [handleSearchQueryChange]);
+  const handleGlobalSearchScroll = useCallback((scrollTop: number) => {
+    globalSearchScrollTop.current = scrollTop;
+  }, []);
+  const profileRetryAt = currentProfileSearch.retryAt ?? 0;
+  const handleProfileRetry = useCallback(() => {
+    if (profileRetryAt > Date.now()) {
+      return;
+    }
+    setProfileSearchAttempt((attempt) => attempt + 1);
+  }, [profileRetryAt]);
+  const handleProfileToggleExpanded = useCallback(() => {
+    setProfilesExpanded((expanded) => !expanded);
+  }, []);
+  const handleSearchEscape = useCallback(() => {
+    handleClearSearch();
+    searchInputRef.current?.focus();
+  }, [handleClearSearch]);
+  const handleGlobalSearchSelect = useCallback(
+    (result: GlobalMessageSearchResult) => {
+      setRestoreGlobalSearchScrollTop(globalSearchScrollTop.current);
+      setSelectedSearchMessageId(result.hit.id);
+      if (user?.id) {
+        saveGlobalMessageSearchViewState(user.id, {
+          conversationType: filter,
+          profilesExpanded,
+          query,
+          scrollTop: globalSearchScrollTop.current,
+          selectedMessageId: result.hit.id,
+        });
+      }
+      onSelectMessage(result.hit.conversationId, result.hit.id);
+    },
+    [filter, onSelectMessage, profilesExpanded, query, user]
+  );
+
+  useEffect(() => {
+    if (layout !== "hidden" && user?.id) {
+      clearGlobalMessageSearchViewState(user.id);
+    }
+  }, [layout, user]);
 
   const { data, isLoading, isError } = useQuery({
     queryFn: () => fetchConversationList(),
@@ -134,11 +323,15 @@ export function ConversationList({
     [items]
   );
 
-  const handleFilterChange = useCallback((value: string) => {
-    if (isDenListFilter(value)) {
-      setFilter(value);
-    }
-  }, []);
+  const handleFilterChange = useCallback(
+    (value: string) => {
+      if (isDenListFilter(value)) {
+        resetGlobalSearchPosition();
+        setFilter(value);
+      }
+    },
+    [resetGlobalSearchPosition]
+  );
 
   const refetchList = useCallback(() => {
     void queryClient.invalidateQueries({
@@ -156,29 +349,10 @@ export function ConversationList({
   // Clear search query if sidebar gets collapsed.
   useEffect(() => {
     if (collapsed && query) {
-      const timer = setTimeout(() => setQuery(""), 0);
+      const timer = setTimeout(handleClearSearch, 0);
       return () => clearTimeout(timer);
     }
-  }, [collapsed, query]);
-
-  // Dismiss search results dropdown when clicking outside the search container.
-  useEffect(() => {
-    if (!query) {
-      return;
-    }
-    const handleClickOutside = (event: MouseEvent) => {
-      if (
-        searchContainerRef.current &&
-        !searchContainerRef.current.contains(event.target as Node)
-      ) {
-        setQuery("");
-      }
-    };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => {
-      document.removeEventListener("mousedown", handleClickOutside);
-    };
-  }, [query]);
+  }, [collapsed, handleClearSearch, query]);
 
   // Shared create-conversation flow used by both entry points (the custom
   // "new conversation" event and the search result row): creating state,
@@ -186,14 +360,16 @@ export function ConversationList({
   const startConversation = useCallback(
     async (recipientId: string) => {
       if (creatingRef.current) {
-        return;
+        return false;
       }
       creatingRef.current = true;
+      let created = false;
       try {
         setCreating(recipientId);
         const { conversation } = await createConversation(recipientId);
         refetchList();
         onSelect(conversation.id);
+        created = true;
       } catch (error) {
         // One decision, in the file that owns it: a 401 here means this device has
         // no session, and the server's body for it is the bare word "Unauthorized",
@@ -206,6 +382,7 @@ export function ConversationList({
       // so resetting here matches the previous `finally` semantics.
       setCreating(null);
       creatingRef.current = false;
+      return created;
     },
     [onSelect, refetchList]
   );
@@ -213,8 +390,8 @@ export function ConversationList({
   // "New message" requests arrive via a custom event (from the active friends
   // rail on the right).
   const handleNewConversationRequest = useCallback(
-    async (userId: string) => {
-      await startConversation(userId);
+    async (recipientId: string) => {
+      await startConversation(recipientId);
     },
     [startConversation]
   );
@@ -223,45 +400,91 @@ export function ConversationList({
     const handler = (event: Event) => {
       const { detail } = event as CustomEvent<{ userId?: string }>;
       if (detail?.userId) {
-        setQuery("");
+        handleClearSearch();
         void handleNewConversationRequest(detail.userId);
       }
     };
     window.addEventListener("messages:new-conversation", handler);
     return () =>
       window.removeEventListener("messages:new-conversation", handler);
-  }, [handleNewConversationRequest]);
+  }, [handleClearSearch, handleNewConversationRequest]);
 
-  // Debounced user search for starting a new conversation. Deferred so the
-  // effect body never calls setState synchronously; stale or cleaned-up
-  // requests are ignored so an out-of-order response cannot overwrite newer
-  // results.
+  // Search the same query for follow-eligible profiles, cancelling stale work
+  // while the message index uses its own shorter debounce and pagination.
   useEffect(() => {
-    if (query.trim().length === 0) {
-      const clearTimer = setTimeout(() => setResults([]), 0);
+    const normalizedQuery = query.trim();
+    if (layout === "hidden") {
+      return;
+    }
+    if (
+      isComposing ||
+      normalizedQuery.length === 0 ||
+      [...normalizedQuery].length > 256 ||
+      !userId
+    ) {
+      const clearTimer = setTimeout(
+        () =>
+          setProfileSearch({
+            attempt: profileSearchAttempt,
+            query: normalizedQuery,
+            results: [],
+            status: "idle",
+            userId,
+          }),
+        0
+      );
       return () => clearTimeout(clearTimer);
     }
+
     let cancelled = false;
+    const controller = new AbortController();
     const timer = setTimeout(async () => {
-      setSearching(true);
-      // A failed search should not leave stale results behind; `found`
-      // starts empty so the catch path clears the list below.
-      let found: SearchUserResult[] = [];
+      setProfileSearch({
+        attempt: profileSearchAttempt,
+        query: normalizedQuery,
+        results: [],
+        status: "loading",
+        userId,
+      });
       try {
-        found = await searchMessageUsers(query.trim());
+        const found = await searchMessageUsers(
+          normalizedQuery,
+          "message",
+          controller.signal
+        );
+        if (!cancelled) {
+          setProfileSearch({
+            attempt: profileSearchAttempt,
+            query: normalizedQuery,
+            results: found,
+            status: "success",
+            userId,
+          });
+        }
       } catch (error) {
-        console.error("Message user search failed:", error);
-      }
-      if (!cancelled) {
-        setResults(found);
-        setSearching(false);
+        if (!cancelled && !controller.signal.aborted) {
+          setProfileSearch({
+            attempt: profileSearchAttempt,
+            error:
+              error instanceof Error
+                ? error.message
+                : "Profiles could not be loaded.",
+            query: normalizedQuery,
+            results: [],
+            retryAt:
+              error instanceof MessageSearchRequestError ? error.retryAt : 0,
+            status: "error",
+            userId,
+          });
+        }
       }
     }, 250);
     return () => {
       cancelled = true;
+      controller.abort();
       clearTimeout(timer);
     };
-  }, [query]);
+  }, [isComposing, layout, profileSearchAttempt, query, userId]);
 
   // Expand the sidebar and focus the search input in one smooth action.
   const handleExpandAndFocusSearch = useCallback(() => {
@@ -281,61 +504,77 @@ export function ConversationList({
         });
         return;
       }
-      await startConversation(recipient.id);
-      setQuery("");
+      const created = await startConversation(recipient.id);
+      if (created) {
+        handleClearSearch();
+      }
     },
-    [startConversation]
+    [handleClearSearch, startConversation]
+  );
+  const handleProfileSelect = useCallback(
+    (profile: SearchUserResult) => {
+      void handleStartConversation(profile);
+    },
+    [handleStartConversation]
   );
 
   // Render helpers are declared before the early JSX return so their function
   // declarations never sit in unreachable code (React Compiler cannot lower
   // hoisted declarations after a return).
-  function renderSearchResults() {
-    if (searching) {
-      return (
-        <p className="text-muted-foreground px-2 py-2 text-xs">Searching…</p>
-      );
-    }
-    if (results.length === 0 && query.trim().length > 0) {
-      return (
-        <p className="text-muted-foreground px-2 py-2 text-xs">
-          No one found. You can only message people you follow.
-        </p>
-      );
-    }
-    return results.map((result) => (
-      <button
-        className="pill-3d-hover flex min-h-11 items-center gap-2.5 rounded-lg px-2.5 py-2 text-left"
-        disabled={creating === result.id}
-        key={result.id}
-        onClick={() => {
-          void handleStartConversation(result);
-        }}
-        type="button"
-      >
-        <UserAvatar
-          avatarUrl={result.avatarUrl}
-          className="relative"
-          size={36}
-        />
-        <span className="min-w-0 flex-1">
-          <span className="block truncate text-sm font-medium">
-            {result.displayName}
-          </span>
-          <span className="text-muted-foreground block truncate text-xs">
-            @{result.username}
-          </span>
-        </span>
-        {result.hasIdentity ? null : (
-          <span className="text-muted-foreground bg-muted/40 rounded-full px-2 py-0.5 text-[10px]">
-            no messages
-          </span>
-        )}
-      </button>
-    ));
-  }
-
   function renderConversationList() {
+    if (query.trim().length > 0) {
+      if (isComposing) {
+        return null;
+      }
+      if ([...query.trim()].length > 256) {
+        return (
+          <output className="text-muted-foreground px-3 py-4 text-sm">
+            Use 256 characters or fewer to search.
+          </output>
+        );
+      }
+      return (
+        <div
+          className="flex min-h-0 flex-1 flex-col"
+          ref={globalSearchResultsRef}
+        >
+          <GlobalMessageSearchResults
+            coverageComplete={globalSearch.coverageComplete}
+            coveragePaused={globalSearch.coveragePaused}
+            creatingProfileId={creating}
+            error={globalSearch.error}
+            focusMessageId={selectedSearchMessageId}
+            hasMore={globalSearch.hasMore}
+            loading={globalSearch.loading}
+            loadingMore={globalSearch.loadingMore}
+            messageQueryValid={normalizeMessageSearchQuery(query).valid}
+            myUserId={user?.id ?? ""}
+            onEscape={handleSearchEscape}
+            onLoadMore={handleGlobalSearchLoadMore}
+            onProfileRetry={handleProfileRetry}
+            onProfileSelect={handleProfileSelect}
+            onProfileToggleExpanded={handleProfileToggleExpanded}
+            onRefresh={handleGlobalSearchRetry}
+            onRetry={handleFailedPageRetry}
+            onScrollPositionChange={handleGlobalSearchScroll}
+            onSelect={handleGlobalSearchSelect}
+            profileError={currentProfileSearch.error ?? null}
+            profileRetryAt={profileRetryAt}
+            profileExpanded={profilesExpanded}
+            profileLoading={currentProfileSearch.status === "loading"}
+            profiles={
+              currentProfileSearch.status === "success"
+                ? currentProfileSearch.results
+                : []
+            }
+            query={query}
+            results={globalSearch.results}
+            restoreScrollTop={restoreGlobalSearchScrollTop}
+            retryAt={globalSearch.retryAt}
+          />
+        </div>
+      );
+    }
     if (isError && visibleItems.length === 0) {
       return <MessagesErrorState collapsed={collapsed} onRetry={refetchList} />;
     }
@@ -422,7 +661,7 @@ export function ConversationList({
     <TooltipProvider delayDuration={150}>
       <div
         className={cn(
-          "relative flex shrink-0 flex-col overflow-x-hidden border-r border-[hsl(var(--border))] transition-[width] duration-300 ease-[cubic-bezier(0.25,1,0.5,1)]",
+          "relative flex min-h-0 shrink-0 flex-col overflow-x-hidden border-r border-[hsl(var(--border))] transition-[width] duration-300 ease-[cubic-bezier(0.25,1,0.5,1)]",
           collapsed ? "w-16" : "w-full md:w-72 xl:w-80"
         )}
       >
@@ -483,103 +722,108 @@ export function ConversationList({
         </div>
 
         {/* Search & Create Den row below the title */}
-        <div
-          className="relative flex h-14 shrink-0 items-center px-2.5 transition-all duration-300 ease-[cubic-bezier(0.25,1,0.5,1)]"
-          ref={searchContainerRef}
-        >
+        <div className="relative flex h-14 shrink-0 items-center px-2.5 transition-all duration-300 ease-[cubic-bezier(0.25,1,0.5,1)]">
           <div className="flex w-full items-center gap-2">
-            {/* Search Bar / Icon button */}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <div
-                  className={cn(
-                    "relative flex h-9 items-center overflow-hidden transition-all duration-300 ease-[cubic-bezier(0.25,1,0.5,1)]",
-                    collapsed
-                      ? "icon-btn-3d w-9 justify-center rounded-full px-0"
-                      : "reels-input flex-1 rounded-xl! px-3 focus-within:shadow-[0_0_0_2px_rgba(255,149,0,0.25)]"
-                  )}
-                >
+            {collapsed ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
                   <button
-                    aria-label={collapsed ? "Search people" : undefined}
-                    className={cn(
-                      "flex shrink-0 cursor-pointer items-center justify-center transition-colors",
-                      collapsed ? "h-9 w-9 rounded-full" : "h-4 w-4"
-                    )}
-                    onClick={
-                      collapsed
-                        ? handleExpandAndFocusSearch
-                        : () => searchInputRef.current?.focus()
-                    }
+                    aria-label="Search profiles and messages"
+                    className="icon-btn-3d text-muted-foreground flex h-11 w-11 shrink-0 items-center justify-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))]"
+                    onClick={handleExpandAndFocusSearch}
                     type="button"
                   >
-                    <Search className="text-muted-foreground h-4 w-4 shrink-0" />
+                    <Search aria-hidden className="h-4 w-4" />
                   </button>
-                  <input
-                    aria-label={
-                      collapsed ? undefined : "Search people you follow"
-                    }
-                    className={cn(
-                      "placeholder:text-muted-foreground bg-transparent text-sm transition-all duration-300 ease-[cubic-bezier(0.25,1,0.5,1)] outline-none",
-                      collapsed
-                        ? "pointer-events-none ml-0 max-w-0 p-0 opacity-0"
-                        : "ml-2 min-w-0 flex-1 opacity-100"
-                    )}
-                    onChange={(event) => setQuery(event.target.value)}
-                    onKeyDown={(event) => {
-                      if (event.key === "Escape") {
-                        setQuery("");
-                        searchInputRef.current?.blur();
-                      }
-                    }}
-                    placeholder={
-                      collapsed ? undefined : "Search people you follow…"
-                    }
-                    ref={searchInputRef}
-                    tabIndex={collapsed ? -1 : undefined}
-                    value={query}
-                  />
-                  {query && !collapsed ? (
-                    <button
-                      aria-label="Clear search"
-                      className="text-muted-foreground hover:text-foreground flex h-4 w-4 shrink-0 cursor-pointer items-center justify-center rounded-full"
-                      onClick={() => {
-                        setQuery("");
-                        searchInputRef.current?.focus();
-                      }}
-                      type="button"
-                    >
-                      <X className="h-3.5 w-3.5" />
-                    </button>
-                  ) : null}
-                </div>
-              </TooltipTrigger>
-              {collapsed ? (
-                <TooltipContent
-                  className="tooltip-3d"
-                  side="right"
-                  sideOffset={12}
-                >
-                  Search people
+                </TooltipTrigger>
+                <TooltipContent side="right" sideOffset={12}>
+                  Search profiles and messages
                 </TooltipContent>
-              ) : null}
-            </Tooltip>
+              </Tooltip>
+            ) : (
+              <div className="relative min-w-0 flex-1">
+                <Search
+                  aria-hidden
+                  className="text-muted-foreground pointer-events-none absolute top-1/2 left-3 z-10 h-4 w-4 -translate-y-1/2"
+                />
+                <Input
+                  aria-controls={
+                    hasSearchQuery
+                      ? "unified-message-search-results"
+                      : undefined
+                  }
+                  aria-label={searchInputLabel}
+                  autoCapitalize="none"
+                  autoComplete="off"
+                  className="h-11 w-full rounded-xl! pr-11 pl-9 text-base md:text-sm [&::-webkit-search-cancel-button]:appearance-none"
+                  enterKeyHint="search"
+                  maxLength={512}
+                  onBlur={() => setSearchFocused(false)}
+                  onChange={(event) =>
+                    handleSearchQueryChange(event.target.value)
+                  }
+                  onCompositionEnd={(event) => {
+                    handleSearchQueryChange(event.currentTarget.value);
+                    setIsComposing(false);
+                  }}
+                  onCompositionStart={() => setIsComposing(true)}
+                  onFocus={() => setSearchFocused(true)}
+                  onKeyDown={(event) => {
+                    if (event.nativeEvent.isComposing) {
+                      return;
+                    }
+                    if (event.key === "Escape") {
+                      event.preventDefault();
+                      handleSearchEscape();
+                    } else if (
+                      (event.key === "ArrowDown" || event.key === "ArrowUp") &&
+                      focusSearchResult(
+                        globalSearchResultsRef.current,
+                        event.key
+                      )
+                    ) {
+                      event.preventDefault();
+                    }
+                  }}
+                  placeholder={searchInputPlaceholder}
+                  ref={searchInputRef}
+                  spellCheck={false}
+                  type="search"
+                  value={query}
+                />
+                {query ? (
+                  <button
+                    aria-label="Clear search"
+                    className="text-muted-foreground hover:text-foreground absolute top-0 right-0 flex h-11 w-11 items-center justify-center rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))]"
+                    onClick={handleSearchEscape}
+                    type="button"
+                  >
+                    <X aria-hidden className="h-4 w-4" />
+                  </button>
+                ) : null}
+              </div>
+            )}
 
             {/* Circular join den button beside search bar */}
             <div
               className={cn(
                 "shrink-0 transition-all duration-300 ease-[cubic-bezier(0.25,1,0.5,1)]",
-                collapsed
+                collapsed || hasSearchQuery || searchFocused
                   ? "pointer-events-none -ml-2 max-w-0 scale-50 overflow-hidden opacity-0"
-                  : "max-w-9 scale-100 opacity-100"
+                  : "max-w-11 scale-100 opacity-100"
               )}
             >
               <Tooltip>
                 <TooltipTrigger asChild>
                   <button
                     aria-label={collapsed ? undefined : "Join a den"}
-                    className="icon-btn-3d text-foreground flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-full transition-colors"
+                    className="icon-btn-3d text-foreground flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-full transition-colors"
                     onClick={() => setJoinDialogOpen(true)}
-                    tabIndex={collapsed ? -1 : undefined}
+                    tabIndex={
+                      collapsed || hasSearchQuery || searchFocused
+                        ? -1
+                        : undefined
+                    }
                     type="button"
                   >
                     <Ticket className="h-4 w-4" />
@@ -599,18 +843,22 @@ export function ConversationList({
             <div
               className={cn(
                 "shrink-0 transition-all duration-300 ease-[cubic-bezier(0.25,1,0.5,1)]",
-                collapsed
+                collapsed || hasSearchQuery || searchFocused
                   ? "pointer-events-none -ml-2 max-w-0 scale-50 overflow-hidden opacity-0"
-                  : "max-w-9 scale-100 opacity-100"
+                  : "max-w-11 scale-100 opacity-100"
               )}
             >
               <Tooltip>
                 <TooltipTrigger asChild>
                   <button
                     aria-label={collapsed ? undefined : "New den"}
-                    className="icon-btn-3d text-foreground flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-full transition-colors"
+                    className="icon-btn-3d text-foreground flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-full transition-colors"
                     onClick={() => setDenDialogOpen(true)}
-                    tabIndex={collapsed ? -1 : undefined}
+                    tabIndex={
+                      collapsed || hasSearchQuery || searchFocused
+                        ? -1
+                        : undefined
+                    }
                     type="button"
                   >
                     <Plus className="h-4 w-4" />
@@ -626,26 +874,19 @@ export function ConversationList({
               </Tooltip>
             </div>
           </div>
-
-          {/* Dropdown with search results */}
-          {query.trim().length > 0 && !collapsed ? (
-            <div className="panel-3d absolute inset-x-2.5 top-[calc(100%+4px)] z-50 max-h-80 overflow-y-auto rounded-2xl! p-2">
-              {renderSearchResults()}
-            </div>
-          ) : null}
         </div>
 
-        {full && !activeConversationId ? (
+        {full && !activeConversationId && !query ? (
           <OnlineFriendsStrip
             creating={creating}
-            onSelect={(userId) => {
-              void startConversation(userId);
+            onSelect={(recipientId) => {
+              void startConversation(recipientId);
             }}
             users={onlineUsers}
           />
         ) : null}
 
-        {/* All / DMs / Dens tabs */}
+        {/* All / DMs / Dens filter the inbox and message results. */}
         <div
           className={cn(
             "grid shrink-0 grid-cols-1 px-1.5 transition-[grid-template-rows,opacity] duration-300 ease-[cubic-bezier(0.25,1,0.5,1)] motion-reduce:transition-none",
@@ -661,13 +902,18 @@ export function ConversationList({
               value={filter}
             >
               <TabsList
-                aria-label={collapsed ? undefined : "Filter conversations"}
+                aria-label={filterTabsAriaLabel(collapsed, hasSearchQuery)}
                 appearance="raised"
                 className="grid h-auto min-h-11 w-full grid-cols-3 rounded-2xl!"
               >
                 {DEN_LIST_FILTERS.map((option) => (
                   <TabsTrigger
-                    aria-label={`${FILTER_LABEL[option]}, ${counts[option]} conversations${unreadCounts[option] > 0 ? ", unread messages" : ""}`}
+                    aria-label={filterTabAriaLabel(
+                      option,
+                      hasSearchQuery,
+                      counts[option],
+                      unreadCounts[option]
+                    )}
                     appearance="raised"
                     className="relative min-h-11 min-w-0 gap-2 rounded-xl px-2 text-xs sm:text-sm"
                     key={option}
@@ -675,13 +921,15 @@ export function ConversationList({
                     value={option}
                   >
                     {FILTER_LABEL[option]}
-                    <span
-                      aria-hidden
-                      className="chip-3d inline-flex min-w-5 shrink-0 items-center justify-center rounded-full px-1.5 py-0.5 text-[10px] leading-none tabular-nums"
-                    >
-                      {counts[option]}
-                    </span>
-                    {unreadCounts[option] > 0 ? (
+                    {hasSearchQuery ? null : (
+                      <span
+                        aria-hidden
+                        className="chip-3d inline-flex min-w-5 shrink-0 items-center justify-center rounded-full px-1.5 py-0.5 text-[10px] leading-none tabular-nums"
+                      >
+                        {counts[option]}
+                      </span>
+                    )}
+                    {!hasSearchQuery && unreadCounts[option] > 0 ? (
                       <span
                         aria-hidden
                         className="absolute top-1.5 right-1.5 size-1.5 rounded-full bg-linear-to-b from-[#ffb45c] to-[#e65500] shadow-[0_0_6px_rgba(255,149,0,0.5)]"
@@ -697,7 +945,8 @@ export function ConversationList({
         {/* Conversation list */}
         <div
           className={cn(
-            "hide-native-scrollbar flex flex-1 flex-col overflow-x-hidden overflow-y-auto p-2.5 transition-all duration-300 ease-[cubic-bezier(0.25,1,0.5,1)]",
+            "hide-native-scrollbar flex min-h-0 flex-1 flex-col overflow-x-hidden p-2",
+            query.trim().length > 0 ? "overflow-y-hidden" : "overflow-y-auto",
             collapsed ? "gap-1.5" : "gap-0.5"
           )}
         >

@@ -489,12 +489,14 @@ describe("the notification a den message produces", () => {
       "createdAt",
       "id",
       "issuerId",
+      "membershipRequestId",
       "postId",
       "read",
       "recipientId",
       "type",
     ]);
     expect(row.type).toBe("DEN_MESSAGE");
+    expect(row.membershipRequestId).toBeNull();
 
     // No plaintext, because the server never had any to put here.
     expect(serialized).not.toContain(CIPHERTEXT);

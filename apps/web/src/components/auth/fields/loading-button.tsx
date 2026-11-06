@@ -1,7 +1,7 @@
 import { Button } from "@asm/ui/shadui/button";
 import type { ButtonProps } from "@asm/ui/shadui/button";
-import { Loader2 } from "lucide-react";
 
+import { ZephLoader } from "@/components/layouts/feedback/zeph-loader";
 import { cn } from "@/lib/utils";
 
 interface LoadingButtonProps extends ButtonProps {
@@ -20,7 +20,7 @@ export default function LoadingButton({
       disabled={loading || disabled}
       {...props}
     >
-      {loading ? <Loader2 className="size-5 animate-spin" /> : null}
+      {loading ? <ZephLoader variant="security" className="size-5" /> : null}
       {props.children}
     </Button>
   );

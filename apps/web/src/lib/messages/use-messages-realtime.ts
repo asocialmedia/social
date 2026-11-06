@@ -1,8 +1,11 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { LIFECYCLE_CAPABILITY, viewOnceReceiptKey } from "@asm/messages";
+import { useQueryClient } from "@tanstack/react-query";
+import { useEffect, useRef, useState } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
+import { fetchChatApi } from "@/lib/messages/chat-capability";
 import { readMembershipSeq } from "@/lib/messages/membership-seq";
 import type { MessageData } from "@/lib/messages/types";
 
@@ -17,12 +20,20 @@ interface MessageStreamEvent {
     | "conversation.read"
     | "conversation.delivered"
     | "typing.started"
+    | "message.reacted"
+    // The opaque id of a view-once attachment whose grant was revoked. Never a
+    // URL: a stream can clear a tile but can never fetch a protected byte.
+    | "media.viewOnce.revoked"
+    | "media.viewOnce.seen"
     | "conversation.appearance.changed"
     | "keys.rotated"
     | "den.membership.changed";
   conversationId: string;
   deliveredAt?: string;
+  mediaId?: string;
   membershipAction?: string;
+  messageId?: string;
+  sessionId?: string;
   // The den's post-increment roster counter. Optional because the server may not
   // have one to give (a dissolve, a deployment that predates the column), and an
   // unreadable value is dropped rather than guessed at, so `undefined` here means
@@ -60,6 +71,9 @@ export function parseMessageEvent(raw: string): MessageStreamEvent | null {
       parsed.kind !== "conversation.read" &&
       parsed.kind !== "conversation.delivered" &&
       parsed.kind !== "typing.started" &&
+      parsed.kind !== "message.reacted" &&
+      parsed.kind !== "media.viewOnce.revoked" &&
+      parsed.kind !== "media.viewOnce.seen" &&
       parsed.kind !== "conversation.appearance.changed" &&
       parsed.kind !== "keys.rotated" &&
       parsed.kind !== "den.membership.changed"
@@ -94,6 +108,27 @@ export function parseMessageEvent(raw: string): MessageStreamEvent | null {
       return null;
     }
     if (
+      parsed.kind === "message.reacted" &&
+      (typeof parsed.messageId !== "string" ||
+        typeof parsed.userId !== "string")
+    ) {
+      return null;
+    }
+    if (
+      parsed.kind === "message.reacted" &&
+      parsed.sessionId !== undefined &&
+      typeof parsed.sessionId !== "string"
+    ) {
+      return null;
+    }
+    if (
+      (parsed.kind === "media.viewOnce.revoked" ||
+        parsed.kind === "media.viewOnce.seen") &&
+      typeof parsed.mediaId !== "string"
+    ) {
+      return null;
+    }
+    if (
       parsed.kind === "den.membership.changed" &&
       (typeof parsed.userId !== "string" ||
         !DEN_MEMBERSHIP_ACTIONS.has(parsed.membershipAction ?? ""))
@@ -104,6 +139,7 @@ export function parseMessageEvent(raw: string): MessageStreamEvent | null {
       conversationId: parsed.conversationId,
       deliveredAt: parsed.deliveredAt,
       kind: parsed.kind,
+      mediaId: parsed.mediaId,
       membershipAction: parsed.membershipAction,
       // Dropped rather than forwarded when it is not a non-negative whole number,
       // which is the same lenient reading the server's parser applies: an
@@ -111,6 +147,8 @@ export function parseMessageEvent(raw: string): MessageStreamEvent | null {
       // never to a receiver treating an old roster as current.
       membershipSeq: readMembershipSeq(parsed.membershipSeq) ?? undefined,
       message: parsed.message,
+      messageId: parsed.messageId,
+      ...(parsed.sessionId ? { sessionId: parsed.sessionId } : {}),
       readAt: parsed.readAt,
       userId: parsed.userId,
     };
@@ -317,20 +355,27 @@ export function useMessagesRealtime(
     conversationId: string;
     kind: MessageStreamEvent["kind"];
     deliveredAt?: string;
+    mediaId?: string;
     membershipAction?: string;
     membershipSeq?: number;
     message?: MessageData;
+    messageId?: string;
     readAt?: string;
     userId?: string;
   }) => void,
   enabled = true,
   onConnect?: (isReconnect: boolean) => void,
   onMembershipEnded?: (conversationId: string) => void
-): { connected: boolean } {
+): { connected: boolean; updateRequired: boolean } {
   const { user } = useSession();
+  const queryClient = useQueryClient();
   // A stable id keeps the stream effect from tearing down and reconnecting
   // whenever the user object identity changes.
   const userId = user?.id;
+  const [updateRequiredFor, setUpdateRequiredFor] = useState<string | null>(
+    null
+  );
+  const streamScope = JSON.stringify([userId, conversationId]);
 
   // Keep the latest handlers without reconnecting on every render; the SSE
   // effect below only depends on auth state, the convo id, and enabled.
@@ -380,6 +425,16 @@ export function useMessagesRealtime(
       }
 
       const { event } = action;
+      if (event.kind === "media.viewOnce.seen" && event.mediaId) {
+        void queryClient.invalidateQueries({
+          queryKey: viewOnceReceiptKey(
+            userId ?? "",
+            conversationId,
+            event.mediaId
+          ),
+        });
+        return;
+      }
       const message = event.message
         ? (JSON.parse(
             JSON.stringify(event.message),
@@ -391,9 +446,11 @@ export function useMessagesRealtime(
         conversationId: event.conversationId,
         deliveredAt: event.deliveredAt,
         kind: event.kind,
+        mediaId: event.mediaId,
         membershipAction: event.membershipAction,
         membershipSeq: event.membershipSeq,
         message,
+        messageId: event.messageId,
         readAt: event.readAt,
         userId: event.userId,
       });
@@ -406,13 +463,24 @@ export function useMessagesRealtime(
     const connect = async () => {
       controller = new AbortController();
       try {
-        const response = await fetch(
-          `/api/messages/conversations/${conversationId}/stream`,
+        const response = await fetchChatApi(
+          `/api/messages/conversations/${conversationId}/stream?capability=${LIFECYCLE_CAPABILITY}`,
           {
             credentials: "same-origin",
             signal: controller.signal,
           }
         );
+        if (cancelled) {
+          return;
+        }
+        if (response.status === 426) {
+          setUpdateRequiredFor(streamScope);
+          controller.abort();
+          return;
+        }
+        if (response.ok) {
+          setUpdateRequiredFor(null);
+        }
 
         // No delay reset here: the backoff must survive failed attempts, so it
         // resets on the server's `connected` greeting instead (see below). A
@@ -469,9 +537,13 @@ export function useMessagesRealtime(
         clearTimeout(retryTimer);
       }
     };
-  }, [conversationId, enabled, userId]);
+  }, [conversationId, enabled, userId, streamScope, queryClient]);
 
-  return { connected: enabled && Boolean(user) };
+  const updateRequired = updateRequiredFor === streamScope;
+  return {
+    connected: enabled && Boolean(user) && !updateRequired,
+    updateRequired,
+  };
 }
 
 function isBenignStreamError(error: unknown): boolean {

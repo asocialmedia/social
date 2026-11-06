@@ -1,3 +1,4 @@
+import { LIFECYCLE_CAPABILITY } from "@asm/messages";
 import { fetch as streamingFetch } from "expo/fetch";
 // The React bindings for the messages realtime streams and the polling that backs
 // them up.
@@ -30,6 +31,7 @@ import {
   ackMessageDelivered,
   fetchConversationDetail,
   fetchConversationList,
+  fetchMessageReactions,
   fetchMessages,
 } from "@/features/messages/lib/client";
 import { messageDecryptor } from "@/features/messages/lib/decryptor";
@@ -53,6 +55,7 @@ import { hydrateMessageCache } from "./message-cache";
 import { useMessagesIdentity } from "./message-identity";
 import { unreadMessageStore } from "./unread-message-store";
 import { useMessagesForeground } from "./use-messages-foreground";
+import { invalidateViewOnceReceipt } from "./use-view-once-receipt";
 
 export { type MessagePageAxis } from "@/features/messages/lib/client";
 export { peerOf } from "@/features/messages/state/conversation-list-store";
@@ -245,13 +248,17 @@ export interface TranscriptBinding {
   refresh: () => void;
 }
 
-export function useTranscript(conversationId: string): TranscriptBinding {
+export function useTranscript(
+  conversationId: string,
+  enabled = true
+): TranscriptBinding {
   const { invalidateKeys, identity } = useMessagesIdentity();
   const identityKey = identity?.publicKey ?? null;
   const { user } = useSessionContext();
   const { apiBase, cookie } = useMessagesApiContext();
   const userId = user?.id ?? null;
-  const foreground = useMessagesForeground();
+  const appForeground = useMessagesForeground();
+  const foreground = appForeground && enabled;
   const [nonce, setNonce] = useState(0);
   const [detailRevision, setDetailRevision] = useState(0);
   const [reload, setReload] = useState(0);
@@ -578,6 +585,44 @@ export function useTranscript(conversationId: string): TranscriptBinding {
           transcriptStore.setPeerTyping(conversationId, true);
           return;
         }
+        case "media.viewOnce.seen": {
+          if (event.mediaId) {
+            invalidateViewOnceReceipt(
+              userId ?? "",
+              conversationId,
+              event.mediaId
+            );
+          }
+          return;
+        }
+        case "message.reacted": {
+          if (!event.messageId) {
+            return;
+          }
+          const { messageId } = event;
+          void (async () => {
+            try {
+              const reactions = await fetchMessageReactions(
+                conversationId,
+                messageId,
+                {
+                  apiBase,
+                  baseFetch: fetch,
+                  cookie,
+                },
+                event.sessionId
+              );
+              transcriptStore.applyMessageReactions(
+                conversationId,
+                messageId,
+                reactions
+              );
+            } catch {
+              // A later transcript read reconciles a missed reaction frame.
+            }
+          })();
+          return;
+        }
         case "den.membership.changed":
         case "keys.rotated": {
           setDetailRevision((value) => value + 1);
@@ -620,7 +665,7 @@ export function useTranscript(conversationId: string): TranscriptBinding {
           void authClient.signOut();
         },
         signal: controller.signal,
-        url: `${apiBase}/api/messages/conversations/${conversationId}/stream`,
+        url: `${apiBase}/api/messages/conversations/${conversationId}/stream?capability=${LIFECYCLE_CAPABILITY}`,
       });
     })();
 

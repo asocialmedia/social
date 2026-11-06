@@ -4,12 +4,32 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 import {
+  batchTestCommands,
   endpointFromUrl,
   parseEnvFile,
   probeEndpoint,
   runTestSuite,
   type ServiceEndpoint,
 } from "./run-tests";
+
+test("large test selections stay below Windows command-line limits without losing files", () => {
+  const command = ["bun", "test", "--parallel=2"];
+  const files = Array.from(
+    { length: 800 },
+    (_, index) => `packages/messages/long-path-${index}/example.test.ts`
+  );
+  const batches = batchTestCommands(command, files);
+  expect(batches.length).toBeGreaterThan(1);
+  expect(batches.flatMap((batch) => batch.slice(command.length))).toEqual(
+    files.map((file) => `./${file}`)
+  );
+  for (const batch of batches) {
+    expect(batch.slice(0, command.length)).toEqual(command);
+    expect(
+      batch.reduce((length, argument) => length + argument.length + 3, 0)
+    ).toBeLessThanOrEqual(24_000);
+  }
+});
 
 describe("parseEnvFile", () => {
   test("parses plain and quoted values and skips comments", () => {

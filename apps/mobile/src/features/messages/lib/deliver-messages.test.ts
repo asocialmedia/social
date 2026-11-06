@@ -8,10 +8,27 @@ test("a shared post carries its caption and reply once before staged media", asy
   await deliverMessages({
     attachments: [
       {
-        file: { height: 200, mimeType: "image/png", width: 100 },
+        file: {
+          height: 200,
+          mimeType: "image/png",
+          name: "photo.png",
+          size: 20,
+          width: 100,
+        },
         mediaId: "photo",
       },
-      { file: { mimeType: "image/gif" }, mediaId: "gif" },
+      {
+        file: { mimeType: "image/gif", name: "loop.gif", size: 30 },
+        mediaId: "gif",
+      },
+      {
+        file: { mimeType: "video/mp4", name: "clip.mp4", size: 40 },
+        mediaId: "video",
+      },
+      {
+        file: { mimeType: "application/pdf", name: "notes.pdf", size: 50 },
+        mediaId: "doc",
+      },
     ],
     caption: "Look at this",
     onSend: (payload) => {
@@ -21,7 +38,7 @@ test("a shared post carries its caption and reply once before staged media", asy
     postId: "shared-post",
     replyTo: { id: "reply", senderId: "peer" },
   });
-  expect(sent).toHaveLength(3);
+  expect(sent).toHaveLength(2);
   expect(sent[0]).toEqual({
     content: "Look at this",
     postId: "shared-post",
@@ -29,13 +46,20 @@ test("a shared post carries its caption and reply once before staged media", asy
     replyToSenderId: "peer",
     type: "post",
   });
-  expect(sent.slice(1).map((payload) => payload.content)).toEqual([
-    undefined,
-    undefined,
-  ]);
+  expect(sent[1]?.content).toBeUndefined();
   expect(sent[1]).toMatchObject({
-    images: [{ height: 200, url: "/api/media/photo", width: 100 }],
-    kind: "image",
+    attachments: [
+      { height: 200, kind: "image", url: "/api/media/photo", width: 100 },
+      { kind: "gif", url: "/api/media/gif" },
+      { kind: "video", url: "/api/media/video" },
+      {
+        bytes: 50,
+        filename: "notes.pdf",
+        kind: "file",
+        mimeType: "application/pdf",
+        url: "/api/media/doc",
+      },
+    ],
     type: "media",
   });
 });
@@ -43,7 +67,12 @@ test("a shared post carries its caption and reply once before staged media", asy
 test("a GIF-only message retains its caption", async () => {
   const sent: MessagePayload[] = [];
   await deliverMessages({
-    attachments: [{ file: { mimeType: "image/gif" }, mediaId: "gif" }],
+    attachments: [
+      {
+        file: { mimeType: "image/gif", name: "loop.gif", size: 30 },
+        mediaId: "gif",
+      },
+    ],
     caption: "Animated",
     onSend: (payload) => {
       sent.push(payload);
@@ -52,17 +81,54 @@ test("a GIF-only message retains its caption", async () => {
     replyTo: null,
   });
   expect(sent[0]).toMatchObject({
+    attachments: [{ kind: "gif", url: "/api/media/gif" }],
     content: "Animated",
-    kind: "gif",
     type: "media",
   });
+});
+
+test("a view-once photo carries a protected reference without a caption", async () => {
+  const sent: MessagePayload[] = [];
+  await deliverMessages({
+    attachments: [
+      {
+        file: {
+          height: 640,
+          mimeType: "image/jpeg",
+          name: "photo.jpg",
+          size: 30,
+          width: 480,
+        },
+        mediaId: "protected-photo",
+        viewOnce: true,
+      },
+    ],
+    caption: "Private moment",
+    onSend: (payload) => {
+      sent.push(payload);
+      return Promise.resolve();
+    },
+    replyTo: null,
+  });
+
+  expect(sent).toEqual([
+    {
+      attachments: [{ height: 640, kind: "view-once", ref: "protected-photo" }],
+      type: "media",
+    },
+  ]);
 });
 
 test("failed post delivery stops the remaining attachments", async () => {
   let calls = 0;
   await expect(
     deliverMessages({
-      attachments: [{ file: { mimeType: "image/png" }, mediaId: "photo" }],
+      attachments: [
+        {
+          file: { mimeType: "image/png", name: "photo.png", size: 20 },
+          mediaId: "photo",
+        },
+      ],
       caption: "",
       onSend: () => {
         calls += 1;

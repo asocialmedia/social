@@ -3,6 +3,7 @@
 import { useMemo, useSyncExternalStore } from "react";
 
 import { messageDecryptor } from "@/lib/messages/decryptor";
+import type { DecryptEntry } from "@/lib/messages/decryptor";
 
 import type {
   ConversationMediaIndex,
@@ -44,7 +45,8 @@ export function useConversationMediaIndex(
 export function useConversationMediaWindow(
   messages: readonly ConversationMediaMessage[],
   anchorKey: string,
-  limit?: number
+  limit?: number,
+  readPayload?: (id: string) => DecryptEntry | undefined
 ): ConversationMediaWindow {
   const revision = useSyncExternalStore(
     messageDecryptor.subscribe,
@@ -56,11 +58,11 @@ export function useConversationMediaWindow(
     () =>
       buildConversationMediaWindow(
         messages,
-        (id) => messageDecryptor.get(id),
+        readPayload ?? ((id) => messageDecryptor.get(id)),
         anchorKey,
         revision,
         limit
       ),
-    [anchorKey, limit, messages, revision]
+    [anchorKey, limit, messages, revision, readPayload]
   );
 }

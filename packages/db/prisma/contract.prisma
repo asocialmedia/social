@@ -18,7 +18,13 @@ namespace public {
     bannerMediaId          String?
     createdAt              Timestamp(3)             @default(now())
     updatedAt              Timestamp(3)             @default(now())
+    activeMemberCount      Int                      @default(0)
     communityJoinBonuses   CommunityJoinBonuses[]
+    communityChatRooms     CommunityChatRooms[]
+    communityChatPreferences CommunityChatPreferences[]
+    communityChatSanctions CommunityChatSanctions[]
+    communityChatReports   CommunityChatReports[]
+    communityChatAudit     CommunityChatAudit[]
     communityMembers       CommunityMembers[]
     communityPostShares    CommunityPostShares[]
     communitySubscriptions CommunitySubscriptions[]
@@ -207,6 +213,10 @@ namespace public {
 
   model MessageConversations {
     id                                  String                                @id(map: "message_conversations_pkey") @default(uuid())
+    retentionSeconds                    Int                                   @default(0)
+    retentionVersion                    Int                                   @default(0)
+    incognitoSessions                   MessageIncognitoSessions[]
+    exportJobs                          MessageExportJobs[]
     pairKey                             String?
     _type                               pg.enum(ConversationType)             @default("DM") @map("type")
     name                                String?
@@ -257,6 +267,11 @@ namespace public {
     userId                     String?
     url                        String
     key                        String                       @default("")
+    incognitoSessionId         String?
+    incognitoSession           MessageIncognitoSessions? @relation(fields: [incognitoSessionId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+    messageLifecycleProtected  Boolean @default(false)
+    messageViewOnce            Boolean @default(false)
+    messageLifecycleLinks      MessageMediaLinks[]
     mimeType                   String                       @default("application/octet-stream")
     _type                      pg.enum(MediaType)           @default("IMAGE") @map("type")
     size                       Int                          @default(0)
@@ -306,7 +321,10 @@ namespace public {
     semanticTags               String[]?
     transcript                 String?
     messageConversationId      String?
+    stickerSource              Boolean                      @default(false)
+    stickerOperationId         String?
     postMediaDerivatives       PostMediaDerivatives[]
+    userSticker                UserStickers?
     communities                Communities[]                @relation(name: "communities_avatarMediaId_fkey")
     communitiesCommunities     Communities[]                @relation(name: "communities_bannerMediaId_fkey")
     audioOverlay               PostMedia?                   @relation(name: "post_media_audioOverlayId_fkey", fields: [audioOverlayId], references: [id], onDelete: SetNull, onUpdate: Cascade, map: "post_media_audioOverlayId_fkey")
@@ -320,6 +338,7 @@ namespace public {
     messageConversationMembers MessageConversationMembers[] @relation(name: "message_conversation_members_wallpaperMediaId_fkey")
 
     @@unique([audioOverlayId], map: "post_media_audioOverlayId_key")
+    @@unique([userId, stickerOperationId], map: "post_media_userId_stickerOperationId_key")
     @@index([commentId], map: "post_media_commentId_idx")
     @@index([duplicateOf], map: "post_media_duplicateOf_idx")
     @@index([messageConversationId], map: "post_media_messageConversationId_idx")
@@ -330,6 +349,7 @@ namespace public {
     @@index([sha256], map: "post_media_sha256_idx")
     @@index([status], map: "post_media_status_idx")
     @@index([userId, createdAt], map: "post_media_userId_createdAt_idx")
+    @@index([id], where: "(\"failureCode\" = 'CHAT_LIFECYCLE_ERASURE')", name: "media_lifecycle_erasure_due")
     @@map("post_media")
   }
 
@@ -386,6 +406,20 @@ namespace public {
     communities                       Communities[]
     communityJoinBonuses              CommunityJoinBonuses[]
     communityMembers                  CommunityMembers[]
+    communityChatRoomsCreated         CommunityChatRooms[] @relation(name: "community_chat_room_creator")
+    communityChatMessages             CommunityChatMessages[]
+    communityChatRoomMemberships      CommunityChatRoomMembers[]
+    communityChatRoomInvitations      CommunityChatRoomMembers[] @relation(name: "community_chat_room_inviter")
+    communityChatReadStates           CommunityChatReadStates[]
+    communityChatPreferences          CommunityChatPreferences[]
+    communityChatSubscriptions        CommunityChatSubscriptions[]
+    communityChatReactions            CommunityChatReactions[]
+    communityChatPins                 CommunityChatPins[]
+    communityChatSanctions            CommunityChatSanctions[] @relation(name: "community_chat_sanction_target")
+    communityChatSanctionsIssued      CommunityChatSanctions[] @relation(name: "community_chat_sanction_actor")
+    communityChatReports              CommunityChatReports[] @relation(name: "community_chat_reporter")
+    communityChatReportsReviewed      CommunityChatReports[] @relation(name: "community_chat_reviewer")
+    communityChatAuditEvents          CommunityChatAudit[] @relation(name: "community_chat_audit_actor")
     communitySubscriptions            CommunitySubscriptions[]
     communityVisits                   CommunityVisits[]
     devicePushTokens                  DevicePushTokens[]
@@ -394,9 +428,17 @@ namespace public {
     messageConversationBansBy         MessageDenBans[]             @relation(name: "message_den_bans_bannedById_fkey")
     messageConversationKeys           MessageConversationKeys[]    @relation(name: "message_conversation_keys_ownerUserId_fkey")
     messageConversationMembers        MessageConversationMembers[] @relation(name: "message_conversation_members_userId_fkey")
+    messageStickers                   UserStickers[]
     messageHiddens                    MessageHiddens[]
+    incognitoMessages                 MessageIncognitoMessages[]
+    incognitoStarted                  MessageIncognitoSessions[] @relation(name: "incognito_started_by")
+    incognitoEnded                    MessageIncognitoSessions[] @relation(name: "incognito_ended_by")
+    messageExports                    MessageExportJobs[]
     messageIdentities                 MessageIdentities?
+    messageReactions                  MessageReactions[]
     messages                          Messages[]
+    viewOnceRecipients                MessageViewOnceRecipients[]
+    viewOnceReceipts                  MessageViewOnceReceipts[]
     passkeys                          Passkey[]
     passwordResetTokens               PasswordResetTokens[]
     postVisits                        PostVisits[]
@@ -556,13 +598,239 @@ namespace public {
     createdAt   Timestamp(3)                   @default(now())
     community   Communities                    @relation(fields: [communityId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "community_members_communityId_fkey", index: false)
     user        Users                          @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "community_members_userId_fkey")
+    chatRoomMemberships CommunityChatRoomMembers[]
 
     @@index([communityId, role], map: "community_members_communityId_role_idx")
     @@index([communityId, status], map: "community_members_communityId_status_idx")
+    @@index([communityId, status, createdAt, id], map: "community_members_request_page_idx")
     @@unique([communityId, userId], map: "community_members_communityId_userId_key")
     @@index([userId], map: "community_members_userId_idx")
     @@index([userId, status, createdAt], map: "community_members_userId_status_createdAt_idx")
     @@map("community_members")
+  }
+
+  model CommunityChatRooms {
+    id               String                      @id(map: "community_chat_rooms_pkey") @default(uuid())
+    communityId      String
+    parentRoomId     String?
+    sourceMessageId  String?
+    kind             pg.enum(CommunityChatRoomKind) @default("CHANNEL")
+    channelType      pg.enum(CommunityChatChannelType)?
+    visibility       pg.enum(CommunityChatVisibility) @default("PUBLIC")
+    name             String
+    slug             String
+    topic            String?
+    sortOrder        Int                         @default(0)
+    slowModeSeconds  Int                         @default(0)
+    locked           Boolean                     @default(false)
+    archived         Boolean                     @default(false)
+    creatorId        String
+    nextSequence     BigInt                      @default(0)
+    changeSequence   BigInt                      @default(0)
+    createdAt        Timestamp(3)                @default(now())
+    updatedAt        Timestamp(3)                @default(now())
+    community        Communities                 @relation(fields: [communityId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "community_chat_rooms_communityId_fkey", index: false)
+    creator          Users                       @relation(name: "community_chat_room_creator", fields: [creatorId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "community_chat_rooms_creatorId_fkey")
+    parent           CommunityChatRooms?         @relation(name: "community_chat_room_parent", fields: [parentRoomId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "community_chat_rooms_parentRoomId_fkey")
+    children         CommunityChatRooms[]        @relation(name: "community_chat_room_parent")
+    sourceMessage    CommunityChatMessages?      @relation(name: "community_chat_thread_source", fields: [sourceMessageId], references: [id], onDelete: SetNull, onUpdate: Cascade, map: "community_chat_rooms_sourceMessageId_fkey")
+    messages         CommunityChatMessages[]     @relation(name: "community_chat_room_messages")
+    members          CommunityChatRoomMembers[]
+    readStates       CommunityChatReadStates[]
+    subscriptions    CommunityChatSubscriptions[]
+    pins             CommunityChatPins[]
+    outbox           CommunityChatOutbox[]
+
+    @@unique([communityId, slug], map: "community_chat_rooms_communityId_slug_key")
+    @@index([communityId, kind, archived, sortOrder], map: "community_chat_rooms_listing_idx")
+    @@index([parentRoomId, kind, visibility, archived], map: "community_chat_rooms_children_idx")
+    @@check(expression: "char_length(\"name\") BETWEEN 1 AND 64", name: "community_chat_rooms_name_length")
+    @@check(expression: "\"slowModeSeconds\" BETWEEN 0 AND 21600", name: "community_chat_rooms_slow_mode_range")
+    @@check(expression: "(\"kind\" = 'CHANNEL' AND \"parentRoomId\" IS NULL AND \"channelType\" IS NOT NULL AND \"sourceMessageId\" IS NULL AND \"visibility\" = 'PUBLIC') OR (\"kind\" = 'THREAD' AND \"parentRoomId\" IS NOT NULL AND \"channelType\" IS NULL)", name: "community_chat_rooms_shape")
+    @@map("community_chat_rooms")
+  }
+
+  model CommunityChatMessages {
+    id             String                   @id(map: "community_chat_messages_pkey") @default(uuid())
+    roomId         String
+    senderId       String
+    sequence       BigInt
+    changeSequence BigInt
+    clientId       String?
+    payload        Jsonb
+    replyToId      String?
+    revision       Int                      @default(1)
+    createdAt      Timestamp(3)             @default(now())
+    editedAt       Timestamp(3)?
+    deletedAt      Timestamp(3)?
+    room           CommunityChatRooms       @relation(name: "community_chat_room_messages", fields: [roomId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "community_chat_messages_roomId_fkey", index: false)
+    sender         Users                    @relation(fields: [senderId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "community_chat_messages_senderId_fkey", index: false)
+    replyTo        CommunityChatMessages?   @relation(name: "community_chat_message_replies", fields: [replyToId], references: [id], onDelete: SetNull, onUpdate: Cascade, map: "community_chat_messages_replyToId_fkey")
+    replies        CommunityChatMessages[]  @relation(name: "community_chat_message_replies")
+    sourceThreads  CommunityChatRooms[]     @relation(name: "community_chat_thread_source")
+    reactions      CommunityChatReactions[]
+    pins           CommunityChatPins[]
+    reports        CommunityChatReports[]
+
+    @@unique([roomId, sequence], map: "community_chat_messages_roomId_sequence_key")
+    @@unique([roomId, senderId, clientId], map: "community_chat_messages_idempotency_key")
+    @@index([roomId, createdAt, id], map: "community_chat_messages_cursor_idx")
+    @@index([roomId, changeSequence], map: "community_chat_messages_changes_idx")
+    @@index([senderId, createdAt], map: "community_chat_messages_sender_idx")
+    @@check(expression: "\"revision\" >= 1", name: "community_chat_messages_revision_positive")
+    @@map("community_chat_messages")
+  }
+
+  model CommunityChatRoomMembers {
+    roomId            String
+    communityMemberId String
+    invitedById       String
+    createdAt         Timestamp(3)              @default(now())
+    room              CommunityChatRooms        @relation(fields: [roomId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "community_chat_room_members_roomId_fkey", index: false)
+    communityMember   CommunityMembers          @relation(fields: [communityMemberId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "community_chat_room_members_communityMemberId_fkey", index: false)
+    invitedBy         Users                     @relation(name: "community_chat_room_inviter", fields: [invitedById], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "community_chat_room_members_invitedById_fkey", index: false)
+
+    @@id([roomId, communityMemberId], map: "community_chat_room_members_pkey")
+    @@index([communityMemberId], map: "community_chat_room_members_communityMemberId_idx")
+    @@map("community_chat_room_members")
+  }
+
+  model CommunityChatReadStates {
+    roomId       String
+    userId       String
+    readSequence BigInt                      @default(0)
+    updatedAt    Timestamp(3)                @default(now())
+    room         CommunityChatRooms          @relation(fields: [roomId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "community_chat_read_states_roomId_fkey", index: false)
+    user         Users                       @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "community_chat_read_states_userId_fkey", index: false)
+
+    @@id([roomId, userId], map: "community_chat_read_states_pkey")
+    @@index([userId, updatedAt], map: "community_chat_read_states_userId_updatedAt_idx")
+    @@map("community_chat_read_states")
+  }
+
+  model CommunityChatPreferences {
+    communityId String
+    userId      String
+    mutedAt     Timestamp(3)?
+    updatedAt   Timestamp(3)       @default(now())
+    community   Communities        @relation(fields: [communityId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "community_chat_preferences_communityId_fkey", index: false)
+    user        Users              @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "community_chat_preferences_userId_fkey", index: false)
+
+    @@id([communityId, userId], map: "community_chat_preferences_pkey")
+    @@index([userId, mutedAt], map: "community_chat_preferences_userId_mutedAt_idx")
+    @@map("community_chat_preferences")
+  }
+
+  model CommunityChatSubscriptions {
+    roomId     String
+    userId     String
+    following  Boolean              @default(false)
+    updatedAt  Timestamp(3)         @default(now())
+    room       CommunityChatRooms    @relation(fields: [roomId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "community_chat_subscriptions_roomId_fkey", index: false)
+    user       Users                 @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "community_chat_subscriptions_userId_fkey", index: false)
+
+    @@id([roomId, userId], map: "community_chat_subscriptions_pkey")
+    @@index([roomId, following, userId], map: "community_chat_subscriptions_followers_idx")
+    @@map("community_chat_subscriptions")
+  }
+
+  model CommunityChatReactions {
+    messageId String
+    userId    String
+    emoji     String
+    createdAt Timestamp(3)                @default(now())
+    message   CommunityChatMessages       @relation(fields: [messageId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "community_chat_reactions_messageId_fkey", index: false)
+    user      Users                       @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "community_chat_reactions_userId_fkey", index: false)
+
+    @@id([messageId, userId, emoji], map: "community_chat_reactions_pkey")
+    @@index([messageId, emoji], map: "community_chat_reactions_summary_idx")
+    @@index([userId, createdAt], map: "community_chat_reactions_userId_createdAt_idx")
+    @@check(expression: "char_length(\"emoji\") BETWEEN 1 AND 32", name: "community_chat_reactions_emoji_length")
+    @@map("community_chat_reactions")
+  }
+
+  model CommunityChatPins {
+    roomId     String
+    messageId  String
+    pinnedById String
+    createdAt  Timestamp(3)             @default(now())
+    room       CommunityChatRooms       @relation(fields: [roomId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "community_chat_pins_roomId_fkey", index: false)
+    message    CommunityChatMessages    @relation(fields: [messageId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "community_chat_pins_messageId_fkey", index: false)
+    pinnedBy   Users                    @relation(fields: [pinnedById], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "community_chat_pins_pinnedById_fkey", index: false)
+
+    @@id([roomId, messageId], map: "community_chat_pins_pkey")
+    @@index([roomId, createdAt], map: "community_chat_pins_roomId_createdAt_idx")
+    @@map("community_chat_pins")
+  }
+
+  model CommunityChatOutbox {
+    id             String                   @id(map: "community_chat_outbox_pkey") @default(uuid())
+    roomId         String
+    sequence       BigInt
+    kind           String
+    messageId      String?
+    payload        Jsonb?
+    createdAt      Timestamp(3)             @default(now())
+    publishedAt    Timestamp(3)?
+    room           CommunityChatRooms       @relation(fields: [roomId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "community_chat_outbox_roomId_fkey", index: false)
+
+    @@unique([roomId, sequence], map: "community_chat_outbox_roomId_sequence_key")
+    @@index([publishedAt, createdAt], map: "community_chat_outbox_pending_idx")
+    @@map("community_chat_outbox")
+  }
+
+  model CommunityChatSanctions {
+    id          String                       @id(map: "community_chat_sanctions_pkey") @default(uuid())
+    communityId String
+    userId      String
+    actorId     String
+    kind        pg.enum(CommunityChatSanctionKind)
+    reason      String?
+    expiresAt   Timestamp(3)?
+    createdAt   Timestamp(3)                  @default(now())
+    community   Communities                   @relation(fields: [communityId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "community_chat_sanctions_communityId_fkey", index: false)
+    user        Users                        @relation(name: "community_chat_sanction_target", fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "community_chat_sanctions_userId_fkey", index: false)
+    actor       Users                        @relation(name: "community_chat_sanction_actor", fields: [actorId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "community_chat_sanctions_actorId_fkey", index: false)
+
+    @@index([communityId, userId, kind, expiresAt], map: "community_chat_sanctions_active_idx")
+    @@index([communityId, createdAt], map: "community_chat_sanctions_created_idx")
+    @@map("community_chat_sanctions")
+  }
+
+  model CommunityChatReports {
+    id          String                       @id(map: "community_chat_reports_pkey") @default(uuid())
+    communityId String
+    messageId   String
+    reporterId  String
+    reason      String
+    status      pg.enum(CommunityChatReportStatus) @default("OPEN")
+    reviewedById String?
+    reviewNote  String?
+    createdAt   Timestamp(3)                  @default(now())
+    reviewedAt  Timestamp(3)?
+    community   Communities                   @relation(fields: [communityId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "community_chat_reports_communityId_fkey", index: false)
+    reporter    Users                        @relation(name: "community_chat_reporter", fields: [reporterId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "community_chat_reports_reporterId_fkey", index: false)
+    reviewer    Users?                       @relation(name: "community_chat_reviewer", fields: [reviewedById], references: [id], onDelete: SetNull, onUpdate: Cascade, map: "community_chat_reports_reviewedById_fkey")
+    message     CommunityChatMessages        @relation(fields: [messageId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "community_chat_reports_messageId_fkey", index: false)
+
+    @@unique([messageId, reporterId], map: "community_chat_reports_message_reporter_key")
+    @@index([communityId, status, createdAt], map: "community_chat_reports_queue_idx")
+    @@map("community_chat_reports")
+  }
+
+  model CommunityChatAudit {
+    id          String                       @id(map: "community_chat_audit_pkey") @default(uuid())
+    communityId String
+    actorId     String
+    action      String
+    targetId    String?
+    details     Jsonb?
+    createdAt   Timestamp(3)                  @default(now())
+    community   Communities                   @relation(fields: [communityId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "community_chat_audit_communityId_fkey", index: false)
+    actor       Users                        @relation(name: "community_chat_audit_actor", fields: [actorId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "community_chat_audit_actorId_fkey", index: false)
+
+    @@index([communityId, createdAt], map: "community_chat_audit_timeline_idx")
+    @@map("community_chat_audit")
   }
 
   model CommunityPostShares {
@@ -763,6 +1031,9 @@ namespace public {
     invitedById      String?
     leftAt           Timestamp(3)?
     lastReadAt       Timestamp(3)?
+    clearedAt        Timestamp(3)?
+    clearedThroughSequence Int @default(0)
+    inboxHiddenAt    Timestamp(3)?
     lastReadSequence Int?
     unreadCount      Int?
     lastDeliveredAt  Timestamp(3)?
@@ -812,17 +1083,121 @@ namespace public {
     keyEpoch         Int?
     creationSequence Int                  @default(0)
     createdAt        Timestamp(3)         @default(now())
+    expiresAt        Timestamp(3)?
+    mediaLinks       MessageMediaLinks[]
     deletedAt        Timestamp(3)?
     editedAt         Timestamp(3)?
     conversation     MessageConversations @relation(fields: [conversationId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "messages_conversationId_fkey", index: false)
     sender           Users                @relation(fields: [senderId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "messages_senderId_fkey")
     hiddenFor        MessageHiddens[]
+    reactionCounts   MessageReactionCounts[]
+    reactions        MessageReactions[]
+    viewOnceReceipts MessageViewOnceReceipts[]
 
     @@index([conversationId, createdAt], map: "messages_conversationId_createdAt_idx")
     @@index([conversationId, id], map: "messages_conversationId_id_idx")
     @@unique([conversationId, senderId, ratchetIndex], map: "messages_conversationId_senderId_ratchetIndex_key")
+    @@index([expiresAt, id], where: "(\"expiresAt\" IS NOT NULL AND \"deletedAt\" IS NULL)", name: "messages_expiry_due_idx")
+    @@index([expiresAt, id], where: "(\"expiresAt\" IS NOT NULL AND ciphertext <> '')", name: "messages_lifecycle_erasure_due")
     @@index([senderId], map: "messages_senderId_idx")
     @@map("messages")
+  }
+
+  model MessageIncognitoSessions {
+    id String @id @default(uuid())
+    conversationId String
+    startedById String?
+    startedByName String
+    endedById String?
+    endedByName String?
+    startedAt Timestamp(3) @default(now())
+    expiresAt Timestamp(3)?
+    endedAt Timestamp(3)?
+    endReason String?
+    purgedAt Timestamp(3)?
+    nextSequence Int @default(0)
+    conversation MessageConversations @relation(fields: [conversationId], references: [id], onDelete: Cascade, onUpdate: Cascade, index: false)
+    starter Users? @relation(name: "incognito_started_by", fields: [startedById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+    ender Users? @relation(name: "incognito_ended_by", fields: [endedById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+    messages MessageIncognitoMessages[]
+    stagedMedia PostMedia[]
+
+    @@index([conversationId], unique: true, where: "(\"endedAt\" IS NULL)", name: "message_incognito_one_active")
+    @@index([conversationId, startedAt, id], name: "incognito_conversation_started")
+    @@index([endedAt, id], where: "(\"endedAt\" IS NOT NULL AND \"purgedAt\" IS NULL)", name: "incognito_purge_due")
+    @@index([expiresAt], where: "(\"endedAt\" IS NULL)", name: "message_incognito_due")
+    @@map("message_incognito_sessions")
+  }
+
+  model MessageIncognitoMessages {
+    id String @id
+    sessionId String
+    senderId String
+    ciphertext String
+    iv String
+    keyEpoch Int
+    ratchetIndex Int
+    sequence Int
+    createdAt Timestamp(3) @default(now())
+    session MessageIncognitoSessions @relation(fields: [sessionId], references: [id], onDelete: Cascade, onUpdate: Cascade, index: false)
+    sender Users @relation(fields: [senderId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+    mediaLinks MessageMediaLinks[]
+    reactionCounts MessageReactionCounts[]
+    reactions MessageReactions[]
+    viewOnceReceipts MessageViewOnceReceipts[]
+
+    @@unique([sessionId, senderId, ratchetIndex], map: "incognito_message_sender_ratchet")
+    @@unique([sessionId, sequence])
+    @@index([createdAt, id], name: "incognito_message_expiry_due")
+    @@map("message_incognito_messages")
+  }
+
+  model MessageMediaLinks {
+    id String @id @default(uuid())
+    messageId String?
+    incognitoMessageId String?
+    mediaId String
+    viewOnce Boolean @default(false)
+    deliveryExpiresAt Timestamp(3)?
+    message Messages? @relation(fields: [messageId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+    incognitoMessage MessageIncognitoMessages? @relation(fields: [incognitoMessageId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+    media PostMedia @relation(fields: [mediaId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+    viewOnceRecipients MessageViewOnceRecipients[]
+
+    @@unique([messageId, mediaId])
+    @@unique([incognitoMessageId, mediaId], map: "message_media_incognito_unique")
+    @@index([mediaId])
+    @@index([mediaId], unique: true, where: "(\"viewOnce\")", name: "message_media_viewonce_media_unique")
+    @@index([deliveryExpiresAt, id], where: "(\"viewOnce\" AND \"deliveryExpiresAt\" IS NOT NULL)", name: "message_media_viewonce_due")
+    @@check(expression: "(\"messageId\" IS NULL) <> (\"incognitoMessageId\" IS NULL)", name: "message_media_exact_source")
+    @@map("message_media_links")
+  }
+
+  model MessageExportJobs {
+    id String @id @default(uuid())
+    conversationId String
+    userId String
+    status String @default("pending")
+    includeMedia Boolean @default(false)
+    membershipSequence Int @default(0)
+    fromDate Timestamp(3)?
+    toDate Timestamp(3)?
+    snapshotSequence Int
+    clearedThroughSequence Int
+    recoveryGeneration Int
+    createdAt Timestamp(3) @default(now())
+    expiresAt Timestamp(3)
+    leaseUntil Timestamp(3)?
+    objectKey String?
+    artifactKey String?
+    errorCode String?
+    conversation MessageConversations @relation(fields: [conversationId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+    user Users @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+    @@index([status, createdAt])
+    @@index([userId, conversationId, createdAt], name: "message_export_user_conversation")
+    @@index([expiresAt])
+    @@map("message_export_jobs")
   }
 
   model MessageHiddens {
@@ -835,6 +1210,95 @@ namespace public {
     @@id([messageId, userId], map: "message_hidden_pkey")
     @@index([userId], map: "message_hidden_userId_idx")
     @@map("message_hidden")
+  }
+
+  model MessageReactions {
+    id                 String                    @id(map: "message_reactions_pkey") @default(uuid())
+    messageId          String?
+    incognitoMessageId String?
+    userId             String
+    emoji              String
+    createdAt          Timestamp(3)              @default(now())
+    message            Messages?                 @relation(fields: [messageId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "message_reactions_messageId_fkey", index: false)
+    incognitoMessage   MessageIncognitoMessages? @relation(fields: [incognitoMessageId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "message_reactions_incognitoMessageId_fkey", index: false)
+    user               Users                     @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "message_reactions_userId_fkey")
+
+    // One reaction per member per message: changing a reaction replaces it.
+    @@unique([messageId, userId], map: "message_reactions_message_user_unique")
+    @@unique([incognitoMessageId, userId], map: "message_reactions_incognito_user_unique")
+    @@index([messageId, emoji], map: "message_reactions_message_emoji_idx")
+    @@index([incognitoMessageId, emoji], map: "message_reactions_incognito_emoji_idx")
+    @@index([userId], map: "message_reactions_userId_idx")
+    @@check(expression: "(\"messageId\" IS NULL) <> (\"incognitoMessageId\" IS NULL)", name: "message_reactions_exact_source")
+    @@check(expression: "char_length(\"emoji\") BETWEEN 1 AND 32", name: "message_reactions_emoji_length")
+    @@map("message_reactions")
+  }
+
+  model MessageReactionCounts {
+    id                 String                    @id(map: "message_reaction_counts_pkey") @default(uuid())
+    messageId          String?
+    incognitoMessageId String?
+    emoji              String
+    count              Int
+    message            Messages?                 @relation(fields: [messageId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "message_reaction_counts_messageId_fkey", index: false)
+    incognitoMessage   MessageIncognitoMessages? @relation(fields: [incognitoMessageId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "message_reaction_counts_incognitoMessageId_fkey", index: false)
+
+    @@unique([messageId, emoji], map: "message_reaction_counts_message_emoji_unique")
+    @@unique([incognitoMessageId, emoji], map: "message_reaction_counts_incognito_emoji_unique")
+    @@check(expression: "(\"messageId\" IS NULL) <> (\"incognitoMessageId\" IS NULL)", name: "message_reaction_counts_exact_source")
+    @@check(expression: "\"count\" >= 1", name: "message_reaction_counts_positive")
+    @@check(expression: "char_length(\"emoji\") BETWEEN 1 AND 32", name: "message_reaction_counts_emoji_length")
+    @@map("message_reaction_counts")
+  }
+
+  model MessageViewOnceRecipients {
+    id          String              @id(map: "message_view_once_recipients_pkey") @default(uuid())
+    mediaLinkId String
+    userId      String
+    createdAt   Timestamp(3)        @default(now())
+    mediaLink   MessageMediaLinks   @relation(fields: [mediaLinkId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "message_view_once_recipients_mediaLinkId_fkey", index: false)
+    user        Users               @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "message_view_once_recipients_userId_fkey")
+    grants      MessageViewOnceGrants[]
+
+    @@unique([mediaLinkId, userId], map: "message_view_once_recipients_media_user_unique")
+    @@index([userId], map: "message_view_once_recipients_userId_idx")
+    @@map("message_view_once_recipients")
+  }
+
+  model MessageViewOnceReceipts {
+    id String @id(map: "message_view_once_receipts_pkey")
+    mediaId String
+    userId String
+    messageId String?
+    incognitoMessageId String?
+    openedAt Timestamp(3) @default(now())
+    seenAt Timestamp(3)?
+    message Messages? @relation(fields: [messageId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "view_once_receipts_message_fkey", index: false)
+    incognitoMessage MessageIncognitoMessages? @relation(fields: [incognitoMessageId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "view_once_receipts_incognito_fkey", index: false)
+    user Users @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "view_once_receipts_user_fkey")
+
+    @@unique([mediaId, userId], map: "view_once_receipts_media_user_key")
+    @@index([messageId], map: "view_once_receipts_message_idx")
+    @@index([incognitoMessageId], map: "view_once_receipts_incognito_idx")
+    @@index([userId], map: "view_once_receipts_user_idx")
+    @@check(expression: "(\"messageId\" IS NULL) <> (\"incognitoMessageId\" IS NULL)", name: "view_once_receipts_exact_source")
+    @@map("message_view_once_receipts")
+  }
+
+  model MessageViewOnceGrants {
+    id          String                    @id(map: "message_view_once_grants_pkey") @default(uuid())
+    recipientId String
+    status      pg.enum(ViewOnceGrantStatus) @default("RESERVED")
+    reservedAt  Timestamp(3)              @default(now())
+    activatedAt Timestamp(3)?
+    closedAt    Timestamp(3)?
+    expiresAt   Timestamp(3)?
+    recipient   MessageViewOnceRecipients @relation(fields: [recipientId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "message_view_once_grants_recipientId_fkey", index: false)
+
+    // At most one live grant per recipient; closed history may repeat.
+    @@index([recipientId], unique: true, where: "(\"status\" IN ('RESERVED', 'ACTIVE'))", name: "message_view_once_grants_live_unique")
+    @@index([status, expiresAt], map: "message_view_once_grants_status_expiry_idx")
+    @@map("message_view_once_grants")
   }
 
   model MessageSearchOutbox {
@@ -1005,6 +1469,7 @@ namespace public {
     createdAt      Timestamp(3)              @default(now())
     communityId    String?
     conversationId String?
+    membershipRequestId String?
     count          Int                       @default(1)
     comment        Comments?                 @relation(fields: [commentId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "notifications_commentId_fkey")
     community      Communities?              @relation(fields: [communityId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "notifications_communityId_fkey", index: false)
@@ -1071,6 +1536,25 @@ namespace public {
     @@index([key], map: "post_media_derivatives_key_idx")
     @@unique([mediaId, kind, variant], map: "post_media_derivatives_mediaId_kind_variant_key")
     @@map("post_media_derivatives")
+  }
+
+  model UserStickers {
+    id         String       @id(map: "user_stickers_pkey") @default(uuid())
+    userId     String
+    mediaId    String       @unique(map: "user_stickers_mediaId_key")
+    name       String       @default("")
+    animated   Boolean
+    byteSize   Int
+    favorite   Boolean      @default(false)
+    createdAt  Timestamp(3) @default(now())
+    lastUsedAt Timestamp(3)?
+    user       Users        @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "user_stickers_userId_fkey", index: false)
+    media      PostMedia    @relation(fields: [mediaId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "user_stickers_mediaId_fkey", index: false)
+
+    @@unique([userId, mediaId], map: "user_stickers_userId_mediaId_key")
+    @@index([userId, createdAt, id], map: "user_stickers_userId_createdAt_id_idx")
+    @@index([userId, favorite, createdAt], map: "user_stickers_userId_favorite_createdAt_idx")
+    @@map("user_stickers")
   }
 
   model Tag {
@@ -1347,6 +1831,37 @@ namespace public {
     COMMUNITY_POST = "COMMUNITY_POST"
     DEN_MESSAGE = "DEN_MESSAGE"
     DEN_MEMBERSHIP_ENDED = "DEN_MEMBERSHIP_ENDED"
+    COMMUNITY_CHAT = "COMMUNITY_CHAT"
+    COMMUNITY_JOIN_REQUEST = "COMMUNITY_JOIN_REQUEST"
+    COMMUNITY_JOIN_APPROVED = "COMMUNITY_JOIN_APPROVED"
+    COMMUNITY_JOIN_DECLINED = "COMMUNITY_JOIN_DECLINED"
+  }
+
+  native_enum CommunityChatRoomKind {
+    CHANNEL = "CHANNEL"
+    THREAD = "THREAD"
+  }
+
+  native_enum CommunityChatChannelType {
+    TEXT = "TEXT"
+    ANNOUNCEMENT = "ANNOUNCEMENT"
+  }
+
+  native_enum CommunityChatVisibility {
+    PUBLIC = "PUBLIC"
+    PRIVATE = "PRIVATE"
+  }
+
+  native_enum CommunityChatSanctionKind {
+    BAN = "BAN"
+    TIMEOUT = "TIMEOUT"
+    KICK = "KICK"
+  }
+
+  native_enum CommunityChatReportStatus {
+    OPEN = "OPEN"
+    RESOLVED = "RESOLVED"
+    DISMISSED = "DISMISSED"
   }
 
   native_enum RejectionReason {
@@ -1357,5 +1872,13 @@ namespace public {
     TOO_LONG = "TOO_LONG"
     CORRUPT = "CORRUPT"
     POLICY = "POLICY"
+  }
+
+  native_enum ViewOnceGrantStatus {
+    RESERVED = "RESERVED"
+    ACTIVE = "ACTIVE"
+    CLOSED = "CLOSED"
+    EXPIRED = "EXPIRED"
+    REVOKED = "REVOKED"
   }
 }

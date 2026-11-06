@@ -30,6 +30,9 @@ const SheetClose = Close;
 
 const SheetPortal = Portal;
 
+// Allows compound sheets to keep every interactive surface inside one focus scope.
+const SheetDialogContent = Content;
+
 const SheetOverlay = ({
   className,
   ref,
@@ -169,6 +172,7 @@ export {
   SheetClose,
   SheetContent,
   SheetDescription,
+  SheetDialogContent,
   SheetFooter,
   SheetHeader,
   SheetOverlay,

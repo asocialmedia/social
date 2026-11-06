@@ -1,5 +1,9 @@
 "use client";
 
+import type {
+  BubbleEntranceRegistry,
+  MessageReactionSummary,
+} from "@asm/messages";
 import {
   Tooltip,
   TooltipContent,
@@ -8,15 +12,19 @@ import {
 } from "@asm/ui/shadui/tooltip";
 import {
   Check,
+  Clock3,
+  RotateCcw,
   Copy,
   MessageSquareQuote,
   MoreHorizontal,
   Pencil,
 } from "lucide-react";
 import { useCallback, useState } from "react";
+import type { RefObject } from "react";
 
 import UserAvatar from "@/components/layouts/user/user-avatar";
 import type { MessagePayload } from "@/lib/messages/crypto";
+import { isStickerMessagePayload } from "@/lib/messages/crypto";
 import { isWithinEditWindow } from "@/lib/messages/edit-window";
 import { cn, formatRelativeDate } from "@/lib/utils";
 
@@ -25,8 +33,16 @@ import type { BubblePosition } from "./message-bubble-shape";
 import { MessageLinkEmbed } from "./message-link-embed";
 import { MessageMediaAlbum } from "./message-media-album";
 import { PostEmbed } from "./post-embed";
+import { SavableSticker } from "./savable-sticker";
+import { useBubbleEntrance } from "./use-bubble-entrance";
 
 interface MessageBubbleProps {
+  deliveryState?: "sending" | "failed" | "acknowledged";
+  onRetrySend?: () => void;
+  entrances?: BubbleEntranceRegistry;
+  entrance?: "outgoing" | "incoming";
+  onEntranceEnd?: () => void;
+  entranceRef?: RefObject<HTMLDivElement | null>;
   content: MessagePayload | null;
   isDecrypting: boolean;
   message: {
@@ -36,6 +52,7 @@ interface MessageBubbleProps {
     editedAt: Date | string | null;
     id: string;
     iv: string;
+    reactions?: MessageReactionSummary[];
     ratchetIndex: number;
     sender?: {
       id: string;
@@ -46,7 +63,10 @@ interface MessageBubbleProps {
     senderId: string;
   };
   myUserId: string;
-  onEdit: () => void;
+  onEdit?: () => void;
+  onReact?: (emoji: string) => void;
+  reactionPending?: boolean;
+  onMoreOptions?: (rect: DOMRect) => void;
   onReply: () => void;
   quote: { senderName: string; content: string } | null;
   quotePending: boolean;
@@ -70,12 +90,49 @@ interface MessageBubbleProps {
   unknownSenderName: string;
 }
 
-export function MessageBubble({
+export function MessageBubble(props: MessageBubbleProps) {
+  if (!props.content || props.isDecrypting || props.message.deletedAt) {
+    return <MessageBubbleContent {...props} />;
+  }
+  return <ReadyMessageBubble key={props.message.id} {...props} />;
+}
+
+function ReadyMessageBubble(props: MessageBubbleProps) {
+  const { entrances, message, myUserId } = props;
+  const direction = message.senderId === myUserId ? "outgoing" : "incoming";
+  const [entering, finishEntrance, entranceRef] = useBubbleEntrance(
+    entrances,
+    message.id,
+    direction
+  );
+  let entrance: MessageBubbleProps["entrance"];
+  if (entering) {
+    entrance = direction;
+  }
+  return (
+    <MessageBubbleContent
+      {...props}
+      entrance={entrance}
+      onEntranceEnd={finishEntrance}
+      entranceRef={entranceRef}
+    />
+  );
+}
+
+function MessageBubbleContent({
+  deliveryState,
+  onRetrySend,
+  entrance,
+  onEntranceEnd,
+  entranceRef,
   content,
   isDecrypting,
   message,
   myUserId,
   onEdit,
+  onReact,
+  reactionPending = false,
+  onMoreOptions,
   onReply,
   quote,
   quotePending,
@@ -86,6 +143,7 @@ export function MessageBubble({
   unknownSenderName,
 }: MessageBubbleProps) {
   const mine = message.senderId === myUserId;
+  const hasReactions = Boolean(message.reactions?.length && onReact);
   // Media albums render as bare collages (their own frames), unlike text/post
   // messages which sit in a tinted bubble.
   const isMedia = content?.type === "media";
@@ -93,7 +151,8 @@ export function MessageBubble({
   // Edit is a sender-only, time-boxed affordance. Computed at render so an
   // expired window stops offering an action the server would reject; a message
   // whose window lapses while mounted simply 409s and surfaces the error.
-  const canEdit = mine && isWithinEditWindow(message.createdAt);
+  const canEdit =
+    Boolean(onEdit) && mine && isWithinEditWindow(message.createdAt);
   // The peer avatar marks the end of a run, so it rides the last row (solo or
   // bottom); earlier rows reserve a same-width spacer to keep the column aligned.
   const showAvatar = !mine && (position === "solo" || position === "bottom");
@@ -105,7 +164,9 @@ export function MessageBubble({
   let avatarNode: React.ReactNode = null;
   if (showAvatar) {
     avatarNode = (
-      <UserAvatar avatarUrl={message.sender?.avatarUrl ?? null} size={28} />
+      <span className={cn("w-7 shrink-0", hasReactions && "mb-[22px]")}>
+        <UserAvatar avatarUrl={message.sender?.avatarUrl ?? null} size={28} />
+      </span>
     );
   } else if (!mine) {
     avatarNode = <span aria-hidden className="w-7 shrink-0" />;
@@ -172,7 +233,22 @@ export function MessageBubble({
       );
     }
     if (content.type === "media") {
-      return <MessageMediaAlbum content={content} messageId={message.id} />;
+      if (isStickerMessagePayload(content)) {
+        return (
+          <SavableSticker
+            url={content.url}
+            mediaId={content.sticker.mediaId}
+            messageId={message.id}
+          />
+        );
+      }
+      return (
+        <MessageMediaAlbum
+          content={content}
+          messageId={message.id}
+          mine={mine}
+        />
+      );
     }
     // Post share: an optional caption the sender typed, above the embed card.
     return (
@@ -344,9 +420,11 @@ export function MessageBubble({
               the destructive action moved into the options menu. */}
           {selectionActive ? null : (
             <div
+              inert={Boolean(deliveryState)}
               className={cn(
                 "flex items-center gap-0.5 transition-opacity duration-150",
                 "opacity-0 group-hover:opacity-100 focus-within:opacity-100 max-sm:hidden",
+                deliveryState && "pointer-events-none invisible",
                 mine ? "order-first" : "order-last"
               )}
             >
@@ -368,7 +446,7 @@ export function MessageBubble({
                 icon={<MessageSquareQuote className="h-3.5 w-3.5" />}
                 onClick={onReply}
               />
-              {canEdit ? (
+              {canEdit && onEdit ? (
                 <BubbleAction
                   ariaLabel="Edit message"
                   icon={<Pencil className="h-3.5 w-3.5" />}
@@ -379,6 +457,18 @@ export function MessageBubble({
                 aria-label="More options"
                 className="text-muted-foreground hover:bg-muted/60 flex h-6 w-6 items-center justify-center rounded-md transition-colors"
                 data-open-options=""
+                onClick={
+                  onMoreOptions
+                    ? (event) =>
+                        onMoreOptions(
+                          event.currentTarget
+                            .closest("[data-message-row]")
+                            ?.querySelector("[data-message-bubble]")
+                            ?.getBoundingClientRect() ??
+                            event.currentTarget.getBoundingClientRect()
+                        )
+                    : undefined
+                }
                 type="button"
               >
                 <MoreHorizontal className="h-3.5 w-3.5" />
@@ -392,30 +482,132 @@ export function MessageBubble({
               attribute is the stable anchor for the options pane. */}
           <div
             className={cn(
-              "relative max-w-full min-w-0",
-              bubbleClass,
-              jumpShimmer && "msg-jump-shimmer"
+              "flex max-w-full min-w-0 flex-col items-start",
+              entrance === "outgoing" && "msg-bubble-enter-outgoing",
+              entrance === "incoming" && "msg-bubble-enter-incoming"
             )}
-            data-message-bubble=""
+            data-bubble-media={content?.type === "text" ? undefined : "true"}
+            ref={entranceRef}
+            onAnimationEnd={(event) => {
+              if (
+                event.target === event.currentTarget &&
+                event.animationName.startsWith("msg-bubble-flight")
+              ) {
+                onEntranceEnd?.();
+              }
+            }}
           >
-            {quoteBlock}
+            <div
+              className={cn(
+                "relative max-w-full min-w-0",
+                bubbleClass,
+                mine && content?.type === "text" && "pr-8",
+                jumpShimmer && "msg-jump-shimmer"
+              )}
+              data-message-bubble=""
+            >
+              {quoteBlock}
 
-            {renderContent()}
+              {content?.type === "text" ? (
+                <div className="msg-bubble-copy min-w-0">{renderContent()}</div>
+              ) : (
+                <div className="contents" inert={Boolean(deliveryState)}>
+                  {renderContent()}
+                </div>
+              )}
+              {mine ? (
+                <MessageDeliveryIndicator
+                  state={deliveryState}
+                  className={
+                    content?.type === "text"
+                      ? "pointer-events-none absolute right-2 bottom-2"
+                      : "chip-3d text-foreground pointer-events-none absolute right-1 bottom-1 rounded-full p-0.5"
+                  }
+                />
+              ) : null}
 
-            {/* Text messages place the marker inline next to the timestamp (see
+              {/* Text messages place the marker inline next to the timestamp (see
                 renderContent); media albums and post cards have no timestamp
                 row, so the marker sits just below the content instead. */}
-            {content && content.type !== "text" ? (
-              <EditedMarker
-                editedAt={message.editedAt}
-                mine={mine}
-                onColoredBubble={onColoredBubble}
-              />
+              {content && content.type !== "text" ? (
+                <EditedMarker
+                  editedAt={message.editedAt}
+                  mine={mine}
+                  onColoredBubble={onColoredBubble}
+                />
+              ) : null}
+            </div>
+            {message.reactions?.length && onReact ? (
+              <div
+                aria-label="Message reactions"
+                className="relative z-10 -mt-2.5 mr-1 flex max-w-full [scrollbar-width:none] gap-0.5 self-end overflow-x-auto"
+              >
+                {message.reactions.map((reaction) => (
+                  <button
+                    aria-label={`${reaction.emoji}, ${reaction.count}${reaction.count === 1 ? " reaction" : " reactions"}${reaction.reactedByMe ? ", remove mine" : ""}`}
+                    aria-pressed={reaction.reactedByMe}
+                    className={cn(
+                      "chip-3d inline-flex min-h-8 min-w-8 shrink-0 items-center justify-center gap-1 rounded-full px-2 text-xs transition-transform duration-150 disabled:opacity-50 motion-safe:active:scale-95",
+                      reaction.reactedByMe &&
+                        "text-primary ring-primary/40 ring-1"
+                    )}
+                    key={reaction.emoji}
+                    disabled={reactionPending}
+                    onClick={() => onReact(reaction.emoji)}
+                    type="button"
+                  >
+                    <span aria-hidden="true">{reaction.emoji}</span>
+                    {reaction.count > 1 ? (
+                      <span className="tabular-nums">{reaction.count}</span>
+                    ) : null}
+                  </button>
+                ))}
+              </div>
             ) : null}
           </div>
         </div>
+        {mine && deliveryState === "failed" ? (
+          <button
+            aria-label="Retry sending message"
+            className="text-destructive inline-flex min-h-8 items-center gap-1.5 self-end rounded-md px-2 text-[10px] [@media(pointer:coarse)]:min-h-11"
+            onClick={onRetrySend}
+            type="button"
+          >
+            <RotateCcw aria-hidden="true" className="size-3" />
+            Not sent · Retry
+          </button>
+        ) : null}
       </div>
     </div>
+  );
+}
+
+function MessageDeliveryIndicator({
+  state,
+  className,
+}: {
+  state: MessageBubbleProps["deliveryState"];
+  className?: string;
+}) {
+  let label = "Message sent";
+  let icon = <Check aria-hidden="true" className="size-3" />;
+  if (state === "sending") {
+    label = "Sending message";
+    icon = <Clock3 aria-hidden="true" className="size-3" />;
+  } else if (state === "failed") {
+    label = "Message not sent";
+    icon = <RotateCcw aria-hidden="true" className="size-3" />;
+  }
+  return (
+    <span
+      aria-label={label}
+      className={cn(
+        "msg-bubble-delivery inline-flex h-3.5 w-3.5 items-center justify-center align-middle opacity-70",
+        className
+      )}
+    >
+      {icon}
+    </span>
   );
 }
 

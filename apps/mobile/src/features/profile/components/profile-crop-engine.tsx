@@ -1,10 +1,18 @@
 "use dom";
 
+// oxlint-disable react/todo -- Async encoders catch failures and keep the editor available for retry.
+
 import { encodeProfileCrop } from "@asm/media/image-edit";
+import { PhotoEditorWorkspace } from "@asm/ui/components/photo-editor-workspace";
+import type { PhotoEditorHandle } from "@asm/ui/components/photo-editor-workspace";
 import { CROPPER_ACCENT } from "@asm/ui/lib/cropper-accent";
+import {
+  applyPhotoCropAction,
+  capturePhotoSnapshot,
+} from "@asm/ui/lib/photo-editing";
 import { Asset } from "expo-asset";
 import type { DOMProps } from "expo/dom";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Cropper } from "react-cropper";
 import type { ReactCropperElement } from "react-cropper";
 
@@ -13,6 +21,7 @@ import avatarPlaceholder from "../../../../assets/images/avatar-placeholder.png"
 
 import "cropperjs/dist/cropper.css";
 import "./profile-crop-engine.css";
+import "@asm/ui/styles/photo-editor.css";
 
 function ControlIcon({
   name,
@@ -59,6 +68,7 @@ export default function ProfileCropEngine({
   dataUrl,
   isDark,
   kind,
+  messagePhoto = false,
   onComplete,
   onCancel,
   onError,
@@ -68,6 +78,7 @@ export default function ProfileCropEngine({
   dom: DOMProps;
   isDark: boolean;
   kind: "avatar" | "banner" | "post";
+  messagePhoto?: boolean;
   onComplete: (result: {
     dataUrl: string;
     width: number;
@@ -77,6 +88,12 @@ export default function ProfileCropEngine({
   onError: (message: string) => Promise<void>;
 }) {
   const cropperRef = useRef<ReactCropperElement>(null);
+  const editorRef = useRef<PhotoEditorHandle>(null);
+  const enhanced = messagePhoto && !animated;
+  const getSnapshot = useCallback(
+    () => capturePhotoSnapshot(cropperRef.current?.cropper),
+    []
+  );
   const mounted = useRef(true);
   const [saving, setSaving] = useState(false);
   const [ready, setReady] = useState(false);
@@ -95,6 +112,20 @@ export default function ProfileCropEngine({
     setSaving(true);
     setCropError(null);
     try {
+      if (enhanced) {
+        const output = editorRef.current?.exportCanvas();
+        if (!output) {
+          throw new Error("Wait for your photo to load");
+        }
+        if (mounted.current) {
+          await onComplete({
+            dataUrl: output.toDataURL("image/png"),
+            height: output.height,
+            width: output.width,
+          });
+        }
+        return;
+      }
       const crop = cropper.getData();
       const width = Math.max(
         1,
@@ -127,9 +158,10 @@ export default function ProfileCropEngine({
         setCropError(message);
         await onError(message);
       }
-    }
-    if (mounted.current) {
-      setSaving(false);
+    } finally {
+      if (mounted.current) {
+        setSaving(false);
+      }
     }
   };
   // oxlint-disable react/refs -- Callbacks access the cropper only when a button is pressed.
@@ -192,11 +224,13 @@ export default function ProfileCropEngine({
           <h1>
             {kind === "post" ? "Edit" : "Crop"} {animated ? "GIF" : "Image"}
           </h1>
-          <p>
-            {animated
-              ? "Crop and rotate while keeping the animation"
-              : "Adjust your photo before saving"}
-          </p>
+          {enhanced ? null : (
+            <p>
+              {animated
+                ? "Crop and rotate while keeping the animation"
+                : "Adjust your photo before saving"}
+            </p>
+          )}
         </div>
         <button
           className="native-crop-close"
@@ -210,30 +244,57 @@ export default function ProfileCropEngine({
         </button>
       </header>
       <div className="native-crop-body">
-        <div className="native-crop-preview">
-          <Cropper
-            aspectRatio={aspectRatio}
-            className="asm-cropper"
-            guides={false}
-            ref={cropperRef}
-            src={dataUrl}
-            viewMode={1}
-            ready={() => setReady(true)}
+        {enhanced ? (
+          <PhotoEditorWorkspace
+            ref={editorRef}
+            ready={ready}
+            disabled={saving}
+            getSnapshot={getSnapshot}
+            onError={setCropError}
+            onCropAction={(action) =>
+              applyPhotoCropAction(cropperRef.current?.cropper, action)
+            }
+            cropContent={
+              <Cropper
+                autoCropArea={1}
+                className="asm-cropper"
+                guides={false}
+                ref={cropperRef}
+                src={dataUrl}
+                viewMode={1}
+                ready={() => setReady(true)}
+              />
+            }
           />
-        </div>
-        <div className="native-crop-controls">
-          {controls.map((control) => (
-            <button
-              aria-label={control.label}
-              key={control.label}
-              type="button"
-              disabled={saving || !ready}
-              onClick={() => control.handleClick()}
-            >
-              <ControlIcon name={control.icon} />
-            </button>
-          ))}
-        </div>
+        ) : (
+          <>
+            <div className="native-crop-preview">
+              <Cropper
+                autoCropArea={kind === "post" ? 1 : 0.8}
+                aspectRatio={aspectRatio}
+                className="asm-cropper"
+                guides={false}
+                ref={cropperRef}
+                src={dataUrl}
+                viewMode={1}
+                ready={() => setReady(true)}
+              />
+            </div>
+            <div className="native-crop-controls">
+              {controls.map((control) => (
+                <button
+                  aria-label={control.label}
+                  key={control.label}
+                  type="button"
+                  disabled={saving || !ready}
+                  onClick={() => control.handleClick()}
+                >
+                  <ControlIcon name={control.icon} />
+                </button>
+              ))}
+            </div>
+          </>
+        )}
         {cropError ? (
           <p className="native-crop-error" role="alert">
             {cropError}

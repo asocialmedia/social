@@ -7,6 +7,8 @@ import {
   toPrismaDateTime,
 } from "@asm/db";
 import {
+  isStickerSupportedMimeType,
+  maxStickerInputBytes,
   maxBytesForPurpose,
   quarantineKey,
   resolveMediaLimits,
@@ -134,6 +136,9 @@ export async function createInitiatedUpload(input: {
   // "message" (the route verifies membership); stored on the row so the
   // serving route can admit the peer.
   messageConversationId?: string | null;
+  incognitoSessionId?: string;
+  messageLifecycleProtected?: boolean;
+  messageViewOnce?: boolean;
   purpose: string | null;
   sha256?: string | null;
   userId: string;
@@ -148,6 +153,9 @@ export async function createInitiatedUpload(input: {
     fileName,
     fileSize,
     messageConversationId,
+    incognitoSessionId,
+    messageLifecycleProtected,
+    messageViewOnce,
     purpose,
     sha256,
     userId,
@@ -156,6 +164,36 @@ export async function createInitiatedUpload(input: {
   } = input;
 
   const mediaType = mediaTypeFromMime(declaredMime);
+  if (
+    purpose === "sticker" &&
+    (!isStickerSupportedMimeType(declaredMime) ||
+      fileSize > maxStickerInputBytes(declaredMime))
+  ) {
+    throw new UploadPolicyError(
+      "Sticker uploads must be JPEG, PNG, WebP, or GIF files within the sticker size limit",
+      413
+    );
+  }
+  if (
+    messageViewOnce &&
+    (purpose !== "message" ||
+      !messageConversationId ||
+      audioOverlayId ||
+      !["image/jpeg", "image/png", "image/webp", "image/avif"].includes(
+        declaredMime.toLowerCase()
+      ))
+  ) {
+    throw new UploadPolicyError(
+      "View-once attachments must be a single supported photo in a chat",
+      415
+    );
+  }
+  if (mediaType === "DOCUMENT" && purpose !== "message") {
+    throw new UploadPolicyError(
+      "Documents can only be shared in messages",
+      415
+    );
+  }
   // Purpose-aware: a wallpaper inherits the image cap unless a tighter
   // purpose-specific ceiling applies (see maxBytesForPurpose).
   const maxBytes = maxBytesForPurpose(MEDIA_LIMITS, purpose, mediaType);
@@ -282,10 +320,12 @@ export async function createInitiatedUpload(input: {
   // file (matching SHA-256 and size) and it finished processing or is in-flight,
   // reuse the existing media row and storage artifacts to skip redundant uploads
   // and transcoding.
-  if (sha256) {
+  if (sha256 && !messageLifecycleProtected && purpose !== "sticker") {
     const existing = await prisma.orm.public.PostMedia.where((media) =>
       and(
         media.sha256.eq(sha256),
+        media.messageLifecycleProtected.eq(false),
+        media.messageViewOnce.eq(false),
         media.size.eq(fileSize),
         media.status.in([
           "READY",
@@ -308,6 +348,7 @@ export async function createInitiatedUpload(input: {
       .include("messageConversationMembers", (member) =>
         member.select("userId")
       )
+      .include("userSticker", (sticker) => sticker.select("id"))
       .orderBy((media) => media.createdAt.desc())
       .first();
 
@@ -323,7 +364,8 @@ export async function createInitiatedUpload(input: {
         existing.communities.length === 0 &&
         existing.communitiesCommunities.length === 0 &&
         existing.wallpaperConversations.length === 0 &&
-        existing.messageConversationMembers.length === 0;
+        existing.messageConversationMembers.length === 0 &&
+        existing.userSticker === null;
       // A different audio overlay means the row's stored (or in-flight) bytes
       // were baked with another track; reusing them would serve the wrong
       // audio. Computed once here and required by EVERY reuse path below - the
@@ -667,13 +709,19 @@ export async function createInitiatedUpload(input: {
       key: "",
       mimeType: declaredMime.toLowerCase(),
       originalName: sanitizeDisplayName(fileName),
-      sha256: sha256 ?? null,
+      sha256: messageViewOnce ? null : (sha256 ?? null),
       size: fileSize,
       status: "UPLOADING",
+      stickerSource: purpose === "sticker",
       url: "",
       userId,
+      ...(purpose === "sticker" ? { visibility: "PRIVATE" as const } : {}),
       ...(audioOverlayId ? { audioOverlayId } : {}),
       ...(messageConversationId ? { messageConversationId } : {}),
+      incognitoSessionId: incognitoSessionId ?? null,
+      messageLifecycleProtected:
+        Boolean(messageLifecycleProtected) || Boolean(messageViewOnce),
+      messageViewOnce: messageViewOnce ?? false,
       ...(width ? { width } : {}),
       ...(height ? { height } : {}),
     });

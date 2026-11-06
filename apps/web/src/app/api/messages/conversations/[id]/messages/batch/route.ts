@@ -6,6 +6,7 @@ import {
 } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/auth/session";
+import { chatCapabilityError } from "@/lib/messages/chat-capability";
 import { readerMessageWindows } from "@/lib/messages/reader-window";
 import { getConversationForUser } from "@/lib/messages/server";
 
@@ -128,6 +129,10 @@ export async function POST(
   }
   if (!conversation) {
     return Response.json({ error: "Conversation not found" }, { status: 404 });
+  }
+  const capabilityError = chatCapabilityError(request, conversation);
+  if (capabilityError) {
+    return capabilityError;
   }
 
   const contentLength = Number(request.headers.get("content-length") ?? 0);

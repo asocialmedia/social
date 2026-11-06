@@ -1,16 +1,12 @@
 "use client";
 
 import { MAX_MESSAGE_ATTACHMENTS } from "@asm/media";
+import { shouldAutoEditPhoto } from "@asm/ui/lib/photo-editing";
 import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
 
 import { toast } from "@/lib/gooey-toast";
 import { discardMessageMedia, uploadMessageMedia } from "@/lib/messages/client";
 
-import type {
-  GroupedMessageAttachments,
-  MessageAttachmentDraft,
-  StagedMediaId,
-} from "./message-attachment-state";
 import {
   claimStagedMedia,
   groupReadyAttachments,
@@ -20,6 +16,11 @@ import {
   kindForFile,
   restoreStagedMedia,
   selectAcceptedFiles,
+} from "./message-attachment-state";
+import type {
+  GroupedMessageAttachments,
+  MessageAttachmentDraft,
+  StagedMediaId,
 } from "./message-attachment-state";
 
 type AttachmentAction =
@@ -69,7 +70,10 @@ function nextDraftId(): string {
 // the composer sends only once every attachment is READY (the serving route
 // gates on that status). Uploads are abortable so removing a tile or unmounting
 // the thread stops the work instead of leaking a request.
-export function useMessageAttachments(conversationId: string) {
+export function useMessageAttachments(
+  conversationId: string,
+  incognitoSessionId?: string
+) {
   const [attachments, dispatch] = useReducer(attachmentReducer, []);
   const controllersRef = useRef(new Map<string, AbortController>());
   const progressRef = useRef(new Map<string, number>());
@@ -109,6 +113,7 @@ export function useMessageAttachments(conversationId: string) {
   const startUpload = useCallback(
     async (draft: MessageAttachmentDraft) => {
       const controller = new AbortController();
+      let uploadedEntry: StagedMediaId | undefined;
       controllersRef.current.set(draft.id, controller);
       progressRef.current.set(draft.id, 0);
 
@@ -129,7 +134,18 @@ export function useMessageAttachments(conversationId: string) {
           draft.kind,
           conversationId,
           {
+            incognitoSessionId,
             onMediaId: (mediaId, meta) => {
+              uploadedEntry = { mediaId, owned: meta.owned };
+              if (
+                controller.signal.aborted ||
+                controllersRef.current.get(draft.id) !== controller
+              ) {
+                if (meta.owned) {
+                  void discardMessageMedia(mediaId);
+                }
+                return;
+              }
               mediaIdsRef.current.set(draft.id, {
                 mediaId,
                 owned: meta.owned,
@@ -141,6 +157,12 @@ export function useMessageAttachments(conversationId: string) {
               });
             },
             onProgress: (percent) => {
+              if (
+                controller.signal.aborted ||
+                controllersRef.current.get(draft.id) !== controller
+              ) {
+                return;
+              }
               // Progress events fire far more often than the UI needs; only
               // commit a render when the integer percentage actually moves.
               const rounded = Math.round(percent);
@@ -155,19 +177,38 @@ export function useMessageAttachments(conversationId: string) {
               });
             },
             onStage: (stage) => {
+              if (
+                controller.signal.aborted ||
+                controllersRef.current.get(draft.id) !== controller
+              ) {
+                return;
+              }
               dispatch({ id: draft.id, patch: { stage }, type: "update" });
             },
             signal: controller.signal,
+            viewOnce: draft.viewOnce,
           }
         );
+        if (
+          controller.signal.aborted ||
+          controllersRef.current.get(draft.id) !== controller
+        ) {
+          if (uploadedEntry?.owned) {
+            void discardMessageMedia(uploadedEntry.mediaId);
+          }
+          return;
+        }
         controllersRef.current.delete(draft.id);
         progressRef.current.delete(draft.id);
         dispatch({
           id: draft.id,
           patch: {
+            bytes: media.bytes,
+            durationSec: media.durationSec,
             error: undefined,
             height: media.height,
             mediaUrl: media.url,
+            mimeType: media.mimeType,
             progress: 100,
             status: "ready",
             width: media.width,
@@ -175,6 +216,9 @@ export function useMessageAttachments(conversationId: string) {
           type: "update",
         });
       } catch (error) {
+        if (controllersRef.current.get(draft.id) !== controller) {
+          return;
+        }
         controllersRef.current.delete(draft.id);
         progressRef.current.delete(draft.id);
         if (controller.signal.aborted) {
@@ -204,26 +248,63 @@ export function useMessageAttachments(conversationId: string) {
         });
       }
     },
-    [conversationId]
+    [conversationId, incognitoSessionId]
   );
 
   const addFiles = useCallback(
-    (files: File[]) => {
-      const { accepted, overflow, rejected } = selectAcceptedFiles(
-        attachmentsRef.current.length,
-        files
+    (
+      files: File[],
+      options: { viewOnce?: boolean; editSinglePhoto?: boolean } = {}
+    ) => {
+      if (
+        !options.viewOnce &&
+        attachmentsRef.current.some((item) => item.viewOnce)
+      ) {
+        return;
+      }
+      if (options.viewOnce) {
+        const supported =
+          files.length === 1 &&
+          ["image/jpeg", "image/png", "image/webp", "image/avif"].includes(
+            files[0]?.type.toLowerCase() ?? ""
+          );
+        if (!supported || attachmentsRef.current.length > 0) {
+          toast({
+            description: "Choose one JPEG, PNG, WebP, or AVIF photo.",
+            title: "View once photo",
+            variant: "destructive",
+          });
+          return;
+        }
+      }
+      const { accepted, overflow, rejected, tooLarge } = selectAcceptedFiles(
+        options.viewOnce ? 0 : attachmentsRef.current.length,
+        files,
+        options.viewOnce
+          ? 0
+          : attachmentsRef.current.reduce(
+              (total, attachment) => total + attachment.bytes,
+              0
+            )
       );
 
       if (rejected > 0) {
         toast({
-          description: "Messages support images and GIFs only.",
+          description: "Choose photos, videos, audio, PDF, or Office files.",
           title: "Unsupported File",
+          variant: "destructive",
+        });
+      }
+      if (tooLarge > 0) {
+        toast({
+          description: "One or more files exceed the message size limit.",
+          title: "Attachment Too Large",
           variant: "destructive",
         });
       }
       if (overflow > 0) {
         toast({
-          description: `You can send up to ${MAX_MESSAGE_ATTACHMENTS} images at a time.`,
+          description: `You can send up to ${MAX_MESSAGE_ATTACHMENTS} attachments at a time.`,
           title: "Attachment Limit",
           variant: "destructive",
         });
@@ -233,14 +314,19 @@ export function useMessageAttachments(conversationId: string) {
       }
 
       const drafts = accepted.map((file) => ({
+        bytes: file.size,
+        durationSec: null,
         file,
+        filename: file.name,
         height: null,
         id: nextDraftId(),
         kind: kindForFile(file),
+        mimeType: file.type,
         objectUrl: URL.createObjectURL(file),
         progress: 0,
         stage: "uploading" as const,
         status: "uploading" as const,
+        viewOnce: options.viewOnce ?? false,
         width: null,
       }));
 
@@ -248,11 +334,20 @@ export function useMessageAttachments(conversationId: string) {
       // that syncs it from state runs after commit, so two adds in the same
       // tick (e.g. paste + drop) could otherwise each see the old length and
       // together exceed the cap.
+      const editId =
+        options.editSinglePhoto &&
+        attachmentsRef.current.length === 0 &&
+        shouldAutoEditPhoto(files.length, drafts)
+          ? drafts[0].id
+          : undefined;
       attachmentsRef.current = [...attachmentsRef.current, ...drafts];
       dispatch({ drafts, type: "add" });
-      for (const draft of drafts) {
-        void startUpload(draft);
+      if (!editId) {
+        for (const draft of drafts) {
+          void startUpload(draft);
+        }
       }
+      return { drafts, editId };
     },
     [startUpload]
   );
@@ -280,6 +375,9 @@ export function useMessageAttachments(conversationId: string) {
           URL.revokeObjectURL(attachment.objectUrl);
         }
       }
+      attachmentsRef.current = attachmentsRef.current.filter(
+        (attachment) => !idSet.has(attachment.id)
+      );
       for (const id of ids) {
         dispatch({ id, type: "remove" });
       }
@@ -319,7 +417,20 @@ export function useMessageAttachments(conversationId: string) {
   );
 
   const replaceAttachmentFile = useCallback(
-    (id: string, file: File) => {
+    (id: string, file: File, options: { viewOnce?: boolean } = {}) => {
+      const target = attachmentsRef.current.find(
+        (attachment) => attachment.id === id
+      );
+      if (!target) {
+        return;
+      }
+      const viewOnce = options.viewOnce ?? target.viewOnce ?? false;
+      if (
+        viewOnce &&
+        (attachmentsRef.current.length !== 1 || kindForFile(file) !== "image")
+      ) {
+        return;
+      }
       controllersRef.current.get(id)?.abort();
       controllersRef.current.delete(id);
       progressRef.current.delete(id);
@@ -336,23 +447,26 @@ export function useMessageAttachments(conversationId: string) {
         // The replaced upload is never sent; reclaim it instead of orphaning it.
         void discardMessageMedia(previousEntry.mediaId);
       }
-      const target = attachmentsRef.current.find(
-        (attachment) => attachment.id === id
-      );
-      if (target) {
-        URL.revokeObjectURL(target.objectUrl);
-      }
+      URL.revokeObjectURL(target.objectUrl);
       const draft: MessageAttachmentDraft = {
+        bytes: file.size,
+        durationSec: null,
         file,
+        filename: file.name,
         height: null,
         id,
         kind: kindForFile(file),
+        mimeType: file.type,
         objectUrl: URL.createObjectURL(file),
         progress: 0,
         stage: "uploading",
         status: "uploading",
+        viewOnce,
         width: null,
       };
+      attachmentsRef.current = attachmentsRef.current.map((attachment) =>
+        attachment.id === id ? draft : attachment
+      );
       dispatch({ draft, id, type: "replace" });
       void startUpload(draft);
     },
@@ -377,6 +491,16 @@ export function useMessageAttachments(conversationId: string) {
     [attachments]
   );
 
+  const resumeAttachmentUpload = useCallback(
+    (id: string) => {
+      const draft = attachmentsRef.current.find((item) => item.id === id);
+      if (draft?.status === "uploading" && !controllersRef.current.has(id)) {
+        void startUpload(draft);
+      }
+    },
+    [startUpload]
+  );
+
   return {
     addFiles,
     attachments,
@@ -388,6 +512,7 @@ export function useMessageAttachments(conversationId: string) {
     removeAttachments,
     replaceAttachmentFile,
     restoreAttachments,
+    resumeAttachmentUpload,
     retryAttachment,
   };
 }

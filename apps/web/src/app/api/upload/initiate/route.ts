@@ -1,4 +1,10 @@
-import { and, prisma } from "@asm/db";
+import { and, consumeRateLimit, prisma } from "@asm/db";
+import {
+  STICKER_CONVERSION_DAILY_LIMIT,
+  STICKER_CONVERSION_PER_MINUTE_LIMIT,
+  isStickerSupportedMimeType,
+  maxStickerInputBytes,
+} from "@asm/media";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
@@ -21,13 +27,22 @@ const initiateSchema = z.object({
   // Natural image dimensions captured client-side; stored so receivers can
   // reserve the bubble box before the bytes arrive (no scroll jump).
   height: z.number().int().positive().max(16_384).nullish(),
+  incognitoSessionId: z.uuid().optional(),
   name: z.string().min(1).max(255),
   // Which surface the upload is for. Selects the byte cap (a wallpaper is far
   // tighter than a post image) and whether abandoned-upload cleanup is
   // scheduled. It is deliberately NOT stored on the Media row: ownership comes
   // from the link that follows, never from what the client asked for.
   purpose: z
-    .enum(["avatar", "banner", "comment", "message", "post", "wallpaper"])
+    .enum([
+      "avatar",
+      "banner",
+      "comment",
+      "message",
+      "post",
+      "sticker",
+      "wallpaper",
+    ])
     .nullish(),
   // Uppercase hex is accepted but normalized to lowercase so dedup matching
   // (an exact string comparison against stored digests) cannot miss.
@@ -38,6 +53,7 @@ const initiateSchema = z.object({
     .nullish(),
   size: z.number().int().positive(),
   type: z.string().min(3).max(100),
+  viewOnce: z.boolean().optional(),
   width: z.number().int().positive().max(16_384).nullish(),
 });
 
@@ -66,6 +82,8 @@ export async function POST(request: Request) {
   const {
     audioOverlayId,
     conversationId,
+    incognitoSessionId,
+    viewOnce = false,
     height,
     name,
     purpose,
@@ -74,6 +92,84 @@ export async function POST(request: Request) {
     type,
     width,
   } = parsed.data;
+
+  if (
+    viewOnce &&
+    (purpose !== "message" ||
+      !conversationId ||
+      !["image/jpeg", "image/png", "image/webp", "image/avif"].includes(
+        type.toLowerCase()
+      ))
+  ) {
+    return Response.json(
+      {
+        error:
+          "View-once attachments must be a single JPEG, PNG, WebP, or AVIF photo in a chat",
+      },
+      { status: 415 }
+    );
+  }
+
+  if (purpose === "sticker") {
+    if (!isStickerSupportedMimeType(type)) {
+      return Response.json(
+        { error: "Choose a JPEG, PNG, WebP, or GIF image for your sticker" },
+        { status: 415 }
+      );
+    }
+    if (size > maxStickerInputBytes(type)) {
+      return Response.json(
+        { error: "That image is too large to turn into a sticker" },
+        { status: 413 }
+      );
+    }
+    if (conversationId || incognitoSessionId || viewOnce || audioOverlayId) {
+      return Response.json(
+        { error: "Sticker sources must be uploaded to your private library" },
+        { status: 400 }
+      );
+    }
+    const [burst, daily] = await Promise.all([
+      consumeRateLimit({
+        bucket: "sticker-conversion-minute",
+        identifier: user.id,
+        limit: STICKER_CONVERSION_PER_MINUTE_LIMIT,
+        windowSeconds: 60,
+      }),
+      consumeRateLimit({
+        bucket: "sticker-conversion-day",
+        identifier: user.id,
+        limit: STICKER_CONVERSION_DAILY_LIMIT,
+        windowSeconds: 86_400,
+      }),
+    ]);
+    if (!burst.allowed || !daily.allowed) {
+      const retryAfterSeconds = Math.max(
+        burst.allowed ? 0 : burst.retryAfterSeconds,
+        daily.allowed ? 0 : daily.retryAfterSeconds
+      );
+      return NextResponse.json(
+        { error: "Sticker conversion limit reached. Try again later." },
+        { headers: { "Retry-After": String(retryAfterSeconds) }, status: 429 }
+      );
+    }
+    const activeStickerConversions = await prisma.orm.public.PostMedia.where(
+      (media) =>
+        and(
+          media.stickerSource.eq(true),
+          media.userId.eq(user.id),
+          media.status.in(["SCANNING", "PROCESSING"])
+        )
+    ).aggregate((aggregate) => ({ count: aggregate.count() }));
+    if (activeStickerConversions.count >= 2) {
+      return NextResponse.json(
+        {
+          error: "Two stickers are already being processed. Try again shortly.",
+        },
+        { status: 429 }
+      );
+    }
+  }
 
   // Message attachments must be bound to a thread the uploader belongs to;
   // the link is what later admits the peer in the serving route.
@@ -109,6 +205,37 @@ export async function POST(request: Request) {
     }
   }
 
+  let lifecycleProtected = false;
+  if (purpose === "message" && conversationId) {
+    const conversation = await prisma.orm.public.MessageConversations.where({
+      id: conversationId,
+    }).first();
+    const active = await prisma.orm.public.MessageIncognitoSessions.where({
+      conversationId,
+    })
+      .where((s) => s.endedAt.isNull())
+      .first();
+    const activeId = active?.id ?? null;
+    if (
+      (incognitoSessionId && incognitoSessionId !== activeId) ||
+      (activeId && !incognitoSessionId)
+    ) {
+      return Response.json(
+        {
+          error: "Chat mode changed. Reopen the conversation before uploading.",
+        },
+        { status: 409 }
+      );
+    }
+    lifecycleProtected = Boolean(
+      incognitoSessionId || conversation?.retentionSeconds
+    );
+  } else if (incognitoSessionId) {
+    return Response.json(
+      { error: "Incognito uploads require a direct message" },
+      { status: 400 }
+    );
+  }
   try {
     const upload = await createInitiatedUpload({
       audioOverlayId: audioOverlayId ?? null,
@@ -116,10 +243,13 @@ export async function POST(request: Request) {
       fileName: name,
       fileSize: size,
       height: height ?? null,
+      incognitoSessionId,
       messageConversationId:
         purpose === "message" ? (conversationId ?? null) : null,
+      messageLifecycleProtected: lifecycleProtected || viewOnce,
+      messageViewOnce: viewOnce,
       purpose: purpose ?? null,
-      sha256: sha256 ?? null,
+      sha256: viewOnce ? null : (sha256 ?? null),
       userId: user.id,
       width: width ?? null,
     });

@@ -3,7 +3,7 @@
 // deleted along with its objects. Pipeline rows additionally refund the
 // user's storage quota counter.
 
-import { prisma } from "@asm/db";
+import { fromPrismaDateTime, prisma } from "@asm/db";
 import type { MediaCleanupJobData } from "@asm/media";
 
 import { mediaLogger, withSpan } from "../../log";
@@ -35,6 +35,9 @@ export async function processMediaCleanup(
         "publishedKey",
         "size",
         "status",
+        "stickerOperationId",
+        "stickerSource",
+        "techMetadata",
         "thumbnailKey",
         "userId"
       )
@@ -53,6 +56,8 @@ export async function processMediaCleanup(
         .include("messageConversationMembers", (member) =>
           member.select("userId")
         )
+        .include("userSticker", (sticker) => sticker.select("id"))
+        .include("messageLifecycleLinks", (link) => link.select("id"))
         .where({ id: mediaId })
         .first();
 
@@ -60,28 +65,72 @@ export async function processMediaCleanup(
       // comment, a profile, a conversation, a community, or a member's chat
       // wallpaper): delete. Every owner projection must be listed here, or a
       // live surface loses its bytes 24h after the upload.
+      const metadata = media?.techMetadata;
+      if (
+        metadata &&
+        typeof metadata === "object" &&
+        "communityMessageId" in metadata &&
+        typeof metadata.communityMessageId === "string"
+      ) {
+        const message = await prisma.orm.public.CommunityChatMessages.select(
+          "deletedAt",
+          "payload"
+        )
+          .where({ id: metadata.communityMessageId })
+          .first();
+        const payload = message?.payload;
+        if (
+          message &&
+          !message.deletedAt &&
+          payload &&
+          typeof payload === "object" &&
+          "sticker" in payload &&
+          payload.sticker &&
+          typeof payload.sticker === "object" &&
+          "mediaId" in payload.sticker &&
+          payload.sticker.mediaId === media?.id
+        ) {
+          return;
+        }
+      }
+      const preparedStickerDelivery = Boolean(
+        media?.stickerOperationId &&
+        media.messageLifecycleLinks.length === 0 &&
+        Date.now() - fromPrismaDateTime(media.createdAt).getTime() >=
+          24 * 60 * 60 * 1000
+      );
       if (
         !media ||
         media.postId ||
         media.commentId ||
-        media.messageConversationId ||
+        (media.messageConversationId && !preparedStickerDelivery) ||
         media.users.length > 0 ||
         media.usersUsers.length > 0 ||
         media.communities.length > 0 ||
         media.communitiesCommunities.length > 0 ||
-        media.messageConversation ||
+        (media.messageConversation && !preparedStickerDelivery) ||
         media.wallpaperConversations.length > 0 ||
-        media.messageConversationMembers.length > 0
+        (media.messageConversationMembers.length > 0 &&
+          !preparedStickerDelivery) ||
+        media.userSticker
       ) {
         return;
       }
 
-      for (const key of [
+      const derivatives =
+        media.stickerSource || media.stickerOperationId
+          ? await prisma.orm.public.PostMediaDerivatives.select("key")
+              .where({ mediaId })
+              .all()
+          : [];
+      const derivativeKeys = derivatives.map((derivative) => derivative.key);
+      for (const key of new Set([
         media.originalKey,
         media.publishedKey,
         media.key,
         media.thumbnailKey,
-      ]) {
+        ...derivativeKeys,
+      ])) {
         if (key) {
           // Best-effort sequential deletes: partial failure must not abort
           // the remaining objects before the row disappears.

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
+import { useMessagesIdentity } from "@/components/messages/message-identity-provider";
 import type { ConversationListItem } from "@/lib/messages/client";
 import { toWrappedKeyPayloads } from "@/lib/messages/client";
 import { importRatchetBaseKey } from "@/lib/messages/crypto";
@@ -30,8 +31,12 @@ export function useConversationPreviewRequests(
   items: readonly ConversationListItem[]
 ): void {
   const { user } = useSession();
+  const { recoveryGeneration } = useMessagesIdentity();
   const rootKeyStore = useRootKeyStore();
   const userId = user?.id;
+  const identityScope = userId
+    ? `${userId}\u0000${recoveryGeneration ?? "identity-pending"}`
+    : "anonymous";
   const itemsByConversationId = useMemo(
     () => new Map(items.map((item) => [item.conversation.id, item])),
     [items]
@@ -41,8 +46,8 @@ export function useConversationPreviewRequests(
   // different identity and the reset path clears it. Idempotent when the thread
   // has already called it.
   useEffect(() => {
-    messageDecryptor.configureScope(userId ?? "anonymous");
-  }, [userId]);
+    messageDecryptor.configureScope(identityScope);
+  }, [identityScope]);
 
   // Resolves the ratchet base keys for one conversation out of the row the list
   // already carries: my wrapped keys and the peer's public key are both on it, so a

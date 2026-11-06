@@ -1,3 +1,5 @@
+import { extractMessageReferences, LIFECYCLE_CAPABILITY } from "@asm/messages";
+import type { MessageReactionSummary } from "@asm/messages";
 // Typed wrappers around the messages API plus the client-side crypto
 // orchestration (unwrap a conversation key, encrypt a message), ported from
 // apps/web/src/lib/messages/client.ts.
@@ -81,6 +83,7 @@ export interface ConversationListItem {
   conversation: MessageConversationData;
   isNew: boolean;
   lastMessage: {
+    expiresAt?: string | Date | null;
     ciphertext: string;
     createdAt: string;
     deletedAt: string | null;
@@ -97,6 +100,38 @@ export interface ConversationListResponse {
   hasMore: boolean;
   items: ConversationListItem[];
   nextCursor: string | null;
+}
+
+export async function toggleMessageReaction(
+  conversationId: string,
+  messageId: string,
+  emoji: string,
+  options: ApiCallOptions,
+  sessionId?: string
+): Promise<MessageReactionSummary[]> {
+  const result = await request<{ reactions: MessageReactionSummary[] }>(
+    `/api/messages/conversations/${conversationId}/reactions/${messageId}`,
+    options,
+    {
+      body: JSON.stringify({ emoji, ...(sessionId ? { sessionId } : {}) }),
+      method: "POST",
+    }
+  );
+  return result.reactions;
+}
+
+export async function fetchMessageReactions(
+  conversationId: string,
+  messageId: string,
+  options: ApiCallOptions,
+  sessionId?: string
+): Promise<MessageReactionSummary[]> {
+  const query = sessionId ? `?sessionId=${encodeURIComponent(sessionId)}` : "";
+  const result = await request<{ reactions: MessageReactionSummary[] }>(
+    `/api/messages/conversations/${conversationId}/reactions/${messageId}${query}`,
+    options
+  );
+  return result.reactions;
 }
 
 export type GroupAddRefusal = "NO_DIRECT_ADDS" | "NOT_FOLLOWING_YOU";
@@ -159,6 +194,7 @@ async function parseError(response: Response): Promise<Error> {
       retryAfterSeconds = bodyRetryAfter;
     }
   } catch {
+    // Reconcile safely on the next request; do not expose source errors.
     // fall through with the generic message
   }
   // A throttled history read is not a failure the caller should treat as fatal:
@@ -187,7 +223,11 @@ async function request<T>(
   const requestInit = {
     ...init,
     headers: withAuthHeaders(
-      { "Content-Type": "application/json", ...init?.headers },
+      {
+        "Content-Type": "application/json",
+        "X-Chat-Capability": LIFECYCLE_CAPABILITY,
+        ...init?.headers,
+      },
       options.cookie
     ),
   };
@@ -367,6 +407,7 @@ export async function discardMessageMedia(
       method: "DELETE",
     });
   } catch {
+    // Reconcile safely on the next request; do not expose source errors.
     // Best-effort: a dropped discard request is not worth interrupting the UI.
   }
 }
@@ -481,6 +522,25 @@ async function sendEncryptedMessageAtIndex(
     conversationId,
     payload
   );
+  const lifecycle = await request<{
+    retentionVersion: number;
+    activeSession: unknown;
+  }>(`/api/messages/conversations/${conversationId}/lifecycle`, options);
+  if (lifecycle.activeSession) {
+    throw new MessagesApiError(
+      "Incognito is active. Open it to send a message.",
+      409
+    );
+  }
+  const mediaIds = extractMessageReferences(payload).flatMap((ref) =>
+    ref.kind === "media" && ref.requiredId ? [ref.requiredId] : []
+  );
+  const viewOnceMediaIds =
+    payload.type === "media" && "attachments" in payload
+      ? payload.attachments.flatMap((attachment) =>
+          attachment.kind === "view-once" ? [attachment.ref] : []
+        )
+      : [];
   const body = await request<{ message: MessageData }>(
     `/api/messages/conversations/${conversationId}/messages`,
     options,
@@ -488,7 +548,10 @@ async function sendEncryptedMessageAtIndex(
       body: JSON.stringify({
         ciphertext: encrypted.ciphertext,
         iv: encrypted.iv,
+        mediaIds,
         ratchetIndex: encrypted.ratchetIndex,
+        retentionVersion: lifecycle.retentionVersion,
+        viewOnceMediaIds,
       }),
       method: "POST",
     }
@@ -512,6 +575,7 @@ export async function sendTypingIndicator(
       { method: "POST" }
     );
   } catch {
+    // Reconcile safely on the next request; do not expose source errors.
     // Typing indicators are best-effort; a dropped heartbeat is harmless.
   }
 }
@@ -615,6 +679,7 @@ export async function heartbeatPresence(
   try {
     await request("/api/messages/presence", options, { method: "POST" });
   } catch {
+    // Reconcile safely on the next request; do not expose source errors.
     // Best-effort; a failed heartbeat just means the user drops off the online
     // rail sooner.
   }
@@ -942,6 +1007,7 @@ export async function ensureConversationKeys(
       );
       break;
     } catch {
+      // Reconcile safely on the next request; do not expose source errors.
       // Superseded identity wraps do not prevent recovery from another valid wrap.
     }
   }

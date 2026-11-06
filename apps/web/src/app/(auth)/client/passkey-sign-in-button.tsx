@@ -1,8 +1,9 @@
 "use client";
 
 import { Button } from "@asm/ui/shadui/button";
-import { Fingerprint, Loader2 } from "lucide-react";
+import { Fingerprint } from "lucide-react";
 
+import { ZephLoader } from "@/components/layouts/feedback/zeph-loader";
 import { authClient } from "@/lib/auth/auth";
 
 interface PasskeySignInButtonProps {
@@ -54,7 +55,7 @@ export default function PasskeySignInButton({
       variant="ghost"
     >
       {loading ? (
-        <Loader2 className="size-5 animate-spin" />
+        <ZephLoader variant="security" className="size-5" />
       ) : (
         <Fingerprint className="size-5" />
       )}

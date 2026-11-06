@@ -4,10 +4,11 @@ import messagesImage from "@assets/general/messages.png";
 import { Users } from "lucide-react";
 import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import MobileTopBar from "@/components/layouts/navigation/mobile/mobile-top-bar";
 import { ActiveFriendsRail } from "@/components/messages/active-friends-rail";
+import { CommunityChatStrip } from "@/components/messages/community-chat-strip";
 import { ConversationList } from "@/components/messages/conversation-list";
 import { useMessagesIdentity } from "@/components/messages/message-identity-provider";
 import { MessageIdentityLocked } from "@/components/messages/message-identity-recovery";
@@ -22,6 +23,7 @@ import { useMessagesSidebarStore } from "@/store/messages-sidebar-store";
 
 export default function ClientMessages() {
   const searchParams = useSearchParams();
+  const desktop = useMediaQuery("(min-width: 48rem)");
   const goBack = useGoBack();
 
   return (
@@ -31,7 +33,10 @@ export default function ClientMessages() {
           <MobileTopBar onBack={goBack} />
         </div>
       )}
-      <MessagesPanes />
+      <div className="flex min-h-0 min-w-0 flex-1">
+        {!searchParams.get("c") || desktop ? <CommunityChatStrip /> : null}
+        <MessagesPanes />
+      </div>
     </div>
   );
 }
@@ -44,7 +49,11 @@ function MessagesPanes() {
   const searchParams = useSearchParams();
   const conversationId = searchParams.get("c");
   const dmUserId = searchParams.get("dm");
+  const requestedMessageId = searchParams.get("mid");
+  const requestedMessageNavigationId = searchParams.get("searchNav");
   const [railOpen, setRailOpen] = useState(false);
+  const [searchNavigationSequence, setSearchNavigationSequence] = useState(0);
+  const lastSearchNavigationRef = useRef<string | null>(null);
   // Whether the window is wide enough for two panes. `48rem` tracks Tailwind's `md`
   // exactly; below it the list and the conversation are the same surface shown one
   // at a time, which is what the thread's back button swaps.
@@ -97,12 +106,16 @@ function MessagesPanes() {
       const params = new URLSearchParams(searchParams.toString());
       if (id) {
         params.set("c", id);
+        params.delete("mid");
+        params.delete("searchNav");
         // Rail the list away while reading a conversation. Not persisted as a
         // preference: arriving on /messages must always find the list open, so
         // the collapse is a view state for this conversation, not a setting.
         setCollapsed(true);
       } else {
         params.delete("c");
+        params.delete("mid");
+        params.delete("searchNav");
         setCollapsed(false);
       }
       router.replace(`/messages?${params.toString()}`, { scroll: false });
@@ -110,9 +123,44 @@ function MessagesPanes() {
     [router, searchParams, setCollapsed]
   );
 
+  const selectMessage = useCallback(
+    (id: string, messageId: string) => {
+      const navigationId = String(searchNavigationSequence + 1);
+      setSearchNavigationSequence((sequence) => sequence + 1);
+      lastSearchNavigationRef.current = navigationId;
+      setCollapsed(false);
+      const params = new URLSearchParams(searchParams.toString());
+      params.set("c", id);
+      params.set("mid", messageId);
+      params.set("searchNav", navigationId);
+      router.push(`/messages?${params.toString()}`, { scroll: false });
+    },
+    [router, searchNavigationSequence, searchParams, setCollapsed]
+  );
+
+  const backFromThread = useCallback(() => {
+    if (
+      requestedMessageId &&
+      requestedMessageNavigationId &&
+      lastSearchNavigationRef.current === requestedMessageNavigationId
+    ) {
+      lastSearchNavigationRef.current = null;
+      setCollapsed(false);
+      router.back();
+      return;
+    }
+    selectConversation(null);
+  }, [
+    requestedMessageId,
+    requestedMessageNavigationId,
+    router,
+    selectConversation,
+    setCollapsed,
+  ]);
+
   if (status === "loading") {
     return (
-      <div className="border-border/60 flex min-w-0 flex-1 flex-col bg-[hsl(var(--background-alt))] sm:border-x">
+      <div className="border-border/60 flex min-h-0 min-w-0 flex-1 flex-col bg-[hsl(var(--background-alt))] sm:border-x">
         <MessagesSkeleton conversationOpen={Boolean(pendingConversation)} />
       </div>
     );
@@ -124,7 +172,7 @@ function MessagesPanes() {
 
   if (status === "error") {
     return (
-      <div className="border-border/60 flex min-w-0 flex-1 flex-col bg-[hsl(var(--background-alt))] sm:border-x">
+      <div className="border-border/60 flex min-h-0 min-w-0 flex-1 flex-col bg-[hsl(var(--background-alt))] sm:border-x">
         <MessagesErrorState onRetry={() => window.location.reload()} />
       </div>
     );
@@ -139,7 +187,7 @@ function MessagesPanes() {
   return (
     <div
       className={cn(
-        "border-border/60 flex min-w-0 flex-1 flex-col bg-[hsl(var(--background-alt))] sm:border-x lg:pb-0",
+        "border-border/60 flex min-h-0 min-w-0 flex-1 flex-col bg-[hsl(var(--background-alt))] sm:border-x lg:pb-0",
         // The bottom nav only shows when no thread is open (it unmounts for
         // an active chat), so the padding reserved for it must too.
         pendingConversation ? "" : "pb-14"
@@ -161,6 +209,7 @@ function MessagesPanes() {
             setListScreenCollapsed(false);
           }}
           onSelect={selectConversation}
+          onSelectMessage={selectMessage}
           onToggleCollapse={
             pendingConversation
               ? toggleCollapsed
@@ -172,7 +221,7 @@ function MessagesPanes() {
             open the list above is, so the empty state and its header stand down. */}
         <div
           className={cn(
-            "min-w-0 flex-1 flex-col border-r border-[hsl(var(--border))]",
+            "min-h-0 min-w-0 flex-1 flex-col border-r border-[hsl(var(--border))]",
             listLayout === "full" && !desktopList ? "hidden" : "flex"
           )}
         >
@@ -180,8 +229,12 @@ function MessagesPanes() {
             <MessageThread
               conversationId={pendingConversation}
               key={pendingConversation}
-              onBack={() => selectConversation(null)}
+              onBack={backFromThread}
               onToggleRail={() => setRailOpen((open) => !open)}
+              requestedMessageId={requestedMessageId ?? undefined}
+              requestedMessageNavigationId={
+                requestedMessageNavigationId ?? undefined
+              }
             />
           ) : (
             <>

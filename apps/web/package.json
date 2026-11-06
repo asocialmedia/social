@@ -1,6 +1,6 @@
 {
   "name": "@asm/web",
-  "version": "1.9.24",
+  "version": "1.9.25",
   "private": true,
   "description": "asocialmedia Web App",
   "license": "AGPL-3.0",
@@ -17,6 +17,7 @@
     "@asm/db": "workspace:*",
     "@asm/logger": "workspace:*",
     "@asm/media": "workspace:*",
+    "@asm/messages": "workspace:*",
     "@asm/next": "workspace:*",
     "@asm/notifications": "workspace:*",
     "@asm/protocols": "workspace:*",

@@ -12,6 +12,7 @@ import React, { useCallback, useMemo, useRef, useState } from "react";
 import { useSession } from "@/app/(main)/session-provider";
 import { FeedErrorState } from "@/components/feeds/feed-error-state";
 import InfiniteScrollContainer from "@/components/layouts/feed/infinite-scroll-container";
+import { ZephLoader } from "@/components/layouts/feedback/zeph-loader";
 import UserAvatar from "@/components/layouts/user/user-avatar";
 import UserBadge from "@/components/layouts/user/user-badge";
 import { useBlueskyFeed } from "@/components/protocols/use-bluesky-feed";
@@ -471,6 +472,11 @@ export const ExploreGustsGrid: React.FC = () => {
             }}
             isRetrying={isFetching || remote.isFetching}
           />
+        ) : null}
+        {isFetchingNextPage || remote.isFetching ? (
+          <div className="flex justify-center py-6">
+            <ZephLoader variant="search" className="text-primary" />
+          </div>
         ) : null}
         {manualContinuation}
       </InfiniteScrollContainer>

@@ -35,7 +35,11 @@
 // 3. `isAllowedMediaUrl` cannot consult process.env.NODE_ENV on a device, so the
 //    loopback-http allowance is an explicit injected flag instead.
 
-import { MAX_MESSAGE_ATTACHMENTS } from "@asm/media";
+import {
+  isAllowedMediaUrl as isAllowedMediaUrlShared,
+  parseMessagePayload,
+} from "@asm/messages/payload";
+import type { MessagePayload } from "@asm/messages/payload";
 import { p256 as nobleP256 } from "@noble/curves/nist.js";
 
 import {
@@ -306,56 +310,15 @@ export async function deriveMessageKey(
 }
 
 // One image inside a grouped media message. Dimensions are captured at upload so
-// the receiver can reserve the tile box before the bytes arrive.
-export interface MediaImageRef {
-  height?: number;
-  url: string;
-  width?: number;
-}
-
-export type MessagePayload =
-  | {
-      type: "text";
-      content: string;
-      replyToId?: string;
-      replyToSenderId?: string;
-    }
-  | {
-      type: "post";
-      content?: string;
-      postId: string;
-      replyToId?: string;
-      replyToSenderId?: string;
-    }
-  | {
-      type: "media";
-      kind: "gif" | "image";
-      images: MediaImageRef[];
-      content?: string;
-      replyToId?: string;
-      replyToSenderId?: string;
-    }
-  | {
-      type: "media";
-      kind: "gif" | "image";
-      url: string;
-      content?: string;
-      width?: number;
-      height?: number;
-      replyToId?: string;
-      replyToSenderId?: string;
-    };
-
-// Normalizes both media shapes into one list so renderers, reply labels, and
-// lightboxes never branch on the payload version.
-export function getMediaImages(
-  content: Extract<MessagePayload, { type: "media" }>
-): MediaImageRef[] {
-  if ("images" in content) {
-    return content.images;
-  }
-  return [{ height: content.height, url: content.url, width: content.width }];
-}
+// the receiver can reserve the tile box before the bytes arrive. The payload
+// contract itself is shared with web through the dependency-light payload
+// module, so the two clients cannot drift on what a valid message is.
+export type {
+  MediaAttachmentRef,
+  MediaImageRef,
+  MessagePayload,
+} from "@asm/messages/payload";
+export { getMediaAttachments, getMediaImages } from "@asm/messages/payload";
 
 // Returns a copy of a payload with its text rewritten. An edit only ever changes
 // the human-visible body; every structural field is preserved so the message keeps
@@ -409,6 +372,14 @@ export async function decryptMessage(
   return decryptMessageWithBaseKey(rootKey, senderId, conversationId, message);
 }
 
+// True in a development bundle. A device has no process.env.NODE_ENV, so the
+// loopback-http allowance web derives from the environment is injected here as
+// this compile-time constant instead; a release bundle gets https-only. The
+// emulator alias (10.0.2.2) rides the same flag, as it has no meaning outside
+// a dev setup.
+const NATIVE_ALLOW_LOOPBACK_HTTP: boolean =
+  typeof __DEV__ !== "undefined" && __DEV__ === true;
+
 export function decryptMessageWithBaseKey(
   baseKey: RatchetBaseKey,
   senderId: string,
@@ -429,150 +400,33 @@ export function decryptMessageWithBaseKey(
     base64ToBytes(message.ciphertext),
     aad
   );
-  return parseMessagePayload(DECODER.decode(plaintext));
-}
-
-// Parses and validates a decrypted payload. Shared by both decrypt entry points
-// so the trust boundary (peer-controlled JSON) is identical.
-function parseMessagePayload(plaintext: string): MessagePayload {
-  const payload = JSON.parse(plaintext) as Partial<MessagePayload>;
-  if (
-    payload.type !== "text" &&
-    payload.type !== "post" &&
-    payload.type !== "media"
-  ) {
-    throw new Error("Invalid message payload");
-  }
-  if (payload.type === "text" && typeof payload.content !== "string") {
-    throw new Error("Invalid text payload");
-  }
-  if (payload.type === "post" && typeof payload.postId !== "string") {
-    throw new Error("Invalid post payload");
-  }
-  if (payload.type === "media") {
-    if (!isValidMediaPayload(payload)) {
-      throw new Error("Invalid media payload");
-    }
-    if (payload.content !== undefined && typeof payload.content !== "string") {
-      throw new Error("Invalid media caption");
-    }
-  }
-  return payload as MessagePayload;
-}
-
-// A media URL must resolve to a same-origin proxy path or an external scheme.
-// Relative paths are matched with a strict character class instead of the URL
-// constructor so `new URL` is never handed a scheme-relative input. Both the
-// original proxy path and the pipeline derivative path (/v/<name>) are accepted,
-// since senders may embed either.
-const RELATIVE_MEDIA_PATH_RE =
-  /^\/api\/media\/[A-Za-z0-9_-]+(?:\/v\/[A-Za-z0-9.-]+)?(?:\?[A-Za-z0-9_=&%.-]+)?$/;
-
-interface RawMediaPayload {
-  height?: unknown;
-  images?: unknown;
-  kind?: unknown;
-  url?: unknown;
-  width?: unknown;
-}
-
-function isValidMediaPayload(
-  payload: Partial<Extract<MessagePayload, { type: "media" }>>
-): boolean {
-  const raw = payload as RawMediaPayload;
-  if (raw.kind !== "gif" && raw.kind !== "image") {
-    return false;
-  }
-  // Detected by key presence, not array truthiness: a present-but-malformed
-  // `images` (null, a non-array) must be rejected rather than silently falling
-  // through to the legacy URL check.
-  if ("images" in raw) {
-    return isValidMediaImageList(raw.images);
-  }
-  return isValidMediaImage(raw);
-}
-
-function isValidMediaImageList(images: unknown): boolean {
-  if (
-    !Array.isArray(images) ||
-    images.length === 0 ||
-    images.length > MAX_MESSAGE_ATTACHMENTS
-  ) {
-    return false;
-  }
-  return images.every((image) => {
-    if (typeof image !== "object" || image === null) {
-      return false;
-    }
-    return isValidMediaImage(image as RawMediaPayload);
+  // The shared parser is the single trust boundary for peer-controlled
+  // plaintext, so web's and native's validation cannot drift.
+  return parseMessagePayload(DECODER.decode(plaintext), {
+    allowEmulatorHost: NATIVE_ALLOW_LOOPBACK_HTTP,
+    allowLoopbackHttp: NATIVE_ALLOW_LOOPBACK_HTTP,
   });
 }
 
-function isValidMediaImage(image: RawMediaPayload): boolean {
-  if (typeof image.url !== "string") {
-    return false;
-  }
-  // Dimensions are attacker-controlled and drive layout, so only sane positive
-  // integers.
-  if (
-    !isValidMediaDimension(image.width) ||
-    !isValidMediaDimension(image.height)
-  ) {
-    return false;
-  }
-  return isAllowedMediaUrl(image.url);
-}
-
-// Only https is accepted in production. Plain http is tolerated for loopback so
-// local development against a local object store works; on a device the dev
-// server is reached over the emulator alias (10.0.2.2), so the allowance is an
-// explicit argument rather than the process.env.NODE_ENV check web uses. A
-// release build passes nothing and gets https-only.
 export interface MediaUrlPolicy {
-  // True in a dev build. Gates the loopback-http allowance.
+  // True in a dev build. Gates the loopback-http allowance and the Android
+  // emulator alias that stands in for the host machine.
   allowLoopbackHttp?: boolean;
 }
 
+// Native's historical single-flag policy maps onto the shared two-flag form:
+// the emulator alias is loopback-equivalent here, and web never sees it.
 export function isAllowedMediaUrl(
   url: string,
   policy: MediaUrlPolicy = {}
 ): boolean {
-  if (RELATIVE_MEDIA_PATH_RE.test(url)) {
-    return true;
-  }
-  let parsed: URL;
-  try {
-    parsed = new URL(url);
-  } catch {
-    return false;
-  }
-  if (parsed.protocol === "https:") {
-    return true;
-  }
-  if (parsed.protocol === "http:") {
-    if (!policy.allowLoopbackHttp) {
-      return false;
-    }
-    return (
-      parsed.hostname === "localhost" ||
-      parsed.hostname === "127.0.0.1" ||
-      parsed.hostname === "::1" ||
-      parsed.hostname === "10.0.2.2"
-    );
-  }
-  return false;
-}
-
-const MAX_MEDIA_DIMENSION = 16_384;
-
-function isValidMediaDimension(value: unknown): boolean {
-  return (
-    value === undefined ||
-    (typeof value === "number" &&
-      Number.isInteger(value) &&
-      value > 0 &&
-      value <= MAX_MEDIA_DIMENSION)
-  );
+  // The flags are pinned to booleans: native has no environment to fall back
+  // on, so "no policy" means https-only rather than the web default.
+  const allowLoopback = policy.allowLoopbackHttp === true;
+  return isAllowedMediaUrlShared(url, {
+    allowEmulatorHost: allowLoopback,
+    allowLoopbackHttp: allowLoopback,
+  });
 }
 
 // ---- fingerprints ------------------------------------------------------------

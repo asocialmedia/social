@@ -20,10 +20,11 @@ const COMMUNITY_ERROR_STATUS: Record<CommunityError["code"], number> = {
   LIMIT_REACHED: 409,
   MOD_LIMIT_REACHED: 409,
   NOT_FOUND: 404,
+  RATE_LIMITED: 429,
   SLUG_TAKEN: 409,
 };
 
-/** The viewer's id, or a 401 Response when there is no session. */
+// The viewer's id, or a 401 Response when there is no session.
 export async function requireApiUser(): Promise<
   { ok: true; userId: string } | { ok: false; response: Response }
 > {
@@ -38,12 +39,10 @@ export async function requireApiUser(): Promise<
   return { ok: true, userId };
 }
 
-/**
- * Turns anything thrown by a community service into the API's error shape.
- * The message is forwarded because every one of them is already written for a
- * human (they are the same strings the server actions surface), and the native
- * client shows them verbatim.
- */
+// Turns anything thrown by a community service into the API's error shape.
+// The message is forwarded because every one of them is already written for a
+// human (they are the same strings the server actions surface), and the native
+// client shows them verbatim.
 export function communityErrorResponse(
   error: unknown,
   context: { operation: string; slug: string; userId?: string }
@@ -74,7 +73,7 @@ export function communityErrorResponse(
   );
 }
 
-/** Parses a JSON body, returning null rather than throwing on malformed input. */
+// Parses a JSON body, returning null rather than throwing on malformed input.
 export async function readJsonBody(request: Request): Promise<unknown> {
   try {
     return await request.json();

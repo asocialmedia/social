@@ -49,23 +49,6 @@
     0 2px 4px rgba(0, 0, 0, 0.12);
 }
 
-.community-avatar-ring {
-  box-shadow:
-    inset 0 0 0 1px rgba(255, 255, 255, 0.5),
-    inset 0 1px 2px rgba(255, 255, 255, 0.4),
-    0 0 0 1px var(--community-accent),
-    0 1px 2px rgba(0, 0, 0, 0.08);
-}
-
-.dark .community-avatar-ring {
-  box-shadow:
-    inset 0 0 0 1px rgba(255, 255, 255, 0.12),
-    inset 0 1px 2px rgba(255, 255, 255, 0.1),
-    0 0 0 1px var(--community-accent-dark),
-    0 1px 1px rgba(255, 255, 255, 0.35),
-    0 2px 4px rgba(0, 0, 0, 0.12);
-}
-
 .pill-3d-hover {
   outline: none;
   transition: all 0.2s ease-out;
@@ -96,6 +79,29 @@
     0 0 0 1px rgba(45, 50, 60, 0.95),
     0 1px 1px rgba(255, 255, 255, 0.4),
     0 3px 5px rgba(0, 0, 0, 0.12);
+}
+
+/* The collapsed rail's one hover: a soft disc of background behind the icon.
+   Every rail control uses it - nav icons, search, theme toggle and the profile
+   avatar - so hovering any of them reads the same. It stays behind the glyph
+   and the photo (they paint above it), which is why it never haloes the avatar
+   the way pill-3d-hover's opaque gradient plus bright inner lip did. */
+.sidebar-icon-hover {
+  outline: none;
+  transition: background-color 0.2s ease-out;
+}
+
+.sidebar-icon-hover:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+
+.sidebar-icon-hover:hover {
+  background-color: hsl(var(--foreground) / 0.06);
+}
+
+.dark .sidebar-icon-hover:hover {
+  background-color: hsl(var(--foreground) / 0.1);
 }
 
 .apple-panel {
@@ -495,30 +501,34 @@
 .community-grid {
   display: grid;
   gap: 1rem;
-  grid-template-columns: 1fr;
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .community-card-w {
-  width: calc(100cqw - 4rem);
+  width: calc(100cqw - var(--community-gutter) - var(--community-gutter));
 }
 
 @container (min-width: 40rem) {
   .community-grid {
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .community-card-w {
-    width: calc((100cqw - 5rem) / 2);
+    width: calc(
+      (100cqw - var(--community-gutter) - var(--community-gutter) - 1rem) / 2
+    );
   }
 }
 
 @container (min-width: 62rem) {
   .community-grid {
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   .community-card-w {
-    width: calc((100cqw - 6rem) / 3);
+    width: calc(
+      (100cqw - var(--community-gutter) - var(--community-gutter) - 2rem) / 3
+    );
   }
 }
 
@@ -1295,5 +1305,254 @@ video::cue {
 @media (prefers-reduced-motion: reduce) {
   .asm-eq-bar {
     animation: none;
+  }
+}
+
+@layer components {
+  .chat-normal-transcript[data-obscured="true"] {
+    visibility: hidden;
+    pointer-events: none;
+  }
+
+  .chat-incognito-reveal-edge {
+    opacity: 0;
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .chat-normal-transcript[data-obscured="true"][data-revealing="true"] {
+      animation: chat-incognito-retire 640ms step-end both;
+    }
+
+    .chat-incognito-reveal[data-revealing="true"] {
+      animation: chat-incognito-rise 640ms cubic-bezier(0.7, 0, 0.16, 1) both;
+      will-change: transform;
+    }
+
+    .chat-incognito-reveal[data-revealing="true"]
+      .chat-incognito-reveal-content {
+      animation: chat-incognito-counter-rise 640ms cubic-bezier(0.7, 0, 0.16, 1)
+        both;
+      will-change: transform;
+    }
+
+    .chat-incognito-reveal[data-revealing="true"] .chat-incognito-reveal-edge {
+      animation: chat-incognito-edge 640ms linear both;
+    }
+  }
+
+  @keyframes chat-incognito-rise {
+    from {
+      transform: translate3d(0, 100%, 0);
+    }
+    to {
+      transform: translate3d(0, 0, 0);
+    }
+  }
+
+  @keyframes chat-incognito-counter-rise {
+    from {
+      transform: translate3d(0, -100%, 0);
+    }
+    to {
+      transform: translate3d(0, 0, 0);
+    }
+  }
+
+  @keyframes chat-incognito-retire {
+    from {
+      visibility: visible;
+    }
+    to {
+      visibility: hidden;
+    }
+  }
+
+  @keyframes chat-incognito-edge {
+    0%,
+    100% {
+      opacity: 0;
+    }
+    12% {
+      opacity: 0.65;
+    }
+    42% {
+      opacity: 1;
+    }
+    82% {
+      opacity: 0.2;
+    }
+  }
+}
+
+@layer components {
+  .view-once-tile {
+    width: 18rem;
+    max-width: 100%;
+  }
+  .view-once-in-view .view-once-eye {
+    animation: view-once-eye-wink 720ms cubic-bezier(0.22, 0.75, 0.25, 1) 1;
+    transform-origin: center;
+  }
+  .view-once-tile:hover .view-once-eye,
+  .view-once-tile:focus-within .view-once-eye {
+    animation: view-once-eye-wink 720ms cubic-bezier(0.22, 0.75, 0.25, 1) 1;
+    transform-origin: center;
+  }
+  @keyframes view-once-eye-wink {
+    0%,
+    16%,
+    100% {
+      transform: scaleY(1);
+    }
+    24% {
+      transform: scaleY(0.12) rotate(-4deg);
+    }
+    31% {
+      transform: scaleY(1.1) rotate(2deg);
+    }
+    38% {
+      transform: scaleY(1) rotate(0);
+    }
+    67% {
+      transform: scaleY(1);
+    }
+    73% {
+      transform: scaleY(0.16) rotate(3deg);
+    }
+    80% {
+      transform: scaleY(1.08) rotate(-1deg);
+    }
+    87% {
+      transform: scaleY(1) rotate(0);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .view-once-in-view .view-once-eye,
+    .view-once-tile:hover .view-once-eye,
+    .view-once-tile:focus-within .view-once-eye {
+      animation: none;
+    }
+  }
+}
+
+@layer components {
+  .msg-bubble-enter-outgoing,
+  .msg-bubble-enter-incoming {
+    will-change: transform, opacity;
+    animation-duration: var(--msg-flight-duration, 560ms);
+    animation-timing-function: var(
+      --msg-flight-easing,
+      cubic-bezier(0.16, 1, 0.3, 1)
+    );
+    animation-fill-mode: both;
+  }
+
+  .msg-bubble-enter-outgoing {
+    --msg-launch-x: 12px;
+    --msg-launch-y: 48px;
+    --msg-scale-x: 0.84;
+    --msg-scale-y: 0.72;
+    --msg-anchor: bottom right;
+    animation-name: msg-bubble-flight-outgoing;
+  }
+
+  .msg-bubble-enter-incoming {
+    --msg-launch-x: -10px;
+    --msg-launch-y: 22px;
+    --msg-scale-x: 0.93;
+    --msg-scale-y: 0.86;
+    --msg-anchor: bottom left;
+    --msg-flight-duration: 460ms;
+    animation-name: msg-bubble-flight-incoming;
+  }
+
+  .msg-bubble-enter-outgoing[data-bubble-media],
+  .msg-bubble-enter-incoming[data-bubble-media] {
+    --msg-scale-x: 0.96;
+    --msg-scale-y: 0.94;
+  }
+
+  .msg-bubble-enter-outgoing > [data-message-bubble],
+  .msg-bubble-enter-incoming > [data-message-bubble] {
+    transform-origin: var(--msg-anchor);
+    will-change: transform;
+    animation: msg-bubble-material var(--msg-flight-duration, 560ms)
+      var(--msg-flight-easing, cubic-bezier(0.16, 1, 0.3, 1)) both;
+  }
+
+  .msg-bubble-enter-outgoing .msg-bubble-copy,
+  .msg-bubble-enter-incoming .msg-bubble-copy {
+    animation: msg-bubble-copy 190ms 30ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+
+  .msg-bubble-enter-outgoing .msg-bubble-delivery {
+    animation: msg-bubble-delivery 220ms 110ms cubic-bezier(0.16, 1, 0.3, 1)
+      both;
+  }
+
+  @keyframes msg-bubble-flight-outgoing {
+    from {
+      opacity: 0.3;
+      transform: translate(var(--msg-launch-x), var(--msg-launch-y));
+    }
+    to {
+      opacity: 1;
+      transform: translate(0, 0);
+    }
+  }
+
+  @keyframes msg-bubble-flight-incoming {
+    from {
+      opacity: 0.25;
+      transform: translate(var(--msg-launch-x), var(--msg-launch-y));
+    }
+    to {
+      opacity: 1;
+      transform: translate(0, 0);
+    }
+  }
+
+  @keyframes msg-bubble-material {
+    from {
+      transform: scale(var(--msg-scale-x), var(--msg-scale-y));
+    }
+    to {
+      transform: scale(1, 1);
+    }
+  }
+
+  @keyframes msg-bubble-copy {
+    from {
+      opacity: 0.35;
+      transform: translateY(3px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes msg-bubble-delivery {
+    from {
+      opacity: 0;
+      transform: translateY(3px) scale(0.8);
+    }
+    to {
+      opacity: 0.7;
+      transform: translateY(0) scale(1);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .msg-bubble-enter-outgoing,
+    .msg-bubble-enter-incoming,
+    .msg-bubble-enter-outgoing > [data-message-bubble],
+    .msg-bubble-enter-incoming > [data-message-bubble],
+    .msg-bubble-enter-outgoing .msg-bubble-copy,
+    .msg-bubble-enter-incoming .msg-bubble-copy,
+    .msg-bubble-enter-outgoing .msg-bubble-delivery {
+      animation: none;
+      will-change: auto;
+    }
   }
 }

@@ -1219,7 +1219,7 @@ export function ProfileFeed({
     if (feed.status === "loading-more") {
       return (
         <View style={styles.footer}>
-          <Spinner3D size={32} />
+          <Spinner3D variant="general" size={32} />
         </View>
       );
     }

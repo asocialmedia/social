@@ -235,7 +235,7 @@ export const BannerInput = ({
           )}
           {isUploading ? (
             <span className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 bg-black/55 px-3 text-center backdrop-blur-[2px]">
-              <Spinner3D className="size-10" />
+              <Spinner3D variant="media" className="size-10" />
               <span className="max-w-full truncate text-xs font-medium text-white">
                 {pipelineStageLabel(stage, progress, "banner")}
               </span>
@@ -518,7 +518,7 @@ export const AvatarInput = (props: AvatarInputProps) => {
               shapeClass
             )}
           >
-            <Spinner3D className="size-8" />
+            <Spinner3D variant="media" className="size-8" />
             <span className="max-w-full truncate px-1 text-[11px] leading-none font-medium text-white">
               {pipelineStageLabel(stage, progress, "avatar")}
             </span>

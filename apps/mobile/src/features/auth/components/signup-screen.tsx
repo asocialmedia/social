@@ -1,10 +1,9 @@
+import { Image } from "expo-image";
 // 1:1 native port of web SignUpForm (components/auth/forms/sign-up-form.tsx).
 // Stages: form -> OTP panel -> email-link panel, all against the real
 // /api/signup routes with Turnstile in a WebView. Social buttons share the
 // session provider's sign-in with the login screen. State lives in
 // SignupStateProvider (replaces nuqs).
-
-import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import {
@@ -18,7 +17,6 @@ import {
 } from "lucide-react-native";
 import { useCallback, useEffect, useState } from "react";
 import {
-  ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -39,6 +37,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import asmLogo from "@/assets/images/asm.png";
 import signupBgImage from "@/assets/images/signup-image.jpg";
 import { toast } from "@/components/feedback/toast";
+import { ZephLoader } from "@/components/feedback/zeph-loader";
 import { GoogleIcon } from "@/components/icons/google-icon";
 import { RedditIcon } from "@/components/icons/reddit-icon";
 import { validateSignup } from "@/features/auth/lib/auth-validation";
@@ -876,7 +875,8 @@ export default function SignupScreen() {
                             ]}
                           >
                             {activeSocial === "google" ? (
-                              <ActivityIndicator
+                              <ZephLoader
+                                variant="security"
                                 color={theme.socialBtnText}
                                 size="small"
                               />
@@ -916,7 +916,8 @@ export default function SignupScreen() {
                             ]}
                           >
                             {activeSocial === "reddit" ? (
-                              <ActivityIndicator
+                              <ZephLoader
+                                variant="security"
                                 color={theme.socialBtnText}
                                 size="small"
                               />
@@ -1039,7 +1040,11 @@ export default function SignupScreen() {
                       />
                       {isVerifyingOtp ? (
                         <View className="flex-row items-center justify-center gap-2">
-                          <ActivityIndicator color="#ff9500" size="small" />
+                          <ZephLoader
+                            variant="security"
+                            color="#ff9500"
+                            size="small"
+                          />
                           <Text
                             className="text-sm"
                             style={[styles.fontMedium, { color: "#ff9500" }]}

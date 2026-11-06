@@ -23,10 +23,12 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { MessageImage } from "./messages-primitives";
 
 export function MessageMediaViewer({
+  ephemeral = false,
   images,
   index,
   onClose,
 }: {
+  ephemeral?: boolean;
   images: string[];
   index: number | null;
   onClose: () => void;
@@ -74,6 +76,7 @@ export function MessageMediaViewer({
       >
         {images.map((uri) => (
           <MessageImage
+            cachePolicy={ephemeral ? "none" : undefined}
             contentFit="contain"
             key={uri}
             source={uri}

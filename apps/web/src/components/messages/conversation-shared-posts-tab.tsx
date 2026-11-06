@@ -122,11 +122,8 @@ export function ConversationSharedPostsTab({
   );
 }
 
-// Why the list may be empty, stated to the reader rather than assumed. The reader
-// knows which case it is, and the same three sentences serve all three tabs.
-//
-// "A background index" rather than "once you open this panel": on a wide screen
-// the details are the pinned pane beside the transcript, so they are already open
-// and the walk is already running. The copy has to stay true for both surfaces.
-export const EMPTY_FOOTNOTE =
-  "Nothing here yet. Older posts are indexed in the background while you read, and without a local index only this device's loaded messages can be searched.";
+// The default line for an empty list in any of the three tabs. Deliberately
+// short: the coverage, read-error and indexing cases all speak for themselves in
+// the footer, and the caption under an empty pane is not where a reader goes
+// looking for how the index works.
+export const EMPTY_FOOTNOTE = "Nothing here yet.";

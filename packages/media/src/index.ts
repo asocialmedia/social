@@ -75,10 +75,51 @@ export {
 } from "./state-machine";
 
 export { detectContent, verifyDeclaredMatchesContent } from "./magic";
+export {
+  MAX_MESSAGE_ATTACHMENT_TOTAL_BYTES,
+  isMessageDocumentMime,
+  maxMessageAttachmentBytes,
+  messageAttachmentKind,
+  messageAttachmentMediaType,
+  messageAttachmentMimeType,
+} from "./message-attachments";
+export type {
+  MessageAttachmentKind,
+  MessageAttachmentMediaType,
+} from "./message-attachments";
 export type { ContentDetection } from "./magic";
 
 export { readJpegExifOrientation, stripImageMetadata } from "./strip-metadata";
 export type { StripOutcome } from "./strip-metadata";
+
+export {
+  isAnimatedStickerMimeType,
+  isStickerSupportedMimeType,
+  maxStickerInputBytes,
+  maxStickerOutputBytes,
+  STICKER_ANIMATED_MAX_INPUT_BYTES,
+  STICKER_ANIMATED_MAX_OUTPUT_BYTES,
+  STICKER_ANIMATED_MIME_TYPES,
+  STICKER_CONVERSION_DAILY_LIMIT,
+  STICKER_CONVERSION_PER_MINUTE_LIMIT,
+  STICKER_LIBRARY_MAX_BYTES,
+  STICKER_LIBRARY_MAX_ITEMS,
+  STICKER_MAX_ANIMATION_DURATION_MS,
+  STICKER_MAX_ANIMATION_FRAMES,
+  STICKER_MAX_ANIMATED_FRAME_DIMENSION,
+  STICKER_MAX_CANVAS_DIMENSION,
+  STICKER_MAX_CONCURRENT_CONVERSIONS,
+  STICKER_MAX_CUMULATIVE_FRAME_PIXELS,
+  STICKER_MAX_DIMENSION,
+  STICKER_MAX_PIXEL_COUNT,
+  STICKER_STATIC_MAX_INPUT_BYTES,
+  STICKER_STATIC_MAX_OUTPUT_BYTES,
+  STICKER_STATIC_MIME_TYPES,
+  STICKER_THUMBNAIL_DIMENSION,
+  STICKER_THUMBNAIL_MAX_OUTPUT_BYTES,
+  STICKER_SUPPORTED_MIME_TYPES,
+} from "./sticker-policy";
+export type { StickerSupportedMimeType } from "./sticker-policy";
 
 export {
   AUDIO_FPRINT_LENGTH,

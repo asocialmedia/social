@@ -28,6 +28,7 @@ import { useEffect, useState } from "react";
 import type { ComponentType } from "react";
 import {
   Animated,
+  useWindowDimensions,
   Easing,
   Platform,
   Pressable,
@@ -35,6 +36,7 @@ import {
   Text,
   View,
 } from "react-native";
+import { useReducedMotion } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Path, Svg } from "react-native-svg";
 
@@ -253,10 +255,14 @@ export function MobileBottomNav({
   hidden: hiddenOverride,
   onHeightChange,
   onHiddenChange,
+  sidebar = false,
+  onNavigate,
 }: {
   // Extra lift above the bottom edge. Guests keep this at 0: the dock sits
   // at the bottom edge and the login banner docks above it, like web.
   bottomOffset?: number;
+  sidebar?: boolean;
+  onNavigate?: () => void;
   // A screen with its own scroll container may pass the same hide signal
   // that drives its top bar, like web's hiddenOverride.
   hidden?: boolean;
@@ -267,6 +273,9 @@ export function MobileBottomNav({
   // bottom edge while the dock is hidden instead of floating over a gap.
   onHiddenChange?: (hidden: boolean) => void;
 }) {
+  const reduceMotion = useReducedMotion();
+  const { width } = useWindowDimensions();
+  const compact = width < 360;
   const unreadCount = useUnreadMessageCount();
   const { isDark } = useAppTheme();
   const router = useRouter();
@@ -277,7 +286,7 @@ export function MobileBottomNav({
   const [scrollHidden, setScrollHidden] = useState(false);
   const [dockHeight, setDockHeight] = useState(56);
   // oxlint-disable-next-line react/hook-use-state -- single stable Animated.Value created once; no setter is ever needed
-  const [slide] = useState(() => new Animated.Value(0));
+  const [slide] = useState(() => new Animated.Value(sidebar ? 1 : 0));
 
   useEffect(
     () => subscribeHeaderVisibility((isHidden) => setScrollHidden(isHidden)),
@@ -285,6 +294,8 @@ export function MobileBottomNav({
   );
 
   const hidden = hiddenOverride ?? scrollHidden;
+  const sidebarTravel = reduceMotion ? 0 : 28;
+  const motionDuration = sidebar ? 240 : 220;
   const dockPanel = isDark ? DOCK_PANEL_DARK : DOCK_PANEL_LIGHT;
 
   useEffect(() => {
@@ -300,8 +311,10 @@ export function MobileBottomNav({
     // in HomeScreen / PostDetailScreen), kicked off on the same hide flip,
     // so the bar, the feed follow, the banner and the dock glide as one.
     const travel = Animated.timing(slide, {
-      duration: 220,
-      easing: Easing.out(Easing.cubic),
+      duration: sidebar && reduceMotion ? 100 : motionDuration,
+      easing:
+        sidebar && hidden ? Easing.in(Easing.cubic) : Easing.out(Easing.cubic),
+      isInteraction: false,
       toValue: hidden ? 1 : 0,
       useNativeDriver: Platform.OS !== "web",
     });
@@ -309,9 +322,10 @@ export function MobileBottomNav({
     return () => {
       travel.stop();
     };
-  }, [hidden, slide]);
+  }, [hidden, slide, sidebar, reduceMotion, motionDuration]);
 
   const goToLogin = () => {
+    onNavigate?.();
     router.push("/(auth)/login");
   };
 
@@ -361,6 +375,7 @@ export function MobileBottomNav({
         key={item.label}
         label={item.label}
         onPress={() => {
+          onNavigate?.();
           if (!state.selected) {
             if (item.href === "/") {
               router.dismissTo("/");
@@ -375,6 +390,7 @@ export function MobileBottomNav({
 
   const openComposer = useComposerStore((state) => state.open);
   const openCamera = () => {
+    onNavigate?.();
     if (!isLoggedIn) {
       goToLogin();
       return;
@@ -390,6 +406,7 @@ export function MobileBottomNav({
     router.navigate("/camera");
   };
   const handleComposeLongPress = () => {
+    onNavigate?.();
     if (!isLoggedIn) {
       goToLogin();
       return;
@@ -425,9 +442,15 @@ export function MobileBottomNav({
           }),
           transform: [
             {
+              scale: slide.interpolate({
+                inputRange: [0, 1],
+                outputRange: [1, sidebar && !reduceMotion ? 0.96 : 1],
+              }),
+            },
+            {
               translateY: slide.interpolate({
                 inputRange: [0, 1],
-                outputRange: [0, dockHeight + 16],
+                outputRange: [0, sidebar ? sidebarTravel : dockHeight + 16],
               }),
             },
           ],
@@ -436,6 +459,7 @@ export function MobileBottomNav({
         <View
           style={[
             styles.panel,
+            compact && { gap: 0 },
             {
               backgroundColor: dockPanel.background,
               borderColor: dockPanel.border,
@@ -443,7 +467,9 @@ export function MobileBottomNav({
             },
           ]}
         >
-          <View style={styles.side}>{LEFT_ITEMS.map(renderTab)}</View>
+          <View style={[styles.side, compact && { gap: 0 }]}>
+            {LEFT_ITEMS.map(renderTab)}
+          </View>
           <Pressable
             accessibilityHint="Tap for camera, hold for text post"
             accessibilityLabel="Create Post"
@@ -466,7 +492,9 @@ export function MobileBottomNav({
               </Gradient3D>
             )}
           </Pressable>
-          <View style={styles.side}>{RIGHT_ITEMS.map(renderTab)}</View>
+          <View style={[styles.side, compact && { gap: 0 }]}>
+            {RIGHT_ITEMS.map(renderTab)}
+          </View>
         </View>
       </Animated.View>
     </View>

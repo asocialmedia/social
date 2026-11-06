@@ -24,7 +24,6 @@ import {
 import type { Ref } from "react";
 import type { ScrollViewInstance, ScrollViewProps } from "react-native";
 import {
-  ActivityIndicator,
   Animated,
   Pressable,
   ScrollView,
@@ -46,6 +45,7 @@ import noFollowImage from "@/assets/images/nofollow.png";
 import noMediaImage from "@/assets/images/nomedia.png";
 import { UserAvatar } from "@/components/avatar/user-avatar";
 import { usePullToRefresh } from "@/components/feedback/use-pull-to-refresh";
+import { ZephLoader } from "@/components/feedback/zeph-loader";
 import { Gradient3D } from "@/components/surface/gradient-3d";
 import { authClient } from "@/features/auth/lib/auth-client";
 import { useInstall } from "@/features/auth/state/install";
@@ -266,7 +266,7 @@ export function ExploreScreen() {
           )}
         </FeedPager>
       ) : (
-        <ActivityIndicator color="#f97316" style={styles.root} />
+        <ZephLoader variant="search" color="#f97316" style={styles.root} />
       )}
       {showGuestBar ? (
         <View

@@ -1,15 +1,25 @@
 "use client";
 
-import type { InfiniteData } from "@tanstack/react-query";
+import type { BubbleEntranceRegistry } from "@asm/messages";
+import { ChatDraftStore, throwChatError } from "@asm/messages";
+// oxlint-disable react/exhaustive-effect-dependencies -- Account, clear and retry revisions intentionally invalidate scoped effects even when they are not request payload fields.
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@asm/ui/shadui/dropdown-menu";
 import { useQueryClient } from "@tanstack/react-query";
+import type { InfiniteData } from "@tanstack/react-query";
 import {
   ArrowUp,
   Check,
-  Clapperboard,
+  FileText,
   ImagePlus,
-  Loader2,
   MessageSquareQuote,
   Pencil,
+  Plus,
+  Smile,
   X,
 } from "lucide-react";
 import dynamic from "next/dynamic";
@@ -19,8 +29,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSession } from "@/app/(main)/session-provider";
 import KlipyGifPicker from "@/components/comments/composer/klipy-gif-picker";
 import type { KlipyGif } from "@/components/comments/composer/klipy-gif-picker";
+import { ZephLoader } from "@/components/layouts/feedback/zeph-loader";
 import { MessageAttachmentStrip } from "@/components/messages/message-attachment-strip";
+import { MessageComposerInput } from "@/components/messages/message-composer-input";
 import { useMessagesIdentity } from "@/components/messages/message-identity-provider";
+import { MessageReactionPicker } from "@/components/messages/message-reaction-picker";
+import { StickerPicker } from "@/components/messages/sticker-picker";
 import { useMessageAttachments } from "@/components/messages/use-message-attachments";
 import { toast } from "@/lib/gooey-toast";
 import { messageWindowIncludesLatest } from "@/lib/messages/anchored-window";
@@ -41,6 +55,8 @@ import {
   replySenderFallbackName,
 } from "@/lib/messages/composer-copy";
 import type { MessagePayload } from "@/lib/messages/crypto";
+import { messageDecryptor } from "@/lib/messages/decryptor";
+import type { MessageOutbox } from "@/lib/messages/outbox";
 import type { MessagePage } from "@/lib/messages/types";
 import { cn } from "@/lib/utils";
 
@@ -50,7 +66,15 @@ const MessageImageEditDialog = dynamic(
   { ssr: false }
 );
 
+const normalDrafts = new ChatDraftStore();
+
 interface MessageComposerProps {
+  outbox?: MessageOutbox;
+  entrances?: BubbleEntranceRegistry;
+  incognito?: {
+    sessionId: string;
+    send: (payload: MessagePayload) => Promise<boolean>;
+  };
   // Set when the server told us this member is no longer inside the conversation.
   // The composer stays mounted and keeps its draft; only the controls go quiet, so
   // being removed from a den mid-sentence does not throw away what was being
@@ -84,7 +108,8 @@ async function sendWithRatchetRetry(
   rootKey: Uint8Array,
   senderId: string,
   nextIndex: number,
-  payload: MessagePayload
+  payload: MessagePayload,
+  clientMessageId?: string
 ): Promise<Awaited<ReturnType<typeof sendEncryptedMessage>>> {
   try {
     return await sendEncryptedMessage(
@@ -92,7 +117,8 @@ async function sendWithRatchetRetry(
       rootKey,
       senderId,
       nextIndex,
-      payload
+      payload,
+      clientMessageId
     );
   } catch (error) {
     if (
@@ -105,7 +131,8 @@ async function sendWithRatchetRetry(
         rootKey,
         senderId,
         error.expectedIndex,
-        payload
+        payload,
+        clientMessageId
       );
     }
     throw error;
@@ -113,6 +140,9 @@ async function sendWithRatchetRetry(
 }
 
 export function MessageComposer({
+  outbox,
+  entrances,
+  incognito,
   accessEnded = false,
   conversation,
   editTarget,
@@ -126,10 +156,17 @@ export function MessageComposer({
   const { user } = useSession();
   const { privateKey } = useMessagesIdentity();
   const queryClient = useQueryClient();
-  const [text, setText] = useState("");
+  const [text, setText] = useState(() =>
+    incognito
+      ? ""
+      : normalDrafts.get(user?.id ?? "", conversation.conversation.id)
+  );
   const [savingEdit, setSavingEdit] = useState(false);
   const [sending, setSending] = useState(false);
-  const [gifPickerOpen, setGifPickerOpen] = useState(false);
+  const [expressionKeyboardOpen, setExpressionKeyboardOpen] = useState(false);
+  const [expressionTab, setExpressionTab] = useState<
+    "emoji" | "gifs" | "stickers"
+  >("emoji");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [dragActive, setDragActive] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -142,6 +179,7 @@ export function MessageComposer({
   const seededEditIdRef = useRef<string | null>(null);
 
   const conversationId = conversation.conversation.id;
+  const draftKey = `chat-draft:${conversationId}`;
   const editing = editTarget !== null;
 
   // Seed the textarea when entering edit mode (or switching between messages).
@@ -161,6 +199,19 @@ export function MessageComposer({
       setText(target.content);
     });
   }, [editTarget]);
+  // Drafts survive mode switches in account-scoped memory and never enter browser storage.
+  useEffect(() => {
+    try {
+      localStorage.removeItem(draftKey);
+    } catch {
+      // Reconcile safely on the next request; do not expose source errors.
+    }
+  }, [draftKey]);
+  useEffect(() => {
+    if (!incognito && !editing && user) {
+      normalDrafts.set(user.id, conversationId, text);
+    }
+  }, [text, conversationId, user?.id, editing, user, incognito]);
 
   const {
     addFiles,
@@ -173,27 +224,14 @@ export function MessageComposer({
     removeAttachments,
     replaceAttachmentFile,
     restoreAttachments,
+    resumeAttachmentUpload,
     retryAttachment,
-  } = useMessageAttachments(conversationId);
+  } = useMessageAttachments(conversationId, incognito?.sessionId);
+  const viewOnceMode = attachments.some((attachment) => attachment.viewOnce);
 
   const editingAttachment = attachments.find(
     (attachment) => attachment.id === editingId
   );
-
-  const adjustTextareaHeight = useCallback(() => {
-    const textarea = textareaRef.current;
-    if (!textarea) {
-      return;
-    }
-    textarea.style.height = "auto";
-    const nextHeight = Math.min(Math.max(textarea.scrollHeight, 24), 140);
-    textarea.style.height = `${nextHeight}px`;
-  }, []);
-
-  useEffect(() => {
-    adjustTextareaHeight();
-    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- text intentionally triggers a height re-measure on every keystroke
-  }, [text, adjustTextareaHeight]);
 
   // The peer, and only once this device knows who it is.
   //
@@ -221,6 +259,7 @@ export function MessageComposer({
   // as it is because the send path guards on it, but the two things that NAME
   // somebody - the placeholder and the reply byline - read this instead.
   const isDen = conversation.conversation.type === "DEN";
+  const visibleExpressionTab = expressionTab;
   const placeholder = composerPlaceholder({
     denName: conversation.conversation.name ?? null,
     editing,
@@ -235,12 +274,64 @@ export function MessageComposer({
   const sendPayload = useCallback(
     async (
       payload: MessagePayload,
-      options?: { preserveInput?: boolean }
+      options?: { preserveInput?: boolean; outgoingId?: string }
     ): Promise<boolean> => {
       if (!user || !privateKey || !peer) {
         return false;
       }
+      let outgoingId: string | undefined;
       try {
+        if (!incognito && outbox) {
+          outgoingId = options?.outgoingId ?? crypto.randomUUID();
+          const previous = outbox.get(outgoingId);
+          if (!previous) {
+            const editor = textareaRef.current;
+            const sendButton = editor
+              ?.closest("[data-message-composer]")
+              ?.querySelector("[data-message-send]");
+            const source = sendButton?.getBoundingClientRect();
+            entrances?.register(
+              outgoingId,
+              Date.now(),
+              source
+                ? { x: source.right, y: source.top + source.height / 2 }
+                : undefined
+            );
+          }
+          outbox.start(
+            previous?.message ?? {
+              ciphertext: "",
+              conversationId: conversation.conversation.id,
+              createdAt: new Date(),
+              deletedAt: null,
+              editedAt: null,
+              id: outgoingId,
+              iv: "",
+              ratchetIndex: 0,
+              senderId: user.id,
+            },
+            payload
+          );
+          if (!options?.preserveInput) {
+            setText("");
+            onReplyCancel();
+            requestAnimationFrame(() =>
+              textareaRef.current?.focus({ preventScroll: true })
+            );
+          }
+          onSent();
+        }
+        if (incognito) {
+          const sent = await incognito.send(payload);
+          if (sent && !options?.preserveInput) {
+            setText("");
+            onReplyCancel();
+          }
+          if (sent) {
+            onSent();
+          }
+          return sent;
+        }
         // Unwrap the root key (cached per conversation). This also heals any
         // missing wrapped key rows from a conversation created before this
         // device had keys. The refresh callback guards the rotate path: if our
@@ -268,12 +359,7 @@ export function MessageComposer({
           }
         );
         if (!rootKey) {
-          toast({
-            description: "Message keys aren't ready yet",
-            title: "Can't send",
-            variant: "destructive",
-          });
-          return false;
+          throwChatError(new Error("Message keys aren't ready yet"));
         }
 
         // Next ratchet index = max(server count at fetch, own messages loaded).
@@ -285,7 +371,11 @@ export function MessageComposer({
           .flatMap((page) => page.messages)
           .filter((message) => message.senderId === user.id).length;
 
-        const computedIndex = Math.max(conversation.mySentCount, ownCacheCount);
+        const computedIndex = Math.max(
+          conversation.mySentCount,
+          ownCacheCount,
+          outbox?.nextRatchetIndex ?? 0
+        );
 
         // A concurrent send can still race us; sendWithRatchetRetry retries
         // once at the server's authoritative index when that happens.
@@ -294,46 +384,67 @@ export function MessageComposer({
           rootKey,
           user.id,
           computedIndex,
-          payload
+          payload,
+          outgoingId
         );
 
-        // Fold the sent message into the cache (deduped against the SSE echo of
-        // the same message) and clear the input.
-        queryClient.setQueryData<InfiniteData<MessagePage, MessagePageAxis>>(
-          ["messages", conversation.conversation.id],
-          (old) => {
-            if (
-              !old ||
-              !messageWindowIncludesLatest(old.pages, old.pageParams)
-            ) {
-              return old;
-            }
-            return foldMessageIntoBoundedData(old, sent) ?? old;
-          }
-        );
-        if (!options?.preserveInput) {
-          setText("");
-          onReplyCancel();
+        entrances?.register(sent.id);
+        if (outbox && outgoingId) {
+          messageDecryptor.rememberSent(outbox.scope, sent.id, payload);
+          outbox.acknowledge(sent);
         }
-        onSent();
-        void queryClient.invalidateQueries({
-          queryKey: ["message-conversations", user.id],
-        });
-        // ensureConversationKeys may have just created the wrapped keys (first
-        // message in a new conversation). Refetch the detail so the thread can
-        // unwrap and decrypt this message instead of showing it unreadable.
-        void queryClient.invalidateQueries({
-          queryKey: ["message-conversation", conversation.conversation.id],
-        });
+        const reconcile = () => {
+          queryClient.setQueryData<InfiniteData<MessagePage, MessagePageAxis>>(
+            ["messages", conversation.conversation.id],
+            (old) =>
+              !old || !messageWindowIncludesLatest(old.pages, old.pageParams)
+                ? old
+                : (foldMessageIntoBoundedData(old, sent) ?? old)
+          );
+        };
+        if (outbox) {
+          outbox.deferRefresh(`sent:${sent.id}`, reconcile);
+          outbox.deferRefresh("conversation-list", () => {
+            void queryClient.invalidateQueries({
+              queryKey: ["message-conversations", user.id],
+            });
+          });
+          outbox.deferRefresh("conversation-detail", () => {
+            void queryClient.invalidateQueries({
+              queryKey: ["message-conversation", conversation.conversation.id],
+            });
+          });
+        } else {
+          reconcile();
+          if (!options?.preserveInput) {
+            setText("");
+            onReplyCancel();
+          }
+          onSent();
+          void queryClient.invalidateQueries({
+            queryKey: ["message-conversations", user.id],
+          });
+          void queryClient.invalidateQueries({
+            queryKey: ["message-conversation", conversation.conversation.id],
+          });
+        }
         return true;
       } catch (error) {
+        if (outgoingId && outbox?.wasAcknowledged(outgoingId)) {
+          return true;
+        }
+        if (outgoingId) {
+          outbox?.fail(outgoingId);
+        }
         toast({
           description:
             error instanceof Error ? error.message : "Couldn't send message",
           title: "Message not sent",
           variant: "destructive",
         });
-        return false;
+        // The outbox owns failed payloads and their claimed media until retry.
+        // Callers may remove attachment tiles without discarding those media.
+        return Boolean(outgoingId && outbox?.get(outgoingId));
       }
     },
     [
@@ -341,11 +452,62 @@ export function MessageComposer({
       conversation.mySentCount,
       onReplyCancel,
       onSent,
+      entrances,
+      outbox,
       peer,
       privateKey,
       queryClient,
       user,
+      incognito,
     ]
+  );
+
+  const insertEmoji = useCallback(
+    (emoji: string) => {
+      const textarea = textareaRef.current;
+      const start = textarea?.selectionStart ?? text.length;
+      const end = textarea?.selectionEnd ?? start;
+      const next = `${text.slice(0, start)}${emoji}${text.slice(end)}`;
+      setText(next);
+      if (next.length > 0) {
+        onDraftInput();
+      }
+      if (!incognito && !editing && emoji.trim().length > 0) {
+        const now = Date.now();
+        if (now - lastTypingRef.current >= 3000) {
+          lastTypingRef.current = now;
+          void sendTypingIndicator(conversation.conversation.id);
+        }
+      }
+      requestAnimationFrame(() => {
+        if (!textarea) {
+          return;
+        }
+        textarea.focus({ preventScroll: true });
+        textarea.setSelectionRange(start + emoji.length, start + emoji.length);
+      });
+    },
+    [conversation.conversation.id, editing, incognito, onDraftInput, text]
+  );
+
+  useEffect(
+    () =>
+      outbox?.setRetryHandler(async (entry) => {
+        if (sending || accessEnded) {
+          return;
+        }
+        setSending(true);
+        try {
+          await sendPayload(entry.payload, {
+            outgoingId: entry.message.id,
+            preserveInput: true,
+          });
+        } catch {
+          // Keep unexpected failures retryable and release the composer.
+        }
+        setSending(false);
+      }),
+    [accessEnded, outbox, sendPayload, sending]
   );
 
   const handleEditSave = useCallback(async () => {
@@ -369,16 +531,16 @@ export function MessageComposer({
   }, [editing, editTarget?.payloadType, onEditSave, savingEdit, text]);
 
   const handleSend = useCallback(async () => {
+    if (sending) {
+      return;
+    }
     // Edit mode repurposes the send button into "save changes".
     if (editing) {
       await handleEditSave();
       return;
     }
     const content = text.trim();
-    if (sending) {
-      return;
-    }
-    if (attachments.length === 0 && !content) {
+    if (attachments.length === 0 && (!content || viewOnceMode)) {
       return;
     }
     // Attachments must all be uploaded and READY before any goes out: the
@@ -396,10 +558,12 @@ export function MessageComposer({
       if (readyGroups.length > 0) {
         let first = true;
         for (const group of readyGroups) {
+          const viewOnceOnly = group.attachments.some(
+            (attachment) => attachment.kind === "view-once"
+          );
           const payload: MessagePayload = {
-            content: first && content ? content : undefined,
-            images: group.images,
-            kind: group.kind,
+            attachments: group.attachments,
+            content: first && !viewOnceOnly && content ? content : undefined,
             type: "media",
             ...(first && replyTarget
               ? {
@@ -435,9 +599,8 @@ export function MessageComposer({
             setSending(false);
             return;
           }
-          // The send landed, so the rows belong to a message now: drop the
-          // tiles without discarding. `claimed` already detached them, so this
-          // is bookkeeping only.
+          // The outbox or acknowledged message owns these media now. Drop the
+          // draft tiles without discarding references a retry still needs.
           removeAttachments(group.attachmentIds, { discard: false });
           first = false;
         }
@@ -462,11 +625,7 @@ export function MessageComposer({
       setSending(false);
       return;
     }
-    // Clear the sending flag BEFORE focusing: the textarea is disabled while
-    // `busy`, and a disabled element cannot receive focus, so focusing first
-    // was a no-op. The frame callback then runs after React has re-enabled
-    // it, so the caret actually lands. preventScroll keeps the just-scrolled
-    // transcript from being yanked by the browser focusing the composer.
+    // Keep focus on the next draft without moving the transcript.
     setSending(false);
     requestAnimationFrame(() => {
       textareaRef.current?.focus({ preventScroll: true });
@@ -487,13 +646,17 @@ export function MessageComposer({
     sending,
     text,
     user,
+    viewOnceMode,
   ]);
 
   const handleFilesSelected = useCallback(
     (files: FileList | File[] | null) => {
       const list = files ? [...files] : [];
       if (list.length > 0) {
-        addFiles(list);
+        const added = addFiles(list, { editSinglePhoto: true });
+        if (added?.editId) {
+          setEditingId(added.editId);
+        }
       }
     },
     [addFiles]
@@ -509,7 +672,7 @@ export function MessageComposer({
 
   const handleGifSelect = useCallback(
     async (gif: KlipyGif) => {
-      setGifPickerOpen(false);
+      setExpressionKeyboardOpen(false);
       try {
         const response = await fetch(gif.url);
         if (!response.ok) {
@@ -628,7 +791,9 @@ export function MessageComposer({
       ? busy || emptyBodyBlocksSave
       : busy ||
         isUploading ||
-        (attachments.length > 0 ? !canSend : text.trim().length === 0));
+        (attachments.length > 0
+          ? !canSend
+          : viewOnceMode || text.trim().length === 0));
   // One flag for every control that would start a write, so a removed member
   // cannot slip a send through the Enter key or a pasted attachment while the
   // button is merely greyed out.
@@ -638,7 +803,7 @@ export function MessageComposer({
   // either request is in flight.
   function renderSendIcon() {
     if (busy) {
-      return <Loader2 className="h-4 w-4 animate-spin" />;
+      return <ZephLoader variant="messages" className="h-4 w-4" />;
     }
     if (editing) {
       return <Check className="h-4 w-4" />;
@@ -708,8 +873,51 @@ export function MessageComposer({
         </div>
       ) : null}
 
-      {gifPickerOpen && !editing ? (
-        <div className="panel-3d mb-2 w-full rounded-2xl p-2">
+      <div
+        aria-label="Expression keyboard"
+        className={cn(
+          "panel-3d mb-2 h-[min(52dvh,420px)] w-full flex-col overflow-hidden rounded-2xl p-2",
+          expressionKeyboardOpen ? "flex" : "hidden"
+        )}
+      >
+        <div
+          aria-label="Message expressions"
+          className="bg-muted/40 mb-2 grid grid-cols-3 gap-1 rounded-xl p-1"
+          role="tablist"
+        >
+          {(["emoji", "gifs", "stickers"] as const).map((tab) => (
+            <button
+              aria-selected={visibleExpressionTab === tab}
+              className={cn(
+                "focus-visible:ring-primary min-h-10 rounded-lg px-3 text-sm font-medium capitalize transition-colors focus-visible:ring-2",
+                visibleExpressionTab === tab
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+              key={tab}
+              disabled={editing && tab !== "emoji"}
+              onClick={() => setExpressionTab(tab)}
+              role="tab"
+              type="button"
+            >
+              {tab === "gifs" ? "GIFs" : tab}
+            </button>
+          ))}
+        </div>
+        <div
+          className="min-h-0 flex-1 overflow-y-auto"
+          hidden={visibleExpressionTab !== "emoji"}
+        >
+          <MessageReactionPicker
+            disabled={false}
+            onReact={insertEmoji}
+            title="Emoji"
+          />
+        </div>
+        <div
+          className="min-h-0 flex-1 overflow-y-auto"
+          hidden={visibleExpressionTab !== "gifs" || Boolean(editing)}
+        >
           <KlipyGifPicker
             disabled={busy}
             onSelect={(gif) => {
@@ -717,7 +925,32 @@ export function MessageComposer({
             }}
           />
         </div>
-      ) : null}
+        <div
+          className="min-h-0 flex-1"
+          hidden={visibleExpressionTab !== "stickers" || Boolean(editing)}
+        >
+          <StickerPicker
+            active={
+              expressionKeyboardOpen && visibleExpressionTab === "stickers"
+            }
+            key={user?.id}
+            canCreate={!incognito && !editing && !accessEnded}
+            conversationId={conversation.conversation.id}
+            disabled={busy || accessEnded || editing || viewOnceMode}
+            incognitoSessionId={incognito?.sessionId}
+            onSend={async (payload) => {
+              const sent = await sendPayload(payload, {
+                preserveInput: true,
+              });
+              if (sent) {
+                onReplyCancel();
+              }
+              return sent;
+            }}
+            replyTarget={replyTarget}
+          />
+        </div>
+      </div>
 
       {editing ? null : (
         <MessageAttachmentStrip
@@ -728,24 +961,86 @@ export function MessageComposer({
         />
       )}
 
-      <div className="reels-input relative flex items-center gap-2 rounded-2xl! px-3 py-2">
+      <div
+        className="premium-input relative flex items-end gap-0 rounded-[1.625rem]! p-1.5"
+        data-message-composer=""
+      >
         {dragActive ? (
           <span className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-2xl border-2 border-dashed border-[#ff9500]/70 bg-black/5 text-xs font-medium text-[#ff9500]">
-            Drop images to attach
+            Drop files to attach
           </span>
         ) : null}
         <input
-          accept="image/*"
+          accept="image/*,video/*,audio/*,application/pdf,application/zip,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.openxmlformats-officedocument.presentationml.presentation"
           className="hidden"
           multiple
           onChange={handleFileInputChange}
           ref={fileInputRef}
           type="file"
         />
-        <textarea
-          aria-label="Message"
-          className="placeholder:text-muted-foreground max-h-32 min-h-10 flex-1 resize-none bg-transparent py-1.5 text-sm outline-none disabled:opacity-60"
-          disabled={writeBlocked}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              aria-label="Add attachment"
+              className="text-muted-foreground hover:bg-muted/60 hover:text-foreground focus-visible:ring-primary flex h-10 w-9 shrink-0 items-center justify-center rounded-full transition-colors focus-visible:ring-2 disabled:opacity-40 pointer-coarse:w-10"
+              disabled={writeBlocked || editing || viewOnceMode}
+              type="button"
+            >
+              <Plus className="size-5" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent
+            align="start"
+            className="w-52"
+            side="top"
+            sideOffset={12}
+          >
+            <DropdownMenuItem
+              className="gap-3"
+              onSelect={() => {
+                if (fileInputRef.current) {
+                  fileInputRef.current.accept = "image/*,video/*";
+                  fileInputRef.current.click();
+                }
+              }}
+            >
+              <ImagePlus className="size-4" />
+              Photos & videos
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              className="gap-3"
+              onSelect={() => {
+                if (fileInputRef.current) {
+                  fileInputRef.current.accept =
+                    "audio/*,application/pdf,application/zip,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.openxmlformats-officedocument.presentationml.presentation";
+                  fileInputRef.current.click();
+                }
+              }}
+            >
+              <FileText className="size-4" />
+              Files
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+        <button
+          aria-expanded={expressionKeyboardOpen}
+          aria-label="Open emoji, GIF, and sticker keyboard"
+          className={cn(
+            "text-muted-foreground hover:bg-muted/60 hover:text-foreground focus-visible:ring-primary flex h-10 w-9 shrink-0 items-center justify-center rounded-full transition-colors focus-visible:ring-2 pointer-coarse:w-10",
+            expressionKeyboardOpen && "bg-muted/70 text-foreground"
+          )}
+          onClick={() => {
+            setExpressionKeyboardOpen((open) => !open);
+            if (!expressionKeyboardOpen) {
+              setExpressionTab("emoji");
+            }
+          }}
+          type="button"
+        >
+          <Smile className="size-5" />
+        </button>
+        <MessageComposerInput
+          disabled={accessEnded || savingEdit || viewOnceMode}
           onChange={(event) => {
             const { value } = event.target;
             setText(value);
@@ -756,7 +1051,7 @@ export function MessageComposer({
             }
             // Typing heartbeats are meaningless while editing an existing
             // message; skip them so an edit never pings the peer.
-            if (!editing && value.trim().length > 0) {
+            if (!incognito && !editing && value.trim().length > 0) {
               // Typing indicators are throttled to one heartbeat per 3s; the
               // peer's client auto-clears after a timeout.
               const now = Date.now();
@@ -768,42 +1063,14 @@ export function MessageComposer({
           }}
           onKeyDown={handleKeyDown}
           onPaste={handlePaste}
-          placeholder={placeholder}
-          ref={textareaRef}
-          rows={1}
+          placeholder={viewOnceMode ? "View once photo" : placeholder}
+          inputRef={textareaRef}
           value={text}
         />
         <button
-          aria-label="Send image"
-          className={cn(
-            "bg-muted/70 text-muted-foreground flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-all duration-200 active:translate-y-px",
-            "hover:bg-linear-to-b hover:from-[#ff9500] hover:to-[#e65500] hover:text-white hover:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)] hover:brightness-110",
-            (busy || editing) && "opacity-50"
-          )}
-          disabled={writeBlocked || editing}
-          onClick={() => fileInputRef.current?.click()}
-          type="button"
-        >
-          <ImagePlus className="size-4" />
-        </button>
-        <button
-          aria-label="Search and add a GIF"
-          className={cn(
-            "bg-muted/70 text-muted-foreground flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-all duration-200 active:translate-y-px",
-            gifPickerOpen
-              ? "bg-linear-to-b from-[#7c5cff] to-[#5a3ae0] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(70,40,170,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]"
-              : "hover:bg-linear-to-b hover:from-[#ff9500] hover:to-[#e65500] hover:text-white hover:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)] hover:brightness-110",
-            (busy || editing) && "opacity-50"
-          )}
-          disabled={writeBlocked || editing}
-          onClick={() => setGifPickerOpen((prev) => !prev)}
-          type="button"
-        >
-          <Clapperboard className="size-4" />
-        </button>
-        <button
           aria-label={editing ? "Save edit" : "Send message"}
-          className="follow-btn-3d flex h-9 w-9 shrink-0 items-center justify-center rounded-full"
+          data-message-send=""
+          className="follow-btn-3d flex h-10 w-10 shrink-0 items-center justify-center rounded-full"
           disabled={sendDisabled}
           onClick={() => {
             void handleSend();
@@ -818,14 +1085,24 @@ export function MessageComposer({
         </button>
       </div>
 
-      {editingAttachment ? (
+      {editingAttachment &&
+      (editingAttachment.kind === "gif" ||
+        editingAttachment.kind === "image") ? (
         <MessageImageEditDialog
           file={editingAttachment.file}
           kind={editingAttachment.kind}
           objectUrl={editingAttachment.objectUrl}
-          onClose={() => setEditingId(null)}
-          onSave={(file) => {
-            replaceAttachmentFile(editingAttachment.id, file);
+          viewOnce={editingAttachment.viewOnce}
+          canViewOnce={attachments.length === 1 && !text.trim()}
+          onClose={() => {
+            resumeAttachmentUpload(editingAttachment.id);
+            setEditingId(null);
+          }}
+          onSave={(file, viewOnce) => {
+            replaceAttachmentFile(editingAttachment.id, file, { viewOnce });
+            if (viewOnce) {
+              setExpressionKeyboardOpen(false);
+            }
           }}
         />
       ) : null}

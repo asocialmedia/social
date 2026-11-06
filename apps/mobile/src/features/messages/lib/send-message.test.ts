@@ -8,7 +8,11 @@ function transport(reply: (body: EncryptedMessage) => Response): typeof fetch {
   return Object.assign(
     (_url: RequestInfo | URL, init?: RequestInit) =>
       Promise.resolve(
-        reply(JSON.parse(String(init?.body)) as EncryptedMessage)
+        // The send path reads the lifecycle row before it posts; answer that
+        // body-less GET with an inactive session so the POST under test runs.
+        init?.body
+          ? reply(JSON.parse(String(init.body)) as EncryptedMessage)
+          : Response.json({ activeSession: null, retentionVersion: 0 })
       ),
     { preconnect: fetch.preconnect }
   );

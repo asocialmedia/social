@@ -11,6 +11,7 @@
 import type {
   MediaAnalyzeJobData,
   MediaCleanupJobData,
+  MediaDeleteCascadeJobData,
   MediaScanJobData,
 } from "@asm/media";
 
@@ -62,6 +63,7 @@ if (import.meta.main) {
   const { processMediaAnalyze } = await import("./jobs/analysis/analyze");
   const { processExternalMediaSafety, ExternalMediaDownloadDeferredError } =
     await import("./jobs/safety/external-media-safety");
+  const { processMediaDeleteCascade } = await import("./jobs/delete-cascade");
   const { workerEnv } = await import("./env");
   const { getS3 } = await import("./s3");
   const { withTimeout } = await import("./transcode/ffmpeg");
@@ -154,7 +156,9 @@ if (import.meta.main) {
           return await processMediaCleanup(job.data as MediaCleanupJobData);
         }
         case MEDIA_JOB_NAMES.deleteCascade: {
-          throw new Error(`Job not implemented yet: ${job.name}`);
+          return await processMediaDeleteCascade(
+            job.data as MediaDeleteCascadeJobData
+          );
         }
         default: {
           throw new Error(`Unknown media job: ${job.name}`);

@@ -27,9 +27,13 @@
 // root key is ever compromised.
 
 import { parseMessagePayload } from "./payload";
-import type { MediaImageRef, MessagePayload } from "./payload";
+import type { MessagePayload } from "./payload";
 
-export type { MediaImageRef, MessagePayload } from "./payload";
+export type {
+  MediaAttachmentRef,
+  MediaImageRef,
+  MessagePayload,
+} from "./payload";
 
 export const KDF_ITERATIONS = 100_000;
 export const FINGERPRINT_GROUP_COUNT = 4;
@@ -422,16 +426,14 @@ export async function deriveMessageKey(
   );
 }
 
-// Normalizes both media shapes into one list so renderers, reply labels, and
-// lightboxes never branch on the payload version.
-export function getMediaImages(
-  content: Extract<MessagePayload, { type: "media" }>
-): MediaImageRef[] {
-  if ("images" in content) {
-    return content.images;
-  }
-  return [{ height: content.height, url: content.url, width: content.width }];
-}
+// The payload normalizers live in the dependency-light payload module so a
+// native client can use them without pulling in this WebCrypto-heavy module.
+export {
+  getMediaAttachments,
+  getMediaImages,
+  isStickerMessagePayload,
+} from "./payload";
+export type { StickerMessagePayload, StickerPresentation } from "./payload";
 
 export { extractMessageReferences } from "./references";
 

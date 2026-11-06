@@ -40,6 +40,7 @@ import {
 } from "react-icons/fa";
 
 import { useSession } from "@/app/(main)/session-provider";
+import { ZephLoader } from "@/components/layouts/feedback/zeph-loader";
 import { MessageIdentityProvider } from "@/components/messages/message-identity-provider";
 import { MessageSharePicker } from "@/components/messages/message-share-picker";
 import { toast } from "@/lib/gooey-toast";
@@ -477,7 +478,7 @@ const ShareButton = ({
     if (isLoading) {
       return (
         <div className="flex items-center justify-center py-4">
-          <div className="bg-primary/10 h-4 w-4 animate-pulse rounded-md" />
+          <ZephLoader variant="general" className="h-4 w-4" />
         </div>
       );
     }

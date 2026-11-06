@@ -1,0 +1,188 @@
+[
+  {
+    "id": "addNativeEnumValue.NotificationType.COMMUNITY_JOIN_REQUEST",
+    "label": "Add value \"COMMUNITY_JOIN_REQUEST\" to enum type \"NotificationType\"",
+    "summary": "Adds value \"COMMUNITY_JOIN_REQUEST\" to enum type \"NotificationType\". A newly added enum value cannot be used until the transaction that adds it commits, so a migration that both appends a value and uses it in the same step will fail at apply.",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "type",
+        "name": "NotificationType"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure enum type \"NotificationType\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_type\" AS \"t\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"t\".\"typnamespace\" WHERE (\"n\".\"nspname\" = $1 AND \"t\".\"typname\" = $2 AND \"t\".\"typtype\" = $3)) AS \"result\"",
+        "params": ["public", "NotificationType", "e"]
+      },
+      {
+        "description": "ensure value \"COMMUNITY_JOIN_REQUEST\" is absent from enum type \"NotificationType\"",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_enum\" AS \"e\" INNER JOIN \"pg_type\" AS \"t\" ON \"t\".\"oid\" = \"e\".\"enumtypid\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"t\".\"typnamespace\" WHERE (\"n\".\"nspname\" = $1 AND \"t\".\"typname\" = $2 AND \"e\".\"enumlabel\" = $3)) AS \"result\"",
+        "params": ["public", "NotificationType", "COMMUNITY_JOIN_REQUEST"]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add value \"COMMUNITY_JOIN_REQUEST\" to enum type \"NotificationType\"",
+        "sql": "ALTER TYPE \"public\".\"NotificationType\" ADD VALUE 'COMMUNITY_JOIN_REQUEST'"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify value \"COMMUNITY_JOIN_REQUEST\" exists on enum type \"NotificationType\"",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_enum\" AS \"e\" INNER JOIN \"pg_type\" AS \"t\" ON \"t\".\"oid\" = \"e\".\"enumtypid\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"t\".\"typnamespace\" WHERE (\"n\".\"nspname\" = $1 AND \"t\".\"typname\" = $2 AND \"e\".\"enumlabel\" = $3)) AS \"result\"",
+        "params": ["public", "NotificationType", "COMMUNITY_JOIN_REQUEST"]
+      }
+    ]
+  },
+  {
+    "id": "addNativeEnumValue.NotificationType.COMMUNITY_JOIN_APPROVED",
+    "label": "Add value \"COMMUNITY_JOIN_APPROVED\" to enum type \"NotificationType\"",
+    "summary": "Adds value \"COMMUNITY_JOIN_APPROVED\" to enum type \"NotificationType\". A newly added enum value cannot be used until the transaction that adds it commits, so a migration that both appends a value and uses it in the same step will fail at apply.",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "type",
+        "name": "NotificationType"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure enum type \"NotificationType\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_type\" AS \"t\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"t\".\"typnamespace\" WHERE (\"n\".\"nspname\" = $1 AND \"t\".\"typname\" = $2 AND \"t\".\"typtype\" = $3)) AS \"result\"",
+        "params": ["public", "NotificationType", "e"]
+      },
+      {
+        "description": "ensure value \"COMMUNITY_JOIN_APPROVED\" is absent from enum type \"NotificationType\"",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_enum\" AS \"e\" INNER JOIN \"pg_type\" AS \"t\" ON \"t\".\"oid\" = \"e\".\"enumtypid\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"t\".\"typnamespace\" WHERE (\"n\".\"nspname\" = $1 AND \"t\".\"typname\" = $2 AND \"e\".\"enumlabel\" = $3)) AS \"result\"",
+        "params": ["public", "NotificationType", "COMMUNITY_JOIN_APPROVED"]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add value \"COMMUNITY_JOIN_APPROVED\" to enum type \"NotificationType\"",
+        "sql": "ALTER TYPE \"public\".\"NotificationType\" ADD VALUE 'COMMUNITY_JOIN_APPROVED'"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify value \"COMMUNITY_JOIN_APPROVED\" exists on enum type \"NotificationType\"",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_enum\" AS \"e\" INNER JOIN \"pg_type\" AS \"t\" ON \"t\".\"oid\" = \"e\".\"enumtypid\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"t\".\"typnamespace\" WHERE (\"n\".\"nspname\" = $1 AND \"t\".\"typname\" = $2 AND \"e\".\"enumlabel\" = $3)) AS \"result\"",
+        "params": ["public", "NotificationType", "COMMUNITY_JOIN_APPROVED"]
+      }
+    ]
+  },
+  {
+    "id": "addNativeEnumValue.NotificationType.COMMUNITY_JOIN_DECLINED",
+    "label": "Add value \"COMMUNITY_JOIN_DECLINED\" to enum type \"NotificationType\"",
+    "summary": "Adds value \"COMMUNITY_JOIN_DECLINED\" to enum type \"NotificationType\". A newly added enum value cannot be used until the transaction that adds it commits, so a migration that both appends a value and uses it in the same step will fail at apply.",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "type",
+        "name": "NotificationType"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure enum type \"NotificationType\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_type\" AS \"t\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"t\".\"typnamespace\" WHERE (\"n\".\"nspname\" = $1 AND \"t\".\"typname\" = $2 AND \"t\".\"typtype\" = $3)) AS \"result\"",
+        "params": ["public", "NotificationType", "e"]
+      },
+      {
+        "description": "ensure value \"COMMUNITY_JOIN_DECLINED\" is absent from enum type \"NotificationType\"",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_enum\" AS \"e\" INNER JOIN \"pg_type\" AS \"t\" ON \"t\".\"oid\" = \"e\".\"enumtypid\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"t\".\"typnamespace\" WHERE (\"n\".\"nspname\" = $1 AND \"t\".\"typname\" = $2 AND \"e\".\"enumlabel\" = $3)) AS \"result\"",
+        "params": ["public", "NotificationType", "COMMUNITY_JOIN_DECLINED"]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add value \"COMMUNITY_JOIN_DECLINED\" to enum type \"NotificationType\"",
+        "sql": "ALTER TYPE \"public\".\"NotificationType\" ADD VALUE 'COMMUNITY_JOIN_DECLINED'"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify value \"COMMUNITY_JOIN_DECLINED\" exists on enum type \"NotificationType\"",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_enum\" AS \"e\" INNER JOIN \"pg_type\" AS \"t\" ON \"t\".\"oid\" = \"e\".\"enumtypid\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"t\".\"typnamespace\" WHERE (\"n\".\"nspname\" = $1 AND \"t\".\"typname\" = $2 AND \"e\".\"enumlabel\" = $3)) AS \"result\"",
+        "params": ["public", "NotificationType", "COMMUNITY_JOIN_DECLINED"]
+      }
+    ]
+  },
+  {
+    "id": "column.public.notifications.membershipRequestId",
+    "label": "Add column \"membershipRequestId\" to \"notifications\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "column",
+        "name": "membershipRequestId",
+        "table": "notifications"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure column \"membershipRequestId\" is missing",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": ["public", "notifications", "membershipRequestId"]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add column \"membershipRequestId\"",
+        "sql": "ALTER TABLE \"public\".\"notifications\" ADD COLUMN \"membershipRequestId\" text"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify column \"membershipRequestId\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": ["public", "notifications", "membershipRequestId"]
+      }
+    ]
+  },
+  {
+    "id": "index.community_members.community_members_request_page_idx",
+    "label": "Create index \"community_members_request_page_idx\" on \"community_members\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "community_members_request_page_idx",
+        "table": "community_members"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"community_members_request_page_idx\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": ["\"public\".\"community_members_request_page_idx\""]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"community_members_request_page_idx\"",
+        "sql": "CREATE INDEX \"community_members_request_page_idx\" ON \"public\".\"community_members\" (\"communityId\", \"status\", \"createdAt\", \"id\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"community_members_request_page_idx\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": ["\"public\".\"community_members_request_page_idx\""]
+      }
+    ]
+  }
+]

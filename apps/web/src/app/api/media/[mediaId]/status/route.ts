@@ -55,7 +55,9 @@ export async function GET(
   }
   const isConversationMember = await resolveMessageMediaMembership(
     media.messageConversationId,
-    viewer?.id
+    viewer?.id,
+    mediaId,
+    { allowProcessing: true }
   );
   const decision = decideMediaAccess(media, viewer, { isConversationMember });
   if (!decision.allowed) {

@@ -14,15 +14,10 @@ import {
   DialogTitle,
 } from "@asm/ui/shadui/dialog";
 import { Input } from "@asm/ui/shadui/input";
-import {
-  ArrowLeft,
-  Check,
-  GitMerge,
-  Loader2,
-  ShieldCheck,
-  Trash2,
-} from "lucide-react";
+import { ArrowLeft, Check, GitMerge, ShieldCheck, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useId, useState } from "react";
+
+import { ZephLoader } from "@/components/layouts/feedback/zeph-loader";
 
 async function resolutionRequest(
   id: string,
@@ -346,7 +341,7 @@ function AccountVerification({
               disabled={busy || !(twoFactor ? code : password)}
             >
               {busy ? (
-                <Loader2 className="size-4 animate-spin" />
+                <ZephLoader variant="general" className="size-4" />
               ) : (
                 <ShieldCheck className="size-4" />
               )}{" "}
@@ -500,9 +495,10 @@ export function AccountResolutionDialog({
           <>
             {!review && !errorMessage && (
               <div className="flex justify-center py-8">
-                <Loader2
+                <ZephLoader
+                  variant="general"
                   aria-label="Loading accounts"
-                  className="size-6 animate-spin"
+                  className="size-6"
                 />
               </div>
             )}
@@ -675,7 +671,10 @@ export function AccountResolutionDialog({
                         }}
                       >
                         {busy && (
-                          <Loader2 className="mr-2 size-4 animate-spin" />
+                          <ZephLoader
+                            variant="general"
+                            className="mr-2 size-4"
+                          />
                         )}
                         {mode === "merge"
                           ? "Merge into"

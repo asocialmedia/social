@@ -3,17 +3,23 @@
 // MAX_POST_ATTACHMENTS) and the editor's createMediaTypeGate. The server is
 // authoritative (initiate/finalize re-check everything and the worker sniffs
 // magic bytes); these checks only fail fast with the same copy web shows.
+import {
+  DEFAULT_LIMITS,
+  maxBytesForType,
+  messageAttachmentMediaType,
+} from "@asm/media";
 
-export type MediaFamily = "AUDIO" | "IMAGE" | "VIDEO";
+export type MediaFamily = "AUDIO" | "DOCUMENT" | "IMAGE" | "VIDEO";
 
 export const MAX_POST_ATTACHMENTS = 10;
 export const MAX_COMMENT_ATTACHMENTS = 1;
 
 // DEFAULT_LIMITS byte caps.
 export const MAX_BYTES: Record<MediaFamily, number> = {
-  AUDIO: 50 * 1024 * 1024,
-  IMAGE: 25 * 1024 * 1024,
-  VIDEO: 250 * 1024 * 1024,
+  AUDIO: maxBytesForType(DEFAULT_LIMITS, "AUDIO"),
+  DOCUMENT: maxBytesForType(DEFAULT_LIMITS, "DOCUMENT"),
+  IMAGE: maxBytesForType(DEFAULT_LIMITS, "IMAGE"),
+  VIDEO: maxBytesForType(DEFAULT_LIMITS, "VIDEO"),
 };
 
 // Server switches to a multipart upload above this size, in 16 MiB parts.
@@ -49,8 +55,17 @@ export function familyFromMime(mime: string): MediaFamily {
   throw new UploadPolicyError(`Unsupported file type: ${mime}`, 415);
 }
 
+function familyFromMessageMime(mime: string): MediaFamily {
+  const family = messageAttachmentMediaType(mime);
+  if (!family) {
+    throw new UploadPolicyError(`Unsupported file type: ${mime}`, 415);
+  }
+  return family;
+}
+
 const FAMILY_LABEL: Record<MediaFamily, string> = {
   AUDIO: "Audio files",
+  DOCUMENT: "Documents",
   IMAGE: "Images",
   VIDEO: "Videos",
 };
@@ -60,8 +75,14 @@ function formatMegabytes(bytes: number): string {
 }
 
 // Client pre-check before any network call.
-export function assertUploadable(mime: string, size: number): MediaFamily {
-  const family = familyFromMime(mime);
+export function assertUploadable(
+  mime: string,
+  size: number,
+  options: { messageAttachment?: boolean } = {}
+): MediaFamily {
+  const family = options.messageAttachment
+    ? familyFromMessageMime(mime)
+    : familyFromMime(mime);
   if (!Number.isFinite(size) || size <= 0) {
     throw new UploadPolicyError("This file is empty.", 400);
   }

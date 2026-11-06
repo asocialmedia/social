@@ -44,6 +44,7 @@ const mediaBuilder = builderFor(row);
 const postBuilder = builderFor(post);
 mock.module("@asm/db", () => ({
   and: (...values: unknown[]) => values,
+  enqueueMediaDeleteCascade: () => Promise.resolve(),
   indexPostEmbedding: () => Promise.resolve(),
   patchMediaAnalysisMetadata: (_id: string, patch: Record<string, unknown>) => {
     Object.assign(row.techMetadata, patch);

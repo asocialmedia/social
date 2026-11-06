@@ -55,6 +55,11 @@ export function notificationPath(notification: NotificationRecord): string {
         ? `/a/${notification.community.slug}`
         : (postPath(notification) ?? "/notifications");
     }
+    case "COMMUNITY_JOIN_REQUEST": {
+      return notification.community
+        ? `/a/${encodeURIComponent(notification.community.slug)}?requests=1`
+        : "/notifications";
+    }
     // The den thread. `c` is the conversation the web client selects, and it is
     // the same id the SSE channel is keyed on, so the tap lands on the live
     // thread rather than on the list.
@@ -85,6 +90,9 @@ export function pushTag(notification: NotificationRecord): string {
     }
     case "COMMUNITY_POST": {
       return `community:${notification.communityId ?? notification.postId ?? notification.id}`;
+    }
+    case "COMMUNITY_JOIN_REQUEST": {
+      return `community_join_request:${notification.membershipRequestId ?? notification.id}`;
     }
     case "AMPLIFY": {
       const entity = notification.commentId ?? notification.postId;

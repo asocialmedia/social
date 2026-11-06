@@ -13,7 +13,6 @@ import {
 } from "lucide-react-native";
 import { useCallback, useEffect, useState } from "react";
 import {
-  ActivityIndicator,
   Animated,
   Pressable,
   ScrollView,
@@ -31,6 +30,7 @@ import bannerAsm from "@/assets/images/banner-asm.png";
 import noSearchImage from "@/assets/images/nosearch.png";
 import zephImage from "@/assets/images/zeph.png";
 import { usePullToRefresh } from "@/components/feedback/use-pull-to-refresh";
+import { ZephLoader } from "@/components/feedback/zeph-loader";
 import { DialogPanel } from "@/components/surface/dialog-panel";
 import { Gradient3D } from "@/components/surface/gradient-3d";
 import { IconButton3D } from "@/components/surface/icon-button-3d";
@@ -693,7 +693,8 @@ export function CommunitiesScreen() {
                   {...LIST_VIRTUALIZATION_PROPS}
                   ListFooterComponent={
                     loadingMore ? (
-                      <ActivityIndicator
+                      <ZephLoader
+                        variant="general"
                         color="#f97316"
                         style={styles.footer}
                       />

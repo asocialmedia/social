@@ -27,7 +27,6 @@ import {
   Ban,
   Crown,
   Link2,
-  Loader2,
   MoreHorizontal,
   Pencil,
   Search,
@@ -43,6 +42,7 @@ import { useCallback, useId, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { useSession } from "@/app/(main)/session-provider";
+import { ZephLoader } from "@/components/layouts/feedback/zeph-loader";
 import UserAvatar from "@/components/layouts/user/user-avatar";
 import { DenBanDialog } from "@/components/messages/den-ban-dialog";
 import { DenBannedSection } from "@/components/messages/den-banned-section";
@@ -668,7 +668,10 @@ export function DenPanel({
   if (detail.isLoading || roster.isLoading) {
     return (
       <div className="flex items-center justify-center py-6">
-        <Loader2 className="text-muted-foreground h-4 w-4 animate-spin" />
+        <ZephLoader
+          variant="messages"
+          className="text-muted-foreground h-4 w-4"
+        />
         <span className="sr-only">Loading den details</span>
       </div>
     );
@@ -1032,7 +1035,7 @@ export function DenPanel({
               type="button"
             >
               {addMembers.isPending ? (
-                <Loader2 className="size-4 animate-spin" />
+                <ZephLoader variant="messages" className="size-4" />
               ) : null}
               {addMembers.isPending
                 ? "Adding…"

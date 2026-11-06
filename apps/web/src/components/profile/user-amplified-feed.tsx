@@ -9,8 +9,8 @@ import { FeedErrorState } from "@/components/feeds/feed-error-state";
 import GustRowCard from "@/components/gusts/gust-row-card";
 import PostCard from "@/components/home/feedview/post-card";
 import InfiniteScrollContainer from "@/components/layouts/feed/infinite-scroll-container";
+import { ZephLoader } from "@/components/layouts/feedback/zeph-loader";
 import FeedViewSkeleton from "@/components/layouts/skeletons/feed-view-skeleton";
-import { PostCardSkeleton } from "@/components/layouts/skeletons/post-card-skeleton";
 import kyInstance from "@/lib/ky";
 import { FEED_CACHE_RETENTION_MS } from "@/lib/posts/feed-cache";
 import {
@@ -188,11 +188,12 @@ const UserAmplifiedFeed: React.FC<UserAmplifiedFeedProps> = ({ userId }) => {
         </p>
       ) : null}
       {isFetchingNextPage || external.loading || external.isFetchingNextPage ? (
-        <div aria-busy="true" aria-label="Loading more amplified posts">
-          <Separator className="bg-border/60" />
-          <PostCardSkeleton index={0} />
-          <Separator className="bg-border/60" />
-          <PostCardSkeleton index={1} />
+        <div
+          aria-busy="true"
+          aria-label="Loading more amplified posts"
+          className="flex justify-center py-4"
+        >
+          <ZephLoader variant="general" className="text-primary" />
         </div>
       ) : null}
       {status !== "error" &&

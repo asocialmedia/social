@@ -8,6 +8,10 @@ import {
 import { getSessionFromApi } from "@/lib/auth/session";
 import { ACCESS_ENDED_MESSAGE } from "@/lib/messages/access-ended";
 import {
+  chatCapabilityError,
+  supportsChatLifecycle,
+} from "@/lib/messages/chat-capability";
+import {
   DEN_STREAM_RATE_LIMIT,
   consumeDenRateLimit,
 } from "@/lib/messages/den-rate-limit";
@@ -61,6 +65,10 @@ export async function GET(
   if (!conversation) {
     return Response.json({ error: "Conversation not found" }, { status: 404 });
   }
+  const capabilityError = chatCapabilityError(request, conversation);
+  if (capabilityError) {
+    return capabilityError;
+  }
   // Somebody who left a den may open the conversation and read its history, and
   // must not receive a single frame of what happens next. Every message in this
   // channel is encrypted under an epoch the current roster holds and they do not,
@@ -96,12 +104,14 @@ export async function GET(
           try {
             await subscription.unsubscribe();
           } catch {
+            // Reconcile safely on the next request; do not expose source errors.
             // Non-fatal.
           }
         }
         try {
           controller.close();
         } catch {
+          // Reconcile safely on the next request; do not expose source errors.
           // Already closed.
         }
       };
@@ -112,6 +122,22 @@ export async function GET(
       // forwarding the bytes that arrived, so the wire shape is always the
       // canonical normalized one.
       const forward = (event: StreamEvent) => {
+        if (
+          event.message &&
+          typeof event.message === "object" &&
+          "expiresAt" in event.message &&
+          event.message.expiresAt
+        ) {
+          if (!supportsChatLifecycle(request)) {
+            void close();
+            return;
+          }
+          if (
+            new Date(String(event.message.expiresAt)).getTime() <= Date.now()
+          ) {
+            return;
+          }
+        }
         try {
           controller.enqueue(
             encoder.encode(
@@ -164,6 +190,7 @@ export async function GET(
             )
           );
         } catch {
+          // Reconcile safely on the next request; do not expose source errors.
           // Already gone; the close below is the whole answer.
         }
         void close();
