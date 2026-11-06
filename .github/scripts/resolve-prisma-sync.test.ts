@@ -24,6 +24,14 @@ describe("resolve-prisma-sync", () => {
     expect(isPrismaSyncFile("scripts/sync-trending-scores.ts")).toBe(false);
     expect(isPrismaSyncFile("scripts/ci/dokploy-deploy.sh")).toBe(false);
   });
+
+  test.each([
+    "docker/prisma.lock",
+    "docker/prisma-marker.sql",
+    "scripts/maintenance/prisma-checkpoint-upgrade.ts",
+  ])("rebuilds the schema-sync image when %s changes", (file) => {
+    expect(isPrismaSyncFile(file)).toBe(true);
+  });
 });
 
 describe("resolvePrismaSync should-run", () => {

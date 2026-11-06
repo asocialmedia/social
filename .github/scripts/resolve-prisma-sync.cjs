@@ -5,10 +5,13 @@ const PRISMA_PATHS = new Set([
   "packages/db/prisma.config.ts",
   "packages/db/keys.ts",
   "docker/prisma-package.json",
+  "docker/prisma.lock",
+  "docker/prisma-marker.sql",
   "docker/prisma-sync.dockerfile",
   "docker/prisma-sync.sh",
   "scripts/ci/prisma-sync-deploy.sh",
   "scripts/maintenance/sync-trending-scores.ts",
+  "scripts/maintenance/prisma-checkpoint-upgrade.ts",
 ]);
 
 const PRISMA_PREFIXES = ["packages/db/"];
