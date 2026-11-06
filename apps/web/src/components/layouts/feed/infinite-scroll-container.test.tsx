@@ -60,7 +60,7 @@ test("pagination observes the feed's nearest scroll container with room for a sl
     )
   );
   expect(observation?.root).toBe(host);
-  expect(observation?.rootMargin).toBe("0px 0px 8000px 0px");
+  expect(observation?.rootMargin).toBe("0px 0px 1600px 0px");
   expect(load).toHaveBeenCalledTimes(1);
   await act(() => root.unmount());
   host.remove();

@@ -153,6 +153,37 @@ test("a rapid tab switch saves the outgoing offset before the next tab replaces 
   );
 });
 
+test("continuous scrolling does not persist positions on animation frames", async () => {
+  const feed = createFeed();
+  await feed.render("latest");
+  await act(() => feed.container()?.dispatchEvent(new dom.Event("wheel")));
+  for (const top of [100, 200, 300]) {
+    // oxlint-disable-next-line no-await-in-loop -- Each gesture must finish before the next frame is flushed.
+    await feed.scroll(top);
+    // oxlint-disable-next-line no-await-in-loop -- Check persistence after every simulated frame.
+    await feed.flushFrames();
+    expect(useFeedPositionStore.getState().positions.latest).toBeUndefined();
+  }
+  await act(() => dom.dispatchEvent(new dom.Event("pagehide")));
+  expect(useFeedPositionStore.getState().positions.latest?.scrollTop).toBe(300);
+  expect(useFeedPositionStore.getState().positions.latest?.anchorPostId).toBe(
+    "latest-post"
+  );
+});
+
+test("idle scrolling persists its final position and anchor", async () => {
+  const feed = createFeed();
+  await feed.render("latest");
+  await act(() => feed.container()?.dispatchEvent(new dom.Event("wheel")));
+  await feed.scroll(640);
+  expect(useFeedPositionStore.getState().positions.latest).toBeUndefined();
+  await act(() => Bun.sleep(350));
+  expect(useFeedPositionStore.getState().positions.latest?.scrollTop).toBe(640);
+  expect(useFeedPositionStore.getState().positions.latest?.anchorPostId).toBe(
+    "latest-post"
+  );
+});
+
 test("an outgoing anchor is never overwritten with a post from the incoming tab", async () => {
   const feed = createFeed();
   await feed.render("latest");
