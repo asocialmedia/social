@@ -91,7 +91,7 @@ const SELF = "packages/db/src/messages/dens/den-role-label.test.ts";
 // The repository root, found by walking up to the workspace manifest rather than
 // assumed, so the test does not care which directory the runner was invoked from.
 function repositoryRoot(): string {
-  let {dir} = import.meta;
+  let { dir } = import.meta;
   while (true) {
     if (existsSync(nodePath.join(dir, "package.json"))) {
       const manifest = readFileSync(
@@ -103,7 +103,9 @@ function repositoryRoot(): string {
       }
     }
     const parent = nodePath.dirname(dir);
-    if (parent === dir) {break;}
+    if (parent === dir) {
+      break;
+    }
     dir = parent;
   }
   throw new Error("could not locate the repository root from import.meta.url");

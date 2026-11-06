@@ -82,7 +82,7 @@ export function ChatLifecycleTools({
   const me = detail.conversation.members.find(
     (member) => member.userId === user?.id
   );
-  const canManage = !me?.leftAt && (!isDen || canManageDen(me?.role));
+  const canManage = !me?.leftAt && (!isDen || canManageDen(me?.role ?? ""));
   const setOpen = (next: typeof dialog) => {
     dismiss();
     setDialog(next);
