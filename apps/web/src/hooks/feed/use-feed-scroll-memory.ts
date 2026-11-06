@@ -25,8 +25,8 @@ const RESTORE_WINDOW_MS = 5000;
 // declared done. Guards against finishing mid-layout-shift.
 const RESTORE_STABLE_FRAMES = 3;
 // Idle gap after the last scroll event before the anchor is captured.
-// Scroll offsets save every frame; anchor lookups only run once scrolling
-// settles so long feeds never pay a querySelectorAll per frame.
+// Keep offsets in memory while scrolling; persist and find the anchor on idle.
+// Session storage serialization must not run on every animation frame.
 const ANCHOR_SETTLE_MS = 300;
 
 interface FeedScrollMemoryOptions {
@@ -63,9 +63,8 @@ export function useFeedScrollMemory({
     []
   );
 
-  // Persist the container's position: raw offsets on every scroll frame,
-  // anchor capture once scrolling settles, and a final capture on pagehide
-  // and unmount (covers back/forward navigations that never fire scroll).
+  // Capture offsets immediately, then persist on idle, pagehide, or unmount.
+  // Cleanup uses the captured offset because another tab may already own the DOM.
   useLayoutEffect(() => {
     if (!memoryKey) {
       return;
@@ -75,7 +74,6 @@ export function useFeedScrollMemory({
       return;
     }
     const key = memoryKey;
-    let frame = 0;
     let settleTimer: ReturnType<typeof setTimeout> | null = null;
     let lastPosition: FeedPosition | null = null;
 
@@ -86,6 +84,10 @@ export function useFeedScrollMemory({
     };
 
     const saveAnchor = () => {
+      if (settleTimer) {
+        clearTimeout(settleTimer);
+        settleTimer = null;
+      }
       const anchor = findTopAnchor(container);
       lastPosition = {
         anchorOffset: anchor?.offset ?? 0,
@@ -110,8 +112,6 @@ export function useFeedScrollMemory({
         scrollTop: container.scrollTop,
         updatedAt: Date.now(),
       };
-      cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(saveOffset);
       if (settleTimer) {
         clearTimeout(settleTimer);
       }
@@ -120,6 +120,11 @@ export function useFeedScrollMemory({
 
     const onPageHide = () => {
       saveAnchor();
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "hidden" && lastPosition) {
+        saveAnchor();
+      }
     };
     const onUserInput = () => {
       userScrolledRef.current = true;
@@ -131,8 +136,8 @@ export function useFeedScrollMemory({
     container.addEventListener("touchstart", onUserInput, { passive: true });
     container.addEventListener("pointerdown", onUserInput, { passive: true });
     window.addEventListener("pagehide", onPageHide);
+    document.addEventListener("visibilitychange", onVisibilityChange);
     return () => {
-      cancelAnimationFrame(frame);
       if (settleTimer) {
         clearTimeout(settleTimer);
       }
@@ -141,6 +146,7 @@ export function useFeedScrollMemory({
       container.removeEventListener("touchstart", onUserInput);
       container.removeEventListener("pointerdown", onUserInput);
       window.removeEventListener("pagehide", onPageHide);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
       saveOffset();
     };
   }, [containerRef, memoryKey]);

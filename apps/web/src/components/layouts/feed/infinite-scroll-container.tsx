@@ -9,8 +9,8 @@ interface InfiniteScrollContainerProps extends React.PropsWithChildren {
   onBottomReached: () => void;
 }
 
-// Allow several seconds for a live source to respond before the reader runs out.
-const PREFETCH_DISTANCE_PX = 8000;
+// Prepare the next page a couple of screens ahead without mounting many unseen pages.
+const PREFETCH_DISTANCE_PX = 1600;
 
 export default function InfiniteScrollContainer({
   children,
