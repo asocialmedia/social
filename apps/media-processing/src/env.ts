@@ -218,6 +218,23 @@ export const keys = createEnv({
   skipValidation: process.env.NODE_ENV === "production",
 });
 
+function clefFlag(value: unknown, name: string): boolean {
+  if (value === undefined || value === "0") {
+    return false;
+  }
+  if (value === "1") {
+    return true;
+  }
+  throw new Error(`${name} must be 0 or 1`);
+}
+
+// Production skips the general schema, so cost-control flags must still validate.
+const clefEnabled = clefFlag(keys.MEDIA_CLEF_ENABLED, "MEDIA_CLEF_ENABLED");
+const externalClefEnabled = clefFlag(
+  keys.MEDIA_EXTERNAL_CLEF_ENABLED,
+  "MEDIA_EXTERNAL_CLEF_ENABLED"
+);
+
 // Runtime accessor surface used across the worker, derived from the validated
 // keys so no module reads process.env directly.
 export const workerEnv = {
@@ -268,7 +285,7 @@ export const workerEnv = {
     return resolveClefDailyNeurons(keys.MEDIA_CLEF_DAILY_NEURONS);
   },
   get CLEF_ENABLED() {
-    return keys.MEDIA_CLEF_ENABLED === "1";
+    return clefEnabled;
   },
   get CLOUDFLARE_ACCOUNT_ID() {
     return keys.CLOUDFLARE_ACCOUNT_ID;
@@ -285,10 +302,7 @@ export const workerEnv = {
     return Number.isFinite(parsed) && parsed > 0 ? parsed : 15_000;
   },
   get EXTERNAL_CLEF_ENABLED() {
-    return (
-      keys.MEDIA_CLEF_ENABLED === "1" &&
-      keys.MEDIA_EXTERNAL_CLEF_ENABLED === "1"
-    );
+    return clefEnabled && externalClefEnabled;
   },
   get GEMINI_API_KEY() {
     return keys.GEMINI_API_KEY;

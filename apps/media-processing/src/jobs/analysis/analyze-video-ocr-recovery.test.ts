@@ -192,9 +192,10 @@ test("video OCR resumes after a partial quota failure without paying for the com
     expect(row.status).toBe("READY");
     row.publishedKey = "new-source.png";
     missingStorage = true;
+    const beforeStorageFailure = Date.now();
     await expect(
       processMediaAnalyze({ mediaId: row.id })
-    ).rejects.toMatchObject({ name: "UnrecoverableError" });
+    ).rejects.toMatchObject({ name: "AnalysisSourceDeferredError" });
     expect(stages.raster).toMatchObject({
       reason: "source-read-unavailable",
       status: "unavailable",
@@ -205,6 +206,27 @@ test("video OCR resumes after a partial quota failure without paying for the com
     });
     expect(downloads).toBe(afterStorageFailure);
     expect(row.status).toBe("READY");
+    const checkpoint = stages.raster as { retryAt: number };
+    expect(checkpoint.retryAt).toBeGreaterThanOrEqual(
+      beforeStorageFailure + 3_600_000
+    );
+    expect(checkpoint.retryAt).toBeLessThanOrEqual(Date.now() + 3_600_000);
+    await sharp({
+      create: { background: "green", channels: 3, height: 8, width: 8 },
+    })
+      .png()
+      .toFile(sourcePath);
+    missingStorage = false;
+    const realNow = Date.now;
+    try {
+      Date.now = () => checkpoint.retryAt + 1;
+      expect(await processMediaAnalyze({ mediaId: row.id })).toEqual({
+        outcome: "analyzed",
+      });
+      expect(downloads).toBeGreaterThan(afterStorageFailure);
+    } finally {
+      Date.now = realNow;
+    }
   } finally {
     await rm(directory, { force: true, recursive: true });
   }

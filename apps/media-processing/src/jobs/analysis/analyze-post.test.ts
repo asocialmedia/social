@@ -2,11 +2,14 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 const storedPost = {
   content: "Illustrated adult content",
+  embedding: null as number[] | null,
+  embeddingFingerprint: null as string | null,
+  embeddingModel: null as string | null,
   id: "post-test",
   moderated: false,
   postMedias: [],
   postToTags: [],
-  semanticTags: [],
+  semanticTags: [] as string[],
 };
 let explicit = true;
 let lockAvailable = true;
@@ -15,14 +18,22 @@ const updates: Record<string, unknown>[] = [];
 const markers = new Map<string, string>();
 const settings = { CLASSIFY_ENABLED: true, EMBEDDING_ENABLED: true };
 let embeddingFailure = false;
-const classify = mock(() => ({ tags: ["anime"] }));
+let classificationFailure = false;
+const classify = mock(() => {
+  if (classificationFailure) {
+    throw new Error("Clef disabled; classification pending");
+  }
+  return { tags: ["anime"] };
+});
+const generateEmbedding = mock(() =>
+  embeddingFailure
+    ? Promise.reject(new Error("Gemini budget pending"))
+    : Promise.resolve([0.5, 0.5])
+);
 mock.module("../../env", () => ({ workerEnv: settings }));
 mock.module("../../analyze/embedding/embedding", () => ({
   embeddingModelId: () => "google:gemini-embedding-2:384:v2",
-  generateTextEmbedding: () =>
-    embeddingFailure
-      ? Promise.reject(new Error("Gemini budget pending"))
-      : Promise.resolve([0.5, 0.5]),
+  generateTextEmbedding: generateEmbedding,
 }));
 mock.module("../../analyze/classification/clef", () => ({
   CLEF_POLICY_VERSION: "clef-flash-v2",
@@ -35,6 +46,9 @@ const builder = {
   include: (..._args: unknown[]) => builder,
   updateAndCount: (data: Record<string, unknown>) => {
     updates.push(data);
+    if (updateCount > 0) {
+      Object.assign(storedPost, data);
+    }
     return updateCount;
   },
   where: (..._args: unknown[]) => builder,
@@ -76,9 +90,43 @@ beforeEach(() => {
   updateCount = 1;
   storedPost.moderated = false;
   embeddingFailure = false;
+  classificationFailure = false;
+  storedPost.embedding = null;
+  storedPost.embeddingFingerprint = null;
+  storedPost.embeddingModel = null;
+  storedPost.semanticTags = [];
   classify.mockClear();
+  generateEmbedding.mockClear();
 });
 describe("Clef post enrichment policy", () => {
+  test("disabled Clef keeps classification pending while independent embeddings are saved", async () => {
+    classificationFailure = true;
+    await expect(processPostAnalyze({ postId: storedPost.id })).rejects.toThrow(
+      "classification pending"
+    );
+    expect(storedPost.embedding).toEqual([0.5, 0.5]);
+    expect(storedPost.semanticTags).toEqual([]);
+    expect(markers.size).toBe(0);
+  });
+  test("an old media embedding cannot satisfy a changed topic input after embedding failure", async () => {
+    storedPost.embedding = [1, 0];
+    storedPost.embeddingModel = "google:gemini-embedding-2:384:v2";
+    storedPost.embeddingFingerprint = "previous-media-input";
+    embeddingFailure = true;
+    await expect(processPostAnalyze({ postId: storedPost.id })).rejects.toThrow(
+      "Gemini budget pending"
+    );
+    await expect(processPostAnalyze({ postId: storedPost.id })).rejects.toThrow(
+      "Gemini budget pending"
+    );
+    expect(classify).toHaveBeenCalledTimes(1);
+    expect(generateEmbedding).toHaveBeenCalledTimes(2);
+    embeddingFailure = false;
+    await processPostAnalyze({ postId: storedPost.id });
+    expect(storedPost.embedding).toEqual([0.5, 0.5]);
+    await processPostAnalyze({ postId: storedPost.id });
+    expect(generateEmbedding).toHaveBeenCalledTimes(3);
+  });
   test("embedding quota preserves classification, and a stale completion marker cannot hide missing vectors", async () => {
     embeddingFailure = true;
     await expect(processPostAnalyze({ postId: storedPost.id })).rejects.toThrow(

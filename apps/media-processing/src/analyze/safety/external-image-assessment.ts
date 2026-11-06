@@ -71,9 +71,43 @@ async function readOrEvaluateSwiftformer(key: string, path: string) {
   if (acquired !== "OK") {
     throw new ClassifierDeferredError();
   }
+  const controller = new AbortController();
+  let renewal = Promise.resolve();
+  let renewing = false;
+  const renewClaim = async () => {
+    try {
+      const renewed = await redis.eval(
+        "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('pexpire', KEYS[1], ARGV[2]) end return 0",
+        1,
+        lockKey,
+        owner,
+        30_000
+      );
+      if (Number(renewed) !== 1) {
+        controller.abort();
+      }
+    } catch {
+      controller.abort();
+    }
+  };
+  const leaseTimer = setInterval(async () => {
+    if (renewing) {
+      return;
+    }
+    renewing = true;
+    try {
+      renewal = renewClaim();
+      await renewal;
+    } finally {
+      renewing = false;
+    }
+  }, 10_000);
+  leaseTimer.unref();
   try {
     // Recheck after claiming: another worker may have filled the cache between GET and SET.
-    const completed = await redis.get(key);
+    const completed = await redis.get(key).catch(() => {
+      throw new ClassifierDeferredError();
+    });
     if (completed) {
       try {
         return parseSwiftformerResult(JSON.parse(completed));
@@ -83,11 +117,25 @@ async function readOrEvaluateSwiftformer(key: string, path: string) {
     }
     await recordMediaMetric("classifier.cache-miss", 0);
     const started = performance.now();
-    const result = await evaluateSwiftformer(path);
+    const result = await evaluateSwiftformer(path, controller.signal);
+    if (controller.signal.aborted) {
+      throw new ClassifierDeferredError();
+    }
     await recordMediaMetric("classifier.request", performance.now() - started);
-    await redis.set(key, JSON.stringify(result), "EX", 7 * 24 * 60 * 60);
+    await redis
+      .set(key, JSON.stringify(result), "EX", 7 * 24 * 60 * 60)
+      .catch(() => {
+        throw new ClassifierDeferredError();
+      });
     return result;
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw new ClassifierDeferredError();
+    }
+    throw error;
   } finally {
+    clearInterval(leaseTimer);
+    await renewal;
     try {
       await redis.eval(
         "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) end return 0",
@@ -110,7 +158,14 @@ export async function assessExternalImages(
   }
   if (workerEnv.CLASSIFIER_URL && workerEnv.CLASSIFIER_API_TOKEN) {
     // Each group contains at most four images; queue admission is bounded across replicas.
-    const scores = await Promise.all(paths.map(cachedSwiftformer));
+    const settled = await Promise.allSettled(paths.map(cachedSwiftformer));
+    const failure = settled.find((result) => result.status === "rejected");
+    if (failure?.status === "rejected") {
+      throw failure.reason;
+    }
+    const scores = settled.flatMap((result) =>
+      result.status === "fulfilled" ? [result.value] : []
+    );
     const verdicts = scores.map(swiftformerVisualVerdict);
     if (verdicts.includes("explicit")) {
       return "explicit";

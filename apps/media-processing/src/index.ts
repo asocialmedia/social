@@ -48,6 +48,8 @@ if (import.meta.main) {
   const { OcrDeferredError } = await import("./analyze/extraction/ocr");
   const { EmbeddingDeferredError } =
     await import("./analyze/embedding/deferred");
+  const { AnalysisSourceDeferredError } =
+    await import("./analyze/sources/deferred");
   const { ClassifierDeferredError } =
     await import("./analyze/classification/deferred");
   const { configureAnalysisQueues } = await import("./analysis-queues");
@@ -187,6 +189,7 @@ if (import.meta.main) {
               error instanceof ClefDeferredError ||
               error instanceof OcrDeferredError ||
               error instanceof EmbeddingDeferredError ||
+              error instanceof AnalysisSourceDeferredError ||
               error instanceof ProviderBudgetDeferredError
             ) {
               await job.moveToDelayed(error.retryAt, job.token);
@@ -232,6 +235,7 @@ if (import.meta.main) {
           error instanceof ClefDeferredError ||
           error instanceof OcrDeferredError ||
           error instanceof EmbeddingDeferredError ||
+          error instanceof AnalysisSourceDeferredError ||
           error instanceof ProviderBudgetDeferredError
         ) {
           await job.moveToDelayed(error.retryAt, job.token);

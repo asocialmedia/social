@@ -25,6 +25,7 @@ import { UnrecoverableError } from "bullmq";
 
 import { ProviderBudgetDeferredError } from "../../analyze/budget/provider-budget";
 import { classifyMediaConcepts } from "../../analyze/classification/classify";
+import type { MediaClassificationResult } from "../../analyze/classification/classify";
 import {
   prepareClefImage,
   ClefDeferredError,
@@ -35,8 +36,10 @@ import {
   generateTextEmbedding,
   embeddingModelId,
 } from "../../analyze/embedding/embedding";
+import { embeddingInputFingerprint } from "../../analyze/embedding/fingerprint";
 import { extractImageText } from "../../analyze/extraction/ocr";
 import { transcribeMediaAudio } from "../../analyze/extraction/transcribe";
+import { AnalysisSourceDeferredError } from "../../analyze/sources/deferred";
 import {
   downloadAnalysisRaster,
   AnalysisRasterError,
@@ -213,6 +216,9 @@ async function resolveAnalysisSource(
             { mediaId, retryAt, sourceFailures: error.failures },
             "Stored image sources unavailable; analysis cooling down"
           );
+          if (!corrupt) {
+            throw new AnalysisSourceDeferredError(retryAt);
+          }
           throw new UnrecoverableError(
             "Stored image sources unavailable; analysis waits for cooldown or source repair"
           );
@@ -517,18 +523,28 @@ export function processMediaAnalyze(
               ocrTextForClassification,
               transcriptForClassification
             );
-        const classification = classificationComplete
-          ? {
-              safety: undefined,
-              semantics: asMediaJsonObject(source.semantics) ?? undefined,
-              tags: source.semanticTags,
-            }
-          : await classifyMediaConcepts({
+        let classificationError: unknown = null;
+        let classification: MediaClassificationResult = {
+          tags: source.semanticTags,
+        };
+        if (classificationComplete) {
+          classification = {
+            safety: undefined,
+            semantics: asMediaJsonObject(source.semantics) ?? undefined,
+            tags: source.semanticTags,
+          };
+        } else {
+          try {
+            classification = await classifyMediaConcepts({
               imagePaths: visualPaths,
               mediaId: jobData.mediaId,
               ocrText: ocrTextForClassification,
               transcript: transcriptForClassification,
             });
+          } catch (error) {
+            classificationError = error;
+          }
+        }
         const verdict =
           classification.safety ??
           (asMediaJsonObject(source.safety)?.explicit === true
@@ -809,6 +825,9 @@ export function processMediaAnalyze(
               if (embeddingError) {
                 throw embeddingError;
               }
+              if (classificationError) {
+                throw classificationError;
+              }
               if (transcriptionError instanceof ProviderBudgetDeferredError) {
                 throw transcriptionError;
               }
@@ -850,23 +869,19 @@ export function processMediaAnalyze(
               .filter(Boolean)
               .join("\n");
 
-            const embeddingFingerprint = createHash("sha256")
-              .update(
-                JSON.stringify([
-                  embeddingModelId(),
-                  combinedText,
-                  workerEnv.MULTIMODAL_EMBEDDING_ENABLED
-                    ? post.postMedias.map(
-                        (attachment) =>
-                          asMediaJsonObject(
-                            asMediaJsonObject(attachment.techMetadata)
-                              ?.analysisStages
-                          )?.mediaEmbedding ?? null
-                      )
-                    : null,
-                ])
-              )
-              .digest("hex");
+            const embeddingFingerprint = embeddingInputFingerprint(
+              embeddingModelId(),
+              combinedText,
+              workerEnv.MULTIMODAL_EMBEDDING_ENABLED
+                ? post.postMedias.map(
+                    (attachment) =>
+                      asMediaJsonObject(
+                        asMediaJsonObject(attachment.techMetadata)
+                          ?.analysisStages
+                      )?.mediaEmbedding ?? null
+                  )
+                : null
+            );
             const reuseEmbedding =
               post.embeddingFingerprint === embeddingFingerprint &&
               post.embeddingModel === embeddingModelId() &&
@@ -991,6 +1006,9 @@ export function processMediaAnalyze(
         }
         if (embeddingError) {
           throw embeddingError;
+        }
+        if (classificationError) {
+          throw classificationError;
         }
         if (transcriptionError instanceof ProviderBudgetDeferredError) {
           throw transcriptionError;

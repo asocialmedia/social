@@ -114,7 +114,7 @@ export async function generateTextEmbedding(
         }
       );
       if (!response.ok) {
-        await response.body?.cancel();
+        await response.body?.cancel().catch(() => null);
         throw new EmbeddingDeferredError(
           "provider",
           embeddingRetryAt(response.status, response.headers.get("retry-after"))

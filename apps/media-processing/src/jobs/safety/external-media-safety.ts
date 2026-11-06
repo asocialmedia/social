@@ -157,25 +157,38 @@ export async function processExternalMediaSafety(raw: unknown) {
   const directory = await mkdtemp(path.join(tmpdir(), "asm-external-safety-"));
   try {
     let explicit = false;
+    let uncertain = false;
     for (let offset = 0; offset < input.images.length; offset += 4) {
-      const paths = await Promise.all(
+      const downloads = await Promise.allSettled(
         input.images.slice(offset, offset + 4).map(async (url, index) => {
           const output = path.join(directory, `${offset + index}.jpg`);
           await downloadImage(url, output);
           return output;
         })
       );
+      const failedDownload = downloads.find(
+        (result) => result.status === "rejected"
+      );
+      if (failedDownload?.status === "rejected") {
+        throw failedDownload.reason;
+      }
+      const paths = downloads.flatMap((result) =>
+        result.status === "fulfilled" ? [result.value] : []
+      );
       // oxlint-disable-next-line no-await-in-loop -- every image group must pass before publishing a safe verdict.
       const verdict = await assessExternalImages(paths, input.text);
       if (verdict === "uncertain") {
-        await redis.set(input.key, "uncertain", "EX", 300);
-        await releaseExternalMediaSafetyClaim(input);
-        return;
+        uncertain = true;
       }
       if (verdict === "explicit") {
         explicit = true;
         break;
       }
+    }
+    if (!explicit && uncertain) {
+      await redis.set(input.key, "uncertain", "EX", 300);
+      await releaseExternalMediaSafetyClaim(input);
+      return;
     }
     await redis.set(
       input.key,

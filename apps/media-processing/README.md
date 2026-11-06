@@ -49,6 +49,8 @@ An explicit-content label is separate from moderation: an automated result does 
 
 Provider requests share usage budgets across worker instances. Fresh uploads take priority over background repairs, and exhausted budgets defer analysis instead of recording a false success. Successful empty OCR and silent/no-audio transcription are valid completed outcomes. Failed embeddings remain pending; placeholder local vectors do not enter semantic recommendations.
 
+Classification and embeddings checkpoint independently: a disabled or unavailable Clef provider leaves topic labels pending while verified embeddings can still be saved. Both post and media aggregation fingerprint the actual embedding inputs, so a newly classified topic cannot accidentally reuse an older vector. Temporary image-source failures schedule their own cooldown retry even when background backfills are disabled.
+
 ## Measuring usefulness
 
 The project includes reviewed-media evaluation tools for OCR/transcription errors, classification mistakes, retrieval relevance, and provider latency. A separate benchmark compares the bounded Redis semantic index with exact cosine neighbors before recommending a dedicated vector index. Attributed web/native feedback and stable experiment cohorts support measured ranking changes.

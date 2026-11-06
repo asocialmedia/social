@@ -19,6 +19,7 @@ import {
   generateTextEmbedding,
   embeddingModelId,
 } from "../../analyze/embedding/embedding";
+import { embeddingInputFingerprint } from "../../analyze/embedding/fingerprint";
 import { SEMANTIC_CLASSIFICATION_VERSION } from "../../analyze/state/semantic-version";
 import { workerEnv } from "../../env";
 
@@ -51,6 +52,7 @@ export async function processPostAnalyze({
     const post = await prisma.orm.public.Posts.select(
       "id",
       "embeddingModel",
+      "embeddingFingerprint",
       "embedding",
       "content",
       "moderated",
@@ -70,35 +72,22 @@ export async function processPostAnalyze({
     const fingerprint = postAnalysisFingerprint(post.content);
     const markerKey = `media:clef:post:${postId}`;
     const complete = (await redis.get(markerKey)) === fingerprint;
-    if (
-      complete &&
-      (!workerEnv.EMBEDDING_ENABLED ||
-        (post.embeddingModel === embeddingModelId() && post.embedding?.length))
-    ) {
-      if (
-        post.embeddingModel === embeddingModelId() &&
-        post.embedding?.length
-      ) {
-        await indexPostEmbedding(
-          postId,
-          embeddingModelId(),
-          [...post.embedding],
-          Date.now()
-        );
-      }
-      return;
-    }
     if (!post.content.trim() && !post.postMedias.length) {
       await redis.set(markerKey, fingerprint, "EX", 30 * 24 * 60 * 60);
       return;
     }
-    const decision =
-      post.content.trim() && !complete
-        ? await evaluateClef({ text: post.content })
-        : null;
+    let classificationError: unknown = null;
+    let decision: Awaited<ReturnType<typeof evaluateClef>> | null = null;
+    if (post.content.trim() && !complete) {
+      try {
+        decision = await evaluateClef({ text: post.content });
+      } catch (error) {
+        classificationError = error;
+      }
+    }
     const tags = [
       ...new Set([
-        ...(complete ? (post.semanticTags ?? []) : []),
+        ...(complete || classificationError ? (post.semanticTags ?? []) : []),
         ...(decision?.tags ?? []),
         ...post.postToTags.flatMap((item) =>
           item.tag ? [item.tag.name.toLowerCase()] : []
@@ -114,13 +103,21 @@ export async function processPostAnalyze({
       .filter(Boolean)
       .join("\n");
     await recordSharedTopicRelations(tags, `post:${postId}`);
-    let embeddingError: unknown = null;
-    const embedding = await generateTextEmbedding(text).catch(
-      (error: unknown) => {
-        embeddingError = error;
-        return [];
-      }
+    const embeddingFingerprint = embeddingInputFingerprint(
+      embeddingModelId(),
+      text
     );
+    const reuseEmbedding =
+      post.embeddingFingerprint === embeddingFingerprint &&
+      post.embeddingModel === embeddingModelId() &&
+      Boolean(post.embedding?.length);
+    let embeddingError: unknown = null;
+    const embedding = reuseEmbedding
+      ? [...(post.embedding ?? [])]
+      : await generateTextEmbedding(text).catch((error: unknown) => {
+          embeddingError = error;
+          return [];
+        });
     // A user edit during inference wins. A fresh queued job will evaluate it.
     const updated = await prisma.orm.public.Posts.where((item) =>
       and(item.id.eq(postId), item.content.eq(post.content))
@@ -131,7 +128,7 @@ export async function processPostAnalyze({
       ...(embedding.length
         ? {
             embedding,
-            embeddingFingerprint: fingerprint,
+            embeddingFingerprint,
             embeddingModel: embeddingModelId(),
           }
         : {}),
@@ -146,14 +143,22 @@ export async function processPostAnalyze({
       );
     }
     // Classification is complete independently of embedding availability.
-    if (updated > 0) {
+    if (updated > 0 && !classificationError) {
       await redis.set(markerKey, fingerprint, "EX", 30 * 24 * 60 * 60);
     }
-    if (updated > 0 && !embedding.length && workerEnv.EMBEDDING_ENABLED) {
+    if (
+      updated > 0 &&
+      !embedding.length &&
+      text.trim() &&
+      workerEnv.EMBEDDING_ENABLED
+    ) {
       if (embeddingError) {
         throw embeddingError;
       }
       throw new EmbeddingDeferredError("unavailable", Date.now() + 15 * 60_000);
+    }
+    if (updated > 0 && classificationError) {
+      throw classificationError;
     }
   } finally {
     await redis.eval(
