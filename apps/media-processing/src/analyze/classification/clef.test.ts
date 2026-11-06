@@ -11,6 +11,7 @@ const environment = {
   CLEF_ENABLED: true,
   CLOUDFLARE_ACCOUNT_ID: "a".repeat(32),
   CLOUDFLARE_API_TOKEN: "test-token",
+  EXTERNAL_CLEF_ENABLED: true,
 };
 mock.module("../../env", () => ({
   workerEnv: environment,
@@ -77,6 +78,7 @@ function fakeResult(body: Record<string, unknown>) {
 
 beforeEach(() => {
   environment.CLEF_ENABLED = true;
+  environment.EXTERNAL_CLEF_ENABLED = true;
   values.clear();
   budget = 0;
   backgroundBudget = 0;
@@ -98,6 +100,22 @@ afterEach(() => {
 });
 
 describe("Clef decisions and budget", () => {
+  test("ASM topic classification stays enabled while external requests cannot spend its allowance", async () => {
+    environment.EXTERNAL_CLEF_ENABLED = false;
+    await expect(
+      evaluateClef({
+        imagePath: "missing-image.jpg",
+        source: "external",
+        text: "network post",
+      })
+    ).rejects.toThrow("disabled");
+    expect(fetchRequests).toHaveLength(0);
+    expect(budget).toBe(0);
+    const decision = await evaluateClef({ text: "ASM post or gust caption" });
+    expect(decision.tags).toContain("anime");
+    expect(fetchRequests).toHaveLength(1);
+    expect(budget).toBeGreaterThan(0);
+  });
   test("disabled remote classification spends nothing and does not prepare image bytes", async () => {
     environment.CLEF_ENABLED = false;
     await expect(

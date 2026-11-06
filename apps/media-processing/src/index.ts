@@ -318,6 +318,7 @@ if (import.meta.main) {
       mediaLogger.info(
         {
           cpuPercent: ((cpu.user + cpu.system) / (elapsed * 1000)) * 100,
+          externalRemoteClassificationEnabled: workerEnv.EXTERNAL_CLEF_ENABLED,
           latency: await mediaMetricSnapshot(),
           queues,
           remoteClassificationEnabled: workerEnv.CLEF_ENABLED,
@@ -583,6 +584,7 @@ if (import.meta.main) {
   mediaLogger.info(
     {
       clamav: workerEnv.CLAMAV_HOST ?? "disabled",
+      externalRemoteClassificationEnabled: workerEnv.EXTERNAL_CLEF_ENABLED,
       healthPort: workerEnv.HEALTH_PORT,
       processConcurrency: workerEnv.PROCESS_CONCURRENCY,
       remoteClassificationEnabled: workerEnv.CLEF_ENABLED,

@@ -119,13 +119,14 @@ export async function assessExternalImages(
       return "safe";
     }
   }
-  if (!workerEnv.CLEF_ENABLED) {
+  if (!workerEnv.EXTERNAL_CLEF_ENABLED) {
     return "uncertain";
   }
   // Optional contextual assessment asks only safety questions, rather than every topic label.
   const decision = await evaluateClef({
     imagePaths: paths,
     scope: "safety",
+    source: "external",
     text,
   });
   return (decision.probabilities.explicit ?? 1) >= 0.5 ||

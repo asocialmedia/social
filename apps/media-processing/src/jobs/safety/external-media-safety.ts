@@ -147,7 +147,7 @@ export async function processExternalMediaSafety(raw: unknown) {
     return;
   }
   if (
-    !workerEnv.CLEF_ENABLED &&
+    !workerEnv.EXTERNAL_CLEF_ENABLED &&
     !(workerEnv.CLASSIFIER_URL && workerEnv.CLASSIFIER_API_TOKEN)
   ) {
     await redis.set(input.key, "uncertain", "EX", 300);

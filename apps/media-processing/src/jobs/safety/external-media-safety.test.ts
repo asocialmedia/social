@@ -17,7 +17,7 @@ const originalFetch = globalThis.fetch;
 const environment = {
   CLASSIFIER_API_TOKEN: "",
   CLASSIFIER_URL: "",
-  CLEF_ENABLED: true,
+  EXTERNAL_CLEF_ENABLED: true,
 };
 const assessmentOrder: string[] = [];
 const releasedClaims: unknown[] = [];
@@ -86,7 +86,7 @@ const input = {
   text: "Unlabelled artwork",
 };
 beforeEach(() => {
-  environment.CLEF_ENABLED = true;
+  environment.EXTERNAL_CLEF_ENABLED = true;
   values.clear();
   explicit = 0.01;
   sexualized = 0.01;
@@ -266,7 +266,7 @@ test("exhausted free contextual allowance withholds ambiguity without delaying a
 });
 
 test("local-only ambiguity is cached as uncertain and releases the queue claim", async () => {
-  environment.CLEF_ENABLED = false;
+  environment.EXTERNAL_CLEF_ENABLED = false;
   environment.CLASSIFIER_URL = "https://classifier.test";
   environment.CLASSIFIER_API_TOKEN = "configured";
   await processExternalMediaSafety(input);
@@ -277,7 +277,7 @@ test("local-only ambiguity is cached as uncertain and releases the queue claim",
 });
 
 test("no configured classifier with remote disabled avoids image downloads and inference", async () => {
-  environment.CLEF_ENABLED = false;
+  environment.EXTERNAL_CLEF_ENABLED = false;
   await processExternalMediaSafety(input);
   expect(values.get(input.key)).toBe("uncertain");
   expect(reads).toBe(0);

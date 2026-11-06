@@ -174,6 +174,7 @@ export async function prepareClefImage(imagePath: string): Promise<Buffer> {
 }
 
 export async function evaluateClef(input: {
+  source?: "asm" | "external";
   scope?: "full" | "safety";
   imagePath?: string | null;
   text?: string | null;
@@ -183,7 +184,10 @@ export async function evaluateClef(input: {
   audio?: { mimeType: "audio/mpeg" | "audio/wav"; data: Buffer };
   video?: { mimeType: "video/mp4" | "video/webm"; data: Buffer };
 }): Promise<ClefDecision> {
-  if (!workerEnv.CLEF_ENABLED) {
+  if (
+    !workerEnv.CLEF_ENABLED ||
+    (input.source === "external" && !workerEnv.EXTERNAL_CLEF_ENABLED)
+  ) {
     throw new ClefDeferredError(
       "Remote Clef classification is disabled",
       nextUtcDay()
@@ -342,6 +346,7 @@ export async function evaluateClef(input: {
     mediaLogger.info(
       {
         background: isBackgroundAnalysis() ?? false,
+        classificationSource: input.source ?? "asm",
         inputTokens: envelope.result.usage.input_tokens,
         model,
         neurons: envelope.result.usage.input_tokens * rate,

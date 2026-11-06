@@ -54,6 +54,7 @@ export const keys = createEnv({
       process.env.MEDIA_CONCURRENT_PROCESSING_PER_USER,
     MEDIA_EMBEDDING_ENABLED: process.env.MEDIA_EMBEDDING_ENABLED,
     MEDIA_EMBEDDING_TIMEOUT_MS: process.env.MEDIA_EMBEDDING_TIMEOUT_MS,
+    MEDIA_EXTERNAL_CLEF_ENABLED: process.env.MEDIA_EXTERNAL_CLEF_ENABLED,
     MEDIA_GEMINI_DAILY_REQUESTS: process.env.MEDIA_GEMINI_DAILY_REQUESTS,
     MEDIA_GEMINI_MONTHLY_REQUESTS: process.env.MEDIA_GEMINI_MONTHLY_REQUESTS,
     MEDIA_HEALTH_PORT: process.env.MEDIA_HEALTH_PORT,
@@ -161,6 +162,7 @@ export const keys = createEnv({
     MEDIA_CONCURRENT_PROCESSING_PER_USER: numericOverride,
     MEDIA_EMBEDDING_ENABLED: z.enum(["0", "1"]).default("1"),
     MEDIA_EMBEDDING_TIMEOUT_MS: numericOverride,
+    MEDIA_EXTERNAL_CLEF_ENABLED: z.enum(["0", "1"]).default("0"),
     MEDIA_GEMINI_DAILY_REQUESTS: numericOverride,
     MEDIA_GEMINI_MONTHLY_REQUESTS: numericOverride,
     MEDIA_HEALTH_PORT: z.coerce.number().int().default(3010),
@@ -281,6 +283,12 @@ export const workerEnv = {
   get EMBEDDING_TIMEOUT_MS() {
     const parsed = Number(keys.MEDIA_EMBEDDING_TIMEOUT_MS);
     return Number.isFinite(parsed) && parsed > 0 ? parsed : 15_000;
+  },
+  get EXTERNAL_CLEF_ENABLED() {
+    return (
+      keys.MEDIA_CLEF_ENABLED === "1" &&
+      keys.MEDIA_EXTERNAL_CLEF_ENABLED === "1"
+    );
   },
   get GEMINI_API_KEY() {
     return keys.GEMINI_API_KEY;

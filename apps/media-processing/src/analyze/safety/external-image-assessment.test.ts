@@ -7,7 +7,7 @@ const cache = new Map<string, string>();
 const environment = {
   CLASSIFIER_API_TOKEN: "configured",
   CLASSIFIER_URL: "https://classifier.test",
-  CLEF_ENABLED: true,
+  EXTERNAL_CLEF_ENABLED: true,
 };
 let localCalls = 0;
 let contextualCalls = 0;
@@ -77,7 +77,7 @@ beforeAll(async () => {
 });
 afterAll(() => rm(directory, { force: true, recursive: true }));
 beforeEach(() => {
-  environment.CLEF_ENABLED = true;
+  environment.EXTERNAL_CLEF_ENABLED = true;
   claimAvailable = true;
   cache.clear();
   localCalls = 0;
@@ -109,7 +109,7 @@ test("clear local scores use a content cache shared across file paths without sp
 });
 
 test("concurrent identical images share one local inference", async () => {
-  environment.CLEF_ENABLED = false;
+  environment.EXTERNAL_CLEF_ENABLED = false;
   expect(
     await Promise.all([
       assessExternalImages([image], "one"),
@@ -122,7 +122,7 @@ test("concurrent identical images share one local inference", async () => {
 });
 
 test("local-only ambiguity stays uncertain and missing local configuration never spends remotely", async () => {
-  environment.CLEF_ENABLED = false;
+  environment.EXTERNAL_CLEF_ENABLED = false;
   result.probabilities = { NSFL: 0.03, NSFW: 0.08, SFW: 0.89 };
   expect(await assessExternalImages([image], "post")).toBe("uncertain");
   environment.CLASSIFIER_URL = "";
