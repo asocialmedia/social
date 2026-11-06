@@ -6,7 +6,7 @@
   "license": "AGPL-3.0",
   "type": "module",
   "scripts": {
-    "dev": "bun ../../scripts/development/kill-dev-ports.ts 3012 && NODE_ENV=development bun --no-env-file --watch src/index.ts",
+    "dev": "bun ../../scripts/development/kill-dev-ports.ts 3012 && NODE_ENV=development bun ../../scripts/development/watch-service.ts --no-env-file src/index.ts",
     "start": "bun --no-env-file run src/index.ts",
     "check-types": "tsc --noEmit",
     "test": "bun test src"

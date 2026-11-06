@@ -3,11 +3,11 @@ import { readdirSync, readlinkSync, readFileSync } from "node:fs";
 import { unlink } from "node:fs/promises";
 import path from "node:path";
 
+import { getPlatformListeningPids } from "./platform-listeners";
+
 export const DEV_PORTS = [3000, 3001, 3010, 3012] as const;
 
-/**
- * Returns all ancestor PIDs up to PID 1 to prevent self or parent termination.
- */
+// Returns ancestor PIDs to prevent self or parent termination.
 export function getAncestorPids(): number[] {
   const ancestors: number[] = [process.pid];
   let cur = process.ppid;
@@ -27,10 +27,7 @@ export function getAncestorPids(): number[] {
   return ancestors;
 }
 
-/**
- * Discovers PIDs listening on the specified TCP ports using /proc/net/tcp{,6}
- * socket inode matching. Works reliably on Linux without lsof/fuser.
- */
+// Discovers Linux listeners using /proc/net/tcp{,6} socket inode matching.
 export function getPidsFromProc(
   ports: readonly number[],
   excludePids: readonly number[] = getAncestorPids()
@@ -111,9 +108,7 @@ export function getPidsFromProc(
   return [...pids];
 }
 
-/**
- * Discovers PIDs listening on the specified ports using `ss -lptn`.
- */
+// Discovers PIDs listening on the specified ports using `ss -lptn`.
 export async function getPidsFromSs(
   ports: readonly number[],
   excludePids: readonly number[] = getAncestorPids()
@@ -143,6 +138,9 @@ export async function findListeningPids(
   ports: readonly number[],
   excludePids: readonly number[] = getAncestorPids()
 ): Promise<number[]> {
+  if (process.platform !== "linux") {
+    return getPlatformListeningPids(ports, excludePids);
+  }
   const [procPids, ssPids] = await Promise.all([
     getPidsFromProc(ports, excludePids),
     getPidsFromSs(ports, excludePids),
@@ -188,7 +186,7 @@ export async function killStaleDevProcesses(
   }
 
   await Promise.all(
-    patterns.map(async (pattern) => {
+    (process.platform === "win32" ? [] : patterns).map(async (pattern) => {
       try {
         const proc = Bun.spawn(["pgrep", "-f", pattern], {
           stderr: "pipe",

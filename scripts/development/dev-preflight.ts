@@ -32,6 +32,7 @@ import type {
 } from "./dev-preflight-lib";
 import { DEV_PORTS, killStaleDevProcesses } from "./kill-dev-ports";
 import { postgresInspectionQuery } from "./postgres-inspection";
+import { hasListenerOnPort } from "./tcp-port";
 
 const CACHE_FILE = path.join(process.cwd(), ".cache", "dev-preflight.json");
 const CACHE_TTL_MS = 20_000;
@@ -367,14 +368,6 @@ async function assertClamAvReady() {
       `ClamAV check failed: ${result.stderr || result.stdout || "clamd did not answer PING"}`
     );
   }
-}
-
-async function hasListenerOnPort(port: number) {
-  const result = await runCmd(["ss", "-ltnH", `sport = :${port}`]);
-  if (result.exitCode !== 0) {
-    fatal(`Port check failed for :${port}: ${result.stderr || result.stdout}`);
-  }
-  return result.stdout.trim().length > 0;
 }
 
 async function getComposeFileFingerprint() {

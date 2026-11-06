@@ -44,7 +44,10 @@ mock.module("../../s3", () => ({
   }),
 }));
 const { downloadAnalysisRaster } = await import("./raster-source");
-afterAll(() => rm(directory, { force: true, recursive: true }));
+afterAll(async () => {
+  sharp.cache(false);
+  await rm(directory, { force: true, recursive: true });
+});
 
 test("missing and unsupported derivatives fall back to a decodable source", async () => {
   const output = path.join(directory, "result.jpg");

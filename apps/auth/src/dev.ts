@@ -1,3 +1,5 @@
+import path from "node:path";
+
 import { loadRootEnv } from "./env";
 
 // Dev entrypoint that runs the HTTP server and the background worker as two
@@ -8,14 +10,18 @@ import { loadRootEnv } from "./env";
 if (import.meta.main) {
   loadRootEnv();
 
-  const serverProc = Bun.spawn(["bun", "--watch", "src/server.ts"], {
+  const watcher = path.resolve(
+    import.meta.dir,
+    "../../../scripts/development/watch-service.ts"
+  );
+  const serverProc = Bun.spawn(["bun", watcher, "src/server.ts"], {
     cwd: process.cwd(),
     env: process.env,
     stderr: "inherit",
     stdout: "inherit",
   });
 
-  const workerProc = Bun.spawn(["bun", "--watch", "src/worker.ts"], {
+  const workerProc = Bun.spawn(["bun", watcher, "src/worker.ts"], {
     cwd: process.cwd(),
     env: process.env,
     stderr: "inherit",

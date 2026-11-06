@@ -5,7 +5,7 @@
   "description": "asocialmedia media pipeline worker: scan, validate, transcode, publish",
   "license": "AGPL-3.0",
   "scripts": {
-    "dev": "bun ../../scripts/development/kill-dev-ports.ts 3010 && cross-env NODE_ENV=development bun --watch src/index.ts",
+    "dev": "bun ../../scripts/development/kill-dev-ports.ts 3010 && cross-env NODE_ENV=development bun ../../scripts/development/watch-service.ts src/index.ts",
     "start": "bun run src/index.ts",
     "check-types": "tsc --noEmit"
   },

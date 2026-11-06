@@ -1,10 +1,18 @@
 import { readFile, rename, unlink, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import nodePath from "node:path";
 
 export const WORKER_HEALTH_MAX_AGE_MS = 30_000;
 export type WorkerHealthService = "message-search-worker" | "worker";
 
 export function workerHealthPath(service: WorkerHealthService): string {
-  return process.env.WORKER_HEALTH_PATH ?? `/tmp/asm-${service}-health.json`;
+  return (
+    process.env.WORKER_HEALTH_PATH ??
+    nodePath.join(
+      process.platform === "win32" ? tmpdir() : "/tmp",
+      `asm-${service}-health.json`
+    )
+  );
 }
 
 export async function writeWorkerHealth(

@@ -3,6 +3,26 @@ import { describe, expect, test } from "bun:test";
 import { readSqlBundle, renderSql } from "./sql-template";
 
 describe("SQL bundles", () => {
+  test.each(["\n", "\r\n"])(
+    "reads %j section delimiters while preserving SQL contents",
+    (newline) => {
+      const source = [
+        "// query: reads.query",
+        "SELECT $1",
+        " FROM messages ",
+        "// query: reads.predicate",
+        " AND id = $2 ",
+        "",
+      ].join(newline);
+      expect(readSqlBundle(source, { reads: ["query", "predicate"] })).toEqual({
+        reads: {
+          predicate: " AND id = $2 ",
+          query: `SELECT $1${newline} FROM messages `,
+        },
+      });
+    }
+  );
+
   test("loads related statements and preserves fragment whitespace and placeholders", () => {
     const queries = readSqlBundle(
       "// query: reads.isolation\nSET TRANSACTION READ ONLY\n// query: reads.predicate\n AND id = $1 \n// query: writes.insert\nINSERT INTO messages VALUES ($1)\n\n",

@@ -2,6 +2,22 @@ import { expect, test } from "bun:test";
 
 import { postgresInspectionQuery } from "./postgres-inspection";
 
+test.each(["\n", "\r\n"])("reads probes with %j line endings", (newline) => {
+  const source = [
+    "// query: development.schemaReady",
+    "SELECT 1;",
+    "",
+    "// query: development.extensions",
+    "SELECT extname",
+    "FROM pg_extension;",
+  ].join(newline);
+
+  expect(postgresInspectionQuery("schemaReady", source)).toBe("SELECT 1;");
+  expect(postgresInspectionQuery("extensions", source)).toBe(
+    "SELECT extname\nFROM pg_extension;"
+  );
+});
+
 test("bootstrap probes remain independent and contain no bundle metadata", () => {
   const schema = postgresInspectionQuery("schemaReady");
   const extensions = postgresInspectionQuery("extensions");

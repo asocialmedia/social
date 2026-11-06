@@ -5,13 +5,14 @@ export function postgresInspectionQuery(
   name: "schemaReady" | "extensions",
   source = inspectionSql
 ): string {
+  const normalizedSource = source.replace(/\r\n/g, "\n");
   const marker = `// query: development.${name}\n`;
-  const start = source.indexOf(marker);
+  const start = normalizedSource.indexOf(marker);
   if (start < 0)
     throw new RangeError(`Missing Postgres inspection query ${name}`);
   const statementStart = start + marker.length;
-  const nextSection = source.indexOf("// query: ", statementStart);
-  const statement = source
+  const nextSection = normalizedSource.indexOf("// query: ", statementStart);
+  const statement = normalizedSource
     .slice(statementStart, nextSection < 0 ? undefined : nextSection)
     .trim();
   if (!statement)
