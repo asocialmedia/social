@@ -109,6 +109,39 @@ fetch_logs() {
     || true
 }
 
+verify_prisma_task() {
+  local application app_name server_id containers container_ids container_id config summaries latest
+  if [ -z "${GITHUB_SHA:-}" ]; then
+    echo "GITHUB_SHA is required to verify the deployed Prisma task revision." >&2
+    return 1
+  fi
+  application=$(dokploy_api_request "${API_URL}/api/application.one?applicationId=${APP_ID}" -H "x-api-key: ${DOKPLOY_API_TOKEN}") || return 1
+  app_name=$(printf '%s' "$application" | jq -er '.appName | select(type == "string" and length > 0)') || return 1
+  server_id=$(printf '%s' "$application" | jq -r '.serverId // empty') || return 1
+  local server_query=""
+  if [ -n "$server_id" ]; then server_query="?serverId=${server_id}"; fi
+  containers=$(dokploy_api_request "${API_URL}/api/docker.getContainers${server_query}" -H "x-api-key: ${DOKPLOY_API_TOKEN}") || return 1
+  container_ids=$(printf '%s' "$containers" | jq -er --arg app "$app_name" '[.[] | select(.name | startswith($app + ".")) | .containerId | select(type == "string" and length > 0)] | .[]') || return 2
+  summaries="[]"
+  for container_id in $container_ids; do
+    local config_query="containerId=${container_id}"
+    if [ -n "$server_id" ]; then config_query="${config_query}&serverId=${server_id}"; fi
+    config=$(dokploy_api_request "${API_URL}/api/docker.getConfig?${config_query}" -H "x-api-key: ${DOKPLOY_API_TOKEN}") || return 1
+    config=$(printf '%s' "$config" | jq -ec 'if type == "string" then fromjson else . end | {created:.Created,state:.State,revision:.Config.Labels["org.opencontainers.image.revision"]}') || return 1
+    summaries=$(printf '%s' "$summaries" | jq -c --argjson config "$config" '. + [$config]') || return 1
+  done
+  latest=$(printf '%s' "$summaries" | jq -c --arg revision "$GITHUB_SHA" '[.[] | select(.revision == $revision)] | sort_by(.created) | last') || return 1
+  if [ "$latest" = "null" ]; then return 2; fi
+  if printf '%s' "$latest" | jq -e '.state.Status == "exited" and .state.ExitCode == 0 and .state.OOMKilled == false' >/dev/null; then
+    echo "Prisma task for revision ${GITHUB_SHA} exited successfully."
+    return 0
+  fi
+  if printf '%s' "$latest" | jq -e '.state.Running == true or .state.Status == "created"' >/dev/null; then return 2; fi
+  echo "Prisma task did not exit successfully; application deployments remain blocked." >&2
+  printf '%s' "$latest" | jq -c '{revision,state:{Status:.state.Status,ExitCode:.state.ExitCode,OOMKilled:.state.OOMKilled}}' >&2
+  return 1
+}
+
 RETRIES=45
 CONSECUTIVE_ERRORS=0
 MAX_CONSECUTIVE_ERRORS=6
@@ -152,6 +185,14 @@ for i in $(seq 1 "${RETRIES}"); do
 
   case "$STATUS" in
     done)
+      TASK_STATUS=0
+      verify_prisma_task || TASK_STATUS=$?
+      if [ "$TASK_STATUS" -eq 2 ]; then
+        echo "Waiting for the Prisma task for the current revision to finish."
+        sleep 10
+        continue
+      fi
+      if [ "$TASK_STATUS" -ne 0 ]; then exit 1; fi
       echo "Prisma sync deployment ${DEPLOYMENT_ID} completed successfully."
       printf '%s\n' "$(fetch_logs "$DEPLOYMENT_ID")" | tail -n 50
       exit 0

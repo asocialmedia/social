@@ -21,6 +21,7 @@ COPY packages/ui/package.json ./packages/ui/package.json
 RUN bun install --ignore-scripts
 
 COPY scripts ./scripts
+COPY docker/prisma-marker.sql ./docker/prisma-marker.sql
 COPY packages ./packages
 RUN cd packages/db && bunx prisma contract emit
 
@@ -37,6 +38,10 @@ RUN bun build packages/db/src/messages/prebuild-indexes.ts \
       --target=bun \
       --outfile /app/dist/prebuild-dm-indexes.js
 
+RUN bun build scripts/maintenance/prisma-checkpoint-upgrade.ts \
+      --target=bun \
+      --outfile /app/dist/prisma-checkpoint-upgrade.js
+
 FROM oven/bun:1.4
 LABEL org.opencontainers.image.title="Asocialmedia Prisma Schema Sync" \
       org.opencontainers.image.description="Prisma 8 migration service for the PostgreSQL database" \
@@ -44,13 +49,15 @@ LABEL org.opencontainers.image.title="Asocialmedia Prisma Schema Sync" \
 WORKDIR /app
 
 COPY docker/prisma-package.json ./package.json
-RUN bun install
+COPY docker/prisma.lock ./bun.lock
+RUN bun install --frozen-lockfile
 
 COPY packages/db/prisma ./packages/db/prisma
 COPY --from=build /app/packages/db/generated/prisma ./packages/db/generated/prisma
 COPY packages/db/prisma.config.ts ./packages/db/prisma.config.ts
 COPY --from=build /app/dist/sync-scores.js /app/sync-scores.js
 COPY --from=build /app/dist/prebuild-dm-indexes.js /app/prebuild-dm-indexes.js
+COPY --from=build /app/dist/prisma-checkpoint-upgrade.js /app/prisma-checkpoint-upgrade.js
 COPY docker/prisma-sync.sh /usr/local/bin/prisma-sync.sh
 RUN chmod +x /usr/local/bin/prisma-sync.sh
 
