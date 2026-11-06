@@ -14,19 +14,25 @@ if (import.meta.main) {
     import.meta.dir,
     "../../../scripts/development/watch-service.ts"
   );
-  const serverProc = Bun.spawn(["bun", watcher, "src/server.ts"], {
-    cwd: process.cwd(),
-    env: process.env,
-    stderr: "inherit",
-    stdout: "inherit",
-  });
+  const serverProc = Bun.spawn(
+    ["bun", "--no-orphans", watcher, "src/server.ts"],
+    {
+      cwd: process.cwd(),
+      env: process.env,
+      stderr: "inherit",
+      stdout: "inherit",
+    }
+  );
 
-  const workerProc = Bun.spawn(["bun", watcher, "src/worker.ts"], {
-    cwd: process.cwd(),
-    env: process.env,
-    stderr: "inherit",
-    stdout: "inherit",
-  });
+  const workerProc = Bun.spawn(
+    ["bun", "--no-orphans", watcher, "src/worker.ts"],
+    {
+      cwd: process.cwd(),
+      env: process.env,
+      stderr: "inherit",
+      stdout: "inherit",
+    }
+  );
 
   let stopping = false;
 
@@ -44,7 +50,7 @@ if (import.meta.main) {
     const cleanExit = Promise.all([serverProc.exited, workerProc.exited]);
     const result = await Promise.race([
       cleanExit.then(() => "clean" as const),
-      Bun.sleep(2500).then(() => "timeout" as const),
+      Bun.sleep(4500).then(() => "timeout" as const),
     ]);
     if (result === "timeout") {
       try {
@@ -69,7 +75,7 @@ if (import.meta.main) {
     stopping = true;
     const forceExitTimer = setTimeout(() => {
       process.exit(0);
-    }, 3500);
+    }, 5500);
     forceExitTimer.unref();
 
     console.log(`[dev] ${signal}: stopping server and worker`);

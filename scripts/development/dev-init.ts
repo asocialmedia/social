@@ -22,6 +22,7 @@ import type { ContainerInfo } from "./compose-containers";
 import { ensureContainerPolicy } from "./container-policy";
 import {
   buildMarker,
+  developmentInitServices,
   fingerprintContract,
   formatComposeFailure,
   formatPrismaFailure,
@@ -31,7 +32,6 @@ import {
   REQUIRED_EXTENSIONS,
   shouldEmitContract,
   shouldInstallExtensions,
-  shouldRunInitProfile,
   shouldSyncSkills,
   shouldUpdateDatabase,
 } from "./dev-init-lib";
@@ -264,11 +264,11 @@ async function main() {
   const extensions = shouldInstallExtensions(present);
   report("extensions", extensions);
 
-  if (shouldRunInitProfile(extensions).run) {
-    start("installing postgres extensions");
+  {
+    start("initializing extensions and storage buckets");
     // These jobs must finish successfully, rather than stay running for --wait.
     // The regular services have already passed their health checks above.
-    for (const service of ["postgres-init", "asmob-init"]) {
+    for (const service of developmentInitServices(extensions)) {
       const init = await compose([
         "--profile",
         "init",
@@ -283,7 +283,7 @@ async function main() {
         fatal(`${service} failed:\n${detail || "no output captured"}`);
       }
     }
-    stop("· extensions installed");
+    stop("· extensions and storage ready");
     await reportContainers("after extension install");
   }
 

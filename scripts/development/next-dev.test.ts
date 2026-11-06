@@ -2,6 +2,27 @@ import { expect, test } from "bun:test";
 
 import { nextDevCommand } from "./next-dev";
 
+test("development command resolves the web workspace CLI and forwards arguments", () => {
+  const [runtime, cli, ...args] = nextDevCommand(["--port", "3005"], {
+    platform: "linux",
+  });
+  expect(runtime).toBe("node");
+  expect(cli?.replaceAll("\\", "/")).toMatch(/next\/dist\/bin\/next$/);
+  expect(args).toEqual(["dev", "--port", "3005"]);
+});
+
+test("missing optional Windows runtimes report an actionable installation command", () => {
+  expect(() =>
+    nextDevCommand([], {
+      platform: "win32",
+      arch: "arm64",
+      resolveRuntime: () => {
+        throw new Error("missing");
+      },
+    })
+  ).toThrow("node-win-arm64@24.22.2. Run bun install");
+});
+
 test("the selected development runtime handles HTTP headers used by Next.js", async () => {
   const [runtime] = nextDevCommand();
   if (!runtime) throw new Error("Missing development runtime");

@@ -1,29 +1,33 @@
 import { expect, test } from "bun:test";
 
-import { parseWindowsPortOwners } from "./platform-listeners";
+import {
+  parseWindowsPortOwners,
+  windowsListenerProbeHost,
+} from "./platform-listeners";
 
-test("Windows port owners are filtered by local port and PID exclusions", () => {
-  const stdout = JSON.stringify([
-    { LocalPort: 3000, OwningProcess: 100 },
-    { LocalPort: 3001, OwningProcess: 101 },
-    { LocalPort: 8000, OwningProcess: 102 },
-    { LocalPort: 3012, OwningProcess: 103 },
-    { LocalPort: 3000, OwningProcess: 0 },
-    { LocalPort: 3000, OwningProcess: "invalid" },
+test("Windows cleanup distinguishes listeners and unknown CIM states from bound or connected sockets", () => {
+  const base = { LocalAddress: "192.0.2.10", LocalPort: 3000, RemotePort: 0 };
+  const listening = { ...base, State: 2, OwningProcess: 100 };
+  const unknown = { ...base, State: 0, OwningProcess: 101 };
+  const records = [
+    listening,
+    unknown,
+    { ...base, State: "Bound", OwningProcess: 102 },
+    { ...base, State: 5, RemotePort: 4000, OwningProcess: 103 },
+    { ...base, State: 2, OwningProcess: 0 },
+  ];
+  expect(parseWindowsPortOwners(JSON.stringify(records), [3000], [])).toEqual([
+    listening,
+    unknown,
   ]);
-
-  expect(parseWindowsPortOwners(stdout, [3000, 3001, 3012], [101])).toEqual([
-    { LocalPort: 3000, OwningProcess: 100 },
-    { LocalPort: 3012, OwningProcess: 103 },
-  ]);
-  expect(parseWindowsPortOwners(stdout, [], [])).toEqual([]);
+  expect(
+    parseWindowsPortOwners(JSON.stringify(records), [3000], [101])
+  ).toEqual([listening]);
+  expect(parseWindowsPortOwners(JSON.stringify(listening), [3000], [])).toEqual(
+    [listening]
+  );
   expect(parseWindowsPortOwners("", [3000], [])).toEqual([]);
-  expect(parseWindowsPortOwners("[]", [3000], [])).toEqual([]);
-});
-
-test("Windows port owners accept PowerShell's single-record JSON format", () => {
-  const record = { LocalPort: 3000, OwningProcess: 100 };
-  expect(parseWindowsPortOwners(JSON.stringify(record), [3000], [])).toEqual([
-    record,
-  ]);
+  expect(windowsListenerProbeHost("192.0.2.10")).toBe("192.0.2.10");
+  expect(windowsListenerProbeHost("0.0.0.0")).toBe("127.0.0.1");
+  expect(windowsListenerProbeHost("::")).toBe("::1");
 });

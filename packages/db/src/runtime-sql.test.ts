@@ -73,7 +73,10 @@ describe("runtime SQL policy", () => {
     ]);
     const violationGroups = await Promise.all(
       files.map(async (file) => {
-        const filename = path.relative(repositoryRoot, file);
+        const filename = path
+          .relative(repositoryRoot, file)
+          .split(path.sep)
+          .join("/");
         const source = await readFile(file, "utf-8");
         const failures: string[] = [];
         if (

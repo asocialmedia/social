@@ -1,20 +1,41 @@
+import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-export function nextDevCommand(args: string[] = []): string[] {
+export function nextDevCommand(
+  args: string[] = [],
+  options: {
+    platform?: NodeJS.Platform;
+    arch?: string;
+    resolveRuntime?: (specifier: string) => string;
+  } = {}
+): string[] {
   let runtime = "node";
   // Keep Windows development independent of globally installed Node prereleases.
-  if (process.platform === "win32") {
+  if ((options.platform ?? process.platform) === "win32") {
     const runtimePackage =
-      process.arch === "arm64" ? "node-win-arm64" : "node-win-x64";
-    const runtimeDirectory = path.dirname(
-      fileURLToPath(import.meta.resolve(`${runtimePackage}/package.json`))
-    );
+      (options.arch ?? process.arch) === "arm64"
+        ? "node-win-arm64"
+        : "node-win-x64";
+    let runtimeDirectory: string;
+    try {
+      const specifier = `${runtimePackage}/package.json`;
+      const resolved = options.resolveRuntime
+        ? options.resolveRuntime(specifier)
+        : import.meta.resolve(specifier);
+      runtimeDirectory = path.dirname(fileURLToPath(resolved));
+    } catch {
+      throw new Error(
+        `Windows development requires ${runtimePackage}@24.22.2. Run bun install with optional dependencies enabled.`
+      );
+    }
     runtime = path.join(runtimeDirectory, "bin", "node.exe");
   }
   return [
     runtime,
-    fileURLToPath(import.meta.resolve("next/dist/bin/next")),
+    createRequire(
+      path.resolve(import.meta.dir, "../../apps/web/package.json")
+    ).resolve("next/dist/bin/next"),
     "dev",
     ...args,
   ];

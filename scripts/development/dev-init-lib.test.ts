@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   buildMarker,
+  developmentInitServices,
   fingerprintContract,
   formatComposeFailure,
   formatPrismaFailure,
@@ -21,6 +22,15 @@ import {
 import { MARKER_VERSION } from "./dev-init-lib";
 
 const contractFingerprint = fingerprintContract("model User {}");
+
+test("storage buckets initialize even when the PostgreSQL volume already has its extensions", () => {
+  expect(
+    developmentInitServices({ run: false, reason: "already installed" })
+  ).toEqual(["asmob-init"]);
+  expect(
+    developmentInitServices({ run: true, reason: "fresh database" })
+  ).toEqual(["postgres-init", "asmob-init"]);
+});
 
 describe("parseMarker", () => {
   test("round-trips a marker", () => {

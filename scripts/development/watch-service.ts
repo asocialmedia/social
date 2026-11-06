@@ -10,6 +10,7 @@ export function workspaceWatchOptions(options: {
   return {
     cmd: [
       process.execPath,
+      "--no-orphans",
       ...(options.flags ?? []),
       "--preload",
       path.join(import.meta.dir, "watch-service-preload.ts"),

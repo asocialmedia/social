@@ -1,8 +1,11 @@
 import { hasListenerOnPort } from "./tcp-port";
 
 interface WindowsPortOwner {
+  LocalAddress: string;
   LocalPort: number;
   OwningProcess: number;
+  RemotePort: number;
+  State: string | number | null;
 }
 
 export function parseWindowsPortOwners(
@@ -14,16 +17,26 @@ export function parseWindowsPortOwners(
     return [];
   }
   const parsed: WindowsPortOwner | WindowsPortOwner[] = JSON.parse(stdout);
-  const records = Array.isArray(parsed) ? parsed : [parsed];
-  const requestedPorts = new Set(ports);
-  const excluded = new Set(excludePids);
-  return records.filter(
+  return (Array.isArray(parsed) ? parsed : [parsed]).filter(
     (record) =>
-      requestedPorts.has(record.LocalPort) &&
+      ports.includes(record.LocalPort) &&
       Number.isInteger(record.OwningProcess) &&
       record.OwningProcess > 0 &&
-      !excluded.has(record.OwningProcess)
+      !excludePids.includes(record.OwningProcess) &&
+      (["Listen", 2].includes(record.State ?? "") ||
+        ((record.State === null || record.State === 0) &&
+          record.RemotePort === 0))
   );
+}
+
+export function windowsListenerProbeHost(address: string): string {
+  if (address === "0.0.0.0") {
+    return "127.0.0.1";
+  }
+  if (address === "::") {
+    return "::1";
+  }
+  return address;
 }
 
 export async function getPlatformListeningPids(
@@ -31,8 +44,13 @@ export async function getPlatformListeningPids(
   excludePids: readonly number[],
   platform = process.platform
 ): Promise<number[]> {
-  if (ports.length === 0) {
+  if (!ports.length) {
     return [];
+  }
+  if (
+    !ports.every((port) => Number.isInteger(port) && port > 0 && port <= 65535)
+  ) {
+    throw new RangeError("Invalid listener port");
   }
   const command =
     platform === "win32"
@@ -41,7 +59,7 @@ export async function getPlatformListeningPids(
           "-NoProfile",
           "-NonInteractive",
           "-Command",
-          "Get-NetTCPConnection -ErrorAction Stop | Where-Object { $_.RemotePort -eq 0 } | Select-Object LocalPort,OwningProcess | ConvertTo-Json -Compress",
+          `$requestedPorts = @(${ports.join(",")}); Get-NetTCPConnection -ErrorAction Stop | Where-Object { $_.RemotePort -eq 0 -and $requestedPorts -contains $_.LocalPort } | Select-Object LocalAddress,LocalPort,RemotePort,OwningProcess,@{Name='State';Expression={$_.CimInstanceProperties['State'].Value}} | ConvertTo-Json -Compress`,
         ]
       : ["lsof", "-nP", "-a", `-iTCP:${ports.join(",")}`, "-sTCP:LISTEN", "-t"];
   const proc = Bun.spawn(command, { stderr: "pipe", stdout: "pipe" });
@@ -50,7 +68,6 @@ export async function getPlatformListeningPids(
     new Response(proc.stderr).text(),
     proc.exited,
   ]);
-  // lsof exits 1 with no output when no matching sockets exist.
   if (
     platform !== "win32" &&
     exitCode === 1 &&
@@ -65,21 +82,19 @@ export async function getPlatformListeningPids(
     );
   }
   if (platform === "win32") {
-    const candidates = parseWindowsPortOwners(stdout, ports, excludePids);
-    const reachablePorts = new Set(
-      await Promise.all(
-        [...new Set(candidates.map((record) => record.LocalPort))].map(
-          async (port) => ((await hasListenerOnPort(port)) ? port : undefined)
-        )
-      )
+    const owners = await Promise.all(
+      parseWindowsPortOwners(stdout, ports, excludePids).map(async (record) => {
+        // Some CIM providers report zero/null even for real listeners. Probe that exact address, including LAN-only binds.
+        const listening =
+          ["Listen", 2].includes(record.State ?? "") ||
+          (await hasListenerOnPort(record.LocalPort, [
+            windowsListenerProbeHost(record.LocalAddress),
+          ]));
+        return listening ? record.OwningProcess : undefined;
+      })
     );
-    // The Windows table can include bound sockets, so confirm each port accepts connections.
     return [
-      ...new Set(
-        candidates
-          .filter((record) => reachablePorts.has(record.LocalPort))
-          .map((record) => record.OwningProcess)
-      ),
+      ...new Set(owners.filter((pid): pid is number => pid !== undefined)),
     ];
   }
   return [...new Set(stdout.trim().split(/\s+/).map(Number))].filter(

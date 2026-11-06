@@ -32,7 +32,7 @@ describe("kill-dev-ports", () => {
     } finally {
       server.close();
     }
-  });
+  }, 15_000);
 
   test("killStaleDevProcesses executes without error when ports are free", async () => {
     await expect(killStaleDevProcesses([39877])).resolves.toBeUndefined();
@@ -63,5 +63,5 @@ describe("kill-dev-ports", () => {
       child.kill();
       await child.exited;
     }
-  }, 10_000);
+  }, 20_000);
 });

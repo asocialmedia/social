@@ -13,10 +13,12 @@ function canConnect(port: number, host: string): Promise<boolean> {
   });
 }
 
-export async function hasListenerOnPort(port: number): Promise<boolean> {
-  const results = await Promise.all([
-    canConnect(port, "127.0.0.1"),
-    canConnect(port, "::1"),
-  ]);
+export async function hasListenerOnPort(
+  port: number,
+  hosts: readonly string[] = ["127.0.0.1", "::1"]
+): Promise<boolean> {
+  const results = await Promise.all(
+    hosts.map((host) => canConnect(port, host))
+  );
   return results.some(Boolean);
 }

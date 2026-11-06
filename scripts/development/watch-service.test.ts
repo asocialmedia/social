@@ -41,7 +41,13 @@ test("restarts for shared workspace edits while retaining the service working di
         changed = true;
         await Bun.write(shared, "export const version = 2;");
       }
-      if (output.includes('"version":2')) break;
+      if (
+        output
+          .split(/\r?\n/)
+          .slice(0, -1)
+          .some((line) => JSON.parse(line).version === 2)
+      )
+        break;
     }
     expect(output).toContain('"version":2');
     const runs = output

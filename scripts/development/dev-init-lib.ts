@@ -267,6 +267,14 @@ export function shouldRunInitProfile(extensions: StepDecision): StepDecision {
     : { reason: "extensions already installed", run: false };
 }
 
+export function developmentInitServices(extensions: StepDecision): string[] {
+  // Storage and database volumes can be reset independently.
+  return [
+    ...(shouldRunInitProfile(extensions).run ? ["postgres-init"] : []),
+    "asmob-init",
+  ];
+}
+
 export function summariseDecisions(decisions: readonly StepDecision[]): string {
   return decisions
     .map((decision) => `${decision.run ? "run" : "skip"} (${decision.reason})`)
