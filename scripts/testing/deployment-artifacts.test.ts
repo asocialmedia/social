@@ -4,6 +4,20 @@ import path from "node:path";
 const repositoryRoot = path.join(import.meta.dirname, "../..");
 
 describe("Prisma sync deployment artifact", () => {
+  test("the checkpoint bundle uses the standalone runtime's Postgres dependency", async () => {
+    const dockerfile = await Bun.file(
+      path.join(repositoryRoot, "docker/prisma-sync.dockerfile")
+    ).text();
+    const runtime = await Bun.file(
+      path.join(repositoryRoot, "docker/prisma-package.json")
+    ).json();
+    const buildCommand = dockerfile.match(
+      /RUN bun build scripts\/maintenance\/prisma-checkpoint-upgrade\.ts[^]*?(?=\r?\n\r?\n)/u
+    )?.[0];
+    expect(buildCommand).toContain("--external pg");
+    expect(runtime.dependencies.pg).toBeString();
+    expect(dockerfile).toContain("RUN bun install --frozen-lockfile");
+  });
   test("the migration runtime uses the same Prisma versions as contract emission", async () => {
     const root = await Bun.file(
       path.join(repositoryRoot, "package.json")
