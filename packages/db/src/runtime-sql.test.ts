@@ -58,7 +58,7 @@ describe("runtime SQL policy", () => {
     }
   });
 
-  test("authored SQL outside migrations lives in imported bundles, with a standalone prebuild client", async () => {
+  test("authored SQL outside migrations lives in imported bundles, with standalone maintenance clients", async () => {
     const repositoryRoot = path.join(packageRoot, "..", "..");
     const fileGroups = await Promise.all(
       ["packages", "apps", "scripts", "docker"].map((directory) =>
@@ -70,6 +70,12 @@ describe("runtime SQL policy", () => {
     const syntheticSqlTests = new Set([
       "packages/db/src/messages/infrastructure/raw-sql.test.ts",
       "packages/db/src/messages/infrastructure/sql-template.test.ts",
+    ]);
+    // Deployment bootstrap runs before Prisma initializes; its isolated fixture creates a scratch database.
+    const standalonePostgresClients = new Set([
+      "packages/db/src/messages/infrastructure/prebuild-indexes.ts",
+      "scripts/maintenance/prisma-checkpoint-upgrade.ts",
+      "scripts/maintenance/prisma-checkpoint-upgrade.integration.test.ts",
     ]);
     const violationGroups = await Promise.all(
       files.map(async (file) => {
@@ -88,8 +94,7 @@ describe("runtime SQL policy", () => {
           failures.push(`${filename}:inline SQL statement`);
         }
         if (
-          filename !==
-            "packages/db/src/messages/infrastructure/prebuild-indexes.ts" &&
+          !standalonePostgresClients.has(filename) &&
           /from\s+["']pg["']|new\s+Pool\(/u.test(source)
         ) {
           failures.push(`${filename}:independent Postgres client`);

@@ -4,6 +4,21 @@ import path from "node:path";
 const repositoryRoot = path.join(import.meta.dirname, "../..");
 
 describe("Prisma sync deployment artifact", () => {
+  test("the migration runtime uses the same Prisma versions as contract emission", async () => {
+    const root = await Bun.file(
+      path.join(repositoryRoot, "package.json")
+    ).json();
+    const database = await Bun.file(
+      path.join(repositoryRoot, "packages/db/package.json")
+    ).json();
+    const runtime = await Bun.file(
+      path.join(repositoryRoot, "docker/prisma-package.json")
+    ).json();
+    expect(runtime.dependencies.prisma).toBe(root.devDependencies.prisma);
+    expect(runtime.dependencies["@prisma/orm-postgres"]).toBe(
+      database.dependencies["@prisma/orm-postgres"]
+    );
+  });
   test("native dependency caches cannot restore an older lockfile or linker layout", async () => {
     const workflow = await Bun.file(
       path.join(repositoryRoot, ".github/workflows/ci.yml")

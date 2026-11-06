@@ -70,6 +70,7 @@ fi
 
 # Preview the pending route, then apply it. `--show` is read-only, so a
 # destructive or unreachable plan is visible here before anything is applied.
+bun /app/prisma-checkpoint-upgrade.js
 bunx prisma db migrate --show
 
 # One apply, and its own report. `--json` emits NDJSON, not a single document: a

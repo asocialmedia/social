@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, jest, test } from "bun:test";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -9,10 +9,40 @@ const repositoryRoot = path.resolve(import.meta.dir, "../..");
 const fakeToken = "dokploy-test-token";
 const previousDeployment = [{ deploymentId: "previous", status: "done" }];
 
+// Each fixture invokes several shell and Bun processes on Windows.
+jest.setTimeout(15_000);
+
 interface ResponseFixture {
   body: unknown;
   status: number;
   transportStatus?: number;
+}
+
+function prismaTaskResponses(
+  exitCode = 0,
+  revision = "test-revision",
+  oomKilled = exitCode === 137
+): ResponseFixture[] {
+  return [
+    { body: { appName: "asm-prisma", serverId: null }, status: 200 },
+    {
+      body: [{ containerId: "abc123", name: "asm-prisma.1.new" }],
+      status: 200,
+    },
+    {
+      body: {
+        Created: "2026-11-06T14:00:00Z",
+        Config: { Labels: { "org.opencontainers.image.revision": revision } },
+        State: {
+          Status: "exited",
+          Running: false,
+          ExitCode: exitCode,
+          OOMKilled: oomKilled,
+        },
+      },
+      status: 200,
+    },
+  ];
 }
 
 async function runDeployment(
@@ -77,6 +107,7 @@ process.exit(response.transportStatus ?? 0);
           DOKPLOY_PRISMA_APP_ID: "prisma-app",
           DOKPLOY_TEST_QUEUE: queue,
           DOKPLOY_TEST_REQUESTS: requests,
+          GITHUB_SHA: "test-revision",
           PATH: `${directory}${path.delimiter}${process.env.PATH ?? ""}`,
           ...options.env,
         },
@@ -180,6 +211,7 @@ describe("Dokploy deployment authentication", () => {
       { body: {}, status: 200 },
       { body: previousDeployment, status: 200 },
       { body: [{ deploymentId: "new-sync", status: "done" }], status: 200 },
+      ...prismaTaskResponses(),
       { body: "PRISMA_SYNC_OK", status: 200 },
     ]);
     expect(result.exitCode).toBe(0);
@@ -190,7 +222,7 @@ describe("Dokploy deployment authentication", () => {
     expect(
       result.calls.filter((request) => request.includes("POST"))
     ).toHaveLength(1);
-  });
+  }, 15_000);
 
   test("stops polling immediately when authentication is revoked", async () => {
     const result = await runDeployment([
@@ -203,19 +235,118 @@ describe("Dokploy deployment authentication", () => {
     expect(result.calls).toHaveLength(3);
   });
 
+  test.each([2, 137])(
+    "a completed Dokploy deployment cannot hide Prisma task exit %s",
+    async (exitCode) => {
+      const result = await runDeployment([
+        { body: previousDeployment, status: 200 },
+        { body: {}, status: 200 },
+        { body: [{ deploymentId: "new-sync", status: "done" }], status: 200 },
+        ...prismaTaskResponses(exitCode),
+      ]);
+      expect(result.exitCode).not.toBe(0);
+      expect(result.stderr).toContain("application deployments remain blocked");
+      expect(result.stdout).not.toContain("completed successfully");
+    }
+  );
+
+  test("an older successful image cannot satisfy the current migration deployment", async () => {
+    const result = await runDeployment([
+      { body: previousDeployment, status: 200 },
+      { body: {}, status: 200 },
+      { body: [{ deploymentId: "new-sync", status: "done" }], status: 200 },
+      ...prismaTaskResponses(0, "older-revision"),
+      { body: [{ deploymentId: "new-sync", status: "done" }], status: 200 },
+      ...prismaTaskResponses(),
+      { body: "PRISMA_SYNC_OK", status: 200 },
+    ]);
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain(
+      "Waiting for the Prisma task for the current revision"
+    );
+  }, 15_000);
+
+  test("a zero exit cannot hide an OOM-killed migration task", async () => {
+    const result = await runDeployment([
+      { body: previousDeployment, status: 200 },
+      { body: {}, status: 200 },
+      { body: [{ deploymentId: "new-sync", status: "done" }], status: 200 },
+      ...prismaTaskResponses(0, "test-revision", true),
+    ]);
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain("application deployments remain blocked");
+    expect(result.stdout).not.toContain("completed successfully");
+  });
+
+  test.each(["discovery", "pruned-task"])(
+    "retries a failed %s read without accepting an uninspected task",
+    async (failure) => {
+      const responses = prismaTaskResponses();
+      if (failure === "discovery")
+        responses.splice(1, 2, { body: {}, status: 503 });
+      else {
+        responses[1] = {
+          body: [
+            { containerId: "old123", name: "asm-prisma.1.pruned" },
+            { containerId: "abc123", name: "asm-prisma.1.new" },
+          ],
+          status: 200,
+        };
+        responses[2] = {
+          body: { message: "Container no longer exists" },
+          status: 404,
+        };
+      }
+      const result = await runDeployment([
+        { body: previousDeployment, status: 200 },
+        { body: {}, status: 200 },
+        { body: [{ deploymentId: "new-sync", status: "done" }], status: 200 },
+        ...responses,
+        { body: [{ deploymentId: "new-sync", status: "done" }], status: 200 },
+        ...prismaTaskResponses(),
+        { body: "PRISMA_SYNC_OK", status: 200 },
+      ]);
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain(
+        "Waiting for the Prisma task for the current revision"
+      );
+      expect(
+        result.calls.filter((request) =>
+          request.some((value) => value.includes("/api/deployment.all"))
+        )
+      ).toHaveLength(3);
+    },
+    15_000
+  );
+
+  test("an inspection authentication failure remains fatal", async () => {
+    const responses = prismaTaskResponses();
+    responses[2] = { body: { message: "Unauthorized" }, status: 401 };
+    const result = await runDeployment([
+      { body: previousDeployment, status: 200 },
+      { body: {}, status: 200 },
+      { body: [{ deploymentId: "new-sync", status: "done" }], status: 200 },
+      ...responses,
+    ]);
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain("HTTP 401");
+    expect(result.stdout).not.toContain("Waiting for the Prisma task");
+  });
+
   test("recovers from a transient polling failure while waiting for the new deployment", async () => {
     const result = await runDeployment([
       { body: previousDeployment, status: 200 },
       { body: {}, status: 200 },
       { body: {}, status: 503 },
       { body: [{ deploymentId: "new-sync", status: "done" }], status: 200 },
+      ...prismaTaskResponses(),
       { body: "PRISMA_SYNC_OK", status: 200 },
     ]);
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain(
       "deployment new-sync completed successfully"
     );
-  });
+  }, 15_000);
 
   test("application deploys report authentication failure instead of success", async () => {
     const result = await runDeployment([{ body: {}, status: 401 }], {
