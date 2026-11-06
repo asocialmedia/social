@@ -11,11 +11,21 @@ describe("Prisma sync deployment artifact", () => {
     const runtime = await Bun.file(
       path.join(repositoryRoot, "docker/prisma-package.json")
     ).json();
+    const lockfile = Bun.JSONC.parse(
+      await Bun.file(path.join(repositoryRoot, "docker/prisma.lock")).text()
+    );
     const buildCommand = dockerfile.match(
       /RUN bun build scripts\/maintenance\/prisma-checkpoint-upgrade\.ts[^]*?(?=\r?\n\r?\n)/u
     )?.[0];
     expect(buildCommand).toContain("--external pg");
     expect(runtime.dependencies.pg).toBeString();
+    expect(lockfile).toEqual(
+      expect.objectContaining({
+        workspaces: expect.objectContaining({
+          "": expect.objectContaining({ dependencies: runtime.dependencies }),
+        }),
+      })
+    );
     expect(dockerfile).toContain("RUN bun install --frozen-lockfile");
   });
   test("the migration runtime uses the same Prisma versions as contract emission", async () => {
