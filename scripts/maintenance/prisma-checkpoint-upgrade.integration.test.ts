@@ -1,13 +1,29 @@
+// oxlint-disable-next-line typescript/triple-slash-reference -- The isolated deployment fixture imports SQL as text.
+/// <reference path="../../packages/db/sql.d.ts" />
 import { expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 
+import { readSqlBundle, renderSql } from "@asm/db/sql-template";
 import { Client } from "pg";
 
+import markerSql from "../../docker/prisma-marker.sql" with { type: "text" };
 import {
   CANONICAL_PRISMA_CHECKPOINT,
   LEGACY_PRISMA_CHECKPOINT,
 } from "./prisma-checkpoint-upgrade";
+import fixtureSqlSource from "./prisma-checkpoint-upgrade.fixture.sql" with { type: "text" };
+
+const { fixture: fixtureSql } = readSqlBundle(fixtureSqlSource, {
+  fixture: [
+    "createDatabase",
+    "dropDatabase",
+    "createExtension",
+    "updateMarker",
+    "renameColumn",
+    "restoreColumn",
+  ],
+} as const);
 
 const databaseUrl = process.env.DATABASE_URL;
 const localDatabase =
@@ -42,7 +58,7 @@ test.skipIf(!localDatabase)(
     }
     await admin.connect();
     try {
-      await admin.query(`CREATE DATABASE "${name}"`);
+      await admin.query(renderSql(fixtureSql.createDatabase, { name }));
       await target.connect();
       const fresh = await run([
         path.join(root, "scripts/maintenance/prisma-checkpoint-upgrade.ts"),
@@ -54,7 +70,9 @@ test.skipIf(!localDatabase)(
         "pg_trgm",
         "uuid-ossp",
       ]) {
-        await target.query(`CREATE EXTENSION IF NOT EXISTS "${extension}"`);
+        await target.query(
+          renderSql(fixtureSql.createExtension, { extension })
+        );
       }
       const initialized = await run([
         "x",
@@ -66,37 +84,31 @@ test.skipIf(!localDatabase)(
       ]);
       expect(initialized.output).not.toContain('"ok":false');
       expect(initialized.code).toBe(0);
-      await target.query(
-        "UPDATE prisma_contract.marker SET core_hash=$1 WHERE space=$2",
-        [LEGACY_PRISMA_CHECKPOINT, "app"]
-      );
-      await target.query(
-        "ALTER TABLE public.users RENAME COLUMN username TO broken_username"
-      );
+      await target.query(fixtureSql.updateMarker, [
+        LEGACY_PRISMA_CHECKPOINT,
+        "app",
+      ]);
+      await target.query(fixtureSql.renameColumn);
       const refused = await run([
         path.join(root, "scripts/maintenance/prisma-checkpoint-upgrade.ts"),
       ]);
       expect(refused.code).not.toBe(0);
       expect(refused.output).toContain("CONTRACT.SCHEMA_VERIFICATION_FAILED");
       expect(refused.output).toContain("username");
-      const unchanged = await target.query<{ core_hash: string }>(
-        "SELECT core_hash FROM prisma_contract.marker WHERE space=$1",
-        ["app"]
-      );
-      expect(unchanged.rows[0]?.core_hash).toBe(LEGACY_PRISMA_CHECKPOINT);
-      await target.query(
-        "ALTER TABLE public.users RENAME COLUMN broken_username TO username"
-      );
+      const unchanged = await target.query<{ storageHash: string }>(markerSql, [
+        "app",
+      ]);
+      expect(unchanged.rows[0]?.storageHash).toBe(LEGACY_PRISMA_CHECKPOINT);
+      await target.query(fixtureSql.restoreColumn);
       const upgraded = await run([
         path.join(root, "scripts/maintenance/prisma-checkpoint-upgrade.ts"),
       ]);
       expect(upgraded.output).not.toContain('"ok":false');
       expect(upgraded.code).toBe(0);
-      const marker = await target.query<{ core_hash: string }>(
-        "SELECT core_hash FROM prisma_contract.marker WHERE space=$1",
-        ["app"]
-      );
-      expect(marker.rows[0]?.core_hash).toBe(CANONICAL_PRISMA_CHECKPOINT);
+      const marker = await target.query<{ storageHash: string }>(markerSql, [
+        "app",
+      ]);
+      expect(marker.rows[0]?.storageHash).toBe(CANONICAL_PRISMA_CHECKPOINT);
       const applied = await run(["x", "prisma", "db", "migrate"]);
       expect(applied.output).not.toContain('"ok":false');
       expect(applied.code).toBe(0);
@@ -104,7 +116,7 @@ test.skipIf(!localDatabase)(
       expect(verified.code).toBe(0);
     } finally {
       await target.end();
-      await admin.query(`DROP DATABASE IF EXISTS "${name}" WITH (FORCE)`);
+      await admin.query(renderSql(fixtureSql.dropDatabase, { name }));
       await admin.end();
     }
   },
