@@ -120,13 +120,13 @@ verify_prisma_task() {
   server_id=$(printf '%s' "$application" | jq -r '.serverId // empty') || return 1
   local server_query=""
   if [ -n "$server_id" ]; then server_query="?serverId=${server_id}"; fi
-  containers=$(dokploy_api_request "${API_URL}/api/docker.getContainers${server_query}" -H "x-api-key: ${DOKPLOY_API_TOKEN}") || return 1
+  containers=$(dokploy_api_request "${API_URL}/api/docker.getContainers${server_query}" -H "x-api-key: ${DOKPLOY_API_TOKEN}") || { local request_status=$?; if [ "$request_status" -eq 77 ]; then return 1; fi; return 2; }
   container_ids=$(printf '%s' "$containers" | jq -er --arg app "$app_name" '[.[] | select(.name | startswith($app + ".")) | .containerId | select(type == "string" and length > 0)] | .[]') || return 2
   summaries="[]"
   for container_id in $container_ids; do
     local config_query="containerId=${container_id}"
     if [ -n "$server_id" ]; then config_query="${config_query}&serverId=${server_id}"; fi
-    config=$(dokploy_api_request "${API_URL}/api/docker.getConfig?${config_query}" -H "x-api-key: ${DOKPLOY_API_TOKEN}") || return 1
+    config=$(dokploy_api_request "${API_URL}/api/docker.getConfig?${config_query}" -H "x-api-key: ${DOKPLOY_API_TOKEN}") || { local request_status=$?; if [ "$request_status" -eq 77 ]; then return 1; fi; return 2; }
     config=$(printf '%s' "$config" | jq -ec 'if type == "string" then fromjson else . end | {created:.Created,state:.State,revision:.Config.Labels["org.opencontainers.image.revision"]}') || return 1
     summaries=$(printf '%s' "$summaries" | jq -c --argjson config "$config" '. + [$config]') || return 1
   done

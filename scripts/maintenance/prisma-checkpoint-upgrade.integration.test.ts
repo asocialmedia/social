@@ -44,6 +44,10 @@ test.skipIf(!localDatabase)(
     try {
       await admin.query(`CREATE DATABASE "${name}"`);
       await target.connect();
+      const fresh = await run([
+        path.join(root, "scripts/maintenance/prisma-checkpoint-upgrade.ts"),
+      ]);
+      expect(fresh.code).toBe(0);
       for (const extension of [
         "pgcrypto",
         "pg_stat_statements",
@@ -66,6 +70,23 @@ test.skipIf(!localDatabase)(
         "UPDATE prisma_contract.marker SET core_hash=$1 WHERE space=$2",
         [LEGACY_PRISMA_CHECKPOINT, "app"]
       );
+      await target.query(
+        "ALTER TABLE public.users RENAME COLUMN username TO broken_username"
+      );
+      const refused = await run([
+        path.join(root, "scripts/maintenance/prisma-checkpoint-upgrade.ts"),
+      ]);
+      expect(refused.code).not.toBe(0);
+      expect(refused.output).toContain("CONTRACT.SCHEMA_VERIFICATION_FAILED");
+      expect(refused.output).toContain("username");
+      const unchanged = await target.query<{ core_hash: string }>(
+        "SELECT core_hash FROM prisma_contract.marker WHERE space=$1",
+        ["app"]
+      );
+      expect(unchanged.rows[0]?.core_hash).toBe(LEGACY_PRISMA_CHECKPOINT);
+      await target.query(
+        "ALTER TABLE public.users RENAME COLUMN broken_username TO username"
+      );
       const upgraded = await run([
         path.join(root, "scripts/maintenance/prisma-checkpoint-upgrade.ts"),
       ]);
@@ -81,22 +102,6 @@ test.skipIf(!localDatabase)(
       expect(applied.code).toBe(0);
       const verified = await run(["x", "prisma", "db", "verify"]);
       expect(verified.code).toBe(0);
-      await target.query(
-        "ALTER TABLE public.users RENAME COLUMN username TO broken_username"
-      );
-      await target.query(
-        "UPDATE prisma_contract.marker SET core_hash=$1 WHERE space=$2",
-        [LEGACY_PRISMA_CHECKPOINT, "app"]
-      );
-      const refused = await run([
-        path.join(root, "scripts/maintenance/prisma-checkpoint-upgrade.ts"),
-      ]);
-      expect(refused.code).not.toBe(0);
-      const unchanged = await target.query<{ core_hash: string }>(
-        "SELECT core_hash FROM prisma_contract.marker WHERE space=$1",
-        ["app"]
-      );
-      expect(unchanged.rows[0]?.core_hash).toBe(LEGACY_PRISMA_CHECKPOINT);
     } finally {
       await target.end();
       await admin.query(`DROP DATABASE IF EXISTS "${name}" WITH (FORCE)`);

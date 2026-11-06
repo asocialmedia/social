@@ -4,7 +4,31 @@ import {
   CANONICAL_PRISMA_CHECKPOINT,
   LEGACY_PRISMA_CHECKPOINT,
   upgradeLegacyPrismaCheckpoint,
+  readPrismaCheckpoint,
 } from "./prisma-checkpoint-upgrade";
+
+test("a missing marker table is an uninitialized database", async () => {
+  expect(
+    await readPrismaCheckpoint(() =>
+      Promise.reject(
+        Object.assign(new Error("missing marker"), { code: "42P01" })
+      )
+    )
+  ).toBeNull();
+  expect(
+    await readPrismaCheckpoint(() => Promise.resolve({ rows: [] }))
+  ).toBeNull();
+});
+
+test.each(["42501", "08006"])(
+  "marker inspection preserves database errors: %s",
+  async (code) => {
+    const error = Object.assign(new Error("database query failed"), { code });
+    await expect(
+      readPrismaCheckpoint(() => Promise.reject(error))
+    ).rejects.toBe(error);
+  }
+);
 
 function normalizeStorage(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(normalizeStorage);

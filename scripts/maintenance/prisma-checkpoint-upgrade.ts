@@ -9,6 +9,24 @@ export const LEGACY_PRISMA_CHECKPOINT =
 export const CANONICAL_PRISMA_CHECKPOINT =
   "d1e4b3353eba935e395ef107d463a1f8a0924657f3e1f7ef98743232e8f0c158";
 
+export async function readPrismaCheckpoint(
+  query: () => Promise<{ rows: { storageHash: string }[] }>
+): Promise<string | null> {
+  try {
+    const result = await query();
+    return result.rows[0]?.storageHash ?? null;
+  } catch (error) {
+    if (
+      error !== null &&
+      typeof error === "object" &&
+      "code" in error &&
+      error.code === "42P01"
+    )
+      return null;
+    throw error;
+  }
+}
+
 export async function upgradeLegacyPrismaCheckpoint(dependencies: {
   readMarker: () => Promise<string | null>;
   signVerifiedCheckpoint: (hash: string) => Promise<void>;
@@ -24,12 +42,10 @@ if (import.meta.main) {
   try {
     await client.connect();
     const upgraded = await upgradeLegacyPrismaCheckpoint({
-      readMarker: async () => {
-        const result = await client.query<{ storageHash: string }>(markerSql, [
-          "app",
-        ]);
-        return result.rows[0]?.storageHash ?? null;
-      },
+      readMarker: () =>
+        readPrismaCheckpoint(() =>
+          client.query<{ storageHash: string }>(markerSql, ["app"])
+        ),
       signVerifiedCheckpoint: async (hash) => {
         const child = Bun.spawn(
           [
