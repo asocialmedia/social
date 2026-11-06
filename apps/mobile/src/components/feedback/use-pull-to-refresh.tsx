@@ -25,7 +25,7 @@ import {
   PULL_THRESHOLD,
   PullLoader,
 } from "@/features/feed/components/pull-loader";
-import { REFRESH_TIMING } from "@/lib/refresh-timing";
+import { REFRESH_TIMING } from "@/lib/lifecycle/refresh-timing";
 
 // Rubber-band factor on the Android pan, so the pull never feels 1:1.
 const PULL_RESISTANCE = 0.55;

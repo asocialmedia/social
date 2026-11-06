@@ -22,6 +22,9 @@ export function NetworkSettingsSync() {
         void client.invalidateQueries({
           queryKey: ["discovery-suggestions", userId],
         });
+        void client.invalidateQueries({
+          queryKey: ["trending-feed", "v5", userId],
+        });
       }, 800);
       void client.invalidateQueries({
         queryKey: ["network-settings", userId],

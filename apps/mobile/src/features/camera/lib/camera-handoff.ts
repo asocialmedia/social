@@ -35,25 +35,12 @@ export function pickedFromCapture(
   kind: "photo" | "video",
   extra?: { height?: number; size?: number; width?: number }
 ): PickedMedia {
-  const stamp = Date.now().toString(36);
-  if (kind === "video") {
-    const name = withExtension(basename(uri) || `gust-${stamp}`, "mp4");
-    return {
-      durationMs: null,
-      height: extra?.height,
-      mimeType: "video/mp4",
-      name,
-      size: extra?.size ?? 0,
-      uri,
-      width: extra?.width,
-    };
-  }
-  const name = withExtension(basename(uri) || `fleet-${stamp}`, "jpg");
+  const video = kind === "video";
   return {
     durationMs: null,
     height: extra?.height,
-    mimeType: "image/jpeg",
-    name,
+    mimeType: video ? "video/mp4" : "image/jpeg",
+    name: withExtension(basename(uri), video ? "mp4" : "jpg"),
     size: extra?.size ?? 0,
     uri,
     width: extra?.width,

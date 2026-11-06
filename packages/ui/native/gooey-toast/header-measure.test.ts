@@ -7,7 +7,7 @@ import { TOAST_HEIGHT, TOAST_WIDTH } from "./theme";
 // `alignedX` and the header measurement callback are module-private in
 // gooey-toast.tsx: they are a worklet and a `useCallback`, not exports, and
 // react-native's entry cannot be evaluated by a bare `bun test` anyway (see
-// apps/mobile/src/lib/scroll-indicator.test.ts). So the source is read, each
+// apps/mobile/src/lib/layout/scroll-indicator.test.ts). So the source is read, each
 // function is lifted out by brace matching, and it is evaluated on its own with
 // stand-ins for the values it closes over.
 //

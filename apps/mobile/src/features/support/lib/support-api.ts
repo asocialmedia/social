@@ -18,7 +18,7 @@
 // would make the one path that must never throw depend on the module that
 // initialises the app.
 
-import { getWithTimeout } from "@/lib/http-get";
+import { getWithTimeout } from "@/lib/network/http-get";
 
 import type { SupportCheck } from "./support-policy";
 

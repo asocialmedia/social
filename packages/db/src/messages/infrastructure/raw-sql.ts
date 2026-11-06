@@ -1,5 +1,5 @@
+import { ParamRef } from "@prisma/orm-postgres/relational-core/ast";
 import type { AffectedCount } from "@prisma/orm-postgres/relational-core/expression";
-import { param } from "@prisma/orm-postgres/relational-core/expression";
 import type { SqlQueryPlan } from "@prisma/orm-postgres/relational-core/plan";
 
 import { fromPrismaDateTime } from "../../dates";
@@ -8,6 +8,7 @@ import type { PrismaTransaction } from "../../prisma";
 
 export interface RawParam {
   codecId: string;
+  many?: true;
   value: unknown;
 }
 
@@ -19,7 +20,7 @@ export type RowSpec<Row extends object> = {
 };
 
 // Preserve Postgres's contextual scalar inference and existing explicit casts.
-// Arrays use the registered text-array codec; an existing ::int[] cast follows it.
+// Arrays carry the element codec and list metadata before existing SQL casts.
 export function rawParams(values: readonly unknown[]): RawParam[] {
   return values.map((value) => {
     if (Array.isArray(value)) {
@@ -31,7 +32,7 @@ export function rawParams(values: readonly unknown[]): RawParam[] {
       ) {
         throw new TypeError("Raw SQL arrays must contain strings or numbers");
       }
-      return { codecId: "pg/text-array@1", value: value.map(String) };
+      return { codecId: "pg/text@1", many: true, value: value.map(String) };
     }
     if (value instanceof Date) {
       return { codecId: "pg/text@1", value: value.toISOString() };
@@ -66,7 +67,9 @@ export function rawStatement(
       throw new RangeError(`Missing raw SQL parameter $${match.groups?.index}`);
     }
     segments.push(sql.slice(offset, match.index));
-    const reference = param(parameter.value, { codecId: parameter.codecId });
+    const reference = ParamRef.of(parameter.value, {
+      codec: { codecId: parameter.codecId, many: parameter.many },
+    });
     // Next's page and API bundles can have distinct ParamRef classes while sharing prismaGlobal.
     // The expression protocol accepts the AST without an instanceof check across bundles.
     expressions.push({

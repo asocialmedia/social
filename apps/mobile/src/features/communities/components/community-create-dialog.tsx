@@ -30,9 +30,9 @@ import {
   SettingsButton,
   SettingsInput,
 } from "@/features/settings/components/settings-ui";
-import { getApiBaseUrl } from "@/lib/api-env";
-import { withAuthHeaders } from "@/lib/auth-headers";
-import { logWarn } from "@/lib/telemetry";
+import { logWarn } from "@/lib/lifecycle/telemetry";
+import { getApiBaseUrl } from "@/lib/network/api-env";
+import { withAuthHeaders } from "@/lib/network/auth-headers";
 import {
   NAV_ACTIVE_SHADOWS,
   NAV_ACTIVE_SHADOWS_DARK,

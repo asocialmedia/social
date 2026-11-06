@@ -1,4 +1,4 @@
-import { readSnapshot, writeSnapshot } from "@/lib/persistent-file";
+import { readSnapshot, writeSnapshot } from "@/lib/cache/persistent-file";
 
 import { exploreCache } from "./explore-cache";
 import type { ExploreData } from "./explore-cache";

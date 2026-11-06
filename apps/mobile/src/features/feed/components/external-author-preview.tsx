@@ -9,7 +9,7 @@ import { BioContent } from "@/features/home/components/bio-content";
 import { networkRequest } from "@/features/network/lib/network-api";
 import { useProtocolResource } from "@/features/network/state/use-protocol-resource";
 import { SettingsButton } from "@/features/settings/components/settings-ui";
-import { getApiBaseUrl } from "@/lib/api-env";
+import { getApiBaseUrl } from "@/lib/network/api-env";
 import { useAppTheme } from "@/theme";
 
 import { cachedExternalAuthor } from "../lib/external-cache";

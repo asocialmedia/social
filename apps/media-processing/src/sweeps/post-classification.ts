@@ -8,9 +8,9 @@ import {
 } from "@asm/db";
 import { Queue } from "bullmq";
 
-import { embeddingModelId } from "../analyze/embedding";
+import { embeddingModelId } from "../analyze/embedding/embedding";
 import { workerEnv } from "../env";
-import { postAnalysisFingerprint } from "../jobs/analyze-post";
+import { postAnalysisFingerprint } from "../jobs/analysis/analyze-post";
 
 let cursor: string | undefined;
 

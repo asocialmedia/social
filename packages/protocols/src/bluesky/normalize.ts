@@ -329,32 +329,42 @@ export function normalizePost(
     },
     url: `https://bsky.app/profile/${encodeURIComponent(post.author.did)}/post/${post.uri.split("/").at(-1)}`,
   };
-  const embedded = z
-    .object({
-      $type: z.string(),
-      external: z
-        .object({
-          description: z.string().max(20_000),
-          thumb: z.string().optional(),
-          title: z.string().max(20_000),
-          uri: z.string(),
-        })
-        .optional(),
-      media: z.unknown().optional(),
-      record: z.unknown().optional(),
-    })
-    .safeParse(post.embed);
+  const embedSchema = z.object({
+    $type: z.string(),
+    external: z
+      .object({
+        description: z.string().max(20_000),
+        thumb: z.string().optional(),
+        title: z.string().max(20_000),
+        uri: z.string(),
+      })
+      .optional(),
+    media: z.unknown().optional(),
+    record: z.unknown().optional(),
+  });
+  const embedded = embedSchema.safeParse(post.embed);
   if (!embedded.success) {
     return checkedPost(result, allowExplicitMedia);
   }
   const { data } = embedded;
-  if (data.$type === "app.bsky.embed.external#view" && data.external) {
-    const url = safeLink(data.external.uri);
+  let external =
+    data.$type === "app.bsky.embed.external#view" ? data.external : undefined;
+  if (data.$type === "app.bsky.embed.recordWithMedia#view") {
+    const nested = embedSchema.safeParse(data.media);
+    if (
+      nested.success &&
+      nested.data.$type === "app.bsky.embed.external#view"
+    ) {
+      ({ external } = nested.data);
+    }
+  }
+  if (external) {
+    const url = safeLink(external.uri);
     if (url) {
       result.externalLink = {
-        description: data.external.description,
-        thumbnailUrl: mediaLink(data.external.thumb),
-        title: data.external.title,
+        description: external.description,
+        thumbnailUrl: mediaLink(external.thumb),
+        title: external.title,
         url,
       };
     }

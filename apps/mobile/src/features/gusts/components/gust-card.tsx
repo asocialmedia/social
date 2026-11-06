@@ -81,8 +81,8 @@ import {
   resolveProfileImageUrl,
 } from "@/features/home/components/profile-utils";
 import { UserBadge } from "@/features/home/components/user-badge";
-import { haptic } from "@/lib/haptics";
-import { logInfo, logWarn } from "@/lib/telemetry";
+import { haptic } from "@/lib/interaction/haptics";
+import { logInfo, logWarn } from "@/lib/lifecycle/telemetry";
 
 import { gustVideo, gustVideoUrl } from "../lib/gusts-api";
 import { gustPreviewGeometry } from "../lib/preview-geometry";

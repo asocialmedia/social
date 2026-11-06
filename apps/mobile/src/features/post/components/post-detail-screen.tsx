@@ -57,9 +57,9 @@ import { normalizePostData } from "@/features/feed/lib/feed-types";
 import { viewBatcher } from "@/features/feed/lib/view-batcher";
 import { findCachedFeedPost } from "@/features/feed/state/feed-store";
 import { GuestAuthBar } from "@/features/home/components/guest-auth-bar";
-import { getApiBaseUrl } from "@/lib/api-env";
-import { SHOWS_SCROLL_INDICATOR } from "@/lib/scroll-indicator";
-import { logInfo, logWarn } from "@/lib/telemetry";
+import { SHOWS_SCROLL_INDICATOR } from "@/lib/layout/scroll-indicator";
+import { logInfo, logWarn } from "@/lib/lifecycle/telemetry";
+import { getApiBaseUrl } from "@/lib/network/api-env";
 import { useAppTheme } from "@/theme";
 
 import {

@@ -38,6 +38,7 @@ export interface TrendingBlueskyTopic {
   source: "bluesky";
   topic: string;
   type: "bluesky_topic";
+  matchedInterests?: string[];
 }
 
 export interface TrendingAuraUser {
@@ -227,13 +228,16 @@ async function getTopAuraUsers(): Promise<TrendingAuraUser[]> {
 }
 
 export async function getTrendingFeed(
-  bypassCache = false
+  bypassCache = false,
+  includeBluesky = true
 ): Promise<TrendingFeed> {
   const results = await Promise.allSettled([
     getTrendingTopics(bypassCache),
     getTopMentionedUsers(),
     getTopAuraUsers(),
-    fetchBlueskyTrendingTopics(bypassCache),
+    includeBluesky
+      ? fetchBlueskyTrendingTopics(bypassCache)
+      : Promise.resolve([]),
   ]);
 
   const [topicResult, mentionResult, auraResult, blueskyResult] = results;
@@ -245,7 +249,10 @@ export async function getTrendingFeed(
       unavailable.push(source);
     }
   }
-  if (unavailable.length === results.length) {
+  if (
+    unavailable.length ===
+    (includeBluesky ? results.length : results.length - 1)
+  ) {
     throw new Error("Trending sources are unavailable");
   }
   const topics = topicResult.status === "fulfilled" ? topicResult.value : [];

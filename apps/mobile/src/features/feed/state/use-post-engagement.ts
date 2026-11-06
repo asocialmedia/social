@@ -16,9 +16,9 @@ import {
 // to zero.
 
 import { authClient } from "@/features/auth/lib/auth-client";
-import { getApiBaseUrl } from "@/lib/api-env";
-import { haptic } from "@/lib/haptics";
-import { logWarn } from "@/lib/telemetry";
+import { haptic } from "@/lib/interaction/haptics";
+import { logWarn } from "@/lib/lifecycle/telemetry";
+import { getApiBaseUrl } from "@/lib/network/api-env";
 
 import { engagementStore, normalizeEngagement } from "../lib/engagement-store";
 import type { PostEngagement } from "../lib/engagement-store";

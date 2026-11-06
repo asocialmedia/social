@@ -8,6 +8,7 @@ import type { PropsWithChildren } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
 import kyInstance from "@/lib/ky";
+import { profilePath } from "@/lib/users/profile-path";
 
 import UserTooltip from "./user-tooltip";
 
@@ -45,7 +46,7 @@ export default function UserLinkWithTooltip({
     return (
       <Link
         className="text-primary hover:underline"
-        href={`/users/${username}`}
+        href={profilePath(username)}
       >
         {children}
       </Link>
@@ -56,7 +57,7 @@ export default function UserLinkWithTooltip({
     <UserTooltip user={data}>
       <Link
         className="text-primary hover:underline"
-        href={`/users/${username}`}
+        href={profilePath(username)}
       >
         {children}
       </Link>

@@ -9,7 +9,7 @@ import {
   datasetReadiness,
   textErrorRates,
   retrievalReport,
-} from "../src/analyze/evaluation";
+} from "../src/analyze/embedding/evaluation";
 import { loadRootEnv } from "../src/load-env";
 
 const itemSchema = z.object({
@@ -89,12 +89,12 @@ async function main() {
   }
   loadRootEnv();
   const { evaluateClef, clefSafetyVerdict, prepareClefImage } =
-    await import("../src/analyze/clef");
+    await import("../src/analyze/classification/clef");
   const { generateTextEmbedding, cosineSimilarity } =
-    await import("../src/analyze/embedding");
-  const { extractImageText } = await import("../src/analyze/ocr");
+    await import("../src/analyze/embedding/embedding");
+  const { extractImageText } = await import("../src/analyze/extraction/ocr");
   const { transcribeViaGemini, extractAudioTrack } =
-    await import("../src/analyze/transcribe");
+    await import("../src/analyze/extraction/transcribe");
   const extractionResults: {
     id: string;
     language: string;
@@ -102,7 +102,8 @@ async function main() {
     latencyMs: number;
     metrics: ReturnType<typeof textErrorRates>;
   }[] = [];
-  const { extractVideoSamples } = await import("../src/analyze/video-samples");
+  const { extractVideoSamples } =
+    await import("../src/analyze/sources/video-samples");
   const { runFfmpeg } = await import("../src/transcode/ffmpeg");
   const { closePrisma, closeQueueConnections, redis } = await import("@asm/db");
   const directory = await mkdtemp(path.join(tmpdir(), "asm-model-evaluation-"));

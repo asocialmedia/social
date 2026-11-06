@@ -2,8 +2,8 @@ import { Text, View } from "react-native";
 
 import { UserAvatar } from "@/components/avatar/user-avatar";
 import type { MessageConversationData } from "@/features/messages/lib/types";
-import { getApiBaseUrl } from "@/lib/api-env";
-import { orderedCopy } from "@/lib/ordered-copy";
+import { orderedCopy } from "@/lib/format/ordered-copy";
+import { getApiBaseUrl } from "@/lib/network/api-env";
 import { useAppTheme } from "@/theme";
 
 import { MessageImage } from "./messages-primitives";

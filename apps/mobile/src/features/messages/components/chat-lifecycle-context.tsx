@@ -24,7 +24,7 @@ import {
 import { readMessageStream } from "@/features/messages/lib/realtime";
 import { purgeCachedConversation } from "@/features/messages/state/message-cache";
 import { useMessagesForeground } from "@/features/messages/state/use-messages-foreground";
-import { getApiBaseUrl } from "@/lib/api-env";
+import { getApiBaseUrl } from "@/lib/network/api-env";
 import { useAppTheme } from "@/theme";
 
 import { acknowledgeNativeIncognitoIntroduction } from "../lib/incognito-introduction";

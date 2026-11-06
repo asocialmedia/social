@@ -20,7 +20,7 @@ mock.module("@asm/notifications/server", () => ({
     });
   },
 }));
-const { processNotificationCreated } = await import("./jobs");
+const { processNotificationCreated } = await import("./runtime/jobs");
 
 const communityId = randomUUID();
 const owner = randomUUID();

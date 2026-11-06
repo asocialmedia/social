@@ -35,6 +35,7 @@ import ModeratedNotice from "@/components/posts/content/moderated-notice";
 import PostLinkedContent from "@/components/posts/content/post-linked-content";
 import ViewTracker from "@/components/posts/effects/view-counter";
 import PostLinkEmbeds from "@/components/posts/embeds/link-embeds";
+import { usePostLinkPreviews } from "@/components/posts/embeds/use-post-link-previews";
 import { BlueskyIcon } from "@/components/protocols/bluesky-icon";
 import { ExternalAuthorTooltip } from "@/components/protocols/external-author-tooltip";
 import { ExternalDiscussion } from "@/components/protocols/external-discussion";
@@ -52,7 +53,6 @@ import { ResponseParentRow } from "@/components/responses/response-parent-card";
 import { PostMeta } from "@/components/tags/post-meta";
 import { communityAccentStyle } from "@/lib/communities/accent";
 import { isInteractiveTarget } from "@/lib/interactive-target";
-import { parseStoredEmbeds } from "@/lib/link-embeds/shared";
 import { isPopupOpen } from "@/lib/popup-tracker";
 import {
   isBookmarkedByUser,
@@ -61,6 +61,7 @@ import {
 import type { PresentedPost as PostData } from "@/lib/posts/presentation";
 import { blueskyProfilePath } from "@/lib/protocols/paths";
 import { getPostPath } from "@/lib/seo/seo";
+import { profilePath } from "@/lib/users/profile-path";
 import { cn, formatNumber, formatRelativeDate } from "@/lib/utils";
 import { getMediaProxyUrl } from "@/lib/utils/image-url";
 import { withViewTransition } from "@/lib/view-transition";
@@ -389,7 +390,10 @@ const PostContent: React.FC<PostContentProps> = ({
   const [firstMedia] = attachments;
   // Validated stored embed payloads drive both the inline link badges and
   // the preview cards below the post.
-  const postEmbeds = parseStoredEmbeds(post.embeds);
+  const { embeds: postEmbeds, ref: linkPreviewRef } = usePostLinkPreviews(
+    post.embeds,
+    post.external
+  );
   // Attachment media and link embeds render as one gated block, so the gap
   // below the content follows the media rule (a roomier top gap only when the
   // post opens straight into attachment media) and an embed-only post keeps
@@ -427,7 +431,7 @@ const PostContent: React.FC<PostContentProps> = ({
   const authorCommunityRoles = post.user?.communityMemberships;
   const authorProfileHref =
     (post.external ? blueskyProfilePath(post.external.author.id) : undefined) ??
-    (post.user?.username ? `/users/${post.user.username}` : "#");
+    (post.user?.username ? profilePath(post.user.username) : "#");
 
   // A response shown in a feed or detail view: render the post it
   // replies to as the top node of a mini-thread, connected by a rail,
@@ -475,7 +479,7 @@ const PostContent: React.FC<PostContentProps> = ({
   );
 
   return (
-    <div>
+    <div ref={linkPreviewRef}>
       {showParentRow && post.external?.quote ? (
         <ExternalResponseParentRow
           post={post.external.quote}
@@ -512,7 +516,7 @@ const PostContent: React.FC<PostContentProps> = ({
                 href={
                   person.id.startsWith("did:")
                     ? `/network/bluesky/profile?${new URLSearchParams({ actor: person.id })}`
-                    : `/users/${person.username}`
+                    : profilePath(person.username)
                 }
               >
                 {person.displayName || person.username}

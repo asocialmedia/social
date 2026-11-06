@@ -1,6 +1,6 @@
 {
   "name": "@asm/web",
-  "version": "1.9.8",
+  "version": "1.9.24",
   "private": true,
   "description": "asocialmedia Web App",
   "license": "AGPL-3.0",
@@ -95,8 +95,8 @@
     "@types/react-syntax-highlighter": "^15.5.13",
     "bun-types": "^1.4.0",
     "fake-indexeddb": "^6.2.5",
-    "happy-dom": "^20.14.6",
-    "prisma": "8.0.0-rc.20",
+    "happy-dom": "^21.0.4",
+    "prisma": "8.0.0-rc.22",
     "tailwindcss": "^4.3.3",
     "typescript": "^7.0.2"
   }

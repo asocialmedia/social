@@ -5,7 +5,7 @@ import { collectTestFiles, isIntegrationTestFile } from "./test-file-discovery";
 
 const ENV_FILE_NAME = ".env.test";
 const TIMINGS_FILE_NAME = "test-timings.json";
-const DEFAULT_TEST_FILE_WORKERS = 4;
+const DEFAULT_TEST_FILE_WORKERS = 2;
 
 export type ServiceName = "postgres" | "redis";
 
@@ -28,6 +28,7 @@ interface RunTestSuiteDeps {
   logger?: Pick<typeof console, "error" | "log">;
   probeService?: (endpoint: ServiceEndpoint) => Promise<boolean>;
   readEnvFile?: (filePath: string) => Promise<string | undefined>;
+  recordTimings?: boolean;
   rootDir?: string;
   runProcess?: (options: {
     cmd: string[];
@@ -153,7 +154,17 @@ export async function runTestSuite(
   const readEnvFile = deps.readEnvFile ?? defaultReadEnvFile;
   const processEnv = deps.env ?? process.env;
 
-  const allTests = await collectFiles("all", rootDir);
+  const unitOnly = extraArgs.includes("--unit");
+  const integrationOnly = extraArgs.includes("--integration");
+  if (unitOnly && integrationOnly) {
+    logger.error("Choose either --unit or --integration, not both.");
+    return 1;
+  }
+  const testArgs = extraArgs.filter(
+    (argument) => argument !== "--unit" && argument !== "--integration"
+  );
+  const scope = integrationOnly ? "integration" : unitOnly ? "unit" : "all";
+  const allTests = await collectFiles(scope, rootDir);
 
   if (allTests.length === 0) {
     logger.error("No test files found.");
@@ -169,18 +180,23 @@ export async function runTestSuite(
   const postgresEndpoint = endpointFromUrl("postgres", envValues.DATABASE_URL);
   const redisEndpoint = endpointFromUrl("redis", envValues.REDIS_URL);
 
-  const postgresReachable = postgresEndpoint
-    ? await probeService(postgresEndpoint)
-    : false;
-  const redisReachable = redisEndpoint
-    ? await probeService(redisEndpoint)
-    : false;
+  const postgresReachable =
+    !unitOnly && postgresEndpoint
+      ? await probeService(postgresEndpoint)
+      : false;
+  const redisReachable =
+    !unitOnly && redisEndpoint ? await probeService(redisEndpoint) : false;
 
   const servicesReachable = postgresReachable && redisReachable;
 
+  if (integrationOnly && !servicesReachable) {
+    logger.error("Integration tests require reachable PostgreSQL and Redis.");
+    return 1;
+  }
+
   let selectedTests = allTests;
 
-  if (!servicesReachable) {
+  if (!(unitOnly || servicesReachable)) {
     const unreachableNames = [
       !postgresReachable ? "postgres" : null,
       !redisReachable ? "redis" : null,
@@ -204,6 +220,9 @@ export async function runTestSuite(
     (argument) =>
       argument === "--parallel" || argument.startsWith("--parallel=")
   );
+  const hasTimingsOverride = testArgs.some(
+    (argument) => argument === "--timings" || argument.startsWith("--timings=")
+  );
 
   return await runProcess({
     cmd: [
@@ -211,27 +230,25 @@ export async function runTestSuite(
       "test",
       ...(hasParallelOverride
         ? []
-        : [`--parallel=${DEFAULT_TEST_FILE_WORKERS}`]),
+        : [`--parallel=${integrationOnly ? 1 : DEFAULT_TEST_FILE_WORKERS}`]),
+      ...(integrationOnly ? ["--isolate"] : []),
       `--env-file=${ENV_FILE_NAME}`,
-      `--timings=${TIMINGS_FILE_NAME}`,
-      "--update-timings",
-      ...extraArgs,
+      ...(hasTimingsOverride ? [] : [`--timings=${TIMINGS_FILE_NAME}`]),
+      ...(deps.recordTimings === false || testArgs.includes("--update-timings")
+        ? []
+        : ["--update-timings"]),
+      ...testArgs,
       ...selectedTests.map((filePath) => `./${filePath}`),
     ],
     cwd: rootDir,
     env: {
-      ...process.env,
+      ...processEnv,
       NODE_ENV: "test",
     },
   });
 }
 
-const isDirectExecution = Bun.argv.some(
-  (arg) =>
-    arg.endsWith("scripts/testing/run-tests.ts") || arg.endsWith("run-tests.ts")
-);
-
-if (isDirectExecution) {
+if (import.meta.main) {
   (async () => {
     try {
       const exitCode = await runTestSuite();

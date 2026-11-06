@@ -1,4 +1,4 @@
-import { PROD_API_URL } from "@/lib/api-base";
+import { PROD_API_URL } from "@/lib/network/api-base";
 
 // Public widget key served by the production signup page; the secret stays on the server.
 const PRODUCTION_TURNSTILE_SITE_KEY = "0x4AAAAAAEuKQSsPABv2HAdA";

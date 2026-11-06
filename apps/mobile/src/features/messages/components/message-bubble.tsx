@@ -87,7 +87,7 @@ import { deleteViewOncePhoto } from "@/features/messages/lib/view-once-client";
 import { useMessagesIdentity } from "@/features/messages/state/message-identity";
 import { useMessagesForeground } from "@/features/messages/state/use-messages-foreground";
 import { useViewOnceReceipt } from "@/features/messages/state/use-view-once-receipt";
-import { getApiBaseUrl } from "@/lib/api-env";
+import { getApiBaseUrl } from "@/lib/network/api-env";
 import { useAppTheme } from "@/theme";
 
 import { MessageBubbleEntrance } from "./message-bubble-entrance";

@@ -27,10 +27,10 @@ mock.module("@/features/auth/lib/auth-client", () => ({
 mock.module("@/features/feed/lib/feed-events", () => ({
   subscribeFeedReads: () => () => {},
 }));
-mock.module("@/lib/api-env", () => ({
+mock.module("@/lib/network/api-env", () => ({
   getApiBaseUrl: () => "https://asm.test",
 }));
-mock.module("@/lib/telemetry", () => ({ logWarn() {} }));
+mock.module("@/lib/lifecycle/telemetry", () => ({ logWarn() {} }));
 const files = new Map<string, string>();
 const historyFile = (viewer: string) =>
   `asm-network-search-${encodeURIComponent(viewer)}.json`;

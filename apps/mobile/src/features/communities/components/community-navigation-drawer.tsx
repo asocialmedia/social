@@ -25,7 +25,7 @@ import { StatusActionButton } from "@/components/feedback/status-action-button";
 import { ZephLoader } from "@/components/feedback/zeph-loader";
 import { authClient } from "@/features/auth/lib/auth-client";
 import { MobileBottomNav } from "@/features/home/components/mobile-bottom-nav";
-import { getApiBaseUrl } from "@/lib/api-env";
+import { getApiBaseUrl } from "@/lib/network/api-env";
 import { useAppTheme } from "@/theme";
 
 import { resolveCommunityAccentColor } from "../lib/community-accents";

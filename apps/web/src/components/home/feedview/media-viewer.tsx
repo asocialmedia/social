@@ -70,6 +70,7 @@ import { getPostMediaPath, getPostPath } from "@/lib/seo/seo";
 import { useExplicitRevealed } from "@/lib/stores/explicit-reveal-store";
 import { useVideoCaptionsStore } from "@/lib/stores/video-captions-store";
 import type { Media } from "@/lib/types";
+import { profilePath } from "@/lib/users/profile-path";
 import { cn, formatNumber } from "@/lib/utils";
 import {
   getMediaImageUrl,
@@ -1027,7 +1028,9 @@ const MediaViewer = ({
                     (post.external
                       ? blueskyProfilePath(post.external.author.id)
                       : undefined) ??
-                    (post.user?.username ? `/users/${post.user.username}` : "#")
+                    (post.user?.username
+                      ? profilePath(post.user.username)
+                      : "#")
                   }
                 >
                   <UserAvatar
@@ -1044,7 +1047,7 @@ const MediaViewer = ({
                           ? blueskyProfilePath(post.external.author.id)
                           : undefined) ??
                         (post.user?.username
-                          ? `/users/${post.user.username}`
+                          ? profilePath(post.user.username)
                           : "#")
                       }
                     >
@@ -1069,7 +1072,7 @@ const MediaViewer = ({
                         ? blueskyProfilePath(post.external.author.id)
                         : undefined) ??
                       (post.user?.username
-                        ? `/users/${post.user.username}`
+                        ? profilePath(post.user.username)
                         : "#")
                     }
                   >
@@ -1536,7 +1539,9 @@ const MediaViewer = ({
                     (post.external
                       ? blueskyProfilePath(post.external.author.id)
                       : undefined) ??
-                    (post.user?.username ? `/users/${post.user.username}` : "#")
+                    (post.user?.username
+                      ? profilePath(post.user.username)
+                      : "#")
                   }
                 >
                   <UserAvatar
@@ -1553,7 +1558,7 @@ const MediaViewer = ({
                           ? blueskyProfilePath(post.external.author.id)
                           : undefined) ??
                         (post.user?.username
-                          ? `/users/${post.user.username}`
+                          ? profilePath(post.user.username)
                           : "#")
                       }
                     >
@@ -1578,7 +1583,7 @@ const MediaViewer = ({
                         ? blueskyProfilePath(post.external.author.id)
                         : undefined) ??
                       (post.user?.username
-                        ? `/users/${post.user.username}`
+                        ? profilePath(post.user.username)
                         : "#")
                     }
                   >

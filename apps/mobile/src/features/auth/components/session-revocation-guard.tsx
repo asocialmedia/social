@@ -11,9 +11,9 @@ import {
   shouldEndSession,
 } from "@/features/auth/lib/session-revocation";
 import { useSessionContext } from "@/features/auth/state/session";
-import { getApiBaseUrl } from "@/lib/api-env";
-import { readSseStream } from "@/lib/sse-stream";
-import { logInfo } from "@/lib/telemetry";
+import { logInfo } from "@/lib/lifecycle/telemetry";
+import { getApiBaseUrl } from "@/lib/network/api-env";
+import { readSseStream } from "@/lib/network/sse-stream";
 
 // Monitors server-sent session revocation events in real time.
 // Remote revocation events end the affected session immediately.

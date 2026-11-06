@@ -7,6 +7,7 @@ import RowBannerWash from "@/components/layouts/shell/row-banner-wash";
 import UserAvatar from "@/components/layouts/user/user-avatar";
 import { getAuraFlameClass } from "@/lib/aura/aura";
 import { useCommunityMembersQuery } from "@/lib/communities/client";
+import { profilePath } from "@/lib/users/profile-path";
 import { cn, formatNumber } from "@/lib/utils";
 
 import CommunityRoleBadge, {
@@ -81,7 +82,7 @@ export function CommunityTopMembers({ slug }: { slug: string }) {
         {members.map((member) => (
           <Link
             className="group relative flex overflow-hidden rounded-xl outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[hsl(var(--ring))]"
-            href={`/users/${member.user.username}`}
+            href={profilePath(member.user.username)}
             key={member.user.id}
           >
             {/* The member's header image washed into the row, same treatment as

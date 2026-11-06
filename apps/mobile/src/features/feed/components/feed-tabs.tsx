@@ -11,8 +11,8 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 
-import { haptic } from "@/lib/haptics";
-import { SHOWS_SCROLL_INDICATOR } from "@/lib/scroll-indicator";
+import { haptic } from "@/lib/interaction/haptics";
+import { SHOWS_SCROLL_INDICATOR } from "@/lib/layout/scroll-indicator";
 import { useAppTheme } from "@/theme";
 
 import type { HomeTab } from "../state/tab-store";

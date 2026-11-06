@@ -89,6 +89,12 @@ test("opened Bluesky profiles replace text-only queries and survive storage roun
 });
 
 test("history rejects unsafe result destinations while retaining legacy text searches", () => {
+  const nativeProfile = rememberResult(
+    [],
+    { ...vercel, href: "/parazeeknova", source: "asm" },
+    "parazeeknova"
+  );
+  expect(nativeProfile[0]?.target?.href).toBe("/parazeeknova");
   for (const href of [
     ["java", "script:alert(1)"].join(""),
     "//evil.example",

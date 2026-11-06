@@ -7,13 +7,13 @@ import {
   MEDIA_ANALYZE_QUEUE,
 } from "@asm/db";
 
+import { embeddingModelId } from "../analyze/embedding/embedding";
 import {
   analysisStageComplete,
   mediaEmbeddingComplete,
   transcriptionComplete,
   transcriptionRetryEligible,
-} from "../analyze/checkpoints";
-import { embeddingModelId } from "../analyze/embedding";
+} from "../analyze/state/checkpoints";
 import { workerEnv } from "../env";
 
 let cursor: string | undefined;

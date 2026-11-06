@@ -17,7 +17,7 @@ const {
   mapPostData,
 } = await import("@asm/db");
 const { getS3 } = await import("../src/s3");
-const { processMedia } = await import("../src/jobs/process");
+const { processMedia } = await import("../src/jobs/processing/process");
 const artifactDir =
   process.env.ASM_MEDIA_ARTIFACTS ?? "/tmp/asm-media-http-smoke";
 await mkdir(artifactDir, { recursive: true });

@@ -157,8 +157,25 @@ async function readNetworkNativeFeed(
     const context = await timing.measure("features", () =>
       networkFeedContext(userId || undefined, query.get("profile") ?? undefined)
     );
-    // An empty `?cursor=` is a malformed continuation, not a fresh head: treating
-    // the key's presence as a cursor silently restarted the feed instead of 410ing.
+    // A freshness probe must observe new arrivals instead of replaying a cached head.
+    if (
+      mode === "latest" &&
+      query.get("refresh") === "1" &&
+      !query.has("cursor")
+    ) {
+      return timing.finish(
+        await buildNetworkNativeFeed(
+          request,
+          userId,
+          mode,
+          contentKind,
+          context,
+          timing
+        ),
+        "native"
+      );
+    }
+    // Empty cursor keys are malformed continuations and must not restart the feed.
     const cursorParam = query.get("cursor");
     if (cursorParam !== null) {
       if (cursorParam === "") {
@@ -181,17 +198,25 @@ async function readNetworkNativeFeed(
     }
     // The served count is part of the key so a viewer with history gets a fresh
     // ordering, while concurrent loads of the same page still share one read.
-    // It is keyed per surface to match the served-set the build stage reads.
-    const surfaceKey = query.get("surface") === "explore" ? "explore" : "home";
-    const servedCount = userId
-      ? await redis
-          .zcard(servedSetKey(userId, `${surfaceKey}:${contentKind}:${mode}`))
-          .catch(() => 0)
-      : 0;
+    // Both histories affect head ranking when a viewer switches surfaces.
+    const servedCounts = userId
+      ? await Promise.all(
+          ["home", "explore"].map((surface) =>
+            redis
+              .zcard(servedSetKey(userId, `${surface}:${contentKind}:${mode}`))
+              .catch(() => 0)
+          )
+        )
+      : [0, 0];
+    const recentServedPages = await Promise.all(
+      ["home", "explore"].map((surface) =>
+        readServedIds(userId, `${surface}:${contentKind}:${mode}`, 50)
+      )
+    );
     const version = userId
       ? await redis.get(`rec:suggestions:version:${userId}`).catch(() => null)
       : "guest";
-    const key = `rec:native-head:v7:{${createHash("sha256")
+    const key = `rec:native-head:v9:{${createHash("sha256")
       .update(
         JSON.stringify([
           userId,
@@ -203,7 +228,9 @@ async function readNetworkNativeFeed(
           query.get("surface"),
           query.get("take"),
           query.get("locale"),
-          servedCount,
+          query.get("source"),
+          servedCounts,
+          recentServedPages,
         ])
       )
       .digest("hex")}}`;
@@ -240,18 +267,24 @@ async function readNetworkNativeFeed(
     );
   } catch (error) {
     if (error instanceof NetworkPreferenceConflictError) {
-      return Response.json(
-        { error: "Choose an available recommendation profile" },
-        { status: 409 }
+      return timing.finish(
+        Response.json(
+          { error: "Choose an available recommendation profile" },
+          { status: 409 }
+        ),
+        "native"
       );
     }
     reportRecommendationHealth("native-feed", false, error);
-    return Response.json(
-      { error: "Feed is temporarily unavailable" },
-      {
-        headers: { "cache-control": "private, no-store", "retry-after": "2" },
-        status: 503,
-      }
+    return timing.finish(
+      Response.json(
+        { error: "Feed is temporarily unavailable" },
+        {
+          headers: { "cache-control": "private, no-store", "retry-after": "2" },
+          status: 503,
+        }
+      ),
+      "native"
     );
   }
 }
@@ -272,8 +305,12 @@ async function buildNetworkNativeFeed(
     context.preferences.avoidedTopics,
     context.topicScope
   );
-  const maximumLevel = context.selected.interests.length ? 1 : 2;
-  const scope = `v12:${exploring ? "explore" : "home"}:${userId || "guest"}:${context.selected.id}:${context.revision}:${context.topicScope?.version ?? "exact"}:${mode}:${contentKind}`;
+  const focused = mode !== "latest" && query.get("source") !== "asm";
+  let maximumLevel = 0;
+  if (focused) {
+    maximumLevel = context.selected.interests.length ? 1 : 2;
+  }
+  const scope = `v13:${focused ? "focused" : "native"}:${exploring ? "explore" : "home"}:${userId || "guest"}:${context.selected.id}:${context.revision}:${context.topicScope?.version ?? "exact"}:${mode}:${contentKind}`;
   const coldStart = isDiscoveryColdStart(
     context.selected.interests,
     context.profile,
@@ -336,17 +373,32 @@ async function buildNetworkNativeFeed(
     }
   }
   const stopRetrieval = timing.start("retrieval");
-  // Home and Explore draw from the same pool but must not replay each other, so
-  // the served history is keyed by surface as well as by content kind and mode.
+  // Keep each surface's record and consider both when ranking a fresh head.
   const servedFeed = `${exploring ? "explore" : "home"}:${contentKind}:${mode}`;
   // Only a fresh head asks what this viewer already saw; a continuation page
   // belongs to the same snapshot and must not shift under the reader.
-  const served =
-    buildBatch && !cursor ? await readServedIds(userId, servedFeed) : [];
+  const servedGroups =
+    buildBatch && !cursor && mode !== "latest"
+      ? await Promise.all(
+          ["home", "explore"].map((surface) =>
+            readServedIds(userId, `${surface}:${contentKind}:${mode}`)
+          )
+        )
+      : [];
+  const served = [...new Set(servedGroups.flat())];
   // Ranking re-sorts by score, which would discard the retrieval query's
   // served-last ordering. Demote seen ids in the score instead so a refresh
   // reaches new posts while a thin pool still fills the page.
   const servedSet = new Set(served);
+  const recentPeerIds = new Set(
+    buildBatch && !cursor && mode !== "latest"
+      ? await readServedIds(
+          userId,
+          `${exploring ? "home" : "explore"}:${contentKind}:${mode}`,
+          pageSize
+        )
+      : []
+  );
   const servedPenalty = (score: number, id: string) =>
     servedSet.has(id) ? score * 0.35 : score;
   if (buildBatch) {
@@ -360,6 +412,9 @@ async function buildNetworkNativeFeed(
           ]),
         ].slice(0, 40);
     let seeds = exploring ? neighboringTopics : focusedSeeds;
+    if (!focused) {
+      seeds = [];
+    }
     if (level === 1) {
       seeds = [
         ...new Set(
@@ -377,7 +432,11 @@ async function buildNetworkNativeFeed(
         ? Promise.resolve({ rows: [] as { id: string }[] })
         : nativeCandidateIds({
             anchor,
-            continuation: Boolean(cursor) || candidateOffset > 0 || level > 0,
+            continuation:
+              query.get("refresh") === "1" ||
+              Boolean(cursor) ||
+              candidateOffset > 0 ||
+              level > 0,
             explicit: context.preferences.showExplicitContent,
             gust: contentKind === "gust",
             mode,
@@ -386,7 +445,7 @@ async function buildNetworkNativeFeed(
             served,
             signal: request.signal,
           }),
-      (!exploring && context.selected.interests.length) || level > 0
+      (!exploring && context.selected.interests.length) || !focused || level > 0
         ? Promise.resolve({ rows: [] })
         : rawQuery<{ id: string }>(
             networkSql.pagedCandidates,
@@ -460,10 +519,10 @@ async function buildNetworkNativeFeed(
             // A banned author's content is removed everywhere else in the app;
             // a feed that still ranks it is a moderation hole, not a preference.
             post.user.some((author) => author.banned.eq(false)),
-            // A reader's own posts belong on their profile and the Latest feed,
-            // not competing with discovery in For You. The archive path already
-            // excludes self, and the two surfaces must agree.
-            ...(userId && mode !== "latest" ? [post.userId.neq(userId)] : []),
+            // Ranked discovery excludes self; explicit native browsing and Latest include the reader's posts.
+            ...(userId && mode !== "latest" && focused
+              ? [post.userId.neq(userId)]
+              : []),
             visibility(post),
             // Membership grants access on its own: a reader who joined a PRIVATE
             // community without also subscribing is still a member, and the
@@ -495,7 +554,10 @@ async function buildNetworkNativeFeed(
         ? isTrendingPost(post)
         : // Cold start means no persona to personalise with, not "only the hot
           // list": a stored positive aura is enough proof of quality there.
-          !coldStart || isGuestQualityPost(post) || socialById.has(post.id)
+          !focused ||
+          !coldStart ||
+          isGuestQualityPost(post) ||
+          socialById.has(post.id)
     )
     .filter(
       (post) =>
@@ -509,7 +571,8 @@ async function buildNetworkNativeFeed(
         // seed set decides what to retrieve, never whether a post the reader
         // explicitly excluded may appear. Explore differs from Home through its
         // surface-scoped served history, not by dropping this gate.
-        (!context.selected.interests.length ||
+        (!focused ||
+          !context.selected.interests.length ||
           postNetworkInterestScore(
             post,
             context.selected.interests,
@@ -605,11 +668,7 @@ async function buildNetworkNativeFeed(
         semanticTags: topics,
       };
     });
-    const hasInterests = Object.keys(context.profile.tagWeights).length > 0;
-    const eligiblePool =
-      mode === "latest" && hasInterests && level === 0
-        ? enriched.filter((item) => item.fit > 0)
-        : enriched;
+    const eligiblePool = enriched;
     eligiblePool.sort((a, b) =>
       mode === "latest"
         ? b.post.createdAt.getTime() - a.post.createdAt.getTime() ||
@@ -645,6 +704,13 @@ async function buildNetworkNativeFeed(
         enriched.filter((item) => item.fit > 0).map((item) => item.id)
       );
       ids = diversifyExploreCandidates(ids, (id) => related.has(id));
+    }
+    // Preserve ranking within each group while avoiding the other surface's latest page.
+    if (recentPeerIds.size) {
+      ids = [
+        ...ids.filter((id) => !recentPeerIds.has(id)),
+        ...ids.filter((id) => recentPeerIds.has(id)),
+      ];
     }
     ids = ids.slice(0, 400);
     stopRanking();

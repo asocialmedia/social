@@ -77,7 +77,7 @@ test.each(["pr", "push", "initial"])(
   async (source) => {
     const outputs = await select(
       [
-        "apps/protocols/src/discovery.ts",
+        "apps/protocols/src/discovery/discovery.ts",
         "packages/protocols/src/bluesky/client.ts",
         rootVersion,
         workspaceVersions,
@@ -98,7 +98,7 @@ test.each([
   "apps/mobile/src/app/index.tsx",
   "apps/mobile/app.config.ts",
   "apps/mobile/package.json",
-  "apps/mobile/scripts/build-android-apk.ts",
+  "apps/mobile/scripts/android/build-android-apk.ts",
 ])(
   "mobile input %s still builds Android alongside version-only stamps",
   async (file) => {
@@ -168,7 +168,7 @@ test("unrelated docs do not publish service images", async () => {
 
 test("classifier code publishes its standalone context without other service images", async () => {
   const outputs = await select([
-    "apps/classifier/src/inference.ts",
+    "apps/classifier/src/inference/inference.ts",
     rootVersion,
     workspaceVersions,
   ]);
@@ -180,14 +180,14 @@ test("classifier code publishes its standalone context without other service ima
     image: "asm-classifier",
   });
   expect(outputs["selected-apps"]).toBe("classifier");
-  const isolated = await select(["apps/classifier/src/inference.ts"]);
+  const isolated = await select(["apps/classifier/src/inference/inference.ts"]);
   expect(isolated["selected-apps"]).toBe("classifier");
   expect(isolated["has-mobile-changes"]).toBe("false");
 });
 
 test.each([
   "apps/classifier/README.md",
-  "apps/classifier/src/inference.test.ts",
+  "apps/classifier/src/inference/inference.test.ts",
   "apps/classifier/scripts/benchmark.ts",
   "apps/classifier/.env.development",
   "packages/protocols/src/contracts.ts",

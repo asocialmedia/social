@@ -12,8 +12,8 @@ import {
   createLinkPreviewResolver,
   extractPostUrls,
 } from "@/features/feed/lib/link-preview-resolver";
-import { getApiBaseUrl } from "@/lib/api-env";
-import { logInfo, logWarn } from "@/lib/telemetry";
+import { logInfo, logWarn } from "@/lib/lifecycle/telemetry";
+import { getApiBaseUrl } from "@/lib/network/api-env";
 
 const log = {
   info: logInfo,

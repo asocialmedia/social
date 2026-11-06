@@ -1,6 +1,6 @@
 import type { ApiCallOptions } from "@/features/feed/lib/feed-api";
-import { withAuthHeaders } from "@/lib/auth-headers";
-import { getWithTimeout } from "@/lib/http-get";
+import { withAuthHeaders } from "@/lib/network/auth-headers";
+import { getWithTimeout } from "@/lib/network/http-get";
 
 export interface SearchUserResult {
   aura: number;

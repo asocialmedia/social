@@ -3,8 +3,8 @@ import type { FeedPost, PostsPage } from "@/features/feed/lib/feed-types";
 import { normalizePostsData } from "@/features/feed/lib/feed-types";
 import { parseHnStories } from "@/features/hackernews/lib/hackernews-api";
 import type { HnStory } from "@/features/hackernews/lib/hackernews-api";
-import { withAuthHeaders } from "@/lib/auth-headers";
-import { getWithTimeout } from "@/lib/http-get";
+import { withAuthHeaders } from "@/lib/network/auth-headers";
+import { getWithTimeout } from "@/lib/network/http-get";
 
 export type { HnStory } from "@/features/hackernews/lib/hackernews-api";
 

@@ -42,9 +42,16 @@ async function read(
   mode: "personalized" | "latest" | "trending",
   kind: "post" | "gust",
   cursor?: string,
-  surface = "home"
+  surface = "home",
+  source?: "asm"
 ) {
   const query = new URLSearchParams({ surface, take: "20" });
+  if (mode === "latest") {
+    query.set("refresh", "1");
+  }
+  if (source) {
+    query.set("source", source);
+  }
   if (cursor) {
     query.set("cursor", cursor);
   }
@@ -144,12 +151,12 @@ afterAll(async () => {
   redis.disconnect();
 });
 
-test("all five recommendation modes exclude viral politics despite learned political activity", async () => {
+test("ranked recommendation modes exclude viral politics despite learned political activity", async () => {
   await Promise.all(
     (
       [
-        ["post", ["personalized", "latest", "trending"]],
-        ["gust", ["personalized", "latest"]],
+        ["post", ["personalized", "trending"]],
+        ["gust", ["personalized"]],
       ] as const
     ).flatMap(([kind, modes]) =>
       modes.map(async (mode) => {
@@ -207,7 +214,7 @@ test("profile changes invalidate cursors; unmatched ranked feeds can continue in
   await choose(["politics"]);
   await Promise.all(
     (["post", "gust"] as const).flatMap((kind) =>
-      (["personalized", "latest", "trending"] as const).map(async (mode) => {
+      (["personalized", "trending"] as const).map(async (mode) => {
         const { page } = await read(mode, kind);
         expect(
           page.posts.every((post) =>
@@ -238,14 +245,10 @@ test("profile changes invalidate cursors; unmatched ranked feeds can continue in
   await choose([`unmatched-${crypto.randomUUID()}`]);
   await Promise.all(
     (["post", "gust"] as const).flatMap((kind) =>
-      (["personalized", "latest", "trending"] as const).map(async (mode) => {
+      (["personalized", "trending"] as const).map(async (mode) => {
         const { page } = await read(mode, kind);
         expect(page.posts).toEqual([]);
-        if (mode === "latest") {
-          expect(page.nextCursor).toBeNull();
-        } else {
-          expect(page.nextCursor).toBeString();
-        }
+        expect(page.nextCursor).toBeString();
       })
     )
   );
@@ -344,7 +347,7 @@ test("Explore keeps chosen interests as an eligibility gate across post and vide
   await choose(["software"]);
   const { preferences } = settings;
   for (const kind of ["post", "gust"] as const) {
-    for (const mode of ["personalized", "latest", "trending"] as const) {
+    for (const mode of ["personalized", "trending"] as const) {
       // oxlint-disable-next-line no-await-in-loop -- independent cursor scopes are checked sequentially against the same persona.
       const { page, status } = await read(mode, kind, undefined, "explore");
       expect(status).toBe(200);
@@ -359,5 +362,27 @@ test("Explore keeps chosen interests as an eligibility gate across post and vide
         )
       ).toBe(false);
     }
+  }
+});
+
+test("Latest and explicit ASM-only feeds retain posts outside the recommendation interests", async () => {
+  await choose([`no-match-${crypto.randomUUID()}`]);
+  for (const kind of ["post", "gust"] as const) {
+    // oxlint-disable-next-line no-await-in-loop -- each content kind has an independent timeline.
+    const latest = await read("latest", kind);
+    expect(latest.status).toBe(200);
+    expect(
+      latest.page.posts.some((post) =>
+        fixtures.some((fixture) => fixture.id === post.id)
+      )
+    ).toBe(true);
+    // oxlint-disable-next-line no-await-in-loop -- source isolation is checked after its matching timeline.
+    const native = await read("personalized", kind, undefined, "home", "asm");
+    expect(native.status).toBe(200);
+    expect(
+      native.page.posts.some((post) =>
+        fixtures.some((fixture) => fixture.id === post.id)
+      )
+    ).toBe(true);
   }
 });

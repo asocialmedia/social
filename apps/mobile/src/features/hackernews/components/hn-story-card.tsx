@@ -28,7 +28,7 @@ import { Pressable, Share, StyleSheet, Text, View } from "react-native";
 import { toast } from "@/components/feedback/toast";
 import { Gradient3D } from "@/components/surface/gradient-3d";
 import { hnChip, hnLink, RAIL_ACTIVE } from "@/components/surface/recipes";
-import { logWarn } from "@/lib/telemetry";
+import { logWarn } from "@/lib/lifecycle/telemetry";
 import { useAppTheme } from "@/theme";
 
 import type { HnStory } from "../lib/hackernews-api";

@@ -6,7 +6,7 @@ import {
   getDefaultAvatar,
   resolveProfileImageUrl,
 } from "@/features/home/components/profile-utils";
-import { getApiBaseUrl } from "@/lib/api-env";
+import { getApiBaseUrl } from "@/lib/network/api-env";
 import { useAppTheme } from "@/theme";
 
 import type { CommunityData } from "../lib/communities-api";

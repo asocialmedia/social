@@ -44,6 +44,7 @@ interface FeedViewProps {
   externalPosts?: ExternalPost[];
   source?: FeedSource;
   sourcesPending?: boolean;
+  sourceWaitMs?: number;
   cacheKey?: QueryKey;
   // Extra ids to drop from the rendered feed, applied to both the server list
   // and every cache-synced update. Used when a leading segment already shows a
@@ -65,6 +66,7 @@ export const FeedView: React.FC<FeedViewProps> = ({
   externalPosts = EMPTY_EXTERNAL_POSTS,
   source = "all",
   sourcesPending: pendingSources = false,
+  sourceWaitMs = 600,
   cacheKey = DEFAULT_FEED_CACHE_KEY,
   excludeIds,
   excludePostId,
@@ -75,7 +77,7 @@ export const FeedView: React.FC<FeedViewProps> = ({
   trending = false,
   showEmpty = true,
 }) => {
-  const sourcesPending = useBoundedSourcePending(pendingSources);
+  const sourcesPending = useBoundedSourcePending(pendingSources, sourceWaitMs);
   const MemoizedPostCard = useMemo(() => React.memo(PostCard), []);
   const queryClient = useQueryClient();
   const network = useNetworkSettings();

@@ -24,6 +24,7 @@ import type React from "react";
 import { CommunityRequestNotificationActions } from "@/components/communities/page/community-join-requests";
 import UserAvatar from "@/components/layouts/user/user-avatar";
 import { getPostPath } from "@/lib/seo/seo";
+import { profilePath } from "@/lib/users/profile-path";
 import { cn, formatRelativeDate } from "@/lib/utils";
 
 interface NotificationProps {
@@ -208,7 +209,7 @@ const TYPE_CONFIG: Record<NotificationType, TypeConfig> = {
   FOLLOW: {
     action: () => "followed you",
     badgeClass: "bg-gradient-to-b from-[#ff9500] to-[#e65500]",
-    href: (notification) => `/users/${notification.issuer.username}`,
+    href: (notification) => profilePath(notification.issuer.username),
     icon: UserPlus,
   },
   MENTION: {

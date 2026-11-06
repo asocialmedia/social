@@ -76,9 +76,9 @@ import { BioContent } from "@/features/home/components/bio-content";
 import { getAuraFlameStyle } from "@/features/home/components/profile-utils";
 import { UserBadge } from "@/features/home/components/user-badge";
 import { fetchPostDetail } from "@/features/post/lib/post-api";
-import { getApiBaseUrl } from "@/lib/api-env";
-import { formatNumber } from "@/lib/format-number";
-import { SHOWS_SCROLL_INDICATOR } from "@/lib/scroll-indicator";
+import { formatNumber } from "@/lib/format/format-number";
+import { SHOWS_SCROLL_INDICATOR } from "@/lib/layout/scroll-indicator";
+import { getApiBaseUrl } from "@/lib/network/api-env";
 import { useAppTheme } from "@/theme";
 
 import type { ProfileFeedItem, ProfileFeedRow } from "../lib/profile-feed-rows";

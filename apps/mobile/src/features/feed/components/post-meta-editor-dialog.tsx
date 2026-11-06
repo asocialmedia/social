@@ -22,7 +22,7 @@ import {
   SettingsInput,
   SettingsSubcard,
 } from "@/features/settings/components/settings-ui";
-import { getApiBaseUrl } from "@/lib/api-env";
+import { getApiBaseUrl } from "@/lib/network/api-env";
 import { useAppTheme } from "@/theme";
 
 import { updatePostMentions, updatePostTags } from "../lib/post-mutations";

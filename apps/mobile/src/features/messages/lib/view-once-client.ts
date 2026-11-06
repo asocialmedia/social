@@ -3,7 +3,7 @@ import type { ViewOnceReceipt } from "@asm/messages";
 import { Directory, File, Paths } from "expo-file-system";
 
 import type { ApiCallOptions } from "@/features/feed/lib/feed-api";
-import { withAuthHeaders } from "@/lib/auth-headers";
+import { withAuthHeaders } from "@/lib/network/auth-headers";
 
 export class ViewOnceMediaError extends Error {
   readonly status: number;

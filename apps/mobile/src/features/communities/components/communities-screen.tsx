@@ -49,10 +49,10 @@ import {
   MobileHeader,
 } from "@/features/home/components/mobile-header";
 import { SettingsButton } from "@/features/settings/components/settings-ui";
-import { getApiBaseUrl } from "@/lib/api-env";
-import { bottomDockPadding } from "@/lib/bottom-dock-layout";
-import { LIST_VIRTUALIZATION_PROPS } from "@/lib/list-virtualization";
-import { SHOWS_SCROLL_INDICATOR } from "@/lib/scroll-indicator";
+import { bottomDockPadding } from "@/lib/layout/bottom-dock-layout";
+import { LIST_VIRTUALIZATION_PROPS } from "@/lib/layout/list-virtualization";
+import { SHOWS_SCROLL_INDICATOR } from "@/lib/layout/scroll-indicator";
+import { getApiBaseUrl } from "@/lib/network/api-env";
 import {
   LOGIN_BUTTON_SHADOWS,
   LOGIN_BUTTON_SHADOWS_LIGHT,

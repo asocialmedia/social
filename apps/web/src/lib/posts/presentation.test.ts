@@ -200,3 +200,18 @@ test("cached bookmarks and media previews repair old false flags synchronously",
   ).toBe(true);
   expect(stale.explicitContent).toBe(false);
 });
+
+test("a Bluesky card with an empty title keeps its exact destination readable", () => {
+  const [embed] = parseStoredEmbeds(
+    externalPostView({
+      ...post,
+      externalLink: {
+        description: "",
+        title: "",
+        url: "https://ko-fi.com/s/8b62fc25c7",
+      },
+    }).embeds
+  );
+  expect(embed?.title).toBe("ko-fi.com/s/8b62fc25c7");
+  expect(embed?.url).toBe("https://ko-fi.com/s/8b62fc25c7");
+});

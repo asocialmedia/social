@@ -23,9 +23,9 @@ import {
   getScopeAttachments,
 } from "@/features/media-upload/state/attachment-store";
 import type { DraftAttachment } from "@/features/media-upload/state/attachment-store";
-import { getApiBaseUrl } from "@/lib/api-env";
-import { withAuthHeaders } from "@/lib/auth-headers";
-import { haptic } from "@/lib/haptics";
+import { haptic } from "@/lib/interaction/haptics";
+import { getApiBaseUrl } from "@/lib/network/api-env";
+import { withAuthHeaders } from "@/lib/network/auth-headers";
 import { useAppTheme } from "@/theme";
 
 import type { MentionPick } from "../lib/inline-relations";

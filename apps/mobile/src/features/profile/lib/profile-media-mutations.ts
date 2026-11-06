@@ -11,9 +11,9 @@ import type { ApiCallOptions } from "@/features/feed/lib/feed-api";
 import type { UploadPurpose } from "@/features/media-upload/lib/upload-api";
 import type { UploadSource } from "@/features/media-upload/lib/upload-client";
 import { uploadMedia } from "@/features/media-upload/lib/upload-client";
-import { getApiBaseUrl } from "@/lib/api-env";
-import { withAuthHeaders } from "@/lib/auth-headers";
-import { logInfo, logWarn } from "@/lib/telemetry";
+import { logInfo, logWarn } from "@/lib/lifecycle/telemetry";
+import { getApiBaseUrl } from "@/lib/network/api-env";
+import { withAuthHeaders } from "@/lib/network/auth-headers";
 
 import { pickProfileImage, stabilizePickedImage } from "./profile-media";
 import type { PickedProfileImage, ProfileImageKind } from "./profile-media";

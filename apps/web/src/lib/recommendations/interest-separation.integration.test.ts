@@ -329,12 +329,17 @@ test("home and explore do not replay the same page", async () => {
   const exploreIds = explore.page.posts.map((post) => post.id);
   const shared = exploreIds.filter((id) => homeIds.has(id));
 
-  // Explore keeps its own served history, so it must not be a wholesale replay
-  // of Home. With a narrow shared pool some overlap is expected; identical
-  // pages are not.
+  // Cross-surface history must avoid replay even after this narrow pool has been served before.
   expect(home.page.posts.length).toBeGreaterThan(0);
   expect(explore.page.posts.length).toBeGreaterThan(0);
   expect(shared.length).toBeLessThan(exploreIds.length);
+  const returningHome = await readFeed(animeUser, "personalized");
+  const exploreSet = new Set(exploreIds);
+  expect(returningHome.status).toBe(200);
+  expect(returningHome.page.posts.length).toBeGreaterThan(0);
+  expect(
+    returningHome.page.posts.filter((post) => exploreSet.has(post.id)).length
+  ).toBeLessThan(returningHome.page.posts.length);
 }, 30_000);
 
 test("a personalized refresh prefers unseen posts over the ones just served", async () => {

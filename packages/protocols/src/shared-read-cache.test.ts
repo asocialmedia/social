@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, setSystemTime, test } from "bun:test";
 import { setTimeout as delay } from "node:timers/promises";
 
 import { BoundedReadQueue } from "./read-queue";
@@ -67,37 +67,43 @@ test("1000 identical readers share one request and cancellation of one reader pr
 });
 
 test("replicas use one shared lease and preserve the original freshness deadline", async () => {
-  const { store, entries, owners } = memoryStore();
-  const first = new SharedReadCache({
-    parse,
-    queue: queue(),
-    store,
-    ttlMs: 150,
-  });
-  const second = new SharedReadCache({
-    parse,
-    queue: queue(),
-    store,
-    ttlMs: 150,
-  });
-  let calls = 0;
-  const load = async () => {
-    calls += 1;
-    await delay(20);
-    return "shared";
-  };
-  const values = await Promise.all([
-    first.read("query", load),
-    second.read("query", load),
-  ]);
-  expect(values).toEqual(["shared", "shared"]);
-  expect(calls).toBe(1);
-  expect(owners.size).toBe(0);
-  expect(entries.size).toBe(1);
-  expect(second.stats.sharedHits).toBe(1);
-  await delay(160);
-  expect(await second.read("query", load)).toBe("shared");
-  expect(calls).toBe(2);
+  const start = Date.now();
+  setSystemTime(start);
+  try {
+    const { store, entries, owners } = memoryStore();
+    const first = new SharedReadCache({
+      parse,
+      queue: queue(),
+      store,
+      ttlMs: 150,
+    });
+    const second = new SharedReadCache({
+      parse,
+      queue: queue(),
+      store,
+      ttlMs: 150,
+    });
+    let calls = 0;
+    const load = async () => {
+      calls += 1;
+      await delay(20);
+      return "shared";
+    };
+    const values = await Promise.all([
+      first.read("query", load),
+      second.read("query", load),
+    ]);
+    expect(values).toEqual(["shared", "shared"]);
+    expect(calls).toBe(1);
+    expect(owners.size).toBe(0);
+    expect(entries.size).toBe(1);
+    expect(second.stats.sharedHits).toBe(1);
+    setSystemTime(start + 160);
+    expect(await second.read("query", load)).toBe("shared");
+    expect(calls).toBe(2);
+  } finally {
+    setSystemTime();
+  }
 });
 
 test("failed reads do not poison the cache and a Redis outage falls back to bounded local work", async () => {

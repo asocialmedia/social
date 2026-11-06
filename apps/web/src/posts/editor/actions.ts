@@ -52,6 +52,7 @@ import {
   recordExternalResponseInteraction,
 } from "@/lib/recommendations/record-event";
 import { getPostUrl } from "@/lib/seo/seo";
+import { profilePath } from "@/lib/users/profile-path";
 
 // Creation rewards come from the aura economy config - the single tuning
 // surface for every aura constant (see packages/db/src/aura/config.ts).
@@ -835,7 +836,7 @@ export async function submitPost(input: CreatePostInput) {
     // Never block the response on network; swallow errors.
     if (newPost) {
       const postUrl = getPostUrl(newPost);
-      const authorUrl = `${siteConfig.url}/users/${sessionData.user.username ?? sessionData.user.id}`;
+      const authorUrl = `${siteConfig.url}${profilePath(sessionData.user.username ?? sessionData.user.id)}`;
       void (async () => {
         try {
           const { submitManyToIndexNow } = await import("@/lib/seo/indexnow");

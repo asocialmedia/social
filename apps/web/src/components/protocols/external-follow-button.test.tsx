@@ -110,6 +110,8 @@ test("a signed-in reader follows without the ASM suffix", async () => {
   );
   expect(button).toBeDefined();
   expect(button?.textContent).toBe("Follow");
+  expect(button?.classList.contains("btn-3d")).toBe(true);
+  expect(button?.classList.contains("btn-3d-gray")).toBe(false);
   expect(button?.textContent).not.toContain("ASM");
   await cleanup();
 });
@@ -121,5 +123,7 @@ test("following reads as Following, and can be undone", async () => {
     node.textContent?.includes("Following")
   );
   expect(button?.textContent).toBe("Following");
+  expect(button?.classList.contains("btn-3d-gray")).toBe(true);
+  expect(button?.classList.contains("btn-3d")).toBe(false);
   await cleanup();
 });

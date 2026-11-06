@@ -17,6 +17,7 @@ import Link from "next/link";
 import { useCallback, useState } from "react";
 
 import UserAvatar from "@/components/layouts/user/user-avatar";
+import { profilePath } from "@/lib/users/profile-path";
 import { cn } from "@/lib/utils";
 import { useUpdateMentionsMutation } from "@/posts/editor/mutations";
 
@@ -195,7 +196,7 @@ export const MentionTags = ({
               {localMentions.map((user) => (
                 <Link
                   className="rounded-full no-underline focus:outline-hidden focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
-                  href={`/users/${user.username}`}
+                  href={profilePath(user.username)}
                   key={user.id}
                 >
                   <motion.div

@@ -6,7 +6,7 @@ import {
   requestPermissionsAsync,
 } from "expo-media-library";
 
-import { logError, logInfo, logWarn } from "@/lib/telemetry";
+import { logError, logInfo, logWarn } from "@/lib/lifecycle/telemetry";
 
 import { createCaptureSaver } from "./capture-save";
 

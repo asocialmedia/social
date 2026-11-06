@@ -15,6 +15,7 @@ import UserBadge from "@/components/layouts/user/user-badge";
 import { useFollowStates } from "@/hooks/users/use-follow-states";
 import { getAuraFlameClass } from "@/lib/aura/aura";
 import { getUserCount } from "@/lib/types";
+import { profilePath } from "@/lib/users/profile-path";
 import { cn, formatNumber } from "@/lib/utils";
 import { getSecureImageUrl } from "@/lib/utils/image-url";
 
@@ -112,7 +113,7 @@ const ExploreUserCard: React.FC<ExploreUserCardProps> = ({
       <Link
         aria-label={`View ${user.displayName || user.username}'s profile`}
         className="bg-muted/20 relative block h-20 w-full shrink-0 overflow-hidden"
-        href={`/users/${user.username}`}
+        href={profilePath(user.username)}
       >
         {headerMedia}
         {/* Left-to-right scrim: deepest at the top-left corner (where the
@@ -140,7 +141,7 @@ const ExploreUserCard: React.FC<ExploreUserCardProps> = ({
           <Link
             aria-label={`View ${user.displayName || user.username}'s profile`}
             className="shrink-0"
-            href={`/users/${user.username}`}
+            href={profilePath(user.username)}
           >
             <UserAvatar
               avatarUrl={user.avatarUrl}
@@ -160,7 +161,7 @@ const ExploreUserCard: React.FC<ExploreUserCardProps> = ({
           <div className="flex items-center gap-1">
             <Link
               className="block truncate font-semibold hover:underline"
-              href={`/users/${user.username}`}
+              href={profilePath(user.username)}
             >
               {user.displayName}
             </Link>

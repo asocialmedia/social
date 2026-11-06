@@ -44,7 +44,7 @@ Server persistence, authorization, indexing, and queue code lives primarily in:
 - `packages/db/queue.ts` and `packages/db/index.ts`
 - `packages/db/prisma/contract.prisma`
 - `apps/web/src/lib/messages/server.ts` and `reader-window.ts`
-- `apps/auth/src/worker/message-search-index.ts`, `message-search-count.ts`, `message-search-sweep.ts`, `message-search-metrics.ts`, `worker-health.ts`, and `worker-lifecycle.ts`
+- `apps/auth/src/worker/search/message-search-index.ts`, `message-search-count.ts`, `message-search-sweep.ts`, `message-search-metrics.ts`, `worker-health.ts`, and `worker-lifecycle.ts`
 
 The schema contains durable changes/outbox, search terms/documents/references, coverage/gaps, recovery generations, epoch readability, and unread state. The database is the source of pending indexing work. Redis/BullMQ jobs are delivery hints; retain outbox rows until the indexing transaction commits so Redis loss cannot lose work. Index document, terms, references, and completion state atomically. Jobs must be idempotent under retry, duplicate delivery, crashes, and out-of-order revisions. Older work cannot overwrite a newer revision or resurrect deletion.
 

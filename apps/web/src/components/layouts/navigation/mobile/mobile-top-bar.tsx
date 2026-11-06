@@ -16,6 +16,7 @@ import UserAvatar from "@/components/layouts/user/user-avatar";
 import { useSpotlight } from "@/components/search/spotlight-provider";
 import { useUnreadNotificationCount } from "@/hooks/notifications/use-unread-notification-count";
 import kyInstance from "@/lib/ky";
+import { profilePath } from "@/lib/users/profile-path";
 import { cn } from "@/lib/utils";
 
 const MobileTopBar: React.FC<{
@@ -47,7 +48,7 @@ const MobileTopBar: React.FC<{
       return <UserProfilePopover compact userData={userData} />;
     }
     return (
-      <Link className="shrink-0" href={`/users/${user.username}`}>
+      <Link className="shrink-0" href={profilePath(user.username)}>
         <UserAvatar
           avatarUrl={user.avatarUrl ?? user.image}
           className="h-10 w-10"

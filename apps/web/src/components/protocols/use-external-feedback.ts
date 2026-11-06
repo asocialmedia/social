@@ -23,16 +23,16 @@ export function useExternalFeedback(post: ExternalPost | undefined) {
     const viewer = user?.id ?? "guest";
     const feedback = { authorId: post.author.id, postId: post.id, scope };
     const key = externalFeedbackKey(feedback);
-    const update = async (remove: boolean) => {
+    const update = async () => {
       const store = useFeedSourceStore.getState();
       const wasHidden = store.excluded[viewer]?.has(key) ?? false;
-      store.exclude(viewer, key, !remove);
+      store.exclude(viewer, key, true);
       try {
         if (user) {
           const response = await fetch("/api/protocols/bluesky/feedback", {
             body: JSON.stringify(feedback),
             headers: { "content-type": "application/json" },
-            method: remove ? "DELETE" : "POST",
+            method: "POST",
             signal: AbortSignal.timeout(20_000),
           });
           if (!response.ok) {
@@ -43,27 +43,11 @@ export function useExternalFeedback(post: ExternalPost | undefined) {
         useFeedSourceStore.getState().exclude(viewer, key, wasHidden);
         throw error;
       }
-      trackNetworkAction(
-        post.id,
-        remove ? "REMOVE_NOT_INTERESTED" : "NOT_INTERESTED"
-      );
+      trackNetworkAction(post.id, "NOT_INTERESTED");
     };
     try {
-      await update(false);
+      await update();
       toast({
-        button: {
-          onClick: async () => {
-            try {
-              await update(true);
-            } catch {
-              toast({
-                title: "Couldn't undo. Please try again.",
-                variant: "destructive",
-              });
-            }
-          },
-          title: "Undo",
-        },
         description: user
           ? "Saved to your asocialmedia feed preferences."
           : "Saved for this session.",

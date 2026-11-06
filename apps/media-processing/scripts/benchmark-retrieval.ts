@@ -9,7 +9,7 @@ import {
   indexPostEmbedding,
 } from "@asm/db";
 
-import { embeddingModelId } from "../src/analyze/embedding";
+import { embeddingModelId } from "../src/analyze/embedding/embedding";
 
 const model = embeddingModelId();
 try {

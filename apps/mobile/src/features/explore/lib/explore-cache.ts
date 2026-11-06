@@ -1,6 +1,6 @@
 import type { FeedPost } from "@/features/feed/lib/feed-types";
-import { emptySnapshot, pruneSnapshot } from "@/lib/persistent-cache";
-import type { PersistSnapshot } from "@/lib/persistent-cache";
+import { emptySnapshot, pruneSnapshot } from "@/lib/cache/persistent-cache";
+import type { PersistSnapshot } from "@/lib/cache/persistent-cache";
 
 import type { ExploreFollowResult, ExplorePage } from "./explore-api";
 

@@ -32,6 +32,28 @@ function makeRequest(
 }
 
 describe("proxy middleware", () => {
+  test("legacy profile redirects preserve follower tabs and app routes", async () => {
+    const headers = { host: "localhost:3000" };
+    const response = await proxy(
+      makeRequest(
+        "http://localhost:3000/users/alice/followers?tab=following",
+        headers
+      )
+    );
+    expect(response.status).toBe(308);
+    expect(response.headers.get("location")).toBe(
+      "http://localhost:3000/alice/followers?tab=following"
+    );
+    const collision = await proxy(
+      makeRequest("http://localhost:3000/users/settings", headers)
+    );
+    expect(collision.status).toBe(200);
+    expect(collision.headers.get("location")).toBeNull();
+    const direct = await proxy(
+      makeRequest("http://localhost:3000/alice", headers)
+    );
+    expect(direct.status).toBe(200);
+  });
   test("Bluesky OAuth redirects reach state validation while adjacent mutation routes reject cross-site requests", async () => {
     const headers = {
       host: "asocialmedia.cc",

@@ -13,23 +13,29 @@ mock.module("./redis", () => ({
   redis: {
     del: (key: string) => Promise.resolve(Number(values.delete(key))),
     eval: async (
-      _script: string,
-      count: number,
+      script: string,
+      _count: number,
       key: string,
       ...args: string[]
     ) => {
-      if (count === 1) {
-        if (values.get(key) === args[0]) {
-          values.delete(key);
-          return 1;
+      const [bucket, owner] = args;
+      if (script.includes("DECR")) {
+        if (values.get(key) !== owner) {
+          return 0;
         }
-        return 0;
+        values.delete(key);
+        values.set(
+          bucket,
+          String(Math.max(0, Number(values.get(bucket) ?? 0) - 1))
+        );
+        return 1;
       }
       await claimGate;
-      if (values.has(key)) {
+      if (values.has(key) || Number(values.get(bucket) ?? 0) >= 500) {
         return 0;
       }
-      values.set(key, args[1]);
+      values.set(key, owner);
+      values.set(bucket, String(Number(values.get(bucket) ?? 0) + 1));
       if (claimFailsAfterSet) {
         throw new Error("claim acknowledgement lost");
       }
@@ -53,8 +59,11 @@ mock.module("../queue", () => ({
     getWaitingCount: () => Promise.resolve(0),
   }),
 }));
-const { externalMediaSafetyInput, filterExternalMediaSafety } =
-  await import("./external-media-safety");
+const {
+  externalMediaSafetyInput,
+  filterExternalMediaSafety,
+  releaseExternalMediaSafetyClaim,
+} = await import("./external-media-safety");
 
 const post = (id: string, media = true): ExternalPost => ({
   author: {
@@ -170,4 +179,35 @@ test("a claim acknowledgement failure releases only this admission's claim", asy
     false
   );
   expect(jobs).toHaveLength(0);
+});
+
+test("completed assessments release capacity exactly once without releasing a newer owner", async () => {
+  const input = externalMediaSafetyInput(post("release"));
+  const queuedAt = Date.now();
+  const bucket = `external:media-safety:admission:${Math.floor(queuedAt / 900_000)}`;
+  values.set(`${input.key}:queued`, "current-owner");
+  values.set(bucket, "500");
+  await releaseExternalMediaSafetyClaim({
+    ...input,
+    owner: "old-owner",
+    queuedAt,
+  });
+  expect(values.get(bucket)).toBe("500");
+  expect(values.get(`${input.key}:queued`)).toBe("current-owner");
+  await releaseExternalMediaSafetyClaim({
+    ...input,
+    owner: "current-owner",
+    queuedAt,
+  });
+  await releaseExternalMediaSafetyClaim({
+    ...input,
+    owner: "current-owner",
+    queuedAt,
+  });
+  expect(values.get(bucket)).toBe("499");
+  await filterExternalMediaSafety([post("new-capacity")]);
+  expect(jobs).toHaveLength(1);
+  expect(values.get(bucket)).toBe("500");
+  await filterExternalMediaSafety([post("bounded")]);
+  expect(jobs).toHaveLength(1);
 });

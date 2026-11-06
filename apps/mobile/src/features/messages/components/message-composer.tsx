@@ -70,7 +70,7 @@ import {
 } from "@/features/messages/lib/message-recipes";
 import { useMessagesForeground } from "@/features/messages/state/use-messages-foreground";
 import { useProfileMediaCropper } from "@/features/profile/components/profile-media-cropper";
-import { getApiBaseUrl } from "@/lib/api-env";
+import { getApiBaseUrl } from "@/lib/network/api-env";
 import { useAppTheme } from "@/theme";
 
 import { useMessageTextDraft } from "../state/message-text-draft";

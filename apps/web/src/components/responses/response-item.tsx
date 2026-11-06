@@ -18,6 +18,7 @@ import { PostMeta } from "@/components/tags/post-meta";
 import { parseStoredEmbeds } from "@/lib/link-embeds/shared";
 import { normalizePostData } from "@/lib/posts/post-normalize";
 import { getPostPath } from "@/lib/seo/seo";
+import { profilePath } from "@/lib/users/profile-path";
 import { formatRelativeDate } from "@/lib/utils";
 
 import type { ResponseNode } from "./response-tree";
@@ -151,7 +152,7 @@ export default function ResponseItem({
             <Link
               aria-label={`View @${username}'s profile`}
               className="relative z-10 shrink-0"
-              href={`/users/${username}`}
+              href={profilePath(username)}
             >
               <UserAvatar
                 className="h-10 w-10 bg-[hsl(var(--background-alt))]"
@@ -173,7 +174,7 @@ export default function ResponseItem({
             <UserTooltip user={author}>
               <Link
                 className="text-foreground truncate font-semibold hover:underline"
-                href={`/users/${username}`}
+                href={profilePath(username)}
               >
                 {displayName}
               </Link>
@@ -185,7 +186,7 @@ export default function ResponseItem({
             />
             <Link
               className="text-muted-foreground truncate hover:underline"
-              href={`/users/${username}`}
+              href={profilePath(username)}
             >
               @{username}
             </Link>

@@ -8,8 +8,11 @@ describe("Prisma sync deployment artifact", () => {
     const workflow = await Bun.file(
       path.join(repositoryRoot, ".github/workflows/ci.yml")
     ).text();
-    const cacheSteps = workflow.match(
-      /      - name: Restore node_modules\n[\s\S]*?(?=\n      - name:)/g
+    const setup = await Bun.file(
+      path.join(repositoryRoot, ".github/actions/setup-quality/action.yml")
+    ).text();
+    const cacheSteps = `${workflow}\n${setup}`.match(
+      /^ +- name: Restore node_modules\n[\s\S]*?(?=\n +- name:)/gm
     );
     expect(cacheSteps).toHaveLength(2);
     for (const step of cacheSteps ?? []) {

@@ -7,6 +7,8 @@ LABEL org.opencontainers.image.title="Asocialmedia Web App" \
 ARG NEXT_PUBLIC_URL
 ARG NEXT_PUBLIC_AUTH_URL
 ARG NEXT_PUBLIC_TURNSTILE_SITE_KEY
+ARG SOURCE_REVISION
+ENV NEXT_DEPLOYMENT_ID=${SOURCE_REVISION}
 RUN test -n "$NEXT_PUBLIC_URL" || (echo "NEXT_PUBLIC_URL build-arg is required" && exit 1)
 RUN test -n "$NEXT_PUBLIC_AUTH_URL" || (echo "NEXT_PUBLIC_AUTH_URL build-arg is required" && exit 1)
 # Turnstile's site key is public (it ships in the client bundle) but Next inlines
@@ -27,9 +29,13 @@ COPY packages/ ./packages/
 COPY apps/web/ ./apps/web/
 RUN bun install
 RUN cd packages/db && bunx prisma contract emit
-RUN node /app/apps/web/node_modules/next/dist/bin/next build apps/web
+RUN --mount=type=secret,id=next_server_actions_key,required=true \
+    NEXT_SERVER_ACTIONS_ENCRYPTION_KEY="$(cat /run/secrets/next_server_actions_key)" \
+    node /app/apps/web/node_modules/next/dist/bin/next build apps/web
 
 FROM node:24-alpine AS runtime
+ARG SOURCE_REVISION
+ENV NEXT_DEPLOYMENT_ID=${SOURCE_REVISION}
 RUN apk add --no-cache \
     openssl \
     curl \

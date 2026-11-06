@@ -1,6 +1,9 @@
+import { connection } from "next/server";
+
 import {
   buildSitemapXml,
   getSitemapEntries,
+  getCachedTagSitemapEntries,
   isSitemapId,
 } from "@/lib/seo/sitemap";
 
@@ -18,7 +21,11 @@ export async function GET(
     return new Response("Not found", { status: 404 });
   }
 
-  const entries = await getSitemapEntries(fileName);
+  await connection();
+  const entries =
+    fileName === "tags"
+      ? await getCachedTagSitemapEntries()
+      : await getSitemapEntries(fileName);
 
   return new Response(buildSitemapXml(entries), {
     headers: {

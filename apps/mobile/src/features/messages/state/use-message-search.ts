@@ -20,8 +20,8 @@ import type {
 } from "@/features/messages/lib/message-search";
 import type { TranscriptItem } from "@/features/messages/lib/transcript-rows";
 import type { MessageData } from "@/features/messages/lib/types";
-import { getApiBaseUrl } from "@/lib/api-env";
-import { orderedCopy } from "@/lib/ordered-copy";
+import { orderedCopy } from "@/lib/format/ordered-copy";
+import { getApiBaseUrl } from "@/lib/network/api-env";
 
 export function useMessageSearch({
   scope,

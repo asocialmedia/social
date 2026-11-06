@@ -5,7 +5,7 @@ import { useSessionContext } from "@/features/auth/state/session";
 import { BioContent } from "@/features/home/components/bio-content";
 import { useProtocolResource } from "@/features/network/state/use-protocol-resource";
 import { SettingsButton } from "@/features/settings/components/settings-ui";
-import { getApiBaseUrl } from "@/lib/api-env";
+import { getApiBaseUrl } from "@/lib/network/api-env";
 import { useAppTheme } from "@/theme";
 
 import { cachedExternalPost } from "../lib/external-cache";

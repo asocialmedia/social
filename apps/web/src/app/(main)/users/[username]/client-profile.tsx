@@ -1,6 +1,6 @@
 "use client";
 
-import type { UserCommunityRole, UserData } from "@asm/db";
+import type { PostData, UserCommunityRole, UserData } from "@asm/db";
 import type { ExternalAuthor } from "@asm/protocols/contracts";
 import { Tabs, TabsContent, TabsList } from "@asm/ui/shadui/tabs";
 import { ArrowLeft, Search, Settings } from "lucide-react";
@@ -29,6 +29,7 @@ import { useFeedScrollMemory } from "@/hooks/feed/use-feed-scroll-memory";
 import { useFeedSwipeNavigation } from "@/hooks/feed/use-feed-swipe-navigation";
 import type { PrivateUserData } from "@/hooks/users/use-user-data";
 import { blueskyProfilePath } from "@/lib/protocols/paths";
+import { profilePath } from "@/lib/users/profile-path";
 import {
   resolveProfileTab,
   useTabMemoryReady,
@@ -37,6 +38,7 @@ import {
 import type { ProfileTab } from "@/store/tab-store";
 
 interface ProfilePageProps {
+  initialGuestPosts?: PostData[];
   external?: ExternalAuthor;
   communityRoles: UserCommunityRole[];
   loggedInUserData: PrivateUserData | null;
@@ -56,6 +58,7 @@ const LOGGED_IN_TAB_ORDER: ProfileTab[] = [
 const GUEST_TAB_ORDER: ProfileTab[] = ["posts", "gusts", "media"];
 
 const ClientProfile: React.FC<ProfilePageProps> = ({
+  initialGuestPosts,
   userData,
   loggedInUserData,
   communityRoles,
@@ -219,7 +222,7 @@ const ClientProfile: React.FC<ProfilePageProps> = ({
                         shareUrl={
                           typeof window === "undefined"
                             ? undefined
-                            : `${window.location.origin}${external ? blueskyProfilePath(external.id) : `/users/${userData.username}`}`
+                            : `${window.location.origin}${external ? blueskyProfilePath(external.id) : profilePath(userData.username)}`
                         }
                         thumbnail={userData.avatarUrl || undefined}
                         title={`${userData.displayName || userData.username} (@${userData.username}) on asocialmedia`}
@@ -315,6 +318,7 @@ const ClientProfile: React.FC<ProfilePageProps> = ({
                   <>
                     <TabsContent className="mt-0 pb-12" value="posts">
                       <UserPostsFeed
+                        initialGuestPosts={initialGuestPosts}
                         isOwnProfile={isOwnProfile}
                         userId={userData.id}
                       />

@@ -42,7 +42,10 @@ import {
 } from "@/components/surface/recipes";
 import { useSessionContext } from "@/features/auth/state/session";
 import type { InlineRichInputRef } from "@/features/composer/components/inline-rich-input";
-import { keyboardOverlap, keyboardScreenTop } from "@/lib/keyboard-overlap";
+import {
+  keyboardOverlap,
+  keyboardScreenTop,
+} from "@/lib/layout/keyboard-overlap";
 import { useAppTheme } from "@/theme";
 
 import { useEddieComposerStore } from "../state/eddie-composer-store";

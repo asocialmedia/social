@@ -14,7 +14,7 @@ import {
   acknowledgeViewOnceSeen,
   fetchViewOnceReceipt,
 } from "@/features/messages/lib/view-once-client";
-import { getApiBaseUrl } from "@/lib/api-env";
+import { getApiBaseUrl } from "@/lib/network/api-env";
 
 import { useMessagesForeground } from "./use-messages-foreground";
 

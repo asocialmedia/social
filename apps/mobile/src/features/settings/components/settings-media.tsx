@@ -13,7 +13,7 @@ import {
   deleteProfileMedia,
   updateProfileMedia,
 } from "@/features/profile/lib/profile-media-mutations";
-import { getApiBaseUrl } from "@/lib/api-env";
+import { getApiBaseUrl } from "@/lib/network/api-env";
 import { useAppTheme } from "@/theme";
 
 // Web's `pipelineStageLabel`: the byte-transfer percentage while uploading,

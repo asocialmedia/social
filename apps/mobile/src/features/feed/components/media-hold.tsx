@@ -6,7 +6,7 @@ import type { AnimatedRef } from "react-native-reanimated";
 import Animated, { measure, useAnimatedRef } from "react-native-reanimated";
 import { scheduleOnRN } from "react-native-worklets";
 
-import { haptic } from "@/lib/haptics";
+import { haptic } from "@/lib/interaction/haptics";
 
 import type { FeedMedia, FeedPost } from "../lib/feed-types";
 import { useMediaPreviewStore } from "../state/media-preview-store";

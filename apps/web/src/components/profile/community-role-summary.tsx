@@ -5,7 +5,6 @@ import Link from "next/link";
 import type React from "react";
 
 import CommunityAvatar from "@/components/communities/card/community-avatar";
-import CommunityRoleBadge from "@/components/communities/card/community-role-badge";
 import type { CommunityBadgedRole } from "@/components/communities/card/community-role-badge";
 import { cn } from "@/lib/utils";
 
@@ -27,7 +26,7 @@ function isBadgedRole(role: string): role is CommunityBadgedRole {
 const MAX_NAMED = 2;
 
 // Groups a user's community roles by role and renders one line per role, e.g.
-// "[owner] Owner of a/anime & a/cosplay". The per-community chip version read as
+// "Owner of a/anime & a/cosplay". The per-community chip version read as
 // a row of unrelated tags; naming the role in a sentence is what actually tells
 // a visitor what this person does around here.
 const CommunityRoleSummary: React.FC<{
@@ -63,7 +62,6 @@ const CommunityRoleSummary: React.FC<{
         const extra = entries.length - named.length;
         return (
           <div className="flex items-start gap-2" key={role}>
-            <CommunityRoleBadge className="mt-px" roleValue={role} />
             <p className="text-muted-foreground min-w-0 text-sm leading-snug">
               {ROLE_LABEL[role]}{" "}
               {named.map((entry, index) => (

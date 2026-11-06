@@ -39,7 +39,7 @@ mock.module("expo-file-system", () => ({
   File: CachedFile,
   Paths: { cache: "file://cache" },
 }));
-mock.module("@/lib/auth-headers", () => ({
+mock.module("@/lib/network/auth-headers", () => ({
   withAuthHeaders: (headers: Record<string, string>) => headers,
 }));
 const { deleteViewOncePhoto, openViewOnceMedia } =

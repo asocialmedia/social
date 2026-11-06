@@ -22,17 +22,20 @@ import { ExternalAuthorPreview } from "@/features/feed/components/external-autho
 import { MediaPreviewLauncher } from "@/features/feed/components/media-preview-launcher";
 import { NetworkSettingsSync } from "@/features/network/state/use-network-settings";
 import { PushRegistrar } from "@/features/notifications/components/push-registrar";
-import { getApiBaseUrl } from "@/lib/api-env";
-import { loadInstallToken } from "@/lib/install-credentials";
-import { installFetchInterceptor } from "@/lib/install-fetch";
-import { finishPostEnter, postEnterAnimation } from "@/lib/navigation-motion";
-import { ResumeGate, ResumeSaver } from "@/lib/resume-gate";
+import { loadInstallToken } from "@/lib/installation/install-credentials";
+import { installFetchInterceptor } from "@/lib/installation/install-fetch";
+import {
+  finishPostEnter,
+  postEnterAnimation,
+} from "@/lib/interaction/navigation-motion";
+import { ResumeGate, ResumeSaver } from "@/lib/lifecycle/resume-gate";
 import {
   StartupPresentedContext,
   StartupResumePathContext,
-} from "@/lib/startup-context";
-import { prepareNativeStartup } from "@/lib/startup-native";
-import { initTelemetry } from "@/lib/telemetry";
+} from "@/lib/lifecycle/startup-context";
+import { prepareNativeStartup } from "@/lib/lifecycle/startup-native";
+import { initTelemetry } from "@/lib/lifecycle/telemetry";
+import { getApiBaseUrl } from "@/lib/network/api-env";
 import { useAppTheme } from "@/theme";
 
 import sofiaProBold from "../../assets/fonts/SofiaProSoftBold.ttf";

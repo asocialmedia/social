@@ -116,3 +116,55 @@ test.each(["post", "author"] as const)(
     }
   }
 );
+
+test.each(["post", "author"] as const)(
+  "%s feedback persists the preference and shows a toast without Undo",
+  async (scope) => {
+    const request = mock(() =>
+      Promise.resolve(new Response(null, { status: 204 }))
+    );
+    Object.defineProperty(globalThis, "fetch", {
+      configurable: true,
+      value: request,
+      writable: true,
+    });
+    let feedback: ReturnType<typeof useExternalFeedback> | undefined;
+    function Probe() {
+      const action = useExternalFeedback(post);
+      useEffect(() => {
+        feedback = action;
+      });
+      return null;
+    }
+    const root = createRoot(
+      dom.document.createElement("div") as unknown as HTMLElement
+    );
+    try {
+      await act(() => root.render(<Probe />));
+      await act(async () => {
+        await feedback?.(scope);
+      });
+      expect(request).toHaveBeenCalledWith(
+        "/api/protocols/bluesky/feedback",
+        expect.objectContaining({ method: "POST" })
+      );
+      expect(toast).toHaveBeenCalledWith(
+        expect.objectContaining({
+          description: "Saved to your asocialmedia feed preferences.",
+        })
+      );
+      expect(toast.mock.calls[0]?.[0]).not.toHaveProperty("button");
+      expect(
+        useFeedSourceStore.getState().excluded.viewer?.has(
+          externalFeedbackKey({
+            authorId: post.author.id,
+            postId: post.id,
+            scope,
+          })
+        )
+      ).toBe(true);
+    } finally {
+      await act(() => root.unmount());
+    }
+  }
+);

@@ -50,9 +50,9 @@ import {
   ORANGE_PRESSED_GRADIENT,
 } from "@/components/surface/recipes";
 import { useSessionContext } from "@/features/auth/state/session";
-import { getApiBaseUrl } from "@/lib/api-env";
-import { imageCachePolicy } from "@/lib/image-cache";
-import { logWarn } from "@/lib/telemetry";
+import { imageCachePolicy } from "@/lib/cache/image-cache";
+import { logWarn } from "@/lib/lifecycle/telemetry";
+import { getApiBaseUrl } from "@/lib/network/api-env";
 import {
   APPLE_PANEL_SHADOWS,
   APPLE_PANEL_SHADOWS_DARK,

@@ -3,8 +3,8 @@ import {
   uploadMedia,
 } from "@/features/media-upload/lib/upload-client";
 import type { PickedMedia } from "@/features/media-upload/state/attachment-store";
-import { getApiBaseUrl } from "@/lib/api-env";
-import { logWarn } from "@/lib/telemetry";
+import { logWarn } from "@/lib/lifecycle/telemetry";
+import { getApiBaseUrl } from "@/lib/network/api-env";
 
 import { discardMessageMedia } from "./client";
 

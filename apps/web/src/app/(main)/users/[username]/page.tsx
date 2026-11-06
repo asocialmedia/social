@@ -1,4 +1,5 @@
 import {
+  and,
   getUserCommunityRoles,
   getUserDataQuery,
   getUserProfileSummary,
@@ -18,8 +19,12 @@ import ProfileSkeleton from "@/components/layouts/skeletons/profile-skeleton";
 import JsonLd from "@/components/seo/json-ld";
 import { getUserData } from "@/hooks/users/use-user-data";
 import { getSessionFromApi } from "@/lib/auth/session";
-import { crawlPostHref, getUserPostsForCrawl } from "@/lib/posts/server-feed";
+import {
+  crawlPostHref,
+  getRecentPostDataForCrawl,
+} from "@/lib/posts/server-feed";
 import { absoluteUrl, excerpt } from "@/lib/seo/seo";
+import { profilePath } from "@/lib/users/profile-path";
 
 import ClientProfile from "./client-profile";
 
@@ -34,7 +39,9 @@ const getUser = cache(async (username: string, loggedInUserId: string) => {
   }
 
   const userRow = await getUserDataQuery(prisma.orm, loggedInUserId)
-    .where({ id: resolvedUsername.id })
+    .where((candidate) =>
+      and(candidate.id.eq(resolvedUsername.id), candidate.banned.eq(false))
+    )
     .first();
   const user = userRow ? mapUserData(userRow) : null;
 
@@ -71,7 +78,9 @@ async function getMetadataUser(username: string) {
   }
 
   const userRow = await getUserDataQuery(prisma.orm, "")
-    .where({ id: resolvedUsername.id })
+    .where((candidate) =>
+      and(candidate.id.eq(resolvedUsername.id), candidate.banned.eq(false))
+    )
     .first();
   const user = userRow ? mapUserData(userRow) : null;
 
@@ -95,7 +104,7 @@ export async function generateMetadata(props: PageProps): Promise<Metadata> {
   }
 
   if (user.isAlias) {
-    permanentRedirect(`/users/${encodeURIComponent(user.canonicalUsername)}`);
+    permanentRedirect(profilePath(user.canonicalUsername));
   }
 
   const title = `${user.displayName} (@${user.username})`;
@@ -104,16 +113,18 @@ export async function generateMetadata(props: PageProps): Promise<Metadata> {
     bio && bio.length >= 25
       ? excerpt(bio, 160)
       : `${user.displayName || user.username} (@${user.username}) on asocialmedia — ${bio ? `${bio}. ` : ""}Join the conversation, read their eddies, and follow along.`;
-  const url = absoluteUrl(`/users/${user.username}`);
+  const url = absoluteUrl(profilePath(user.username));
   // Avatar is streamed through the app proxy (buckets are private).
   const avatar = user.avatarUrl
     ? absoluteUrl(`/api/users/avatar/${user.id}/image`)
     : null;
 
-  const ogImageUrl = absoluteUrl(`/users/${user.username}/opengraph-image`);
+  const ogImageUrl = absoluteUrl(
+    `${profilePath(user.username)}/opengraph-image`
+  );
 
   return {
-    alternates: { canonical: `/users/${user.username}` },
+    alternates: { canonical: profilePath(user.username) },
     description,
     openGraph: {
       description,
@@ -163,9 +174,7 @@ async function ProfileContent({ params }: PageProps) {
   ]);
 
   if (resolvedUser.redirectToCurrentUsername) {
-    permanentRedirect(
-      `/users/${encodeURIComponent(resolvedUser.user.username)}`
-    );
+    permanentRedirect(profilePath(resolvedUser.user.username));
   }
   const userData = resolvedUser.user;
 
@@ -173,7 +182,7 @@ async function ProfileContent({ params }: PageProps) {
     notFound();
   }
 
-  const profileUrl = absoluteUrl(`/users/${userData.username}`);
+  const profileUrl = absoluteUrl(profilePath(userData.username));
   // Avatar is streamed through the app proxy (buckets are private).
   const avatar = userData.avatarUrl
     ? absoluteUrl(`/api/users/avatar/${userData.id}/image`)
@@ -198,7 +207,9 @@ async function ProfileContent({ params }: PageProps) {
   // Crawlable recent posts from this user - visible in SSR HTML so
   // profile pages link to post URLs without JS.
   const [recentPosts, communityRoles] = await Promise.all([
-    getUserPostsForCrawl(userData.id, 12),
+    session?.user
+      ? Promise.resolve([])
+      : getRecentPostDataForCrawl(12, { userId: userData.id }),
     getUserCommunityRoles(userData.id),
   ]);
 
@@ -210,8 +221,7 @@ async function ProfileContent({ params }: PageProps) {
           itemListElement: recentPosts.map((post, index) => ({
             "@type": "ListItem",
             position: index + 1,
-            // Canonical, community-nested when applicable, matching the hidden
-            // anchors below rather than a /posts path the post redirects from.
+            // Match the canonical paths used by the existing profile post cards.
             url: crawlPostHref(post),
           })),
           name: `Posts by @${userData.username}`,
@@ -224,24 +234,11 @@ async function ProfileContent({ params }: PageProps) {
         data={itemListJsonLd ? [profileJsonLd, itemListJsonLd] : profileJsonLd}
       />
       <ClientProfile
+        initialGuestPosts={session?.user ? undefined : recentPosts}
         communityRoles={communityRoles}
         loggedInUserData={loggedInUserData}
         userData={userData}
       />
-      {/* Hidden fallback list for bots - no visible block */}
-      <div className="sr-only" aria-hidden={false}>
-        <nav aria-label={`Posts by @${userData.username} crawlable`}>
-          <ul>
-            {recentPosts.map((p) => (
-              <li key={p.id}>
-                <a href={crawlPostHref(p)} tabIndex={-1}>
-                  {p.content || p.id}
-                </a>
-              </li>
-            ))}
-          </ul>
-        </nav>
-      </div>
     </>
   );
 }

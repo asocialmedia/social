@@ -27,7 +27,7 @@ import {
 } from "@/features/home/components/bio-content";
 import { resolveAvatarWithFallback } from "@/features/home/components/profile-utils";
 import { UserBadge } from "@/features/home/components/user-badge";
-import { getApiBaseUrl } from "@/lib/api-env";
+import { getApiBaseUrl } from "@/lib/network/api-env";
 import { SURFACE_SHADOWS, SURFACE_SHADOWS_DARK, useAppTheme } from "@/theme";
 
 import { ExploreBadge } from "./explore-badge";

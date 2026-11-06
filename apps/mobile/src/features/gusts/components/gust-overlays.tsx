@@ -30,7 +30,7 @@ import nosearchImage from "@/assets/images/nosearch.png";
 import { Gradient3D } from "@/components/surface/gradient-3d";
 import { APPLE_PANEL_TOKENS } from "@/components/surface/recipes";
 import { explicitBlurSupported } from "@/features/feed/components/post-media";
-import { haptic } from "@/lib/haptics";
+import { haptic } from "@/lib/interaction/haptics";
 import {
   LOGIN_BUTTON_PRESSED_SHADOWS,
   LOGIN_BUTTON_PRESSED_SHADOWS_LIGHT,

@@ -15,8 +15,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { authClient } from "@/features/auth/lib/auth-client";
 import { useNetworkSettings } from "@/features/network/state/use-network-settings";
-import { getApiBaseUrl } from "@/lib/api-env";
-import { logWarn } from "@/lib/telemetry";
+import { logWarn } from "@/lib/lifecycle/telemetry";
+import { getApiBaseUrl } from "@/lib/network/api-env";
 
 import type { FeedVariant } from "../lib/feed-api";
 import {

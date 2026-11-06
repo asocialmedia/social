@@ -1,15 +1,14 @@
 "use client";
 
 import { useQueries } from "@tanstack/react-query";
-import kyInstance from "ky";
 import { X } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 
 import { ZephLoader } from "@/components/layouts/feedback/zeph-loader";
 import { EmbedSiteBadge } from "@/components/posts/embeds/embed-utils";
 import useDebounce from "@/hooks/use-debounce";
+import { linkPreviewQueryOptions } from "@/lib/link-embeds/preview-query";
 import { extractPostUrls, MAX_POST_EMBEDS } from "@/lib/link-embeds/shared";
-import type { LinkEmbed } from "@/lib/link-embeds/shared";
 
 // How long typing must settle before a link preview fires. The resolver
 // caches server-side, so the debounce only spares the pipeline redundant
@@ -21,10 +20,6 @@ interface LinkEmbedComposerProps {
   content: string;
   dismissedUrls: ReadonlySet<string>;
   onDismiss: (url: string) => void;
-}
-
-interface LinkPreviewResponse {
-  embed: LinkEmbed;
 }
 
 // Live link previews inside the composer: as the author types a link, the
@@ -46,17 +41,7 @@ export default function LinkEmbedComposer({
   const queries = useQueries({
     queries: urls.map((url) => ({
       enabled: true,
-      queryFn: async (): Promise<LinkEmbed | null> => {
-        const response = await kyInstance
-          .get("/api/link-preview", { searchParams: { url }, timeout: 15_000 })
-          .json<LinkPreviewResponse>();
-        return response.embed;
-      },
-      queryKey: ["link-preview", url],
-      // The server caches resolved embeds; failures retry a couple of
-      // times while the author keeps typing, then stay quiet.
-      retry: 1,
-      staleTime: Number.POSITIVE_INFINITY,
+      ...linkPreviewQueryOptions(url),
     })),
   });
 

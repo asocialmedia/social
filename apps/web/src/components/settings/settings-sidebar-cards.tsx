@@ -1,11 +1,13 @@
 "use client";
 
+import { useQuery } from "@tanstack/react-query";
 import { Check, Copy, Heart, Mail, Star } from "lucide-react";
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import type React from "react";
 import { FaGithub } from "react-icons/fa";
 
+import { CARD_QUERY_POLICY } from "@/lib/cards/query-policy";
 import { toast } from "@/lib/gooey-toast";
 import { cn } from "@/lib/utils";
 
@@ -19,40 +21,25 @@ interface RepoStatsResponse {
 
 // Minimal, black-themed GitHub project card with repo link, description, and star action button.
 export function GithubProjectCard({ className = "" }: { className?: string }) {
-  const [stars, setStars] = useState<number>(7);
-
-  useEffect(() => {
-    let isMounted = true;
-
-    async function loadStats() {
-      try {
-        const response = await fetch(
-          "https://api.github.com/repos/asocialmedia/social",
-          {
-            headers: { Accept: "application/vnd.github.v3+json" },
-          }
-        );
-        if (!response.ok) {
-          return;
-        }
-        const data = (await response.json()) as RepoStatsResponse;
-        if (!isMounted || !data) {
-          return;
-        }
-        if (typeof data.stargazers_count === "number") {
-          setStars(data.stargazers_count);
-        }
-      } catch {
-        // Fall back gracefully to preset defaults
+  const { data: stars = 7 } = useQuery({
+    ...CARD_QUERY_POLICY,
+    queryFn: async ({ signal }) => {
+      const response = await fetch(
+        "https://api.github.com/repos/asocialmedia/social",
+        { headers: { Accept: "application/vnd.github.v3+json" }, signal }
+      );
+      if (!response.ok) {
+        throw new Error("Couldn't load GitHub stars");
       }
-    }
-
-    void loadStats();
-
-    return () => {
-      isMounted = false;
-    };
-  }, []);
+      const data = (await response.json()) as RepoStatsResponse;
+      if (typeof data.stargazers_count !== "number") {
+        throw new TypeError("GitHub returned an invalid star count");
+      }
+      return data.stargazers_count;
+    },
+    queryKey: ["github-project-stars", "asocialmedia/social"],
+    staleTime: 30 * 60 * 1000,
+  });
 
   return (
     <div

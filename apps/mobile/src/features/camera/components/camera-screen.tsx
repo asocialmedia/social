@@ -38,8 +38,8 @@ import { RailButton } from "@/features/gusts/components/rail-button";
 import { MAX_POST_ATTACHMENTS } from "@/features/media-upload/lib/upload-policy";
 import type { PickedMedia } from "@/features/media-upload/state/attachment-store";
 import { attachmentActions } from "@/features/media-upload/state/attachment-store";
-import { haptic } from "@/lib/haptics";
-import { logError, logInfo, logWarn } from "@/lib/telemetry";
+import { haptic } from "@/lib/interaction/haptics";
+import { logError, logInfo, logWarn } from "@/lib/lifecycle/telemetry";
 import { LOGIN_BUTTON_SHADOWS } from "@/theme";
 
 import {

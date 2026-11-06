@@ -7,9 +7,9 @@ import { fetch as expoFetch } from "expo/fetch";
 import { AppState } from "react-native";
 
 import { authClient } from "@/features/auth/lib/auth-client";
-import { getApiBaseUrl } from "@/lib/api-env";
-import { withAuthHeaders } from "@/lib/auth-headers";
-import { readSseStream } from "@/lib/sse-stream";
+import { getApiBaseUrl } from "@/lib/network/api-env";
+import { withAuthHeaders } from "@/lib/network/auth-headers";
+import { readSseStream } from "@/lib/network/sse-stream";
 
 const connections = new Map<
   string,

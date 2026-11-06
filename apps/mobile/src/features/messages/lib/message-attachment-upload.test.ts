@@ -24,10 +24,10 @@ mock.module("@/features/media-upload/lib/upload-client", () => ({
     upload(file, options),
 }));
 mock.module("./client", () => ({ discardMessageMedia: discard }));
-mock.module("@/lib/api-env", () => ({
+mock.module("@/lib/network/api-env", () => ({
   getApiBaseUrl: () => "https://example.test",
 }));
-mock.module("@/lib/telemetry", () => ({ logWarn: () => {} }));
+mock.module("@/lib/lifecycle/telemetry", () => ({ logWarn: () => {} }));
 const { uploadStagedAttachments } = await import("./message-attachment-upload");
 
 function draft(id: string): StagedAttachment {

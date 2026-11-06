@@ -1,4 +1,4 @@
-import { PROD_API_URL } from "@/lib/api-base";
+import { PROD_API_URL } from "@/lib/network/api-base";
 
 // Public OAuth audience advertised by the production Google authorization URL.
 const PRODUCTION_GOOGLE_WEB_CLIENT_ID =

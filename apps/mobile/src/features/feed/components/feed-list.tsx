@@ -40,11 +40,11 @@ import { authClient } from "@/features/auth/lib/auth-client";
 import { useSessionContext } from "@/features/auth/state/session";
 import { useFeedExposures } from "@/features/network/state/feed-exposures";
 import { useNetworkSettings } from "@/features/network/state/use-network-settings";
-import { getApiBaseUrl } from "@/lib/api-env";
-import { haptic } from "@/lib/haptics";
-import type { ViewToken } from "@/lib/list-virtualization";
-import { LIST_VIRTUALIZATION_PROPS } from "@/lib/list-virtualization";
-import { SHOWS_SCROLL_INDICATOR } from "@/lib/scroll-indicator";
+import { haptic } from "@/lib/interaction/haptics";
+import type { ViewToken } from "@/lib/layout/list-virtualization";
+import { LIST_VIRTUALIZATION_PROPS } from "@/lib/layout/list-virtualization";
+import { SHOWS_SCROLL_INDICATOR } from "@/lib/layout/scroll-indicator";
+import { getApiBaseUrl } from "@/lib/network/api-env";
 import { useAppTheme } from "@/theme";
 
 import { externalPostView } from "../lib/external-post-view";

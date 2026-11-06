@@ -13,10 +13,10 @@
 import { useEffect, useRef, useState } from "react";
 
 import { authClient } from "@/features/auth/lib/auth-client";
-import { getApiBaseUrl } from "@/lib/api-env";
-import type { SseStatus } from "@/lib/sse-stream";
-import { readSseStream } from "@/lib/sse-stream";
-import { logInfo, logWarn } from "@/lib/telemetry";
+import { logInfo, logWarn } from "@/lib/lifecycle/telemetry";
+import { getApiBaseUrl } from "@/lib/network/api-env";
+import type { SseStatus } from "@/lib/network/sse-stream";
+import { readSseStream } from "@/lib/network/sse-stream";
 
 export type PostStreamKind = "comments" | "responses";
 

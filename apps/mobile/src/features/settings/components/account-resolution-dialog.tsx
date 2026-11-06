@@ -11,8 +11,8 @@ import { ZephLoader } from "@/components/feedback/zeph-loader";
 import { DialogPanel } from "@/components/surface/dialog-panel";
 import { authClient } from "@/features/auth/lib/auth-client";
 import { useSessionContext } from "@/features/auth/state/session";
-import { getApiBaseUrl } from "@/lib/api-env";
-import { withAuthHeaders } from "@/lib/auth-headers";
+import { getApiBaseUrl } from "@/lib/network/api-env";
+import { withAuthHeaders } from "@/lib/network/auth-headers";
 import { useAppTheme } from "@/theme";
 
 import { SettingsButton, SettingsCard, SettingsInput } from "./settings-ui";

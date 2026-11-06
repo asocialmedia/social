@@ -2,7 +2,7 @@ import type { IncognitoSession } from "@asm/messages";
 
 // Build forward chronology first, then invert the complete rows for FlatList.
 // Dividers remain above the messages they label even after the list is inverted.
-import { reversedCopy } from "@/lib/ordered-copy";
+import { reversedCopy } from "@/lib/format/ordered-copy";
 
 import { formatTimeDivider, getMessageGroupMeta } from "./message-grouping";
 import type { MessageData } from "./types";

@@ -25,8 +25,8 @@ import {
 import { createConversation } from "@/features/messages/lib/client";
 import { useProfile, useProfileFeed } from "@/features/profile";
 import { useSearchStore } from "@/features/search/state/search-store";
-import { PROD_API_URL } from "@/lib/api-base";
-import { getApiBaseUrl } from "@/lib/api-env";
+import { PROD_API_URL } from "@/lib/network/api-base";
+import { getApiBaseUrl } from "@/lib/network/api-env";
 import { useAppTheme } from "@/theme";
 
 import {

@@ -5,7 +5,7 @@
 import type { ComponentType } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 
-import { haptic } from "@/lib/haptics";
+import { haptic } from "@/lib/interaction/haptics";
 import { useAppTheme } from "@/theme";
 
 import { Gradient3D } from "./gradient-3d";

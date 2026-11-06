@@ -5,7 +5,7 @@ import * as SecureStore from "expo-secure-store";
 // failures are swallowed: a broken keystore must never block playback.
 import { create } from "zustand";
 
-import { logWarn } from "@/lib/telemetry";
+import { logWarn } from "@/lib/lifecycle/telemetry";
 
 const STORAGE_KEY = "gust-video-muted";
 

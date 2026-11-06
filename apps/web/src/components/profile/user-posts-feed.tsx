@@ -1,12 +1,13 @@
 "use client";
 
-import type { PostsPage } from "@asm/db";
+import type { PostData, PostsPage } from "@asm/db";
 import { Button } from "@asm/ui/shadui/button";
 import { Separator } from "@asm/ui/shadui/separator";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { PenLine } from "lucide-react";
 import React, { useCallback, useMemo } from "react";
 
+import { useSession } from "@/app/(main)/session-provider";
 import PostCard from "@/components/home/feedview/post-card";
 import InfiniteScrollContainer from "@/components/layouts/feed/infinite-scroll-container";
 import { ZephLoader } from "@/components/layouts/feedback/zeph-loader";
@@ -19,16 +20,19 @@ import EmptyFeedState from "./empty-feed-state";
 import FeedCaughtUp from "./feed-caught-up";
 
 interface UserPostsFeedProps {
+  initialGuestPosts?: PostData[];
   filter?: "all" | "media";
   isOwnProfile?: boolean;
   userId: string;
 }
 
 const UserPostsFeed: React.FC<UserPostsFeedProps> = ({
+  initialGuestPosts,
   userId,
   filter = "all",
   isOwnProfile = false,
 }) => {
+  const { user } = useSession();
   const openComposer = useComposerStore((state) => state.openComposer);
 
   const handleOpenComposer = useCallback(() => {
@@ -40,6 +44,7 @@ const UserPostsFeed: React.FC<UserPostsFeedProps> = ({
     hasNextPage,
     isFetching,
     isFetchingNextPage,
+    isPlaceholderData,
     status,
   } = useInfiniteQuery({
     // Kept past a post/media detour so coming back restores the cached list
@@ -47,6 +52,13 @@ const UserPostsFeed: React.FC<UserPostsFeedProps> = ({
     gcTime: FEED_CACHE_RETENTION_MS,
     getNextPageParam: (lastPage) => lastPage.nextCursor,
     initialPageParam: null as string | null,
+    placeholderData:
+      !user && filter === "all" && initialGuestPosts?.length
+        ? {
+            pageParams: [null],
+            pages: [{ nextCursor: null, posts: initialGuestPosts }],
+          }
+        : undefined,
     queryFn: ({ pageParam }: { pageParam: string | null }) =>
       kyInstance
         .get(
@@ -122,7 +134,7 @@ const UserPostsFeed: React.FC<UserPostsFeedProps> = ({
           <ZephLoader variant="general" className="text-primary" />
         </div>
       ) : null}
-      {!hasNextPage && posts.length > 0 ? (
+      {!hasNextPage && !isPlaceholderData && posts.length > 0 ? (
         <FeedCaughtUp
           note={
             filter === "media"

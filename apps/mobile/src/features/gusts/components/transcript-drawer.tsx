@@ -25,8 +25,8 @@ import {
 import zephImage from "@/assets/images/zeph.png";
 import { toast } from "@/components/feedback/toast";
 import type { TranscriptCue } from "@/features/feed/lib/transcript-cues";
-import { SHOWS_SCROLL_INDICATOR } from "@/lib/scroll-indicator";
-import { logWarn } from "@/lib/telemetry";
+import { SHOWS_SCROLL_INDICATOR } from "@/lib/layout/scroll-indicator";
+import { logWarn } from "@/lib/lifecycle/telemetry";
 
 import {
   filterCues,

@@ -32,6 +32,7 @@ import { BlueskyIcon } from "@/components/protocols/bluesky-icon";
 import { useBlueskyProfile } from "@/components/protocols/use-bluesky-profile";
 import { useUserDataQuery } from "@/hooks/users/use-user-data-query";
 import { getAuraFlameClass } from "@/lib/aura/aura";
+import { CARD_QUERY_POLICY } from "@/lib/cards/query-policy";
 import kyInstance from "@/lib/ky";
 import { parseStoredEmbeds } from "@/lib/link-embeds/shared";
 import { externalAuthorView, externalPostView } from "@/lib/posts/presentation";
@@ -39,6 +40,7 @@ import type { PresentedPost as PostData } from "@/lib/posts/presentation";
 import { blueskyProfilePath } from "@/lib/protocols/paths";
 import { getPostPath } from "@/lib/seo/seo";
 import { getUserCount, getUserPostCount } from "@/lib/types";
+import { profilePath } from "@/lib/users/profile-path";
 import { cn, formatNumber, formatRelativeDate } from "@/lib/utils";
 import { getMediaProxyUrl } from "@/lib/utils/image-url";
 
@@ -290,9 +292,9 @@ const PostAuthorSidebar: React.FC<PostAuthorSidebarProps> = ({ post }) => {
     queryKey: [
       "post-author-posts",
       isExternal ? `bluesky:${authorActor}` : author.id,
-      post.id,
+      currentUser?.id ?? "guest",
     ],
-    staleTime: 1000 * 60,
+    ...CARD_QUERY_POLICY,
   });
 
   const posts = useMemo(() => {
@@ -373,7 +375,7 @@ const PostAuthorSidebar: React.FC<PostAuthorSidebarProps> = ({ post }) => {
             href={
               (post.external
                 ? blueskyProfilePath(post.external.author.id)
-                : undefined) ?? `/users/${author.username}`
+                : undefined) ?? profilePath(author.username)
             }
           >
             <div className="flex items-start gap-3">
@@ -449,7 +451,7 @@ const PostAuthorSidebar: React.FC<PostAuthorSidebarProps> = ({ post }) => {
                 href={
                   (post.external
                     ? blueskyProfilePath(post.external.author.id)
-                    : undefined) ?? `/users/${author.username}`
+                    : undefined) ?? profilePath(author.username)
                 }
               >
                 View profile
@@ -494,7 +496,7 @@ const PostAuthorSidebar: React.FC<PostAuthorSidebarProps> = ({ post }) => {
               href={
                 (post.external
                   ? blueskyProfilePath(post.external.author.id)
-                  : undefined) ?? `/users/${author.username}`
+                  : undefined) ?? profilePath(author.username)
               }
             >
               View all

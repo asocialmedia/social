@@ -53,7 +53,7 @@ test("Bluesky facets share native tag and link pills while mentions preserve the
 
 test("native mentions and tags retain their own destinations", () => {
   const html = render("#science @native");
-  expect(html).toContain("/users/native");
+  expect(html).toContain('href="/native"');
   expect(html).toContain("/hashtag/science");
 });
 
@@ -90,7 +90,7 @@ test("compact paragraph gaps retain inline tags and links on either side", () =>
   const html = render("#science\n\nhttps://example.com/story\n\n@native");
   expect(html).toContain("/hashtag/science");
   expect(html).toContain("A readable article");
-  expect(html).toContain("/users/native");
+  expect(html).toContain('href="/native"');
   expect(html.match(/class="block h-2 whitespace-normal"/g)).toHaveLength(2);
 });
 
@@ -151,4 +151,24 @@ test("post facets and profile bio mention pills reuse the resolved Bluesky avata
   expect(html).not.toContain("/api/users/username/");
   expect(html).toContain("actor=did%3Aplc%3Ascientist");
   client.clear();
+});
+
+test("Bluesky link pills retain a human facet label and disambiguate multiple links on one host", () => {
+  const html = render("My shop and product", [
+    { href: "https://ko-fi.com/tidalcraftfox/shop/open", text: "My shop" },
+    { text: " and " },
+    { href: "https://ko-fi.com/s/8b62fc25c7", text: "ko-fi.com/s/8b62…" },
+  ]);
+  expect(html).toContain("My shop");
+  expect(html).toContain("ko-fi.com/s/8b62fc25c7");
+  expect(html).toContain('href="https://ko-fi.com/tidalcraftfox/shop/open"');
+  expect(html).not.toContain(">ko-fi.com<");
+});
+
+test("a Bluesky URL in an unfaceted text segment still becomes a link pill", () => {
+  const html = render("See my shop", [
+    { text: "See https://ko-fi.com/s/8b62fc25c7" },
+  ]);
+  expect(html).toContain('href="https://ko-fi.com/s/8b62fc25c7"');
+  expect(html).toContain("meta-chip");
 });

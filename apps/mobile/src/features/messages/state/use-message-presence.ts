@@ -4,7 +4,7 @@ import { authClient } from "@/features/auth/lib/auth-client";
 import { useSessionContext } from "@/features/auth/state/session";
 import { fetchPresenceUsers } from "@/features/messages/lib/client";
 import type { PresenceUser } from "@/features/messages/lib/client";
-import { getApiBaseUrl } from "@/lib/api-env";
+import { getApiBaseUrl } from "@/lib/network/api-env";
 
 import { useMessagesForeground } from "./use-messages-foreground";
 

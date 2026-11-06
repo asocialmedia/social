@@ -41,7 +41,7 @@ import {
   wrapRootKeyForMembers,
 } from "../apps/web/src/lib/messages/crypto";
 import type { MessagePayload } from "../apps/web/src/lib/messages/crypto";
-import { hashPasswordWithScrypt } from "../packages/auth/src/core/password";
+import { hashPasswordWithScrypt } from "../packages/auth/src/core/security/password";
 
 const DEMO_PASSWORD = "demo-den-1234";
 const DEN_NAME = "Demo Den";

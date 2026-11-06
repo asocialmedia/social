@@ -30,6 +30,7 @@ import type { PrivateUserData } from "@/hooks/users/use-user-data";
 import { useUserDataQuery } from "@/hooks/users/use-user-data-query";
 import { getAuraFlameClass } from "@/lib/aura/aura";
 import { getUserCount } from "@/lib/types";
+import { profilePath } from "@/lib/users/profile-path";
 import { formatNumber } from "@/lib/utils";
 import { getSecureImageUrl } from "@/lib/utils/image-url";
 
@@ -291,7 +292,7 @@ const ProfileHeader: React.FC<ProfileHeaderProps> = ({
         </div>
 
         {/* Community roles: what this account does across the platform, one
-            line per role, e.g. "[owner] Owner of a/anime & a/cosplay". */}
+            line per role, e.g. "Owner of a/anime & a/cosplay". */}
         {communityRoles && communityRoles.length > 0 ? (
           <CommunityRoleSummary className="mt-3" roles={communityRoles} />
         ) : null}
@@ -332,7 +333,7 @@ const ProfileHeader: React.FC<ProfileHeaderProps> = ({
             <>
               <Link
                 className="group hover:bg-accent/50 inline-flex items-center gap-1 rounded-md px-1 py-0.5 whitespace-nowrap transition-colors"
-                href={`/users/${liveUserData.username}/following`}
+                href={`${profilePath(liveUserData.username)}/following`}
               >
                 <span className="font-semibold">
                   {formatNumber(getUserCount(liveUserData, "following"))}
@@ -348,7 +349,7 @@ const ProfileHeader: React.FC<ProfileHeaderProps> = ({
               </Link>
               <Link
                 className="group hover:bg-accent/50 inline-flex items-center gap-1 rounded-md px-1 py-0.5 whitespace-nowrap transition-colors"
-                href={`/users/${liveUserData.username}/followers`}
+                href={`${profilePath(liveUserData.username)}/followers`}
               >
                 <span className="font-semibold">
                   {formatNumber(followerInfo.followers)}

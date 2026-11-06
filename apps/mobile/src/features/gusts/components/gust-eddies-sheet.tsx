@@ -25,9 +25,9 @@ import { scheduleOnRN } from "react-native-worklets";
 import { reelsPanel } from "@/components/media/gif-picker";
 import { themeText } from "@/components/surface/recipes";
 import { EddieThread } from "@/features/eddies/components/eddie-thread";
-import { haptic } from "@/lib/haptics";
-import { keyboardScreenTop } from "@/lib/keyboard-overlap";
-import { SHOWS_SCROLL_INDICATOR } from "@/lib/scroll-indicator";
+import { haptic } from "@/lib/interaction/haptics";
+import { keyboardScreenTop } from "@/lib/layout/keyboard-overlap";
+import { SHOWS_SCROLL_INDICATOR } from "@/lib/layout/scroll-indicator";
 import { useAppTheme } from "@/theme";
 
 import { eddieSheetDetent } from "../lib/eddie-sheet-detent";

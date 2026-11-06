@@ -23,7 +23,7 @@
 // than a crash, and the retry policy keeps working without one.
 
 import { HttpError, withRetry } from "@/features/media-upload/lib/retry";
-import { withAuthHeaders } from "@/lib/auth-headers";
+import { withAuthHeaders } from "@/lib/network/auth-headers";
 
 import type { ApiCallOptions } from "./feed-api";
 import type { FeedPost } from "./feed-types";

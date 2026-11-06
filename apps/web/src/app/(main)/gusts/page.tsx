@@ -1,7 +1,13 @@
-import { and, prisma } from "@asm/db";
-import { postHasExplicitMedia } from "@asm/protocols/discovery";
+import {
+  and,
+  communityVisibilityWhere,
+  getPostDataQuery,
+  mapPostData,
+  prisma,
+} from "@asm/db";
 import type { Metadata } from "next";
-import { cacheLife } from "next/cache";
+import { cacheLife, cacheTag } from "next/cache";
+import { notFound } from "next/navigation";
 import { connection } from "next/server";
 import { Suspense } from "react";
 
@@ -9,8 +15,18 @@ import { GustCardSkeleton } from "@/components/gusts/gust-card-skeleton";
 import JsonLd from "@/components/seo/json-ld";
 import { getUserData } from "@/hooks/users/use-user-data";
 import { getSessionFromApi } from "@/lib/auth/session";
+import { postContentReadable } from "@/lib/posts/reader-content-policy";
 import { getRecentGustsForCrawl } from "@/lib/posts/server-feed";
-import { absoluteUrl, excerpt, siteConfig } from "@/lib/seo/seo";
+import { buildSocialPostJsonLd } from "@/lib/seo/post-schema";
+import {
+  absoluteUrl,
+  excerpt,
+  getPostUrl,
+  postDescription,
+  postTitle,
+  siteConfig,
+} from "@/lib/seo/seo";
+import { profilePath } from "@/lib/users/profile-path";
 
 import { ClientGusts } from "./client-gusts";
 
@@ -26,28 +42,25 @@ interface GustsPageProps {
 async function getMetadataGust(gustId: string) {
   "use cache";
   cacheLife("hours");
+  cacheTag("og-post-card");
+  return await readPublicGust(gustId);
+}
 
-  const post = await prisma.orm.public.Posts.select(
-    "aura",
-    "content",
-    "explicitContent",
-    "id",
-    "semanticTags"
-  )
-    .include("postMedias", (media) => media.select("id", "_type"))
-    .include("postToTags", (postTags) =>
-      postTags.include("tag", (tag) => tag.select("name"))
-    )
-    .include("user", (user) =>
-      user.select("avatarUrl", "displayName", "id", "username")
-    )
+async function readPublicGust(gustId: string) {
+  const row = await getPostDataQuery(prisma.orm, "")
     .where((candidate) =>
-      and(candidate.id.eq(gustId), candidate.explicitContent.eq(false))
+      and(
+        candidate.id.eq(gustId),
+        candidate.isGust.eq(true),
+        candidate.moderated.eq(false),
+        candidate.explicitContent.eq(false),
+        candidate.user.some((user) => user.banned.eq(false)),
+        communityVisibilityWhere("")(candidate)
+      )
     )
     .first();
-  // Share cards are guest-facing: a post that only declares itself explicit in
-  // its text or a hashtag must not put that text in the page title or og: tags.
-  return post && !postHasExplicitMedia(post) ? post : null;
+  const post = row ? mapPostData(row) : null;
+  return post && postContentReadable(post, false) ? post : null;
 }
 
 export async function generateMetadata(
@@ -56,6 +69,9 @@ export async function generateMetadata(
   const searchParams = await props.searchParams;
   const gustId = searchParams.id;
 
+  if (gustId?.startsWith("at://")) {
+    return { robots: { follow: true, index: false }, title: "Bluesky video" };
+  }
   if (gustId) {
     const post = await getMetadataGust(gustId);
 
@@ -72,12 +88,10 @@ export async function generateMetadata(
         : `Watch ${authorName}'s gust video clip on asocialmedia.`;
       const canonical = `/gusts?id=${post.id}`;
       const url = absoluteUrl(canonical);
-      const tags = post.postToTags.flatMap((postTag) =>
-        postTag.tag ? [postTag.tag] : []
-      );
+      const { tags } = post;
 
-      const videoMedia = post.postMedias.find(
-        (media) => media._type === "VIDEO"
+      const videoMedia = post.attachments.find(
+        (media) => media.type === "VIDEO"
       );
       // ?thumb=1 always resolves server-side: poster derivative for
       // pipeline videos, legacy thumbnail frame otherwise.
@@ -99,7 +113,7 @@ export async function generateMetadata(
           ...tags.map((tag) => tag.name),
         ],
         openGraph: {
-          authors: [absoluteUrl(`/users/${authorUsername}`)],
+          authors: [absoluteUrl(profilePath(authorUsername))],
           description,
           images: [
             {
@@ -126,6 +140,7 @@ export async function generateMetadata(
         },
       };
     }
+    return { robots: { follow: true, index: false }, title: "Gust" };
   }
 
   return {
@@ -167,7 +182,7 @@ export async function generateMetadata(
   };
 }
 
-export default function Page() {
+export default function Page(props: GustsPageProps) {
   return (
     <Suspense
       fallback={
@@ -176,12 +191,12 @@ export default function Page() {
         </div>
       }
     >
-      <GustsContent />
+      <GustsContent searchParams={props.searchParams} />
     </Suspense>
   );
 }
 
-async function GustsContent() {
+async function GustsContent({ searchParams }: GustsPageProps) {
   // Claims the request before the first read. Prisma 8 stamps every query with
   // a crypto.randomUUID() plan id, and Cache Components fails a prerender that
   // touches an uncached value, so an unclaimed database read aborts the
@@ -189,7 +204,15 @@ async function GustsContent() {
   // runtime data during the shell render.
   await connection();
 
+  const { id } = await searchParams;
   const session = await getSessionFromApi();
+  const selectedPost =
+    !session?.user && id && !id.startsWith("at://")
+      ? await readPublicGust(id)
+      : null;
+  if (!session?.user && id && !id.startsWith("at://") && !selectedPost) {
+    notFound();
+  }
   const loggedInUserData = session?.user
     ? await getUserData(session.user.id)
     : null;
@@ -212,22 +235,37 @@ async function GustsContent() {
 
   return (
     <>
+      {selectedPost ? (
+        <JsonLd
+          data={buildSocialPostJsonLd({
+            author: {
+              name:
+                selectedPost.user?.displayName ||
+                selectedPost.user?.username ||
+                "Anonymous",
+              url: absoluteUrl(
+                profilePath(selectedPost.user?.username || "unknown")
+              ),
+              username: selectedPost.user?.username || "unknown",
+            },
+            commentCount: selectedPost._count.comments,
+            content: selectedPost.content,
+            createdAt: selectedPost.createdAt,
+            description: postDescription(selectedPost),
+            headline: postTitle(selectedPost),
+            media: selectedPost.attachments,
+            url: getPostUrl(selectedPost),
+            viewCount: selectedPost.viewCount,
+          })}
+        />
+      ) : null}
       {itemListJsonLd ? <JsonLd data={itemListJsonLd} /> : null}
-      <ClientGusts loggedInUserData={loggedInUserData} />
-      {/* Hidden crawlable gust links for bots: JS-only stream has no SSR links */}
-      <div className="sr-only" aria-hidden={false}>
-        <nav aria-label="Latest gusts crawlable">
-          <ul>
-            {gusts.map((g) => (
-              <li key={g.id}>
-                <a href={`/gusts?id=${g.id}`} tabIndex={-1}>
-                  {g.content || g.id}
-                </a>
-              </li>
-            ))}
-          </ul>
-        </nav>
-      </div>
+      <ClientGusts
+        initialGuestPost={
+          session?.user ? undefined : (selectedPost ?? undefined)
+        }
+        loggedInUserData={loggedInUserData}
+      />
       {/* Visible crawlable fallback below the interactive area on no-JS */}
       <noscript>
         <div style={{ padding: 16 }}>

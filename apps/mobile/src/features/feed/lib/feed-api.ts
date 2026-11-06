@@ -6,8 +6,8 @@
 
 import type { NetworkRequestContext } from "@/features/network/lib/network-query";
 import { appendNetworkQuery } from "@/features/network/lib/network-query";
-import { withAuthHeaders } from "@/lib/auth-headers";
-import { getWithTimeout } from "@/lib/http-get";
+import { withAuthHeaders } from "@/lib/network/auth-headers";
+import { getWithTimeout } from "@/lib/network/http-get";
 
 import type { FeedPost, PostsPage } from "./feed-types";
 import { mediaCaptionsPath, mediaWavePeaksPath } from "./media-url";

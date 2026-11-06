@@ -56,6 +56,7 @@ import { toggleAltReveal, useAltRevealed } from "@/lib/stores/alt-reveal-store";
 import { useExplicitRevealed } from "@/lib/stores/explicit-reveal-store";
 import { useVideoCaptionsStore } from "@/lib/stores/video-captions-store";
 import { getUserCount } from "@/lib/types";
+import { profilePath } from "@/lib/users/profile-path";
 import { cn, formatNumber } from "@/lib/utils";
 import { getMediaVideoUrl, getMediaProxyUrl } from "@/lib/utils/image-url";
 
@@ -284,7 +285,7 @@ export const GustCard: React.FC<GustCardProps> = ({
   const authorName =
     post.user?.displayName || post.user?.username || "Anonymous";
   let authorProfileHref = post.user?.username
-    ? `/users/${post.user.username}`
+    ? profilePath(post.user.username)
     : "#";
   if (external) {
     authorProfileHref = blueskyProfilePath(external.author.id);

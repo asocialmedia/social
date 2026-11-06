@@ -33,6 +33,7 @@ import { useMediaQuery } from "usehooks-ts";
 import { useSession } from "@/app/(main)/session-provider";
 import UserAvatar from "@/components/layouts/user/user-avatar";
 import { useLogout } from "@/hooks/auth/use-logout";
+import { profilePath } from "@/lib/users/profile-path";
 import { cn } from "@/lib/utils";
 import { getSecureImageUrl } from "@/lib/utils/image-url";
 
@@ -327,7 +328,7 @@ export default function UserButton({
 
             <div className="p-1">
               <MenuItem
-                href={`/users/${user.username}`}
+                href={profilePath(user.username)}
                 icon={<UserIcon className="mr-2 size-4" />}
                 label="Profile"
               />

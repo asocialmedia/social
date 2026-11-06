@@ -62,9 +62,9 @@ import {
   replyTargetFromPost,
   useComposerStore,
 } from "@/features/composer/state/composer-store";
-import { getApiBaseUrl } from "@/lib/api-env";
-import { withAuthHeaders } from "@/lib/auth-headers";
-import { haptic } from "@/lib/haptics";
+import { haptic } from "@/lib/interaction/haptics";
+import { getApiBaseUrl } from "@/lib/network/api-env";
+import { withAuthHeaders } from "@/lib/network/auth-headers";
 import { useAppTheme } from "@/theme";
 
 import { getUserVote, isBookmarkedByUser } from "../lib/feed-types";

@@ -1,5 +1,6 @@
 import {
   getCommentDataQuery,
+  fromPrismaDateTime,
   getPostDataQuery,
   hydrateViewCounts,
   mapCommentData,
@@ -19,6 +20,7 @@ export type UserReplyData = ReturnType<typeof mapCommentData> & {
 
 export interface UserRepliesPage {
   nextCursor: string | null;
+  nextCursorAt?: string | null;
   replies: UserReplyData[];
 }
 
@@ -58,7 +60,10 @@ export async function GET(
     )
     .include("post", (_post) => getPostDataQuery(prisma.orm, user.id))
     .where({ userId })
-    .orderBy((comment) => comment.createdAt.desc());
+    .orderBy([
+      (comment) => comment.createdAt.desc(),
+      (comment) => comment.id.desc(),
+    ]);
   if (cursor) {
     // Prisma 8 cursors are keyset seeks built from the values passed in, so
     // every orderBy column needs one: the anchor's createdAt is read back here
@@ -114,6 +119,9 @@ export async function GET(
     comments.length > pageSize ? (comments[pageSize - 1]?.id ?? null) : null;
   const data: UserRepliesPage = {
     nextCursor,
+    nextCursorAt: nextCursor
+      ? fromPrismaDateTime(comments[pageSize - 1]?.createdAt).toISOString()
+      : null,
     replies: repliesWithHydratedPosts,
   };
   return Response.json(data);

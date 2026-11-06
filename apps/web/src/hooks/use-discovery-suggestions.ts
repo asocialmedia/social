@@ -6,6 +6,7 @@ import { useCallback } from "react";
 import { useSession } from "@/app/(main)/session-provider";
 import { useNetworkSettings } from "@/hooks/feed/use-network-settings";
 import { useSecondaryFeedReady } from "@/hooks/feed/use-secondary-feed-ready";
+import { CARD_QUERY_POLICY } from "@/lib/cards/query-policy";
 import { discoverySuggestionsSchema } from "@/lib/recommendations/suggestion-types";
 
 export function useDiscoverySuggestions(enabled = true, profileId?: string) {
@@ -43,7 +44,7 @@ export function useDiscoverySuggestions(enabled = true, profileId?: string) {
     ],
     refetchOnWindowFocus: false,
     retry: false,
-    staleTime: 30_000,
+    ...CARD_QUERY_POLICY,
   });
 }
 

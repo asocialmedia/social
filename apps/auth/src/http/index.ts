@@ -46,7 +46,7 @@ const HEALTH_PROBE_PATH = "/api/health";
 const SESSION_PATH = "/api/auth/get-session";
 
 // Same-origin hint the native app sets on every request (see
-// apps/mobile/src/lib/install-token.ts). Not a credential: it only tags the
+// apps/mobile/src/lib/installation/install-token.ts). Not a credential: it only tags the
 // request so MOBILE and WEB traffic are separable in the shared logs.
 const CLIENT_PLATFORM_HEADER = "x-asm-client";
 const CLIENT_PLATFORM_MOBILE = "mobile";

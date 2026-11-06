@@ -21,7 +21,7 @@ import Animated, {
 import { UserAvatar } from "@/components/avatar/user-avatar";
 import { MoreMenu } from "@/features/feed/components/more-menu";
 import type { MenuAnchor } from "@/features/feed/components/more-menu";
-import { haptic } from "@/lib/haptics";
+import { haptic } from "@/lib/interaction/haptics";
 
 import type { GustTab } from "../lib/gusts-api";
 

@@ -15,9 +15,9 @@
 //    stream multiplexes seven event kinds over the same `message` event name and
 //    filters in `parseMessageEvent`.
 
-import { withAuthHeaders } from "@/lib/auth-headers";
-import { drainSseFrames } from "@/lib/sse-stream";
-import type { SseStatus } from "@/lib/sse-stream";
+import { withAuthHeaders } from "@/lib/network/auth-headers";
+import { drainSseFrames } from "@/lib/network/sse-stream";
+import type { SseStatus } from "@/lib/network/sse-stream";
 
 export const MESSAGES_INITIAL_RETRY_MS = 1000;
 export const MESSAGES_MAX_RETRY_MS = 30_000;

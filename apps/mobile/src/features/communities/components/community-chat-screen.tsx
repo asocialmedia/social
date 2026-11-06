@@ -63,8 +63,8 @@ import { MobileHeader } from "@/features/home/components/mobile-header";
 import { UserBadge } from "@/features/home/components/user-badge";
 import { SavableSticker } from "@/features/messages/components/savable-sticker";
 import { useUnreadNotificationCount } from "@/features/notifications/state/use-unread-count";
-import { getApiBaseUrl } from "@/lib/api-env";
-import { readSseStream } from "@/lib/sse-stream";
+import { getApiBaseUrl } from "@/lib/network/api-env";
+import { readSseStream } from "@/lib/network/sse-stream";
 import { useAppTheme } from "@/theme";
 
 import { fetchCommunityDetail } from "../lib/communities-api";

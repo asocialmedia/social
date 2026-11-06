@@ -48,30 +48,34 @@ test("unsubscribe cancels pending work and ignores later hints", async () => {
   expect(feedChangeSchema.safeParse({ source: "forged" }).success).toBe(false);
 });
 
-test("load-more skips empty and duplicate pages without restarting the visible feed", async () => {
-  const known = normalizePost(postViewSchema.parse(postFixture));
-  const fresh = { ...known, id: `${known.id}2` };
-  const pages = [
-    { cursor: "second", items: [known], partial: false },
-    { cursor: "third", items: [], partial: false },
-    { cursor: "fourth", items: [fresh], partial: false },
-  ];
-  const cursors: (string | null)[] = [];
-  const result = await readDiscoveryWindow(
-    {
-      cursor: "first",
-      fetch: (url) => {
-        cursors.push(
-          new URL(url, "https://asm.test").searchParams.get("cursor")
-        );
-        return Promise.resolve(Response.json(pages.shift()));
+test.each(["all", "video"] as const)(
+  "%s load-more skips empty and duplicate pages without restarting the visible feed",
+  async (content) => {
+    const known = normalizePost(postViewSchema.parse(postFixture));
+    const fresh = { ...known, id: `${known.id}2` };
+    const pages = [
+      { cursor: "second", items: [known], partial: false },
+      { cursor: "third", items: [], partial: false },
+      { cursor: "fourth", items: [fresh], partial: false },
+    ];
+    const cursors: (string | null)[] = [];
+    const result = await readDiscoveryWindow(
+      {
+        content,
+        cursor: "first",
+        fetch: (url) => {
+          cursors.push(
+            new URL(url, "https://asm.test").searchParams.get("cursor")
+          );
+          return Promise.resolve(Response.json(pages.shift()));
+        },
+        mode: "latest",
+        signal: new AbortController().signal,
       },
-      mode: "latest",
-      signal: new AbortController().signal,
-    },
-    new Set([known.id])
-  );
-  expect(cursors).toEqual(["first", "second", "third"]);
-  expect(result.items.map((item) => item.id)).toEqual([fresh.id]);
-  expect(result.cursor).toBe("fourth");
-});
+      new Set([known.id])
+    );
+    expect(cursors).toEqual(["first", "second", "third"]);
+    expect(result.items.map((item) => item.id)).toEqual([fresh.id]);
+    expect(result.cursor).toBe("fourth");
+  }
+);

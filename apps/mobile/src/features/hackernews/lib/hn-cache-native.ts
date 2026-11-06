@@ -1,4 +1,4 @@
-import { readSnapshot, writeSnapshot } from "@/lib/persistent-file";
+import { readSnapshot, writeSnapshot } from "@/lib/cache/persistent-file";
 
 import { hnCache } from "./hn-cache";
 import type { HnPersistEntry } from "./hn-cache";

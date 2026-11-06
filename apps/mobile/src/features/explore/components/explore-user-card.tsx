@@ -9,7 +9,7 @@ import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { UserAvatar } from "@/components/avatar/user-avatar";
 import { Gradient3D } from "@/components/surface/gradient-3d";
 import { UserBadge } from "@/features/home/components/user-badge";
-import { getApiBaseUrl } from "@/lib/api-env";
+import { getApiBaseUrl } from "@/lib/network/api-env";
 import {
   FOLLOW_BUTTON_SHADOWS,
   FOLLOW_BUTTON_SHADOWS_LIGHT,

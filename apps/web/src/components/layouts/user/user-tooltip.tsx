@@ -19,6 +19,7 @@ import { useSession } from "@/app/(main)/session-provider";
 import { PostInlineContent } from "@/components/posts/content/post-inline-content";
 import { getAuraFlameClass } from "@/lib/aura/aura";
 import { getUserCount } from "@/lib/types";
+import { profilePath } from "@/lib/users/profile-path";
 import { cn, formatNumber } from "@/lib/utils";
 import { getSecureImageUrl } from "@/lib/utils/image-url";
 
@@ -143,7 +144,7 @@ export default function UserTooltip({ children, user }: UserTooltipProps) {
 
             <div className="relative flex flex-col gap-2.5 px-3 pb-3">
               <div className="-mt-8 flex items-end justify-between gap-3">
-                <Link className="shrink-0" href={`/users/${user.username}`}>
+                <Link className="shrink-0" href={profilePath(user.username)}>
                   {/* The separation from the banner is a painted wrapper, not a
                       `ring-*`: .avatar-ring sets box-shadow unlayered in
                       globals.css, so a ring utility is silently discarded. */}
@@ -162,7 +163,7 @@ export default function UserTooltip({ children, user }: UserTooltipProps) {
 
               <Link
                 className="flex min-w-0 flex-col gap-0.5"
-                href={`/users/${user.username}`}
+                href={profilePath(user.username)}
               >
                 <span className="text-card-foreground flex items-center gap-1.5 text-base leading-tight font-semibold">
                   <span className="truncate">

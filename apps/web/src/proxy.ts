@@ -9,6 +9,7 @@ import {
   verifyInstallToken,
 } from "@/lib/mobile/install-token";
 import { guardApiRequest } from "@/lib/security/api-security";
+import { legacyProfileDestination } from "@/lib/users/profile-path";
 
 const LOOPBACK_HOSTNAMES = new Set([
   "localhost",
@@ -418,6 +419,13 @@ export async function proxy(request: NextRequest) {
   const guard = await guardApiRequest(request.nextUrl.pathname, clientIp);
   if (guard.response) {
     return withSecurityHeaders(guard.response);
+  }
+
+  const profileDestination = legacyProfileDestination(request.nextUrl.pathname);
+  if (profileDestination && SAFE_METHODS.has(request.method)) {
+    const url = request.nextUrl.clone();
+    url.pathname = profileDestination;
+    return withSecurityHeaders(NextResponse.redirect(url, 308));
   }
 
   const response = withSecurityHeaders(NextResponse.next());

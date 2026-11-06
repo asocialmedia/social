@@ -43,20 +43,20 @@ if (import.meta.main) {
   const { MEDIA_JOB_NAMES } = await import("@asm/media");
   const { Worker, DelayedError } = await import("bullmq");
   const { ClefDeferredError, withAnalysisLane } =
-    await import("./analyze/clef");
+    await import("./analyze/classification/clef");
   const { ProviderBudgetDeferredError, providerBudgetSnapshot } =
-    await import("./analyze/provider-budget");
-  const { OcrDeferredError } = await import("./analyze/ocr");
-  const { processPostAnalyze } = await import("./jobs/analyze-post");
+    await import("./analyze/budget/provider-budget");
+  const { OcrDeferredError } = await import("./analyze/extraction/ocr");
+  const { processPostAnalyze } = await import("./jobs/analysis/analyze-post");
   const { warmExternalMediaSafety } =
-    await import("./jobs/warm-external-media-safety");
-  const { processMediaScan } = await import("./jobs/scan");
-  const { processMedia } = await import("./jobs/process");
-  const { processMediaCleanup } = await import("./jobs/cleanup");
+    await import("./jobs/safety/warm-external-media-safety");
+  const { processMediaScan } = await import("./jobs/scanning/scan");
+  const { processMedia } = await import("./jobs/processing/process");
+  const { processMediaCleanup } = await import("./jobs/maintenance/cleanup");
+  const { processMediaAnalyze } = await import("./jobs/analysis/analyze");
+  const { processExternalMediaSafety, ExternalMediaDownloadDeferredError } =
+    await import("./jobs/safety/external-media-safety");
   const { processMediaDeleteCascade } = await import("./jobs/delete-cascade");
-  const { processMediaAnalyze } = await import("./jobs/analyze");
-  const { processExternalMediaSafety } =
-    await import("./jobs/external-media-safety");
   const { workerEnv } = await import("./env");
   const { getS3 } = await import("./s3");
   const { withTimeout } = await import("./transcode/ffmpeg");
@@ -78,7 +78,11 @@ if (import.meta.main) {
           processExternalMediaSafety(job.data)
         );
       } catch (error) {
-        if (error instanceof ClefDeferredError && job.token) {
+        if (
+          (error instanceof ClefDeferredError ||
+            error instanceof ExternalMediaDownloadDeferredError) &&
+          job.token
+        ) {
           await job.moveToDelayed(
             Math.min(error.retryAt, Date.now() + 15 * 60_000),
             job.token

@@ -9,6 +9,25 @@ import { redis } from "./redis";
 export const EXTERNAL_MEDIA_SAFETY_QUEUE = "external-media-safety";
 export const EXTERNAL_MEDIA_SAFETY_VERSION = "v1";
 
+export async function releaseExternalMediaSafetyClaim(input: {
+  key: string;
+  queuedAt: number;
+  owner?: string;
+}) {
+  const claim = `${input.key}:queued`;
+  if (!input.owner) {
+    // Legacy jobs cannot prove ownership; their short-lived claims expire naturally.
+    return;
+  }
+  await redis.eval(
+    "if redis.call('GET', KEYS[1]) ~= ARGV[1] then return 0 end redis.call('DEL', KEYS[1]) local n = tonumber(redis.call('GET', KEYS[2]) or '0') if n > 0 then redis.call('DECR', KEYS[2]) end return 1",
+    2,
+    claim,
+    `external:media-safety:admission:${Math.floor(input.queuedAt / 900_000)}`,
+    input.owner
+  );
+}
+
 export function externalMediaSafetyInput(post: ExternalPost) {
   const visited = new Set<ExternalPost>();
   const images: string[] = [];
@@ -70,19 +89,19 @@ export async function filterExternalMediaSafety(
             pending.slice(0, Math.max(0, 500 - waiting)).map(async (input) => {
               const claimKey = `${input.key}:queued`;
               const owner = randomUUID();
+              const queuedAt = Date.now();
               const release = () =>
-                redis.eval(
-                  "if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) end return 0",
-                  1,
-                  claimKey,
-                  owner
-                );
+                releaseExternalMediaSafetyClaim({
+                  key: input.key,
+                  owner,
+                  queuedAt,
+                });
               try {
                 const claimed = await redis.eval(
                   "if redis.call('EXISTS', KEYS[1]) == 1 then return 0 end local n = tonumber(redis.call('GET', KEYS[2]) or '0') if n >= 500 then return 0 end redis.call('SET', KEYS[1], ARGV[1], 'EX', 900) redis.call('INCR', KEYS[2]) redis.call('EXPIRE', KEYS[2], 900) return 1",
                   2,
                   claimKey,
-                  `external:media-safety:admission:${Math.floor(Date.now() / 900_000)}`,
+                  `external:media-safety:admission:${Math.floor(queuedAt / 900_000)}`,
                   owner
                 );
                 if (Number(claimed) !== 1) {
@@ -91,7 +110,7 @@ export async function filterExternalMediaSafety(
                 admission.throwIfAborted();
                 await queue.add(
                   "assess",
-                  { ...input, queuedAt: Date.now() },
+                  { ...input, owner, queuedAt },
                   {
                     attempts: 2,
                     backoff: { delay: 30_000, type: "exponential" },

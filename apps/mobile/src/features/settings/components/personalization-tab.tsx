@@ -4,7 +4,7 @@ import type { ScrollViewInstance } from "react-native";
 import { ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { SHOWS_SCROLL_INDICATOR } from "@/lib/scroll-indicator";
+import { SHOWS_SCROLL_INDICATOR } from "@/lib/layout/scroll-indicator";
 import { useThemePreference } from "@/theme/theme-preference-native";
 
 import { SectionAnchor } from "../lib/settings-scroll";

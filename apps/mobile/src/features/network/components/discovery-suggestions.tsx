@@ -10,7 +10,7 @@ import { useSessionContext } from "@/features/auth/state/session";
 import { mutateExploreFollow } from "@/features/explore/lib/explore-api";
 import { useExternalFollow } from "@/features/feed/state/use-external-follow";
 import { SettingsButton } from "@/features/settings/components/settings-ui";
-import { getApiBaseUrl } from "@/lib/api-env";
+import { getApiBaseUrl } from "@/lib/network/api-env";
 import { useAppTheme } from "@/theme";
 
 import { networkRequest } from "../lib/network-api";

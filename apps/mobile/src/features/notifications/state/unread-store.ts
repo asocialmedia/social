@@ -7,8 +7,8 @@
 // Pure: no React Native or Expo imports, so it is unit-testable on Node.
 
 import { authClient } from "@/features/auth/lib/auth-client";
-import { getApiBaseUrl } from "@/lib/api-env";
-import { createExpoPoller } from "@/lib/expo-poller";
+import { getApiBaseUrl } from "@/lib/network/api-env";
+import { createExpoPoller } from "@/lib/network/expo-poller";
 
 import {
   fetchUnreadCount,

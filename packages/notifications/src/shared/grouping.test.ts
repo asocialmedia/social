@@ -96,6 +96,46 @@ describe("notification grouping", () => {
     ]);
   });
 
+  test.each(["post", "comment"])(
+    "retains every issuer and notification id for six amplifications of %s",
+    (subject) => {
+      const notifications = Array.from({ length: 6 }, (_, index) =>
+        createMockNotification({
+          commentId: subject === "comment" ? "comment-1" : null,
+          id: `notif-${index}`,
+          issuerId: `issuer-${index}`,
+          read: true,
+          type: "AMPLIFY",
+        })
+      );
+      const grouped = groupNotifications(notifications);
+      expect(grouped).toHaveLength(1);
+      expect(grouped[0]?.issuers.map((issuer) => issuer.id)).toEqual(
+        notifications.map((notification) => notification.issuerId)
+      );
+      expect(grouped[0]?.allNotificationIds).toEqual(
+        notifications.map((notification) => notification.id)
+      );
+      expect(grouped[0]?.read).toBe(true);
+    }
+  );
+
+  test("keeps amplifications of different posts separate", () => {
+    const notifications = ["post-1", "post-2", "post-1"].map((postId, index) =>
+      createMockNotification({
+        id: `notif-${index}`,
+        issuerId: `issuer-${index}`,
+        postId,
+        type: "AMPLIFY",
+      })
+    );
+    const grouped = groupNotifications(notifications);
+    expect(grouped).toHaveLength(2);
+    expect(
+      grouped.map((notification) => notification.allNotificationIds)
+    ).toEqual([["notif-0", "notif-2"], ["notif-1"]]);
+  });
+
   test("deduplicates an issuer who amplifies twice", () => {
     const first = createMockNotification({
       id: "notif-1",

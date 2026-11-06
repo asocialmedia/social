@@ -17,7 +17,7 @@ import { Animated, Easing, StyleSheet, Text, View } from "react-native";
 
 import { Spinner3D } from "@/components/feedback/spinner-3d";
 import { Gradient3D } from "@/components/surface/gradient-3d";
-import { REFRESH_TIMING } from "@/lib/refresh-timing";
+import { REFRESH_TIMING } from "@/lib/lifecycle/refresh-timing";
 import {
   APPLE_PANEL_SHADOWS,
   APPLE_PANEL_SHADOWS_DARK,

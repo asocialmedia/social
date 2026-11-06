@@ -95,7 +95,7 @@ export async function readBlueskySearch(
 }
 
 export async function readBlueskyProfileResource(
-  kind: "profile" | "author-feed",
+  kind: "profile" | "author-feed" | "hashtag",
   query: URLSearchParams,
   signal: AbortSignal,
   requestId: string,

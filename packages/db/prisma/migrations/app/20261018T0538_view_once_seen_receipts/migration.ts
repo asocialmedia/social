@@ -8,10 +8,10 @@ import {
   primaryKey,
 } from "@prisma/orm-postgres/migration";
 
-import type { Contract as Start } from "../../snapshots/7a921010aec50c8a98e3c36905fd98019f89d160847676b8fbcaac9b3efe522b/contract";
-import startContract from "../../snapshots/7a921010aec50c8a98e3c36905fd98019f89d160847676b8fbcaac9b3efe522b/contract.json" with { type: "json" };
-import type { Contract as End } from "../../snapshots/a4295fb5d59eb02819eb29d959511250857adafb6a105c3e8a2379ad84e847ec/contract";
-import endContract from "../../snapshots/a4295fb5d59eb02819eb29d959511250857adafb6a105c3e8a2379ad84e847ec/contract.json" with { type: "json" };
+import type { Contract as Start } from "../../snapshots/b1af30e149c6818b87f997ed352168521625b3a5a35058c6873af99b9c36d300/contract";
+import startContract from "../../snapshots/b1af30e149c6818b87f997ed352168521625b3a5a35058c6873af99b9c36d300/contract.json" with { type: "json" };
+import type { Contract as End } from "../../snapshots/c912811348f2374ffcf924266789c07cec2f94bae6493f89a4349368986210d8/contract";
+import endContract from "../../snapshots/c912811348f2374ffcf924266789c07cec2f94bae6493f89a4349368986210d8/contract.json" with { type: "json" };
 
 export default class M extends Migration<Start, End> {
   override readonly startContractJson = startContract;

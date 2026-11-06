@@ -92,7 +92,7 @@ test("PostAuthorSidebar renders external author info and 'More from' section for
 
   // Prepopulate the author posts infinite query cache to simulate loaded posts
   queryClient.setQueryData(
-    ["post-author-posts", `bluesky:${mockAuthor.id}`, presentedPost.id],
+    ["post-author-posts", `bluesky:${mockAuthor.id}`, "viewer"],
     {
       pageParams: [null],
       pages: [

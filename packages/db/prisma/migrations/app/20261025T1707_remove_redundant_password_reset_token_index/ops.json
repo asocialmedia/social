@@ -1,0 +1,37 @@
+[
+  {
+    "id": "dropIndex.password_reset_tokens.password_reset_tokens_token_idx",
+    "label": "Drop index \"password_reset_tokens_token_idx\"",
+    "operationClass": "widening",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "password_reset_tokens_token_idx",
+        "table": "password_reset_tokens"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"password_reset_tokens_token_idx\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": ["\"public\".\"password_reset_tokens_token_idx\""]
+      }
+    ],
+    "execute": [
+      {
+        "description": "drop index \"password_reset_tokens_token_idx\"",
+        "sql": "DROP INDEX \"public\".\"password_reset_tokens_token_idx\"",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"password_reset_tokens_token_idx\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": ["\"public\".\"password_reset_tokens_token_idx\""]
+      }
+    ]
+  }
+]

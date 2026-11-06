@@ -2,7 +2,7 @@ import { LIFECYCLE_CAPABILITY } from "@asm/messages";
 import type { ChatLifecycleSnapshot, IncognitoMessage } from "@asm/messages";
 
 import type { ApiCallOptions } from "@/features/feed/lib/feed-api";
-import { withAuthHeaders } from "@/lib/auth-headers";
+import { withAuthHeaders } from "@/lib/network/auth-headers";
 
 export class NativeChatControlError extends Error {
   readonly status: number;

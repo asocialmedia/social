@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 
-import { transcriptionRetryEligible } from "../analyze/checkpoints";
+import { transcriptionRetryEligible } from "../analyze/state/checkpoints";
 import { missingEnrichmentStages } from "./enrichment";
 
 const enabled = { embedding: true, ocr: true, transcription: true };

@@ -72,3 +72,22 @@ test("temporary outages stop after three attempts and cancellation never retries
   ).rejects.toBeDefined();
   expect(calls).toBe(3);
 });
+
+test("hashtag continuation denial remains an error and is not retried as an empty page", async () => {
+  let calls = 0;
+  await expect(
+    readProtocolResource(
+      "/api/protocols/bluesky/hashtag?tag=itsthegreatpumpkincharliebrown&cursor=older",
+      signal(),
+      {
+        fetch: () => {
+          calls += 1;
+          return Promise.resolve(
+            Response.json({ error: "restricted" }, { status: 403 })
+          );
+        },
+      }
+    )
+  ).rejects.toMatchObject({ status: 403 });
+  expect(calls).toBe(1);
+});

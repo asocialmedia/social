@@ -20,7 +20,7 @@ import {
   premiumInput,
   themeText,
 } from "@/components/surface/recipes";
-import { haptic } from "@/lib/haptics";
+import { haptic } from "@/lib/interaction/haptics";
 import {
   BTN_3D_DANGER_PRESSED_SHADOWS,
   BTN_3D_DANGER_PRESSED_SHADOWS_DARK,

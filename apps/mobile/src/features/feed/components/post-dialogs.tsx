@@ -13,8 +13,8 @@ import { ZephLoader } from "@/components/feedback/zeph-loader";
 import { APPLE_PANEL_TOKENS, themeText } from "@/components/surface/recipes";
 import { authClient } from "@/features/auth/lib/auth-client";
 import { useInstall } from "@/features/auth/state/install";
-import { getApiBaseUrl } from "@/lib/api-env";
-import { logInfo, logWarn } from "@/lib/telemetry";
+import { logInfo, logWarn } from "@/lib/lifecycle/telemetry";
+import { getApiBaseUrl } from "@/lib/network/api-env";
 import { useAppTheme } from "@/theme";
 
 import type { ApiCallOptions } from "../lib/feed-api";

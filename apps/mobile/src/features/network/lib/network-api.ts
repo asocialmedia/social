@@ -5,8 +5,8 @@ import {
 import { z } from "zod";
 
 import { authClient } from "@/features/auth/lib/auth-client";
-import { getApiBaseUrl } from "@/lib/api-env";
-import { withAuthHeaders } from "@/lib/auth-headers";
+import { getApiBaseUrl } from "@/lib/network/api-env";
+import { withAuthHeaders } from "@/lib/network/auth-headers";
 
 const terms = z.record(z.string(), z.array(z.string()));
 export const networkSettingsSchema = z.object({

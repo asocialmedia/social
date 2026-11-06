@@ -9,9 +9,10 @@ import { notFound, redirect } from "next/navigation";
 import { connection } from "next/server";
 import { cache, Suspense } from "react";
 
-import FeedViewSkeleton from "@/components/layouts/skeletons/feed-view-skeleton";
+import { FollowersPageSkeleton } from "@/components/layouts/skeletons/profile-user-list-skeleton";
 import { getUserData } from "@/hooks/users/use-user-data";
 import { getSessionFromApi } from "@/lib/auth/session";
+import { profilePath } from "@/lib/users/profile-path";
 
 import FollowersFollowingPage from "./followers-following-page";
 
@@ -46,7 +47,7 @@ const getUser = cache(async (username: string, loggedInUserId: string) => {
 
 export default function Page(props: PageProps) {
   return (
-    <Suspense fallback={<FeedViewSkeleton />}>
+    <Suspense fallback={<FollowersPageSkeleton />}>
       <FollowersContent params={props.params} />
     </Suspense>
   );
@@ -58,7 +59,9 @@ async function FollowersContent({ params }: PageProps) {
   const session = await getSessionFromApi();
 
   if (!session?.user) {
-    redirect(`/login?next=/users/${encodeURIComponent(username)}/followers`);
+    redirect(
+      `/login?next=${encodeURIComponent(`${profilePath(username)}/followers`)}`
+    );
   }
 
   const [resolvedUser, loggedInUserData] = await Promise.all([
@@ -67,14 +70,14 @@ async function FollowersContent({ params }: PageProps) {
   ]);
 
   if (resolvedUser.redirectToCurrentUsername) {
-    redirect(
-      `/users/${encodeURIComponent(resolvedUser.user.username)}/followers`
-    );
+    redirect(`${profilePath(resolvedUser.user.username)}/followers`);
   }
   const userData = resolvedUser.user;
 
   if (!loggedInUserData) {
-    redirect(`/login?next=/users/${encodeURIComponent(username)}/followers`);
+    redirect(
+      `/login?next=${encodeURIComponent(`${profilePath(username)}/followers`)}`
+    );
   }
 
   return (

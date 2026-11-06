@@ -14,8 +14,8 @@ import {
   NETWORK_ERROR,
   describeSignupError,
 } from "@/features/auth/lib/auth-errors";
-import { getApiBaseUrl } from "@/lib/api-env";
-import { logError } from "@/lib/telemetry";
+import { logError } from "@/lib/lifecycle/telemetry";
+import { getApiBaseUrl } from "@/lib/network/api-env";
 
 const REQUEST_TIMEOUT_MS = 25_000;
 

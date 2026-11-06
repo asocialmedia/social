@@ -918,3 +918,71 @@ test("strict presence lookups distinguish restricted source posts from confirmed
   });
   expect(await missing.getPosts([postFixture.uri], true)).toEqual([]);
 });
+
+test("video search uses the official filtered query and preserves language, window, cursor, and sorting", async () => {
+  const requests: URL[] = [];
+  const client = new BlueskyClient({
+    fetch: async (url) => {
+      requests.push(new URL(url));
+      return Response.json({ cursor: "video-next", posts: [postFixture] });
+    },
+  });
+  try {
+    const page = await client.searchPosts("anime", "latest", {
+      cursor: "video-cursor",
+      hasVideo: true,
+      language: "en-IN",
+      limit: 50,
+      since: "2026-10-18T00:00:00.000Z",
+      until: "2026-10-19T00:00:00.000Z",
+    });
+    expect(page.cursor).toBe("video-next");
+    expect(page.items).toHaveLength(1);
+    const [url] = requests;
+    if (!url) {
+      throw new Error("Expected a video search request");
+    }
+    expect(url.origin).toBe("https://api.bsky.app");
+    expect(url.pathname).toBe("/xrpc/app.bsky.feed.searchPostsV2");
+    expect(Object.fromEntries(url.searchParams)).toMatchObject({
+      cursor: "video-cursor",
+      hasVideo: "true",
+      languages: "en",
+      limit: "50",
+      query: "anime",
+      since: "2026-10-18T00:00:00.000Z",
+      sort: "recent",
+      until: "2026-10-19T00:00:00.000Z",
+    });
+    expect(url.searchParams.has("q")).toBe(false);
+    await client.searchPosts("anime", "top", { hasVideo: true });
+    expect(requests[1]?.searchParams.get("sort")).toBe("top");
+    await client.searchPosts("anime", "top");
+    expect(requests[2]?.pathname).toBe("/xrpc/app.bsky.feed.searchPosts");
+    expect(requests[2]?.searchParams.get("q")).toBe("anime");
+  } finally {
+    client.close();
+  }
+});
+
+test("hashtag searches send the official tag filter and preserve pagination", async () => {
+  const urls: URL[] = [];
+  const client = new BlueskyClient({
+    fetch: async (url) => {
+      urls.push(new URL(url));
+      return Response.json({ cursor: "next-source-page", posts: [] });
+    },
+  });
+  try {
+    const page = await client.searchPosts("#onepiece", "latest", {
+      cursor: "source-page",
+      tag: "onepiece",
+    });
+    expect(page.cursor).toBe("next-source-page");
+    expect(urls[0]?.searchParams.getAll("tag")).toEqual(["onepiece"]);
+    expect(urls[0]?.searchParams.get("cursor")).toBe("source-page");
+    expect(urls[0]?.searchParams.get("sort")).toBe("latest");
+  } finally {
+    client.close();
+  }
+});

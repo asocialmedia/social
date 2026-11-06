@@ -14,7 +14,7 @@ import Constants from "expo-constants";
 import * as SecureStore from "expo-secure-store";
 import { Platform } from "react-native";
 
-import { getAuthBaseUrl } from "@/lib/api-env";
+import { getAuthBaseUrl } from "@/lib/network/api-env";
 
 // Type-only view of the passkey bridge, so the plugin's inferred type is kept
 // without emitting a runtime import of the native module. The package exports
