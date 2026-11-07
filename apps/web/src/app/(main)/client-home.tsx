@@ -14,7 +14,6 @@ import {
 } from "@asm/ui/shadui/dropdown-menu";
 import { Tabs, TabsList } from "@asm/ui/shadui/tabs";
 import { ListPlus, Plus } from "lucide-react";
-import dynamic from "next/dynamic";
 import { usePathname, useSearchParams } from "next/navigation";
 import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -50,17 +49,17 @@ import {
 import type { HomeTab } from "@/store/tab-store";
 
 interface ClientHomeProps {
+  composer?: React.ReactNode;
   initialGuestPosts?: PostData[];
   userData: UserData | null;
 }
 
 type FeedTab = HomeTab;
 
-const PostEditor = dynamic(
-  () => import("@/components/posts/editor/post-editor")
-);
-
-const ClientHome: React.FC<ClientHomeProps> = ({ initialGuestPosts }) => {
+const ClientHome: React.FC<ClientHomeProps> = ({
+  composer,
+  initialGuestPosts,
+}) => {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const { user } = useSession();
@@ -259,7 +258,7 @@ const ClientHome: React.FC<ClientHomeProps> = ({ initialGuestPosts }) => {
               }`}
               ref={feedScrollRef}
             >
-              {isLoggedIn ? <PostEditor /> : null}
+              {isLoggedIn ? composer : null}
               <FeedTabContent
                 activeTab={tab}
                 className="mt-0 pb-12"

@@ -4,6 +4,7 @@ import { connection } from "next/server";
 import { Suspense } from "react";
 
 import HomePageSkeleton from "@/components/layouts/skeletons/home-skeleton";
+import PostEditor from "@/components/posts/editor/post-editor";
 import JsonLd from "@/components/seo/json-ld";
 import { getUserData } from "@/hooks/users/use-user-data";
 import { getSessionFromApi } from "@/lib/auth/session";
@@ -94,6 +95,7 @@ async function HomeContent() {
     <>
       {itemListJsonLd ? <JsonLd data={itemListJsonLd} /> : null}
       <ClientHome
+        composer={session?.user ? <PostEditor /> : undefined}
         initialGuestPosts={session?.user ? undefined : recentPosts}
         userData={userData}
       />
