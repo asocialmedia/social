@@ -8,8 +8,9 @@ import {
 // video-only, hidden ids out), and keep loading while a page yields no
 // playable gust but more exist. Transient failures retry with backoff; a
 // failed first load surfaces as an error state (web silently shows the empty
-// panel). The probe checks the head every 45s, never on a deep link, and
-// its finds are prepended when the pill is tapped.
+// panel). The probe checks the Following head every 45s (web probes no
+// other tab, and never a deep link), and its finds are prepended when the
+// pill is tapped.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { authClient } from "@/features/auth/lib/auth-client";
@@ -31,6 +32,8 @@ import { logInfo, logWarn } from "@/lib/lifecycle/telemetry";
 import { getApiBaseUrl } from "@/lib/network/api-env";
 import { createExpoPoller } from "@/lib/network/expo-poller";
 
+import { gustPagingState } from "../lib/gust-sources";
+import type { GustRetrySource } from "../lib/gust-sources";
 import {
   fetchGustsPage,
   gustFeedSource,
@@ -94,6 +97,9 @@ function useAsmGustsFeed(options: {
   const [pages, setPages] = useState<PostsPage[]>([]);
   const [status, setStatus] = useState<Status>("loading");
   const [fetchingNext, setFetchingNext] = useState(false);
+  // A later page failed after its retries. Web's isFetchNextPageError: the
+  // reel stops auto-paging this source until the reader retries it.
+  const [pageError, setPageError] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [hiddenIds, setHiddenIds] = useState<ReadonlySet<string>>(
     () => new Set()
@@ -123,6 +129,7 @@ function useAsmGustsFeed(options: {
         }
         setPages([page]);
         setNewItems([]);
+        setPageError(false);
         setStatus("ready");
         logInfo(mode === "refresh" ? "gusts.refreshed" : "gusts.loaded", {
           count: page.posts.length,
@@ -157,6 +164,8 @@ function useAsmGustsFeed(options: {
     setStatus("loading");
     // oxlint-disable-next-line react/set-state-in-effect -- same reset as above
     setFetchingNext(false);
+    // oxlint-disable-next-line react/set-state-in-effect -- same reset as above
+    setPageError(false);
     void loadFirst("initial");
     setHiddenIds(new Set());
     return () => {
@@ -185,12 +194,14 @@ function useAsmGustsFeed(options: {
       );
       if (keyRef.current === key) {
         setPages((current) => [...current, page]);
+        setPageError(false);
         fetchingRef.current = false;
         setFetchingNext(false);
       }
     } catch (error) {
       logWarn("gusts.page_failed", { reason: reason(error) });
       if (keyRef.current === key) {
+        setPageError(true);
         fetchingRef.current = false;
         setFetchingNext(false);
       }
@@ -207,11 +218,11 @@ function useAsmGustsFeed(options: {
   // Web keeps paging while the list is empty but more exist (a page of
   // only moderated or video-less posts).
   useEffect(() => {
-    if (status === "ready" && posts.length === 0 && nextCursor) {
+    if (status === "ready" && posts.length === 0 && nextCursor && !pageError) {
       // oxlint-disable-next-line react/set-state-in-effect -- auto-drain: an empty ready page with a cursor pages on, exactly like web
       void fetchNext();
     }
-  }, [fetchNext, nextCursor, posts.length, status]);
+  }, [fetchNext, nextCursor, pageError, posts.length, status]);
 
   const refresh = useCallback(async () => {
     setRefreshing(true);
@@ -234,7 +245,9 @@ function useAsmGustsFeed(options: {
     knownRef.current = knownIds;
   }, [knownIds]);
   useEffect(() => {
-    if (!enabled || initialId || status !== "ready") {
+    // Web probes the head only on Following: For you and Latest are ranked
+    // or rolling, so a "new" head there is noise and costs a request a turn.
+    if (!enabled || !following || status !== "ready") {
       return;
     }
     const key = feedKey;
@@ -266,15 +279,7 @@ function useAsmGustsFeed(options: {
     });
     poller.start();
     return () => poller.stop();
-  }, [
-    feedKey,
-    following,
-    initialId,
-    personalized,
-    status,
-    enabled,
-    network.request,
-  ]);
+  }, [feedKey, following, personalized, status, enabled, network.request]);
 
   const showNewItems = useCallback(() => {
     if (newItems.length === 0) {
@@ -303,6 +308,7 @@ function useAsmGustsFeed(options: {
     hasNextPage: nextCursor !== null,
     hide,
     newItems,
+    pageError,
     posts,
     refresh,
     refreshing,
@@ -429,17 +435,57 @@ export function useGustsFeed(options: {
   ) {
     status = "error";
   }
+  // Web's retrySources: each source's failure and retry stand alone, so a
+  // Bluesky outage leaves ASM gusts playing and vice versa. A failed later
+  // page retries its own cursor; a failed first load starts that source over.
+  const asmEnabled = !externalId && source !== "bluesky";
+  const remoteEnabled = !options.initialId && source !== "asm";
+  const remotePageError = remote.status === "error" && remote.pages.length > 0;
+  const sources: GustRetrySource[] = [
+    {
+      enabled: asmEnabled,
+      handleRetry: () => {
+        if (asm.pageError) {
+          void asm.fetchNext();
+        } else {
+          asm.retry();
+        }
+      },
+      hasError: asm.status === "error" || asm.pageError,
+      hasNextPage: asm.hasNextPage,
+      isFetching: asm.status === "loading" || asm.fetchingNext,
+      isFetchingNextPage: asm.fetchingNext,
+      label: "ASM",
+      pageError: asm.pageError,
+    },
+    {
+      enabled: remoteEnabled,
+      handleRetry: () => {
+        void remote.retry();
+      },
+      hasError: remote.status === "error",
+      hasNextPage: remote.hasMore,
+      isFetching: remote.status === "loading" || remote.loadingMore,
+      isFetchingNextPage: remote.loadingMore,
+      label: "Bluesky",
+      pageError: remotePageError,
+    },
+  ];
+  const paging = gustPagingState(sources);
   return {
     ...asm,
+    canFetchNextPage: !externalId && paging.canFetchNextPage,
     error:
       (network.ready ? null : network.error) ?? detail.error ?? remote.error,
+    // Auto-paging skips a source whose last page failed (web's fetchNextPage
+    // guard), so a dead source is not hammered while its peer pages on.
     fetchNext: async () => {
       if (externalId) {
         return;
       }
       await Promise.all([
-        source === "bluesky" ? undefined : asm.fetchNext(),
-        source === "asm" ? undefined : remote.fetchNext(),
+        asmEnabled && !asm.pageError ? asm.fetchNext() : undefined,
+        remoteEnabled && !remotePageError ? remote.fetchNext() : undefined,
       ]);
     },
     fetchingNext: asm.fetchingNext || remote.loadingMore,
@@ -447,16 +493,32 @@ export function useGustsFeed(options: {
       !externalId &&
       ((source !== "bluesky" && asm.hasNextPage) ||
         (source !== "asm" && remote.hasMore)),
-    newItems: [
-      ...(source === "bluesky" ? [] : asm.newItems),
-      ...(source === "asm" ? [] : remote.newItems.map(externalPostView)),
-    ].filter((post) =>
-      networkPostRecommended(
-        post,
-        network.settings.preferences,
-        network.settings.topicScope
-      )
-    ),
+    // Web surfaces new gusts only on Following: its own clips pass the
+    // Following filter, Bluesky heads pass the recommendation filter.
+    newItems:
+      options.tab === "following" && !options.initialId
+        ? [
+            ...(source === "bluesky" ? [] : asm.newItems).filter((post) =>
+              networkPostAllowed(
+                post,
+                network.settings.preferences,
+                network.settings.topicScope
+              )
+            ),
+            ...(source === "asm"
+              ? []
+              : remote.newItems
+                  .map(externalPostView)
+                  .filter((post) =>
+                    networkPostRecommended(
+                      post,
+                      network.settings.preferences,
+                      network.settings.topicScope
+                    )
+                  )),
+          ]
+        : [],
+    pageError: !externalId && paging.pageError,
     posts,
     refresh: async () => {
       if (!network.ready) {
@@ -494,6 +556,7 @@ export function useGustsFeed(options: {
       remote.acceptNew();
       setOrder({ ids: [], key });
     },
+    sources: externalId ? [] : sources,
     status,
   };
 }

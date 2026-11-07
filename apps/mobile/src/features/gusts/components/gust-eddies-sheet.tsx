@@ -1,3 +1,4 @@
+import type { ExternalPost } from "@asm/protocols/contracts";
 import { Volume2, VolumeX, X } from "lucide-react-native";
 import { useEffect, useState } from "react";
 import {
@@ -25,6 +26,8 @@ import { scheduleOnRN } from "react-native-worklets";
 import { reelsPanel } from "@/components/media/gif-picker";
 import { themeText } from "@/components/surface/recipes";
 import { EddieThread } from "@/features/eddies/components/eddie-thread";
+import { ExternalDiscussion } from "@/features/feed/components/external-discussion";
+import { useExternalDiscussion } from "@/features/feed/state/use-external-discussion";
 import { haptic } from "@/lib/interaction/haptics";
 import { keyboardScreenTop } from "@/lib/layout/keyboard-overlap";
 import { SHOWS_SCROLL_INDICATOR } from "@/lib/layout/scroll-indicator";
@@ -44,7 +47,35 @@ function dismissKeyboard() {
   Keyboard.dismiss();
 }
 
+// A Bluesky gust's asocialmedia discussion, shown in the same sheet the way
+// web's GustsCommentsDrawer swaps Comments for ExternalDiscussion.
+function ExternalGustDiscussion({
+  post,
+}: {
+  post: Pick<ExternalPost, "asm" | "id">;
+}) {
+  const discussion = useExternalDiscussion(post.id);
+  return (
+    <ExternalDiscussion
+      asm={post.asm}
+      comments={discussion.comments}
+      hasMore={discussion.hasMore}
+      loadingMore={discussion.loadingMore}
+      onChanged={() => discussion.reload()}
+      onLoadMore={() => {
+        void discussion.loadMore();
+      }}
+      onRetry={() => discussion.retry()}
+      status={discussion.status}
+      uri={post.id}
+      variant="reels"
+    />
+  );
+}
+
 interface SheetProps {
+  // Set for a Bluesky gust: the sheet shows its external discussion.
+  external?: Pick<ExternalPost, "asm" | "id"> | null;
   onClose: () => void;
   postId: string | null;
   previewProgress?: SharedValue<number>;
@@ -67,6 +98,7 @@ export function GustEddiesSheet(props: SheetProps) {
 // Expo UI's modal detents don't expose the visible RN viewport or keep the upper player interactive.
 // This sheet stays in the Gust viewport so its independent scroll area and system bars stay correct.
 function OpenGustEddiesSheet({
+  external,
   onClose,
   postId,
   previewProgress,
@@ -298,7 +330,15 @@ function OpenGustEddiesSheet({
             showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
             style={styles.scroll}
           >
-            <EddieThread postId={postId} variant="reels" viewerId={viewerId} />
+            {external ? (
+              <ExternalGustDiscussion post={external} />
+            ) : (
+              <EddieThread
+                postId={postId}
+                variant="reels"
+                viewerId={viewerId}
+              />
+            )}
           </ScrollView>
         </View>
       </Animated.View>

@@ -116,8 +116,8 @@ export function useGustVote(
     } catch (error) {
       logWarn("gusts.vote_failed", { forced, reason: reason(error) });
       toast({
+        // Web's gust vote error has no title, only the retry nudge.
         description: GUST_VOTE_ERROR_COPY,
-        title: "Vote Failed",
         variant: "destructive",
       });
     }

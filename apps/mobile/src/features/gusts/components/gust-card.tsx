@@ -772,7 +772,7 @@ export function GustCard({
         ) : null}
         {showBuffering ? (
           <View pointerEvents="none" style={styles.center}>
-            <Spinner3D variant="media" size={48} />
+            <Spinner3D size={48} />
           </View>
         ) : null}
         <AuraBurstLayer ref={auraLayer} />
@@ -945,11 +945,7 @@ export function GustCard({
             </View>
           ) : null}
 
-          {post.external ? (
-            <Text style={styles.handle}>
-              Bluesky · follows and discussion in ASM
-            </Text>
-          ) : (
+          {post.external ? null : (
             <View style={styles.viewsRow}>
               <Eye color="rgba(255, 255, 255, 0.85)" size={16} />
               <Text style={styles.views}>
@@ -964,9 +960,6 @@ export function GustCard({
           pointerEvents={eddiesOpen ? "none" : "box-none"}
           style={[styles.rail, eddiesOpen && styles.hidden]}
         >
-          {post.external ? (
-            <ExternalLikeAction post={post.external} color="white" size={22} />
-          ) : null}
           <View style={styles.railItem}>
             <RailButton
               accessibilityLabel={
@@ -982,14 +975,25 @@ export function GustCard({
                 size={20}
               />
             </RailButton>
-            <View style={styles.auraRow}>
-              <Flame
-                color={flame.color}
-                fill={flame.filled ? flame.color : "none"}
+            {/* Web's GustVoteButton: an external gust carries its upstream
+                like count under amplify where a native one shows its aura. */}
+            {post.external ? (
+              <ExternalLikeAction
+                color="white"
+                labelStyle={styles.externalLikes}
+                post={post.external}
                 size={20}
               />
-              <Text style={styles.auraText}>{formatNumber(vote.aura)}</Text>
-            </View>
+            ) : (
+              <View style={styles.auraRow}>
+                <Flame
+                  color={flame.color}
+                  fill={flame.filled ? flame.color : "none"}
+                  size={20}
+                />
+                <Text style={styles.auraText}>{formatNumber(vote.aura)}</Text>
+              </View>
+            )}
           </View>
           <RailButton
             accessibilityLabel={
@@ -1022,7 +1026,7 @@ export function GustCard({
             accessibilityLabel="Share gust"
             onPress={() => onShare(post)}
           >
-            <Share2 color={RAIL_ICON_COLOR} size={16} />
+            <Share2 color={RAIL_ICON_COLOR} size={20} />
           </RailButton>
           <RailButton
             accessibilityLabel={
@@ -1035,7 +1039,7 @@ export function GustCard({
             <Bookmark
               color={RAIL_ICON_COLOR}
               fill={bookmark.bookmarked ? "#ffffff" : "none"}
-              size={16}
+              size={20}
             />
           </RailButton>
           <View collapsable={false} ref={moreRef}>
@@ -1047,7 +1051,7 @@ export function GustCard({
                 });
               }}
             >
-              <MoreHorizontal color={RAIL_ICON_COLOR} size={16} />
+              <MoreHorizontal color={RAIL_ICON_COLOR} size={20} />
             </RailButton>
           </View>
           <RailButton
@@ -1189,6 +1193,14 @@ const styles = StyleSheet.create({
     color: "rgba(255, 255, 255, 0.9)",
     fontFamily: "SofiaProBold",
     fontSize: 11,
+    fontWeight: "normal",
+  },
+  // Web's `text-lg font-black tabular-nums drop-shadow-md` like count.
+  externalLikes: {
+    ...TEXT_SHADOW,
+    fontFamily: "SofiaProBold",
+    fontSize: 18,
+    fontVariant: ["tabular-nums"],
     fontWeight: "normal",
   },
   fill: {
