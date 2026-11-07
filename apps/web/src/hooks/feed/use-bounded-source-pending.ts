@@ -3,14 +3,14 @@ import { useEffect, useState } from "react";
 // Coalesce mixed-source arrivals within a deadline, then release healthy posts if a peer stalls.
 export function useBoundedSourcePending(
   pending: boolean,
-  timeoutMs = 600
+  timeoutMs: number | null = 600
 ): boolean {
   const [state, setState] = useState({ expired: false, pending });
   if (state.pending !== pending) {
     setState({ expired: false, pending });
   }
   useEffect(() => {
-    if (!pending) {
+    if (!pending || timeoutMs === null) {
       return;
     }
     const timer = setTimeout(

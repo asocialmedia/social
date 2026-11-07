@@ -530,3 +530,65 @@ test("guest source snapshots keep their feed node through locale hydration and l
     useFeedSourceStore.setState({ source: "all" });
   }
 });
+
+test("a stalled peer cannot leave a moving skeleton below the released feed", async () => {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  const native = {
+    ...externalPostView({
+      author: {
+        displayName: "Author",
+        handle: "author.test",
+        id: "author",
+        source: "bluesky",
+        upstreamCounts: {},
+        url: "https://bsky.app/profile/author.test",
+      },
+      createdAt: "2026-11-07T00:00:00Z",
+      id: "native-stable",
+      labels: [],
+      languages: [],
+      media: [],
+      revision: "1",
+      segments: [],
+      source: "bluesky",
+      text: "Native post",
+      upstreamCounts: {},
+      url: "https://bsky.app/profile/author.test/post/example",
+    }),
+    external: undefined,
+  };
+  client.setQueryData(
+    ["post-feed", "latest", "guest", "test", "en", "focused"],
+    { pageParams: [null], pages: [{ nextCursor: null, posts: [native] }] }
+  );
+  const host = dom.document.createElement("div");
+  const root = createRoot(host);
+  try {
+    useFeedSourceStore.setState({ source: "all" });
+    bootstrapPending = true;
+    await act(() =>
+      root.render(
+        <QueryClientProvider client={client}>
+          <HomeFeed variant="latest" />
+        </QueryClientProvider>
+      )
+    );
+    const feed = host.querySelector("[data-loaded]");
+    expect(feed).not.toBeNull();
+    expect(feed?.dataset.sourcesPending).toBe("true");
+    expect(host.querySelector('[aria-label="Loading feed"]')).not.toBeNull();
+    await act(async () => {
+      await Bun.sleep(680);
+    });
+    expect(host.querySelector("[data-loaded]")).toBe(feed);
+    expect(feed?.dataset.sourcesPending).toBe("false");
+    expect(host.querySelector('[aria-label="Loading feed"]')).toBeNull();
+  } finally {
+    await act(() => root.unmount());
+    client.clear();
+    bootstrapPending = false;
+    useFeedSourceStore.setState({ source: "all" });
+  }
+});

@@ -26,6 +26,7 @@ import InfiniteScrollContainer from "@/components/layouts/feed/infinite-scroll-c
 import FeedViewSkeleton from "@/components/layouts/skeletons/feed-view-skeleton";
 import LoadMoreSkeleton from "@/components/layouts/skeletons/load-more-skeleton";
 import { useBlueskyFeed } from "@/components/protocols/use-bluesky-feed";
+import { useBoundedSourcePending } from "@/hooks/feed/use-bounded-source-pending";
 import { useDiscoveryLocale } from "@/hooks/feed/use-discovery-locale";
 import { useFeedExposures } from "@/hooks/feed/use-feed-exposures";
 import { useFeedRecovery } from "@/hooks/feed/use-feed-recovery";
@@ -337,6 +338,7 @@ export default function HomeFeed({
     source !== "bluesky" && globalEnabled && globalStatus === "pending";
   const externalInitialLoading =
     allowExternal && includeBluesky && external.isPending;
+  const initialSourceLoading = globalInitialLoading || externalInitialLoading;
   const hasNextPage =
     (source !== "bluesky" &&
       (communityStillLeading ||
@@ -521,6 +523,17 @@ export default function HomeFeed({
     showCommunitySection ||
     (source !== "bluesky" && visibleGlobalPosts.length > 0) ||
     (allowExternal && source !== "asm" && externalPosts.length > 0);
+  const sourcesStagingPending = useBoundedSourcePending(
+    source === "all" &&
+      hasAnyPosts &&
+      initialSourceLoading &&
+      !hasGuestBootstrap
+  );
+  // Release the cards and their trailing placeholder together when a peer stalls.
+  const showInitialSourceSkeleton =
+    initialSourceLoading &&
+    !hasGuestBootstrap &&
+    (source !== "all" || !hasAnyPosts || sourcesStagingPending);
   const sourceFailed =
     (source !== "bluesky" && (communityFailed || globalStatus === "error")) ||
     (allowExternal && includeBluesky && external.isError);
@@ -666,7 +679,6 @@ export default function HomeFeed({
     isFetchingNextCommunityPage ||
     isFetchingNextGlobalPage ||
     (allowExternal && includeBluesky && external.isFetchingNextPage);
-  const initialSourceLoading = globalInitialLoading || externalInitialLoading;
   const sourceFetching =
     (source !== "bluesky" && (isFetching || isFetchingCommunity)) ||
     (allowExternal && includeBluesky && external.isFetching);
@@ -770,9 +782,8 @@ export default function HomeFeed({
                 : `${hashKey(queryKey)}:${source}`
             }
             externalPosts={allowExternal ? externalPosts : []}
-            sourcesPending={
-              source === "all" && initialSourceLoading && !hasGuestBootstrap
-            }
+            sourcesPending={sourcesStagingPending}
+            sourceWaitMs={null}
             source={source}
             cacheKey={queryKey}
             excludeIds={communityIds}
@@ -785,7 +796,7 @@ export default function HomeFeed({
             sortBy={isTrending || isPersonalized ? "server" : "newest"}
           />
         ) : null}
-        {initialSourceLoading ? (
+        {showInitialSourceSkeleton ? (
           <FeedViewSkeleton
             source={externalInitialLoading ? "bluesky" : source}
           />

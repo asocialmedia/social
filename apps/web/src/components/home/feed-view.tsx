@@ -44,7 +44,8 @@ interface FeedViewProps {
   externalPosts?: ExternalPost[];
   source?: FeedSource;
   sourcesPending?: boolean;
-  sourceWaitMs?: number;
+  // A null timeout delegates the deadline to the parent and its loading UI.
+  sourceWaitMs?: number | null;
   cacheKey?: QueryKey;
   // Extra ids to drop from the rendered feed, applied to both the server list
   // and every cache-synced update. Used when a leading segment already shows a
