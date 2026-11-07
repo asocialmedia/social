@@ -3,6 +3,7 @@
 import type { ExternalPost } from "@asm/protocols/contracts";
 import { useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft } from "lucide-react";
+import dynamic from "next/dynamic";
 import { useSearchParams, useRouter } from "next/navigation";
 import { useEffect } from "react";
 
@@ -11,7 +12,6 @@ import ClientPost, {
 } from "@/app/(main)/posts/[postId]/client-post";
 import { useSession } from "@/app/(main)/session-provider";
 import { FeedErrorState } from "@/components/feeds/feed-error-state";
-import MediaViewer from "@/components/home/feedview/media-viewer";
 import MediaRouteSkeleton from "@/components/layouts/skeletons/media-route-skeleton";
 import PostDetailSkeleton from "@/components/layouts/skeletons/post-detail-skeleton";
 import kyInstance from "@/lib/ky";
@@ -23,6 +23,10 @@ import { withViewTransition } from "@/lib/view-transition";
 import { ExternalDiscussion } from "./external-discussion";
 import { useBlueskyProfile } from "./use-bluesky-profile";
 import { useExternalPost } from "./use-external-post";
+
+const MediaViewer = dynamic(
+  () => import("@/components/home/feedview/media-viewer")
+);
 
 export function ExternalPostPage({
   initialPost,
