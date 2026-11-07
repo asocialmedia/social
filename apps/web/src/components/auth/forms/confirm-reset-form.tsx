@@ -323,13 +323,18 @@ export default function ConfirmResetForm() {
 
         <motion.div
           animate={{ opacity: 0.05 }}
-          className="absolute top-0 right-0 h-full w-full bg-cover bg-center opacity-5 blur-md lg:w-1/2"
+          className="absolute top-0 right-0 h-full w-full opacity-5 blur-md lg:w-1/2"
           initial={{ opacity: 0 }}
-          style={{
-            backgroundImage: `url(${resetImage.src})`,
-          }}
           transition={{ duration: 1 }}
-        />
+        >
+          <Image
+            alt=""
+            className="object-cover"
+            fill
+            sizes="(min-width: 1024px) 50vw, 100vw"
+            src={resetImage}
+          />
+        </motion.div>
       </motion.div>
     </AnimatePresence>
   );

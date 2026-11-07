@@ -4,6 +4,7 @@ import loginImage from "@assets/auth/login-image.jpg";
 import signupImage from "@assets/auth/signup-image.jpg";
 import { ArrowLeft } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
+import Image from "next/image";
 import Link from "next/link";
 import { useState } from "react";
 
@@ -71,15 +72,20 @@ export default function AuthPage({ initialMode }: { initialMode: AuthMode }) {
 
       <motion.div
         animate={{ opacity: 0.05 }}
-        className={`absolute top-0 h-full w-full bg-cover bg-center opacity-5 blur-md lg:w-1/2 ${
+        className={`absolute top-0 h-full w-full opacity-5 blur-md lg:w-1/2 ${
           isLogin ? "right-0" : "left-0"
         }`}
         initial={{ opacity: 0 }}
-        style={{
-          backgroundImage: `url(${isLogin ? loginImage.src : signupImage.src})`,
-        }}
         transition={{ duration: 1 }}
-      />
+      >
+        <Image
+          alt=""
+          className="object-cover"
+          fill
+          sizes="(min-width: 1024px) 50vw, 100vw"
+          src={isLogin ? loginImage : signupImage}
+        />
+      </motion.div>
     </div>
   );
 }

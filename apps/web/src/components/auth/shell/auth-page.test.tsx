@@ -3,6 +3,10 @@ import { expect, mock, test } from "bun:test";
 import { Window } from "happy-dom";
 import { renderToStaticMarkup } from "react-dom/server";
 
+mock.module("next/image", () => ({
+  default: () => null,
+}));
+
 mock.module("@/components/auth/shell/auth-card", () => ({
   default: ({ mode }: { mode: string }) => (
     <form aria-label={mode}>
