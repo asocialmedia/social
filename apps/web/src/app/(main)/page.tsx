@@ -4,7 +4,6 @@ import { connection } from "next/server";
 import { Suspense } from "react";
 
 import HomePageSkeleton from "@/components/layouts/skeletons/home-skeleton";
-import PostEditor from "@/components/posts/editor/post-editor";
 import JsonLd from "@/components/seo/json-ld";
 import { getUserData } from "@/hooks/users/use-user-data";
 import { getSessionFromApi } from "@/lib/auth/session";
@@ -12,6 +11,7 @@ import { getRecentPostDataForCrawl } from "@/lib/posts/server-feed";
 import { getPostUrl } from "@/lib/seo/seo";
 
 import ClientHome from "./client-home";
+import HomeComposer from "./home-composer";
 
 export const metadata: Metadata = {
   alternates: {
@@ -95,7 +95,7 @@ async function HomeContent() {
     <>
       {itemListJsonLd ? <JsonLd data={itemListJsonLd} /> : null}
       <ClientHome
-        composer={session?.user ? <PostEditor /> : undefined}
+        composer={session?.user ? <HomeComposer /> : undefined}
         initialGuestPosts={session?.user ? undefined : recentPosts}
         userData={userData}
       />
