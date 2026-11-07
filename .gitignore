@@ -51,8 +51,6 @@ google-services.json
 *.bun-build
 artifacts/
 ref/
-.next-seo-audit/
-.next-seo-final/
-.next-seo-review/
+.next-seo-*/
 .next-windows-smoke/
 /audits/
