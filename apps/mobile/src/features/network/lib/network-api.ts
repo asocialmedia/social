@@ -33,11 +33,20 @@ export const networkSettingsSchema = z.object({
 
 export class NetworkRequestError extends Error {
   readonly status: number;
-  constructor(message: string, status: number) {
+  // Seconds from the Retry-After header, at least 1 (web's SearchReadError).
+  readonly retryAfter: number;
+  constructor(message: string, status: number, retryAfter = 1) {
     super(message);
     this.name = "NetworkRequestError";
     this.status = status;
+    this.retryAfter = retryAfter;
   }
+}
+
+// Web's retry-after parsing: a missing or malformed header waits 1s.
+export function retryAfterSeconds(header: string | null): number {
+  const seconds = Number(header);
+  return header !== null && Number.isFinite(seconds) ? Math.max(1, seconds) : 1;
 }
 
 export async function networkRequest(
@@ -69,7 +78,8 @@ export async function networkRequest(
       problem.success
         ? problem.data.error
         : `Request failed (${response.status})`,
-      response.status
+      response.status,
+      retryAfterSeconds(response.headers.get("retry-after"))
     );
   }
   return body;

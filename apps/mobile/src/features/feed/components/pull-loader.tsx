@@ -299,7 +299,7 @@ export function PullLoader({
                     },
                   ]}
                 >
-                  <Spinner3D variant="general" size={ICON_SLOT} />
+                  <Spinner3D size={ICON_SLOT} />
                 </Animated.View>
               ) : null}
               <Animated.View

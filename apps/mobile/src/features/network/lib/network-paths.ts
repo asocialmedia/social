@@ -59,8 +59,48 @@ export function nativeNetworkPath(value: string): string | null {
   ) {
     return `${url.pathname}${url.search}`;
   }
+  // Web's short profile URLs (953ef2d3 profilePath): `/<username>` and its
+  // followers/following lists open the native profile under /users/. A name
+  // that collides with a web route is never a profile there either.
+  const profile =
+    /^\/(?<username>[A-Za-z0-9_]+)(?<list>\/(?:followers|following))?\/?$/.exec(
+      url.pathname
+    );
+  const username = profile?.groups?.username;
+  if (username && !WEB_APP_PATHS.has(username.toLowerCase())) {
+    return `/users/${username}${profile.groups?.list ?? ""}`;
+  }
   return null;
 }
+
+// Web's appPaths (apps/web/src/lib/users/profile-path.ts): top-level routes
+// that are never a short profile URL.
+const WEB_APP_PATHS = new Set([
+  "a",
+  "about",
+  "api",
+  "bookmarks",
+  "camera",
+  "client",
+  "communities",
+  "discover",
+  "gusts",
+  "hackernews",
+  "hashtag",
+  "login",
+  "messages",
+  "network",
+  "notifications",
+  "posts",
+  "privacy",
+  "settings",
+  "signup",
+  "sitemaps",
+  "soon",
+  "support",
+  "toc",
+  "users",
+]);
 
 export function externalShareUrl(
   uri: string,

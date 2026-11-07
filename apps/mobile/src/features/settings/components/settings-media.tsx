@@ -195,7 +195,7 @@ export function SettingsBannerInput({
               { backgroundColor: "rgba(0,0,0,0.55)" },
             ]}
           >
-            <Spinner3D variant="media" size={40} />
+            <Spinner3D size={40} />
             <Text numberOfLines={1} style={styles.overlayText}>
               {pipelineStageLabel(stage, progress, "banner")}
             </Text>
@@ -296,7 +296,7 @@ export function SettingsAvatarInput({
                 { backgroundColor: "rgba(0,0,0,0.55)", borderRadius: radius },
               ]}
             >
-              <Spinner3D variant="media" size={32} />
+              <Spinner3D size={32} />
               <Text numberOfLines={1} style={styles.overlayTextSmall}>
                 {pipelineStageLabel(stage, progress, "avatar")}
               </Text>

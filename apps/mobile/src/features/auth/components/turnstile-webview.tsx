@@ -124,7 +124,7 @@ export function TurnstileWebView({
       />
       {isReady ? null : (
         <View pointerEvents="none" style={styles.loading}>
-          <Spinner3D variant="security" size={44} />
+          <Spinner3D size={44} />
         </View>
       )}
     </View>

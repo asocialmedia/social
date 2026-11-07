@@ -42,7 +42,7 @@ export function LogoutDialog({ onClose, onLogout, open }: LogoutDialogProps) {
       <Pressable onPress={onClose} style={styles.backdrop}>
         <Pressable
           onPress={() => {
-            /* taps on the card must not bubble to the backdrop */
+            // Taps on the card must not bubble to the backdrop.
           }}
           style={[
             styles.card,

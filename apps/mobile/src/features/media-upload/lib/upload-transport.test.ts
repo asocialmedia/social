@@ -1,9 +1,15 @@
+// oxlint-disable max-classes-per-file -- File and Directory are separate native constructors in the filesystem adapter.
 import { afterAll, expect, mock, test } from "bun:test";
 
 const events: string[] = [];
 const pendingWrite = Promise.withResolvers<undefined>();
 
+// Bun keeps a mocked module for the whole run, so the stub exports every
+// binding a later test file imports from expo-file-system, Directory included.
 mock.module("expo-file-system", () => ({
+  Directory: class {
+    readonly uri = "file:///cache/directory";
+  },
   File: class {
     events = events;
     create() {

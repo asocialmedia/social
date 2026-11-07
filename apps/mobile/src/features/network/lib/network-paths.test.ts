@@ -78,3 +78,14 @@ test.each([
 ])("rejects invalid or foreign destinations: %s", (path) => {
   expect(nativeNetworkPath(path)).toBeNull();
 });
+test("short profile URLs open the native profile", () => {
+  expect(nativeNetworkPath("/alice")).toBe("/users/alice");
+  expect(nativeNetworkPath("https://asocialmedia.cc/alice_2/followers")).toBe(
+    "/users/alice_2/followers"
+  );
+  // Web routes are never usernames, whether or not native has a screen.
+  expect(nativeNetworkPath("/gusts")).toBe("/gusts");
+  expect(nativeNetworkPath("/about")).toBeNull();
+  expect(nativeNetworkPath("/Privacy")).toBeNull();
+  expect(nativeNetworkPath("/verify-email")).toBeNull();
+});
