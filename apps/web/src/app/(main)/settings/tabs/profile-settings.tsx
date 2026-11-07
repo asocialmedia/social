@@ -14,6 +14,7 @@ import { Input } from "@asm/ui/shadui/input";
 import avatarPlaceholder from "@assets/general/avatar-placeholder.png";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Link2, UserRound } from "lucide-react";
+import dynamic from "next/dynamic";
 import { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import type { Control, ControllerRenderProps } from "react-hook-form";
@@ -29,7 +30,6 @@ import {
 } from "@/app/(main)/users/[username]/avatar-mutations";
 import { LoadingButton } from "@/components/auth/fields/loading-button";
 import { AnimatedWordCounter } from "@/components/misc/animated-word-counter";
-import { InlineRichEditor } from "@/components/posts/editor/inline-rich-editor";
 import {
   AvatarInput,
   BannerInput,
@@ -46,6 +46,12 @@ import { croppedImageFile } from "@/lib/media/cropped-image-file";
 import type { UploadStage } from "@/lib/media/media-upload-client";
 import { cn } from "@/lib/utils";
 import { getSecureImageUrl } from "@/lib/utils/image-url";
+
+const InlineRichEditor = dynamic(async () => {
+  const editorModule =
+    await import("@/components/posts/editor/inline-rich-editor");
+  return editorModule.InlineRichEditor;
+});
 
 const whitespaceRegex = /\s+/;
 
