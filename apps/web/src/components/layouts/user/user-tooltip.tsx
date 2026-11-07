@@ -31,10 +31,8 @@ interface UserTooltipProps extends PropsWithChildren {
   user: UserData;
 }
 
-// Viewport detection as an external store: the server snapshot renders the
-// tooltip variant so hydration matches, then the client snapshot flips to the
-// compact children on small screens. Resize events drive re-reads, replacing
-// the old setState-in-effect cascade.
+// Server markup keeps the children alone. A hydrated desktop adds hover behavior
+// without changing their layout; mobile avoids mounting desktop tooltip internals.
 // oxlint-disable-next-line promise/prefer-await-to-callbacks -- useSyncExternalStore subscribe contract requires a callback API
 function subscribeToViewport(callback: () => void) {
   window.addEventListener("resize", callback);
@@ -45,7 +43,7 @@ function subscribeToViewport(callback: () => void) {
 
 const getIsMobileSnapshot = () => window.innerWidth < 768;
 
-const getServerIsMobile = () => false;
+const getServerIsMobile = () => true;
 
 const TooltipStat = ({
   icon: Icon,
