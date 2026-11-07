@@ -3,8 +3,11 @@ import { expect, mock, test } from "bun:test";
 import { Window } from "happy-dom";
 import { renderToStaticMarkup } from "react-dom/server";
 
-mock.module("next/image", () => ({
-  default: () => null,
+mock.module("@assets/auth/login-image.jpg", () => ({
+  default: { height: 100, src: "/auth-test.jpg", width: 100 },
+}));
+mock.module("@assets/auth/signup-image.jpg", () => ({
+  default: { height: 100, src: "/auth-test.jpg", width: 100 },
 }));
 
 mock.module("@/components/auth/shell/auth-card", () => ({
