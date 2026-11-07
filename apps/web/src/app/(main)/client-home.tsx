@@ -1,6 +1,7 @@
 "use client";
 
 import type { PostData, UserData } from "@asm/db";
+import type { ExternalPost } from "@asm/protocols/contracts";
 import {
   discoveryFleetFeed,
   homeFeedTabs,
@@ -49,6 +50,7 @@ import {
 import type { HomeTab } from "@/store/tab-store";
 
 interface ClientHomeProps {
+  initialGuestExternalPosts?: ExternalPost[];
   composer?: React.ReactNode;
   initialGuestPosts?: PostData[];
   userData: UserData | null;
@@ -58,6 +60,7 @@ type FeedTab = HomeTab;
 
 const ClientHome: React.FC<ClientHomeProps> = ({
   composer,
+  initialGuestExternalPosts,
   initialGuestPosts,
 }) => {
   const pathname = usePathname();
@@ -284,6 +287,7 @@ const ClientHome: React.FC<ClientHomeProps> = ({
                 value="latest"
               >
                 <HomeFeed
+                  initialGuestExternalPosts={initialGuestExternalPosts}
                   initialGuestPosts={initialGuestPosts}
                   variant="latest"
                 />
