@@ -108,6 +108,13 @@ function useAsmGustsFeed(options: {
   // The key a load was started for; late responses for an old key drop.
   const keyRef = useRef(feedKey);
   const fetchingRef = useRef(false);
+  // Bumped by every refresh: an in-flight fetchNext started before the
+  // refresh must not append its stale page onto the fresh list.
+  const refreshGenRef = useRef(0);
+  // Synchronous mirror of `refreshing`: refreshing and loading-more are
+  // mutually exclusive by construction, so a fetchNext racing a refresh
+  // no-ops instead of interleaving pages.
+  const refreshingRef = useRef(false);
 
   const nextCursor = pages.at(-1)?.nextCursor ?? null;
   const posts = useMemo(
@@ -174,12 +181,13 @@ function useAsmGustsFeed(options: {
   }, [enabled, feedKey, loadFirst, network.ready]);
 
   const fetchNext = useCallback(async () => {
-    if (fetchingRef.current || !nextCursor) {
+    if (fetchingRef.current || refreshingRef.current || !nextCursor) {
       return;
     }
     fetchingRef.current = true;
     setFetchingNext(true);
     const key = feedKey;
+    const generation = refreshGenRef.current;
     // No finally: the React Compiler rejects try/finally, so the reset is
     // written out on both paths (same reason as update-gate.ts).
     try {
@@ -192,19 +200,24 @@ function useAsmGustsFeed(options: {
         },
         network.request
       );
-      if (keyRef.current === key) {
-        setPages((current) => [...current, page]);
-        setPageError(false);
-        fetchingRef.current = false;
-        setFetchingNext(false);
+      // A stale settle always clears the flags: the old code only reset them
+      // inside the key match, so a key change mid-flight left fetchingNext
+      // true until the next key change rearmed it.
+      fetchingRef.current = false;
+      setFetchingNext(false);
+      if (keyRef.current !== key || refreshGenRef.current !== generation) {
+        return;
       }
+      setPages((current) => [...current, page]);
+      setPageError(false);
     } catch (error) {
       logWarn("gusts.page_failed", { reason: reason(error) });
-      if (keyRef.current === key) {
-        setPageError(true);
-        fetchingRef.current = false;
-        setFetchingNext(false);
+      fetchingRef.current = false;
+      setFetchingNext(false);
+      if (keyRef.current !== key || refreshGenRef.current !== generation) {
+        return;
       }
+      setPageError(true);
     }
   }, [
     feedKey,
@@ -225,8 +238,11 @@ function useAsmGustsFeed(options: {
   }, [fetchNext, nextCursor, pageError, posts.length, status]);
 
   const refresh = useCallback(async () => {
+    refreshGenRef.current += 1;
+    refreshingRef.current = true;
     setRefreshing(true);
     await loadFirst("refresh");
+    refreshingRef.current = false;
     setRefreshing(false);
   }, [loadFirst]);
 

@@ -16,6 +16,7 @@ export interface ProfileHeaderProfile {
   badges: string[];
   bannerUrl: string | null;
   bio: string | null;
+  blueskyHandle: string | null;
   communityMemberships: CommunityRoleLike[];
   createdAt: string;
   customDomain: string | null;

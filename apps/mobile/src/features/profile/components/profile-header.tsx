@@ -38,13 +38,12 @@ import {
   BTN_3D_GRAY_SHADOWS_DARK,
   EDIT_PROFILE_SHADOWS,
   EDIT_PROFILE_SHADOWS_DARK,
-  FOLLOW_BUTTON_SHADOWS,
-  FOLLOW_BUTTON_SHADOWS_LIGHT,
   ICON_BUTTON_SHADOWS_DARK,
   ICON_BUTTON_SHADOWS_LIGHT,
   useAppTheme,
 } from "@/theme";
 
+import { followButtonTone } from "../lib/follow-button-tone";
 import type { ProfileHeaderProfile } from "../lib/profile-view-model";
 import { ProfileCommunityRoles } from "./profile-community-roles";
 import { ProfileMutualAvatars } from "./profile-mutual-avatars";
@@ -91,6 +90,9 @@ function SocialIcon({ color, kind }: { color: string; kind: string }) {
   if (kind === "website") {
     return <Globe color={color} size={16} />;
   }
+  if (kind === "bluesky") {
+    return <BlueskyIcon color={color} />;
+  }
   const names: Record<string, "github" | "linkedin" | "reddit" | "x-twitter"> =
     {
       github: "github",
@@ -102,17 +104,22 @@ function SocialIcon({ color, kind }: { color: string; kind: string }) {
   return name ? <FontAwesome6 color={color} name={name} size={15} /> : null;
 }
 
-// Web's `.follow-btn-3d` (apps/web/src/app/globals.css) and `.btn-3d-gray`
-// (packages/ui/styles/globals.css), light + dark. The web follow button keeps
-// its orange fill in BOTH states and swaps only the label between "Follow" and
-// "Following", so there is no second colour pair to carry here - the old native
-// version greyed the button out while following, which web never does.
-function getFollowButtonStyles(isDark: boolean) {
-  return {
-    colors: ["#ff9500", "#e65500"] as [string, string],
-    shadow: isDark ? FOLLOW_BUTTON_SHADOWS : FOLLOW_BUTTON_SHADOWS_LIGHT,
-    textColor: "#ffffff",
-  };
+// Web's follow button: Follow wears the orange `.btn-3d` (`premium`
+// variant) and Following wears the neutral `.btn-3d-gray`
+// (`premium-neutral` variant) — see client-follow-button.tsx and
+// external-follow-button.tsx. Resolved through the shared helper so the
+// tones cannot drift.
+function getFollowButtonStyles(isDark: boolean, following: boolean) {
+  return followButtonTone(isDark, following);
+}
+
+// While the mutation is in flight the pill gates taps and holds an
+// ellipsis, matching the explore card's pending copy.
+function followLabel(pending: boolean, following: boolean): string {
+  if (pending) {
+    return "…";
+  }
+  return following ? "Following" : "Follow";
 }
 
 // `.btn-3d-gray`: the neutral pill web puts on the Message button.
@@ -153,6 +160,7 @@ export function ProfileHeader({
   external,
   canMessage,
   canFollow,
+  followPending = false,
   isFollowing,
   isOwnProfile,
   onEdit,
@@ -163,6 +171,9 @@ export function ProfileHeader({
   external?: ExternalAuthor;
   canFollow: boolean;
   canMessage: boolean;
+  // True while the follow mutation is in flight. Web disables its button and
+  // shows a pulse then; the pill here gates taps and keeps its label.
+  followPending?: boolean;
   isFollowing: boolean;
   isOwnProfile: boolean;
   onEdit: () => void;
@@ -179,7 +190,7 @@ export function ProfileHeader({
   const socials = getSocialLinks(profile);
   const flame = getAuraFlameStyle(profile.aura);
   const joined = external ? "" : formatJoinedDate(profile.createdAt);
-  const followStyles = getFollowButtonStyles(isDark);
+  const followStyles = getFollowButtonStyles(isDark, isFollowing);
   const grayStyles = getGrayButtonStyles(isDark);
   const editStyles = getEditButtonStyles(isDark);
   const openSocial = useCallback(async (href: string) => {
@@ -300,17 +311,21 @@ export function ProfileHeader({
                 <Pressable
                   accessibilityLabel={isFollowing ? "Unfollow" : "Follow"}
                   accessibilityRole="button"
-                  disabled={!canFollow}
+                  accessibilityState={{
+                    busy: followPending,
+                    disabled: !canFollow || followPending,
+                  }}
+                  disabled={!canFollow || followPending}
                   onPress={onFollow}
                   style={({ pressed }) => [
                     styles.buttonPressable,
-                    !canFollow && styles.disabled,
+                    (!canFollow || followPending) && styles.disabled,
                     { transform: [{ translateY: pressed ? 1 : 0 }] },
                   ]}
                 >
                   <Gradient3D
                     colors={followStyles.colors}
-                    shadows={followStyles.shadow}
+                    shadows={followStyles.shadows}
                     style={styles.followButton}
                   >
                     <Text
@@ -319,7 +334,7 @@ export function ProfileHeader({
                         { color: followStyles.textColor },
                       ]}
                     >
-                      {isFollowing ? "Following" : "Follow"}
+                      {followLabel(followPending, isFollowing)}
                     </Text>
                   </Gradient3D>
                 </Pressable>

@@ -1,5 +1,7 @@
-import type { ExternalAuthor } from "@asm/protocols/contracts";
-import { networkPostRecommended } from "@asm/protocols/discovery";
+import {
+  matchesAvoidedTopic,
+  networkPostRecommended,
+} from "@asm/protocols/discovery";
 import type { RecommendedAccount } from "@asm/protocols/discovery";
 import { FlashList } from "@shopify/flash-list";
 import type { FlashListRef, ViewToken } from "@shopify/flash-list";
@@ -12,6 +14,7 @@ import {
   Eye,
   Flame,
   Plus,
+  RefreshCw,
 } from "lucide-react-native";
 import {
   memo,
@@ -61,6 +64,7 @@ import { subscribeFeedReads } from "@/features/feed/lib/feed-events";
 import { findUnseenRankedItems } from "@/features/feed/lib/feed-types";
 import type { FeedPost } from "@/features/feed/lib/feed-types";
 import { mediaGridImageUrl } from "@/features/feed/lib/media-url";
+import { pillAuthors } from "@/features/feed/lib/pill-authors";
 import {
   setAutoplayPostId,
   setFeedMediaActive,
@@ -77,19 +81,19 @@ import {
   useTabStore,
 } from "@/features/feed/state/tab-store-native";
 import { useBlueskyFeed } from "@/features/feed/state/use-bluesky-feed";
-import { useExternalFollow } from "@/features/feed/state/use-external-follow";
 import { GuestAuthBar } from "@/features/home/components/guest-auth-bar";
 import { MobileBottomNav } from "@/features/home/components/mobile-bottom-nav";
 import { MobileHeader } from "@/features/home/components/mobile-header";
 import { getAuraFlameStyle } from "@/features/home/components/profile-utils";
 import { UserBadge } from "@/features/home/components/user-badge";
-import { DiscoverySuggestions } from "@/features/network/components/discovery-suggestions";
-import { DiscoverySafetyControl } from "@/features/network/components/network-tab";
 import {
   EMPTY_EXPOSURES,
   useFeedExposures,
 } from "@/features/network/state/feed-exposures";
-import { useDiscoverySuggestions } from "@/features/network/state/use-discovery-suggestions";
+import {
+  learnNetworkSearch,
+  useDiscoverySuggestions,
+} from "@/features/network/state/use-discovery-suggestions";
 import { useNetworkSettings } from "@/features/network/state/use-network-settings";
 import { useNetworkSearch } from "@/features/search/state/use-network-search";
 import { SettingsButton } from "@/features/settings/components/settings-ui";
@@ -107,6 +111,7 @@ import {
 
 import {
   ExploreApiError,
+  blueskyAuthorToPeopleAccount,
   fetchExploreHeadPosts,
   fetchExplorePage,
   fetchExplorePeople,
@@ -118,7 +123,10 @@ import { selectExploreAutoplayPost } from "../lib/explore-autoplay";
 import { exploreCache, exploreCacheKey } from "../lib/explore-cache";
 import type { ExploreData } from "../lib/explore-cache";
 import { hydrateExploreCache } from "../lib/explore-cache-native";
-import { exploreDisplayStatus } from "../lib/explore-display-status";
+import {
+  exploreDisplayStatus,
+  peopleDiscoveryStatus,
+} from "../lib/explore-display-status";
 import { interleaveExploreStream } from "../lib/explore-interleave";
 import { exploreFeedTabs, explorePageIndex } from "../lib/explore-navigation";
 import { ExploreBadge } from "./explore-badge";
@@ -133,8 +141,7 @@ import { ExploreUserCard } from "./explore-user-card";
 type ExploreItem =
   | { kind: "post"; post: FeedPost }
   | { kind: "user"; user: ExploreUser }
-  | { kind: "account"; account: RecommendedAccount }
-  | { kind: "external-user"; user: ExternalAuthor };
+  | { kind: "account"; account: RecommendedAccount };
 
 const AnimatedExploreList = createAnimatedComponent(FlashList<ExploreItem>);
 const MAINTAIN_POSITION = { disabled: true };
@@ -297,6 +304,43 @@ export function ExploreScreen() {
 
 const EMPTY_ACCOUNTS: RecommendedAccount[] = [];
 
+// A memoized People user row: the follow/open closures are stable per user,
+// so scrolling and unrelated tab state never remount the card. Web never
+// highlights these cards (its recommended count over an empty list is zero),
+// so highlight stays off.
+const PeopleUserRow = memo(
+  ({
+    onFollowUser,
+    onOpenUser,
+    user,
+    viewerId,
+  }: {
+    onFollowUser: (userId: string, next: boolean) => Promise<void>;
+    onOpenUser: (username: string) => void;
+    user: ExploreUser;
+    viewerId: string | undefined;
+  }) => {
+    const handleFollow = useCallback(
+      (next: boolean) => onFollowUser(user.id, next),
+      [onFollowUser, user.id]
+    );
+    const handlePress = useCallback(
+      () => onOpenUser(user.username),
+      [onOpenUser, user.username]
+    );
+    return (
+      <ExploreUserCard
+        canFollow={viewerId !== user.id}
+        onFollow={handleFollow}
+        onPress={handlePress}
+        reason={user.reason ?? user.reasons?.[0]}
+        user={user}
+      />
+    );
+  }
+);
+PeopleUserRow.displayName = "PeopleUserRow";
+
 const EMPTY_DATA: ExploreData = {
   communities: [],
   gusts: [],
@@ -340,8 +384,9 @@ const ExploreTabContent = memo(
     const network = useNetworkSettings();
     const [search, setSearch] = useState("");
     const [deferredSearch, setDeferredSearch] = useState("");
+    // Web fires the people search 300ms after typing settles.
     useEffect(() => {
-      const timer = setTimeout(() => setDeferredSearch(search.trim()), 250);
+      const timer = setTimeout(() => setDeferredSearch(search.trim()), 300);
       return () => clearTimeout(timer);
     }, [search]);
     const remoteSearch = useNetworkSearch(
@@ -369,13 +414,13 @@ const ExploreTabContent = memo(
       { content: "video", surface: "explore" }
     );
     // Web's useDiscoverySuggestions feeds the account cards in the stream,
-    // for guests too (their Follow pill asks them to log in).
-    const suggestionAccounts = useDiscoverySuggestions(
-      enabled &&
-        isActive &&
-        (activeTab === "for-you" || activeTab === "trending") &&
-        !deferredSearch
-    ).data?.accounts;
+    // for guests too (their Follow pill asks them to log in), and it is the
+    // whole People discovery body: web renders its accounts as the grid, with
+    // no users endpoint behind it.
+    const suggestionQuery = useDiscoverySuggestions(
+      enabled && isActive && activeTab !== "gusts" && !deferredSearch
+    );
+    const suggestionAccounts = suggestionQuery.data?.accounts;
     const exposures = useFeedExposures(
       (state) => state.seen[network.viewer] ?? EMPTY_EXPOSURES
     );
@@ -428,12 +473,10 @@ const ExploreTabContent = memo(
     const {
       communities,
       posts: asmPosts,
-      users: asmUsers,
+      users,
       gusts: asmGusts,
       nextCursor,
     } = resource.data ?? EMPTY_DATA;
-    const users =
-      activeTab === "people" && !deferredSearch ? EMPTY_DATA.users : asmUsers;
     const eligible = useCallback(
       (post: FeedPost) =>
         network.ready &&
@@ -481,6 +524,32 @@ const ExploreTabContent = memo(
       activeTab !== "people" &&
       !deferredSearch;
     const railIcon = iconButton(isDark);
+    // Web's People discovery is the suggestions query alone: the accounts
+    // are the body, so the status follows them and not the explore cache.
+    const peopleDiscovery = activeTab === "people" && !deferredSearch;
+    // Web's People search maps remote profiles to suggestion accounts and
+    // drops authors matching the reader's avoided topics.
+    const blueskyPeople = useMemo<RecommendedAccount[]>(() => {
+      if (activeTab !== "people" || !deferredSearch) {
+        return EMPTY_ACCOUNTS;
+      }
+      const avoided = network.settings.preferences.avoidedTopics;
+      return remoteSearch.bluesky.profiles
+        .filter(
+          (author) =>
+            !matchesAvoidedTopic(
+              `${author.displayName} ${author.description ?? ""}`,
+              author.labels,
+              avoided
+            )
+        )
+        .map(blueskyAuthorToPeopleAccount);
+    }, [
+      activeTab,
+      deferredSearch,
+      remoteSearch.bluesky.profiles,
+      network.settings.preferences.avoidedTopics,
+    ]);
     let blueskyStatus: typeof remote.status | undefined;
     if (!deferredSearch && activeTab !== "people") {
       blueskyStatus = remote.status;
@@ -492,17 +561,27 @@ const ExploreTabContent = memo(
         blueskyStatus = "error";
       }
     }
-    const status = exploreDisplayStatus(
-      posts.length > 0 ||
-        users.length > 0 ||
-        (activeTab === "people" &&
-          Boolean(deferredSearch) &&
-          remoteSearch.bluesky.profiles.length > 0) ||
-        (activeTab !== "gusts" && activeTab !== "people" && gusts.length > 0),
-      resource,
-      blueskyStatus
-    );
-    const refreshing = resource.pending === "refresh";
+    const accounts = suggestionAccounts ?? EMPTY_ACCOUNTS;
+    const status = peopleDiscovery
+      ? peopleDiscoveryStatus(
+          accounts.length > 0,
+          suggestionQuery.loading,
+          suggestionQuery.error
+        )
+      : exploreDisplayStatus(
+          posts.length > 0 ||
+            users.length > 0 ||
+            (activeTab === "people" && blueskyPeople.length > 0) ||
+            (activeTab !== "gusts" &&
+              activeTab !== "people" &&
+              gusts.length > 0),
+          resource,
+          blueskyStatus
+        );
+    // A suggestions refetch reads like a refresh when cards are on screen.
+    const refreshing = peopleDiscovery
+      ? suggestionQuery.loading && accounts.length > 0
+      : resource.pending === "refresh";
     const loadingMore = resource.pending === "append";
     const [newItems, setNewItems] = useState<FeedPost[]>([]);
     const scrollViewRef = useRef<FlashListRef<ExploreItem>>(null);
@@ -516,6 +595,10 @@ const ExploreTabContent = memo(
     const load = useCallback(
       async (cursor: string | null, append: boolean, refresh = false) => {
         if (!viewerId && activeTab === "for-you") {
+          return;
+        }
+        if (activeTab === "people" && !deferredSearch) {
+          // Discovery renders the suggestions query, not a cached page.
           return;
         }
         const replacementMode = refresh ? "refresh" : "initial";
@@ -538,12 +621,7 @@ const ExploreTabContent = memo(
             };
             const [page, topGusts] = await Promise.all([
               activeTab === "people"
-                ? fetchExplorePeople(
-                    deferredSearch,
-                    Boolean(viewerId),
-                    options,
-                    refresh
-                  )
+                ? fetchExplorePeople(deferredSearch, options)
                 : fetchExplorePage(activeTab, deferredSearch, cursor, options),
               // Web hides the rail while searching, so a search skips it.
               !append &&
@@ -693,25 +771,26 @@ const ExploreTabContent = memo(
       scrollViewRef.current?.scrollToOffset({ animated: true, offset: 0 });
     }, [activeTab, cacheKey, newItems, remote, eligible]);
 
-    const newItemAuthors: PillAuthor[] = [
-      ...new Map(
-        newItems.map((post) => [
-          post.userId,
-          {
-            avatarUrl: post.user?.avatarUrl,
-            id: post.userId,
-            username: post.user?.username,
-          },
-        ])
-      ).values(),
-    ];
+    const newItemAuthors: PillAuthor[] = pillAuthors(newItems);
 
     const refresh = useCallback(() => {
+      if (peopleDiscovery) {
+        // Web's Refresh pill asks the suggestions endpoint for a new set.
+        void suggestionQuery.refetch();
+        return;
+      }
       void load(null, false, true);
       void remote.refresh();
       void remoteClips.refresh();
       remoteSearch.retry();
-    }, [load, remote, remoteClips, remoteSearch]);
+    }, [
+      load,
+      peopleDiscovery,
+      remote,
+      remoteClips,
+      remoteSearch,
+      suggestionQuery,
+    ]);
 
     const handleCreateGust = () => {
       router.push(
@@ -746,23 +825,24 @@ const ExploreTabContent = memo(
       remote,
     ]);
 
-    const accounts = suggestionAccounts ?? EMPTY_ACCOUNTS;
     const items = useMemo<ExploreItem[]>(() => {
-      const next: ExploreItem[] = [];
       if (activeTab === "people") {
         if (deferredSearch) {
-          next.push(
-            ...remoteSearch.bluesky.profiles.map((candidate) => ({
-              kind: "external-user" as const,
-              user: candidate,
-            }))
-          );
+          // Web's People search order: Bluesky accounts first, then people.
+          return [
+            ...blueskyPeople.map((account) => ({
+              account,
+              kind: "account" as const,
+            })),
+            ...users.map((person) => ({ kind: "user" as const, user: person })),
+          ];
         }
-        next.push(
-          ...users.map((person) => ({ kind: "user" as const, user: person })),
-          ...posts.map((post) => ({ kind: "post" as const, post }))
-        );
-        return next;
+        // Web's People discovery is the suggestions accounts alone: no user
+        // cards, no posts, no highlight treatment.
+        return accounts.map((account) => ({
+          account,
+          kind: "account" as const,
+        }));
       }
       // Web's items memo: user cards in every sixth search slot, and the
       // next recommended account after every sixth post outside search.
@@ -772,14 +852,7 @@ const ExploreTabContent = memo(
         activeTab === "gusts" ? EMPTY_ACCOUNTS : accounts,
         Boolean(deferredSearch)
       );
-    }, [
-      accounts,
-      activeTab,
-      posts,
-      deferredSearch,
-      remoteSearch.bluesky.profiles,
-      users,
-    ]);
+    }, [accounts, activeTab, blueskyPeople, posts, deferredSearch, users]);
 
     // The same 3D pull loader the feed uses, not the stock RefreshControl, so a
     // refresh here reads identically to a refresh there. Placed before the
@@ -835,11 +908,18 @@ const ExploreTabContent = memo(
       },
     });
 
+    const openUser = useCallback(
+      (username: string) => {
+        router.push({
+          params: { username },
+          pathname: "/users/[username]",
+        });
+      },
+      [router]
+    );
+
     const renderItem = useCallback(
-      ({ item, index }: { index: number; item: ExploreItem }) => {
-        if (item.kind === "external-user") {
-          return <ExploreExternalUser user={item.user} />;
-        }
+      ({ item }: { item: ExploreItem }) => {
         if (item.kind === "account") {
           return <ExploreNetworkAccount account={item.account} />;
         }
@@ -885,27 +965,15 @@ const ExploreTabContent = memo(
           );
         }
         return (
-          <ExploreUserCard
-            canFollow={viewerId !== item.user.id}
-            highlight={
-              Boolean(viewerId) &&
-              activeTab === "people" &&
-              !deferredSearch &&
-              index < 5
-            }
-            onFollow={(next) => handleFollow(item.user.id, next)}
-            onPress={() =>
-              router.push({
-                params: { username: item.user.username },
-                pathname: "/users/[username]",
-              })
-            }
-            reason={item.user.reason ?? item.user.reasons?.[0]}
+          <PeopleUserRow
+            onFollowUser={handleFollow}
+            onOpenUser={openUser}
             user={item.user}
+            viewerId={viewerId}
           />
         );
       },
-      [activeTab, deferredSearch, handleFollow, router, viewerId]
+      [activeTab, handleFollow, openUser, router, viewerId]
     );
 
     const showPill =
@@ -914,22 +982,33 @@ const ExploreTabContent = memo(
       activeTab !== "people" &&
       !deferredSearch;
 
+    const submitSearchLearning = useCallback(() => {
+      // Web learns the query when the reader submits the people search.
+      void learnNetworkSearch(viewerId ?? "guest", search);
+    }, [search, viewerId]);
+
     const header = (
       <View style={{ marginHorizontal: activeTab === "people" ? -16 : -8 }}>
         {/* Web gives guests only the guest search bar and hides the field on
             the Gusts tab; signed-in viewers search in place. */}
         {viewerId && activeTab !== "gusts" ? (
           <ExploreSearchField
-            fetching={Boolean(deferredSearch) && resource.pending !== null}
+            fetching={
+              Boolean(deferredSearch) &&
+              (resource.pending !== null ||
+                (activeTab === "people" && remoteSearch.remoteLoading))
+            }
             onChange={setSearch}
+            onSubmit={activeTab === "people" ? submitSearchLearning : undefined}
             value={search}
           />
         ) : null}
-        <DiscoverySafetyControl />
         {remote.error || remoteSearch.remoteError ? (
           <View className="gap-2 p-3">
             <Text style={{ color: theme.dividerText }}>
-              Bluesky is temporarily unavailable. Available results are shown.
+              {activeTab === "people"
+                ? "Bluesky search is temporarily unavailable."
+                : "Bluesky is temporarily unavailable. Available results are shown."}
             </Text>
             <SettingsButton
               tone="gray"
@@ -941,12 +1020,21 @@ const ExploreTabContent = memo(
             />
           </View>
         ) : null}
-        {activeTab === "people" && !deferredSearch ? (
-          <DiscoverySuggestions
-            showInterests
-            onQuery={setSearch}
-            enabled={isActive}
+        {activeTab === "people" ? (
+          <ExplorePeopleHeader
+            loggedIn={Boolean(viewerId)}
+            onRefresh={refresh}
+            refreshing={refreshing}
           />
+        ) : null}
+        {activeTab === "people" &&
+        !deferredSearch &&
+        suggestionQuery.data?.partial ? (
+          <View className="gap-2 p-3">
+            <Text style={{ color: theme.dividerText, fontSize: 12 }}>
+              Some network suggestions are temporarily unavailable.
+            </Text>
+          </View>
         ) : null}
         {showPill && !isScrolledDown ? (
           <View style={styles.pillRow}>
@@ -957,12 +1045,6 @@ const ExploreTabContent = memo(
               onPress={showNewItems}
             />
           </View>
-        ) : null}
-        {activeTab === "people" && deferredSearch ? (
-          <ExplorePeopleHeader
-            loggedIn={Boolean(viewerId)}
-            onRefresh={refresh}
-          />
         ) : null}
         {hasGustRail ? (
           <View
@@ -1090,6 +1172,7 @@ const ExploreTabContent = memo(
       empty = (
         <ExploreEmptyState
           activeTab={activeTab}
+          loggedIn={Boolean(viewerId)}
           onCreate={handleCreateGust}
           search={deferredSearch}
         />
@@ -1168,11 +1251,11 @@ const ExploreTabContent = memo(
                 ListHeaderComponent={header ?? undefined}
                 ListEmptyComponent={empty ?? undefined}
                 ListFooterComponent={footer ?? undefined}
-                renderItem={({ item, index }) => (
+                renderItem={({ item }) => (
                   <View
                     style={activeTab === "people" ? undefined : styles.gridCell}
                   >
-                    {renderItem({ index, item })}
+                    {renderItem({ item })}
                   </View>
                 )}
               />
@@ -1339,12 +1422,24 @@ function ExploreAuthPrompt({ onLogin }: { onLogin: () => void }) {
   );
 }
 
+function peopleEmptyHint(search: string, loggedIn: boolean): string {
+  if (search) {
+    return "Try a different name or @username";
+  }
+  if (loggedIn) {
+    return "Follow more people or post with tags to get personalized suggestions.";
+  }
+  return "Check back later for people trending on asocialmedia.";
+}
+
 function ExploreEmptyState({
   activeTab,
+  loggedIn,
   onCreate,
   search,
 }: {
   activeTab: ExploreTab;
+  loggedIn: boolean;
   onCreate: () => void;
   search: string;
 }) {
@@ -1396,9 +1491,7 @@ function ExploreEmptyState({
           {search ? `No people found for "${search}"` : "No suggestions yet"}
         </Text>
         <Text style={[styles.emptyBody, { color: theme.dividerText }]}>
-          {search
-            ? "Try a different name or @username"
-            : "Check back later for people trending on asocialmedia."}
+          {peopleEmptyHint(search, loggedIn)}
         </Text>
       </View>
     );
@@ -1425,9 +1518,11 @@ function ExploreEmptyState({
 function ExplorePeopleHeader({
   loggedIn,
   onRefresh,
+  refreshing,
 }: {
   loggedIn: boolean;
   onRefresh: () => void;
+  refreshing: boolean;
 }) {
   const { theme } = useAppTheme();
   return (
@@ -1437,8 +1532,30 @@ function ExplorePeopleHeader({
           {loggedIn ? "Recommended for you" : "Trending people"}
         </Text>
         {loggedIn ? (
-          <Pressable onPress={onRefresh} style={styles.refreshButton}>
-            <Text style={styles.refreshText}>Refresh</Text>
+          <Pressable
+            accessibilityLabel="Refresh suggestions"
+            accessibilityRole="button"
+            accessibilityState={{ disabled: refreshing }}
+            disabled={refreshing}
+            onPress={onRefresh}
+            style={({ pressed }) => [
+              styles.refreshButton,
+              styles.refreshPill,
+              pressed && !refreshing ? styles.keyPressed : null,
+            ]}
+          >
+            <RefreshCw
+              color={refreshing ? theme.dividerText : "#f97316"}
+              size={14}
+            />
+            <Text
+              style={[
+                styles.refreshText,
+                { color: refreshing ? theme.dividerText : "#f97316" },
+              ]}
+            >
+              Refresh
+            </Text>
           </Pressable>
         ) : null}
       </View>
@@ -1575,6 +1692,9 @@ const styles = StyleSheet.create({
     fontSize: 9,
     marginTop: 1,
   },
+  keyPressed: {
+    transform: [{ translateY: 1 }],
+  },
   // The pull shifts this view, so the scroll needs to be allowed to fill it
   // and the wrapper needs a positioning context for the absolutely-placed
   // loader.
@@ -1634,6 +1754,11 @@ const styles = StyleSheet.create({
   },
 
   refreshButton: { paddingHorizontal: 8, paddingVertical: 4 },
+  refreshPill: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 4,
+  },
   refreshText: { color: "#f97316", fontFamily: "SofiaProMed", fontSize: 12 },
   root: { flex: 1 },
   sectionLabel: {
@@ -1660,34 +1785,4 @@ function mixExplorePosts(asm: FeedPost[], remote: FeedPost[]): FeedPost[] {
     }
   }
   return result;
-}
-function ExploreExternalUser({ user }: { user: ExternalAuthor }) {
-  const follow = useExternalFollow(user.id, true);
-  const router = useRouter();
-  const { theme } = useAppTheme();
-  return (
-    <View className="gap-2 p-3">
-      <Pressable
-        onPress={() =>
-          router.push({
-            params: { actor: user.id },
-            pathname: "/external-profile",
-          })
-        }
-      >
-        <UserAvatar size={40} url={user.avatarUrl} />
-        <Text style={{ color: theme.inputText }}>
-          {user.displayName} · Bluesky
-        </Text>
-        <Text style={{ color: theme.dividerText }}>@{user.handle}</Text>
-      </Pressable>
-      <SettingsButton
-        label={follow.following ? "Following in ASM" : "Follow in ASM"}
-        disabled={follow.pending}
-        onPress={() => {
-          void follow.toggle();
-        }}
-      />
-    </View>
-  );
 }

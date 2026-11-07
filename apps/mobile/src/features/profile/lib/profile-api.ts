@@ -197,6 +197,7 @@ export function parseProfileHeader(
       : [],
     bannerUrl: textOf(user.bannerUrl),
     bio: textOf(user.bio),
+    blueskyHandle: textOf(user.blueskyHandle),
     communityMemberships: memberships,
     createdAt: dateOf(user.createdAt),
     customDomain: textOf(user.customDomain),

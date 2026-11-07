@@ -3,7 +3,7 @@ import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { Clock, Flame, Sparkles, Users } from "lucide-react-native";
 import type { ReactNode } from "react";
-import { useLayoutEffect, useRef } from "react";
+import { memo, useLayoutEffect, useRef } from "react";
 import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
 
 import { UserAvatar } from "@/components/avatar/user-avatar";
@@ -96,269 +96,274 @@ function followLabel(pending: boolean, following: boolean): string {
   return following ? "Following" : "Follow";
 }
 
-export function ExploreUserCard({
-  canFollow,
-  highlight = false,
-  onFollow,
-  onPress,
-  reason,
-  user,
-}: {
-  canFollow: boolean;
-  highlight?: boolean;
-  onFollow: (next: boolean) => Promise<void>;
-  onPress: () => void;
-  reason?: string;
-  user: ExploreUser;
-}) {
-  const { isDark, theme } = useAppTheme();
-  const followScope = useRef({ userId: user.id });
-  useLayoutEffect(() => {
-    followScope.current = { userId: user.id };
-  }, [user.id]);
-  const [optimisticFollowing, setOptimisticFollowing] = useRecyclingState<
-    boolean | null
-  >(null, [user.id, user.isFollowing]);
-  const following = optimisticFollowing ?? user.isFollowing;
-  const [pending, setPending] = useRecyclingState(false, [user.id]);
-  const [bannerFailed, setBannerFailed] = useRecyclingState(false, [
-    user.id,
-    user.bannerUrl,
-  ]);
-  const apiBase = getApiBaseUrl();
-  const bannerUrl = bannerFor(user.bannerUrl, apiBase);
-  const avatarUrl = bannerFor(user.avatarUrl, apiBase);
-  const hasBanner = Boolean(bannerUrl) && !bannerFailed;
-  const resolvedReason = reason ?? user.reason ?? user.reasons?.[0];
-  let cardBackground = theme.cardBg;
-  let { cardBorder } = theme;
-  let cardShadow = isDark ? SURFACE_SHADOWS_DARK : SURFACE_SHADOWS;
-  let avatarRing = theme.containerBg;
-  if (highlight) {
-    if (isDark) {
-      cardBackground = "#3a1a0c";
-      cardBorder = "rgba(251, 146, 60, 0.16)";
-      cardShadow = HIGHLIGHT_SHADOWS_DARK;
-      avatarRing = "#3a1a0c";
-    } else {
-      cardBackground = "#ffedd5";
-      cardBorder = "rgba(234, 88, 12, 0.18)";
-      cardShadow = HIGHLIGHT_SHADOWS;
-      avatarRing = "#ffedd5";
-    }
-  }
-  const followShadows = isDark
-    ? FOLLOW_BUTTON_SHADOWS
-    : FOLLOW_BUTTON_SHADOWS_LIGHT;
-  const gray = btnGray(isDark);
-  const flame = getAuraFlameStyle(user.aura ?? 0);
-  let bannerContent: ReactNode;
-  if (hasBanner && bannerUrl) {
-    bannerContent = (
-      <Image
-        cachePolicy="memory-disk"
-        contentFit="cover"
-        onError={() => setBannerFailed(true)}
-        source={{ uri: bannerUrl }}
-        style={styles.bannerImage}
-      />
-    );
-  } else if (avatarUrl) {
-    bannerContent = (
-      <Image
-        blurRadius={Platform.OS === "android" ? 14 : 20}
-        cachePolicy="memory-disk"
-        contentFit="cover"
-        source={{ uri: avatarUrl }}
-        style={[styles.bannerImage, styles.bannerFallbackImage]}
-      />
-    );
-  } else {
-    bannerContent = (
-      <LinearGradient
-        colors={["rgba(249, 115, 22, 0.42)", "rgba(230, 85, 0, 0.2)"]}
-        end={{ x: 1, y: 1 }}
-        start={{ x: 0, y: 0 }}
-        style={StyleSheet.absoluteFill}
-      />
-    );
-  }
-
-  const handleFollow = () => {
-    if (pending) {
-      return;
-    }
-    setPending(true);
-    const scope = followScope.current;
-    const next = !following;
-    setOptimisticFollowing(next);
-    void (async () => {
-      try {
-        await onFollow(next);
-      } catch {
-        // Rejected follows roll back below if this is still the same card.
+// Memoized: FlashList recycles rows while scrolling, so scroll and exposure
+// state changes must not remount every card.
+export const ExploreUserCard = memo(
+  ({
+    canFollow,
+    highlight = false,
+    onFollow,
+    onPress,
+    reason,
+    user,
+  }: {
+    canFollow: boolean;
+    highlight?: boolean;
+    onFollow: (next: boolean) => Promise<void>;
+    onPress: () => void;
+    reason?: string;
+    user: ExploreUser;
+  }) => {
+    const { isDark, theme } = useAppTheme();
+    const followScope = useRef({ userId: user.id });
+    useLayoutEffect(() => {
+      followScope.current = { userId: user.id };
+    }, [user.id]);
+    const [optimisticFollowing, setOptimisticFollowing] = useRecyclingState<
+      boolean | null
+    >(null, [user.id, user.isFollowing]);
+    const following = optimisticFollowing ?? user.isFollowing;
+    const [pending, setPending] = useRecyclingState(false, [user.id]);
+    const [bannerFailed, setBannerFailed] = useRecyclingState(false, [
+      user.id,
+      user.bannerUrl,
+    ]);
+    const apiBase = getApiBaseUrl();
+    const bannerUrl = bannerFor(user.bannerUrl, apiBase);
+    const avatarUrl = bannerFor(user.avatarUrl, apiBase);
+    const hasBanner = Boolean(bannerUrl) && !bannerFailed;
+    const resolvedReason = reason ?? user.reason ?? user.reasons?.[0];
+    let cardBackground = theme.cardBg;
+    let { cardBorder } = theme;
+    let cardShadow = isDark ? SURFACE_SHADOWS_DARK : SURFACE_SHADOWS;
+    let avatarRing = theme.containerBg;
+    if (highlight) {
+      if (isDark) {
+        cardBackground = "#3a1a0c";
+        cardBorder = "rgba(251, 146, 60, 0.16)";
+        cardShadow = HIGHLIGHT_SHADOWS_DARK;
+        avatarRing = "#3a1a0c";
+      } else {
+        cardBackground = "#ffedd5";
+        cardBorder = "rgba(234, 88, 12, 0.18)";
+        cardShadow = HIGHLIGHT_SHADOWS;
+        avatarRing = "#ffedd5";
       }
-      if (followScope.current !== scope) {
+    }
+    const followShadows = isDark
+      ? FOLLOW_BUTTON_SHADOWS
+      : FOLLOW_BUTTON_SHADOWS_LIGHT;
+    const gray = btnGray(isDark);
+    const flame = getAuraFlameStyle(user.aura ?? 0);
+    let bannerContent: ReactNode;
+    if (hasBanner && bannerUrl) {
+      bannerContent = (
+        <Image
+          cachePolicy="memory-disk"
+          contentFit="cover"
+          onError={() => setBannerFailed(true)}
+          source={{ uri: bannerUrl }}
+          style={styles.bannerImage}
+        />
+      );
+    } else if (avatarUrl) {
+      bannerContent = (
+        <Image
+          blurRadius={Platform.OS === "android" ? 14 : 20}
+          cachePolicy="memory-disk"
+          contentFit="cover"
+          source={{ uri: avatarUrl }}
+          style={[styles.bannerImage, styles.bannerFallbackImage]}
+        />
+      );
+    } else {
+      bannerContent = (
+        <LinearGradient
+          colors={["rgba(249, 115, 22, 0.42)", "rgba(230, 85, 0, 0.2)"]}
+          end={{ x: 1, y: 1 }}
+          start={{ x: 0, y: 0 }}
+          style={StyleSheet.absoluteFill}
+        />
+      );
+    }
+
+    const handleFollow = () => {
+      if (pending) {
         return;
       }
-      setPending(false);
-      setOptimisticFollowing(null);
-    })();
-  };
+      setPending(true);
+      const scope = followScope.current;
+      const next = !following;
+      setOptimisticFollowing(next);
+      void (async () => {
+        try {
+          await onFollow(next);
+        } catch {
+          // Rejected follows roll back below if this is still the same card.
+        }
+        if (followScope.current !== scope) {
+          return;
+        }
+        setPending(false);
+        setOptimisticFollowing(null);
+      })();
+    };
 
-  return (
-    <Pressable
-      accessibilityLabel={`View ${user.displayName || user.username}'s profile`}
-      accessibilityRole="button"
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.card,
-        {
-          backgroundColor: cardBackground,
-          borderColor: cardBorder,
-          boxShadow: cardShadow,
-          opacity: pressed ? 0.88 : 1,
-        },
-      ]}
-    >
-      <View style={[styles.banner, { backgroundColor: theme.dividerLine }]}>
-        {bannerContent}
-        <LinearGradient
-          colors={["rgba(249, 115, 22, 0.35)", "transparent"]}
-          end={{ x: 1, y: 0.5 }}
-          start={{ x: 0, y: 0.5 }}
-          style={StyleSheet.absoluteFill}
-        />
-        <LinearGradient
-          colors={["transparent", theme.containerBg]}
-          end={{ x: 0.5, y: 1 }}
-          start={{ x: 0.5, y: 0 }}
-          style={StyleSheet.absoluteFill}
-        />
-        {highlight ? (
-          <ExploreBadge kind="recommended" style={styles.recommended} />
-        ) : null}
-      </View>
-      <View style={styles.content}>
-        <View
-          style={[
-            styles.avatarOverlap,
-            {
-              borderColor: avatarRing,
-              borderRadius: RING_RADIUS,
-              borderWidth: RING_BORDER,
-            },
-          ]}
-        >
-          <UserAvatar
-            radius={AVATAR_CORNER}
-            size={AVATAR_SIZE}
-            url={user.avatarUrl}
+    return (
+      <Pressable
+        accessibilityLabel={`View ${user.displayName || user.username}'s profile`}
+        accessibilityRole="button"
+        onPress={onPress}
+        style={({ pressed }) => [
+          styles.card,
+          {
+            backgroundColor: cardBackground,
+            borderColor: cardBorder,
+            boxShadow: cardShadow,
+            opacity: pressed ? 0.88 : 1,
+          },
+        ]}
+      >
+        <View style={[styles.banner, { backgroundColor: theme.dividerLine }]}>
+          {bannerContent}
+          <LinearGradient
+            colors={["rgba(249, 115, 22, 0.35)", "transparent"]}
+            end={{ x: 1, y: 0.5 }}
+            start={{ x: 0, y: 0.5 }}
+            style={StyleSheet.absoluteFill}
           />
-        </View>
-        <View style={styles.nameRow}>
-          <Text
-            numberOfLines={1}
-            style={[styles.name, { color: theme.inputText }]}
-          >
-            {user.displayName ?? user.username}
-          </Text>
-          <UserBadge
-            badge={user.badge}
-            badges={user.badges}
-            communityRoles={user.communityMemberships}
+          <LinearGradient
+            colors={["transparent", theme.containerBg]}
+            end={{ x: 0.5, y: 1 }}
+            start={{ x: 0.5, y: 0 }}
+            style={StyleSheet.absoluteFill}
           />
+          {highlight ? (
+            <ExploreBadge kind="recommended" style={styles.recommended} />
+          ) : null}
         </View>
-        <Text
-          numberOfLines={1}
-          style={[styles.username, { color: theme.dividerText }]}
-        >
-          @{user.username}
-        </Text>
-        {user.bio ? (
-          <Text
-            numberOfLines={2}
-            style={[styles.bio, { color: theme.dividerText }]}
-          >
-            {user.bio}
-          </Text>
-        ) : null}
-        {resolvedReason ? (
-          <ReasonLine
-            mutuals={user.mutualFollowers ?? []}
-            reason={resolvedReason}
-          />
-        ) : null}
-        <View style={styles.metrics}>
-          <View style={styles.metric}>
-            <Users color={theme.dividerText} size={14} />
-            <Text style={[styles.metricStrong, { color: theme.inputText }]}>
-              {formatNumber(user._count.followers)}
-            </Text>
-            <Text style={[styles.metricLabel, { color: theme.dividerText }]}>
-              followers
-            </Text>
-          </View>
-          <View style={styles.metric}>
-            <Flame
-              color={flame.color}
-              fill={flame.filled ? flame.color : "transparent"}
-              size={14}
-            />
-            <Text style={[styles.metricStrong, { color: theme.inputText }]}>
-              {formatNumber(user.aura ?? 0)}
-            </Text>
-            <Text style={[styles.metricLabel, { color: theme.dividerText }]}>
-              aura
-            </Text>
-          </View>
-        </View>
-        {canFollow ? (
-          <Pressable
-            accessibilityLabel={
-              following
-                ? `Unfollow ${user.username}`
-                : `Follow ${user.username}`
-            }
-            accessibilityRole="button"
-            disabled={pending}
-            onPress={(event) => {
-              event.stopPropagation();
-              handleFollow();
-            }}
-            style={({ pressed }) => [
-              styles.follow,
-              { opacity: pressed ? 0.88 : 1 },
+        <View style={styles.content}>
+          <View
+            style={[
+              styles.avatarOverlap,
+              {
+                borderColor: avatarRing,
+                borderRadius: RING_RADIUS,
+                borderWidth: RING_BORDER,
+              },
             ]}
           >
-            {({ pressed: down }) => {
-              // Web's follow button turns gray (`premium-neutral`) once
-              // following, so the call to action only shows when it acts.
-              const neutral = down ? gray.pressed : gray.resting;
-              return (
-                <Gradient3D
-                  colors={following ? neutral.colors : ORANGE_GRADIENT}
-                  radius={9999}
-                  shadows={following ? neutral.shadows : followShadows}
-                  style={styles.followSurface}
-                >
-                  <Text
-                    style={[
-                      styles.followText,
-                      following ? { color: neutral.text } : null,
-                    ]}
+            <UserAvatar
+              radius={AVATAR_CORNER}
+              size={AVATAR_SIZE}
+              url={user.avatarUrl}
+            />
+          </View>
+          <View style={styles.nameRow}>
+            <Text
+              numberOfLines={1}
+              style={[styles.name, { color: theme.inputText }]}
+            >
+              {user.displayName ?? user.username}
+            </Text>
+            <UserBadge
+              badge={user.badge}
+              badges={user.badges}
+              communityRoles={user.communityMemberships}
+            />
+          </View>
+          <Text
+            numberOfLines={1}
+            style={[styles.username, { color: theme.dividerText }]}
+          >
+            @{user.username}
+          </Text>
+          {user.bio ? (
+            <Text
+              numberOfLines={2}
+              style={[styles.bio, { color: theme.dividerText }]}
+            >
+              {user.bio}
+            </Text>
+          ) : null}
+          {resolvedReason ? (
+            <ReasonLine
+              mutuals={user.mutualFollowers ?? []}
+              reason={resolvedReason}
+            />
+          ) : null}
+          <View style={styles.metrics}>
+            <View style={styles.metric}>
+              <Users color={theme.dividerText} size={14} />
+              <Text style={[styles.metricStrong, { color: theme.inputText }]}>
+                {formatNumber(user._count.followers)}
+              </Text>
+              <Text style={[styles.metricLabel, { color: theme.dividerText }]}>
+                followers
+              </Text>
+            </View>
+            <View style={styles.metric}>
+              <Flame
+                color={flame.color}
+                fill={flame.filled ? flame.color : "transparent"}
+                size={14}
+              />
+              <Text style={[styles.metricStrong, { color: theme.inputText }]}>
+                {formatNumber(user.aura ?? 0)}
+              </Text>
+              <Text style={[styles.metricLabel, { color: theme.dividerText }]}>
+                aura
+              </Text>
+            </View>
+          </View>
+          {canFollow ? (
+            <Pressable
+              accessibilityLabel={
+                following
+                  ? `Unfollow ${user.username}`
+                  : `Follow ${user.username}`
+              }
+              accessibilityRole="button"
+              disabled={pending}
+              onPress={(event) => {
+                event.stopPropagation();
+                handleFollow();
+              }}
+              style={({ pressed }) => [
+                styles.follow,
+                { opacity: pressed ? 0.88 : 1 },
+              ]}
+            >
+              {({ pressed: down }) => {
+                // Web's follow button turns gray (`premium-neutral`) once
+                // following, so the call to action only shows when it acts.
+                const neutral = down ? gray.pressed : gray.resting;
+                return (
+                  <Gradient3D
+                    colors={following ? neutral.colors : ORANGE_GRADIENT}
+                    radius={9999}
+                    shadows={following ? neutral.shadows : followShadows}
+                    style={styles.followSurface}
                   >
-                    {followLabel(pending, following)}
-                  </Text>
-                </Gradient3D>
-              );
-            }}
-          </Pressable>
-        ) : null}
-      </View>
-    </Pressable>
-  );
-}
+                    <Text
+                      style={[
+                        styles.followText,
+                        following ? { color: neutral.text } : null,
+                      ]}
+                    >
+                      {followLabel(pending, following)}
+                    </Text>
+                  </Gradient3D>
+                );
+              }}
+            </Pressable>
+          ) : null}
+        </View>
+      </Pressable>
+    );
+  }
+);
+ExploreUserCard.displayName = "ExploreUserCard";
 
 const styles = StyleSheet.create({
   avatarOverlap: {

@@ -461,6 +461,18 @@ export function GustCard({
     };
   }, [apiBase, fetchedCues, player, video, wantsCues]);
 
+  // A recycled pager card showing a new gust must not keep the old one's
+  // captions: the fetch above bails while fetchedCues is non-null, so a
+  // stale value would win over the new video's track until remount.
+  const videoId = video?.id;
+  useEffect(() => {
+    // oxlint-disable-next-line react/set-state-in-effect -- a new video invalidates the previous track, not derivable during render
+    setFetchedCues(null);
+    // oxlint-disable-next-line react/set-state-in-effect -- same reset as above
+    setCuesLoading(false);
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- keyed reset: the body intentionally ignores the id value
+  }, [videoId]);
+
   const directCues = useMemo(
     () => cuesFromTranscript(video?.transcript),
     [video?.transcript]

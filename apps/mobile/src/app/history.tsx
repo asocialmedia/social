@@ -1,6 +1,6 @@
 import { networkPostAllowed } from "@asm/protocols/discovery";
 import { useRouter } from "expo-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { FlatList, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { z } from "zod";
@@ -49,6 +49,18 @@ export default function HistoryRoute() {
       network.settings.topicScope
     )
   );
+  // Web's history card refetches every 30s; the route mirrors that while a
+  // signed-in viewer has it open.
+  const refetchHistory = query.refetch;
+  useEffect(() => {
+    if (network.viewer === "guest" || !network.ready) {
+      return;
+    }
+    const timer = setInterval(() => {
+      void refetchHistory();
+    }, 30_000);
+    return () => clearInterval(timer);
+  }, [network.ready, network.viewer, refetchHistory]);
   return (
     <View
       style={{

@@ -15,6 +15,16 @@ function profile(
 }
 
 describe("persistent viewer profile metadata", () => {
+  test("popup parsing keeps the linked Bluesky handle for the social row", () => {
+    expect(
+      parsePopupProfile({
+        blueskyHandle: "alice.bsky.social",
+        username: "reader",
+      })?.blueskyHandle
+    ).toBe("alice.bsky.social");
+    expect(parsePopupProfile({ username: "reader" })?.blueskyHandle).toBeNull();
+  });
+
   test("a cold process restores the custom avatar and original freshness", () => {
     let now = 1000;
     const key = popupProfileKey("https://asocialmedia.cc", "reader");

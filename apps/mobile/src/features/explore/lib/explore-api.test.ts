@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  blueskyAuthorToPeopleAccount,
   buildExploreGustsPath,
   buildExplorePostsPath,
   buildExploreSearchPath,
@@ -28,6 +29,10 @@ describe("explore paths", () => {
   test("encodes search, cursors, and feed filters", () => {
     expect(buildExploreSearchPath("two words", "trending")).toBe(
       "/api/explore/search?q=two%20words&tab=trending&take=20"
+    );
+    // Web's People search pages twelve at a time, not twenty.
+    expect(buildExploreSearchPath("two words", "people", 12)).toBe(
+      "/api/explore/search?q=two%20words&tab=people&take=12"
     );
     expect(buildExplorePostsPath("trending", "next cursor")).toBe(
       "/api/posts/trending?excludeModerated=1&take=20&cursor=next%20cursor"
@@ -162,55 +167,71 @@ describe("explore requests", () => {
     expect(new URL(requested).searchParams.get("network")).toBe("1");
   });
 
-  test("uses suggested people for signed-in viewers", async () => {
+  test("people discovery fetches nothing: web renders suggestion accounts", async () => {
+    // Web's People discovery reads /api/recommendations/suggestions (via
+    // useDiscoverySuggestions), never the users endpoints, so an empty query
+    // must not hit the network at all.
     let requested = "";
-    const page = await fetchExplorePeople("", true, {
+    const page = await fetchExplorePeople("", {
+      apiBase: API,
+      baseFetch: ((input: RequestInfo | URL) => {
+        requested = String(input);
+        return Promise.resolve(Response.json({ users: [] }));
+      }) as unknown as typeof fetch,
+    });
+    expect(requested).toBe("");
+    expect(page).toEqual({
+      communities: [],
+      nextCursor: null,
+      posts: [],
+      users: [],
+    });
+  });
+
+  test("people search pages twelve users like web", async () => {
+    let requested = "";
+    const page = await fetchExplorePeople("ali", {
       apiBase: API,
       baseFetch: ((input: RequestInfo | URL) => {
         requested = String(input);
         return Promise.resolve(
-          Response.json([{ id: "u1", username: "alice" }])
+          Response.json({ users: [{ id: "u1", username: "alice" }] })
         );
       }) as unknown as typeof fetch,
     });
-    expect(requested).toBe(`${API}/api/users/suggested?limit=12`);
-    expect(page.users[0]?.username).toBe("alice");
-  });
-
-  test("Refresh asks the server for a fresh suggestion set", async () => {
-    // Web sends refresh=1 here. Without it the endpoint replays its cached
-    // page and the control looks like it works while changing nothing.
-    let requested = "";
-    const options = {
-      apiBase: API,
-      baseFetch: ((input: RequestInfo | URL) => {
-        requested = String(input);
-        return Promise.resolve(Response.json([{ id: "u1" }]));
-      }) as unknown as typeof fetch,
-    };
-    await fetchExplorePeople("", true, options);
-    expect(requested).toBe(`${API}/api/users/suggested?limit=12`);
-    await fetchExplorePeople("", true, options, true);
-    expect(requested).toBe(`${API}/api/users/suggested?limit=12&refresh=1`);
-  });
-
-  test("signed-out refresh keeps the trending endpoint", async () => {
-    let requested = "";
-    await fetchExplorePeople(
-      "",
-      false,
-      {
-        apiBase: API,
-        baseFetch: ((input: RequestInfo | URL) => {
-          requested = String(input);
-          return Promise.resolve(Response.json([{ id: "u1" }]));
-        }) as unknown as typeof fetch,
-      },
-      true
+    expect(requested).toBe(
+      `${API}/api/explore/search?q=ali&tab=people&take=12`
     );
-    // /api/users/trending is already uncached, so the flag must not be smuggled
-    // onto an endpoint that does not accept it.
-    expect(requested).toBe(`${API}/api/users/trending`);
+    expect(page.users[0]?.username).toBe("alice");
+    expect(page.nextCursor).toBeNull();
+  });
+
+  test("bluesky authors map to search-match suggestion accounts", () => {
+    expect(
+      blueskyAuthorToPeopleAccount({
+        avatarUrl: "https://cdn.example/a.png",
+        bannerUrl: undefined,
+        description: "writes about art",
+        displayName: "",
+        handle: "alice.test",
+        id: "did:plc:alice",
+        labels: [],
+        source: "bluesky",
+        upstreamCounts: { followers: 41 },
+        url: "https://bsky.app/profile/alice.test",
+      })
+    ).toEqual({
+      avatarUrl: "https://cdn.example/a.png",
+      bannerUrl: null,
+      displayName: "alice.test",
+      followers: 41,
+      following: false,
+      handle: "alice.test",
+      href: "/network/bluesky/profile?actor=did%3Aplc%3Aalice",
+      id: "did:plc:alice",
+      reason: "Search match",
+      source: "bluesky",
+    });
   });
 
   test("surfaces follow failures for the install-token gate", async () => {

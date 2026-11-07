@@ -1,3 +1,6 @@
+import type { ExternalAuthor } from "@asm/protocols/contracts";
+import type { RecommendedAccount } from "@asm/protocols/discovery";
+
 import type { ApiCallOptions } from "@/features/feed/lib/feed-api";
 import type { FeedPost, FeedUser } from "@/features/feed/lib/feed-types";
 import {
@@ -168,10 +171,14 @@ function parseCommunity(value: unknown): ExploreCommunityResult | null {
   };
 }
 
-export function buildExploreSearchPath(query: string, tab: ExploreTab): string {
+export function buildExploreSearchPath(
+  query: string,
+  tab: ExploreTab,
+  take = 20
+): string {
   return `/api/explore/search?q=${encodeURIComponent(query)}&tab=${encodeURIComponent(
     tab
-  )}&take=20`;
+  )}&take=${encodeURIComponent(String(take))}`;
 }
 
 export function buildExplorePostsPath(
@@ -298,35 +305,45 @@ export async function fetchExploreHeadPosts(
   return page.posts;
 }
 
-// refresh bypasses the server's suggestion cache. Web's People tab sends it
-// when the reader asks for a new set, so the button actually produces a
-// different list; without it the same cached page is returned every time and
-// the control does nothing.
+// Web's ExplorePeople search maps every Bluesky author to a
+// RecommendedAccount ("Search match") rendered through the same network
+// account card as the discovery suggestions, so a search match opens the
+// Bluesky profile and follows in asocialmedia like any other suggestion.
+export function blueskyAuthorToPeopleAccount(
+  author: ExternalAuthor
+): RecommendedAccount {
+  return {
+    avatarUrl: author.avatarUrl ?? null,
+    bannerUrl: author.bannerUrl ?? null,
+    displayName: author.displayName || author.handle,
+    followers: author.upstreamCounts.followers ?? 0,
+    following: false,
+    handle: author.handle,
+    href: `/network/bluesky/profile?actor=${encodeURIComponent(author.id)}`,
+    id: author.id,
+    reason: "Search match",
+    source: "bluesky",
+  };
+}
+
+// Web's People tab never touches the users endpoints: discovery renders the
+// /api/recommendations/suggestions accounts (covered by
+// useDiscoverySuggestions), and only a typed query fetches here, with
+// take=12 like web's PEOPLE search.
 export async function fetchExplorePeople(
   query: string,
-  viewerLoggedIn: boolean,
-  options: ApiCallOptions,
-  refresh = false
+  options: ApiCallOptions
 ): Promise<ExplorePage> {
   const trimmedQuery = query.trim();
-  if (trimmedQuery) {
-    const response = await get(
-      buildExploreSearchPath(trimmedQuery, "people"),
-      options
-    );
-    requireOk(response, "Explore people search");
-    return parseExplorePage(await readJson(response), "search");
+  if (!trimmedQuery) {
+    return { communities: [], nextCursor: null, posts: [], users: [] };
   }
-  const path = viewerLoggedIn
-    ? `/api/users/suggested?limit=12${refresh ? "&refresh=1" : ""}`
-    : "/api/users/trending";
-  const response = await get(path, options);
-  requireOk(response, "Explore people");
-  const payload = await readJson(response);
-  return parseExplorePage(
-    Array.isArray(payload) ? { users: payload } : payload,
-    "posts"
+  const response = await get(
+    buildExploreSearchPath(trimmedQuery, "people", 12),
+    options
   );
+  requireOk(response, "Explore people search");
+  return parseExplorePage(await readJson(response), "search");
 }
 
 // Web explore-client's trending rail: mode=trending, network=1 and take=24,

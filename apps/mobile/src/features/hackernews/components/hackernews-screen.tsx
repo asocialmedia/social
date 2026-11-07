@@ -13,7 +13,10 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { toast } from "@/components/feedback/toast";
 import { useSessionContext } from "@/features/auth/state/session";
-import { useComposerStore } from "@/features/composer/state/composer-store";
+import {
+  stageHnShareForLogin,
+  useComposerStore,
+} from "@/features/composer/state/composer-store";
 import { FeedPager } from "@/features/feed/components/feed-pager";
 import { FeedTabs } from "@/features/feed/components/feed-tabs";
 import {
@@ -72,23 +75,27 @@ export function HackerNewsScreen() {
   // publish sends as hnStory so the server records the share.
   const reshare = useCallback(
     (story: HnStory) => {
+      const draft = {
+        by: story.by,
+        // HnStory names it `comments`; the publish shape names it
+        // `descendants`, which is the field the Hacker News API uses.
+        descendants: story.comments,
+        score: story.score,
+        storyId: story.id,
+        time: story.time,
+        title: story.title,
+        url: story.url,
+      };
       if (!user) {
+        // Stage the share before login: the next composer open after login
+        // adopts it, like web's persisted hn-share store.
+        stageHnShareForLogin(draft);
         router.push("/(auth)/login");
         return;
       }
       openWithContext({
         kind: "hn",
-        story: {
-          by: story.by,
-          // HnStory names it `comments`; the publish shape names it
-          // `descendants`, which is the field the Hacker News API uses.
-          descendants: story.comments,
-          score: story.score,
-          storyId: story.id,
-          time: story.time,
-          title: story.title,
-          url: story.url,
-        },
+        story: draft,
       });
       toast({
         description: "Add your thoughts and share it with your followers!",

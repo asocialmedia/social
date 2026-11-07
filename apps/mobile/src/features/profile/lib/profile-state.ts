@@ -63,6 +63,14 @@ function errorMessage(error: unknown): string {
 // fire duplicate fetches for the same user.
 const profileRequests = new SingleFlight();
 
+// Follow toggles in flight per profile key. Without this a rapid double-tap
+// reads the optimistic state of the first tap as its base and fires two
+// mutations; whichever response lands last wins, which can leave the button
+// showing the opposite of the server state (audit S0-4). While a toggle is in
+// flight further taps are ignored — the button also disables itself via
+// followPending in the screen, this is the store-level backstop.
+const followInFlight = new Set<string>();
+
 function loadProfile(key: string, usernameKey: string): Promise<void> {
   return profileRequests.run(key, async () => {
     try {
@@ -233,10 +241,14 @@ export function useProfile(username: string): {
 
   const follow = useCallback(
     async (next: boolean) => {
+      if (followInFlight.has(key)) {
+        return;
+      }
       const current = profileCache.read(key).data;
       if (!current) {
         return;
       }
+      followInFlight.add(key);
       const previous: ProfileHeaderProfile = {
         ...current,
         _count: { ...current._count },
@@ -262,10 +274,12 @@ export function useProfile(username: string): {
         );
         if (!result) {
           profileCache.setData(key, previous);
+          followInFlight.delete(key);
           return;
         }
         if (result.kind !== "success") {
           profileCache.setData(key, previous);
+          followInFlight.delete(key);
           return;
         }
         profileCache.setData(key, {
@@ -276,6 +290,7 @@ export function useProfile(username: string): {
       } catch {
         profileCache.setData(key, previous);
       }
+      followInFlight.delete(key);
     },
     [key, runWithInstallToken]
   );

@@ -3,9 +3,9 @@
 // Left: avatar (signed in) or spacer (guest). Center: asm logo pinned to the
 // bar's centerline via a full-size centered overlay, linking home. Right:
 // notification bell with unread badge + search (signed in) or a premium
-// (orange 3D) Log in pill (guest). The avatar opens the profile popup (same
-// content as web's UserProfilePopover); session, unread count, and search
-// are props, while the popup fetches its own profile data.
+// (orange 3D) Log in pill (guest). The avatar opens the mobile user menu
+// (same content as web's MobileUserMenu); session, unread count, and search
+// are props, while the menu fetches its own profile data.
 
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
@@ -54,9 +54,9 @@ import {
 } from "@/theme";
 
 import { NAV_ACTIVE_DARK, NAV_ACTIVE_LIGHT } from "./mobile-bottom-nav";
+import { MobileUserMenu } from "./mobile-user-menu";
 import { resolveProfileImageUrl } from "./profile-utils";
 import { usePopupProfile } from "./use-popup-profile";
-import { UserProfilePopup } from "./user-profile-popup";
 
 // Shared hide-on-scroll progress (0 shown, 1 hidden), driven natively by
 // MobileHeader and followed by the content below in HomeScreen. Module
@@ -385,7 +385,7 @@ export function MobileHeader({
           </View>
         </View>
       </Animated.View>
-      <UserProfilePopup
+      <MobileUserMenu
         onClose={() => setProfileUserId(null)}
         userId={profileUserId}
       />
@@ -396,12 +396,12 @@ export function MobileHeader({
 const styles = StyleSheet.create({
   avatar: {
     borderRadius: 12,
-    height: 36,
-    width: 36,
+    height: 40,
+    width: 40,
   },
   avatarFrame: {
-    height: 36,
-    width: 36,
+    height: 40,
+    width: 40,
   },
   avatarRing: {
     borderRadius: 12,

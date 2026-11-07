@@ -53,6 +53,10 @@ import { ShareSheet } from "@/features/feed/components/share-sheet";
 import type { FeedPost } from "@/features/feed/lib/feed-types";
 import { viewBatcher } from "@/features/feed/lib/view-batcher";
 import { useFeedSourceStore } from "@/features/feed/state/feed-source-store";
+import {
+  consumeFeedTop,
+  subscribeFeedTopRequests,
+} from "@/features/feed/state/feed-store";
 import { resolveGustResumeTab } from "@/features/feed/state/tab-store";
 import {
   useHomeTabMemoryReady,
@@ -337,6 +341,19 @@ export function GustsScreen() {
       void feed.refresh();
     };
   }, [feed, refreshing]);
+
+  // Dock reselect (web's reselectFeedNavigation on /gusts): tapping the Gusts
+  // tab while already there scrolls the reel list back to the top.
+  useEffect(
+    () =>
+      subscribeFeedTopRequests(() => {
+        if (!consumeFeedTop("gusts")) {
+          return;
+        }
+        listRef.current?.scrollToOffset({ animated: true, offset: 0 });
+      }),
+    []
+  );
 
   // Keep the active index inside the list when it shrinks (a hide).
   const safeIndex = Math.min(activeIndex, Math.max(0, posts.length - 1));

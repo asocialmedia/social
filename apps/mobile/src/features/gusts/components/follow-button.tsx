@@ -12,10 +12,10 @@ import {
 } from "react-native";
 
 import { Gradient3D } from "@/components/surface/gradient-3d";
-import { followButtonShadows } from "@/components/surface/recipes";
+import { followButtonTone } from "@/features/profile/lib/follow-button-tone";
 import { useAppTheme } from "@/theme";
 
-function PulseDot({ delay }: { delay: number }) {
+function PulseDot({ color, delay }: { color: string; delay: number }) {
   // oxlint-disable-next-line react/hook-use-state -- single stable Animated.Value created once; no setter is ever needed
   const [opacity] = useState(() => new Animated.Value(0.3));
   useEffect(() => {
@@ -37,13 +37,15 @@ function PulseDot({ delay }: { delay: number }) {
     loop.start();
     return () => loop.stop();
   }, [delay, opacity]);
-  return <Animated.View style={[styles.dot, { opacity }]} />;
+  return (
+    <Animated.View style={[styles.dot, { backgroundColor: color, opacity }]} />
+  );
 }
 
 // The label rises in on every flip: keyed by text so a change remounts
 // and replays the entrance, with no trigger-only effect dependency to keep
 // in sync (exhaustive-deps flags those either way).
-function CrossfadeLabel({ text }: { text: string }) {
+function CrossfadeLabel({ color, text }: { color: string; text: string }) {
   // oxlint-disable-next-line react/hook-use-state -- single stable Animated.Value created once; no setter is ever needed
   const [rise] = useState(() => new Animated.Value(0));
   useEffect(() => {
@@ -62,6 +64,7 @@ function CrossfadeLabel({ text }: { text: string }) {
       style={[
         styles.label,
         {
+          color,
           opacity: rise,
           transform: [
             {
@@ -90,6 +93,9 @@ export function FollowButton({
 }) {
   const { isDark } = useAppTheme();
   const label = following ? "Following" : "Follow";
+  // Web's gust follow button is the shared follow button: orange to follow,
+  // neutral gray once following.
+  const tone = followButtonTone(isDark, following);
   return (
     <Pressable
       accessibilityLabel={following ? "Unfollow" : "Follow"}
@@ -102,18 +108,18 @@ export function FollowButton({
     >
       {({ pressed }) => (
         <Gradient3D
-          colors={["#ff9500", "#e65500"]}
-          shadows={followButtonShadows(isDark)}
+          colors={tone.colors}
+          shadows={tone.shadows}
           style={[styles.pill, pressed && styles.pressed]}
         >
           {pending ? (
             <View style={styles.dots}>
-              <PulseDot delay={0} />
-              <PulseDot delay={150} />
-              <PulseDot delay={300} />
+              <PulseDot color={tone.textColor} delay={0} />
+              <PulseDot color={tone.textColor} delay={150} />
+              <PulseDot color={tone.textColor} delay={300} />
             </View>
           ) : (
-            <CrossfadeLabel key={label} text={label} />
+            <CrossfadeLabel color={tone.textColor} key={label} text={label} />
           )}
           {/* Keeps the pill width steady while the dots show. */}
           <Text numberOfLines={1} style={[styles.label, styles.ghost]}>
@@ -127,7 +133,6 @@ export function FollowButton({
 
 const styles = StyleSheet.create({
   dot: {
-    backgroundColor: "#ffffff",
     borderRadius: 9999,
     height: 4,
     width: 4,
@@ -143,7 +148,6 @@ const styles = StyleSheet.create({
     position: "relative",
   },
   label: {
-    color: "#ffffff",
     fontFamily: "SofiaProBold",
     fontSize: 12,
     fontWeight: "normal",

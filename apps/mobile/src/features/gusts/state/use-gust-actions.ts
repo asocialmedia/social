@@ -70,12 +70,7 @@ export function useGustVote(
   const feedback = useExternalFeedback(
     post.external ?? { author: { id: post.userId }, id: post.id }
   );
-  const stateRef = useRef(engagement);
   const forcedPending = useRef(false);
-
-  useEffect(() => {
-    stateRef.current = engagement;
-  }, [engagement]);
 
   // A genuine re-read, once the gust is actually watched (web's vote-info
   // query), so off-screen cards cost no requests. The store's stale window
@@ -93,7 +88,11 @@ export function useGustVote(
       router.push("/(auth)/login");
       return;
     }
-    const previous = engagementStore.read(post.id, stateRef.current);
+    // Reads the live render value as the fallback: the old stateRef synced
+    // through an effect, so a vote within one frame of a store update
+    // planned from a stale value and could send the wrong verb on a rapid
+    // up-then-down. The store's confirmed entry still wins when present.
+    const previous = engagementStore.read(post.id, engagement);
     if (forced && forcedPending.current) {
       return;
     }

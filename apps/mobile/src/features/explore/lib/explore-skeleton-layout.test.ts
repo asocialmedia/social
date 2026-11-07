@@ -2,6 +2,9 @@ import { describe, expect, test } from "bun:test";
 
 import {
   buildMasonryLayout,
+  EXPLORE_CONTINUATION_SKELETON_COUNT,
+  EXPLORE_GUSTS_SKELETON_COUNT,
+  EXPLORE_PEOPLE_SKELETON_COUNT,
   SKELETON_POST_ASPECTS,
   splitIntoColumns,
 } from "./explore-skeleton-layout";
@@ -13,18 +16,21 @@ describe("buildMasonryLayout", () => {
     expect(posts).toHaveLength(SKELETON_POST_ASPECTS.length);
   });
 
-  test("interleaves a user card at every sixth slot, not the first", () => {
+  test("interleaves user cards at web's slots 4 and 9", () => {
     const items = buildMasonryLayout();
-    const [, second] = items;
-    expect(second?.kind).toBe("post");
-    // Index 6 in the ORIGINAL aspects array triggers a user insert, so by the
-    // time it is pushed the post stream has one extra item ahead of it.
     const users = items.filter((item) => item.kind === "user");
-    expect(users.length).toBe(1);
+    expect(users.length).toBe(2);
+    expect(items[4]?.kind).toBe("user");
   });
 
   test("never leads with a user card", () => {
     expect(buildMasonryLayout()[0]?.kind).toBe("post");
+  });
+
+  test("matches web's item counts", () => {
+    expect(EXPLORE_GUSTS_SKELETON_COUNT).toBe(8);
+    expect(EXPLORE_PEOPLE_SKELETON_COUNT).toBe(8);
+    expect(EXPLORE_CONTINUATION_SKELETON_COUNT).toBe(4);
   });
 });
 

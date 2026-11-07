@@ -386,11 +386,17 @@ export function MobileBottomNav({
             return;
           }
           // Web's reselectFeedNavigation: tapping the tab you are already on
-          // takes Home's visible feed back to the top. Only the feed roots
-          // react, so a thread under Messages stays put.
+          // takes the visible feed back to the top. Home and Gusts react
+          // (web skips Gusts only while ?id= scopes it to one gust); other
+          // roots keep their thread, so a Messages thread stays put.
           if (pathname === "/" && item.href === "/") {
             haptic();
             requestFeedTop("home");
+            return;
+          }
+          if (pathname === "/gusts" && item.href === "/gusts") {
+            haptic();
+            requestFeedTop("gusts");
           }
         }}
       />

@@ -6,6 +6,7 @@
 import type { RecommendedAccount } from "@asm/protocols/discovery";
 import { useRouter } from "expo-router";
 import type { Href } from "expo-router";
+import { memo } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { UserAvatar } from "@/components/avatar/user-avatar";
@@ -26,69 +27,68 @@ function accountRoute(account: RecommendedAccount): string | null {
   );
 }
 
-export function ExploreNetworkAccount({
-  account,
-}: {
-  account: RecommendedAccount;
-}) {
-  const router = useRouter();
-  const { isDark, theme } = useAppTheme();
-  const route = accountRoute(account);
-  return (
-    <View
-      style={[
-        styles.card,
-        {
-          backgroundColor: theme.cardBg,
-          borderColor: theme.cardBorder,
-          boxShadow: isDark ? SURFACE_SHADOWS_DARK : SURFACE_SHADOWS,
-        },
-      ]}
-    >
-      <Pressable
-        accessibilityLabel={`View ${account.displayName}'s profile`}
-        accessibilityRole="button"
-        disabled={!route}
-        onPress={() => {
-          if (route) {
-            router.push(route as Href);
-          }
-        }}
-        style={({ pressed }) => [styles.link, pressed && styles.pressed]}
+export const ExploreNetworkAccount = memo(
+  ({ account }: { account: RecommendedAccount }) => {
+    const router = useRouter();
+    const { isDark, theme } = useAppTheme();
+    const route = accountRoute(account);
+    return (
+      <View
+        style={[
+          styles.card,
+          {
+            backgroundColor: theme.cardBg,
+            borderColor: theme.cardBorder,
+            boxShadow: isDark ? SURFACE_SHADOWS_DARK : SURFACE_SHADOWS,
+          },
+        ]}
       >
-        <UserAvatar seed={account.id} size={64} url={account.avatarUrl} />
-        <View style={styles.nameRow}>
+        <Pressable
+          accessibilityLabel={`View ${account.displayName}'s profile`}
+          accessibilityRole="button"
+          disabled={!route}
+          onPress={() => {
+            if (route) {
+              router.push(route as Href);
+            }
+          }}
+          style={({ pressed }) => [styles.link, pressed && styles.pressed]}
+        >
+          <UserAvatar seed={account.id} size={64} url={account.avatarUrl} />
+          <View style={styles.nameRow}>
+            <Text
+              numberOfLines={1}
+              style={[styles.name, { color: theme.inputText }]}
+            >
+              {account.displayName}
+            </Text>
+            {account.source === "bluesky" ? <BlueskyIcon size={14} /> : null}
+          </View>
           <Text
             numberOfLines={1}
-            style={[styles.name, { color: theme.inputText }]}
+            style={[styles.handle, { color: theme.dividerText }]}
           >
-            {account.displayName}
+            @{account.handle}
           </Text>
-          {account.source === "bluesky" ? <BlueskyIcon size={14} /> : null}
-        </View>
+        </Pressable>
         <Text
-          numberOfLines={1}
-          style={[styles.handle, { color: theme.dividerText }]}
+          numberOfLines={2}
+          style={[styles.reason, { color: theme.dividerText }]}
         >
-          @{account.handle}
+          {account.reason}
         </Text>
-      </Pressable>
-      <Text
-        numberOfLines={2}
-        style={[styles.reason, { color: theme.dividerText }]}
-      >
-        {account.reason}
-      </Text>
-      <SuggestedFollowButton
-        account={account}
-        blue={false}
-        onAuthRedirect={() => {
-          // The pill pushes /login itself; Explore has nothing to close.
-        }}
-      />
-    </View>
-  );
-}
+        <SuggestedFollowButton
+          account={account}
+          blue={false}
+          onAuthRedirect={() => {
+            // The pill pushes /login itself; Explore has nothing to close.
+          }}
+        />
+      </View>
+    );
+  }
+);
+ExploreNetworkAccount.displayName = "ExploreNetworkAccount";
 
 const styles = StyleSheet.create({
   card: {

@@ -46,6 +46,18 @@ test("profile headers preserve bounded mutual previews from the public API", () 
   });
 });
 
+test("profile headers carry the linked Bluesky handle for the social row", () => {
+  const profile = parseProfileHeader({
+    blueskyHandle: "alice.bsky.social",
+    id: "profile",
+    username: "profile",
+  });
+  expect(profile?.blueskyHandle).toBe("alice.bsky.social");
+  expect(
+    parseProfileHeader({ id: "bare", username: "bare" })?.blueskyHandle
+  ).toBeNull();
+});
+
 test("profile community roles retain icons and names for summaries and badge details", () => {
   const community = {
     accentColor: "violet",

@@ -72,6 +72,10 @@ export function ProfileScreen() {
   // duplicate thread. The server is idempotent per pair, but two pushes would
   // still stack two identical screens.
   const [startingChat, setStartingChat] = useState(false);
+  // Set while the follow mutation is in flight. The header disables its pill
+  // meanwhile; the store-level in-flight guard in profile-state.ts ignores a
+  // second toggle, this is the UI half of the same S0-4 fix.
+  const [followPending, setFollowPending] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -276,6 +280,10 @@ export function ProfileScreen() {
       router.push("/(auth)/login");
       return;
     }
+    if (followPending) {
+      return;
+    }
+    setFollowPending(true);
     try {
       await follow(!isFollowing);
       toast({
@@ -289,6 +297,7 @@ export function ProfileScreen() {
         variant: "destructive",
       });
     }
+    setFollowPending(false);
   };
 
   // The pinned strip sits directly under the status bar, in the same band as
@@ -360,6 +369,7 @@ export function ProfileScreen() {
       <ProfileHeader
         canFollow={!own}
         canMessage={!own}
+        followPending={followPending}
         isFollowing={isFollowing}
         isOwnProfile={own}
         onEdit={() => setEditing(true)}

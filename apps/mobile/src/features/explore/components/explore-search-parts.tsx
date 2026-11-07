@@ -24,10 +24,12 @@ import type { ExploreCommunityResult } from "../lib/explore-api";
 export function ExploreSearchField({
   fetching,
   onChange,
+  onSubmit,
   value,
 }: {
   fetching: boolean;
   onChange: (value: string) => void;
+  onSubmit?: () => void;
   value: string;
 }) {
   const { isDark } = useAppTheme();
@@ -48,6 +50,7 @@ export function ExploreSearchField({
         onBlur={() => setFocused(false)}
         onChangeText={onChange}
         onFocus={() => setFocused(true)}
+        onSubmitEditing={onSubmit}
         placeholder="Search explore"
         placeholderTextColor={field.placeholder}
         returnKeyType="search"

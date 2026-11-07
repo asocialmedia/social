@@ -3,7 +3,7 @@ import {
   homeFeedTabs,
 } from "@asm/ui/lib/home-feed-controls";
 import type { DiscoveryFleetFeed } from "@asm/ui/lib/home-feed-controls";
-import { useIsFocused } from "expo-router";
+import { useIsFocused, useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
 // Root home page: mobile header, three visible feed slots (discovery / Latest /
 // Following) with swipe navigation, and the guest auth bar docked
@@ -25,8 +25,13 @@ import { useComposerStore } from "@/features/composer/state/composer-store";
 import { FeedList } from "@/features/feed/components/feed-list";
 import { FeedPager } from "@/features/feed/components/feed-pager";
 import { HEADER_BAR_HEIGHT } from "@/features/feed/lib/header-visibility";
+import { hydrateFeedSource } from "@/features/feed/state/feed-source-store";
 import type { HomeTab } from "@/features/feed/state/tab-store";
-import { resolveHomeTab } from "@/features/feed/state/tab-store";
+import {
+  HOME_TABS,
+  isTabValue,
+  resolveHomeTab,
+} from "@/features/feed/state/tab-store";
 import {
   useHomeTabMemoryReady,
   useTabStore,
@@ -57,7 +62,35 @@ export default function HomeScreen() {
   // The bell badge polls here (the header is present on every signed-in
   // surface); the notifications screen reads the same store.
   const unreadCount = useUnreadNotificationCount(user?.id ?? null, showUser);
-  const tab = resolveHomeTab(null, isLoggedIn, storedHome, memoryReady);
+  // Hydrate the remembered feed source at home mount, not lazily when the
+  // source menu opens: a late flip from the "all" default remixes the rows
+  // and scrolls every tab to the top mid-read.
+  useEffect(() => {
+    void hydrateFeedSource();
+  }, []);
+  // Web's shareable ?tab= URL (client-home reads searchParams): an explicit tab
+  // param wins over remembered memory, so asocialmedia://?tab=following lands
+  // on Following. The param is one-shot: it is persisted to tab memory and
+  // cleared, so later in-app switches stick instead of the link winning every
+  // render.
+  const router = useRouter();
+  const { tab: tabParam } = useLocalSearchParams<{ tab?: string | string[] }>();
+  const rawTabParam = Array.isArray(tabParam) ? tabParam[0] : tabParam;
+  const tab = resolveHomeTab(
+    rawTabParam ?? null,
+    isLoggedIn,
+    storedHome,
+    memoryReady
+  );
+  useEffect(() => {
+    if (!memoryReady || !rawTabParam) {
+      return;
+    }
+    if (isTabValue(HOME_TABS, rawTabParam)) {
+      setHomeTab(rawTabParam, user?.id);
+    }
+    router.setParams({ tab: undefined });
+  }, [memoryReady, rawTabParam, setHomeTab, user?.id, router]);
   const [rememberedDiscovery, setRememberedDiscovery] =
     useState<DiscoveryFleetFeed>("personalized");
   const discovery = discoveryFleetFeed(tab, rememberedDiscovery);
