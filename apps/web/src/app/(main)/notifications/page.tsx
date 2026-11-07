@@ -14,6 +14,7 @@ import { getSessionFromApi } from "@/lib/auth/session";
 import Notifications from "./notifications";
 
 export const metadata: Metadata = {
+  robots: { follow: false, index: false },
   title: "Rustles",
 };
 

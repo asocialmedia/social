@@ -27,6 +27,7 @@ export async function generateMetadata({
     return typeof value === "string" ? value : null;
   };
   return {
+    robots: { follow: false, index: false },
     title: { absolute: settingsTitleFromParams(read("tab"), read("section")) },
   };
 }
